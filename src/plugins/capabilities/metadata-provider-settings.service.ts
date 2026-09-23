@@ -1,5 +1,5 @@
-import type { MetadataProviderConfiguration } from "@sdk/common";
-import type { MetadataProvider } from "@sdk/plugin";
+import type { MetadataProviderConfiguration } from "@reelvault/sdk/common";
+import type { MetadataProvider } from "@reelvault/sdk/plugin";
 import {
 	type MetadataProviderSetting,
 	metadataProviderSettingsRepository,

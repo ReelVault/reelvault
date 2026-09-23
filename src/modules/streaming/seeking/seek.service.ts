@@ -1,4 +1,4 @@
-import type { StreamSeekResponse } from "@sdk/common/stream.types";
+import type { StreamSeekResponse } from "@reelvault/sdk/common";
 import { BaseService } from "@/utils/base-service";
 import { RequestTimeoutError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";

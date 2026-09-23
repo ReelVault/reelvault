@@ -1,5 +1,5 @@
-import type { SidecarFlavor } from "@sdk/common/library.types";
-import type { ExternalIdentifiers } from "@sdk/plugin";
+import type { SidecarFlavor } from "@reelvault/sdk/common";
+import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 
 type SidecarMediaKind = "movie" | "series" | "season" | "episode";
 

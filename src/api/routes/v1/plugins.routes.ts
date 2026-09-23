@@ -1,4 +1,4 @@
-import { PluginRuntimeStatusSchema } from "@sdk/common/plugins";
+import { PluginRuntimeStatusSchema } from "@reelvault/sdk/common";
 import Elysia, { type HTTPHeaders, type StatusMap, t } from "elysia";
 import { commonModel } from "@/api/schemas/common.schemas";
 import { PluginIdParams } from "@/api/schemas/route-params";

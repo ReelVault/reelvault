@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { BaseResource } from "@sdk/client/core/base-resource";
-import { ReelVaultValidationError } from "@sdk/client/core/errors";
-import type { ResourceConfig } from "@sdk/client/core/types";
-import { assertValidPath } from "@sdk/client/core/validation";
+import type { ResourceConfig } from "@reelvault/sdk/client";
+import { assertValidPath, BaseResource, ReelVaultValidationError } from "@reelvault/sdk/client";
 
 // The SDK client is a thin transport: payload validation lives on the server
 // contract. Only path interpolation is guarded client-side.

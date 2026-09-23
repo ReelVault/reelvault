@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SelectFields } from "@sdk/common/fields";
-import type { LibraryWithRelations } from "@sdk/common/library.types";
+import type { LibraryWithRelations, SelectFields } from "@reelvault/sdk/common";
 
 type LibrarySummary = SelectFields<LibraryWithRelations, "id,type,name">;
 type LibraryWithPaths = SelectFields<LibraryWithRelations, "id,paths.id,paths.path">;

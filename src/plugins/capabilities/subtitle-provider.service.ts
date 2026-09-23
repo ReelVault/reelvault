@@ -3,8 +3,8 @@ import type {
 	SubtitleProviderDownloadRequest,
 	SubtitleProviderSearchRequest,
 	SubtitleProviderSearchResponse,
-} from "@sdk/common";
-import type { SubtitleDownload } from "@sdk/plugin";
+} from "@reelvault/sdk/common";
+import type { SubtitleDownload } from "@reelvault/sdk/plugin";
 import { file } from "bun";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";

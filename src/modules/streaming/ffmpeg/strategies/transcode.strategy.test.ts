@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { TranscodeConfig } from "@sdk/common/stream.types";
+import type { TranscodeConfig } from "@reelvault/sdk/common";
 import { createMockPlaybackDecision } from "../../streaming.test-utils";
 import { TranscodeStrategy } from "./transcode.strategy";
 

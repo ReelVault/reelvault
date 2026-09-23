@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CompaniesClient, ReelVaultClient } from "@sdk/client";
+import { CompaniesClient, ReelVaultClient } from "@reelvault/sdk/client";
 
 test("companies client executes query operations against /companies endpoint", async () => {
 	const requestedUrls: string[] = [];

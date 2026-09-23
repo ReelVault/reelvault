@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { WorkerDefinition } from "@sdk/common";
+import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { MINUTE } from "@/server.constants";
 import { setWorkerRuntime } from "./worker-runtime";
 import { createMockWorkerItem, createMockWorkerRuntime } from "./worker-runtime.test-utils";

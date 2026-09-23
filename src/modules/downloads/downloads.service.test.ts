@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import type { MediaFileWithRelation } from "@sdk/common/media-file.types";
+import type { MediaFileWithRelation } from "@reelvault/sdk/common";
 import { spawn } from "bun";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { type DownloadRow, downloadsRepository } from "@/database/repositories/downloads.repository";

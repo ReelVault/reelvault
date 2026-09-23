@@ -1,4 +1,4 @@
-import type { ImageQuery } from "@sdk/common/images";
+import type { ImageQuery } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import { imageRepository } from "@/database/repositories/images.repository";
 import { BaseService } from "@/utils/base-service";

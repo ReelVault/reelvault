@@ -1,4 +1,4 @@
-import type { MetadataStorageMode } from "@sdk/common/library.types";
+import type { MetadataStorageMode } from "@reelvault/sdk/common";
 import { PathUtils } from "@/utils/path.utils";
 import type { SidecarStorageLibrary } from "./sidecar-metadata-storage.service";
 

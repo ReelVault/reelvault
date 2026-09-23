@@ -1,7 +1,15 @@
-import type { CreateSubtitleRequest, SubtitleFilters, SubtitleSorting, SubtitleType, UpdateSubtitleRequest } from "@sdk/common";
-import type { FieldsConfig, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { SubtitleEntity } from "@sdk/common/subtitle.types";
+import type {
+	CreateSubtitleRequest,
+	FieldsConfig,
+	PaginatedResponse,
+	PaginationQuery,
+	SelectFields,
+	SubtitleEntity,
+	SubtitleFilters,
+	SubtitleSorting,
+	SubtitleType,
+	UpdateSubtitleRequest,
+} from "@reelvault/sdk/common";
 import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

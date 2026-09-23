@@ -1,4 +1,4 @@
-import type { HourlyHeatmapPoint } from "@sdk/common";
+import type { HourlyHeatmapPoint } from "@reelvault/sdk/common";
 import { DAY } from "@/server.constants";
 
 /** Daily buckets both insights views render — older activity is dropped. */

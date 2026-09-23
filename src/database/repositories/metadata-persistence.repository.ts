@@ -1,4 +1,4 @@
-import type { ExternalIdentifiers, ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResult } from "@sdk/plugin";
+import type { ExternalIdentifiers, ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { collectionRepository } from "@/database/repositories/collections.repository";

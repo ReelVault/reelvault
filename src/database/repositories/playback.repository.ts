@@ -1,4 +1,4 @@
-import type { MetadataType } from "@sdk/common/metadata.types";
+import type { MetadataType } from "@reelvault/sdk/common";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

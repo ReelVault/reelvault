@@ -1,6 +1,14 @@
-import type { GenreDistribution, InsightsRange, ProfileInsights, TopWatchedMedia, WrappedInsights } from "@sdk/common";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { CreateWatchedHistory, WatchedHistoryWithRelations } from "@sdk/common/watched-history.types";
+import type {
+	CreateWatchedHistory,
+	GenreDistribution,
+	InsightsRange,
+	PaginatedResponse,
+	PaginationQuery,
+	ProfileInsights,
+	TopWatchedMedia,
+	WatchedHistoryWithRelations,
+	WrappedInsights,
+} from "@reelvault/sdk/common";
 import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { buildHourlyHeatmap, recentDayKeys } from "@/application/analytics.utils";
 import { toTopWatchedMedia, watchedHistoryRepository } from "@/database/repositories/watched-history.repository";

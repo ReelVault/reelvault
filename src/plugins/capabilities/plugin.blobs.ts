@@ -1,4 +1,4 @@
-import type { PluginBlob, PluginBlobMetadata, PluginBlobWriteOptions } from "@sdk/plugin";
+import type { PluginBlob, PluginBlobMetadata, PluginBlobWriteOptions } from "@reelvault/sdk/plugin";
 import { file } from "bun";
 import { databaseFactory } from "@/database/database";
 import { pluginBlobsRepository } from "@/database/repositories/plugin-storage.repository";

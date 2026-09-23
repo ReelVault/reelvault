@@ -1,7 +1,14 @@
-import type { AuthProfile, AuthSession, AuthUser, LoginRequest, RegisterRequest, SessionResponse } from "@sdk/common";
-import type { Profile } from "@sdk/common/profile.types";
-import type { Session } from "@sdk/common/session.types";
-import type { User } from "@sdk/common/user.types";
+import type {
+	AuthProfile,
+	AuthSession,
+	AuthUser,
+	LoginRequest,
+	Profile,
+	RegisterRequest,
+	Session,
+	SessionResponse,
+	User,
+} from "@reelvault/sdk/common";
 import { firstRunSetupService } from "@/application/auth/setup/first-run-setup.service";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { InMemoryRateLimiter } from "@/middleware/rate-limit.middleware";

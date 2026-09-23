@@ -1,5 +1,4 @@
-import type { StreamHeartbeatResponse } from "@sdk/common/stream";
-import type { SessionLifecycleState } from "@sdk/common/stream.types";
+import type { SessionLifecycleState, StreamHeartbeatResponse } from "@reelvault/sdk/common";
 import { realtimeService } from "@/modules/realtime";
 import { BaseService } from "@/utils/base-service";
 import { isFiniteNumber } from "@/utils/type.utils";

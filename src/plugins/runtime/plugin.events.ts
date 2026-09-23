@@ -1,4 +1,4 @@
-import { createPluginEventPayload, type PluginEventHandler, type PluginEventInput, type PluginEventName } from "@sdk/plugin";
+import { createPluginEventPayload, type PluginEventHandler, type PluginEventInput, type PluginEventName } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";

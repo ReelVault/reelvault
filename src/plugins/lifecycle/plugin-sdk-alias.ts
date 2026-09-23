@@ -6,34 +6,34 @@ import { isRecord } from "@/utils/type.utils";
 
 /**
  * Makes the host's own SDK importable from plugin code. Plugins import
- * `reelvault-sdk/plugin` (and the other package subpaths) — those specifiers
+ * `@reelvault/sdk/plugin` (and the other package subpaths) — those specifiers
  * must resolve to THIS server, not to whatever `node_modules` happens to sit
  * next to a plugin directory (catalog-installed plugins ship without one). The
  * shim is materialised inside the plugins directory before any entry is
  * imported; all other specifiers fall through to ordinary resolution.
  */
 
-/** SDK subpaths a plugin may import at runtime, mapped to their dist/source files. */
+/** SDK subpaths a plugin may import at runtime, mapped to the installed package's dist files. */
 const SDK_SHIM_ENTRIES = [
-	{ specifier: ".", dist: "sdk/dist/index.mjs", source: "sdk/index.ts" },
-	{ specifier: "./client", dist: "sdk/dist/client/index.mjs", source: "sdk/client/index.ts" },
-	{ specifier: "./common", dist: "sdk/dist/common/index.mjs", source: "sdk/common/index.ts" },
-	{ specifier: "./plugin", dist: "sdk/dist/plugin/index.mjs", source: "sdk/plugin/index.ts" },
-	{ specifier: "./ui", dist: "sdk/dist/ui/index.mjs", source: "sdk/ui/index.ts" },
-	{ specifier: "./ui/schema", dist: "sdk/dist/ui/schema.mjs", source: "sdk/ui/schema.ts" },
-	{ specifier: "./testing", dist: "sdk/dist/testing/index.mjs", source: "sdk/testing/index.ts" },
+	{ specifier: ".", dist: "dist/index.mjs" },
+	{ specifier: "./client", dist: "dist/client/index.mjs" },
+	{ specifier: "./common", dist: "dist/common/index.mjs" },
+	{ specifier: "./plugin", dist: "dist/plugin/index.mjs" },
+	{ specifier: "./ui", dist: "dist/ui/index.mjs" },
+	{ specifier: "./ui/schema", dist: "dist/ui/schema.mjs" },
+	{ specifier: "./testing", dist: "dist/testing/index.mjs" },
 ] as const;
 
 /**
- * Materialises a `node_modules/reelvault-sdk` shim inside the plugins
+ * Materialises a `node_modules/@reelvault/sdk` shim inside the plugins
  * directory so installed plugins resolve the host SDK through ordinary module
  * resolution.
  *
  * Why this exists: `Bun.plugin` `onResolve` hooks only apply to the bundler, not
  * to the runtime ESM loader, so catalog-installed `.js` plugins (which ship
- * without node_modules) could never resolve `reelvault-sdk/*`. The shim
- * re-exports the host's own SDK files, so every plugin shares one SDK identity
- * (important for `instanceof PluginHookRejection`).
+ * without node_modules) could never resolve `@reelvault/sdk/*`. The shim
+ * re-exports the server's own installed SDK files, so every plugin shares one
+ * SDK identity (important for `instanceof PluginHookRejection`).
  */
 export async function ensurePluginSdkShim(pluginsDirectory: string): Promise<void> {
 	const logger = createLogger("PluginSdkAlias");
@@ -44,15 +44,14 @@ export async function ensurePluginSdkShim(pluginsDirectory: string): Promise<voi
 		return;
 	}
 
-	const shimDir = join(pluginsDirectory, "node_modules", "reelvault-sdk");
+	const sdkRoot = join(serverRoot, "node_modules", "@reelvault", "sdk");
+	const shimDir = join(pluginsDirectory, "node_modules", "@reelvault", "sdk");
 	const exportsMap: Record<string, string> = { "./package.json": "./package.json" };
 	const files: Array<{ path: string; contents: string }> = [];
 
 	for (const entry of SDK_SHIM_ENTRIES) {
-		// Source first: the server itself imports `@sdk/*` from source at runtime, so
-		// plugins must share that exact module identity (see PluginHookRejection).
-		const target = firstExisting(join(serverRoot, entry.source), join(serverRoot, entry.dist));
-		if (!target) continue;
+		const target = join(sdkRoot, entry.dist);
+		if (!existsSync(target)) continue;
 
 		const fileName = entry.specifier === "." ? "index.mjs" : `${entry.specifier.slice(2).replaceAll("/", "-")}.mjs`;
 		exportsMap[entry.specifier] = `./${fileName}`;
@@ -60,14 +59,14 @@ export async function ensurePluginSdkShim(pluginsDirectory: string): Promise<voi
 	}
 
 	if (files.length === 0) {
-		logger.warn("No SDK build or source found — plugins importing the SDK by name may fail to load", { serverRoot });
+		logger.warn("No SDK build found — plugins importing the SDK by name may fail to load", { sdkRoot });
 
 		return;
 	}
 
-	const manifest = { name: "reelvault-sdk", version: "1.0.0", type: "module", exports: exportsMap };
+	const manifest = { name: "@reelvault/sdk", version: "1.0.0", type: "module", exports: exportsMap };
 	try {
-		await mkdir(join(pluginsDirectory, "node_modules"), { recursive: true });
+		await mkdir(join(pluginsDirectory, "node_modules", "@reelvault"), { recursive: true });
 		await Bun.write(join(shimDir, "package.json"), `${JSON.stringify(manifest, null, "\t")}\n`);
 		for (const file of files) {
 			// Only rewrite changed files so the shim does not churn the SD card / NAS.
@@ -82,10 +81,6 @@ export async function ensurePluginSdkShim(pluginsDirectory: string): Promise<voi
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}
-}
-
-function firstExisting(...candidates: string[]): string | undefined {
-	return candidates.find((candidate) => existsSync(candidate));
 }
 
 function findServerRoot(): string | undefined {

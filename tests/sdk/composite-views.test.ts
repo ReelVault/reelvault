@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ReelVaultClient } from "@sdk/client";
+import { ReelVaultClient } from "@reelvault/sdk/client";
 
 test("composite views client endpoints work as expected", async () => {
 	const requests: string[] = [];

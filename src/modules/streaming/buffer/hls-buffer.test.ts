@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { PlaybackDecision, TranscodeConfig } from "@sdk/common/stream.types";
+import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { buildDirectStreamOutputArgs } from "@/integrations/ffmpeg/ffmpeg.direct-stream-args";
 import { buildAudioFilter, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";

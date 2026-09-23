@@ -1,4 +1,4 @@
-import type { PluginHost } from "@sdk/plugin";
+import type { PluginHost } from "@reelvault/sdk/plugin";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { realtimeService } from "@/modules/realtime";
 import { pickDefined } from "@/utils/type.utils";

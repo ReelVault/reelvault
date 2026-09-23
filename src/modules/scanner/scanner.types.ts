@@ -1,4 +1,4 @@
-import type { CreateMediaFile } from "@sdk/common/media-file.types";
+import type { CreateMediaFile } from "@reelvault/sdk/common";
 import type { ChapterMarkerDraft } from "./probe/chapters-to-markers.utils";
 
 export type LibraryType = "movie" | "tv_show";

@@ -1,6 +1,4 @@
-import type { Profile } from "@sdk/common/profile.types";
-import type { Session } from "@sdk/common/session.types";
-import type { User } from "@sdk/common/user.types";
+import type { Profile, Session, User } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { isImageAssetPath, isPluginUiPath } from "@/api/utils/route-classification.utils";
 import { profilesRepository } from "@/database/repositories/profiles.repository";

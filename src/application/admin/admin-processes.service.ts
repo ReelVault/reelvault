@@ -1,4 +1,4 @@
-import type { AdminProcessesResponse } from "@sdk/common";
+import type { AdminProcessesResponse } from "@reelvault/sdk/common";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { BaseService } from "@/utils/base-service";
 

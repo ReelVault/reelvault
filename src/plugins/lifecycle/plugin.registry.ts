@@ -1,5 +1,4 @@
-import type { PluginMediaFile } from "@sdk/common";
-import type { Logger } from "@sdk/common/logger";
+import type { Logger, PluginMediaFile } from "@reelvault/sdk/common";
 import type {
 	MediaAnalysis,
 	MediaAnalyzer,
@@ -16,8 +15,8 @@ import type {
 	ProviderStatus,
 	SubtitleProvider,
 	SubtitleProviderStatus,
-} from "@sdk/plugin";
-import { PLUGIN_SLOT_NAMES, PLUGIN_TAB_HOST_NAMES } from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
+import { PLUGIN_SLOT_NAMES, PLUGIN_TAB_HOST_NAMES } from "@reelvault/sdk/plugin";
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { pickDefined } from "@/utils/type.utils";

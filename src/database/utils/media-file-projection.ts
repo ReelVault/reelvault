@@ -1,4 +1,4 @@
-import type { FieldsConfig } from "@sdk/common/fields";
+import type { FieldsConfig } from "@reelvault/sdk/common";
 import { inArray } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";

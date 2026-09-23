@@ -1,5 +1,5 @@
-import type { TaskTrigger } from "@sdk/common";
-import type { BackoffType } from "@sdk/plugin";
+import type { TaskTrigger } from "@reelvault/sdk/common";
+import type { BackoffType } from "@reelvault/sdk/plugin";
 import { MINUTE } from "@/server.constants";
 import { ValidationError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";

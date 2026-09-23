@@ -1,6 +1,4 @@
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { SortQuery } from "@sdk/common/sorting";
+import type { FieldsQuery, PaginatedResponse, PaginationQuery, SelectFields, SortQuery } from "@reelvault/sdk/common";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { findPageWithQueryMap, type SchemaTable, type TableAccess } from "@/database/table-access";
 import type { DatabaseTables, DatabaseTransaction } from "@/database/types";

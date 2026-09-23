@@ -1,21 +1,19 @@
 import {
+	CreateMetadataSchema,
 	GlobalSearchResponseSchema,
 	LinkMetadataProviderSchema,
 	MetadataDetailsViewResponseSchema,
+	MetadataFiltersSchema,
 	MetadataImageOptionSchema,
 	MetadataImageTypeSchema,
+	MetadataSortingSchema,
+	MetadataWithRelationSchema,
 	ProjectedResponseSchema,
 	RematchMetadataSchema,
 	SelectMetadataImageSchema,
 	SuccessResponseSchema,
-} from "@sdk/common";
-import {
-	CreateMetadataSchema,
-	MetadataFiltersSchema,
-	MetadataSortingSchema,
-	MetadataWithRelationSchema,
 	UpdateMetadataSchema,
-} from "@sdk/common/metadata.types";
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import {
 	ClampedNumeric,

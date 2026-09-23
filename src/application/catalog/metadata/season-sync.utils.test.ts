@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { ProviderEpisodeResult, ProviderSeasonResult } from "@sdk/plugin";
+import type { ProviderEpisodeResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import type { episodesRepository } from "@/database/repositories/episodes.repository";
 import type { seasonsRepository } from "@/database/repositories/seasons.repository";
 

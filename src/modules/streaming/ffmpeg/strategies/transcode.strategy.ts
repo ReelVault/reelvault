@@ -1,4 +1,4 @@
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { getEffectiveHwaccel, resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { buildHlsMuxerArgs, buildStreamMapArgs, segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";

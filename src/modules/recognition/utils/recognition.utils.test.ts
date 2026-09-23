@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { MediaIdentity } from "@sdk/common/media";
+import type { MediaIdentity } from "@reelvault/sdk/common";
 import { resolveShowTitle } from "./recognition.utils";
 
 function identity(title: string, year?: number): MediaIdentity {

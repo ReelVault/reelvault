@@ -1,4 +1,4 @@
-import type { PlaybackArtifact, PlaybackArtifactWrite } from "@sdk/common";
+import type { PlaybackArtifact, PlaybackArtifactWrite } from "@reelvault/sdk/common";
 import { file } from "bun";
 import { databaseFactory } from "@/database/database";
 import { mediaArtifactsRepository } from "@/database/repositories/media-artifacts.repository";

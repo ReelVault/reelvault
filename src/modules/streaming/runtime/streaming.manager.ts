@@ -1,4 +1,4 @@
-import type { PlaybackDecision, PlaybackMode, SessionLifecycleState, StreamingSession, TranscodeConfig } from "@sdk/common/stream.types";
+import type { PlaybackDecision, PlaybackMode, SessionLifecycleState, StreamingSession, TranscodeConfig } from "@reelvault/sdk/common";
 import { getEffectiveHwaccel, getToneMappingMethod } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { serverConfig } from "@/server.config";
 import { NotFoundError } from "@/utils/errors";

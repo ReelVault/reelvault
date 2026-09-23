@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { PlaybackArtifactWrite } from "@sdk/common";
+import type { PlaybackArtifactWrite } from "@reelvault/sdk/common";
 import type {
 	BeforeArtifactCreateHook,
 	BeforeMediaRecognitionHook,
@@ -15,7 +15,7 @@ import type {
 	PluginJobHandle,
 	PluginScheduledTaskDefinition,
 	SubtitleProvider,
-} from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
 import type { PluginEventHandlerErased, PluginScopeApi } from "./plugin.scope";
 import { createPluginHost } from "./plugin-host.factory";
 

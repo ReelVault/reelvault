@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PluginHttpRoute } from "@sdk/plugin";
+import type { PluginHttpRoute } from "@reelvault/sdk/plugin";
 import { Type } from "@sinclair/typebox";
 import { PluginRouteRegistry, PluginRouteValidationError } from "./plugin.routes";
 

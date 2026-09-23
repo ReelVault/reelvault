@@ -1,4 +1,4 @@
-import type { StreamingSession } from "@sdk/common/stream.types";
+import type { StreamingSession } from "@reelvault/sdk/common";
 import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import type { FFmpegProgress } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { createLogger } from "@/utils/logger";

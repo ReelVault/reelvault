@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { ProfilePreferenceDefaults } from "@sdk/common/profile-preferences.types";
+import type { ProfilePreferenceDefaults } from "@reelvault/sdk/common";
 import { clamp } from "@/utils/math.utils";
 import type { BackoffConfig } from "@/workers/worker.types";
 import { systemSettingsStore } from "./config/system-settings.store";

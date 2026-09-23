@@ -13,7 +13,7 @@ describe("plugin sdk shim", () => {
 			await mkdir(pluginDirectory, { recursive: true });
 			await writeFile(
 				join(pluginDirectory, "entry.js"),
-				'import { definePlugin, PluginHookRejection } from "reelvault-sdk/plugin";\nexport const plugin = definePlugin({ setup() {} });\nexport const Rejection = PluginHookRejection;\n',
+				'import { definePlugin, PluginHookRejection } from "@reelvault/sdk/plugin";\nexport const plugin = definePlugin({ setup() {} });\nexport const Rejection = PluginHookRejection;\n',
 			);
 
 			await ensurePluginSdkShim(pluginsDirectory);
@@ -22,7 +22,7 @@ describe("plugin sdk shim", () => {
 			expect(typeof mod.plugin?.setup).toBe("function");
 			// The shim must re-export the host's own module, not a copy — otherwise
 			// `instanceof PluginHookRejection` checks inside the host would fail.
-			expect(mod.Rejection).toBe((await import("@sdk/plugin")).PluginHookRejection);
+			expect(mod.Rejection).toBe((await import("@reelvault/sdk/plugin")).PluginHookRejection);
 		} finally {
 			await rm(pluginsDirectory, { recursive: true, force: true });
 		}
@@ -32,7 +32,7 @@ describe("plugin sdk shim", () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), `reelvault-plugin-shim-schema-${process.pid}-`));
 		try {
 			await ensurePluginSdkShim(pluginsDirectory);
-			const parsed: unknown = await Bun.file(join(pluginsDirectory, "node_modules", "reelvault-sdk", "package.json")).json();
+			const parsed: unknown = await Bun.file(join(pluginsDirectory, "node_modules", "@reelvault", "sdk", "package.json")).json();
 			const exports = isRecord(parsed) && isRecord(parsed.exports) ? parsed.exports : undefined;
 			expect(exports?.["./ui/schema"]).toBe("./ui-schema.mjs");
 		} finally {

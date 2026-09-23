@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
-import type { PluginLoadPhase, PluginRuntime, ReelVaultPlugin } from "@sdk/plugin";
-import { isConfigDefinition } from "@sdk/plugin";
+import type { PluginLoadPhase, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import { isConfigDefinition } from "@reelvault/sdk/plugin";
 import { realtimeService } from "@/modules/realtime";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { serverConfig } from "@/server.config";

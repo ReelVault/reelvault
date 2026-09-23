@@ -1,4 +1,4 @@
-import type { TaskTrigger } from "@sdk/common";
+import type { TaskTrigger } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { databaseFactory } from "@/database/database";

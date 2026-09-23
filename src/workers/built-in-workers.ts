@@ -1,4 +1,4 @@
-import type { WorkerDefinition } from "@sdk";
+import type { WorkerDefinition } from "@reelvault/sdk";
 
 export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 	const [

@@ -1,4 +1,4 @@
-import type { LibraryWithRelations } from "@sdk/common/library.types";
+import type { LibraryWithRelations } from "@reelvault/sdk/common";
 import { type ApplicationContext, type TaskSchedulingOptions, toDomainError } from "@/application/context";
 import { mediaFileRefreshService } from "@/application/media/media-files/refresh-media-file.operation";
 import { pluginsService } from "@/application/plugins.service";

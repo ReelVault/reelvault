@@ -10,6 +10,7 @@ import {
 	MetadataProviderSearchRequestSchema,
 	MetadataProviderSearchResponseSchema,
 	MetadataProviderStatusSchema,
+	MetadataWithRelationSchema,
 	OperationQueuedResponseSchema,
 	PluginRuntimeStatusSchema,
 	ProjectedResponseSchema,
@@ -22,9 +23,8 @@ import {
 	SubtitleSchema,
 	TranscodeProgressResponseSchema,
 	WorkerJobSchema,
-} from "@sdk/common";
-import { MetadataWithRelationSchema } from "@sdk/common/metadata.types";
-import { defineConfig, field } from "@sdk/plugin";
+} from "@reelvault/sdk/common";
+import { defineConfig, field } from "@reelvault/sdk/plugin";
 import { Value } from "@sinclair/typebox/value";
 
 describe("public SDK contracts", () => {

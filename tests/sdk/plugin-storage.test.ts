@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readStored, t, updateStored } from "@sdk/plugin";
-import { createPluginTestHost } from "@sdk/testing";
+import { readStored, t, updateStored } from "@reelvault/sdk/plugin";
+import { createPluginTestHost } from "@reelvault/sdk/testing";
 
 const Counter = t.Object({ value: t.Number() });
 

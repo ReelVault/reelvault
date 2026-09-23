@@ -1,4 +1,4 @@
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { detach } from "@/utils/promise.utils";
 import type { SeekResult } from "../streaming.types";
 

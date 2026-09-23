@@ -1,4 +1,4 @@
-import type { AdminActiveDeviceItem, AdminLiveActivityResponse, AdminLiveStreamItem } from "@sdk/common";
+import type { AdminActiveDeviceItem, AdminLiveActivityResponse, AdminLiveStreamItem } from "@reelvault/sdk/common";
 import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { realtimeService } from "@/modules/realtime";

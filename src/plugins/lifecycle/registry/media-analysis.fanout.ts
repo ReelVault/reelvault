@@ -1,5 +1,5 @@
-import type { PluginMediaFile } from "@sdk/common";
-import type { MediaAnalysis, MediaAnalyzer } from "@sdk/plugin";
+import type { PluginMediaFile } from "@reelvault/sdk/common";
+import type { MediaAnalysis, MediaAnalyzer } from "@reelvault/sdk/plugin";
 import { ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 

@@ -1,4 +1,4 @@
-import type { ClientCapabilities, PlaybackDecision, PlaybackReasonPart } from "@sdk/common/stream.types";
+import type { ClientCapabilities, PlaybackDecision, PlaybackReasonPart } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
 import type { MediaFileInfo } from "../streaming.types";
 import { AUDIO_CODEC_MAP, HDR_TRANSFER_ALLOWLIST, normalizeCodec, VIDEO_CODEC_MAP } from "./codec-maps";

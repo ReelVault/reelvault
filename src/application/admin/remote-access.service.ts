@@ -1,4 +1,4 @@
-import type { RemoteAccessCheck, RemoteAccessDiagnostics } from "@sdk/common/remote-access";
+import type { RemoteAccessCheck, RemoteAccessDiagnostics } from "@reelvault/sdk/common";
 import { env } from "@/env";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";

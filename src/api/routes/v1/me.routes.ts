@@ -1,20 +1,24 @@
 import {
 	ContinueWatchingResponseSchema,
+	CreateUserRatingSchema,
+	CreateWatchedHistorySchema,
+	CreateWatchlistSchema,
 	InsightsRangeSchema,
 	MetadataPlaybackProgressSchema,
 	ProfileInsightsSchema,
 	ProjectedResponseSchema,
 	SessionResponseSchema,
 	SmartPlayResponseSchema,
-	WrappedInsightsSchema,
-} from "@sdk/common";
-import { CreateUserRatingSchema, UserRatingFiltersSchema, UserRatingSchema, UserRatingSortingSchema } from "@sdk/common/user-ratings.types";
-import {
-	CreateWatchedHistorySchema,
+	UserRatingFiltersSchema,
+	UserRatingSchema,
+	UserRatingSortingSchema,
 	WatchedHistorySortingSchema,
 	WatchedHistoryWithRelationsSchema,
-} from "@sdk/common/watched-history.types";
-import { CreateWatchlistSchema, WatchlistFiltersSchema, WatchlistSchema, WatchlistSortingSchema } from "@sdk/common/watchlist.types";
+	WatchlistFiltersSchema,
+	WatchlistSchema,
+	WatchlistSortingSchema,
+	WrappedInsightsSchema,
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import {
 	ClampedNumeric,

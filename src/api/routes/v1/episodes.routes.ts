@@ -1,5 +1,4 @@
-import { ProjectedResponseSchema } from "@sdk/common";
-import { EpisodeFiltersSchema, EpisodeSortingSchema, EpisodeWithRelationsSchema } from "@sdk/common/episode.types";
+import { EpisodeFiltersSchema, EpisodeSortingSchema, EpisodeWithRelationsSchema, ProjectedResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { episodesService } from "@/application/catalog/episodes.service";

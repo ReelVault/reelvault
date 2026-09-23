@@ -1,4 +1,4 @@
-import type { ContinueWatchingItem } from "@sdk/common/stream.types";
+import type { ContinueWatchingItem } from "@reelvault/sdk/common";
 import { groupBy, toMap } from "@/utils/array.utils";
 import { clamp } from "@/utils/math.utils";
 import type { ContinueWatchingData } from "../streaming.types";

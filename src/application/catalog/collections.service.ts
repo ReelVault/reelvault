@@ -3,9 +3,10 @@ import type {
 	CollectionSorting,
 	CollectionWithRelations,
 	CreateCollection,
+	FieldsQuery,
+	SelectFields,
 	UpdateCollection,
-} from "@sdk/common/collection.types";
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
+} from "@reelvault/sdk/common";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { collectionRepository } from "@/database/repositories/collections.repository";

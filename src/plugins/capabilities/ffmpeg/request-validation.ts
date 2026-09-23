@@ -1,4 +1,4 @@
-import type { ExtractedFrame, FrameExtractionRequest, FrameImageFormat, SpriteExtractionRequest } from "@sdk/plugin";
+import type { ExtractedFrame, FrameExtractionRequest, FrameImageFormat, SpriteExtractionRequest } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { ValidationError } from "@/utils/errors";
 import { isFiniteNumber } from "@/utils/type.utils";

@@ -1,4 +1,4 @@
-import type { CreateMediaFile } from "@sdk/common/media-file.types";
+import type { CreateMediaFile } from "@reelvault/sdk/common";
 import type { FFProbeResult, FFProbeStream } from "@/integrations/ffprobe/ffprobe.types";
 import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences";
 import { escapeRegex } from "@/utils/http.utils";

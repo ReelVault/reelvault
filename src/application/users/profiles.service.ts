@@ -1,7 +1,18 @@
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { CreateProfile, Profile, ProfileFilters, ProfileSorting, SwitchProfile, UpdateProfile } from "@sdk/common/profile.types";
-import type { ProfilePreferenceDefaults, ProfilePreferences, UpdateProfilePreferences } from "@sdk/common/profile-preferences.types";
+import type {
+	CreateProfile,
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	Profile,
+	ProfileFilters,
+	ProfilePreferenceDefaults,
+	ProfilePreferences,
+	ProfileSorting,
+	SelectFields,
+	SwitchProfile,
+	UpdateProfile,
+	UpdateProfilePreferences,
+} from "@reelvault/sdk/common";
 import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { QueryFields } from "@/database/utils/fields";

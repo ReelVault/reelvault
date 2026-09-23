@@ -1,5 +1,5 @@
-import type { MetadataCandidate } from "@sdk/common";
-import type { ProviderMetadataResult } from "@sdk/plugin";
+import type { MetadataCandidate } from "@reelvault/sdk/common";
+import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { mergeProviderMetadata, type ProviderContribution } from "@/plugins/capabilities/metadata-aggregator";
 import { systemResourcesService } from "@/system/system-resources.service";

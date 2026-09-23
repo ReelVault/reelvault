@@ -1,4 +1,4 @@
-import { playbackArtifactKinds } from "@sdk/common";
+import { playbackArtifactKinds } from "@reelvault/sdk/common";
 import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { DatabaseHelper } from "../utils/database-helper";
 import { mediaFiles } from "./media-files.schema";

@@ -1,4 +1,4 @@
-import type { PaginatedResponse, PaginationConfig, PaginationQuery } from "@sdk/common/pagination";
+import type { PaginatedResponse, PaginationConfig, PaginationQuery } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
 import { clamp } from "@/utils/math.utils";
 

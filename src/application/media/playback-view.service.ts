@@ -1,4 +1,4 @@
-import type { PlaybackViewResponse } from "@sdk/common";
+import type { PlaybackViewResponse } from "@reelvault/sdk/common";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
 import { toPublicSubtitle } from "@/modules/subtitles/subtitle.mapper";
 import { BaseService } from "@/utils/base-service";

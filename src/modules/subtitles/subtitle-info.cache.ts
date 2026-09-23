@@ -1,4 +1,4 @@
-import type { SubtitleEntity } from "@sdk/common/subtitle.types";
+import type { SubtitleEntity } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { MINUTE } from "@/server.constants";

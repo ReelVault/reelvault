@@ -1,4 +1,4 @@
-import type { PluginAccessContext, PluginAccessDenial, PluginAccessPolicy } from "@sdk/plugin";
+import type { PluginAccessContext, PluginAccessDenial, PluginAccessPolicy } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { ConflictError, ValidationError } from "@/utils/errors";

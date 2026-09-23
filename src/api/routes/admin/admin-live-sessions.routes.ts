@@ -1,4 +1,4 @@
-import { AdminLiveActivityResponseSchema } from "@sdk/common";
+import { AdminLiveActivityResponseSchema } from "@reelvault/sdk/common";
 import Elysia, { t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { SessionIdParams } from "@/api/schemas/route-params";

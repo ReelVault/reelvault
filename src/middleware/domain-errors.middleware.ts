@@ -1,4 +1,4 @@
-import type { ApiErrorResponse } from "@sdk/common";
+import type { ApiErrorResponse } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { hasEntry } from "@/utils/array.utils";
 import { DomainError, type DomainErrorCategory, type DomainErrorParams } from "@/utils/errors";

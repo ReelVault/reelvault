@@ -1,4 +1,4 @@
-import type { Logger } from "@sdk";
+import type { Logger } from "@reelvault/sdk";
 import { DomainError, InternalError, NotFoundError, UnauthorizedError } from "./errors";
 import { createLogger } from "./logger";
 

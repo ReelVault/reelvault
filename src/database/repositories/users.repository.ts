@@ -1,5 +1,4 @@
-import type { FieldsConfig, SelectFields } from "@sdk/common/fields";
-import type { User } from "@sdk/common/user.types";
+import type { FieldsConfig, SelectFields, User } from "@reelvault/sdk/common";
 import { and, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
 import { schema } from "@/database/schema";
 import { defineTableAccess } from "@/database/table-access";

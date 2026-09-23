@@ -1,6 +1,13 @@
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { CreateWatchlist, Watchlist, WatchlistFilters, WatchlistSorting } from "@sdk/common/watchlist.types";
+import type {
+	CreateWatchlist,
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	SelectFields,
+	Watchlist,
+	WatchlistFilters,
+	WatchlistSorting,
+} from "@reelvault/sdk/common";
 import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { unique } from "@/utils/array.utils";

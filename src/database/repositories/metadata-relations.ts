@@ -1,5 +1,4 @@
-import type { FieldsConfig } from "@sdk/common/fields";
-import type { MetadataWithRelation } from "@sdk/common/metadata.types";
+import type { FieldsConfig, MetadataWithRelation } from "@reelvault/sdk/common";
 import { eq, getTableColumns, inArray } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

@@ -1,19 +1,17 @@
 import {
-	MediaMarkerSchema,
-	OperationQueuedResponseSchema,
-	PlaybackArtifactSchema,
-	ProjectedResponseSchema,
-	SetMediaMarkersSchema,
-} from "@sdk/common";
-import {
 	CreateMediaFileSchema,
 	MediaFileAuditStatusSchema,
 	MediaFileFiltersSchema,
 	MediaFileSortingSchema,
 	MediaFileWithRelationSchema,
+	MediaMarkerSchema,
+	OperationQueuedResponseSchema,
+	PlaybackArtifactSchema,
+	ProjectedResponseSchema,
 	ReassignMediaFileSchema,
+	SetMediaMarkersSchema,
 	UpdateMediaFileSchema,
-} from "@sdk/common/media-file.types";
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import {
 	ClampedNumeric,

@@ -1,4 +1,4 @@
-import type { ClientCapabilities, PlaybackDecision } from "@sdk/common/stream.types";
+import type { ClientCapabilities, PlaybackDecision } from "@reelvault/sdk/common";
 import type { AudioStream, MediaFileInfo, PlaybackSessionInput, Subtitle } from "../streaming.types";
 import { decidePlaybackMode } from "./playback-decision";
 import {

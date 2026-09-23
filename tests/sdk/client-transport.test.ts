@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { BaseResource } from "@sdk/client/core/base-resource";
-import { NetworkError, ReelVaultError } from "@sdk/client/core/errors";
-import type { ResourceConfig } from "@sdk/client/core/types";
+import type { ResourceConfig } from "@reelvault/sdk/client";
+import { BaseResource, NetworkError, ReelVaultError } from "@reelvault/sdk/client";
 
 class TestResource extends BaseResource {
 	execute<T>(options: RequestInit): Promise<T> {

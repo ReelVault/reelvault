@@ -1,7 +1,16 @@
-import type { FieldsConfig, FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { CreatePerson, PersonFilters, PersonSorting, PersonWithRelations, UpdatePerson } from "@sdk/common/people.types";
-import type { ProviderResultCast, ProviderResultCrew } from "@sdk/plugin";
+import type {
+	CreatePerson,
+	FieldsConfig,
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	PersonFilters,
+	PersonSorting,
+	PersonWithRelations,
+	SelectFields,
+	UpdatePerson,
+} from "@reelvault/sdk/common";
+import type { ProviderResultCast, ProviderResultCrew } from "@reelvault/sdk/plugin";
 import { eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { v5 as uuidv5 } from "uuid";
 import { databaseFactory } from "@/database/database";

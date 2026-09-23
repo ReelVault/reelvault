@@ -1,5 +1,5 @@
-import type { Genre, GenreFilters, GenreSorting } from "@sdk/common/genre.types";
-import type { ProviderResultGenre } from "@sdk/plugin";
+import type { Genre, GenreFilters, GenreSorting } from "@reelvault/sdk/common";
+import type { ProviderResultGenre } from "@reelvault/sdk/plugin";
 import { eq, inArray } from "drizzle-orm";
 import { schema } from "@/database/schema";
 import { defineTableAccess } from "@/database/table-access";

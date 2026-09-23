@@ -15,7 +15,7 @@ import type {
 	PluginScheduledTaskDefinition,
 	PluginUiManifest,
 	SubtitleProvider,
-} from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";

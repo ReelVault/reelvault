@@ -1,4 +1,4 @@
-import { ApiErrorResponseSchema, PaginatedResponseSchema, SuccessResponseSchema } from "@sdk/common";
+import { ApiErrorResponseSchema, PaginatedResponseSchema, SuccessResponseSchema } from "@reelvault/sdk/common";
 import Elysia, { t } from "elysia";
 import { clamp } from "@/utils/math.utils";
 

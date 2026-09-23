@@ -1,4 +1,4 @@
-import type { MediaMarker } from "@sdk/common";
+import type { MediaMarker } from "@reelvault/sdk/common";
 import type { InferTable } from "@/database/types";
 
 type MediaMarkerRow = InferTable<"mediaMarkers">;

@@ -1,4 +1,4 @@
-import { ApiErrorResponseSchema, RegisterResponseSchema, SetupAdminRequestSchema, SetupStatusSchema } from "@sdk/common";
+import { ApiErrorResponseSchema, RegisterResponseSchema, SetupAdminRequestSchema, SetupStatusSchema } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { firstRunSetupService } from "@/application/auth/setup/first-run-setup.service";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";

@@ -1,5 +1,5 @@
-import type { MetadataItem } from "@sdk/common";
-import type { MetadataAvailability, ProviderMediaType } from "@sdk/plugin";
+import type { MetadataItem } from "@reelvault/sdk/common";
+import type { MetadataAvailability, ProviderMediaType } from "@reelvault/sdk/plugin";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { BaseService } from "@/utils/base-service";

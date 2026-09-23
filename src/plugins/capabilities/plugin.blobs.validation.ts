@@ -1,4 +1,4 @@
-import type { PluginBlobWriteOptions } from "@sdk/plugin";
+import type { PluginBlobWriteOptions } from "@reelvault/sdk/plugin";
 import { contentByteSize } from "@/plugins/shared/plugin.file-record.utils";
 import { serverConfig } from "@/server.config";
 import { ValidationError } from "@/utils/errors";

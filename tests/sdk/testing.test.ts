@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { definePlugin, type ReelVaultPlugin } from "@sdk/plugin";
-import { createPluginTestHost } from "@sdk/testing";
+import { definePlugin, type ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import { createPluginTestHost } from "@reelvault/sdk/testing";
 import { Type } from "@sinclair/typebox";
 
 const plugin: ReelVaultPlugin = definePlugin({

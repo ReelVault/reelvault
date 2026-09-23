@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import type { Profile } from "@sdk/common/profile.types";
+import type { Profile } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { domainErrorsMiddleware } from "@/middleware/domain-errors.middleware";

@@ -1,19 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { PaginatedResponseSchema, ProjectedResponseSchema, SubtitleSchema } from "@sdk/common";
-import { CollectionWithRelationsSchema } from "@sdk/common/collection.types";
-import { CompanySchema } from "@sdk/common/companies.types";
-import { EpisodeWithRelationsSchema } from "@sdk/common/episode.types";
-import { GenreSchema } from "@sdk/common/genre.types";
-import { KeywordSchema } from "@sdk/common/keyword.types";
-import { LibraryDetailSchema, LibraryWithRelationsSchema } from "@sdk/common/library.types";
-import { MediaFileWithRelationSchema } from "@sdk/common/media-file.types";
-import { MetadataWithRelationSchema } from "@sdk/common/metadata.types";
-import { PersonWithRelationsSchema } from "@sdk/common/people.types";
-import { ProfileSchema } from "@sdk/common/profile.types";
-import { SeasonSchema } from "@sdk/common/season.types";
-import { UserRatingSchema } from "@sdk/common/user-ratings.types";
-import { WatchedHistoryWithRelationsSchema } from "@sdk/common/watched-history.types";
-import { WatchlistSchema } from "@sdk/common/watchlist.types";
+import {
+	CollectionWithRelationsSchema,
+	CompanySchema,
+	EpisodeWithRelationsSchema,
+	GenreSchema,
+	KeywordSchema,
+	LibraryDetailSchema,
+	LibraryWithRelationsSchema,
+	MediaFileWithRelationSchema,
+	MetadataWithRelationSchema,
+	PaginatedResponseSchema,
+	PersonWithRelationsSchema,
+	ProfileSchema,
+	ProjectedResponseSchema,
+	SeasonSchema,
+	SubtitleSchema,
+	UserRatingSchema,
+	WatchedHistoryWithRelationsSchema,
+	WatchlistSchema,
+} from "@reelvault/sdk/common";
 import { type TSchema, t } from "elysia";
 import { collectionRoutes } from "@/api/routes/v1/collections.routes";
 import { companiesRoutes } from "@/api/routes/v1/companies.routes";

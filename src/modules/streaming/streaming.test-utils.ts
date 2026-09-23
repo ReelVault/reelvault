@@ -1,4 +1,4 @@
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 
 export function createMockPlaybackDecision(overrides: Partial<PlaybackDecision> = {}): PlaybackDecision {
 	return {

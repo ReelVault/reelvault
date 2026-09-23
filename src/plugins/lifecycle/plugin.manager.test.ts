@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PluginRuntime } from "@sdk/plugin";
+import type { PluginRuntime } from "@reelvault/sdk/plugin";
 import { ValidationError } from "@/utils/errors";
 import { PluginManager } from "./manager/plugin-manager.service";
 import type { PluginConfig } from "./plugin.config";

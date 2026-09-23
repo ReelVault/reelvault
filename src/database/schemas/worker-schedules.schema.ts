@@ -1,4 +1,4 @@
-import type { TaskTrigger } from "@sdk/common";
+import type { TaskTrigger } from "@reelvault/sdk/common";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { DatabaseHelper } from "../utils/database-helper";
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { MediaFileAuditItem } from "@sdk/common/media-file.types";
+import type { MediaFileAuditItem } from "@reelvault/sdk/common";
 import type { MediaFileAuditRow } from "@/database/repositories/media-files.repository";
 import { auditMediaFileTask, type MediaFileAuditTaskDependencies, scanMediaMatchAuditTask } from "./media-file-audit.worker";
 

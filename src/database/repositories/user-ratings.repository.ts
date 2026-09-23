@@ -1,6 +1,13 @@
-import type { FieldsConfig, FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { UserRating, UserRatingFilters, UserRatingSorting } from "@sdk/common/user-ratings.types";
+import type {
+	FieldsConfig,
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	SelectFields,
+	UserRating,
+	UserRatingFilters,
+	UserRatingSorting,
+} from "@reelvault/sdk/common";
 import { and, eq, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

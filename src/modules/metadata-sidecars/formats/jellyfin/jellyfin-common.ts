@@ -1,4 +1,4 @@
-import type { ExternalIdentifiers } from "@sdk/plugin";
+import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import { FileUtils, readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { assertXmlDocumentSize, readXmlDocument, type XmlDocument } from "../../xml/xml-document.reader";

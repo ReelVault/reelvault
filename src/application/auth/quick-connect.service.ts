@@ -1,6 +1,11 @@
-import type { LoginResponse, QuickConnectCheckResponse, QuickConnectGenerateResponse, QuickConnectInitiateResponse } from "@sdk/common";
-import type { Profile } from "@sdk/common/profile.types";
-import type { User } from "@sdk/common/user.types";
+import type {
+	LoginResponse,
+	Profile,
+	QuickConnectCheckResponse,
+	QuickConnectGenerateResponse,
+	QuickConnectInitiateResponse,
+	User,
+} from "@reelvault/sdk/common";
 import { toPublicUser } from "@/application/auth/auth.service";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { issueSession } from "@/integrations/better-auth/better-auth.session";

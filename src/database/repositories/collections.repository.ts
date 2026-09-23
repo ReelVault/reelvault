@@ -3,11 +3,14 @@ import type {
 	CollectionSorting,
 	CollectionWithRelations,
 	CreateCollection,
+	FieldsConfig,
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	SelectFields,
 	UpdateCollection,
-} from "@sdk/common/collection.types";
-import type { FieldsConfig, FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { ProviderResultCollection } from "@sdk/plugin";
+} from "@reelvault/sdk/common";
+import type { ProviderResultCollection } from "@reelvault/sdk/plugin";
 import { and, count, eq, gte, inArray, lte, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

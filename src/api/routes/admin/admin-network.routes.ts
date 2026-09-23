@@ -1,4 +1,4 @@
-import { RemoteAccessDiagnosticsSchema } from "@sdk/common/remote-access";
+import { RemoteAccessDiagnosticsSchema } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { remoteAccessService } from "@/application/admin/remote-access.service";

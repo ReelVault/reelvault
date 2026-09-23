@@ -1,4 +1,4 @@
-import { providerEntityTypes } from "@sdk/common/provider.types";
+import { providerEntityTypes } from "@reelvault/sdk/common";
 import { sql } from "drizzle-orm";
 import { check, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { DatabaseHelper } from "../utils/database-helper";

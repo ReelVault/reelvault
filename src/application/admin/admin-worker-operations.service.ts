@@ -1,4 +1,4 @@
-import type { TaskTrigger, WorkerCategory, WorkerCategoryRunResponse, WorkerSummary } from "@sdk/common";
+import type { TaskTrigger, WorkerCategory, WorkerCategoryRunResponse, WorkerSummary } from "@reelvault/sdk/common";
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { BaseService } from "@/utils/base-service";
 import { ConflictError } from "@/utils/errors";

@@ -1,6 +1,9 @@
 import type {
 	CreateSubtitleRequest,
+	PaginatedResponse,
+	PaginationQuery,
 	Subtitle,
+	SubtitleEntity,
 	SubtitleFilters,
 	SubtitleProviderDownloadRequest,
 	SubtitleProviderSearchRequest,
@@ -9,9 +12,7 @@ import type {
 	SubtitleSorting,
 	SubtitleType,
 	UpdateSubtitleRequest,
-} from "@sdk/common";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { SubtitleEntity } from "@sdk/common/subtitle.types";
+} from "@reelvault/sdk/common";
 import { pluginsService } from "@/application/plugins.service";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { BaseService } from "@/utils/base-service";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import * as sdk from "@sdk";
+import * as sdk from "@reelvault/sdk";
 
 /**
  * `export *` silently DROPS ambiguous names when two modules in the barrel
@@ -59,7 +59,7 @@ describe("sdk barrel surface", () => {
 	});
 
 	test("plugin surface single-sources lifecycle naming", async () => {
-		const plugin = await import("@sdk/plugin");
+		const plugin = await import("@reelvault/sdk/plugin");
 		expect(plugin.definePlugin).toBeTypeOf("function");
 		// The lifecycle unions are re-exported types (from common/plugins) — their
 		// single-sourcing is asserted at type level by tsc; here we pin the runtime

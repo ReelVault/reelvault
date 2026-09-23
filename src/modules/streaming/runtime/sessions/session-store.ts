@@ -1,4 +1,4 @@
-import type { PlaybackDecision, StreamingSession } from "@sdk/common/stream.types";
+import type { PlaybackDecision, StreamingSession } from "@reelvault/sdk/common";
 import { ConflictError, InternalError, NotFoundError } from "@/utils/errors";
 import type { TerminatedSessionEntry } from "../../streaming.types";
 

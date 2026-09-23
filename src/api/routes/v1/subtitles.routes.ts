@@ -8,7 +8,7 @@ import {
 	SubtitleSchema,
 	SubtitleSortingSchema,
 	UpdateSubtitleRequestSchema,
-} from "@sdk/common";
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { IdParams } from "@/api/schemas/route-params";

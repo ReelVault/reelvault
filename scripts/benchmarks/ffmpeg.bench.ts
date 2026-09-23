@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PlaybackDecision, TranscodeConfig } from "@sdk/common/stream.types";
+import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { fmtMs, main, printTable, suiteArgs, task } from "benchkit";
 import { $ } from "bun";
 import { DirectStreamStrategy } from "@/modules/streaming/ffmpeg/strategies/direct-stream.strategy";

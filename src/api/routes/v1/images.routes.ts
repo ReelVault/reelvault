@@ -1,4 +1,4 @@
-import type { ImageQuery } from "@sdk/common/images";
+import type { ImageQuery } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { binaryFileResponse } from "@/api/utils/binary-response.utils";

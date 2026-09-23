@@ -1,4 +1,4 @@
-import type { GlobalSearchResponse } from "@sdk/common/metadata";
+import type { GlobalSearchResponse } from "@reelvault/sdk/common";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

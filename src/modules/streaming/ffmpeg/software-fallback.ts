@@ -1,4 +1,4 @@
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 
 /**
  * One-shot eligibility for retrying a dead transcode process on the CPU encoder.

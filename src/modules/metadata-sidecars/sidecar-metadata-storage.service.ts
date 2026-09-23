@@ -1,4 +1,4 @@
-import type { MetadataStorageMode } from "@sdk/common/library.types";
+import type { MetadataStorageMode } from "@reelvault/sdk/common";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { QueryFields } from "@/database/utils/fields";

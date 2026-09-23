@@ -1,6 +1,4 @@
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { MovieFilters, MovieSorting, MovieWithRelations } from "@sdk/common/movie.types";
-import type { PaginationQuery } from "@sdk/common/pagination";
+import type { FieldsQuery, MovieFilters, MovieSorting, MovieWithRelations, PaginationQuery, SelectFields } from "@reelvault/sdk/common";
 import { eq, ne, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

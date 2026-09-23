@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import { Writable } from "node:stream";
-import type { Logger, LoggerConfig, LogMeta } from "@sdk/common/logger";
+import type { Logger, LoggerConfig, LogMeta } from "@reelvault/sdk/common";
 import pino, { type LoggerOptions, type Logger as PinoLogger } from "pino";
 import { env } from "@/env";
 import { serverConstants } from "@/server.constants";

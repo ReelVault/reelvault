@@ -1,5 +1,5 @@
 import { statfs } from "node:fs/promises";
-import type { HealthStatus, SubsystemStatus } from "@sdk/common";
+import type { HealthStatus, SubsystemStatus } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";

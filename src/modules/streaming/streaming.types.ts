@@ -1,6 +1,4 @@
-import type { MetadataType } from "@sdk/common/metadata.types";
-import type { SmartPlaySuggestionSchema } from "@sdk/common/stream";
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { MetadataType, PlaybackDecision, SmartPlaySuggestionSchema } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import type { Static } from "elysia";
 import type { SessionAccessInfo } from "./runtime/sessions/session-store";

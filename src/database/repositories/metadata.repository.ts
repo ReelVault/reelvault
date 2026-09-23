@@ -1,8 +1,15 @@
-import type { FieldsConfig, FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { CreateMetadata, MetadataSorting, MetadataWithRelation } from "@sdk/common/metadata.types";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { ProviderEntityType } from "@sdk/common/provider.types";
-import type { ProviderMetadataResult } from "@sdk/plugin";
+import type {
+	CreateMetadata,
+	FieldsConfig,
+	FieldsQuery,
+	MetadataSorting,
+	MetadataWithRelation,
+	PaginatedResponse,
+	PaginationQuery,
+	ProviderEntityType,
+	SelectFields,
+} from "@reelvault/sdk/common";
+import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { and, asc, desc, eq, getTableColumns, gt, inArray, lt, max, notExists, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { providersRepository } from "@/database/repositories/providers.repository";

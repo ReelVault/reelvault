@@ -1,4 +1,4 @@
-import type { MetadataImageOption } from "@sdk/common";
+import type { MetadataImageOption } from "@reelvault/sdk/common";
 import { createHash } from "./crypto.utils";
 import { MemoryCache } from "./memory-cache";
 import { PathUtils } from "./path.utils";

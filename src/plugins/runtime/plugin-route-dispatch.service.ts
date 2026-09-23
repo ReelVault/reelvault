@@ -1,4 +1,4 @@
-import type { PluginRouteAccess } from "@sdk/plugin";
+import type { PluginRouteAccess } from "@reelvault/sdk/plugin";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { PluginRouteValidationError, pluginRoutesRegistry } from "@/plugins/runtime/plugin.routes";

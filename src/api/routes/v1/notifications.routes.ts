@@ -1,4 +1,4 @@
-import { NotificationSchema } from "@sdk/common/notification.types";
+import { NotificationSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { IdParams } from "@/api/schemas/route-params";

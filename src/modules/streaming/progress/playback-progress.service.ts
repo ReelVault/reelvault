@@ -1,6 +1,10 @@
-import type { MetadataType } from "@sdk/common/metadata.types";
-import type { MetadataPlaybackProgress, StreamPrefs, UpdatePlaybackProgress } from "@sdk/common/playback-progress.types";
-import type { ContinueWatchingItem } from "@sdk/common/stream.types";
+import type {
+	ContinueWatchingItem,
+	MetadataPlaybackProgress,
+	MetadataType,
+	StreamPrefs,
+	UpdatePlaybackProgress,
+} from "@reelvault/sdk/common";
 import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { playbackRepository as defaultPlaybackRepository } from "@/database/repositories/playback.repository";
 import { profilePreferencesRepository as defaultProfilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";

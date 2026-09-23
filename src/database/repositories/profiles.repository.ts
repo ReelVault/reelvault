@@ -1,6 +1,14 @@
-import type { FieldsConfig, FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { CreateProfile, Profile, ProfileFilters, ProfileSorting } from "@sdk/common/profile.types";
+import type {
+	CreateProfile,
+	FieldsConfig,
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	Profile,
+	ProfileFilters,
+	ProfileSorting,
+	SelectFields,
+} from "@reelvault/sdk/common";
 import { and, desc, eq } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

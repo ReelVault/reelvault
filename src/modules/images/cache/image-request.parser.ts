@@ -1,4 +1,4 @@
-import { IMAGE_SUPPORTED_HEIGHTS, IMAGE_SUPPORTED_QUALITIES, IMAGE_SUPPORTED_WIDTHS, type ImageQuery } from "@sdk/common/images";
+import { IMAGE_SUPPORTED_HEIGHTS, IMAGE_SUPPORTED_QUALITIES, IMAGE_SUPPORTED_WIDTHS, type ImageQuery } from "@reelvault/sdk/common";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 
 interface ImagesConfig {

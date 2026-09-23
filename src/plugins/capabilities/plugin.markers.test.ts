@@ -1,5 +1,5 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import type { CreateMediaMarker } from "@sdk/common";
+import type { CreateMediaMarker } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";

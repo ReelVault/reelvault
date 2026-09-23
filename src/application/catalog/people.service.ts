@@ -1,4 +1,4 @@
-import type { CreatePerson, PersonFilters, PersonSorting, PersonWithRelations, UpdatePerson } from "@sdk/common/people.types";
+import type { CreatePerson, PersonFilters, PersonSorting, PersonWithRelations, UpdatePerson } from "@reelvault/sdk/common";
 import { pluginsService } from "@/application/plugins.service";
 import { peopleRepository } from "@/database/repositories/people.repository";
 import { imageProcessingService } from "@/modules/images/image-processing.service";

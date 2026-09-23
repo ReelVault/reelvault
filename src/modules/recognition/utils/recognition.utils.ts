@@ -1,4 +1,4 @@
-import type { MediaIdentity } from "@sdk/common/media";
+import type { MediaIdentity } from "@reelvault/sdk/common";
 import { MemoryCache } from "@/utils/memory-cache";
 import { EPISODE_FILE_PATTERN, YEAR_FOLDER_PATTERN, YEAR_TITLE_PATTERN } from "./recognition.constants";
 

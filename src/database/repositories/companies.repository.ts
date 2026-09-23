@@ -1,6 +1,5 @@
-import type { Company, CompanyFilters, CompanySorting } from "@sdk/common/companies.types";
-import type { Metadata } from "@sdk/common/metadata.types";
-import type { ProviderResultProductionCompany } from "@sdk/plugin";
+import type { Company, CompanyFilters, CompanySorting, Metadata } from "@reelvault/sdk/common";
+import type { ProviderResultProductionCompany } from "@reelvault/sdk/plugin";
 import { desc, eq, inArray } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

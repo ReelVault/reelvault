@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { LibraryWithRelations } from "@sdk/common/library.types";
+import type { LibraryWithRelations } from "@reelvault/sdk/common";
 import type { ScanCheckpoint } from "@/database/repositories/scan-state.repository";
 import { type LibraryScanTaskDependencies, scanLibraryTask } from "./library-scan.worker";
 

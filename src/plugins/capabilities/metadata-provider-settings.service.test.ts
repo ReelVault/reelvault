@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@sdk/plugin";
+import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
 import { metadataProviderSettingsRepository } from "@/database/repositories/metadata-provider-settings.repository";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";

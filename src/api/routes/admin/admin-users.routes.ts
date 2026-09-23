@@ -5,9 +5,10 @@ import {
 	AdminUserProfileSchema,
 	AdminUserSchema,
 	AdminUsersPageSchema,
+	ProfilePreferencesSchema,
 	SuccessResponseSchema,
-} from "@sdk/common";
-import { ProfilePreferencesSchema, UpdateProfilePreferencesSchema } from "@sdk/common/profile-preferences.types";
+	UpdateProfilePreferencesSchema,
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { UserIdParams, UserProfileIdParams } from "@/api/schemas/route-params";

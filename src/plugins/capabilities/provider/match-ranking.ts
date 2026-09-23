@@ -4,7 +4,7 @@ import type {
 	MetadataProvider,
 	ProviderDiscoveryRequest,
 	ProviderMetadataResult,
-} from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
 
 export function trimNameAndOverview<T extends { name?: string | undefined; overview?: string | undefined }>(metadata: T): T {
 	return {

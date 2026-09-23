@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type ImageQuery, ReelVaultClient } from "@sdk";
+import { type ImageQuery, ReelVaultClient } from "@reelvault/sdk";
 
 describe("SDK images resource", () => {
 	test("serializes the shared image optimization query for downloads and URLs", async () => {

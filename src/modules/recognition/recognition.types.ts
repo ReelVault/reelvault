@@ -1,4 +1,4 @@
-import type { MediaIdentity } from "@sdk/common/media";
+import type { MediaIdentity } from "@reelvault/sdk/common";
 
 export interface PathContext {
 	readonly rawPath: string;

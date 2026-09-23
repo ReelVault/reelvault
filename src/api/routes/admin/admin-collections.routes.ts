@@ -1,5 +1,10 @@
-import { ProjectedResponseSchema, SuccessResponseSchema } from "@sdk/common";
-import { CollectionWithRelationsSchema, UpdateCollectionOrderSchema, UpdateCollectionSchema } from "@sdk/common/collection.types";
+import {
+	CollectionWithRelationsSchema,
+	ProjectedResponseSchema,
+	SuccessResponseSchema,
+	UpdateCollectionOrderSchema,
+	UpdateCollectionSchema,
+} from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { CollectionIdParams } from "@/api/schemas/route-params";

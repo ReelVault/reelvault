@@ -1,4 +1,4 @@
-import type { MetadataProvider, ProviderStatus } from "@sdk/plugin";
+import type { MetadataProvider, ProviderStatus } from "@reelvault/sdk/plugin";
 import { ValidationError } from "@/utils/errors";
 
 interface ProviderEntry {

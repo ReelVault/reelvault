@@ -1,4 +1,4 @@
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { type ApplicationContext, toDomainError } from "@/application/context";
 import { InternalError } from "@/utils/errors";
 import { streamingService } from "./streaming.manager";

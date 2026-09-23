@@ -1,4 +1,4 @@
-import { mediaMarkerSources, mediaMarkerTypes } from "@sdk/common";
+import { mediaMarkerSources, mediaMarkerTypes } from "@reelvault/sdk/common";
 import { sql } from "drizzle-orm";
 import { check, index, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { DatabaseHelper } from "../utils/database-helper";

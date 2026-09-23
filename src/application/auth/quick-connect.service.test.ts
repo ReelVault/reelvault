@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Profile } from "@sdk/common/profile.types";
-import type { User } from "@sdk/common/user.types";
+import type { Profile, User } from "@reelvault/sdk/common";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { QuickConnectService } from "./quick-connect.service";
 

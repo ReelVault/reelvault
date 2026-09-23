@@ -1,4 +1,4 @@
-import type { WorkerJob as WorkerJobContract, WorkerOperation as WorkerOperationContract, WorkerQueueStats } from "@sdk/common";
+import type { WorkerJob as WorkerJobContract, WorkerOperation as WorkerOperationContract, WorkerQueueStats } from "@reelvault/sdk/common";
 import type { WorkerItemStats, WorkerItemSummary } from "@/database/repositories/worker.repository";
 import type { WorkerOperation } from "@/database/repositories/worker-operation.repository";
 import { safeParseJson } from "@/utils/file.utils";

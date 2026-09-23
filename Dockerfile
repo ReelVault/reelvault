@@ -2,22 +2,22 @@
 #
 # All-in-one image: API + web UI + ffmpeg on port 3030.
 #
-#   docker buildx build --build-context website=../ReelVault.Website -t reelvault/server .
+#   docker buildx build --build-context website=../website -t reelvault/server .
 #
-# The `website` context is a checkout of ReelVault.Website; the client is built
+# The `website` context is a checkout of ReelVault/website; the client is built
 # inside the image (no bun link, no sibling-state dependency at runtime).
 
-# ── Stage 1 — server source + SDK build ─────────────────────────────────────
-FROM docker.io/oven/bun:1 AS sdk
+# ── Stage 1 — server source + dependencies ──────────────────────────────────
+FROM docker.io/oven/bun:1 AS server
 WORKDIR /app
 COPY package.json bun.lock ./
 # The image has no git; drop the prepare hook (lefthook) for image builds only.
 RUN sed -i '\#"prepare":#d' package.json
+# @reelvault/sdk comes from the npm registry like any other dependency.
 RUN bun install --frozen-lockfile
 COPY . .
-RUN bun run build-sdk
 
-# ── Stage 2 — web client build (SDK injected as node_modules/reelvault-sdk) ──
+# ── Stage 2 — web client build ───────────────────────────────────────────────
 FROM docker.io/oven/bun:1 AS web
 WORKDIR /website
 COPY --from=website ./package.json ./
@@ -29,10 +29,6 @@ RUN sed -i '\#"prepare":#d' package.json
 # A dev checkout can carry node_modules with symlinks into the Bun cache —
 # always install fresh from the lockfile.
 RUN rm -rf node_modules && bun install --frozen-lockfile
-# Replace a possible bun-link symlink with a real copy of the SDK.
-RUN rm -rf node_modules/reelvault-sdk
-COPY --from=sdk /app/sdk/package.json /website/node_modules/reelvault-sdk/package.json
-COPY --from=sdk /app/sdk/dist /website/node_modules/reelvault-sdk/dist
 RUN bun run build
 
 # ── Stage 3 — runtime: API + web UI + ffmpeg, single process, single port ──
@@ -49,7 +45,7 @@ ENV NODE_ENV=production \
 	APP_WEB_DIST=/web
 
 WORKDIR /app
-COPY --from=sdk /app /app
+COPY --from=server /app /app
 COPY --from=web /website/dist /web
 
 RUN mkdir -p /data /web && chown -R bun:bun /data /app /web

@@ -1,4 +1,4 @@
-import type { PluginHttpMethod, PluginHttpRequest, PluginHttpResponse, PluginHttpRoute } from "@sdk/plugin";
+import type { PluginHttpMethod, PluginHttpRequest, PluginHttpResponse, PluginHttpRoute } from "@reelvault/sdk/plugin";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { errorMessage, ValidationError } from "@/utils/errors";

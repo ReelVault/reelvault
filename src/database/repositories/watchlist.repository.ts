@@ -1,6 +1,12 @@
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { Watchlist, WatchlistFilters, WatchlistSorting } from "@sdk/common/watchlist.types";
+import type {
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	SelectFields,
+	Watchlist,
+	WatchlistFilters,
+	WatchlistSorting,
+} from "@reelvault/sdk/common";
 import { and, eq, inArray } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

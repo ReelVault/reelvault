@@ -1,4 +1,4 @@
-import type { ExternalIdentifiers } from "@sdk/plugin";
+import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import { metadataSidecarsService } from "../metadata-sidecars.service";
 import type { CanonicalSidecarDocument } from "../sidecar.types";
 import { locateLocalNfoChain } from "./local-nfo-locator";

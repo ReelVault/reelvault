@@ -1,6 +1,4 @@
-import type { AdminAuditEntry, AdminAuditPage } from "@sdk/common";
-import type { FieldsQuery } from "@sdk/common/fields";
-import type { Logger } from "@sdk/common/logger";
+import type { AdminAuditEntry, AdminAuditPage, FieldsQuery, Logger } from "@reelvault/sdk/common";
 import {
 	type AdminAuditAction,
 	type AdminAuditContext,

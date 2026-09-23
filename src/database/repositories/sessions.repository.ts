@@ -1,4 +1,4 @@
-import type { PaginationQuery } from "@sdk/common/pagination";
+import type { PaginationQuery } from "@reelvault/sdk/common";
 import { and, desc, eq, gt, ne } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

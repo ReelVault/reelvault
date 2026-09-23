@@ -1,4 +1,4 @@
-import type { SortOrder } from "@sdk/common/sorting";
+import type { SortOrder } from "@reelvault/sdk/common";
 import { asc, desc, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 

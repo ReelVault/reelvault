@@ -1,4 +1,4 @@
-import type { PlaybackDecision, StreamingSession, TranscodeConfig } from "@sdk/common/stream.types";
+import type { PlaybackDecision, StreamingSession, TranscodeConfig } from "@reelvault/sdk/common";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { killFfmpegProcessGracefully } from "@/integrations/ffmpeg/ffmpeg.process";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";

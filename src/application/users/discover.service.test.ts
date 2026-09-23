@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
-import type { MetadataWithRelation } from "@sdk/common/metadata.types";
+import type { MetadataWithRelation } from "@reelvault/sdk/common";
 import { discoverRepository } from "@/database/repositories/discover.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { discoverService } from "./discover.service";

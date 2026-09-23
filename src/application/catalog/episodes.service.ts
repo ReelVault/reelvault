@@ -1,6 +1,12 @@
-import type { EpisodeFilters, EpisodeSorting, EpisodeWithRelations } from "@sdk/common/episode.types";
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
+import type {
+	EpisodeFilters,
+	EpisodeSorting,
+	EpisodeWithRelations,
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	SelectFields,
+} from "@reelvault/sdk/common";
 import { pluginsService } from "@/application/plugins.service";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";

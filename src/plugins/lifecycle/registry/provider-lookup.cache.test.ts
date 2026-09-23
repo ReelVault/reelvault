@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { MetadataProvider } from "@sdk/plugin";
+import type { MetadataProvider } from "@reelvault/sdk/plugin";
 import { ProviderLookupCache } from "./provider-lookup.cache";
 
 function createProvider(id: string): MetadataProvider {

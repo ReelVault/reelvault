@@ -5,7 +5,7 @@ import type {
 	PluginManifest,
 	PluginUiManifest,
 	PluginUiSchemaSurface,
-} from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
 import {
 	PLUGIN_CAPABILITY_SET,
 	PLUGIN_DIALOG_SIZES as PLUGIN_DIALOG_SIZE_VALUES,
@@ -15,7 +15,7 @@ import {
 	PLUGIN_SCHEMA_NODE_TYPES as PLUGIN_SCHEMA_NODE_TYPE_VALUES,
 	PLUGIN_SLOT_NAMES as PLUGIN_SLOT_NAME_VALUES,
 	PLUGIN_TAB_HOST_NAMES as PLUGIN_TAB_HOST_NAME_VALUES,
-} from "@sdk/plugin/vocabulary";
+} from "@reelvault/sdk/plugin";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { unique } from "@/utils/array.utils";
 import { ValidationError } from "@/utils/errors";

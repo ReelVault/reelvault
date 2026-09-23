@@ -1,4 +1,4 @@
-import type { PlaybackDecision, TranscodeConfig } from "@sdk/common/stream.types";
+import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { clamp } from "@/utils/math.utils";

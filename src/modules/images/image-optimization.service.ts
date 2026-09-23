@@ -1,4 +1,4 @@
-import type { ImageQuery } from "@sdk/common/images";
+import type { ImageQuery } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import { optimizeImage } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";

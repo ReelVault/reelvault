@@ -1,4 +1,4 @@
-import type { AddWorkerItemOptions, WorkerCategory, WorkerDefinition, WorkerHandlerContext } from "@sdk";
+import type { AddWorkerItemOptions, WorkerCategory, WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk";
 
 export type WorkerEnqueueOptions = Pick<AddWorkerItemOptions, "operationId" | "dependsOnTaskIds" | "dependsOnJobId">;
 

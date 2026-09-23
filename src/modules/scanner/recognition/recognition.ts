@@ -1,4 +1,4 @@
-import type { MediaRecognitionCandidate } from "@sdk/plugin";
+import type { MediaRecognitionCandidate } from "@reelvault/sdk/plugin";
 import { pluginsService } from "@/application/plugins.service";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 

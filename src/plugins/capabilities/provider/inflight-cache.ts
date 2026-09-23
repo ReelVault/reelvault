@@ -1,4 +1,4 @@
-import type { ProviderDiscoveryResult, ProviderResultGenre } from "@sdk/plugin";
+import type { ProviderDiscoveryResult, ProviderResultGenre } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { MemoryCache } from "@/utils/memory-cache";
 import type { AggregatedMetadata } from "../metadata-aggregator";

@@ -1,4 +1,4 @@
-import type { ScheduledTaskCategory, TaskTrigger } from "@sdk/common";
+import type { ScheduledTaskCategory, TaskTrigger } from "@reelvault/sdk/common";
 import { workerService } from "./worker.service";
 
 class ScheduledTasksAdapter {

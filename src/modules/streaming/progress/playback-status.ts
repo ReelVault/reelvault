@@ -1,4 +1,4 @@
-import type { PlaybackItemStatus, PlaybackProgressItem } from "@sdk/common/playback-progress.types";
+import type { PlaybackItemStatus, PlaybackProgressItem } from "@reelvault/sdk/common";
 import { maxBy } from "@/utils/array.utils";
 
 export function getPlaybackItemStatus(progress: readonly PlaybackProgressItem[]): PlaybackItemStatus {

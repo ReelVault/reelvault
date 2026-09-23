@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import type { SubtitleProvider } from "@sdk/plugin";
+import type { SubtitleProvider } from "@reelvault/sdk/plugin";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
 import { pluginMetadataService } from "@/plugins/capabilities/plugin.metadata";

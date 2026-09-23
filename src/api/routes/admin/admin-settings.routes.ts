@@ -1,4 +1,4 @@
-import { ResetSystemSettingsSchema, SystemSettingsGroupedSchema, UpdateSystemSettingsSchema } from "@sdk/common/settings";
+import { ResetSystemSettingsSchema, SystemSettingsGroupedSchema, UpdateSystemSettingsSchema } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { systemSettingsService } from "@/application/admin/system-settings.service";

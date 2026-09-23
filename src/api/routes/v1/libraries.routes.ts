@@ -1,12 +1,14 @@
-import { LibraryErrorsCheckRequestSchema, OperationQueuedResponseSchema, ProjectedResponseSchema } from "@sdk/common";
 import {
 	CreateLibrarySchema,
 	LibraryDetailSchema,
+	LibraryErrorsCheckRequestSchema,
 	LibraryFiltersSchema,
 	LibrarySortingSchema,
 	LibraryWithRelationsSchema,
+	OperationQueuedResponseSchema,
+	ProjectedResponseSchema,
 	UpdateLibrarySchema,
-} from "@sdk/common/library.types";
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { LibraryIdParams } from "@/api/schemas/route-params";

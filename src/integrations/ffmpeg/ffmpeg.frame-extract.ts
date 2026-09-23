@@ -1,4 +1,4 @@
-import type { FrameExtractionRequest, FrameImageFormat, SpriteExtractionRequest } from "@sdk/plugin";
+import type { FrameExtractionRequest, FrameImageFormat, SpriteExtractionRequest } from "@reelvault/sdk/plugin";
 
 export function buildFrameExtractionCommand(
 	inputPath: string,

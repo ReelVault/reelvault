@@ -14,8 +14,6 @@
 		"resolveJsonModule": true,
 		"paths": {
 			"@/*": ["./src/*"],
-			"@sdk": ["./sdk/index.ts"],
-			"@sdk/*": ["./sdk/*"],
 			"benchkit": ["./packages/benchkit/src/index.ts"]
 		},
 

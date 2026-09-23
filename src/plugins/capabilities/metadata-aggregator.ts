@@ -1,4 +1,4 @@
-import type { ProviderMetadataResult, ProviderRating } from "@sdk/plugin";
+import type { ProviderMetadataResult, ProviderRating } from "@reelvault/sdk/plugin";
 import { ValidationError } from "@/utils/errors";
 import { isValidRating } from "@/utils/math.utils";
 import { isNonEmptyString } from "@/utils/type.utils";

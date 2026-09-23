@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { rejectPluginHook } from "@sdk/plugin";
+import { rejectPluginHook } from "@reelvault/sdk/plugin";
 import { PluginHookBus } from "./plugin.hooks";
 
 const candidate = {

@@ -5,14 +5,14 @@ import { join } from "node:path";
 import { build, spawn } from "bun";
 
 const projectDirectory = join(import.meta.dir, "../..");
-const sdkDirectory = join(projectDirectory, "sdk");
-const fixtureContent = `import type { PlaybackArtifact } from "reelvault-sdk/common";
+const sdkDirectory = join(projectDirectory, "node_modules", "@reelvault", "sdk");
+const fixtureContent = `import type { PlaybackArtifact } from "@reelvault/sdk/common";
 import {
 	definePlugin,
 	type PluginManifest,
 	type ProviderMetadataResult,
 	type ProviderSearchResult,
-} from "reelvault-sdk/plugin";
+} from "@reelvault/sdk/plugin";
 
 const manifest = {
 	id: "org.reelvault.external-consumer",
@@ -48,7 +48,7 @@ const artifact: PlaybackArtifact = {
 };
 
 if (!plugin.setup || artifact.kind !== "trickplay") {
-	throw new Error("Built ReelVault SDK package is not usable by an external consumer");
+	throw new Error("Published @reelvault/sdk package is not usable by an external consumer");
 }
 `;
 
@@ -59,7 +59,7 @@ const commonJsFixtureContent = `import {
 	type PluginManifest,
 	type ProviderMetadataResult,
 	type ProviderSearchResult,
-} from "reelvault-sdk/plugin";
+} from "@reelvault/sdk/plugin";
 
 const manifest = {
 	id: "org.reelvault.external-consumer-cjs",
@@ -100,8 +100,8 @@ describe("built SDK package", () => {
 		const fixture = join(consumerDirectory, "consumer.ts");
 		const outputDirectory = join(consumerDirectory, "dist");
 
-		await mkdir(nodeModules, { recursive: true });
-		await symlink(sdkDirectory, join(nodeModules, "reelvault-sdk"), "dir");
+		await mkdir(join(nodeModules, "@reelvault"), { recursive: true });
+		await symlink(sdkDirectory, join(nodeModules, "@reelvault", "sdk"), "dir");
 		await writeFile(fixture, fixtureContent);
 		await writeFile(
 			join(consumerDirectory, "tsconfig.json"),
@@ -131,7 +131,6 @@ describe("built SDK package", () => {
 
 		const execution = spawn([process.execPath, join(outputDirectory, "consumer.js")], { stdout: "pipe", stderr: "pipe" });
 		expect(await execution.exited).toBe(0);
-		expect((await readFile(fixture, "utf8")).includes("@sdk/")).toBe(false);
 		expect((await readFile(fixture, "utf8")).includes("@/")).toBe(false);
 	});
 
@@ -141,8 +140,8 @@ describe("built SDK package", () => {
 		const nodeModules = join(consumerDirectory, "node_modules");
 		const fixture = join(consumerDirectory, "consumer.cts");
 
-		await mkdir(nodeModules, { recursive: true });
-		await symlink(sdkDirectory, join(nodeModules, "reelvault-sdk"), "dir");
+		await mkdir(join(nodeModules, "@reelvault"), { recursive: true });
+		await symlink(sdkDirectory, join(nodeModules, "@reelvault", "sdk"), "dir");
 		await writeFile(fixture, commonJsFixtureContent);
 		await writeFile(
 			join(consumerDirectory, "tsconfig.json"),

@@ -1,4 +1,4 @@
-import { PlaybackCommandResponseSchema, PlaybackCommandSchema } from "@sdk/common/realtime";
+import { PlaybackCommandResponseSchema, PlaybackCommandSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";

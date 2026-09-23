@@ -1,4 +1,4 @@
-import type { ImageQuality } from "@sdk/common/images";
+import type { ImageQuality } from "@reelvault/sdk/common";
 
 export interface SharpImageOptions {
 	width: number;

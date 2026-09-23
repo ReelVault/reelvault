@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { isSoftwareFallbackEligible } from "./software-fallback";
 
 const decision: PlaybackDecision = {

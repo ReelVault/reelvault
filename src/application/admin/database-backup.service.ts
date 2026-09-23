@@ -1,5 +1,5 @@
 import { readdir, stat } from "node:fs/promises";
-import type { AdminDatabaseBackup } from "@sdk/common/admin";
+import type { AdminDatabaseBackup } from "@reelvault/sdk/common";
 import { databaseMaintenanceRepository } from "@/database/repositories/database-maintenance.repository";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";

@@ -1,6 +1,10 @@
-import type { TopWatchedMedia } from "@sdk/common";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { CreateWatchedHistory, WatchedHistoryWithRelations } from "@sdk/common/watched-history.types";
+import type {
+	CreateWatchedHistory,
+	PaginatedResponse,
+	PaginationQuery,
+	TopWatchedMedia,
+	WatchedHistoryWithRelations,
+} from "@reelvault/sdk/common";
 import { and, asc, desc, eq, gte, inArray, lt, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

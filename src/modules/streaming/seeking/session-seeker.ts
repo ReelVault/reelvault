@@ -1,4 +1,4 @@
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { NotFoundError } from "@/utils/errors";
 import type { SessionStore } from "../runtime/sessions/session-store";
 import type { SeekResult } from "../streaming.types";

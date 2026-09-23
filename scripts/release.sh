@@ -21,7 +21,7 @@
 #   ./scripts/release.sh 1.2.0 --docker --push
 #
 # Options:
-#   --website <dir>   ReelVault.Website checkout      (default: ../ReelVault.Website)
+#   --website <dir>   website checkout      (default: ../website)
 #   --out <dir>       Output directory                (default: dist/release)
 #   --docker          Also build the Docker image
 #   --push            Push the image to the registry (implies --docker)
@@ -38,7 +38,7 @@ BUN_VERSION="${BUN_VERSION:-1.4.2}"
 DOCKER_IMAGE="${DOCKER_IMAGE:-ghcr.io/reelvault/server}"
 FFMPEG_CACHE="${FFMPEG_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/reelvault-release}"
 
-WEBSITE_DIR="$ROOT/../ReelVault.Website"
+WEBSITE_DIR="$ROOT/../website"
 OUT_DIR="$ROOT/dist/release"
 BUILD_DOCKER=false
 PUSH_DOCKER=false
@@ -178,27 +178,9 @@ echo "    output:  ${OUT_DIR}"
 echo "    bun:     ${BUN_VERSION}"
 echo "    ffmpeg:  ${FFMPEG_CACHE}"
 
-echo "==> Building server SDK"
-( cd "$ROOT" && bun install --frozen-lockfile --no-progress && bun run build-sdk )
-
 echo "==> Building web client"
-# The website depends on `reelvault-sdk`, which is not published to npm — a dev
-# checkout links it. Reuse the installed node_modules; a fresh install would try
-# to resolve it from the registry.
-if [ -d "$WEBSITE_DIR/node_modules" ]; then
-	echo "    reusing existing node_modules"
-else
-	( cd "$WEBSITE_DIR" && bun install --frozen-lockfile --no-progress )
-fi
-SDK_LINK="$WEBSITE_DIR/node_modules/reelvault-sdk"
-if [ -L "$SDK_LINK" ] && [ "$(readlink -f "$SDK_LINK")" = "$(readlink -f "$ROOT/sdk")" ]; then
-	: # already points at the freshly built server SDK
-else
-	rm -rf "$SDK_LINK"
-	mkdir -p "$SDK_LINK"
-	cp "$ROOT/sdk/package.json" "$SDK_LINK/package.json"
-	cp -r "$ROOT/sdk/dist" "$SDK_LINK/dist"
-fi
+# The website resolves @reelvault/sdk from the registry like any dependency.
+( cd "$WEBSITE_DIR" && bun install --frozen-lockfile --no-progress )
 ( cd "$WEBSITE_DIR" && bun run build )
 [ -d "$WEBSITE_DIR/dist" ] || die "website build produced no dist/ directory"
 
@@ -224,7 +206,7 @@ for TARGET in "${TARGETS[@]}"; do
 	cp "$ROOT/install/$LAUNCHER" "$ROOT/install/README.txt" "$APP/"
 
 	cp "$ROOT/package.json" "$ROOT/bun.lock" "$ROOT/bunfig.toml" "$ROOT/tsconfig.json" "$APP/server/"
-	cp -r "$ROOT/src" "$ROOT/sdk" "$APP/server/"
+	cp -r "$ROOT/src" "$APP/server/"
 	(
 		cd "$APP/server"
 		bun install --production --frozen-lockfile --no-progress --os="$OS" --cpu="$CPU"
@@ -272,8 +254,8 @@ echo "Done. Release assets are in ${OUT_DIR}:"
 ls -1 "$OUT_DIR"
 echo
 echo "Installers are not shipped here — share them from the repository:"
-echo "  https://raw.githubusercontent.com/ReelVault/ReelVault.Server/main/install/install.sh"
-echo "  https://raw.githubusercontent.com/ReelVault/ReelVault.Server/main/install/install.ps1"
+echo "  https://raw.githubusercontent.com/ReelVault/reelvault/main/install/install.sh"
+echo "  https://raw.githubusercontent.com/ReelVault/reelvault/main/install/install.ps1"
 echo
 echo "Upload the archives to the GitHub release, e.g.:"
-echo "  gh release create v${VERSION_NO_V} --repo ReelVault/ReelVault.Server --title \"ReelVault v${VERSION_NO_V}\" --generate-notes \"${OUT_DIR}\"/*.tar.gz \"${OUT_DIR}\"/*.zip \"${OUT_DIR}\"/SHA256SUMS.txt"
+echo "  gh release create v${VERSION_NO_V} --repo ReelVault/reelvault --title \"ReelVault v${VERSION_NO_V}\" --generate-notes \"${OUT_DIR}\"/*.tar.gz \"${OUT_DIR}\"/*.zip \"${OUT_DIR}\"/SHA256SUMS.txt"

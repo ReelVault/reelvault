@@ -1,5 +1,5 @@
-import type { PluginMediaFile } from "@sdk/common";
-import type { MediaAnalysis, PluginEventInput } from "@sdk/plugin";
+import type { PluginMediaFile } from "@reelvault/sdk/common";
+import type { MediaAnalysis, PluginEventInput } from "@reelvault/sdk/plugin";
 import { type ApplicationContext, withDomainError } from "@/application/context";
 import { pluginsService } from "@/application/plugins.service";
 import { mediaRepository } from "@/database/repositories/media-files.repository";

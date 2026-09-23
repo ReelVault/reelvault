@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { User } from "@sdk/common/user.types";
+import type { User } from "@reelvault/sdk/common";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { env } from "@/env";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";

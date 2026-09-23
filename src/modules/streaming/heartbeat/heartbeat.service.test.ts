@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionLifecycleState } from "@sdk/common/stream.types";
+import type { SessionLifecycleState } from "@reelvault/sdk/common";
 import { HeartbeatService } from "./heartbeat.service";
 
 function createService(

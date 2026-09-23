@@ -1,5 +1,4 @@
-import { ProjectedResponseSchema } from "@sdk/common";
-import { SeasonFiltersSchema, SeasonSchema, SeasonSortingSchema } from "@sdk/common/season.types";
+import { ProjectedResponseSchema, SeasonFiltersSchema, SeasonSchema, SeasonSortingSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { seasonsService } from "@/application/catalog/seasons.service";

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@sdk/plugin";
+import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
 
 process.env.NODE_ENV ??= "test";
 process.env.APP_PORT ??= "3030";

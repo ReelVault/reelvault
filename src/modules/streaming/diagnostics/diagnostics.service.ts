@@ -1,4 +1,4 @@
-import type { PlaybackDiagnostics, TranscodeProgressResponse } from "@sdk/common/stream.types";
+import type { PlaybackDiagnostics, TranscodeProgressResponse } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";

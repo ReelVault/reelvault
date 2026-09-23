@@ -114,7 +114,6 @@ jobs:
           restore-keys: |
             bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
-      - run: bun run build-sdk
       - run: bun test
 
   docker:

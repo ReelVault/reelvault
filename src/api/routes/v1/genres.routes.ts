@@ -1,5 +1,4 @@
-import { ProjectedResponseSchema } from "@sdk/common";
-import { GenreFiltersSchema, GenreSchema, GenreSortingSchema } from "@sdk/common/genre.types";
+import { GenreFiltersSchema, GenreSchema, GenreSortingSchema, ProjectedResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { genresService } from "@/application/catalog/genres.service";

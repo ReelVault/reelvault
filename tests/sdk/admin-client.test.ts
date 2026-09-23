@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ReelVaultClient } from "@sdk/client";
+import { ReelVaultClient } from "@reelvault/sdk/client";
 
 test("admin client reads plugin diagnostics through the versioned API", async () => {
 	const requestedUrls: string[] = [];

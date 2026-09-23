@@ -1,5 +1,5 @@
-import { ProjectedResponseSchema } from "@sdk";
-import { DiscoverResponseSchema } from "@sdk/common/discover.types";
+import { ProjectedResponseSchema } from "@reelvault/sdk";
+import { DiscoverResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { discoverService } from "@/application/users/discover.service";

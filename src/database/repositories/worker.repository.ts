@@ -1,4 +1,4 @@
-import type { WorkerBackoffType } from "@sdk/common";
+import type { WorkerBackoffType } from "@reelvault/sdk/common";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

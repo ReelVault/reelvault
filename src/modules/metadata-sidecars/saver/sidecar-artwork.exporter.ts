@@ -1,4 +1,4 @@
-import type { ImageQuality } from "@sdk/common/images";
+import type { ImageQuality } from "@reelvault/sdk/common";
 import { imageRepository } from "@/database/repositories/images.repository";
 import { reencodeImage } from "@/integrations/sharp/sharp.actions";
 import { BaseService } from "@/utils/base-service";

@@ -5,7 +5,7 @@ import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 /** The repository seeded into a fresh server so the catalog is never empty. */
 export const OFFICIAL_PLUGIN_REPOSITORY = {
 	name: "ReelVault Official",
-	url: "https://raw.githubusercontent.com/ReelVault/ReelVault.Plugins/main/dist/reelvault-catalog.json",
+	url: "https://raw.githubusercontent.com/ReelVault/plugins/main/dist/reelvault-catalog.json",
 } as const;
 
 export const PLUGIN_CATALOG_API_VERSION = 1 as const;

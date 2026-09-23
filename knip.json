@@ -1,7 +1,7 @@
 {
 	"$schema": "https://unpkg.com/knip@latest/schema.json",
 	"entry": ["tests/**/*.test.ts", "scripts/**/*.ts", "packages/benchkit/**/*.test.ts"],
-	"project": ["src/**/*.ts", "sdk/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "packages/**/*.ts"],
+	"project": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "packages/**/*.ts"],
 	"ignoreDependencies": [],
 	"ignoreBinaries": ["ffmpeg"],
 	"ignoreExportsUsedInFile": true,

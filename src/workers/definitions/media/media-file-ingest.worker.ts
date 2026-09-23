@@ -1,6 +1,5 @@
-import type { LibraryWithRelations } from "@sdk/common/library.types";
-import type { CreateMediaFile } from "@sdk/common/media-file.types";
-import type { PluginEventInput } from "@sdk/plugin";
+import type { CreateMediaFile, LibraryWithRelations } from "@reelvault/sdk/common";
+import type { PluginEventInput } from "@reelvault/sdk/plugin";
 import { type ApplicationContext, type TaskSchedulingOptions, toDomainError } from "@/application/context";
 import { pluginsService } from "@/application/plugins.service";
 import { librariesRepository } from "@/database/repositories/libraries.repository";

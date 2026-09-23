@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { MetadataCandidate } from "@sdk/common";
-import type { ProviderMetadataResult } from "@sdk/plugin";
+import type { MetadataCandidate } from "@reelvault/sdk/common";
+import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { applyMetadataCandidate, toMetadataCandidate } from "./metadata-normalization";
 
 function providerResult(overrides: Partial<ProviderMetadataResult> = {}): ProviderMetadataResult {

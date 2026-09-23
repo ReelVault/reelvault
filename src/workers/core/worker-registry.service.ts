@@ -1,4 +1,4 @@
-import type { WorkerDefinition } from "@sdk/common";
+import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
 import { resourceAllocator } from "@/system/resource-allocator";
 import { serverRescueService } from "@/system/server-rescue.service";

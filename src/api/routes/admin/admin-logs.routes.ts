@@ -1,4 +1,4 @@
-import { AdminLogFileInfoSchema, AdminLogsPageSchema } from "@sdk/common";
+import { AdminLogFileInfoSchema, AdminLogsPageSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminLogsService } from "@/application/admin/admin-logs.service";

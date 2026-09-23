@@ -1,4 +1,4 @@
-import type { MediaFileAuditItem, MediaFileAuditResponse } from "@sdk/common/media-file.types";
+import type { MediaFileAuditItem, MediaFileAuditResponse } from "@reelvault/sdk/common";
 import { type ApplicationContext, withDomainError } from "@/application/context";
 import { auditMediaFileRow, buildMediaFileAuditReport } from "@/application/media/media-files/media-file-audit";
 import { type MediaFileAuditRow, mediaRepository } from "@/database/repositories/media-files.repository";

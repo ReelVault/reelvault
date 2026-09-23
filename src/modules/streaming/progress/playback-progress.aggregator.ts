@@ -1,4 +1,4 @@
-import type { MetadataPlaybackProgress, PlaybackProgressItem } from "@sdk/common/playback-progress.types";
+import type { MetadataPlaybackProgress, PlaybackProgressItem } from "@reelvault/sdk/common";
 import { groupBy, toMap } from "@/utils/array.utils";
 import type { PlaybackProgressComputeData, SmartPlay, SmartPlayComputeData } from "../streaming.types";
 import { getPlaybackItemStatus } from "./playback-status";

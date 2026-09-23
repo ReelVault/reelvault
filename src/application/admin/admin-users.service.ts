@@ -5,9 +5,10 @@ import type {
 	AdminUser,
 	AdminUserProfile,
 	AdminUsersPage,
+	ProfilePreferences,
 	SuccessResponse,
-} from "@sdk/common";
-import type { ProfilePreferences, UpdateProfilePreferences } from "@sdk/common/profile-preferences.types";
+	UpdateProfilePreferences,
+} from "@reelvault/sdk/common";
 import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { sessionsRepository } from "@/database/repositories/sessions.repository";

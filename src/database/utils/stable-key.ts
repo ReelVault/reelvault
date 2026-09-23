@@ -1,4 +1,4 @@
-import type { ProviderEntityType } from "@sdk/common/provider.types";
+import type { ProviderEntityType } from "@reelvault/sdk/common";
 import { encodeComponent, normalizeComponent } from "@/utils/image-storage.utils";
 
 const STABLE_KEY_VERSION = "v1";

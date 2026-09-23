@@ -1,4 +1,4 @@
-import type { ProviderEpisodeResult, ProviderSeasonResult } from "@sdk/plugin";
+import type { ProviderEpisodeResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";

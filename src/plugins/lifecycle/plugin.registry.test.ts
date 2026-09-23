@@ -9,7 +9,7 @@ import type {
 	PluginUiManifest,
 	ReelVaultPlugin,
 	SubtitleProvider,
-} from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
 import { PluginRegistry } from "./plugin.registry";
 
 process.env.NODE_ENV ??= "test";

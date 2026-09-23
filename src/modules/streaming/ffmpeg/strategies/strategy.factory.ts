@@ -1,4 +1,4 @@
-import type { PlaybackDecision, TranscodeConfig } from "@sdk/common/stream.types";
+import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import type { StreamingStrategy } from "../../streaming.types";
 import { DirectStreamStrategy } from "./direct-stream.strategy";
 import { TranscodeStrategy } from "./transcode.strategy";

@@ -1,4 +1,4 @@
-import type { CreateKeyword, Keyword, KeywordFilters, KeywordSorting, UpdateKeyword } from "@sdk/common/keyword.types";
+import type { CreateKeyword, Keyword, KeywordFilters, KeywordSorting, UpdateKeyword } from "@reelvault/sdk/common";
 import { keywordsRepository } from "@/database/repositories/keywords.repository";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 

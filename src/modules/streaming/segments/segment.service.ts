@@ -1,4 +1,4 @@
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { NotFoundError, RequestTimeoutError, ValidationError } from "@/utils/errors";

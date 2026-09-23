@@ -1,10 +1,10 @@
 import type {
+	MediaIdentity,
 	MetadataProviderConfiguration,
 	MetadataProviderSearchRequest,
 	MetadataProviderSearchResponse,
 	MetadataProviderStatus,
-} from "@sdk/common";
-import type { MediaIdentity } from "@sdk/common/media";
+} from "@reelvault/sdk/common";
 import type {
 	ExternalIdentifiers,
 	MetadataProvider,
@@ -19,7 +19,7 @@ import type {
 	ProviderSearchRequest,
 	ProviderSearchResponse,
 	ProviderSeasonResult,
-} from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";

@@ -1,5 +1,9 @@
-import { ProjectedResponseSchema } from "@sdk/common";
-import { CollectionFiltersSchema, CollectionSortingSchema, CollectionWithRelationsSchema } from "@sdk/common/collection.types";
+import {
+	CollectionFiltersSchema,
+	CollectionSortingSchema,
+	CollectionWithRelationsSchema,
+	ProjectedResponseSchema,
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { collectionsService } from "@/application/catalog/collections.service";

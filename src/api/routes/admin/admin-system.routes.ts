@@ -14,9 +14,9 @@ import {
 	PluginConfigDetailsSchema,
 	PluginRepositorySchema,
 	PluginRuntimeStatusSchema,
+	SystemSettingsGroupedSchema,
 	UpdatePluginConfigBodySchema,
-} from "@sdk/common";
-import { SystemSettingsGroupedSchema } from "@sdk/common/settings";
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminService } from "@/application/admin/admin.service";

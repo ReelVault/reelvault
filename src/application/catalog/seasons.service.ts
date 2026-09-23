@@ -1,6 +1,12 @@
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { Season, SeasonFilters, SeasonSorting } from "@sdk/common/season.types";
+import type {
+	FieldsQuery,
+	PaginatedResponse,
+	PaginationQuery,
+	Season,
+	SeasonFilters,
+	SeasonSorting,
+	SelectFields,
+} from "@reelvault/sdk/common";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { BaseService } from "@/utils/base-service";
 

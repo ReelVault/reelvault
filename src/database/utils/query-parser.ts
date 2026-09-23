@@ -1,6 +1,4 @@
-import type { FieldsConfig, FieldsQuery } from "@sdk/common/fields";
-import type { PaginationQuery } from "@sdk/common/pagination";
-import type { SortOrder, SortQuery } from "@sdk/common/sorting";
+import type { FieldsConfig, FieldsQuery, PaginationQuery, SortOrder, SortQuery } from "@reelvault/sdk/common";
 import type { SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { QueryFields } from "./fields";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PlaybackDecision, TranscodeConfig } from "@sdk/common/stream.types";
+import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import type { DetectedHwaccel, ToneMapConfig } from "./ffmpeg.capabilities";
 import { buildHwaccelInputArgs, buildToneMapFilterChain, buildTranscodeVideoArgs } from "./ffmpeg.transcode-args";
 

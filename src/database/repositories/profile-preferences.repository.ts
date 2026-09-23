@@ -1,4 +1,4 @@
-import type { ProfilePreferences, UpdateProfilePreferences } from "@sdk/common/profile-preferences.types";
+import type { ProfilePreferences, UpdateProfilePreferences } from "@reelvault/sdk/common";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
 	isProfilePreferenceKey,

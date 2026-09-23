@@ -1,5 +1,5 @@
-import type { MetadataProviderConfiguration, MetadataProviderSearchRequest, PluginMediaFile } from "@sdk/common";
-import type { MediaAnalysis, PluginEventInput, PluginEventName, PluginStatus } from "@sdk/plugin";
+import type { MetadataProviderConfiguration, MetadataProviderSearchRequest, PluginMediaFile } from "@reelvault/sdk/common";
+import type { MediaAnalysis, PluginEventInput, PluginEventName, PluginStatus } from "@reelvault/sdk/plugin";
 import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
 import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
 import { providerService } from "@/plugins/capabilities/provider.service";

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ReelVaultClient } from "@sdk/client";
+import { ReelVaultClient } from "@reelvault/sdk/client";
 
 test("media and people clients expose all related API routes", async () => {
 	const requests: string[] = [];

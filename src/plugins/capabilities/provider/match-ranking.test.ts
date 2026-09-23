@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ProviderMetadataResult } from "@sdk/plugin";
+import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { discoveryCacheKey, matchesExternalIdentifiers, normalizeMetadataDetails, trimNameAndOverview } from "./match-ranking";
 
 function metadataFixture(): ProviderMetadataResult {

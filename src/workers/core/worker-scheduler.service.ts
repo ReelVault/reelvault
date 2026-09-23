@@ -5,7 +5,7 @@ import type {
 	WorkerCategoryRunResponse,
 	WorkerQueueStats,
 	WorkerSummary,
-} from "@sdk/common";
+} from "@reelvault/sdk/common";
 import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";
 import { MINUTE } from "@/server.constants";

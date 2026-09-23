@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { CreatePlaybackSession } from "@sdk/common/playback-sessions";
+import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { type ServiceDependencies, SessionLifecycleService } from "./session-lifecycle.service";
 
 function createService(

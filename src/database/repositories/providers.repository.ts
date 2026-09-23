@@ -1,4 +1,4 @@
-import type { ProviderEntityType } from "@sdk/common/provider.types";
+import type { ProviderEntityType } from "@reelvault/sdk/common";
 import { and, eq, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

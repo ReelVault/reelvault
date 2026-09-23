@@ -1,4 +1,4 @@
-import type { CreateMediaMarker } from "@sdk/common/media-markers";
+import type { CreateMediaMarker } from "@reelvault/sdk/common";
 import { and, asc, eq, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

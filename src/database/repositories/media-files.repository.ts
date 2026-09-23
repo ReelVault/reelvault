@@ -1,12 +1,15 @@
-import type { FieldsConfig, FieldsQuery, SelectFields } from "@sdk/common/fields";
 import type {
 	CreateMediaFile,
+	FieldsConfig,
+	FieldsQuery,
 	MediaFileFilters,
 	MediaFileSorting,
 	MediaFileWithRelation,
+	PaginatedResponse,
+	PaginationQuery,
+	SelectFields,
 	UpdateMediaFile,
-} from "@sdk/common/media-file.types";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
+} from "@reelvault/sdk/common";
 import { and, asc, eq, getTableColumns, gt, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

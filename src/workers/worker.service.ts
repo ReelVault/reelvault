@@ -1,4 +1,4 @@
-import type { AddWorkerItemOptions, WorkerDefinition, WorkerJob as WorkerItemContract, WorkerQueueStats } from "@sdk/common";
+import type { AddWorkerItemOptions, WorkerDefinition, WorkerJob as WorkerItemContract, WorkerQueueStats } from "@reelvault/sdk/common";
 import { v7 as uuidv7 } from "uuid";
 import type { ActiveWorkerItem, WorkerItem } from "@/database/repositories/worker.repository";
 import type { WorkerOperationRecord, WorkerOperationStatus } from "@/database/repositories/worker-operation.repository";

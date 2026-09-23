@@ -1,4 +1,4 @@
-import type { MediaFileAuditItem, MediaFileAuditReason, MediaFileAuditResponse } from "@sdk/common/media-file.types";
+import type { MediaFileAuditItem, MediaFileAuditReason, MediaFileAuditResponse } from "@reelvault/sdk/common";
 import { type MediaFileAuditRow, mediaRepository } from "@/database/repositories/media-files.repository";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";

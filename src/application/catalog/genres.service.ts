@@ -1,4 +1,4 @@
-import type { CreateGenre, Genre, GenreFilters, GenreSorting, UpdateGenre } from "@sdk/common/genre.types";
+import type { CreateGenre, Genre, GenreFilters, GenreSorting, UpdateGenre } from "@reelvault/sdk/common";
 import { genreRepository } from "@/database/repositories/genres.repository";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 

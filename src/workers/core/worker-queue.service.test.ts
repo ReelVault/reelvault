@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { WorkerDefinition } from "@sdk/common";
+import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { v7 as uuidv7 } from "uuid";
 import type { EnqueueWorkerItemInput } from "@/database/repositories/worker.repository";
 import { workerOperationsService } from "./worker-operations.service";

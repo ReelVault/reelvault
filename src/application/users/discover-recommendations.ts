@@ -1,4 +1,4 @@
-import type { MetadataWithRelation } from "@sdk";
+import type { MetadataWithRelation } from "@reelvault/sdk";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { DAY } from "@/server.constants";
 import { toMap } from "@/utils/array.utils";

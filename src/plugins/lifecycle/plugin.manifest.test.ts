@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { PluginManifest } from "@sdk/plugin";
-import { defineConfig, field } from "@sdk/plugin";
+import type { PluginManifest } from "@reelvault/sdk/plugin";
+import { defineConfig, field } from "@reelvault/sdk/plugin";
 import {
 	assertDeclaredPluginCapabilities,
 	resolvePluginEntry,

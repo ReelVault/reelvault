@@ -1,4 +1,4 @@
-import type { PluginEnqueueOptions, PluginJobDefinition, PluginJobHandle } from "@sdk/plugin";
+import type { PluginEnqueueOptions, PluginJobDefinition, PluginJobHandle } from "@reelvault/sdk/plugin";
 import { resourceAllocator } from "@/system/resource-allocator";
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";

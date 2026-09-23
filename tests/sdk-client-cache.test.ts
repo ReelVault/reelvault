@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TtlCache } from "../sdk/client/core/cache";
+import { TtlCache } from "@reelvault/sdk/client";
 
 describe("sdk TtlCache", () => {
 	test("evicts oldest entries beyond the cap", () => {

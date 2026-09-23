@@ -1,4 +1,4 @@
-import type { ImageQuality } from "@sdk/common/images";
+import type { ImageQuality } from "@reelvault/sdk/common";
 import sharp, { type Sharp } from "sharp";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";

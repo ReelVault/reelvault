@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { SetupStatus } from "@sdk/common";
+import type { SetupStatus } from "@reelvault/sdk/common";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { env, generatedSecrets } from "@/env";

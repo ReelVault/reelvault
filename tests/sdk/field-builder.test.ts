@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defineFields, type RequireFields } from "@sdk/common/fields";
-import type { LibraryWithRelations } from "@sdk/common/library.types";
+import { defineFields, type LibraryWithRelations, type RequireFields } from "@reelvault/sdk/common";
 
 const libraryFields = defineFields<LibraryWithRelations>()("id", "type", "name", "paths.id", "paths.path");
 type LibraryProjection = RequireFields<LibraryWithRelations, typeof libraryFields>;

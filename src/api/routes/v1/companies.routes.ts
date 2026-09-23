@@ -1,6 +1,4 @@
-import { ProjectedResponseSchema } from "@sdk/common";
-import { CompanyFiltersSchema, CompanySchema, CompanySortingSchema } from "@sdk/common/companies.types";
-import { MetadataSchema } from "@sdk/common/metadata.types";
+import { CompanyFiltersSchema, CompanySchema, CompanySortingSchema, MetadataSchema, ProjectedResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import {
 	ClampedNumeric,

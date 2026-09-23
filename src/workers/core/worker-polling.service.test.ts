@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { WorkerDefinition } from "@sdk/common";
+import type { WorkerDefinition } from "@reelvault/sdk/common";
 import type { WorkerItem, workerJobRepository } from "@/database/repositories/worker.repository";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { WorkerPollingService } from "./worker-polling.service";

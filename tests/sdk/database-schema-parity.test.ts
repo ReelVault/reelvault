@@ -24,8 +24,8 @@ import {
 	UserSchema,
 	WatchedHistorySchema,
 	WatchlistSchema,
-} from "@sdk";
-import { SubtitleEntitySchema } from "@sdk/common/subtitle.types";
+} from "@reelvault/sdk";
+import { SubtitleEntitySchema } from "@reelvault/sdk/common";
 import { createSelectSchema } from "drizzle-typebox";
 import { schema } from "@/database/schema";
 

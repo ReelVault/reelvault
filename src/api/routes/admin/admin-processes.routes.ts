@@ -1,4 +1,4 @@
-import { AdminProcessesResponseSchema } from "@sdk/common";
+import { AdminProcessesResponseSchema } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminProcessesService } from "@/application/admin/admin-processes.service";

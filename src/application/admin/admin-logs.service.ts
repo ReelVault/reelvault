@@ -1,5 +1,5 @@
 import { readdir, rmdir, stat, truncate, unlink } from "node:fs/promises";
-import type { AdminLogEntry, AdminLogFileInfo, AdminLogsPage } from "@sdk/common";
+import type { AdminLogEntry, AdminLogFileInfo, AdminLogsPage } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { serverConfig } from "@/server.config";

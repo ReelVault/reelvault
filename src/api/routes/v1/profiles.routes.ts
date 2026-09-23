@@ -1,17 +1,15 @@
-import { ProjectedResponseSchema } from "@sdk/common";
 import {
 	CreateProfileSchema,
 	ProfileFiltersSchema,
-	ProfileSchema,
-	ProfileSortingSchema,
-	SwitchProfileSchema,
-	UpdateProfileSchema,
-} from "@sdk/common/profile.types";
-import {
 	ProfilePreferenceDefaultsSchema,
 	ProfilePreferencesSchema,
+	ProfileSchema,
+	ProfileSortingSchema,
+	ProjectedResponseSchema,
+	SwitchProfileSchema,
 	UpdateProfilePreferencesSchema,
-} from "@sdk/common/profile-preferences.types";
+	UpdateProfileSchema,
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { IdParams } from "@/api/schemas/route-params";

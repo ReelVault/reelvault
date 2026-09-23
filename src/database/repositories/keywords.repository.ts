@@ -1,5 +1,5 @@
-import type { Keyword, KeywordFilters, KeywordSorting } from "@sdk/common/keyword.types";
-import type { ProviderResultKeyword } from "@sdk/plugin";
+import type { Keyword, KeywordFilters, KeywordSorting } from "@reelvault/sdk/common";
+import type { ProviderResultKeyword } from "@reelvault/sdk/plugin";
 import { eq, inArray } from "drizzle-orm";
 import { schema } from "@/database/schema";
 import { defineTableAccess } from "@/database/table-access";

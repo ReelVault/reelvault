@@ -1,4 +1,4 @@
-import type { AdminFfmpegCapabilities, FfmpegDecodeTest } from "@sdk/common";
+import type { AdminFfmpegCapabilities, FfmpegDecodeTest } from "@reelvault/sdk/common";
 import {
 	getDetectedDriDevice,
 	getEffectiveHwaccel,

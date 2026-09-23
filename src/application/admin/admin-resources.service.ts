@@ -1,4 +1,4 @@
-import type { AdminResourcesResponse } from "@sdk/common";
+import type { AdminResourcesResponse } from "@reelvault/sdk/common";
 import { resourceMetricsRepository } from "@/database/repositories/resource-metrics.repository";
 import { serverConfig } from "@/server.config";
 import { resourceAllocator } from "@/system/resource-allocator";

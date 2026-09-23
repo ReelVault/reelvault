@@ -1,4 +1,4 @@
-import type { PlaybackCommand, RealtimeEventMessage, RealtimeEventName, RealtimePayload } from "@sdk/common/realtime";
+import type { PlaybackCommand, RealtimeEventMessage, RealtimeEventName, RealtimePayload } from "@reelvault/sdk/common";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { BaseService } from "@/utils/base-service";
 import { ClientConnection } from "./connection/client-connection";

@@ -1,5 +1,4 @@
-import { ProjectedResponseSchema } from "@sdk/common";
-import { KeywordFiltersSchema, KeywordSchema, KeywordSortingSchema } from "@sdk/common/keyword.types";
+import { KeywordFiltersSchema, KeywordSchema, KeywordSortingSchema, ProjectedResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { keywordsService } from "@/application/catalog/keywords.service";

@@ -1,5 +1,4 @@
-import type { Company, CompanyFilters, CompanySorting, CreateCompany, UpdateCompany } from "@sdk/common/companies.types";
-import type { Metadata } from "@sdk/common/metadata.types";
+import type { Company, CompanyFilters, CompanySorting, CreateCompany, Metadata, UpdateCompany } from "@reelvault/sdk/common";
 import { companiesRepository } from "@/database/repositories/companies.repository";
 import { clamp } from "@/utils/math.utils";
 import { DictionaryCrudService } from "./dictionary-crud.service";

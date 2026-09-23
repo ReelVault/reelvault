@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { MediaAnalyzer } from "@sdk/plugin";
+import type { MediaAnalyzer } from "@reelvault/sdk/plugin";
 import { MediaAnalysisFanout } from "./media-analysis.fanout";
 
 function createAnalyzer(id: string, analyze: MediaAnalyzer["analyze"]): MediaAnalyzer {

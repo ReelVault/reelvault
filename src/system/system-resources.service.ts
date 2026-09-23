@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
-import type { Logger } from "@sdk/common/logger";
+import type { Logger } from "@reelvault/sdk/common";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import type { CpuProfile } from "@/config/system-settings.types";
 import { createLogger } from "@/utils/logger";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ProviderMetadataResult } from "@sdk/plugin";
+import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { mergeProviderMetadata, type ProviderContribution } from "./metadata-aggregator";
 
 function contribution(providerId: string, metadata: Partial<ProviderMetadataResult>): ProviderContribution {

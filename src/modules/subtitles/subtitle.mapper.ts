@@ -1,4 +1,4 @@
-import type { CreateSubtitleRequest, Subtitle, SubtitleType } from "@sdk/common";
+import type { CreateSubtitleRequest, Subtitle, SubtitleType } from "@reelvault/sdk/common";
 import { ValidationError } from "@/utils/errors";
 import { serializeDate } from "@/utils/time.utils";
 

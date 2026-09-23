@@ -1,4 +1,4 @@
-import type { MetadataFilters, MetadataSorting } from "@sdk/common/metadata.types";
+import type { MetadataFilters, MetadataSorting } from "@reelvault/sdk/common";
 import type { SQL } from "drizzle-orm";
 import { and, asc, desc, eq, exists, gt, gte, inArray, isNull, like, lt, lte, notExists, or, sql } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";

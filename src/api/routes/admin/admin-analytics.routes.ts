@@ -1,4 +1,4 @@
-import { AdminAnalyticsSchema } from "@sdk/common";
+import { AdminAnalyticsSchema } from "@reelvault/sdk/common";
 import Elysia, { t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminAnalyticsService } from "@/application/admin/admin-analytics.service";

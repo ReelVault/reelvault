@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TranscodeConfig } from "@sdk/common/stream.types";
+import type { TranscodeConfig } from "@reelvault/sdk/common";
 import { $, spawn } from "bun";
 import { SessionReservationTracker } from "../runtime/sessions/session-reservation.tracker";
 import { SessionStore } from "../runtime/sessions/session-store";

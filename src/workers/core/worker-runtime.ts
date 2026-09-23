@@ -1,4 +1,4 @@
-import type { AddWorkerItemOptions, WorkerDefinition } from "@sdk/common";
+import type { AddWorkerItemOptions, WorkerDefinition } from "@reelvault/sdk/common";
 import type { ActiveWorkerItem, WorkerItem } from "@/database/repositories/worker.repository";
 import { InternalError } from "@/utils/errors";
 

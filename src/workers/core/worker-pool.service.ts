@@ -1,4 +1,4 @@
-import type { WorkerDefinition, WorkerHandlerContext } from "@sdk/common";
+import type { WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk/common";
 import { type WorkerItem, workerJobRepository } from "@/database/repositories/worker.repository";
 import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import { type WorkerExecutionRecord, workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";

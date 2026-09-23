@@ -1,4 +1,4 @@
-import type { CreateMediaMarker, MediaMarker } from "@sdk/common";
+import type { CreateMediaMarker, MediaMarker } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
 import { toPublicMarker } from "@/database/utils/media-marker.mapper";

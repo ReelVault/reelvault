@@ -1,5 +1,4 @@
-import type { CreatePlaybackSession, PlaybackSession } from "@sdk/common/playback-sessions";
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { CreatePlaybackSession, PlaybackDecision, PlaybackSession } from "@reelvault/sdk/common";
 import { systemSettingsService } from "@/application/admin/system-settings.service";
 import { mediaRepository as defaultMediaRepository } from "@/database/repositories/media-files.repository";
 import { playbackRepository } from "@/database/repositories/playback.repository";

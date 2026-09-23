@@ -6,7 +6,7 @@ import {
 	RegisterRequestSchema,
 	RegisterResponseSchema,
 	SessionResponseSchema,
-} from "@sdk/common";
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { authService } from "@/application/auth/auth.service";

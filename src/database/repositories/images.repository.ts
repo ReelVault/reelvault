@@ -1,5 +1,4 @@
-import type { FieldsConfig, SelectFields } from "@sdk/common/fields";
-import type { Image } from "@sdk/common/image.types";
+import type { FieldsConfig, Image, SelectFields } from "@reelvault/sdk/common";
 import { and, asc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { episodesRepository } from "@/database/repositories/episodes.repository";

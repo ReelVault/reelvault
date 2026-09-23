@@ -1,5 +1,5 @@
-import type { PluginMediaFile } from "@sdk/common";
-import type { PluginMediaRevision } from "@sdk/plugin";
+import type { PluginMediaFile } from "@reelvault/sdk/common";
+import type { PluginMediaRevision } from "@reelvault/sdk/plugin";
 import { eq, isNotNull } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { mediaRepository } from "@/database/repositories/media-files.repository";

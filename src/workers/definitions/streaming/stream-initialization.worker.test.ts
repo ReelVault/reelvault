@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { AddWorkerItemOptions } from "@sdk/common";
-import type { Logger } from "@sdk/common/logger";
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { AddWorkerItemOptions, Logger, PlaybackDecision } from "@reelvault/sdk/common";
 import type { ApplicationContext } from "@/application/context";
 import type { WorkerItem } from "@/database/repositories/worker.repository";
 import type { StreamInitData } from "@/modules/streaming/runtime/stream-initializer";

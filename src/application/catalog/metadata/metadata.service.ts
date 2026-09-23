@@ -1,8 +1,19 @@
-import type { MetadataDetailsViewResponse, MetadataImageOption, SeasonWithEpisodes, SelectMetadataImage } from "@sdk/common";
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { CreateMetadata, MetadataFilters, MetadataSorting, MetadataWithRelation, UpdateMetadata } from "@sdk/common/metadata.types";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
-import type { ProviderMetadataResult } from "@sdk/plugin";
+import type {
+	CreateMetadata,
+	FieldsQuery,
+	MetadataDetailsViewResponse,
+	MetadataFilters,
+	MetadataImageOption,
+	MetadataSorting,
+	MetadataWithRelation,
+	PaginatedResponse,
+	PaginationQuery,
+	SeasonWithEpisodes,
+	SelectFields,
+	SelectMetadataImage,
+	UpdateMetadata,
+} from "@reelvault/sdk/common";
+import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { clearEtagBodyCache } from "@/api/utils/etag.utils";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { pluginsService } from "@/application/plugins.service";

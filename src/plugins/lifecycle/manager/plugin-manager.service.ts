@@ -1,4 +1,4 @@
-import type { PluginConfigDetails } from "@sdk/common/plugins";
+import type { PluginConfigDetails } from "@reelvault/sdk/common";
 import type {
 	MetadataProvider,
 	PluginConfigField,
@@ -7,7 +7,7 @@ import type {
 	ProviderStatus,
 	SubtitleProvider,
 	SubtitleProviderStatus,
-} from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";

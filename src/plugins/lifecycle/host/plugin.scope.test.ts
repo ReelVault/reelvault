@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { MetadataProvider, SubtitleProvider } from "@sdk/plugin";
+import type { MetadataProvider, SubtitleProvider } from "@reelvault/sdk/plugin";
 import { PluginScope } from "./plugin.scope";
 
 function createProvider(id: string): MetadataProvider {

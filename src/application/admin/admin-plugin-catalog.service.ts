@@ -1,4 +1,4 @@
-import type { InstallCatalogPluginResponse, PluginCatalogEntry, PluginRepository, UpdatePluginRepositoryBody } from "@sdk/common";
+import type { InstallCatalogPluginResponse, PluginCatalogEntry, PluginRepository, UpdatePluginRepositoryBody } from "@reelvault/sdk/common";
 import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
 import { NotFoundError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";

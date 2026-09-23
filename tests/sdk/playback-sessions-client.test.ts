@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ReelVaultClient } from "@sdk/client";
+import { ReelVaultClient } from "@reelvault/sdk/client";
 
 test("playback session client sends raw capabilities and retries with one idempotency key", async () => {
 	const requests: Array<{ url: string; options: RequestInit }> = [];

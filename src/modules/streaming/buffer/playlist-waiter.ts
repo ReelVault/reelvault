@@ -1,4 +1,4 @@
-import type { StreamingSession } from "@sdk/common/stream.types";
+import type { StreamingSession } from "@reelvault/sdk/common";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { InternalError, RequestTimeoutError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";

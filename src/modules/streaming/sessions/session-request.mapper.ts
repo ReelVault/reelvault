@@ -1,5 +1,5 @@
-import type { CreatePlaybackSession } from "@sdk/common/playback-sessions";
-import { DEFAULT_BROWSER_CAPABILITIES } from "@sdk/common/stream.types";
+import type { CreatePlaybackSession } from "@reelvault/sdk/common";
+import { DEFAULT_BROWSER_CAPABILITIES } from "@reelvault/sdk/common";
 import { unique } from "@/utils/array.utils";
 import { ValidationError } from "@/utils/errors";
 import { normalizeLower } from "@/utils/type.utils";

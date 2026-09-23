@@ -1,4 +1,4 @@
-import type { PlaybackDecision, TranscodeConfig } from "@sdk/common/stream.types";
+import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { createLogger } from "@/utils/logger";

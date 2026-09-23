@@ -1,5 +1,5 @@
-import type { MetadataWithRelation } from "@sdk";
-import type { DiscoverResponse } from "@sdk/common/discover.types";
+import type { MetadataWithRelation } from "@reelvault/sdk";
+import type { DiscoverResponse } from "@reelvault/sdk/common";
 import { discoverRepository } from "@/database/repositories/discover.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { MINUTE } from "@/server.constants";

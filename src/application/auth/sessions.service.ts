@@ -1,5 +1,4 @@
-import type { ActiveSessionsResponse } from "@sdk/common";
-import type { PaginationQuery } from "@sdk/common/pagination";
+import type { ActiveSessionsResponse, PaginationQuery } from "@reelvault/sdk/common";
 import { sessionsRepository } from "@/database/repositories/sessions.repository";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { invalidateSessionCache } from "@/integrations/better-auth/better-auth.session-cache";

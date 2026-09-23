@@ -1,4 +1,4 @@
-import type { CreateNotification, Notification } from "@sdk/common/notification.types";
+import type { CreateNotification, Notification } from "@reelvault/sdk/common";
 import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
 import { playbackRepository } from "@/database/repositories/playback.repository";

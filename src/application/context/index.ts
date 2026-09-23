@@ -1,4 +1,4 @@
-import type { Logger } from "@sdk/common/logger";
+import type { Logger } from "@reelvault/sdk/common";
 import { DomainError, InternalError } from "@/utils/errors";
 
 export interface TaskSchedulingOptions {

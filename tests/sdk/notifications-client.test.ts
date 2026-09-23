@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { NotificationsClient, ReelVaultClient } from "@sdk/client";
+import { NotificationsClient, ReelVaultClient } from "@reelvault/sdk/client";
 
 test("notifications client reads and updates the current recipient inbox", async () => {
 	const requests: string[] = [];

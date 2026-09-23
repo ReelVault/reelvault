@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { LibraryWithRelations } from "@sdk/common/library.types";
+import type { LibraryWithRelations } from "@reelvault/sdk/common";
 import type { ProcessedMediaFileWithMarkers } from "@/modules/scanner/scanner.types";
 import { ingestMediaFileTask, type MediaFileIngestTaskDependencies } from "./media-file-ingest.worker";
 

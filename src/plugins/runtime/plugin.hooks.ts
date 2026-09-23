@@ -1,4 +1,4 @@
-import { type MetadataCandidate, playbackArtifactKinds } from "@sdk/common";
+import { type MetadataCandidate, playbackArtifactKinds } from "@reelvault/sdk/common";
 import {
 	type ArtifactCreationCandidate,
 	type BeforeArtifactCreateHook,
@@ -6,7 +6,7 @@ import {
 	type BeforeMetadataSaveHook,
 	type MediaRecognitionCandidate,
 	PluginHookRejection,
-} from "@sdk/plugin";
+} from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";

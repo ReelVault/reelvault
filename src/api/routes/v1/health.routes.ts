@@ -1,4 +1,4 @@
-import { HealthResponseSchema } from "@sdk/common";
+import { HealthResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { healthService } from "@/application/health.service";
 import { authMiddleware } from "@/middleware/auth.middleware";

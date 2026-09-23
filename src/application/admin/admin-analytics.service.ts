@@ -1,4 +1,4 @@
-import type { AdminAnalytics, TopWatchedMedia } from "@sdk/common";
+import type { AdminAnalytics, TopWatchedMedia } from "@reelvault/sdk/common";
 import { buildHourlyHeatmap, recentDayKeys } from "@/application/analytics.utils";
 import { toTopWatchedMedia, watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { serverConfig } from "@/server.config";

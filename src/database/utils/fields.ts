@@ -1,4 +1,4 @@
-import type { FieldsConfig, SelectFields } from "@sdk/common/fields";
+import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
 import { ValidationError } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Subtitle } from "@sdk/common";
-import type { SubtitleEntity } from "@sdk/common/subtitle.types";
+import type { Subtitle, SubtitleEntity } from "@reelvault/sdk/common";
 import { NotFoundError } from "@/utils/errors";
 import type { SubtitleContent } from "./subtitle-content.resolver";
 import { SubtitlesService } from "./subtitles.service";

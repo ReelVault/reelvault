@@ -1,5 +1,5 @@
-import type { MediaIdentity } from "@sdk/common/media";
-import type { ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResult } from "@sdk/plugin";
+import type { MediaIdentity } from "@reelvault/sdk/common";
+import type { ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import type { TaskSchedulingOptions } from "@/application/context";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { pluginsService } from "@/application/plugins.service";

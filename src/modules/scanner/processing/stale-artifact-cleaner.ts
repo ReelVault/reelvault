@@ -1,4 +1,4 @@
-import type { PluginEventInput } from "@sdk/plugin";
+import type { PluginEventInput } from "@reelvault/sdk/plugin";
 import { pluginsService } from "@/application/plugins.service";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";

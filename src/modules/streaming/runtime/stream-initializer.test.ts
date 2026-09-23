@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PlaybackDecision } from "@sdk/common/stream.types";
+import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { StreamInitializer, type StreamInitializerDependencies } from "./stream-initializer";
 
 const decision: PlaybackDecision = {

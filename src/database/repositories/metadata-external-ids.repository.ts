@@ -1,4 +1,4 @@
-import type { ExternalIdentifiers } from "@sdk/plugin";
+import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import { eq } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";

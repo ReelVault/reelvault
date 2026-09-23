@@ -7,7 +7,7 @@ import type {
 	MetadataProviderConfiguration,
 	PluginConfigDetails,
 	PluginRuntimeStatus,
-} from "@sdk/common";
+} from "@reelvault/sdk/common";
 import { pluginsService } from "@/application/plugins.service";
 import { adminStatsRepository } from "@/database/repositories/admin-stats.repository";
 import { playbackStreamingService } from "@/modules/streaming/streaming.service";

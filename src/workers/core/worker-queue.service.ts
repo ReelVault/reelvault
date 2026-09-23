@@ -1,4 +1,4 @@
-import type { AddWorkerItemOptions, WorkerDefinition } from "@sdk/common";
+import type { AddWorkerItemOptions, WorkerDefinition } from "@reelvault/sdk/common";
 import { v7 as uuidv7 } from "uuid";
 import {
 	type ActiveWorkerItem,

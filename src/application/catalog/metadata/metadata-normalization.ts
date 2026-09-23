@@ -1,5 +1,5 @@
-import type { MetadataCandidate } from "@sdk/common";
-import type { ProviderMetadataResult } from "@sdk/plugin";
+import type { MetadataCandidate } from "@reelvault/sdk/common";
+import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { toMap } from "@/utils/array.utils";
 import { ValidationError } from "@/utils/errors";
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ReelVaultClient } from "@sdk/client/core/app-client";
+import { ReelVaultClient } from "@reelvault/sdk/client";
 import { librariesRoutes } from "./libraries.routes";
 
 test("library routes compile with the FFmpeg error check endpoint and sidecar assets", () => {

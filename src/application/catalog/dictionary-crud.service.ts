@@ -1,5 +1,4 @@
-import type { FieldsQuery, SelectFields } from "@sdk/common/fields";
-import type { PaginatedResponse, PaginationQuery } from "@sdk/common/pagination";
+import type { FieldsQuery, PaginatedResponse, PaginationQuery, SelectFields } from "@reelvault/sdk/common";
 import { BaseService } from "@/utils/base-service";
 
 interface DictionaryCrudRepository<TEntity, TCreate extends { name: string }, TUpdate, TFilters, TSorting> {

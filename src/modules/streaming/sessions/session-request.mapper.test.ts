@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { CreatePlaybackSession } from "@sdk/common/playback-sessions";
+import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { assertSafeId, parseCapabilities, toPlaybackSessionInput } from "./session-request.mapper";
 
 describe("session request mapper", () => {

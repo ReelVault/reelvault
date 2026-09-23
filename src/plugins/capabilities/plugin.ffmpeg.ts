@@ -1,4 +1,10 @@
-import type { ExtractedFrame, ExtractedSprite, FrameExtractionRequest, FrameImageFormat, SpriteExtractionRequest } from "@sdk/plugin";
+import type {
+	ExtractedFrame,
+	ExtractedSprite,
+	FrameExtractionRequest,
+	FrameImageFormat,
+	SpriteExtractionRequest,
+} from "@reelvault/sdk/plugin";
 import { file } from "bun";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { QueryFields } from "@/database/utils/fields";
