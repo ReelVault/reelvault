@@ -67,49 +67,52 @@ class WorkerJobRepository {
 	async enqueueMany(inputs: EnqueueWorkerItemInput[]): Promise<WorkerItem[]> {
 		if (inputs.length === 0) return [];
 
-		return await databaseFactory.transaction(async (tx) => {
-			await this.validateBatchRelations(inputs, tx);
+		return await databaseFactory.transaction(
+			async (tx) => {
+				await this.validateBatchRelations(inputs, tx);
 
-			const values = inputs.map((input) => ({
-				id: input.id,
-				workerId: input.workerId,
-				operationId: input.operationId,
-				dependsOnJobId: input.dependsOnJobId ?? input.dependsOnTaskIds?.[0] ?? null,
-				data: input.data,
-				dedupeKey: input.dedupeKey,
-				referenceType: input.referenceType,
-				referenceId: input.referenceId,
-				priority: input.priority,
-				maxAttempts: input.maxAttempts,
-				backoffType: input.backoffType,
-				backoffDelayMs: input.backoffDelayMs,
-				runAt: input.runAt,
-			}));
+				const values = inputs.map((input) => ({
+					id: input.id,
+					workerId: input.workerId,
+					operationId: input.operationId,
+					dependsOnJobId: input.dependsOnJobId ?? input.dependsOnTaskIds?.[0] ?? null,
+					data: input.data,
+					dedupeKey: input.dedupeKey,
+					referenceType: input.referenceType,
+					referenceId: input.referenceId,
+					priority: input.priority,
+					maxAttempts: input.maxAttempts,
+					backoffType: input.backoffType,
+					backoffDelayMs: input.backoffDelayMs,
+					runAt: input.runAt,
+				}));
 
-			const insertedItems: WorkerItem[] = [];
-			const insertedPerOperation = new Map<string, number>();
-			for (const chunkValues of chunk(values, serverConfig.database.queryChunkSize)) {
-				const inserted = await tx.insert(items).values(chunkValues).onConflictDoNothing().returning();
-				insertedItems.push(...inserted);
-				// Only actually-inserted rows count toward the operation total —
-				// dedupe fetch-backs were already counted at first enqueue.
-				for (const row of inserted) {
-					if (row.operationId) {
-						const prev = insertedPerOperation.get(row.operationId) ?? 0;
-						insertedPerOperation.set(row.operationId, prev + 1);
+				const insertedItems: WorkerItem[] = [];
+				const insertedPerOperation = new Map<string, number>();
+				for (const chunkValues of chunk(values, serverConfig.database.queryChunkSize)) {
+					const inserted = await tx.insert(items).values(chunkValues).onConflictDoNothing().returning();
+					insertedItems.push(...inserted);
+					// Only actually-inserted rows count toward the operation total —
+					// dedupe fetch-backs were already counted at first enqueue.
+					for (const row of inserted) {
+						if (row.operationId) {
+							const prev = insertedPerOperation.get(row.operationId) ?? 0;
+							insertedPerOperation.set(row.operationId, prev + 1);
+						}
 					}
 				}
-			}
 
-			await this.fetchDedupedExisting(inputs, insertedItems, tx);
+				await this.fetchDedupedExisting(inputs, insertedItems, tx);
 
-			// Update operation counters per operation — only for actually-inserted rows.
-			for (const [operationId, amount] of insertedPerOperation) {
-				await workerOperationRepository.incrementTotalItems(operationId, amount, tx);
-			}
+				// Update operation counters per operation — only for actually-inserted rows.
+				for (const [operationId, amount] of insertedPerOperation) {
+					await workerOperationRepository.incrementTotalItems(operationId, amount, tx);
+				}
 
-			return insertedItems;
-		});
+				return insertedItems;
+			},
+			{ immediate: true },
+		);
 	}
 
 	async findItem(id: string, tx?: DatabaseTransaction): Promise<WorkerItem | undefined> {

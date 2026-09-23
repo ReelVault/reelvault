@@ -132,7 +132,7 @@ export class DatabaseFactory {
 		return this.txDb;
 	}
 
-	async transaction<T>(callback: (tx: DatabaseTransaction) => Promise<T>): Promise<T> {
+	async transaction<T>(callback: (tx: DatabaseTransaction) => Promise<T>, options: { immediate?: boolean } = {}): Promise<T> {
 		const currentStore = this.als.getStore();
 
 		if (currentStore) {
@@ -168,7 +168,16 @@ export class DatabaseFactory {
 		const txClient = this.getTransactionClient();
 
 		try {
-			txClient.run("BEGIN");
+			// `immediate` takes the write lock up front so busy_timeout can wait for
+			// it. Use it for write-heavy transactions whose statements all pass the
+			// transaction client explicitly: a deferred BEGIN only locks on the
+			// first write, and SQLite refuses to upgrade a transaction that already
+			// read a snapshot once another connection wrote — failing immediately
+			// with SQLITE_BUSY_SNAPSHOT (this broke concurrent library scans).
+			// It is opt-in because some repositories still write through the main
+			// connection inside a transaction (getClient ignores the ALS store),
+			// and an immediate lock would make those writes wait on themselves.
+			txClient.run(options.immediate ? "BEGIN IMMEDIATE" : "BEGIN");
 			try {
 				const result = await this.als.run({ depth: 1 }, () => callback(this.getTransactionDrizzle()));
 				txClient.run("COMMIT");

@@ -107,7 +107,7 @@ export class MetadataProcess extends BaseService {
 					return movie;
 				}
 
-				const tvShow = await this.resolveLocalTVShow(existingLocal, parsed, scheduling);
+				const tvShow = await this.resolveLocalTVShow(existingLocal, parsed, scheduling, sidecar);
 				if (tvShow) return tvShow;
 			}
 
@@ -291,6 +291,7 @@ export class MetadataProcess extends BaseService {
 		existingMetadata: { id: string; title: string; releaseDate: string | null; stableKey?: string | null },
 		parsed: MediaIdentity,
 		scheduling?: TaskSchedulingOptions,
+		sidecar?: SidecarMetadataHint,
 	): Promise<MetadataProcessResult | undefined> {
 		if (parsed.season === undefined) return undefined;
 
@@ -313,9 +314,15 @@ export class MetadataProcess extends BaseService {
 					releaseDate: existingMetadata.releaseDate ?? "",
 				};
 
-				return await this.processTVShowMetadata(existingMetadata.id, parsed, pseudoMetadata, existingMetadata.stableKey, scheduling, [
-					{ providerId: providerLink.name, externalId: providerLink.externalId },
-				]);
+				return await this.processTVShowMetadata(
+					existingMetadata.id,
+					parsed,
+					pseudoMetadata,
+					existingMetadata.stableKey,
+					scheduling,
+					[{ providerId: providerLink.name, externalId: providerLink.externalId }],
+					sidecar,
+				);
 			}
 		} catch (error) {
 			this.logger.debug("Failed to resolve local TV show", { externalId: existingMetadata.id, error });

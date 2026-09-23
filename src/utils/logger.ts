@@ -381,10 +381,16 @@ function sanitizeLogValueInner(value: unknown, key: string | undefined, seen: We
 	if (typeof value === "number" || typeof value === "boolean" || typeof value === "symbol" || typeof value === "bigint") return value;
 
 	if (value instanceof Error) {
+		// The cause chain carries the actionable detail (e.g. the raw SQLite
+		// message behind a wrapped DrizzleQueryError) — without it, logged
+		// failures stop at "Failed query" and are undiagnosable.
+		const cause = "cause" in value ? (value as { cause?: unknown }).cause : undefined;
+
 		return {
 			name: value.name,
 			message: redactSensitiveText(value.message),
 			stack: value.stack ? redactSensitiveText(value.stack) : undefined,
+			...(cause !== undefined && { cause: sanitizeLogValueInner(cause, "cause", seen, depth + 1) }),
 		};
 	}
 

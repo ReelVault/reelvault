@@ -285,11 +285,11 @@ class PluginCatalogService {
 	private async ensureOfficialRepository(): Promise<void> {
 		if ((await pluginRepositoriesRepository.count()) > 0) return;
 
-		const official = await pluginRepositoriesRepository.create({
+		await pluginRepositoriesRepository.createIfAbsent({
 			name: OFFICIAL_PLUGIN_REPOSITORY.name,
 			url: OFFICIAL_PLUGIN_REPOSITORY.url,
 		});
-		this.logger.info(`Seeded plugin repository ${official.name}`);
+		this.logger.info(`Seeded plugin repository ${OFFICIAL_PLUGIN_REPOSITORY.name}`);
 	}
 
 	private installStatus(catalogVersion: string, installedVersion: string | null): PluginCatalogInstallStatus {

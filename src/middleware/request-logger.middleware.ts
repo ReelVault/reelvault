@@ -30,8 +30,30 @@ function extractLogMeta(context: LogContext & Partial<AuthContext>, extra?: Reco
 }
 
 /**
+ * Logs a failed request. Called by the error middleware because Elysia stops at
+ * the first `onError` handler that returns a response — the error middleware
+ * always returns one, so a request logger's own `onError` would never run.
+ */
+export function logRequestFailure(
+	context: LogContext & Partial<AuthContext>,
+	outcome: { status: number; code?: string | undefined; error?: unknown },
+): void {
+	const meta = extractLogMeta(context, { status: outcome.status, code: outcome.code });
+	const { method, path } = meta;
+	const suffix = outcome.code === undefined ? "" : ` (${outcome.code})`;
+
+	if (outcome.status >= 400 && outcome.status < 500) {
+		logger.warn(`${String(method)} ${String(path)} → ${String(outcome.status)}${suffix}`, meta);
+	} else {
+		logger.error(`${String(method)} ${String(path)} → ${String(outcome.status)}${suffix}`, outcome.error, meta);
+	}
+}
+
+/**
  * Structured access log middleware.
- * Logs method, path, status code, duration and userId for every request.
+ * Logs method, path, status code, duration and userId for every successful
+ * request. Failures are logged by `domainErrorsMiddleware` via
+ * `logRequestFailure` (see that middleware for why).
  */
 export const requestLoggerMiddleware = new Elysia({ name: "RequestLogger" })
 	.derive({ as: "global" }, ({ request, set }) => {
@@ -48,15 +70,4 @@ export const requestLoggerMiddleware = new Elysia({ name: "RequestLogger" })
 		const status = responseValue instanceof Response ? responseValue.status : getResponseStatus(set);
 		const meta = extractLogMeta(context, { status });
 		logger.info(`${String(meta.method)} ${String(meta.path)} → ${String(status)}`, meta);
-	})
-	.onError({ as: "global" }, (context) => {
-		const { error, code, set } = context;
-		const status = getResponseStatus(set, 500);
-		const meta = extractLogMeta(context, { code, status });
-		const { method, path } = meta;
-		if (status >= 400 && status < 500) {
-			logger.warn(`${String(method)} ${String(path)} → ${String(status)} (${String(code)})`, meta);
-		} else {
-			logger.error(`${String(method)} ${String(path)} → ${String(status)} (${String(code)})`, error, meta);
-		}
 	});

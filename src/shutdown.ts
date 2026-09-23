@@ -65,6 +65,14 @@ export class Shutdown {
 		}, serverConfig.shutdown.timeoutMs);
 
 		try {
+			// Realtime first: app.stop() waits for open sockets to drain, and a
+			// connected events WebSocket never closes on its own — stopping the
+			// server before telling clients to go away deadlocked shutdown until
+			// the 30s timeout. Closing them first lets stop() (and the graceful
+			// path) actually complete.
+			logger.info("Closing realtime connections...");
+			realtimeService.shutdown();
+
 			logger.info("Stopping server...");
 			await this.shutdownAppFn();
 
@@ -81,10 +89,6 @@ export class Shutdown {
 			logger.info("Closing streaming sessions...");
 			await streamingService.shutdown();
 			ffMpegService.killAll();
-
-			// Tell realtime clients the server is going away (1001) and stop the sweep.
-			logger.info("Closing realtime connections...");
-			realtimeService.shutdown();
 
 			// Plugins get their onDisable/onUnload/dispose while the database is
 			// still open; each unload is individually time-boxed inside.

@@ -19,6 +19,9 @@ let providerAggregated: unknown = {
 };
 let identifierRows: Array<Record<string, unknown>> = [];
 let localMetadataRow: Record<string, unknown> | undefined;
+let providerLinkRow: Record<string, unknown> | undefined;
+let seasonRow: Record<string, unknown> | undefined;
+let episodeRow: Record<string, unknown> | undefined;
 const seasonValues: Array<Record<string, unknown>> = [];
 const episodeValues: Array<Record<string, unknown>> = [];
 
@@ -53,6 +56,7 @@ await mock.module("@/database/repositories/metadata.repository", () => ({
 		},
 		findByTitleAndType: async () => localMetadataRow,
 		findByProviderExternalIds: async () => identifierRows,
+		findFirstProviderLink: async () => providerLinkRow,
 		flagMissingTranslation: async () => undefined,
 		insertRatings: async () => undefined,
 	},
@@ -81,6 +85,7 @@ await mock.module("@/database/repositories/seasons.repository", () => ({
 }));
 await mock.module("@/database/repositories/seasons.repository", () => ({
 	seasonsRepository: {
+		findByMetadataAndNumber: async () => seasonRow,
 		findOrCreateByIdentity: (input: { values?: Record<string, unknown> }) => {
 			calls.push("season");
 			seasonValues.push(input.values ?? {});
@@ -91,6 +96,7 @@ await mock.module("@/database/repositories/seasons.repository", () => ({
 }));
 await mock.module("@/database/repositories/episodes.repository", () => ({
 	episodesRepository: {
+		findBySeasonAndNumber: async () => episodeRow,
 		findOrCreateByIdentity: (input: { values?: Record<string, unknown> }) => {
 			calls.push("episode");
 			episodeValues.push(input.values ?? {});
@@ -119,6 +125,9 @@ function resetSidecarState(): void {
 	};
 	identifierRows = [];
 	localMetadataRow = undefined;
+	providerLinkRow = undefined;
+	seasonRow = undefined;
+	episodeRow = undefined;
 }
 
 test("imports provider metadata through the hook, persistence and post-save event boundary", async () => {
@@ -228,4 +237,37 @@ test("offline tv import synthesizes season and episode facts from the sidecar hi
 	const episodeImages = enqueuedImages.find((image) => image.kind === "episode");
 	const urls = episodeImages?.urls as string | undefined;
 	expect(urls).toBe("/media/Alien/e03-thumb.jpg");
+});
+
+test("existing local tv show keeps the current file's sidecar episode title", async () => {
+	resetSidecarState();
+	providerAggregated = null;
+	// A sibling episode already created the show, its season and a provider link —
+	// the second episode resolves through the existing-local path, which must
+	// still forward this file's sidecar hint or its title is dropped.
+	localMetadataRow = { id: "metadata-1", title: "Alien: Earth", releaseDate: "2025-01-01", stableKey: "sk-1" };
+	seasonRow = { id: "season-1", stableKey: "season-stable" };
+	episodeRow = undefined;
+	providerLinkRow = { name: "local", externalId: "local-1" };
+
+	await expect(
+		new MetadataProcess((data) => {
+			enqueuedImages.push(data);
+			calls.push(`image:${data.kind}`);
+
+			return Promise.resolve();
+		}).checkMetadata({
+			type: "tv_show",
+			parsed: { type: "tv_show", title: "filename", season: 1, episode: 4 },
+			sidecar: {
+				identifiers: {},
+				title: "Alien: Earth",
+				year: 2025,
+				seasonName: "Season One",
+				episodeName: "The Long Dark",
+			},
+		}),
+	).resolves.toEqual({ metadataId: "metadata-1", movieId: null, episodeId: "episode-1" });
+
+	expect(episodeValues[0]?.title).toBe("The Long Dark");
 });

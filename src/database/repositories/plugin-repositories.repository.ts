@@ -38,6 +38,20 @@ class PluginRepositoriesRepository {
 		return entry;
 	}
 
+	/**
+	 * Idempotent seed: inserts only when the URL is not present yet. Unlike
+	 * `create`, a concurrent duplicate (unique `url`) is a no-op instead of a
+	 * constraint error — used for the built-in official repository, which two
+	 * parallel first requests used to race into a 500.
+	 */
+	async createIfAbsent(values: { name: string; url: string }): Promise<void> {
+		await databaseFactory
+			.getClient()
+			.insert(this.table)
+			.values({ name: values.name, url: values.url, tokenEncrypted: null, enabled: true })
+			.onConflictDoNothing();
+	}
+
 	async update(
 		id: string,
 		values: Partial<{

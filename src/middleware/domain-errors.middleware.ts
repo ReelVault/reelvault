@@ -1,5 +1,6 @@
 import type { ApiErrorResponse } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
+import { logRequestFailure } from "@/middleware/request-logger.middleware";
 import { hasEntry } from "@/utils/array.utils";
 import { DomainError, type DomainErrorCategory, type DomainErrorParams } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";
@@ -67,6 +68,7 @@ function projectValidationDetails(all: unknown): Array<{ path: string; message: 
 
 export const domainErrorsMiddleware = new Elysia({ name: "DomainErrors" }).onError({ as: "global" }, ({ error, set, ...ctx }) => {
 	const requestId = "requestId" in ctx && typeof ctx.requestId === "string" ? ctx.requestId : undefined;
+	const logContext = { ...ctx, set };
 
 	if (error instanceof DomainError) {
 		const status = statusByCategory[error.category];
@@ -80,6 +82,8 @@ export const domainErrorsMiddleware = new Elysia({ name: "DomainErrors" }).onErr
 
 		if (error.details) response.details = error.details;
 
+		logRequestFailure(logContext, { status, code: error.code, error });
+
 		return response;
 	}
 
@@ -91,16 +95,19 @@ export const domainErrorsMiddleware = new Elysia({ name: "DomainErrors" }).onErr
 
 		if (requestId) response.requestId = requestId;
 
+		logRequestFailure(logContext, { status: mapped.status, code: mapped.code, error });
+
 		return response;
 	}
 
 	// Last resort: a non-domain, non-Elysia error (typically a bug inside a
 	// plugin route handler) still gets the standard envelope instead of Elysia's
-	// plain-text 500. The error-level log for this case is owned by
-	// request-logger's global onError.
+	// plain-text 500.
 	set.status = 500;
 	const fallback: ApiErrorResponse = { statusCode: 500, code: "internal" };
 	if (requestId) fallback.requestId = requestId;
+
+	logRequestFailure(logContext, { status: 500, code: "internal", error });
 
 	return fallback;
 });
