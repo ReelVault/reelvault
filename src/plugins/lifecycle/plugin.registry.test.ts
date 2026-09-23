@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
+	ConfigDefinition,
 	MediaAnalyzer,
 	MetadataProvider,
 	PluginManifest,
@@ -132,6 +133,21 @@ describe("plugin registry", () => {
 				failurePhase: "activation",
 			},
 		]);
+	});
+
+	it("keeps the config definition of a failed plugin so it stays configurable", () => {
+		const configDefinition: ConfigDefinition = {
+			fields: {},
+			descriptors: [{ name: "accessToken", type: "secret", label: "Access token", required: true }],
+			parse: () => ({}),
+		};
+		registry.register(createRuntime("broken-config"), []);
+		registry.fail("broken-config", new Error("Initialization failed"), configDefinition);
+		registry.unregister("broken-config", true);
+
+		expect(registry.get("broken-config")).toBeUndefined();
+		expect(registry.getFailedStatuses()).toHaveLength(1);
+		expect(registry.getConfigDefinition("broken-config")?.descriptors).toEqual(configDefinition.descriptors);
 	});
 
 	it("tracks a failed load by its lifecycle state and failing phase", () => {

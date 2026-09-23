@@ -1,5 +1,6 @@
 import type { Logger, PluginMediaFile } from "@reelvault/sdk/common";
 import type {
+	ConfigDefinition,
 	MediaAnalysis,
 	MediaAnalyzer,
 	MetadataProvider,
@@ -30,6 +31,8 @@ interface FailedPlugin {
 	description?: string | undefined;
 	error: string;
 	failurePhase?: PluginLoadPhase | undefined;
+	/** Kept so a plugin that fails to load can still be configured and reloaded. */
+	configDefinition?: ConfigDefinition | undefined;
 }
 
 const PRE_ACTIVATION_STATES = new Set<PluginRuntime["state"]>(["discovered", "validated", "resolved", "initialized"]);
@@ -128,17 +131,19 @@ export class PluginRegistry {
 		this.transition(pluginId, "disabled");
 	}
 
-	fail(pluginId: string, error: unknown): void {
+	fail(pluginId: string, error: unknown, configDefinition?: ConfigDefinition): void {
 		const runtime = this.requirePlugin(pluginId);
 		runtime.state = "failed";
 		runtime.error = errorMessage(error);
 		runtime.failurePhase ??= "activation";
+		if (configDefinition) runtime.configDefinition = configDefinition;
 	}
 
 	recordFailure(
 		manifest: Pick<PluginManifest, "id" | "name" | "version" | "description">,
 		error: unknown,
 		failurePhase?: PluginLoadPhase,
+		configDefinition?: ConfigDefinition,
 	): void {
 		this.failures.set(manifest.id, {
 			id: manifest.id,
@@ -147,6 +152,7 @@ export class PluginRegistry {
 			description: manifest.description,
 			error: errorMessage(error),
 			failurePhase,
+			...(configDefinition ? { configDefinition } : {}),
 		});
 	}
 
@@ -154,7 +160,9 @@ export class PluginRegistry {
 		const runtime = this.plugins.get(pluginId);
 		if (!runtime) return false;
 
-		if (preserveFailure && runtime.error) this.recordFailure(runtime.manifest, runtime.error, runtime.failurePhase);
+		if (preserveFailure && runtime.error) {
+			this.recordFailure(runtime.manifest, runtime.error, runtime.failurePhase, runtime.configDefinition);
+		}
 
 		runtime.state = "unloaded";
 		this.generation += 1;
@@ -170,6 +178,14 @@ export class PluginRegistry {
 
 	get(pluginId: string): PluginRuntime | undefined {
 		return this.plugins.get(pluginId);
+	}
+
+	/**
+	 * Config definition of a loaded or failed plugin. A failed load must stay
+	 * configurable — the admin fixes the values, then reloads the plugin.
+	 */
+	getConfigDefinition(pluginId: string): ConfigDefinition | undefined {
+		return this.plugins.get(pluginId)?.configDefinition ?? this.failures.get(pluginId)?.configDefinition;
 	}
 
 	/** Monotonic counter of register/unregister events — used to epoch provider caches. */

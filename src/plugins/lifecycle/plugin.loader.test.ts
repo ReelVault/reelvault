@@ -261,6 +261,57 @@ export default {
 		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.invalid-schedule", state: "failed", failurePhase: "setup" }]);
 	});
 
+	test("a plugin that fails during provider initialization keeps its config definition", async () => {
+		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
+		temporaryDirectories.push(pluginsDirectory);
+		const pluginDirectory = join(pluginsDirectory, "unconfigured");
+		await mkdir(pluginDirectory, { recursive: true });
+		await write(
+			join(pluginDirectory, "plugin.json"),
+			JSON.stringify({
+				id: "org.reelvault.unconfigured",
+				name: "Unconfigured fixture",
+				version: "1.0.0",
+				entry: "./index.mjs",
+				capabilities: ["metadataProvider"],
+			}),
+		);
+		await write(
+			join(pluginDirectory, "index.mjs"),
+			`export default {
+  config: {
+    fields: {},
+    descriptors: [{ name: "accessToken", type: "secret", label: "Access token", required: true }],
+    parse: (value) => value,
+  },
+  async setup(host) {
+    await host.providers.register({
+      id: "unconfigured-provider",
+      name: "Unconfigured provider",
+      version: "1.0.0",
+      initialize() { throw new Error("requires an access token"); },
+      async search() { return []; },
+      async getDetails() { return null; },
+      async getSeasonDetails() { return null; },
+      async getEpisodeDetails() { return null; },
+    });
+  },
+};
+`,
+		);
+
+		const registry = new PluginRegistry();
+		const config: Pick<PluginConfig, "load"> = { load: async () => ({}) };
+		const loader = new PluginLoader(config as PluginConfig, registry, pluginsDirectory);
+
+		await expect(loader.load("unconfigured")).rejects.toThrow("requires an access token");
+		expect(registry.get("org.reelvault.unconfigured")).toBeUndefined();
+		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.unconfigured", state: "failed" }]);
+		expect(registry.getConfigDefinition("org.reelvault.unconfigured")?.descriptors).toEqual([
+			{ name: "accessToken", type: "secret", label: "Access token", required: true },
+		]);
+	});
+
 	test("loadAll skips a plugin disabled in the lockfile; a direct load still works after re-enable", async () => {
 		const { loader, registry, pluginsDirectory } = await createLoaderFixture();
 		// loadAll purges expired plugin blobs first — an empty stub keeps the

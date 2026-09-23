@@ -308,8 +308,9 @@ export class PluginManager {
 		const pluginDir = this.config.resolvePluginDirectory(dirName);
 		const manifest = await loadPluginManifest(pluginDir);
 		const config = await this.config.load(pluginDir);
-		// The config schema travels with the loaded plugin module (`defineConfig`).
-		const definition = this.registry.get(pluginId)?.configDefinition;
+		// The config schema travels with the loaded plugin module (`defineConfig`);
+		// a failed load keeps its definition too, so the plugin stays configurable.
+		const definition = this.registry.getConfigDefinition(pluginId);
 
 		const fields: PluginConfigField[] =
 			definition?.descriptors && definition.descriptors.length > 0 ? [...definition.descriptors] : inferFieldsFromConfig(config);
@@ -329,8 +330,9 @@ export class PluginManager {
 		const pluginDir = this.config.resolvePluginDirectory(dirName);
 		// Validate the merged result (not the patch): a redacted secret omitted by
 		// the admin form must keep its stored value, and required fields must be
-		// evaluated against what will actually be persisted.
-		const definition = this.registry.get(pluginId)?.configDefinition;
+		// evaluated against what will actually be persisted. A failed load keeps
+		// its config definition, so validation works there too.
+		const definition = this.registry.getConfigDefinition(pluginId);
 		if (definition) {
 			const existing = await this.config.load(pluginDir);
 			definition.parse({ ...existing, ...updatedConfig });

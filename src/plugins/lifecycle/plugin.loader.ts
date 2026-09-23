@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import type { PluginLoadPhase, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import type { ConfigDefinition, PluginLoadPhase, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
 import { isConfigDefinition } from "@reelvault/sdk/plugin";
 import { realtimeService } from "@/modules/realtime";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
@@ -158,6 +158,7 @@ export class PluginLoader {
 		let trackedPluginId: string | undefined;
 		let manifest: Awaited<ReturnType<typeof loadPluginManifest>> | undefined;
 		let plugin: ReelVaultPlugin | undefined;
+		let configDefinition: ConfigDefinition | undefined;
 		let failurePhase: PluginLoadPhase | undefined;
 
 		try {
@@ -214,7 +215,7 @@ export class PluginLoader {
 			plugin = defaultExport;
 
 			// Parse the stored values through the plugin's own config schema before setup() sees them.
-			const configDefinition = isRecord(defaultExport) && isConfigDefinition(defaultExport.config) ? defaultExport.config : undefined;
+			configDefinition = isRecord(defaultExport) && isConfigDefinition(defaultExport.config) ? defaultExport.config : undefined;
 			const config = validatePluginConfig(rawConfig, configDefinition);
 			this.registry.markPhase(manifest.id, "setup");
 
@@ -277,13 +278,13 @@ export class PluginLoader {
 			}
 
 			if (trackedPluginId) {
-				this.registry.fail(trackedPluginId, err);
+				this.registry.fail(trackedPluginId, err, configDefinition);
 				failurePhase = this.registry.get(trackedPluginId)?.failurePhase;
 				this.registry.unregister(trackedPluginId, true);
 				this.directoryIndex.delete(trackedPluginId);
 				this.pluginScopes.delete(trackedPluginId);
 			} else if (manifest) {
-				this.registry.recordFailure(manifest, err);
+				this.registry.recordFailure(manifest, err, failurePhase, configDefinition);
 			}
 
 			this.logger.error(`Failed to load plugin ${pluginName}`, err, { failurePhase });
