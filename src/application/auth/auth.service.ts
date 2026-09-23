@@ -14,7 +14,7 @@ import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { InMemoryRateLimiter } from "@/middleware/rate-limit.middleware";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
-import { TooManyRequestsError } from "@/utils/errors";
+import { TooManyRequestsError, UnauthorizedError } from "@/utils/errors";
 import { rewriteCookieDomain } from "@/utils/http.utils";
 import { serializeDate } from "@/utils/time.utils";
 import { normalizeLower } from "@/utils/type.utils";
@@ -57,6 +57,12 @@ class AuthService extends BaseService {
 				email: body.email,
 				password: body.password,
 			});
+
+			// better-auth's 401 body carries no stable machine code — tag it here so
+			// the frontend can show "invalid credentials" instead of a generic 401.
+			if (response.status === 401) {
+				throw new UnauthorizedError("Invalid email or password", { code: "auth.invalid_credentials" });
+			}
 
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});

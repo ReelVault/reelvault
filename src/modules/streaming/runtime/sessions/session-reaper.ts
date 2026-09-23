@@ -140,8 +140,9 @@ export class SessionReaper {
 		// Release was already claimed (state = `ending`), so no process start can
 		// land after this read — the handle below is the last one this session had.
 		const session = this.store.get(sessionId);
+		const process = session?.process ?? null;
+		if (process) ffmpegProcessTracker.markIntentionalKill(sessionId);
 		try {
-			const process = session?.process ?? null;
 			await Promise.all([
 				session?.operationId
 					? lifecycleCallbacks.cancelOperation(session.operationId).catch(() => {

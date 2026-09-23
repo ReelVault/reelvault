@@ -80,10 +80,12 @@ export const serverConstants = {
 		/**
 		 * SPA served by the server itself (APP_WEB_DIST). Self-hosted assets only;
 		 * blob: covers MSE media and hls.js workers, data: inline images, and
-		 * 'unsafe-inline' styles cover runtime style attributes.
+		 * 'unsafe-inline' styles cover runtime style attributes. api.dicebear.com
+		 * serves the profile avatar previews — the picked avatar is localized to
+		 * /v1/images at save time, but the picker grid renders the remote URLs.
 		 */
 		webUiContentSecurityPolicy:
-			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.dicebear.com; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",
 		/**
 		 * Plugin UI assets (ESM modules defining custom elements) are imported
 		 * cross-origin by the host website. A permissive policy keeps any plugin-owned

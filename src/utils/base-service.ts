@@ -1,4 +1,5 @@
 import type { Logger } from "@reelvault/sdk";
+import { WorkerCancellationError } from "@/workers/utils/worker-cancellation";
 import { DomainError, InternalError, NotFoundError, UnauthorizedError } from "./errors";
 import { createLogger } from "./logger";
 
@@ -72,6 +73,17 @@ export class BaseService {
 
 			return result;
 		} catch (error) {
+			// Cancellation (superseded scan, session teardown) is expected flow, not
+			// a failure — warn and propagate without the error-level noise.
+			if (error instanceof WorkerCancellationError) {
+				this.logger.warn(`Operation ${operation} cancelled`, {
+					operation,
+					durationMs: this.elapsedMs(startTime),
+					...opts.logContext,
+				});
+				throw error;
+			}
+
 			this.logger.error(`Operation ${operation} failed`, error, {
 				operation,
 				durationMs: this.elapsedMs(startTime),

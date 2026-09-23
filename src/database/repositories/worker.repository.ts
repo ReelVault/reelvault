@@ -59,7 +59,10 @@ export interface WorkerItemStats {
 class WorkerJobRepository {
 	async enqueue(input: EnqueueWorkerItemInput): Promise<WorkerItem> {
 		const [item] = await this.enqueueMany([input]);
-		if (!item) throw new Error(`Failed to enqueue item for worker "${input.workerId}"`);
+		// Empty result means the dedupe fetch-back found no active row either —
+		// the previously-active job went terminal mid-race, so the trigger cannot
+		// be satisfied right now (client retries); never a raw 500.
+		if (!item) throw new ConflictError(`Failed to enqueue item for worker "${input.workerId}"`);
 
 		return item;
 	}

@@ -44,6 +44,8 @@ class FFmpegProcessTracker {
 	private readonly processes = new Map<TrackedProcess, ProcessMeta>();
 	/** Stderr tail providers keyed by process — read when a process dies unexpectedly. */
 	private readonly stderrTails = new Map<TrackedProcess, () => string>();
+	/** Labels of processes killed on purpose (session stop, shutdown, rescue) — exit logging downgrades these. */
+	private readonly intentionalKillLabels = new Set<string>();
 	/** Streaming slots claimed but not yet tracked (spawn in progress) — keeps thread budgeting honest. */
 	private pendingStreaming = 0;
 
@@ -143,11 +145,29 @@ class FFmpegProcessTracker {
 		this.stderrTails.delete(process);
 	}
 
+	/**
+	 * Registers a label whose next non-zero exit is an expected teardown, not a
+	 * crash — the runner logs it as a warning instead of an error. The mark is
+	 * consumed by `clearIntentionalKill` once the exit was observed.
+	 */
+	markIntentionalKill(label: string | null | undefined): void {
+		if (label) this.intentionalKillLabels.add(label);
+	}
+
+	isIntentionalKill(label: string | null | undefined): boolean {
+		return label != null && this.intentionalKillLabels.has(label);
+	}
+
+	clearIntentionalKill(label: string | null | undefined): void {
+		if (label) this.intentionalKillLabels.delete(label);
+	}
+
 	killAll(): void {
 		if (this.processes.size === 0) return;
 
 		logger.warn(`Terminating ${this.processes.size} active FFmpeg/ffprobe process(es)`);
-		for (const [tracked] of this.processes) {
+		for (const [tracked, meta] of this.processes) {
+			this.markIntentionalKill(meta.label);
 			try {
 				tracked.kill("SIGKILL");
 			} catch {
@@ -165,7 +185,8 @@ class FFmpegProcessTracker {
 		if (victims.length === 0) return 0;
 
 		logger.warn(`Rescue: terminating ${victims.length} background FFmpeg process(es)`);
-		for (const [tracked] of victims) {
+		for (const [tracked, meta] of victims) {
+			this.markIntentionalKill(meta.label);
 			try {
 				tracked.kill("SIGKILL");
 			} catch {

@@ -1,5 +1,6 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
+import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
@@ -54,11 +55,21 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 			.withOperationLog({ operationId: sessionId, mode, inputPath })
 			.purpose("streaming")
 			.label(sessionId)
-			.onError((err) => this.logger.error(errorLogMessage, err, { sessionId }))
+			.onError((err) => {
+				// During a graceful stop ffmpeg reports broken pipes / unwritable
+				// outputs on stderr — noise unless the process died for real.
+				if (ffmpegProcessTracker.isIntentionalKill(sessionId))
+					this.logger.debug("FFmpeg reported stderr error during intentional stop", { sessionId });
+				else this.logger.error(errorLogMessage, err, { sessionId });
+			})
 			.onProgress((progress) => detach(transcodeProgressMonitor.onFfmpegProgress(sessionId, progress)))
 			.onExit((_, exitCode, signalCode, error) => {
-				if (exitCode !== 0) this.logger.error("FFmpeg process exited with error", error, { sessionId, exitCode });
-				else this.logger.debug("FFmpeg process completed successfully", { sessionId, mode });
+				const intentional = ffmpegProcessTracker.isIntentionalKill(sessionId);
+				ffmpegProcessTracker.clearIntentionalKill(sessionId);
+
+				if (exitCode === 0) this.logger.debug("FFmpeg process completed successfully", { sessionId, mode });
+				else if (intentional || signalCode != null) this.logger.warn("FFmpeg process stopped", { sessionId, mode, exitCode, signalCode });
+				else this.logger.error("FFmpeg process exited with error", error, { sessionId, exitCode, signalCode });
 
 				detach(transcodeProgressMonitor.onFfmpegExit(sessionId, exitCode, signalCode));
 			})

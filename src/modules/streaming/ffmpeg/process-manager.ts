@@ -52,6 +52,7 @@ export class ProcessManager {
 			// Atomic: refuses a session whose release was claimed while ffmpeg spawned.
 			this.store.attachProcess(sessionId, process, timelineStart);
 		} catch (error) {
+			ffmpegProcessTracker.markIntentionalKill(sessionId);
 			await killFfmpegProcessGracefully(process).catch((killError) => {
 				this.logger.warn("Failed to kill orphaned ffmpeg during session start rollback", { sessionId, error: killError });
 			});
@@ -67,6 +68,7 @@ export class ProcessManager {
 	async stopRunningProcess(sessionId: string, session: StreamingSession, timeoutMs?: number): Promise<void> {
 		const process = session.process;
 		if (process) {
+			ffmpegProcessTracker.markIntentionalKill(sessionId);
 			await killFfmpegProcessGracefully(process, timeoutMs).catch((killError) => {
 				// A failed kill leaves an orphan ffmpeg consuming CPU and writing into
 				// a temp dir that is about to be deleted — must be visible.

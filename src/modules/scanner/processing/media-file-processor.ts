@@ -6,7 +6,7 @@ import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { throwIfAborted, WorkerCancellationError } from "@/workers/utils/worker-cancellation";
 import { mapChaptersToMarkers } from "../probe/chapters-to-markers.utils";
 import { mapMediaFileData } from "../probe/media-probe.mapper";
 import { videoParser } from "../probe/video-parser.service";
@@ -143,6 +143,13 @@ class MediaFileProcessor extends BaseService {
 				sourceMtimeMs: stats ? Math.floor(stats.mtimeMs) : null,
 			};
 		} catch (error) {
+			// Cancellation happens whenever a newer scan supersedes the running one —
+			// expected, not a failure.
+			if (error instanceof WorkerCancellationError) {
+				this.logger.warn("Process file cancelled", { filePath });
+				throw error;
+			}
+
 			this.logger.error("Process file failed", error, { filePath });
 			throw toDomainError(error, `Media file processing failed: ${filePath}`);
 		}
