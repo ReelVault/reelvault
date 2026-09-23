@@ -25,16 +25,61 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: "latest"
+      - name: Syntax check
+        run: |
+          bash -n install/install.sh
+          bash -n install/start.sh
 
-      # tests/install-scripts.test.ts runs install.sh for real against a
-      # synthetic release archive: happy path, --remote/--port, the -full
-      # ffmpeg guard and --uninstall keeping data/.
-      - name: Test install.sh against a release-like archive
-        run: bun test tests/install-scripts.test.ts
+      # install.sh is run for real against a release-like archive built on the
+      # spot: happy path, --remote/--port, and --uninstall keeping data/.
+      - name: Install from a release-like archive
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          app="$work/staging/ReelVault"
+          mkdir -p "$app/bun" "$app/bin"
+          printf '#!/usr/bin/env bash\necho ReelVault\n' > "$app/start.sh"
+          printf '#!/bin/sh\necho bun\n' > "$app/bun/bun"
+          printf '#!/bin/sh\necho ffmpeg\n' > "$app/bin/ffmpeg"
+          printf '#!/bin/sh\necho ffprobe\n' > "$app/bin/ffprobe"
+          chmod +x "$app/start.sh" "$app/bun/bun" "$app/bin/ffmpeg" "$app/bin/ffprobe"
+          tar -czf "$work/ReelVault-0.0.0-linux-x64-full.tar.gz" -C "$work/staging" ReelVault
+
+          target="$work/app"
+          XDG_CONFIG_HOME="$work/xdg" bash install/install.sh \
+            --file "$work/ReelVault-0.0.0-linux-x64-full.tar.gz" \
+            --full --no-service --remote --port 8080 --dir "$target"
+
+          test -x "$target/start.sh"
+          test -x "$target/bun/bun"
+          test -x "$target/bin/ffmpeg"
+          grep -q 'APP_HOST="0.0.0.0"' "$target/settings.env"
+          grep -q 'APP_PORT="8080"' "$target/settings.env"
+
+          mkdir -p "$target/data"
+          : > "$target/data/reelvault.sqlite"
+          XDG_CONFIG_HOME="$work/xdg" bash install/install.sh --uninstall --dir "$target"
+          test -f "$target/data/reelvault.sqlite"
+          test ! -e "$target/start.sh"
+
+      - name: Fails cleanly when a -full archive has no bundled ffmpeg
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          app="$work/staging/ReelVault"
+          mkdir -p "$app/bun"
+          printf '#!/usr/bin/env bash\n' > "$app/start.sh"
+          printf '#!/bin/sh\n' > "$app/bun/bun"
+          chmod +x "$app/start.sh" "$app/bun/bun"
+          tar -czf "$work/ReelVault-0.0.0-linux-x64-full.tar.gz" -C "$work/staging" ReelVault
+
+          if XDG_CONFIG_HOME="$work/xdg" bash install/install.sh \
+              --file "$work/ReelVault-0.0.0-linux-x64-full.tar.gz" \
+              --full --no-service --dir "$work/app" 2>"$work/err"; then
+            echo "expected install.sh to fail without a bundled ffmpeg" >&2
+            exit 1
+          fi
+          grep -q "did not contain bin/ffmpeg" "$work/err"
 
   windows:
     name: Windows installer
