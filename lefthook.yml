@@ -1,0 +1,38 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc,css}"
+      run: bunx @biomejs/biome check --write --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {staged_files}
+      stage_fixed: true
+    oxlint:
+      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
+      run: bunx oxlint --type-aware {staged_files}
+    react-doctor:
+      glob: "*.{jsx,tsx}"
+      run: |
+        if [ -f package.json ] && grep -q '"react"' package.json; then
+          output=$(mktemp "${TMPDIR:-/tmp}/react-doctor-hook.XXXXXX")
+          if bunx react-doctor --staged --blocking warning > "$output" 2>&1; then
+            rm -f "$output"
+          else
+            cat "$output" >&2
+            rm -f "$output"
+            printf "%s\n" "React Doctor found staged regressions." "Run bunx react-doctor --staged --blocking warning to inspect." "Want them fixed? Ask your agent to run that command and resolve the findings." >&2
+          fi
+        fi
+
+pre-push:
+  commands:
+    biome:
+      glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc,css}"
+      run: bunx @biomejs/biome check --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {push_files}
+    oxlint:
+      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
+      run: bunx oxlint --type-aware
+    types:
+      glob: "*.{ts,tsx}"
+      run: bunx tsc --noEmit --pretty
+    test:
+      glob: "*.{ts,tsx}"
+      run: bun test

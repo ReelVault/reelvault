@@ -1,0 +1,10 @@
+# Applied to the `website` build context (ReelVault.Website checkout).
+# Local checkouts carry node_modules with symlinks into the developer's Bun
+# cache — they must never reach the image; the web stage installs its own.
+node_modules
+dist
+.git
+.github
+.claude
+.zcode
+*.log

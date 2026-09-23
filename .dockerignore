@@ -1,0 +1,21 @@
+# keep the build context lean and free of host state
+.data/
+data/
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+.git/
+.github/
+.zcode/
+.agents/
+docs/
+scripts/
+tests/
+*.sqlite
+*.sqlite-*
+Dockerfile
+docker-compose.yml
+.dockerignore

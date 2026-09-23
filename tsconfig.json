@@ -1,0 +1,58 @@
+{
+	"compilerOptions": {
+		/* --- ENVIRONMENT & LANGUAGE --- */
+		"target": "esnext",
+		"lib": ["ESNext", "DOM"], // "DOM", "DOM.Iterable"
+		// "jsx": "react-jsx",
+		"types": ["bun"],
+		"allowJs": false,
+
+		/* --- MODULES & RESOLUTION --- */
+		"module": "preserve",
+		"moduleResolution": "bundler",
+		"moduleDetection": "force",
+		"resolveJsonModule": true,
+		"paths": {
+			"@/*": ["./src/*"],
+			"@sdk": ["./sdk/index.ts"],
+			"@sdk/*": ["./sdk/*"],
+			"benchkit": ["./packages/benchkit/src/index.ts"]
+		},
+
+		/* --- INTEROP & CONSTRAINTS --- */
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
+		"esModuleInterop": true,
+		"allowSyntheticDefaultImports": true,
+		"forceConsistentCasingInFileNames": true,
+
+		/* --- EMIT / CODE GENERATION --- */
+		"rootDir": ".",
+		"outDir": "./dist",
+		"noEmit": true,
+		"incremental": true,
+		"preserveConstEnums": true,
+
+		/* --- TYPE CHECKING --- */
+		"strict": true,
+		"skipLibCheck": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"noImplicitReturns": true,
+		"allowUnreachableCode": false,
+		"allowUnusedLabels": false,
+
+		// Relaxed vs. the backend tsconfig: exact-optional is a common source of
+		// friction with third-party React prop types. Turn on per-project if you
+		// want the stricter guarantee.
+		"exactOptionalPropertyTypes": true,
+
+		// Biome's correctness/noUnusedVariables + noUnusedFunctionParameters already
+		// cover this — leave off here to avoid two tools disagreeing on the same file.
+		"noUnusedLocals": false,
+		"noUnusedParameters": false
+	},
+	"include": ["**/*.ts", "drizzle.config.ts", "package.json"],
+	"exclude": ["node_modules", "dist", "sdk/dist"]
+}

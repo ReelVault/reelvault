@@ -1,0 +1,31 @@
+# Bun Configuration - Maximum Security Profile
+# Reference: https://bun.com/docs/runtime/bunfig
+
+# Disable telemetry for maximum privacy and reduced attack surface.
+telemetry = false
+
+[install]
+# CRITICAL: Disable all lifecycle scripts (preinstall, postinstall, etc.)
+# This is the primary vector for npm malware.
+# Run any required package setup explicitly after auditing it.
+ignoreScripts = true
+
+# Use the text-based lockfile (bun.lock) instead of the binary one (bun.lockb).
+# This allows for easy auditing of dependency changes in Git diffs.
+saveTextLockfile = true
+
+# Explicitly set the registry to avoid "registry confusion" attacks.
+registry = "https://registry.npmjs.org"
+
+[run]
+# Don't leave orphan processes behind after a script finishes.
+noOrphans = true
+
+# Automatically alias 'node' to 'bun' for all 'bun run' commands.
+bun = true
+
+# Runs before every test file — put shared test setup here (e.g. clean temp dirs,
+# seed a test DB, register global mocks). Create tests/setup.ts once you have
+# tests that need it; delete this file (and tests/setup.ts) if you don't.
+[test]
+preload = ["./tests/setup.ts"]

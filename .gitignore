@@ -1,0 +1,129 @@
+# ==================== #
+# OPERATING SYSTEM
+# ==================== #
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+
+# ==================== #
+# DEPENDENCIES
+# ==================== #
+
+node_modules/
+.pnp
+.pnp.js
+
+# ==================== #
+# ENVIRONMENT & LOCAL DATA
+# ==================== #
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Database
+*.db*
+*.sqlite*
+
+# ==================== #
+# LOGS
+# ==================== #
+
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==================== #
+# BUILD OUTPUT
+# ==================== #
+
+dist/
+build/
+.build
+out/
+*.tsbuildinfo
+
+# Next.js & Vercel
+.next
+.vercel
+
+# Tauri
+src-tauri/target/
+
+# ==================== #
+# TESTING
+# ==================== #
+
+coverage
+.nyc_output
+jest-cache
+
+# ==================== #
+# GIT HOOKS
+# ==================== #
+
+# Husky (this template uses lefthook instead, but ignore it in case a
+# dependency or a contributor's local setup installs it anyway)
+.husky
+
+# ==================== #
+# EDITOR
+# ==================== #
+
+# Keep shared VS Code config in git (launch.json, settings.json,
+# extensions.json); ignore everything else under .vscode/ (local overrides,
+# workspace-specific caches).
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# ==================== #
+# GENERATED
+# ==================== #
+
+src/paraglide/
+**/routeTree.gen.ts
+**/*.gen.ts
+
+# ==================== #
+# MISC
+# ==================== #
+
+.agents/
+.VSCodeCounter
+repomix-output*
+
+# ==================== #
+# PROJECT SPECIFIC
+# ==================== #
+.zcode
+.zcodeignore
+
+# Default ROOT_DIR for bare launches (./data) and its generated secrets
+/data
+secrets.env
+
+# SDK package license, copied from the repo root by `prepack`
+sdk/LICENSE
+sdk/*.tgz
+# Scenario runner artifacts (bun run scenarios)
+/benchmark-results

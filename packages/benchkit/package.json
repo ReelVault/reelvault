@@ -1,0 +1,11 @@
+{
+	"name": "benchkit",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"engines": {
+		"bun": ">=1.4.2"
+	}
+}

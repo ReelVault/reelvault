@@ -1,0 +1,57 @@
+# ReelVault — single-container deployment (API + web UI + ffmpeg on port 3030).
+#
+#   docker compose up -d
+#   -> open http://localhost:3030 and create the administrator account
+#
+# Your media library, watched state and settings live in the reelvault-data
+# volume; mount your media folder read-only to scan it (see below).
+services:
+  server:
+    image: ghcr.io/reelvault/server:latest
+    restart: unless-stopped
+    ports:
+      - "3030:3030"
+    volumes:
+      - reelvault-data:/data
+      # Mount your media to scan it from the UI (paths become library folders), e.g.:
+      # - /srv/media:/media:ro
+    environment:
+      # APP_HOST=0.0.0.0, APP_PORT=3030, ROOT_DIR=/data and APP_WEB_DIST=/web
+      # are baked into the image - the web UI is served on the same port.
+      # Secrets: leave unset and the server generates them into /data/secrets.env,
+      # or pin them explicitly (keeps sessions stable across image rebuilds):
+      # BETTER_AUTH_SECRET: ""
+      # Require a setup token for first-run (recommended only for servers
+      # exposed to the public internet before the admin account exists):
+      # SETUP_TOKEN_ENABLED: "true"
+      # Extra allowed origins (VPN/Tailscale/public domains); LAN and localhost
+      # are allowed by default:
+      # APP_ALLOWED_ORIGINS: "https://reelvault.example.com"
+      APP_TRUSTED_PROXY_COUNT: "0"
+
+    # Local build instead of the published image (needs both repos cloned
+    # side by side):
+    #   docker compose build --build-context website=../ReelVault.Website
+    # build:
+    #   context: .
+    #   additional_contexts:
+    #     website: ../ReelVault.Website
+
+  # Optional: nginx serving a separately built ReelVault.Website instead of the
+  # built-in web UI (advanced setups, e.g. client and API on separate origins).
+  #   docker compose --profile web up -d     -> client at http://<host>:8080
+  web:
+    image: nginx:alpine
+    profiles: ["web"]
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/reelvault.conf:/etc/nginx/conf.d/default.conf:ro
+      # Built client, from a sibling clone of ReelVault.Website:
+      - ../ReelVault.Website/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - server
+
+volumes:
+  reelvault-data:
