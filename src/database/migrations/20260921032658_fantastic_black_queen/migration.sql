@@ -1,1 +1,0 @@
-CREATE INDEX `metadata_provider_settings_order_idx` ON `metadata_provider_settings` (`priority`,`provider_id`);

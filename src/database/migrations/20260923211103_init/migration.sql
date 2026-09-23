@@ -229,10 +229,12 @@ CREATE TABLE `libraries` (
 	`name` text NOT NULL,
 	`type` text NOT NULL,
 	`metadata_storage_mode` text DEFAULT 'database' NOT NULL,
+	`sidecar_flavor` text DEFAULT 'reelvault' NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	CONSTRAINT "libraries_type_check" CHECK("type" IN ('movies', 'tv_shows')),
-	CONSTRAINT "libraries_metadata_storage_mode_check" CHECK("metadata_storage_mode" IN ('database', 'sidecar', 'database_and_sidecar'))
+	CONSTRAINT "libraries_metadata_storage_mode_check" CHECK("metadata_storage_mode" IN ('database', 'sidecar', 'database_and_sidecar')),
+	CONSTRAINT "libraries_sidecar_flavor_check" CHECK("sidecar_flavor" IN ('reelvault', 'kodi'))
 );
 --> statement-breakpoint
 CREATE TABLE `library_paths` (
@@ -669,6 +671,18 @@ CREATE TABLE `resource_metrics` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `scan_findings` (
+	`library_id` text NOT NULL,
+	`file_path` text NOT NULL,
+	`file_name` text NOT NULL,
+	`reason` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	CONSTRAINT `scan_findings_pk` PRIMARY KEY(`library_id`, `file_path`),
+	CONSTRAINT `fk_scan_findings_library_id_libraries_id_fk` FOREIGN KEY (`library_id`) REFERENCES `libraries`(`id`) ON DELETE CASCADE,
+	CONSTRAINT "scan_findings_reason_check" CHECK("reason" IN ('recognition_failed', 'type_mismatch', 'no_metadata_match'))
+);
+--> statement-breakpoint
 CREATE TABLE `scan_state` (
 	`id` text PRIMARY KEY,
 	`library_id` text NOT NULL UNIQUE,
@@ -921,6 +935,7 @@ CREATE INDEX `media_markers_file_start_idx` ON `media_markers` (`media_file_id`,
 CREATE INDEX `metadata_external_ids_type_value_idx` ON `metadata_external_ids` (`identifier_type`,`identifier`);--> statement-breakpoint
 CREATE INDEX `metadata_external_ids_metadata_idx` ON `metadata_external_ids` (`metadata_id`);--> statement-breakpoint
 CREATE INDEX `metadata_provider_settings_priority_idx` ON `metadata_provider_settings` (`enabled`,`priority`,`provider_id`);--> statement-breakpoint
+CREATE INDEX `metadata_provider_settings_order_idx` ON `metadata_provider_settings` (`priority`,`provider_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `metadata_unique` ON `metadata` (`title`,`type`,`release_date`);--> statement-breakpoint
 CREATE INDEX `metadata_type_created_idx` ON `metadata` (`type`,`created_at`);--> statement-breakpoint
 CREATE UNIQUE INDEX `metadata_stable_key_idx` ON `metadata` (`stable_key`);--> statement-breakpoint
@@ -934,6 +949,12 @@ CREATE INDEX `metadata_title_idx` ON `metadata` (`title`);--> statement-breakpoi
 CREATE INDEX `metadata_sort_title_nocase_idx` ON `metadata` (COALESCE("sort_title", "title") COLLATE NOCASE);--> statement-breakpoint
 CREATE INDEX `metadata_match_score_idx` ON `metadata` (`match_score`);--> statement-breakpoint
 CREATE INDEX `metadata_missing_translation_idx` ON `metadata` (`has_missing_translation`);--> statement-breakpoint
+CREATE INDEX `metadata_title_id_idx` ON `metadata` (`title`,`id`);--> statement-breakpoint
+CREATE INDEX `metadata_sort_title_nocase_id_idx` ON `metadata` (COALESCE("sort_title", "title") COLLATE NOCASE,`id`);--> statement-breakpoint
+CREATE INDEX `metadata_release_date_id_idx` ON `metadata` (`release_date`,`id`);--> statement-breakpoint
+CREATE INDEX `metadata_popularity_id_idx` ON `metadata` (`popularity`,`id`);--> statement-breakpoint
+CREATE INDEX `metadata_match_score_id_idx` ON `metadata` (`match_score`,`id`);--> statement-breakpoint
+CREATE INDEX `metadata_updated_at_id_idx` ON `metadata` (`updated_at`,`id`);--> statement-breakpoint
 CREATE INDEX `metadata_cast_person_idx` ON `metadata_cast` (`person_id`);--> statement-breakpoint
 CREATE INDEX `metadata_collections_collection_idx` ON `metadata_collections` (`collection_id`);--> statement-breakpoint
 CREATE INDEX `metadata_collections_collection_sort_idx` ON `metadata_collections` (`collection_id`,`sort_order`);--> statement-breakpoint

@@ -1,8 +1,8 @@
 {
 	"version": "7",
 	"dialect": "sqlite",
-	"id": "4d158f08-d2b1-45ac-950a-ea383dc35db2",
-	"prevIds": ["41c9c73a-7cd5-4c63-873f-e2e91f6c3d9a"],
+	"id": "fe1dd138-23f6-49fe-bddd-7cc167fdb7fa",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
 	"ddl": [
 		{
 			"name": "admin_audit_logs",

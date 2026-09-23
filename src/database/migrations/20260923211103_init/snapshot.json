@@ -1,8 +1,8 @@
 {
 	"version": "7",
 	"dialect": "sqlite",
-	"id": "ea80469b-1a86-45f8-a6cc-0d64a37ed95a",
-	"prevIds": ["4515f65a-fbc0-4a7f-8c07-38f2e540d0e5"],
+	"id": "fe1dd138-23f6-49fe-bddd-7cc167fdb7fa",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
 	"ddl": [
 		{
 			"name": "admin_audit_logs",
@@ -214,6 +214,10 @@
 		},
 		{
 			"name": "resource_metrics",
+			"entityType": "tables"
+		},
+		{
+			"name": "scan_findings",
 			"entityType": "tables"
 		},
 		{
@@ -1641,6 +1645,16 @@
 			"default": "'database'",
 			"generated": null,
 			"name": "metadata_storage_mode",
+			"entityType": "columns",
+			"table": "libraries"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'reelvault'",
+			"generated": null,
+			"name": "sidecar_flavor",
 			"entityType": "columns",
 			"table": "libraries"
 		},
@@ -4126,6 +4140,66 @@
 		},
 		{
 			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "library_id",
+			"entityType": "columns",
+			"table": "scan_findings"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "file_path",
+			"entityType": "columns",
+			"table": "scan_findings"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "file_name",
+			"entityType": "columns",
+			"table": "scan_findings"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "reason",
+			"entityType": "columns",
+			"table": "scan_findings"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "created_at",
+			"entityType": "columns",
+			"table": "scan_findings"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "updated_at",
+			"entityType": "columns",
+			"table": "scan_findings"
+		},
+		{
+			"type": "text",
 			"notNull": false,
 			"autoincrement": false,
 			"default": null,
@@ -6016,6 +6090,17 @@
 			"table": "profiles"
 		},
 		{
+			"columns": ["library_id"],
+			"tableTo": "libraries",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"name": "fk_scan_findings_library_id_libraries_id_fk",
+			"entityType": "fks",
+			"table": "scan_findings"
+		},
+		{
 			"columns": ["seasonId"],
 			"tableTo": "seasons",
 			"columnsTo": ["id"],
@@ -6343,6 +6428,13 @@
 			"name": "profile_stream_prefs_pk",
 			"entityType": "pks",
 			"table": "profile_stream_prefs"
+		},
+		{
+			"columns": ["library_id", "file_path"],
+			"nameExplicit": false,
+			"name": "scan_findings_pk",
+			"entityType": "pks",
+			"table": "scan_findings"
 		},
 		{
 			"columns": ["seasonId", "provider_id"],
@@ -9075,6 +9167,12 @@
 			"table": "libraries"
 		},
 		{
+			"value": "\"sidecar_flavor\" IN ('reelvault', 'kodi')",
+			"name": "libraries_sidecar_flavor_check",
+			"entityType": "checks",
+			"table": "libraries"
+		},
+		{
 			"value": "\"metadata_storage_mode\" IS NULL OR \"metadata_storage_mode\" IN ('database', 'sidecar', 'database_and_sidecar')",
 			"name": "library_paths_metadata_storage_mode_check",
 			"entityType": "checks",
@@ -9169,6 +9267,12 @@
 			"name": "providers_entity_type_check",
 			"entityType": "checks",
 			"table": "providers"
+		},
+		{
+			"value": "\"reason\" IN ('recognition_failed', 'type_mismatch', 'no_metadata_match')",
+			"name": "scan_findings_reason_check",
+			"entityType": "checks",
+			"table": "scan_findings"
 		},
 		{
 			"value": "\"max_value\" IS NOT NULL AND \"max_value\" > 0\n\t\t\t\t\tAND \"value\" >= 0 AND \"value\" <= \"max_value\"\n\t\t\t\t\tAND (\"votes\" IS NULL OR \"votes\" >= 0)",
