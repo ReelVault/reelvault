@@ -33,7 +33,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Repo = "ReelVault/ReelVault.Server"
+$Repo = "ReelVault/reelvault"
 $StartMenuDir = [Environment]::GetFolderPath("Programs")
 $ShortcutPath = Join-Path $StartMenuDir "ReelVault.lnk"
 $StartupShortcutPath = Join-Path $StartMenuDir "Programs\Startup\ReelVault.lnk"

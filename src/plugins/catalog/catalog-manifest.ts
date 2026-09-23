@@ -96,6 +96,7 @@ export function resolveCatalogCandidate(
 
 	for (const plugin of plugins) {
 		if (plugin.id !== pluginId) continue;
+
 		if (plugin.version === version) return toCandidate(plugin);
 
 		const archived = plugin.versions?.find((entry) => entry.version === version);
@@ -213,17 +214,21 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 		if (!SHA256_PATTERN.test(checksum)) throw new ValidationError(`${failure("checksum")} must be 'sha256-' followed by 64 hex digits`);
 
 		if (seen.has(version)) throw new ValidationError(`Catalog plugin #${index}: duplicate version '${version}'`);
+
 		seen.add(version);
 
 		const parsed: PluginCatalogVersionEntry = { version, downloadUrl, checksum };
 		if (item.date !== undefined && item.date !== null) {
 			const date = assertString(item.date, failure("date"), MAX_DATE_LENGTH);
 			if (Number.isNaN(Date.parse(date))) throw new ValidationError(`${failure("date")} must be an ISO date`);
+
 			parsed.date = date;
 		}
+
 		if (item.changelog !== undefined && item.changelog !== null) {
 			parsed.changelog = assertString(item.changelog, failure("changelog"), 4000);
 		}
+
 		versions.push(parsed);
 	}
 

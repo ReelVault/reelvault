@@ -1,0 +1,95 @@
+name: Installers
+
+# Runs only when the installer scripts change — the rest of CI is unaffected.
+# Manual runs are possible from the Actions tab (workflow_dispatch).
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "install/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "install/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux installer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "latest"
+
+      # tests/install-scripts.test.ts runs install.sh for real against a
+      # synthetic release archive: happy path, --remote/--port, the -full
+      # ffmpeg guard and --uninstall keeping data/.
+      - name: Test install.sh against a release-like archive
+        run: bun test tests/install-scripts.test.ts
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test install.ps1 against a release-like archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $work = Join-Path $env:RUNNER_TEMP "installer-test"
+          Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+          $app = Join-Path $work "staging\ReelVault"
+          foreach ($sub in @("bun", "bin")) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $app $sub) | Out-Null
+          }
+          Set-Content -Path (Join-Path $app "start.bat") -Value "@echo off"
+          Set-Content -Path (Join-Path $app "bun\bun.exe") -Value "stub"
+          Set-Content -Path (Join-Path $app "bin\ffmpeg.exe") -Value "stub"
+          Set-Content -Path (Join-Path $app "bin\ffprobe.exe") -Value "stub"
+
+          $archive = Join-Path $work "ReelVault-0.0.0-windows-x64-full.zip"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          # includeBaseDirectory = $true keeps the top-level ReelVault/ folder
+          # that install.ps1 expects when it unpacks the archive.
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $app,
+            $archive,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $true
+          )
+
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+          try {
+            if (-not ($zip.Entries | Where-Object { $_.FullName -like "ReelVault/*" })) {
+              throw "archive is missing the top-level ReelVault/ folder"
+            }
+          } finally {
+            $zip.Dispose()
+          }
+
+          $target = Join-Path $work "app"
+          & ./install/install.ps1 -File $archive -Full -NoShortcut -Remote -Port 8080 -Dir $target
+
+          if (-not (Test-Path (Join-Path $target "start.bat"))) { throw "start.bat missing" }
+          if (-not (Test-Path (Join-Path $target "bin\ffmpeg.exe"))) { throw "bundled ffmpeg missing" }
+          $settings = Get-Content (Join-Path $target "settings.cmd") -Raw
+          if ($settings -notmatch "APP_PORT=8080") { throw "port not written to settings.cmd" }
+          if ($settings -notmatch "APP_HOST=0.0.0.0") { throw "remote host not written to settings.cmd" }
+
+          New-Item -ItemType Directory -Force -Path (Join-Path $target "data") | Out-Null
+          Set-Content -Path (Join-Path $target "data\reelvault.sqlite") -Value "db"
+          ./install/install.ps1 -Uninstall -Dir $target
+          if (Test-Path (Join-Path $target "start.bat")) { throw "start.bat not removed by -Uninstall" }
+          if (-not (Test-Path (Join-Path $target "data\reelvault.sqlite"))) { throw "data/ was removed by -Uninstall" }

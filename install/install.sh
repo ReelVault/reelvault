@@ -18,7 +18,7 @@
 #   http://localhost:3030
 set -euo pipefail
 
-REPO="ReelVault/ReelVault.Server"
+REPO="ReelVault/reelvault"
 DEFAULT_DIR="${HOME}/.local/share/reelvault"
 VERSION=""
 ARCHIVE_FILE=""
