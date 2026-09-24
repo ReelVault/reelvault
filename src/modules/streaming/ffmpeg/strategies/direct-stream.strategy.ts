@@ -1,11 +1,10 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { buildDirectStreamOutputArgs } from "@/integrations/ffmpeg/ffmpeg.direct-stream-args";
-import { segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
+import { buildHlsOutputPath, segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { probeBudgetForFormat } from "@/integrations/ffprobe/ffprobe.probe-budgets";
 import { NotFoundError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**
@@ -30,7 +29,7 @@ export class DirectStreamStrategy extends BaseStreamingStrategy {
 			throw new NotFoundError(`Input file does not exist: ${inputPath}`);
 		}
 
-		const segmentPattern = PathUtils.join(outputDir, "seg_%d.m4s");
+		const segmentPattern = buildHlsOutputPath(outputDir, "seg_%d.m4s");
 		const startNumber = segmentStartNumber(startTime, this.config);
 
 		this.logger.debug(`Starting direct-stream at ${startTime}s (seg ${startNumber})`, { sessionId, startTime, startNumber });

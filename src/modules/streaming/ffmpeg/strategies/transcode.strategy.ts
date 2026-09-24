@@ -1,7 +1,7 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { getEffectiveHwaccel, resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import { buildHlsMuxerArgs, buildStreamMapArgs, segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
+import { buildHlsMuxerArgs, buildHlsOutputPath, buildStreamMapArgs, segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { buildHwaccelInputArgs, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
 import { probeBudgetForFormat } from "@/integrations/ffprobe/ffprobe.probe-budgets";
@@ -10,7 +10,6 @@ import { systemResourcesService } from "@/system/system-resources.service";
 import { NotFoundError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { clamp } from "@/utils/math.utils";
-import { PathUtils } from "@/utils/path.utils";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**
@@ -34,7 +33,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 			throw new NotFoundError(`Input file does not exist: ${inputPath}`);
 		}
 
-		const segmentPattern = PathUtils.join(outputDir, "seg_%d.m4s");
+		const segmentPattern = buildHlsOutputPath(outputDir, "seg_%d.m4s");
 		const startNumber = segmentStartNumber(startTime, this.config);
 
 		if (decision.audioTranscode) this.logger.debug("Transcoding audio", { sessionId });

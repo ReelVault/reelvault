@@ -1,9 +1,9 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
+import { buildHlsOutputPath } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { createLogger } from "@/utils/logger";
-import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { transcodeProgressMonitor } from "../../runtime/transcode-progress.monitor";
 import type { StreamingStrategy } from "../../streaming.types";
@@ -73,6 +73,6 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 
 				detach(transcodeProgressMonitor.onFfmpegExit(sessionId, exitCode, signalCode));
 			})
-			.run(PathUtils.join(outputDir, "playlist.m3u8"));
+			.run(buildHlsOutputPath(outputDir, "playlist.m3u8"));
 	}
 }
