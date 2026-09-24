@@ -1,8 +1,8 @@
 # ReelVault Server
 
-[![CI Pipeline](https://github.com/ReelVault/ReelVault.Server/actions/workflows/ci.yml/badge.svg)](https://github.com/ReelVault/ReelVault.Server/actions/workflows/ci.yml)
+[![CI Pipeline](https://github.com/ReelVault/reelvault/actions/workflows/ci.yml/badge.svg)](https://github.com/ReelVault/reelvault/actions/workflows/ci.yml)
 
-Self-hosted media server backend: organizes your movie and TV library, streams it over HLS with on-the-fly transcoding, and extends itself through a runtime plugin system. Pairs with [ReelVault.Website](https://github.com/ReelVault/ReelVault.Website) (web + desktop client).
+Self-hosted media server backend: organizes your movie and TV library, streams it over HLS with on-the-fly transcoding, and extends itself through a runtime plugin system. Pairs with [website](https://github.com/ReelVault/website) (web + desktop client).
 
 ## Highlights
 
@@ -28,13 +28,13 @@ docker compose up -d
 # open http://localhost:3030 and create the administrator account
 ```
 
-Installers for Windows (`install.ps1`, wrapper `install.bat`) and Linux (`install.sh`) live in [`install/`](install/) and are meant to be downloaded from there — they resolve the latest [release](https://github.com/ReelVault/ReelVault.Server/releases) for you. Release archives ship the runtime and web UI: unpack and run `start.sh` / `start.bat`, or install with `install.sh --full` / `install.ps1 -Full` to get the archive with ffmpeg/ffprobe bundled in `bin/`. Setup needs **no token** by default; enable `SETUP_TOKEN_ENABLED=true` before exposing an unconfigured server to the public internet.
+Installers for Windows (`install.ps1`, wrapper `install.bat`) and Linux (`install.sh`) live in [`install/`](install/) and are meant to be downloaded from there — they resolve the latest [release](https://github.com/ReelVault/reelvault/releases) for you. Release archives ship the runtime and web UI: unpack and run `start.sh` / `start.bat`, or install with `install.sh --full` / `install.ps1 -Full` to get the archive with ffmpeg/ffprobe bundled in `bin/`. Setup needs **no token** by default; enable `SETUP_TOKEN_ENABLED=true` before exposing an unconfigured server to the public internet.
 
 ### From source
 
 ```bash
-git clone https://github.com/ReelVault/ReelVault.Server.git
-cd ReelVault.Server
+git clone https://github.com/ReelVault/reelvault.git
+cd reelvault
 bun install
 
 cp .env.example .env   # optional — sane defaults apply without it
@@ -43,7 +43,7 @@ bun dev                # http://localhost:3030 — API only, no bundled UI
 
 Without a `.env` the server uses defaults: port `3030`, data in `./data`, and auto-generated secrets persisted to `data/secrets.env` (created on first boot with `0600` permissions). When setup is pending the log tells you to open the setup wizard (or, with `SETUP_TOKEN_ENABLED=true`, prints the one-time token).
 
-To serve the web UI from the same process, point `APP_WEB_DIST` (or a `./web` folder) at a production build of [ReelVault.Website](https://github.com/ReelVault/ReelVault.Website).
+To serve the web UI from the same process, point `APP_WEB_DIST` (or a `./web` folder) at a production build of [website](https://github.com/ReelVault/website).
 
 ### Configuration
 

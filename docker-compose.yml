@@ -37,7 +37,7 @@ services:
     #   additional_contexts:
     #     website: ../website
 
-  # Optional: nginx serving a separately built ReelVault.Website instead of the
+  # Optional: nginx serving a separately built website instead of the
   # built-in web UI (advanced setups, e.g. client and API on separate origins).
   #   docker compose --profile web up -d     -> client at http://<host>:8080
   web:
@@ -48,7 +48,7 @@ services:
       - "8080:80"
     volumes:
       - ./nginx/reelvault.conf:/etc/nginx/conf.d/default.conf:ro
-      # Built client, from a sibling clone of ReelVault.Website:
+      # Built client, from a sibling clone of website:
       - ../website/dist:/usr/share/nginx/html:ro
     depends_on:
       - server

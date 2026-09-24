@@ -39,4 +39,4 @@ By default ReelVault listens on localhost only.
 Then open the port in your firewall and browse to http://<server-ip>:3030.
 Before exposing ReelVault to the public internet, read the remote-access
 guide and consider enabling a setup token:
-  https://github.com/ReelVault/ReelVault.Server#readme
+  https://github.com/ReelVault/reelvault#readme
