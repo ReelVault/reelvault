@@ -4,8 +4,9 @@
 # Builds the SDK + web client, then assembles the native archives for every
 # platform (linux-x64, linux-arm64, windows-x64) in two variants:
 #   - default: ffmpeg/ffprobe are expected on PATH (the installer provides them)
-#   - "-full":  a static ffmpeg/ffprobe is bundled into bin/ and start.sh /
-#               start.bat point APP_FFMPEG_PATH / APP_FFPROBE_PATH at it
+#   - "-full":  a pinned static ffmpeg/ffprobe (SHA256-verified, cached under
+#               dist/cache/ffmpeg) is bundled into bin/ and start.sh / start.bat
+#               point APP_FFMPEG_PATH / APP_FFPROBE_PATH at it
 # Writes SHA256SUMS.txt to the output directory.
 #
 # Nothing is published: upload the contents of dist/release to a GitHub release
@@ -30,13 +31,27 @@
 # Environment:
 #   BUN_VERSION       Bundled Bun runtime version      (default: 1.4.2)
 #   DOCKER_IMAGE      Image name                       (default: ghcr.io/reelvault/server)
-#   FFMPEG_CACHE      Static ffmpeg download cache     (default: ~/.cache/reelvault-release)
+#   FFMPEG_CACHE      Pinned ffmpeg build cache        (default: dist/cache/ffmpeg)
+#
+# The -full variant bundles the pinned ffmpeg builds from FFMPEG_PINS (version +
+# URL + SHA256). Each archive is verified before use, so an upstream regression
+# or a silently replaced file stops the build instead of shipping. Bumping a
+# version means updating its FFMPEG_PINS entry.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUN_VERSION="${BUN_VERSION:-1.4.2}"
 DOCKER_IMAGE="${DOCKER_IMAGE:-ghcr.io/reelvault/server}"
-FFMPEG_CACHE="${FFMPEG_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/reelvault-release}"
+FFMPEG_CACHE="${FFMPEG_CACHE:-$ROOT/dist/cache/ffmpeg}"
+
+# Pinned static ffmpeg builds for the -full variant: <source>|<version>|<url>|<sha256>.
+# The Linux archives come from johnvansickle.com (rolling URLs — the SHA256 keeps
+# them pinned); Windows comes from the immutable GyanD/codexffmpeg release tag.
+FFMPEG_PINS=(
+	"linux-amd64|7.0.2|https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz|abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67"
+	"linux-arm64|7.0.2|https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz|f4149bb2b0784e30e99bdda85471c9b5930d3402014e934a5098b41d0f7201b1"
+	"windows|8.1.2|https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip|db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec"
+)
 
 WEBSITE_DIR="$ROOT/../website"
 OUT_DIR="$ROOT/dist/release"
@@ -130,41 +145,90 @@ make_archive() { # <base path> <workdir> <appdir> <kind> <suffix>
 	echo "    -> $(basename "$out")"
 }
 
-# Populates the cache with a static ffmpeg/ffprobe pair and echoes its directory.
-ensure_linux_ffmpeg() { # <amd64|arm64>
-	local flavor="$1"
-	local archive="$FFMPEG_CACHE/ffmpeg-release-${flavor}-static.tar.xz"
-	local dir="$FFMPEG_CACHE/ffmpeg-linux-${flavor}"
-	if [ ! -x "$dir/ffmpeg" ] || [ ! -x "$dir/ffprobe" ]; then
-		if [ ! -f "$archive" ]; then
-			echo "    downloading static ffmpeg (${flavor})…" >&2
-			curl -fsSL -o "$archive" "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${flavor}-static.tar.xz"
+# Echoes "<version>|<url>|<sha256>" for a pinned ffmpeg source.
+ffmpeg_pin() { # <source>
+	local pin
+	for pin in "${FFMPEG_PINS[@]}"; do
+		if [ "${pin%%|*}" = "$1" ]; then
+			echo "${pin#*|}"
+			return 0
 		fi
-		rm -rf "$dir"
-		mkdir -p "$dir"
-		tar -xf "$archive" -C "$dir" --strip-components=1
-		chmod +x "$dir/ffmpeg" "$dir/ffprobe"
-	fi
-	echo "$dir"
+	done
+	die "no ffmpeg pin for '$1' (add it to FFMPEG_PINS in ${BASH_SOURCE[0]})"
 }
 
-ensure_windows_ffmpeg() {
-	local archive="$FFMPEG_CACHE/ffmpeg-release-essentials.zip"
-	local dir="$FFMPEG_CACHE/ffmpeg-windows-x64"
-	if [ ! -f "$dir/ffmpeg.exe" ] || [ ! -f "$dir/ffprobe.exe" ]; then
-		if [ ! -f "$archive" ]; then
-			echo "    downloading static ffmpeg (windows)…" >&2
-			curl -fsSL -o "$archive" "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-		fi
-		rm -rf "$dir"
-		mkdir -p "$dir/extract"
-		unzip -q -o "$archive" -d "$dir/extract"
-		local bin
-		bin="$(find "$dir/extract" -type d -name bin | head -1)"
-		[ -n "$bin" ] || die "unexpected ffmpeg archive layout (no bin/ directory)"
-		cp "$bin/ffmpeg.exe" "$bin/ffprobe.exe" "$dir/"
-		rm -rf "$dir/extract"
+# Ensures a pinned, SHA256-verified ffmpeg/ffprobe pair and echoes its directory.
+# Cache layout: <cache>/<version>/<source>/ with the downloaded archive next to it.
+ensure_ffmpeg() { # <source> <version> <url> <sha256>
+	local src="$1" version="$2" url="$3" sha256="$4"
+	local dir="$FFMPEG_CACHE/$version/$src"
+	local archive="$FFMPEG_CACHE/$version/$(basename "$url")"
+	local suffix=""
+	if [ "$src" = windows ]; then
+		suffix=".exe"
 	fi
+
+	if [ -f "$dir/.complete" ] && [ "$(cat "$dir/.complete")" = "$version $sha256" ] &&
+		[ -f "$dir/ffmpeg$suffix" ] && [ -f "$dir/ffprobe$suffix" ]; then
+		echo "$dir"
+		return 0
+	fi
+
+	mkdir -p "$FFMPEG_CACHE/$version"
+	if [ ! -f "$archive" ]; then
+		echo "    downloading ffmpeg ${version} (${src})…" >&2
+		rm -f "$archive.part"
+		curl -fsSL -o "$archive.part" "$url"
+		mv "$archive.part" "$archive"
+	fi
+
+	local actual
+	actual="$(sha256sum "$archive" | cut -d' ' -f1)"
+	if [ "$actual" != "$sha256" ]; then
+		die "$(basename "$archive") failed the SHA256 check
+  expected $sha256
+  actual   $actual
+If the pin was bumped on purpose, delete the cached archive and re-run; if not, upstream changed the build — update FFMPEG_PINS in ${BASH_SOURCE[0]}."
+	fi
+
+	local tmp="$WORK/ffmpeg-$src"
+	rm -rf "$tmp" "$dir"
+	mkdir -p "$tmp" "$dir"
+	if [ "$src" = windows ]; then
+		unzip -q -o "$archive" -d "$tmp"
+	else
+		tar -xf "$archive" -C "$tmp"
+	fi
+
+	local binary
+	binary="$(find "$tmp" -type f -name "ffmpeg$suffix" -print -quit)"
+	[ -n "$binary" ] || die "unexpected ffmpeg archive layout in $(basename "$archive") (no ffmpeg binary)"
+	local bindir
+	bindir="$(dirname "$binary")"
+	[ -f "$bindir/ffprobe$suffix" ] || die "unexpected ffmpeg archive layout in $(basename "$archive") (no ffprobe binary)"
+	cp "$bindir/ffmpeg$suffix" "$bindir/ffprobe$suffix" "$dir/"
+	if [ "$src" != windows ]; then
+		chmod +x "$dir/ffmpeg" "$dir/ffprobe"
+	fi
+
+	# Both archives carry the version in their top-level directory name; this
+	# catches a pin that points at the wrong build.
+	[ -n "$(find "$tmp" -maxdepth 1 -type d -name "*$version*" -print -quit)" ] ||
+		die "expected ffmpeg ${version} in $(basename "$archive") — check FFMPEG_PINS in ${BASH_SOURCE[0]}"
+
+	# Run the binary too when the host architecture matches (cross builds can't).
+	case "$src:$(uname -m)" in
+		linux-amd64:x86_64 | linux-arm64:aarch64 | linux-arm64:arm64)
+			local reported
+			reported="$("$dir/ffmpeg" -version 2>/dev/null | head -1 || true)"
+			case "$reported" in
+				*"$version"*) ;;
+				*) die "ffmpeg ${version} reported an unexpected version: ${reported:-no output}" ;;
+			esac
+			;;
+	esac
+
+	printf '%s %s\n' "$version" "$sha256" >"$dir/.complete"
 	echo "$dir"
 }
 
@@ -176,7 +240,12 @@ echo "==> ReelVault ${VERSION_NO_V}"
 echo "    website: ${WEBSITE_DIR}"
 echo "    output:  ${OUT_DIR}"
 echo "    bun:     ${BUN_VERSION}"
-echo "    ffmpeg:  ${FFMPEG_CACHE}"
+FFMPEG_LABEL=""
+for PIN in "${FFMPEG_PINS[@]}"; do
+	IFS='|' read -r PIN_SRC PIN_VERSION _ <<<"$PIN"
+	FFMPEG_LABEL+="${FFMPEG_LABEL:+, }${PIN_SRC} ${PIN_VERSION}"
+done
+echo "    ffmpeg:  ${FFMPEG_LABEL} (cache: ${FFMPEG_CACHE})"
 
 echo "==> Building web client"
 # The website resolves @reelvault/sdk from the registry like any dependency.
@@ -217,13 +286,14 @@ for TARGET in "${TARGETS[@]}"; do
 
 	make_archive "$OUT_DIR/ReelVault-${VERSION_NO_V}-${NAME}" "$WORK/$NAME" "$APP" "$KIND" ""
 
-	# Full variant: drop the static ffmpeg/ffprobe pair into bin/ and re-pack.
+	# Full variant: drop the pinned static ffmpeg/ffprobe pair into bin/ and re-pack.
 	mkdir -p "$APP/bin"
+	FFMPEG_PIN="$(ffmpeg_pin "$FFMPEG_SRC")"
+	IFS='|' read -r FFMPEG_VERSION FFMPEG_URL FFMPEG_SHA256 <<<"$FFMPEG_PIN"
+	FFMPEG_DIR="$(ensure_ffmpeg "$FFMPEG_SRC" "$FFMPEG_VERSION" "$FFMPEG_URL" "$FFMPEG_SHA256")"
 	if [ "$FFMPEG_SRC" = windows ]; then
-		FFMPEG_DIR="$(ensure_windows_ffmpeg)"
 		cp "$FFMPEG_DIR/ffmpeg.exe" "$FFMPEG_DIR/ffprobe.exe" "$APP/bin/"
 	else
-		FFMPEG_DIR="$(ensure_linux_ffmpeg "${FFMPEG_SRC#linux-}")"
 		cp "$FFMPEG_DIR/ffmpeg" "$FFMPEG_DIR/ffprobe" "$APP/bin/"
 		chmod +x "$APP/bin/ffmpeg" "$APP/bin/ffprobe"
 	fi
