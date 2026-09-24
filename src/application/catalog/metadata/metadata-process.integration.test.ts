@@ -29,22 +29,33 @@ async function emitEvent(event: string, payload: { pluginId?: string }): Promise
 	for (const handler of eventHandlers.get(event) ?? []) await handler(payload);
 }
 
-await mock.module("@/application/plugins.service", () => ({
-	pluginsService: {
-		fetchProviderDetailsAggregated: async () => providerAggregated,
-		fetchProviderSeasonFromLinks: async () => [],
-		fetchProviderEpisodeFromLinks: async () => [],
-		transformMetadataCandidate: (candidate: { title: string }) => {
-			calls.push("hook");
+// Bun's mock.module is process-global and cannot be un-mocked, so the mocked
+// singleton must stay a superset of the real one — otherwise every test file
+// loaded after this one sees a partial pluginsService (order-dependent CI).
+const realPluginsService = (await import("@/application/plugins.service")).pluginsService;
+const pluginsServiceStubs: Record<string, unknown> = {
+	fetchProviderDetailsAggregated: async () => providerAggregated,
+	fetchProviderSeasonFromLinks: async () => [],
+	fetchProviderEpisodeFromLinks: async () => [],
+	transformMetadataCandidate: (candidate: { title: string }) => {
+		calls.push("hook");
 
-			return Promise.resolve({ ...candidate, title: "Normalized title" });
-		},
-		publish: (event: string, payload: { metadataId?: string; pluginId?: string }) => {
-			if (event === "metadata.saved" && payload.metadataId) calls.push(`event:${payload.metadataId}`);
-
-			emitEvent(event, payload).catch(() => undefined);
-		},
+		return Promise.resolve({ ...candidate, title: "Normalized title" });
 	},
+	publish: (event: string, payload: { metadataId?: string; pluginId?: string }) => {
+		if (event === "metadata.saved" && payload.metadataId) calls.push(`event:${payload.metadataId}`);
+
+		emitEvent(event, payload).catch(() => undefined);
+	},
+};
+await mock.module("@/application/plugins.service", () => ({
+	pluginsService: new Proxy(realPluginsService, {
+		get(target, property, receiver) {
+			if (typeof property === "string" && Object.hasOwn(pluginsServiceStubs, property)) return Reflect.get(pluginsServiceStubs, property);
+
+			return Reflect.get(target, property, receiver);
+		},
+	}),
 }));
 await mock.module("@/database/repositories/metadata.repository", () => ({
 	metadataRepository: {
