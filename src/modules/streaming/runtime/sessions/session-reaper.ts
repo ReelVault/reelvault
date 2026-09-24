@@ -142,6 +142,7 @@ export class SessionReaper {
 		const session = this.store.get(sessionId);
 		const process = session?.process ?? null;
 		if (process) ffmpegProcessTracker.markIntentionalKill(sessionId);
+
 		try {
 			await Promise.all([
 				session?.operationId

@@ -1,4 +1,4 @@
-import { and, count, eq, gt, isNotNull, notExists, sql } from "drizzle-orm";
+import { and, countDistinct, eq, gt, isNotNull, notExists, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 
@@ -38,7 +38,9 @@ class TrickplayRepository {
 		const client = databaseFactory.getClient();
 		const [row] = await client
 			.select({
-				total: count(),
+				// A file can own several trickplay artifacts (multiple versions/resolutions);
+				// the LEFT JOIN multiplies rows, so count distinct media files, not join rows.
+				total: countDistinct(schema.mediaFiles.id),
 				withTrickplay:
 					sql<number>`count(DISTINCT CASE WHEN ${schema.mediaArtifacts.id} IS NOT NULL THEN ${schema.mediaFiles.id} END)`.mapWith(Number),
 			})

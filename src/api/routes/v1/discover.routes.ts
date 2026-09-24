@@ -17,7 +17,7 @@ export const discoverRoutes = new Elysia({
 	.model({
 		"discover.response": ProjectedResponseSchema(DiscoverResponseSchema),
 	})
-	.guard({ auth: true })
+	.guard({ auth: true, profileRequired: true })
 	.get("/", async ({ query, profile }) => await discoverService.getDiscoverView(query, profile?.id), {
 		rateLimit: {
 			name: "discover",

@@ -22,6 +22,12 @@ import { type PluginRegistry, pluginRegistry } from "../plugin.registry";
 const CAPITALIZE_FIRST_REGEX = /^./;
 const CAMEL_CASE_SPLIT_REGEX = /([A-Z])/g;
 const SECRET_KEYWORDS = ["key", "secret", "token", "password"];
+/** SDK config errors read `Plugin configuration '<field>' …`; surface the field. */
+const PLUGIN_CONFIG_FIELD_REGEX = /Plugin configuration '([^']+)'/;
+
+function pluginConfigField(error: unknown): string | undefined {
+	return PLUGIN_CONFIG_FIELD_REGEX.exec(errorMessage(error))?.[1];
+}
 
 function byStatusName(a: PluginStatus, b: PluginStatus): number {
 	return a.name.localeCompare(b.name);
@@ -335,7 +341,16 @@ export class PluginManager {
 		const definition = this.registry.getConfigDefinition(pluginId);
 		if (definition) {
 			const existing = await this.config.load(pluginDir);
-			definition.parse({ ...existing, ...updatedConfig });
+			try {
+				definition.parse({ ...existing, ...updatedConfig });
+			} catch (error) {
+				const field = pluginConfigField(error);
+
+				throw new ValidationError(errorMessage(error), {
+					code: "plugin.config_invalid",
+					...(field ? { params: { field } } : {}),
+				});
+			}
 		}
 
 		await this.config.save(dirName, updatedConfig);

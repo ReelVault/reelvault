@@ -510,4 +510,23 @@ describe("PluginManager config details", () => {
 		expect(details.config).toEqual({ theme: "dark" });
 		expect(reloadStub.calls).toEqual([["org.reelvault.m"]]);
 	});
+
+	test("savePluginConfig maps SDK config validation failures to a ValidationError", async () => {
+		const { manager, config, registry } = createManagerFixture(activeStubs);
+		await writeFixturePlugin();
+		const loadStub = stubMethod(config, "load", () => Promise.resolve({ language: "en-US" }));
+		const definitionStub = stubMethod(registry, "getConfigDefinition", () => ({
+			fields: {},
+			descriptors: [],
+			parse: () => {
+				throw new Error("Plugin configuration 'language' does not match the expected format");
+			},
+		}));
+		activeStubs.push(loadStub, definitionStub);
+
+		const error = await manager.savePluginConfig("org.reelvault.m", { language: "not a locale" }).catch((reason: unknown) => reason);
+
+		expect(error).toBeInstanceOf(ValidationError);
+		expect(error).toMatchObject({ code: "plugin.config_invalid", params: { field: "language" } });
+	});
 });
