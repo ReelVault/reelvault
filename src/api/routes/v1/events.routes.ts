@@ -48,6 +48,12 @@ interface WebSocketClientState {
 	profileId: string | null;
 }
 
+/**
+ * Elysia constructs a fresh `ElysiaWS` wrapper for every event (`open`,
+ * `message`, `close`), so the wrapper is useless as a per-connection key.
+ * `ws.raw` is the stable Bun socket — keying by anything else silently breaks
+ * `touch()` (the stale sweep then reaps live connections) and command dispatch.
+ */
 const clientStates = new WeakMap<object, WebSocketClientState>();
 
 /** Inbound frames are tiny control messages (ping/subscribe/command); anything
@@ -124,7 +130,7 @@ export const eventsRoutes = new Elysia({ prefix: "/events" })
 			const connectionId = crypto.randomUUID();
 			const effectiveProfileId = profile?.id ?? ws.data.query.profileId ?? null;
 
-			clientStates.set(ws, { connectionId, profileId: effectiveProfileId });
+			clientStates.set(ws.raw, { connectionId, profileId: effectiveProfileId });
 
 			realtimeService.register({
 				connectionId,
@@ -133,13 +139,13 @@ export const eventsRoutes = new Elysia({ prefix: "/events" })
 				// The auth session ID is stored here for reference but playback commands
 				// are delivered via the HLS session ID registered through subscribe_session.
 				sessionId: session?.id ?? null,
-				socket: ws,
+				socket: ws.raw,
 				connectedAt: new Date(),
 			});
 		},
 		// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: single WS dispatcher for ping/subscribe/unsubscribe/command
 		async message(ws, message) {
-			const wsState = clientStates.get(ws);
+			const wsState = clientStates.get(ws.raw);
 			// Any inbound frame proves the peer is alive. Refresh liveness before
 			// handling so idle-but-healthy sockets are not reaped as stale.
 			if (wsState) realtimeService.touch(wsState.connectionId);
@@ -249,10 +255,10 @@ export const eventsRoutes = new Elysia({ prefix: "/events" })
 			}
 		},
 		close(ws) {
-			const wsState = clientStates.get(ws);
+			const wsState = clientStates.get(ws.raw);
 			if (wsState) {
 				realtimeService.unregister(wsState.connectionId);
-				clientStates.delete(ws);
+				clientStates.delete(ws.raw);
 			}
 		},
 	});
