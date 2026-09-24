@@ -142,6 +142,9 @@ const EDITION_NOISE =
 	/\b(?:directors?\s+cut|extended(?:\s+cut|\s+edition)?|theatrical(?:\s+cut|\s+version)?|unrated(?:\s+cut|\s+version)?|remastered|imax(?:\s+edition)?|special\s+edition|final\s+cut|ultimate\s+cut)\b/gi;
 const LEADING_THE = /^the\s+/i;
 const AND_WORD_GLOBAL = /\band\b/gi;
+// Recognition leftovers like "Show (2011) -" (dash kept from " - S01E01 - ") must
+// never reach provider search — strip the year/separator tail as an extra variant.
+const TRAILING_YEAR_TAIL = /\s*\((?:19|20)\d{2}\)?\s*[-–—]?\s*$/;
 
 const ROMAN_NUMERALS: Record<string, string> = {
 	i: "1",
@@ -219,10 +222,13 @@ export function generateQueryVariants(title: string): string[] {
 	const trimmed = title.trim();
 	const withoutEdition = trimmed.replace(EDITION_NOISE, "").replace(WHITESPACE_COLLAPSE, " ").trim();
 	const withoutPunctuation = trimmed.replace(PUNCTUATION_COLLAPSE, " ").trim();
+	const withoutTrailingYearTail = trimmed.replace(TRAILING_YEAR_TAIL, "").trim();
 	const withoutLeadingThe = withoutPunctuation.replace(LEADING_THE, "");
 	const swappedAmpersand = trimmed.includes("&") ? trimmed.replaceAll("&", "and") : trimmed.replace(AND_WORD_GLOBAL, "&");
 
-	return unique([trimmed, withoutEdition, withoutPunctuation, withoutLeadingThe, swappedAmpersand].filter(Boolean));
+	return unique(
+		[trimmed, withoutTrailingYearTail, withoutEdition, withoutPunctuation, withoutLeadingThe, swappedAmpersand].filter(Boolean),
+	);
 }
 
 /** Ranks candidates against the title/year we're looking for, best first. */

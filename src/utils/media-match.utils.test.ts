@@ -122,6 +122,16 @@ test("cleans edition noise from query variants", () => {
 	expect(variants).toContain("Blade Runner 2049");
 });
 
+test("strips a trailing year-plus-dash recognition leftover from query variants", () => {
+	const variants = generateQueryVariants("Game of Thrones (2011) -");
+	expect(variants).toContain("Game of Thrones");
+	expect(variants.length).toBeGreaterThan(1);
+});
+
+test("keeps a plain title untouched as the first query variant", () => {
+	expect(generateQueryVariants("Matrix")[0]).toBe("Matrix");
+});
+
 test("accurately picks Iron Man (2008) over Iron Man 2 and Iron Man 3 even without year", () => {
 	const candidates = [
 		{

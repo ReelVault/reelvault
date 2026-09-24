@@ -4,7 +4,7 @@ import { EPISODE_FILE_PATTERN, YEAR_FOLDER_PATTERN, YEAR_TITLE_PATTERN } from ".
 
 const EXT_PATTERN = /\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|vob|ogv|divx|mpg|mpeg|iso|nfo|srt|sub|ass)$/i;
 const SERIES_PATTERN =
-	/^(?:(?<title>.+?)(?:[\s._(]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(]+)?)?(?:s(?<season>\d{1,2})e(?<episode>\d{1,2})|(?<season_alt>\d{1,2})x(?<episode_alt>\d{1,2}))/i;
+	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?:s(?<season>\d{1,2})e(?<episode>\d{1,2})|(?<season_alt>\d{1,2})x(?<episode_alt>\d{1,2}))/i;
 const MOVIE_PATTERN = /^(?<title>.+?)(?:[\s._(]+)(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?/i;
 const DOT_UNDERSCORE_PATTERN = /[._]/g;
 

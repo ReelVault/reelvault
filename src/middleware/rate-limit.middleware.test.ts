@@ -110,9 +110,9 @@ test("X-RateLimit headers are set on successful responses", async () => {
 	const app = new Elysia()
 		.use(domainErrorsMiddleware)
 		.use(rateLimitMiddleware)
-		.get("/limited", () => "ok", { rateLimit: { name: "headers-test", max: 10, windowMs: 60_000 } });
+		.get("/v1/limited", () => "ok", { rateLimit: { name: "headers-test", max: 10, windowMs: 60_000 } });
 
-	const res = await app.handle(new Request("http://localhost/limited"));
+	const res = await app.handle(new Request("http://localhost/v1/limited"));
 
 	const limit = Number(res.headers.get("X-RateLimit-Limit"));
 	const remaining = Number(res.headers.get("X-RateLimit-Remaining"));
@@ -159,6 +159,17 @@ test("global-limit exemptions match the pathname, never the query string", () =>
 	expect(isExemptFromGlobalLimit(new Request("http://x/v1/media-files?x=/segments/"))).toBe(false);
 	expect(isExemptFromGlobalLimit(new Request("http://x/v1/media-files?x=/v1/images/"))).toBe(false);
 	expect(isExemptFromGlobalLimit(new Request("http://x/v1/healthcheck"))).toBe(false);
+});
+
+test("page loads and SPA assets outside the API bypass the global limit", () => {
+	expect(isExemptFromGlobalLimit(new Request("http://x/"))).toBe(true);
+	expect(isExemptFromGlobalLimit(new Request("http://x/dashboard"))).toBe(true);
+	expect(isExemptFromGlobalLimit(new Request("http://x/assets/app-123.js"))).toBe(true);
+	expect(isExemptFromGlobalLimit(new Request("http://x/setup"))).toBe(true);
+
+	// Only read-only document/asset loads — mutations and API calls stay limited.
+	expect(isExemptFromGlobalLimit(new Request("http://x/upload", { method: "POST" }))).toBe(false);
+	expect(isExemptFromGlobalLimit(new Request("http://x/v1/libraries"))).toBe(false);
 });
 
 test("InMemoryRateLimiter keeps buckets in LRU order and evicts the least recently accessed", () => {

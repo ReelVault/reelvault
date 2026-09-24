@@ -113,7 +113,13 @@ export function isExemptFromGlobalLimit(request: Request): boolean {
 	// Only the playback HLS segment route is exempt. A broad
 	// `pathname.includes("/segments/")` also exempted plugin-owned routes that
 	// merely contained that word.
-	return pathname.startsWith("/v1/playback-sessions/") && pathname.includes("/segments/");
+	if (pathname.startsWith("/v1/playback-sessions/") && pathname.includes("/segments/")) return true;
+
+	// Page loads and SPA assets outside the API are cheap and precompressed —
+	// a 429 here would render raw JSON instead of the app's own error screen.
+	if ((request.method === "GET" || request.method === "HEAD") && !pathname.startsWith("/v1/")) return true;
+
+	return false;
 }
 
 export const rateLimitMiddleware = new Elysia({ name: "RateLimitMiddleware" })

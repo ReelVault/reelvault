@@ -1,10 +1,49 @@
 import { describe, expect, test } from "bun:test";
 import type { MediaIdentity } from "@reelvault/sdk/common";
-import { resolveShowTitle } from "./recognition.utils";
+import { parseFileName, resolveShowTitle } from "./recognition.utils";
 
 function identity(title: string, year?: number): MediaIdentity {
 	return { title, type: "movie", year };
 }
+
+describe("parseFileName", () => {
+	test('parses "Name (YYYY) - S01E01 - Title" with a dash separator', () => {
+		expect(parseFileName("Game of Thrones (2011) - S01E01 - Winter Is Coming.mkv")).toEqual({
+			title: "Game of Thrones",
+			type: "episode",
+			season: 1,
+			episode: 1,
+			year: 2011,
+		});
+	});
+
+	test("dash separator without episode title", () => {
+		expect(parseFileName("Breaking Bad (2008) - S01E02.mp4")).toMatchObject({
+			title: "Breaking Bad",
+			season: 1,
+			episode: 2,
+			year: 2008,
+		});
+	});
+
+	test("keeps a hyphen that belongs to the show title", () => {
+		expect(parseFileName("The X-Files S01E01.mkv")).toMatchObject({
+			title: "The X-Files",
+			season: 1,
+			episode: 1,
+			year: undefined,
+		});
+	});
+
+	test("still parses dot-separated year and season markers", () => {
+		expect(parseFileName("Show.2011.S01E01.mkv")).toMatchObject({
+			title: "Show",
+			season: 1,
+			episode: 1,
+			year: 2011,
+		});
+	});
+});
 
 describe("resolveShowTitle", () => {
 	test("keeps the show folder title and its year", () => {

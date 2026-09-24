@@ -9,6 +9,7 @@ import { scanFindingsRepository } from "@/database/repositories/scan-findings.re
 import { SidecarMetadataStorageService } from "@/modules/metadata-sidecars/sidecar-metadata-storage.service";
 import { sidecarMetadataWriter } from "@/modules/metadata-sidecars/sidecar-metadata-writer.runtime";
 import { mediaFileProcessor } from "@/modules/scanner/processing/media-file-processor";
+import { importSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles";
 import type { ProcessedMediaFileWithMarkers, ScanFindingReason, SkippedMediaFile } from "@/modules/scanner/scanner.types";
 import { serverConfig } from "@/server.config";
 import { assertFound } from "@/utils/errors";
@@ -58,6 +59,7 @@ export interface MediaFileIngestTaskDependencies {
 	upsertScanFinding(finding: { libraryId: string; filePath: string; fileName: string; reason: ScanFindingReason }): Promise<void>;
 	deleteScanFinding(libraryId: string, filePath: string): Promise<void>;
 	createMediaFile(data: CreateMediaFile): Promise<{ mediaFile: { id: string }; created: boolean }>;
+	importSidecarSubtitles?(mediaFileId: string, videoFilePath: string): Promise<number>;
 	findMediaByPaths(
 		libraryId: string,
 		filePaths: string[],
@@ -91,6 +93,7 @@ const defaultDependencies: MediaFileIngestTaskDependencies = {
 	upsertScanFinding: (finding) => scanFindingsRepository.upsert(finding),
 	deleteScanFinding: (libraryId, filePath) => scanFindingsRepository.remove(libraryId, filePath),
 	createMediaFile: (data) => mediaRepository.createWithStreams(data),
+	importSidecarSubtitles: (mediaFileId, videoFilePath) => importSidecarSubtitles(mediaFileId, videoFilePath),
 	findMediaByPaths: (libraryId, filePaths) => mediaRepository.findByLibraryAndPaths({ libraryId, filePaths }),
 	saveSidecars: (library, mediaFiles) => new SidecarMetadataStorageService(sidecarMetadataWriter).saveLibraryMedia(library, mediaFiles),
 	emitMediaDiscovered: (input) => pluginsService.emit("media.file.discovered", input),
@@ -150,6 +153,12 @@ export async function ingestMediaFileTask(
 				reason: mediaFile.skipReason,
 			});
 
+			context.logger?.warn("Media file not imported — recorded in library scan findings", {
+				libraryId: data.libraryId,
+				filePath: data.filePath,
+				reason: mediaFile.skipReason,
+			});
+
 			return {
 				libraryId: data.libraryId,
 				filePath: data.filePath,
@@ -181,6 +190,10 @@ export async function ingestMediaFileTask(
 				})),
 				{ source: "automatic" },
 			);
+		}
+
+		if (dependencies.importSidecarSubtitles) {
+			await dependencies.importSidecarSubtitles(createdMediaFile.id, data.filePath);
 		}
 
 		// Built-in trickplay: generate previews for freshly ingested files.

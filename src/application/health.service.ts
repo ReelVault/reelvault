@@ -1,6 +1,7 @@
 import { statfs } from "node:fs/promises";
 import type { HealthStatus, SubsystemStatus } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { env } from "@/env";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";
 import { getMemoryInfo, resourceAllocator } from "@/system/resource-allocator";
@@ -45,7 +46,7 @@ class HealthService extends BaseService {
 			status: hasUnhealthy || hasDegraded ? "degraded" : "ok",
 			timestamp: new Date().toISOString(),
 			uptime: process.uptime(),
-			environment: process.env.NODE_ENV ?? "development",
+			environment: env.NODE_ENV,
 			subsystems,
 		};
 	}
