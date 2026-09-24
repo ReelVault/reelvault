@@ -46,7 +46,7 @@ const episodeQueryMap: QueryMap<EpisodeFilters, EpisodeSorting> = {
 		createdAt: schema.episodes.createdAt,
 		updatedAt: schema.episodes.updatedAt,
 	},
-	defaults: { sortBy: "createdAt", sortOrder: "asc" },
+	defaults: { sortBy: "episodeNumber", sortOrder: "asc" },
 };
 
 class EpisodesRepository {
