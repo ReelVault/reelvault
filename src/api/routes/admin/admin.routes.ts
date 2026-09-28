@@ -11,6 +11,7 @@ import { adminProcessesRoutes } from "./admin-processes.routes";
 import { adminSettingsRoutes } from "./admin-settings.routes";
 import { adminSystemRoutes } from "./admin-system.routes";
 import { adminTrickplayRoutes } from "./admin-trickplay.routes";
+import { adminUpdateRoutes } from "./admin-update.routes";
 import { adminUsersRoutes } from "./admin-users.routes";
 import { adminWorkersRoutes } from "./admin-workers.routes";
 
@@ -31,4 +32,5 @@ export const adminRoutes = new Elysia({
 	.use(adminAnalyticsRoutes)
 	.use(adminNetworkRoutes)
 	.use(adminLiveSessionsRoutes)
-	.use(adminProcessesRoutes);
+	.use(adminProcessesRoutes)
+	.use(adminUpdateRoutes);

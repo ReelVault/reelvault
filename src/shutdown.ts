@@ -11,6 +11,33 @@ import { logger } from "./utils/logger";
 import { detach } from "./utils/promise.utils";
 import { workerService } from "./workers/worker.service";
 
+/** Registered by index.ts once the real server is wired up. */
+let activeShutdownHandler: Shutdown | undefined;
+
+/**
+ * Triggers the graceful shutdown path from application code (self-update
+ * restart). Returns false when no handler is registered (tests, early boot).
+ */
+export function requestApplicationRestart(): boolean {
+	if (!activeShutdownHandler) return false;
+
+	const run = async (): Promise<void> => {
+		try {
+			await activeShutdownHandler?.shutdown("update-restart");
+		} catch {
+			// shutdown() already logs its own failures
+		}
+	};
+	detach(run());
+
+	return true;
+}
+
+/** Points `requestApplicationRestart` at the live Shutdown instance. */
+export function setActiveShutdown(handler: Shutdown): void {
+	activeShutdownHandler = handler;
+}
+
 /**
  * Graceful shutdown handler
  * Prevents data loss and ensures clean exit

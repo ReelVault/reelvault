@@ -34,6 +34,8 @@ export interface DownloadArchiveOptions {
 	token?: string | undefined;
 	timeoutMs?: number | undefined;
 	maxBytes?: number | undefined;
+	/** Streaming download progress — `total` is 0 when the server sends no Content-Length. */
+	onProgress?: ((received: number, total: number) => void) | undefined;
 	/** Test seam — overrides the SSRF-guarded fetcher (production always guards). */
 	fetcher?: ArchiveFetcher | undefined;
 }
@@ -82,6 +84,7 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
 
 			hasher.update(chunk);
 			await writer.write(chunk);
+			options.onProgress?.(received, declaredLength);
 		}
 
 		await writer.end();
@@ -118,6 +121,30 @@ export function assertChecksumMatches(actual: string, expected: string): void {
 }
 
 /**
+ * Extracts a zip or (g)zip'd tar archive into `workRoot` (created by the
+ * caller). Rejects entry paths that escape the root and refuses to create
+ * symlinks/hardlinks. Shared by plugin packages and the self-update installer.
+ */
+export async function extractArchive(
+	archivePath: string,
+	workRoot: string,
+	maxUncompressedBytes = DEFAULT_MAX_UNCOMPRESSED_BYTES,
+): Promise<void> {
+	const archive = new Uint8Array(await Bun.file(archivePath).arrayBuffer());
+	if (archive[0] === 0x52 && archive[1] === 0x61 && archive[2] === 0x72 && archive[3] === 0x21) {
+		throw new ValidationError("RAR archives are not supported — repackage the plugin as .zip or .tar.gz");
+	}
+
+	if (archive[0] === 0x50 && archive[1] === 0x4b) {
+		extractZipEntries(archive, workRoot, maxUncompressedBytes);
+	} else if (archive[0] === 0x1f && archive[1] === 0x8b) {
+		extractTarEntries(gunzipWithinLimit(archive, maxUncompressedBytes), workRoot, maxUncompressedBytes);
+	} else {
+		extractTarEntries(archive, workRoot, maxUncompressedBytes);
+	}
+}
+
+/**
  * Extracts a zip or (g)zip'd tar archive into a fresh temporary root and
  * locates the plugin directory inside it. Rejects entry paths that escape
  * the root and refuses to create symlinks/hardlinks. The caller owns
@@ -129,18 +156,7 @@ export async function extractPluginPackage(
 ): Promise<ExtractedPackage> {
 	const workRoot = await mkdtemp(join(tmpdir(), "reelvault-plugin-extract-"));
 	try {
-		const archive = new Uint8Array(await Bun.file(archivePath).arrayBuffer());
-		if (archive[0] === 0x52 && archive[1] === 0x61 && archive[2] === 0x72 && archive[3] === 0x21) {
-			throw new ValidationError("RAR archives are not supported — repackage the plugin as .zip or .tar.gz");
-		}
-
-		if (archive[0] === 0x50 && archive[1] === 0x4b) {
-			extractZipEntries(archive, workRoot, maxUncompressedBytes);
-		} else if (archive[0] === 0x1f && archive[1] === 0x8b) {
-			extractTarEntries(gunzipWithinLimit(archive, maxUncompressedBytes), workRoot, maxUncompressedBytes);
-		} else {
-			extractTarEntries(archive, workRoot, maxUncompressedBytes);
-		}
+		await extractArchive(archivePath, workRoot, maxUncompressedBytes);
 
 		const pluginRoot = await locatePluginDirectory(workRoot);
 

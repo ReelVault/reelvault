@@ -6,6 +6,8 @@ import { systemSettingsService } from "./application/admin/system-settings.servi
 import { firstRunSetupService } from "./application/auth/setup/first-run-setup.service";
 import { libraryWatcherService } from "./application/libraries/watching/library-watcher.service";
 import { pluginsService } from "./application/plugins.service";
+import { scheduleStartupUpdateCheck } from "./application/updates/update-check.service";
+import { updateInstallService } from "./application/updates/update-install.service";
 import { databaseFactory } from "./database/database";
 import { env } from "./env";
 import { initializeFfmpegCapabilities, missingAudioFilters } from "./integrations/ffmpeg/ffmpeg.capabilities";
@@ -22,7 +24,7 @@ import { requestTimeoutMiddleware } from "./middleware/request-timeout.middlewar
 import { responseCacheMiddleware } from "./middleware/response-cache.middleware";
 import { securityHeadersMiddleware } from "./middleware/security.middleware";
 import { serverConfig } from "./server.config";
-import { Shutdown } from "./shutdown";
+import { Shutdown, setActiveShutdown } from "./shutdown";
 import { resourceAllocator } from "./system/resource-allocator";
 import { serverRescueService } from "./system/server-rescue.service";
 import { systemResourcesService } from "./system/system-resources.service";
@@ -39,6 +41,7 @@ async function setupServer(): Promise<void> {
 		logger.info("Checking directories and files...");
 		await ensureDataDirectories();
 		await cleanupStartupDirectories();
+		updateInstallService.cleanupStaleArtifacts();
 
 		// Apply pending schema migrations before any repository touches the DB.
 		logger.info("Applying database migrations...");
@@ -80,6 +83,9 @@ async function setupServer(): Promise<void> {
 
 		logger.info("Initializing library watchers...");
 		await libraryWatcherService.init();
+
+		// Fire-and-forget: a slow or unreachable GitHub must never delay boot.
+		scheduleStartupUpdateCheck();
 	} catch (error) {
 		logger.error("Failed to start server", error);
 		process.exit(1);
@@ -129,6 +135,7 @@ const app = new Elysia({ name: "ReelVault", aot: true })
 
 // Setup graceful shutdown
 const shutdownHandler = new Shutdown({ shutdownAppFn: () => app.stop() });
+setActiveShutdown(shutdownHandler);
 shutdownHandler.init();
 
 // Start the server

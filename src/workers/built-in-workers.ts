@@ -2,6 +2,7 @@ import type { WorkerDefinition } from "@reelvault/sdk";
 
 export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 	const [
+		{ checkUpdatesWorker },
 		{ cleanupDatabaseWorker },
 		{ cleanupLogsWorker },
 		{ cleanupMetricsWorker },
@@ -24,6 +25,7 @@ export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 		{ metadataRefreshWorker },
 		{ streamInitWorker },
 	] = await Promise.all([
+		import("./definitions/system/check-updates.worker"),
 		import("./definitions/system/cleanup-database.worker"),
 		import("./definitions/system/cleanup-logs.worker"),
 		import("./definitions/system/cleanup-metrics.worker"),
@@ -48,6 +50,7 @@ export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 	]);
 
 	return [
+		checkUpdatesWorker,
 		imageProcessingWorker,
 		imageOptimizationWorker,
 		imageOptimizationScanWorker,

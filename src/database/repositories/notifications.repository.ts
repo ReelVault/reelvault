@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, isNull, or, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { defineTableAccess, forEachChunked } from "@/database/table-access";
@@ -68,6 +68,22 @@ class NotificationsRepository {
 			.where(and(eq(this.table.sourcePluginId, pluginId), gte(this.table.createdAt, since)));
 
 		return result?.count ?? 0;
+	}
+
+	/** De-duplication for system notifications carrying `version`/`component` inside their data payload. */
+	async existsForVersion(type: string, version: string, component?: string): Promise<boolean> {
+		const conditions = [
+			eq(this.table.type, type),
+			sql`json_extract(${this.table.data}, '$.version') = ${version}`,
+			...(component ? [sql`json_extract(${this.table.data}, '$.component') = ${component}`] : []),
+		];
+		const [result] = await databaseFactory
+			.getClient()
+			.select({ count: count() })
+			.from(this.table)
+			.where(and(...conditions));
+
+		return (result?.count ?? 0) > 0;
 	}
 
 	async markRead(id: string, recipientWhere: SQL | undefined): Promise<boolean> {

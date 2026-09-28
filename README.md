@@ -28,7 +28,7 @@ docker compose up -d
 # open http://localhost:3030 and create the administrator account
 ```
 
-Installers for Windows (`install.ps1`, wrapper `install.bat`) and Linux (`install.sh`) live in [`install/`](install/) and are meant to be downloaded from there — they resolve the latest [release](https://github.com/ReelVault/reelvault/releases) for you. Release archives ship the runtime and web UI: unpack and run `start.sh` / `start.bat`, or install with `install.sh --full` / `install.ps1 -Full` to get the archive with ffmpeg/ffprobe bundled in `bin/`. Setup needs **no token** by default; enable `SETUP_TOKEN_ENABLED=true` before exposing an unconfigured server to the public internet.
+Installers for Windows (`install.ps1`, wrapper `install.bat`) and Linux (`install.sh`) live in the [ReelVault/installer](https://github.com/ReelVault/installer) repository and resolve the latest bundle for you. The server release archive (built by `scripts/release.sh`) ships the runtime and server sources — the web UI releases separately from [ReelVault/website](https://github.com/ReelVault/website), and the admin panel updates each component independently. Fresh installs use the combined bundles from the installer repository, or install with `install.sh --full` / `install.ps1 -Full` to get the archive with ffmpeg/ffprobe bundled in `bin/`. Setup needs **no token** by default; enable `SETUP_TOKEN_ENABLED=true` before exposing an unconfigured server to the public internet.
 
 ### From source
 
