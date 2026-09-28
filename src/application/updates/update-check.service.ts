@@ -28,6 +28,7 @@ export interface UpdateCheckState {
 	serverLatest: AdminUpdateRelease | null;
 	webLatest: AdminUpdateRelease | null;
 	serverUpdateAvailable: boolean;
+	webRequiresServerUpdate: boolean;
 	webUpdateAvailable: boolean;
 	lastCheckedAt: string | null;
 	serverLastError: string | null;

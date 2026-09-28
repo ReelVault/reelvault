@@ -120,6 +120,7 @@ function stubCheckState(serverLatest: AdminUpdateRelease | null, webLatest: Admi
 		serverLatest,
 		webLatest,
 		serverUpdateAvailable: Boolean(serverLatest),
+		webRequiresServerUpdate: false,
 		webUpdateAvailable: Boolean(webLatest),
 		lastCheckedAt: new Date().toISOString(),
 		serverLastError: null,
