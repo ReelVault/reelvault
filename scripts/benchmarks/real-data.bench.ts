@@ -28,6 +28,7 @@ interface BenchContext {
 	episodeId: string;
 	genreId: string;
 	personId: string;
+	adminUserId: string;
 	imageId: string;
 	searchTerm: string;
 	totalMetadata: number;
@@ -116,6 +117,7 @@ async function resolveContext(args: { baseUrl: string; noCache: boolean }): Prom
 		episodeId: "",
 		genreId: "",
 		personId: "",
+		adminUserId: "",
 		imageId: "",
 		searchTerm: "star",
 		totalMetadata: 0,
@@ -148,9 +150,10 @@ async function resolveContext(args: { baseUrl: string; noCache: boolean }): Prom
 	context.mediaFileId = stringField(listItems(await getJson(context, "/v1/media-files?limit=1"))[0], "id");
 	context.genreId = stringField(listItems(await getJson(context, "/v1/genres?limit=1"))[0], "id");
 	context.personId = stringField(listItems(await getJson(context, "/v1/people?limit=1"))[0], "id");
+	context.adminUserId = stringField(listItems(await getJson(context, "/v1/admin/users?page=1&limit=1"))[0], "id");
 
 	console.log(
-		`[real-data] profile ok, library ${context.libraryId ? "ok" : "?"}, movie ${context.movieId ? "ok" : "?"}, tv ${context.tvId ? "ok" : "?"}, image ${context.imageId ? "ok" : "?"}, total ${context.totalMetadata}`,
+		`[real-data] resolved ids — library ${context.libraryId ? "ok" : "?"}, movie ${context.movieId ? "ok" : "?"}, tv ${context.tvId ? "ok" : "?"}, image ${context.imageId ? "ok" : "?"}, total ${context.totalMetadata}`,
 	);
 
 	return context;
@@ -184,7 +187,30 @@ const typoSearch: RequestBuilder = (context) => {
 	return new Request(`${context.baseUrl}/v1/metadata/search/global?q=${encodeURIComponent(typo)}&limit=10`, authHeaders(context));
 };
 
-const SCENARIOS: ReadonlyArray<readonly [string, RequestBuilder]> = [
+/** {key} placeholders resolve against the live context before each run. */
+function interpolatePath(context: BenchContext, template: string): string {
+	return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
+		const fields: Record<string, string | undefined> = {
+			genreId: context.genreId,
+			movieId: context.movieId,
+			tvId: context.tvId,
+			personId: context.personId,
+			seasonId: context.seasonId,
+			episodeId: context.episodeId,
+			libraryId: context.libraryId,
+			adminUserId: context.adminUserId,
+			imageId: context.imageId,
+			mediaFileId: context.mediaFileId,
+			searchTerm: context.searchTerm,
+		};
+
+		return fields[key] ?? "unknown";
+	});
+}
+
+type MatrixEntry = readonly [string, string, boolean?];
+
+const HEADLINE_SCENARIOS: ReadonlyArray<readonly [string, RequestBuilder]> = [
 	["admin: analytics days=7", analyticsDays("7")],
 	["admin: analytics days=30", analyticsDays("30")],
 	["admin: analytics days=90", analyticsDays("90")],
@@ -225,6 +251,9 @@ const SCENARIOS: ReadonlyArray<readonly [string, RequestBuilder]> = [
 	["core: people list", adminPath("/v1/people?limit=24")],
 	["core: genres", adminPath("/v1/genres?limit=50")],
 	["core: collections", adminPath("/v1/collections?limit=24")],
+	["core: companies", adminPath("/v1/companies?limit=24")],
+	["core: keywords", adminPath("/v1/keywords?limit=24")],
+	["core: providers", adminPath("/v1/providers")],
 	["core: media-files", adminPath("/v1/media-files?limit=24")],
 	["me: continue-watching", (context) => new Request(`${context.baseUrl}/v1/me/continue-watching?limit=12`, authHeaders(context, true))],
 	["me: watched-history", (context) => new Request(`${context.baseUrl}/v1/me/watched-history?limit=50`, authHeaders(context, true))],
@@ -233,6 +262,87 @@ const SCENARIOS: ReadonlyArray<readonly [string, RequestBuilder]> = [
 	["me: unread-count", (context) => new Request(`${context.baseUrl}/v1/notifications/unread-count`, authHeaders(context, true))],
 	["images: poster w=342", (context) => new Request(`${context.baseUrl}/v1/images/${context.imageId}?w=342`, authHeaders(context))],
 ];
+
+/** Every supported GET variant worth timing — one line per route × query shape. */
+const ROUTE_MATRIX: readonly MatrixEntry[] = [
+	// metadata browse variants
+	["metadata: type=movie", "/v1/metadata?limit=24&type=movie"],
+	["metadata: type=tv_show", "/v1/metadata?limit=24&type=tv_show"],
+	["metadata: year 2020-2023", "/v1/metadata?limit=24&yearFrom=2020&yearTo=2023"],
+	["metadata: sort title asc", "/v1/metadata?limit=24&sortBy=title&sortOrder=asc"],
+	["metadata: sort popularity desc", "/v1/metadata?limit=24&sortBy=popularity&sortOrder=desc"],
+	["metadata: sort releaseDate desc", "/v1/metadata?limit=24&sortBy=releaseDate&sortOrder=desc"],
+	["metadata: projected 5 fields", "/v1/metadata?limit=24&fields=id,title,type,releaseDate,posterImageId"],
+	["metadata: limit=100", "/v1/metadata?limit=100"],
+	["metadata: page=3", "/v1/metadata?limit=24&page=3"],
+	["metadata: genre filter", "/v1/metadata?limit=24&genreIds={genreId}"],
+	["metadata: images options", "/v1/metadata/{movieId}/images/options"],
+	["metadata: search limit=20", "/v1/metadata/search/global?q={searchTerm}&limit=20"],
+	// detail entities
+	["person detail", "/v1/people/{personId}"],
+	["genre detail", "/v1/genres/{genreId}"],
+	["season detail", "/v1/seasons/{seasonId}"],
+	["episode detail", "/v1/episodes/{episodeId}"],
+	["library scan-findings", "/v1/libraries/{libraryId}/scan-findings"],
+	// paged lists
+	["seasons page=2", "/v1/seasons?limit=24&page=2"],
+	["episodes page=2", "/v1/episodes?limit=24&page=2"],
+	["episodes limit=100", "/v1/episodes?limit=100"],
+	["people page=5", "/v1/people?limit=24&page=5"],
+	["people limit=100", "/v1/people?limit=100"],
+	["collections page=2", "/v1/collections?limit=24&page=2"],
+	["keywords limit=100", "/v1/keywords?limit=100"],
+	["companies limit=100", "/v1/companies?limit=100"],
+	// media-files variants
+	["media-files limit=100", "/v1/media-files?limit=100"],
+	["media-files by library", "/v1/media-files?limit=24&libraryId={libraryId}"],
+	["media-files by metadata", "/v1/media-files?limit=24&metadataId={movieId}"],
+	["media-files projected", "/v1/media-files?limit=24&fields=id,fileName,libraryId"],
+	// me.* variants
+	["me: watched-history page=2", "/v1/me/watched-history?limit=50&page=2", true],
+	["me: watched-history limit=200", "/v1/me/watched-history?limit=200", true],
+	["me: insights 7d", "/v1/me/watched-history/insights?range=7d", true],
+	["me: insights 90d", "/v1/me/watched-history/insights?range=90d", true],
+	["me: insights 1y", "/v1/me/watched-history/insights?range=1y", true],
+	["me: insights all", "/v1/me/watched-history/insights?range=all", true],
+	["me: wrapped 2025", "/v1/me/watched-history/wrapped?year=2025", true],
+	["me: watchlist", "/v1/me/watchlist?limit=24", true],
+	["me: ratings", "/v1/me/ratings?limit=24", true],
+	["me: notifications", "/v1/notifications?limit=20", true],
+	["me: playback-progress", "/v1/me/playback-progress/{movieId}", true],
+	["me: playback view", "/v1/playback-sessions/view/{mediaFileId}", true],
+	["me: watchlist statuses", "/v1/me/watchlist/statuses?ids={movieId},{tvId}", true],
+	// admin variants
+	["admin: analytics 180d", "/v1/admin/analytics?days=180"],
+	["admin: analytics 365d", "/v1/admin/analytics?days=365"],
+	["admin: logs limit=500", "/v1/admin/logs?limit=500"],
+	["admin: logs search", "/v1/admin/logs?search=worker&limit=100"],
+	["admin: logs page=3", "/v1/admin/logs?limit=100&page=3"],
+	["admin: logs/files", "/v1/admin/logs/files"],
+	["admin: audit p2l20", "/v1/admin/audit?page=2&limit=20"],
+	["admin: audit p1l100", "/v1/admin/audit?page=1&limit=100"],
+	["admin: users page=2", "/v1/admin/users?page=2&limit=20"],
+	["admin: user detail", "/v1/admin/users/{adminUserId}"],
+	["admin: user profiles", "/v1/admin/users/{adminUserId}/profiles"],
+	["admin: workers/jobs p1", "/v1/admin/workers/jobs?page=1&limit=25"],
+	["admin: workers/jobs p2", "/v1/admin/workers/jobs?page=2&limit=25"],
+	["admin: workers/jobs p10", "/v1/admin/workers/jobs?page=10&limit=25"],
+	["admin: workers/operations p1l20", "/v1/admin/workers/operations?page=1&limit=20"],
+	["admin: downloads jobs", "/v1/admin/downloads/jobs?page=1&limit=25"],
+	["admin: database backups", "/v1/admin/database/backups"],
+	["admin: ffmpeg-capabilities", "/v1/admin/ffmpeg-capabilities"],
+	["admin: network remote-access", "/v1/admin/network/remote-access"],
+];
+
+const MATRIX_SCENARIOS: ReadonlyArray<readonly [string, RequestBuilder]> = ROUTE_MATRIX.map(
+	([name, template, withProfile]) =>
+		[
+			`matrix: ${name}`,
+			(context) => new Request(`${context.baseUrl}${interpolatePath(context, template)}`, authHeaders(context, Boolean(withProfile))),
+		] as const,
+);
+
+const SCENARIOS: ReadonlyArray<readonly [string, RequestBuilder]> = [...HEADLINE_SCENARIOS, ...MATRIX_SCENARIOS];
 
 function runScenario(
 	scenario: readonly [string, RequestBuilder],

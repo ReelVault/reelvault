@@ -55,6 +55,9 @@ export const workerJobs = sqliteTable(
 		index("worker_jobs_operation_idx").on(table.operationId, table.status, table.createdAt),
 		// cascadeCancel resolves dependents recursively by dependsOnJobId + status
 		index("worker_jobs_depends_idx").on(table.dependsOnJobId, table.status),
+		// Admin jobs list sorts newest-first across all statuses — without a bare
+		// created_at index every page full-scans and temp-sorts the jobs table.
+		index("worker_jobs_created_at_idx").on(table.createdAt),
 		check("worker_jobs_status_check", sql`${table.status} IN ('pending', 'running', 'completed', 'failed', 'cancelled')`),
 		check("worker_jobs_backoff_check", sql`${table.backoffType} IN ('fixed', 'exponential')`),
 		check(
