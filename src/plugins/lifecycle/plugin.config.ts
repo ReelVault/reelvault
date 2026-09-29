@@ -33,7 +33,7 @@ export class PluginConfig {
 		return this.loadRaw(pluginDir);
 	}
 
-	async save(pluginName: string, updatedConfig: Record<string, unknown>): Promise<Record<string, unknown>> {
+	async save(pluginName: string, updatedConfig: Record<string, unknown>, pruneTo?: ReadonlySet<string>): Promise<Record<string, unknown>> {
 		const pluginDir = this.resolvePluginDirectory(pluginName);
 
 		return await this.saveMutex.runExclusive(pluginName, async () => {
@@ -44,7 +44,9 @@ export class PluginConfig {
 				mergedConfig[key] = value;
 			}
 
-			const serialized = `${JSON.stringify(mergedConfig, null, 2)}\n`;
+			const persistedConfig = pruneTo ? pruneKeys(mergedConfig, pruneTo) : mergedConfig;
+
+			const serialized = `${JSON.stringify(persistedConfig, null, 2)}\n`;
 			if (serialized.length > MAX_CONFIG_BYTES) {
 				throw new ValidationError(`Plugin configuration exceeds the ${MAX_CONFIG_BYTES} byte limit`);
 			}
@@ -53,7 +55,7 @@ export class PluginConfig {
 			const configPath = PathUtils.join(pluginDir, "config.json");
 			await FileUtils.writeAtomic(configPath, serialized, { chmod: CONFIG_FILE_MODE });
 
-			return mergedConfig;
+			return persistedConfig;
 		});
 	}
 
@@ -76,4 +78,12 @@ export class PluginConfig {
 
 		return PathUtils.join(this.pluginsDirectory, pluginName);
 	}
+}
+
+function pruneKeys(config: Record<string, unknown>, allowed: ReadonlySet<string>): Record<string, unknown> {
+	const pruned: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(config)) {
+		if (allowed.has(key)) pruned[key] = value;
+	}
+	return pruned;
 }

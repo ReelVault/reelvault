@@ -110,14 +110,25 @@ export const profilesRoutes = new Elysia({
 				profile_unlock?.remove();
 			}
 
-			return { success: results.success };
+			const isNativeShell = request.headers.get("x-client-shell") === "native";
+
+			return {
+				success: results.success,
+				// Browser clients unlock via the Set-Cookie pair only; native shells
+				// cannot read Set-Cookie reliably and replay the token as a Cookie
+				// header instead — same escape hatch as quick-connect redeem.
+				...(results.unlockToken && isNativeShell ? { unlockToken: results.unlockToken } : {}),
+			};
 		},
 		{
 			// PIN verification runs argon2id — cap attempts per account (middleware
 			// identity is userId when no profile is active) to slow brute force.
 			rateLimit: { name: "profile-switch", max: 10, windowMs: 15 * 60_000 },
 			body: "profile.switch.body",
-			response: { ...ROUTE_ERRORS.VALIDATED, 200: "success.response" },
+			response: {
+				...ROUTE_ERRORS.VALIDATED,
+				200: t.Object({ success: t.Boolean(), unlockToken: t.Optional(t.String()) }),
+			},
 			detail: {
 				description: "Switch the active profile for the current session. Updates the session cookie.",
 			},

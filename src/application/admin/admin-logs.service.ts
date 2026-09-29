@@ -233,13 +233,13 @@ class AdminLogsService extends BaseService {
 
 	/** Log viewers poll every few seconds; re-reading and re-splitting up to
 	 * 2 MB per poll is pure waste while the file is unchanged. */
-	private readonly logTailCache = new MemoryCache<{ lines: string[] }>({
+	private readonly logTailCache = new MemoryCache<{ lines: string[]; parsed: Array<Record<string, unknown> | null> }>({
 		ttlMs: 2_000,
 		maxSize: 4,
 		name: "admin.logTail",
 	});
 
-	private async readLogTailLines(fileId?: string): Promise<{ lines: string[] }> {
+	private async readLogTailLines(fileId?: string): Promise<{ lines: string[]; parsed: Array<Record<string, unknown> | null> }> {
 		const { filePath } = this.resolveLogFilePath(fileId);
 		try {
 			const stats = await stat(filePath);
@@ -250,8 +250,18 @@ class AdminLogsService extends BaseService {
 				let lines = content.split("\n").filter((line) => isNonEmptyString(line));
 				// When reading a byte-slice tail, the first line may be cut mid-write — skip it.
 				if (truncated && lines.length > 0) lines = lines.slice(1);
+				// JSON.parse per line is the expensive part of a read — pre-parse the
+				// window getLogs will ever scan so repeat polls only filter.
+				const maxLines = Math.min(lines.length, LOG_MAX_PARSED_LINES);
+				const parseStart = lines.length - maxLines;
+				const parsed: Array<Record<string, unknown> | null> = lines.map((line, index) => {
+					if (index < parseStart) return null;
+					const value = safeParseJson(line);
 
-				return { lines };
+					return isRecord(value) ? value : null;
+				});
+
+				return { lines, parsed };
 			});
 		} catch (error) {
 			if (error instanceof NotFoundError) throw error;
@@ -432,7 +442,7 @@ class AdminLogsService extends BaseService {
 	}
 
 	async getLogs(query?: { fileId?: string; level?: string; search?: string; limit?: number; page?: number }): Promise<AdminLogsPage> {
-		const { lines } = await this.readLogTailLines(query?.fileId);
+		const { lines, parsed } = await this.readLogTailLines(query?.fileId);
 		const maxLines = Math.min(lines.length, LOG_MAX_PARSED_LINES);
 		const parsedEntries: AdminLogEntry[] = [];
 
@@ -452,8 +462,7 @@ class AdminLogsService extends BaseService {
 			const line = lines[i];
 			if (!line) continue;
 
-			const parsed = safeParseJson(line);
-			const obj = isRecord(parsed) ? parsed : null;
+			const obj = parsed[i];
 			const entry = obj ? matchJsonLogLine(line, obj, filter) : matchPlainLogLine(line, filter);
 			if (!entry) continue;
 

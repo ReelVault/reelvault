@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { systemSettingsService } from "@/application/admin/system-settings.service";
 import { ForbiddenError, ValidationError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
@@ -66,7 +67,7 @@ export async function assertDestinationAllowed(rawUrl: string): Promise<string> 
 		throw new ForbiddenError(`Plugin HTTP fetch to a local host is not allowed: ${host}`, { code: "plugin.http.private_address" });
 	}
 
-	if (!isPublicAddress(host)) {
+	if (isIP(host) !== 0 && !isPublicAddress(host)) {
 		throw new ForbiddenError(`Plugin HTTP fetch to a private address is not allowed: ${host}`, { code: "plugin.http.private_address" });
 	}
 

@@ -23,6 +23,16 @@ interface CreateResourceMetricInput {
 	activeWorkers: Record<string, number>;
 }
 
+export interface ResourceHistorySample {
+	id: string;
+	createdAt: Date;
+	cpuUsedPercent: number;
+	memoryPercent: number;
+	diskPercent: number;
+	pressure: string;
+	activeWorkers: Record<string, number>;
+}
+
 class ResourceMetricsRepository {
 	async create(input: CreateResourceMetricInput): Promise<ResourceMetricRecord> {
 		const retentionUntil = new Date(Date.now() + DAY); // 24h
@@ -36,10 +46,28 @@ class ResourceMetricsRepository {
 		return record;
 	}
 
-	async getHistory(hours = 24): Promise<ResourceMetricRecord[]> {
+	async getHistory(hours = 24, maxPoints = 480): Promise<ResourceHistorySample[]> {
 		const cutoff = new Date(Date.now() - hours * HOUR);
+		const rows = await databaseFactory
+			.getClient()
+			.select({
+				id: metrics.id,
+				createdAt: metrics.createdAt,
+				cpuUsedPercent: metrics.cpuUsedPercent,
+				memoryPercent: metrics.memoryPercent,
+				diskPercent: metrics.diskPercent,
+				pressure: metrics.pressure,
+				activeWorkers: metrics.activeWorkers,
+			})
+			.from(metrics)
+			.where(gte(metrics.createdAt, cutoff))
+			.orderBy(desc(metrics.createdAt));
+		// Even stride over the newest-first rows keeps the newest sample and bounds
+		// the payload for charts — a 24 h window at ~30 s cadence spans thousands of
+		// rows, far past what a graph can render.
+		const stride = Math.max(1, Math.ceil(rows.length / maxPoints));
 
-		return await databaseFactory.getClient().select().from(metrics).where(gte(metrics.createdAt, cutoff)).orderBy(desc(metrics.createdAt));
+		return rows.filter((_, index) => index % stride === 0);
 	}
 
 	async getAggregates(hours = 24): Promise<{

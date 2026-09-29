@@ -100,6 +100,9 @@ export const adminSystemRoutes = new Elysia()
 	})
 	.get("/resources", async () => await adminResourcesService.getResourcesView(), {
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminResourcesResponseSchema },
+		// The monitoring page polls this continuously; a 2s body cache collapses
+		// bursts (compression memoized) without hiding live movement.
+		cache: { maxAge: 2, private: true },
 		detail: {
 			description: "Retrieve system resource metrics: CPU, memory, disk usage, alerts, and historical data for the last 24 hours.",
 		},

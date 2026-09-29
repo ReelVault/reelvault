@@ -339,7 +339,14 @@ export class PluginManager {
 		// evaluated against what will actually be persisted. A failed load keeps
 		// its config definition, so validation works there too.
 		const definition = this.registry.getConfigDefinition(pluginId);
+		let pruneTo: ReadonlySet<string> | undefined;
 		if (definition) {
+			// Drop keys outside the declared schema so arbitrary junk from a stale
+			// client can never reach config.json (or the plugin's parsed config).
+			// The stored config is pruned with the same rule, cleaning up junk
+			// persisted before this guard existed.
+			pruneTo = new Set(definition.descriptors.map((descriptor) => descriptor.name));
+
 			const existing = await this.config.load(pluginDir);
 			try {
 				definition.parse({ ...existing, ...updatedConfig });
@@ -353,7 +360,7 @@ export class PluginManager {
 			}
 		}
 
-		await this.config.save(dirName, updatedConfig);
+		await this.config.save(dirName, updatedConfig, pruneTo);
 		try {
 			await this.reload(pluginId);
 		} catch {

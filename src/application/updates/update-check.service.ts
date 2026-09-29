@@ -109,12 +109,28 @@ export class UpdateCheckService extends BaseService {
 	 * or a status read (expected anomaly → warn + degrade).
 	 */
 	async checkLatest(force = false): Promise<void> {
-		if (!force && this.cachedAt > 0 && Date.now() - this.cachedAt < CHECK_TTL_MS) return;
+		if (force) {
+			this.inFlight ??= this.fetchLatest();
+			try {
+				await this.inFlight;
+			} finally {
+				this.inFlight = null;
+			}
 
-		// Concurrent status reads share one refresh instead of hammering GitHub.
-		this.inFlight ??= this.fetchLatest();
+			return;
+		}
+
+		if (this.cachedAt > 0 && Date.now() - this.cachedAt < CHECK_TTL_MS) return;
+
+		// A stale status read must never wait on GitHub — a hung fetch once kept
+		// the dashboard update card spinning for the full request timeout. Kick
+		// one shared refresh and serve the last known state right away.
+		this.inFlight ??= this.trackRefresh();
+	}
+
+	private async trackRefresh(): Promise<void> {
 		try {
-			await this.inFlight;
+			await this.fetchLatest();
 		} finally {
 			this.inFlight = null;
 		}

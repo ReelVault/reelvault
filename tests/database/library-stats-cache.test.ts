@@ -14,6 +14,10 @@ const STUB_TABLES = [
 		id TEXT PRIMARY KEY, name TEXT, type TEXT, metadata_storage_mode TEXT, sidecar_flavor TEXT NOT NULL DEFAULT 'reelvault',
 		created_at INTEGER, updated_at INTEGER
 	)`,
+	`CREATE TABLE IF NOT EXISTS library_paths (
+		id TEXT PRIMARY KEY, library_id TEXT, stable_key TEXT, path TEXT,
+		is_active INTEGER, metadata_storage_mode TEXT, created_at INTEGER, updated_at INTEGER
+	)`,
 	`CREATE TABLE IF NOT EXISTS media_files (
 		id TEXT PRIMARY KEY, library_id TEXT, metadata_id TEXT, movie_id TEXT, episode_id TEXT,
 		file_path TEXT, file_name TEXT, format_name TEXT, duration INTEGER, file_size INTEGER,
@@ -32,6 +36,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
 	await client.delete(schema.mediaFiles);
+	await client.delete(schema.libraryPaths);
 	await client.delete(schema.libraries);
 	librariesRepository.clearStatsCache();
 });
@@ -62,5 +67,28 @@ describe("library stats caching", () => {
 
 		const result = await librariesRepository.findById({ primaryId: "lib-empty", fields });
 		expect(result).toMatchObject({ totalMediaFiles: 0, totalSize: 0 });
+	});
+
+	test("attributes per-path stats to the longest matching prefix (nested paths and win32 separators)", async () => {
+		const fields = QueryFields.parse({ fields: "id,paths.id,paths.path,paths.fileCount,paths.totalSize" });
+		await client.insert(schema.libraries).values({ id: "lib-multi", name: "Multi", type: "movies", metadataStorageMode: "database" });
+		await client.insert(schema.libraryPaths).values([
+			{ id: "lp-root", libraryId: "lib-multi", stableKey: "sk-1", path: "/media/a", isActive: true },
+			{ id: "lp-nested", libraryId: "lib-multi", stableKey: "sk-2", path: "/media/a/sub", isActive: true },
+			{ id: "lp-win", libraryId: "lib-multi", stableKey: "sk-3", path: "C:\\media\\win", isActive: true },
+		]);
+		await client.insert(schema.mediaFiles).values([
+			{ ...mediaFileRow("mf-1", "lib-multi", 10), filePath: "/media/a/root.mkv" },
+			{ ...mediaFileRow("mf-2", "lib-multi", 20), filePath: "/media/a/sub/nested.mkv" },
+			{ ...mediaFileRow("mf-3", "lib-multi", 40), filePath: "/media/outside.mkv" },
+			{ ...mediaFileRow("mf-4", "lib-multi", 50), filePath: "C:\\media\\win\\clip.mkv" },
+		]);
+
+		const result = await librariesRepository.findById({ primaryId: "lib-multi", fields });
+		const paths = result?.paths ?? [];
+		const statsByPathId = new Map(paths.map((path) => [path.id, { fileCount: path.fileCount, totalSize: path.totalSize }]));
+		expect(statsByPathId.get("lp-root")).toEqual({ fileCount: 1, totalSize: 10 });
+		expect(statsByPathId.get("lp-nested")).toEqual({ fileCount: 1, totalSize: 20 });
+		expect(statsByPathId.get("lp-win")).toEqual({ fileCount: 1, totalSize: 50 });
 	});
 });

@@ -14,12 +14,14 @@ const originalGetSession = auth.api.getSession;
 const originalUserHasPermission = auth.api.userHasPermission;
 const originalGetPreferences = profilesService.getPreferences;
 const originalUpdatePreferences = profilesService.updatePreferences;
+const originalSwitch = profilesService.switch;
 
 afterEach(() => {
 	auth.api.getSession = originalGetSession;
 	auth.api.userHasPermission = originalUserHasPermission;
 	profilesService.getPreferences = originalGetPreferences;
 	profilesService.updatePreferences = originalUpdatePreferences;
+	profilesService.switch = originalSwitch;
 });
 
 /** Wraps a fake better-auth session payload so the mock matches auth.api.getSession's shape. */
@@ -111,4 +113,64 @@ test("profile preferences endpoints read and update an authorized profile", asyn
 	expect((await getResponse.json()).profileId).toBe("profile-1");
 	expect(patchResponse.status).toBe(200);
 	expect((await patchResponse.json()).theme).toBe("dark");
+});
+
+test("profile switch returns unlock token for native shells", async () => {
+	const now = new Date("2026-01-02T03:04:05.000Z");
+	auth.api.getSession = fakeGetSession({
+		user: {
+			id: "user-1",
+			name: "User",
+			email: "user@example.com",
+			emailVerified: true,
+			createdAt: now,
+			updatedAt: now,
+			role: "user",
+			banned: false,
+		},
+		session: { id: "session-1" },
+	});
+	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+	profilesService.switch = async () => ({ success: true, profileId: "profile-1", unlockToken: "unlock-token-1" });
+
+	const response = await app.handle(
+		new Request("http://localhost/profiles/switch", {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: "Bearer test", "x-client-shell": "native" },
+			body: JSON.stringify({ profileId: "profile-1" }),
+		}),
+	);
+
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ success: true, unlockToken: "unlock-token-1" });
+});
+
+test("profile switch omits unlock token for browser clients", async () => {
+	const now = new Date("2026-01-02T03:04:05.000Z");
+	auth.api.getSession = fakeGetSession({
+		user: {
+			id: "user-1",
+			name: "User",
+			email: "user@example.com",
+			emailVerified: true,
+			createdAt: now,
+			updatedAt: now,
+			role: "user",
+			banned: false,
+		},
+		session: { id: "session-1" },
+	});
+	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+	profilesService.switch = async () => ({ success: true, profileId: "profile-1", unlockToken: "unlock-token-1" });
+
+	const response = await app.handle(
+		new Request("http://localhost/profiles/switch", {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: "Bearer test" },
+			body: JSON.stringify({ profileId: "profile-1" }),
+		}),
+	);
+
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ success: true });
 });

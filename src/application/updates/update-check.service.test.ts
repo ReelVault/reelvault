@@ -141,11 +141,35 @@ describe("UpdateCheckService (two sources)", () => {
 			return Promise.resolve(new Response(JSON.stringify(SERVER_PAYLOAD), { status: 200 }));
 		});
 
-		await service.checkLatest();
+		await service.checkLatest(true);
 		await service.checkLatest();
 		expect(fetchCount).toBe(2); // one fetch per source
 
 		await service.checkLatest(true);
 		expect(fetchCount).toBe(4);
+	});
+
+	test("a stale status read returns immediately while the refresh runs in the background", async () => {
+		let releaseAll = false;
+		const pendingResolvers: Array<(response: Response) => void> = [];
+		const service = new UpdateCheckService(() => {
+			if (releaseAll) return Promise.resolve(new Response(JSON.stringify(SERVER_PAYLOAD), { status: 200 }));
+
+			return new Promise<Response>((resolve) => {
+				pendingResolvers.push(resolve);
+			});
+		});
+
+		const t0 = Date.now();
+		await service.checkLatest();
+		expect(Date.now() - t0).toBeLessThan(100);
+		expect(service.getState().lastCheckedAt).toBeNull();
+
+		releaseAll = true;
+		for (const resolve of pendingResolvers.splice(0)) resolve(new Response(JSON.stringify(SERVER_PAYLOAD), { status: 200 }));
+
+		// A forced read drains the shared background refresh and lands fresh state.
+		await service.checkLatest(true);
+		expect(service.getState().lastCheckedAt).not.toBeNull();
 	});
 });

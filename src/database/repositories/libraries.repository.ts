@@ -508,34 +508,43 @@ class LibrariesRepository {
 		if (uncachedMultiPathLibraryIds.length === 0) return pathStatsByPathId;
 
 		const client = databaseFactory.getClient({ tx });
-		// Longest-path-prefix-wins ownership, computed in SQL instead of per-row prefix matching
-		const fileKey = sql`RTRIM(REPLACE(${schema.mediaFiles.filePath}, '\\', '/'), '/')`;
-		const pathKey = sql`RTRIM(REPLACE(p.path, '\\', '/'), '/')`;
-		const prefixStats = await client
-			.select({
-				pathId: schema.libraryPaths.id,
-				fileCount: sql<number>`count(*)`.mapWith(Number),
-				totalSize: sql<number>`coalesce(sum(${schema.mediaFiles.size}), 0)`.mapWith(Number),
-			})
+		// Longest-prefix-wins ownership, evaluated in JS. The previous correlated
+		// SQL re-matched every library path per media-file row (16k files × 99
+		// paths ≈ 0.45 s of SQLite string comparisons on a real catalog); the
+		// per-library path lists are tiny and static, so one flat file scan plus
+		// in-memory prefix matching keeps identical semantics at ~1/50th cost.
+		const uncachedIds = new Set(uncachedMultiPathLibraryIds);
+		const ownersByLibrary = new Map<string, Array<{ normalized: string; pathId: string }>>();
+		for (const [libraryId, libPaths] of pathsByLibrary) {
+			if (!uncachedIds.has(libraryId)) continue;
+			const owners = libPaths
+				.map((p) => ({ normalized: normalizePathPrefix(p.path), pathId: p.id }))
+				.toSorted((left, right) => right.normalized.length - left.normalized.length);
+			ownersByLibrary.set(libraryId, owners);
+		}
+
+		const fileRows = await client
+			.select({ libraryId: schema.mediaFiles.libraryId, filePath: schema.mediaFiles.filePath, size: schema.mediaFiles.size })
 			.from(schema.mediaFiles)
-			.innerJoin(
-				schema.libraryPaths,
-				sql`${schema.libraryPaths.id} = (
-					SELECT p.id
-					FROM ${schema.libraryPaths} p
-					WHERE p.library_id = ${schema.mediaFiles.libraryId}
-						AND (${fileKey} = ${pathKey} OR substr(${fileKey}, 1, length(${pathKey}) + 1) = ${pathKey} || '/')
-					ORDER BY length(${pathKey}) DESC
-					LIMIT 1
-				)`,
-			)
-			.where(inArray(schema.mediaFiles.libraryId, uncachedMultiPathLibraryIds))
-			.groupBy(schema.libraryPaths.id);
-		for (const row of prefixStats) {
-			const entry = { fileCount: row.fileCount, totalSize: row.totalSize };
-			pathStatsByPathId.set(row.pathId, entry);
+			.where(inArray(schema.mediaFiles.libraryId, uncachedMultiPathLibraryIds));
+
+		const totals = new Map<string, { fileCount: number; totalSize: number }>();
+		for (const row of fileRows) {
+			const owners = ownersByLibrary.get(row.libraryId);
+			if (!owners) continue;
+			const fileKey = normalizePathPrefix(row.filePath);
+			const owner = owners.find((candidate) => fileKey === candidate.normalized || fileKey.startsWith(`${candidate.normalized}/`));
+			if (!owner) continue;
+			const entry = totals.get(owner.pathId) ?? { fileCount: 0, totalSize: 0 };
+			entry.fileCount += 1;
+			entry.totalSize += row.size ?? 0;
+			totals.set(owner.pathId, entry);
+		}
+
+		for (const [pathId, entry] of totals) {
+			pathStatsByPathId.set(pathId, entry);
 			if (!tx) {
-				this.pathStatsCache.set(row.pathId, entry);
+				this.pathStatsCache.set(pathId, entry);
 			}
 		}
 
@@ -591,6 +600,13 @@ class LibrariesRepository {
 				},
 			});
 	}
+}
+
+/** Same normalization the path stats historically applied in SQL: win32 separators and trailing slashes are dropped. */
+const TRAILING_SLASHES_REGEX = /\/+$/;
+
+function normalizePathPrefix(value: string): string {
+	return value.replaceAll("\\", "/").replace(TRAILING_SLASHES_REGEX, "");
 }
 
 export const librariesRepository = new LibrariesRepository();
