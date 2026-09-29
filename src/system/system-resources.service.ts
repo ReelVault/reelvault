@@ -3,6 +3,7 @@ import { availableParallelism, cpus } from "node:os";
 import type { Logger } from "@reelvault/sdk/common";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import type { CpuProfile } from "@/config/system-settings.types";
+import { EventLoopMonitor } from "@/utils/event-loop-monitor.utils";
 import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { getTotalMemoryKiB } from "@/utils/mem.utils";
@@ -27,6 +28,8 @@ interface CpuResourceMetrics {
 	readonly workerPoolMaxConcurrent: number;
 	readonly scannerConcurrency: number;
 	readonly ffprobeConcurrency: number;
+	/** Fraction of the last snapshot window the loop was blocked (0-1); undefined on the first snapshot. */
+	readonly eventLoopUtilization?: number | undefined;
 }
 
 /**
@@ -175,6 +178,8 @@ export class SystemResourcesService {
 	private cachedSpeedFactor?: number | undefined;
 	private cachedMetrics?: { metrics: CpuResourceMetrics; expiresAt: number } | undefined;
 	private readonly overrides: SystemResourcesOverrides;
+	/** Samples loop stalls so each metrics snapshot reports utilization over its window. */
+	private readonly eventLoopMonitor = new EventLoopMonitor(100);
 
 	constructor(overrides: SystemResourcesOverrides = {}) {
 		this.overrides = overrides;
@@ -365,6 +370,9 @@ export class SystemResourcesService {
 		const workerPoolMaxConcurrent = configuredPoolMax ?? clamp(Math.floor(capacity * 1.25), 3, CAPS.poolMax);
 		const scannerConcurrency = clamp(Math.floor(capacity / 2), 1, CAPS.scannerConcurrency);
 		const ffprobeConcurrency = clamp(Math.floor(capacity / 2), 1, CAPS.ffprobeConcurrency);
+		// Utilization over THIS snapshot window (the metrics TTL): a saturated
+		// single loop shows up as ~1.0 even when CPU% looks idle on many cores.
+		const eventLoopUtilization = this.eventLoopMonitor.read();
 
 		const metrics: CpuResourceMetrics = Object.freeze({
 			detectedCores,
@@ -380,6 +388,7 @@ export class SystemResourcesService {
 			workerPoolMaxConcurrent,
 			scannerConcurrency,
 			ffprobeConcurrency,
+			...(eventLoopUtilization !== undefined ? { eventLoopUtilization } : {}),
 		});
 
 		this.cachedMetrics = { metrics, expiresAt: now + METRICS_TTL_MS };

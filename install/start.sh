@@ -31,6 +31,23 @@ export APP_WEB_DIST="${APP_WEB_DIST:-$HERE/web}"
 export APP_HOST="${APP_HOST:-127.0.0.1}"
 export APP_PORT="${APP_PORT:-3030}"
 
+# Memory-constrained hosts (RPi, small VPS): run Bun in small-heap mode. The
+# server already scales its own caches down with installed RAM; --smol shrinks
+# the JS heap too, trading a little throughput for a much lower RAM floor.
+# Override with APP_BUN_FLAGS="" (disable) or APP_BUN_FLAGS="--smol" (force).
+if [ -z "${APP_BUN_FLAGS:-}" ]; then
+	total_kb=0
+	if [ -r /proc/meminfo ]; then
+		total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+	elif [ "$(uname)" = "Darwin" ]; then
+		total_kb=$(($(sysctl -n hw.memsize) / 1024))
+	fi
+	if [ "$total_kb" -gt 0 ] && [ "$total_kb" -lt $((3 * 1024 * 1024)) ]; then
+		APP_BUN_FLAGS="--smol"
+	fi
+fi
+
 mkdir -p "$ROOT_DIR"
 
-exec "$HERE/bun/bun" run "$HERE/server/src/index.ts"
+# $APP_BUN_FLAGS is intentionally unquoted: it expands to zero or more runtime flags.
+exec "$HERE/bun/bun" $APP_BUN_FLAGS run "$HERE/server/src/index.ts"

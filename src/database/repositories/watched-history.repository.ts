@@ -5,20 +5,39 @@ import type {
 	TopWatchedMedia,
 	WatchedHistoryWithRelations,
 } from "@reelvault/sdk/common";
-import { and, asc, desc, eq, gte, inArray, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, or, type SQL, type SQLWrapper, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount, defineTableAccess, filterSignature, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
+import { type CreatedAtCursor, KeysetCursor } from "@/database/utils/keyset-cursor";
 import { QueryPagination } from "@/database/utils/pagination";
 import { QueryUtils } from "@/database/utils/query-parser";
 import { daysAgo, serverConstants } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { unique } from "@/utils/array.utils";
+import { ValidationError } from "@/utils/errors";
 
 const watchedHistory = defineTableAccess("watchedHistory", {
 	primaryKeyColumn: "id",
 });
+
+interface FindWithMediaOptions {
+	limit?: number | undefined;
+	offset?: number | undefined;
+	sortBy?: "watchedAt" | "createdAt" | undefined;
+	sortOrder?: "asc" | "desc" | undefined;
+	/** Keyset position — takes precedence over offset and forces watchedAt-desc ordering. */
+	cursor?: CreatedAtCursor | undefined;
+}
+
+/** Cursor mode orders by the full key (watchedAt, id); the offset path adds the
+ * id tiebreaker so pages stay deterministic for equal timestamps. */
+function orderByFor(cursor: CreatedAtCursor | undefined, sortColumn: SQLWrapper, sortOrder: "asc" | "desc"): SQL[] {
+	if (cursor) return [sql`${desc(schema.watchedHistory.watchedAt)}, ${desc(schema.watchedHistory.id)}`];
+
+	return [sortOrder === "asc" ? asc(sortColumn) : desc(sortColumn), sql`${schema.watchedHistory.id}`];
+}
 
 class WatchedHistoryRepository {
 	readonly table = schema.watchedHistory;
@@ -57,14 +76,23 @@ class WatchedHistoryRepository {
 		return Boolean(history);
 	}
 
-	async findWithMedia(
-		profileId: string,
-		limit: number,
-		offset: number,
-		sortBy: "watchedAt" | "createdAt" = "watchedAt",
-		sortOrder: "asc" | "desc" = "desc",
-	) {
+	async findWithMedia(profileId: string, options: FindWithMediaOptions) {
+		const { limit = 50, offset = 0, sortBy = "watchedAt", sortOrder = "desc", cursor } = options;
 		const client = databaseFactory.getClient();
+		const sortColumn = sortBy === "createdAt" ? schema.watchedHistory.createdAt : schema.watchedHistory.watchedAt;
+
+		// Cursor mode orders by the full key (watchedAt, id) so pagination stays
+		// deterministic even when rows share a timestamp.
+		const where = cursor
+			? and(
+					eq(schema.watchedHistory.profileId, profileId),
+					or(
+						lt(schema.watchedHistory.watchedAt, new Date(cursor.createdAt)),
+						and(eq(schema.watchedHistory.watchedAt, new Date(cursor.createdAt)), lt(schema.watchedHistory.id, cursor.id)),
+					),
+				)
+			: eq(schema.watchedHistory.profileId, profileId);
+
 		const rows = await client
 			.select({
 				history: schema.watchedHistory,
@@ -77,15 +105,12 @@ class WatchedHistoryRepository {
 			.innerJoin(schema.metadata, eq(schema.metadata.id, schema.mediaFiles.metadataId))
 			.leftJoin(schema.episodes, eq(schema.episodes.id, schema.mediaFiles.episodeId))
 			.leftJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
-			.where(eq(schema.watchedHistory.profileId, profileId))
+			.where(where)
 			// Honor the route's declared sortBy/sortOrder contract (audit 2026-09-15).
-			.orderBy(
-				sortOrder === "asc"
-					? asc(sortBy === "createdAt" ? schema.watchedHistory.createdAt : schema.watchedHistory.watchedAt)
-					: desc(sortBy === "createdAt" ? schema.watchedHistory.createdAt : schema.watchedHistory.watchedAt),
-			)
+			// The id tiebreaker keeps offset pages deterministic for equal timestamps.
+			.orderBy(...orderByFor(cursor, sortColumn, sortOrder))
 			.limit(limit)
-			.offset(offset);
+			.offset(cursor ? 0 : offset);
 
 		// Backdrops batched for the page instead of one correlated subquery per row.
 		const metadataIds = unique(rows, (row) => row.metadata.id);
@@ -111,6 +136,12 @@ class WatchedHistoryRepository {
 		const { pagination } = QueryUtils.parseStandard(query);
 		const sortBy = query.sortBy ?? "watchedAt";
 		const sortOrder = query.sortOrder ?? "desc";
+		// Keyset pagination on the default listing (watchedAt desc) — offset pages
+		// scan past all preceding joined rows, a cursor seeks straight to the key.
+		const cursorMode = sortBy === "watchedAt" && sortOrder === "desc";
+		if (query.cursor && !cursorMode) throw new ValidationError("Pagination cursor requires descending watchedAt sorting");
+		const cursor = cursorMode && query.cursor ? KeysetCursor.decode(query.cursor) : undefined;
+
 		// The per-profile total only changes on history writes; caching it keeps the
 		// COUNT scan out of every page request (the write paths clear this cache's
 		// 10 s TTL via clearEtagBodyCache-driven invalidation of the HTTP body cache,
@@ -118,14 +149,23 @@ class WatchedHistoryRepository {
 		const countFilters = { profileId };
 		const [total, rows] = await Promise.all([
 			cachedCount("watchedHistory", filterSignature(countFilters, countFilters), () => this.countForProfile(profileId)),
-			this.findWithMedia(profileId, pagination.limit, pagination.offset, sortBy, sortOrder),
+			this.findWithMedia(profileId, { limit: pagination.limit, offset: pagination.offset, sortBy, sortOrder, cursor }),
 		]);
 
-		return QueryPagination.createResponse({
+		const response = QueryPagination.createResponse({
 			total,
-			pagination,
+			pagination: cursor ? { ...pagination, page: 1, offset: 0 } : pagination,
 			data: rows.map(({ history, metadata, episode, season, backdrop }) => ({ ...history, metadata, episode, season, backdrop })),
 		});
+
+		// The default listing is cursor mode, so the FIRST page must already carry
+		// nextCursor — gating on the incoming cursor would starve it forever.
+		if (!cursorMode || rows.length < pagination.limit) return response;
+
+		const last = rows.at(-1);
+		if (!last) return response;
+
+		return { ...response, nextCursor: KeysetCursor.encode({ createdAt: last.history.watchedAt.getTime(), id: last.history.id }) };
 	}
 
 	/**

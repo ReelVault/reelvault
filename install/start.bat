@@ -24,4 +24,6 @@ if not defined APP_PORT set "APP_PORT=3030"
 
 if not exist "%ROOT_DIR%" mkdir "%ROOT_DIR%"
 
-"%HERE%\bun\bun.exe" run "%HERE%\server\src\index.ts"
+rem Optional Bun runtime flags — set APP_BUN_FLAGS=--smol in settings.cmd on
+rem small-RAM Windows hosts to shrink the JavaScript heap.
+"%HERE%\bun\bun.exe" %APP_BUN_FLAGS% run "%HERE%\server\src\index.ts"

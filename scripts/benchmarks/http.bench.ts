@@ -30,6 +30,8 @@ interface ScenarioContext {
 	seededRows: number;
 	/** When true, requests send `Cache-Control: no-cache` to bypass the server-side body cache. */
 	noCache: boolean;
+	/** nextCursor from the watched-history first page (empty before cursor support exists). */
+	watchedHistoryCursor: string;
 }
 
 type RequestBuilder = (context: ScenarioContext, workerIndex: number, requestIndex: number) => Request;
@@ -96,6 +98,22 @@ const playbackView: RequestBuilder = (context, workerIndex, requestIndex) =>
 
 const watchedHistory: RequestBuilder = (context, workerIndex, requestIndex) =>
 	new Request(`${context.baseUrl}/v1/me/watched-history?limit=50`, authHeaders(context, workerIndex, requestIndex, true));
+
+const watchedHistoryDeepPage: RequestBuilder = (context, workerIndex, requestIndex) => {
+	// History seeds 300 rows per profile; at limit 50 page 4 has OFFSET 150, so
+	// the joined query scans past 150 rows before returning — the offset cost
+	// this should later be compared against the keyset cursor path.
+	return new Request(`${context.baseUrl}/v1/me/watched-history?limit=50&page=4`, authHeaders(context, workerIndex, requestIndex, true));
+};
+
+const watchedHistoryCursorPage: RequestBuilder = (context, workerIndex, requestIndex) => {
+	// Without server-side cursor support nextCursor is empty and this degrades
+	// to the first page — the baseline marks that mode explicitly.
+	const cursor = context.watchedHistoryCursor;
+	const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+
+	return new Request(`${context.baseUrl}/v1/me/watched-history?limit=50${suffix}`, authHeaders(context, workerIndex, requestIndex, true));
+};
 
 const watchedInsights: RequestBuilder = (context, workerIndex, requestIndex) =>
 	new Request(`${context.baseUrl}/v1/me/watched-history/insights?range=30d`, authHeaders(context, workerIndex, requestIndex, true));
@@ -281,6 +299,8 @@ const SCENARIOS: readonly ScenarioDefinition[] = [
 	{ name: "GET /v1/me/continue-watching", builder: continueWatching },
 	{ name: "GET /v1/playback-sessions/view/:mediaFileId", builder: playbackView },
 	{ name: "GET /v1/me/watched-history?limit=50", builder: watchedHistory },
+	{ name: "GET /v1/me/watched-history?page=4 (deep offset)", builder: watchedHistoryDeepPage },
+	{ name: "GET /v1/me/watched-history (cursor page)", builder: watchedHistoryCursorPage },
 	{ name: "GET /v1/me/watched-history/insights", builder: watchedInsights },
 	{ name: "GET /v1/me/watchlist?limit=24", builder: watchlist },
 	{ name: "GET /v1/notifications/unread-count", builder: unreadCount },
@@ -369,6 +389,7 @@ if (!args.help) {
 		let genreId = "genre-1";
 		let personId = "person-0";
 		let seededRows = args.rows;
+		let watchedHistoryCursor = "";
 
 		if (baseUrl) {
 			console.log(`[http] targeting external server at ${baseUrl}`);
@@ -389,6 +410,19 @@ if (!args.help) {
 			personId = managed.benchmarkPersonId;
 			seededRows = managed.seededRows;
 			console.log(`[http] server ready with ${cookies.length} client identities and ${args.rows} catalog rows`);
+
+			// Resolve the watched-history cursor once, from the first worker identity.
+			const cursorResponse = await fetch(`${baseUrl}/v1/me/watched-history?limit=50`, {
+				headers: { cookie: cookies[0] ?? "", "x-profile-id": profileIdFor(0) },
+			});
+			if (cursorResponse.ok) {
+				const body: unknown = await cursorResponse.json();
+				const nextCursor: unknown = typeof body === "object" && body !== null ? (body as { nextCursor?: unknown }).nextCursor : undefined;
+				if (typeof nextCursor === "string") watchedHistoryCursor = nextCursor;
+			} else {
+				await cursorResponse.arrayBuffer();
+			}
+			console.log(`[http] watched-history cursor: ${watchedHistoryCursor ? "resolved" : "unavailable (first-page mode)"}`);
 		}
 
 		const context: ScenarioContext = {
@@ -407,6 +441,7 @@ if (!args.help) {
 			personId,
 			seededRows,
 			noCache: args.noCache,
+			watchedHistoryCursor,
 		};
 		const results: HttpScenarioResult[] = [];
 

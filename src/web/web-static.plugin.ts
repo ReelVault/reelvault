@@ -1,9 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { file as bunFile } from "bun";
 import { Elysia } from "elysia";
 import { NotFoundError } from "elysia/error";
 import { apiRouter } from "@/api/routes";
 import { isWebApiPath } from "@/api/utils/route-classification.utils";
+import { byteRangeResponse } from "@/utils/http-range.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { resolveWebDistRoot } from "./web-dist";
 
@@ -75,6 +77,13 @@ function notFoundResponse(): Response {
 	return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }
 
+function cacheControlFor(isHtmlEntry: boolean, relativePath: string) {
+	if (isHtmlEntry) return HTML_CACHE_CONTROL;
+	if (relativePath.startsWith(ASSETS_PREFIX)) return IMMUTABLE_CACHE_CONTROL;
+
+	return STATIC_CACHE_CONTROL;
+}
+
 /**
  * Serves the bundled web UI (SPA) when a web dist is present — APP_WEB_DIST or
  * `./web`. Mounted after the API router: the wildcard only catches paths the
@@ -139,12 +148,31 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 		return "";
 	}
 
-	set.headers["Content-Type"] = isHtmlEntry ? HTML_CONTENT_TYPE : contentTypeFor(filePath);
-	if (isHtmlEntry) set.headers["Cache-Control"] = HTML_CACHE_CONTROL;
-	else if (relativePath.startsWith(ASSETS_PREFIX)) set.headers["Cache-Control"] = IMMUTABLE_CACHE_CONTROL;
-	else set.headers["Cache-Control"] = STATIC_CACHE_CONTROL;
+	const cacheControl = cacheControlFor(isHtmlEntry, relativePath);
 
-	set.headers.ETag = etag;
+	// The HTML entry stays an in-memory buffer: it is meta-tag-transformed and
+	// hot. Real files stream through Bun's minimal-copy file handle instead of
+	// being read whole into the heap, with single-range support for resumable /
+	// seeking clients. Returning a Response bypasses `set.headers`, so the full
+	// header set travels on the Response itself.
+	if (isHtmlEntry) {
+		set.headers["Content-Type"] = HTML_CONTENT_TYPE;
+		set.headers["Cache-Control"] = cacheControl;
+		set.headers.ETag = etag;
 
-	return isHtmlEntry ? await loadIndexEntry(root) : await readFile(filePath);
+		return await loadIndexEntry(root);
+	}
+
+	const headers: Record<string, string> = {
+		"Content-Type": contentTypeFor(filePath),
+		"Cache-Control": cacheControl,
+		ETag: etag,
+		"Accept-Ranges": "bytes",
+	};
+
+	const handle = bunFile(filePath);
+	const ranged = byteRangeResponse(handle, request.headers.get("range"), headers);
+	if (ranged) return ranged;
+
+	return new Response(handle, { status: 200, headers });
 });

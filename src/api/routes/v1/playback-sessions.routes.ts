@@ -20,6 +20,7 @@ import { assertSessionAccess, assertSessionOwnershipById } from "@/modules/strea
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
 import { playbackStreamingService } from "@/modules/streaming/streaming.service";
 import { MINUTE } from "@/server.constants";
+import { byteRangeResponse } from "@/utils/http-range.utils";
 
 export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions", tags: ["Playback Sessions"] })
 	.use(commonModel)
@@ -80,12 +81,27 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 		"/:sessionId/segments/:segment",
 		async ({ params, request, set, profile }) => {
 			assertSessionOwnershipById(params.sessionId, profile?.id);
-			set.headers["Content-Type"] = params.segment === "init.mp4" ? "video/mp4" : "video/iso.segment";
-			set.headers["Cache-Control"] = "no-store";
+			// Segments are immutable within a session (ffmpeg writes each once and
+			// seeks rewrite the whole session directory), so they are safely
+			// cacheable — the playlist above stays no-store.
+			const contentType = params.segment === "init.mp4" ? "video/mp4" : "video/iso.segment";
+			const baseHeaders: Record<string, string> = {
+				"Content-Type": contentType,
+				"Cache-Control": "private, max-age=3600, immutable",
+				"Accept-Ranges": "bytes",
+			};
 
 			// Aborted clients must release the server-side segment wait (and never
 			// trigger a fast seek) instead of holding it for the full timeout.
-			return await playbackStreamingService.getSegment(params.sessionId, params.segment, request.signal);
+			const segment = await playbackStreamingService.getSegment(params.sessionId, params.segment, request.signal);
+			const ranged = byteRangeResponse(segment, request.headers.get("range"), baseHeaders);
+			if (ranged) return ranged;
+
+			set.headers["Content-Type"] = contentType;
+			set.headers["Cache-Control"] = "private, max-age=3600, immutable";
+			set.headers["Accept-Ranges"] = "bytes";
+
+			return segment;
 		},
 		{
 			params: t.Object({ sessionId: t.String(), segment: t.String() }),
@@ -111,6 +127,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 			// Server clamps missing/null/non-finite positions into [0, duration].
 			body: t.Object({ position: t.Optional(t.Nullable(t.Number())) }),
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: StreamSeekResponseSchema },
+			detail: { description: "Seek the active session to a position; restarts the ffmpeg process when the target is not buffered." },
 		},
 	)
 	.get(
@@ -136,6 +153,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 		{
 			params: SessionIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: PlaybackDiagnosticsSchema },
+			detail: { description: "Buffer and segment diagnostics for the active session." },
 		},
 	)
 	.post(

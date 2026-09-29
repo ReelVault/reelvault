@@ -8,6 +8,9 @@ import { webStaticPlugin } from "./web-static.plugin";
 
 let webRoot: string | undefined;
 
+const CONTENT_RANGE_12_18_REGEX = /^bytes 12-18\/\d+$/;
+const CONTENT_RANGE_UNSATISFIABLE_REGEX = /^bytes \*\/\d+$/;
+
 function seedWebRoot(): string {
 	webRoot = mkdtempSync(join(tmpdir(), "reelvault-web-"));
 	mkdirSync(join(webRoot, "assets"));
@@ -96,6 +99,39 @@ describe("webStaticPlugin", () => {
 
 		expect(second.status).toBe(304);
 		expect(await second.text()).toBe("");
+	});
+
+	test("serves a byte range of an asset with 206 and Content-Range", async () => {
+		env.APP_WEB_DIST = seedWebRoot();
+
+		const response = await get("/assets/app-Q1W2E3.js", { Range: "bytes=12-23" });
+
+		expect(response.status).toBe(206);
+		expect(response.headers.get("Accept-Ranges")).toBe("bytes");
+		expect(response.headers.get("Content-Range")).toMatch(CONTENT_RANGE_12_18_REGEX);
+		expect(await response.text()).toBe("'app');");
+	});
+
+	test("serves an open-ended and a suffix range", async () => {
+		env.APP_WEB_DIST = seedWebRoot();
+
+		const openEnded = await get("/assets/app-Q1W2E3.js", { Range: "bytes=12-" });
+		expect(openEnded.status).toBe(206);
+		expect(await openEnded.text()).toBe("'app');");
+
+		const body = await (await get("/assets/app-Q1W2E3.js")).text();
+		const suffix = await get("/assets/app-Q1W2E3.js", { Range: "bytes=-3" });
+		expect(suffix.status).toBe(206);
+		expect(await suffix.text()).toBe(body.slice(-3));
+	});
+
+	test("answers 416 with the full size for an unsatisfiable range", async () => {
+		env.APP_WEB_DIST = seedWebRoot();
+
+		const response = await get("/assets/app-Q1W2E3.js", { Range: "bytes=99999-" });
+
+		expect(response.status).toBe(416);
+		expect(response.headers.get("Content-Range")).toMatch(CONTENT_RANGE_UNSATISFIABLE_REGEX);
 	});
 
 	test("returns 404 for missing files with an extension", async () => {

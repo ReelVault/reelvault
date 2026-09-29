@@ -6,6 +6,8 @@ export interface CreateServerFixtureOptions {
 	keepServer: boolean;
 	/** Generate the ffmpeg sample clip and register it in the catalog. */
 	withSampleMedia?: boolean | undefined;
+	/** Stage a minimal web dist and serve it (static-serving suites). */
+	withWebDist?: boolean | undefined;
 	/** Simulated client identities to seed (worker cookies rotate over these). */
 	workerCount?: number | undefined;
 }
@@ -20,6 +22,7 @@ export function createServerFixture(options: CreateServerFixtureOptions): Fixtur
 			seedRows: options.seedRows,
 			workerCount: options.workerCount,
 			withSampleMedia: options.withSampleMedia,
+			withWebDist: options.withWebDist,
 			keepServer: options.keepServer,
 		});
 		if (!options.keepServer) onCleanup(() => managed.stop());

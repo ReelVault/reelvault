@@ -68,6 +68,7 @@ async function runThroughput(
 	concurrency: number,
 	warmupMs: number,
 	durationMs: number,
+	rangeHeader?: string,
 ): Promise<ThroughputRun> {
 	const run = await runLoadWindow({
 		concurrency,
@@ -85,6 +86,8 @@ async function runThroughput(
 						cookie: server.cookie,
 						"x-profile-id": server.adminProfileId,
 						"x-forwarded-for": subnetIp(78, workerIndex),
+						// A seek re-download is a byte-range request; measures the 206 path.
+						...(rangeHeader ? { range: rangeHeader } : {}),
 					},
 				});
 				const ok = response.ok;
@@ -98,7 +101,7 @@ async function runThroughput(
 	});
 
 	return {
-		name: `HLS segments c=${concurrency}`,
+		name: `HLS segments${rangeHeader ? " Range" : ""} c=${concurrency}`,
 		totalBytes: run.metrics.bytes ?? 0,
 		elapsedMs: durationMs,
 		latencies: run.latencies,
@@ -371,6 +374,41 @@ if (!args.help) {
 							fmtMs(stats.p95Ms),
 							fmtMs(stats.p99Ms),
 							String(run.non2xx),
+						],
+					],
+				);
+
+				// Seek path: a 256 KiB window from the middle of a segment — what a
+				// player re-downloads after a seek when byte-range support exists.
+				const rangeRun = await runThroughput(
+					server,
+					sessionId,
+					segments,
+					concurrency,
+					args.warmupMs,
+					args.durationMs,
+					"bytes=131072-393215",
+				);
+				totalBytes += rangeRun.totalBytes;
+				const rangeStats = summarizeLatencies(rangeRun.latencies);
+				const rangeOkCount = rangeRun.latencies.length - rangeRun.non2xx;
+				results.push({
+					name: rangeRun.name,
+					stats: rangeStats,
+					requestsPerSecond: rangeOkCount / (rangeRun.elapsedMs / 1000),
+					errorRatePercent: rangeRun.latencies.length > 0 ? (rangeRun.non2xx / rangeRun.latencies.length) * 100 : 0,
+				});
+				printTable(
+					`Throughput Range 256KiB c=${concurrency}`,
+					["MB/s", "req/s", "p50", "p95", "p99", "non-2xx"],
+					[
+						[
+							(rangeRun.totalBytes / (rangeRun.elapsedMs / 1000) / 1024 / 1024).toFixed(2),
+							(rangeRun.latencies.length / (rangeRun.elapsedMs / 1000)).toFixed(1),
+							fmtMs(rangeStats.p50Ms),
+							fmtMs(rangeStats.p95Ms),
+							fmtMs(rangeStats.p99Ms),
+							String(rangeRun.non2xx),
 						],
 					],
 				);

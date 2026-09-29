@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { writeFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnManagedProcess, waitForHealth } from "benchkit";
@@ -55,6 +55,8 @@ export interface StartServerOptions {
 	keepServer?: boolean | undefined;
 	/** Generate an ffmpeg test-clip and register it in the catalog. */
 	withSampleMedia?: boolean | undefined;
+	/** Stage a minimal web dist (index.html + one immutable asset) and serve it. */
+	withWebDist?: boolean | undefined;
 }
 
 const SETUP_TOKEN = "reelvault-benchmark-setup-token-0123456789";
@@ -87,13 +89,16 @@ const BENCHMARK_POSTER_PNG_BASE64 =
 
 const repoRoot = join(import.meta.dir, "..", "..", "..");
 
-function serverEnv(port: number, rootDir: string): Record<string, string> {
+function serverEnv(port: number, rootDir: string, webDist?: string): Record<string, string> {
 	return {
 		...process.env,
 		APP_PORT: String(port),
 		ROOT_DIR: rootDir,
 		// Must match the file `seedCatalog` opens; never inherit a parent override.
 		DB_FILE_NAME: "reelvault.sqlite",
+		// Empty string means unset for resolveWebDistRoot — API-only mode unless a
+		// dist was explicitly staged for the static-serving scenarios.
+		APP_WEB_DIST: webDist ?? "",
 		SETUP_TOKEN,
 		BETTER_AUTH_SECRET: AUTH_SECRET,
 		// The load test measures server throughput, not the abuse-protection limiter.
@@ -538,6 +543,26 @@ async function seedWorkerIdentities(rootDir: string, count: number): Promise<str
 }
 
 /**
+ * Stages a minimal SPA dist so the static-serving suite exercises the real
+ * web-static plugin: an index.html with a <head> (meta-tag injection path),
+ * one immutable hashed-style asset sized like a real JS bundle, and the
+ * version.json the UI version probe reads. Returns the directory to serve.
+ */
+async function stageWebDist(rootDir: string): Promise<string> {
+	const webDist = join(rootDir, "web-dist");
+	await mkdir(join(webDist, "assets"), { recursive: true });
+	await writeFile(
+		join(webDist, "index.html"),
+		'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>ReelVault Benchmark</title></head><body><div id="root"></div><script type="module" src="/assets/app.js"></script></body></html>',
+	);
+	const assetChunk = "reelvault-benchmark-asset-0123456789abcdef;".repeat(1024);
+	await writeFile(join(webDist, "assets", "app.js"), Buffer.from(assetChunk, "utf8").subarray(0, 64 * 1024));
+	await writeFile(join(webDist, "version.json"), JSON.stringify({ version: "1.0.0-benchmark" }));
+
+	return webDist;
+}
+
+/**
  * Spawns an isolated ReelVault server (temp data dir + migrations + seeded
  * catalog), waits for health and returns a handle. Reuse an external server by
  * exporting BENCHMARK_BASE_URL instead.
@@ -558,11 +583,13 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 		if (generated) sampleMediaPath = generated;
 	}
 
+	const webDist = options.withWebDist ? await stageWebDist(rootDir) : undefined;
+
 	console.log(`[server] starting on port ${port}...`);
 	const serverProcess = spawnManagedProcess({
 		cmd: ["bun", "run", "src/index.ts"],
 		cwd: repoRoot,
-		env: serverEnv(port, rootDir),
+		env: serverEnv(port, rootDir, webDist),
 		logPath: join(rootDir, "server.log"),
 	});
 
