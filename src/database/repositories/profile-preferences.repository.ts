@@ -1,5 +1,6 @@
 import type { ProfilePreferences, UpdateProfilePreferences } from "@reelvault/sdk/common";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { profileDefaultPreferences } from "@/config/profile-default-preferences";
 import {
 	isProfilePreferenceKey,
 	PROFILE_PREFERENCE_DEFINITIONS,
@@ -9,7 +10,6 @@ import {
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
-import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
 import { MemoryCache } from "@/utils/memory-cache";
 
@@ -44,7 +44,7 @@ function mergePreferenceOverrides(profileId: string, overrides: ProfilePreferenc
 
 	// Override rows are parsed through the per-field codecs, so the spread is
 	// guaranteed to satisfy every contract field.
-	const merged: ProfilePreferences = { profileId, ...serverConfig.profiles.defaultPreferences, ...parsed };
+	const merged: ProfilePreferences = { profileId, ...profileDefaultPreferences(), ...parsed };
 
 	return merged;
 }
@@ -109,7 +109,7 @@ export class ProfilePreferencesRepository {
 		body: UpdateProfilePreferences;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<ProfilePreferences> {
-		const defaults = serverConfig.profiles.defaultPreferences;
+		const defaults = profileDefaultPreferences();
 		const upserts: Array<{ key: string; value: string }> = [];
 		const removals: string[] = [];
 

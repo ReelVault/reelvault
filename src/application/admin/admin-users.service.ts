@@ -9,13 +9,14 @@ import type {
 	SuccessResponse,
 	UpdateProfilePreferences,
 } from "@reelvault/sdk/common";
+import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { sessionsRepository } from "@/database/repositories/sessions.repository";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { QueryPagination } from "@/database/utils/pagination";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { hasEntry } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { hashProfilePin } from "@/utils/crypto.utils";
@@ -73,9 +74,9 @@ class AdminUsersService extends BaseService {
 		});
 	}
 
-	async create(body: AdminCreateUser, actorId?: string, headers?: Headers): Promise<AdminUser> {
+	async create(body: AdminCreateUser, context?: AdminAuditContext): Promise<AdminUser> {
 		return await this.safeExecute("create", async () => {
-			this.assertExists(headers, "Request headers", "admin user create");
+			this.assertPresent(context?.headers, "Request headers are required to create an admin user");
 			const existing = await usersRepository.findByEmail(body.email);
 			if (existing) throw new ConflictError("User with this email already exists", { code: "admin.user_email_conflict" });
 
@@ -84,7 +85,7 @@ class AdminUsersService extends BaseService {
 				email: body.email,
 				password: body.password,
 				role: body.role ?? "user",
-				headers,
+				headers: context.headers,
 			});
 
 			const user = await usersRepository.findById(result.user.id);
@@ -95,7 +96,7 @@ class AdminUsersService extends BaseService {
 					resourceType: "user",
 					resourceId: user.id,
 					after: user,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -104,13 +105,13 @@ class AdminUsersService extends BaseService {
 		});
 	}
 
-	async setPassword(userId: string, body: AdminSetUserPassword, actorId?: string, headers?: Headers): Promise<SuccessResponse> {
+	async setPassword(userId: string, body: AdminSetUserPassword, context?: AdminAuditContext): Promise<SuccessResponse> {
 		return await this.safeExecute("setPassword", async () => {
 			const user = await usersRepository.findById(userId);
 			this.assertExists(user, "User", userId);
-			this.assertExists(headers, "Request headers", "admin set password");
+			this.assertPresent(context?.headers, "Request headers are required to set a user password");
 
-			await betterAuthApi.setUserPassword({ userId, newPassword: body.newPassword, headers });
+			await betterAuthApi.setUserPassword({ userId, newPassword: body.newPassword, headers: context.headers });
 			// A stolen session token must not survive a password reset.
 			await sessionsRepository.deleteAllForUser(userId);
 			realtimeService.disconnectUser(userId);
@@ -119,7 +120,7 @@ class AdminUsersService extends BaseService {
 					action: "update",
 					resourceType: "user",
 					resourceId: userId,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -128,11 +129,11 @@ class AdminUsersService extends BaseService {
 		});
 	}
 
-	async update(userId: string, body: AdminUserUpdate, actorId?: string, headers?: Headers): Promise<AdminUser> {
+	async update(userId: string, body: AdminUserUpdate, context?: AdminAuditContext): Promise<AdminUser> {
 		return await this.safeExecute("update", async () => {
 			const user = await usersRepository.findById(userId);
 			this.assertExists(user, "User", userId);
-			if (user.id === actorId && (body.role === "user" || body.banned)) {
+			if (user.id === context?.actorUserId && (body.role === "user" || body.banned)) {
 				throw new ForbiddenError("You cannot remove your own administrative access", { code: "admin.self_demotion_forbidden" });
 			}
 
@@ -140,18 +141,18 @@ class AdminUsersService extends BaseService {
 				await this.assertNotLastAdmin(user);
 			}
 
-			this.assertExists(headers, "Request headers", "admin user update");
+			this.assertPresent(context?.headers, "Request headers are required to update an admin user");
 			if (body.role !== undefined && body.role !== user.role) {
-				await betterAuthApi.setRole({ userId, role: body.role, headers });
+				await betterAuthApi.setRole({ userId, role: body.role, headers: context.headers });
 			}
 
 			if (body.banned === true && !user.banned) {
-				await betterAuthApi.banUser({ userId, banReason: body.banReason ?? undefined, headers });
+				await betterAuthApi.banUser({ userId, banReason: body.banReason ?? undefined, headers: context.headers });
 				realtimeService.disconnectUser(userId);
 			}
 
 			if (body.banned === false && user.banned) {
-				await betterAuthApi.unbanUser({ userId, headers });
+				await betterAuthApi.unbanUser({ userId, headers: context.headers });
 			}
 
 			const updated = await usersRepository.findById(userId);
@@ -163,7 +164,7 @@ class AdminUsersService extends BaseService {
 					resourceId: userId,
 					before: user,
 					after: updated,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -172,23 +173,24 @@ class AdminUsersService extends BaseService {
 		});
 	}
 
-	async delete(userId: string, actorId?: string, headers?: Headers): Promise<SuccessResponse> {
+	async delete(userId: string, context?: AdminAuditContext): Promise<SuccessResponse> {
 		return await this.safeExecute("delete", async () => {
 			const user = await usersRepository.findById(userId);
 			this.assertExists(user, "User", userId);
-			if (user.id === actorId) throw new ForbiddenError("You cannot delete your own account", { code: "admin.self_delete_forbidden" });
+			if (user.id === context?.actorUserId)
+				throw new ForbiddenError("You cannot delete your own account", { code: "admin.self_delete_forbidden" });
 
 			await this.assertNotLastAdmin(user);
 
-			this.assertExists(headers, "Request headers", "admin user delete");
-			await betterAuthApi.removeUser({ userId, headers });
+			this.assertPresent(context?.headers, "Request headers are required to delete an admin user");
+			await betterAuthApi.removeUser({ userId, headers: context.headers });
 			recordAuditSafe(
 				{
 					action: "delete",
 					resourceType: "user",
 					resourceId: userId,
 					before: user,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -208,7 +210,7 @@ class AdminUsersService extends BaseService {
 		});
 	}
 
-	async createProfile(userId: string, body: AdminCreateUserProfile, actorId?: string, headers?: Headers): Promise<AdminUserProfile> {
+	async createProfile(userId: string, body: AdminCreateUserProfile, context?: AdminAuditContext): Promise<AdminUserProfile> {
 		return await this.safeExecute("createProfile", async () => {
 			const [userExists, isNameTaken] = await Promise.all([
 				usersRepository.isExists({ primaryId: userId }),
@@ -229,7 +231,7 @@ class AdminUsersService extends BaseService {
 					resourceType: "profile",
 					resourceId: profile.id,
 					after: profile,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -250,8 +252,7 @@ class AdminUsersService extends BaseService {
 		userId: string,
 		profileId: string,
 		body: UpdateProfilePreferences,
-		actorId?: string,
-		headers?: Headers,
+		context?: AdminAuditContext,
 	): Promise<ProfilePreferences> {
 		return await this.safeExecute("updateProfilePreferences", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
@@ -262,7 +263,7 @@ class AdminUsersService extends BaseService {
 					resourceType: "profile",
 					resourceId: profile.id,
 					after: preferences,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -271,7 +272,7 @@ class AdminUsersService extends BaseService {
 		});
 	}
 
-	async resetProfilePreferences(userId: string, profileId: string, actorId?: string, headers?: Headers): Promise<ProfilePreferences> {
+	async resetProfilePreferences(userId: string, profileId: string, context?: AdminAuditContext): Promise<ProfilePreferences> {
 		return await this.safeExecute("resetProfilePreferences", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
 			const preferences = await profilePreferencesRepository.reset({ profileId: profile.id });
@@ -281,7 +282,7 @@ class AdminUsersService extends BaseService {
 					resourceType: "profile",
 					resourceId: profile.id,
 					after: preferences,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -294,8 +295,7 @@ class AdminUsersService extends BaseService {
 		userId: string,
 		profileId: string,
 		body: AdminUserProfileUpdate,
-		actorId?: string,
-		headers?: Headers,
+		context?: AdminAuditContext,
 	): Promise<AdminUserProfile> {
 		return await this.safeExecute("updateProfile", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
@@ -312,7 +312,7 @@ class AdminUsersService extends BaseService {
 					resourceId: profileId,
 					before: profile,
 					after: updated,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -321,7 +321,7 @@ class AdminUsersService extends BaseService {
 		});
 	}
 
-	async deleteProfile(userId: string, profileId: string, actorId?: string, headers?: Headers): Promise<SuccessResponse> {
+	async deleteProfile(userId: string, profileId: string, context?: AdminAuditContext): Promise<SuccessResponse> {
 		return await this.safeExecute("deleteProfile", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
 			await profilesRepository.delete({ primaryId: profile.id });
@@ -332,7 +332,7 @@ class AdminUsersService extends BaseService {
 					resourceType: "profile",
 					resourceId: profileId,
 					before: profile,
-					context: { actorUserId: actorId, headers },
+					context,
 				},
 				this.logger,
 			);

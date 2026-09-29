@@ -11,8 +11,7 @@ import { defineTableAccess } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { createLocalStableKey } from "@/database/utils/stable-key";
-import { serverConfig } from "@/server.config";
-import { MINUTE } from "@/server.constants";
+import { MINUTE, serverConstants } from "@/server.constants";
 import { ConflictError, NotFoundError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
@@ -410,7 +409,7 @@ class ImageRepository {
 
 	private async upsertImageOnce(image: PersistedImageInput, tx: DatabaseTransaction) {
 		const { sourceHash: _sourceHash, ...values } = image;
-		const optimizationVersion = serverConfig.images.currentOptimizationVersion;
+		const optimizationVersion = serverConstants.images.currentOptimizationVersion;
 		const client = databaseFactory.getClient({ tx });
 		const [existing] = await client
 			.select({ id: this.table.id })

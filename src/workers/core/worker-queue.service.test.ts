@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { v7 as uuidv7 } from "uuid";
 import type { EnqueueWorkerItemInput } from "@/database/repositories/worker.repository";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { workerOperationsService } from "./worker-operations.service";
 import { WorkerQueueService } from "./worker-queue.service";
 import { setWorkerRuntime } from "./worker-runtime";
@@ -17,28 +18,6 @@ const definition: WorkerDefinition = {
 /** Replaces a method on the live singleton for one test, recording calls.
  * Works on real repositories AND on the minimal facades other test files
  * install with bun's process-global mock.module(...). */
-function stubMethod<TArgs extends unknown[] = unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	const replacement = (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	};
-	Reflect.set(target, method, replacement);
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 
@@ -193,7 +172,7 @@ describe("WorkerQueueService.enqueue", () => {
 		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
 		// The repo returns the pre-existing active row (its own operation) on a dedupe.
 		const enqueue = stubMethod(workerJobRepository, "enqueue", () => Promise.resolve({ id: "job-existing", operationId: "op-existing" }));
-		const remove = stubMethod<[string]>(workerOperationsService, "remove", () => Promise.resolve());
+		const remove = stubMethod(workerOperationsService, "remove", () => Promise.resolve());
 
 		await queue.enqueue("w-queue", { data: 1 }, { dedupeKey: "d1" });
 		enqueue.restore();
@@ -323,7 +302,7 @@ describe("WorkerQueueService.purgeHistory", () => {
 		await queue.purgeHistory({ status: "failed", olderThanDays: 7 });
 		purge.restore();
 
-		const options = purge.calls[0]?.[0];
+		const options = purge.calls[0]?.[0] as { cutoffDate?: Date; status?: string } | undefined;
 		if (!options?.cutoffDate) throw new Error("Expected options with cutoffDate");
 
 		expect(options.status).toBe("failed");
@@ -344,7 +323,7 @@ describe("WorkerQueueService.purgeHistory", () => {
 		await queue.purgeHistory();
 		purge.restore();
 
-		const first = purge.calls[0]?.[0];
+		const first = purge.calls[0]?.[0] as { cutoffDate?: Date } | undefined;
 		expect(first?.cutoffDate).toBeUndefined();
 		expect(purge.calls[1]?.[0]).toEqual({ status: undefined, cutoffDate: undefined });
 	});

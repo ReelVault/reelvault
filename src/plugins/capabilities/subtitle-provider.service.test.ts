@@ -6,19 +6,8 @@ import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
 import { pluginMetadataService } from "@/plugins/capabilities/plugin.metadata";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { serverConfig } from "@/server.config";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { subtitleProviderService } from "./subtitle-provider.service";
-
-function stubMethod(target: object, method: string, impl: (...args: never[]) => unknown): { restore(): void } {
-	const original = Reflect.get(target, method);
-	Reflect.set(target, method, (...args: never[]) => impl(...args));
-
-	return {
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 interface StoredSubtitle {
 	id: string;

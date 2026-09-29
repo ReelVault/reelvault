@@ -1,7 +1,7 @@
 import type { MetadataType, PlaybackDecision, SmartPlaySuggestionSchema } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import type { Static } from "elysia";
-import type { SessionAccessInfo } from "./runtime/sessions/session-store";
+import type { SessionAccessInfo } from "./runtime/session-state/session-store";
 
 export interface PlaybackSessionInput {
 	videoCodecs?: string | undefined;

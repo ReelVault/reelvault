@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { brotliDecompressSync } from "node:zlib";
-import { clearEtagBodyCache, withEtagResponse } from "./etag.utils";
+import { invalidateResponseBodies } from "@/utils/response-body-cache";
+import { withEtagResponse } from "./etag.utils";
 
 const etagPattern = /^"[0-9a-f]+"$/;
 
@@ -12,7 +13,7 @@ const setHeaders = (): { headers: Record<string, unknown> } => ({ headers: {} })
 
 describe("withEtagResponse", () => {
 	test("returns 200 JSON with etag, Vary and private no-cache headers", async () => {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		const set = setHeaders();
 		const response = await withEtagResponse(makeRequest(), set, () => Promise.resolve({ hello: "world" }));
 
@@ -26,7 +27,7 @@ describe("withEtagResponse", () => {
 	});
 
 	test("answers 304 with an empty body when If-None-Match matches the current payload", async () => {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		const set = setHeaders();
 		const first = await withEtagResponse(makeRequest(), set, () => Promise.resolve({ a: 1 }));
 		const etag = first.headers.get("ETag") as string;
@@ -38,7 +39,7 @@ describe("withEtagResponse", () => {
 	});
 
 	test("different payloads produce different etags", async () => {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		const etagOf = async (payload: object) =>
 			(await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve(payload))).headers.get("ETag");
 
@@ -46,7 +47,7 @@ describe("withEtagResponse", () => {
 	});
 
 	test("serves repeat requests from the body cache within the TTL", async () => {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		let run = 0;
 		const options = { cacheKey: "profile-1:discover" };
 
@@ -65,7 +66,7 @@ describe("withEtagResponse", () => {
 	});
 
 	test("compressed responses carry Content-Encoding for large payloads", async () => {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		const bigPayload = { text: "reelvault".repeat(400) };
 		const response = await withEtagResponse(makeRequest({ "accept-encoding": "br" }), setHeaders(), () => Promise.resolve(bigPayload));
 
@@ -74,7 +75,7 @@ describe("withEtagResponse", () => {
 	});
 
 	test("cache hit keeps serving the compressed encoding for repeat requests", async () => {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		let run = 0;
 		const payload = () => ({ text: "reelvault".repeat(400), run: ++run });
 		const options = { cacheKey: "profile-1:big" };
@@ -97,7 +98,7 @@ describe("withEtagResponse", () => {
 	});
 
 	test("304 revalidation works off the cache without running the loader", async () => {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		let run = 0;
 		const options = { cacheKey: "profile-1:revalidate" };
 
@@ -116,7 +117,7 @@ describe("withEtagResponse", () => {
 	});
 
 	test("oversized payloads are served but not cached", async () => {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		let run = 0;
 		const options = { cacheKey: "profile-1:huge" };
 

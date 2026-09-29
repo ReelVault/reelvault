@@ -1,5 +1,4 @@
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
-import { eq } from "drizzle-orm";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import type { UpdateComponent } from "@/application/updates/update-environment";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
@@ -46,7 +45,7 @@ class UpdateNotificationService extends BaseService {
 		const alreadyNotified = await notificationsRepository.existsForVersion(UPDATE_NOTIFICATION_TYPE, release.version, component);
 		if (alreadyNotified) return false;
 
-		const admins = await usersRepository.selectMany({ where: eq(usersRepository.table.role, "admin") });
+		const admins = await usersRepository.findAllAdministrators();
 		for (const admin of admins) {
 			await notificationsService.create(
 				{

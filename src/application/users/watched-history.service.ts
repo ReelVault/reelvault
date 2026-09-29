@@ -9,13 +9,13 @@ import type {
 	WatchedHistoryWithRelations,
 	WrappedInsights,
 } from "@reelvault/sdk/common";
-import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { buildHourlyHeatmap, recentDayKeys } from "@/application/analytics.utils";
 import { toTopWatchedMedia, watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { DAY } from "@/server.constants";
 import { maxBy } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { MemoryCache } from "@/utils/memory-cache";
+import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 import { discoverService } from "./discover.service";
 
 const INSIGHTS_CACHE_TTL_MS = 30_000;
@@ -322,7 +322,6 @@ function activityByDay(rows: Array<{ day: string | null; durationSum: number }>,
 const BINGE_WATCHER_MINUTES = 360;
 const CINEPHILE_MINUTES = 5000;
 
-// TODO: Replace with a mapping instead of hardcoded values
 const GENRE_PERSONALITY_RULES: Array<{ genres: string[]; code: string; badge: string }> = [
 	{ genres: ["sci-fi", "science"], code: "sci_fi_explorer", badge: "🚀" },
 	{ genres: ["drama", "mystery", "crime", "thriller"], code: "mystery_connoisseur", badge: "🔍" },

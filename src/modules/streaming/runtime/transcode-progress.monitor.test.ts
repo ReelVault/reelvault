@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createMockPlaybackDecision } from "../streaming.test-utils";
-import { SessionStore } from "./sessions/session-store";
+import { SessionStore } from "./session-state/session-store";
 import { parseTimeToMs, TranscodeProgressMonitor, type TranscodeProgressMonitorDependencies } from "./transcode-progress.monitor";
 
 function dependencies(overrides: Partial<TranscodeProgressMonitorDependencies> = {}): TranscodeProgressMonitorDependencies & {

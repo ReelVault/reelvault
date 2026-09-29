@@ -15,6 +15,7 @@ import { UserIdParams, UserProfileIdParams } from "@/api/schemas/route-params";
 import { adminUsersService } from "@/application/admin/admin-users.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { MINUTE } from "@/server.constants";
 
 export const adminUsersRoutes = new Elysia()
 	.use(commonModel)
@@ -32,7 +33,7 @@ export const adminUsersRoutes = new Elysia()
 	})
 	.guard({ adminOnly: true })
 	.get("/users", async ({ query }) => await adminUsersService.getAll(query), {
-		rateLimit: { name: "admin-users-list", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-users-list", max: 120, windowMs: MINUTE },
 		query: t.Object({
 			search: t.Optional(t.String({ maxLength: 200 })),
 			page: t.Optional(t.Numeric({ minimum: 1 })),
@@ -41,20 +42,24 @@ export const adminUsersRoutes = new Elysia()
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.usersPage" },
 		detail: { description: "List user accounts for administration." },
 	})
-	.post("/users", async ({ body, user, request }) => await adminUsersService.create(body, user?.id, request.headers), {
-		rateLimit: { name: "admin-users-create", max: 10, windowMs: 60_000 },
-		body: "admin.createUser",
-		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_CONFLICT, 200: "admin.user" },
-		detail: { description: "Create a new user account as an administrator." },
-	})
+	.post(
+		"/users",
+		async ({ body, user, request }) => await adminUsersService.create(body, { actorUserId: user?.id, headers: request.headers }),
+		{
+			rateLimit: { name: "admin-users-create", max: 10, windowMs: MINUTE },
+			body: "admin.createUser",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_CONFLICT, 200: "admin.user" },
+			detail: { description: "Create a new user account as an administrator." },
+		},
+	)
 	.get("/users/:userId", async ({ params }) => await adminUsersService.getById(params.userId), {
-		rateLimit: { name: "admin-users-get", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-users-get", max: 120, windowMs: MINUTE },
 		params: UserIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.user" },
 		detail: { description: "Retrieve an account for administration." },
 	})
 	.get("/users/:userId/full", async ({ params }) => await adminUsersService.getByIdWithProfiles(params.userId), {
-		rateLimit: { name: "admin-users-get-full", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-users-get-full", max: 120, windowMs: MINUTE },
 		params: UserIdParams,
 		response: {
 			...ROUTE_ERRORS.ADMIN_NOT_FOUND,
@@ -63,16 +68,17 @@ export const adminUsersRoutes = new Elysia()
 		detail: { description: "Retrieve user account and profiles in one call." },
 	})
 	.get("/users/:userId/profiles", async ({ params }) => await adminUsersService.getProfiles(params.userId), {
-		rateLimit: { name: "admin-users-profiles-list", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-users-profiles-list", max: 120, windowMs: MINUTE },
 		params: UserIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: t.Array(AdminUserProfileSchema) },
 		detail: { description: "List profiles belonging to an account without exposing PIN values." },
 	})
 	.post(
 		"/users/:userId/profiles",
-		async ({ params, body, user, request }) => await adminUsersService.createProfile(params.userId, body, user?.id, request.headers),
+		async ({ params, body, user, request }) =>
+			await adminUsersService.createProfile(params.userId, body, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-users-profiles-create", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-users-profiles-create", max: 30, windowMs: MINUTE },
 			params: UserIdParams,
 			body: "admin.createUserProfile",
 			response: {
@@ -90,7 +96,7 @@ export const adminUsersRoutes = new Elysia()
 		"/users/:userId/profiles/:profileId/preferences",
 		async ({ params }) => await adminUsersService.getProfilePreferences(params.userId, params.profileId),
 		{
-			rateLimit: { name: "admin-users-prefs-get", max: 120, windowMs: 60_000 },
+			rateLimit: { name: "admin-users-prefs-get", max: 120, windowMs: MINUTE },
 			params: UserProfileIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.userProfilePreferences" },
 			detail: { description: "Retrieve a user profile's preferences as an administrator." },
@@ -99,9 +105,12 @@ export const adminUsersRoutes = new Elysia()
 	.patch(
 		"/users/:userId/profiles/:profileId/preferences",
 		async ({ params, body, user, request }) =>
-			await adminUsersService.updateProfilePreferences(params.userId, params.profileId, body, user?.id, request.headers),
+			await adminUsersService.updateProfilePreferences(params.userId, params.profileId, body, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			}),
 		{
-			rateLimit: { name: "admin-users-prefs-update", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-users-prefs-update", max: 30, windowMs: MINUTE },
 			params: UserProfileIdParams,
 			body: "admin.userProfilePreferencesUpdate",
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.userProfilePreferences" },
@@ -111,9 +120,9 @@ export const adminUsersRoutes = new Elysia()
 	.delete(
 		"/users/:userId/profiles/:profileId/preferences",
 		async ({ params, user, request }) =>
-			await adminUsersService.resetProfilePreferences(params.userId, params.profileId, user?.id, request.headers),
+			await adminUsersService.resetProfilePreferences(params.userId, params.profileId, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-users-prefs-reset", max: 10, windowMs: 60_000 },
+			rateLimit: { name: "admin-users-prefs-reset", max: 10, windowMs: MINUTE },
 			params: UserProfileIdParams,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.userProfilePreferences" },
 			detail: {
@@ -124,9 +133,9 @@ export const adminUsersRoutes = new Elysia()
 	.patch(
 		"/users/:userId/profiles/:profileId",
 		async ({ params, body, user, request }) =>
-			await adminUsersService.updateProfile(params.userId, params.profileId, body, user?.id, request.headers),
+			await adminUsersService.updateProfile(params.userId, params.profileId, body, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-users-profile-update", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-users-profile-update", max: 30, windowMs: MINUTE },
 			params: UserProfileIdParams,
 			body: t.Object({
 				name: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
@@ -139,9 +148,10 @@ export const adminUsersRoutes = new Elysia()
 	)
 	.delete(
 		"/users/:userId/profiles/:profileId",
-		async ({ params, user, request }) => await adminUsersService.deleteProfile(params.userId, params.profileId, user?.id, request.headers),
+		async ({ params, user, request }) =>
+			await adminUsersService.deleteProfile(params.userId, params.profileId, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-users-profile-delete", max: 10, windowMs: 60_000 },
+			rateLimit: { name: "admin-users-profile-delete", max: 10, windowMs: MINUTE },
 			params: UserProfileIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
 			detail: { description: "Delete a user's profile as an administrator." },
@@ -149,9 +159,10 @@ export const adminUsersRoutes = new Elysia()
 	)
 	.patch(
 		"/users/:userId",
-		async ({ params, body, user, request }) => await adminUsersService.update(params.userId, body, user?.id, request.headers),
+		async ({ params, body, user, request }) =>
+			await adminUsersService.update(params.userId, body, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-users-update", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-users-update", max: 30, windowMs: MINUTE },
 			params: UserIdParams,
 			body: t.Object({
 				role: t.Optional(t.Union([t.Literal("admin"), t.Literal("user")])),
@@ -164,18 +175,23 @@ export const adminUsersRoutes = new Elysia()
 	)
 	.post(
 		"/users/:userId/password",
-		async ({ params, body, user, request }) => await adminUsersService.setPassword(params.userId, body, user?.id, request.headers),
+		async ({ params, body, user, request }) =>
+			await adminUsersService.setPassword(params.userId, body, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-users-set-password", max: 10, windowMs: 60_000 },
+			rateLimit: { name: "admin-users-set-password", max: 10, windowMs: MINUTE },
 			params: UserIdParams,
 			body: "admin.setUserPassword",
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "success.response" },
 			detail: { description: "Set a user account's password as an administrator." },
 		},
 	)
-	.delete("/users/:userId", async ({ params, user, request }) => await adminUsersService.delete(params.userId, user?.id, request.headers), {
-		rateLimit: { name: "admin-users-delete", max: 10, windowMs: 60_000 },
-		params: UserIdParams,
-		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
-		detail: { description: "Permanently delete an account and its cascaded profiles, sessions, and account data." },
-	});
+	.delete(
+		"/users/:userId",
+		async ({ params, user, request }) => await adminUsersService.delete(params.userId, { actorUserId: user?.id, headers: request.headers }),
+		{
+			rateLimit: { name: "admin-users-delete", max: 10, windowMs: MINUTE },
+			params: UserIdParams,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
+			detail: { description: "Permanently delete an account and its cascaded profiles, sessions, and account data." },
+		},
+	);

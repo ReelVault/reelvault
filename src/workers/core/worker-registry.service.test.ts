@@ -1,30 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { MINUTE } from "@/server.constants";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 
 const activeStubs: Array<{ restore(): void }> = [];
-
-function stubMethod<TArgs extends unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	Reflect.set(target, method, (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	});
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 beforeEach(async () => {
 	const [{ serverRescueService }, { resourceAllocator }, { systemResourcesService }] = await Promise.all([
@@ -91,7 +70,7 @@ describe("WorkerRegistryService", () => {
 	test("normalizes explicit concurrency against the allocator ceiling", async () => {
 		const { WorkerRegistryService } = await import("./worker-registry.service");
 		const { resourceAllocator } = await import("@/system/resource-allocator");
-		const ceiling = stubMethod<[string]>(resourceAllocator, "getWorkerConcurrencyCeiling", () => 4);
+		const ceiling = stubMethod(resourceAllocator, "getWorkerConcurrencyCeiling", () => 4);
 		activeStubs.push(ceiling);
 
 		const registry = new WorkerRegistryService();

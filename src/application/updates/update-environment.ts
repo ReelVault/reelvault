@@ -76,14 +76,6 @@ export function componentMarkerName(component: UpdateComponent) {
 	return component === "server" ? SERVER_VERSION_MARKER : WEB_VERSION_MARKER;
 }
 
-/**
- * True when the process is a systemd user service. `SYSTEMD_EXEC_PID` is set
- * by systemd for every spawned service process.
- */
-export function isSystemdService(): boolean {
-	return process.env.SYSTEMD_EXEC_PID !== undefined;
-}
-
 /** The installer registers a user unit with this exact name. */
 export function systemdServiceFile(): string {
 	return join(homedir(), ".config", "systemd", "user", "reelvault.service");

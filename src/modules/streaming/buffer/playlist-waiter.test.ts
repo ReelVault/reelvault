@@ -3,8 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $, spawn } from "bun";
-import { SessionReservationTracker } from "../runtime/sessions/session-reservation.tracker";
-import { SessionStore } from "../runtime/sessions/session-store";
+import { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
+import { SessionStore } from "../runtime/session-state/session-store";
 import { createMockPlaybackDecision } from "../streaming.test-utils";
 import { PlaylistWaiter } from "./playlist-waiter";
 

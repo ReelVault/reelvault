@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, lte, type SQL, sql } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
-import { serverConfig } from "@/server.config";
+import { serverConstants } from "@/server.constants";
 import { isNotNullish, trimAndFilter } from "@/utils/array.utils";
 import { ValidationError } from "@/utils/errors";
 
@@ -44,8 +44,8 @@ export const QueryFiltering = {
 		const ids = Array.isArray(values) ? values : QueryFiltering.parseCommaSeparated(values);
 		if (!ids || ids.length === 0) return undefined;
 
-		if (ids.length > serverConfig.database.filters.maxValues) {
-			throw new ValidationError(`Filter must not contain more than ${serverConfig.database.filters.maxValues} values`);
+		if (ids.length > serverConstants.database.filters.maxValues) {
+			throw new ValidationError(`Filter must not contain more than ${serverConstants.database.filters.maxValues} values`);
 		}
 
 		return inArray(
@@ -64,8 +64,8 @@ export const QueryFiltering = {
 		if (!value) return undefined;
 
 		const values = trimAndFilter(value.split(","));
-		if (values.length > serverConfig.database.filters.maxValues) {
-			throw new ValidationError(`Filter must not contain more than ${serverConfig.database.filters.maxValues} values`);
+		if (values.length > serverConstants.database.filters.maxValues) {
+			throw new ValidationError(`Filter must not contain more than ${serverConstants.database.filters.maxValues} values`);
 		}
 
 		return values;

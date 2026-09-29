@@ -1,10 +1,10 @@
 import type { SessionLifecycleState, StreamHeartbeatResponse } from "@reelvault/sdk/common";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { BaseService } from "@/utils/base-service";
 import { isFiniteNumber } from "@/utils/type.utils";
 import { defaultRequireSession } from "../contracts";
 import { playbackProgressService } from "../progress/playback-progress.service";
-import { streamingService as streamingRuntimeService } from "../runtime/streaming.manager";
+import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import type { RequireSession } from "../streaming.types";
 
 interface ServiceDependencies {

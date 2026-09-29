@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "bun";
-import { SessionStore } from "../runtime/sessions/session-store";
+import { SessionStore } from "../runtime/session-state/session-store";
 import { createMockPlaybackDecision } from "../streaming.test-utils";
 import { SessionSeeker } from "./session-seeker";
 

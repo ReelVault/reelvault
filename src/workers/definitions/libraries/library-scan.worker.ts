@@ -1,13 +1,13 @@
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
 import { type ApplicationContext, type TaskSchedulingOptions, toDomainError } from "@/application/context";
 import { mediaFileRefreshService } from "@/application/media/media-files/refresh-media-file.operation";
-import { pluginsService } from "@/application/plugins.service";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { scanFindingsRepository } from "@/database/repositories/scan-findings.repository";
 import { type ScanCheckpoint, scanStateRepository } from "@/database/repositories/scan-state.repository";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { scannerService } from "@/modules/scanner/scanner.service";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
@@ -82,8 +82,8 @@ const defaultDependencies: LibraryScanTaskDependencies = {
 
 		return enqueueMediaFileRefreshBatch(targets, options ?? {});
 	},
-	publishScanStarted: (input) => pluginsService.publish("library.scan.started", input),
-	emitScanCompleted: (input) => pluginsService.emit("library.scan.completed", input),
+	publishScanStarted: (input) => pluginEventBus.publish("library.scan.started", input),
+	emitScanCompleted: (input) => pluginEventBus.emit("library.scan.completed", input),
 	notifyScanCompleted: (input) => realtimeService.broadcast("library:scan:completed", input),
 	loadCheckpoint: (libraryId) => scanStateRepository.get(libraryId),
 	saveCheckpoint: (libraryId, checkpoint) => scanStateRepository.set(libraryId, checkpoint),
@@ -133,6 +133,153 @@ export function scanLibraryTask(
 	return libraryRunLock.run(data.libraryId, () => runScanLibraryTask(data, context, dependencies, orchestration));
 }
 
+/** Mutable scan progress — cursors advance as batches are enqueued and persisted. */
+interface ScanEnqueueState {
+	pathsSignature: string;
+	scannedFiles: number;
+	newFilePaths: string[];
+	changedMediaFileIds: string[];
+	ingestCursor: number;
+	refreshCursor: number;
+}
+
+/** Restores an interrupted scan's state or performs a fresh path scan and arms its checkpoint. */
+async function resolveScanWorkload(
+	data: LibraryScanData,
+	libraryType: "movie" | "tv_show",
+	pathsToScan: string[],
+	pathsSignature: string,
+	context: ApplicationContext,
+	dependencies: LibraryScanTaskDependencies,
+): Promise<ScanEnqueueState> {
+	const checkpoint = await dependencies.loadCheckpoint(data.libraryId);
+	const resumable =
+		checkpoint?.pathsSignature === pathsSignature &&
+		(checkpoint.ingestCursor < checkpoint.newFilePaths.length || checkpoint.refreshCursor < checkpoint.changedMediaFileIds.length);
+
+	if (checkpoint && !resumable) await dependencies.deleteCheckpoint(data.libraryId);
+
+	if (checkpoint && resumable) {
+		// A previous scan of the same paths was interrupted mid-enqueue — finish
+		// its remainder instead of silently dropping it.
+		context.logger?.info("Resuming interrupted library scan", {
+			libraryId: data.libraryId,
+			ingestRemaining: checkpoint.newFilePaths.length - checkpoint.ingestCursor,
+			refreshRemaining: checkpoint.changedMediaFileIds.length - checkpoint.refreshCursor,
+		});
+
+		return {
+			pathsSignature,
+			scannedFiles: checkpoint.scannedFiles,
+			newFilePaths: checkpoint.newFilePaths,
+			changedMediaFileIds: checkpoint.changedMediaFileIds,
+			ingestCursor: checkpoint.ingestCursor,
+			refreshCursor: checkpoint.refreshCursor,
+		};
+	}
+
+	const scanResult = await dependencies.scanPaths(data.libraryId, libraryType, pathsToScan, context.signal);
+	context.signal?.throwIfAborted();
+	await dependencies.pruneScanFindings?.(data.libraryId, scanResult.filePaths, pathsToScan);
+	// Checkpoint before the first enqueue — an abort from here on is resumable.
+	await dependencies.saveCheckpoint(data.libraryId, {
+		pathsSignature,
+		scannedFiles: scanResult.filePaths.length,
+		newFilePaths: scanResult.newFilePaths,
+		changedMediaFileIds: scanResult.changedMediaFileIds,
+		ingestCursor: 0,
+		refreshCursor: 0,
+	});
+	// Workload is now known — re-arm the stall guard for the enqueue phase.
+	context.extendTimeout?.(
+		ENQUEUE_TIMEOUT_FLOOR_MS + (scanResult.newFilePaths.length + scanResult.changedMediaFileIds.length) * ENQUEUE_TIMEOUT_PER_ITEM_MS,
+	);
+
+	return {
+		pathsSignature,
+		scannedFiles: scanResult.filePaths.length,
+		newFilePaths: scanResult.newFilePaths,
+		changedMediaFileIds: scanResult.changedMediaFileIds,
+		ingestCursor: 0,
+		refreshCursor: 0,
+	};
+}
+
+/** Only the cursors change per batch — rewriting the full path arrays each
+ * time made checkpoint I/O quadratic in the file count. */
+async function persistScanCursors(state: ScanEnqueueState, libraryId: string, dependencies: LibraryScanTaskDependencies): Promise<void> {
+	if (dependencies.updateCheckpointCursors) {
+		await dependencies.updateCheckpointCursors(libraryId, { ingestCursor: state.ingestCursor, refreshCursor: state.refreshCursor });
+	} else {
+		await dependencies.saveCheckpoint(libraryId, { ...state });
+	}
+}
+
+/** Enqueues new-file ingest work in resumable batches (per-item fan-out only for
+ * custom dependencies — unbounded concurrent inserts lock up single-writer SQLite). */
+async function enqueueIngestWork(
+	state: ScanEnqueueState,
+	data: LibraryScanData,
+	libraryType: "movie" | "tv_show",
+	taskScheduling: TaskSchedulingOptions,
+	context: ApplicationContext,
+	dependencies: LibraryScanTaskDependencies,
+): Promise<void> {
+	if (dependencies.enqueueMediaFileIngestBatch) {
+		for (const { items: filePathChunk, nextCursor } of batchChunks(state.newFilePaths, ENQUEUE_BATCH_SIZE, state.ingestCursor)) {
+			context.signal?.throwIfAborted();
+			await dependencies.enqueueMediaFileIngestBatch(
+				filePathChunk.map((filePath) => ({ libraryId: data.libraryId, libraryType, filePath })),
+				taskScheduling,
+			);
+			state.ingestCursor = nextCursor;
+			await persistScanCursors(state, data.libraryId, dependencies);
+			context.extendTimeout?.(ENQUEUE_CHUNK_TIMEOUT_MS);
+		}
+
+		return;
+	}
+
+	await PromiseUtils.mapConcurrent(
+		state.newFilePaths.slice(state.ingestCursor),
+		systemResourcesService.getIngestConcurrency(),
+		(filePath) => dependencies.enqueueMediaFileIngest({ libraryId: data.libraryId, libraryType, filePath }, taskScheduling),
+		context.signal,
+	);
+	state.ingestCursor = state.newFilePaths.length;
+	await persistScanCursors(state, data.libraryId, dependencies);
+}
+
+/** Enqueues technical-refresh work for changed files, mirroring the ingest batching. */
+async function enqueueRefreshWork(
+	state: ScanEnqueueState,
+	data: LibraryScanData,
+	taskScheduling: TaskSchedulingOptions,
+	context: ApplicationContext,
+	dependencies: LibraryScanTaskDependencies,
+): Promise<void> {
+	if (dependencies.enqueueMediaFileRefreshBatch) {
+		for (const { items: mediaFileIdChunk, nextCursor } of batchChunks(state.changedMediaFileIds, ENQUEUE_BATCH_SIZE, state.refreshCursor)) {
+			context.signal?.throwIfAborted();
+			await dependencies.enqueueMediaFileRefreshBatch(mediaFileIdChunk, taskScheduling, context.signal);
+			state.refreshCursor = nextCursor;
+			await persistScanCursors(state, data.libraryId, dependencies);
+			context.extendTimeout?.(ENQUEUE_CHUNK_TIMEOUT_MS);
+		}
+
+		return;
+	}
+
+	await PromiseUtils.mapConcurrent(
+		state.changedMediaFileIds.slice(state.refreshCursor),
+		systemResourcesService.getIngestConcurrency(),
+		(mediaFileId) => dependencies.enqueueMediaFileRefresh(mediaFileId, taskScheduling),
+		context.signal,
+	);
+	state.refreshCursor = state.changedMediaFileIds.length;
+	await persistScanCursors(state, data.libraryId, dependencies);
+}
+
 async function runScanLibraryTask(
 	data: LibraryScanData,
 	context: ApplicationContext,
@@ -152,113 +299,9 @@ async function runScanLibraryTask(
 		const pathsSignature = pathsToScan.join("\n");
 		const libraryType = mapLibraryType(library.type);
 
-		let scannedFiles: number;
-		let newFilePaths: string[];
-		let changedMediaFileIds: string[];
-		let ingestCursor = 0;
-		let refreshCursor = 0;
-
-		const checkpoint = await dependencies.loadCheckpoint(data.libraryId);
-		const resumable =
-			checkpoint?.pathsSignature === pathsSignature &&
-			(checkpoint.ingestCursor < checkpoint.newFilePaths.length || checkpoint.refreshCursor < checkpoint.changedMediaFileIds.length);
-
-		if (checkpoint && !resumable) await dependencies.deleteCheckpoint(data.libraryId);
-
-		if (checkpoint && resumable) {
-			// A previous scan of the same paths was interrupted mid-enqueue — finish
-			// its remainder instead of silently dropping it.
-			context.logger?.info("Resuming interrupted library scan", {
-				libraryId: data.libraryId,
-				ingestRemaining: checkpoint.newFilePaths.length - checkpoint.ingestCursor,
-				refreshRemaining: checkpoint.changedMediaFileIds.length - checkpoint.refreshCursor,
-			});
-			scannedFiles = checkpoint.scannedFiles;
-			newFilePaths = checkpoint.newFilePaths;
-			changedMediaFileIds = checkpoint.changedMediaFileIds;
-			ingestCursor = checkpoint.ingestCursor;
-			refreshCursor = checkpoint.refreshCursor;
-		} else {
-			const scanResult = await dependencies.scanPaths(data.libraryId, libraryType, pathsToScan, context.signal);
-			context.signal?.throwIfAborted();
-			await dependencies.pruneScanFindings?.(data.libraryId, scanResult.filePaths, pathsToScan);
-			scannedFiles = scanResult.filePaths.length;
-			newFilePaths = scanResult.newFilePaths;
-			changedMediaFileIds = scanResult.changedMediaFileIds;
-			// Checkpoint before the first enqueue — an abort from here on is resumable.
-			await dependencies.saveCheckpoint(data.libraryId, {
-				pathsSignature,
-				scannedFiles,
-				newFilePaths,
-				changedMediaFileIds,
-				ingestCursor,
-				refreshCursor,
-			});
-			// Workload is now known — re-arm the stall guard for the enqueue phase.
-			context.extendTimeout?.(ENQUEUE_TIMEOUT_FLOOR_MS + (newFilePaths.length + changedMediaFileIds.length) * ENQUEUE_TIMEOUT_PER_ITEM_MS);
-		}
-
-		const checkpointCursors = async () => {
-			// Only the cursors change per batch — rewriting the full path arrays each
-			// time made checkpoint I/O quadratic in the file count.
-			if (dependencies.updateCheckpointCursors) {
-				await dependencies.updateCheckpointCursors(data.libraryId, { ingestCursor, refreshCursor });
-			} else {
-				await dependencies.saveCheckpoint(data.libraryId, {
-					pathsSignature,
-					scannedFiles,
-					newFilePaths,
-					changedMediaFileIds,
-					ingestCursor,
-					refreshCursor,
-				});
-			}
-		};
-
-		// Batched path (one INSERT batch per ~500 files) when the dependency supports
-		// it; the per-item mapConcurrent path stays for custom dependencies. Both avoid
-		// firing thousands of concurrent DB inserts at once (SQLite is single-writer —
-		// unbounded fan-out causes lock contention and blocks the event loop).
-		if (dependencies.enqueueMediaFileIngestBatch) {
-			for (const { items: filePathChunk, nextCursor } of batchChunks(newFilePaths, ENQUEUE_BATCH_SIZE, ingestCursor)) {
-				context.signal?.throwIfAborted();
-				await dependencies.enqueueMediaFileIngestBatch(
-					filePathChunk.map((filePath) => ({ libraryId: data.libraryId, libraryType, filePath })),
-					taskScheduling,
-				);
-				ingestCursor = nextCursor;
-				await checkpointCursors();
-				context.extendTimeout?.(ENQUEUE_CHUNK_TIMEOUT_MS);
-			}
-		} else {
-			await PromiseUtils.mapConcurrent(
-				newFilePaths.slice(ingestCursor),
-				systemResourcesService.getIngestConcurrency(),
-				(filePath) => dependencies.enqueueMediaFileIngest({ libraryId: data.libraryId, libraryType, filePath }, taskScheduling),
-				context.signal,
-			);
-			ingestCursor = newFilePaths.length;
-			await checkpointCursors();
-		}
-
-		if (dependencies.enqueueMediaFileRefreshBatch) {
-			for (const { items: mediaFileIdChunk, nextCursor } of batchChunks(changedMediaFileIds, ENQUEUE_BATCH_SIZE, refreshCursor)) {
-				context.signal?.throwIfAborted();
-				await dependencies.enqueueMediaFileRefreshBatch(mediaFileIdChunk, taskScheduling, context.signal);
-				refreshCursor = nextCursor;
-				await checkpointCursors();
-				context.extendTimeout?.(ENQUEUE_CHUNK_TIMEOUT_MS);
-			}
-		} else {
-			await PromiseUtils.mapConcurrent(
-				changedMediaFileIds.slice(refreshCursor),
-				systemResourcesService.getIngestConcurrency(),
-				(mediaFileId) => dependencies.enqueueMediaFileRefresh(mediaFileId, taskScheduling),
-				context.signal,
-			);
-			refreshCursor = changedMediaFileIds.length;
-			await checkpointCursors();
-		}
+		const state = await resolveScanWorkload(data, libraryType, pathsToScan, pathsSignature, context, dependencies);
+		await enqueueIngestWork(state, data, libraryType, taskScheduling, context, dependencies);
+		await enqueueRefreshWork(state, data, taskScheduling, context, dependencies);
 
 		// Everything enqueued — the checkpoint has served its purpose.
 		await dependencies.deleteCheckpoint(data.libraryId);
@@ -266,16 +309,16 @@ async function runScanLibraryTask(
 		dependencies.notifyScanCompleted({ libraryId: data.libraryId, libraryTitle: library.name });
 		const result = {
 			libraryId: data.libraryId,
-			scannedFiles,
-			createdFiles: newFilePaths.length,
-			existingFiles: scannedFiles - newFilePaths.length,
+			scannedFiles: state.scannedFiles,
+			createdFiles: state.newFilePaths.length,
+			existingFiles: state.scannedFiles - state.newFilePaths.length,
 			failedFiles: 0,
 			analyzedFiles: 0,
 		};
 		context.logger?.info("Library scan tasks queued", {
 			...result,
-			queuedIngestTasks: newFilePaths.length,
-			queuedRefreshTasks: changedMediaFileIds.length,
+			queuedIngestTasks: state.newFilePaths.length,
+			queuedRefreshTasks: state.changedMediaFileIds.length,
 		});
 
 		return result;

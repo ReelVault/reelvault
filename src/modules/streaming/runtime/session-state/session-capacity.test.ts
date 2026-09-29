@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canReserveStreamingSession } from "@/modules/streaming/runtime/sessions/session-capacity";
+import { canReserveStreamingSession } from "@/modules/streaming/runtime/session-state/session-capacity";
 
 describe("streaming session capacity", () => {
 	test("rejects a new stream once active and queued sessions reach the limit", () => {

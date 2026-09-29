@@ -11,11 +11,11 @@ import type {
 } from "@reelvault/sdk/common";
 import { firstRunSetupService } from "@/application/auth/setup/first-run-setup.service";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
-import { InMemoryRateLimiter } from "@/middleware/rate-limit.middleware";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { TooManyRequestsError, UnauthorizedError } from "@/utils/errors";
 import { rewriteCookieDomain } from "@/utils/http.utils";
+import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
 import { serializeDate } from "@/utils/time.utils";
 import { normalizeLower } from "@/utils/type.utils";
 

@@ -1,4 +1,4 @@
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 
 const IMPLICIT_SEEK_COOLDOWN_MS = 10_000;
 /** Bound the per-session cooldown map — entries older than the cooldown are stale. */

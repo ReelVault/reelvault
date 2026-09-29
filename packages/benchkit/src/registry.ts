@@ -17,12 +17,6 @@ export interface CompareUnit {
 	options: { iterations?: number | undefined; batch?: number | undefined };
 }
 
-/** Returned by a task body; `ok: false` is a soft failure (fails only under --strict). */
-export interface TaskOutcome {
-	ok?: boolean;
-	data?: unknown;
-}
-
 export interface TaskUnit {
 	kind: "task";
 	name: string;

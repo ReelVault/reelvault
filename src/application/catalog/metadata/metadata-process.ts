@@ -2,7 +2,6 @@ import type { MediaIdentity } from "@reelvault/sdk/common";
 import type { ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import type { TaskSchedulingOptions } from "@/application/context";
 import { notificationsService } from "@/application/notifications/notifications.service";
-import { pluginsService } from "@/application/plugins.service";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { metadataPersistenceRepository } from "@/database/repositories/metadata-persistence.repository";
@@ -10,6 +9,9 @@ import { moviesRepository } from "@/database/repositories/movies.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import type { SidecarMetadataHint } from "@/modules/metadata-sidecars/files/local-sidecar-hint";
 import type { AggregatedProviderLink } from "@/plugins/capabilities/metadata-aggregator";
+import { providerService } from "@/plugins/capabilities/provider.service";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
+import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { serverConfig } from "@/server.config";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
@@ -65,14 +67,7 @@ export class MetadataProcess extends BaseService {
 		sidecar?: SidecarMetadataHint | undefined;
 		signal?: AbortSignal | undefined;
 		scheduling?: TaskSchedulingOptions | undefined;
-	}): Promise<
-		| {
-				metadataId: string;
-				movieId: string | null;
-				episodeId: string | null;
-		  }
-		| undefined
-	> {
+	}): Promise<MetadataProcessResult | undefined> {
 		try {
 			throwIfAborted(signal);
 
@@ -84,6 +79,7 @@ export class MetadataProcess extends BaseService {
 					return await this.processMovieMetadata(sidecarMatch.metadataId, sidecarMatch.stableKey);
 				}
 
+				// An undefined TV match falls through to the local-database lookup.
 				const tvShow = await this.processTVShowMetadata(
 					sidecarMatch.metadataId,
 					parsed,
@@ -102,17 +98,16 @@ export class MetadataProcess extends BaseService {
 			const existingLocal = await this.findExistingLocalMetadata(type, enrichedParsed);
 			if (existingLocal) {
 				if (type === "movie") {
-					const movie = await this.processMovieMetadata(existingLocal.id, existingLocal.stableKey);
-
-					return movie;
+					return await this.processMovieMetadata(existingLocal.id, existingLocal.stableKey);
 				}
 
+				// An undefined TV match falls through to the provider search.
 				const tvShow = await this.resolveLocalTVShow(existingLocal, parsed, scheduling, sidecar);
 				if (tvShow) return tvShow;
 			}
 
 			// 2. If not found locally, search metadata providers (e.g. TMDB) and merge the results
-			const aggregated = await pluginsService.fetchProviderDetailsAggregated(type, enrichedParsed);
+			const aggregated = await providerService.fetchAggregatedDetails(type, enrichedParsed);
 			throwIfAborted(signal);
 
 			if (!aggregated) {
@@ -126,24 +121,22 @@ export class MetadataProcess extends BaseService {
 				}
 
 				if (type === "movie") {
-					const movie = await this.processMovieMetadata(fromSidecar.base.metadataId, fromSidecar.base.metadataStableKey);
-					if (movie) await this.enqueueBaseMetadataImages(fromSidecar.base, scheduling);
-
-					return movie;
+					return await this.withFreshImageEnqueue(fromSidecar.base, scheduling, () =>
+						this.processMovieMetadata(fromSidecar.base.metadataId, fromSidecar.base.metadataStableKey),
+					);
 				}
 
-				const tvShow = await this.processTVShowMetadata(
-					fromSidecar.base.metadataId,
-					parsed,
-					fromSidecar.base.metadata,
-					fromSidecar.base.metadataStableKey,
-					scheduling,
-					fromSidecar.providers,
-					sidecar,
+				return await this.withFreshImageEnqueue(fromSidecar.base, scheduling, () =>
+					this.processTVShowMetadata(
+						fromSidecar.base.metadataId,
+						parsed,
+						fromSidecar.base.metadata,
+						fromSidecar.base.metadataStableKey,
+						scheduling,
+						fromSidecar.providers,
+						sidecar,
+					),
 				);
-				if (tvShow) await this.enqueueBaseMetadataImages(fromSidecar.base, scheduling);
-
-				return tvShow;
 			}
 
 			const baseMetadata = await this.ensureBaseMetadata(
@@ -155,27 +148,37 @@ export class MetadataProcess extends BaseService {
 			);
 
 			if (type === "movie") {
-				const movie = await this.processMovieMetadata(baseMetadata.metadataId, baseMetadata.metadataStableKey);
-				if (movie) await this.enqueueBaseMetadataImages(baseMetadata, scheduling);
-
-				return movie;
+				return await this.withFreshImageEnqueue(baseMetadata, scheduling, () =>
+					this.processMovieMetadata(baseMetadata.metadataId, baseMetadata.metadataStableKey),
+				);
 			}
 
-			const tvShow = await this.processTVShowMetadata(
-				baseMetadata.metadataId,
-				parsed,
-				baseMetadata.metadata,
-				baseMetadata.metadataStableKey,
-				scheduling,
-				aggregated.providers,
+			return await this.withFreshImageEnqueue(baseMetadata, scheduling, () =>
+				this.processTVShowMetadata(
+					baseMetadata.metadataId,
+					parsed,
+					baseMetadata.metadata,
+					baseMetadata.metadataStableKey,
+					scheduling,
+					aggregated.providers,
+				),
 			);
-			if (tvShow) await this.enqueueBaseMetadataImages(baseMetadata, scheduling);
-
-			return tvShow;
 		} catch (error) {
 			this.logger.error("Check metadata failed", error, { type, parsed });
 			throw error;
 		}
+	}
+
+	/** Queues artwork for freshly created metadata rows after a successful match. */
+	private async withFreshImageEnqueue(
+		baseMetadata: BaseMetadataProcess,
+		scheduling: TaskSchedulingOptions | undefined,
+		process: () => Promise<MetadataProcessResult | undefined>,
+	): Promise<MetadataProcessResult | undefined> {
+		const result = await process();
+		if (result) await this.enqueueBaseMetadataImages(baseMetadata, scheduling);
+
+		return result;
 	}
 
 	private async findExistingLocalMetadata(
@@ -360,7 +363,7 @@ export class MetadataProcess extends BaseService {
 		matchScore?: number,
 		providers?: AggregatedProviderLink[],
 	): Promise<BaseMetadataProcess> {
-		const candidate = await pluginsService.transformMetadataCandidate(toMetadataCandidate(type, providerName, providerMetadata));
+		const candidate = await pluginHookBus.runBeforeMetadataSave(toMetadataCandidate(type, providerName, providerMetadata));
 		const metadata = applyMetadataCandidate(type, providerName, providerMetadata, candidate);
 		const result = await metadataPersistenceRepository.createProviderMetadata({ type, providerName, providers, metadata, matchScore });
 
@@ -407,7 +410,7 @@ export class MetadataProcess extends BaseService {
 		await PromiseUtils.mapConcurrent(personImages, serverConfig.application.metadataImageEnqueueConcurrency, ({ personId, url }) =>
 			this.enqueueImages({ kind: "person", personId, urls: url }, scheduling),
 		);
-		pluginsService.publish("metadata.saved", { metadataId: baseMetadata.metadataId });
+		pluginEventBus.publish("metadata.saved", { metadataId: baseMetadata.metadataId });
 	}
 
 	private async processMovieMetadata(metadataId: string, metadataStableKey?: string | null): Promise<MetadataProcessResult | undefined> {
@@ -446,7 +449,7 @@ export class MetadataProcess extends BaseService {
 		}
 
 		if (!seasonInfo?.episodes || seasonInfo.episodes.length === 0) {
-			const fetchedSeason = (await pluginsService.fetchProviderSeasonFromLinks(providerLinks, parsed.season))[0]?.metadata;
+			const fetchedSeason = (await providerService.fetchSeasonFromLinks(providerLinks, parsed.season))[0]?.metadata;
 			if (fetchedSeason) {
 				seasonInfo = seasonInfo
 					? { ...seasonInfo, ...fetchedSeason, episodes: fetchedSeason.episodes ?? seasonInfo.episodes }
@@ -474,7 +477,7 @@ export class MetadataProcess extends BaseService {
 		}
 
 		if (parsed.episode !== undefined && !episodeInfo) {
-			episodeInfo = (await pluginsService.fetchProviderEpisodeFromLinks(providerLinks, Number(seasonInfo.seasonNumber), parsed.episode))[0]
+			episodeInfo = (await providerService.fetchEpisodeFromLinks(providerLinks, Number(seasonInfo.seasonNumber), parsed.episode))[0]
 				?.metadata;
 		}
 

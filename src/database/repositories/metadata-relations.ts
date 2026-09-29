@@ -1,10 +1,11 @@
 import type { FieldsConfig, MetadataWithRelation } from "@reelvault/sdk/common";
 import { eq, getTableColumns, inArray } from "drizzle-orm";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
-import { serverConfig } from "@/server.config";
+import { serverConstants } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
 import { calculateAverageScore } from "./metadata-recommendations";
 
@@ -40,8 +41,8 @@ export async function loadRelations<F extends string>(
 	// Recurse on chunk boundaries so each relation query stays within SQLite's
 	// bound-variable limit. Each metadata id lands in exactly one chunk, so the
 	// merged map is identical to a single unbounded load.
-	if (metadataIds.length > serverConfig.database.queryChunkSize) {
-		for (const idsChunk of chunk(metadataIds, serverConfig.database.queryChunkSize)) {
+	if (metadataIds.length > serverConstants.database.queryChunkSize) {
+		for (const idsChunk of chunk(metadataIds, serverConstants.database.queryChunkSize)) {
 			for (const [id, data] of await loadRelations(idsChunk, tx, fields, isDetailPage)) {
 				relationsByMetadataId.set(id, data);
 			}
@@ -238,7 +239,7 @@ export function withRelations(metadata: typeof schema.metadata.$inferSelect, rel
 		...data,
 		cast: data.cast,
 		rating: {
-			avgScore: calculateAverageScore(data.rating.scores, serverConfig.metadata.ratingAggregation) ?? 0,
+			avgScore: calculateAverageScore(data.rating.scores, systemSettingsStore.get("metadata.ratingAggregation")) ?? 0,
 			scores: data.rating.scores,
 		},
 		lockedFields: data.lockedFields,

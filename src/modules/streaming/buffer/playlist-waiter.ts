@@ -3,8 +3,8 @@ import { systemResourcesService } from "@/system/system-resources.service";
 import { InternalError, RequestTimeoutError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import type { SessionReservationTracker } from "../runtime/sessions/session-reservation.tracker";
-import type { SessionStore } from "../runtime/sessions/session-store";
+import type { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
+import type { SessionStore } from "../runtime/session-state/session-store";
 import { parseHlsBuffer } from "./hls-buffer";
 
 export class PlaylistWaiter {

@@ -7,9 +7,9 @@ import type {
 	UserRatingFilters,
 	UserRatingSorting,
 } from "@reelvault/sdk/common";
-import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { userRatingsRepository } from "@/database/repositories/user-ratings.repository";
 import { BaseService } from "@/utils/base-service";
+import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 
 import { discoverService } from "./discover.service";
 

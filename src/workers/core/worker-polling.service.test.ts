@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import type { WorkerItem, workerJobRepository } from "@/database/repositories/worker.repository";
 import { systemResourcesService } from "@/system/system-resources.service";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { WorkerPollingService } from "./worker-polling.service";
 import { setWorkerRuntime } from "./worker-runtime";
 import { createMockWorkerItem, createMockWorkerRuntime } from "./worker-runtime.test-utils";
@@ -41,27 +42,6 @@ function installRuntime(): void {
 /** Replaces a method on the live singleton for one test, recording calls.
  * Works on real repositories AND on the minimal facades other test files
  * install with bun's process-global mock.module(...). */
-function stubMethod<TArgs extends unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	Reflect.set(target, method, (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	});
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 
@@ -89,12 +69,17 @@ function job(id: string): WorkerItem {
 
 type ClaimArgs = Parameters<typeof workerJobRepository.claimNextBatch>;
 
-async function withClaimStub(impl: (...args: ClaimArgs) => Promise<WorkerItem[]>): Promise<{ calls: ClaimArgs[]; restore(): void }> {
+async function withClaimStub(impl: (...args: ClaimArgs) => Promise<WorkerItem[]>): Promise<ClaimArgs[]> {
 	const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-	const stub = stubMethod(repo, "claimNextBatch", impl);
+	const calls: ClaimArgs[] = [];
+	const stub = stubMethod(repo, "claimNextBatch", (...args: ClaimArgs) => {
+		calls.push(args);
+
+		return impl(...args);
+	});
 	activeStubs.push(stub);
 
-	return stub;
+	return stub.calls as ClaimArgs[];
 }
 
 describe("WorkerPollingService.poll", () => {
@@ -124,8 +109,8 @@ describe("WorkerPollingService.poll", () => {
 		Reflect.set(polling, "isRunning", true);
 		await polling.poll();
 
-		expect(claim.calls).toHaveLength(1);
-		const firstCall = claim.calls[0];
+		expect(claim).toHaveLength(1);
+		const firstCall = claim[0];
 		expect(firstCall).toBeDefined();
 		if (!firstCall) return;
 
@@ -150,7 +135,7 @@ describe("WorkerPollingService.poll", () => {
 		Reflect.set(polling, "isRunning", true);
 		await polling.poll();
 
-		expect(claim.calls).toHaveLength(0);
+		expect(claim).toHaveLength(0);
 		expect(started).toEqual([]);
 	});
 
@@ -168,7 +153,7 @@ describe("WorkerPollingService.poll", () => {
 		Reflect.set(polling, "isRunning", true);
 		await polling.poll();
 
-		expect(claim.calls).toHaveLength(1);
+		expect(claim).toHaveLength(1);
 	});
 });
 
@@ -205,7 +190,7 @@ describe("WorkerPollingService wake-up drain", () => {
 			setTimeout(resolve, 60);
 		});
 		expect(claims).toBeGreaterThanOrEqual(2);
-		expect(claim.calls.length).toBeGreaterThanOrEqual(2);
+		expect(claim.length).toBeGreaterThanOrEqual(2);
 
 		polling.stop();
 	});

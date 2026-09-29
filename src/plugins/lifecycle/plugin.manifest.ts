@@ -12,7 +12,6 @@ import {
 	PLUGIN_SCHEMA_ACTION_TYPES as PLUGIN_SCHEMA_ACTION_TYPE_VALUES,
 	PLUGIN_SCHEMA_CONDITION_OPS as PLUGIN_SCHEMA_CONDITION_OP_VALUES,
 	PLUGIN_SCHEMA_FIELD_INPUTS as PLUGIN_SCHEMA_FIELD_INPUT_VALUES,
-	PLUGIN_SCHEMA_NODE_TYPES as PLUGIN_SCHEMA_NODE_TYPE_VALUES,
 	PLUGIN_SLOT_NAMES as PLUGIN_SLOT_NAME_VALUES,
 	PLUGIN_TAB_HOST_NAMES as PLUGIN_TAB_HOST_NAME_VALUES,
 } from "@reelvault/sdk/plugin";
@@ -53,8 +52,6 @@ const SCHEMA_MAX_NODES = 2000;
 const SCHEMA_MAX_DEPTH = 32;
 const SCHEMA_MAX_FIELDS = 200;
 const SCHEMA_MAX_SOURCES = 50;
-
-const SCHEMA_NODE_TYPES: ReadonlySet<string> = new Set(PLUGIN_SCHEMA_NODE_TYPE_VALUES);
 
 const SCHEMA_FIELD_INPUTS: ReadonlySet<string> = new Set(PLUGIN_SCHEMA_FIELD_INPUT_VALUES);
 
@@ -429,118 +426,144 @@ function validateSchemaNodes(nodes: unknown, field: string, depth: number, count
 	for (const node of nodes) validateSchemaNode(node, field, depth, counter);
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: dispatches every schema node type
+interface SchemaNodeContext {
+	field: string;
+	depth: number;
+	counter: { count: number; fields: number };
+}
+
+function validateFieldNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	context.counter.fields += 1;
+	if (context.counter.fields > SCHEMA_MAX_FIELDS) throw new ValidationError(`Plugin ui.json ${context.field} has too many fields`);
+
+	validateSchemaField(node, context.field);
+}
+
+function validateContainerNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	const { field } = context;
+	if (node.type === "card" || node.type === "section") {
+		if (node.title !== undefined) assertLocalizedText(node.title, `${field}.title`);
+
+		if (node.description !== undefined) assertLocalizedText(node.description, `${field}.description`);
+	}
+
+	validateSchemaNodes(node.children, `${field}.children`, context.depth + 1, context.counter);
+}
+
+function validateTabsNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	const { field } = context;
+	if (!Array.isArray(node.tabs)) throw new ValidationError(`Plugin ui.json ${field}.tabs must be an array`);
+
+	for (const [index, tab] of node.tabs.entries()) {
+		if (!isRecord(tab)) throw new ValidationError(`Plugin ui.json ${field}.tabs[${index}] must be an object`);
+
+		assertLocalizedText(tab.label, `${field}.tabs[${index}].label`);
+		validateSchemaNodes(tab.children, `${field}.tabs[${index}].children`, context.depth + 1, context.counter);
+	}
+}
+
+function validateTextNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	assertLocalizedText(node.text, `${context.field}.text`);
+}
+
+function validateAlertNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	if (node.title !== undefined) assertLocalizedText(node.title, `${context.field}.title`);
+
+	if (node.description !== undefined) assertLocalizedText(node.description, `${context.field}.description`);
+}
+
+function validateButtonNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	const { field } = context;
+	assertLocalizedText(node.label, `${field}.label`);
+	validateSchemaAction(node.action, `${field}.action`);
+	if (node.disabledIf !== undefined) validateSchemaCondition(node.disabledIf, `${field}.disabledIf`);
+
+	if (node.hiddenIf !== undefined) validateSchemaCondition(node.hiddenIf, `${field}.hiddenIf`);
+}
+
+function validateStatsNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	const { field } = context;
+	if (!Array.isArray(node.items)) throw new ValidationError(`Plugin ui.json ${field}.items must be an array`);
+
+	for (const item of node.items) {
+		if (!isRecord(item)) throw new ValidationError(`Plugin ui.json ${field}.items entries must be objects`);
+
+		assertLocalizedText(item.label, `${field}.items[].label`);
+		assertNonEmptyString(item.value, `${field}.items[].value`);
+	}
+}
+
+function validateTableNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	const { field } = context;
+	assertNonEmptyString(node.source, `${field}.source`);
+	if (!Array.isArray(node.columns)) throw new ValidationError(`Plugin ui.json ${field}.columns must be an array`);
+
+	for (const column of node.columns) {
+		if (!isRecord(column)) throw new ValidationError(`Plugin ui.json ${field}.columns entries must be objects`);
+
+		assertLocalizedText(column.label, `${field}.columns[].label`);
+		assertNonEmptyString(column.value, `${field}.columns[].value`);
+	}
+
+	if (node.rowActions !== undefined) validateSchemaNodes(node.rowActions, `${field}.rowActions`, context.depth + 1, context.counter);
+}
+
+function validateListNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	assertNonEmptyString(node.source, `${context.field}.source`);
+	validateSchemaNodes(node.item, `${context.field}.item`, context.depth + 1, context.counter);
+}
+
+function validateEmbedNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	assertSafeHref(node.src, `${context.field}.src`);
+	if (node.title !== undefined) assertLocalizedText(node.title, `${context.field}.title`);
+}
+
+function validateIfNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
+	const { field } = context;
+	validateSchemaCondition(node.condition, `${field}.condition`);
+	validateSchemaNodes(node.content, `${field}.content`, context.depth + 1, context.counter);
+	if (node.otherwise !== undefined) validateSchemaNodes(node.otherwise, `${field}.otherwise`, context.depth + 1, context.counter);
+}
+
+function validateNoopNode(): void {
+	// These nodes carry no schema-declared properties.
+}
+
+type SchemaNodeValidator = (node: Record<string, unknown>, context: SchemaNodeContext) => void;
+
+const schemaNodeValidators: Readonly<Record<string, SchemaNodeValidator>> = {
+	field: validateFieldNode,
+	stack: validateContainerNode,
+	card: validateContainerNode,
+	section: validateContainerNode,
+	row: validateContainerNode,
+	grid: validateContainerNode,
+	tabs: validateTabsNode,
+	heading: validateTextNode,
+	text: validateTextNode,
+	badge: validateTextNode,
+	alert: validateAlertNode,
+	button: validateButtonNode,
+	stats: validateStatsNode,
+	table: validateTableNode,
+	list: validateListNode,
+	foreach: validateListNode,
+	embed: validateEmbedNode,
+	if: validateIfNode,
+	separator: validateNoopNode,
+	empty: validateNoopNode,
+};
+
 function validateSchemaNode(node: unknown, field: string, depth: number, counter: { count: number; fields: number }): void {
 	counter.count += 1;
 	if (counter.count > SCHEMA_MAX_NODES) throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum node count`);
 
-	if (!isRecord(node) || typeof node.type !== "string" || !SCHEMA_NODE_TYPES.has(node.type)) {
-		throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`);
-	}
+	if (!isRecord(node) || typeof node.type !== "string") throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`);
 
-	const nodeField = `${field}.${node.type}`;
+	const validator = schemaNodeValidators[node.type];
+	if (!validator) throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`);
 
-	switch (node.type) {
-		case "field":
-			counter.fields += 1;
-			if (counter.fields > SCHEMA_MAX_FIELDS) throw new ValidationError(`Plugin ui.json ${field} has too many fields`);
-
-			validateSchemaField(node, nodeField);
-
-			return;
-		case "stack":
-		case "card":
-		case "section":
-		case "row":
-		case "grid":
-			if (node.type === "card" || node.type === "section") {
-				if (node.title !== undefined) assertLocalizedText(node.title, `${nodeField}.title`);
-
-				if (node.description !== undefined) assertLocalizedText(node.description, `${nodeField}.description`);
-			}
-
-			validateSchemaNodes(node.children, `${nodeField}.children`, depth + 1, counter);
-
-			return;
-		case "tabs":
-			if (!Array.isArray(node.tabs)) throw new ValidationError(`Plugin ui.json ${nodeField}.tabs must be an array`);
-
-			for (const [index, tab] of node.tabs.entries()) {
-				if (!isRecord(tab)) throw new ValidationError(`Plugin ui.json ${nodeField}.tabs[${index}] must be an object`);
-
-				assertLocalizedText(tab.label, `${nodeField}.tabs[${index}].label`);
-				validateSchemaNodes(tab.children, `${nodeField}.tabs[${index}].children`, depth + 1, counter);
-			}
-
-			return;
-		case "separator":
-		case "empty":
-			return;
-		case "heading":
-		case "text":
-		case "badge":
-			assertLocalizedText(node.text, `${nodeField}.text`);
-
-			return;
-		case "alert":
-			if (node.title !== undefined) assertLocalizedText(node.title, `${nodeField}.title`);
-
-			if (node.description !== undefined) assertLocalizedText(node.description, `${nodeField}.description`);
-
-			return;
-		case "button":
-			assertLocalizedText(node.label, `${nodeField}.label`);
-			validateSchemaAction(node.action, `${nodeField}.action`);
-			if (node.disabledIf !== undefined) validateSchemaCondition(node.disabledIf, `${nodeField}.disabledIf`);
-
-			if (node.hiddenIf !== undefined) validateSchemaCondition(node.hiddenIf, `${nodeField}.hiddenIf`);
-
-			return;
-		case "stats":
-			if (!Array.isArray(node.items)) throw new ValidationError(`Plugin ui.json ${nodeField}.items must be an array`);
-
-			for (const item of node.items) {
-				if (!isRecord(item)) throw new ValidationError(`Plugin ui.json ${nodeField}.items entries must be objects`);
-
-				assertLocalizedText(item.label, `${nodeField}.items[].label`);
-				assertNonEmptyString(item.value, `${nodeField}.items[].value`);
-			}
-
-			return;
-		case "table":
-			assertNonEmptyString(node.source, `${nodeField}.source`);
-			if (!Array.isArray(node.columns)) throw new ValidationError(`Plugin ui.json ${nodeField}.columns must be an array`);
-
-			for (const column of node.columns) {
-				if (!isRecord(column)) throw new ValidationError(`Plugin ui.json ${nodeField}.columns entries must be objects`);
-
-				assertLocalizedText(column.label, `${nodeField}.columns[].label`);
-				assertNonEmptyString(column.value, `${nodeField}.columns[].value`);
-			}
-
-			if (node.rowActions !== undefined) validateSchemaNodes(node.rowActions, `${nodeField}.rowActions`, depth + 1, counter);
-
-			return;
-		case "list":
-		case "foreach":
-			assertNonEmptyString(node.source, `${nodeField}.source`);
-			validateSchemaNodes(node.item, `${nodeField}.item`, depth + 1, counter);
-
-			return;
-		case "embed":
-			assertSafeHref(node.src, `${nodeField}.src`);
-			if (node.title !== undefined) assertLocalizedText(node.title, `${nodeField}.title`);
-
-			return;
-		case "if":
-			validateSchemaCondition(node.condition, `${nodeField}.condition`);
-			validateSchemaNodes(node.content, `${nodeField}.content`, depth + 1, counter);
-			if (node.otherwise !== undefined) validateSchemaNodes(node.otherwise, `${nodeField}.otherwise`, depth + 1, counter);
-
-			return;
-		default:
-			throw new ValidationError(`Plugin ui.json ${nodeField} has an unsupported node type`);
-	}
+	validator(node, { field: `${field}.${node.type}`, depth, counter });
 }
 
 function validateSchemaAction(action: unknown, field: string): void {

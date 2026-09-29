@@ -4,7 +4,12 @@ import { type DownloadRow, downloadsRepository } from "@/database/repositories/d
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { buildDownloadOutputArgs, ffmpegTimeToSeconds, isDownloadQuality } from "@/modules/downloads/download-quality.utils";
+import {
+	buildDownloadOutputArgs,
+	DEFAULT_DOWNLOAD_QUALITY,
+	ffmpegTimeToSeconds,
+	isDownloadQuality,
+} from "@/modules/downloads/download-quality.utils";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
@@ -49,9 +54,9 @@ class DownloadsService extends BaseService {
 		this.scheduleRetentionSweep();
 	}
 
-	async prepare(profileId: string | undefined, mediaFileId: string, quality = "720p-mobile"): Promise<DownloadJobView> {
+	async prepare(profileId: string | undefined, mediaFileId: string, quality: string = DEFAULT_DOWNLOAD_QUALITY): Promise<DownloadJobView> {
 		return await this.safeExecute("prepare", async () => {
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			if (!serverConfig.downloads.enabled) throw new ValidationError("Downloads are disabled on this server");
 
 			if (!mediaFileId.trim()) throw new ValidationError("mediaFileId is required");
@@ -78,7 +83,7 @@ class DownloadsService extends BaseService {
 			const row = await downloadsRepository.insert({
 				profileId,
 				mediaFileId,
-				quality: isDownloadQuality(quality) ? quality : "720p-mobile",
+				quality: isDownloadQuality(quality) ? quality : DEFAULT_DOWNLOAD_QUALITY,
 			});
 			await enqueueDownloadsProcess(row.id);
 
@@ -120,7 +125,7 @@ class DownloadsService extends BaseService {
 	async resolveFileForProfile(jobId: string, profileId: string): Promise<{ fileName: string; blob: Blob } | null> {
 		const row = await this.getOwnedDownload(jobId, profileId);
 
-		return row ? this.resolveFile(jobId) : null;
+		return row ? this.resolveFileFromRow(row) : null;
 	}
 
 	async cancel(downloadId: string): Promise<{ success: true }> {
@@ -139,6 +144,8 @@ class DownloadsService extends BaseService {
 		return { success: true };
 	}
 
+	/** Idempotent by contract — deleting an already-removed job still succeeds,
+	 * while cancel is a state transition and reports missing jobs as 404. */
 	async delete(downloadId: string): Promise<{ success: true }> {
 		const row = await downloadsRepository.findById(downloadId);
 		if (row) {
@@ -153,9 +160,14 @@ class DownloadsService extends BaseService {
 	/** Completed download as a file handle — never exposes the storage path. */
 	async resolveFile(downloadId: string): Promise<{ fileName: string; blob: Blob } | null> {
 		const row = await downloadsRepository.findById(downloadId);
-		if (row?.status !== "completed" || !row.fileName) return null;
 
-		const path = this.artifactPath(downloadId, row.fileName);
+		return row ? this.resolveFileFromRow(row) : null;
+	}
+
+	private async resolveFileFromRow(row: DownloadRow): Promise<{ fileName: string; blob: Blob } | null> {
+		if (row.status !== "completed" || !row.fileName) return null;
+
+		const path = this.artifactPath(row.id, row.fileName);
 		const handle = file(path);
 		if (!(await handle.exists())) return null;
 
@@ -174,8 +186,8 @@ class DownloadsService extends BaseService {
 	}
 
 	private async assertOwnedDownload(jobId: string, profileId: string): Promise<DownloadRow> {
-		const row = await downloadsRepository.findById(jobId);
-		if (!row || row.profileId !== profileId) throw new NotFoundError("Download not found", { code: "download_not_found" });
+		const row = await this.getOwnedDownload(jobId, profileId);
+		if (!row) throw new NotFoundError("Download not found", { code: "download_not_found" });
 
 		return row;
 	}

@@ -1,8 +1,8 @@
 import type { AdminActiveDeviceItem, AdminLiveActivityResponse, AdminLiveStreamItem } from "@reelvault/sdk/common";
 import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import { realtimeService } from "@/modules/realtime";
-import { streamingService } from "@/modules/streaming/runtime/streaming.manager";
+import { realtimeService } from "@/modules/realtime/realtime.service";
+import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { computeProgressPercent } from "@/modules/streaming/utils/playback-position.utils";
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
@@ -30,7 +30,7 @@ class AdminLiveSessionsService extends BaseService {
 	async getLiveActivity(): Promise<AdminLiveActivityResponse> {
 		return await this.activityCache.getOrSet("activity", () =>
 			this.safeExecute("getLiveActivity", async () => {
-				const activeStreamSessions = streamingService.getAllActiveSessions();
+				const activeStreamSessions = streamingManager.getAllActiveSessions();
 				const effectiveHw = getEffectiveHwaccel();
 
 				const activeStreams = await this.resolveActiveStreams(activeStreamSessions, effectiveHw);
@@ -48,7 +48,7 @@ class AdminLiveSessionsService extends BaseService {
 	}
 
 	private async resolveActiveStreams(
-		activeStreamSessions: ReturnType<typeof streamingService.getAllActiveSessions>,
+		activeStreamSessions: ReturnType<typeof streamingManager.getAllActiveSessions>,
 		effectiveHw: ReturnType<typeof getEffectiveHwaccel>,
 	): Promise<AdminLiveStreamItem[]> {
 		if (activeStreamSessions.length === 0) return [];
@@ -59,7 +59,7 @@ class AdminLiveSessionsService extends BaseService {
 		return this.hydrateActiveStreams(activeStreamSessions, maps, effectiveHw);
 	}
 
-	private async fetchActiveStreamData(activeStreamSessions: ReturnType<typeof streamingService.getAllActiveSessions>) {
+	private async fetchActiveStreamData(activeStreamSessions: ReturnType<typeof streamingManager.getAllActiveSessions>) {
 		const mediaFileIds = unique(activeStreamSessions, (s) => s.mediaFileId);
 		const profileIds = unique(activeStreamSessions, (s) => s.profileId);
 
@@ -75,7 +75,7 @@ class AdminLiveSessionsService extends BaseService {
 		const [latestUserSessions, bufferAnalyses] = await Promise.all([
 			liveSessionsRepository.findLatestUserSessions(userIds),
 			PromiseUtils.mapConcurrent(activeStreamSessions, systemResourcesService.getIoConcurrency(), (s) =>
-				streamingService.getBuffer(s.id).catch(() => null),
+				streamingManager.getBuffer(s.id).catch(() => null),
 			),
 		]);
 
@@ -83,7 +83,7 @@ class AdminLiveSessionsService extends BaseService {
 	}
 
 	private hydrateActiveStreams(
-		activeStreamSessions: ReturnType<typeof streamingService.getAllActiveSessions>,
+		activeStreamSessions: ReturnType<typeof streamingManager.getAllActiveSessions>,
 		maps: ReturnType<typeof buildSessionMaps>,
 		effectiveHw: ReturnType<typeof getEffectiveHwaccel>,
 	): AdminLiveStreamItem[] {
@@ -108,7 +108,7 @@ class AdminLiveSessionsService extends BaseService {
 			const audioEncoder = session.decision.audioTranscode ? "aac" : "copy";
 
 			const bufferAnalysis = maps.bufferMap.get(session.id) ?? null;
-			const isSessionActive = streamingService.isSessionActive(session.id);
+			const isSessionActive = streamingManager.isSessionActive(session.id);
 			const bufferState = resolveBufferState(bufferAnalysis?.complete, isSessionActive);
 
 			const userSession = maps.userSessionMap.get(profile.userId);
@@ -210,8 +210,8 @@ class AdminLiveSessionsService extends BaseService {
 	async terminateSession(sessionId: string, reason?: string): Promise<{ success: true }> {
 		return await this.safeExecute("terminateSession", async () => {
 			const effectiveReason = reason ?? "admin.terminated";
-			const access = streamingService.getSessionAccess(sessionId);
-			const terminated = streamingService.getTerminatedSession(sessionId);
+			const access = streamingManager.getSessionAccess(sessionId);
+			const terminated = streamingManager.getTerminatedSession(sessionId);
 
 			// Idempotent terminate: a session that already finished its teardown is a
 			// success, not an error — only never-seen IDs are a real 404.
@@ -236,7 +236,7 @@ class AdminLiveSessionsService extends BaseService {
 			}
 
 			// 2. Tear down the stream process and mark as terminated
-			const outcome = await streamingService.releaseSession(sessionId, effectiveReason);
+			const outcome = await streamingManager.releaseSession(sessionId, effectiveReason);
 			if (outcome === "unknown") {
 				throw new NotFoundError(`Active session not found: ${sessionId}`, {
 					code: "stream.session_not_found",
@@ -249,37 +249,48 @@ class AdminLiveSessionsService extends BaseService {
 	}
 }
 
+/** Ordered browser markers — the first match wins. */
+const BROWSER_MARKERS: ReadonlyArray<readonly [marker: string, browser: string]> = [
+	["Firefox/", "firefox"],
+	["Edg/", "edge"],
+	["Chrome/", "chrome"],
+	["Safari/", "safari"],
+];
+
+/** Ordered platform rules — the first match wins; the client code may inspect
+ * the whole user agent (Android TV vs mobile). */
+const PLATFORM_RULES: ReadonlyArray<{
+	markers: readonly string[];
+	os: string;
+	client: (ua: string) => string;
+}> = [
+	{ markers: ["Android"], os: "android", client: (ua) => (ua.includes("TV") ? "android_tv" : "android_mobile") },
+	{ markers: ["iPhone", "iPad"], os: "ios", client: () => "apple_ios" },
+	{ markers: ["Windows"], os: "windows", client: () => "windows_pc" },
+	{ markers: ["Macintosh", "Mac OS"], os: "macos", client: () => "apple_mac" },
+	{ markers: ["Linux"], os: "linux", client: () => "linux_pc" },
+];
+
 /** Returns stable codes; the frontend maps them to localized labels. */
 function parseUserAgent(ua?: string | null): { clientName: string; browser: string; os: string } {
 	if (!ua) return { clientName: "unknown", browser: "unknown", os: "unknown" };
 
 	let browser = "web";
-	let os = "unknown";
-	let clientName = "web";
+	for (const [marker, value] of BROWSER_MARKERS) {
+		if (ua.includes(marker)) {
+			browser = value;
 
-	if (ua.includes("Firefox/")) browser = "firefox";
-	else if (ua.includes("Edg/")) browser = "edge";
-	else if (ua.includes("Chrome/")) browser = "chrome";
-	else if (ua.includes("Safari/")) browser = "safari";
-
-	if (ua.includes("Android")) {
-		os = "android";
-		clientName = ua.includes("TV") ? "android_tv" : "android_mobile";
-	} else if (ua.includes("iPhone") || ua.includes("iPad")) {
-		os = "ios";
-		clientName = "apple_ios";
-	} else if (ua.includes("Windows")) {
-		os = "windows";
-		clientName = "windows_pc";
-	} else if (ua.includes("Macintosh") || ua.includes("Mac OS")) {
-		os = "macos";
-		clientName = "apple_mac";
-	} else if (ua.includes("Linux")) {
-		os = "linux";
-		clientName = "linux_pc";
+			break;
+		}
 	}
 
-	return { clientName, browser, os };
+	for (const { markers, os, client } of PLATFORM_RULES) {
+		if (markers.some((marker) => ua.includes(marker))) {
+			return { clientName: client(ua), browser, os };
+		}
+	}
+
+	return { clientName: "web", browser, os: "unknown" };
 }
 
 function videoStreamProps(
@@ -355,14 +366,14 @@ function resolveBufferState(bufferComplete: boolean | undefined, isSessionActive
 }
 
 function buildSessionMaps(params: {
-	activeStreamSessions: ReturnType<typeof streamingService.getAllActiveSessions>;
+	activeStreamSessions: ReturnType<typeof streamingManager.getAllActiveSessions>;
 	mediaFilesData: Awaited<ReturnType<typeof liveSessionsRepository.findMediaSummaries>>;
 	profilesData: Awaited<ReturnType<typeof liveSessionsRepository.findProfilesWithUsers>>;
 	progressData: Awaited<ReturnType<typeof liveSessionsRepository.findProgress>>;
 	videoStreamsData: Awaited<ReturnType<typeof liveSessionsRepository.findVideoStreams>>;
 	audioStreamsData: Awaited<ReturnType<typeof liveSessionsRepository.findAudioStreams>>;
 	latestUserSessions: Awaited<ReturnType<typeof liveSessionsRepository.findLatestUserSessions>>;
-	bufferAnalyses: Array<Awaited<ReturnType<typeof streamingService.getBuffer>> | null>;
+	bufferAnalyses: Array<Awaited<ReturnType<typeof streamingManager.getBuffer>> | null>;
 }) {
 	const {
 		activeStreamSessions,

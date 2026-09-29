@@ -20,8 +20,7 @@ import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import { buildRelationProjection } from "@/database/utils/media-file-projection";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
-import { serverConfig } from "@/server.config";
-import { MINUTE } from "@/server.constants";
+import { MINUTE, serverConstants } from "@/server.constants";
 import { chunk, groupBy, hasEntry, toMap, unique } from "@/utils/array.utils";
 import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
@@ -742,7 +741,7 @@ class MediaRepository {
 		if (mediaFileIds.length === 0) return toCleanupData([], []);
 
 		const client = databaseFactory.getClient({ tx });
-		const idChunks = chunk(mediaFileIds, serverConfig.database.queryChunkSize);
+		const idChunks = chunk(mediaFileIds, serverConstants.database.queryChunkSize);
 		const [subtitleResults, artifactResults] = await Promise.all([
 			Promise.all(
 				idChunks.map((idChunk) =>

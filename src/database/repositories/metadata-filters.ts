@@ -138,18 +138,13 @@ function buildDurationFilter(bound: "min" | "max", minutes: number): SQL | undef
 }
 
 /**
- * Watched-state filter scoped to one profile. The service composes the value
- * as `profileId\0status` — the profile never comes from the client directly.
- * watched = any file fully watched; in_progress = started but not finished;
- * unwatched = no playback progress at all for this title.
+ * Watched-state filter scoped to one profile. The service layers the viewer
+ * profile on top of the client-facing status, so the profile never comes from
+ * the query string. watched = any file fully watched; in_progress = started
+ * but not finished; unwatched = no playback progress at all for this title.
  */
-function buildWatchedStatusFilter(composite: string): SQL | undefined {
-	const separator = composite.indexOf("\u0000");
-	if (separator === -1) return undefined;
-
-	const profileId = composite.slice(0, separator);
-	const status = composite.slice(separator + 1);
-	if (!profileId) return undefined;
+function buildWatchedStatusFilter(filter: ProfileScopedFilter): SQL | undefined {
+	const { profileId, status } = filter;
 
 	const client = databaseFactory.getClient();
 	const baseWhere = [eq(schema.mediaFiles.metadataId, schema.metadata.id), eq(schema.playbackProgress.profileId, profileId)];
@@ -189,15 +184,11 @@ function buildWatchedStatusFilter(composite: string): SQL | undefined {
 
 /**
  * Profile rating filter (user_ratings 0..2; anything above 0 counts as
- * liked). Composite `profileId\0choice` injected by the service, as above.
+ * liked). The service injects the viewer profile, as above.
  */
-function buildUserRatingFilter(composite: string): SQL | undefined {
-	const separator = composite.indexOf("\u0000");
-	if (separator === -1) return undefined;
-
-	const profileId = composite.slice(0, separator);
-	const choice = composite.slice(separator + 1);
-	if (!profileId) return undefined;
+function buildUserRatingFilter(filter: ProfileScopedFilter): SQL | undefined {
+	const { profileId } = filter;
+	const choice = filter.status;
 
 	const client = databaseFactory.getClient();
 	const baseWhere = [eq(schema.userRatings.metadataId, schema.metadata.id), eq(schema.userRatings.profileId, profileId)];
@@ -239,9 +230,16 @@ function buildLowConfidenceFilter(lowConfidence: boolean | string): SQL | undefi
 	return or(lt(schema.metadata.matchScore, LOW_CONFIDENCE_MATCH_SCORE), isNull(schema.metadata.matchScore));
 }
 
+/** Profile-scoped filter value — pairs the client-facing status with the
+ * viewer profile resolved server-side. */
+export interface ProfileScopedFilter {
+	profileId: string;
+	status: string;
+}
+
 export type MetadataRepositoryFilters = Omit<MetadataFilters, "watchedStatus" | "userRating"> & {
-	watchedStatus?: string | undefined;
-	userRating?: string | undefined;
+	watchedStatus?: ProfileScopedFilter | undefined;
+	userRating?: ProfileScopedFilter | undefined;
 };
 
 export const metadataQueryMap: QueryMap<MetadataRepositoryFilters, MetadataSorting> = {
@@ -270,8 +268,8 @@ export const metadataQueryMap: QueryMap<MetadataRepositoryFilters, MetadataSorti
 			QueryFiltering.eq(schema.metadata.hasMissingTranslation, value === true || value === "true"),
 		minDurationMinutes: (value: number) => buildDurationFilter("min", value),
 		maxDurationMinutes: (value: number) => buildDurationFilter("max", value),
-		watchedStatus: (value: string) => buildWatchedStatusFilter(value),
-		userRating: (value: string) => buildUserRatingFilter(value),
+		watchedStatus: (value: ProfileScopedFilter) => buildWatchedStatusFilter(value),
+		userRating: (value: ProfileScopedFilter) => buildUserRatingFilter(value),
 	},
 	orderBy: {
 		title: schema.metadata.title,

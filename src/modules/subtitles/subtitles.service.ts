@@ -13,8 +13,9 @@ import type {
 	SubtitleType,
 	UpdateSubtitleRequest,
 } from "@reelvault/sdk/common";
-import { pluginsService } from "@/application/plugins.service";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
+import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
+import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { BaseService } from "@/utils/base-service";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
 import { type SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
@@ -45,9 +46,9 @@ const defaultDependencies: ServiceDependencies = {
 	createRow: (body, type) => subtitlesRepository.createAndRead(body, type),
 	updateRow: (id, body) => subtitlesRepository.updateAndRead(id, body),
 	deleteRow: (id) => subtitlesRepository.deleteAndReturn(id),
-	getProviderStatus: () => pluginsService.getSubtitleProviderStatus(),
-	searchProviders: (body) => pluginsService.searchSubtitleProviders(body),
-	downloadSubtitle: (providerId, body) => pluginsService.downloadSubtitleFromProvider(providerId, body),
+	getProviderStatus: () => pluginManager.getSubtitleProviderStatus(),
+	searchProviders: (body) => subtitleProviderService.search(body),
+	downloadSubtitle: (providerId, body) => subtitleProviderService.download(providerId, body),
 	infoCache: subtitleInfoCache,
 	contentResolver: subtitleContentResolver,
 	fileCleaner: subtitleFileCleaner,

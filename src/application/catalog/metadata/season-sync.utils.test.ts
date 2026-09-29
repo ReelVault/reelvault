@@ -2,28 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ProviderEpisodeResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import type { episodesRepository } from "@/database/repositories/episodes.repository";
 import type { seasonsRepository } from "@/database/repositories/seasons.repository";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
 
 /** Replaces a method on the live singleton for one test, recording calls.
  * Works on real repositories AND on the minimal facades other test files
  * install with bun's process-global mock.module(...). */
-function stubMethod(target: object, method: string, impl: (...args: never[]) => unknown): { calls: unknown[][]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: unknown[][] = [];
-	const replacement = (...args: never[]) => {
-		calls.push(args);
-
-		return impl(...args);
-	};
-	Reflect.set(target, method, replacement);
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const seasonUpdates: unknown[][] = [];
 const episodeUpdates: unknown[][] = [];

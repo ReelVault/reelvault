@@ -3,6 +3,8 @@ import { parseColonSeparatedSeconds } from "@/utils/time.utils";
 export type DownloadQuality = "original" | "1080p-high" | "720p-mobile" | "480p-low";
 
 export const DOWNLOAD_QUALITIES: readonly DownloadQuality[] = ["original", "1080p-high", "720p-mobile", "480p-low"];
+
+export const DEFAULT_DOWNLOAD_QUALITY: DownloadQuality = "720p-mobile";
 const DOWNLOAD_QUALITIES_SET = new Set<string>(DOWNLOAD_QUALITIES);
 
 export const DOWNLOAD_STATUSES = ["pending", "processing", "completed", "failed", "cancelled"] as const;
@@ -31,7 +33,7 @@ export function isDownloadQuality(value: string): value is DownloadQuality {
 }
 
 export function resolveDownloadQuality(quality: string): DownloadQualitySpec {
-	return isDownloadQuality(quality) ? SPECS[quality] : SPECS["720p-mobile"];
+	return isDownloadQuality(quality) ? SPECS[quality] : SPECS[DEFAULT_DOWNLOAD_QUALITY];
 }
 
 /** ffmpeg `-ss`-style progress time (`[[HH:]MM:]SS.xx`) → seconds (0 on invalid input). */

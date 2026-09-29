@@ -4,6 +4,7 @@ import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminAnalyticsService } from "@/application/admin/admin-analytics.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { MINUTE } from "@/server.constants";
 
 export const adminAnalyticsRoutes = new Elysia({ prefix: "/analytics", tags: ["Admin"] })
 	.use(commonModel)
@@ -18,7 +19,7 @@ export const adminAnalyticsRoutes = new Elysia({ prefix: "/analytics", tags: ["A
 			return await adminAnalyticsService.getAnalytics(days);
 		},
 		{
-			rateLimit: { name: "admin-analytics", max: 60, windowMs: 60_000 },
+			rateLimit: { name: "admin-analytics", max: 60, windowMs: MINUTE },
 			query: t.Object({
 				days: t.Optional(t.Numeric({ minimum: 1, maximum: 365 })),
 			}),

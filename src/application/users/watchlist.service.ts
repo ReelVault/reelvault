@@ -8,10 +8,10 @@ import type {
 	WatchlistFilters,
 	WatchlistSorting,
 } from "@reelvault/sdk/common";
-import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
+import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 
 import { discoverService } from "./discover.service";
 

@@ -5,6 +5,7 @@ import { JobIdParams } from "@/api/schemas/route-params";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { downloadsService } from "@/modules/downloads/downloads.service";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
+import { MINUTE } from "@/server.constants";
 
 export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downloads"] })
 	.use(commonModel)
@@ -22,7 +23,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			return await downloadsService.prepare(profile?.id ?? "", body.mediaFileId, body.quality);
 		},
 		{
-			rateLimit: { name: "downloads-prepare", max: 10, windowMs: 60_000 },
+			rateLimit: { name: "downloads-prepare", max: 10, windowMs: MINUTE },
 			body: PrepareDownloadSchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_RATE_LIMITED, 200: DownloadJobSchema },
 			detail: { description: "Prepare an offline (MP4) download of a media file." },

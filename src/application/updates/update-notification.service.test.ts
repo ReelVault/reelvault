@@ -3,23 +3,9 @@ import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
 import { usersRepository } from "@/database/repositories/users.repository";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { updateCheckService } from "./update-check.service";
 import { updateNotificationService } from "./update-notification.service";
-
-function stubMethod(target: object, method: string, impl: (...args: never[]) => unknown): { restore(): void; calls: unknown[][] } {
-	const calls: unknown[][] = [];
-	const original = Reflect.get(target, method) as unknown;
-	Reflect.set(target, method, (...args: never[]) => {
-		calls.push([...args] as unknown[]);
-
-		return impl(...args);
-	});
-
-	return {
-		calls,
-		restore: () => Reflect.set(target, method, original),
-	};
-}
 
 function release(version: string): AdminUpdateRelease {
 	return {

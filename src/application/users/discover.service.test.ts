@@ -86,8 +86,8 @@ describe("DiscoverService", () => {
 		discoverService.clearCache();
 	});
 
-	test("throws NotFoundError when profileId is missing", async () => {
-		await expect(discoverService.getDiscoverView({ limit: 10 }, undefined)).rejects.toThrow("Profile not found: auth");
+	test("throws UnauthorizedError when profileId is missing", async () => {
+		await expect(discoverService.getDiscoverView({ limit: 10 }, undefined)).rejects.toThrow("Active profile required");
 	});
 
 	test("hydrates missing recommendations and trending items with relations", async () => {

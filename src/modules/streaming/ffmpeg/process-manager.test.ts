@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TranscodeConfig } from "@reelvault/sdk/common";
 import { $, spawn } from "bun";
-import { SessionReservationTracker } from "../runtime/sessions/session-reservation.tracker";
-import { SessionStore } from "../runtime/sessions/session-store";
+import { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
+import { SessionStore } from "../runtime/session-state/session-store";
 import { createMockPlaybackDecision } from "../streaming.test-utils";
 import { ProcessManager } from "./process-manager";
 

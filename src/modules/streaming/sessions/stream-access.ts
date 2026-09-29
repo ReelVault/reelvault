@@ -1,6 +1,6 @@
-import { pluginsService } from "@/application/plugins.service";
+import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
 import { ForbiddenError, NotFoundError, UnauthorizedError } from "@/utils/errors";
-import type { SessionAccessInfo } from "../runtime/sessions/session-store";
+import type { SessionAccessInfo } from "../runtime/session-state/session-store";
 
 type StreamAccessChecker = (input: {
 	userId: string;
@@ -13,7 +13,7 @@ function defaultStreamAccessCheck(input: {
 	profileId: string;
 	mediaFileId: string;
 }): Promise<{ code: string; message: string } | null | undefined> {
-	return pluginsService.checkAccess({
+	return pluginAccessBus.check({
 		userId: input.userId,
 		profileId: input.profileId,
 		resource: "stream",

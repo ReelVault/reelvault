@@ -14,9 +14,9 @@ import { SessionSeeker } from "../seeking/session-seeker";
 import type { HlsBufferAnalysis, SessionReleaseOutcome, StreamingLifecycleCallbacks, TerminatedSessionEntry } from "../streaming.types";
 import { resolveSeekTimelineStart } from "../utils/seek-timeline.utils";
 import { parseSegmentName } from "../utils/segment-name.utils";
-import { SessionReaper } from "./sessions/session-reaper";
-import { SessionReservationTracker } from "./sessions/session-reservation.tracker";
-import { SessionStore } from "./sessions/session-store";
+import { SessionReaper } from "./session-state/session-reaper";
+import { SessionReservationTracker } from "./session-state/session-reservation.tracker";
+import { SessionStore } from "./session-state/session-store";
 import { transcodeProgressMonitor } from "./transcode-progress.monitor";
 
 const noOpLifecycleCallbacks: StreamingLifecycleCallbacks = {
@@ -37,7 +37,7 @@ const noOpLifecycleCallbacks: StreamingLifecycleCallbacks = {
  * entity for the whole viewing: seek/quality changes restart the FFmpeg
  * process inside it (`generation` bumps) and never recreate the session.
  */
-class StreamingService {
+class StreamingManager {
 	private readonly logger = createLogger(this.constructor.name);
 	private readonly store = new SessionStore();
 	private readonly reservations: SessionReservationTracker;
@@ -414,7 +414,7 @@ class StreamingService {
 	}
 }
 
-export const streamingService = new StreamingService({
+export const streamingManager = new StreamingManager({
 	get maxSessions() {
 		return serverConfig.stream.maxSessions;
 	},

@@ -4,7 +4,7 @@ import { RequestTimeoutError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import { defaultFindForStreamingDuration, defaultRequireSession } from "../contracts";
-import { streamingService as streamingRuntimeService } from "../runtime/streaming.manager";
+import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import type { RequireSession } from "../streaming.types";
 import { SEEK_EOF_GUARD_SECONDS } from "../utils/playback-budgets";
 

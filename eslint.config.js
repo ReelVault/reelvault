@@ -2,12 +2,12 @@ import stylistic from "@stylistic/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 
 // ESLint is used ONLY as a formatter here (via `eslint --fix`).
-// Linting is handled by Biome (`.biome.json`) and oxlint (`.oxlintrc.json`).
+// Linting is handled by Biome (`biome.json`) and oxlint (`.oxlintrc.json`).
 // Keep only formatting rules that those two do not support, e.g. `padding-line-between-statements`.
 export default [
 	{
 		// Generated / build output — keep in sync with biome.json and .oxlintrc.json
-		ignores: ["dist/**", "build/**", "node_modules/**", "**/routeTree.gen.ts", "**/*.gen.ts", "drizzle/**"],
+		ignores: ["dist/**", "build/**", "node_modules/**", "**/routeTree.gen.ts", "**/*.gen.ts"],
 	},
 	{
 		name: "reelvault/formatting",

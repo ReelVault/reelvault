@@ -12,6 +12,7 @@ import type {
 } from "@reelvault/sdk/common";
 import type { ProviderResultCollection } from "@reelvault/sdk/plugin";
 import { and, count, eq, gte, inArray, lte, type SQL, sql } from "drizzle-orm";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
@@ -22,7 +23,7 @@ import { QueryFiltering } from "@/database/utils/filtering";
 import { QueryPagination } from "@/database/utils/pagination";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
-import { serverConfig } from "@/server.config";
+import { serverConstants } from "@/server.constants";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
 import { createLogger } from "@/utils/logger";
 import { syncNamedProviderEntities, upsertNamedEntities } from "../utils/provider-entity-sync";
@@ -85,7 +86,7 @@ class CollectionsRepository {
 		const baseOrderBy = QueryUtils.buildOrderBy(sorting, collectionQueryMap.orderBy, collectionQueryMap.defaults);
 		// Tiebreaker keeps offset pagination deterministic for non-unique keys.
 		const orderBy = baseOrderBy ? sql`${baseOrderBy}, ${this.table.id}` : undefined;
-		const minItems = filters?.minItems ?? serverConfig.collections.minimalToShow;
+		const minItems = filters?.minItems ?? systemSettingsStore.get("collections.minimalToShow");
 
 		// Page ids come back already ordered/limited from SQL — the previous version
 		// loaded EVERY qualifying collection id and passed them all into an `inArray`.
@@ -306,8 +307,8 @@ class CollectionsRepository {
 			const client = databaseFactory.getClient({ tx: targetTx });
 			// Chunk the update: a large manually-ordered collection can exceed SQLite's
 			// bound-variable limit (both the CASE list and the inArray).
-			for (let start = 0; start < metadataIds.length; start += serverConfig.database.queryChunkSize) {
-				const idChunk = metadataIds.slice(start, start + serverConfig.database.queryChunkSize);
+			for (let start = 0; start < metadataIds.length; start += serverConstants.database.queryChunkSize) {
+				const idChunk = metadataIds.slice(start, start + serverConstants.database.queryChunkSize);
 				const sqlCases = idChunk.map((id, index) => sql`WHEN ${schema.metadataCollections.metadataId} = ${id} THEN ${start + index}`);
 				await client
 					.update(schema.metadataCollections)

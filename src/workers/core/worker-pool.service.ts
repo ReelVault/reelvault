@@ -2,7 +2,7 @@ import type { WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk/comm
 import { type WorkerItem, workerJobRepository } from "@/database/repositories/worker.repository";
 import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import { type WorkerExecutionRecord, workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { MINUTE } from "@/server.constants";
 import { BaseService } from "@/utils/base-service";
 import { errorMessage } from "@/utils/errors";
@@ -114,7 +114,16 @@ export class WorkerExecutionPoolService extends BaseService {
 		controller: AbortController,
 		exec: ActiveExecution,
 	): Promise<void> {
-		const data = safeParseJson(item.data) ?? item.data;
+		const parsed = safeParseJson(item.data);
+		if (!parsed) {
+			// The stored payload is not the JSON every definition expects — handlers
+			// may still cope (string payloads), but the drift must be visible.
+			this.logger.warn("Worker task payload is not valid JSON — passing it through raw", {
+				workerId: exec.workerId,
+				taskId: item.id,
+			});
+		}
+		const data = parsed ?? item.data;
 		const startedAt = new Date();
 		const context = this.buildWorkerContext(item, data, controller, exec);
 

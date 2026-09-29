@@ -3,7 +3,7 @@ import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { NotFoundError, RequestTimeoutError, ValidationError } from "@/utils/errors";
 import { defaultRequireSession } from "../contracts";
-import { streamingService as streamingRuntimeService } from "../runtime/streaming.manager";
+import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import type { SeekResult } from "../streaming.types";
 import { ImplicitSeekCoordinator } from "./implicit-seek.coordinator";
 import { SegmentLookup, type SegmentWaitContext } from "./segment-lookup";

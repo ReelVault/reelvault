@@ -18,7 +18,7 @@ import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
-import { serverConfig } from "@/server.config";
+import { serverConstants } from "@/server.constants";
 import { MemoryCache } from "@/utils/memory-cache";
 
 const profiles = defineTableAccess("profiles", {
@@ -33,8 +33,8 @@ const profiles = defineTableAccess("profiles", {
  * even for writes that bypass the service layer.
  */
 const profileCache = new MemoryCache<Profile | null>({
-	ttlMs: serverConfig.auth.profileCacheTtlMs,
-	maxSize: serverConfig.auth.profileCacheMaxEntries,
+	ttlMs: serverConstants.auth.profileCacheTtlMs,
+	maxSize: serverConstants.auth.profileCacheMaxEntries,
 	name: "profile",
 });
 

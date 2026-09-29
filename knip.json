@@ -6,8 +6,8 @@
 	"ignoreBinaries": ["ffmpeg"],
 	"ignoreExportsUsedInFile": true,
 	"rules": {
-		"exports": "off",
-		"types": "off",
-		"duplicates": "off"
+		"exports": "warn",
+		"types": "warn",
+		"duplicates": "warn"
 	}
 }

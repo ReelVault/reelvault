@@ -123,28 +123,11 @@ export class QuickConnectService extends BaseService {
 	 */
 	initiate(): Promise<QuickConnectInitiateResponse> {
 		return this.safeExecute("initiate", () => {
-			this.cleanupExpired();
-			const code = this.generateCode();
-			const secret = crypto.randomUUID();
-			const now = new Date();
-			const expiresAt = new Date(now.getTime() + EXPIRATION_MS);
-
-			const entry: QuickConnectEntry = {
-				code,
-				normalizedCode: this.normalizeCode(code),
-				secret,
-				type: "device_pair",
-				status: "pending",
-				createdAt: now,
-				expiresAt,
-			};
-
-			this.entries.set(secret, entry);
-			this.entriesByCode.set(entry.normalizedCode, entry);
+			const { entry, code } = this.createPendingEntry("device_pair");
 
 			return {
 				code,
-				secret,
+				secret: entry.secret,
 				expiresIn: EXPIRATION_SECONDS,
 			};
 		});
@@ -240,32 +223,41 @@ export class QuickConnectService extends BaseService {
 	 */
 	generate(user: User, profile?: Profile | null): Promise<QuickConnectGenerateResponse> {
 		return this.safeExecute("generate", () => {
-			this.cleanupExpired();
-			const code = this.generateCode();
-			const secret = crypto.randomUUID();
-			const now = new Date();
-			const expiresAt = new Date(now.getTime() + EXPIRATION_MS);
-
-			const entry: QuickConnectEntry = {
-				code,
-				normalizedCode: this.normalizeCode(code),
-				secret,
-				type: "voucher",
-				status: "pending",
-				userId: user.id,
-				profileId: profile?.id,
-				createdAt: now,
-				expiresAt,
-			};
-
-			this.entries.set(secret, entry);
-			this.entriesByCode.set(entry.normalizedCode, entry);
+			const { code } = this.createPendingEntry("voucher", { userId: user.id, profileId: profile?.id });
 
 			return {
 				code,
 				expiresIn: EXPIRATION_SECONDS,
 			};
 		});
+	}
+
+	/** Registers a fresh pending entry — shared by the pairing and voucher flows. */
+	private createPendingEntry(
+		type: QuickConnectEntry["type"],
+		owner?: { userId: string; profileId?: string | undefined },
+	): { entry: QuickConnectEntry; code: string } {
+		this.cleanupExpired();
+		const code = this.generateCode();
+		const secret = crypto.randomUUID();
+		const now = new Date();
+
+		const entry: QuickConnectEntry = {
+			code,
+			normalizedCode: this.normalizeCode(code),
+			secret,
+			type,
+			status: "pending",
+			...(owner?.userId ? { userId: owner.userId } : {}),
+			...(owner?.profileId ? { profileId: owner.profileId } : {}),
+			createdAt: now,
+			expiresAt: new Date(now.getTime() + EXPIRATION_MS),
+		};
+
+		this.entries.set(secret, entry);
+		this.entriesByCode.set(entry.normalizedCode, entry);
+
+		return { entry, code };
 	}
 
 	/**

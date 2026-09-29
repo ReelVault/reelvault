@@ -5,7 +5,7 @@ import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { serverConfig } from "@/server.config";
+import { serverConstants } from "@/server.constants";
 import { groupBy } from "@/utils/array.utils";
 
 const mediaFileColumns = {
@@ -77,7 +77,7 @@ export async function attachMediaFiles<F extends string, TRow extends { id: stri
 
 	// Chunk on chunk boundaries to keep the parent-id `inArray` bounded; each
 	// row's media files are attached independently, so concatenation preserves order.
-	if (rows.length > serverConfig.database.queryChunkSize) {
+	if (rows.length > serverConstants.database.queryChunkSize) {
 		return await mapChunked(rows, (rowChunk) => attachMediaFiles(rowChunk, options));
 	}
 

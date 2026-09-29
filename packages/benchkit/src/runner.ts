@@ -9,10 +9,6 @@ import { cleanupFixtures, collectUnits, markCollection, type Unit } from "./regi
 import { printTable } from "./report";
 import { summarizeLatencies } from "./stats";
 
-export interface BenchFileMeta {
-	description?: string;
-}
-
 export interface RunnerJson {
 	schema: "benchkit/v0";
 	generatedAt: string;

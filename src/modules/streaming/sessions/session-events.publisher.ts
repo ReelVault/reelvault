@@ -1,5 +1,5 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
-import { pluginsService } from "@/application/plugins.service";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 
 export interface PlaybackSessionStartedEvent {
 	sessionId: string;
@@ -15,10 +15,10 @@ export interface PlaybackSessionStartedEvent {
 }
 
 interface PublisherDependencies {
-	pluginsService: Pick<typeof pluginsService, "publish">;
+	pluginEventBus: Pick<typeof pluginEventBus, "publish">;
 }
 
-const defaultDependencies: PublisherDependencies = { pluginsService };
+const defaultDependencies: PublisherDependencies = { pluginEventBus };
 
 export class SessionLifecyclePublisher {
 	private readonly dependencies: PublisherDependencies;
@@ -28,6 +28,6 @@ export class SessionLifecyclePublisher {
 	}
 
 	publishStarted(event: PlaybackSessionStartedEvent): void {
-		this.dependencies.pluginsService.publish("playback.lifecycle.started", event);
+		this.dependencies.pluginEventBus.publish("playback.lifecycle.started", event);
 	}
 }

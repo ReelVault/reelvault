@@ -1,18 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { sidecarMetadataWriter } from "./sidecar-metadata-writer.runtime";
 import { sidecarSyncService } from "./sidecar-sync.service";
-
-function stubMethod(target: object, method: string, impl: (...args: never[]) => unknown): { restore(): void } {
-	const original = Reflect.get(target, method);
-	Reflect.set(target, method, (...args: never[]) => impl(...args));
-
-	return {
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 

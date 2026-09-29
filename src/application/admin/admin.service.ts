@@ -8,9 +8,12 @@ import type {
 	PluginConfigDetails,
 	PluginRuntimeStatus,
 } from "@reelvault/sdk/common";
-import { pluginsService } from "@/application/plugins.service";
+import { pluginAdminService } from "@/application/plugin-admin.service";
+import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { adminStatsRepository } from "@/database/repositories/admin-stats.repository";
 import { playbackStreamingService } from "@/modules/streaming/streaming.service";
+import { providerService } from "@/plugins/capabilities/provider.service";
+import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
 import { resourceAllocator } from "@/system/resource-allocator";
@@ -161,18 +164,17 @@ class AdminService extends BaseService {
 	}
 
 	async pluginConfig(pluginId: string): Promise<PluginConfigDetails> {
-		return await this.safeExecute("pluginConfig", async () => await pluginsService.getConfigDetails(pluginId));
+		return await this.safeExecute("pluginConfig", async () => await pluginManager.getPluginConfigDetails(pluginId));
 	}
 
 	async updatePluginConfig(
 		pluginId: string,
 		updatedConfig: Record<string, unknown>,
-		actorUserId?: string,
-		headers?: Headers,
+		context?: AdminAuditContext,
 	): Promise<PluginConfigDetails> {
 		return await this.safeExecute("updatePluginConfig", async () => {
-			const before = await pluginsService.getConfigDetails(pluginId);
-			const after = await pluginsService.saveConfig(pluginId, updatedConfig);
+			const before = await pluginManager.getPluginConfigDetails(pluginId);
+			const after = await pluginManager.savePluginConfig(pluginId, updatedConfig);
 			recordAuditSafe(
 				{
 					action: "update",
@@ -180,7 +182,7 @@ class AdminService extends BaseService {
 					resourceId: pluginId,
 					before: before.config,
 					after: after.config,
-					context: { actorUserId, headers },
+					context,
 				},
 				this.logger,
 			);
@@ -190,17 +192,17 @@ class AdminService extends BaseService {
 	}
 
 	plugins(): Promise<PluginRuntimeStatus[]> {
-		return Promise.resolve(pluginsService.getStatus());
+		return Promise.resolve(pluginManager.getStatus());
 	}
 
-	async reloadPlugins(actorUserId?: string, headers?: Headers): Promise<PluginRuntimeStatus[]> {
-		const result = await pluginsService.reloadAll();
+	async reloadPlugins(context?: AdminAuditContext): Promise<PluginRuntimeStatus[]> {
+		const result = await pluginManager.reloadAll().then(() => pluginManager.getStatus());
 		recordAuditSafe(
 			{
 				action: "update",
 				resourceType: "plugins",
 				after: { action: "reload_all", total: result.length },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -209,7 +211,7 @@ class AdminService extends BaseService {
 	}
 
 	getPlugin(pluginId: string): PluginRuntimeStatus {
-		const plugin = pluginsService.get(pluginId);
+		const plugin = pluginAdminService.get(pluginId);
 		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`);
 
 		return plugin;
@@ -218,13 +220,12 @@ class AdminService extends BaseService {
 	private async changePluginStatus(
 		action: "enable" | "disable" | "reload",
 		pluginId: string,
-		actorUserId?: string,
-		headers?: Headers,
+		context?: AdminAuditContext,
 	): Promise<PluginRuntimeStatus> {
 		const operations: Record<"enable" | "disable" | "reload", (id: string) => Promise<PluginRuntimeStatus | undefined>> = {
-			enable: (id) => pluginsService.enable(id),
-			disable: (id) => pluginsService.disable(id),
-			reload: (id) => pluginsService.reload(id),
+			enable: (id) => pluginAdminService.enable(id),
+			disable: (id) => pluginAdminService.disable(id),
+			reload: (id) => pluginAdminService.reload(id),
 		};
 		const plugin = await operations[action](pluginId);
 		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`);
@@ -235,7 +236,7 @@ class AdminService extends BaseService {
 				resourceType: "plugin",
 				resourceId: pluginId,
 				after: { status: action === "reload" ? "reloaded" : action, plugin },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -243,32 +244,31 @@ class AdminService extends BaseService {
 		return plugin;
 	}
 
-	enablePlugin(pluginId: string, actorUserId?: string, headers?: Headers): Promise<PluginRuntimeStatus> {
-		return this.changePluginStatus("enable", pluginId, actorUserId, headers);
+	enablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginRuntimeStatus> {
+		return this.changePluginStatus("enable", pluginId, context);
 	}
 
-	disablePlugin(pluginId: string, actorUserId?: string, headers?: Headers): Promise<PluginRuntimeStatus> {
-		return this.changePluginStatus("disable", pluginId, actorUserId, headers);
+	disablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginRuntimeStatus> {
+		return this.changePluginStatus("disable", pluginId, context);
 	}
 
-	reloadPlugin(pluginId: string, actorUserId?: string, headers?: Headers): Promise<PluginRuntimeStatus> {
-		return this.changePluginStatus("reload", pluginId, actorUserId, headers);
+	reloadPlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginRuntimeStatus> {
+		return this.changePluginStatus("reload", pluginId, context);
 	}
 
 	async getMetadataProviderConfigurations(): Promise<MetadataProviderConfiguration[]> {
-		return await pluginsService.getProviderConfigurations();
+		return await providerService.getConfigurations();
 	}
 
 	async updateMetadataProviderConfiguration(
 		providerId: string,
 		values: { priority?: number; enabled?: boolean },
-		actorUserId?: string,
-		headers?: Headers,
+		context?: AdminAuditContext,
 	): Promise<MetadataProviderConfiguration> {
-		const before = (await pluginsService.getProviderConfigurations()).find((provider) => provider.id === providerId);
+		const before = (await providerService.getConfigurations()).find((provider) => provider.id === providerId);
 		if (!before) throw new NotFoundError(`Metadata provider not found: ${providerId}`);
 
-		const after = await pluginsService.updateProviderConfiguration(providerId, values);
+		const after = await providerService.updateConfiguration(providerId, values);
 		recordAuditSafe(
 			{
 				action: "update",
@@ -276,7 +276,7 @@ class AdminService extends BaseService {
 				resourceId: providerId,
 				before,
 				after,
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -286,11 +286,10 @@ class AdminService extends BaseService {
 
 	async reorderMetadataProviderConfigurations(
 		providerIds: string[],
-		actorUserId?: string,
-		headers?: Headers,
+		context?: AdminAuditContext,
 	): Promise<MetadataProviderConfiguration[]> {
-		const before = await pluginsService.getProviderConfigurations();
-		const after = await pluginsService.reorderProviderConfigurations(providerIds);
+		const before = await providerService.getConfigurations();
+		const after = await providerService.reorderConfigurations(providerIds);
 		recordAuditSafe(
 			{
 				action: "update",
@@ -298,7 +297,7 @@ class AdminService extends BaseService {
 				resourceId: "order",
 				before,
 				after,
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);

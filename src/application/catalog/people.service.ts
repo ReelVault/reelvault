@@ -1,7 +1,7 @@
 import type { CreatePerson, PersonFilters, PersonSorting, PersonWithRelations, UpdatePerson } from "@reelvault/sdk/common";
-import { pluginsService } from "@/application/plugins.service";
 import { peopleRepository } from "@/database/repositories/people.repository";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
+import { providerService } from "@/plugins/capabilities/provider.service";
 import { findFirstProviderResult } from "./catalog.utils";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 
@@ -25,7 +25,7 @@ class PeopleService extends DictionaryCrudService<
 			const providerLink = await peopleRepository.findFirstProviderLink(personId);
 			const externalId = providerLink?.externalId;
 			if (externalId) {
-				const providerPerson = await pluginsService.fetchProviderPerson(externalId);
+				const providerPerson = await providerService.fetchPerson(externalId);
 				const match = findFirstProviderResult(providerPerson);
 
 				if (match) {

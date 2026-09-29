@@ -9,9 +9,9 @@ import type {
 	TranscodeProgressResponse,
 	UpdatePlaybackProgress,
 } from "@reelvault/sdk/common";
-import { pluginsService } from "@/application/plugins.service";
 import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { workerService } from "@/workers/worker.service";
@@ -19,7 +19,7 @@ import { diagnosticsService } from "./diagnostics/diagnostics.service";
 import { heartbeatService } from "./heartbeat/heartbeat.service";
 import { playlistService } from "./playlist/playlist.service";
 import { playbackProgressService } from "./progress/playback-progress.service";
-import { streamingService as streamingRuntimeService } from "./runtime/streaming.manager";
+import { streamingManager as streamingRuntimeService } from "./runtime/streaming.manager";
 import { seekService } from "./seeking/seek.service";
 import { segmentService } from "./segments/segment.service";
 import { sessionLifecycleService } from "./sessions/session-lifecycle.service";
@@ -31,14 +31,14 @@ class PlaybackStreamingService extends BaseService {
 		streamingRuntimeService.configureLifecycleCallbacks({
 			cancelOperation: async (operationId) => await workerService.cancelOperation(operationId),
 			onSessionStarted: ({ sessionId, mediaFileId, profileId }) => {
-				pluginsService.publish("playback.session.started", { sessionId, mediaFileId });
+				pluginEventBus.publish("playback.session.started", { sessionId, mediaFileId });
 				// Per-session/per-profile, not a global broadcast — other users must
 				// not receive session ids or media ids.
 				realtimeService.sendToProfile(profileId, "playback:session:started", { sessionId, mediaFileId });
 			},
 			onSessionEnded: ({ sessionId, mediaFileId, profileId, reason }) => {
-				pluginsService.publish("playback.session.ended", { sessionId, mediaFileId, reason });
-				pluginsService.publish("playback.lifecycle.stopped", {
+				pluginEventBus.publish("playback.session.ended", { sessionId, mediaFileId, reason });
+				pluginEventBus.publish("playback.lifecycle.stopped", {
 					sessionId,
 					mediaFileId,
 					reason,

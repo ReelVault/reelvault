@@ -18,7 +18,6 @@ import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { applyMetadataCandidate, toMetadataCandidate } from "@/application/catalog/metadata/metadata-normalization";
-import { pluginsService } from "@/application/plugins.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
@@ -34,6 +33,10 @@ import { toPublicMarker } from "@/database/utils/media-marker.mapper";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
+import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
+import { providerService } from "@/plugins/capabilities/provider.service";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
+import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
@@ -81,13 +84,13 @@ class MediaService extends BaseService {
 				this.assertFound(mediaFileExists, "MediaFile", mediaFileId);
 			}
 
-			return await pluginsService.listArtifacts(mediaFileId);
+			return await pluginArtifactsService.list(mediaFileId);
 		});
 	}
 
 	async getArtifact(mediaFileId: string, artifactId: string): Promise<{ artifact: PlaybackArtifact; file: Blob }> {
 		return await this.safeExecute("getArtifact", async () => {
-			const artifact = await pluginsService.findArtifactFile(mediaFileId, artifactId);
+			const artifact = await pluginArtifactsService.findFile(mediaFileId, artifactId);
 			this.assertExists(artifact, "PlaybackArtifact", artifactId);
 
 			return artifact;
@@ -376,6 +379,141 @@ class MediaService extends BaseService {
 		};
 	}
 
+	/**
+	 * Fetches provider details and persists a brand-new metadata record for a
+	 * reassign-by-provider request, then refreshes its artwork.
+	 */
+	private async createReassignMetadataFromProvider(
+		providerId: string,
+		externalId: string,
+		mediaType: "movie" | "tv_show",
+	): Promise<string> {
+		const providerMetadata = await providerService.fetchDetailsByProvider(providerId, mediaType, externalId);
+		if (!providerMetadata) {
+			throw new NotFoundError("Provider details not found", {
+				code: "media_file.provider_details_not_found",
+				params: { providerId },
+			});
+		}
+
+		const candidate = await pluginHookBus.runBeforeMetadataSave(toMetadataCandidate(mediaType, providerId, providerMetadata));
+		const normalized = applyMetadataCandidate(mediaType, providerId, providerMetadata, candidate);
+		const result = await metadataPersistenceRepository.createProviderMetadata({
+			type: mediaType,
+			providerName: providerId,
+			metadata: normalized,
+			matchScore: 1.0,
+		});
+		const targetMetadataId = result.metadata.id;
+
+		await imageProcessingService.replaceProviderArtwork(targetMetadataId, providerMetadata);
+		if (result.personImages.length > 0) {
+			const personImages = result.personImages.slice(0, serverConfig.application.metadataPersonImageLimit);
+			await PromiseUtils.mapConcurrent(personImages, serverConfig.application.metadataImageEnqueueConcurrency, ({ personId, url }) =>
+				imageProcessingService.processPerson(personId, url, true),
+			);
+		}
+
+		pluginEventBus.publish("metadata.saved", { metadataId: targetMetadataId });
+
+		return targetMetadataId;
+	}
+
+	/** Validates that an existing metadata target matches the media file's type. */
+	private async assertReassignTargetMetadata(targetMetadataId: string, mediaType: "movie" | "tv_show"): Promise<string> {
+		const existingMetadata = await metadataRepository.findByIdForRead(targetMetadataId, {
+			fields: "id,type,title",
+		});
+		this.assertExists(existingMetadata, "Metadata", targetMetadataId);
+		if (existingMetadata.type !== mediaType) {
+			throw new ValidationError("Metadata type mismatch", {
+				code: "media_file.metadata_type_mismatch",
+				params: { expectedType: mediaType, actualType: existingMetadata.type },
+			});
+		}
+
+		return existingMetadata.id;
+	}
+
+	/** Resolves the reassign target id from provider details or an existing metadata record. */
+	private async resolveReassignTarget(body: ReassignMediaFile, mediaType: "movie" | "tv_show"): Promise<string> {
+		if (body.providerId && body.externalId) {
+			return await this.createReassignMetadataFromProvider(body.providerId, body.externalId, mediaType);
+		}
+
+		if (body.targetMetadataId) return await this.assertReassignTargetMetadata(body.targetMetadataId, mediaType);
+
+		throw new ValidationError("targetMetadataId or provider details are required", {
+			code: "media_file.target_required",
+		});
+	}
+
+	private async resolveMovieAnchor(targetMetadataId: string): Promise<string> {
+		const movie = await moviesRepository.findOrCreateByMetadataId({ metadataId: targetMetadataId });
+		if (!movie) throw new InternalError("Failed to create movie record", { code: "media_file.movie_create_failed" });
+
+		return movie.id;
+	}
+
+	private async resolveEpisodeAnchorById(episodeId: string, targetMetadataId: string): Promise<string> {
+		const episode = await episodesRepository.findByIdForRead(episodeId, {
+			fields: "id,seasonId",
+		});
+		this.assertExists(episode, "Episode", episodeId);
+		const season = await seasonsRepository.findByIdForRead(episode.seasonId, {
+			fields: "id,metadataId",
+		});
+		if (!season || season.metadataId !== targetMetadataId) {
+			throw new ValidationError("Selected episode does not belong to the target series", {
+				code: "media_file.episode_mismatch",
+			});
+		}
+
+		return episode.id;
+	}
+
+	private async resolveEpisodeAnchorByNumbers(targetMetadataId: string, seasonNumber: number, episodeNumber: number): Promise<string> {
+		const targetMeta = await metadataRepository.findByIdForRead(targetMetadataId, { fields: "id,stableKey" });
+		const seasonInfo = {
+			externalId: `${targetMetadataId}-s${seasonNumber}`,
+			seasonNumber,
+		};
+		const episodeInfo = {
+			externalId: `${targetMetadataId}-s${seasonNumber}-e${episodeNumber}`,
+			seasonNumber,
+			episodeNumber,
+		};
+		const persisted = await metadataPersistenceRepository.createSeasonAndEpisode({
+			metadataId: targetMetadataId,
+			metadataStableKey: targetMeta?.stableKey,
+			seasonInfo,
+			episodeInfo,
+		});
+		if (!persisted?.episode) throw new InternalError("Failed to create episode record", { code: "media_file.episode_create_failed" });
+
+		return persisted.episode.id;
+	}
+
+	/** Anchors the media file to a movie record or a concrete episode of the target series. */
+	private async resolveReassignAnchor(
+		mediaType: "movie" | "tv_show",
+		body: ReassignMediaFile,
+		targetMetadataId: string,
+	): Promise<{ movieId: string | null; episodeId: string | null }> {
+		if (mediaType === "movie") return { movieId: await this.resolveMovieAnchor(targetMetadataId), episodeId: null };
+
+		if (body.episodeId) return { movieId: null, episodeId: await this.resolveEpisodeAnchorById(body.episodeId, targetMetadataId) };
+
+		if (body.seasonNumber !== undefined && body.episodeNumber !== undefined) {
+			return {
+				movieId: null,
+				episodeId: await this.resolveEpisodeAnchorByNumbers(targetMetadataId, body.seasonNumber, body.episodeNumber),
+			};
+		}
+
+		throw new ValidationError("Episode selection required for a series", { code: "media_file.episode_required" });
+	}
+
 	async reassign<F extends string>(
 		mediaFileId: string,
 		body: ReassignMediaFile,
@@ -394,103 +532,8 @@ class MediaService extends BaseService {
 			if (!library) throw new NotFoundError("Library not found for this media file");
 
 			const mediaType = mapLibraryType(library.type);
-			let targetMetadataId: string;
-
-			if (body.providerId && body.externalId) {
-				const providerMetadata = await pluginsService.fetchProviderDetailsByProvider(body.providerId, mediaType, body.externalId);
-				if (!providerMetadata) {
-					throw new NotFoundError("Provider details not found", {
-						code: "media_file.provider_details_not_found",
-						params: { providerId: body.providerId },
-					});
-				}
-
-				const candidate = await pluginsService.transformMetadataCandidate(
-					toMetadataCandidate(mediaType, body.providerId, providerMetadata),
-				);
-				const normalized = applyMetadataCandidate(mediaType, body.providerId, providerMetadata, candidate);
-				const result = await metadataPersistenceRepository.createProviderMetadata({
-					type: mediaType,
-					providerName: body.providerId,
-					metadata: normalized,
-					matchScore: 1.0,
-				});
-				targetMetadataId = result.metadata.id;
-
-				await imageProcessingService.replaceProviderArtwork(targetMetadataId, providerMetadata);
-				if (result.personImages.length > 0) {
-					const personImages = result.personImages.slice(0, serverConfig.application.metadataPersonImageLimit);
-					await PromiseUtils.mapConcurrent(personImages, serverConfig.application.metadataImageEnqueueConcurrency, ({ personId, url }) =>
-						imageProcessingService.processPerson(personId, url, true),
-					);
-				}
-
-				pluginsService.publish("metadata.saved", { metadataId: targetMetadataId });
-			} else if (body.targetMetadataId) {
-				const existingMetadata = await metadataRepository.findByIdForRead(body.targetMetadataId, {
-					fields: "id,type,title",
-				});
-				this.assertExists(existingMetadata, "Metadata", body.targetMetadataId);
-				if (existingMetadata.type !== mediaType) {
-					throw new ValidationError("Metadata type mismatch", {
-						code: "media_file.metadata_type_mismatch",
-						params: { expectedType: mediaType, actualType: existingMetadata.type },
-					});
-				}
-
-				targetMetadataId = existingMetadata.id;
-			} else {
-				throw new ValidationError("targetMetadataId or provider details are required", {
-					code: "media_file.target_required",
-				});
-			}
-
-			let targetMovieId: string | null = null;
-			let targetEpisodeId: string | null = null;
-
-			if (mediaType === "movie") {
-				const movie = await moviesRepository.findOrCreateByMetadataId({ metadataId: targetMetadataId });
-				if (!movie) throw new InternalError("Failed to create movie record", { code: "media_file.movie_create_failed" });
-
-				targetMovieId = movie.id;
-			} else if (body.episodeId) {
-				const episode = await episodesRepository.findByIdForRead(body.episodeId, {
-					fields: "id,seasonId",
-				});
-				this.assertExists(episode, "Episode", body.episodeId);
-				const season = await seasonsRepository.findByIdForRead(episode.seasonId, {
-					fields: "id,metadataId",
-				});
-				if (!season || season.metadataId !== targetMetadataId) {
-					throw new ValidationError("Selected episode does not belong to the target series", {
-						code: "media_file.episode_mismatch",
-					});
-				}
-
-				targetEpisodeId = episode.id;
-			} else if (body.seasonNumber !== undefined && body.episodeNumber !== undefined) {
-				const targetMeta = await metadataRepository.findByIdForRead(targetMetadataId, { fields: "id,stableKey" });
-				const seasonInfo = {
-					externalId: `${targetMetadataId}-s${body.seasonNumber}`,
-					seasonNumber: body.seasonNumber,
-				};
-				const episodeInfo = {
-					externalId: `${targetMetadataId}-s${body.seasonNumber}-e${body.episodeNumber}`,
-					seasonNumber: body.seasonNumber,
-					episodeNumber: body.episodeNumber,
-				};
-				const persisted = await metadataPersistenceRepository.createSeasonAndEpisode({
-					metadataId: targetMetadataId,
-					metadataStableKey: targetMeta?.stableKey,
-					seasonInfo,
-					episodeInfo,
-				});
-				if (!persisted?.episode) throw new InternalError("Failed to create episode record", { code: "media_file.episode_create_failed" });
-
-				targetEpisodeId = persisted.episode.id;
-			} else {
-				throw new ValidationError("Episode selection required for a series", { code: "media_file.episode_required" });
-			}
+			const targetMetadataId = await this.resolveReassignTarget(body, mediaType);
+			const { movieId: targetMovieId, episodeId: targetEpisodeId } = await this.resolveReassignAnchor(mediaType, body, targetMetadataId);
 
 			// Ensure `isDefault` uniqueness atomically: a concurrent reassign to the
 			// same movie/episode must not leave two defaults behind.

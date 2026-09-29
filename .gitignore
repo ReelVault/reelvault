@@ -60,13 +60,6 @@ build/
 out/
 *.tsbuildinfo
 
-# Next.js & Vercel
-.next
-.vercel
-
-# Tauri
-src-tauri/target/
-
 # ==================== #
 # TESTING
 # ==================== #
@@ -78,10 +71,6 @@ jest-cache
 # ==================== #
 # GIT HOOKS
 # ==================== #
-
-# Husky (this template uses lefthook instead, but ignore it in case a
-# dependency or a contributor's local setup installs it anyway)
-.husky
 
 # ==================== #
 # EDITOR
@@ -100,7 +89,6 @@ jest-cache
 # GENERATED
 # ==================== #
 
-src/paraglide/
 **/routeTree.gen.ts
 **/*.gen.ts
 

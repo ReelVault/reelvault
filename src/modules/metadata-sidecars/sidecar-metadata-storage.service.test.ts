@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import type { SidecarArtworkWriter } from "./saver/sidecar-artwork.exporter";
 import type { SidecarMetadataWriter } from "./sidecar.types";
 import { SidecarMetadataStorageService } from "./sidecar-metadata-storage.service";
@@ -6,17 +7,6 @@ import { SidecarMetadataStorageService } from "./sidecar-metadata-storage.servic
 /** Replaces a method on the live singleton for one test.
  * Works on real repositories AND on the minimal facades other test files
  * install with bun's process-global mock.module(...). */
-function stubMethod(target: object, method: string, impl: (...args: never[]) => unknown): { restore(): void } {
-	const original = Reflect.get(target, method);
-	Reflect.set(target, method, (...args: never[]) => impl(...args));
-
-	return {
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 

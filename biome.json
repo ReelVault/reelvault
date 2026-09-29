@@ -8,7 +8,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**", "!node_modules", "!.agents", "!dist", "!build", "!**/*.svg", "!**/routeTree.gen.ts", "!**/*.gen.ts", "!drizzle"]
+		"includes": ["**", "!node_modules", "!.agents", "!dist", "!build", "!**/*.svg", "!**/routeTree.gen.ts", "!**/*.gen.ts"]
 	},
 	"assist": {
 		"enabled": true,
@@ -51,8 +51,6 @@
 		"enabled": true,
 		"domains": {
 			"project": "recommended",
-			"react": "recommended",
-			"next": "recommended",
 			"test": "recommended",
 			"drizzle": "recommended",
 			"types": "recommended"
@@ -76,7 +74,9 @@
 				"noImportantStyles": "off",
 				"noExcessiveCognitiveComplexity": {
 					"level": "warn",
-					"options": { "maxAllowedComplexity": 35 }
+					"options": {
+						"maxAllowedComplexity": 35
+					}
 				},
 				"noExcessiveNestedTestSuites": "warn",
 				"noForEach": "off",
@@ -160,7 +160,9 @@
 				"useExportType": "error",
 				"useConsistentTypeDefinitions": {
 					"level": "error",
-					"options": { "style": "interface" }
+					"options": {
+						"style": "interface"
+					}
 				},
 				"noDefaultExport": "off",
 				"noMagicNumbers": "off",
@@ -192,7 +194,9 @@
 				"noExplicitAny": "off",
 				"noConsole": {
 					"level": "warn",
-					"options": { "allow": ["warn", "error"] }
+					"options": {
+						"allow": ["warn", "error"]
+					}
 				},
 				"noConstantBinaryExpressions": "error",
 				"noDoubleEquals": "error",
@@ -290,16 +294,6 @@
 					"performance": {
 						"noReExportAll": "off",
 						"noBarrelFile": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/routes/**", "**/routes/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"useFilenamingConvention": "off"
 					}
 				}
 			}

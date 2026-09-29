@@ -2,8 +2,7 @@
 	"compilerOptions": {
 		/* --- ENVIRONMENT & LANGUAGE --- */
 		"target": "esnext",
-		"lib": ["ESNext", "DOM"], // "DOM", "DOM.Iterable"
-		// "jsx": "react-jsx",
+		"lib": ["ESNext", "DOM"],
 		"types": ["bun"],
 		"allowJs": false,
 
@@ -41,16 +40,15 @@
 		"allowUnreachableCode": false,
 		"allowUnusedLabels": false,
 
-		// Relaxed vs. the backend tsconfig: exact-optional is a common source of
-		// friction with third-party React prop types. Turn on per-project if you
-		// want the stricter guarantee.
+		// A missing property must not be confused with an explicitly undefined one —
+		// DTO mappers and settings codecs rely on that distinction.
 		"exactOptionalPropertyTypes": true,
 
-		// Biome's correctness/noUnusedVariables + noUnusedFunctionParameters already
-		// cover this — leave off here to avoid two tools disagreeing on the same file.
+		// Biome correctness/noUnusedVariables + noUnusedFunctionParameters already
+		// cover this — leave off here to avoid two tools disagreeing on one file.
 		"noUnusedLocals": false,
 		"noUnusedParameters": false
 	},
-	"include": ["**/*.ts", "drizzle.config.ts", "package.json"],
+	"include": ["**/*.ts", "package.json"],
 	"exclude": ["node_modules", "dist", "sdk/dist"]
 }

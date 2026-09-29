@@ -2,11 +2,11 @@ import { and, count, desc, eq, exists, gte, inArray, isNotNull, lte, sql } from 
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { mapChunked } from "@/database/table-access";
-import { serverConfig } from "@/server.config";
-import { DAY } from "@/server.constants";
+import { DAY, serverConstants } from "@/server.constants";
+import { systemResourcesService } from "@/system/system-resources.service";
 
 class DiscoverRepository {
-	async findRecommendationCandidates(profileId: string, limit = serverConfig.application.discoverCandidateLimit) {
+	async findRecommendationCandidates(profileId: string, limit = serverConstants.application.discoverCandidateLimit) {
 		const client = databaseFactory.getClient();
 		const [rawWatched, rawRatings, rawWatchlist, catalog] = await Promise.all([
 			client
@@ -162,7 +162,7 @@ class DiscoverRepository {
 		const validIds = metadataIds.filter((id): id is string => Boolean(id));
 		if (validIds.length === 0) return [];
 
-		const rows = await mapChunked(validIds, query, { concurrency: serverConfig.database.relationQueryConcurrency });
+		const rows = await mapChunked(validIds, query, { concurrency: systemResourcesService.getRelationQueryConcurrency() });
 
 		return rows.filter((r): r is { metadataId: string; relId: string } => Boolean(r.metadataId));
 	}

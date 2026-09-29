@@ -15,6 +15,4 @@ export function printTable(title: string, columns: readonly string[], rows: Read
 
 export const fmtMs = (value: number): string => `${value.toFixed(2)}ms`;
 
-export const fmtNumber = (value: number): string => value.toFixed(2);
-
 export const fmtMb = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)}MB`;

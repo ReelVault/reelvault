@@ -11,6 +11,7 @@ import { CollectionIdParams } from "@/api/schemas/route-params";
 import { collectionsService } from "@/application/catalog/collections.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { MINUTE } from "@/server.constants";
 
 export const adminCollectionsRoutes = new Elysia()
 	.use(commonModel)
@@ -27,7 +28,7 @@ export const adminCollectionsRoutes = new Elysia()
 		async ({ params, body, query, user, request }) =>
 			await collectionsService.update(params.collectionId, body, query, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-collections-update", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-collections-update", max: 30, windowMs: MINUTE },
 			params: CollectionIdParams,
 			body: "admin.updateCollection",
 			query: "fields.schema",
@@ -43,7 +44,7 @@ export const adminCollectionsRoutes = new Elysia()
 				headers: request.headers,
 			}),
 		{
-			rateLimit: { name: "admin-collections-order", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-collections-order", max: 30, windowMs: MINUTE },
 			params: CollectionIdParams,
 			body: "admin.updateCollectionOrder",
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: SuccessResponseSchema },

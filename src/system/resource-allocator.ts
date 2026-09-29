@@ -2,8 +2,8 @@ import { statfs } from "node:fs/promises";
 import { freemem, loadavg, totalmem } from "node:os";
 import { file as bunFile } from "bun";
 import { resourceMetricsRepository } from "@/database/repositories/resource-metrics.repository";
-import { realtimeService } from "@/modules/realtime";
-import { streamingService } from "@/modules/streaming/runtime/streaming.manager";
+import { realtimeService } from "@/modules/realtime/realtime.service";
+import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { serverConfig } from "@/server.config";
 import { HOUR, MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
@@ -444,7 +444,7 @@ export class ResourceAllocator extends BaseService {
 		}
 
 		try {
-			return streamingService.getActiveSessions();
+			return streamingManager.getActiveSessions();
 		} catch (error) {
 			this.logger.warn("Failed to load streaming service for resource monitoring", { error });
 

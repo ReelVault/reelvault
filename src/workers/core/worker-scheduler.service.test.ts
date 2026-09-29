@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { MINUTE } from "@/server.constants";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { setWorkerRuntime } from "./worker-runtime";
 import { createMockWorkerItem, createMockWorkerRuntime } from "./worker-runtime.test-utils";
 import { WorkerSchedulerService } from "./worker-scheduler.service";
@@ -8,23 +9,6 @@ import { WorkerSchedulerService } from "./worker-scheduler.service";
 /** Replaces a method on the live singleton for one test, recording calls.
  * Works on real repositories AND on the minimal facades other test files
  * install with bun's process-global mock.module(...). */
-function stubMethod(target: object, method: string, impl: (...args: never[]) => unknown): { calls: unknown[][]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: unknown[][] = [];
-	Reflect.set(target, method, (...args: never[]) => {
-		calls.push(args);
-
-		return impl(...args);
-	});
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 // Anchor chosen away from daily-trigger times and on a clean interval boundary
 // (epoch minute 3_000_000 is divisible by 30, 10, 15, 60).

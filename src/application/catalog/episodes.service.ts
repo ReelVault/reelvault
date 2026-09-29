@@ -7,13 +7,13 @@ import type {
 	PaginationQuery,
 	SelectFields,
 } from "@reelvault/sdk/common";
-import { pluginsService } from "@/application/plugins.service";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
+import { providerService } from "@/plugins/capabilities/provider.service";
 import { BaseService } from "@/utils/base-service";
 import { NotFoundError } from "@/utils/errors";
 import { findFirstProviderResult, mapProviderLinks } from "./catalog.utils";
@@ -63,7 +63,7 @@ class EpisodesService extends BaseService {
 			const seasonNum = season.seasonNumber;
 			const episodeNum = episode.episodeNumber;
 
-			const providerEpisodes = await pluginsService.fetchProviderEpisodeFromLinks(providerLinks, seasonNum, episodeNum);
+			const providerEpisodes = await providerService.fetchEpisodeFromLinks(providerLinks, seasonNum, episodeNum);
 			const match = findFirstProviderResult(providerEpisodes);
 
 			if (match) {

@@ -104,7 +104,7 @@ describe("DownloadsService.prepare", () => {
 		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toThrow("Downloads are disabled");
 		systemSettingsStore.clearRuntimeValues();
 
-		await expect(downloadsService.prepare(undefined, "file-1")).rejects.toThrow("Profile not found");
+		await expect(downloadsService.prepare(undefined, "file-1")).rejects.toThrow("Active profile required");
 		await expect(downloadsService.prepare("profile-1", "  ")).rejects.toThrow("mediaFileId is required");
 		findByPrimaryId.mockResolvedValueOnce(undefined);
 		await expect(downloadsService.prepare("profile-1", "file-missing")).rejects.toThrow("file-missing");

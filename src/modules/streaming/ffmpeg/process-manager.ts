@@ -5,8 +5,8 @@ import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-track
 import { DirUtils } from "@/utils/directory.utils";
 import { TooManyRequestsError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
-import type { SessionReservationTracker } from "../runtime/sessions/session-reservation.tracker";
-import type { SessionStore } from "../runtime/sessions/session-store";
+import type { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
+import type { SessionStore } from "../runtime/session-state/session-store";
 import { isSoftwareFallbackEligible } from "./software-fallback";
 import { createStrategyRegistry } from "./strategies/strategy.factory";
 

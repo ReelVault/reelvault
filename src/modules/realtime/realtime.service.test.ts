@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import { RealtimeService } from "./index";
+import { RealtimeService } from "./realtime.service";
 
 describe("RealtimeService", () => {
 	it("registers connections, handles targeted messaging and unregisters", () => {

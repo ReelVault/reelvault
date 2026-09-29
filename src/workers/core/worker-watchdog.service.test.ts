@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { setWorkerRuntime } from "./worker-runtime";
 import { createMockWorkerRuntime } from "./worker-runtime.test-utils";
 import { WorkerWatchdogService } from "./worker-watchdog.service";
@@ -16,27 +17,6 @@ function installRuntime(): void {
 /** Replaces a method on the live singleton for one test, recording calls.
  * Works on real repositories AND on the minimal facades other test files
  * install with bun's process-global mock.module(...). */
-function stubMethod<TArgs extends unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	Reflect.set(target, method, (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	});
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 let recoverCalls: unknown[][] = [];
 let recoverResult: number | Error = 0;

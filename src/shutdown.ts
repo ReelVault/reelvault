@@ -1,9 +1,9 @@
-import { streamingService } from "@/modules/streaming/runtime/streaming.manager";
+import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { libraryWatcherService } from "./application/libraries/watching/library-watcher.service";
-import { pluginsService } from "./application/plugins.service";
 import { databaseFactory } from "./database/database";
 import { ffMpegService } from "./integrations/ffmpeg/ffmpeg.service";
-import { realtimeService } from "./modules/realtime";
+import { realtimeService } from "./modules/realtime/realtime.service";
+import { pluginManager } from "./plugins/lifecycle/plugin.manager";
 import { serverConfig } from "./server.config";
 import { resourceAllocator } from "./system/resource-allocator";
 import { serverRescueService } from "./system/server-rescue.service";
@@ -114,13 +114,13 @@ export class Shutdown {
 			await workerService.shutdown();
 
 			logger.info("Closing streaming sessions...");
-			await streamingService.shutdown();
+			await streamingManager.shutdown();
 			ffMpegService.killAll();
 
 			// Plugins get their onDisable/onUnload/dispose while the database is
 			// still open; each unload is individually time-boxed inside.
 			logger.info("Unloading plugins...");
-			await pluginsService.shutdown();
+			await pluginManager.shutdown();
 
 			logger.info("Closing database...");
 			databaseFactory.shutdown();

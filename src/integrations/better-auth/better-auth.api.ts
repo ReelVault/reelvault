@@ -21,6 +21,10 @@ interface CreateUserInput {
  * infrastructure layer.
  */
 export const betterAuthApi = {
+	async getSession(input: { headers: Headers; query: { disableCookieCache: boolean } }) {
+		return await auth.api.getSession(input);
+	},
+
 	async signUpEmail(input: SignUpInput): Promise<Response> {
 		return await auth.api.signUpEmail({ body: input, asResponse: true });
 	},

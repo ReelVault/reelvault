@@ -1,5 +1,5 @@
 import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
-import { serverConfig } from "@/server.config";
+import { serverConstants } from "@/server.constants";
 import { ValidationError } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";
 
@@ -21,8 +21,8 @@ function parseFields<F extends string>({ fields: fieldsString }: { fields?: F | 
 		return { fields: [], relations: {}, __original: fieldsString };
 	}
 
-	if (fieldsString.length > serverConfig.database.fields.maxLength) {
-		throw new ValidationError(`Fields query must not exceed ${serverConfig.database.fields.maxLength} characters`);
+	if (fieldsString.length > serverConstants.database.fields.maxLength) {
+		throw new ValidationError(`Fields query must not exceed ${serverConstants.database.fields.maxLength} characters`);
 	}
 
 	const fields: string[] = [];
@@ -37,12 +37,12 @@ function parseFields<F extends string>({ fields: fieldsString }: { fields?: F | 
 		fields.push(f);
 	}
 
-	if (fields.length > serverConfig.database.fields.maxFields) {
-		throw new ValidationError(`Fields query must not contain more than ${serverConfig.database.fields.maxFields} fields`);
+	if (fields.length > serverConstants.database.fields.maxFields) {
+		throw new ValidationError(`Fields query must not contain more than ${serverConstants.database.fields.maxFields} fields`);
 	}
 
-	if (fields.some((field) => field.split(".").length > serverConfig.database.fields.maxDepth)) {
-		throw new ValidationError(`Fields query must not be nested deeper than ${serverConfig.database.fields.maxDepth} levels`);
+	if (fields.some((field) => field.split(".").length > serverConstants.database.fields.maxDepth)) {
+		throw new ValidationError(`Fields query must not be nested deeper than ${serverConstants.database.fields.maxDepth} levels`);
 	}
 
 	const relations: Record<string, string[]> = {};

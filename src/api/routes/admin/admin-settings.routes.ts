@@ -4,6 +4,7 @@ import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { systemSettingsService } from "@/application/admin/system-settings.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { MINUTE } from "@/server.constants";
 
 export const adminSettingsRoutes = new Elysia()
 	.use(commonModel)
@@ -16,7 +17,7 @@ export const adminSettingsRoutes = new Elysia()
 	})
 	.guard({ adminOnly: true })
 	.get("/settings", async () => await systemSettingsService.getAll(), {
-		rateLimit: { name: "admin-settings-get", max: 60, windowMs: 60_000 },
+		rateLimit: { name: "admin-settings-get", max: 60, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.systemSettings" },
 		detail: {
 			description: "Retrieve all dynamic system settings grouped by domain.",
@@ -30,7 +31,7 @@ export const adminSettingsRoutes = new Elysia()
 				headers: request.headers,
 			}),
 		{
-			rateLimit: { name: "admin-settings-update", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-settings-update", max: 30, windowMs: MINUTE },
 			body: "admin.updateSystemSettings",
 			response: {
 				...ROUTE_ERRORS.VALIDATED_ADMIN,
@@ -49,7 +50,7 @@ export const adminSettingsRoutes = new Elysia()
 				headers: request.headers,
 			}),
 		{
-			rateLimit: { name: "admin-settings-reset", max: 10, windowMs: 60_000 },
+			rateLimit: { name: "admin-settings-reset", max: 10, windowMs: MINUTE },
 			body: "admin.resetSystemSettings",
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.systemSettings" },
 			detail: {

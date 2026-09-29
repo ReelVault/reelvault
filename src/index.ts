@@ -5,7 +5,6 @@ import { apiRouter } from "./api/routes";
 import { systemSettingsService } from "./application/admin/system-settings.service";
 import { firstRunSetupService } from "./application/auth/setup/first-run-setup.service";
 import { libraryWatcherService } from "./application/libraries/watching/library-watcher.service";
-import { pluginsService } from "./application/plugins.service";
 import { scheduleStartupUpdateCheck } from "./application/updates/update-check.service";
 import { updateInstallService } from "./application/updates/update-install.service";
 import { databaseFactory } from "./database/database";
@@ -23,6 +22,7 @@ import { requestLoggerMiddleware } from "./middleware/request-logger.middleware"
 import { requestTimeoutMiddleware } from "./middleware/request-timeout.middleware";
 import { responseCacheMiddleware } from "./middleware/response-cache.middleware";
 import { securityHeadersMiddleware } from "./middleware/security.middleware";
+import { pluginManager } from "./plugins/lifecycle/plugin.manager";
 import { serverConfig } from "./server.config";
 import { Shutdown, setActiveShutdown } from "./shutdown";
 import { resourceAllocator } from "./system/resource-allocator";
@@ -65,7 +65,7 @@ async function setupServer(): Promise<void> {
 		await firstRunSetupService.getStatus();
 
 		logger.info("Loading plugins...");
-		await pluginsService.load();
+		await pluginManager.loadPlugins();
 
 		logger.info("Loading queue service...");
 		const builtInWorkers = await loadBuiltInWorkers();

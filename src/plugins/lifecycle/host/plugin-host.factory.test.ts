@@ -16,31 +16,9 @@ import type {
 	PluginScheduledTaskDefinition,
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
 import type { PluginEventHandlerErased, PluginScopeApi } from "./plugin.scope";
 import { createPluginHost } from "./plugin-host.factory";
-
-function stubMethod<TArgs extends unknown[] = unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	const replacement = (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	};
-	Reflect.set(target, method, replacement);
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 class ScopeSpy implements PluginScopeApi {
 	readonly used: PluginCapabilityName[] = [];
@@ -129,7 +107,7 @@ describe("createPluginHost", () => {
 		const { pluginArtifactsService } = await import("../../capabilities/plugin.artifacts");
 		const { pluginFfmpegService } = await import("../../capabilities/plugin.ffmpeg");
 		const { notificationsService } = await import("@/application/notifications/notifications.service");
-		const { realtimeService } = await import("@/modules/realtime");
+		const { realtimeService } = await import("@/modules/realtime/realtime.service");
 		broadcastStub = stubMethod(realtimeService, "broadcast", (type: string) => type);
 		activeStubs.push(
 			stubMethod(pluginMediaService, "get", (mediaFileId: string) => ({ id: mediaFileId })),

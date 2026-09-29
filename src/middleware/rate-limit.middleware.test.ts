@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import Elysia from "elysia";
+import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
 import { domainErrorsMiddleware } from "./domain-errors.middleware";
-import { InMemoryRateLimiter, isExemptFromGlobalLimit, rateLimitMiddleware } from "./rate-limit.middleware";
+import { isExemptFromGlobalLimit, rateLimitMiddleware } from "./rate-limit.middleware";
 
 test("rate limit middleware limits a route within a fixed window", async () => {
 	const app = new Elysia()

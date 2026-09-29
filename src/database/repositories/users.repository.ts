@@ -51,6 +51,10 @@ class UsersRepository {
 		return await this.count({ where: eq(this.table.role, "admin") });
 	}
 
+	async findAllAdministrators(): Promise<User[]> {
+		return await this.selectMany({ where: eq(this.table.role, "admin") });
+	}
+
 	/** Role lookup for realtime fan-out — only admin ids among the given users. */
 	async findAdminIdsByUserIds(userIds: readonly string[]): Promise<Set<string>> {
 		if (userIds.length === 0) return new Set();

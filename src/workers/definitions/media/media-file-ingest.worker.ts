@@ -1,7 +1,6 @@
 import type { CreateMediaFile, LibraryWithRelations } from "@reelvault/sdk/common";
 import type { PluginEventInput } from "@reelvault/sdk/plugin";
 import { type ApplicationContext, type TaskSchedulingOptions, toDomainError } from "@/application/context";
-import { pluginsService } from "@/application/plugins.service";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
@@ -11,6 +10,7 @@ import { sidecarMetadataWriter } from "@/modules/metadata-sidecars/sidecar-metad
 import { mediaFileProcessor } from "@/modules/scanner/processing/media-file-processor";
 import { importSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles";
 import type { ProcessedMediaFileWithMarkers, ScanFindingReason, SkippedMediaFile } from "@/modules/scanner/scanner.types";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { assertFound } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
@@ -96,8 +96,8 @@ const defaultDependencies: MediaFileIngestTaskDependencies = {
 	importSidecarSubtitles: (mediaFileId, videoFilePath) => importSidecarSubtitles(mediaFileId, videoFilePath),
 	findMediaByPaths: (libraryId, filePaths) => mediaRepository.findByLibraryAndPaths({ libraryId, filePaths }),
 	saveSidecars: (library, mediaFiles) => new SidecarMetadataStorageService(sidecarMetadataWriter).saveLibraryMedia(library, mediaFiles),
-	emitMediaDiscovered: (input) => pluginsService.emit("media.file.discovered", input),
-	emitMediaIdentified: (input) => pluginsService.emit("media.file.identified", input),
+	emitMediaDiscovered: (input) => pluginEventBus.emit("media.file.discovered", input),
+	emitMediaIdentified: (input) => pluginEventBus.emit("media.file.identified", input),
 	readIngestProgress: (mediaFileId) => mediaRepository.findIngestProgress(mediaFileId),
 	markSidecarWritten: (mediaFileId) => mediaRepository.markIngestSidecarWritten(mediaFileId),
 	markDiscoveredEmitted: (mediaFileId) => mediaRepository.markIngestDiscoveredEmitted(mediaFileId),
@@ -126,6 +126,135 @@ export const mediaFileIngestWorker = createWorkerDefinition<MediaFileIngestData>
 
 // ─── Task Function ────────────────────────────────────────────────────────────
 
+/** State needed to finish an ingest after the media-file row exists. */
+interface IngestCompletionInput {
+	data: MediaFileIngestData;
+	library: LibraryWithRelations;
+	createdMediaFile: { id: string };
+	metadataId: string;
+	movieId: string | null;
+	episodeId: string | null;
+	context: ApplicationContext;
+	orchestration: MediaFileIngestOrchestration;
+	taskScheduling: TaskSchedulingOptions;
+}
+
+/** A file matched an existing media file only by skip-heuristics — record it as a scan finding. */
+async function recordIngestSkip(
+	data: MediaFileIngestData,
+	mediaFile: SkippedMediaFile,
+	context: ApplicationContext,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<MediaFileIngestResult> {
+	await dependencies.upsertScanFinding({
+		libraryId: data.libraryId,
+		filePath: data.filePath,
+		fileName: mediaFile.fileName,
+		reason: mediaFile.skipReason,
+	});
+
+	context.logger?.warn("Media file not imported — recorded in library scan findings", {
+		libraryId: data.libraryId,
+		filePath: data.filePath,
+		reason: mediaFile.skipReason,
+	});
+
+	return {
+		libraryId: data.libraryId,
+		filePath: data.filePath,
+		mediaFileId: null,
+		created: false,
+		skipReason: mediaFile.skipReason,
+	};
+}
+
+function correlationIdFor(input: IngestCompletionInput, mediaFileId: string): string {
+	return input.context.correlationId ?? input.orchestration.operationId ?? mediaFileId;
+}
+
+async function saveIngestSidecars(input: IngestCompletionInput, dependencies: MediaFileIngestTaskDependencies): Promise<void> {
+	await dependencies.saveSidecars(input.library, [
+		{
+			filePath: input.data.filePath,
+			metadataId: input.metadataId,
+			movieId: input.movieId,
+			episodeId: input.episodeId,
+		},
+	]);
+	await dependencies.markSidecarWritten?.(input.createdMediaFile.id);
+}
+
+async function emitIngestDiscovered(input: IngestCompletionInput, dependencies: MediaFileIngestTaskDependencies): Promise<void> {
+	await dependencies.emitMediaDiscovered({
+		libraryId: input.data.libraryId,
+		mediaFileId: input.createdMediaFile.id,
+		correlationId: correlationIdFor(input, input.createdMediaFile.id),
+	});
+	await dependencies.markDiscoveredEmitted?.(input.createdMediaFile.id);
+}
+
+/** Completes the idempotent side effects a crashed prior attempt may have left unfinished. */
+async function completeRetryIngest(
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<MediaFileIngestResult> {
+	const progress = dependencies.readIngestProgress ? await dependencies.readIngestProgress(input.createdMediaFile.id) : undefined;
+	if (progress && !progress.sidecarWritten) await saveIngestSidecars(input, dependencies);
+
+	if (progress && !progress.discoveredEmitted) await emitIngestDiscovered(input, dependencies);
+
+	const retryAnalysis = await dependencies.enqueueAnalysis(
+		{
+			libraryId: input.data.libraryId,
+			mediaFileId: input.createdMediaFile.id,
+			metadataId: input.metadataId,
+		},
+		input.taskScheduling,
+	);
+
+	return {
+		libraryId: input.data.libraryId,
+		filePath: input.data.filePath,
+		mediaFileId: input.createdMediaFile.id,
+		created: false,
+		analysisTaskId: retryAnalysis.id,
+	};
+}
+
+/** First-attempt completion: persist sidecars, emit plugin events, enqueue analysis. */
+async function completeFreshIngest(
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<MediaFileIngestResult> {
+	await saveIngestSidecars(input, dependencies);
+	await emitIngestDiscovered(input, dependencies);
+	await dependencies.emitMediaIdentified({
+		mediaFileId: input.createdMediaFile.id,
+		metadataId: input.metadataId,
+		status: "matched",
+		correlationId: correlationIdFor(input, input.createdMediaFile.id),
+	});
+	// File counts/size in the library stats cache changed.
+	librariesRepository.clearStatsCache();
+
+	const analysisTask = await dependencies.enqueueAnalysis(
+		{
+			libraryId: input.data.libraryId,
+			mediaFileId: input.createdMediaFile.id,
+			metadataId: input.metadataId,
+		},
+		input.taskScheduling,
+	);
+
+	return {
+		libraryId: input.data.libraryId,
+		filePath: input.data.filePath,
+		mediaFileId: input.createdMediaFile.id,
+		created: true,
+		analysisTaskId: analysisTask.id,
+	};
+}
+
 export async function ingestMediaFileTask(
 	data: MediaFileIngestData,
 	context: ApplicationContext,
@@ -146,26 +275,7 @@ export async function ingestMediaFileTask(
 		}
 
 		if ("skipReason" in mediaFile) {
-			await dependencies.upsertScanFinding({
-				libraryId: data.libraryId,
-				filePath: data.filePath,
-				fileName: mediaFile.fileName,
-				reason: mediaFile.skipReason,
-			});
-
-			context.logger?.warn("Media file not imported — recorded in library scan findings", {
-				libraryId: data.libraryId,
-				filePath: data.filePath,
-				reason: mediaFile.skipReason,
-			});
-
-			return {
-				libraryId: data.libraryId,
-				filePath: data.filePath,
-				mediaFileId: null,
-				created: false,
-				skipReason: mediaFile.skipReason,
-			};
+			return await recordIngestSkip(data, mediaFile, context, dependencies);
 		}
 
 		await dependencies.deleteScanFinding(data.libraryId, data.filePath);
@@ -201,94 +311,27 @@ export async function ingestMediaFileTask(
 			await dependencies.enqueueTrickplayGeneration(createdMediaFile.id);
 		}
 
+		const input: IngestCompletionInput = {
+			data,
+			library,
+			createdMediaFile,
+			metadataId: mediaFile.metadataId,
+			movieId: mediaFile.movieId ?? null,
+			episodeId: mediaFile.episodeId ?? null,
+			context,
+			orchestration,
+			taskScheduling,
+		};
+
 		if (!created) {
 			// A retry can land here when the first attempt created the row but
-			// crashed before finishing its post-create side effects. Complete the
-			// missing, idempotent ones — a normal rescan (attempt 1) must not.
-			if ((orchestration.attempt ?? 1) > 1) {
-				const progress = dependencies.readIngestProgress ? await dependencies.readIngestProgress(createdMediaFile.id) : undefined;
-				if (progress && !progress.sidecarWritten) {
-					await dependencies.saveSidecars(library, [
-						{
-							filePath: data.filePath,
-							metadataId: mediaFile.metadataId,
-							movieId: mediaFile.movieId ?? null,
-							episodeId: mediaFile.episodeId ?? null,
-						},
-					]);
-					await dependencies.markSidecarWritten?.(createdMediaFile.id);
-				}
-
-				if (progress && !progress.discoveredEmitted) {
-					await dependencies.emitMediaDiscovered({
-						libraryId: data.libraryId,
-						mediaFileId: createdMediaFile.id,
-						correlationId: context.correlationId ?? orchestration.operationId ?? createdMediaFile.id,
-					});
-					await dependencies.markDiscoveredEmitted?.(createdMediaFile.id);
-				}
-
-				const retryAnalysis = await dependencies.enqueueAnalysis(
-					{
-						libraryId: data.libraryId,
-						mediaFileId: createdMediaFile.id,
-						metadataId: mediaFile.metadataId,
-					},
-					taskScheduling,
-				);
-
-				return {
-					libraryId: data.libraryId,
-					filePath: data.filePath,
-					mediaFileId: createdMediaFile.id,
-					created: false,
-					analysisTaskId: retryAnalysis.id,
-				};
-			}
+			// crashed before finishing its post-create side effects.
+			if ((orchestration.attempt ?? 1) > 1) return await completeRetryIngest(input, dependencies);
 
 			return { libraryId: data.libraryId, filePath: data.filePath, mediaFileId: createdMediaFile.id, created: false };
 		}
 
-		await dependencies.saveSidecars(library, [
-			{
-				filePath: data.filePath,
-				metadataId: mediaFile.metadataId,
-				movieId: mediaFile.movieId ?? null,
-				episodeId: mediaFile.episodeId ?? null,
-			},
-		]);
-		await dependencies.markSidecarWritten?.(createdMediaFile.id);
-		await dependencies.emitMediaDiscovered({
-			libraryId: data.libraryId,
-			mediaFileId: createdMediaFile.id,
-			correlationId: context.correlationId ?? orchestration.operationId ?? createdMediaFile.id,
-		});
-		await dependencies.markDiscoveredEmitted?.(createdMediaFile.id);
-		await dependencies.emitMediaIdentified({
-			mediaFileId: createdMediaFile.id,
-			metadataId: mediaFile.metadataId,
-			status: "matched",
-			correlationId: context.correlationId ?? orchestration.operationId ?? createdMediaFile.id,
-		});
-		// File counts/size in the library stats cache changed.
-		librariesRepository.clearStatsCache();
-
-		const analysisTask = await dependencies.enqueueAnalysis(
-			{
-				libraryId: data.libraryId,
-				mediaFileId: createdMediaFile.id,
-				metadataId: mediaFile.metadataId,
-			},
-			taskScheduling,
-		);
-
-		return {
-			libraryId: data.libraryId,
-			filePath: data.filePath,
-			mediaFileId: createdMediaFile.id,
-			created: true,
-			analysisTaskId: analysisTask.id,
-		};
+		return await completeFreshIngest(input, dependencies);
 	} catch (error) {
 		throw toDomainError(error, `Media file ingest failed: ${data.filePath}`);
 	}

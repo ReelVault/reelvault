@@ -7,7 +7,7 @@ import type { DatabaseTables, DatabaseTransaction, DatabaseType } from "@/databa
 import { QueryFields } from "@/database/utils/fields";
 import { QueryPagination } from "@/database/utils/pagination";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
-import { serverConfig } from "@/server.config";
+import { serverConstants } from "@/server.constants";
 import { chunk, hasEntry, isNotNullish, unique } from "@/utils/array.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -64,9 +64,9 @@ export async function mapChunked<T, R>(
 ): Promise<R[]> {
 	if (items.length === 0) return [];
 
-	if (items.length <= serverConfig.database.queryChunkSize) return await fn([...items]);
+	if (items.length <= serverConstants.database.queryChunkSize) return await fn([...items]);
 
-	const chunks = chunk([...items], serverConfig.database.queryChunkSize);
+	const chunks = chunk([...items], serverConstants.database.queryChunkSize);
 	if (options?.concurrency !== undefined) {
 		return (await PromiseUtils.mapConcurrent(chunks, options.concurrency, fn)).flat();
 	}
@@ -87,13 +87,13 @@ export async function forEachChunked<T>(
 ): Promise<void> {
 	if (items.length === 0) return;
 
-	if (items.length <= serverConfig.database.queryChunkSize) {
+	if (items.length <= serverConstants.database.queryChunkSize) {
 		await fn([...items]);
 
 		return;
 	}
 
-	const chunks = chunk([...items], serverConfig.database.queryChunkSize);
+	const chunks = chunk([...items], serverConstants.database.queryChunkSize);
 	if (options?.concurrency !== undefined) {
 		await PromiseUtils.mapConcurrent(chunks, options.concurrency, fn);
 

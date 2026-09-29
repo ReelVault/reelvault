@@ -1,20 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { DatabaseSidecarSnapshotResolver, episodeSnapshot, seasonSnapshot } from "./sidecar-snapshot-resolver";
 
 /** Replaces a method on the live singleton for one test.
  * Works on real repositories AND on the minimal facades other test files
  * install with bun's process-global mock.module(...). */
-function stubMethod(target: object, method: string, impl: (...args: unknown[]) => unknown): { restore(): void } {
-	const original = Reflect.get(target, method);
-	Reflect.set(target, method, (...args: unknown[]) => impl(...args));
-
-	return {
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 

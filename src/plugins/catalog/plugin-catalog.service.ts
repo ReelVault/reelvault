@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pluginsService } from "@/application/plugins.service";
+import { pluginAdminService } from "@/application/plugin-admin.service";
 import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
 import { env } from "@/env";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
@@ -244,7 +244,7 @@ class PluginCatalogService {
 	 */
 	private async enableAfterInstall(pluginId: string): Promise<void> {
 		try {
-			await pluginsService.enable(pluginId);
+			await pluginAdminService.enable(pluginId);
 		} catch (error) {
 			this.logger.warn(`Plugin ${pluginId} installed but failed to load: ${String(error)}`);
 		}

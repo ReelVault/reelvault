@@ -1,5 +1,6 @@
 import type { TaskTrigger, WorkerCategory, WorkerCategoryRunResponse, WorkerSummary } from "@reelvault/sdk/common";
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
+import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { BaseService } from "@/utils/base-service";
 import { ConflictError } from "@/utils/errors";
 import { workerService } from "../../workers/worker.service";
@@ -13,7 +14,7 @@ class AdminWorkerOperationsService extends BaseService {
 		return workerService.scheduler.listWorkerSummaries();
 	}
 
-	async runWorker(workerId: string, data?: unknown, actorUserId?: string, headers?: Headers) {
+	async runWorker(workerId: string, data?: unknown, context?: AdminAuditContext) {
 		const result = await workerService.scheduler.runWorkerManually(workerId, data);
 		recordAuditSafe(
 			{
@@ -21,7 +22,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceType: "worker_run",
 				resourceId: workerId,
 				after: { workerId, ...result },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -29,7 +30,7 @@ class AdminWorkerOperationsService extends BaseService {
 		return result;
 	}
 
-	async runWorkerCategory(category: WorkerCategory, actorUserId?: string, headers?: Headers): Promise<WorkerCategoryRunResponse> {
+	async runWorkerCategory(category: WorkerCategory, context?: AdminAuditContext): Promise<WorkerCategoryRunResponse> {
 		const result = await workerService.scheduler.runWorkerCategoryManually(category);
 		recordAuditSafe(
 			{
@@ -37,7 +38,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceType: "worker_category_run",
 				resourceId: category,
 				after: { category, started: result.started.map((s) => s.workerId), skipped: result.skipped },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -45,7 +46,7 @@ class AdminWorkerOperationsService extends BaseService {
 		return result;
 	}
 
-	async updateWorkerTriggers(workerId: string, triggers: TaskTrigger[], actorUserId?: string, headers?: Headers) {
+	async updateWorkerTriggers(workerId: string, triggers: TaskTrigger[], context?: AdminAuditContext) {
 		const result = await workerService.scheduler.updateWorkerTriggers(workerId, triggers);
 		recordAuditSafe(
 			{
@@ -53,7 +54,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceType: "worker_triggers",
 				resourceId: workerId,
 				after: { workerId, triggers },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -105,7 +106,7 @@ class AdminWorkerOperationsService extends BaseService {
 		return workerService.getOperationItems(id, query);
 	}
 
-	async cancelOperation(id: string, actorUserId?: string, headers?: Headers): Promise<{ success: true }> {
+	async cancelOperation(id: string, context?: AdminAuditContext): Promise<{ success: true }> {
 		const operation = await workerService.getOperation(id);
 		this.assertExists(operation, "Worker operation", id);
 
@@ -119,7 +120,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceId: id,
 				before: operation,
 				after: { ...operation, status: "cancelled" },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -127,7 +128,7 @@ class AdminWorkerOperationsService extends BaseService {
 		return { success: true };
 	}
 
-	async resumeOperation(id: string, actorUserId?: string, headers?: Headers): Promise<{ success: true; resumed: number }> {
+	async resumeOperation(id: string, context?: AdminAuditContext): Promise<{ success: true; resumed: number }> {
 		const operation = await workerService.getOperation(id);
 		this.assertExists(operation, "Worker operation", id);
 
@@ -140,7 +141,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceId: id,
 				before: operation,
 				after: { ...operation, status: "pending", resumedTasks: result.resumed },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -148,7 +149,7 @@ class AdminWorkerOperationsService extends BaseService {
 		return { success: true, resumed: result.resumed };
 	}
 
-	async cancelAllOperations(actorUserId?: string, headers?: Headers): Promise<{ count: number }> {
+	async cancelAllOperations(context?: AdminAuditContext): Promise<{ count: number }> {
 		const count = await workerService.cancelAllOperations();
 		recordAuditSafe(
 			{
@@ -156,7 +157,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceType: "worker_operation_batch",
 				resourceId: "all_active",
 				after: { cancelledCount: count },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -164,7 +165,7 @@ class AdminWorkerOperationsService extends BaseService {
 		return { count };
 	}
 
-	async cancelItem(id: string, actorUserId?: string, headers?: Headers): Promise<{ success: true }> {
+	async cancelItem(id: string, context?: AdminAuditContext): Promise<{ success: true }> {
 		const item = await workerService.getItem(id);
 		this.assertExists(item, "Worker item", id);
 		if (item.status !== "pending" && item.status !== "running") {
@@ -181,7 +182,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceId: id,
 				before: item,
 				after: { ...item, status: "cancelled" },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -189,7 +190,7 @@ class AdminWorkerOperationsService extends BaseService {
 		return { success: true };
 	}
 
-	async cancelPendingItems(workerId?: string, actorUserId?: string, headers?: Headers): Promise<{ count: number }> {
+	async cancelPendingItems(workerId?: string, context?: AdminAuditContext): Promise<{ count: number }> {
 		const count = await workerService.cancelAllPending(workerId);
 		recordAuditSafe(
 			{
@@ -197,7 +198,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceType: "worker_queue",
 				resourceId: workerId ?? "all",
 				after: { workerId: workerId ?? "all", cancelledCount: count },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);
@@ -210,8 +211,7 @@ class AdminWorkerOperationsService extends BaseService {
 			status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
 			olderThanDays?: number | undefined;
 		} = {},
-		actorUserId?: string,
-		headers?: Headers,
+		context?: AdminAuditContext,
 	): Promise<{ success: true; deletedJobsCount: number; deletedOperationsCount: number }> {
 		const result = await workerService.purgeHistory(options);
 
@@ -221,7 +221,7 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceType: "worker_history",
 				resourceId: options.status ?? "all_terminal",
 				after: { ...options, ...result },
-				context: { actorUserId, headers },
+				context,
 			},
 			this.logger,
 		);

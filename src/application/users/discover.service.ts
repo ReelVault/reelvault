@@ -79,7 +79,7 @@ class DiscoverService extends BaseService {
 	}
 
 	async getDiscoverView(query: { limit?: number }, profileId?: string): Promise<DiscoverResponse> {
-		this.assertExists(profileId, "Profile", "auth");
+		this.assertProfileId(profileId);
 		const limit = clamp(query.limit ?? 10, 1, 50);
 
 		const full = await this.cache.getOrSet(profileId, () => this.buildDiscoverView(profileId));

@@ -3,7 +3,7 @@ import { workerOperationRepository } from "@/database/repositories/worker-operat
 import type { FFmpegProgress } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
-import type { SessionStore } from "./sessions/session-store";
+import type { SessionStore } from "./session-state/session-store";
 
 const logger = createLogger("TranscodeProgressMonitor");
 

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sessionsRepository } from "@/database/repositories/sessions.repository";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { sessionsService } from "./sessions.service";
 
 const headers = new Headers({ cookie: "session_token=abc" });
@@ -58,7 +58,7 @@ describe("SessionsService.list", () => {
 
 	test("requires headers and a user id", async () => {
 		await expect(sessionsService.list(undefined, "session-2", "user-1")).rejects.toThrow("Request headers");
-		await expect(sessionsService.list(headers, "session-2", undefined)).rejects.toThrow("User not found: list sessions");
+		await expect(sessionsService.list(headers, "session-2", undefined)).rejects.toThrow("Active user required");
 	});
 });
 
@@ -93,6 +93,8 @@ describe("SessionsService.revokeOthers", () => {
 	});
 
 	test("requires a current session id", async () => {
-		await expect(sessionsService.revokeOthers(headers, undefined, "user-1")).rejects.toThrow("Session not found: revoke other sessions");
+		await expect(sessionsService.revokeOthers(headers, undefined, "user-1")).rejects.toThrow(
+			"Current session id is required to revoke other sessions",
+		);
 	});
 });

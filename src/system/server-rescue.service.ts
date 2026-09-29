@@ -1,5 +1,5 @@
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { clamp } from "@/utils/math.utils";

@@ -1,4 +1,4 @@
-import type { SessionAccessInfo } from "../runtime/sessions/session-store";
+import type { SessionAccessInfo } from "../runtime/session-state/session-store";
 import { playbackStreamingService } from "../streaming.service";
 import { assertActiveStreamAccess, assertSessionOwnership, resolveSessionAccess } from "./stream-access";
 

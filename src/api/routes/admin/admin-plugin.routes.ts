@@ -41,12 +41,16 @@ export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
 			description: "List plugin runtime status and the phase of any failed load without exposing configuration values.",
 		},
 	})
-	.post("/plugins/reload", async ({ user, request }) => await adminService.reloadPlugins(user?.id, request.headers), {
-		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.plugins" },
-		detail: {
-			description: "Reloads all discovered plugins from the plugins directory.",
+	.post(
+		"/plugins/reload",
+		async ({ user, request }) => await adminService.reloadPlugins({ actorUserId: user?.id, headers: request.headers }),
+		{
+			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.plugins" },
+			detail: {
+				description: "Reloads all discovered plugins from the plugins directory.",
+			},
 		},
-	})
+	)
 	.get("/plugins/:pluginId", ({ params }) => adminService.getPlugin(params.pluginId), {
 		params: PluginIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.plugin" },
@@ -56,7 +60,8 @@ export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
 	})
 	.post(
 		"/plugins/:pluginId/reload",
-		async ({ params, user, request }) => await adminService.reloadPlugin(params.pluginId, user?.id, request.headers),
+		async ({ params, user, request }) =>
+			await adminService.reloadPlugin(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
 		{
 			params: PluginIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.plugin" },
@@ -67,7 +72,8 @@ export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
 	)
 	.post(
 		"/plugins/:pluginId/enable",
-		async ({ params, user, request }) => await adminService.enablePlugin(params.pluginId, user?.id, request.headers),
+		async ({ params, user, request }) =>
+			await adminService.enablePlugin(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
 		{
 			params: PluginIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.plugin" },
@@ -78,7 +84,8 @@ export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
 	)
 	.post(
 		"/plugins/:pluginId/disable",
-		async ({ params, user, request }) => await adminService.disablePlugin(params.pluginId, user?.id, request.headers),
+		async ({ params, user, request }) =>
+			await adminService.disablePlugin(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
 		{
 			params: PluginIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.plugin" },
@@ -94,7 +101,7 @@ export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
 	.patch(
 		"/providers/:providerId",
 		async ({ params, body, user, request }) =>
-			await adminService.updateMetadataProviderConfiguration(params.providerId, body, user?.id, request.headers),
+			await adminService.updateMetadataProviderConfiguration(params.providerId, body, { actorUserId: user?.id, headers: request.headers }),
 		{
 			params: t.Object({ providerId: t.String({ minLength: 1, maxLength: 128 }) }),
 			body: t.Object({
@@ -108,7 +115,7 @@ export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
 	.put(
 		"/providers/order",
 		async ({ body, user, request }) =>
-			await adminService.reorderMetadataProviderConfigurations(body.providerIds, user?.id, request.headers),
+			await adminService.reorderMetadataProviderConfigurations(body.providerIds, { actorUserId: user?.id, headers: request.headers }),
 		{
 			body: ReorderMetadataProvidersSchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: "admin.metadataProviderConfigurations" },
@@ -124,7 +131,8 @@ export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
 	})
 	.put(
 		"/plugins/:pluginId/config",
-		async ({ params, body, user, request }) => await adminService.updatePluginConfig(params.pluginId, body, user?.id, request.headers),
+		async ({ params, body, user, request }) =>
+			await adminService.updatePluginConfig(params.pluginId, body, { actorUserId: user?.id, headers: request.headers }),
 		{
 			params: PluginIdParams,
 			body: "admin.updatePluginConfig",

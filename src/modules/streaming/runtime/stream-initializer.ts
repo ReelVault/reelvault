@@ -1,7 +1,7 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { type ApplicationContext, toDomainError } from "@/application/context";
 import { InternalError } from "@/utils/errors";
-import { streamingService } from "./streaming.manager";
+import { streamingManager } from "./streaming.manager";
 
 export interface StreamInitData {
 	sessionId: string;
@@ -23,11 +23,11 @@ export interface StreamInitializerDependencies {
 }
 
 const defaultDependencies: StreamInitializerDependencies = {
-	hasActiveSession: (sessionId) => streamingService.hasActiveSession(sessionId),
+	hasActiveSession: (sessionId) => streamingManager.hasActiveSession(sessionId),
 	startSession: (sessionId, filePath, decision, startTime, operationId) =>
-		streamingService.startSession(sessionId, filePath, decision, startTime, operationId),
-	discardSession: (sessionId) => streamingService.discardSession(sessionId),
-	releaseSessionReservation: (sessionId) => streamingService.releaseSessionReservation(sessionId),
+		streamingManager.startSession(sessionId, filePath, decision, startTime, operationId),
+	discardSession: (sessionId) => streamingManager.discardSession(sessionId),
+	releaseSessionReservation: (sessionId) => streamingManager.releaseSessionReservation(sessionId),
 };
 
 export class StreamInitializer {

@@ -7,7 +7,7 @@ import { DAY } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { NotFoundError, ValidationError } from "@/utils/errors";
+import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { fileStatSignature, readFile, safeParseJson } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
@@ -30,6 +30,27 @@ const PINO_LEVEL_NAMES: Record<number, string> = {
 	50: "error",
 	60: "fatal",
 };
+
+/** Ordered log-type markers — the first match wins, so "transcode" must be
+ * tested before the generic "ffmpeg" marker. */
+const LOG_TYPE_RULES: ReadonlyArray<readonly [marker: string, type: AdminLogFileInfo["type"], alsoCheckPath?: boolean]> = [
+	["transcode", "ffmpeg-transcode"],
+	["directstream", "ffmpeg-directstream"],
+	["ffmpeg", "ffmpeg", true],
+	["reelvault", "server"],
+	["debug", "server"],
+	["server", "server"],
+];
+
+function classifyLogType(name: string, relPath: string): AdminLogFileInfo["type"] {
+	const lowerName = normalizeLower(name);
+	const lowerRelPath = normalizeLower(relPath);
+	for (const [marker, type, alsoCheckPath] of LOG_TYPE_RULES) {
+		if (lowerName.includes(marker) || (alsoCheckPath && lowerRelPath.includes(marker))) return type;
+	}
+
+	return "other";
+}
 
 function matchesLevelFilter(levelName: string, targetLevels: Set<string> | undefined, hasErrorsFilter: boolean): boolean {
 	if (!targetLevels) return true;
@@ -130,19 +151,7 @@ class AdminLogsService extends BaseService {
 						const stats = await stat(fullPath);
 						const relPath = PathUtils.relative(logsDir, fullPath);
 						const name = PathUtils.getFileName(fullPath);
-						let type: AdminLogFileInfo["type"] = "other";
-						const lowerName = normalizeLower(name);
-						const lowerRelPath = normalizeLower(relPath);
-
-						if (lowerName.includes("transcode")) {
-							type = "ffmpeg-transcode";
-						} else if (lowerName.includes("directstream")) {
-							type = "ffmpeg-directstream";
-						} else if (lowerName.includes("ffmpeg") || lowerRelPath.includes("ffmpeg")) {
-							type = "ffmpeg";
-						} else if (lowerName.includes("reelvault") || lowerName.includes("debug") || lowerName.includes("server")) {
-							type = "server";
-						}
+						const type = classifyLogType(name, relPath);
 
 						results.push({
 							id: relPath,
@@ -247,7 +256,8 @@ class AdminLogsService extends BaseService {
 		} catch (error) {
 			if (error instanceof NotFoundError) throw error;
 
-			throw new NotFoundError(`Log file not found: ${fileId ?? filePath}`);
+			this.logger.error("Failed to read log file tail", error, { fileId, filePath });
+			throw new InternalError(`Log file could not be read: ${fileId ?? filePath}`, { cause: error });
 		}
 	}
 
@@ -265,7 +275,7 @@ class AdminLogsService extends BaseService {
 			throw new NotFoundError(`Log file not found: ${fileId ?? filename}`);
 		}
 	}
-	async deleteLogFile(fileId: string, actorUserId?: string, headers?: Headers): Promise<{ success: boolean }> {
+	async deleteLogFile(fileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
 		const { filePath, filename } = this.resolveLogFilePath(fileId);
 		try {
 			if (filename === "reelvault.log" && filePath === this.dependencies.logFilePath) {
@@ -284,23 +294,23 @@ class AdminLogsService extends BaseService {
 					// intentionally empty
 				}
 			}
-
-			recordAuditSafe(
-				{
-					action: "delete",
-					resourceType: "log_file",
-					resourceId: fileId,
-					before: { filename, filePath },
-					context: { actorUserId, headers },
-				},
-				this.logger,
-			);
-
-			return { success: true };
 		} catch (error) {
-			this.logger.error("Failed to delete log file", { fileId, filePath, error });
-			throw new NotFoundError(`Log file could not be deleted: ${fileId}`);
+			this.logger.error("Failed to delete log file", error, { fileId, filePath });
+			throw new InternalError(`Log file could not be deleted: ${fileId}`, { cause: error });
 		}
+
+		recordAuditSafe(
+			{
+				action: "delete",
+				resourceType: "log_file",
+				resourceId: fileId,
+				before: { filename, filePath },
+				context,
+			},
+			this.logger,
+		);
+
+		return { success: true };
 	}
 	async purgeOldLogs(
 		retentionDays?: number,
@@ -338,7 +348,7 @@ class AdminLogsService extends BaseService {
 								freedBytes: stats.freedBytes,
 								retentionDays: days,
 							},
-							context: { actorUserId: context.actorUserId, headers: context.headers },
+							context,
 						},
 						this.logger,
 					);
@@ -422,46 +432,39 @@ class AdminLogsService extends BaseService {
 	}
 
 	async getLogs(query?: { fileId?: string; level?: string; search?: string; limit?: number; page?: number }): Promise<AdminLogsPage> {
-		try {
-			const { lines } = await this.readLogTailLines(query?.fileId);
-			const maxLines = Math.min(lines.length, LOG_MAX_PARSED_LINES);
-			const parsedEntries: AdminLogEntry[] = [];
+		const { lines } = await this.readLogTailLines(query?.fileId);
+		const maxLines = Math.min(lines.length, LOG_MAX_PARSED_LINES);
+		const parsedEntries: AdminLogEntry[] = [];
 
-			const searchLower = query?.search ? normalizeLower(query.search) : undefined;
-			const targetLevels =
-				query?.level && query.level !== "all" ? new Set(query.level.split(",").map((l) => normalizeLower(l))) : undefined;
-			const hasErrorsFilter = targetLevels?.has("errors") ?? false;
+		const searchLower = query?.search ? normalizeLower(query.search) : undefined;
+		const targetLevels = query?.level && query.level !== "all" ? new Set(query.level.split(",").map((l) => normalizeLower(l))) : undefined;
+		const hasErrorsFilter = targetLevels?.has("errors") ?? false;
 
-			const limit = Math.max(1, query?.limit ?? 100);
-			const page = Math.max(1, query?.page ?? 1);
-			const windowStart = (page - 1) * limit;
-			const windowEnd = windowStart + limit;
-			let totalMatching = 0;
+		const limit = Math.max(1, query?.limit ?? 100);
+		const page = Math.max(1, query?.page ?? 1);
+		const windowStart = (page - 1) * limit;
+		const windowEnd = windowStart + limit;
+		let totalMatching = 0;
 
-			const filter: LogWindowFilter = { targetLevels, hasErrorsFilter, searchLower, windowStart, windowEnd };
+		const filter: LogWindowFilter = { targetLevels, hasErrorsFilter, searchLower, windowStart, windowEnd };
 
-			for (let i = lines.length - 1; i >= 0 && lines.length - i <= maxLines; i--) {
-				const line = lines[i];
-				if (!line) continue;
+		for (let i = lines.length - 1; i >= 0 && lines.length - i <= maxLines; i--) {
+			const line = lines[i];
+			if (!line) continue;
 
-				const parsed = safeParseJson(line);
-				const obj = isRecord(parsed) ? parsed : null;
-				const entry = obj ? matchJsonLogLine(line, obj, filter) : matchPlainLogLine(line, filter);
-				if (!entry) continue;
+			const parsed = safeParseJson(line);
+			const obj = isRecord(parsed) ? parsed : null;
+			const entry = obj ? matchJsonLogLine(line, obj, filter) : matchPlainLogLine(line, filter);
+			if (!entry) continue;
 
-				if (totalMatching >= windowStart && totalMatching < windowEnd) parsedEntries.push(entry);
+			if (totalMatching >= windowStart && totalMatching < windowEnd) parsedEntries.push(entry);
 
-				totalMatching++;
-			}
-
-			const totalPages = Math.ceil(totalMatching / limit) || 1;
-
-			return { data: parsedEntries, pagination: { total: totalMatching, page, limit, totalPages } };
-		} catch (error) {
-			this.logger.warn("Failed to read log file", { fileId: query?.fileId, error });
-
-			return { data: [], pagination: { total: 0, page: 1, limit: query?.limit ?? 100, totalPages: 0 } };
+			totalMatching++;
 		}
+
+		const totalPages = Math.ceil(totalMatching / limit) || 1;
+
+		return { data: parsedEntries, pagination: { total: totalMatching, page, limit, totalPages } };
 	}
 }
 

@@ -1,6 +1,6 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { NotFoundError } from "@/utils/errors";
-import type { SessionStore } from "../runtime/sessions/session-store";
+import type { SessionStore } from "../runtime/session-state/session-store";
 import type { SeekResult } from "../streaming.types";
 import { clampSeekOffsetToDuration } from "../utils/playback-budgets";
 import { type SeekExecutor, SeekScheduler } from "./seek.scheduler";

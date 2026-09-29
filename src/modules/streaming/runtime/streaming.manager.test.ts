@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createMockPlaybackDecision } from "../streaming.test-utils";
-import { streamingService } from "./streaming.manager";
+import { streamingManager } from "./streaming.manager";
 
 const sessionIds: string[] = [];
 
@@ -8,7 +8,7 @@ const decision = createMockPlaybackDecision({ mode: "direct-stream", videoTransc
 
 afterEach(() => {
 	for (const sessionId of sessionIds.splice(0))
-		streamingService.discardSession(sessionId).catch(() => {
+		streamingManager.discardSession(sessionId).catch(() => {
 			/* intentionally empty */
 		});
 });
@@ -19,27 +19,27 @@ describe("streaming session isolation", () => {
 		const secondSessionId = "session-isolation-b";
 		sessionIds.push(firstSessionId, secondSessionId);
 
-		streamingService.registerSession(firstSessionId, {
+		streamingManager.registerSession(firstSessionId, {
 			mediaFileId: "same-media-file",
 			profileId: "profile-a",
 			decision,
 			inputPath: "/media/a.mkv",
 		});
-		streamingService.registerSession(secondSessionId, {
+		streamingManager.registerSession(secondSessionId, {
 			mediaFileId: "same-media-file",
 			profileId: "profile-b",
 			decision,
 			inputPath: "/media/a.mkv",
 		});
 
-		expect(streamingService.getSessionAccess(firstSessionId)).toEqual({ mediaFileId: "same-media-file", profileId: "profile-a" });
-		expect(streamingService.getSessionAccess(secondSessionId)).toEqual({ mediaFileId: "same-media-file", profileId: "profile-b" });
+		expect(streamingManager.getSessionAccess(firstSessionId)).toEqual({ mediaFileId: "same-media-file", profileId: "profile-a" });
+		expect(streamingManager.getSessionAccess(secondSessionId)).toEqual({ mediaFileId: "same-media-file", profileId: "profile-b" });
 	});
 
 	test("releases a session exactly once when cleanup races", async () => {
 		const sessionId = "session-release-race";
 		sessionIds.push(sessionId);
-		streamingService.registerSession(sessionId, {
+		streamingManager.registerSession(sessionId, {
 			mediaFileId: "media-release",
 			profileId: "profile-release",
 			decision,
@@ -47,43 +47,43 @@ describe("streaming session isolation", () => {
 		});
 
 		const [firstRelease, secondRelease] = await Promise.all([
-			streamingService.releaseSession(sessionId, "client-release"),
-			streamingService.releaseSession(sessionId, "inactivity-timeout"),
+			streamingManager.releaseSession(sessionId, "client-release"),
+			streamingManager.releaseSession(sessionId, "inactivity-timeout"),
 		]);
 
 		expect([firstRelease, secondRelease].toSorted()).toEqual(["already-ended", "released"]);
-		expect(streamingService.getSessionAccess(sessionId)).toBeUndefined();
+		expect(streamingManager.getSessionAccess(sessionId)).toBeUndefined();
 	});
 
 	test("a second release after teardown stays idempotent, unknown ids are reported", async () => {
 		const sessionId = "session-idempotent-release";
 		sessionIds.push(sessionId);
-		streamingService.registerSession(sessionId, {
+		streamingManager.registerSession(sessionId, {
 			mediaFileId: "media-idempotent",
 			profileId: "profile-release",
 			decision,
 			inputPath: "/media/i.mkv",
 		});
 
-		expect(await streamingService.releaseSession(sessionId, "client-release")).toBe("released");
-		expect(await streamingService.releaseSession(sessionId, "client-release")).toBe("already-ended");
-		expect(await streamingService.releaseSession("never-existed", "client-release")).toBe("unknown");
+		expect(await streamingManager.releaseSession(sessionId, "client-release")).toBe("released");
+		expect(await streamingManager.releaseSession(sessionId, "client-release")).toBe("already-ended");
+		expect(await streamingManager.releaseSession("never-existed", "client-release")).toBe("unknown");
 	});
 
 	test("discarding a creating session removes it; started sessions are kept", () => {
 		const sessionId = "session-discard-creating";
 		sessionIds.push(sessionId);
-		streamingService.registerSession(sessionId, {
+		streamingManager.registerSession(sessionId, {
 			mediaFileId: "media-discard",
 			profileId: "profile-discard",
 			decision,
 			inputPath: "/media/d.mkv",
 		});
 
-		streamingService.discardSession(sessionId).catch(() => {
+		streamingManager.discardSession(sessionId).catch(() => {
 			/* intentionally empty */
 		});
-		expect(streamingService.getSessionAccess(sessionId)).toBeUndefined();
-		expect(streamingService.hasActiveSession(sessionId)).toBe(false);
+		expect(streamingManager.getSessionAccess(sessionId)).toBeUndefined();
+		expect(streamingManager.hasActiveSession(sessionId)).toBe(false);
 	});
 });

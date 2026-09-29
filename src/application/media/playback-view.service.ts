@@ -13,7 +13,7 @@ class PlaybackViewService extends BaseService {
 
 	async getPlaybackView(mediaFileId: string, profileId?: string): Promise<PlaybackViewResponse> {
 		return await this.safeExecute("getPlaybackView", async () => {
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			const mediaFile = await mediaService.getById(mediaFileId);
 			this.assertExists(mediaFile, "MediaFile", mediaFileId);
 

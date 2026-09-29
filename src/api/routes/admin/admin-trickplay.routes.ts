@@ -4,6 +4,7 @@ import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { MediaFileIdParams } from "@/api/schemas/route-params";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
+import { MINUTE } from "@/server.constants";
 import { enqueueTrickplayGeneration } from "@/workers/definitions/media/trickplay-generate.worker";
 
 export const adminTrickplayRoutes = new Elysia({ prefix: "/trickplay", tags: ["Admin"] })
@@ -40,7 +41,7 @@ export const adminTrickplayRoutes = new Elysia({ prefix: "/trickplay", tags: ["A
 			return status(202, { enqueued: mediaFileIds.length });
 		},
 		{
-			rateLimit: { name: "admin-trickplay-generate-all", max: 5, windowMs: 60_000 },
+			rateLimit: { name: "admin-trickplay-generate-all", max: 5, windowMs: MINUTE },
 			response: {
 				...ROUTE_ERRORS.ADMIN,
 				202: t.Object({ enqueued: t.Number() }),

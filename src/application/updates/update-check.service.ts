@@ -15,15 +15,6 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const TAG_V_PREFIX_REGEX = /^v/;
 const SEMVER_REGEX = /^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$/;
 
-export interface GithubReleasePayload {
-	tag_name?: unknown;
-	name?: unknown;
-	html_url?: unknown;
-	published_at?: unknown;
-	body?: unknown;
-	assets?: unknown;
-}
-
 export interface UpdateCheckState {
 	serverLatest: AdminUpdateRelease | null;
 	webLatest: AdminUpdateRelease | null;

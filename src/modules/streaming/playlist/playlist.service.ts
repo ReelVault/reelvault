@@ -1,7 +1,7 @@
 import { BaseService } from "@/utils/base-service";
 import { errorMessage, InternalError, isMissingFile, RequestTimeoutError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
-import { streamingService as streamingRuntimeService } from "../runtime/streaming.manager";
+import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import { type PlaylistCache, type PlaylistStats, playlistCache } from "./playlist.cache";
 
 export interface PlaylistFileReader {

@@ -1,15 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { ValidationError } from "@/utils/errors";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { updateCheckService } from "./update-check.service";
 import { UpdateInstallService } from "./update-install.service";
-
-function stubMethod(target: object, method: string, impl: (...args: never[]) => unknown): { restore(): void } {
-	const original = Reflect.get(target, method) as unknown;
-	Reflect.set(target, method, impl);
-
-	return { restore: () => Reflect.set(target, method, original) };
-}
 
 function release(version: string): AdminUpdateRelease {
 	return { version, name: `ReelVault ${version}`, url: "", publishedAt: null, notes: null, minServerVersion: null, assets: [] };

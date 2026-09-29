@@ -14,13 +14,12 @@ import type {
 	UpdateMetadata,
 } from "@reelvault/sdk/common";
 import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
-import { clearEtagBodyCache } from "@/api/utils/etag.utils";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
-import { pluginsService } from "@/application/plugins.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { type MetadataRootRow, metadataRepository } from "@/database/repositories/metadata.repository";
+import type { ProfileScopedFilter } from "@/database/repositories/metadata-filters";
 import { metadataMergeRepository } from "@/database/repositories/metadata-merge.repository";
 import { metadataPersistenceRepository } from "@/database/repositories/metadata-persistence.repository";
 import { clearSimilarIdsCache } from "@/database/repositories/metadata-recommendations";
@@ -34,6 +33,8 @@ import { imageProcessingService } from "@/modules/images/image-processing.servic
 import { imageUploadService } from "@/modules/images/image-upload.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
+import { providerService } from "@/plugins/capabilities/provider.service";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { groupBy, toMap } from "@/utils/array.utils";
@@ -42,6 +43,7 @@ import { errorMessage, InternalError, NotFoundError, ValidationError } from "@/u
 import { rankImageOptions } from "@/utils/image-storage.utils";
 import { clamp } from "@/utils/math.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import { findFirstProviderResult, mapProviderLinks } from "../catalog.utils";
 import { metadataRefreshService } from "./metadata-refresh.runtime";
@@ -50,12 +52,11 @@ import { syncSeasonsAndEpisodes } from "./season-sync.utils";
 /** Ids kept in the `metadata_orphans` audit payload (the full set is unbounded). */
 const MAX_ORPHAN_AUDIT_IDS = 50;
 
-// Profile-scoped filters never take the profile from the query string — the
-// service composites it into the filter value the repository parses. The
-// composite breaks the literal union type on purpose: after this point the
-// value is opaque and only the repository builder decodes it.
-function composeProfileScopedFilter(viewerProfileId: string | undefined, status: string | undefined): string | undefined {
-	return viewerProfileId && status ? `${viewerProfileId}\u0000${status}` : undefined;
+/** Profile-scoped filters never take the profile from the query string — the
+ * service pairs it with the status into a typed filter value the repository
+ * builder consumes. */
+function composeProfileScopedFilter(viewerProfileId: string | undefined, status: string | undefined): ProfileScopedFilter | undefined {
+	return viewerProfileId && status ? { profileId: viewerProfileId, status } : undefined;
 }
 
 class MetadataService extends BaseService {
@@ -76,7 +77,7 @@ class MetadataService extends BaseService {
 				providers,
 				serverConfig.application.metadataImageProviderConcurrency,
 				async (provider) =>
-					(await pluginsService.fetchProviderImages(provider.name, metadata.type, provider.externalId)).map((image) => ({
+					(await providerService.fetchImagesByProvider(provider.name, metadata.type, provider.externalId)).map((image) => ({
 						providerId: provider.name,
 						providerName: provider.name,
 						externalId: provider.externalId,
@@ -100,7 +101,7 @@ class MetadataService extends BaseService {
 
 			// The request body URL is never trusted: only artwork the provider
 			// actually offers (re-resolved now) may be downloaded.
-			const offered = await pluginsService.fetchProviderImages(provider.name, metadata.type, provider.externalId);
+			const offered = await providerService.fetchImagesByProvider(provider.name, metadata.type, provider.externalId);
 			const isOffered = offered.some((image) => image.type === selection.type && image.url === selection.url);
 			if (!isOffered) throw new ValidationError("Selected image is not offered by this provider", { code: "metadata.image_not_offered" });
 
@@ -163,14 +164,14 @@ class MetadataService extends BaseService {
 	): Promise<PaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
 		return await this.safeExecute("getAll", async () => {
 			// Profile-scoped filters never take the profile from the query string —
-			// the service composites it into the filter value the repository parses.
-			// The composite breaks the literal union type on purpose: after this point
-			// the value is opaque and only the repository builder decodes it.
+			// the service pairs the client-facing status with the resolved viewer
+			// profile before the repository builder sees the value.
+			const { watchedStatus: _clientWatchedStatus, userRating: _clientUserRating, ...clientFilters } = query ?? {};
 			const watchedStatus = composeProfileScopedFilter(viewerProfileId, query?.watchedStatus);
 			const userRating = composeProfileScopedFilter(viewerProfileId, query?.userRating);
 
 			return await metadataRepository.findPage({
-				...query,
+				...clientFilters,
 				hasMediaFiles: query?.hasMediaFiles ?? true,
 				...(watchedStatus ? { watchedStatus } : {}),
 				...(userRating ? { userRating } : {}),
@@ -300,7 +301,7 @@ class MetadataService extends BaseService {
 			const result = await metadataRepository.createAndRead(body, query);
 			if (!result) throw new InternalError("Metadata creation failed");
 
-			pluginsService.publish("metadata.saved", { metadataId: result.id });
+			pluginEventBus.publish("metadata.saved", { metadataId: result.id });
 
 			recordAuditSafe(
 				{
@@ -333,7 +334,7 @@ class MetadataService extends BaseService {
 				update: () => metadataRepository.updateAndRead(metadataId, body, query),
 				afterUpdate: () => {
 					this.invalidateReadCaches();
-					pluginsService.publish("metadata.saved", { metadataId });
+					pluginEventBus.publish("metadata.saved", { metadataId });
 					// Keep sidecar documents in sync with the edit (sidecar storage modes).
 					sidecarSyncService.scheduleSync(metadataId);
 				},
@@ -352,7 +353,7 @@ class MetadataService extends BaseService {
 			const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type" });
 			this.assertExists(existing, "Metadata", metadataId);
 
-			const providerMetadata = await pluginsService.fetchProviderDetailsByProvider(body.providerId, existing.type, body.externalId);
+			const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId);
 			if (!providerMetadata) throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID");
 
 			await metadataPersistenceRepository.rematchProviderMetadata({
@@ -370,7 +371,7 @@ class MetadataService extends BaseService {
 			}
 
 			this.invalidateReadCaches();
-			pluginsService.publish("metadata.saved", { metadataId });
+			pluginEventBus.publish("metadata.saved", { metadataId });
 			sidecarSyncService.scheduleSync(metadataId);
 			const updated = await metadataRepository.findByIdForRead(metadataId, query);
 			this.assertExists(updated, "Metadata", metadataId);
@@ -406,7 +407,7 @@ class MetadataService extends BaseService {
 			const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type,providers" });
 			this.assertExists(existing, "Metadata", metadataId);
 
-			const providerMetadata = await pluginsService.fetchProviderDetailsByProvider(body.providerId, existing.type, body.externalId);
+			const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId);
 			if (!providerMetadata) throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID");
 
 			await metadataPersistenceRepository.linkProvider(metadataId, existing.type, body.providerId, body.externalId);
@@ -524,7 +525,7 @@ class MetadataService extends BaseService {
 
 	/** Clears every read cache whose content depends on metadata/relations. */
 	private invalidateReadCaches(): void {
-		clearEtagBodyCache();
+		invalidateResponseBodies();
 		clearSimilarIdsCache();
 	}
 
@@ -548,7 +549,7 @@ class MetadataService extends BaseService {
 				throw new NotFoundError("Metadata provider not found for title");
 			}
 
-			const providerMetadata = await pluginsService.fetchProviderDetailsByProvider(
+			const providerMetadata = await providerService.fetchDetailsByProvider(
 				primaryProvider.name,
 				metadata.type,
 				primaryProvider.externalId,
@@ -573,7 +574,7 @@ class MetadataService extends BaseService {
 			}
 
 			this.invalidateReadCaches();
-			pluginsService.publish("metadata.saved", { metadataId });
+			pluginEventBus.publish("metadata.saved", { metadataId });
 
 			return { success: true };
 		});
@@ -587,7 +588,7 @@ class MetadataService extends BaseService {
 	): Promise<void> {
 		const providerLinks = mapProviderLinks(metadata.providers ?? []);
 		const seasonImages = await syncSeasonsAndEpisodes(metadataId, providerMetadata.seasons, async (seasonNumber) => {
-			const providerSeasons = await pluginsService.fetchProviderSeasonFromLinks(providerLinks, seasonNumber);
+			const providerSeasons = await providerService.fetchSeasonFromLinks(providerLinks, seasonNumber);
 
 			return findFirstProviderResult(providerSeasons)?.episodes;
 		});

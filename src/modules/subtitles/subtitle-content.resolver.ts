@@ -1,4 +1,4 @@
-import { pluginsService } from "@/application/plugins.service";
+import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
 import { BaseService } from "@/utils/base-service";
 import { NotFoundError } from "@/utils/errors";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
@@ -21,7 +21,7 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	getExternalContent: async (id) => await pluginsService.getSubtitleContent(id),
+	getExternalContent: async (id) => await subtitleProviderService.getContent(id),
 	extractEmbeddedContent: (id, mediaFilePath, streamIndex, format, signal) =>
 		subtitleExtractorService.extractToVtt(id, mediaFilePath, streamIndex, format, signal),
 };

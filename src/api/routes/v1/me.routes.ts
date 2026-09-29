@@ -116,7 +116,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 				audioLanguage: t.Optional(t.Nullable(t.String())),
 				subtitleLanguage: t.Optional(t.Nullable(t.String())),
 			}),
-			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
+			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
 			detail: { description: "Update playback progress position for a media file." },
 		},
 	)
@@ -148,7 +148,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		},
 		{
 			params: MediaFileIdParams,
-			response: { ...ROUTE_ERRORS.ADMIN, 200: "success.response" },
+			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
 			detail: { description: "Reset playback progress for a media file." },
 		},
 	)

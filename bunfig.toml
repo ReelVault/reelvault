@@ -24,8 +24,5 @@ noOrphans = true
 # Automatically alias 'node' to 'bun' for all 'bun run' commands.
 bun = true
 
-# Runs before every test file — put shared test setup here (e.g. clean temp dirs,
-# seed a test DB, register global mocks). Create tests/setup.ts once you have
-# tests that need it; delete this file (and tests/setup.ts) if you don't.
 [test]
 preload = ["./tests/setup.ts"]

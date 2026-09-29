@@ -163,10 +163,6 @@ async function resolvePublicTarget(rawUrl: string): Promise<ResolvedTarget> {
 	return { url: parsed, address: chosen.address };
 }
 
-export async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
-	return (await resolvePublicTarget(rawUrl)).url;
-}
-
 /** Rewrites a URL to connect to a specific (already-vetted) IP address. */
 export function pinUrlToAddress(url: URL, address: string): string {
 	const host = address.includes(":") ? `[${address}]` : address;

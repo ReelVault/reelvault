@@ -3,7 +3,7 @@ import { Elysia } from "elysia";
 import { isImageAssetPath, isPluginUiPath } from "@/api/utils/route-classification.utils";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { env } from "@/env";
-import { auth } from "@/integrations/better-auth/better-auth.config";
+import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { getOrSetSession } from "@/integrations/better-auth/better-auth.session-cache";
 import { serverConstants } from "@/server.constants";
 import { ForbiddenError, InternalError, UnauthorizedError } from "@/utils/errors";
@@ -72,8 +72,10 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 			// HLS segment.
 			const sessionToken = extractSessionToken(request.headers);
 			const session = sessionToken
-				? await getOrSetSession(sessionToken, () => auth.api.getSession({ headers: request.headers, query: { disableCookieCache: true } }))
-				: await auth.api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+				? await getOrSetSession(sessionToken, () =>
+						betterAuthApi.getSession({ headers: request.headers, query: { disableCookieCache: true } }),
+					)
+				: await betterAuthApi.getSession({ headers: request.headers, query: { disableCookieCache: true } });
 			if (!session) {
 				logger.debug("Missing session", {
 					method: request.method,

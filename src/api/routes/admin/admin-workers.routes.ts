@@ -18,6 +18,7 @@ import { OperationIdParams, WorkerIdParams } from "@/api/schemas/route-params";
 import { adminWorkerOperationsService } from "@/application/admin/admin-worker-operations.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { MINUTE } from "@/server.constants";
 
 /** Shared body for the three cancel endpoints. */
 function toCancelPendingResponse(count: number) {
@@ -51,17 +52,17 @@ export const adminWorkersRoutes = new Elysia()
 	.guard({ adminOnly: true })
 
 	.get("/workers", async () => await adminWorkerOperationsService.getWorkerSummaries(), {
-		rateLimit: { name: "admin-workers-list", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-workers-list", max: 120, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.workerSummaries" },
 		detail: { description: "List registered workers with queue statistics, schedules/triggers, and last execution state." },
 	})
 	.post(
 		"/workers/:workerId/run",
 		async ({ params, body, user, request }) => {
-			return await adminWorkerOperationsService.runWorker(params.workerId, body, user?.id, request.headers);
+			return await adminWorkerOperationsService.runWorker(params.workerId, body, { actorUserId: user?.id, headers: request.headers });
 		},
 		{
-			rateLimit: { name: "admin-workers-run", max: 20, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-run", max: 20, windowMs: MINUTE },
 			params: WorkerIdParams,
 			// Arbitrary worker payload — each worker validates its own `data` shape.
 			body: t.Optional(t.Unknown()),
@@ -72,10 +73,10 @@ export const adminWorkersRoutes = new Elysia()
 	.post(
 		"/workers/categories/:category/run",
 		async ({ params, user, request }) => {
-			return await adminWorkerOperationsService.runWorkerCategory(params.category, user?.id, request.headers);
+			return await adminWorkerOperationsService.runWorkerCategory(params.category, { actorUserId: user?.id, headers: request.headers });
 		},
 		{
-			rateLimit: { name: "admin-workers-category-run", max: 20, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-category-run", max: 20, windowMs: MINUTE },
 			params: t.Object({ category: WorkerCategorySchema }),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.workerCategoryRunResponse" },
 			detail: { description: "Run every registered worker of a category; workers already queued or running are skipped." },
@@ -84,12 +85,15 @@ export const adminWorkersRoutes = new Elysia()
 	.post(
 		"/workers/:workerId/cancel",
 		async ({ params, user, request }) => {
-			const { count } = await adminWorkerOperationsService.cancelPendingItems(params.workerId, user?.id, request.headers);
+			const { count } = await adminWorkerOperationsService.cancelPendingItems(params.workerId, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			});
 
 			return toCancelPendingResponse(count);
 		},
 		{
-			rateLimit: { name: "admin-workers-cancel", max: 20, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-cancel", max: 20, windowMs: MINUTE },
 			params: WorkerIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.cancelPendingResponse" },
 			detail: { description: "Cancel active and pending tasks in a specific worker queue." },
@@ -98,10 +102,13 @@ export const adminWorkersRoutes = new Elysia()
 	.put(
 		"/workers/:workerId/triggers",
 		async ({ params, body, user, request }) => {
-			return await adminWorkerOperationsService.updateWorkerTriggers(params.workerId, body.triggers, user?.id, request.headers);
+			return await adminWorkerOperationsService.updateWorkerTriggers(params.workerId, body.triggers, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			});
 		},
 		{
-			rateLimit: { name: "admin-workers-triggers", max: 20, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-triggers", max: 20, windowMs: MINUTE },
 			params: WorkerIdParams,
 			body: UpdateTaskTriggersRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerTriggers" },
@@ -111,12 +118,15 @@ export const adminWorkersRoutes = new Elysia()
 	.post(
 		"/workers/cancel-all",
 		async ({ user, request }) => {
-			const { count } = await adminWorkerOperationsService.cancelPendingItems(undefined, user?.id, request.headers);
+			const { count } = await adminWorkerOperationsService.cancelPendingItems(undefined, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			});
 
 			return toCancelPendingResponse(count);
 		},
 		{
-			rateLimit: { name: "admin-workers-cancel-all", max: 10, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-cancel-all", max: 10, windowMs: MINUTE },
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.cancelPendingResponse" },
 			detail: { description: "Cancel all pending items across all worker queues." },
 		},
@@ -124,10 +134,10 @@ export const adminWorkersRoutes = new Elysia()
 	.post(
 		"/workers/purge-history",
 		async ({ body, user, request }) => {
-			return await adminWorkerOperationsService.purgeHistory(body ?? {}, user?.id, request.headers);
+			return await adminWorkerOperationsService.purgeHistory(body ?? {}, { actorUserId: user?.id, headers: request.headers });
 		},
 		{
-			rateLimit: { name: "admin-workers-purge-history", max: 10, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-purge-history", max: 10, windowMs: MINUTE },
 			body: t.Optional(PurgeWorkerHistoryOptionsSchema),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.purgeHistoryResponse" },
 			detail: { description: "Purge completed, failed, or cancelled historical worker jobs and operations." },
@@ -135,7 +145,7 @@ export const adminWorkersRoutes = new Elysia()
 	)
 
 	.get("/workers/jobs", async ({ query }) => await adminWorkerOperationsService.getItems(query.limit, query.workerId), {
-		rateLimit: { name: "admin-workers-jobs-list", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-workers-jobs-list", max: 120, windowMs: MINUTE },
 		query: t.Object({
 			limit: t.Optional(ClampedNumeric(1, 100)),
 			workerId: t.Optional(t.String({ maxLength: 128 })),
@@ -144,16 +154,17 @@ export const adminWorkersRoutes = new Elysia()
 		detail: { description: "List queued, running, and finished worker jobs." },
 	})
 	.get("/workers/jobs/:jobId", async ({ params }) => await adminWorkerOperationsService.getItem(params.jobId), {
-		rateLimit: { name: "admin-workers-jobs-get", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-workers-jobs-get", max: 120, windowMs: MINUTE },
 		params: t.Object({ jobId: t.String({ minLength: 1 }) }),
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerJob" },
 		detail: { description: "Retrieve a single worker job with its status, progress, and result/error." },
 	})
 	.post(
 		"/workers/jobs/:jobId/cancel",
-		async ({ params, user, request }) => await adminWorkerOperationsService.cancelItem(params.jobId, user?.id, request.headers),
+		async ({ params, user, request }) =>
+			await adminWorkerOperationsService.cancelItem(params.jobId, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-workers-jobs-cancel", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-jobs-cancel", max: 30, windowMs: MINUTE },
 			params: t.Object({ jobId: t.String({ minLength: 1 }) }),
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: SuccessResponseSchema },
 			detail: { description: "Cancel a pending or running worker job." },
@@ -161,9 +172,10 @@ export const adminWorkersRoutes = new Elysia()
 	)
 	.delete(
 		"/workers/jobs/:jobId",
-		async ({ params, user, request }) => await adminWorkerOperationsService.cancelItem(params.jobId, user?.id, request.headers),
+		async ({ params, user, request }) =>
+			await adminWorkerOperationsService.cancelItem(params.jobId, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-workers-jobs-delete", max: 30, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-jobs-delete", max: 30, windowMs: MINUTE },
 			params: t.Object({ jobId: t.String({ minLength: 1 }) }),
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: SuccessResponseSchema },
 			detail: { description: "Cancel a pending or running worker job (DELETE alias)." },
@@ -171,7 +183,7 @@ export const adminWorkersRoutes = new Elysia()
 	)
 
 	.get("/workers/operations", async ({ query }) => await adminWorkerOperationsService.getOperations(query), {
-		rateLimit: { name: "admin-workers-operations-list", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-workers-operations-list", max: 120, windowMs: MINUTE },
 		query: t.Composite([
 			PaginationSchema,
 			t.Object({
@@ -193,28 +205,29 @@ export const adminWorkersRoutes = new Elysia()
 	.post(
 		"/workers/operations/cancel-all",
 		async ({ user, request }) => {
-			const { count } = await adminWorkerOperationsService.cancelAllOperations(user?.id, request.headers);
+			const { count } = await adminWorkerOperationsService.cancelAllOperations({ actorUserId: user?.id, headers: request.headers });
 
 			return toCancelPendingResponse(count);
 		},
 		{
-			rateLimit: { name: "admin-workers-operations-cancel-all", max: 10, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-operations-cancel-all", max: 10, windowMs: MINUTE },
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.cancelPendingResponse" },
 			detail: { description: "Cancel all active worker operations and their underlying jobs." },
 		},
 	)
 	.post(
 		"/workers/operations/:operationId/resume",
-		async ({ params, user, request }) => await adminWorkerOperationsService.resumeOperation(params.operationId, user?.id, request.headers),
+		async ({ params, user, request }) =>
+			await adminWorkerOperationsService.resumeOperation(params.operationId, { actorUserId: user?.id, headers: request.headers }),
 		{
 			params: OperationIdParams,
-			rateLimit: { name: "admin-workers-operations-resume", max: 20, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-operations-resume", max: 20, windowMs: MINUTE },
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: t.Object({ success: t.Literal(true), resumed: t.Integer({ minimum: 0 }) }) },
 			detail: { description: "Re-enqueue the cancelled tasks of a stopped worker operation." },
 		},
 	)
 	.get("/workers/operations/:operationId", async ({ params }) => await adminWorkerOperationsService.getOperation(params.operationId), {
-		rateLimit: { name: "admin-workers-operations-get", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-workers-operations-get", max: 120, windowMs: MINUTE },
 		params: OperationIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerOperation" },
 		detail: { description: "Retrieve a specific worker operation batch with progress counters." },
@@ -223,7 +236,7 @@ export const adminWorkersRoutes = new Elysia()
 		"/workers/operations/:operationId/jobs",
 		async ({ params, query }) => await adminWorkerOperationsService.getOperationItems(params.operationId, query),
 		{
-			rateLimit: { name: "admin-workers-operations-jobs", max: 120, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-operations-jobs", max: 120, windowMs: MINUTE },
 			params: OperationIdParams,
 			query: t.Composite([
 				PaginationSchema,
@@ -240,9 +253,10 @@ export const adminWorkersRoutes = new Elysia()
 	)
 	.post(
 		"/workers/operations/:operationId/cancel",
-		async ({ params, user, request }) => await adminWorkerOperationsService.cancelOperation(params.operationId, user?.id, request.headers),
+		async ({ params, user, request }) =>
+			await adminWorkerOperationsService.cancelOperation(params.operationId, { actorUserId: user?.id, headers: request.headers }),
 		{
-			rateLimit: { name: "admin-workers-operations-cancel", max: 20, windowMs: 60_000 },
+			rateLimit: { name: "admin-workers-operations-cancel", max: 20, windowMs: MINUTE },
 			params: OperationIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: SuccessResponseSchema },
 			detail: { description: "Cancel an entire worker operation batch and all its underlying jobs." },

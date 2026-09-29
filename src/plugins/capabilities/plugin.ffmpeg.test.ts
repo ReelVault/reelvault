@@ -4,30 +4,8 @@ import { mediaRepository } from "@/database/repositories/media-files.repository"
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";
 import { FileUtils } from "@/utils/file.utils";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { pluginFfmpegService } from "./plugin.ffmpeg";
-
-function stubMethod<TArgs extends unknown[] = unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	const replacement = (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	};
-	Reflect.set(target, method, replacement);
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 const OUTPUT_FILE_RE = /\.(webp|jpe?g)$/;

@@ -4,6 +4,7 @@ import type { ApplicationContext } from "@/application/context";
 import type { WorkerItem } from "@/database/repositories/worker.repository";
 import type { StreamInitData } from "@/modules/streaming/runtime/stream-initializer";
 import { createMockWorkerItem } from "@/workers/core/worker-runtime.test-utils";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
 import { enqueueStreamInit, streamInitWorker } from "./stream-initialization.worker";
 
 const decision: PlaybackDecision = {
@@ -31,27 +32,6 @@ function noopLogger(): Logger {
 /** Replaces a method on the live singleton for one test, recording calls.
  * Works on real repositories AND on the minimal facades other test files
  * install with bun's process-global mock.module(...). */
-function stubMethod<TArgs extends unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	Reflect.set(target, method, (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	});
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 

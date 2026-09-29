@@ -1,11 +1,12 @@
 import { join } from "node:path";
 import type { ProfilePreferenceDefaults } from "@reelvault/sdk/common";
-import { clamp } from "@/utils/math.utils";
-import type { BackoffConfig } from "@/workers/worker.types";
+import { profileDefaultPreferences } from "./config/profile-default-preferences";
 import { systemSettingsStore } from "./config/system-settings.store";
 import { env } from "./env";
 import { DAY, HOUR, MINUTE, serverConstants } from "./server.constants";
 import { systemResourcesService } from "./system/system-resources.service";
+import { clamp } from "./utils/math.utils";
+import type { BackoffConfig } from "./workers/worker.types";
 
 const WORKER_BACKOFF_2S: BackoffConfig = { type: "exponential", delayMs: 2_000 } as const;
 
@@ -380,10 +381,6 @@ export const serverConfig = {
 	/** Database Runtime Retention */
 	database: {
 		...serverConstants.database,
-		// Heavy chunked relation queries — scale fan-out with measured capacity.
-		get relationQueryConcurrency() {
-			return clamp(Math.ceil(systemResourcesService.getMetrics().capacity / 2), 1, 8);
-		},
 		get operationRetentionMs() {
 			const days = systemSettingsStore.get("system.database.operationRetentionDays") || 7;
 
@@ -408,28 +405,10 @@ export const serverConfig = {
 			return systemSettingsStore.get("profiles.maxProfilesPerUser");
 		},
 		getDefaultPreferences(): ProfilePreferenceDefaults {
-			return {
-				language: systemSettingsStore.get("profiles.defaultPreferences.language"),
-				theme: systemSettingsStore.get("profiles.defaultPreferences.theme"),
-				autoplay: systemSettingsStore.get("profiles.defaultPreferences.autoplay"),
-				autoSkipIntro: systemSettingsStore.get("profiles.defaultPreferences.autoSkipIntro"),
-				autoSkipCredits: systemSettingsStore.get("profiles.defaultPreferences.autoSkipCredits"),
-				autoSkipRecap: systemSettingsStore.get("profiles.defaultPreferences.autoSkipRecap"),
-				audioLanguage: systemSettingsStore.get("profiles.defaultPreferences.audioLanguage") || null,
-				subtitleLanguage: systemSettingsStore.get("profiles.defaultPreferences.subtitleLanguage") || null,
-				subtitlesEnabled: systemSettingsStore.get("profiles.defaultPreferences.subtitlesEnabled"),
-				forcedSubtitlesOnly: systemSettingsStore.get("profiles.defaultPreferences.forcedSubtitlesOnly"),
-				autoForcedSubtitles: systemSettingsStore.get("profiles.defaultPreferences.autoForcedSubtitles"),
-				preferHearingImpaired: systemSettingsStore.get("profiles.defaultPreferences.preferHearingImpaired"),
-				continueWatchingMinutes: systemSettingsStore.get("profiles.defaultPreferences.continueWatchingMinutes"),
-				subtitleSize: systemSettingsStore.get("profiles.defaultPreferences.subtitleSize"),
-				subtitlePosition: systemSettingsStore.get("profiles.defaultPreferences.subtitlePosition"),
-				subtitleColor: systemSettingsStore.get("profiles.defaultPreferences.subtitleColor"),
-				subtitleBackground: systemSettingsStore.get("profiles.defaultPreferences.subtitleBackground"),
-			};
+			return profileDefaultPreferences();
 		},
 		get defaultPreferences(): ProfilePreferenceDefaults {
-			return serverConfig.profiles.getDefaultPreferences();
+			return profileDefaultPreferences();
 		},
 	},
 
@@ -509,5 +488,4 @@ export const serverConfig = {
 		},
 	},
 	auth: serverConstants.auth,
-	constants: serverConstants,
 };

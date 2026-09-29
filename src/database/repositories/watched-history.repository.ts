@@ -12,8 +12,8 @@ import { cachedCount, defineTableAccess, filterSignature, mapChunked } from "@/d
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryPagination } from "@/database/utils/pagination";
 import { QueryUtils } from "@/database/utils/query-parser";
-import { serverConfig } from "@/server.config";
-import { daysAgo } from "@/server.constants";
+import { daysAgo, serverConstants } from "@/server.constants";
+import { systemResourcesService } from "@/system/system-resources.service";
 import { unique } from "@/utils/array.utils";
 
 const watchedHistory = defineTableAccess("watchedHistory", {
@@ -362,7 +362,7 @@ class WatchedHistoryRepository {
 		if (uniqueMetadataIds.length === 0) return { genres: [], actors: [] };
 
 		const client = databaseFactory.getClient();
-		const concurrency = { concurrency: serverConfig.database.relationQueryConcurrency };
+		const concurrency = { concurrency: systemResourcesService.getRelationQueryConcurrency() };
 
 		const [genres, actors] = await Promise.all([
 			mapChunked(
@@ -432,7 +432,7 @@ export function toTopWatchedMedia(row: TopWatchedRow): TopWatchedMedia {
 		id: row.id,
 		title: row.title,
 		type: row.type,
-		posterUrl: row.posterImageId ? `${serverConfig.security.imageRoutePrefix}${row.posterImageId}` : null,
+		posterUrl: row.posterImageId ? `${serverConstants.security.imageRoutePrefix}${row.posterImageId}` : null,
 		posterUpdatedAt: row.posterImageUpdatedAt ?? null,
 		backdropUrl: null,
 		releaseYear: row.releaseDate ? new Date(row.releaseDate).getFullYear() : null,

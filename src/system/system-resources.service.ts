@@ -448,6 +448,14 @@ export class SystemResourcesService {
 		return clamp(Math.floor(capacity / 2), 1, 3);
 	}
 
+	/** Heavy chunked relation queries fan out per metadata id — catalog reads,
+	 * same budget class as ingest, derived from measured capacity. */
+	getRelationQueryConcurrency(): number {
+		const { capacity } = this.getMetrics();
+
+		return clamp(Math.ceil(capacity / 2), 1, 8);
+	}
+
 	/** How many large serialized responses request-dedup may hold in RAM at
 	 * once — on a 4 GB box a catalog-response stampede at 256 in-flight bodies
 	 * is an OOM vector, so the cap scales with installed memory. */

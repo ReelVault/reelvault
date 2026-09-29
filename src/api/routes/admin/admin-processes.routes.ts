@@ -4,6 +4,7 @@ import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminProcessesService } from "@/application/admin/admin-processes.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { MINUTE } from "@/server.constants";
 
 export const adminProcessesRoutes = new Elysia()
 	.use(commonModel)
@@ -14,7 +15,7 @@ export const adminProcessesRoutes = new Elysia()
 	})
 	.guard({ adminOnly: true })
 	.get("/processes", () => adminProcessesService.getProcesses(), {
-		rateLimit: { name: "admin-processes-list", max: 120, windowMs: 60_000 },
+		rateLimit: { name: "admin-processes-list", max: 120, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.processes" },
 		detail: { description: "Snapshot of every live child process (ffmpeg streaming/background, ffprobe, diagnostics)." },
 	});

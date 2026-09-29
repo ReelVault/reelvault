@@ -5,12 +5,12 @@ import type {
 	StreamPrefs,
 	UpdatePlaybackProgress,
 } from "@reelvault/sdk/common";
-import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { playbackRepository as defaultPlaybackRepository } from "@/database/repositories/playback.repository";
 import { profilePreferencesRepository as defaultProfilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profileStreamPrefsRepository as defaultProfileStreamPrefsRepository } from "@/database/repositories/profile-stream-prefs.repository";
 import { watchedHistoryRepository as defaultWatchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { BaseService } from "@/utils/base-service";
+import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 import type { PlaybackProgressComputeData, SmartPlay, SmartPlayComputeData } from "../streaming.types";
 import { isCompleted, normalizePlaybackPosition } from "../utils/playback-position.utils";
 import { buildContinueWatching } from "./continue-watching.builder";

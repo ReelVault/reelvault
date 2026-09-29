@@ -1,5 +1,6 @@
 import type { PaginatedResponse, PaginationConfig, PaginationQuery } from "@reelvault/sdk/common";
-import { serverConfig } from "@/server.config";
+import { systemSettingsStore } from "@/config/system-settings.store";
+import { serverConstants } from "@/server.constants";
 import { clamp } from "@/utils/math.utils";
 
 export const QueryPagination = {
@@ -7,8 +8,8 @@ export const QueryPagination = {
 	 * Parses URL parameters, applies limits and builds the pagination config
 	 */
 	parse(query: PaginationQuery): PaginationConfig {
-		const page = clamp(query.page ?? 1, 1, serverConfig.api.pagination.maxPage);
-		const limit = clamp(query.limit ?? serverConfig.api.pagination.defaultLimit, 1, serverConfig.api.pagination.maxLimit);
+		const page = clamp(query.page ?? 1, 1, serverConstants.api.pagination.maxPage);
+		const limit = clamp(query.limit ?? systemSettingsStore.get("api.pagination.defaultLimit"), 1, serverConstants.api.pagination.maxLimit);
 		const offset = (page - 1) * limit;
 
 		return { page, limit, offset };
@@ -21,7 +22,7 @@ export const QueryPagination = {
 		query: { page?: number | undefined; limit?: number | undefined },
 		options: { defaultLimit: number; maxLimit?: number | undefined },
 	): PaginationConfig {
-		const maxLimit = options.maxLimit ?? serverConfig.api.pagination.maxLimit;
+		const maxLimit = options.maxLimit ?? serverConstants.api.pagination.maxLimit;
 		const page = Math.max(1, query.page ?? 1);
 		const limit = clamp(query.limit ?? options.defaultLimit, 1, maxLimit);
 

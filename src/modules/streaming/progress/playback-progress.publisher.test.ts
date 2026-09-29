@@ -9,7 +9,7 @@ function createDependencies() {
 		pluginEvents,
 		realtimeMessages,
 		dependencies: {
-			pluginsService: {
+			pluginEventBus: {
 				publish: (event: string, payload: unknown) => {
 					pluginEvents.push({ event, payload });
 				},

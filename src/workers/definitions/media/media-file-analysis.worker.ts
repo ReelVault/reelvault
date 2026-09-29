@@ -1,8 +1,10 @@
 import type { PluginMediaFile } from "@reelvault/sdk/common";
 import type { MediaAnalysis, PluginEventInput } from "@reelvault/sdk/plugin";
 import { type ApplicationContext, withDomainError } from "@/application/context";
-import { pluginsService } from "@/application/plugins.service";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
+import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { hasEntry } from "@/utils/array.utils";
 import { workerService } from "@/workers/worker.service";
@@ -27,10 +29,10 @@ export interface MediaFileAnalysisTaskDependencies {
 }
 
 const defaultDependencies: MediaFileAnalysisTaskDependencies = {
-	getPublicMedia: (mediaFileId) => pluginsService.getPublicMedia(mediaFileId),
-	analyzeMedia: (media) => pluginsService.analyzeMedia(media),
+	getPublicMedia: (mediaFileId) => pluginMediaService.get(mediaFileId),
+	analyzeMedia: (media) => pluginRegistry.analyzeMedia(media),
 	updateMediaFile: (mediaFileId, values) => mediaRepository.update({ primaryId: mediaFileId, values }),
-	emitMediaReady: (input) => pluginsService.emit("media.file.ready", input),
+	emitMediaReady: (input) => pluginEventBus.emit("media.file.ready", input),
 };
 
 // ─── Worker Definition ────────────────────────────────────────────────────────

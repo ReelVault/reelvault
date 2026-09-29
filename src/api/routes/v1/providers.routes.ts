@@ -6,8 +6,8 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
-import { pluginsService } from "@/application/plugins.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
+import { providerService } from "@/plugins/capabilities/provider.service";
 import { MINUTE } from "@/server.constants";
 
 export const providersRoutes = new Elysia({
@@ -20,20 +20,20 @@ export const providersRoutes = new Elysia({
 		"provider.search.body": MetadataProviderSearchRequestSchema,
 	})
 	.guard({ auth: true })
-	.get("/", () => pluginsService.getProviderStatus(), {
+	.get("/", () => providerService.getAll(), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: t.Array(MetadataProviderStatusSchema) },
 		detail: {
 			description: "Retrieve a list of all available metadata providers and their current status (enabled/configured).",
 		},
 	})
-	.get("/configurations", async () => await pluginsService.getProviderConfigurations(), {
+	.get("/configurations", async () => await providerService.getConfigurations(), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: t.Array(MetadataProviderConfigurationSchema) },
 		detail: {
 			description:
 				"Retrieve metadata provider configurations (priority and enabled flag) — lets clients pick a provider, e.g. for identify-by-id.",
 		},
 	})
-	.post("/search", async ({ body }) => await pluginsService.searchProviders(body), {
+	.post("/search", async ({ body }) => await providerService.search(body), {
 		rateLimit: {
 			name: "provider-search",
 			max: 30,

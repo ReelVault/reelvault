@@ -1,6 +1,6 @@
 import type { PluginHost } from "@reelvault/sdk/plugin";
 import { notificationsService } from "@/application/notifications/notifications.service";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { pickDefined } from "@/utils/type.utils";
 import { pluginArtifactsService } from "../../capabilities/plugin.artifacts";
 import { pluginBlobsService } from "../../capabilities/plugin.blobs";

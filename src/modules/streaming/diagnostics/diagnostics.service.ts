@@ -5,7 +5,7 @@ import { BaseService } from "@/utils/base-service";
 import { calculateBufferProgress } from "../buffer/hls-buffer";
 import { defaultFindForStreamingDuration, defaultRequireSession } from "../contracts";
 import { selectDefaultOrFirstStream } from "../decisions/stream-preferences";
-import { streamingService as streamingRuntimeService } from "../runtime/streaming.manager";
+import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import type { HlsBufferAnalysis, RequireSession } from "../streaming.types";
 
 export interface DiagnosticsMediaFile {

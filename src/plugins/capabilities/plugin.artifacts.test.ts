@@ -6,30 +6,8 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { pluginArtifactsService } from "./plugin.artifacts";
-
-function stubMethod<TArgs extends unknown[] = unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	const replacement = (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	};
-	Reflect.set(target, method, replacement);
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 

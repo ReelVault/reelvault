@@ -1,92 +1,7 @@
 import { hash as bunHash } from "bun";
 import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
-import { MemoryCache } from "@/utils/memory-cache";
-
-interface CachedEtagBody {
-	body: string;
-}
-
-/** Serialized JSON body plus per-encoding compressed variants, reused across requests. */
-export interface CachedResponseBody {
-	etag: string;
-	body: string;
-	expiresAt: number;
-	encoded: Map<string, Uint8Array<ArrayBuffer>>;
-}
-
-/** Hard ceiling on a cacheable response body — oversized payloads are still served, just not cached. */
-export const RESPONSE_BODY_CACHE_MAX_BYTES = 512 * 1024;
-/** Server-side TTL cap regardless of the route's client-facing max-age. */
-const RESPONSE_BODY_CACHE_MAX_TTL_MS = 5 * 60_000;
-
-/**
- * Cross-request body cache for JSON GET routes. Serving a repeat request skips
- * the handler, response validation and serialization entirely; compression is
- * memoized per encoding. The TTL follows the route's declared client max-age
- * (bounded by RESPONSE_BODY_CACHE_MAX_TTL_MS), so server-side staleness never
- * exceeds what the browser cache contract already promises. Write paths
- * invalidate through clearEtagBodyCache().
- */
-const responseBodyCache = new MemoryCache<CachedResponseBody>({
-	// TTL is enforced per entry (expiresAt) so each route keeps its own max-age.
-	ttlMs: -1,
-	maxSize: systemResourcesService.getRamScaledCacheEntries(64, 128, 512),
-	name: "api.responseBody",
-});
-
-export function responseBodyCacheTtlMs(maxAgeSeconds: number): number {
-	return Math.min(maxAgeSeconds * 1000, RESPONSE_BODY_CACHE_MAX_TTL_MS);
-}
-
-export function getCachedResponseBody(key: string, now = Date.now()): CachedResponseBody | undefined {
-	const entry = responseBodyCache.get(key);
-	if (!entry) return undefined;
-
-	if (entry.expiresAt <= now) {
-		responseBodyCache.delete(key);
-
-		return undefined;
-	}
-
-	return entry;
-}
-
-export function setCachedResponseBody(key: string, entry: CachedResponseBody): void {
-	responseBodyCache.set(key, entry);
-}
-
-/**
- * Short-lived body+ETag cache for the heaviest aggregated endpoints. A 304
- * revalidation would otherwise re-run every aggregation query and re-serialize
- * the payload just to compute the hash. Staleness is bounded by the TTL
- * (user-state on detail pages may lag up to ttlMs; progress has its own
- * endpoint) and callers invalidate explicitly on writes via clearEtagBodyCache.
- */
-const etagBodyCache = new MemoryCache<CachedEtagBody>({ ttlMs: 10_000, maxSize: 500, name: "api.etagBody" });
-
-export function clearEtagBodyCache(): void {
-	etagBodyCache.clear();
-	responseBodyCache.clear();
-}
-
-/**
- * Drops cached bodies scoped to one profile without flushing the whole cache.
- * Cache keys embed the profile id (`...\0<path>\0<cookie>\0<profileId>\0<auth>`),
- * so per-profile writes (progress, watchlist, history) invalidate only the
- * affected identity instead of nuking every cached response.
- */
-export function invalidateProfileResponseBodies(profileId: string): void {
-	const needle = `\u0000${profileId}\u0000`;
-	for (const key of responseBodyCache.keys()) {
-		if (key.includes(needle)) responseBodyCache.delete(key);
-	}
-
-	for (const key of etagBodyCache.keys()) {
-		if (key.includes(profileId)) etagBodyCache.delete(key);
-	}
-}
+import { cacheEtagBody, getCachedEtagBody } from "@/utils/response-body-cache";
 
 /**
  * JSON ETag/304 revalidation for profile-scoped GET responses.
@@ -151,20 +66,15 @@ export async function withEtagResponse<T>(
 	};
 
 	if (options?.cacheKey) {
-		const cached = etagBodyCache.get(options.cacheKey);
-		if (cached) return await buildResponse(cached.body);
+		const cached = getCachedEtagBody(options.cacheKey);
+		if (cached !== undefined) return await buildResponse(cached);
 	}
 
 	// Load lazily: a body-cache hit must not run the aggregation at all.
 	const resolved = await load();
 	const body = JSON.stringify(resolved);
 
-	// Oversized payloads are still served, just not cached (same guard as
-	// responseBodyCache — in-memory caches must stay bounded in bytes, not only
-	// in entries).
-	if (options?.cacheKey && body.length <= RESPONSE_BODY_CACHE_MAX_BYTES) {
-		etagBodyCache.set(options.cacheKey, { body });
-	}
+	if (options?.cacheKey) cacheEtagBody(options.cacheKey, body);
 
 	return await buildResponse(body);
 }

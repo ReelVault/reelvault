@@ -1,35 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sleep } from "bun";
-import { pluginsService } from "@/application/plugins.service";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { recognitionService } from "@/modules/recognition/recognition.service";
+import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { FileUtils } from "@/utils/file.utils";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
 import { videoParser } from "../probe/video-parser.service";
 import { mediaFileProcessor } from "./media-file-processor";
-
-function stubMethod<TArgs extends unknown[] = unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	const replacement = (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	};
-	Reflect.set(target, method, replacement);
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 const activeStubs: Array<{ restore(): void }> = [];
 let checkMetadataCalls: Array<Record<string, unknown>> = [];
@@ -57,7 +35,7 @@ afterEach(() => {
 function stubRecognition(result: { type: "movie" | "tv_show"; identity: { title: string; year?: number } } | undefined) {
 	activeStubs.push(
 		stubMethod(recognitionService, "recognize", () => result),
-		stubMethod(pluginsService, "transformRecognitionCandidate", (candidate: unknown) => candidate),
+		stubMethod(pluginHookBus, "runBeforeMediaRecognition", (candidate: unknown) => candidate),
 	);
 }
 

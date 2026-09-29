@@ -58,7 +58,7 @@ export const adminLogsRoutes = new Elysia({ tags: ["Admin"] })
 		async ({ query, user, request }) => {
 			if (!query.fileId) throw new ValidationError("Missing fileId", { code: "admin.logs.file_id_required" });
 
-			return await adminLogsService.deleteLogFile(query.fileId, user?.id, request.headers);
+			return await adminLogsService.deleteLogFile(query.fileId, { actorUserId: user?.id, headers: request.headers });
 		},
 		{
 			query: t.Object({

@@ -1,5 +1,5 @@
-import { pluginsService as defaultPluginsService } from "@/application/plugins.service";
-import { realtimeService as defaultRealtimeService } from "@/modules/realtime";
+import { realtimeService as defaultRealtimeService } from "@/modules/realtime/realtime.service";
+import { pluginEventBus as defaultPluginEventBus } from "@/plugins/runtime/plugin.events";
 import { computeProgressPercent } from "../utils/playback-position.utils";
 
 export interface PlaybackProgressUpdateEvent {
@@ -13,11 +13,11 @@ export interface PlaybackProgressUpdateEvent {
 }
 
 export interface PublisherDependencies {
-	pluginsService: Pick<typeof defaultPluginsService, "publish">;
+	pluginEventBus: Pick<typeof defaultPluginEventBus, "publish">;
 	realtimeService: Pick<typeof defaultRealtimeService, "sendToProfile">;
 }
 
-const defaultDependencies: PublisherDependencies = { pluginsService: defaultPluginsService, realtimeService: defaultRealtimeService };
+const defaultDependencies: PublisherDependencies = { pluginEventBus: defaultPluginEventBus, realtimeService: defaultRealtimeService };
 
 export class PlaybackProgressPublisher {
 	private readonly dependencies: PublisherDependencies;
@@ -27,10 +27,10 @@ export class PlaybackProgressPublisher {
 	}
 
 	publishUpdate(event: PlaybackProgressUpdateEvent): void {
-		const { pluginsService, realtimeService } = this.dependencies;
+		const { pluginEventBus, realtimeService } = this.dependencies;
 		const { profileId, mediaFileId, position, duration, completed, audioStreamIndex, subtitleId } = event;
 
-		pluginsService.publish("playback.progress.updated", {
+		pluginEventBus.publish("playback.progress.updated", {
 			profileId,
 			mediaFileId,
 			position,
@@ -40,7 +40,7 @@ export class PlaybackProgressPublisher {
 			subtitleId,
 		});
 
-		pluginsService.publish("playback.lifecycle.progress", {
+		pluginEventBus.publish("playback.lifecycle.progress", {
 			profileId,
 			mediaFileId,
 			position,

@@ -1,15 +1,15 @@
 import type { CreateNotification, Notification } from "@reelvault/sdk/common";
-import { invalidateProfileResponseBodies } from "@/api/utils/etag.utils";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
 import { playbackRepository } from "@/database/repositories/playback.repository";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { ForbiddenError, ValidationError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
+import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 
 // Clients poll unread-count on an interval; a short TTL absorbs the poll storm
 // and every mutation below invalidates eagerly, so badge updates stay immediate.

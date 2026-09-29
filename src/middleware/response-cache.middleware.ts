@@ -1,15 +1,16 @@
 import { hash as bunHash } from "bun";
 import { Elysia } from "elysia";
+import { serverConfig } from "@/server.config";
+import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
+import { getResponseStatus } from "@/utils/http.utils";
 import {
 	type CachedResponseBody,
 	getCachedResponseBody,
 	RESPONSE_BODY_CACHE_MAX_BYTES,
 	responseBodyCacheTtlMs,
+	responseCacheKey,
 	setCachedResponseBody,
-} from "@/api/utils/etag.utils";
-import { serverConfig } from "@/server.config";
-import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
-import { getResponseStatus } from "@/utils/http.utils";
+} from "@/utils/response-body-cache";
 import { isRecord } from "@/utils/type.utils";
 
 interface CacheOptions {
@@ -51,20 +52,17 @@ function resolveProfileId(context: object): string | undefined {
 	return typeof id === "string" ? id : undefined;
 }
 
-/**
- * Path+query+identity key. The cookie (session) and resolved profile id make
- * the key per-identity, so per-profile payloads never leak between
- * users/profiles and per-profile writes can invalidate precisely.
- */
 function cacheKeyFor(request: Request, resolvedProfileId?: string): string {
 	const rawUrl = request.url;
 	const pathStart = rawUrl.indexOf("/", rawUrl.indexOf("//") + 2);
 	const pathWithQuery = pathStart === -1 ? rawUrl : rawUrl.slice(pathStart);
-	const cookie = request.headers.get("cookie") ?? "";
-	const profileId = resolvedProfileId ?? request.headers.get("x-profile-id") ?? "";
-	const auth = request.headers.get("authorization") ?? "";
 
-	return `${pathWithQuery}\u0000${cookie}\u0000${profileId}\u0000${auth}`;
+	return responseCacheKey({
+		pathWithQuery,
+		cookie: request.headers.get("cookie") ?? "",
+		profileId: resolvedProfileId ?? request.headers.get("x-profile-id") ?? "",
+		auth: request.headers.get("authorization") ?? "",
+	});
 }
 
 /**

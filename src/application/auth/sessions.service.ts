@@ -2,7 +2,7 @@ import type { ActiveSessionsResponse, PaginationQuery } from "@reelvault/sdk/com
 import { sessionsRepository } from "@/database/repositories/sessions.repository";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { invalidateSessionCache } from "@/integrations/better-auth/better-auth.session-cache";
-import { realtimeService } from "@/modules/realtime";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { BaseService } from "@/utils/base-service";
 import { ForbiddenError, NotFoundError } from "@/utils/errors";
 
@@ -13,8 +13,8 @@ class SessionsService extends BaseService {
 
 	async list(headers?: Headers, currentSessionId?: string, userId?: string, query?: PaginationQuery): Promise<ActiveSessionsResponse> {
 		return await this.safeExecute("list", async () => {
-			this.assertExists(headers, "Request headers", "list sessions");
-			this.assertExists(userId, "User", "list sessions");
+			this.assertPresent(headers, "Request headers are required to list sessions");
+			this.assertUserId(userId);
 
 			const sessions = await sessionsRepository.findActivePageByUserId(userId, query);
 			const data = sessions.data.map((session) => ({
@@ -33,8 +33,8 @@ class SessionsService extends BaseService {
 
 	async revoke(sessionId: string, headers?: Headers, currentSessionId?: string, userId?: string): Promise<{ success: boolean }> {
 		return await this.safeExecute("revoke", async () => {
-			this.assertExists(headers, "Request headers", "revoke session");
-			this.assertExists(userId, "User", "revoke session");
+			this.assertPresent(headers, "Request headers are required to revoke a session");
+			this.assertUserId(userId);
 			if (sessionId === currentSessionId) throw new ForbiddenError("Use logout to revoke the current session");
 
 			const token = await sessionsRepository.findTokenByIdAndUserId({ sessionId, userId });
@@ -51,9 +51,9 @@ class SessionsService extends BaseService {
 
 	async revokeOthers(headers?: Headers, currentSessionId?: string, userId?: string): Promise<{ success: boolean }> {
 		return await this.safeExecute("revokeOthers", async () => {
-			this.assertExists(headers, "Request headers", "revoke other sessions");
-			this.assertExists(currentSessionId, "Session", "revoke other sessions");
-			this.assertExists(userId, "User", "revoke other sessions");
+			this.assertPresent(headers, "Request headers are required to revoke other sessions");
+			this.assertPresent(currentSessionId, "Current session id is required to revoke other sessions");
+			this.assertUserId(userId);
 
 			await sessionsRepository.deleteOtherSessions({ userId, currentSessionId });
 			// Bypasses betterAuthApi, so invalidate the session cache explicitly.

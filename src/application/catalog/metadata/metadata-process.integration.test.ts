@@ -29,34 +29,49 @@ async function emitEvent(event: string, payload: { pluginId?: string }): Promise
 	for (const handler of eventHandlers.get(event) ?? []) await handler(payload);
 }
 
-// Bun's mock.module is process-global and cannot be un-mocked, so the mocked
+// Bun's mock.module is process-global and cannot be un-mocked, so each mocked
 // singleton must stay a superset of the real one — otherwise every test file
-// loaded after this one sees a partial pluginsService (order-dependent CI).
-const realPluginsService = (await import("@/application/plugins.service")).pluginsService;
-const pluginsServiceStubs: Record<string, unknown> = {
-	fetchProviderDetailsAggregated: async () => providerAggregated,
-	fetchProviderSeasonFromLinks: async () => [],
-	fetchProviderEpisodeFromLinks: async () => [],
-	transformMetadataCandidate: (candidate: { title: string }) => {
+// loaded after this one sees a partial service (order-dependent CI).
+function supersetProxy(moduleSpecifier: string, exportName: string, stubs: Record<string, unknown>): Promise<void> {
+	return (async () => {
+		const real = (await import(moduleSpecifier)) as unknown as Record<string, object>;
+		const singleton = real[exportName];
+		if (!singleton) throw new Error(`Module ${moduleSpecifier} has no export ${exportName}`);
+
+		await mock.module(moduleSpecifier, () => ({
+			[exportName]: new Proxy(singleton, {
+				get(target, property, receiver) {
+					if (typeof property === "string" && Object.hasOwn(stubs, property)) return Reflect.get(stubs, property);
+
+					return Reflect.get(target, property, receiver);
+				},
+			}),
+		}));
+	})();
+}
+
+const providerServiceStubs: Record<string, unknown> = {
+	fetchAggregatedDetails: async () => providerAggregated,
+	fetchSeasonFromLinks: async () => [],
+	fetchEpisodeFromLinks: async () => [],
+};
+const pluginHookBusStubs: Record<string, unknown> = {
+	runBeforeMetadataSave: (candidate: { title: string }) => {
 		calls.push("hook");
 
 		return Promise.resolve({ ...candidate, title: "Normalized title" });
 	},
+};
+const pluginEventBusStubs: Record<string, unknown> = {
 	publish: (event: string, payload: { metadataId?: string; pluginId?: string }) => {
 		if (event === "metadata.saved" && payload.metadataId) calls.push(`event:${payload.metadataId}`);
 
 		emitEvent(event, payload).catch(() => undefined);
 	},
 };
-await mock.module("@/application/plugins.service", () => ({
-	pluginsService: new Proxy(realPluginsService, {
-		get(target, property, receiver) {
-			if (typeof property === "string" && Object.hasOwn(pluginsServiceStubs, property)) return Reflect.get(pluginsServiceStubs, property);
-
-			return Reflect.get(target, property, receiver);
-		},
-	}),
-}));
+await supersetProxy("@/plugins/capabilities/provider.service", "providerService", providerServiceStubs);
+await supersetProxy("@/plugins/runtime/plugin.hooks", "pluginHookBus", pluginHookBusStubs);
+await supersetProxy("@/plugins/runtime/plugin.events", "pluginEventBus", pluginEventBusStubs);
 await mock.module("@/database/repositories/metadata.repository", () => ({
 	metadataRepository: {
 		findOrCreateMetadata: ({ results }: { results: { title: string } }) => {

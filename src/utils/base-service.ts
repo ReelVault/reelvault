@@ -56,6 +56,12 @@ export class BaseService {
 		if (!userId) throw new UnauthorizedError("Active user required", { code: "auth.user_required" });
 	}
 
+	/** Guards a dependency that must always be present — its absence is a caller
+	 * bug (500), not a client-facing not-found (404). */
+	assertPresent<T>(value: T | null | undefined, message: string): asserts value is T {
+		if (value == null) throw new InternalError(message);
+	}
+
 	safeExecute<T>(operation: string, fn: () => Promise<T> | T, errorMessage?: string): Promise<T>;
 	safeExecute<T>(operation: string, fn: () => Promise<T> | T, options?: SafeExecuteOptions): Promise<T>;
 

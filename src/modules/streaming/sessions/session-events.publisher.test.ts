@@ -5,7 +5,7 @@ describe("session lifecycle publisher", () => {
 	test("publishes the playback.lifecycle.started event", () => {
 		const published: Array<{ event: string; payload: unknown }> = [];
 		const publisher = new SessionLifecyclePublisher({
-			pluginsService: {
+			pluginEventBus: {
 				publish: (event: string, payload: unknown) => {
 					published.push({ event, payload });
 				},

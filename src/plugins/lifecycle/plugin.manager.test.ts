@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginRuntime } from "@reelvault/sdk/plugin";
 import { ValidationError } from "@/utils/errors";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { PluginManager } from "./manager/plugin-manager.service";
 import type { PluginConfig } from "./plugin.config";
 import type { InstalledPluginRecord, PluginInstaller } from "./plugin.installer";
@@ -13,29 +14,6 @@ import type { PluginRegistry } from "./plugin.registry";
 process.env.NODE_ENV ??= "test";
 process.env.APP_PORT ??= "3030";
 process.env.ROOT_DIR ??= join(tmpdir(), `reelvault-tests-${process.pid}`);
-
-function stubMethod<TArgs extends unknown[] = unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	const replacement = (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	};
-	Reflect.set(target, method, replacement);
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 function createManagerFixture(activeStubs: Array<{ restore(): void }>) {
 	const manager = new PluginManager();

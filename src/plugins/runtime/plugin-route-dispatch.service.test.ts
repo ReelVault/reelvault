@@ -1,29 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { PluginRouteValidationError, type ResolvedPluginRoute } from "./plugin.routes";
 import { type PluginRouteDispatchInput, pluginRouteDispatchService } from "./plugin-route-dispatch.service";
-
-function stubMethod<TArgs extends unknown[] = unknown[]>(
-	target: object,
-	method: string,
-	impl: (...args: TArgs) => unknown,
-): { calls: TArgs[]; restore(): void } {
-	const original = Reflect.get(target, method);
-	const calls: TArgs[] = [];
-	const replacement = (...args: TArgs) => {
-		calls.push(args);
-
-		return impl(...args);
-	};
-	Reflect.set(target, method, replacement);
-
-	return {
-		calls,
-		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
-		},
-	};
-}
 
 function createInput(overrides: Partial<PluginRouteDispatchInput> = {}): PluginRouteDispatchInput {
 	return {

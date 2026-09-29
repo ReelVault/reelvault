@@ -4,8 +4,7 @@ import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { forEachChunked, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { serverConfig } from "@/server.config";
-import { MINUTE } from "@/server.constants";
+import { MINUTE, serverConstants } from "@/server.constants";
 import { chunk, toMap, unique } from "@/utils/array.utils";
 import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
 import { workerJobSummaryColumns } from "./worker-job.projection";
@@ -92,7 +91,7 @@ class WorkerJobRepository {
 
 				const insertedItems: WorkerItem[] = [];
 				const insertedPerOperation = new Map<string, number>();
-				for (const chunkValues of chunk(values, serverConfig.database.queryChunkSize)) {
+				for (const chunkValues of chunk(values, serverConstants.database.queryChunkSize)) {
 					const inserted = await tx.insert(items).values(chunkValues).onConflictDoNothing().returning();
 					insertedItems.push(...inserted);
 					// Only actually-inserted rows count toward the operation total —
@@ -862,7 +861,7 @@ class WorkerJobRepository {
 		const updated = new Set<string>();
 		for (const chunkIds of chunk(
 			rows.map((row) => row.id),
-			serverConfig.database.queryChunkSize,
+			serverConstants.database.queryChunkSize,
 		)) {
 			const res = await tx
 				.update(items)
@@ -897,7 +896,7 @@ class WorkerJobRepository {
 		const updated = new Set<string>();
 		for (const chunkIds of chunk(
 			rows.map((row) => row.id),
-			serverConfig.database.queryChunkSize,
+			serverConstants.database.queryChunkSize,
 		)) {
 			const res = await tx
 				.update(items)

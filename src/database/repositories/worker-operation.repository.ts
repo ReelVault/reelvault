@@ -2,8 +2,7 @@ import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, lt, ty
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
-import { serverConfig } from "@/server.config";
-import { DAY } from "@/server.constants";
+import { DAY, serverConstants } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
 import { ConflictError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
@@ -387,7 +386,7 @@ class WorkerOperationRepository {
 		if (matching.length === 0) return 0;
 
 		const ids = matching.map((m) => m.id);
-		for (const chunkIds of chunk(ids, serverConfig.database.queryChunkSize)) {
+		for (const chunkIds of chunk(ids, serverConstants.database.queryChunkSize)) {
 			await databaseFactory.getClient().update(operations).set({ retentionUntil, updatedAt: now }).where(inArray(operations.id, chunkIds));
 		}
 
@@ -411,7 +410,7 @@ class WorkerOperationRepository {
 		const ids = expired.map((e) => e.id);
 
 		return await databaseFactory.transaction(async (tx) => {
-			for (const chunkIds of chunk(ids, serverConfig.database.queryChunkSize)) {
+			for (const chunkIds of chunk(ids, serverConstants.database.queryChunkSize)) {
 				await tx.delete(jobs).where(inArray(jobs.operationId, chunkIds));
 				await tx.delete(operations).where(inArray(operations.id, chunkIds));
 			}
@@ -434,7 +433,7 @@ class WorkerOperationRepository {
 		}
 
 		const where = and(...conditions);
-		const pageSize = serverConfig.database.queryChunkSize;
+		const pageSize = serverConstants.database.queryChunkSize;
 		let deletedOperationsCount = 0;
 		let deletedJobsCount = 0;
 		let cursor: string | undefined;
