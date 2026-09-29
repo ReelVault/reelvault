@@ -10,8 +10,6 @@ import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
-const MAX_RETAINED_BACKUPS = 7;
-
 class DatabaseBackupService extends BaseService {
 	constructor() {
 		super("DatabaseBackupService");
@@ -90,8 +88,9 @@ class DatabaseBackupService extends BaseService {
 	private async rotateBackups(): Promise<void> {
 		return await this.safeExecute("rotateBackups", async () => {
 			const backups = await this.listBackups();
-			if (backups.length > MAX_RETAINED_BACKUPS) {
-				const toDelete = backups.slice(MAX_RETAINED_BACKUPS);
+			const maxRetainedBackups = serverConfig.database.backupRetentionCount;
+			if (backups.length > maxRetainedBackups) {
+				const toDelete = backups.slice(maxRetainedBackups);
 				await PromiseUtils.mapConcurrent(toDelete, systemResourcesService.getIoConcurrency(), (backup) => {
 					this.logger.info("Removing old database backup", { fileName: backup.fileName });
 

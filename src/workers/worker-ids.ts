@@ -36,6 +36,7 @@ const WORKER_ID_ALIASES: Record<string, CanonicalWorkerId> = {
  * concurrency 1) — explicit here so a newly registered worker id cannot
  * silently fall into those defaults without a decision. */
 export const UNCATEGORIZED_WORKER_IDS: ReadonlySet<string> = new Set([
+	"database-backup",
 	"check-updates",
 	"clean-up-database",
 	"clean-up-logs",

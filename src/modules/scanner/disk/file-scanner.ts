@@ -26,7 +26,11 @@ class FileScannerService extends BaseService {
 		const scannedPaths = await PromiseUtils.mapConcurrent(
 			paths,
 			systemResourcesService.getScannerConcurrency(),
-			(path) => DirUtils.scanFiles(path, extensions, maxDepth, signal),
+			async (path) => {
+				const entries = await DirUtils.scanFiles(path, extensions, maxDepth, signal);
+
+				return entries.filter((filePath) => !isIgnoredPath(filePath, path));
+			},
 			signal,
 		);
 
@@ -54,7 +58,11 @@ class FileScannerService extends BaseService {
 		const scannedEntries = await PromiseUtils.mapConcurrent(
 			paths,
 			systemResourcesService.getScannerConcurrency(),
-			(path) => DirUtils.scanFilesWithStats(path, extensions, maxDepth, signal),
+			async (path) => {
+				const entries = await DirUtils.scanFilesWithStats(path, extensions, maxDepth, signal);
+
+				return entries.filter((entry) => !isIgnoredPath(entry.filePath, path));
+			},
 			signal,
 		);
 
@@ -79,6 +87,45 @@ class FileScannerService extends BaseService {
 	diff(filesOnDisk: string[], filesInDatabase: string[], scanRoots: string[]): FilePathChanges {
 		return compareFilePaths(filesOnDisk, filterPathsWithinRoots(filesInDatabase, scanRoots));
 	}
+}
+
+/**
+ * Wildcard ignore patterns (`*`, `?`) matched against the file name and the
+ * scan-relative path — patterns without a separator target names anywhere in
+ * the tree, patterns with one anchor to the scan root.
+ */
+const TRAILING_SLASHES_REGEX = /\/+$/;
+
+export function matchesIgnorePattern(filePath: string, rootPath: string, patterns: readonly string[]): boolean {
+	if (patterns.length === 0) return false;
+
+	const normalized = filePath.replaceAll("\\", "/").toLowerCase();
+	const root = rootPath.replaceAll("\\", "/").replace(TRAILING_SLASHES_REGEX, "").toLowerCase();
+	const relative = normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized;
+
+	return patterns.some((pattern) => {
+		const trimmed = pattern.trim().toLowerCase();
+		if (!trimmed) return false;
+
+		const escaped = trimmed
+			.replaceAll(/[\\+(){}[\]$^|.]/g, "\\$&")
+			.replaceAll("*", "\u0000")
+			.replaceAll("?", "\u0001")
+			.replaceAll("\u0000", ".*")
+			.replaceAll("\u0001", ".");
+		const regex = new RegExp(`^${escaped}$`);
+
+		// Name-only patterns match any path segment, so ignoring a folder name
+		// skips everything inside it; separator-bearing patterns match the
+		// scan-relative path.
+		if (escaped.includes("/")) return regex.test(relative);
+
+		return relative.split("/").some((segment) => regex.test(segment));
+	});
+}
+
+function isIgnoredPath(filePath: string, rootPath: string): boolean {
+	return matchesIgnorePattern(filePath, rootPath, serverConfig.media.ignorePatterns);
 }
 
 export const fileScannerService = new FileScannerService();

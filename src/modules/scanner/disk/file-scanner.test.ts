@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileScannerService } from "./file-scanner";
+import { fileScannerService, matchesIgnorePattern } from "./file-scanner";
 
 let root: string;
 
@@ -69,5 +69,29 @@ describe("FileScannerService.diff", () => {
 		const changes = fileScannerService.diff([], [join(root, "gone.mkv")], [root]);
 
 		expect(changes.removedFiles).toEqual([join(root, "gone.mkv")]);
+	});
+});
+
+describe("matchesIgnorePattern", () => {
+	const root = "/media/library";
+
+	test("name-only patterns match anywhere in the tree", () => {
+		expect(matchesIgnorePattern("/media/library/Samples/clip.mkv", root, ["sample*"])).toBe(true);
+		expect(matchesIgnorePattern("/media/library/clip.sample.mkv", root, ["*.sample.*"])).toBe(true);
+		expect(matchesIgnorePattern("/media/library/movie.mkv", root, ["sample*"])).toBe(false);
+	});
+
+	test("path patterns anchor to the scan root", () => {
+		expect(matchesIgnorePattern("/media/library/behind the scenes/clip.mkv", root, ["behind the scenes/*"])).toBe(true);
+		expect(matchesIgnorePattern("/media/library/movie.mkv", root, ["extras/*"])).toBe(false);
+	});
+
+	test("question mark matches a single character", () => {
+		expect(matchesIgnorePattern("/media/library/s1e1.mkv", root, ["s?e?.mkv"])).toBe(true);
+	});
+
+	test("matching is case-insensitive and pattern-less lists disable filtering", () => {
+		expect(matchesIgnorePattern("/media/library/TEMP.mkv", root, ["temp*"])).toBe(true);
+		expect(matchesIgnorePattern("/media/library/movie.mkv", root, [])).toBe(false);
 	});
 });

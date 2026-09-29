@@ -116,7 +116,12 @@ export const serverConfig = {
 
 	/** Media & Audio Engine */
 	media: {
-		...serverConstants.media,
+		get supportedVideoExtensions() {
+			return systemSettingsStore.get("scanning.supportedVideoExtensions");
+		},
+		get ignorePatterns() {
+			return systemSettingsStore.get("scanning.ignorePatterns");
+		},
 	},
 
 	/** Image Optimization & Dimensions */
@@ -386,6 +391,19 @@ export const serverConfig = {
 
 			return days * DAY;
 		},
+		get watchedHistoryRetentionDays() {
+			return systemSettingsStore.get("system.database.watchedHistoryRetentionDays");
+		},
+		get backupRetentionCount() {
+			return systemSettingsStore.get("system.database.backupRetentionCount");
+		},
+	},
+
+	/** Admin analytics look-back (the dashboard's "all" view) */
+	analytics: {
+		get windowDays() {
+			return systemSettingsStore.get("system.analytics.windowDays");
+		},
 	},
 
 	/** API Pagination */
@@ -487,5 +505,10 @@ export const serverConfig = {
 			return systemResourcesService.getIoConcurrency();
 		},
 	},
-	auth: serverConstants.auth,
+	auth: {
+		...serverConstants.auth,
+		get enforceTwoFactor() {
+			return systemSettingsStore.get("auth.enforceTwoFactor");
+		},
+	},
 };

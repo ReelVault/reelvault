@@ -23,7 +23,11 @@ class AdminAnalyticsService extends BaseService {
 
 		return await this.cache.getOrSet(cacheKey, async () => {
 			const now = new Date();
-			const since = clampedDays ? new Date(now.getTime() - clampedDays * DAY) : undefined;
+			// Without an explicit range the dashboard's "all" view uses the
+			// configurable look-back instead of an unbounded scan.
+			const since = clampedDays
+				? new Date(now.getTime() - clampedDays * DAY)
+				: new Date(now.getTime() - serverConfig.analytics.windowDays * DAY);
 
 			const [globalData, topContentRaw] = await Promise.all([
 				watchedHistoryRepository.findGlobalAnalytics(since),

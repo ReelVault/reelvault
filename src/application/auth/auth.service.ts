@@ -10,10 +10,11 @@ import type {
 	User,
 } from "@reelvault/sdk/common";
 import { firstRunSetupService } from "@/application/auth/setup/first-run-setup.service";
+import { usersRepository } from "@/database/repositories/users.repository";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
-import { TooManyRequestsError, UnauthorizedError } from "@/utils/errors";
+import { ForbiddenError, TooManyRequestsError, UnauthorizedError } from "@/utils/errors";
 import { rewriteCookieDomain } from "@/utils/http.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
 import { serializeDate } from "@/utils/time.utils";
@@ -51,6 +52,16 @@ class AuthService extends BaseService {
 					code: "rate_limit.exceeded",
 					params: { retryAfterSeconds: Math.ceil(result.resetMs / 1000) },
 				});
+			}
+
+			// Instance-wide policy: an account without configured TOTP cannot sign
+			// in while enforcement is on. Checked before credential verification so
+			// the rejection never depends on the password being right.
+			if (serverConfig.auth.enforceTwoFactor) {
+				const user = await usersRepository.findByEmail(body.email.trim());
+				if (user && !user.twoFactorEnabled) {
+					throw new ForbiddenError("Two-factor authentication is required for this account", { code: "auth.two_factor_required" });
+				}
 			}
 
 			const response = await betterAuthApi.signInEmail({

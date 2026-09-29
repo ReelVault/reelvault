@@ -17,5 +17,17 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 	"system.database.operationRetentionDays": creator.number("system.database.operationRetentionDays", 1, 365, 7),
 	"system.logs.retentionDays": creator.number("system.logs.retentionDays", 1, 365, 7),
 
+	// Require every account to have TOTP configured before sign-in is accepted.
+	"auth.enforceTwoFactor": creator.boolean("auth.enforceTwoFactor", false),
+
+	// 0 keeps the full play history; a positive value prunes older rows in the
+	// daily database cleanup (history feeds analytics, insights and wrapped).
+	"system.database.watchedHistoryRetentionDays": creator.number("system.database.watchedHistoryRetentionDays", 0, 3650, 0),
+	"system.database.backupRetentionCount": creator.number("system.database.backupRetentionCount", 1, 100, 7),
+
+	// Default look-back for the admin analytics dashboard when no explicit range
+	// is requested (the "all" view).
+	"system.analytics.windowDays": creator.number("system.analytics.windowDays", 7, 3650, 90),
+
 	"api.pagination.defaultLimit": creator.number("api.pagination.defaultLimit", 5, 100, 20),
 } as const;

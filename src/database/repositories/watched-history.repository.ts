@@ -512,6 +512,12 @@ class WatchedHistoryRepository {
 	async clearForProfile(profileId: string, tx?: DatabaseTransaction) {
 		await this.delete({ where: eq(this.table.profileId, profileId), tx });
 	}
+
+	async pruneOlderThan(cutoff: Date): Promise<number> {
+		const result = await databaseFactory.getClient().delete(schema.watchedHistory).where(lt(schema.watchedHistory.watchedAt, cutoff));
+
+		return result.changes;
+	}
 }
 
 /** Local-calendar date key (YYYY-MM-DD) matching SQLite's date(..., 'localtime'). */

@@ -4,6 +4,7 @@ export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 	const [
 		{ checkUpdatesWorker },
 		{ cleanupDatabaseWorker },
+		{ databaseBackupWorker },
 		{ cleanupLogsWorker },
 		{ cleanupMetricsWorker },
 		{ cleanupOrphanImagesWorker },
@@ -27,6 +28,7 @@ export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 	] = await Promise.all([
 		import("./definitions/system/check-updates.worker"),
 		import("./definitions/system/cleanup-database.worker"),
+		import("./definitions/system/database-backup.worker"),
 		import("./definitions/system/cleanup-logs.worker"),
 		import("./definitions/system/cleanup-metrics.worker"),
 		import("./definitions/system/cleanup-orphan-images.worker"),
@@ -67,6 +69,7 @@ export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 		streamInitWorker,
 		trickplayGenerateWorker,
 		downloadsProcessWorker,
+		databaseBackupWorker,
 		cleanupDatabaseWorker,
 		cleanupWorkerHistoryWorker,
 		cleanupTranscodesWorker,
