@@ -17,6 +17,7 @@ export async function recognizeWithPluginHooks(
 		year: result.identity.year,
 		season: result.identity.season,
 		episode: result.identity.episode,
+		episodeEnd: result.identity.episodeEnd,
 	});
 
 	if (!isValidRecognitionCandidate(result.type, candidate)) return null;
@@ -29,6 +30,7 @@ export async function recognizeWithPluginHooks(
 			year: candidate.year,
 			season: candidate.season,
 			episode: candidate.episode,
+			episodeEnd: candidate.episodeEnd,
 		},
 	};
 }
@@ -37,7 +39,9 @@ function isValidRecognitionCandidate(type: "movie" | "tv_show", candidate: Media
 	if (candidate.type !== type || !candidate.title.trim()) return false;
 
 	if (
-		[candidate.year, candidate.season, candidate.episode].some((value) => value !== undefined && (!Number.isInteger(value) || value < 0))
+		[candidate.year, candidate.season, candidate.episode, candidate.episodeEnd].some(
+			(value) => value !== undefined && (!Number.isInteger(value) || value < 0),
+		)
 	) {
 		return false;
 	}

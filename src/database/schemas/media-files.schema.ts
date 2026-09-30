@@ -34,7 +34,11 @@ export const mediaFiles = sqliteTable(
 		...DatabaseHelper.timestamps,
 	},
 	(t) => [
-		uniqueIndex("media_files_path_unique").on(t.filePath),
+		// A multi-episode file (S01E01-E02) owns one row per covered episode, so
+		// path uniqueness splits: plain paths stay unique for movies/unlinked rows,
+		// episode rows are unique per (path, episode) pair.
+		uniqueIndex("media_files_path_unique").on(t.filePath).where(sql`${t.episodeId} IS NULL`),
+		uniqueIndex("media_files_path_episode_unique").on(t.filePath, t.episodeId).where(sql`${t.episodeId} IS NOT NULL`),
 		uniqueIndex("media_files_movie_default_unique").on(t.movieId).where(sql`${t.movieId} IS NOT NULL AND ${t.isDefault} = 1`),
 		uniqueIndex("media_files_episode_default_unique").on(t.episodeId).where(sql`${t.episodeId} IS NOT NULL AND ${t.isDefault} = 1`),
 		index("media_files_library_idx").on(t.libraryId),

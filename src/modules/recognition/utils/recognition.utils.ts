@@ -4,7 +4,7 @@ import { EPISODE_FILE_PATTERN, YEAR_FOLDER_PATTERN, YEAR_TITLE_PATTERN } from ".
 
 const EXT_PATTERN = /\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|vob|ogv|divx|mpg|mpeg|iso|nfo|srt|sub|ass)$/i;
 const SERIES_PATTERN =
-	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?:s(?<season>\d{1,2})e(?<episode>\d{1,2})|(?<season_alt>\d{1,2})x(?<episode_alt>\d{1,2}))/i;
+	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?:s(?<season>\d{1,2})e(?<episode>\d{1,2})|(?<season_alt>\d{1,2})x(?<episode_alt>\d{1,2}))(?:[-_. ]{1,2}e?(?<episode_end>\d{1,2})(?!\d))?/i;
 const MOVIE_PATTERN = /^(?<title>.+?)(?:[\s._(]+)(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?/i;
 const DOT_UNDERSCORE_PATTERN = /[._]/g;
 
@@ -41,13 +41,17 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
 	// 1. Najpierw szukamy wzorca serialu (S01E01 lub 1x01)
 	const seriesMatch = nameWithoutExt.match(SERIES_PATTERN);
 	if (seriesMatch?.groups) {
-		const { title, year, season, episode, season_alt, episode_alt } = seriesMatch.groups;
+		const { title, year, season, episode, season_alt, episode_alt, episode_end } = seriesMatch.groups;
+		const episodeNumber = Number.parseInt(episode ?? episode_alt ?? "0", 10);
+		const episodeEnd = episode_end ? Number.parseInt(episode_end, 10) : undefined;
 
 		return {
 			title: cleanTitle(title ?? nameWithoutExt),
 			type: "episode",
 			season: Number.parseInt(season ?? season_alt ?? "0", 10),
-			episode: Number.parseInt(episode ?? episode_alt ?? "0", 10),
+			episode: episodeNumber,
+			// A descending "range" (E05-E02) is scene noise, not a multi-episode file.
+			...(episodeEnd !== undefined && episodeEnd > episodeNumber ? { episodeEnd } : {}),
 			year: year ? Number.parseInt(year, 10) : undefined,
 		};
 	}
@@ -83,17 +87,21 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
  * `EPISODE_FILE_PATTERN` — the fallback both series strategies use when
  * `parseFileName` found no SxxExx marker. Covers every named group.
  */
-export function extractSeasonEpisode(fileName: string): { season?: number; episode?: number } {
+export function extractSeasonEpisode(fileName: string): { season?: number; episode?: number; episodeEnd?: number } {
 	const match = fileName.match(EPISODE_FILE_PATTERN);
 	if (!match?.groups) return {};
 
-	const { season, season_alt, episode, episode_alt, episode_only } = match.groups;
+	const { season, season_alt, episode, episode_alt, episode_only, range_end, range_end_alt, range_end_only } = match.groups;
 	const seasonStr = season ?? season_alt;
 	const episodeStr = episode ?? episode_alt ?? episode_only;
+	const endStr = range_end ?? range_end_alt ?? range_end_only;
+	const episodeNumber = episodeStr ? Number.parseInt(episodeStr, 10) : undefined;
+	const endNumber = endStr ? Number.parseInt(endStr, 10) : undefined;
 
 	return {
 		...(seasonStr ? { season: Number.parseInt(seasonStr, 10) } : {}),
-		...(episodeStr ? { episode: Number.parseInt(episodeStr, 10) } : {}),
+		...(episodeNumber !== undefined ? { episode: episodeNumber } : {}),
+		...(episodeNumber !== undefined && endNumber !== undefined && endNumber > episodeNumber ? { episodeEnd: endNumber } : {}),
 	};
 }
 

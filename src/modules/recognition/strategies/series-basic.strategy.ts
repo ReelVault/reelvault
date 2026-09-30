@@ -18,11 +18,13 @@ export class SeriesBasicStrategy implements RecognitionStrategy {
 		const fileIdentity = parseFileName(fileName);
 		let season = fileIdentity?.season;
 		let episode = fileIdentity?.episode;
+		let episodeEnd = fileIdentity?.episodeEnd;
 
 		if (season === undefined || episode === undefined) {
 			const extracted = extractSeasonEpisode(fileName);
 			season ??= extracted.season;
 			episode ??= extracted.episode;
+			episodeEnd ??= extracted.episodeEnd;
 		}
 
 		if (season === undefined || episode === undefined) return null;
@@ -31,7 +33,7 @@ export class SeriesBasicStrategy implements RecognitionStrategy {
 
 		return {
 			type: "tv_show",
-			identity: { title, year, type: "episode", season, episode },
+			identity: { title, year, type: "episode", season, episode, ...(episodeEnd !== undefined ? { episodeEnd } : {}) },
 			meta: { libraryStructure: this.name, rootPath: parentFolder },
 		};
 	}

@@ -7,11 +7,38 @@ import { ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { throwIfAborted, WorkerCancellationError } from "@/workers/utils/worker-cancellation";
+import type { RecognitionResult } from "../../recognition/recognition.types";
 import { mapChaptersToMarkers } from "../probe/chapters-to-markers.utils";
 import { mapMediaFileData } from "../probe/media-probe.mapper";
 import { videoParser } from "../probe/video-parser.service";
 import { recognizeWithPluginHooks } from "../recognition/recognition";
-import type { LibraryType, ProcessedMediaFile, ProcessedMediaFileWithMarkers, SkippedMediaFile } from "../scanner.types";
+import type {
+	AdditionalEpisodeTarget,
+	LibraryType,
+	ProcessedMediaFile,
+	ProcessedMediaFileWithMarkers,
+	SkippedMediaFile,
+} from "../scanner.types";
+
+/** Upper bound on episodes a single file may claim — longer "ranges" are scene noise. */
+const MAX_EPISODE_RANGE_SPAN = 12;
+
+/**
+ * Episode numbers covered by the parsed identity: `[3]` for a plain SxxExx
+ * file, `[3, 4, 5]` for S01E03-E05. `undefined` when the file is not a
+ * multi-episode candidate (movies, single episodes, malformed ranges).
+ */
+function episodeRangeTargets(identity: RecognitionResult["identity"]): number[] | undefined {
+	if (identity.type !== "episode" || identity.episode === undefined) return undefined;
+
+	const start = identity.episode;
+	const end = identity.episodeEnd ?? start;
+	const span = end - start + 1;
+	if (span <= 1) return undefined;
+	if (span > MAX_EPISODE_RANGE_SPAN) return undefined;
+
+	return Array.from({ length: span }, (_, index) => start + index);
+}
 
 class MediaFileProcessor extends BaseService {
 	private metadataProcessInstance: MetadataProcess | undefined;
@@ -104,6 +131,18 @@ class MediaFileProcessor extends BaseService {
 				return { skipReason: "type_mismatch", fileName };
 			}
 
+			const episodeTargets = episodeRangeTargets(recognition.identity);
+			if (episodeTargets !== undefined)
+				return await this.processMultiEpisodeFile({
+					filePath,
+					fileName,
+					recognition,
+					episodeTargets,
+					signal,
+					scheduling,
+					options,
+				});
+
 			const [technicalData, metadata, fileStats] = await Promise.allSettled([
 				videoParser.probe(filePath, signal),
 				this.metadataProcess.checkMetadata({
@@ -156,6 +195,83 @@ class MediaFileProcessor extends BaseService {
 			this.logger.error("Process file failed", error, { filePath });
 			throw toDomainError(error, `Media file processing failed: ${filePath}`);
 		}
+	}
+
+	/**
+	 * A file covering several episodes (S01E01-E02) resolves metadata for every
+	 * covered episode — sequentially, since the first call creates the show and
+	 * season rows the rest reuse. Probe and file stats run once for the whole
+	 * file; only the identity differs per episode.
+	 */
+	private async processMultiEpisodeFile({
+		filePath,
+		fileName,
+		recognition,
+		episodeTargets,
+		signal,
+		scheduling,
+		options,
+	}: {
+		filePath: string;
+		fileName: string;
+		recognition: RecognitionResult;
+		episodeTargets: number[];
+		signal?: AbortSignal | undefined;
+		scheduling?: TaskSchedulingOptions | undefined;
+		options?: { libraryId?: string | undefined } | undefined;
+	}): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
+		const sidecar = await this.readSidecarHint(filePath, recognition.type);
+		const [technicalData, fileStats] = await Promise.allSettled([videoParser.probe(filePath, signal), FileUtils.getStats(filePath)]);
+		throwIfAborted(signal);
+
+		if (technicalData.status === "rejected") {
+			this.logger.warn("Failed to probe video", { filePath, error: technicalData.reason });
+		}
+
+		const tech = technicalData.status === "fulfilled" ? technicalData.value : null;
+		const stats = fileStats.status === "fulfilled" ? fileStats.value : null;
+		const mediaFileData = tech ? mapMediaFileData(fileName, tech) : null;
+
+		const targets: AdditionalEpisodeTarget[] = [];
+		for (const episode of episodeTargets) {
+			throwIfAborted(signal);
+			try {
+				const meta = await this.metadataProcess.checkMetadata({
+					type: recognition.type,
+					parsed: { ...recognition.identity, episode, episodeEnd: undefined },
+					sidecar,
+					signal,
+					scheduling,
+					libraryId: options?.libraryId,
+				});
+				if (meta?.episodeId) {
+					targets.push({ metadataId: meta.metadataId, movieId: meta.movieId ?? null, episodeId: meta.episodeId });
+				}
+			} catch (error) {
+				// One failed episode must not sink the others — the row count stays
+				// below the file's span, so the next scan re-ingests and retries it.
+				this.logger.warn("Multi-episode metadata resolution failed", { filePath, episode, error: String(error) });
+			}
+		}
+
+		const first = targets[0];
+		if (!first) return { skipReason: "no_metadata_match", fileName };
+
+		const rest = targets.slice(1);
+
+		return {
+			metadataId: first.metadataId,
+			movieId: first.movieId,
+			episodeId: first.episodeId,
+			filePath,
+			fileName,
+			...(mediaFileData ?? createEmptyMediaFileData()),
+			...(tech ? { automaticMarkers: mapChaptersToMarkers(tech.chapters ?? []) } : {}),
+			isEnabled: true,
+			size: stats?.size ?? mediaFileData?.size ?? null,
+			sourceMtimeMs: stats ? Math.floor(stats.mtimeMs) : null,
+			...(rest.length > 0 ? { additionalTargets: rest } : {}),
+		};
 	}
 }
 

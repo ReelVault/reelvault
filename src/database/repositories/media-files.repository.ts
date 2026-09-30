@@ -429,7 +429,14 @@ class MediaRepository {
 		const run = async (runTx: DatabaseTransaction) => {
 			const [createdMediaFile] = await runTx.insert(this.table).values(mediaFileValues).onConflictDoNothing().returning();
 			if (!createdMediaFile) {
-				const existingMediaFile = await this.selectFirst({ where: eq(this.table.filePath, data.filePath), tx: runTx });
+				// Multi-episode files own several rows per path — fetch the row for
+				// THIS target (episode id), not just any row with the same path.
+				const existingMediaFile = await this.selectFirst({
+					where: data.episodeId
+						? and(eq(this.table.filePath, data.filePath), eq(this.table.episodeId, data.episodeId))
+						: and(eq(this.table.filePath, data.filePath), isNull(this.table.episodeId)),
+					tx: runTx,
+				});
 				if (!existingMediaFile) throw new Error("Media file insert conflicted but no existing row was found");
 
 				return { mediaFile: existingMediaFile, created: false };

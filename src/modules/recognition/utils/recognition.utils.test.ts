@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MediaIdentity } from "@reelvault/sdk/common";
-import { parseFileName, resolveShowTitle } from "./recognition.utils";
+import { extractSeasonEpisode, parseFileName, resolveShowTitle } from "./recognition.utils";
 
 function identity(title: string, year?: number): MediaIdentity {
 	return { title, type: "movie", year };
@@ -42,6 +42,34 @@ describe("parseFileName", () => {
 			episode: 1,
 			year: 2011,
 		});
+	});
+});
+
+describe("multi-episode ranges and copy suffixes", () => {
+	test("parses an SxxExx-Eyy range", () => {
+		expect(parseFileName("Show.S01E01-E02.mkv")).toMatchObject({ title: "Show", season: 1, episode: 1, episodeEnd: 2 });
+	});
+
+	test("parses a bare range in a season folder", () => {
+		expect(extractSeasonEpisode("Show - 01-02.mkv")).toEqual({ episode: 1, episodeEnd: 2 });
+	});
+
+	test("does not read 1080p as a range end", () => {
+		expect(parseFileName("Show.S01E01-1080p.mkv")).toEqual({ title: "Show", type: "episode", season: 1, episode: 1, year: undefined });
+	});
+
+	test("drops a descending range", () => {
+		expect(parseFileName("Show.S01E05-E02.mkv")).toEqual({ title: "Show", type: "episode", season: 1, episode: 5, year: undefined });
+	});
+
+	test("ignores a _001 copy suffix as an episode marker", () => {
+		expect(extractSeasonEpisode("My.Movie.2020_001.mkv")).toEqual({});
+		expect(parseFileName("My Movie (2010)_001.mkv")).toEqual(identity("My Movie", 2010));
+	});
+
+	test("keeps bare dot and space episode markers working", () => {
+		expect(extractSeasonEpisode("Show - 01.mkv")).toEqual({ episode: 1 });
+		expect(extractSeasonEpisode("Show.E02.mkv")).toEqual({ episode: 2 });
 	});
 });
 

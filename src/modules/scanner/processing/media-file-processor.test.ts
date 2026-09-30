@@ -32,7 +32,9 @@ afterEach(() => {
 	Reflect.deleteProperty(mediaFileProcessor, "metadataProcessInstance");
 });
 
-function stubRecognition(result: { type: "movie" | "tv_show"; identity: { title: string; year?: number } } | undefined) {
+function stubRecognition(
+	result: { type: "movie" | "tv_show"; identity: { title: string; year?: number } & Record<string, unknown> } | undefined,
+) {
 	activeStubs.push(
 		stubMethod(recognitionService, "recognize", () => result),
 		stubMethod(pluginHookBus, "runBeforeMediaRecognition", (candidate: unknown) => candidate),
@@ -155,5 +157,67 @@ describe("mediaFileProcessor.process", () => {
 
 		const [firstResult, secondResult] = await Promise.all([first, second]);
 		expect(firstResult).toBe(secondResult);
+	});
+});
+
+describe("mediaFileProcessor multi-episode files", () => {
+	const activeMultiStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeMultiStubs.length = 0;
+		checkMetadataCalls = [];
+	});
+
+	afterEach(() => {
+		for (const stub of activeMultiStubs.toReversed()) stub.restore();
+
+		Reflect.deleteProperty(mediaFileProcessor, "metadataProcessInstance");
+	});
+
+	function stubEpisodeMetadata() {
+		Reflect.set(mediaFileProcessor, "metadataProcessInstance", {
+			checkMetadata: (input: Record<string, unknown>) => {
+				checkMetadataCalls.push(input);
+				const episode = (input.parsed as { episode: number }).episode;
+
+				return Promise.resolve({ metadataId: "meta-1", movieId: null, episodeId: `ep-${episode}` });
+			},
+		});
+	}
+
+	test("resolves one metadata target per episode in a range file", async () => {
+		stubRecognition({ type: "tv_show", identity: { title: "Show", type: "episode", season: 1, episode: 1, episodeEnd: 3 } });
+		activeMultiStubs.push(
+			stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)),
+			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
+			stubMethod(videoParser, "probe", () => Promise.resolve(null)),
+		);
+		stubEpisodeMetadata();
+
+		const result = await mediaFileProcessor.process("tv_show", "/media/Show/Season 1/Show.S01E01-E03.mkv");
+		const processed = result && !("skipReason" in result) ? result : undefined;
+
+		expect(processed?.episodeId).toBe("ep-1");
+		expect(processed?.additionalTargets).toEqual([
+			{ metadataId: "meta-1", movieId: null, episodeId: "ep-2" },
+			{ metadataId: "meta-1", movieId: null, episodeId: "ep-3" },
+		]);
+		expect(checkMetadataCalls.map((call) => (call.parsed as { episode: number }).episode)).toEqual([1, 2, 3]);
+	});
+
+	test("treats an absurd range as a single episode", async () => {
+		stubRecognition({ type: "tv_show", identity: { title: "Show", type: "episode", season: 1, episode: 1, episodeEnd: 99 } });
+		activeMultiStubs.push(
+			stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)),
+			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
+			stubMethod(videoParser, "probe", () => Promise.resolve(null)),
+		);
+		stubEpisodeMetadata();
+
+		const result = await mediaFileProcessor.process("tv_show", "/media/Show/Season 1/Show.S01E01-E99.mkv");
+		const processed = result && !("skipReason" in result) ? result : undefined;
+
+		expect(processed?.additionalTargets).toBeUndefined();
+		expect(checkMetadataCalls).toHaveLength(1);
 	});
 });

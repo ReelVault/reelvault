@@ -1,9 +1,12 @@
+import type { MediaIdentity } from "@reelvault/sdk/common";
 import { sleep } from "bun";
 import { toDomainError } from "@/application/context";
 import { databaseFactory } from "@/database/database";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
+import { PathUtils } from "@/utils/path.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { fileScannerService } from "./disk/file-scanner";
 import { type RemovalGuard, removalGuard } from "./disk/removal-guard";
@@ -13,6 +16,16 @@ import { filterPathsWithinRoots } from "./utils/scanner.utils";
 
 /** Rows read per keyset page while diffing a library against disk. */
 const SCAN_DB_PAGE_SIZE = 5000;
+
+/** Episode span claimed by a file name, when it names a range (S01E03-E05 → 3). */
+function rangeSpanFor(filePath: string): number | undefined {
+	const identity: MediaIdentity | null = parseFileName(PathUtils.getFileName(filePath));
+	if (identity?.type !== "episode" || identity.episode === undefined || identity.episodeEnd === undefined) return undefined;
+
+	const span = identity.episodeEnd - identity.episode + 1;
+
+	return span > 1 ? span : undefined;
+}
 
 interface ScanStatsRow {
 	id: string;
@@ -69,6 +82,7 @@ export class ScannerService extends BaseService {
 				// Keyset-page the DB rows so a large library never blocks the event loop
 				// in one query; yield between pages. Only the on-disk side needs a map.
 				const existingPaths = new Set<string>();
+				const pathCounts = new Map<string, number>();
 				const removedAll: string[] = [];
 				const changedFiles: string[] = [];
 				let existingCount = 0;
@@ -81,6 +95,7 @@ export class ScannerService extends BaseService {
 					for (const row of rows) {
 						existingCount++;
 						existingPaths.add(row.filePath);
+						pathCounts.set(row.filePath, (pathCounts.get(row.filePath) ?? 0) + 1);
 						const diskStat = statsByPath.get(row.filePath);
 						if (!diskStat) {
 							removedAll.push(row.filePath);
@@ -99,6 +114,19 @@ export class ScannerService extends BaseService {
 				}
 
 				const newFiles = filesOnDisk.filter((filePath) => !existingPaths.has(filePath));
+
+				// A range file imported before multi-episode support owns fewer rows
+				// than its name spans — re-ingest it so the missing episodes get their
+				// rows (idempotent: existing rows conflict-do-nothing).
+				if (type === "tv_show") {
+					for (const filePath of filesOnDisk) {
+						if (!existingPaths.has(filePath)) continue;
+
+						const span = rangeSpanFor(filePath);
+						if (span !== undefined && span > (pathCounts.get(filePath) ?? 0)) newFiles.push(filePath);
+					}
+				}
+
 				const removedCandidates = filterPathsWithinRoots(removedAll, effectivePaths);
 				throwIfAborted(signal);
 

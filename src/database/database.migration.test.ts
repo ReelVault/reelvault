@@ -52,6 +52,18 @@ describe("database migrations", () => {
 		expect(tables.has("people_fts")).toBe(true);
 	});
 
+	// Regression: a hand-edited migration without `--> statement-breakpoint`
+	// separators executed only its first statement under the bun-sqlite
+	// migrator, silently leaving both path indexes uncreated.
+	test("creates both media-file path unique indexes from the multi-episode migration", () => {
+		const indexes = factory.sqlite
+			.query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'media_files'")
+			.all() as Array<{ name: string }>;
+
+		expect(indexes.map((row) => row.name)).toContain("media_files_path_unique");
+		expect(indexes.map((row) => row.name)).toContain("media_files_path_episode_unique");
+	});
+
 	test("applies the latest HDR columns", () => {
 		const columns = columnNames(factory, "media_file_video_streams");
 		expect(columns.has("color_transfer")).toBe(true);
