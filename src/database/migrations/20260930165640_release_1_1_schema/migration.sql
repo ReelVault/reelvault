@@ -26,3 +26,11 @@ CREATE UNIQUE INDEX `api_keys_hash_unique` ON `api_keys` (`key_hash`);--> statem
 CREATE INDEX `api_keys_created_by_idx` ON `api_keys` (`created_by`);--> statement-breakpoint
 CREATE INDEX `media_files_created_at_idx` ON `media_files` (`created_at`);--> statement-breakpoint
 CREATE INDEX `worker_jobs_created_at_idx` ON `worker_jobs` (`created_at`);
+--> statement-breakpoint
+ALTER TABLE `libraries` ADD `metadata_language` text;
+--> statement-breakpoint
+DROP INDEX IF EXISTS `media_files_path_unique`;
+--> statement-breakpoint
+CREATE UNIQUE INDEX `media_files_path_unique` ON `media_files` (`file_path`) WHERE "media_files"."episode_id" IS NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX `media_files_path_episode_unique` ON `media_files` (`file_path`,`episode_id`) WHERE "media_files"."episode_id" IS NOT NULL;
