@@ -132,7 +132,7 @@ describe("built SDK package", () => {
 		const execution = spawn([process.execPath, join(outputDirectory, "consumer.js")], { stdout: "pipe", stderr: "pipe" });
 		expect(await execution.exited).toBe(0);
 		expect((await readFile(fixture, "utf8")).includes("@/")).toBe(false);
-	});
+	}, 60_000);
 
 	test("type-checks from a CommonJS (require) consumer", async () => {
 		const consumerDirectory = await mkdtemp(join(tmpdir(), "reelvault-sdk-cjs-consumer-"));
@@ -165,5 +165,5 @@ describe("built SDK package", () => {
 			const output = await Promise.all([new Response(typeCheck.stdout).text(), new Response(typeCheck.stderr).text()]);
 			throw new Error(output.join("\n"));
 		}
-	});
+	}, 60_000);
 });

@@ -7,11 +7,15 @@ import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { strToU8, zipSync } from "fflate";
 import type { ArchiveFetcher } from "@/plugins/catalog/plugin-package.utils";
 import { detach } from "@/utils/promise.utils";
+import { SERVER_VERSION } from "@/version";
 import { type UpdateCheckState, updateCheckService } from "./update-check.service";
 import { type RestartScheduler, UpdateInstallService } from "./update-install.service";
 
 const OLD_SERVER = "1.0.0";
-const NEW_SERVER = "1.1.0";
+// Derived from the running version so bumping the server package never makes
+// the fixture release "not newer" than the server under test.
+const [newMajor, newMinor, newPatch] = SERVER_VERSION.split(".").map(Number);
+const NEW_SERVER = `${newMajor}.${newMinor}.${(newPatch ?? 0) + 1}`;
 const OLD_WEB = "0.1.0";
 const NEW_WEB = "0.2.0";
 

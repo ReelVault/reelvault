@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { type ArchiveFetcher, downloadArchive, extractArchive } from "@/plugins/catalog/plugin-package.utils";
@@ -7,6 +7,7 @@ import { BaseService } from "@/utils/base-service";
 import { ConflictError, ValidationError } from "@/utils/errors";
 import { detach } from "@/utils/promise.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
+import { isRecord } from "@/utils/type.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
 import { SERVER_VERSION } from "@/version";
 import { resolveWebVersion } from "@/web/web-dist";
@@ -323,7 +324,7 @@ export class UpdateInstallService extends BaseService {
 			this.assertServerStagedLayout(stagedApp);
 
 			this.setJob("swapping", 90, null);
-			swapIntoPlace(this.root, stagedApp, "server", SERVER_VERSION);
+			swapIntoPlace(this.root, stagedApp, "server", this.installedServerVersion());
 			// The staging root now holds only the emptied ReelVault directory.
 			rmSync(stagingRoot, { recursive: true, force: true });
 
@@ -365,6 +366,22 @@ export class UpdateInstallService extends BaseService {
 		if (!existsSync(join(stagedApp, "server", "package.json"))) {
 			throw new ValidationError("The extracted release archive has an unexpected layout", { code: "update.unexpected_layout" });
 		}
+	}
+
+	/**
+	 * The version of the installed server layout, read from its package.json —
+	 * the rollback marker must describe what is being replaced, not the running
+	 * process (which normally matches, but the layout is the source of truth).
+	 */
+	private installedServerVersion(): string {
+		try {
+			const manifest: unknown = JSON.parse(readFileSync(join(this.root, "server", "package.json"), "utf8"));
+			if (isRecord(manifest) && typeof manifest.version === "string" && manifest.version.length > 0) return manifest.version;
+		} catch {
+			// Missing/unreadable layout — fall back to the running version below.
+		}
+
+		return SERVER_VERSION;
 	}
 
 	private setJob(state: UpdateJobState, progressPercent: number, message: string | null): void {
