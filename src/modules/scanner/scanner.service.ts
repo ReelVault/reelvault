@@ -27,6 +27,25 @@ function rangeSpanFor(filePath: string): number | undefined {
 	return span > 1 ? span : undefined;
 }
 
+/**
+ * A range file imported before multi-episode support owns fewer rows than its
+ * name spans — re-ingest it so the missing episodes get their rows (idempotent:
+ * existing rows conflict-do-nothing).
+ */
+function collectRangeBackfills(
+	filesOnDisk: readonly string[],
+	existingPaths: ReadonlySet<string>,
+	pathCounts: ReadonlyMap<string, number>,
+	newFiles: string[],
+): void {
+	for (const filePath of filesOnDisk) {
+		if (!existingPaths.has(filePath)) continue;
+
+		const span = rangeSpanFor(filePath);
+		if (span !== undefined && span > (pathCounts.get(filePath) ?? 0)) newFiles.push(filePath);
+	}
+}
+
 interface ScanStatsRow {
 	id: string;
 	filePath: string;
@@ -63,6 +82,56 @@ export class ScannerService extends BaseService {
 		this.dependencies = dependencies;
 	}
 
+	/**
+	 * Keyset-pages the DB rows so a large library never blocks the event loop in
+	 * one query; yields between pages. Only the on-disk side needs a map.
+	 */
+	private async collectDatabaseStats(
+		libraryId: string,
+		statsByPath: ReadonlyMap<string, { size: number; mtimeMs: number }>,
+		signal?: AbortSignal,
+	): Promise<{
+		existingPaths: Set<string>;
+		pathCounts: Map<string, number>;
+		removedAll: string[];
+		changedFiles: string[];
+		existingCount: number;
+	}> {
+		const existingPaths = new Set<string>();
+		const pathCounts = new Map<string, number>();
+		const removedAll: string[] = [];
+		const changedFiles: string[] = [];
+		let existingCount = 0;
+		let cursor: string | undefined;
+		for (;;) {
+			throwIfAborted(signal);
+			const rows = await this.dependencies.findStatsPage(libraryId, cursor, SCAN_DB_PAGE_SIZE);
+			if (rows.length === 0) break;
+
+			for (const row of rows) {
+				existingCount++;
+				existingPaths.add(row.filePath);
+				pathCounts.set(row.filePath, (pathCounts.get(row.filePath) ?? 0) + 1);
+				const diskStat = statsByPath.get(row.filePath);
+				if (!diskStat) {
+					removedAll.push(row.filePath);
+					continue;
+				}
+
+				if (row.size !== diskStat.size || row.sourceMtimeMs !== diskStat.mtimeMs) changedFiles.push(row.id);
+			}
+
+			if (rows.length < SCAN_DB_PAGE_SIZE) break;
+
+			cursor = rows.at(-1)?.id;
+			if (!cursor) break;
+
+			await sleep(0);
+		}
+
+		return { existingPaths, pathCounts, removedAll, changedFiles, existingCount };
+	}
+
 	async scanPaths(libraryId: string, type: LibraryType, paths?: string[], signal?: AbortSignal): Promise<LibraryScanResult> {
 		return await this.safeExecute(
 			"scanPaths",
@@ -79,53 +148,14 @@ export class ScannerService extends BaseService {
 				}
 
 				const { filesOnDisk, statsByPath } = await this.dependencies.discover(effectivePaths, signal);
-				// Keyset-page the DB rows so a large library never blocks the event loop
-				// in one query; yield between pages. Only the on-disk side needs a map.
-				const existingPaths = new Set<string>();
-				const pathCounts = new Map<string, number>();
-				const removedAll: string[] = [];
-				const changedFiles: string[] = [];
-				let existingCount = 0;
-				let cursor: string | undefined;
-				for (;;) {
-					throwIfAborted(signal);
-					const rows = await this.dependencies.findStatsPage(libraryId, cursor, SCAN_DB_PAGE_SIZE);
-					if (rows.length === 0) break;
-
-					for (const row of rows) {
-						existingCount++;
-						existingPaths.add(row.filePath);
-						pathCounts.set(row.filePath, (pathCounts.get(row.filePath) ?? 0) + 1);
-						const diskStat = statsByPath.get(row.filePath);
-						if (!diskStat) {
-							removedAll.push(row.filePath);
-							continue;
-						}
-
-						if (row.size !== diskStat.size || row.sourceMtimeMs !== diskStat.mtimeMs) changedFiles.push(row.id);
-					}
-
-					if (rows.length < SCAN_DB_PAGE_SIZE) break;
-
-					cursor = rows.at(-1)?.id;
-					if (!cursor) break;
-
-					await sleep(0);
-				}
+				const { existingPaths, pathCounts, removedAll, changedFiles, existingCount } = await this.collectDatabaseStats(
+					libraryId,
+					statsByPath,
+					signal,
+				);
 
 				const newFiles = filesOnDisk.filter((filePath) => !existingPaths.has(filePath));
-
-				// A range file imported before multi-episode support owns fewer rows
-				// than its name spans — re-ingest it so the missing episodes get their
-				// rows (idempotent: existing rows conflict-do-nothing).
-				if (type === "tv_show") {
-					for (const filePath of filesOnDisk) {
-						if (!existingPaths.has(filePath)) continue;
-
-						const span = rangeSpanFor(filePath);
-						if (span !== undefined && span > (pathCounts.get(filePath) ?? 0)) newFiles.push(filePath);
-					}
-				}
+				if (type === "tv_show") collectRangeBackfills(filesOnDisk, existingPaths, pathCounts, newFiles);
 
 				const removedCandidates = filterPathsWithinRoots(removedAll, effectivePaths);
 				throwIfAborted(signal);
