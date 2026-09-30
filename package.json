@@ -1,6 +1,6 @@
 {
 	"name": "reelvault-server",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"description": "ReelVault Media Server",
 	"type": "module",
 	"private": true,
