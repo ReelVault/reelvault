@@ -50,4 +50,4 @@ fi
 mkdir -p "$ROOT_DIR"
 
 # $APP_BUN_FLAGS is intentionally unquoted: it expands to zero or more runtime flags.
-exec "$HERE/bun/bun" $APP_BUN_FLAGS run "$HERE/server/src/index.ts"
+exec "$HERE/bun/bun" ${APP_BUN_FLAGS:-} run "$HERE/server/src/index.ts"
