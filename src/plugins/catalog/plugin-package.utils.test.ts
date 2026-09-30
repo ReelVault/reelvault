@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { lstatSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,10 +51,31 @@ describe("plugin package utils", () => {
 		await expect(extractPluginPackage(archivePath)).rejects.toThrow("unsafe entry path");
 	});
 
-	test("rejects tar entries containing symbolic links", async () => {
-		const tar = buildTar([{ path: "link.mjs", linkTo: "./target.mjs" }]);
-		const archivePath = await writeArchive(Uint8Array.from(Bun.gzipSync(tar)));
-		await expect(extractPluginPackage(archivePath)).rejects.toThrow("unsupported tar entry type");
+	test("creates in-tree tar symlinks and rejects out-of-tree ones", async () => {
+		const inTree = buildTar([
+			{
+				path: "plugin-dir/plugin.json",
+				data: strToU8(
+					JSON.stringify({
+						id: "org.test.linked",
+						name: "Linked",
+						version: "1.0.0",
+						entry: "./target.mjs",
+						capabilities: ["metadataProvider"],
+					}),
+				),
+			},
+			{ path: "plugin-dir/target.mjs", data: strToU8("export {}") },
+			{ path: "plugin-dir/node_modules/.bin/tool", linkTo: "../../target.mjs" },
+		]);
+		const extracted = await extractPluginPackage(await writeArchive(Uint8Array.from(Bun.gzipSync(inTree))));
+		const treeDirectory = extracted.pluginRoot;
+		const created = lstatSync(join(treeDirectory, "node_modules", ".bin", "tool"));
+		expect(created.isSymbolicLink()).toBe(true);
+		expect(readFileSync(join(treeDirectory, "node_modules", ".bin", "tool"), "utf8")).toContain("export");
+
+		const escaping = buildTar([{ path: "plugin-dir/link.mjs", linkTo: "../../../../../evil.mjs" }]);
+		await expect(extractPluginPackage(await writeArchive(Uint8Array.from(Bun.gzipSync(escaping))))).rejects.toThrow("out-of-tree symlink");
 	});
 
 	test("rejects a package without a plugin.json manifest", async () => {
@@ -165,10 +187,11 @@ function buildTar(entries: TarEntry[]): Uint8Array<ArrayBuffer> {
 		header.set(encoder.encode("0000644"), 100);
 		header.set(encoder.encode("0000000"), 108);
 		header.set(encoder.encode("0000000"), 116);
-		const size = entry.data?.byteLength ?? (entry.linkTo ? entry.linkTo.length : 0);
+		const size = entry.data?.byteLength ?? 0;
 		header.set(encoder.encode(`${size.toString(8).padStart(11, "0")}\0`), 124);
 		header.set(encoder.encode("00000000000"), 136);
 		header.set(encoder.encode(entry.linkTo ? "2" : "0"), 156);
+		if (entry.linkTo) header.set(encoder.encode(entry.linkTo).subarray(0, 100), 157);
 		header.set(encoder.encode("ustar\0"), 257);
 		header.set(encoder.encode("00"), 263);
 		header.set(encoder.encode(prefix), 345);

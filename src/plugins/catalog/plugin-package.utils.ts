@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
@@ -253,12 +253,16 @@ function extractEntry(workRoot: string, entryPath: string, bytes: Uint8Array): v
 
 const TAR_TYPE_REGULAR = new Set(["0", "\0"]);
 const TAR_TYPE_DIRECTORY = "5";
+const TAR_TYPE_SYMLINK = "2";
 const TAR_TYPE_LONG_NAME = "L";
 
 function extractTarEntries(archive: Uint8Array, workRoot: string, maxUncompressedBytes: number): void {
 	let offset = 0;
 	let pendingLongName: string | undefined;
 	let total = 0;
+	// Server release archives ship node_modules/.bin as relative symlinks whose
+	// targets may appear later in the stream — create them after the walk.
+	const symlinks: Array<{ linkPath: string; target: string }> = [];
 	while (offset + TAR_BLOCK_SIZE <= archive.length) {
 		const header = archive.subarray(offset, offset + TAR_BLOCK_SIZE);
 		if (header.every((byte) => byte === 0)) break;
@@ -284,6 +288,21 @@ function extractTarEntries(archive: Uint8Array, workRoot: string, maxUncompresse
 			continue;
 		}
 
+		if (typeFlag === TAR_TYPE_SYMLINK) {
+			const linkPath = assertSafeDestination(workRoot, name);
+			const target = readTarString(header, 157, 100);
+			if (target.length === 0) throw new ValidationError(`Plugin package contains a symlink without a target: ${name}`);
+			if (target.startsWith("/")) throw new ValidationError(`Plugin package contains an absolute symlink: ${name}`);
+
+			const resolved = resolve(dirname(linkPath), target);
+			if (!resolved.startsWith(`${workRoot}${sep}`)) {
+				throw new ValidationError(`Plugin package contains an out-of-tree symlink: ${name}`);
+			}
+
+			symlinks.push({ linkPath, target });
+			continue;
+		}
+
 		if (!TAR_TYPE_REGULAR.has(typeFlag)) {
 			throw new ValidationError(`Plugin package contains an unsupported tar entry type '${typeFlag}': ${name}`);
 		}
@@ -292,6 +311,11 @@ function extractTarEntries(archive: Uint8Array, workRoot: string, maxUncompresse
 		if (total > maxUncompressedBytes) throw new ValidationError(`Plugin package exceeds the uncompressed size limit`);
 
 		extractEntry(workRoot, name, data);
+	}
+
+	for (const { linkPath, target } of symlinks) {
+		mkdirSync(dirname(linkPath), { recursive: true });
+		symlinkSync(target, linkPath);
 	}
 }
 
