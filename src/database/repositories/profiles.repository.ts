@@ -9,7 +9,7 @@ import type {
 	ProfileSorting,
 	SelectFields,
 } from "@reelvault/sdk/common";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
@@ -150,8 +150,10 @@ class ProfilesRepository {
 		return QueryFields.apply(data, fields);
 	}
 
-	async isNameTaken({ userId, name }: { userId: string; name: string }): Promise<boolean> {
-		return await this.isExists({ where: and(eq(this.table.userId, userId), eq(this.table.name, name)) });
+	async isNameTaken({ userId, name, excludeId }: { userId: string; name: string; excludeId?: string }): Promise<boolean> {
+		return await this.isExists({
+			where: and(eq(this.table.userId, userId), eq(this.table.name, name), excludeId ? ne(this.table.id, excludeId) : undefined),
+		});
 	}
 
 	async countByUserId(userId: string): Promise<number> {

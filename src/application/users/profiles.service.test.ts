@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { hashProfilePin } from "@/utils/crypto.utils";
-import { ForbiddenError } from "@/utils/errors";
+import { ConflictError, ForbiddenError } from "@/utils/errors";
+import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub";
 import { profilesService } from "./profiles.service";
 
 process.env.BETTER_AUTH_SECRET ??= "test-secret-with-at-least-32-characters";
@@ -88,5 +89,44 @@ describe("profilesService.switch", () => {
 
 		expect(caught).toBeInstanceOf(ForbiddenError);
 		expect((caught as ForbiddenError).code).toBe("profile.not_owned");
+	});
+});
+
+describe("profilesService.update", () => {
+	const activeStubs: MethodStub[] = [];
+
+	afterEach(() => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+		activeStubs.length = 0;
+	});
+
+	test("answers profile.name_conflict when renaming onto a sibling's name", async () => {
+		activeStubs.push(
+			stubMethod(profilesRepository, "findByPrimaryId", async () => ({ id: "profile-1", userId: "user-1", name: "Alex", pin: null })),
+			stubMethod(profilesRepository, "isNameTaken", async () => true),
+		);
+
+		let caught: unknown;
+		try {
+			await profilesService.update("profile-1", { name: "Kids" }, undefined, "user-1");
+		} catch (error) {
+			caught = error;
+		}
+
+		expect(caught).toBeInstanceOf(ConflictError);
+		expect((caught as ConflictError).code).toBe("profile.name_conflict");
+	});
+
+	test("renames freely when the name is free, excluding the profile itself", async () => {
+		activeStubs.push(
+			stubMethod(profilesRepository, "findByPrimaryId", async () => ({ id: "profile-1", userId: "user-1", name: "Alex", pin: null })),
+			stubMethod(profilesRepository, "isNameTaken", async () => false),
+			stubMethod(profilesRepository, "updateAndRead", async () => ({ id: "profile-1", userId: "user-1", name: "New", pin: null })),
+		);
+
+		const result = await profilesService.update("profile-1", { name: "New" }, undefined, "user-1");
+
+		expect(result.name).toBe("New");
+		expect(activeStubs[1]?.calls[0]?.[0]).toEqual({ userId: "user-1", name: "New", excludeId: "profile-1" });
 	});
 });

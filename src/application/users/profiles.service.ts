@@ -122,8 +122,17 @@ class ProfilesService extends BaseService {
 		userId?: string,
 	): Promise<SelectFields<Profile, F>> {
 		return await this.safeExecute("update", async () => {
+			this.assertUserId(userId);
 			const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
 			await this.assertOwnedProfile(profileId, userId, profile);
+			this.assertExists(profile, "Profile", profileId);
+
+			// Renaming onto a sibling's name would otherwise die on the unique
+			// index as a raw 500 — same pre-check the create path runs.
+			if (body.name !== undefined && body.name !== profile.name) {
+				const nameTaken = await profilesRepository.isNameTaken({ userId, name: body.name, excludeId: profileId });
+				if (nameTaken) throw new ConflictError("Profile with the same name already exists", { code: "profile.name_conflict" });
+			}
 
 			const payload = { ...body, pin: await hashProfilePin(body.pin) };
 			const result = await profilesRepository.updateAndRead(profileId, payload, query);

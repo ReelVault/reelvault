@@ -299,6 +299,11 @@ class AdminUsersService extends BaseService {
 	): Promise<AdminUserProfile> {
 		return await this.safeExecute("updateProfile", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
+			if (body.name !== undefined && body.name !== profile.name) {
+				const nameTaken = await profilesRepository.isNameTaken({ userId, name: body.name, excludeId: profile.id });
+				if (nameTaken) throw new ConflictError("Profile with the same name already exists", { code: "profile.name_conflict" });
+			}
+
 			const payload: AdminUserProfileUpdate = { ...body };
 			if (body.pin !== undefined) {
 				payload.pin = body.pin ? await hashProfilePin(body.pin) : null;
