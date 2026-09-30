@@ -288,6 +288,59 @@ export async function ingestMediaFileTask(
 			...createData,
 		});
 
+		// A multi-episode file (S01E01-E02) owns one row per covered episode; the
+		// main row above is the first episode, the rest are created here. Runs
+		// regardless of the main row's created flag so a backfill re-ingest of an
+		// older single-episode import still fills in the missing episodes.
+		for (const target of mediaFile.additionalTargets ?? []) {
+			try {
+				const { mediaFile: episodeFile, created: episodeCreated } = await dependencies.createMediaFile({
+					libraryId: data.libraryId,
+					...createData,
+					metadataId: target.metadataId,
+					movieId: target.movieId,
+					episodeId: target.episodeId,
+				});
+				if (!episodeCreated) continue;
+
+				if (dependencies.importSidecarSubtitles) {
+					await dependencies.importSidecarSubtitles(episodeFile.id, data.filePath);
+				}
+
+				if (serverConfig.trickplay.enabled && serverConfig.trickplay.autoOnRefresh) {
+					await dependencies.enqueueTrickplayGeneration(episodeFile.id);
+				}
+
+				await dependencies.enqueueAnalysis(
+					{ libraryId: data.libraryId, mediaFileId: episodeFile.id, metadataId: target.metadataId },
+					taskScheduling,
+				);
+
+				await dependencies.saveSidecars(library, [
+					{ filePath: data.filePath, metadataId: target.metadataId, movieId: target.movieId, episodeId: target.episodeId },
+				]);
+				await dependencies.emitMediaDiscovered({
+					libraryId: data.libraryId,
+					mediaFileId: episodeFile.id,
+					correlationId: context.correlationId ?? orchestration.operationId ?? episodeFile.id,
+				});
+				await dependencies.emitMediaIdentified({
+					mediaFileId: episodeFile.id,
+					metadataId: target.metadataId,
+					status: "matched",
+					correlationId: context.correlationId ?? orchestration.operationId ?? episodeFile.id,
+				});
+			} catch (error) {
+				// The row count stays below the file's span, so the next scan
+				// re-ingests this file and retries the missing episode.
+				context.logger?.warn("Multi-episode target ingest failed", {
+					filePath: data.filePath,
+					episodeId: target.episodeId,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+
 		// Scoped replace touches only `source: "automatic"` rows; manual and
 		// plugin markers survive rescans.
 		if (automaticMarkers?.length) {
