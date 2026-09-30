@@ -8,9 +8,7 @@ import { createWorkerDefinition } from "@/workers/worker.types";
 function resolveKeepCount(value: number | boolean | undefined): number | undefined {
 	if (value === undefined || value === false) return undefined;
 
-	if (value === true) return 0;
-
-	return Math.max(0, Math.floor(value));
+	return value === true ? 0 : Math.max(0, Math.floor(value));
 }
 
 export const cleanupWorkerHistoryWorker = createWorkerDefinition(
