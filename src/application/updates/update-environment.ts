@@ -25,11 +25,12 @@ export const DISCARD_DIR = ".update-discard";
 
 /**
  * Root of the application layout: `<root>/server`, `<root>/web`, `<root>/bun`.
- * The module lives at `<root>/server/src`, so two levels up land on the root
- * in both the release archives and the repository checkout.
+ * The module lives at `<root>/server/src/application/updates`, so four levels
+ * up land on the install root; in the repository checkout they land on the
+ * repo directory, which has no `bun/` and therefore still detects as "dev".
  */
 export function resolveInstallRoot(): string {
-	return resolve(import.meta.dir, "..", "..");
+	return resolve(import.meta.dir, "..", "..", "..", "..");
 }
 
 export function isDockerEnvironment(): boolean {
