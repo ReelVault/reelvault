@@ -10,6 +10,7 @@ beforeAll(() => {
 	root = join(tmpdir(), `reelvault-file-scanner-${crypto.randomUUID()}`);
 	mkdirSync(join(root, "nested", "deeper"), { recursive: true });
 	writeFileSync(join(root, "movie.mkv"), "x");
+	writeFileSync(join(root, "sample.mkv"), "x");
 	writeFileSync(join(root, "note.txt"), "x");
 	writeFileSync(join(root, "nested", "episode.mp4"), "x");
 	writeFileSync(join(root, "nested", "deeper", "extra.avi"), "x");
@@ -20,11 +21,12 @@ afterAll(() => {
 });
 
 describe("FileScannerService.scan", () => {
-	test("scans recursively, filters by extension and dedupes", async () => {
+	test("scans recursively, filters by extension, skips scene extras and dedupes", async () => {
 		const files = await fileScannerService.scan({ paths: [root], extensions: [".mkv", ".mp4", ".avi"] });
 
 		expect(files).toHaveLength(3);
 		expect(files.map((file) => file.endsWith(".txt"))).not.toContain(true);
+		expect(files.some((file) => file.includes("sample."))).toBe(false);
 	});
 
 	test("respects maxDepth", async () => {

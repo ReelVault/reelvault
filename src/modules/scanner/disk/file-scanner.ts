@@ -124,7 +124,16 @@ export function matchesIgnorePattern(filePath: string, rootPath: string, pattern
 	});
 }
 
+/**
+ * Scene-release extras bundled next to the real titles ("sample.mkv" demos the
+ * encode). Left in, one attaches to the movie as a bogus second version — the
+ * scanner skips the name everywhere, like the dot-file rule.
+ */
+const EXTRA_FILE_NAME_PATTERN = /^sample\.[a-z0-9]+$/i;
+
 function isIgnoredPath(filePath: string, rootPath: string): boolean {
+	if (EXTRA_FILE_NAME_PATTERN.test(PathUtils.getFileName(filePath))) return true;
+
 	return matchesIgnorePattern(filePath, rootPath, serverConfig.media.ignorePatterns);
 }
 
