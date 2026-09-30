@@ -10,6 +10,7 @@ function createMockLibrary(overrides: Partial<LibraryWithRelations> = {}): Libra
 		type: "movies",
 		metadataStorageMode: "database",
 		sidecarFlavor: "reelvault",
+		metadataLanguage: null,
 		paths: [],
 		mediaFiles: [],
 		createdAt: new Date(),

@@ -1,0 +1,1 @@
+ALTER TABLE `libraries` ADD `metadata_language` text;

@@ -298,7 +298,7 @@ class LibrariesRepository {
 	 * into a 409 instead of pretending the caller created it.
 	 */
 	async create<F extends string>({
-		values: { name, type, metadataStorageMode = "database", sidecarFlavor = "reelvault", paths },
+		values: { name, type, metadataStorageMode = "database", sidecarFlavor = "reelvault", metadataLanguage = null, paths },
 		fields,
 		tx,
 	}: {
@@ -313,6 +313,7 @@ class LibrariesRepository {
 					type,
 					metadataStorageMode,
 					sidecarFlavor,
+					metadataLanguage,
 				},
 				onConflict: "doNothing",
 				tx: activeTx,

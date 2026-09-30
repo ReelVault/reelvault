@@ -215,16 +215,17 @@ class ProviderService extends BaseService {
 	async fetchAggregatedDetails(
 		type: "movie" | "tv_show",
 		parsed: MediaIdentity,
-		options?: { libraryId?: string | undefined },
+		options?: { libraryId?: string | undefined; language?: string | undefined },
 	): Promise<AggregatedMetadata | null> {
 		const providerKey = await this.getProviderKey();
 		const libraryScope = options?.libraryId ? `:l:${options.libraryId}` : "";
 		const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}${libraryScope}`;
+		const language = options?.language;
 
 		try {
 			return await this.caches.aggregatedDetails.getOrSet(key, async () => {
 				this.publishSearchRequested(type, parsed.title, parsed.year);
-				const accepted = await this.collectAcceptedMatches(type, parsed, options?.libraryId);
+				const accepted = await this.collectAcceptedMatches(type, parsed, options?.libraryId, language);
 				if (accepted.length === 0) throw new NoMatchError();
 
 				const contributions = await PromiseUtils.mapConcurrent(
@@ -232,7 +233,11 @@ class ProviderService extends BaseService {
 					serverConfig.plugins.providers.concurrency,
 					async (candidate): Promise<ProviderContribution | null> => {
 						try {
-							const metadata = await candidate.provider.getDetails(type, candidate.bestMatch.item.externalId);
+							const metadata = await candidate.provider.getDetails(
+								type,
+								candidate.bestMatch.item.externalId,
+								language ? { language } : undefined,
+							);
 							if (!metadata) return null;
 
 							return {
@@ -418,7 +423,12 @@ class ProviderService extends BaseService {
 	 * Searches every enabled provider in parallel (bounded by configured
 	 * concurrency) and returns the confident matches sorted by provider priority.
 	 */
-	private async collectAcceptedMatches(type: "movie" | "tv_show", parsed: MediaIdentity, libraryId?: string): Promise<AcceptedMatch[]> {
+	private async collectAcceptedMatches(
+		type: "movie" | "tv_show",
+		parsed: MediaIdentity,
+		libraryId?: string,
+		language?: string,
+	): Promise<AcceptedMatch[]> {
 		const providers = await metadataProviderSettingsService.getOrderedProviders(libraryId);
 		if (providers.length === 0) return [];
 
@@ -428,7 +438,11 @@ class ProviderService extends BaseService {
 			serverConfig.plugins.providers.concurrency,
 			async ({ provider, index }): Promise<AcceptedMatch | null> => {
 				try {
-					const results = await searchWithVariants((query) => provider.search(type, query, parsed.year), parsed.title, parsed.year);
+					const results = await searchWithVariants(
+						(query) => provider.search(type, query, parsed.year, language ? { language } : undefined),
+						parsed.title,
+						parsed.year,
+					);
 					if (results.length === 0) return null;
 
 					const ranked = rankCandidates(results, parsed.title, parsed.year);
@@ -515,12 +529,14 @@ class ProviderService extends BaseService {
 	 * have come from another (lower-priority) provider, so a single external id
 	 * cannot address all of them. Results are ordered by provider priority.
 	 */
-	async fetchSeasonFromLinks(links: readonly ProviderLink[], seasonNumber: number): Promise<ProviderSeasonDetails[]> {
+	async fetchSeasonFromLinks(links: readonly ProviderLink[], seasonNumber: number, language?: string): Promise<ProviderSeasonDetails[]> {
 		const ordered = await this.orderLinksByPriority(links);
-		const key = `season:${ordered.map((link) => `${link.providerId}:${link.externalId}`).join(",")}:${seasonNumber}`;
+		const key = `season:${ordered.map((link) => `${link.providerId}:${link.externalId}`).join(",")}:${seasonNumber}:${language ?? ""}`;
 
 		return await this.caches.season.getOrSet(key, () =>
-			this.fetchFromProviderLinks(ordered, (provider, externalId) => provider.getSeasonDetails(externalId, seasonNumber)),
+			this.fetchFromProviderLinks(ordered, (provider, externalId) =>
+				provider.getSeasonDetails(externalId, seasonNumber, language ? { language } : undefined),
+			),
 		);
 	}
 
@@ -528,12 +544,15 @@ class ProviderService extends BaseService {
 		links: readonly ProviderLink[],
 		seasonNumber: number,
 		episodeNumber: number,
+		language?: string,
 	): Promise<ProviderEpisodeDetails[]> {
 		const ordered = await this.orderLinksByPriority(links);
-		const key = `episode:${ordered.map((link) => `${link.providerId}:${link.externalId}`).join(",")}:${seasonNumber}:${episodeNumber}`;
+		const key = `episode:${ordered.map((link) => `${link.providerId}:${link.externalId}`).join(",")}:${seasonNumber}:${episodeNumber}:${language ?? ""}`;
 
 		return await this.caches.episode.getOrSet(key, () =>
-			this.fetchFromProviderLinks(ordered, (provider, externalId) => provider.getEpisodeDetails(externalId, seasonNumber, episodeNumber)),
+			this.fetchFromProviderLinks(ordered, (provider, externalId) =>
+				provider.getEpisodeDetails(externalId, seasonNumber, episodeNumber, language ? { language } : undefined),
+			),
 		);
 	}
 

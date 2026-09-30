@@ -11,7 +11,7 @@ const client = databaseFactory.getClient();
 // column); never migrate the shared test database (AGENTS.md).
 const STUB_TABLES = [
 	`CREATE TABLE IF NOT EXISTS libraries (
-		id TEXT PRIMARY KEY, name TEXT, type TEXT, metadata_storage_mode TEXT, sidecar_flavor TEXT NOT NULL DEFAULT 'reelvault',
+		id TEXT PRIMARY KEY, name TEXT, type TEXT, metadata_storage_mode TEXT, sidecar_flavor TEXT NOT NULL DEFAULT 'reelvault', metadata_language TEXT,
 		created_at INTEGER, updated_at INTEGER
 	)`,
 	`CREATE TABLE IF NOT EXISTS library_paths (

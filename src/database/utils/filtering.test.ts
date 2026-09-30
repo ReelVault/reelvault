@@ -33,6 +33,7 @@ describe("QueryFiltering", () => {
 					name TEXT NOT NULL,
 					type TEXT NOT NULL,
 					metadata_storage_mode TEXT, sidecar_flavor TEXT NOT NULL DEFAULT 'reelvault' NOT NULL DEFAULT 'database',
+					metadata_language TEXT,
 					created_at INTEGER NOT NULL,
 					updated_at INTEGER NOT NULL
 				)

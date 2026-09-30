@@ -15,6 +15,9 @@ export const libraries = sqliteTable(
 		sidecarFlavor: text("sidecar_flavor", { enum: ["reelvault", "kodi"] })
 			.notNull()
 			.default("reelvault"),
+		// Per-library metadata language override (ISO code like "pl" or "en-US");
+		// NULL = providers use their own configured language.
+		metadataLanguage: text("metadata_language"),
 
 		...DatabaseHelper.timestamps,
 	},

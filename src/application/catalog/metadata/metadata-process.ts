@@ -3,6 +3,7 @@ import type { ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResul
 import type { TaskSchedulingOptions } from "@/application/context";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
+import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { metadataPersistenceRepository } from "@/database/repositories/metadata-persistence.repository";
 import { moviesRepository } from "@/database/repositories/movies.repository";
@@ -15,6 +16,7 @@ import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { serverConfig } from "@/server.config";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
+import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { enqueueImageProcessing, type ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
@@ -45,6 +47,13 @@ interface MetadataProcessResult {
 const enqueueImagesInBackground = (data: ImageProcessingData, options: TaskSchedulingOptions = {}): Promise<unknown> =>
 	enqueueImageProcessing(data, options);
 
+/**
+ * Per-library metadata language overrides. A scan re-reads one library row per
+ * file otherwise; the cache is short so a PATCH to the override lands quickly.
+ * `""` encodes "no override" because `MemoryCache.get` uses null as a miss.
+ */
+const libraryLanguageCache = new MemoryCache<string>({ ttlMs: 30_000, maxSize: 64, name: "metadata.libraryLanguage" });
+
 export class MetadataProcess extends BaseService {
 	private readonly baseMetadataProcesses = new Map<string, Promise<BaseMetadataProcess>>();
 	private readonly imageEnqueueProcesses = new Map<string, Promise<void>>();
@@ -73,6 +82,10 @@ export class MetadataProcess extends BaseService {
 		try {
 			throwIfAborted(signal);
 
+			// The per-library language override applies to every resolution path —
+			// series details, seasons and episodes alike — so it is resolved once here.
+			const language = await this.resolveLibraryLanguage(libraryId);
+
 			// 0. Sidecar-first: a local NFO carrying imdb/tmdb ids pins the title
 			// without any provider round-trip — works fully offline.
 			const sidecarMatch = sidecar ? await this.findMetadataByIdentifiers(type, sidecar) : undefined;
@@ -90,6 +103,7 @@ export class MetadataProcess extends BaseService {
 					scheduling,
 					sidecarMatch.providers,
 					sidecar,
+					language,
 				);
 				if (tvShow) return tvShow;
 			}
@@ -104,12 +118,12 @@ export class MetadataProcess extends BaseService {
 				}
 
 				// An undefined TV match falls through to the provider search.
-				const tvShow = await this.resolveLocalTVShow(existingLocal, parsed, scheduling, sidecar);
+				const tvShow = await this.resolveLocalTVShow(existingLocal, parsed, scheduling, sidecar, language);
 				if (tvShow) return tvShow;
 			}
 
 			// 2. If not found locally, search metadata providers (e.g. TMDB) and merge the results
-			const aggregated = await providerService.fetchAggregatedDetails(type, enrichedParsed, { libraryId });
+			const aggregated = await providerService.fetchAggregatedDetails(type, enrichedParsed, { libraryId, language });
 			throwIfAborted(signal);
 
 			if (!aggregated) {
@@ -137,6 +151,7 @@ export class MetadataProcess extends BaseService {
 						scheduling,
 						fromSidecar.providers,
 						sidecar,
+						language,
 					),
 				);
 			}
@@ -163,6 +178,8 @@ export class MetadataProcess extends BaseService {
 					baseMetadata.metadataStableKey,
 					scheduling,
 					aggregated.providers,
+					undefined,
+					language,
 				),
 			);
 		} catch (error) {
@@ -181,6 +198,20 @@ export class MetadataProcess extends BaseService {
 		if (result) await this.enqueueBaseMetadataImages(baseMetadata, scheduling);
 
 		return result;
+	}
+
+	/** The library's metadata-language override, if any (empty string cache value = none). */
+	private async resolveLibraryLanguage(libraryId: string | undefined): Promise<string | undefined> {
+		if (!libraryId) return undefined;
+
+		const cached = libraryLanguageCache.get(libraryId);
+		if (cached !== null) return cached || undefined;
+
+		const library = await librariesRepository.findByIdForRead(libraryId).catch(() => null);
+		const language = library?.metadataLanguage ?? "";
+		libraryLanguageCache.set(libraryId, language);
+
+		return language || undefined;
 	}
 
 	private async findExistingLocalMetadata(
@@ -297,6 +328,7 @@ export class MetadataProcess extends BaseService {
 		parsed: MediaIdentity,
 		scheduling?: TaskSchedulingOptions,
 		sidecar?: SidecarMetadataHint,
+		language?: string,
 	): Promise<MetadataProcessResult | undefined> {
 		if (parsed.season === undefined) return undefined;
 
@@ -327,6 +359,7 @@ export class MetadataProcess extends BaseService {
 					scheduling,
 					[{ providerId: providerLink.name, externalId: providerLink.externalId }],
 					sidecar,
+					language,
 				);
 			}
 		} catch (error) {
@@ -435,6 +468,7 @@ export class MetadataProcess extends BaseService {
 		scheduling?: TaskSchedulingOptions,
 		providers?: AggregatedProviderLink[],
 		sidecarHint?: SidecarMetadataHint,
+		language?: string,
 	): Promise<MetadataProcessResult | undefined> {
 		if (parsed.season === undefined) {
 			this.logger.warn("TV show missing season number in identity", { parsed });
@@ -451,7 +485,7 @@ export class MetadataProcess extends BaseService {
 		}
 
 		if (!seasonInfo?.episodes || seasonInfo.episodes.length === 0) {
-			const fetchedSeason = (await providerService.fetchSeasonFromLinks(providerLinks, parsed.season))[0]?.metadata;
+			const fetchedSeason = (await providerService.fetchSeasonFromLinks(providerLinks, parsed.season, language))[0]?.metadata;
 			if (fetchedSeason) {
 				seasonInfo = seasonInfo
 					? { ...seasonInfo, ...fetchedSeason, episodes: fetchedSeason.episodes ?? seasonInfo.episodes }
@@ -479,8 +513,9 @@ export class MetadataProcess extends BaseService {
 		}
 
 		if (parsed.episode !== undefined && !episodeInfo) {
-			episodeInfo = (await providerService.fetchEpisodeFromLinks(providerLinks, Number(seasonInfo.seasonNumber), parsed.episode))[0]
-				?.metadata;
+			episodeInfo = (
+				await providerService.fetchEpisodeFromLinks(providerLinks, Number(seasonInfo.seasonNumber), parsed.episode, language)
+			)[0]?.metadata;
 		}
 
 		if (parsed.episode !== undefined && !episodeInfo) {

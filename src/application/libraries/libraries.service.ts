@@ -32,6 +32,29 @@ import { ingestLibraryCache } from "@/workers/definitions/media/media-file-inges
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped";
 import { libraryWatcherService } from "./watching/library-watcher.service";
 
+const METADATA_LANGUAGE_PATTERN = /^[a-z]{2,3}(?:-[A-Za-z]{2})?$/;
+
+/**
+ * Server-owned normalization for the per-library metadata language override:
+ * `null`/empty clears it, otherwise an ISO language tag is required.
+ * `undefined` (field absent) keeps the stored value untouched on updates.
+ */
+function normalizeMetadataLanguage(value: string | null | undefined): string | null | undefined {
+	if (value === undefined) return undefined;
+	if (value === null) return null;
+
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+
+	if (!METADATA_LANGUAGE_PATTERN.test(trimmed)) {
+		throw new ValidationError("metadataLanguage must be an ISO language code like 'pl' or 'en-US'", {
+			code: "library.invalid_metadata_language",
+		});
+	}
+
+	return trimmed;
+}
+
 class LibrariesService extends BaseService {
 	constructor() {
 		super("LibrariesService");
@@ -78,7 +101,8 @@ class LibrariesService extends BaseService {
 				throw new ConflictError(`A ${body.type} library named "${body.name}" already exists`, { code: "library.name_conflict" });
 			}
 
-			const library = await librariesRepository.createAndRead(body, query);
+			const metadataLanguage = normalizeMetadataLanguage(body.metadataLanguage);
+			const library = await librariesRepository.createAndRead(metadataLanguage === undefined ? body : { ...body, metadataLanguage }, query);
 			if (!library) {
 				// Lost a race against a concurrent create with the same (name, type)
 				// — the pre-check above only catches non-concurrent duplicates.
@@ -126,7 +150,12 @@ class LibrariesService extends BaseService {
 				});
 			}
 
-			const result = await librariesRepository.updateAndRead(libraryId, body, query);
+			const metadataLanguage = normalizeMetadataLanguage(body.metadataLanguage);
+			const result = await librariesRepository.updateAndRead(
+				libraryId,
+				metadataLanguage === undefined ? body : { ...body, metadataLanguage },
+				query,
+			);
 			this.assertExists(result, "Library", libraryId);
 			ingestLibraryCache.delete(libraryId);
 

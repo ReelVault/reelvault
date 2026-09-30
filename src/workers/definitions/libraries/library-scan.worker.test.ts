@@ -25,6 +25,7 @@ function createHarness(options?: {
 		type: "movies",
 		metadataStorageMode: "database",
 		sidecarFlavor: "reelvault",
+		metadataLanguage: null,
 		createdAt: new Date(0),
 		updatedAt: new Date(0),
 		paths: [],
