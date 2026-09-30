@@ -36,6 +36,8 @@ const PLUGIN_UI_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** Page paths are single URL segments mounted under `/plugins/<id>/page/`. */
 const PLUGIN_UI_PAGE_PATH_PATTERN = /^[A-Za-z0-9._-]+$/;
 
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
+
 /** Custom element names must contain a hyphen and be lowercase (WHATWG custom elements spec). */
 const CUSTOM_ELEMENT_NAME_PATTERN = /^[a-z][a-z0-9._]*-[a-z0-9._-]*$/;
 
@@ -86,6 +88,13 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 	if (value.homepage !== undefined) assertSafeHref(value.homepage, "homepage");
 
 	if (value.license !== undefined) assertNonEmptyString(value.license, "license");
+
+	if (value.minServerVersion !== undefined) {
+		assertNonEmptyString(value.minServerVersion, "minServerVersion");
+		if (!SEMVER_PATTERN.test(value.minServerVersion)) {
+			throw new ValidationError(`Plugin manifest minServerVersion must be a semantic version: ${value.minServerVersion}`);
+		}
+	}
 }
 
 export function validatePluginUiManifest(value: unknown): asserts value is PluginUiManifest {

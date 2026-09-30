@@ -6,6 +6,8 @@ import { ValidationError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { isNewerVersion } from "@/utils/semver.utils";
+import { SERVER_VERSION } from "@/version";
 import { calculateDirectoryIntegrity, MUTABLE_CONFIG_FILENAME } from "./installer/directory-hash";
 import { type InstalledPluginRecord, LOCKFILE_NAME, type PluginLockfile, PluginLockfileStore } from "./installer/lockfile.store";
 import { assertNoSymbolicLinks } from "./installer/symlink-guard";
@@ -51,6 +53,12 @@ export class PluginInstaller {
 		await assertNoSymbolicLinks(source, VERIFICATION_CONCURRENCY());
 
 		const manifest = await loadPluginManifest(source);
+		if (manifest.minServerVersion && isNewerVersion(manifest.minServerVersion, SERVER_VERSION)) {
+			throw new ValidationError(
+				`Plugin ${manifest.id} ${manifest.version} requires server ${manifest.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
+				{ code: "plugin.server_too_old" },
+			);
+		}
 		await assertFile(resolvePluginEntry(source, manifest), "Plugin entrypoint");
 
 		const targetDirectory = PathUtils.join(pluginsDirectory, manifest.id);

@@ -40,6 +40,8 @@ export interface PluginCatalogVersionEntry {
 	version: string;
 	date?: string;
 	changelog?: string;
+	/** Oldest server release allowed to install this version — omitted = no floor. */
+	minServerVersion?: string;
 	downloadUrl: string;
 	checksum: string;
 }
@@ -53,6 +55,8 @@ export interface PluginCatalogEntry {
 	homepage?: string;
 	iconUrl?: string;
 	changelog?: string;
+	/** Oldest server release allowed to install the latest version — omitted = no floor. */
+	minServerVersion?: string;
 	downloadUrl: string;
 	checksum: string;
 	date?: string;
@@ -70,6 +74,8 @@ export interface PluginCatalogManifest {
 export interface ResolvedCatalogCandidate {
 	id: string;
 	version: string;
+	/** Present when the resolved entry declares a server-version floor. */
+	minServerVersion?: string;
 	downloadUrl: string;
 	checksum: string;
 }
@@ -87,6 +93,7 @@ export function resolveCatalogCandidate(
 	const toCandidate = (plugin: PluginCatalogEntry): ResolvedCatalogCandidate => ({
 		id: plugin.id,
 		version: plugin.version,
+		...(plugin.minServerVersion ? { minServerVersion: plugin.minServerVersion } : {}),
 		downloadUrl: plugin.downloadUrl,
 		checksum: plugin.checksum,
 	});
@@ -100,7 +107,15 @@ export function resolveCatalogCandidate(
 		if (plugin.version === version) return toCandidate(plugin);
 
 		const archived = plugin.versions?.find((entry) => entry.version === version);
-		if (archived) return { id: plugin.id, version: archived.version, downloadUrl: archived.downloadUrl, checksum: archived.checksum };
+		if (archived) {
+			return {
+				id: plugin.id,
+				version: archived.version,
+				...(archived.minServerVersion ? { minServerVersion: archived.minServerVersion } : {}),
+				downloadUrl: archived.downloadUrl,
+				checksum: archived.checksum,
+			};
+		}
 	}
 
 	return undefined;
@@ -177,6 +192,7 @@ function validateEntry(entry: unknown, index: number): PluginCatalogEntry {
 		...optionalHttpsUrl(entry.iconUrl, "iconUrl"),
 		...optionalString(entry.changelog, "changelog", 4000),
 		...optionalIsoDate(entry.date, "date"),
+		...optionalMinServerVersion(entry.minServerVersion, failure("minServerVersion")),
 		...(capabilities ? { capabilities } : {}),
 		...(versions ? { versions } : {}),
 	};
@@ -217,7 +233,12 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 
 		seen.add(version);
 
-		const parsed: PluginCatalogVersionEntry = { version, downloadUrl, checksum };
+		const parsed: PluginCatalogVersionEntry = {
+			version,
+			downloadUrl,
+			checksum,
+			...optionalMinServerVersion(item.minServerVersion, failure("minServerVersion")),
+		};
 		if (item.date !== undefined && item.date !== null) {
 			const date = assertString(item.date, failure("date"), MAX_DATE_LENGTH);
 			if (Number.isNaN(Date.parse(date))) throw new ValidationError(`${failure("date")} must be an ISO date`);
@@ -242,6 +263,16 @@ function optionalIsoDate(value: unknown, key: string): Partial<Record<string, st
 	if (Number.isNaN(Date.parse(date))) throw new ValidationError(`Catalog plugin: '${key}' must be an ISO date`);
 
 	return { [key]: date };
+}
+
+/** Optional semver floor for the server running the install — absent/null = no floor. */
+function optionalMinServerVersion(value: unknown, label: string): { minServerVersion: string } | Record<string, never> {
+	if (value === undefined || value === null) return {};
+
+	const version = assertString(value, label, 32);
+	if (!SEMVER_PATTERN.test(version)) throw new ValidationError(`${label} must be semantic version`);
+
+	return { minServerVersion: version };
 }
 
 function assertString(value: unknown, label: string, maxLength: number): string {

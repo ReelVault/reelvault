@@ -9,7 +9,9 @@ import { loadPluginManifest } from "@/plugins/lifecycle/plugin.manifest";
 import { NotFoundError, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
+import { isNewerVersion } from "@/utils/semver.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
+import { SERVER_VERSION } from "@/version";
 import {
 	isHttpsUrl,
 	OFFICIAL_PLUGIN_REPOSITORY,
@@ -32,6 +34,7 @@ const toVersionView = (entry: PluginCatalogVersionEntry): PluginCatalogVersionVi
 	version: entry.version,
 	...(entry.date ? { date: entry.date } : {}),
 	...(entry.changelog ? { changelog: entry.changelog } : {}),
+	...(entry.minServerVersion ? { minServerVersion: entry.minServerVersion } : {}),
 });
 
 export interface PluginRepositoryView {
@@ -53,6 +56,7 @@ export interface PluginCatalogVersionView {
 	version: string;
 	date?: string;
 	changelog?: string;
+	minServerVersion?: string;
 }
 
 export interface PluginCatalogEntryView {
@@ -66,6 +70,8 @@ export interface PluginCatalogEntryView {
 	changelog?: string;
 	capabilities?: string[];
 	date?: string;
+	/** Oldest server release that can install this version — the install endpoint refuses older servers. */
+	minServerVersion?: string;
 	versions?: PluginCatalogVersionView[];
 	repositoryId: string;
 	repositoryName: string;
@@ -208,6 +214,15 @@ class PluginCatalogService {
 		const candidate = resolveCatalogCandidate(manifest.plugins, input.pluginId, input.version);
 		if (!candidate)
 			throw new NotFoundError(`Plugin ${input.pluginId} (version ${input.version ?? "latest"}) not found in repository ${row.name}`);
+
+		// The catalog entry declares the oldest compatible server — refuse before
+		// downloading anything. Mirrors the web-UI update gate.
+		if (candidate.minServerVersion && isNewerVersion(candidate.minServerVersion, SERVER_VERSION)) {
+			throw new ValidationError(
+				`Plugin ${candidate.id} ${candidate.version} requires server ${candidate.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
+				{ code: "plugin.server_too_old" },
+			);
+		}
 
 		const installedBefore = (await pluginManager.getInstalledRecords()).find((record) => record.id === candidate.id);
 

@@ -193,3 +193,46 @@ describe("resolveCatalogCandidate", () => {
 		expect(resolveCatalogCandidate([entry], "org.reelvault.unknown", undefined)).toBeUndefined();
 	});
 });
+
+describe("minServerVersion", () => {
+	test("carries the floor from the catalog entry and version history into the candidate", () => {
+		const manifest = parsePluginCatalogManifest(
+			JSON.stringify({
+				apiVersion: 1,
+				name: "x",
+				plugins: [
+					{
+						...VALID_ENTRY,
+						minServerVersion: "1.2.0",
+						versions: [{ ...validVersion("1.1.0"), minServerVersion: "1.1.0" }],
+					},
+				],
+			}),
+		);
+
+		const latest = resolveCatalogCandidate(manifest.plugins, "org.reelvault.tmdb", undefined);
+		expect(latest?.minServerVersion).toBe("1.2.0");
+		const archived = resolveCatalogCandidate(manifest.plugins, "org.reelvault.tmdb", "1.1.0");
+		expect(archived?.minServerVersion).toBe("1.1.0");
+	});
+
+	test("omits the floor when the entry declares none", () => {
+		const manifest = parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY }] }));
+		expect(manifest.plugins[0]?.minServerVersion).toBeUndefined();
+	});
+
+	test("rejects a non-semantic minServerVersion on the entry and on a history entry", () => {
+		expect(() =>
+			parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, minServerVersion: "next" }] })),
+		).toThrow("semantic version");
+		expect(() =>
+			parsePluginCatalogManifest(
+				JSON.stringify({
+					apiVersion: 1,
+					name: "x",
+					plugins: [entryWithVersions([{ ...validVersion("1.1.0"), minServerVersion: "soon" }])],
+				}),
+			),
+		).toThrow("semantic version");
+	});
+});
