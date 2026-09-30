@@ -243,12 +243,14 @@ function gunzipWithinLimit(archive: Uint8Array, maxUncompressedBytes: number): U
 	return output;
 }
 
-function extractEntry(workRoot: string, entryPath: string, bytes: Uint8Array): void {
+function extractEntry(workRoot: string, entryPath: string, bytes: Uint8Array, mode?: number): void {
 	// Synchronous here is fine: zip entries land in memory anyway, and tar is
 	// parsed from an in-memory buffer. Package sizes are capped an order of
 	// magnitude below what would make this a user-facing stall.
 	mkdirSync(dirname(assertSafeDestination(workRoot, entryPath)), { recursive: true });
-	writeFileSync(assertSafeDestination(workRoot, entryPath), bytes);
+	// Tar headers carry the permission bits — launchers (start.sh) and the
+	// bundled bun binary must stay executable after an update swap.
+	writeFileSync(assertSafeDestination(workRoot, entryPath), bytes, mode ? { mode: mode & 0o777 } : undefined);
 }
 
 const TAR_TYPE_REGULAR = new Set(["0", "\0"]);
@@ -310,7 +312,7 @@ function extractTarEntries(archive: Uint8Array, workRoot: string, maxUncompresse
 		total += size;
 		if (total > maxUncompressedBytes) throw new ValidationError(`Plugin package exceeds the uncompressed size limit`);
 
-		extractEntry(workRoot, name, data);
+		extractEntry(workRoot, name, data, Number.parseInt(readTarString(header, 100, 8).replace(/[^0-7]/g, ""), 8));
 	}
 
 	for (const { linkPath, target } of symlinks) {

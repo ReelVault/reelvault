@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,6 +65,7 @@ describe("plugin package utils", () => {
 					}),
 				),
 			},
+			{ path: "plugin-dir/launcher.sh", data: strToU8("#!/bin/sh\necho ok"), mode: "0000755" },
 			{ path: "plugin-dir/target.mjs", data: strToU8("export {}") },
 			{ path: "plugin-dir/node_modules/.bin/tool", linkTo: "../../target.mjs" },
 		]);
@@ -73,6 +74,8 @@ describe("plugin package utils", () => {
 		const created = lstatSync(join(treeDirectory, "node_modules", ".bin", "tool"));
 		expect(created.isSymbolicLink()).toBe(true);
 		expect(readFileSync(join(treeDirectory, "node_modules", ".bin", "tool"), "utf8")).toContain("export");
+		const mode = statSync(join(treeDirectory, "launcher.sh")).mode;
+		expect(mode & 0o111).toBeGreaterThan(0);
 
 		const escaping = buildTar([{ path: "plugin-dir/link.mjs", linkTo: "../../../../../evil.mjs" }]);
 		await expect(extractPluginPackage(await writeArchive(Uint8Array.from(Bun.gzipSync(escaping))))).rejects.toThrow("out-of-tree symlink");
@@ -174,6 +177,7 @@ interface TarEntry {
 	path: string;
 	data?: Uint8Array;
 	linkTo?: string;
+	mode?: string;
 }
 
 /** Minimal ustar writer — enough to exercise the reader, including long names via the prefix field. */
@@ -184,7 +188,7 @@ function buildTar(entries: TarEntry[]): Uint8Array<ArrayBuffer> {
 		const header = new Uint8Array(512);
 		const encoder = new TextEncoder();
 		header.set(encoder.encode(name).subarray(0, 100), 0);
-		header.set(encoder.encode("0000644"), 100);
+		header.set(encoder.encode(entry.mode ?? "0000644"), 100);
 		header.set(encoder.encode("0000000"), 108);
 		header.set(encoder.encode("0000000"), 116);
 		const size = entry.data?.byteLength ?? 0;
