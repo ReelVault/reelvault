@@ -55,6 +55,7 @@ When a type error appears, fix the model, not the cast (`t.Nullable`/`t.Optional
 - SQLite is synchronous: keep queries minimal and indexed. Paginate via `findPageWithQueryMap`. Bulk-chunk id/value lists via `mapChunked`/`forEachChunked` (table-access).
 - Repository methods that read identical across repos are often NOT identical: most classes override `findById`/`findByPrimaryId` with relation hydration, so delegating a "twin" `findByIdForRead` to the table-access object silently drops relations (the type checker rejects it). Never deduplicate textually-identical repo methods without checking for overrides first (attempted + reverted 2026-09-21).
 - Schema changes go through migrations (`bun run db:generate`). Never `db:push`.
+- Migrations are ONLY ever created by `bun run db:generate --name "descriptive_name"` — never hand-write, hand-edit or hand-assemble migration folders/SQL. Between releases, squash accumulated migrations into one: delete the post-release migration folders and re-run `bun run db:generate --name "..."` (drizzle-kit diffs against the last kept snapshot and emits a single combined migration). Never touch existing migrations once a release is out.
 - After any `sdk/` change: rebuild and publish from the `sdk/` repository, then bump `@reelvault/sdk` here and in the other consumers (website, plugins).
 - Any perf change: record before/after numbers, including regressions.
 

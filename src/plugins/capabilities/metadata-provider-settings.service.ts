@@ -1,5 +1,6 @@
-import type { MetadataProviderConfiguration } from "@reelvault/sdk/common";
+import type { LibraryProviderPriority, MetadataProviderConfiguration } from "@reelvault/sdk/common";
 import type { MetadataProvider } from "@reelvault/sdk/plugin";
+import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
 import {
 	type MetadataProviderSetting,
 	metadataProviderSettingsRepository,
@@ -13,26 +14,52 @@ import { ValidationError } from "@/utils/errors";
 class MetadataProviderSettingsService extends BaseService {
 	private cachedSettings?: { expiresAt: number; values: Map<string, MetadataProviderSetting> } | undefined;
 	private cachedOrdered?: { source: MetadataProvider[]; values: MetadataProvider[] } | undefined;
+	private readonly cachedLibraryOverrides = new Map<string, { expiresAt: number; values: Map<string, LibraryProviderPriority> }>();
 
 	constructor() {
 		super("MetadataProviderSettingsService");
 	}
 
-	async getOrderedProviders(): Promise<MetadataProvider[]> {
+	async getOrderedProviders(libraryId?: string): Promise<MetadataProvider[]> {
 		const source = pluginRegistry.getProviders();
-		if (this.cachedOrdered?.source === source) return this.cachedOrdered.values;
+		if (!libraryId) {
+			if (this.cachedOrdered?.source === source) return this.cachedOrdered.values;
+		}
 
 		const settings = await this.getSettings();
+		const overrides = libraryId ? await this.getLibraryOverrides(libraryId) : undefined;
 		const values = source
-			.filter((provider) => settings.get(provider.id)?.enabled ?? true)
+			.filter((provider) => overrides?.get(provider.id)?.enabled ?? settings.get(provider.id)?.enabled ?? true)
 			.toSorted((left, right) => {
 				const priorityDifference =
-					(settings.get(left.id)?.priority ?? serverConfig.plugins.providers.defaultPriority) -
-					(settings.get(right.id)?.priority ?? serverConfig.plugins.providers.defaultPriority);
+					(overrides?.get(left.id)?.priority ?? settings.get(left.id)?.priority ?? serverConfig.plugins.providers.defaultPriority) -
+					(overrides?.get(right.id)?.priority ?? settings.get(right.id)?.priority ?? serverConfig.plugins.providers.defaultPriority);
 
 				return priorityDifference || left.id.localeCompare(right.id);
 			});
+
+		if (libraryId) return values;
+
 		this.cachedOrdered = { source, values };
+
+		return values;
+	}
+
+	/** Saves the full override set for one library (empty list clears overrides). */
+	async setLibraryOverrides(libraryId: string, priorities: LibraryProviderPriority[]): Promise<void> {
+		await libraryProviderSettingsRepository.replaceForLibrary(libraryId, priorities);
+		this.cachedLibraryOverrides.delete(libraryId);
+	}
+
+	async getLibraryOverrides(libraryId: string): Promise<Map<string, LibraryProviderPriority>> {
+		const cached = this.cachedLibraryOverrides.get(libraryId);
+		if (cached && cached.expiresAt > Date.now()) return cached.values;
+
+		const rows = await libraryProviderSettingsRepository.listForLibrary(libraryId);
+		const values = new Map<string, LibraryProviderPriority>(
+			rows.map((row) => [row.providerId, { providerId: row.providerId, priority: row.priority, enabled: row.enabled }]),
+		);
+		this.cachedLibraryOverrides.set(libraryId, { expiresAt: Date.now() + serverConfig.plugins.providers.settingsCacheTtlMs, values });
 
 		return values;
 	}
@@ -79,6 +106,7 @@ class MetadataProviderSettingsService extends BaseService {
 	invalidateCache(): void {
 		this.cachedSettings = undefined;
 		this.cachedOrdered = undefined;
+		this.cachedLibraryOverrides.clear();
 	}
 
 	private async getSettings(): Promise<Map<string, MetadataProviderSetting>> {

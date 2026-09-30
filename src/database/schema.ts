@@ -1,4 +1,5 @@
 import * as adminAudit from "./schemas/admin-audit.schema";
+import * as apiKeys from "./schemas/api-keys.schema";
 import * as auth from "./schemas/auth.schema";
 import * as collections from "./schemas/collections.schema";
 import * as companies from "./schemas/companies.schema";
@@ -8,6 +9,7 @@ import * as genres from "./schemas/genres.schema";
 import * as images from "./schemas/images.schema";
 import * as keywords from "./schemas/keywords.schema";
 import * as libraries from "./schemas/libraries.schema";
+import * as libraryProviderSettings from "./schemas/library-provider-settings.schema";
 import * as mediaArtifacts from "./schemas/media-artifacts.schema";
 import * as mediaFileIngestState from "./schemas/media-file-ingest-state.schema";
 import * as mediaFiles from "./schemas/media-files.schema";
@@ -40,6 +42,7 @@ import * as workerSchedules from "./schemas/worker-schedules.schema";
 
 export const schema = {
 	...adminAudit,
+	...apiKeys,
 	...auth,
 	...collections,
 	...downloads,
@@ -49,6 +52,7 @@ export const schema = {
 	...images,
 	...keywords,
 	...libraries,
+	...libraryProviderSettings,
 	...mediaArtifacts,
 	...mediaFileIngestState,
 	...mediaFiles,

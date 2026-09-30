@@ -55,6 +55,7 @@ export interface MediaFileIngestTaskDependencies {
 		skipExistingLookup: boolean,
 		signal?: AbortSignal,
 		scheduling?: TaskSchedulingOptions,
+		libraryId?: string,
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null>;
 	upsertScanFinding(finding: { libraryId: string; filePath: string; fileName: string; reason: ScanFindingReason }): Promise<void>;
 	deleteScanFinding(libraryId: string, filePath: string): Promise<void>;
@@ -88,8 +89,8 @@ const defaultDependencies: MediaFileIngestTaskDependencies = {
 
 		return library;
 	},
-	processFile: (libraryType, filePath, skipExistingLookup, signal, scheduling) =>
-		mediaFileProcessor.process(libraryType, filePath, skipExistingLookup, signal, scheduling),
+	processFile: (libraryType, filePath, skipExistingLookup, signal, scheduling, libraryId) =>
+		mediaFileProcessor.process(libraryType, filePath, skipExistingLookup, signal, scheduling, { libraryId }),
 	upsertScanFinding: (finding) => scanFindingsRepository.upsert(finding),
 	deleteScanFinding: (libraryId, filePath) => scanFindingsRepository.remove(libraryId, filePath),
 	createMediaFile: (data) => mediaRepository.createWithStreams(data),
@@ -267,7 +268,7 @@ export async function ingestMediaFileTask(
 		assertFound(library, "Library", data.libraryId);
 
 		const taskScheduling = toTaskSchedulingOptions(orchestration);
-		const mediaFile = await dependencies.processFile(data.libraryType, data.filePath, true, context.signal, taskScheduling);
+		const mediaFile = await dependencies.processFile(data.libraryType, data.filePath, true, context.signal, taskScheduling, data.libraryId);
 		if (!mediaFile) {
 			await dependencies.deleteScanFinding(data.libraryId, data.filePath);
 

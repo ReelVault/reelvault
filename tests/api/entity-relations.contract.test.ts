@@ -40,6 +40,11 @@ const STUB_TABLES = [
 		id TEXT PRIMARY KEY, library_id TEXT, stable_key TEXT, path TEXT,
 		is_active INTEGER, metadata_storage_mode TEXT, created_at INTEGER, updated_at INTEGER
 	)`,
+	`CREATE TABLE IF NOT EXISTS library_provider_settings (
+		library_id TEXT NOT NULL, provider_id TEXT NOT NULL,
+		priority INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT true,
+		PRIMARY KEY (library_id, provider_id)
+	)`,
 	`CREATE TABLE IF NOT EXISTS media_files (
 		id TEXT PRIMARY KEY, library_id TEXT, metadata_id TEXT, movie_id TEXT, episode_id TEXT,
 		file_path TEXT, file_name TEXT, format_name TEXT, duration INTEGER, file_size INTEGER,

@@ -399,6 +399,13 @@ export const serverConfig = {
 		},
 	},
 
+	/** Session cookie Max-Age override (better-auth snapshot: restart to apply). */
+	session: {
+		get lifetimeDays() {
+			return systemSettingsStore.get("auth.sessionLifetimeDays");
+		},
+	},
+
 	/** Admin analytics look-back (the dashboard's "all" view) */
 	analytics: {
 		get windowDays() {
@@ -409,6 +416,15 @@ export const serverConfig = {
 	/** API Pagination */
 	api: {
 		...serverConstants.api,
+		rateLimit: {
+			...serverConstants.api.rateLimit,
+			get globalMax() {
+				return systemSettingsStore.get("network.rateLimit.globalMax");
+			},
+			get routeMultiplier() {
+				return systemSettingsStore.get("network.rateLimit.routeMultiplier");
+			},
+		},
 		pagination: {
 			...serverConstants.api.pagination,
 			get defaultLimit() {
@@ -509,6 +525,9 @@ export const serverConfig = {
 		...serverConstants.auth,
 		get enforceTwoFactor() {
 			return systemSettingsStore.get("auth.enforceTwoFactor");
+		},
+		get loginAccountMaxAttempts() {
+			return systemSettingsStore.get("auth.rateLimit.loginAccountMaxAttempts");
 		},
 	},
 };

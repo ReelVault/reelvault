@@ -21,6 +21,9 @@ import type { PluginEventHandlerErased, PluginScopeApi } from "./plugin.scope";
 import { createPluginHost } from "./plugin-host.factory";
 
 class ScopeSpy implements PluginScopeApi {
+	registerNotificationChannelScope(): void {
+		// Channels are covered by the dedicated registry test.
+	}
 	readonly used: PluginCapabilityName[] = [];
 	readonly providers: MetadataProvider[] = [];
 	readonly analyzers: MediaAnalyzer[] = [];

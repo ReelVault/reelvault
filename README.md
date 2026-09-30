@@ -69,7 +69,7 @@ ReelVault's plugin SDK is published as [`reelvault-sdk`](https://www.npmjs.com/p
 To use the server as a library (SDK/typed client):
 
 ```bash
-bun run build-sdk   # emits sdk/dist/ (root, client, common, plugin, ui, testing)
+# (SDK lives in the sibling repo: `sdk/` — build with `bun run build` there)
 ```
 
 ## Scripts

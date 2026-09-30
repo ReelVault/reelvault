@@ -14,11 +14,16 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 	// vote count (log-scaled), "simple" averages every source equally.
 	"metadata.ratingAggregation": creator.enum("metadata.ratingAggregation", ["votes", "simple"], "votes"),
 
+	// Titles scoring below this threshold are listed as low-confidence matches.
+	"metadata.minMatchScore": creator.number("metadata.minMatchScore", 0.45, 1, 0.75),
+
 	"system.database.operationRetentionDays": creator.number("system.database.operationRetentionDays", 1, 365, 7),
 	"system.logs.retentionDays": creator.number("system.logs.retentionDays", 1, 365, 7),
 
 	// Require every account to have TOTP configured before sign-in is accepted.
 	"auth.enforceTwoFactor": creator.boolean("auth.enforceTwoFactor", false),
+	"auth.sessionLifetimeDays": creator.number("auth.sessionLifetimeDays", 1, 365, 7),
+	"auth.rateLimit.loginAccountMaxAttempts": creator.number("auth.rateLimit.loginAccountMaxAttempts", 3, 100, 10),
 
 	// 0 keeps the full play history; a positive value prunes older rows in the
 	// daily database cleanup (history feeds analytics, insights and wrapped).

@@ -1,10 +1,16 @@
-import { AdminDatabaseBackupListSchema, AdminDatabaseBackupSchema } from "@reelvault/sdk/common";
+import { AdminDatabaseBackupListSchema, AdminDatabaseBackupSchema, AdminDatabaseRestoreResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { databaseBackupService } from "@/application/admin/database-backup.service";
+import { databaseRestoreService } from "@/application/admin/database-restore.service";
+import { env } from "@/env";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { createLogger } from "@/utils/logger";
+
+const databaseRestoreLogger = createLogger("AdminDatabaseRestore");
 
 export const adminDatabaseRoutes = new Elysia({ tags: ["Admin"] })
 	.use(commonModel)
@@ -24,6 +30,33 @@ export const adminDatabaseRoutes = new Elysia({ tags: ["Admin"] })
 			description: "Create an online SQLite database backup immediately using VACUUM INTO.",
 		},
 	})
+	.post(
+		"/database/restore",
+		async ({ body, request, status }) => {
+			const result = await databaseRestoreService.restore(body.fileName, env.ROOT_DIR, env.DB_FILE_NAME, process.cwd());
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "database_restore",
+					resourceId: body.fileName,
+					after: { restarting: result.restarting },
+					context: { headers: request.headers },
+				},
+				databaseRestoreLogger,
+			);
+
+			return status(202, result);
+		},
+		{
+			rateLimit: { name: "admin-db-restore", max: 3, windowMs: 10 * MINUTE },
+			body: t.Object({ fileName: t.String({ minLength: 1 }) }),
+			response: { ...ROUTE_ERRORS.ADMIN, 202: AdminDatabaseRestoreResponseSchema },
+			detail: {
+				description:
+					"Queue a database restore from an existing backup. The server shuts down, a detached helper swaps the database file and relaunches — expect a restart.",
+			},
+		},
+	)
 	.delete(
 		"/database/backups/:fileName",
 		async ({ params }) => {

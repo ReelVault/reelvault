@@ -12,6 +12,7 @@ import type {
 	PluginHttpRoute,
 	PluginJobDefinition,
 	PluginJobHandle,
+	PluginNotificationChannel,
 	PluginScheduledTaskDefinition,
 	PluginUiManifest,
 	SubtitleProvider,
@@ -29,6 +30,7 @@ import {
 	unregisterPluginJobs,
 	validatePluginJobSchedule,
 } from "../../capabilities/plugin.jobs";
+import { registerNotificationChannel, unregisterPluginNotificationChannels } from "../../runtime/notification-channel.registry";
 import { pluginAccessBus } from "../../runtime/plugin.access";
 import { pluginEventBus } from "../../runtime/plugin.events";
 import { pluginHookBus } from "../../runtime/plugin.hooks";
@@ -38,6 +40,7 @@ import { removePluginRuntime } from "../plugin-runtime-copy";
 
 export interface PluginScopeApi {
 	useCapability(name: PluginCapabilityName): void;
+	registerNotificationChannelScope(channel: PluginNotificationChannel): void;
 	addAnalyzer(analyzer: MediaAnalyzer): void;
 	addProvider(provider: MetadataProvider): void;
 	addSubtitleProvider(provider: SubtitleProvider): void;
@@ -266,6 +269,12 @@ export class PluginScope {
 		this.unsubscribers.push(pluginAccessBus.register(pluginId, policy));
 	}
 
+	registerNotificationChannelScope(channel: PluginNotificationChannel): void {
+		if (!this.pluginId) throw new ValidationError("Notification channel registered before plugin scope bind");
+
+		this.unsubscribers.push(registerNotificationChannel(this.pluginId, channel));
+	}
+
 	async cleanup(): Promise<void> {
 		for (const unsubscribe of this.unsubscribers.toReversed()) unsubscribe();
 
@@ -274,6 +283,7 @@ export class PluginScope {
 		if (this.pluginId) {
 			pluginRoutesRegistry.unregisterPlugin(this.pluginId);
 			scheduledTasksService.unregisterByPlugin(this.pluginId);
+			unregisterPluginNotificationChannels(this.pluginId);
 		}
 
 		if (this.jobNames.size > 0) {

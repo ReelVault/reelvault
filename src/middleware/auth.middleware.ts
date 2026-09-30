@@ -1,7 +1,9 @@
 import type { Profile, Session, User } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { isImageAssetPath, isPluginUiPath } from "@/api/utils/route-classification.utils";
+import { apiKeysService } from "@/application/admin/api-keys.service";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
+import { usersRepository } from "@/database/repositories/users.repository";
 import { env } from "@/env";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { getOrSetSession } from "@/integrations/better-auth/better-auth.session-cache";
@@ -59,6 +61,30 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 		}> => {
 			if (isPublicGet(request)) {
 				return { user: null, session: null, profile: null };
+			}
+
+			// Machine integration keys short-circuit before better-auth: the key is
+			// its own credential and the principal is the admin who created it.
+			const apiKeyHeader = request.headers.get("x-api-key");
+			if (apiKeyHeader?.startsWith("rv_")) {
+				const principal = await apiKeysService.authenticate(apiKeyHeader);
+				if (!principal) {
+					return { user: null, session: null, profile: null };
+				}
+
+				if (request.method !== "GET" && principal.scope === "read_only") {
+					throw new ForbiddenError("This API key is read-only", { code: "api_key.read_only" });
+				}
+
+				const profileId = current_profile_id?.value ?? request.headers.get("x-profile-id");
+				const rawProfile = typeof profileId === "string" ? ((await profilesRepository.findByPrimaryIdCached(profileId)) ?? null) : null;
+				const profile = rawProfile && rawProfile.userId === principal.user.id ? rawProfile : null;
+
+				// Full owner record — guards and audit consumers read role/ban state.
+				const user = await usersRepository.findById(principal.user.id);
+				if (!user) return { user: null, session: null, profile: null };
+
+				return { user, session: null, profile };
 			}
 
 			if (!hasAuthCredentials(request.headers)) {
@@ -192,7 +218,7 @@ function toDate(value: unknown): Date {
 }
 
 function hasAuthCredentials(headers: Headers): boolean {
-	if (headers.get("authorization")) return true;
+	if (headers.get("authorization") || headers.get("x-api-key")) return true;
 
 	const cookie = headers.get("cookie");
 	if (!cookie) return false;

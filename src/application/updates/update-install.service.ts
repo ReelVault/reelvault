@@ -445,7 +445,7 @@ function writeWindowsSwapScript(root: string): void {
 	detachedSpawn("cmd", ["/c", "start", "", script]);
 }
 
-function detachedSpawn(command: string, args: string[]): void {
+export function detachedSpawn(command: string, args: string[]): void {
 	Bun.spawn([command, ...args], {
 		detached: true,
 		stdio: ["ignore", "ignore", "ignore"],

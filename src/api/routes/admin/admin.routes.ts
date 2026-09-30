@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { adminAnalyticsRoutes } from "./admin-analytics.routes";
+import { adminApiKeysRoutes } from "./admin-api-keys.routes";
 import { adminCollectionsRoutes } from "./admin-collections.routes";
 import { adminDatabaseRoutes } from "./admin-database.routes";
 import { adminDownloadsRoutes } from "./admin-downloads.routes";
@@ -30,6 +31,7 @@ export const adminRoutes = new Elysia({
 	.use(adminDownloadsRoutes)
 	.use(adminCollectionsRoutes)
 	.use(adminAnalyticsRoutes)
+	.use(adminApiKeysRoutes)
 	.use(adminNetworkRoutes)
 	.use(adminLiveSessionsRoutes)
 	.use(adminProcessesRoutes)

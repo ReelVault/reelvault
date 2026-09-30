@@ -4,11 +4,13 @@ import { playbackRepository } from "@/database/repositories/playback.repository"
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { realtimeService } from "@/modules/realtime/realtime.service";
+import { dispatchNotificationToChannels } from "@/plugins/runtime/notification-channel.registry";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { ForbiddenError, ValidationError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
+import { detach } from "@/utils/promise.utils";
 import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 
 // Clients poll unread-count on an interval; a short TTL absorbs the poll storm
@@ -65,11 +67,25 @@ class NotificationsService extends BaseService {
 				sourcePluginId,
 			});
 			unreadCountCache.delete(unreadCountKey(notification.userId, notification.profileId ?? undefined));
-			pluginEventBus.publish("notification.created", {
-				notificationId: id,
+			const outgoing = {
+				id,
 				userId: notification.userId,
 				profileId: notification.profileId,
 				type: notification.type,
+				title: notification.title,
+				message: notification.message ?? null,
+				data: notification.data ?? {},
+				link: notification.link ?? null,
+			};
+			pluginEventBus.publish("notification.created", {
+				notificationId: outgoing.id,
+				userId: outgoing.userId,
+				profileId: notification.profileId,
+				type: outgoing.type,
+				title: outgoing.title,
+				message: outgoing.message,
+				link: outgoing.link,
+				data: outgoing.data,
 				sourcePluginId,
 			});
 			const realtimePayload = {
@@ -86,6 +102,11 @@ class NotificationsService extends BaseService {
 			} else {
 				realtimeService.sendToUser(notification.userId, "notification:created", realtimePayload);
 			}
+
+			// External channels are best-effort: delivery runs detached so a slow
+			// webhook never delays the API response (registry contains per-channel
+			// error isolation).
+			detach(dispatchNotificationToChannels(outgoing));
 
 			return id;
 		});
@@ -218,7 +239,23 @@ class NotificationsService extends BaseService {
 						userId: recipient.userId,
 						profileId: recipient.profileId,
 						type: "new_episode",
+						title: items[i]?.title ?? "notification.new_episode",
+						message: null,
+						link: `/details/${input.metadataId}`,
+						data: items[i]?.data ?? {},
 					});
+					detach(
+						dispatchNotificationToChannels({
+							id: notifId,
+							userId: recipient.userId,
+							profileId: recipient.profileId,
+							type: "new_episode",
+							title: items[i]?.title ?? "notification.new_episode",
+							message: null,
+							link: `/details/${input.metadataId}`,
+							data: items[i]?.data ?? {},
+						}),
+					);
 				}
 			}
 		});

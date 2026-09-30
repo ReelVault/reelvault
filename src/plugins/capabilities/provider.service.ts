@@ -212,14 +212,19 @@ class ProviderService extends BaseService {
 	 * the highest-priority provider anchors each field, lower-priority providers
 	 * fill gaps, and ratings are collected from every source.
 	 */
-	async fetchAggregatedDetails(type: "movie" | "tv_show", parsed: MediaIdentity): Promise<AggregatedMetadata | null> {
+	async fetchAggregatedDetails(
+		type: "movie" | "tv_show",
+		parsed: MediaIdentity,
+		options?: { libraryId?: string | undefined },
+	): Promise<AggregatedMetadata | null> {
 		const providerKey = await this.getProviderKey();
-		const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}`;
+		const libraryScope = options?.libraryId ? `:l:${options.libraryId}` : "";
+		const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}${libraryScope}`;
 
 		try {
 			return await this.caches.aggregatedDetails.getOrSet(key, async () => {
 				this.publishSearchRequested(type, parsed.title, parsed.year);
-				const accepted = await this.collectAcceptedMatches(type, parsed);
+				const accepted = await this.collectAcceptedMatches(type, parsed, options?.libraryId);
 				if (accepted.length === 0) throw new NoMatchError();
 
 				const contributions = await PromiseUtils.mapConcurrent(
@@ -413,8 +418,8 @@ class ProviderService extends BaseService {
 	 * Searches every enabled provider in parallel (bounded by configured
 	 * concurrency) and returns the confident matches sorted by provider priority.
 	 */
-	private async collectAcceptedMatches(type: "movie" | "tv_show", parsed: MediaIdentity): Promise<AcceptedMatch[]> {
-		const providers = await metadataProviderSettingsService.getOrderedProviders();
+	private async collectAcceptedMatches(type: "movie" | "tv_show", parsed: MediaIdentity, libraryId?: string): Promise<AcceptedMatch[]> {
+		const providers = await metadataProviderSettingsService.getOrderedProviders(libraryId);
 		if (providers.length === 0) return [];
 
 		const indexed = providers.map((provider, index) => ({ provider, index }));

@@ -14,7 +14,9 @@ import type {
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
+import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
 import { type ScanFindingItem, scanFindingsRepository } from "@/database/repositories/scan-findings.repository";
+import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { BaseService } from "@/utils/base-service";
 import { ConflictError, ValidationError } from "@/utils/errors";
 import { PathUtils } from "@/utils/path.utils";
@@ -53,10 +55,13 @@ class LibrariesService extends BaseService {
 
 				return Object.assign(library, {
 					siblings: siblings.filter((sibling) => sibling.id !== library.id),
+					providerPriorities: await libraryProviderSettingsRepository.listForLibrary(libraryId),
 				});
 			}
 
-			return library;
+			return Object.assign(library, {
+				providerPriorities: await libraryProviderSettingsRepository.listForLibrary(libraryId),
+			});
 		});
 	}
 
@@ -78,6 +83,11 @@ class LibrariesService extends BaseService {
 				// Lost a race against a concurrent create with the same (name, type)
 				// — the pre-check above only catches non-concurrent duplicates.
 				throw new ConflictError(`A ${body.type} library named "${body.name}" already exists`, { code: "library.name_conflict" });
+			}
+
+			if (body.providerPriorities) {
+				await metadataProviderSettingsService.setLibraryOverrides(library.id, body.providerPriorities);
+				library.providerPriorities = await libraryProviderSettingsRepository.listForLibrary(library.id);
 			}
 
 			recordAuditSafe(
@@ -119,6 +129,11 @@ class LibrariesService extends BaseService {
 			const result = await librariesRepository.updateAndRead(libraryId, body, query);
 			this.assertExists(result, "Library", libraryId);
 			ingestLibraryCache.delete(libraryId);
+
+			if (body.providerPriorities) {
+				await metadataProviderSettingsService.setLibraryOverrides(libraryId, body.providerPriorities);
+				result.providerPriorities = await libraryProviderSettingsRepository.listForLibrary(libraryId);
+			}
 
 			recordAuditSafe(
 				{

@@ -51,11 +51,12 @@ class MediaFileProcessor extends BaseService {
 		skipExistingLookup = false,
 		signal?: AbortSignal,
 		scheduling?: TaskSchedulingOptions,
+		options?: { libraryId?: string | undefined },
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
 		const existingProcess = this.processingFiles.get(filePath);
 		if (existingProcess) return await existingProcess;
 
-		const processing = this.processOnce(libraryType, filePath, skipExistingLookup, signal, scheduling);
+		const processing = this.processOnce(libraryType, filePath, skipExistingLookup, signal, scheduling, options);
 		this.processingFiles.set(filePath, processing);
 
 		try {
@@ -71,6 +72,7 @@ class MediaFileProcessor extends BaseService {
 		skipExistingLookup: boolean,
 		signal?: AbortSignal,
 		scheduling?: TaskSchedulingOptions,
+		options?: { libraryId?: string | undefined },
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
 		try {
 			throwIfAborted(signal);
@@ -110,6 +112,7 @@ class MediaFileProcessor extends BaseService {
 					sidecar: await this.readSidecarHint(filePath, recognition.type),
 					signal,
 					scheduling,
+					libraryId: options?.libraryId,
 				}),
 				FileUtils.getStats(filePath),
 			]);

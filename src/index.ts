@@ -116,6 +116,7 @@ const app = new Elysia({ name: "ReelVault", aot: true })
 				"x-requested-with",
 				"x-profile-id",
 				"x-setup-token",
+				"x-api-key",
 				"x-client-shell",
 			],
 			// Browser clients need explicit access to these non-simple response headers.

@@ -1,11 +1,15 @@
 {
 	"version": "7",
 	"dialect": "sqlite",
-	"id": "332b65a3-40fc-44a5-9703-b97e92d2313a",
-	"prevIds": ["bcea3e5b-c23d-4f72-8cba-6535e48313eb"],
+	"id": "2adfc73b-f6bc-4842-ba17-7f216fb33a2e",
+	"prevIds": ["fe1dd138-23f6-49fe-bddd-7cc167fdb7fa"],
 	"ddl": [
 		{
 			"name": "admin_audit_logs",
+			"entityType": "tables"
+		},
+		{
+			"name": "api_keys",
 			"entityType": "tables"
 		},
 		{
@@ -86,6 +90,10 @@
 		},
 		{
 			"name": "library_paths",
+			"entityType": "tables"
+		},
+		{
+			"name": "library_provider_settings",
 			"entityType": "tables"
 		},
 		{
@@ -407,6 +415,106 @@
 			"name": "updated_at",
 			"entityType": "columns",
 			"table": "admin_audit_logs"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "id",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "name",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "key_hash",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "key_prefix",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'read_only'",
+			"generated": null,
+			"name": "scope",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "created_by",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "expires_at",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "last_used_at",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "created_at",
+			"entityType": "columns",
+			"table": "api_keys"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "updated_at",
+			"entityType": "columns",
+			"table": "api_keys"
 		},
 		{
 			"type": "text",
@@ -1757,6 +1865,46 @@
 			"name": "updated_at",
 			"entityType": "columns",
 			"table": "library_paths"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "library_id",
+			"entityType": "columns",
+			"table": "library_provider_settings"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "provider_id",
+			"entityType": "columns",
+			"table": "library_provider_settings"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "priority",
+			"entityType": "columns",
+			"table": "library_provider_settings"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "true",
+			"generated": null,
+			"name": "enabled",
+			"entityType": "columns",
+			"table": "library_provider_settings"
 		},
 		{
 			"type": "text",
@@ -5430,6 +5578,17 @@
 			"table": "admin_audit_logs"
 		},
 		{
+			"columns": ["created_by"],
+			"tableTo": "users",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"name": "fk_api_keys_created_by_users_id_fk",
+			"entityType": "fks",
+			"table": "api_keys"
+		},
+		{
 			"columns": ["userId"],
 			"tableTo": "users",
 			"columnsTo": ["id"],
@@ -5648,6 +5807,17 @@
 			"name": "fk_library_paths_library_id_libraries_id_fk",
 			"entityType": "fks",
 			"table": "library_paths"
+		},
+		{
+			"columns": ["library_id"],
+			"tableTo": "libraries",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"name": "fk_library_provider_settings_library_id_libraries_id_fk",
+			"entityType": "fks",
+			"table": "library_provider_settings"
 		},
 		{
 			"columns": ["media_file_id"],
@@ -6297,6 +6467,13 @@
 			"table": "keyword_providers"
 		},
 		{
+			"columns": ["library_id", "provider_id"],
+			"nameExplicit": false,
+			"name": "library_provider_settings_pk",
+			"entityType": "pks",
+			"table": "library_provider_settings"
+		},
+		{
 			"columns": ["media_file_id"],
 			"nameExplicit": false,
 			"name": "media_file_ingest_state_pk",
@@ -6455,6 +6632,13 @@
 			"nameExplicit": false,
 			"name": "admin_audit_logs_pk",
 			"table": "admin_audit_logs",
+			"entityType": "pks"
+		},
+		{
+			"columns": ["id"],
+			"nameExplicit": false,
+			"name": "api_keys_pk",
+			"table": "api_keys",
 			"entityType": "pks"
 		},
 		{
@@ -6819,6 +7003,34 @@
 			"name": "admin_audit_ip_idx",
 			"entityType": "indexes",
 			"table": "admin_audit_logs"
+		},
+		{
+			"columns": [
+				{
+					"value": "key_hash",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"name": "api_keys_hash_unique",
+			"entityType": "indexes",
+			"table": "api_keys"
+		},
+		{
+			"columns": [
+				{
+					"value": "created_by",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"name": "api_keys_created_by_idx",
+			"entityType": "indexes",
+			"table": "api_keys"
 		},
 		{
 			"columns": [
@@ -9151,6 +9363,12 @@
 			"name": "worker_schedules_worker_id_unique",
 			"entityType": "uniques",
 			"table": "worker_schedules"
+		},
+		{
+			"value": "\"scope\" IN ('read_only', 'full')",
+			"name": "api_keys_scope_check",
+			"entityType": "checks",
+			"table": "api_keys"
 		},
 		{
 			"value": "\"progress_percent\" >= 0 AND \"progress_percent\" <= 100",

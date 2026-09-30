@@ -14,10 +14,31 @@ import { isRecord } from "@/utils/type.utils";
 const publicUrl = env.APP_PUBLIC_URL ? normalizeHttpUrl(env.APP_PUBLIC_URL).toString() : undefined;
 const baseUrl = publicUrl ?? `http://localhost:${env.APP_PORT}`;
 
+/**
+ * Sync read of the session lifetime straight from the settings table. better-auth
+ * snapshots its options once at construction — this module loads before the
+ * settings service — so a plain table read with default fallback is the only
+ * way to honor the panel value. Restart applies changes to NEW sessions.
+ */
+function readSessionLifetimeSeconds(): number {
+	try {
+		const row: unknown = databaseFactory.sqlite
+			.query("SELECT value FROM system_settings WHERE key = 'auth.sessionLifetimeDays' LIMIT 1")
+			.get();
+		const value = isRecord(row) && typeof row.value === "string" ? row.value : undefined;
+		const days = value !== undefined ? Number(value) : Number.NaN;
+
+		return Number.isFinite(days) && days >= 1 ? Math.round(days * 86_400) : 604_800;
+	} catch {
+		return 604_800;
+	}
+}
+
 export const auth = betterAuth({
 	appName: serverConfig.auth.appName,
 	baseURL: baseUrl,
 	session: {
+		expiresIn: readSessionLifetimeSeconds(),
 		cookieCache: {
 			enabled: true,
 			maxAge: 5 * 60,

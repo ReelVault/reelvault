@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { LOW_CONFIDENCE_MATCH_SCORE } from "@/server.constants";
 
 /** Aggregate counts backing the admin dashboard stats card. */
 class AdminStatsRepository {
@@ -27,7 +27,7 @@ class AdminStatsRepository {
 				totalCount: sql<number>`count(*)`,
 				moviesCount: sql<number>`count(case when ${schema.metadata.type} = 'movie' then 1 end)`,
 				tvShowsCount: sql<number>`count(case when ${schema.metadata.type} = 'tv_show' then 1 end)`,
-				lowConfidenceCount: sql<number>`count(case when ${schema.metadata.matchScore} is not null and ${schema.metadata.matchScore} < ${LOW_CONFIDENCE_MATCH_SCORE} then 1 end)`,
+				lowConfidenceCount: sql<number>`count(case when ${schema.metadata.matchScore} is not null and ${schema.metadata.matchScore} < ${systemSettingsStore.get("metadata.minMatchScore")} then 1 end)`,
 				missingTranslationCount: sql<number>`count(case when ${schema.metadata.hasMissingTranslation} then 1 end)`,
 			})
 			.from(schema.metadata);

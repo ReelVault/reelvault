@@ -61,12 +61,14 @@ export class MetadataProcess extends BaseService {
 		sidecar,
 		signal,
 		scheduling,
+		libraryId,
 	}: {
 		type: "movie" | "tv_show";
 		parsed: MediaIdentity;
 		sidecar?: SidecarMetadataHint | undefined;
 		signal?: AbortSignal | undefined;
 		scheduling?: TaskSchedulingOptions | undefined;
+		libraryId?: string | undefined;
 	}): Promise<MetadataProcessResult | undefined> {
 		try {
 			throwIfAborted(signal);
@@ -107,7 +109,7 @@ export class MetadataProcess extends BaseService {
 			}
 
 			// 2. If not found locally, search metadata providers (e.g. TMDB) and merge the results
-			const aggregated = await providerService.fetchAggregatedDetails(type, enrichedParsed);
+			const aggregated = await providerService.fetchAggregatedDetails(type, enrichedParsed, { libraryId });
 			throwIfAborted(signal);
 
 			if (!aggregated) {

@@ -46,7 +46,7 @@ class AuthService extends BaseService {
 	async login(body: LoginRequest, request: Request): Promise<Response> {
 		return await this.safeExecute("login", async () => {
 			const accountKey = `login:${normalizeLower(body.email.trim())}`;
-			const result = loginAccountLimiter.consume(accountKey, serverConfig.auth.rateLimit.loginAccountMaxAttempts, LOGIN_ACCOUNT_WINDOW_MS);
+			const result = loginAccountLimiter.consume(accountKey, serverConfig.auth.loginAccountMaxAttempts, LOGIN_ACCOUNT_WINDOW_MS);
 			if (!result.allowed) {
 				throw new TooManyRequestsError("Too many login attempts for this account.", {
 					code: "rate_limit.exceeded",

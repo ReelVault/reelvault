@@ -338,6 +338,15 @@ function buildNotificationsCapability(pluginId: string, scope: PluginScopeApi): 
 	};
 }
 
+function buildNotificationChannelsCapability(scope: PluginScopeApi): PluginHost["notificationChannels"] {
+	return {
+		register: (channel) => {
+			scope.useCapability("notificationChannel");
+			scope.registerNotificationChannelScope(channel);
+		},
+	};
+}
+
 function buildRealtimeCapability(pluginId: string, scope: PluginScopeApi): PluginHost["realtime"] {
 	return {
 		broadcast: (type, payload) => {
@@ -385,6 +394,7 @@ export function createPluginHost(
 		hooks: buildHooksCapability(pluginId, scope),
 		access: buildAccessCapability(pluginId, scope),
 		notifications: buildNotificationsCapability(pluginId, scope),
+		notificationChannels: buildNotificationChannelsCapability(scope),
 		realtime: buildRealtimeCapability(pluginId, scope),
 	};
 }
