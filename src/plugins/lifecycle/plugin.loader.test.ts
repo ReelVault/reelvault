@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { write } from "bun";
 import { sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
-import { namespacePluginJobName } from "@/plugins/capabilities/plugin.jobs";
 import type { PluginConfig } from "./plugin.config";
 import { PluginLoader } from "./plugin.loader";
 import { PluginRegistry } from "./plugin.registry";
@@ -23,12 +22,6 @@ afterEach(async () => {
 	Reflect.deleteProperty(globalThis, analyzerDisposeKey);
 	(globalThis as Record<string, unknown>).__reelvaultPluginDisableFails = undefined;
 	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-});
-
-describe("plugin job names", () => {
-	test("namespaces a local job name with its plugin id", () => {
-		expect(namespacePluginJobName("org.reelvault.trickplay", "generate")).toBe("org.reelvault.trickplay:generate");
-	});
 });
 
 describe("plugin loader lifecycle", () => {

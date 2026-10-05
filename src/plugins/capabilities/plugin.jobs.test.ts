@@ -28,6 +28,13 @@ describe("plugin job clamps", () => {
 		expect(definition?.timeoutMs).toBeLessThanOrEqual(MAX_PLUGIN_JOB_TIMEOUT_MS * 2);
 	});
 
+	test("namespaces a local job name with its plugin id", async () => {
+		const names = await registerPluginJobs("org.reelvault.trickplay", [{ name: "generate", handler: async () => undefined }]);
+		registered.push(names);
+
+		expect(names).toEqual(["org.reelvault.trickplay:generate"]);
+	});
+
 	test("leaves an unspecified concurrency for hardware-based allocation", async () => {
 		const names = await registerPluginJobs("org.reelvault.clamp", [{ name: "auto", handler: async () => undefined }]);
 		registered.push(names);

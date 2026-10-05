@@ -185,10 +185,6 @@ class PluginJobsService extends BaseService {
 
 const pluginJobsService = new PluginJobsService();
 
-export function namespacePluginJobName(pluginId: string, jobName: string): string {
-	return pluginJobsService.namespace(pluginId, jobName);
-}
-
 export function validatePluginJobSchedule(job: PluginJobDefinition): void {
 	pluginJobsService.validateSchedule(job);
 }
