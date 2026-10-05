@@ -130,6 +130,8 @@ export class DiagnosticsService extends BaseService {
 						audioEncoder: sessionDiag.audioEncoder,
 						targetVideoBitrateKbps: sessionDiag.targetVideoBitrateKbps,
 						hwaccel: sessionDiag.hwaccel,
+						tonemapped: sessionDiag.tonemapped,
+						toneMapMethod: sessionDiag.toneMapMethod,
 						reasons: sessionDiag.reasons,
 						startTime: sessionDiag.startTime,
 						startedAt: sessionDiag.startedAt,

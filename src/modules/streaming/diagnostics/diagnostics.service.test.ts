@@ -72,8 +72,8 @@ function createService(
 						audioTranscode: false,
 						videoEncoder: "libx264",
 						audioEncoder: "copy",
-						tonemapped: false,
-						toneMapMethod: "none",
+						tonemapped: true,
+						toneMapMethod: "zscale",
 						reasons: { video: { code: "codec" }, audio: { code: "direct" } },
 						targetVideoBitrateKbps: 8000,
 						hwaccel: "none",
@@ -115,7 +115,13 @@ describe("diagnostics service", () => {
 			audioLanguage: "eng",
 			audioTitle: null,
 		});
-		expect(diagnostics.session).toMatchObject({ mode: "transcode", videoEncoder: "libx264", hwaccel: "none" });
+		expect(diagnostics.session).toMatchObject({
+			mode: "transcode",
+			videoEncoder: "libx264",
+			hwaccel: "none",
+			tonemapped: true,
+			toneMapMethod: "zscale",
+		});
 		expect(diagnostics.buffer).toMatchObject({
 			state: "transcoding",
 			active: true,
