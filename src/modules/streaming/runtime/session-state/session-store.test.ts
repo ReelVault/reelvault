@@ -29,7 +29,7 @@ describe("session store", () => {
 		expect(session.process).toBeNull();
 		expect(session.mode).toBe("direct-stream");
 		expect(store.has("s1")).toBe(true);
-		expect(store.size).toBe(1);
+		expect(store.values()).toHaveLength(1);
 		expect(store.attachedCount()).toBe(0);
 	});
 

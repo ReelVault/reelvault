@@ -143,7 +143,7 @@ describe("session reaper", () => {
 			{ sessionId: "s1", reason: "shutdown" },
 			{ sessionId: "s2", reason: "shutdown" },
 		]);
-		expect(store.size).toBe(0);
+		expect(store.values()).toHaveLength(0);
 		expect(reservations.reservedCount).toBe(0);
 	});
 });

@@ -19,11 +19,11 @@ export class SessionReservationTracker {
 		this.maxSessionsPerUserResolver = maxSessionsPerUser;
 	}
 
-	get maxSessions(): number {
+	private get maxSessions(): number {
 		return typeof this.maxSessionsResolver === "function" ? this.maxSessionsResolver() : this.maxSessionsResolver;
 	}
 
-	get maxSessionsPerUser(): number | undefined {
+	private get maxSessionsPerUser(): number | undefined {
 		if (this.maxSessionsPerUserResolver === undefined) return undefined;
 
 		return typeof this.maxSessionsPerUserResolver === "function" ? this.maxSessionsPerUserResolver() : this.maxSessionsPerUserResolver;

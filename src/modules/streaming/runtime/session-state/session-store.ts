@@ -74,10 +74,6 @@ export class SessionStore {
 		return this.sessions.has(sessionId);
 	}
 
-	get size(): number {
-		return this.sessions.size;
-	}
-
 	values(): StreamingSession[] {
 		return [...this.sessions.values()];
 	}
