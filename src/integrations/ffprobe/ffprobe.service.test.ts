@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { which } from "bun";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { serverConfig } from "@/server.config";
 import { assertFFProbeAvailable } from "./ffprobe.environment";
-import { ffProbeService } from "./ffprobe.service";
 
 describe("FFprobe integration", () => {
 	// Real-binary probe — skipped where ffprobe is absent.
-	const hasFfprobe = ffProbeService.isAvailable();
+	const hasFfprobe = Boolean(which(serverConfig.ffprobe.path));
 
 	test.skipIf(!hasFfprobe)("checks availability and executes through the integration boundary", () => {
-		expect(ffProbeService.isAvailable()).toBe(true);
+		expect(Boolean(which(serverConfig.ffprobe.path))).toBe(true);
 		expect(assertFFProbeAvailable()).toBeTruthy();
 	});
 
@@ -18,7 +18,7 @@ describe("FFprobe integration", () => {
 		try {
 			systemSettingsStore.setRuntimeValue("ffprobe.path", "non-existent-ffprobe-binary");
 			expect(serverConfig.ffprobe.path).toBe("non-existent-ffprobe-binary");
-			expect(ffProbeService.isAvailable()).toBe(false);
+			expect(Boolean(which(serverConfig.ffprobe.path))).toBe(false);
 			expect(() => assertFFProbeAvailable()).toThrow("Missing required media tools");
 		} finally {
 			systemSettingsStore.setRuntimeValue("ffprobe.path", originalPath);
