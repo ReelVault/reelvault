@@ -1,5 +1,6 @@
 import { type FSWatcher, watch } from "node:fs";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
+import { isIgnoredRelativePath } from "@/modules/scanner/disk/file-scanner";
 import { serverConfig } from "@/server.config";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { toMap } from "@/utils/array.utils";
@@ -185,7 +186,7 @@ export class LibraryWatcherService extends BaseService {
 		if (this.isShuttingDown || !serverConfig.scanning.autoWatcherEnabled) return;
 
 		// Filter out temporary and hidden files
-		if (filename && this.shouldIgnoreFile(filename)) {
+		if (filename && isIgnoredRelativePath(filename)) {
 			return;
 		}
 
@@ -281,25 +282,6 @@ export class LibraryWatcherService extends BaseService {
 				rootPath,
 			});
 		}
-	}
-
-	private shouldIgnoreFile(filename: string): boolean {
-		const normalized = filename.replaceAll("\\", "/");
-		const segments = normalized.split("/");
-
-		for (const segment of segments) {
-			// Ignore hidden files and folders (.git, .DS_Store, .tmp, etc.)
-			if (segment.startsWith(".") && segment !== "." && segment !== "..") {
-				return true;
-			}
-
-			// Ignore swap and temporary backup files
-			if (segment.endsWith("~") || segment.endsWith(".tmp") || segment.endsWith(".part") || segment.endsWith(".crdownload")) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 
 	stopWatcher(pathId: string): void {

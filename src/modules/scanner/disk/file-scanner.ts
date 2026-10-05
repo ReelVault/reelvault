@@ -131,6 +131,26 @@ export function matchesIgnorePattern(filePath: string, rootPath: string, pattern
  */
 const EXTRA_FILE_NAME_PATTERN = /^sample\.[a-z0-9]+$/i;
 
+/** Editor backup / partial-download suffixes that never hold a complete video. */
+const TEMPORARY_FILE_SUFFIXES = ["~", ".tmp", ".part", ".crdownload"] as const;
+
+/**
+ * Fixed (non-configurable) scanner ignore rules: hidden dot-segments and
+ * editor/partial-download suffixes. Must be given a path relative to the scan
+ * root (or a bare file name) — an absolute path would classify a library that
+ * lives under a hidden directory as entirely ignored.
+ */
+export function isIgnoredRelativePath(filePath: string): boolean {
+	const segments = filePath.replaceAll("\\", "/").split("/");
+	for (const segment of segments) {
+		if (segment.startsWith(".") && segment !== "." && segment !== "..") return true;
+
+		if (TEMPORARY_FILE_SUFFIXES.some((suffix) => segment.endsWith(suffix))) return true;
+	}
+
+	return false;
+}
+
 function isIgnoredPath(filePath: string, rootPath: string): boolean {
 	if (EXTRA_FILE_NAME_PATTERN.test(PathUtils.getFileName(filePath))) return true;
 
