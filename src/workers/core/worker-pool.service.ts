@@ -161,6 +161,14 @@ export class WorkerExecutionPoolService extends BaseService {
 					workerJobRepository.updateProgress(item.id, percent, item.claimToken ?? undefined),
 					item.operationId ? workerOperationRepository.updateProgress(item.operationId, percent) : undefined,
 				]);
+				// Same 1s throttle as the DB write — a small WS frame instead of the
+				// client polling operations every few seconds.
+				realtimeService.broadcast("worker:progress", {
+					jobId: item.id,
+					operationId: item.operationId ?? undefined,
+					workerId: item.workerId,
+					percent,
+				});
 			},
 			extendTimeout: (additionalMs: number) => this.extendTimeout(item.id, additionalMs),
 		};
