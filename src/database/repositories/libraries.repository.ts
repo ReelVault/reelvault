@@ -18,6 +18,7 @@ import { defineTableAccess, findPageWithQueryMap, forEachChunked, type Projected
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
+import { findMediaCleanupData, type MediaCleanupData } from "@/database/utils/media-cleanup";
 import { buildMediaFileProjection } from "@/database/utils/media-file-projection";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
@@ -170,24 +171,15 @@ class LibrariesRepository {
 		this.clearStatsCache();
 	}
 
-	async deleteWithDependents(libraryId: string): Promise<{
-		artifactStorageKeys: string[];
-		subtitleFilePaths: string[];
-		subtitleIds: string[];
-	}> {
+	async deleteWithDependents(libraryId: string): Promise<MediaCleanupData> {
 		return await databaseFactory.transaction(async (tx) => {
 			const client = databaseFactory.getClient({ tx });
-			const [artifacts, subtitles, candidateMetadata] = await Promise.all([
-				client
-					.select({ storageKey: schema.mediaArtifacts.storageKey })
-					.from(schema.mediaArtifacts)
-					.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.mediaArtifacts.mediaFileId))
-					.where(eq(schema.mediaFiles.libraryId, libraryId)),
-				client
-					.select({ id: schema.subtitles.id, filePath: schema.subtitles.filePath })
-					.from(schema.subtitles)
-					.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.subtitles.mediaFileId))
-					.where(eq(schema.mediaFiles.libraryId, libraryId)),
+			const [cleanup, candidateMetadata] = await Promise.all([
+				findMediaCleanupData({
+					where: eq(schema.mediaFiles.libraryId, libraryId),
+					tx,
+					filterNullSubtitlePaths: true,
+				}),
 				// Candidate metadata rows whose only media files belong to this library.
 				// Must be captured BEFORE the media_files delete below.
 				client
@@ -221,11 +213,7 @@ class LibrariesRepository {
 
 			this.clearStatsCache();
 
-			return {
-				artifactStorageKeys: artifacts.map((artifact) => artifact.storageKey),
-				subtitleFilePaths: subtitles.flatMap((subtitle) => (subtitle.filePath ? [subtitle.filePath] : [])),
-				subtitleIds: subtitles.map((subtitle) => subtitle.id),
-			};
+			return cleanup;
 		});
 	}
 

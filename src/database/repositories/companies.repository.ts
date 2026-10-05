@@ -1,6 +1,6 @@
-import type { Company, CompanyFilters, CompanySorting, Metadata } from "@reelvault/sdk/common";
+import type { CompanyFilters, CompanySorting, Metadata } from "@reelvault/sdk/common";
 import type { ProviderResultProductionCompany } from "@reelvault/sdk/plugin";
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { defineTableAccess } from "@/database/table-access";
@@ -8,9 +8,6 @@ import type { DatabaseTransaction } from "@/database/types";
 import { QueryFiltering } from "@/database/utils/filtering";
 import { defineNamedEntityRepository } from "@/database/utils/named-entity-repository";
 import type { QueryMap } from "@/database/utils/query-parser";
-import { createLocalStableKey } from "@/database/utils/stable-key";
-import { unique } from "@/utils/array.utils";
-import { processNamedEntities, upsertNamedEntities } from "../utils/provider-entity-sync";
 import { metadataRepository } from "./metadata.repository";
 
 const companies = defineTableAccess("companies", { primaryKeyColumn: "id" });
@@ -26,13 +23,17 @@ const repository = defineNamedEntityRepository({
 	table: schema.companies,
 	entity: companies,
 	providerEntity: companyProviders,
+	nameColumn: schema.companies.name,
+	namespace: "company",
+	entityType: "company",
+	entityLabel: "companies",
 	queryMap: companyQueryMap,
-	findOrCreateByName: ({ name, values, tx }): Promise<Company | undefined> =>
-		companies.findOrCreate({
-			where: eq(schema.companies.name, name),
-			values: { ...values, stableKey: createLocalStableKey({ namespace: "company", value: name }) },
-			tx,
-		}),
+	insertProviderLinks: async (links, tx) => {
+		await companyProviders.insert({ values: links.map(({ entityId, providerId }) => ({ companyId: entityId, providerId })), tx });
+	},
+	insertMetadataLinks: async ({ metadataId, entityIds, tx }) => {
+		await metadataRepository.insertCompanies({ values: entityIds.map((companyId) => ({ metadataId, companyId })), tx });
+	},
 });
 
 /** Metadata rows associated with a company, most popular first. */
@@ -63,28 +64,7 @@ async function process({
 	providerCompanies?: ProviderResultProductionCompany[] | undefined;
 	tx?: DatabaseTransaction | undefined;
 }) {
-	await processNamedEntities({
-		items: providerCompanies,
-		providerName,
-		entityType: "company",
-		entityLabel: "companies",
-		tx,
-		insertEntities: async (items) => await upsertNamedEntities(repository.table, items, tx),
-		selectEntities: async (names) => await repository.selectMany({ where: inArray(repository.table.name, names), tx }),
-		persistAssociations: async (associations) => {
-			const uniqueEntityIds = unique(associations, ({ entityId }) => entityId);
-			await Promise.all([
-				repository.insertProviders({
-					values: associations.flatMap(({ entityId, providerId }) => (providerId ? [{ companyId: entityId, providerId }] : [])),
-					tx,
-				}),
-				metadataRepository.insertCompanies({
-					values: uniqueEntityIds.map((entityId) => ({ metadataId, companyId: entityId })),
-					tx,
-				}),
-			]);
-		},
-	});
+	await repository.process({ metadataId, providerName, items: providerCompanies, tx });
 }
 
 export const companiesRepository = { ...repository, findMetadata, process };

@@ -10,14 +10,15 @@ import type {
 	SelectFields,
 } from "@reelvault/sdk/common";
 import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
-import { and, asc, desc, eq, getTableColumns, gt, inArray, lt, max, notExists, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, max, notExists, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { providersRepository } from "@/database/repositories/providers.repository";
 import { schema } from "@/database/schema";
 import { cachedCount, defineTableAccess, filterSignature, forEachChunked, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
-import { type CreatedAtCursor, KeysetCursor } from "@/database/utils/keyset-cursor";
+import { type CreatedAtCursor, decodeCursorFor, KeysetCursor, keysetWhere } from "@/database/utils/keyset-cursor";
+import { findMediaCleanupData } from "@/database/utils/media-cleanup";
 import { QueryPagination } from "@/database/utils/pagination";
 import { QueryUtils } from "@/database/utils/query-parser";
 import { createLocalMetadataStableKey, createProviderStableKey } from "@/database/utils/stable-key";
@@ -270,18 +271,9 @@ class MetadataRepository {
 			(query?.cursor !== undefined || query?.sortBy === "createdAt") &&
 			(sorting?.sortBy === "createdAt" || !sorting?.sortBy) &&
 			(sorting?.sortOrder === "desc" || !sorting?.sortOrder);
-		if (query?.cursor && !cursorMode) throw new ValidationError("Pagination cursor requires descending createdAt sorting");
 
-		let encodedCursor: string | undefined;
-		if (query?.cursor && cursorMode) encodedCursor = query.cursor;
-
-		const cursor = encodedCursor ? KeysetCursor.decode(encodedCursor) : undefined;
-		const cursorWhere = cursor
-			? or(
-					lt(this.table.createdAt, new Date(cursor.createdAt)),
-					and(eq(this.table.createdAt, new Date(cursor.createdAt)), lt(this.table.id, cursor.id)),
-				)
-			: undefined;
+		const cursor = decodeCursorFor(query?.cursor, cursorMode, "Pagination cursor requires descending createdAt sorting");
+		const cursorWhere = cursor ? keysetWhere(this.table.createdAt, this.table.id, cursor) : undefined;
 		let combinedWhere = where;
 		if (cursorWhere) {
 			combinedWhere = where ? and(where, cursorWhere) : cursorWhere;
@@ -670,25 +662,7 @@ class MetadataRepository {
 	}
 
 	async findMediaFileCleanupData(metadataId: string, tx?: DatabaseTransaction) {
-		const client = databaseFactory.getClient({ tx });
-		const [artifacts, subtitles] = await Promise.all([
-			client
-				.select({ storageKey: schema.mediaArtifacts.storageKey })
-				.from(schema.mediaArtifacts)
-				.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.mediaArtifacts.mediaFileId))
-				.where(eq(schema.mediaFiles.metadataId, metadataId)),
-			client
-				.select({ id: schema.subtitles.id, filePath: schema.subtitles.filePath })
-				.from(schema.subtitles)
-				.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.subtitles.mediaFileId))
-				.where(eq(schema.mediaFiles.metadataId, metadataId)),
-		]);
-
-		return {
-			artifactStorageKeys: artifacts.map(({ storageKey }) => storageKey),
-			subtitleFilePaths: subtitles.map(({ filePath }) => filePath),
-			subtitleIds: subtitles.map(({ id }) => id),
-		};
+		return await findMediaCleanupData({ where: eq(schema.mediaFiles.metadataId, metadataId), tx });
 	}
 
 	async deleteWithMediaFiles({ metadataId, tx }: { metadataId: string; tx: DatabaseTransaction }) {

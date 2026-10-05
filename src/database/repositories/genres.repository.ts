@@ -1,15 +1,11 @@
-import type { Genre, GenreFilters, GenreSorting } from "@reelvault/sdk/common";
+import type { GenreFilters, GenreSorting } from "@reelvault/sdk/common";
 import type { ProviderResultGenre } from "@reelvault/sdk/plugin";
-import { eq, inArray } from "drizzle-orm";
 import { schema } from "@/database/schema";
 import { defineTableAccess } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFiltering } from "@/database/utils/filtering";
 import { defineNamedEntityRepository } from "@/database/utils/named-entity-repository";
 import type { QueryMap } from "@/database/utils/query-parser";
-import { createLocalStableKey } from "@/database/utils/stable-key";
-import { unique } from "@/utils/array.utils";
-import { processNamedEntities, upsertNamedEntities } from "../utils/provider-entity-sync";
 import { metadataRepository } from "./metadata.repository";
 
 const genres = defineTableAccess("genres", { primaryKeyColumn: "id" });
@@ -25,13 +21,17 @@ const repository = defineNamedEntityRepository({
 	table: schema.genres,
 	entity: genres,
 	providerEntity: genreProviders,
+	nameColumn: schema.genres.name,
+	namespace: "genre",
+	entityType: "genre",
+	entityLabel: "genres",
 	queryMap: genreQueryMap,
-	findOrCreateByName: ({ name, values, tx }): Promise<Genre | undefined> =>
-		genres.findOrCreate({
-			where: eq(schema.genres.name, name),
-			values: { ...values, stableKey: createLocalStableKey({ namespace: "genre", value: name }) },
-			tx,
-		}),
+	insertProviderLinks: async (links, tx) => {
+		await genreProviders.insert({ values: links.map(({ entityId, providerId }) => ({ genreId: entityId, providerId })), tx });
+	},
+	insertMetadataLinks: async ({ metadataId, entityIds, tx }) => {
+		await metadataRepository.insertGenres({ values: entityIds.map((genreId) => ({ metadataId, genreId })), tx });
+	},
 });
 
 /**
@@ -48,28 +48,7 @@ async function process({
 	providerGenres?: ProviderResultGenre[] | undefined;
 	tx?: DatabaseTransaction | undefined;
 }) {
-	await processNamedEntities({
-		items: providerGenres,
-		providerName,
-		entityType: "genre",
-		entityLabel: "genres",
-		tx,
-		insertEntities: async (items) => await upsertNamedEntities(repository.table, items, tx),
-		selectEntities: async (names) => await repository.selectMany({ where: inArray(repository.table.name, names), tx }),
-		persistAssociations: async (associations) => {
-			const uniqueEntityIds = unique(associations, ({ entityId }) => entityId);
-			await Promise.all([
-				repository.insertProviders({
-					values: associations.flatMap(({ entityId, providerId }) => (providerId ? [{ genreId: entityId, providerId }] : [])),
-					tx,
-				}),
-				metadataRepository.insertGenres({
-					values: uniqueEntityIds.map((entityId) => ({ metadataId, genreId: entityId })),
-					tx,
-				}),
-			]);
-		},
-	});
+	await repository.process({ metadataId, providerName, items: providerGenres, tx });
 }
 
 export const genreRepository = { ...repository, process };

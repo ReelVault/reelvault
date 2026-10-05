@@ -200,22 +200,29 @@ class ImageRepository {
 		return { localPaths, imageIds };
 	}
 
+	private async findMetadataForImage(metadataId: string, tx?: DatabaseTransaction) {
+		const metadata = await metadataRepository.findById({
+			primaryId: metadataId,
+			fields: QueryFields.parse({ fields: "stableKey" }),
+			tx,
+		});
+		if (!metadata) throw new NotFoundError(`Metadata ${metadataId} does not exist`);
+
+		return metadata;
+	}
+
 	async getMetadataTarget(metadataId: string, type: ImageProcess["type"]): Promise<ImageOwnerTarget> {
 		const [metadata, currentLocalPath] = await Promise.all([
-			metadataRepository.findById({
-				primaryId: metadataId,
-				fields: QueryFields.parse({ fields: "stableKey" }),
-			}),
+			this.findMetadataForImage(metadataId),
 			this.findMetadataImagePath(metadataId, type),
 		]);
-		if (!metadata) throw new NotFoundError(`Metadata ${metadataId} does not exist`);
 
 		return { ownerStableKey: metadata.stableKey, currentLocalPath };
 	}
 
 	async replaceMetadataImage(metadataId: string, type: ImageProcess["type"], image: PersistedImageInput) {
 		await databaseFactory.transaction(async (tx) => {
-			await this.assertMetadataExists(metadataId, tx);
+			await this.findMetadataForImage(metadataId, tx);
 			const previous = await databaseFactory
 				.getClient({ tx })
 				.select({ imageId: schema.metadataImages.imageId })
@@ -261,13 +268,20 @@ class ImageRepository {
 		this.fileReadCache.delete(imageId);
 	}
 
-	async getSeasonTarget(metadataId: string, seasonId: string): Promise<ImageOwnerTarget> {
+	private async findSeasonOwnedBy(metadataId: string, seasonId: string, tx?: DatabaseTransaction) {
 		const season = await seasonsRepository.findByPrimaryId({
 			primaryId: seasonId,
 			fields: QueryFields.parse({ fields: "metadataId,imageId,stableKey" }),
+			tx,
 		});
 		if (!season || season.metadataId !== metadataId)
 			throw new NotFoundError(`Season ${seasonId} does not belong to metadata ${metadataId}`);
+
+		return season;
+	}
+
+	async getSeasonTarget(metadataId: string, seasonId: string): Promise<ImageOwnerTarget> {
+		const season = await this.findSeasonOwnedBy(metadataId, seasonId);
 
 		return {
 			ownerStableKey: season.stableKey,
@@ -277,13 +291,7 @@ class ImageRepository {
 
 	async replaceSeasonImage(metadataId: string, seasonId: string, image: PersistedImageInput) {
 		await databaseFactory.transaction(async (tx) => {
-			const season = await seasonsRepository.findByPrimaryId({
-				primaryId: seasonId,
-				fields: QueryFields.parse({ fields: "metadataId,imageId" }),
-				tx,
-			});
-			if (!season || season.metadataId !== metadataId)
-				throw new NotFoundError(`Season ${seasonId} does not belong to metadata ${metadataId}`);
+			const season = await this.findSeasonOwnedBy(metadataId, seasonId, tx);
 
 			const persisted = await this.upsertImage(image, tx);
 			await seasonsRepository.update({ primaryId: seasonId, values: { imageId: persisted.id }, tx });
@@ -291,19 +299,22 @@ class ImageRepository {
 		});
 	}
 
-	async getEpisodeTarget(metadataId: string, episodeId: string): Promise<ImageOwnerTarget> {
-		const client = databaseFactory.getClient();
+	private async findEpisodeOwnedBy(metadataId: string, episodeId: string, tx?: DatabaseTransaction) {
+		const client = databaseFactory.getClient({ tx });
 		const [row] = await client
-			.select({
-				stableKey: schema.episodes.stableKey,
-				imageId: schema.episodes.imageId,
-			})
+			.select({ stableKey: schema.episodes.stableKey, imageId: schema.episodes.imageId })
 			.from(schema.episodes)
 			.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
 			.where(and(eq(schema.episodes.id, episodeId), eq(schema.seasons.metadataId, metadataId)))
 			.limit(1);
 
 		if (!row) throw new NotFoundError(`Episode ${episodeId} does not belong to metadata ${metadataId}`);
+
+		return row;
+	}
+
+	async getEpisodeTarget(metadataId: string, episodeId: string): Promise<ImageOwnerTarget> {
+		const row = await this.findEpisodeOwnedBy(metadataId, episodeId);
 
 		return {
 			ownerStableKey: row.stableKey,
@@ -313,15 +324,7 @@ class ImageRepository {
 
 	async replaceEpisodeImage(metadataId: string, episodeId: string, image: PersistedImageInput) {
 		await databaseFactory.transaction(async (tx) => {
-			const client = databaseFactory.getClient({ tx });
-			const [row] = await client
-				.select({ id: schema.episodes.id, imageId: schema.episodes.imageId })
-				.from(schema.episodes)
-				.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
-				.where(and(eq(schema.episodes.id, episodeId), eq(schema.seasons.metadataId, metadataId)))
-				.limit(1);
-
-			if (!row) throw new NotFoundError(`Episode ${episodeId} does not belong to metadata ${metadataId}`);
+			const row = await this.findEpisodeOwnedBy(metadataId, episodeId, tx);
 
 			const persisted = await this.upsertImage(image, tx);
 			await episodesRepository.update({ primaryId: episodeId, values: { imageId: persisted.id }, tx });
@@ -329,12 +332,19 @@ class ImageRepository {
 		});
 	}
 
-	async getPersonTarget(personId: string): Promise<ImageOwnerTarget> {
+	private async findPersonForImage(personId: string, tx?: DatabaseTransaction) {
 		const person = await peopleRepository.findByPrimaryId({
 			primaryId: personId,
 			fields: QueryFields.parse({ fields: "stableKey,imageId" }),
+			tx,
 		});
 		if (!person) throw new NotFoundError(`Person ${personId} does not exist`);
+
+		return person;
+	}
+
+	async getPersonTarget(personId: string): Promise<ImageOwnerTarget> {
+		const person = await this.findPersonForImage(personId);
 
 		return {
 			ownerStableKey: person.stableKey,
@@ -344,12 +354,7 @@ class ImageRepository {
 
 	async replacePersonImage(personId: string, image: PersistedImageInput) {
 		await databaseFactory.transaction(async (tx) => {
-			const person = await peopleRepository.findByPrimaryId({
-				primaryId: personId,
-				fields: QueryFields.parse({ fields: "imageId" }),
-				tx,
-			});
-			if (!person) throw new NotFoundError(`Person ${personId} does not exist`);
+			const person = await this.findPersonForImage(personId, tx);
 
 			const persisted = await this.upsertImage(image, tx);
 			await peopleRepository.update({ primaryId: personId, values: { imageId: persisted.id }, tx });
@@ -374,11 +379,6 @@ class ImageRepository {
 
 			return { imageId: persisted.id, avatarUrl };
 		});
-	}
-
-	private async assertMetadataExists(metadataId: string, tx?: DatabaseTransaction) {
-		if (!(await metadataRepository.isExists({ primaryId: metadataId, tx })))
-			throw new NotFoundError(`Metadata ${metadataId} does not exist`);
 	}
 
 	private async findImagePath(imageId: string | null | undefined, tx?: DatabaseTransaction): Promise<string | undefined> {

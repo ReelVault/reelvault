@@ -20,6 +20,46 @@ function ftsMatchQuery(term: string): string {
 	return tokens.join(" ");
 }
 
+/** Prefix-first LIKE scan over a small named lookup table (collections, genres). */
+function findNamedMatches(
+	client: ReturnType<typeof databaseFactory.getClient>,
+	table: typeof schema.collections | typeof schema.genres,
+	containsPattern: string,
+	prefixPattern: string,
+	limit: number,
+) {
+	return client
+		.select({ id: table.id, name: table.name })
+		.from(table)
+		.where(like(table.name, containsPattern))
+		.orderBy(sql`CASE WHEN ${table.name} LIKE ${prefixPattern} THEN 0 ELSE 1 END`, table.name)
+		.limit(limit);
+}
+
+interface PosterInfo {
+	imageId: string;
+	updatedAt: Date;
+}
+
+function posterMap<TRow extends { imageId: string; imageUpdatedAt: Date }>(
+	rows: TRow[],
+	keyOf: (row: TRow) => string,
+): Map<string, PosterInfo> {
+	return toMap(rows, keyOf, (row) => ({ imageId: row.imageId, updatedAt: row.imageUpdatedAt }));
+}
+
+function attachPosters<T extends { id: string }>(items: T[], posters: Map<string, PosterInfo>) {
+	return items.map((item) => {
+		const poster = posters.get(item.id);
+
+		return {
+			...item,
+			imageId: poster?.imageId ?? null,
+			imageUpdatedAt: poster?.updatedAt ?? null,
+		};
+	});
+}
+
 export async function searchGlobal({ term, limit }: { term: string; limit: number }): Promise<GlobalSearchResponse> {
 	const searchTerm = term.trim();
 	if (!searchTerm) return { titles: [], people: [], collections: [], genres: [] };
@@ -63,18 +103,8 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 		imageUpdatedAt: row.imageUpdatedAt != null ? new Date(row.imageUpdatedAt * 1000) : null,
 	}));
 	const [rawCollections, genres] = await Promise.all([
-		client
-			.select({ id: schema.collections.id, name: schema.collections.name })
-			.from(schema.collections)
-			.where(like(schema.collections.name, containsPattern))
-			.orderBy(sql`CASE WHEN ${schema.collections.name} LIKE ${prefixPattern} THEN 0 ELSE 1 END`, schema.collections.name)
-			.limit(limit),
-		client
-			.select({ id: schema.genres.id, name: schema.genres.name })
-			.from(schema.genres)
-			.where(like(schema.genres.name, containsPattern))
-			.orderBy(sql`CASE WHEN ${schema.genres.name} LIKE ${prefixPattern} THEN 0 ELSE 1 END`, schema.genres.name)
-			.limit(limit),
+		findNamedMatches(client, schema.collections, containsPattern, prefixPattern, limit),
+		findNamedMatches(client, schema.genres, containsPattern, prefixPattern, limit),
 	]);
 
 	const matchedTitles = [...rawTitles, ...fuzzyTitles];
@@ -120,36 +150,11 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 			: [],
 	]);
 
-	const titlePosterMap = toMap(
-		titlePosters,
-		(r) => r.metadataId,
-		(r) => ({ imageId: r.imageId, updatedAt: r.imageUpdatedAt }),
-	);
-	const collectionPosterMap = toMap(
-		collectionPosters,
-		(r) => r.collectionId,
-		(r) => ({ imageId: r.imageId, updatedAt: r.imageUpdatedAt }),
-	);
+	const titlePosterMap = posterMap(titlePosters, (row) => row.metadataId);
+	const collectionPosterMap = posterMap(collectionPosters, (row) => row.collectionId);
 
-	const titles = matchedTitles.map((t) => {
-		const poster = titlePosterMap.get(t.id);
-
-		return {
-			...t,
-			imageId: poster?.imageId ?? null,
-			imageUpdatedAt: poster?.updatedAt ?? null,
-		};
-	});
-
-	const collections = rawCollections.map((c) => {
-		const poster = collectionPosterMap.get(c.id);
-
-		return {
-			...c,
-			imageId: poster?.imageId ?? null,
-			imageUpdatedAt: poster?.updatedAt ?? null,
-		};
-	});
+	const titles = attachPosters(matchedTitles, titlePosterMap);
+	const collections = attachPosters(rawCollections, collectionPosterMap);
 
 	return { titles, people, collections, genres };
 }

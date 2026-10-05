@@ -18,6 +18,7 @@ import { defineTableAccess, findPageWithQueryMap, forEachChunked, mapChunked, se
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
+import { toMediaCleanupData } from "@/database/utils/media-cleanup";
 import { buildRelationProjection } from "@/database/utils/media-file-projection";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
 import { MINUTE, serverConstants } from "@/server.constants";
@@ -125,15 +126,6 @@ type TechnicalMediaFileData = Pick<
 	CreateMediaFile,
 	"formatName" | "duration" | "bitRate" | "source" | "edition" | "qualityTag" | "videoStreams" | "audioStreams" | "subtitles"
 >;
-
-/** Maps the cleanup rows shared by the single- and multi-file delete paths. */
-function toCleanupData(subtitles: Array<{ id: string; filePath: string | null }>, artifacts: Array<{ storageKey: string }>) {
-	return {
-		artifactStorageKeys: artifacts.map((artifact) => artifact.storageKey),
-		subtitleFilePaths: subtitles.map((subtitle) => subtitle.filePath),
-		subtitleIds: subtitles.map((subtitle) => subtitle.id),
-	};
-}
 
 class MediaRepository {
 	readonly table = schema.mediaFiles;
@@ -749,7 +741,7 @@ class MediaRepository {
 	}
 
 	async findCleanupDataByMediaFileIds(mediaFileIds: readonly string[], tx?: DatabaseTransaction) {
-		if (mediaFileIds.length === 0) return toCleanupData([], []);
+		if (mediaFileIds.length === 0) return toMediaCleanupData([], []);
 
 		const client = databaseFactory.getClient({ tx });
 		const idChunks = chunk(mediaFileIds, serverConstants.database.queryChunkSize);
@@ -772,7 +764,7 @@ class MediaRepository {
 			),
 		]);
 
-		return toCleanupData(subtitleResults.flat(), artifactResults.flat());
+		return toMediaCleanupData(subtitleResults.flat(), artifactResults.flat());
 	}
 
 	async findCleanupData(mediaFileId: string, tx?: DatabaseTransaction) {
@@ -789,7 +781,7 @@ class MediaRepository {
 				.where(eq(schema.mediaArtifacts.mediaFileId, mediaFileId)),
 		]);
 
-		return toCleanupData(subtitles, artifacts);
+		return toMediaCleanupData(subtitles, artifacts);
 	}
 
 	/**
