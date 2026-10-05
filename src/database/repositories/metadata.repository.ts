@@ -29,8 +29,6 @@ import type { MoreLikeThisSource } from "./metadata-recommendations";
 import { getMoreLikeThis } from "./metadata-recommendations";
 import { loadRelations, rootFields, selectColumns, withRelations } from "./metadata-relations";
 
-/** Sources without vote counts (Rotten Tomatoes, Metacritic) still weigh this much against a single vote. */
-
 const metadataCast = defineTableAccess("metadataCast", {
 	primaryKeyColumn: "personId",
 });
@@ -122,7 +120,7 @@ const metadataTable = defineTableAccess("metadata", {
 
 const metadataColumns = getTableColumns(schema.metadata);
 
-/** Flat metadata row (no relations) — the DTO returned by `findRootsById`/`findManyByIds`. */
+/** Flat metadata row (no relations) — the DTO returned by `findRootsById`. */
 export type MetadataRootRow = typeof schema.metadata.$inferSelect;
 
 class MetadataRepository {
@@ -361,13 +359,6 @@ class MetadataRepository {
 	 */
 	async findRootsById(metadataId: string): Promise<typeof schema.metadata.$inferSelect | undefined> {
 		return await this.selectFirst({ where: eq(this.primaryKeyColumn, metadataId) });
-	}
-
-	/** Root rows for a set of ids (no relation graph). */
-	async findManyByIds(metadataIds: readonly string[]): Promise<Array<typeof schema.metadata.$inferSelect>> {
-		if (metadataIds.length === 0) return [];
-
-		return await mapChunked([...metadataIds], (idChunk) => this.selectMany({ where: inArray(schema.metadata.id, idChunk) }));
 	}
 
 	/** Full metadata rows with default relations (images, genres, rating) for a set of ids. */

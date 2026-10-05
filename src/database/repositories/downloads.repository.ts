@@ -35,12 +35,9 @@ export class DownloadsRepository {
 	readonly query = downloads.query;
 	readonly selectMany = downloads.selectMany;
 	readonly selectFirst = downloads.selectFirst;
-	readonly insertGeneric = downloads.insert;
 	readonly insertReturning = downloads.insertReturning;
-	readonly updateGeneric = downloads.update;
 	readonly updateReturning = downloads.updateReturning;
 	readonly updateAndReturn = downloads.updateAndReturn;
-	readonly deleteGeneric = downloads.delete;
 	readonly deleteReturning = downloads.deleteReturning;
 	readonly deleteAndReturn = downloads.deleteAndReturn;
 	readonly findByIds = downloads.findByIds;

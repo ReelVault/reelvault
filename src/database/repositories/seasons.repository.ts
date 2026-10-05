@@ -11,8 +11,7 @@ import type {
 import { and, eq, ne, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, selectFirstWithFields, selectManyWithFields } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, selectFirstWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -144,19 +143,6 @@ class SeasonsRepository {
 				return updated ?? existing;
 			},
 		});
-	}
-
-	async findMany<F extends string>({
-		where,
-		orderBy,
-		fields,
-		limit,
-		offset,
-		tx,
-	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<Season, F>>> {
-		const data = await selectManyWithFields(seasons, { where, orderBy, limit, offset, tx, fields });
-
-		return data.map((item) => QueryFields.apply(item, fields));
 	}
 
 	async findByPrimaryId<F extends string>({

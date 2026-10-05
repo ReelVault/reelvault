@@ -200,8 +200,6 @@ class EpisodesRepository {
 			return data.map((item) => QueryFields.apply({ ...item, mediaFiles: [] }, fields));
 		}
 
-		if (data.length === 0) return [];
-
 		const rows = await attachMediaFiles(data, { fields, relation: "episodeId", tx });
 
 		return rows.map((item) => QueryFields.apply<EpisodeWithRelations, F>(item, fields));

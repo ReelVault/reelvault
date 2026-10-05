@@ -54,13 +54,6 @@ class MediaMarkersRepository {
 		});
 	}
 
-	async findByMediaFileIds(mediaFileIds: readonly string[], tx?: DatabaseTransaction) {
-		return await mediaMarkers.findByColumnIn(this.table.mediaFileId, mediaFileIds, {
-			orderBy: asc(this.table.startSeconds),
-			tx,
-		});
-	}
-
 	async replaceMarkersForMediaFile(
 		mediaFileId: string,
 		markers: readonly CreateMediaMarker[],

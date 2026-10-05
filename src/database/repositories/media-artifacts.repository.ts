@@ -25,10 +25,6 @@ class MediaArtifactsRepository {
 		return await this.selectMany({ where: eq(this.table.mediaFileId, mediaFileId), orderBy: desc(this.table.createdAt), tx });
 	}
 
-	async findByMediaFileIds(mediaFileIds: readonly string[], tx?: DatabaseTransaction) {
-		return await mediaArtifacts.findByColumnIn(this.table.mediaFileId, mediaFileIds, { tx });
-	}
-
 	async findByPluginId(pluginId: string, tx?: DatabaseTransaction) {
 		return await this.selectMany({ where: eq(this.table.pluginId, pluginId), tx });
 	}

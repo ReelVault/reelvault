@@ -10,10 +10,8 @@ import type {
 import { and, eq, inArray } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, mapChunked, selectManyWithFields } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import type { QueryMap } from "@/database/utils/query-parser";
 
@@ -53,19 +51,6 @@ class WatchlistRepository {
 	readonly deleteAndReturn = watchlist.deleteAndReturn;
 	readonly findByIds = watchlist.findByIds;
 	readonly findByColumnIn = watchlist.findByColumnIn;
-
-	async findMany<F extends string>({
-		fields,
-		where,
-		orderBy,
-		limit,
-		offset,
-		tx,
-	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<Watchlist, F>>> {
-		const data = await selectManyWithFields(watchlist, { where, orderBy, limit, offset, tx, fields });
-
-		return data.map((item) => QueryFields.apply(item, fields));
-	}
 
 	async toggle({ profileId, metadataId, tx }: { profileId: string; metadataId: string; tx?: DatabaseTransaction }) {
 		const run = async (client: ReturnType<typeof databaseFactory.getClient>) => {

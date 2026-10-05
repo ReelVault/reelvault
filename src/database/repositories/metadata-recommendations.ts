@@ -156,7 +156,6 @@ async function rankSimilarIds(
 	offset: number,
 ): Promise<{ ids: string[]; total: number }> {
 	// Prepare the ID sets for the shared traits.
-	// Prepare the ID sets for the shared traits
 	const collectionIds = pluckValidIds(source.collections);
 	const genreIds = pluckValidIds(source.genres);
 	const keywordIds = pluckValidIds(source.keywords);

@@ -12,8 +12,7 @@ import type {
 import { and, desc, eq, ne } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, selectFirstWithFields, selectManyWithFields } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, selectFirstWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -80,19 +79,6 @@ class ProfilesRepository {
 	readonly deleteAndReturn = profiles.deleteAndReturn;
 	readonly findByIds = profiles.findByIds;
 	readonly findByColumnIn = profiles.findByColumnIn;
-
-	async findMany<F extends string>({
-		fields,
-		where,
-		orderBy,
-		limit,
-		offset,
-		tx,
-	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<Profile, F>>> {
-		const data = await selectManyWithFields(profiles, { where, orderBy, limit, offset, tx, fields });
-
-		return data.map((item) => QueryFields.apply(item, fields));
-	}
 
 	/**
 	 * Auth hot-path lookup (profile context for every authenticated request).

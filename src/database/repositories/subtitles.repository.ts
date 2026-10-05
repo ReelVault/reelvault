@@ -13,7 +13,6 @@ import type {
 import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import type { ProjectedSelectParams } from "@/database/table-access";
 import { defineTableAccess, findPageWithQueryMap } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
@@ -92,7 +91,7 @@ class SubtitlesRepository {
 				}),
 		);
 
-		return subtitle ? await this.findByPrimaryId({ primaryId: subtitle.id }) : undefined;
+		return subtitle;
 	}
 
 	async updateAndRead(id: string, body: UpdateSubtitleRequest) {
@@ -104,19 +103,6 @@ class SubtitlesRepository {
 
 	async deleteAndReturn(id: string) {
 		return await subtitles.deleteAndReturn({ primaryId: id });
-	}
-
-	async findMany<F extends string>({
-		fields,
-		where,
-		orderBy,
-		limit,
-		offset,
-		tx,
-	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<SubtitleEntity, F>>> {
-		const data = await this.selectMany({ where, orderBy, limit, offset, tx });
-
-		return data.map((item) => QueryFields.apply(item, fields));
 	}
 
 	async findFirst<F extends string>({
