@@ -62,3 +62,10 @@ export class ImplicitSeekCoordinator {
 		this.dependencies.sendToSession(announcement.sessionId, "playback:session:seeked", announcement);
 	}
 }
+
+/**
+ * Shared instance so session teardown can drop a session's cooldown entry —
+ * the bounded map only prunes on write pressure, so released sessions would
+ * otherwise linger until the map fills.
+ */
+export const implicitSeekCoordinator = new ImplicitSeekCoordinator();

@@ -1,68 +1,100 @@
-import { MINUTE } from "@/server.constants";
+import { FileUtils } from "@/utils/file.utils";
+import { MemoryCache } from "@/utils/memory-cache";
+import { parseHlsBuffer } from "../buffer/hls-buffer";
+import type { HlsBufferAnalysis } from "../streaming.types";
 
-export interface PlaylistStats {
+interface PlaylistStats {
 	mtimeMs: number;
 	size: number;
 }
 
-interface CacheEntry extends PlaylistStats {
-	playlist: Blob;
-	lastAccessAt: number;
+export interface PlaylistFileReader {
+	text(): Promise<string>;
 }
 
-interface CacheDependencies {
-	now: () => number;
+/** All views derived from one read of a playlist file. */
+export interface PlaylistViews {
+	raw: string;
+	playlist: Blob;
+	analysis: HlsBufferAnalysis;
+}
+
+export type PlaylistFileReadResult = ({ ok: true } & PlaylistViews) | { ok: false; error: unknown; analysis: HlsBufferAnalysis };
+
+interface PlaylistFileCacheDependencies {
+	getStats: (path: string) => Promise<PlaylistStats | null>;
+	readFile: (path: string) => PlaylistFileReader;
 	maxEntries: number;
+}
+
+interface CacheEntry {
+	stats: PlaylistStats;
+	segmentDuration: number;
+	views: PlaylistViews;
 }
 
 const DEFAULT_MAX_ENTRIES = 512;
 
 /**
- * Cache for rewritten HLS playlists: keyed by the source file's (mtimeMs, size),
- * with LRU-style eviction of the oldest entries once the limit is exceeded.
+ * ffmpeg's `-hls_base_url` prefixes the segment URIs but not the fMP4 init
+ * filename, so the raw manifest points at `init.mp4` — a URL the session API
+ * does not serve. Remap it onto the segments route, which already handles the
+ * init segment.
  */
-export class PlaylistCache {
-	private readonly entries = new Map<string, CacheEntry>();
-	private readonly dependencies: CacheDependencies;
+function rewriteInitSegmentUri(playlist: string): string {
+	return playlist.replace('URI="init.mp4"', 'URI="segments/init.mp4"');
+}
 
-	constructor(dependencies: Partial<CacheDependencies> = {}) {
-		this.dependencies = { now: Date.now, maxEntries: DEFAULT_MAX_ENTRIES, ...dependencies };
+/**
+ * One stat + one read of the HLS playlist per (mtime, size) version, returning
+ * the raw text, the rewritten Blob and the parsed buffer analysis together.
+ * Freshness is the file's (mtimeMs, size) — unchanged stats never re-read the
+ * file (playlists grow with the encode) — and entries are bounded/LRU-evicted
+ * by MemoryCache. A file read failure is returned (not thrown) so both callers
+ * can keep their own error policy.
+ */
+export class PlaylistFileCache {
+	private readonly entries: MemoryCache<CacheEntry>;
+	private readonly dependencies: PlaylistFileCacheDependencies;
+
+	constructor(dependencies: Partial<PlaylistFileCacheDependencies> = {}) {
+		this.dependencies = {
+			getStats: (path) => FileUtils.getStats(path),
+			readFile: (path) => FileUtils.get(path),
+			maxEntries: DEFAULT_MAX_ENTRIES,
+			...dependencies,
+		};
+		this.entries = new MemoryCache({ ttlMs: -1, maxSize: this.dependencies.maxEntries });
 	}
 
-	get(sessionId: string, stats: PlaylistStats): Blob | undefined {
+	async read(sessionId: string, playlistPath: string, segmentDuration: number): Promise<PlaylistFileReadResult> {
+		const stats = await this.dependencies.getStats(playlistPath);
 		const cached = this.entries.get(sessionId);
-		if (!cached) return undefined;
-
-		if (cached.mtimeMs !== stats.mtimeMs || cached.size !== stats.size) return undefined;
-
-		cached.lastAccessAt = this.dependencies.now();
-		// LRU touch: delete and re-set to move to the tail
-		this.entries.delete(sessionId);
-		this.entries.set(sessionId, cached);
-
-		return cached.playlist;
-	}
-
-	set(sessionId: string, stats: PlaylistStats, playlist: Blob): void {
-		const now = this.dependencies.now();
-		this.entries.delete(sessionId);
-
-		if (this.entries.size >= this.dependencies.maxEntries) {
-			// Age sweep first, then evict least-recently-used until under the cap
-			const cutoff = now - MINUTE;
-			for (const [id, item] of this.entries) {
-				if (item.lastAccessAt < cutoff) this.entries.delete(id);
-			}
-
-			while (this.entries.size >= this.dependencies.maxEntries) {
-				const oldestId = this.entries.keys().next().value;
-				if (oldestId === undefined) break;
-
-				this.entries.delete(oldestId);
-			}
+		if (
+			cached &&
+			stats &&
+			cached.segmentDuration === segmentDuration &&
+			cached.stats.mtimeMs === stats.mtimeMs &&
+			cached.stats.size === stats.size
+		) {
+			return { ok: true, ...cached.views };
 		}
 
-		this.entries.set(sessionId, { ...stats, playlist, lastAccessAt: now });
+		let raw: string;
+		try {
+			raw = await this.dependencies.readFile(playlistPath).text();
+		} catch (error) {
+			return { ok: false, error, analysis: parseHlsBuffer("", segmentDuration) };
+		}
+
+		const views: PlaylistViews = {
+			raw,
+			playlist: new Blob([rewriteInitSegmentUri(raw)], { type: "application/x-mpegURL" }),
+			analysis: parseHlsBuffer(raw, segmentDuration),
+		};
+		if (stats) this.entries.set(sessionId, { stats, segmentDuration, views });
+
+		return { ok: true, ...views };
 	}
 
 	invalidate(sessionId: string): void {
@@ -74,5 +106,5 @@ export class PlaylistCache {
 	}
 }
 
-/** Shared instance so the streaming manager can invalidate on seek/release. */
-export const playlistCache = new PlaylistCache();
+/** Shared instance so the playlist service and the streaming manager see one cache. */
+export const playlistFileCache = new PlaylistFileCache();

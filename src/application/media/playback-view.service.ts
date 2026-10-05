@@ -1,6 +1,6 @@
 import type { PlaybackViewResponse } from "@reelvault/sdk/common";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
-import { nextEpisodeAfter, selectPreferredMediaFile } from "@/modules/streaming/progress/smart-play";
+import { selectNextEpisodeFile, selectPreferredMediaFile } from "@/modules/streaming/progress/smart-play";
 import { toPublicSubtitle } from "@/modules/subtitles/subtitle.mapper";
 import { BaseService } from "@/utils/base-service";
 import { episodesService } from "../catalog/episodes.service";
@@ -55,6 +55,10 @@ class PlaybackViewService extends BaseService {
 
 	private async findNextEpisodeFileId(episode: { id: string; seasonId: string }, metadataId: string): Promise<string | null> {
 		try {
+			// Queries below are ordered (episodeNumber/seasonNumber asc), so no
+			// re-sorting is needed. The shared helper keeps the "next episode,
+			// preferred file" contract aligned with smart play; the later-season
+			// fallback stays here because smart play already lists every season.
 			const seasonEpisodes = await episodesService.getAll({
 				seasonId: episode.seasonId,
 				sortBy: "episodeNumber",
@@ -62,9 +66,7 @@ class PlaybackViewService extends BaseService {
 				fields: EPISODE_FILES_FIELDS,
 				limit: 100,
 			});
-			const sorted = seasonEpisodes.data.toSorted((left, right) => left.episodeNumber - right.episodeNumber);
-			const next = nextEpisodeAfter(sorted, episode.id);
-			const nextFile = next ? selectPreferredMediaFile(next.mediaFiles) : undefined;
+			const nextFile = selectNextEpisodeFile(seasonEpisodes.data, episode.id, (next) => next.mediaFiles);
 			if (nextFile) return nextFile.id;
 
 			const seasons = await seasonsService.getAll({
@@ -74,9 +76,8 @@ class PlaybackViewService extends BaseService {
 				sortOrder: "asc",
 				limit: 100,
 			});
-			const orderedSeasons = seasons.data.toSorted((left, right) => left.seasonNumber - right.seasonNumber);
-			const currentSeasonIndex = orderedSeasons.findIndex((season) => season.id === episode.seasonId);
-			for (const season of orderedSeasons.slice(currentSeasonIndex + 1)) {
+			const currentSeasonIndex = seasons.data.findIndex((season) => season.id === episode.seasonId);
+			for (const season of seasons.data.slice(currentSeasonIndex + 1)) {
 				const firstEpisodes = await episodesService.getAll({
 					seasonId: season.id,
 					sortBy: "episodeNumber",

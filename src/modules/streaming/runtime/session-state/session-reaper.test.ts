@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "bun";
-import { BufferAnalysisCache } from "../../buffer/buffer-analysis.cache";
 import { SessionSeeker } from "../../seeking/session-seeker";
 import { createMockPlaybackDecision } from "../../streaming.test-utils";
 import { SessionReaper } from "./session-reaper";
@@ -21,6 +20,7 @@ function registration(store: SessionStore, id: string) {
 function createReaper() {
 	const store = new SessionStore();
 	const reservations = new SessionReservationTracker(store, 5);
+	const implicitSeekInvalidations: string[] = [];
 	const reaper = new SessionReaper(
 		store,
 		reservations,
@@ -29,7 +29,14 @@ function createReaper() {
 				/* intentionally empty */
 			},
 		},
-		new BufferAnalysisCache(4, () => "/tmp/none/playlist.m3u8"),
+		{
+			invalidate: () => {
+				/* intentionally empty */
+			},
+			clear: () => {
+				/* intentionally empty */
+			},
+		},
 		new SessionSeeker(store, 1, async () => 0),
 		{
 			invalidate: () => {
@@ -40,14 +47,19 @@ function createReaper() {
 			},
 		},
 		new Set<string>(),
+		{
+			invalidate: (id) => {
+				implicitSeekInvalidations.push(id);
+			},
+		},
 	);
 
-	return { reaper, store, reservations };
+	return { reaper, store, reservations, implicitSeekInvalidations };
 }
 
 describe("session reaper", () => {
 	test("finalizeRelease cleans all state and records a terminated session", async () => {
-		const { reaper, store, reservations } = createReaper();
+		const { reaper, store, reservations, implicitSeekInvalidations } = createReaper();
 		registration(store, "s1");
 		store.setSessionOperation("s1", "op-1");
 		reservations.reserve("s1", "user-1");
@@ -78,6 +90,7 @@ describe("session reaper", () => {
 		expect(store.getTerminatedSession("s1")?.reason).toBe("admin-stop");
 		expect(store.isProfileTerminatedRecently("profile-1", "file-s1", 1_000)).toEqual({ reason: "admin-stop" });
 		expect(ended).toEqual([{ sessionId: "s1", mediaFileId: "file-s1", profileId: "profile-1", reason: "admin-stop" }]);
+		expect(implicitSeekInvalidations).toEqual(["s1"]);
 	});
 
 	test("finalizeRelease of a never-started session skips the ended lifecycle event", async () => {

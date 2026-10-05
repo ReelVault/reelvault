@@ -6,8 +6,8 @@ import { systemResourcesService } from "@/system/system-resources.service";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { detach, PromiseUtils } from "@/utils/promise.utils";
-import type { BufferAnalysisCache } from "../../buffer/buffer-analysis.cache";
 import type { ProcessManager } from "../../ffmpeg/process-manager";
+import type { PlaylistFileCache } from "../../playlist/playlist.cache";
 import type { SessionSeeker } from "../../seeking/session-seeker";
 import type { StreamingLifecycleCallbacks } from "../../streaming.types";
 import { transcodeProgressMonitor } from "../transcode-progress.monitor";
@@ -20,27 +20,30 @@ export class SessionReaper {
 	private readonly store: SessionStore;
 	private readonly reservations: SessionReservationTracker;
 	private readonly processManager: Pick<ProcessManager, "removeTempDirectory">;
-	private readonly bufferCache: BufferAnalysisCache;
+	private readonly playlistFiles: Pick<PlaylistFileCache, "invalidate" | "clear">;
 	private readonly seeker: SessionSeeker;
 	private readonly playlistWaiter: { invalidate(id: string): void; clear(): void };
+	private readonly implicitSeek: { invalidate(id: string): void };
 	private readonly softwareFallbackSessions: Set<string>;
 
 	constructor(
 		store: SessionStore,
 		reservations: SessionReservationTracker,
 		processManager: Pick<ProcessManager, "removeTempDirectory">,
-		bufferCache: BufferAnalysisCache,
+		playlistFiles: Pick<PlaylistFileCache, "invalidate" | "clear">,
 		seeker: SessionSeeker,
 		playlistWaiter: { invalidate(id: string): void; clear(): void },
 		softwareFallbackSessions: Set<string>,
+		implicitSeek: { invalidate(id: string): void },
 	) {
 		this.store = store;
 		this.reservations = reservations;
 		this.processManager = processManager;
-		this.bufferCache = bufferCache;
+		this.playlistFiles = playlistFiles;
 		this.seeker = seeker;
 		this.playlistWaiter = playlistWaiter;
 		this.softwareFallbackSessions = softwareFallbackSessions;
+		this.implicitSeek = implicitSeek;
 	}
 
 	/**
@@ -167,9 +170,10 @@ export class SessionReaper {
 			this.softwareFallbackSessions.delete(sessionId);
 			this.reservations.release(sessionId);
 			this.reservations.unbindUser(sessionId);
-			this.bufferCache.invalidate(sessionId);
+			this.playlistFiles.invalidate(sessionId);
 			this.seeker.cancelSessionLock(sessionId);
 			this.playlistWaiter.invalidate(sessionId);
+			this.implicitSeek.invalidate(sessionId);
 			if (session) {
 				this.store.storeTerminated(sessionId, { mediaFileId: session.mediaFileId, profileId: session.profileId }, reason);
 				// Lifecycle "ended" mirrors "started" (first successful process attach).
@@ -212,7 +216,7 @@ export class SessionReaper {
 		);
 		this.store.clear();
 		this.reservations.clear();
-		this.bufferCache.clear();
+		this.playlistFiles.clear();
 		this.playlistWaiter.clear();
 	}
 }

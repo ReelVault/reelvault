@@ -14,20 +14,9 @@ export interface PlaybackSessionStartedEvent {
 	startedAt: string;
 }
 
-interface PublisherDependencies {
-	pluginEventBus: Pick<typeof pluginEventBus, "publish">;
-}
+type SessionEventBus = Pick<typeof pluginEventBus, "publish">;
 
-const defaultDependencies: PublisherDependencies = { pluginEventBus };
-
-export class SessionLifecyclePublisher {
-	private readonly dependencies: PublisherDependencies;
-
-	constructor(dependencies: PublisherDependencies = defaultDependencies) {
-		this.dependencies = dependencies;
-	}
-
-	publishStarted(event: PlaybackSessionStartedEvent): void {
-		this.dependencies.pluginEventBus.publish("playback.lifecycle.started", event);
-	}
+/** Publishes `playback.lifecycle.started` onto the plugin event bus; the bus is injectable for tests. */
+export function publishSessionStarted(event: PlaybackSessionStartedEvent, bus: SessionEventBus = pluginEventBus): void {
+	bus.publish("playback.lifecycle.started", event);
 }

@@ -1,12 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { PlaylistCache } from "./playlist.cache";
+import { PlaylistFileCache } from "./playlist.cache";
 import { PlaylistService } from "./playlist.service";
 
 function createService(
 	options: { waitForPlaylistError?: Error; stats?: { mtimeMs: number; size: number } | null; text?: string; enoent?: boolean } = {},
 ) {
 	let reads = 0;
-	const cache = new PlaylistCache();
+	const fileCache = new PlaylistFileCache({
+		getStats: async () => options.stats ?? null,
+		readFile: () => {
+			if (options.enoent) {
+				const error = new Error("no entry") as Error & { code?: string };
+				error.code = "ENOENT";
+				throw error;
+			}
+
+			reads += 1;
+
+			return { text: async () => options.text ?? "#EXTM3U\nseg_0.m4s\n" };
+		},
+	});
 	const runtime = {
 		keepAlive: () => {
 			/* intentionally empty */
@@ -18,20 +31,8 @@ function createService(
 		},
 		getFilePath: (_sessionId: string, file: string) => `/tmp/session-1/${file}`,
 	};
-	const getStats = async () => options.stats ?? null;
-	const readFile = () => {
-		if (options.enoent) {
-			const error = new Error("no entry") as Error & { code?: string };
-			error.code = "ENOENT";
-			throw error;
-		}
 
-		reads += 1;
-
-		return { text: async () => options.text ?? "#EXTM3U\nseg_0.m4s\n" };
-	};
-
-	return { service: new PlaylistService({ runtime, getStats, readFile, cache }), cache, reads: () => reads };
+	return { service: new PlaylistService({ runtime, fileCache }), fileCache, reads: () => reads };
 }
 
 describe("playlist service", () => {
@@ -42,7 +43,7 @@ describe("playlist service", () => {
 	});
 
 	test("reads, rewrites and caches the playlist", async () => {
-		const { service, cache, reads } = createService({ stats: { mtimeMs: 10, size: 20 } });
+		const { service, reads } = createService({ stats: { mtimeMs: 10, size: 20 } });
 
 		const first = await service.get("session-1");
 		expect(await first.text()).toContain("#EXTM3U");
@@ -52,7 +53,6 @@ describe("playlist service", () => {
 		const second = await service.get("session-1");
 		expect(second).toBe(first);
 		expect(reads()).toBe(1);
-		expect(cache.get("session-1", { mtimeMs: 10, size: 20 })).toBeInstanceOf(Blob);
 	});
 
 	test("re-reads when the playlist file was rewritten in the meantime", async () => {

@@ -91,14 +91,10 @@ class TrickplayService extends BaseService {
 			// xstack needs a full grid (and ≥2 inputs for its relative layout) — pad
 			// the last chunk by repeating its final timestamp; unused tiles are never
 			// referenced by the VTT.
-			if (chunks.length > 0) {
-				const lastChunk = chunks[chunks.length - 1];
-				if (lastChunk && lastChunk.length > 0) {
-					const padSource = lastChunk[lastChunk.length - 1];
-					if (padSource !== undefined) {
-						while (lastChunk.length < columns * columns) lastChunk.push(padSource);
-					}
-				}
+			const lastChunk = chunks.at(-1);
+			const padSource = lastChunk?.at(-1);
+			if (lastChunk && padSource !== undefined) {
+				while (lastChunk.length < tilesPerSprite) lastChunk.push(padSource);
 			}
 
 			const sprites: TrickplaySprite[] = [];

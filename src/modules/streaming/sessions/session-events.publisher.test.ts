@@ -1,16 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { SessionLifecyclePublisher } from "./session-events.publisher";
+import { publishSessionStarted } from "./session-events.publisher";
 
 describe("session lifecycle publisher", () => {
 	test("publishes the playback.lifecycle.started event", () => {
 		const published: Array<{ event: string; payload: unknown }> = [];
-		const publisher = new SessionLifecyclePublisher({
-			pluginEventBus: {
-				publish: (event: string, payload: unknown) => {
-					published.push({ event, payload });
-				},
-			},
-		});
 
 		const event = {
 			sessionId: "session-1",
@@ -24,7 +17,11 @@ describe("session lifecycle publisher", () => {
 			audioStreamIndex: 1,
 			startedAt: "2026-09-10T00:00:00.000Z",
 		};
-		publisher.publishStarted(event);
+		publishSessionStarted(event, {
+			publish: (event, payload) => {
+				published.push({ event, payload });
+			},
+		});
 
 		expect(published).toEqual([{ event: "playback.lifecycle.started", payload: event }]);
 	});

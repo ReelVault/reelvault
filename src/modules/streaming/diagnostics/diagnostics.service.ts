@@ -51,6 +51,41 @@ export interface ServiceDependencies {
 	segmentDurationSeconds: number;
 }
 
+type BufferState = "completed" | "transcoding" | "pending";
+
+interface BufferProgress {
+	state: BufferState;
+	active: boolean;
+	transcodedSeconds: number;
+	transcodedUntil: number;
+	remainingSeconds: number | null;
+	progressPercent: number | null;
+}
+
+function resolveBufferState(complete: boolean, active: boolean): BufferState {
+	if (complete) return "completed";
+
+	return active ? "transcoding" : "pending";
+}
+
+function round2(value: number): number {
+	return Number(value.toFixed(2));
+}
+
+/** Shared state + progress projection for the diagnostics and transcode-progress responses. */
+function toBufferProgress(analysis: HlsBufferAnalysis, active: boolean, duration: number | null): BufferProgress {
+	const transcodedUntil = round2(analysis.bufferedUntil);
+
+	return {
+		state: resolveBufferState(analysis.complete, active),
+		active,
+		transcodedSeconds: round2(analysis.bufferedSeconds),
+		transcodedUntil,
+		remainingSeconds: duration !== null ? Math.max(0, round2(duration - transcodedUntil)) : null,
+		progressPercent: calculateBufferProgress(transcodedUntil, duration),
+	};
+}
+
 const defaultDependencies: ServiceDependencies = {
 	requireSession: defaultRequireSession,
 	findForStreamingDiagnostics: (fileId) => mediaRepository.findForStreamingDiagnostics(fileId),
@@ -87,16 +122,8 @@ export class DiagnosticsService extends BaseService {
 		}
 
 		const active = isSessionActive(sessionId);
-		let bufferState: "completed" | "transcoding" | "pending";
-		if (bufferAnalysis?.complete) {
-			bufferState = "completed";
-		} else if (active) {
-			bufferState = "transcoding";
-		} else {
-			bufferState = "pending";
-		}
-
 		const duration = file.duration ?? null;
+		const bufferProgress = bufferAnalysis ? toBufferProgress(bufferAnalysis, active, duration) : null;
 
 		return {
 			mediaFileId: file.id,
@@ -143,17 +170,18 @@ export class DiagnosticsService extends BaseService {
 						encodeSpeed: sessionDiag.encodeSpeed,
 					}
 				: null,
-			buffer: bufferAnalysis
-				? {
-						state: bufferState,
-						active,
-						bufferedSeconds: Number(bufferAnalysis.bufferedSeconds.toFixed(2)),
-						bufferedUntil: Number(bufferAnalysis.bufferedUntil.toFixed(2)),
-						segments: bufferAnalysis.segments.length,
-						segmentDuration: segmentDurationSeconds,
-						progressPercent: calculateBufferProgress(bufferAnalysis.bufferedUntil, duration),
-					}
-				: null,
+			buffer:
+				bufferAnalysis && bufferProgress
+					? {
+							state: bufferProgress.state,
+							active: bufferProgress.active,
+							bufferedSeconds: bufferProgress.transcodedSeconds,
+							bufferedUntil: bufferProgress.transcodedUntil,
+							segments: bufferAnalysis.segments.length,
+							segmentDuration: segmentDurationSeconds,
+							progressPercent: bufferProgress.progressPercent,
+						}
+					: null,
 		};
 	}
 
@@ -164,33 +192,21 @@ export class DiagnosticsService extends BaseService {
 		// No playlist means no progress (the same zeros as analyzing a missing playlist).
 		const analysis: HlsBufferAnalysis = buffer ?? { complete: false, segments: [], ranges: [], bufferedSeconds: 0, bufferedUntil: 0 };
 		const active = isSessionActive(sessionId);
-		let state: "completed" | "transcoding" | "pending";
-		if (analysis.complete) {
-			state = "completed";
-		} else if (active) {
-			state = "transcoding";
-		} else {
-			state = "pending";
-		}
-
 		const duration = file?.duration ?? null;
-		const transcodedSeconds = Number(analysis.bufferedSeconds.toFixed(2));
-		const transcodedUntil = Number(analysis.bufferedUntil.toFixed(2));
-		const remainingSeconds = duration !== null ? Math.max(0, Number((duration - transcodedUntil).toFixed(2))) : null;
-		const progressPercent = calculateBufferProgress(transcodedUntil, duration);
+		const progress = toBufferProgress(analysis, active, duration);
 
 		return {
 			sessionId,
 			mediaFileId: access.mediaFileId,
-			state,
-			active,
+			state: progress.state,
+			active: progress.active,
 			segmentDuration: segmentDurationSeconds,
 			segments: analysis.segments.length,
-			transcodedSeconds,
-			transcodedUntil,
+			transcodedSeconds: progress.transcodedSeconds,
+			transcodedUntil: progress.transcodedUntil,
 			duration,
-			remainingSeconds,
-			progressPercent,
+			remainingSeconds: progress.remainingSeconds,
+			progressPercent: progress.progressPercent,
 			ranges: analysis.ranges,
 		};
 	}

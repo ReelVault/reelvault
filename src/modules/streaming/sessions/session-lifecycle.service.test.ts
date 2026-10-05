@@ -101,7 +101,7 @@ function createService(
 			releaseSession: () => Promise.resolve("released" as const),
 			getTerminatedSession: () => undefined,
 		},
-		publisher: { publishStarted: (event) => calls.published.push(event) },
+		publisher: (event) => calls.published.push(event),
 		assertEnvironment: () => "/usr/bin/ffmpeg",
 	};
 

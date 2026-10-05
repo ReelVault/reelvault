@@ -1,64 +1,114 @@
-import { describe, expect, test } from "bun:test";
-import { PlaylistCache } from "./playlist.cache";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { $ } from "bun";
+import { PlaylistFileCache } from "./playlist.cache";
 
-const stats = { mtimeMs: 100, size: 200 };
-const playlist = new Blob(["#EXTM3U"], { type: "application/x-mpegURL" });
+const dir = join(tmpdir(), `reelvault-playlist-cache-${Date.now()}`);
+const playlistPath = join(dir, "playlist.m3u8");
 
-describe("playlist cache", () => {
-	test("returns the cached playlist while file stats are unchanged", () => {
-		const cache = new PlaylistCache();
-		cache.set("session-1", stats, playlist);
+const playlistBody = `#EXTM3U
+#EXT-X-TARGETDURATION:4
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:4.0,
+seg_0.m4s
+#EXTINF:4.0,
+seg_1.m4s
+`;
 
-		expect(cache.get("session-1", stats)).toBe(playlist);
+async function writePlaylist(body: string) {
+	await writeFile(playlistPath, body);
+	// Each rewrite changes the body length, so the (mtime, size) cache key can
+	// never collide across writes — no waiting for a fresh mtime needed.
+}
+
+describe("playlist file cache", () => {
+	afterAll(async () => {
+		await $`rm -rf ${dir}`.quiet();
 	});
 
-	test("misses when the file was rewritten (mtime or size changed)", () => {
-		const cache = new PlaylistCache();
-		cache.set("session-1", stats, playlist);
+	test("returns an empty analysis and the read error when the playlist does not exist", async () => {
+		await mkdir(dir, { recursive: true });
+		const cache = new PlaylistFileCache();
 
-		expect(cache.get("session-1", { mtimeMs: 101, size: 200 })).toBeUndefined();
-		expect(cache.get("session-1", { mtimeMs: 100, size: 201 })).toBeUndefined();
-		expect(cache.get("session-2", stats)).toBeUndefined();
+		const result = await cache.read("s1", join(dir, "missing.m3u8"), 4);
+
+		expect(result.ok).toBe(false);
+		expect(result.analysis.complete).toBe(false);
+		expect(result.analysis.segments).toEqual([]);
 	});
 
-	test("evicts the least-recently-used entry when full (bounded cache)", () => {
-		let now = 1_000;
-		const cache = new PlaylistCache({ now: () => now, maxEntries: 2 });
+	test("parses the playlist and reuses the cached views while stats are unchanged", async () => {
+		await writePlaylist(playlistBody);
+		const cache = new PlaylistFileCache();
 
-		cache.set("session-1", stats, playlist);
-		now = 20_000;
-		cache.set("session-2", stats, playlist);
-		now = 30_000;
-		cache.get("session-1", stats); // session-1 becomes the most recently used
-		now = 40_000;
-		// Full: session-2 (lastAccess 20 000) is the LRU and is evicted.
-		cache.set("session-3", stats, playlist);
+		const first = await cache.read("s1", playlistPath, 4);
+		const second = await cache.read("s1", playlistPath, 4);
 
-		expect(cache.get("session-2", stats)).toBeUndefined();
-		expect(cache.get("session-1", stats)).toBe(playlist);
-		expect(cache.get("session-3", stats)).toBe(playlist);
+		expect(first.ok && first.analysis.segments).toHaveLength(2);
+		if (first.ok && second.ok) expect(second.playlist).toBe(first.playlist);
 	});
 
-	test("sweeps entries idle for over a minute before evicting", () => {
-		let now = 1_000;
-		const cache = new PlaylistCache({ now: () => now, maxEntries: 2 });
+	test("re-parses after the playlist was rewritten and does not cache a mid-read swap", async () => {
+		await writePlaylist(playlistBody);
+		const cache = new PlaylistFileCache();
+		await cache.read("s1", playlistPath, 4);
 
-		cache.set("session-1", stats, playlist);
-		now = 200_000; // more than MINUTE later
-		cache.set("session-2", stats, playlist);
-		now = 210_000;
-		cache.set("session-3", stats, playlist); // session-1 is stale → swept, no LRU eviction
+		const longerBody = `${playlistBody}#EXTINF:4.0,\nseg_2.m4s\n`;
+		await writePlaylist(longerBody);
 
-		expect(cache.get("session-1", stats)).toBeUndefined();
-		expect(cache.get("session-2", stats)).toBe(playlist);
-		expect(cache.get("session-3", stats)).toBe(playlist);
+		const refreshed = await cache.read("s1", playlistPath, 4);
+		expect(refreshed.ok && refreshed.analysis.segments).toHaveLength(3);
+
+		// Content swap between stat and read: old (mtime,size) must not end up in the cache with new content.
+		await writePlaylist(`${longerBody}#EXTINF:4.0,\nseg_3.m4s\n`);
+		const afterSwap = await cache.read("s1", playlistPath, 4);
+		expect(afterSwap.ok && afterSwap.analysis.segments).toHaveLength(4);
 	});
 
-	test("invalidate drops the entry", () => {
-		const cache = new PlaylistCache();
-		cache.set("session-1", stats, playlist);
-		cache.invalidate("session-1");
+	test("a changed segment duration invalidates the cached parse", async () => {
+		await writePlaylist(playlistBody);
+		const cache = new PlaylistFileCache();
 
-		expect(cache.get("session-1", stats)).toBeUndefined();
+		const first = await cache.read("s1", playlistPath, 4);
+		const second = await cache.read("s1", playlistPath, 2);
+
+		if (first.ok && second.ok) expect(second.playlist).not.toBe(first.playlist);
+	});
+
+	test("rewrites the init segment URI onto the segments route", async () => {
+		await writePlaylist(["#EXTM3U", '#EXT-X-MAP:URI="init.mp4"', "#EXTINF:4.0,", "seg_0.m4s"].join("\n"));
+		const cache = new PlaylistFileCache();
+
+		const result = await cache.read("s1", playlistPath, 4);
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			const text = await result.playlist.text();
+			expect(text).toContain('#EXT-X-MAP:URI="segments/init.mp4"');
+			expect(text).not.toContain('#EXT-X-MAP:URI="init.mp4"');
+		}
+	});
+
+	test("bounds cache size by evicting the oldest entries and invalidate forces a re-read", async () => {
+		await writePlaylist(playlistBody);
+		const cache = new PlaylistFileCache({ maxEntries: 2 });
+
+		const first = await cache.read("s1", playlistPath, 4);
+		const second = await cache.read("s2", playlistPath, 4);
+		await cache.read("s1", playlistPath, 4); // s1 touched, s2 is now oldest
+		await cache.read("s3", playlistPath, 4); // evicts s2
+
+		const firstAgain = await cache.read("s1", playlistPath, 4);
+		const secondAgain = await cache.read("s2", playlistPath, 4);
+		if (first.ok && firstAgain.ok) expect(firstAgain.playlist).toBe(first.playlist);
+		if (second.ok && secondAgain.ok) expect(secondAgain.playlist).not.toBe(second.playlist);
+
+		cache.invalidate("s1");
+		const afterInvalidate = await cache.read("s1", playlistPath, 4);
+		if (first.ok && afterInvalidate.ok) expect(afterInvalidate.playlist).not.toBe(first.playlist);
+
+		cache.clear();
 	});
 });

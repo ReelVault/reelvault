@@ -3,6 +3,7 @@ import { workerOperationRepository } from "@/database/repositories/worker-operat
 import type { FFmpegProgress } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
+import { parseColonSeparatedSeconds } from "@/utils/time.utils";
 import type { SessionStore } from "./session-state/session-store";
 
 const logger = createLogger("TranscodeProgressMonitor");
@@ -148,15 +149,14 @@ export class TranscodeProgressMonitor {
 
 /** Parses ffmpeg's `time=HH:MM:SS.micro` (also bare `MM:SS.micro`) into milliseconds. */
 export function parseTimeToMs(time: string): number | null {
-	const parts = time.trim().split(":");
+	const trimmed = time.trim();
+	const parts = trimmed.split(":");
 	if (parts.length < 2 || parts.length > 3) return null;
 
-	const seconds = Number.parseFloat(parts[parts.length - 1] ?? "");
-	const minutes = Number.parseInt(parts[parts.length - 2] ?? "", 10);
-	const hours = parts.length === 3 ? Number.parseInt(parts[0] ?? "", 10) : 0;
-	if (!(Number.isFinite(seconds) && Number.isFinite(minutes) && Number.isFinite(hours))) return null;
+	const seconds = parseColonSeparatedSeconds(trimmed);
+	if (Number.isNaN(seconds)) return null;
 
-	return Math.round(((hours * 60 + minutes) * 60 + seconds) * 1000);
+	return Math.round(seconds * 1000);
 }
 
 export const transcodeProgressMonitor = new TranscodeProgressMonitor();

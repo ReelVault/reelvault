@@ -70,6 +70,22 @@ export function nextEpisodeAfter<E extends { id: string }>(playableEpisodes: rea
 	return playableEpisodes[currentIndex + 1];
 }
 
+/**
+ * Preferred media file of the episode right after `currentId` in an already
+ * ordered list. Callers own the ordering and the "no next episode" fallback
+ * (the playback view scans later seasons; smart play already lists every
+ * playable episode across seasons).
+ */
+export function selectNextEpisodeFile<E extends { id: string }, F extends { id: string; isDefault: boolean; updatedAt: Date }>(
+	orderedEpisodes: readonly E[],
+	currentId: string,
+	mediaFilesFor: (episode: E) => readonly F[],
+): F | undefined {
+	const next = nextEpisodeAfter(orderedEpisodes, currentId);
+
+	return next ? selectPreferredMediaFile(mediaFilesFor(next)) : undefined;
+}
+
 export function selectMovieSmartPlay(mediaFiles: readonly MediaFile[], progress?: PlaybackProgress): SmartPlaySuggestion | undefined {
 	if (progress && !progress.completed && progress.position > 0 && mediaFiles.some((f) => f.id === progress.mediaFileId)) {
 		return {
@@ -118,12 +134,9 @@ export function selectEpisodeSmartPlay(
 			};
 		}
 
-		const nextEpisode = nextEpisodeAfter(playableEpisodes, mostRecentEpisode.id);
+		const nextEpisode = selectNextEpisodeFile(playableEpisodes, mostRecentEpisode.id, (episode) => filesByEpisode.get(episode.id) ?? []);
 		if (nextEpisode) {
-			const nextFile = selectPreferredMediaFile(filesByEpisode.get(nextEpisode.id) ?? []);
-			if (nextFile) {
-				return { type: "next_episode", mediaFileId: nextFile.id };
-			}
+			return { type: "next_episode", mediaFileId: nextEpisode.id };
 		}
 	}
 

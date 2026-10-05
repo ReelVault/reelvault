@@ -98,20 +98,16 @@ export class SeekScheduler {
 	 * never both tear down + restart the same session concurrently.
 	 */
 	async runExclusive<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
-		const previousLock = this.locks.get(sessionId) ?? Promise.resolve();
-		const { run, lock } = this.chainLocked(sessionId, previousLock, task);
-		try {
-			return await run;
-		} finally {
-			if (this.locks.get(sessionId) === lock) this.locks.delete(sessionId);
-		}
+		return await this.withSessionLock(sessionId, task);
 	}
 
 	/**
-	 * Chains `task` onto `previousLock` (it starts once the previous entry settles,
-	 * regardless of its outcome) and installs the settled mirror as the new lock.
+	 * Runs `task` under the session's mutex: it starts once the previous entry
+	 * settles (regardless of its outcome) and becomes the new lock until it
+	 * settles itself. The lock is dropped once no newer entry replaced it.
 	 */
-	private chainLocked<T>(sessionId: string, previousLock: Promise<void>, task: () => Promise<T>): { run: Promise<T>; lock: Promise<void> } {
+	private async withSessionLock<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+		const previousLock = this.locks.get(sessionId) ?? Promise.resolve();
 		const run = (async () => {
 			await previousLock;
 
@@ -126,7 +122,11 @@ export class SeekScheduler {
 		})();
 		this.locks.set(sessionId, lock);
 
-		return { run, lock };
+		try {
+			return await run;
+		} finally {
+			if (this.locks.get(sessionId) === lock) this.locks.delete(sessionId);
+		}
 	}
 
 	/** Flush wrapper that can never reject: flush delivers failures to its waiters. */
@@ -143,20 +143,13 @@ export class SeekScheduler {
 
 		this.pending.delete(sessionId);
 
-		const previousLock = this.locks.get(sessionId) ?? Promise.resolve();
-		const { run: seek, lock } = this.chainLocked(sessionId, previousLock, () =>
-			this.runExecutor(sessionId, pending.offset, pending.decision),
-		);
-
 		try {
 			// Executor returns the actual content start (may differ from the requested
 			// offset when stream copy begins at the preceding keyframe).
-			const actualStart = await seek;
+			const actualStart = await this.withSessionLock(sessionId, () => this.runExecutor(sessionId, pending.offset, pending.decision));
 			for (const waiter of pending.waiters) waiter.resolve({ startTime: actualStart ?? pending.offset, reusedBuffer: false });
 		} catch (error) {
 			for (const waiter of pending.waiters) waiter.reject(error);
-		} finally {
-			if (this.locks.get(sessionId) === lock) this.locks.delete(sessionId);
 		}
 	}
 

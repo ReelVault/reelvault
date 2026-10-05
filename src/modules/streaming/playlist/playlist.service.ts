@@ -1,37 +1,19 @@
+import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { errorMessage, InternalError, isMissingFile, RequestTimeoutError } from "@/utils/errors";
-import { FileUtils } from "@/utils/file.utils";
 import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import { PLAYLIST_FILE_NAME } from "../utils/segment-name.utils";
-import { type PlaylistCache, type PlaylistStats, playlistCache } from "./playlist.cache";
-
-export interface PlaylistFileReader {
-	text(): Promise<string>;
-}
+import { type PlaylistFileCache, playlistFileCache } from "./playlist.cache";
 
 interface ServiceDependencies {
 	runtime: Pick<typeof streamingRuntimeService, "keepAlive" | "waitForPlaylist" | "getFilePath">;
-	getStats: (path: string) => Promise<PlaylistStats | null>;
-	readFile: (path: string) => PlaylistFileReader;
-	cache: PlaylistCache;
+	fileCache: Pick<PlaylistFileCache, "read" | "invalidate">;
 }
 
 const defaultDependencies: ServiceDependencies = {
 	runtime: streamingRuntimeService,
-	getStats: (path) => FileUtils.getStats(path),
-	readFile: (path) => FileUtils.get(path),
-	cache: playlistCache,
+	fileCache: playlistFileCache,
 };
-
-/**
- * ffmpeg's `-hls_base_url` prefixes the segment URIs but not the fMP4 init
- * filename, so the raw manifest points at `init.mp4` — a URL the session API
- * does not serve. Remap it onto the segments route, which already handles the
- * init segment.
- */
-function rewriteInitSegmentUri(playlist: string): string {
-	return playlist.replace('URI="init.mp4"', 'URI="segments/init.mp4"');
-}
 
 export class PlaylistService extends BaseService {
 	private readonly dependencies: ServiceDependencies;
@@ -42,7 +24,7 @@ export class PlaylistService extends BaseService {
 	}
 
 	async get(sessionId: string, signal?: AbortSignal): Promise<Blob> {
-		const { runtime, getStats, readFile, cache } = this.dependencies;
+		const { runtime, fileCache } = this.dependencies;
 		runtime.keepAlive(sessionId);
 
 		try {
@@ -52,30 +34,20 @@ export class PlaylistService extends BaseService {
 		}
 
 		const playlistPath = runtime.getFilePath(sessionId, PLAYLIST_FILE_NAME);
-		const stats = await getStats(playlistPath);
-
-		if (stats) {
-			const cached = cache.get(sessionId, stats);
-			if (cached) return cached;
-		}
-
-		try {
-			const text = await readFile(playlistPath).text();
-			const playlist = new Blob([rewriteInitSegmentUri(text)], { type: "application/x-mpegURL" });
-			if (stats) cache.set(sessionId, stats, playlist);
-
-			return playlist;
-		} catch (error) {
-			if (isMissingFile(error)) {
+		const result = await fileCache.read(sessionId, playlistPath, serverConfig.stream.hlsSegmentDurationSeconds);
+		if (!result.ok) {
+			if (isMissingFile(result.error)) {
 				throw new RequestTimeoutError("Playlist is being rebuilt (seek in progress) — retry shortly");
 			}
 
-			throw error;
+			throw result.error;
 		}
+
+		return result.playlist;
 	}
 
 	invalidate(sessionId: string): void {
-		this.dependencies.cache.invalidate(sessionId);
+		this.dependencies.fileCache.invalidate(sessionId);
 	}
 }
 

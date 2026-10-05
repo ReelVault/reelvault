@@ -16,7 +16,7 @@ import { streamingManager as streamingRuntimeService } from "../runtime/streamin
 import type { PlaybackSessionInput, SessionReleaseOutcome, TerminatedSessionEntry } from "../streaming.types";
 import { PlaybackSessionIdempotencyRegistry } from "./playback-session-idempotency";
 import { SessionCreationGuard } from "./session-creation.guard";
-import { SessionLifecyclePublisher } from "./session-events.publisher";
+import { type PlaybackSessionStartedEvent, publishSessionStarted } from "./session-events.publisher";
 import { assertSafeId, parseCapabilities, toPlaybackSessionInput } from "./session-request.mapper";
 import { isAdminTerminationReason, resolveSessionAccess } from "./stream-access";
 
@@ -62,7 +62,7 @@ export interface ServiceDependencies {
 		options?: Parameters<typeof defaultEnqueueStreamInit>[1],
 	) => Promise<{ operationId?: string | null }>;
 	runtime: SessionLifecycleRuntime;
-	publisher: Pick<SessionLifecyclePublisher, "publishStarted">;
+	publisher: (event: PlaybackSessionStartedEvent) => void;
 	assertEnvironment: typeof assertFFMpegAvailable;
 }
 
@@ -75,7 +75,7 @@ const defaultDependencies: ServiceDependencies = {
 	workerService: defaultWorkerService,
 	enqueueStreamInit: defaultEnqueueStreamInit,
 	runtime: streamingRuntimeService,
-	publisher: new SessionLifecyclePublisher(),
+	publisher: publishSessionStarted,
 	assertEnvironment: assertFFMpegAvailable,
 };
 
@@ -242,7 +242,7 @@ export class SessionLifecycleService extends BaseService {
 				sessionOperationId = task.operationId;
 				runtime.setSessionOperation(sessionId, task.operationId);
 
-				publisher.publishStarted({
+				publisher({
 					sessionId,
 					userId,
 					profileId,

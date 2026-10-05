@@ -6,7 +6,7 @@ import { defaultRequireSession } from "../contracts";
 import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import type { SeekResult } from "../streaming.types";
 import { INIT_SEGMENT_FILE_NAME, isSegmentFile } from "../utils/segment-name.utils";
-import { ImplicitSeekCoordinator } from "./implicit-seek.coordinator";
+import { implicitSeekCoordinator } from "./implicit-seek.coordinator";
 import { SegmentLookup, type SegmentWaitContext } from "./segment-lookup";
 
 function assertSafeSegment(segment: string): void {
@@ -49,7 +49,7 @@ const defaultDependencies: ServiceDependencies = {
 	requireSession: defaultRequireSession,
 	runtime: streamingRuntimeService,
 	lookup: new SegmentLookup(),
-	implicitSeek: new ImplicitSeekCoordinator(),
+	implicitSeek: implicitSeekCoordinator,
 };
 
 export class SegmentService extends BaseService {

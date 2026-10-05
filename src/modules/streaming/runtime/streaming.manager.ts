@@ -5,12 +5,13 @@ import { NotFoundError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { serializeDate } from "@/utils/time.utils";
-import { BufferAnalysisCache } from "../buffer/buffer-analysis.cache";
+import { getBufferedSeekStart } from "../buffer/hls-buffer";
 import { PlaylistWaiter } from "../buffer/playlist-waiter";
 import { resolveStreamEncoders } from "../diagnostics/encoder-map";
 import { ProcessManager } from "../ffmpeg/process-manager";
-import { playlistCache } from "../playlist/playlist.cache";
+import { playlistFileCache } from "../playlist/playlist.cache";
 import { SessionSeeker } from "../seeking/session-seeker";
+import { implicitSeekCoordinator } from "../segments/implicit-seek.coordinator";
 import type { HlsBufferAnalysis, SessionReleaseOutcome, StreamingLifecycleCallbacks, TerminatedSessionEntry } from "../streaming.types";
 import { resolveSeekTimelineStart } from "../utils/seek-timeline.utils";
 import { PLAYLIST_FILE_NAME, parseSegmentName } from "../utils/segment-name.utils";
@@ -41,7 +42,6 @@ class StreamingManager {
 	private readonly logger = createLogger(this.constructor.name);
 	private readonly store = new SessionStore();
 	private readonly reservations: SessionReservationTracker;
-	private readonly bufferCache: BufferAnalysisCache;
 	private readonly processManager: ProcessManager;
 	private readonly seeker: SessionSeeker;
 	private readonly playlistWaiter: PlaylistWaiter;
@@ -61,7 +61,6 @@ class StreamingManager {
 			() => this.config.maxSessions,
 			() => serverConfig.stream.maxSessionsPerUser,
 		);
-		this.bufferCache = new BufferAnalysisCache(config.hlsSegmentDuration, (sessionId) => this.getFilePath(sessionId, PLAYLIST_FILE_NAME));
 		this.processManager = new ProcessManager(config, this.store, this.reservations);
 		this.seeker = new SessionSeeker(this.store, serverConfig.stream.seekDebounceMs, (sessionId, offset, decision) =>
 			this.doSeek(sessionId, offset, decision),
@@ -76,10 +75,11 @@ class StreamingManager {
 			this.store,
 			this.reservations,
 			this.processManager,
-			this.bufferCache,
+			playlistFileCache,
 			this.seeker,
 			this.playlistWaiter,
 			this.softwareFallbackSessions,
+			implicitSeekCoordinator,
 		);
 
 		this.reaper.startInactivityTimer(
@@ -133,7 +133,7 @@ class StreamingManager {
 			offset,
 			decision,
 			this.config.hlsSegmentDuration,
-			(id, pos) => this.bufferCache.getBufferedSeekStart(id, pos),
+			(id, pos) => this.bufferedSeekStart(id, pos),
 			(id) => this.keepAlive(id),
 		);
 	}
@@ -207,9 +207,8 @@ class StreamingManager {
 			// The temp dir is wiped+recreated by ProcessManager.startSession.
 		}
 
-		this.bufferCache.invalidate(sessionId);
+		playlistFileCache.invalidate(sessionId);
 		this.playlistWaiter.invalidate(sessionId);
-		playlistCache.invalidate(sessionId);
 	}
 
 	/** Decision is exposed once the session reached `active` — mirrors "process is up" for clients. */
@@ -305,7 +304,7 @@ class StreamingManager {
 	}
 
 	async getBuffer(sessionId: string): Promise<HlsBufferAnalysis> {
-		return await this.bufferCache.read(sessionId);
+		return await this.readBufferAnalysis(sessionId);
 	}
 
 	isSessionActive(sessionId: string): boolean {
@@ -326,7 +325,6 @@ class StreamingManager {
 		}
 
 		await this.reaper.finalizeRelease(sessionId, reason, { tempRootDir: this.config.tempRootDir }, this.lifecycleCallbacks);
-		playlistCache.invalidate(sessionId);
 
 		return "released";
 	}
@@ -372,7 +370,20 @@ class StreamingManager {
 
 	async shutdown(): Promise<void> {
 		await this.reaper.shutdown((id, reason) => this.releaseSession(id, reason));
-		playlistCache.clear();
+	}
+
+	/** Parsed buffer analysis for a session — the seek and diagnostics view over the playlist. */
+	private async readBufferAnalysis(sessionId: string): Promise<HlsBufferAnalysis> {
+		const result = await playlistFileCache.read(sessionId, this.getFilePath(sessionId, PLAYLIST_FILE_NAME), this.config.hlsSegmentDuration);
+
+		return result.analysis;
+	}
+
+	/** Buffered start for a seek position, or null when the position is not buffered. */
+	private async bufferedSeekStart(sessionId: string, position: number): Promise<number | null> {
+		const analysis = await this.readBufferAnalysis(sessionId);
+
+		return getBufferedSeekStart(analysis, position, this.config.hlsSegmentDuration);
 	}
 
 	/**
