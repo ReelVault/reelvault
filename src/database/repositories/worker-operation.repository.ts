@@ -6,7 +6,6 @@ import { DAY, serverConstants } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
 import { ConflictError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
-import { isFiniteNumber } from "@/utils/type.utils";
 import type { WorkerItemSummary } from "./worker.repository";
 import { workerJobSummaryColumns } from "./worker-job.projection";
 
@@ -202,7 +201,6 @@ class WorkerOperationRepository {
 	async markJobFinished(
 		operationId: string,
 		jobStatus: "completed" | "failed" | "cancelled",
-		_errorMsg?: string,
 		now: Date = new Date(),
 		tx?: DatabaseTransaction,
 		amount = 1,
@@ -490,70 +488,4 @@ function computeEtaMs(completedItems: number, pendingItems: number, startedAt: D
 	const rate = completedItems / elapsed;
 
 	return rate > 0 ? Math.round(pendingItems / rate) : null;
-}
-
-function toDateField(dateVal: unknown, msVal: unknown): Date | null {
-	if (dateVal instanceof Date) return dateVal;
-
-	if (typeof msVal === "number") return new Date(msVal < 10_000_000_000 ? msVal * 1000 : msVal);
-
-	return null;
-}
-
-const VALID_OPERATION_STATUSES = new Set<string>(["pending", "running", "completed", "failed", "cancelled"]);
-
-function isWorkerOperationStatus(val: unknown): val is WorkerOperationStatus {
-	return typeof val === "string" && VALID_OPERATION_STATUSES.has(val);
-}
-
-export function toReadModel(row: Record<string, unknown>): WorkerOperation {
-	const num = (key: string, fallback = 0): number => (isFiniteNumber(row[key]) ? row[key] : fallback);
-
-	const startedAt = toDateField(row.startedAt, row.startedAtMs);
-	const completedAt = toDateField(row.completedAt, row.completedAtMs);
-
-	const totalItems = num("totalItems");
-	const pendingItems = num("pendingItems");
-	const runningItems = num("runningItems");
-	const completedItems = num("completedItems");
-	const failedItems = num("failedItems");
-	const cancelledItems = num("cancelledItems");
-
-	const etaMs = computeEtaMs(completedItems, pendingItems, startedAt);
-	let status: WorkerOperationStatus = "running";
-	if (isWorkerOperationStatus(row.status)) {
-		status = row.status;
-	} else if (pendingItems === 0 && runningItems === 0) {
-		status = "completed";
-	}
-
-	let progressPercent: number | null = null;
-	if (typeof row.progressPercent === "number") {
-		progressPercent = row.progressPercent;
-	} else if (totalItems > 0) {
-		progressPercent = Math.round((completedItems * 100) / totalItems);
-	}
-
-	return {
-		id: typeof row.id === "string" ? row.id : "",
-		type: typeof row.type === "string" ? row.type : "",
-		status,
-		cancelRequested: Boolean(row.cancelRequested),
-		referenceType: typeof row.referenceType === "string" ? row.referenceType : null,
-		referenceId: typeof row.referenceId === "string" ? row.referenceId : null,
-		totalItems,
-		pendingItems,
-		runningItems,
-		completedItems,
-		failedItems,
-		cancelledItems,
-		progressPercent,
-		etaMs,
-		error: typeof row.error === "string" ? row.error : null,
-		startedAt,
-		completedAt,
-		retentionUntil: row.retentionUntil instanceof Date ? row.retentionUntil : null,
-		createdAt: row.createdAt instanceof Date ? row.createdAt : new Date(),
-		updatedAt: row.updatedAt instanceof Date ? row.updatedAt : new Date(),
-	};
 }

@@ -113,7 +113,7 @@ export class WorkerQueueService extends BaseService {
 	}
 
 	findActive(workerId: string, dedupeKey: string): Promise<ActiveWorkerItem | undefined> {
-		return workerJobRepository.findActiveByWorkerAndDedupe(workerId, dedupeKey);
+		return workerJobRepository.findActiveByDedupeKey(workerId, dedupeKey);
 	}
 
 	findActiveMany(workerId: string, dedupeKeys: readonly string[]): Promise<ActiveWorkerItem[]> {

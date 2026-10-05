@@ -136,10 +136,6 @@ class WorkerJobRepository {
 		return item;
 	}
 
-	async findActiveByWorkerAndDedupe(workerId: string, dedupeKey: string): Promise<ActiveWorkerItem | undefined> {
-		return await this.findActiveByDedupeKey(workerId, dedupeKey);
-	}
-
 	/** Batch variant of {@link findActiveByDedupeKey} — used to validate a bulk enqueue before it inserts anything. */
 	async findActiveByWorkerAndDedupeKeys(workerId: string, dedupeKeys: readonly string[]): Promise<ActiveWorkerItem[]> {
 		if (dedupeKeys.length === 0) return [];
@@ -436,7 +432,7 @@ class WorkerJobRepository {
 			const updatedJob = updated[0];
 			if (updatedJob) {
 				if (updatedJob.operationId) {
-					await workerOperationRepository.markJobFinished(updatedJob.operationId, "completed", undefined, now, tx);
+					await workerOperationRepository.markJobFinished(updatedJob.operationId, "completed", now, tx);
 				}
 
 				return true;
@@ -506,7 +502,7 @@ class WorkerJobRepository {
 			const updatedJob = updated[0];
 			if (updatedJob) {
 				if (updatedJob.operationId) {
-					await workerOperationRepository.markJobFinished(updatedJob.operationId, "failed", error, now, tx);
+					await workerOperationRepository.markJobFinished(updatedJob.operationId, "failed", now, tx);
 				}
 
 				await this.cascadeCancel(tx, [id], now);
@@ -612,7 +608,7 @@ class WorkerJobRepository {
 
 		const updatedJob = updated[0];
 		if (updatedJob?.operationId) {
-			await workerOperationRepository.markJobFinished(updatedJob.operationId, "cancelled", undefined, now);
+			await workerOperationRepository.markJobFinished(updatedJob.operationId, "cancelled", now);
 		}
 
 		return updatedJob !== undefined;
@@ -777,7 +773,7 @@ class WorkerJobRepository {
 
 		for (const item of runningByOperation) {
 			if (item.operationId) {
-				await workerOperationRepository.markJobFinished(item.operationId, "cancelled", undefined, now, undefined, item.count);
+				await workerOperationRepository.markJobFinished(item.operationId, "cancelled", now, undefined, item.count);
 			}
 		}
 
@@ -924,7 +920,7 @@ class WorkerJobRepository {
 		}
 
 		for (const [operationId, amount] of perOperation) {
-			await workerOperationRepository.markJobFinished(operationId, "failed", "Lease expired", now, tx, amount);
+			await workerOperationRepository.markJobFinished(operationId, "failed", now, tx, amount);
 		}
 
 		await this.cascadeCancel(tx, cascadableIds, now);
@@ -993,7 +989,7 @@ class WorkerJobRepository {
 			}
 
 			for (const [operationId, amount] of exhaustedPerOperation) {
-				await workerOperationRepository.markJobFinished(operationId, "failed", "Lease expired", now, tx, amount);
+				await workerOperationRepository.markJobFinished(operationId, "failed", now, tx, amount);
 			}
 
 			await this.cascadeCancel(
