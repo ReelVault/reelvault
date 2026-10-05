@@ -438,9 +438,6 @@ export const serverConfig = {
 		get maxProfilesPerUser(): number {
 			return systemSettingsStore.get("profiles.maxProfilesPerUser");
 		},
-		getDefaultPreferences(): ProfilePreferenceDefaults {
-			return profileDefaultPreferences();
-		},
 		get defaultPreferences(): ProfilePreferenceDefaults {
 			return profileDefaultPreferences();
 		},

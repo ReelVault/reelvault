@@ -19,7 +19,6 @@ import { openapiMiddleware } from "./middleware/openapi.middleware";
 import { rateLimitMiddleware } from "./middleware/rate-limit.middleware";
 import { requestDedupMiddleware } from "./middleware/request-dedup.middleware";
 import { requestLoggerMiddleware } from "./middleware/request-logger.middleware";
-import { requestTimeoutMiddleware } from "./middleware/request-timeout.middleware";
 import { responseCacheMiddleware } from "./middleware/response-cache.middleware";
 import { securityHeadersMiddleware } from "./middleware/security.middleware";
 import { pluginManager } from "./plugins/lifecycle/plugin.manager";
@@ -128,7 +127,6 @@ const app = new Elysia({ name: "ReelVault", aot: true })
 	// Must precede every consumer of the client IP (rate limiter, auth, audit).
 	.use(clientIpMiddleware)
 	.use(rateLimitMiddleware)
-	.use(requestTimeoutMiddleware)
 	.use(apiRouter)
 	// After the API router: the wildcard serves the bundled web UI without ever
 	// shadowing /v1 or /openapi (API paths yield to keep the JSON 404 envelope).
