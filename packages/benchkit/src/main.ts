@@ -1,8 +1,6 @@
 import { basename } from "node:path";
 import { printUsage, suiteArgs } from "./args";
-import { runFile } from "./runner";
-
-const STEM_SUFFIX_REGEX = /\.bench\.ts$/;
+import { runFile, STEM_SUFFIX_REGEX } from "./runner";
 
 /**
  * The one-line file tail: outside standalone execution this is a no-op (the

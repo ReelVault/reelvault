@@ -2,6 +2,7 @@ import { fmtMs, main, printTable, suiteArgs, summarizeLatencies, task } from "be
 import { sleep } from "bun";
 import { isRecord } from "@/utils/type.utils";
 
+import { createPlaybackSession, deletePlaybackSession } from "./lib/playback";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
@@ -157,26 +158,13 @@ async function fanOutPhase(server: ManagedServer, profileId: string, connectionC
 			"idempotency-key": `benchmark-realtime-fanout-${Date.now()}`,
 			"x-forwarded-for": "10.86.0.1",
 		};
-		const create = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
-			method: "POST",
-			headers,
-			body: JSON.stringify({ mediaFileId: server.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] }),
-		});
-		if (!create.ok) throw new Error(`Fan-out trigger failed: HTTP ${create.status} ${await create.text()}`);
-
-		const created: unknown = await create.json();
-		const sessionId =
-			typeof created === "object" && created !== null && "sessionId" in created && typeof created.sessionId === "string"
-				? created.sessionId
-				: undefined;
+		const sessionId = await createPlaybackSession(server, headers);
 
 		const startedAt = performance.now();
 		await Promise.all(connections.map((connection) => nextMessage(connection, EVENT_TIMEOUT_MS)));
 		const fanOutMs = performance.now() - startedAt;
 
-		if (sessionId) {
-			await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}`, { method: "DELETE", headers });
-		}
+		await deletePlaybackSession(server, sessionId, headers);
 
 		printTable(
 			`WS fan-out (playback:session:started → ${connectionCount} sockets)`,
@@ -218,24 +206,14 @@ async function multiProfileFanOutPhase(server: ManagedServer, profileCount: numb
 				"idempotency-key": `benchmark-realtime-multi-${index}-${Date.now()}`,
 				"x-forwarded-for": "10.86.1.1",
 			};
-			const create = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
-				method: "POST",
-				headers,
-				body: JSON.stringify({ mediaFileId: server.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] }),
-			});
-			if (!create.ok) throw new Error(`multi-profile trigger failed: HTTP ${create.status} ${await create.text()}`);
-			const created: unknown = await create.json();
-			const sessionId =
-				typeof created === "object" && created !== null && "sessionId" in created && typeof created.sessionId === "string"
-					? created.sessionId
-					: undefined;
+			const sessionId = await createPlaybackSession(server, headers);
 
 			const startedAt = performance.now();
 			const connection = connections[index];
 			if (connection) await nextMessage(connection, EVENT_TIMEOUT_MS);
 			latencies.push(performance.now() - startedAt);
 
-			if (sessionId) await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}`, { method: "DELETE", headers });
+			await deletePlaybackSession(server, sessionId, headers);
 			await sleep(550);
 		}
 
@@ -274,22 +252,12 @@ async function eventBurstPhase(server: ManagedServer, profileId: string, socketC
 		let delivered = 0;
 		for (let cycle = 0; cycle < cycles; cycle++) {
 			headers["idempotency-key"] = `benchmark-realtime-burst-${cycle}-${Date.now()}`;
-			const create = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
-				method: "POST",
-				headers,
-				body: JSON.stringify({ mediaFileId: server.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] }),
-			});
-			if (!create.ok) throw new Error(`burst trigger failed: HTTP ${create.status} ${await create.text()}`);
-			const created: unknown = await create.json();
-			const sessionId =
-				typeof created === "object" && created !== null && "sessionId" in created && typeof created.sessionId === "string"
-					? created.sessionId
-					: undefined;
+			const sessionId = await createPlaybackSession(server, headers);
 
 			await Promise.all(connections.map((connection) => nextMessage(connection, EVENT_TIMEOUT_MS)));
 			delivered += connections.length;
 
-			if (sessionId) await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}`, { method: "DELETE", headers });
+			await deletePlaybackSession(server, sessionId, headers);
 			// Session-creation guard: 500ms per-profile cooldown between cycles.
 			await sleep(550);
 		}
@@ -320,31 +288,24 @@ if (!args.help) {
 	});
 
 	task("realtime: phases", async () => {
-		let server: ManagedServer | undefined;
-		try {
-			server = await serverFixture();
-			if (!server.sampleMediaId) {
-				console.error("Sample media unavailable — cannot run the realtime benchmark");
-				process.exitCode = 1;
+		const server = await serverFixture();
+		if (!server.sampleMediaId) {
+			console.error("Sample media unavailable — cannot run the realtime benchmark");
+			process.exitCode = 1;
 
-				return;
-			}
-
-			const profileId = server.profileIdFor(0);
-			for (const count of [10, 50, Math.min(100, Math.max(50, Math.max(...args.concurrency)))].filter(
-				(value, index, all) => all.indexOf(value) === index,
-			)) {
-				await pingPongPhase(server, profileId, count, args.durationMs);
-				await fanOutPhase(server, profileId, count);
-			}
-
-			await multiProfileFanOutPhase(server, Math.min(30, Math.max(10, server.workerCookies.length * 3)));
-			await eventBurstPhase(server, profileId, 10, 20);
-		} finally {
-			if (!args.keepServer) {
-				await server?.stop();
-			}
+			return;
 		}
+
+		const profileId = server.profileIdFor(0);
+		for (const count of [10, 50, Math.min(100, Math.max(50, Math.max(...args.concurrency)))].filter(
+			(value, index, all) => all.indexOf(value) === index,
+		)) {
+			await pingPongPhase(server, profileId, count, args.durationMs);
+			await fanOutPhase(server, profileId, count);
+		}
+
+		await multiProfileFanOutPhase(server, Math.min(30, Math.max(10, server.workerCookies.length * 3)));
+		await eventBurstPhase(server, profileId, 10, 20);
 	});
 }
 

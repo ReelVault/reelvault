@@ -1,20 +1,20 @@
 import { expect, test } from "bun:test";
-import { NotificationsClient, ReelVaultClient } from "@reelvault/sdk/client";
+import { NotificationsClient } from "@reelvault/sdk/client";
+import { createTestClient, jsonResponse } from "../helpers/sdk-client";
 
 test("notifications client reads and updates the current recipient inbox", async () => {
 	const requests: string[] = [];
-	const client = new ReelVaultClient({
-		baseUrl: "https://reelvault.test/v1",
-		enableRetry: false,
-		fetcher: (url, init) => {
-			requests.push(`${init?.method ?? "GET"} ${String(url)}`);
-			if (String(url).endsWith("unread-count")) return Promise.resolve(json({ count: 2 }));
+	const client = createTestClient(
+		(url, init) => {
+			requests.push(`${init?.method ?? "GET"} ${url}`);
+			if (url.endsWith("unread-count")) return jsonResponse({ count: 2 });
 
-			if (init?.method === "GET") return Promise.resolve(json([]));
+			if (init?.method === "GET") return jsonResponse([]);
 
-			return Promise.resolve(json({ success: true }));
+			return jsonResponse({ success: true });
 		},
-	});
+		{ enableRetry: false },
+	);
 
 	expect(client.notifications).toBeInstanceOf(NotificationsClient);
 	await expect(client.notifications.getAll({ unreadOnly: true })).resolves.toEqual([]);
@@ -28,7 +28,3 @@ test("notifications client reads and updates the current recipient inbox", async
 		"PATCH https://reelvault.test/v1/notifications",
 	]);
 });
-
-function json(value: unknown): Response {
-	return new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
-}

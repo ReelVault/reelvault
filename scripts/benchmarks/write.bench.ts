@@ -12,7 +12,7 @@ import {
 	task,
 } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { subnetIp } from "./lib/identity";
+import { subnetIp, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
@@ -135,7 +135,7 @@ async function preloadNotificationIds(server: ManagedServer, workerIndex: number
 	// list them as their owner. Only unread ones: re-marking a read row is 403.
 	const response = await fetch(`${server.baseUrl}/v1/notifications?unreadOnly=true&limit=50`, {
 		headers: {
-			cookie: server.workerCookies[workerIndex] ?? server.cookie,
+			cookie: workerCookie(server, workerIndex),
 			"x-profile-id": server.profileIdFor(workerIndex),
 			"x-forwarded-for": "10.80.0.1",
 		},
@@ -206,47 +206,38 @@ if (!args.help) {
 	});
 
 	task("write: endpoints", async () => {
-		let server: ManagedServer | undefined;
-		try {
-			server = await serverFixture();
+		const server = await serverFixture();
+		const workerCount = server.workerCookies.length;
+		const notificationIds = await Promise.all(
+			Array.from({ length: workerCount }, (_, workerIndex) => preloadNotificationIds(server, workerIndex)),
+		);
+		console.log(`[write] server ready, ${workerCount} identities, ${notificationIds.flat().length} notification ids`);
 
-			const managed = server;
-			const workerCount = managed.workerCookies.length;
-			const notificationIds = await Promise.all(
-				Array.from({ length: workerCount }, (_, workerIndex) => preloadNotificationIds(managed, workerIndex)),
-			);
-			console.log(`[write] server ready, ${workerCount} identities, ${notificationIds.flat().length} notification ids`);
+		const context: WriteContext = {
+			baseUrl: server.baseUrl,
+			cookieFor: (workerIndex) => workerCookie(server, workerIndex),
+			profileIdFor: (workerIndex) => server.profileIdFor(workerIndex),
+			mediaFileId: server.benchmarkMediaFileId,
+			notificationIds,
+		};
 
-			const context: WriteContext = {
-				baseUrl: server.baseUrl,
-				cookieFor: (workerIndex) => server?.workerCookies[workerIndex % server.workerCookies.length] ?? server?.cookie ?? "",
-				profileIdFor: (workerIndex) => server?.profileIdFor(workerIndex) ?? `profile-bench-${workerIndex}`,
-				mediaFileId: server.benchmarkMediaFileId,
-				notificationIds,
-			};
-
-			const results: HttpScenarioResult[] = [];
-			for (const concurrency of args.concurrency) {
-				console.log(`\n[write] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-				for (const scenario of SCENARIOS) {
-					const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-					const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
-					results.push(result);
-					const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-					console.log(
-						`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-					);
-				}
-			}
-
-			printHttpResults(results);
-
-			await runNotificationMarkReadPhase(context, workerCount);
-		} finally {
-			if (!args.keepServer) {
-				await server?.stop();
+		const results: HttpScenarioResult[] = [];
+		for (const concurrency of args.concurrency) {
+			console.log(`\n[write] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+			for (const scenario of SCENARIOS) {
+				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
+				const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
+				results.push(result);
+				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
+				console.log(
+					`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
+				);
 			}
 		}
+
+		printHttpResults(results);
+
+		await runNotificationMarkReadPhase(context, workerCount);
 	});
 }
 

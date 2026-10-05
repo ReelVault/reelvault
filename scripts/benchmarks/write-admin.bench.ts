@@ -11,7 +11,7 @@ import {
 	task,
 } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { subnetIp } from "./lib/identity";
+import { subnetIp, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
@@ -160,7 +160,7 @@ function runScenario(
 async function preloadNotificationIds(server: ManagedServer, workerIndex: number): Promise<string[]> {
 	const response = await fetch(`${server.baseUrl}/v1/notifications?unreadOnly=true&limit=50`, {
 		headers: {
-			cookie: server.workerCookies[workerIndex] ?? server.cookie,
+			cookie: workerCookie(server, workerIndex),
 			"x-profile-id": server.profileIdFor(workerIndex),
 			"x-forwarded-for": "10.83.0.1",
 		},
@@ -237,52 +237,46 @@ if (!args.help) {
 	});
 
 	task("write-admin: endpoints", async () => {
-		let server: ManagedServer | undefined;
-		try {
-			server = await serverFixture();
-			const managed = server;
-			const workerCount = managed.workerCookies.length;
-			const notificationIds = await Promise.all(
-				Array.from({ length: workerCount }, (_, workerIndex) => preloadNotificationIds(managed, workerIndex)),
-			);
-			const settingsPatchBody = await resolveSettingsPatchBody(managed);
-			console.log(
-				`[write-admin] server ready, ${workerCount} identities, ${notificationIds.flat().length} unread notifications, settings patch ${settingsPatchBody ? Object.keys(settingsPatchBody).join(",") : "unavailable"}`,
-			);
+		const server = await serverFixture();
+		const workerCount = server.workerCookies.length;
+		const notificationIds = await Promise.all(
+			Array.from({ length: workerCount }, (_, workerIndex) => preloadNotificationIds(server, workerIndex)),
+		);
+		const settingsPatchBody = await resolveSettingsPatchBody(server);
+		console.log(
+			`[write-admin] server ready, ${workerCount} identities, ${notificationIds.flat().length} unread notifications, settings patch ${settingsPatchBody ? Object.keys(settingsPatchBody).join(",") : "unavailable"}`,
+		);
 
-			const context: AdminWriteContext = {
-				baseUrl: managed.baseUrl,
-				cookieFor: (workerIndex) => managed.workerCookies[workerIndex % managed.workerCookies.length] ?? managed.cookie,
-				profileIdFor: (workerIndex) => managed.profileIdFor(workerIndex),
-				adminCookie: managed.cookie,
-				adminProfileId: managed.adminProfileId,
-				libraryId: managed.benchmarkLibraryId,
-				notificationIds,
-				settingsPatchBody,
-			};
+		const context: AdminWriteContext = {
+			baseUrl: server.baseUrl,
+			cookieFor: (workerIndex) => workerCookie(server, workerIndex),
+			profileIdFor: (workerIndex) => server.profileIdFor(workerIndex),
+			adminCookie: server.cookie,
+			adminProfileId: server.adminProfileId,
+			libraryId: server.benchmarkLibraryId,
+			notificationIds,
+			settingsPatchBody,
+		};
 
-			const results: HttpScenarioResult[] = [];
-			const scenarios = SCENARIOS.filter((scenario) => scenario.name !== "PATCH /v1/admin/settings (round-trip)" || settingsPatchBody);
-			for (const concurrency of args.concurrency) {
-				console.log(`\n[write-admin] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-				for (const scenario of scenarios) {
-					const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-					const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
-					results.push(result);
-					const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-					console.log(
-						`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-					);
-				}
+		const results: HttpScenarioResult[] = [];
+		const scenarios = SCENARIOS.filter((scenario) => scenario.name !== "PATCH /v1/admin/settings (round-trip)" || settingsPatchBody);
+		for (const concurrency of args.concurrency) {
+			console.log(`\n[write-admin] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+			for (const scenario of scenarios) {
+				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
+				const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
+				results.push(result);
+				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
+				console.log(
+					`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
+				);
 			}
-
-			printHttpResults(results);
-
-			// LAST: generate-all floods the worker queue with per-file jobs.
-			await trickplayGenerateAllPhase(context);
-		} finally {
-			if (!args.keepServer) await server?.stop();
 		}
+
+		printHttpResults(results);
+
+		// LAST: generate-all floods the worker queue with per-file jobs.
+		await trickplayGenerateAllPhase(context);
 	});
 }
 

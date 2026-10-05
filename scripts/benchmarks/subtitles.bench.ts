@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fmtMs, type HttpScenarioResult, main, printHttpResults, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { $ } from "bun";
 
+import { adminHeaders } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
@@ -26,9 +27,7 @@ async function createSubtitleRow(server: ManagedServer, body: Record<string, unk
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
-			cookie: server.cookie,
-			"x-profile-id": server.adminProfileId,
-			"x-forwarded-for": "10.82.0.1",
+			...adminHeaders(server, "10.82.0.1"),
 		},
 		body: JSON.stringify(body),
 	});
@@ -85,14 +84,6 @@ async function prepareFixtures(server: ManagedServer): Promise<SubtitleFixture> 
 	return { externalId, embeddedId };
 }
 
-function authedHeaders(server: ManagedServer): Record<string, string> {
-	return {
-		cookie: server.cookie,
-		"x-profile-id": server.adminProfileId,
-		"x-forwarded-for": "10.82.0.2",
-	};
-}
-
 async function timedSequence(name: string, operation: () => Promise<void>, iterations: number): Promise<void> {
 	const latencies: number[] = [];
 	for (let index = 0; index < iterations; index++) {
@@ -118,92 +109,85 @@ if (!args.help) {
 	});
 
 	task("subtitles: phases", async () => {
-		let server: ManagedServer | undefined;
-		try {
-			server = await serverFixture();
-			if (!server.sampleMediaId) {
-				console.error("Sample media unavailable — cannot run the subtitles benchmark");
-				process.exitCode = 1;
+		const server = await serverFixture();
+		if (!server.sampleMediaId) {
+			console.error("Sample media unavailable — cannot run the subtitles benchmark");
+			process.exitCode = 1;
 
-				return;
-			}
+			return;
+		}
 
-			const fixtures = await prepareFixtures(server);
-			const headers = authedHeaders(server);
-			const results: HttpScenarioResult[] = [];
+		const fixtures = await prepareFixtures(server);
+		const headers = adminHeaders(server, "10.82.0.2");
+		const results: HttpScenarioResult[] = [];
 
-			const scenarios: Array<{ name: string; url: string }> = [
-				{
-					name: "GET /v1/subtitles?mediaFileId= (list)",
-					url: `${server.baseUrl}/v1/subtitles?mediaFileId=${server.sampleMediaId}&limit=10`,
-				},
-				{ name: "GET /v1/subtitles/:id/content (external file)", url: `${server.baseUrl}/v1/subtitles/${fixtures.externalId}/content` },
-			];
+		const scenarios: Array<{ name: string; url: string }> = [
+			{
+				name: "GET /v1/subtitles?mediaFileId= (list)",
+				url: `${server.baseUrl}/v1/subtitles?mediaFileId=${server.sampleMediaId}&limit=10`,
+			},
+			{ name: "GET /v1/subtitles/:id/content (external file)", url: `${server.baseUrl}/v1/subtitles/${fixtures.externalId}/content` },
+		];
 
-			for (const concurrency of args.concurrency) {
-				console.log(`\n[subtitles] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-				for (const scenario of scenarios) {
-					const latencies: number[] = [];
-					let successes = 0;
-					let requests = 0;
-					const startedAt = performance.now();
-					const warmupEndsAt = startedAt + args.warmupMs;
-					const runDeadline = startedAt + args.warmupMs + args.durationMs;
+		for (const concurrency of args.concurrency) {
+			console.log(`\n[subtitles] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+			for (const scenario of scenarios) {
+				const latencies: number[] = [];
+				let successes = 0;
+				let requests = 0;
+				const startedAt = performance.now();
+				const warmupEndsAt = startedAt + args.warmupMs;
+				const runDeadline = startedAt + args.warmupMs + args.durationMs;
 
-					await Promise.all(
-						Array.from({ length: concurrency }, () =>
-							(async () => {
-								while (performance.now() < runDeadline) {
-									const requestStartedAt = performance.now();
-									let ok = false;
-									try {
-										const response = await fetch(scenario.url, { headers });
-										ok = response.ok;
-										await response.arrayBuffer();
-									} catch {
-										ok = false;
-									}
+				await Promise.all(
+					Array.from({ length: concurrency }, () =>
+						(async () => {
+							while (performance.now() < runDeadline) {
+								const requestStartedAt = performance.now();
+								let ok = false;
+								try {
+									const response = await fetch(scenario.url, { headers });
+									ok = response.ok;
+									await response.arrayBuffer();
+								} catch {
+									ok = false;
+								}
 
-									const finishedAt = performance.now();
-									if (finishedAt >= warmupEndsAt) {
-										requests++;
-										if (ok) {
-											successes++;
-											latencies.push(finishedAt - requestStartedAt);
-										}
+								const finishedAt = performance.now();
+								if (finishedAt >= warmupEndsAt) {
+									requests++;
+									if (ok) {
+										successes++;
+										latencies.push(finishedAt - requestStartedAt);
 									}
 								}
-							})(),
-						),
-					);
+							}
+						})(),
+					),
+				);
 
-					const stats = summarizeLatencies(latencies);
-					const rps = successes / (args.durationMs / 1000);
-					const errorRate = requests > 0 ? ((requests - successes) / requests) * 100 : 0;
-					results.push({ name: `c=${concurrency} ${scenario.name}`, stats, requestsPerSecond: rps, errorRatePercent: errorRate });
-					const failureNote = errorRate > 0 ? `, errors ${errorRate.toFixed(1)}%` : "";
-					console.log(`  ${scenario.name}: ${rps.toFixed(0)} req/s, p95 ${stats.p95Ms.toFixed(1)}ms${failureNote}`);
-				}
-			}
-
-			printHttpResults(results);
-
-			// Embedded extraction: the first /content hit spawns ffmpeg into a cold
-			// cache (shows up as max), the rest measure the warm cached-.vtt read.
-			const embeddedContentUrl = `${server.baseUrl}/v1/subtitles/${fixtures.embeddedId}/content`;
-			await timedSequence(
-				"Embedded /content — extraction then warm reads",
-				async () => {
-					const response = await fetch(embeddedContentUrl, { headers });
-					await response.arrayBuffer();
-				},
-				5,
-			);
-		} finally {
-			if (!args.keepServer) {
-				await server?.stop();
+				const stats = summarizeLatencies(latencies);
+				const rps = successes / (args.durationMs / 1000);
+				const errorRate = requests > 0 ? ((requests - successes) / requests) * 100 : 0;
+				results.push({ name: `c=${concurrency} ${scenario.name}`, stats, requestsPerSecond: rps, errorRatePercent: errorRate });
+				const failureNote = errorRate > 0 ? `, errors ${errorRate.toFixed(1)}%` : "";
+				console.log(`  ${scenario.name}: ${rps.toFixed(0)} req/s, p95 ${stats.p95Ms.toFixed(1)}ms${failureNote}`);
 			}
 		}
+
+		printHttpResults(results);
+
+		// Embedded extraction: the first /content hit spawns ffmpeg into a cold
+		// cache (shows up as max), the rest measure the warm cached-.vtt read.
+		const embeddedContentUrl = `${server.baseUrl}/v1/subtitles/${fixtures.embeddedId}/content`;
+		await timedSequence(
+			"Embedded /content — extraction then warm reads",
+			async () => {
+				const response = await fetch(embeddedContentUrl, { headers });
+				await response.arrayBuffer();
+			},
+			5,
+		);
 	});
 }
 

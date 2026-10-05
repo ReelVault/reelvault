@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { databaseFactory } from "@/database/database";
 import { domainErrorsMiddleware } from "@/middleware/domain-errors.middleware";
+import { LIBRARIES_STUB_TABLE, LIBRARY_PATHS_STUB_TABLE, MEDIA_FILES_STUB_TABLE } from "../helpers/stub-tables";
 
 process.env.BETTER_AUTH_SECRET ??= "test-secret-with-at-least-32-characters";
 const [{ auth }, { mediaFilesRoutes }, { episodesRoutes }, { librariesRoutes }] = await Promise.all([
@@ -24,33 +25,16 @@ afterEach(() => {
 
 const NOW = "CAST(strftime('%s','now') AS INTEGER)";
 
-/**
- * Stub tables mirror the drizzle column NAMES exactly (drizzle selects every
- * declared column), but deliberately omit constraints — raw seed rows are the
- * only writes. Never migrate the shared test database (AGENTS.md); these
- * CREATE TABLE IF NOT EXISTS stubs are the established idiom instead.
- */
 /** Drizzle `run` executes a single statement, so multi-statement scripts are arrays. */
 const STUB_TABLES = [
-	`CREATE TABLE IF NOT EXISTS libraries (
-		id TEXT PRIMARY KEY, name TEXT, type TEXT, metadata_storage_mode TEXT, sidecar_flavor TEXT NOT NULL DEFAULT 'reelvault', metadata_language TEXT,
-		created_at INTEGER, updated_at INTEGER
-	)`,
-	`CREATE TABLE IF NOT EXISTS library_paths (
-		id TEXT PRIMARY KEY, library_id TEXT, stable_key TEXT, path TEXT,
-		is_active INTEGER, metadata_storage_mode TEXT, created_at INTEGER, updated_at INTEGER
-	)`,
+	LIBRARIES_STUB_TABLE,
+	LIBRARY_PATHS_STUB_TABLE,
 	`CREATE TABLE IF NOT EXISTS library_provider_settings (
 		library_id TEXT NOT NULL, provider_id TEXT NOT NULL,
 		priority INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT true,
 		PRIMARY KEY (library_id, provider_id)
 	)`,
-	`CREATE TABLE IF NOT EXISTS media_files (
-		id TEXT PRIMARY KEY, library_id TEXT, metadata_id TEXT, movie_id TEXT, episode_id TEXT,
-		file_path TEXT, file_name TEXT, format_name TEXT, duration INTEGER, file_size INTEGER,
-		source_mtime_ms INTEGER, bit_rate INTEGER, source TEXT, edition TEXT, quality_tag TEXT,
-		is_default INTEGER, is_enabled INTEGER, created_at INTEGER, updated_at INTEGER
-	)`,
+	MEDIA_FILES_STUB_TABLE,
 	`CREATE TABLE IF NOT EXISTS media_file_video_streams (
 		media_file_id TEXT, "index" INTEGER, codec_name TEXT, codec_long_name TEXT, profile TEXT,
 		width INTEGER, height INTEGER, pixel_format TEXT, color_transfer TEXT, color_primaries TEXT,

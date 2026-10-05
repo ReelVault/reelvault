@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ResourceConfig } from "@reelvault/sdk/client";
 import { assertValidPath, BaseResource, ReelVaultValidationError } from "@reelvault/sdk/client";
+import { jsonResponse } from "../helpers/sdk-client";
 
 // The SDK client is a thin transport: payload validation lives on the server
 // contract. Only path interpolation is guarded client-side.
@@ -14,7 +15,7 @@ class TestResource extends BaseResource {
 function createResource(overrides: Partial<ResourceConfig> = {}): TestResource {
 	return new TestResource({
 		baseUrl: "https://reelvault.test",
-		fetcher: async () => new Response(JSON.stringify({ success: true }), { headers: { "content-type": "application/json" } }),
+		fetcher: async () => jsonResponse({ success: true }),
 		defaultHeaders: {},
 		requestInterceptors: [],
 		responseInterceptors: [],
@@ -44,7 +45,7 @@ describe("SDK client transport", () => {
 			fetcher: (_url, options) => {
 				sent = options.body as string;
 
-				return Promise.resolve(new Response(JSON.stringify({ success: true }), { headers: { "content-type": "application/json" } }));
+				return Promise.resolve(jsonResponse({ success: true }));
 			},
 		});
 

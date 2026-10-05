@@ -153,13 +153,18 @@ export interface DiscoveryOptions {
 }
 
 const STEM_SUFFIX = ".bench.ts";
-const STEM_SUFFIX_REGEX = /\.bench\.ts$/;
+export const STEM_SUFFIX_REGEX = /\.bench\.ts$/;
 
 /** Compiles the `--only` unit-name filter; case-insensitive, undefined = no filter. */
 export function compileOnlyFilter(pattern: string | undefined): RegExp | undefined {
 	if (pattern === undefined || pattern.length === 0) return undefined;
 
 	return new RegExp(pattern, "i");
+}
+
+/** Applies the compiled `--only` filter to a collected unit list. */
+function selectUnits(units: Unit[], onlyRe: RegExp | undefined): Unit[] {
+	return onlyRe ? units.filter((unit) => onlyRe.test(unit.name)) : units;
 }
 
 function printRunnerUsage(command: string, stems: readonly string[]): void {
@@ -238,7 +243,7 @@ export async function runDiscovery(options: DiscoveryOptions): Promise<void> {
 			const mark = markCollection();
 			const module: unknown = await import(file);
 			const collected = collectUnits(mark);
-			const units = onlyRe ? collected.filter((unit) => onlyRe.test(unit.name)) : collected;
+			const units = selectUnits(collected, onlyRe);
 			matchedUnits += units.length;
 			const description = readDescription(module);
 			const stem = basename(file).replace(STEM_SUFFIX, "");
@@ -348,7 +353,7 @@ function applyVerdicts(artifact: RunnerJson, comparisons: readonly BaselineCompa
 export async function runFile(meta: ImportMeta): Promise<void> {
 	const onlyRe = compileOnlyFilter(suiteArgs().only);
 	const collected = collectUnits(0);
-	const units = onlyRe ? collected.filter((unit) => onlyRe.test(unit.name)) : collected;
+	const units = selectUnits(collected, onlyRe);
 	if (units.length === 0) {
 		if (onlyRe && collected.length > 0) {
 			console.error(`[benchkit] ${basename(meta.path)}: --only "${onlyRe.source}" matched no units`);

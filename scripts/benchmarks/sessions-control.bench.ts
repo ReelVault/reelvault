@@ -12,7 +12,8 @@ import {
 	task,
 } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { subnetIp } from "./lib/identity";
+import { subnetIp, workerCookie } from "./lib/identity";
+import { createPlaybackSession } from "./lib/playback";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
@@ -167,23 +168,14 @@ async function raiseSessionLimits(server: ManagedServer): Promise<void> {
 async function createSetupSession(server: ManagedServer, workerIndex: number): Promise<{ sessionId: string; idempotencyKey: string }> {
 	const idempotencyKey = `bench-sessions-setup-${workerIndex}`;
 	const isAdmin = workerIndex < 0;
-	const response = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
-		method: "POST",
-		headers: {
-			cookie: isAdmin ? server.cookie : (server.workerCookies[workerIndex] ?? server.cookie),
-			"x-profile-id": isAdmin ? server.adminProfileId : server.profileIdFor(workerIndex),
-			"content-type": "application/json",
-			"idempotency-key": idempotencyKey,
-			"x-forwarded-for": subnetIp(88, Math.max(workerIndex, 0)),
-		},
-		body: JSON.stringify({ mediaFileId: server.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] }),
+	const sessionId = await createPlaybackSession(server, {
+		cookie: isAdmin ? server.cookie : (server.workerCookies[workerIndex] ?? server.cookie),
+		"x-profile-id": isAdmin ? server.adminProfileId : server.profileIdFor(workerIndex),
+		"idempotency-key": idempotencyKey,
+		"x-forwarded-for": subnetIp(88, Math.max(workerIndex, 0)),
 	});
-	const body: unknown = await response.json();
-	if (!(response.ok && isRecord(body)) || typeof body.sessionId !== "string") {
-		throw new Error(`setup session ${workerIndex} failed: HTTP ${response.status}`);
-	}
 
-	return { sessionId: body.sessionId, idempotencyKey };
+	return { sessionId, idempotencyKey };
 }
 
 /** Creates one api key (full scope) owned by the admin. */
@@ -274,70 +266,63 @@ if (!args.help) {
 		}
 
 		const results: HttpScenarioResult[] = [];
-		try {
-			await raiseSessionLimits(server);
+		await raiseSessionLimits(server);
 
-			// One live session per worker identity (distinct profiles — the 500ms
-			// creation cooldown is per profile, so no pacing needed here). ffmpeg
-			// spawns per session; the 30s 640x360 ultrafast clip keeps that cheap.
-			const workerCount = Math.min(Math.max(...args.concurrency, 12), server.workerCookies.length);
-			const setup = await Promise.all(Array.from({ length: workerCount }, (_, workerIndex) => createSetupSession(server, workerIndex)));
-			console.log(`[sessions] ${setup.length} live sessions (max ${MAX_SESSIONS}), api key created`);
+		// One live session per worker identity (distinct profiles — the 500ms
+		// creation cooldown is per profile, so no pacing needed here). ffmpeg
+		// spawns per session; the 30s 640x360 ultrafast clip keeps that cheap.
+		const workerCount = Math.min(Math.max(...args.concurrency, 12), server.workerCookies.length);
+		const setup = await Promise.all(Array.from({ length: workerCount }, (_, workerIndex) => createSetupSession(server, workerIndex)));
+		console.log(`[sessions] ${setup.length} live sessions (max ${MAX_SESSIONS}), api key created`);
 
-			const adminSession = await createSetupSession(server, -1).catch(() => null);
-			const apiKey = await createApiKey(server);
+		const adminSession = await createSetupSession(server, -1).catch(() => null);
+		const apiKey = await createApiKey(server);
 
-			const context: SessionsContext = {
-				baseUrl: server.baseUrl,
-				cookieFor: (workerIndex, requestIndex) =>
-					server.workerCookies[(workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)] ?? server.cookie,
-				profileIdFor: (workerIndex, requestIndex) =>
-					server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
-				adminCookie: server.cookie,
-				adminProfileId: server.adminProfileId,
-				sampleMediaId: server.sampleMediaId,
-				sessionIdFor: (workerIndex) => setup[workerIndex % setup.length]?.sessionId ?? "",
-				idempotencyKeyFor: (workerIndex) => setup[workerIndex % setup.length]?.idempotencyKey ?? "",
-				apiKey,
-			};
+		const context: SessionsContext = {
+			baseUrl: server.baseUrl,
+			cookieFor: (workerIndex, requestIndex) => workerCookie(server, workerIndex * 997 + requestIndex),
+			profileIdFor: (workerIndex, requestIndex) =>
+				server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
+			adminCookie: server.cookie,
+			adminProfileId: server.adminProfileId,
+			sampleMediaId: server.sampleMediaId,
+			sessionIdFor: (workerIndex) => setup[workerIndex % setup.length]?.sessionId ?? "",
+			idempotencyKeyFor: (workerIndex) => setup[workerIndex % setup.length]?.idempotencyKey ?? "",
+			apiKey,
+		};
 
-			for (const concurrency of args.concurrency) {
-				console.log(`\n[sessions] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-				for (const scenario of SCENARIOS) {
-					const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-					const result = httpScenarioResult(scenario[0], concurrency, run, args.durationMs);
-					results.push(result);
-					const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-					console.log(
-						`  ${scenario[0]}: ${result.requestsPerSecond.toFixed(0)} ops/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-					);
-				}
+		for (const concurrency of args.concurrency) {
+			console.log(`\n[sessions] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+			for (const scenario of SCENARIOS) {
+				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
+				const result = httpScenarioResult(scenario[0], concurrency, run, args.durationMs);
+				results.push(result);
+				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
+				console.log(`  ${scenario[0]}: ${result.requestsPerSecond.toFixed(0)} ops/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`);
 			}
-
-			printHttpResults(results);
-
-			if (adminSession) {
-				await authComparisonPhase(
-					{ ...context, sessionIdFor: () => adminSession.sessionId },
-					adminSession.sessionId,
-					Math.min(...args.concurrency),
-					args.warmupMs,
-					args.durationMs,
-				);
-			}
-
-			// Teardown: release the setup sessions (async server-side).
-			await Promise.all(
-				setup.map((entry) =>
-					fetch(`${server.baseUrl}/v1/playback-sessions/${entry.sessionId}`, {
-						method: "DELETE",
-						headers: { cookie: server.cookie },
-					}).then((response) => response.arrayBuffer()),
-				),
-			);
-		} finally {
-			if (!args.keepServer) await server.stop();
 		}
+
+		printHttpResults(results);
+
+		if (adminSession) {
+			await authComparisonPhase(
+				{ ...context, sessionIdFor: () => adminSession.sessionId },
+				adminSession.sessionId,
+				Math.min(...args.concurrency),
+				args.warmupMs,
+				args.durationMs,
+			);
+		}
+
+		// Teardown: release the setup sessions (async server-side).
+		await Promise.all(
+			setup.map((entry) =>
+				fetch(`${server.baseUrl}/v1/playback-sessions/${entry.sessionId}`, {
+					method: "DELETE",
+					headers: { cookie: server.cookie },
+				}).then((response) => response.arrayBuffer()),
+			),
+		);
 	});
 }
 

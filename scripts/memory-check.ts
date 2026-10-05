@@ -18,6 +18,7 @@
 
 import { fmtMb, printTable, readProcessRssBytes } from "benchkit";
 import { sleep } from "bun";
+import { createPlaybackSession, parseSegmentNames } from "./benchmarks/lib/playback";
 import { type ManagedServer, startBenchmarkServer } from "./benchmarks/lib/server";
 
 const ROUNDS = Number(process.env.MEMORY_CHECK_ROUNDS ?? 10);
@@ -176,40 +177,19 @@ async function main(): Promise<void> {
 		});
 		if (!server.sampleMediaId) throw new Error("sample media unavailable");
 
-		const sessionResponse = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				cookie: server.cookie,
-				// Session-scoped playback endpoints resolve the profile from this
-				// header — server.cookie carries no current_profile_id.
-				"x-profile-id": server.adminProfileId,
-				"idempotency-key": `memory-check-${Date.now()}`,
-				"x-forwarded-for": "10.90.9.9",
-			},
-			body: JSON.stringify({ mediaFileId: server.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] }),
+		const sessionId = await createPlaybackSession(server, {
+			cookie: server.cookie,
+			// Session-scoped playback endpoints resolve the profile from this
+			// header — server.cookie carries no current_profile_id.
+			"x-profile-id": server.adminProfileId,
+			"idempotency-key": `memory-check-${Date.now()}`,
+			"x-forwarded-for": "10.90.9.9",
 		});
-		if (sessionResponse.status !== 201) throw new Error(`session creation failed: HTTP ${sessionResponse.status}`);
-
-		const sessionBody: unknown = await sessionResponse.json();
-		if (
-			typeof sessionBody !== "object" ||
-			sessionBody === null ||
-			!("sessionId" in sessionBody) ||
-			typeof sessionBody.sessionId !== "string"
-		) {
-			throw new Error("session creation response is missing sessionId");
-		}
-
-		const sessionId: string = sessionBody.sessionId;
 
 		const playlistResponse = await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}/playlist`, {
 			headers: { cookie: server.cookie, "x-profile-id": server.adminProfileId, "x-forwarded-for": "10.90.9.9" },
 		});
-		const segments = (await playlistResponse.text())
-			.split("\n")
-			.filter((line) => line.endsWith(".m4s"))
-			.map((line) => line.trim());
+		const segments = parseSegmentNames(await playlistResponse.text());
 		if (segments.length === 0) throw new Error("no segments produced");
 
 		const samples: number[] = [];

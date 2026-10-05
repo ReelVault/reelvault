@@ -8,7 +8,7 @@ import {
 	suiteArgs,
 	task,
 } from "benchkit";
-
+import { subnetIp } from "./lib/identity";
 import { createServerFixture } from "./lib/server-fixture";
 
 interface ScenarioContext {
@@ -42,7 +42,7 @@ const defaultProfileIdFor = (index: number): string => `profile-bench-${index}`;
 function authHeaders(context: ScenarioContext, workerIndex: number, requestIndex: number, withProfile = false): RequestInit {
 	const identityIndex = (workerIndex * 997 + requestIndex) % Math.max(context.cookies.length, 1);
 	const cookie = context.cookies[identityIndex];
-	const ip = `10.77.${Math.floor(identityIndex / 250) % 250}.${(identityIndex % 250) + 1}`;
+	const ip = subnetIp(77, identityIndex);
 	const headers: Record<string, string> = {
 		...(cookie ? { cookie } : {}),
 		"x-forwarded-for": ip,

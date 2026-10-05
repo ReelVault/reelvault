@@ -83,50 +83,43 @@ if (!args.help) {
 	});
 
 	task("upload: pipeline", async () => {
-		let server: ManagedServer | undefined;
-		try {
-			const image = await createBenchmarkImage(args.sizeMb || DEFAULT_UPLOAD_SIZE_MB);
-			console.log(`[upload] payload: ${fmtMb(image.size)} JPEG (high-entropy)`);
+		const image = await createBenchmarkImage(args.sizeMb || DEFAULT_UPLOAD_SIZE_MB);
+		console.log(`[upload] payload: ${fmtMb(image.size)} JPEG (high-entropy)`);
 
-			server = await serverFixture();
+		const server = await serverFixture();
 
-			const results: HttpScenarioResult[] = [];
-			let totalUploaded = 0;
-			for (const concurrency of args.concurrency) {
-				console.log(`[upload] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-				const run = await runUploads(server, image, concurrency, args.warmupMs, args.durationMs);
-				totalUploaded += run.uploadedBytes;
-				const stats = summarizeLatencies(run.latencies);
-				results.push({
-					name: `image upload c=${concurrency}`,
-					stats,
-					requestsPerSecond: run.requests / (args.durationMs / 1000),
-					errorRatePercent: run.requests > 0 ? (run.non2xx / run.requests) * 100 : 0,
-				});
-				printTable(
-					`Upload c=${concurrency}`,
-					["req/s", "MB/s in", "p50", "p95", "p99", "max", "non-2xx"],
+		const results: HttpScenarioResult[] = [];
+		let totalUploaded = 0;
+		for (const concurrency of args.concurrency) {
+			console.log(`[upload] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+			const run = await runUploads(server, image, concurrency, args.warmupMs, args.durationMs);
+			totalUploaded += run.uploadedBytes;
+			const stats = summarizeLatencies(run.latencies);
+			results.push({
+				name: `image upload c=${concurrency}`,
+				stats,
+				requestsPerSecond: run.requests / (args.durationMs / 1000),
+				errorRatePercent: run.requests > 0 ? (run.non2xx / run.requests) * 100 : 0,
+			});
+			printTable(
+				`Upload c=${concurrency}`,
+				["req/s", "MB/s in", "p50", "p95", "p99", "max", "non-2xx"],
+				[
 					[
-						[
-							(run.requests / (args.durationMs / 1000)).toFixed(2),
-							(run.uploadedBytes / (args.durationMs / 1000) / 1024 / 1024).toFixed(2),
-							`${stats.p50Ms.toFixed(0)}ms`,
-							`${stats.p95Ms.toFixed(0)}ms`,
-							`${stats.p99Ms.toFixed(0)}ms`,
-							`${stats.maxMs.toFixed(0)}ms`,
-							String(run.non2xx),
-						],
+						(run.requests / (args.durationMs / 1000)).toFixed(2),
+						(run.uploadedBytes / (args.durationMs / 1000) / 1024 / 1024).toFixed(2),
+						`${stats.p50Ms.toFixed(0)}ms`,
+						`${stats.p95Ms.toFixed(0)}ms`,
+						`${stats.p99Ms.toFixed(0)}ms`,
+						`${stats.maxMs.toFixed(0)}ms`,
+						String(run.non2xx),
 					],
-				);
-			}
-
-			console.log(`[upload] total uploaded: ${fmtMb(totalUploaded)}`);
-			printHttpResults(results);
-		} finally {
-			if (!args.keepServer) {
-				await server?.stop();
-			}
+				],
+			);
 		}
+
+		console.log(`[upload] total uploaded: ${fmtMb(totalUploaded)}`);
+		printHttpResults(results);
 	});
 }
 

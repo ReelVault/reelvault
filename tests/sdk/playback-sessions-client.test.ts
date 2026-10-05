@@ -1,25 +1,19 @@
 import { expect, test } from "bun:test";
-import { ReelVaultClient } from "@reelvault/sdk/client";
+import { createTestClient, jsonResponse } from "../helpers/sdk-client";
 
 test("playback session client sends raw capabilities and retries with one idempotency key", async () => {
 	const requests: Array<{ url: string; options: RequestInit }> = [];
-	const client = new ReelVaultClient({
-		baseUrl: "https://reelvault.test",
-		maxRetries: 1,
-		fetcher: (url, options) => {
-			requests.push({ url: String(url), options });
+	const client = createTestClient(
+		(url, options) => {
+			requests.push({ url, options });
 			if (requests.length === 1) {
-				return Promise.resolve(
-					new Response(JSON.stringify({ message: "temporarily unavailable" }), {
-						status: 503,
-						headers: { "content-type": "application/json" },
-					}),
-				);
+				return jsonResponse({ message: "temporarily unavailable" }, 503);
 			}
 
-			return Promise.resolve(new Response(JSON.stringify({ sessionId: "session-1" }), { headers: { "content-type": "application/json" } }));
+			return jsonResponse({ sessionId: "session-1" });
 		},
-	});
+		{ maxRetries: 1 },
+	);
 
 	await expect(
 		client.playbackSessions.create({ mediaFileId: "file-1", videoCodecs: [" H265 ", "h264", "H265"], audioCodecs: ["AAC", "aac"] }),
@@ -41,15 +35,14 @@ test("playback session client sends raw capabilities and retries with one idempo
 
 test("playback session URLs and profile playback endpoints use their resource boundaries", async () => {
 	const requestedUrls: string[] = [];
-	const client = new ReelVaultClient({
-		baseUrl: "https://reelvault.test/app",
-		enableRetry: false,
-		fetcher: (url) => {
-			requestedUrls.push(String(url));
+	const client = createTestClient(
+		(url) => {
+			requestedUrls.push(url);
 
-			return Promise.resolve(new Response(JSON.stringify({ success: true }), { headers: { "content-type": "application/json" } }));
+			return jsonResponse({ success: true });
 		},
-	});
+		{ baseUrl: "https://reelvault.test/app", enableRetry: false },
+	);
 
 	expect(client.playbackSessions.getPlaylistUrl("session-1")).toBe("https://reelvault.test/v1/playback-sessions/session-1/playlist");
 	await client.me.updatePlaybackProgress("file-1", { position: 12 });

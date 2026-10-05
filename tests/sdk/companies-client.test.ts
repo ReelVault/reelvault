@@ -1,26 +1,21 @@
 import { expect, test } from "bun:test";
-import { CompaniesClient, ReelVaultClient } from "@reelvault/sdk/client";
+import { CompaniesClient } from "@reelvault/sdk/client";
+import { createTestClient, jsonResponse } from "../helpers/sdk-client";
 
 test("companies client executes query operations against /companies endpoint", async () => {
 	const requestedUrls: string[] = [];
-	const client = new ReelVaultClient({
-		baseUrl: "https://reelvault.test/v1",
-		enableRetry: false,
-		fetcher: (url, init) => {
-			requestedUrls.push(`${init?.method ?? "GET"} ${String(url)}`);
+	const client = createTestClient(
+		(url, init) => {
+			requestedUrls.push(`${init?.method ?? "GET"} ${url}`);
 
-			return Promise.resolve(
-				new Response(
-					JSON.stringify({
-						id: "comp-123",
-						name: "Warner Bros",
-						originCountry: "US",
-					}),
-					{ headers: { "content-type": "application/json" } },
-				),
-			);
+			return jsonResponse({
+				id: "comp-123",
+				name: "Warner Bros",
+				originCountry: "US",
+			});
 		},
-	});
+		{ enableRetry: false },
+	);
 
 	expect(client.companies).toBeInstanceOf(CompaniesClient);
 

@@ -23,8 +23,9 @@
 
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fmtMb, fmtMs, parseSegments, printTable, Recorder, type RssSummary, startRssSampler } from "benchkit";
+import { fmtMb, fmtMs, printTable, Recorder, type RssSummary, startRssSampler } from "benchkit";
 import { sleep } from "bun";
+import { parseSegmentNames, sessionIdFrom } from "./benchmarks/lib/playback";
 import { type ManagedServer, startBenchmarkServer } from "./benchmarks/lib/server";
 
 const SCENARIOS = ["browse", "streaming", "ingest", "admin-storm", "mixed", "all"] as const;
@@ -104,15 +105,6 @@ async function timedFetch(recorder: Recorder, label: string, url: string, header
 	}
 
 	recorder.record(label, performance.now() - startedAt, ok);
-}
-
-/** Reads `sessionId` off an unknown JSON payload without casts (same pattern as firstArrayItemId in lib/server). */
-function sessionIdFrom(value: unknown): string | undefined {
-	if (typeof value !== "object" || value === null || !("sessionId" in value)) return undefined;
-
-	const sessionId: unknown = value.sessionId;
-
-	return typeof sessionId === "string" ? sessionId : undefined;
 }
 
 /** Reads `id` off an unknown JSON payload without casts. */
@@ -235,7 +227,7 @@ async function streamingCycle(server: ManagedServer, headers: Record<string, str
 	try {
 		await timedFetch(recorder, "stream: playlist", `${server.baseUrl}/v1/playback-sessions/${sessionId}/playlist`, headers);
 		const playlistResponse = await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}/playlist`, { headers });
-		const segments = parseSegments(await playlistResponse.text());
+		const segments = parseSegmentNames(await playlistResponse.text());
 
 		const watchCount = Math.min(segments.length, 10);
 		for (let index = 0; index < watchCount && Date.now() < deadline; index++) {

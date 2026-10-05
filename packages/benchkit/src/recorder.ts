@@ -1,10 +1,15 @@
-import { summarizeLatencies } from "./stats";
+import { type LatencyStats, summarizeLatencies } from "./stats";
+
+interface RecorderEntry {
+	latencies: number[];
+	errors: number;
+}
 
 /** Per-operation label → raw latencies + error count. */
 export class Recorder {
-	private readonly ops = new Map<string, { latencies: number[]; errors: number }>();
+	private readonly ops = new Map<string, RecorderEntry>();
 
-	private entry(label: string): { latencies: number[]; errors: number } {
+	private entry(label: string): RecorderEntry {
 		let op = this.ops.get(label);
 		if (!op) {
 			op = { latencies: [], errors: 0 };
@@ -12,6 +17,10 @@ export class Recorder {
 		}
 
 		return op;
+	}
+
+	private statsFor(op: RecorderEntry): LatencyStats {
+		return summarizeLatencies(op.latencies);
 	}
 
 	record(label: string, latencyMs: number, ok: boolean): void {
@@ -27,7 +36,7 @@ export class Recorder {
 
 	summary(): Array<{ label: string; count: number; errors: number; p50: number; p95: number; p99: number; max: number }> {
 		return [...this.ops.entries()].map(([label, op]) => {
-			const stats = summarizeLatencies(op.latencies);
+			const stats = this.statsFor(op);
 
 			return { label, count: stats.count, errors: op.errors, p50: stats.p50Ms, p95: stats.p95Ms, p99: stats.p99Ms, max: stats.maxMs };
 		});
@@ -42,7 +51,7 @@ export class Recorder {
 			{ count: number; errors: number; meanMs: number; p50Ms: number; p95Ms: number; p99Ms: number; maxMs: number }
 		> = {};
 		for (const [label, op] of this.ops) {
-			const stats = summarizeLatencies(op.latencies);
+			const stats = this.statsFor(op);
 			out[label] = {
 				count: stats.count,
 				errors: op.errors,

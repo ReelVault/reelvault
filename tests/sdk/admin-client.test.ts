@@ -1,33 +1,27 @@
 import { expect, test } from "bun:test";
-import { ReelVaultClient } from "@reelvault/sdk/client";
+import { createTestClient, jsonResponse } from "../helpers/sdk-client";
 
 test("admin client reads plugin diagnostics through the versioned API", async () => {
 	const requestedUrls: string[] = [];
-	const client = new ReelVaultClient({
-		baseUrl: "https://reelvault.test/v1",
-		enableRetry: false,
-		fetcher: (url) => {
-			requestedUrls.push(String(url));
+	const client = createTestClient(
+		(url) => {
+			requestedUrls.push(url);
 
-			return Promise.resolve(
-				new Response(
-					JSON.stringify([
-						{
-							id: "org.example.catalog",
-							name: "Catalog",
-							version: "1.0.0",
-							state: "failed",
-							providers: 0,
-							subtitleProviders: 0,
-							jobs: 0,
-							failurePhase: "config",
-						},
-					]),
-					{ headers: { "content-type": "application/json" } },
-				),
-			);
+			return jsonResponse([
+				{
+					id: "org.example.catalog",
+					name: "Catalog",
+					version: "1.0.0",
+					state: "failed",
+					providers: 0,
+					subtitleProviders: 0,
+					jobs: 0,
+					failurePhase: "config",
+				},
+			]);
 		},
-	});
+		{ enableRetry: false },
+	);
 
 	await expect(client.admin.getPlugins()).resolves.toMatchObject([{ id: "org.example.catalog", failurePhase: "config" }]);
 	expect(requestedUrls).toEqual(["https://reelvault.test/v1/admin/plugins"]);
@@ -35,40 +29,34 @@ test("admin client reads plugin diagnostics through the versioned API", async ()
 
 test("admin client handles download jobs overview and deletion", async () => {
 	const requests: Array<{ url: string; method: string }> = [];
-	const client = new ReelVaultClient({
-		baseUrl: "https://reelvault.test/v1",
-		enableRetry: false,
-		fetcher: (url, init) => {
-			requests.push({ url: String(url), method: init?.method ?? "GET" });
+	const client = createTestClient(
+		(url, init) => {
+			requests.push({ url, method: init?.method ?? "GET" });
 			if (init?.method === "DELETE") {
-				return Promise.resolve(new Response(JSON.stringify({ success: true }), { headers: { "content-type": "application/json" } }));
+				return jsonResponse({ success: true });
 			}
 
-			return Promise.resolve(
-				new Response(
-					JSON.stringify({
-						jobs: [
-							{
-								id: "job-1",
-								profileId: "profile-1",
-								mediaFileId: "media-1",
-								quality: "720p-mobile",
-								status: "completed",
-								progressPercent: 100,
-								sizeBytes: 1048576,
-								fileName: "test.mp4",
-								downloadUrl: "/v1/downloads/job-1/file",
-								errorText: null,
-								createdAt: "2026-09-11T00:00:00.000Z",
-								updatedAt: "2026-09-11T00:01:00.000Z",
-							},
-						],
-					}),
-					{ headers: { "content-type": "application/json" } },
-				),
-			);
+			return jsonResponse({
+				jobs: [
+					{
+						id: "job-1",
+						profileId: "profile-1",
+						mediaFileId: "media-1",
+						quality: "720p-mobile",
+						status: "completed",
+						progressPercent: 100,
+						sizeBytes: 1048576,
+						fileName: "test.mp4",
+						downloadUrl: "/v1/downloads/job-1/file",
+						errorText: null,
+						createdAt: "2026-09-11T00:00:00.000Z",
+						updatedAt: "2026-09-11T00:01:00.000Z",
+					},
+				],
+			});
 		},
-	});
+		{ enableRetry: false },
+	);
 
 	const response = await client.admin.getDownloadJobs();
 	expect(response.jobs).toHaveLength(1);

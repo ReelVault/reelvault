@@ -9,6 +9,11 @@ export interface MicroBenchmarkResult {
 	rows?: number;
 }
 
+/** Adds the measured operation's row count when it produced an array. */
+function withRows(result: MicroBenchmarkResult, produced: unknown): MicroBenchmarkResult {
+	return { ...result, ...(Array.isArray(produced) ? { rows: produced.length } : {}) };
+}
+
 /**
  * Drop-in replacement for synchronous microbenchmarks: warmup, timed iterations,
  * and optional row counting.
@@ -18,10 +23,7 @@ export function benchmark(
 	operation: (iteration: number) => unknown,
 	options: { warmup?: number; iterations?: number } = {},
 ): MicroBenchmarkResult {
-	const result = measure(name, operation, options);
-	const produced = operation(-1);
-
-	return { ...result, ...(Array.isArray(produced) ? { rows: produced.length } : {}) };
+	return withRows(measure(name, operation, options), operation(-1));
 }
 
 /**
@@ -54,10 +56,7 @@ export async function benchmarkAsync(
 	operation: (iteration: number) => Promise<unknown>,
 	options: { warmup?: number; iterations?: number } = {},
 ): Promise<MicroBenchmarkResult> {
-	const result = await measureAsync(name, operation, options);
-	const produced = await operation(-1);
-
-	return { ...result, ...(Array.isArray(produced) ? { rows: produced.length } : {}) };
+	return withRows(await measureAsync(name, operation, options), await operation(-1));
 }
 
 /**
@@ -91,14 +90,7 @@ export function printMicroResults(results: readonly MicroBenchmarkResult[], titl
 		results.map((result) => {
 			const stats = summarizeLatencies(result.timesMs);
 
-			return [
-				result.name,
-				fmtMs(stats.p50Ms),
-				fmtMs(stats.p95Ms),
-				fmtMs(stats.p99Ms),
-				fmtMs(stats.maxMs),
-				result.rows !== undefined ? String(result.rows) : "-",
-			];
+			return [result.name, ...statCells(stats), result.rows !== undefined ? String(result.rows) : "-"];
 		}),
 	);
 }
@@ -160,11 +152,13 @@ export function printHttpResults(results: readonly HttpScenarioResult[]): void {
 			result.name,
 			result.requestsPerSecond.toFixed(1),
 			`${result.errorRatePercent.toFixed(1)}%`,
-			fmtMs(result.stats.p50Ms),
-			fmtMs(result.stats.p95Ms),
-			fmtMs(result.stats.p99Ms),
-			fmtMs(result.stats.maxMs),
+			...statCells(result.stats),
 			String(result.stats.count),
 		]),
 	);
+}
+
+/** p50/p95/p99/max cells shared by the micro and HTTP result tables. */
+function statCells(stats: LatencyStats): [string, string, string, string] {
+	return [fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.p99Ms), fmtMs(stats.maxMs)];
 }

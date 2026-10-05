@@ -8,6 +8,7 @@ import {
 	suiteArgs,
 	task,
 } from "benchkit";
+import { subnetIp, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
@@ -37,7 +38,7 @@ function headers(context: CompositeContext, workerIndex: number, requestIndex: n
 	return {
 		cookie,
 		...(withProfile ? { "x-profile-id": context.profileIdFor(workerIndex, requestIndex) } : {}),
-		"x-forwarded-for": `10.84.${Math.floor(workerIndex / 250) % 250}.${(workerIndex % 250) + 1}`,
+		"x-forwarded-for": subnetIp(84, workerIndex),
 	};
 }
 
@@ -191,41 +192,34 @@ if (!args.help) {
 
 	task("composite: sequences", async () => {
 		const server: ManagedServer = await serverFixture();
-		try {
-			// The statuses batch mirrors what the website cards request on first paint.
-			const context: CompositeContext = {
-				baseUrl: server.baseUrl,
-				adminCookie: server.cookie,
-				cookieFor: (workerIndex, requestIndex) =>
-					server.workerCookies[(workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)] ?? server.cookie,
-				profileIdFor: (workerIndex, requestIndex) =>
-					server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
-				movieId: server.benchmarkMovieDetailId,
-				tvId: server.benchmarkTvDetailId,
-				mediaFileId: server.benchmarkMediaFileId,
-				statusesBatch: [server.benchmarkMovieDetailId, server.benchmarkTvDetailId, "meta-0000010", "meta-0000020", "meta-0000030"].join(
-					",",
-				),
-			};
+		// The statuses batch mirrors what the website cards request on first paint.
+		const context: CompositeContext = {
+			baseUrl: server.baseUrl,
+			adminCookie: server.cookie,
+			cookieFor: (workerIndex, requestIndex) => workerCookie(server, workerIndex * 997 + requestIndex),
+			profileIdFor: (workerIndex, requestIndex) =>
+				server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
+			movieId: server.benchmarkMovieDetailId,
+			tvId: server.benchmarkTvDetailId,
+			mediaFileId: server.benchmarkMediaFileId,
+			statusesBatch: [server.benchmarkMovieDetailId, server.benchmarkTvDetailId, "meta-0000010", "meta-0000020", "meta-0000030"].join(","),
+		};
 
-			const results: HttpScenarioResult[] = [];
-			for (const concurrency of args.concurrency) {
-				console.log(`\n[composite] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-				for (const scenario of SCENARIOS) {
-					const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-					const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
-					results.push(result);
-					const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-					console.log(
-						`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} visits/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-					);
-				}
+		const results: HttpScenarioResult[] = [];
+		for (const concurrency of args.concurrency) {
+			console.log(`\n[composite] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+			for (const scenario of SCENARIOS) {
+				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
+				const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
+				results.push(result);
+				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
+				console.log(
+					`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} visits/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
+				);
 			}
-
-			printHttpResults(results);
-		} finally {
-			if (!args.keepServer) await server.stop();
 		}
+
+		printHttpResults(results);
 	});
 }
 

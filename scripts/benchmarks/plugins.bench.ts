@@ -14,7 +14,7 @@ import {
 	task,
 } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { subnetIp } from "./lib/identity";
+import { subnetIp, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
@@ -193,7 +193,7 @@ async function lifecyclePhase(server: ManagedServer): Promise<void> {
  */
 async function pairWritePhase(server: ManagedServer): Promise<void> {
 	const adminHeaders = {
-		cookie: server.workerCookies[0] ?? server.cookie,
+		cookie: workerCookie(server, 0),
 		"x-profile-id": server.profileIdFor(0),
 		"content-type": "application/json",
 		"x-forwarded-for": "10.87.1.1",
@@ -242,7 +242,7 @@ async function pairWritePhase(server: ManagedServer): Promise<void> {
 
 async function seedRequests(server: ManagedServer, count: number): Promise<void> {
 	const seedHeaders = {
-		cookie: server.workerCookies[0] ?? server.cookie,
+		cookie: workerCookie(server, 0),
 		"x-profile-id": server.profileIdFor(0),
 		"content-type": "application/json",
 		"x-forwarded-for": "10.87.0.1",
@@ -304,44 +304,39 @@ if (!args.help) {
 		task("plugins: lifecycle + dispatch", async () => {
 			const server = await serverFixture();
 			const results: HttpScenarioResult[] = [];
-			try {
-				console.log(`[plugins] installing ${zipPath}`);
-				await installPlugin(server, zipPath);
-				await seedRequests(server, SEED_REQUESTS); // 5 — the plugin caps active requests at 10
-				const assetEtag = await captureAssetEtag(server);
+			console.log(`[plugins] installing ${zipPath}`);
+			await installPlugin(server, zipPath);
+			await seedRequests(server, SEED_REQUESTS); // 5 — the plugin caps active requests at 10
+			const assetEtag = await captureAssetEtag(server);
 
-				const context: PluginContext = {
-					baseUrl: server.baseUrl,
-					cookieFor: (workerIndex, requestIndex) =>
-						server.workerCookies[(workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)] ?? server.cookie,
-					profileIdFor: (workerIndex, requestIndex) =>
-						server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
-					adminCookie: server.cookie,
-					adminProfileId: server.adminProfileId,
-					assetEtag,
-				};
+			const context: PluginContext = {
+				baseUrl: server.baseUrl,
+				cookieFor: (workerIndex, requestIndex) => workerCookie(server, workerIndex * 997 + requestIndex),
+				profileIdFor: (workerIndex, requestIndex) =>
+					server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
+				adminCookie: server.cookie,
+				adminProfileId: server.adminProfileId,
+				assetEtag,
+			};
 
-				await lifecyclePhase(server);
-				await pairWritePhase(server);
-				await guardCounts(server);
+			await lifecyclePhase(server);
+			await pairWritePhase(server);
+			await guardCounts(server);
 
-				for (const concurrency of args.concurrency) {
-					console.log(`\n[plugins] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-					for (const scenario of SCENARIOS) {
-						const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-						const result = httpScenarioResult(scenario[0], concurrency, run, args.durationMs);
-						results.push(result);
-						const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-						console.log(
-							`  ${scenario[0]}: ${result.requestsPerSecond.toFixed(0)} req/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-						);
-					}
+			for (const concurrency of args.concurrency) {
+				console.log(`\n[plugins] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+				for (const scenario of SCENARIOS) {
+					const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
+					const result = httpScenarioResult(scenario[0], concurrency, run, args.durationMs);
+					results.push(result);
+					const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
+					console.log(
+						`  ${scenario[0]}: ${result.requestsPerSecond.toFixed(0)} req/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
+					);
 				}
-
-				printHttpResults(results);
-			} finally {
-				if (!args.keepServer) await server.stop();
 			}
+
+			printHttpResults(results);
 		});
 	}
 }

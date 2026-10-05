@@ -8,6 +8,7 @@ import {
 	suiteArgs,
 	task,
 } from "benchkit";
+import { subnetIp } from "./lib/identity";
 
 /**
  * HTTP scenarios against an EXTERNAL server seeded with real data:
@@ -360,7 +361,7 @@ function writeHeaders(context: BenchContext, requestIndex: number): RequestInit 
 			"x-profile-id": context.profileId,
 			"content-type": "application/json",
 			...(context.noCache ? { "cache-control": "no-cache" } : {}),
-			"x-forwarded-for": `10.85.${Math.floor(requestIndex / 250) % 250}.${(requestIndex % 250) + 1}`,
+			"x-forwarded-for": subnetIp(85, requestIndex),
 		},
 	};
 }

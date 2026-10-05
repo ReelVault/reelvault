@@ -10,6 +10,7 @@ import {
 	suiteArgs,
 	task,
 } from "benchkit";
+import { authHeaders, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
@@ -28,11 +29,8 @@ type RequestBuilder = (server: ManagedServer, workerIndex: number, requestIndex:
 
 function readHeaders(server: ManagedServer, workerIndex: number, requestIndex: number, withProfile = false): Record<string, string> {
 	const identityIndex = (workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1);
-	return {
-		cookie: server.workerCookies[identityIndex] ?? server.cookie,
-		...(withProfile ? { "x-profile-id": server.profileIdFor(identityIndex) } : {}),
-		"x-forwarded-for": `10.90.${Math.floor(identityIndex / 250) % 250}.${(identityIndex % 250) + 1}`,
-	};
+
+	return authHeaders(server, identityIndex, 90, withProfile);
 }
 
 const browse: RequestBuilder = (server, worker, request) =>
@@ -92,7 +90,7 @@ const watchlistToggle: RequestBuilder = (server, worker, request) => {
 	// Toggle pairs must land on ONE identity (POST and DELETE from the same
 	// profile) — unlike the read mix, headers here pin the worker's identity.
 	const headers = {
-		cookie: server.workerCookies[worker % Math.max(server.workerCookies.length, 1)] ?? server.cookie,
+		cookie: workerCookie(server, worker),
 		"x-profile-id": server.profileIdFor(worker),
 		"x-forwarded-for": `10.90.255.${(worker % 250) + 1}`,
 		...(even ? { "content-type": "application/json" } : {}),
@@ -176,29 +174,25 @@ if (!args.help) {
 			["read mix (2nd pass)", readMix],
 		];
 
-		try {
-			for (const [phaseName, builder] of phases) {
-				for (const concurrency of args.concurrency) {
-					let summary: RssSummary = {};
-					const stopSampler = startRssSampler(server.pid, RSS_SAMPLE_INTERVAL_MS, (captured) => {
-						summary = captured;
-					});
+		for (const [phaseName, builder] of phases) {
+			for (const concurrency of args.concurrency) {
+				let summary: RssSummary = {};
+				const stopSampler = startRssSampler(server.pid, RSS_SAMPLE_INTERVAL_MS, (captured) => {
+					summary = captured;
+				});
 
-					const result = await runPhase(`${phaseName} (c=${concurrency})`, builder, server, concurrency, args.warmupMs, args.durationMs);
-					stopSampler();
-					results.push(result);
-					rssRows.push([`${phaseName} c=${concurrency}`, `${result.requestsPerSecond.toFixed(0)} req/s`, ...formatRss(summary)]);
-					console.log(
-						`  ${phaseName} c=${concurrency}: ${result.requestsPerSecond.toFixed(0)} req/s, RSS start/peak/end ${formatRss(summary).join(" / ")}`,
-					);
-				}
+				const result = await runPhase(`${phaseName} (c=${concurrency})`, builder, server, concurrency, args.warmupMs, args.durationMs);
+				stopSampler();
+				results.push(result);
+				rssRows.push([`${phaseName} c=${concurrency}`, `${result.requestsPerSecond.toFixed(0)} req/s`, ...formatRss(summary)]);
+				console.log(
+					`  ${phaseName} c=${concurrency}: ${result.requestsPerSecond.toFixed(0)} req/s, RSS start/peak/end ${formatRss(summary).join(" / ")}`,
+				);
 			}
-
-			printTable(`Server RSS per load phase (pid ${server.pid})`, ["phase", "throughput", "start", "peak", "end"], rssRows);
-			printHttpResults(results);
-		} finally {
-			if (!args.keepServer) await server.stop();
 		}
+
+		printTable(`Server RSS per load phase (pid ${server.pid})`, ["phase", "throughput", "start", "peak", "end"], rssRows);
+		printHttpResults(results);
 	});
 }
 
