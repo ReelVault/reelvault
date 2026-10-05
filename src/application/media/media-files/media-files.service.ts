@@ -17,6 +17,7 @@ import type {
 import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
+import { fallbackEpisodeExternalId, fallbackSeasonExternalId } from "@/application/catalog/catalog.utils";
 import { applyMetadataCandidate, toMetadataCandidate } from "@/application/catalog/metadata/metadata-normalization";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
@@ -56,6 +57,17 @@ import { mediaFileRefreshService } from "./refresh-media-file.operation";
 // (admin's scanning.concurrency override is honored inside the getter).
 const scanSemaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getScannerConcurrency());
 
+interface MediaFileScanResult {
+	exists: boolean;
+	readable: boolean;
+	sizeBytes: number | null;
+	probeSuccess: boolean;
+	probeError: string | null;
+	decodeSuccess: boolean;
+	decodeError: string | null;
+	isEnabled: boolean;
+}
+
 class MediaService extends BaseService {
 	constructor() {
 		super("MediaService");
@@ -79,10 +91,7 @@ class MediaService extends BaseService {
 
 	async listArtifacts(mediaFileId: string, options?: { skipExistsCheck?: boolean }): Promise<PlaybackArtifact[]> {
 		return await this.safeExecute("listArtifacts", async () => {
-			if (!options?.skipExistsCheck) {
-				const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
-				this.assertFound(mediaFileExists, "MediaFile", mediaFileId);
-			}
+			if (!options?.skipExistsCheck) await this.assertMediaFileExists(mediaFileId);
 
 			return await pluginArtifactsService.list(mediaFileId);
 		});
@@ -99,10 +108,7 @@ class MediaService extends BaseService {
 
 	async listMarkers(mediaFileId: string, options?: { skipExistsCheck?: boolean }): Promise<MediaMarker[]> {
 		return await this.safeExecute("listMarkers", async () => {
-			if (!options?.skipExistsCheck) {
-				const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
-				this.assertFound(mediaFileExists, "MediaFile", mediaFileId);
-			}
+			if (!options?.skipExistsCheck) await this.assertMediaFileExists(mediaFileId);
 
 			const markers = await mediaMarkersRepository.findByMediaFileId(mediaFileId);
 
@@ -157,8 +163,7 @@ class MediaService extends BaseService {
 
 	async deleteMarkers(mediaFileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
 		return await this.safeExecute("deleteMarkers", async () => {
-			const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
-			this.assertFound(mediaFileExists, "MediaFile", mediaFileId);
+			await this.assertMediaFileExists(mediaFileId);
 			const before = await mediaMarkersRepository.findByMediaFileId(mediaFileId);
 			await mediaMarkersRepository.deleteByMediaFileId(mediaFileId);
 
@@ -255,128 +260,106 @@ class MediaService extends BaseService {
 		});
 	}
 
-	async scan(
-		mediaFileId: string,
-		options?: { durationSeconds?: number | null } | null,
-	): Promise<{
-		exists: boolean;
-		readable: boolean;
-		sizeBytes: number | null;
-		probeSuccess: boolean;
-		probeError: string | null;
-		decodeSuccess: boolean;
-		decodeError: string | null;
-		isEnabled: boolean;
-	}> {
+	async scan(mediaFileId: string, options?: { durationSeconds?: number | null } | null): Promise<MediaFileScanResult> {
 		return await scanSemaphore.run(async () => {
 			return await this.safeExecute("scan", async () => {
-				return await this.runScan(mediaFileId, options);
+				const mediaFile = await mediaRepository.findByPrimaryId({
+					primaryId: mediaFileId,
+					fields: QueryFields.parse({ fields: "id,filePath,isEnabled" }),
+				});
+				this.assertExists(mediaFile, "MediaFile", mediaFileId);
+
+				const filePath = mediaFile.filePath;
+				let exists = false;
+				let readable = false;
+				let sizeBytes: number | null = null;
+
+				try {
+					const stats = await FileUtils.getStats(filePath);
+					if (stats) {
+						exists = true;
+						readable = stats.isFile();
+						sizeBytes = stats.size;
+					}
+				} catch {
+					// File not found or not accessible
+				}
+
+				if (!exists) {
+					return {
+						isEnabled: false,
+						exists: false,
+						readable: false,
+						sizeBytes: null,
+						probeSuccess: false,
+						probeError: "File does not exist on disk",
+						decodeSuccess: false,
+						decodeError: "File does not exist on disk",
+					};
+				}
+
+				let probeSuccess = false;
+				let probeError: string | null = null;
+				try {
+					const probe = await videoParser.probe(filePath);
+					if (probe) {
+						probeSuccess = true;
+					} else {
+						probeError = "ffprobe returned no data";
+					}
+				} catch (err) {
+					probeError = errorMessage(err);
+				}
+
+				let decodeSuccess = false;
+				let decodeError: string | null = null;
+				try {
+					const args = ["-v", "error"];
+					const scanDuration = options?.durationSeconds === undefined ? 60 : options.durationSeconds;
+					if (scanDuration && scanDuration > 0) {
+						args.push("-t", String(scanDuration));
+					}
+
+					args.push("-i", filePath, "-f", "null", "-");
+
+					const ffmpegResult = await ffMpegService.runToCompletion(args, { stdout: "ignore" });
+					if (ffmpegResult.exitCode === 0) {
+						decodeSuccess = true;
+					} else {
+						decodeError =
+							ffmpegResult.stderr === "" ? `ffmpeg exited with code ${ffmpegResult.exitCode ?? "unknown"}` : ffmpegResult.stderr;
+					}
+				} catch (err) {
+					decodeError = errorMessage(err);
+				}
+
+				// `exists` was already asserted by the early return above.
+				const hasErrors = !(readable && probeSuccess && decodeSuccess);
+				let isEnabled = mediaFile.isEnabled;
+
+				const shouldBeEnabled = !hasErrors;
+				if (mediaFile.isEnabled !== shouldBeEnabled) {
+					await mediaRepository.update({ primaryId: mediaFileId, values: { isEnabled: shouldBeEnabled } });
+					isEnabled = shouldBeEnabled;
+				}
+
+				return {
+					exists,
+					readable,
+					sizeBytes,
+					probeSuccess,
+					probeError,
+					decodeSuccess,
+					decodeError,
+					isEnabled,
+				};
 			});
 		});
 	}
 
-	private async runScan(
-		mediaFileId: string,
-		options?: { durationSeconds?: number | null } | null,
-	): Promise<{
-		exists: boolean;
-		readable: boolean;
-		sizeBytes: number | null;
-		probeSuccess: boolean;
-		probeError: string | null;
-		decodeSuccess: boolean;
-		decodeError: string | null;
-		isEnabled: boolean;
-	}> {
-		const mediaFile = await mediaRepository.findByPrimaryId({
-			primaryId: mediaFileId,
-			fields: QueryFields.parse({ fields: "id,filePath,isEnabled" }),
-		});
-		this.assertExists(mediaFile, "MediaFile", mediaFileId);
-
-		const filePath = mediaFile.filePath;
-		let exists = false;
-		let readable = false;
-		let sizeBytes: number | null = null;
-
-		try {
-			const stats = await FileUtils.getStats(filePath);
-			if (stats) {
-				exists = true;
-				readable = stats.isFile();
-				sizeBytes = stats.size;
-			}
-		} catch {
-			// File not found or not accessible
-		}
-
-		if (!exists) {
-			return {
-				isEnabled: false,
-				exists: false,
-				readable: false,
-				sizeBytes: null,
-				probeSuccess: false,
-				probeError: "File does not exist on disk",
-				decodeSuccess: false,
-				decodeError: "File does not exist on disk",
-			};
-		}
-
-		let probeSuccess = false;
-		let probeError: string | null = null;
-		try {
-			const probe = await videoParser.probe(filePath);
-			if (probe) {
-				probeSuccess = true;
-			} else {
-				probeError = "ffprobe returned no data";
-			}
-		} catch (err) {
-			probeError = errorMessage(err);
-		}
-
-		let decodeSuccess = false;
-		let decodeError: string | null = null;
-		try {
-			const args = ["-v", "error"];
-			const scanDuration = options?.durationSeconds === undefined ? 60 : options.durationSeconds;
-			if (scanDuration && scanDuration > 0) {
-				args.push("-t", String(scanDuration));
-			}
-
-			args.push("-i", filePath, "-f", "null", "-");
-
-			const ffmpegResult = await ffMpegService.runToCompletion(args, { stdout: "ignore" });
-			if (ffmpegResult.exitCode === 0) {
-				decodeSuccess = true;
-			} else {
-				decodeError = ffmpegResult.stderr === "" ? `ffmpeg exited with code ${ffmpegResult.exitCode ?? "unknown"}` : ffmpegResult.stderr;
-			}
-		} catch (err) {
-			decodeError = errorMessage(err);
-		}
-
-		// `exists` was already asserted by the early return above.
-		const hasErrors = !(readable && probeSuccess && decodeSuccess);
-		let isEnabled = mediaFile.isEnabled;
-
-		const shouldBeEnabled = !hasErrors;
-		if (mediaFile.isEnabled !== shouldBeEnabled) {
-			await mediaRepository.update({ primaryId: mediaFileId, values: { isEnabled: shouldBeEnabled } });
-			isEnabled = shouldBeEnabled;
-		}
-
-		return {
-			exists,
-			readable,
-			sizeBytes,
-			probeSuccess,
-			probeError,
-			decodeSuccess,
-			decodeError,
-			isEnabled,
-		};
+	private async assertMediaFileExists(mediaFileId: string): Promise<void> {
+		const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
+		this.assertFound(mediaFileExists, "MediaFile", mediaFileId);
 	}
 
 	/**
@@ -475,11 +458,11 @@ class MediaService extends BaseService {
 	private async resolveEpisodeAnchorByNumbers(targetMetadataId: string, seasonNumber: number, episodeNumber: number): Promise<string> {
 		const targetMeta = await metadataRepository.findByIdForRead(targetMetadataId, { fields: "id,stableKey" });
 		const seasonInfo = {
-			externalId: `${targetMetadataId}-s${seasonNumber}`,
+			externalId: fallbackSeasonExternalId(targetMetadataId, seasonNumber),
 			seasonNumber,
 		};
 		const episodeInfo = {
-			externalId: `${targetMetadataId}-s${seasonNumber}-e${episodeNumber}`,
+			externalId: fallbackEpisodeExternalId(targetMetadataId, seasonNumber, episodeNumber),
 			seasonNumber,
 			episodeNumber,
 		};

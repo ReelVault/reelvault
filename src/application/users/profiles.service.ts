@@ -54,12 +54,7 @@ class ProfilesService extends BaseService {
 
 	async getById<F extends string>(profileId: string, query?: FieldsQuery<F>, userId?: string): Promise<SelectFields<Profile, F>> {
 		return await this.safeExecute("getById", async () => {
-			this.assertUserId(userId);
-			const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
-			this.assertExists(profile, "Profile", profileId);
-			if (profile.userId !== userId)
-				throw new ForbiddenError("Profile does not belong to the authenticated user", { code: "profile.not_owned" });
-
+			const profile = await this.findOwnedProfile(profileId, userId);
 			const { fields } = QueryUtils.parseStandard(query);
 
 			return QueryFields.apply(this.#stripPin(profile), fields);
@@ -106,13 +101,27 @@ class ProfilesService extends BaseService {
 			const profile = await profilesRepository.createAndRead(userId, payload, query);
 			this.assertExists(profile, "Profile", "newly created");
 
-			const localized = await this.#localizeExternalAvatar(profile.id, profile.avatarUrl);
-			if (localized !== undefined && localized !== profile.avatarUrl) {
-				await profilesRepository.updateAndRead(profile.id, { avatarUrl: localized });
-			}
-
-			return this.#stripPin({ ...profile, avatarUrl: localized ?? profile.avatarUrl });
+			return this.#stripPin(await this.localizeAndPersistAvatar(profile.id, profile));
 		});
+	}
+
+	/**
+	 * Localizes an external avatar URL and persists the local copy. The create
+	 * path omits `query` (responds with the projected `profile`); the update
+	 * path passes it so the persisted row is re-read with the caller's fields.
+	 */
+	private async localizeAndPersistAvatar<F extends string>(
+		profileId: string,
+		profile: SelectFields<Profile, F>,
+		query?: FieldsQuery<F>,
+	): Promise<SelectFields<Profile, F>> {
+		const localized = await this.#localizeExternalAvatar(profileId, profile.avatarUrl);
+		if (localized === undefined || localized === profile.avatarUrl) return profile;
+
+		const updated = await profilesRepository.updateAndRead(profileId, { avatarUrl: localized }, query);
+		if (!query) return { ...profile, avatarUrl: localized };
+
+		return updated ?? profile;
 	}
 
 	async update<F extends string>(
@@ -123,9 +132,7 @@ class ProfilesService extends BaseService {
 	): Promise<SelectFields<Profile, F>> {
 		return await this.safeExecute("update", async () => {
 			this.assertUserId(userId);
-			const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
-			await this.assertOwnedProfile(profileId, userId, profile);
-			this.assertExists(profile, "Profile", profileId);
+			const profile = await this.findOwnedProfile(profileId, userId);
 
 			// Renaming onto a sibling's name would otherwise die on the unique
 			// index as a raw 500 — same pre-check the create path runs.
@@ -138,23 +145,14 @@ class ProfilesService extends BaseService {
 			const result = await profilesRepository.updateAndRead(profileId, payload, query);
 			this.assertExists(result, "Profile", profileId);
 
-			const localized = await this.#localizeExternalAvatar(profileId, result.avatarUrl);
-			if (localized !== undefined && localized !== result.avatarUrl) {
-				const refreshed = await profilesRepository.updateAndRead(profileId, { avatarUrl: localized }, query);
-
-				return this.#stripPin(refreshed ?? result);
-			}
-
-			return this.#stripPin(result);
+			return this.#stripPin(await this.localizeAndPersistAvatar(profileId, result, query));
 		});
 	}
 
 	async delete(profileId: string, userId?: string): Promise<{ success: boolean }> {
 		return await this.safeExecute("delete", async () => {
 			this.assertUserId(userId);
-
-			const profile = await this.getById(profileId, { fields: "id" }, userId);
-			this.assertExists(profile, "Profile", profileId);
+			await this.assertOwnedProfile(profileId, userId);
 
 			await profilesRepository.deleteOwned({ profileId, userId });
 
@@ -164,11 +162,7 @@ class ProfilesService extends BaseService {
 
 	async switch(body: SwitchProfile, userId?: string): Promise<{ success: boolean; profileId: string; unlockToken: string | null }> {
 		return await this.safeExecute("switch", async () => {
-			this.assertUserId(userId);
-			const profile = await profilesRepository.findByPrimaryId({ primaryId: body.profileId });
-			this.assertExists(profile, "Profile", body.profileId);
-			if (profile.userId !== userId)
-				throw new ForbiddenError("Profile does not belong to the authenticated user", { code: "profile.not_owned" });
+			const profile = await this.findOwnedProfile(body.profileId, userId);
 
 			if (profile.pin) {
 				// Granular code — the client translates by code instead of matching
@@ -190,8 +184,7 @@ class ProfilesService extends BaseService {
 
 	async getPreferences(profileId: string, userId?: string): Promise<ProfilePreferences> {
 		return await this.safeExecute("getPreferences", async () => {
-			const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
-			await this.assertOwnedProfile(profileId, userId, profile);
+			await this.assertOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.getEffective({ profileId });
 		});
@@ -199,8 +192,7 @@ class ProfilesService extends BaseService {
 
 	async updatePreferences(profileId: string, body: UpdateProfilePreferences, userId?: string): Promise<ProfilePreferences> {
 		return await this.safeExecute("updatePreferences", async () => {
-			const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
-			await this.assertOwnedProfile(profileId, userId, profile);
+			await this.assertOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.applyUpdate({ profileId, body });
 		});
@@ -213,8 +205,7 @@ class ProfilesService extends BaseService {
 
 	async resetPreferences(profileId: string, userId?: string): Promise<ProfilePreferences> {
 		return await this.safeExecute("resetPreferences", async () => {
-			const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
-			await this.assertOwnedProfile(profileId, userId, profile);
+			await this.assertOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.reset({ profileId });
 		});
@@ -222,8 +213,7 @@ class ProfilesService extends BaseService {
 
 	async uploadAvatar(profileId: string, file: File, userId?: string): Promise<{ avatarUrl: string }> {
 		return await this.safeExecute("uploadAvatar", async () => {
-			const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
-			await this.assertOwnedProfile(profileId, userId, profile);
+			await this.assertOwnedProfile(profileId, userId);
 
 			const uploaded = await imageUploadService.upload(file, { ownerType: "profile", ownerId: profileId, variant: "avatar" });
 			const { avatarUrl } = await imageProcessingService.replaceProfileAvatarWithUpload(profileId, uploaded);
@@ -232,12 +222,19 @@ class ProfilesService extends BaseService {
 		});
 	}
 
-	private async assertOwnedProfile(profileId: string, userId?: string, preFetchedProfile?: Profile): Promise<void> {
+	/** Fetches a profile and asserts the authenticated user owns it (404, then 403). */
+	private async findOwnedProfile(profileId: string, userId?: string): Promise<Profile> {
 		this.assertUserId(userId);
-		const profile = preFetchedProfile ?? (await profilesRepository.findByPrimaryId({ primaryId: profileId }));
+		const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
 		this.assertExists(profile, "Profile", profileId);
 		if (profile.userId !== userId)
 			throw new ForbiddenError("Profile does not belong to the authenticated user", { code: "profile.not_owned" });
+
+		return profile;
+	}
+
+	private async assertOwnedProfile(profileId: string, userId?: string): Promise<void> {
+		await this.findOwnedProfile(profileId, userId);
 	}
 }
 

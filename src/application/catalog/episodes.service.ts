@@ -1,12 +1,4 @@
-import type {
-	EpisodeFilters,
-	EpisodeSorting,
-	EpisodeWithRelations,
-	FieldsQuery,
-	PaginatedResponse,
-	PaginationQuery,
-	SelectFields,
-} from "@reelvault/sdk/common";
+import type { EpisodeFilters, EpisodeSorting, EpisodeWithRelations } from "@reelvault/sdk/common";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
@@ -14,28 +6,13 @@ import { QueryFields } from "@/database/utils/fields";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { BaseService } from "@/utils/base-service";
 import { NotFoundError } from "@/utils/errors";
 import { findFirstProviderResult, mapProviderLinks } from "./catalog.utils";
+import { DictionaryReadService } from "./dictionary-crud.service";
 
-class EpisodesService extends BaseService {
+class EpisodesService extends DictionaryReadService<EpisodeWithRelations, EpisodeFilters, EpisodeSorting, typeof episodesRepository> {
 	constructor() {
-		super("EpisodesService");
-	}
-
-	async getAll<F extends string>(
-		query?: PaginationQuery & FieldsQuery<F> & EpisodeFilters & EpisodeSorting,
-	): Promise<PaginatedResponse<SelectFields<EpisodeWithRelations, F>>> {
-		return await this.safeExecute("getAll", () => episodesRepository.findPage(query));
-	}
-
-	async getById<F extends string>(episodeId: string, query?: FieldsQuery<F>): Promise<SelectFields<EpisodeWithRelations, F>> {
-		return await this.safeExecute("getById", async () => {
-			const media = await episodesRepository.findByIdForRead(episodeId, query);
-			this.assertExists(media, "Episode", episodeId);
-
-			return media;
-		});
+		super("EpisodesService", "Episode", episodesRepository);
 	}
 
 	async refresh(episodeId: string, options: { forceImage?: boolean } = {}) {

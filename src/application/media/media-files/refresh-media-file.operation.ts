@@ -2,9 +2,10 @@ import { type TaskSchedulingOptions, toDomainError } from "@/application/context
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import type { ActiveWorkerItem } from "@/database/repositories/worker.repository";
 import { BaseService } from "@/utils/base-service";
-import { ConflictError, NotFoundError } from "@/utils/errors";
+import { NotFoundError } from "@/utils/errors";
 import { enqueueMediaFileTechnicalRefresh } from "@/workers/definitions/media/media-file-technical-refresh.worker";
 import { enqueueMetadataRefresh } from "@/workers/definitions/metadata/metadata-refresh.worker";
+import { assertOperationCompatibility } from "@/workers/utils/operation-compat";
 import { workerService } from "@/workers/worker.service";
 
 type ScheduledTask = ActiveWorkerItem;
@@ -45,11 +46,11 @@ export class MediaFileRefreshService extends BaseService {
 				}
 
 				const activeTechnical = await this.dependencies.findActive("media-file-technical-refresh", mediaFileId);
-				assertOperationCompatibility(activeTechnical, options.operationId, "technical media refresh");
+				assertOperationCompatibility(activeTechnical ? [activeTechnical] : [], options.operationId, "technical media refresh");
 				const technicalTask = activeTechnical ?? (await this.dependencies.scheduleTechnical(mediaFileId, options));
 
 				const activeMetadata = await this.dependencies.findActive("metadata-refresh", metadataId);
-				assertOperationCompatibility(activeMetadata, options.operationId, "metadata refresh");
+				assertOperationCompatibility(activeMetadata ? [activeMetadata] : [], options.operationId, "metadata refresh");
 				const metadataTask =
 					activeMetadata ??
 					(await this.dependencies.scheduleMetadata(
@@ -71,9 +72,3 @@ export class MediaFileRefreshService extends BaseService {
 }
 
 export const mediaFileRefreshService = new MediaFileRefreshService();
-
-function assertOperationCompatibility(task: ScheduledTask | undefined, operationId: string | undefined, label: string): void {
-	if (!task || task.operationId === operationId) return;
-
-	throw new ConflictError(`Active ${label} belongs to another operation`);
-}

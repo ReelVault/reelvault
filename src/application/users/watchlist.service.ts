@@ -13,9 +13,8 @@ import { metadataRepository } from "@/database/repositories/metadata.repository"
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { isNotNullish, toMap, unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
-import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 
-import { discoverService } from "./discover.service";
+import { invalidateProfileCaches } from "./cache-invalidation";
 
 /** Hard cap for batch status checks (guards against giant query strings). */
 const MAX_STATUSES_IDS = 500;
@@ -56,8 +55,7 @@ class WatchlistService extends BaseService {
 			this.assertProfileId(profileId);
 
 			await watchlistRepository.insert({ values: { profileId, metadataId } });
-			discoverService.clearCache(profileId);
-			invalidateProfileResponseBodies(profileId);
+			invalidateProfileCaches(profileId);
 
 			return { success: true as const, added: true as const };
 		});
@@ -68,8 +66,7 @@ class WatchlistService extends BaseService {
 			this.assertProfileId(profileId);
 
 			await watchlistRepository.remove(profileId, metadataId);
-			discoverService.clearCache(profileId);
-			invalidateProfileResponseBodies(profileId);
+			invalidateProfileCaches(profileId);
 
 			return { success: true as const, removed: true as const };
 		});
@@ -103,8 +100,7 @@ class WatchlistService extends BaseService {
 			this.assertProfileId(profileId);
 
 			const result = await watchlistRepository.toggle({ metadataId: body.metadataId, profileId });
-			discoverService.clearCache(profileId);
-			invalidateProfileResponseBodies(profileId);
+			invalidateProfileCaches(profileId);
 
 			return result;
 		});

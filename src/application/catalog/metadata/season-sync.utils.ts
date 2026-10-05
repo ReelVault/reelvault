@@ -87,69 +87,77 @@ async function fetchMissingEpisodeMap(
 	return fetchedEpisodes;
 }
 
-interface EpisodeWork {
-	updatePromises: Array<Promise<unknown>>;
-	tasks: SeasonImageTask[];
-	/** Any processed provider episode reported fallback-language content. */
-	episodeMissingTranslation: boolean;
+/**
+ * Drizzle skips `undefined` fields in .set(), so only provided values count as
+ * changes. Returns whether any of `keys` differs from the stored row.
+ */
+function changedFields<T extends object>(
+	existing: T,
+	provided: { [K in keyof T]?: T[K] | undefined },
+	keys: ReadonlyArray<keyof T>,
+): boolean {
+	return keys.some((key) => provided[key] !== undefined && existing[key] !== provided[key]);
 }
 
-interface EpisodeWorkResult {
-	updatePromise?: Promise<unknown>;
-	task?: SeasonImageTask;
-}
-
+/** Returns true when the provider episode reported fallback-language content. */
 function processExistingEpisode(
 	metadataId: string,
 	existingSeason: SeasonRow,
 	existingEpisode: EpisodeRow,
 	episodeInfo: ProviderEpisodeResult,
-): EpisodeWorkResult {
+	updatePromises: Array<Promise<unknown>>,
+	tasks: SeasonImageTask[],
+): boolean {
 	// Drizzle skips `undefined` fields in .set(), so only compare provided values.
 	const absoluteNumber = episodeInfo.absoluteNumber !== undefined ? Number(episodeInfo.absoluteNumber) : undefined;
 	const changed =
 		existingEpisode.title !== episodeInfo.name ||
-		(episodeInfo.overview !== undefined && existingEpisode.overview !== episodeInfo.overview) ||
-		(episodeInfo.airDate !== undefined && existingEpisode.airDate !== episodeInfo.airDate) ||
-		(absoluteNumber !== undefined && existingEpisode.absoluteNumber !== absoluteNumber);
+		changedFields(existingEpisode, { overview: episodeInfo.overview, airDate: episodeInfo.airDate, absoluteNumber }, [
+			"overview",
+			"airDate",
+			"absoluteNumber",
+		]);
 
-	const result: EpisodeWorkResult = {};
 	if (changed) {
-		result.updatePromise = episodesRepository.update({
-			primaryId: existingEpisode.id,
-			values: {
-				title: episodeInfo.name,
-				overview: episodeInfo.overview,
-				airDate: episodeInfo.airDate,
-				...(absoluteNumber !== undefined ? { absoluteNumber } : {}),
-			},
-		});
+		updatePromises.push(
+			episodesRepository.update({
+				primaryId: existingEpisode.id,
+				values: {
+					title: episodeInfo.name,
+					overview: episodeInfo.overview,
+					airDate: episodeInfo.airDate,
+					...(absoluteNumber !== undefined ? { absoluteNumber } : {}),
+				},
+			}),
+		);
 	}
 
 	if (episodeInfo.thumbnailPath) {
-		result.task = {
+		tasks.push({
 			kind: "episode",
 			metadataId,
 			episodeId: existingEpisode.id,
 			seasonNumber: String(existingSeason.seasonNumber),
 			episodeNumber: String(existingEpisode.episodeNumber),
 			urls: episodeInfo.thumbnailPath,
-		};
+		});
 	}
 
-	return result;
+	return episodeInfo.hasMissingTranslation === true;
 }
 
-function collectEpisodeWork(params: {
-	metadataId: string;
-	existingSeasons: SeasonRow[];
-	seasonsByNumber: Map<number, ProviderSeasonResult>;
-	episodesBySeason: Map<string, EpisodeRow[]>;
-	fetchedEpisodes: Map<number, ProviderEpisodeResult[]>;
-}): EpisodeWork {
+function processExistingEpisodes(
+	params: {
+		metadataId: string;
+		existingSeasons: SeasonRow[];
+		seasonsByNumber: Map<number, ProviderSeasonResult>;
+		episodesBySeason: Map<string, EpisodeRow[]>;
+		fetchedEpisodes: Map<number, ProviderEpisodeResult[]>;
+	},
+	updatePromises: Array<Promise<unknown>>,
+	tasks: SeasonImageTask[],
+): boolean {
 	const { metadataId, existingSeasons, seasonsByNumber, episodesBySeason, fetchedEpisodes } = params;
-	const updatePromises: Array<Promise<unknown>> = [];
-	const tasks: SeasonImageTask[] = [];
 	let episodeMissingTranslation = false;
 	for (const existingSeason of existingSeasons) {
 		const seasonInfo = seasonsByNumber.get(existingSeason.seasonNumber);
@@ -169,16 +177,13 @@ function collectEpisodeWork(params: {
 			const episodeInfo = episodesByNumber.get(existingEpisode.episodeNumber);
 			if (!episodeInfo) continue;
 
-			if (episodeInfo.hasMissingTranslation === true) episodeMissingTranslation = true;
-
-			const work = processExistingEpisode(metadataId, existingSeason, existingEpisode, episodeInfo);
-			if (work.updatePromise !== undefined) updatePromises.push(work.updatePromise);
-
-			if (work.task) tasks.push(work.task);
+			if (processExistingEpisode(metadataId, existingSeason, existingEpisode, episodeInfo, updatePromises, tasks)) {
+				episodeMissingTranslation = true;
+			}
 		}
 	}
 
-	return { updatePromises, tasks, episodeMissingTranslation };
+	return episodeMissingTranslation;
 }
 
 export async function syncSeasonsAndEpisodes(
@@ -200,22 +205,10 @@ export async function syncSeasonsAndEpisodes(
 		const seasonInfo = seasonsByNumber.get(existingSeason.seasonNumber);
 		if (!seasonInfo) return Promise.resolve();
 
-		const changed =
-			(seasonInfo.name !== undefined && existingSeason.name !== seasonInfo.name) ||
-			(seasonInfo.overview !== undefined && existingSeason.overview !== seasonInfo.overview) ||
-			(seasonInfo.airDate !== undefined && existingSeason.airDate !== seasonInfo.airDate) ||
-			(seasonInfo.status !== undefined && existingSeason.status !== seasonInfo.status);
-		if (!changed) return Promise.resolve();
+		const values = { name: seasonInfo.name, overview: seasonInfo.overview, airDate: seasonInfo.airDate, status: seasonInfo.status };
+		if (!changedFields(existingSeason, values, ["name", "overview", "airDate", "status"])) return Promise.resolve();
 
-		return seasonsRepository.update({
-			primaryId: existingSeason.id,
-			values: {
-				name: seasonInfo.name,
-				overview: seasonInfo.overview,
-				airDate: seasonInfo.airDate,
-				status: seasonInfo.status,
-			},
-		});
+		return seasonsRepository.update({ primaryId: existingSeason.id, values });
 	});
 
 	// Propagate child fallback-language content to the series-level flag.
@@ -243,17 +236,13 @@ export async function syncSeasonsAndEpisodes(
 	});
 	const fetchedEpisodes = await fetchMissingEpisodeMap(seasonsNeedingFetch, fetchMissingEpisodes);
 
-	const {
+	const updatePromises: Array<Promise<unknown>> = [];
+	const episodeTasks: SeasonImageTask[] = [];
+	const episodeMissingTranslation = processExistingEpisodes(
+		{ metadataId, existingSeasons, seasonsByNumber, episodesBySeason, fetchedEpisodes },
 		updatePromises,
-		tasks: episodeTasks,
-		episodeMissingTranslation,
-	} = collectEpisodeWork({
-		metadataId,
-		existingSeasons,
-		seasonsByNumber,
-		episodesBySeason,
-		fetchedEpisodes,
-	});
+		episodeTasks,
+	);
 	missingTranslation ||= episodeMissingTranslation;
 
 	await PromiseUtils.mapConcurrent(updatePromises, systemResourcesService.getIoConcurrency(), (p) => p);

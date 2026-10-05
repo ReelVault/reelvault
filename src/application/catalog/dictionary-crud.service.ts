@@ -1,23 +1,26 @@
 import type { FieldsQuery, PaginatedResponse, PaginationQuery, SelectFields } from "@reelvault/sdk/common";
 import { BaseService } from "@/utils/base-service";
 
-interface DictionaryCrudRepository<TEntity, TCreate extends { name: string }, TUpdate, TFilters, TSorting> {
+interface DictionaryReadRepository<TEntity, TFilters, TSorting> {
 	findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & TFilters & TSorting,
 	): Promise<PaginatedResponse<SelectFields<TEntity, F>>>;
 	findByIdForRead<F extends string>(id: string, query?: FieldsQuery<F>): Promise<SelectFields<TEntity, F> | undefined>;
+}
+
+interface DictionaryCrudRepository<TEntity, TCreate extends { name: string }, TUpdate, TFilters, TSorting>
+	extends DictionaryReadRepository<TEntity, TFilters, TSorting> {
 	createAndRead<F extends string>(body: TCreate, query?: FieldsQuery<F>): Promise<SelectFields<TEntity, F> | undefined>;
 	updateAndRead<F extends string>(id: string, body: TUpdate, query?: FieldsQuery<F>): Promise<SelectFields<TEntity, F> | undefined>;
 	delete(options: { primaryId: string }): Promise<unknown>;
 }
 
-export abstract class DictionaryCrudService<
+/** Read-only half of the dictionary service pair — inherited by catalog entities without a full CRUD surface. */
+export abstract class DictionaryReadService<
 	TEntity,
-	TCreate extends { name: string },
-	TUpdate,
 	TFilters,
 	TSorting,
-	TRepo extends DictionaryCrudRepository<TEntity, TCreate, TUpdate, TFilters, TSorting>,
+	TRepo extends DictionaryReadRepository<TEntity, TFilters, TSorting>,
 > extends BaseService {
 	protected readonly entityName: string;
 	protected readonly repository: TRepo;
@@ -42,7 +45,16 @@ export abstract class DictionaryCrudService<
 			return item;
 		});
 	}
+}
 
+export abstract class DictionaryCrudService<
+	TEntity,
+	TCreate extends { name: string },
+	TUpdate,
+	TFilters,
+	TSorting,
+	TRepo extends DictionaryCrudRepository<TEntity, TCreate, TUpdate, TFilters, TSorting>,
+> extends DictionaryReadService<TEntity, TFilters, TSorting, TRepo> {
 	async create<F extends string>(body: TCreate, query?: FieldsQuery<F>): Promise<SelectFields<TEntity, F>> {
 		return await this.safeExecute("create", async () => {
 			const result = await this.repository.createAndRead(body, query);

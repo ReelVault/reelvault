@@ -45,7 +45,7 @@ import { clamp } from "@/utils/math.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { runMediaCleanup } from "@/utils/server-data.utils";
-import { findFirstProviderResult, mapProviderLinks } from "../catalog.utils";
+import { fetchSeason, mapProviderLinks } from "../catalog.utils";
 import { metadataRefreshService } from "./metadata-refresh.runtime";
 import { syncSeasonsAndEpisodes } from "./season-sync.utils";
 
@@ -588,9 +588,9 @@ class MetadataService extends BaseService {
 	): Promise<void> {
 		const providerLinks = mapProviderLinks(metadata.providers ?? []);
 		const seasonImages = await syncSeasonsAndEpisodes(metadataId, providerMetadata.seasons, async (seasonNumber) => {
-			const providerSeasons = await providerService.fetchSeasonFromLinks(providerLinks, seasonNumber);
+			const season = await fetchSeason(providerLinks, seasonNumber);
 
-			return findFirstProviderResult(providerSeasons)?.episodes;
+			return season?.episodes;
 		});
 
 		// Thunks: image tasks must not start until mapConcurrent schedules them,

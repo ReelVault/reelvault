@@ -9,9 +9,8 @@ import type {
 } from "@reelvault/sdk/common";
 import { userRatingsRepository } from "@/database/repositories/user-ratings.repository";
 import { BaseService } from "@/utils/base-service";
-import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 
-import { discoverService } from "./discover.service";
+import { invalidateProfileCaches } from "./cache-invalidation";
 
 class UserRatingsService extends BaseService {
 	constructor() {
@@ -34,8 +33,7 @@ class UserRatingsService extends BaseService {
 			this.assertProfileId(profileId);
 			const result = await userRatingsRepository.upsert({ profileId, metadataId: body.metadataId, rating: body.rating });
 			this.assertExists(result, "UserRating", body.metadataId);
-			discoverService.clearCache(profileId);
-			invalidateProfileResponseBodies(profileId);
+			invalidateProfileCaches(profileId);
 
 			return result;
 		});
@@ -45,8 +43,7 @@ class UserRatingsService extends BaseService {
 		return await this.safeExecute("delete", async () => {
 			this.assertProfileId(profileId);
 			await userRatingsRepository.deleteForProfileMetadata({ profileId, metadataId });
-			discoverService.clearCache(profileId);
-			invalidateProfileResponseBodies(profileId);
+			invalidateProfileCaches(profileId);
 
 			return { success: true };
 		});

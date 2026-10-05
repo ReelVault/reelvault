@@ -14,46 +14,21 @@ import { toTopWatchedMedia, watchedHistoryRepository } from "@/database/reposito
 import { DAY } from "@/server.constants";
 import { maxBy } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
-import { MemoryCache } from "@/utils/memory-cache";
-import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
-import { discoverService } from "./discover.service";
-
-const INSIGHTS_CACHE_TTL_MS = 30_000;
+import { clearProfileInsights, invalidateProfileCaches, profileInsightsCache, wrappedInsightsCache } from "./cache-invalidation";
 
 const RANGE_DAYS: Record<InsightsRange, number> = { "7d": 7, "30d": 30, "90d": 90, "1y": 365, all: 365 };
 
 class WatchedHistoryService extends BaseService {
-	private readonly profileInsightsCache = new MemoryCache<ProfileInsights>({
-		ttlMs: INSIGHTS_CACHE_TTL_MS,
-		maxSize: 200,
-		name: "profile-insights",
-	});
-	private readonly wrappedInsightsCache = new MemoryCache<WrappedInsights>({
-		ttlMs: INSIGHTS_CACHE_TTL_MS,
-		maxSize: 200,
-		name: "wrapped-insights",
-	});
-
 	constructor() {
 		super("WatchedHistoryService");
 	}
 
-	private invalidateProfileCache(profileId: string): void {
-		for (const key of this.profileInsightsCache.keys()) {
-			if (key.startsWith(`${profileId}:`)) this.profileInsightsCache.delete(key);
-		}
-
-		for (const key of this.wrappedInsightsCache.keys()) {
-			if (key.startsWith(`${profileId}:`)) this.wrappedInsightsCache.delete(key);
-		}
-	}
-
 	clearCache(profileId?: string): void {
 		if (profileId) {
-			this.invalidateProfileCache(profileId);
+			clearProfileInsights(profileId);
 		} else {
-			this.profileInsightsCache.clear();
-			this.wrappedInsightsCache.clear();
+			profileInsightsCache.clear();
+			wrappedInsightsCache.clear();
 		}
 	}
 
@@ -72,9 +47,7 @@ class WatchedHistoryService extends BaseService {
 		return await this.safeExecute("sync", async () => {
 			this.assertProfileId(profileId);
 			await watchedHistoryRepository.sync({ ...body, profileId });
-			discoverService.clearCache(profileId);
-			this.invalidateProfileCache(profileId);
-			invalidateProfileResponseBodies(profileId);
+			invalidateProfileCaches(profileId);
 
 			return { success: true };
 		});
@@ -84,7 +57,7 @@ class WatchedHistoryService extends BaseService {
 		this.assertProfileId(profileId);
 		const cacheKey = `${profileId}:insights:${range}`;
 
-		return await this.profileInsightsCache.getOrSet(cacheKey, async () => {
+		return await profileInsightsCache.getOrSet(cacheKey, async () => {
 			const now = new Date();
 			const days = RANGE_DAYS[range];
 			const since = new Date(now.getTime() - days * DAY);
@@ -101,7 +74,6 @@ class WatchedHistoryService extends BaseService {
 			const previousPeriodMinutes = sumMinutes(previousRows);
 
 			// Calculate metadata minutes
-			const metadataMinutes = new Map<string, number>();
 			let longestSessionSeconds = 0;
 			let completedCount = 0;
 
@@ -109,9 +81,9 @@ class WatchedHistoryService extends BaseService {
 				if (row.durationMax > longestSessionSeconds) longestSessionSeconds = row.durationMax;
 
 				completedCount += row.fullWatchCount;
-				const prev = metadataMinutes.get(row.metadataId) ?? 0;
-				metadataMinutes.set(row.metadataId, prev + Math.round(row.durationSum / 60));
 			}
+
+			const metadataMinutes = accumulateMinutes(currentRows);
 
 			const relations = await watchedHistoryRepository.findInsightRelations([...metadataMinutes.keys()]);
 			const genreAggregated = aggregateMinutesByName(relations.genres, metadataMinutes);
@@ -146,7 +118,7 @@ class WatchedHistoryService extends BaseService {
 		this.assertProfileId(profileId);
 		const cacheKey = `${profileId}:wrapped:${year}`;
 
-		return await this.wrappedInsightsCache.getOrSet(cacheKey, async () => {
+		return await wrappedInsightsCache.getOrSet(cacheKey, async () => {
 			const since = new Date(year, 0, 1, 0, 0, 0);
 			const until = new Date(year + 1, 0, 1, 0, 0, 0);
 
@@ -159,7 +131,7 @@ class WatchedHistoryService extends BaseService {
 			const totalMinutes = sumMinutes(rows);
 			const totalDays = Number((totalMinutes / 1440).toFixed(1));
 
-			const metadataMinutes = new Map<string, number>();
+			const metadataMinutes = accumulateMinutes(rows);
 			const monthTotals = new Map<number, number>();
 			const weekdayTotals = new Map<number, number>();
 			const dayTotals = new Map<string, number>();
@@ -169,8 +141,6 @@ class WatchedHistoryService extends BaseService {
 
 			for (const row of rows) {
 				const durationMinutes = Math.round(row.durationSum / 60);
-				const prevMetadata = metadataMinutes.get(row.metadataId) ?? 0;
-				metadataMinutes.set(row.metadataId, prevMetadata + durationMinutes);
 
 				const m = row.month - 1;
 				const prevMonth = monthTotals.get(m) ?? 0;
@@ -250,9 +220,7 @@ class WatchedHistoryService extends BaseService {
 		return await this.safeExecute("clearHistory", async () => {
 			this.assertProfileId(profileId);
 			await watchedHistoryRepository.clearForProfile(profileId);
-			discoverService.clearCache(profileId);
-			this.invalidateProfileCache(profileId);
-			invalidateProfileResponseBodies(profileId);
+			invalidateProfileCaches(profileId);
 
 			return { success: true };
 		});
@@ -261,6 +229,17 @@ class WatchedHistoryService extends BaseService {
 
 function sumMinutes(rows: Array<{ durationSum: number }>) {
 	return rows.reduce((total, row) => total + Math.round(row.durationSum / 60), 0);
+}
+
+/** Rounded minutes per metadata id — shared by both insight aggregations. */
+function accumulateMinutes(rows: Array<{ metadataId: string; durationSum: number }>): Map<string, number> {
+	const totals = new Map<string, number>();
+	for (const row of rows) {
+		const prev = totals.get(row.metadataId) ?? 0;
+		totals.set(row.metadataId, prev + Math.round(row.durationSum / 60));
+	}
+
+	return totals;
 }
 
 function aggregateMinutesByName(relations: Array<{ metadataId: string; name: string }>, minutes: Map<string, number>): Map<string, number> {
@@ -278,16 +257,9 @@ function topRelation(relations: Array<{ metadataId: string; name: string }>, min
 }
 
 function topFromAggregated(aggregated: Map<string, number>) {
-	let topName: string | undefined;
-	let topMinutes = Number.NEGATIVE_INFINITY;
-	for (const [name, relationMinutes] of aggregated) {
-		if (relationMinutes > topMinutes) {
-			topName = name;
-			topMinutes = relationMinutes;
-		}
-	}
+	const top = maxBy([...aggregated.entries()], ([, minutes]) => minutes);
 
-	return topName === undefined ? null : { name: topName, minutes: topMinutes };
+	return top ? { name: top[0], minutes: top[1] } : null;
 }
 
 function computeGenresDistributionFromAggregated(aggregated: Map<string, number>, totalMinutes: number): GenreDistribution[] {

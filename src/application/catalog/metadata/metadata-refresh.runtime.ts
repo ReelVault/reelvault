@@ -4,7 +4,7 @@ import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { enqueueImageProcessing } from "@/workers/definitions/images/image-processing.worker";
-import { findFirstProviderResult, mapProviderLinks } from "../catalog.utils";
+import { fetchSeason, mapProviderLinks } from "../catalog.utils";
 import { MetadataRefreshService } from "./metadata-refresh.service";
 import { syncSeasonsAndEpisodes } from "./season-sync.utils";
 
@@ -24,9 +24,9 @@ export const metadataRefreshService = new MetadataRefreshService({
 		const links = mapProviderLinks(providers);
 
 		return syncSeasonsAndEpisodes(metadataId, metadata.seasons, async (seasonNumber) => {
-			const providerSeasons = await providerService.fetchSeasonFromLinks(links, seasonNumber);
+			const season = await fetchSeason(links, seasonNumber);
 
-			return findFirstProviderResult(providerSeasons)?.episodes;
+			return season?.episodes;
 		});
 	},
 	publishRefreshed: (metadataId, correlationId) => pluginEventBus.publish("metadata.refreshed", { metadataId, correlationId }),

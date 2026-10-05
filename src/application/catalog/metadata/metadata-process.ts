@@ -16,10 +16,12 @@ import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { serverConfig } from "@/server.config";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
+import { InFlightMap } from "@/utils/in-flight-map";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { enqueueImageProcessing, type ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { fallbackEpisodeExternalId, fallbackSeasonExternalId, fetchSeason } from "../catalog.utils";
 import { applyMetadataCandidate, toMetadataCandidate } from "./metadata-normalization";
 
 type EnqueueImages = (data: ImageProcessingData, options?: TaskSchedulingOptions) => Promise<unknown>;
@@ -55,8 +57,8 @@ const enqueueImagesInBackground = (data: ImageProcessingData, options: TaskSched
 const libraryLanguageCache = new MemoryCache<string>({ ttlMs: 30_000, maxSize: 64, name: "metadata.libraryLanguage" });
 
 export class MetadataProcess extends BaseService {
-	private readonly baseMetadataProcesses = new Map<string, Promise<BaseMetadataProcess>>();
-	private readonly imageEnqueueProcesses = new Map<string, Promise<void>>();
+	private readonly baseMetadataProcesses = new InFlightMap<BaseMetadataProcess>();
+	private readonly imageEnqueueProcesses = new InFlightMap<void>();
 	private readonly enqueueImages: EnqueueImages;
 
 	constructor(enqueueImages: EnqueueImages = enqueueImagesInBackground) {
@@ -379,16 +381,10 @@ export class MetadataProcess extends BaseService {
 		providers?: AggregatedProviderLink[],
 	): Promise<BaseMetadataProcess> {
 		const key = `${providerName}:${type}:${providerMetadata.externalId}`;
-		const existing = this.baseMetadataProcesses.get(key);
-		if (existing) return await existing;
 
-		const processing = this.createBaseMetadata(type, providerName, providerMetadata, matchScore, providers);
-		this.baseMetadataProcesses.set(key, processing);
-		try {
-			return await processing;
-		} finally {
-			this.baseMetadataProcesses.delete(key);
-		}
+		return await this.baseMetadataProcesses.run(key, () =>
+			this.createBaseMetadata(type, providerName, providerMetadata, matchScore, providers),
+		);
 	}
 
 	private async createBaseMetadata(
@@ -414,18 +410,7 @@ export class MetadataProcess extends BaseService {
 	private async enqueueBaseMetadataImages(baseMetadata: BaseMetadataProcess, scheduling?: TaskSchedulingOptions): Promise<void> {
 		if (!baseMetadata.created) return;
 
-		const existing = this.imageEnqueueProcesses.get(baseMetadata.metadataId);
-		if (existing) return await existing;
-
-		const processing = this.enqueueBaseMetadataImagesOnce(baseMetadata, scheduling);
-		this.imageEnqueueProcesses.set(baseMetadata.metadataId, processing);
-		try {
-			await processing;
-		} finally {
-			if (this.imageEnqueueProcesses.get(baseMetadata.metadataId) === processing) {
-				this.imageEnqueueProcesses.delete(baseMetadata.metadataId);
-			}
-		}
+		await this.imageEnqueueProcesses.run(baseMetadata.metadataId, () => this.enqueueBaseMetadataImagesOnce(baseMetadata, scheduling));
 	}
 
 	private async enqueueBaseMetadataImagesOnce(baseMetadata: BaseMetadataProcess, scheduling?: TaskSchedulingOptions): Promise<void> {
@@ -485,7 +470,7 @@ export class MetadataProcess extends BaseService {
 		}
 
 		if (!seasonInfo?.episodes || seasonInfo.episodes.length === 0) {
-			const fetchedSeason = (await providerService.fetchSeasonFromLinks(providerLinks, parsed.season, language))[0]?.metadata;
+			const fetchedSeason = await fetchSeason(providerLinks, parsed.season, language);
 			if (fetchedSeason) {
 				seasonInfo = seasonInfo
 					? { ...seasonInfo, ...fetchedSeason, episodes: fetchedSeason.episodes ?? seasonInfo.episodes }
@@ -499,7 +484,7 @@ export class MetadataProcess extends BaseService {
 				seasonNumber: parsed.season,
 			});
 			seasonInfo = {
-				externalId: `${metadata.externalId}-s${parsed.season}`,
+				externalId: fallbackSeasonExternalId(metadata.externalId, parsed.season),
 				seasonNumber: parsed.season,
 				name: sidecarHint?.seasonName,
 				posterPath: sidecarHint?.seasonPosterPath,
@@ -521,7 +506,7 @@ export class MetadataProcess extends BaseService {
 		if (parsed.episode !== undefined && !episodeInfo) {
 			this.logger.warn("TV show missing episode info from provider, using fallback", { parsed });
 			episodeInfo = {
-				externalId: `${metadata.externalId}-s${seasonInfo.seasonNumber}-e${parsed.episode}`,
+				externalId: fallbackEpisodeExternalId(metadata.externalId, seasonInfo.seasonNumber, parsed.episode),
 				episodeNumber: parsed.episode,
 				seasonNumber: Number(seasonInfo.seasonNumber),
 				name: sidecarHint?.episodeName,
