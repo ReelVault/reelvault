@@ -53,7 +53,7 @@ const FLAP_MEMORY_MS = 60 * 60_000;
  * Everything else (scans, ingest, analysis, trickplay plugins, metadata, images,
  * loudness) is expendable — that work can resume once the server is healthy.
  */
-const PROTECTED_WORKER_IDS = new Set(["stream-init", "streamInit", "transcode"]);
+const PROTECTED_WORKER_IDS = new Set(["stream-init", "transcode"]);
 
 /**
  * Server Rescue — last-resort protection when the server starts freezing.

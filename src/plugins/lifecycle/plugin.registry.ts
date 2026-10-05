@@ -334,10 +334,6 @@ export class PluginRegistry {
 	}
 }
 
-const UI_TAB_HOST_NAMES = PLUGIN_TAB_HOST_NAMES;
-
-const UI_SLOT_NAMES = PLUGIN_SLOT_NAMES;
-
 /**
  * Drops admin-only surfaces from a manifest for non-admin callers, together
  * with the tabs and slot actions that reference them. Keeping this in one place
@@ -363,7 +359,7 @@ function filterTabsForRole(
 	pageIds: ReadonlySet<string>,
 ): Partial<Record<PluginTabHostName, PluginTabContribution[]>> {
 	const result: Partial<Record<PluginTabHostName, PluginTabContribution[]>> = {};
-	for (const host of UI_TAB_HOST_NAMES) {
+	for (const host of PLUGIN_TAB_HOST_NAMES) {
 		const contributions = tabs[host];
 		if (!contributions) continue;
 
@@ -379,7 +375,7 @@ function filterSlotsForRole(
 	dialogIds: ReadonlySet<string>,
 ): Partial<Record<PluginSlotName, PluginSlotContribution[]>> {
 	const result: Partial<Record<PluginSlotName, PluginSlotContribution[]>> = {};
-	for (const slot of UI_SLOT_NAMES) {
+	for (const slot of PLUGIN_SLOT_NAMES) {
 		const contributions = slots[slot];
 		if (!contributions) continue;
 

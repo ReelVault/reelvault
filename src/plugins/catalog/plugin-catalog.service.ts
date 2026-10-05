@@ -246,12 +246,6 @@ class PluginCatalogService {
 	}
 
 	/**
-	 * Installs (or upgrades) a plugin from an admin-uploaded archive. Accepts the
-	 * same archive formats as catalog installs; extraction and manifest validation
-	 * run before anything touches the plugins directory.
-	 */
-
-	/**
 	 * A freshly installed plugin is only staged on disk until enabled — without
 	 * this it would be invisible in the admin list until "Reload all". Load
 	 * failures surface through the plugin state (failed + error) instead of
