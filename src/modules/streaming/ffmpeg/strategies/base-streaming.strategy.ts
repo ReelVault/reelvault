@@ -1,13 +1,16 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
-import { buildHlsOutputPath } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
+import { buildHlsOutputPath, segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
+import { probeBudgetForFormat } from "@/integrations/ffprobe/ffprobe.probe-budgets";
+import { NotFoundError } from "@/utils/errors";
+import { FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
 import { transcodeProgressMonitor } from "../../runtime/transcode-progress.monitor";
 import type { StreamingStrategy } from "../../streaming.types";
-import { PLAYLIST_FILE_NAME } from "../../utils/segment-name.utils";
+import { PLAYLIST_FILE_NAME, SEGMENT_OUTPUT_PATTERN } from "../../utils/segment-name.utils";
 
 /**
  * Shared plumbing for streaming strategies: the ffmpeg builder chain, progress
@@ -30,6 +33,28 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 		decision: PlaybackDecision,
 		startTime?: number,
 	): Promise<Subprocess>;
+
+	/** Refuses to start when the input disappeared between selection and spawn. */
+	protected async assertInputExists(inputPath: string): Promise<void> {
+		if (!(await FileUtils.exists(inputPath))) {
+			throw new NotFoundError(`Input file does not exist: ${inputPath}`);
+		}
+	}
+
+	/** Segment output pattern + start number shared by every strategy's output args. */
+	protected resolveSegmentOutput(outputDir: string, startTime: number): { segmentPattern: string; startNumber: number } {
+		return {
+			segmentPattern: buildHlsOutputPath(outputDir, SEGMENT_OUTPUT_PATTERN),
+			startNumber: segmentStartNumber(startTime, this.config),
+		};
+	}
+
+	/** `-analyzeduration`/`-probesize` input flags sized by container format. */
+	protected buildProbeInputArgs(formatName: string | null | undefined): string[] {
+		const probeBudget = probeBudgetForFormat(formatName);
+
+		return ["-analyzeduration", probeBudget.analyzeduration, "-probesize", probeBudget.probesize];
+	}
 
 	protected runSession({
 		sessionId,

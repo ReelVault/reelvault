@@ -1,7 +1,7 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { buildHlsMuxerArgs, buildStreamMapArgs } from "./ffmpeg.hls-muxer";
+import { buildHlsMuxerArgs, buildMetadataStripArgs, buildStreamMapArgs } from "./ffmpeg.hls-muxer";
+import { resolveStreamingThreads } from "./ffmpeg.threads";
 
 const HEVC_CODECS = new Set(["hevc", "h265"]);
 
@@ -11,17 +11,14 @@ export function buildDirectStreamOutputArgs(
 	startNumber: number,
 	segmentPattern: string,
 ): string[] {
-	// Same adaptive fallback as the transcode path (bounds decoder threads).
-	const threads = serverConfig.ffmpeg.threads > 0 ? serverConfig.ffmpeg.threads : systemResourcesService.getFfmpegThreads();
+	// 0 active transcodes = full thread budget; remuxing is I/O-bound (see resolveStreamingThreads).
+	const threads = resolveStreamingThreads(serverConfig.ffmpeg.threads, 0);
 	const isHevc = decision.videoCodec && HEVC_CODECS.has(decision.videoCodec.toLowerCase());
 
 	return [
 		"-threads",
 		String(threads),
-		"-map_metadata",
-		"-1",
-		"-map_chapters",
-		"-1",
+		...buildMetadataStripArgs(),
 		"-codec:v:0",
 		"copy",
 		...(isHevc ? ["-tag:v:0", "hvc1"] : []),

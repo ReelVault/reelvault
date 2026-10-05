@@ -54,6 +54,9 @@ export interface HwaccelVerification {
 	detail: string | null;
 }
 
+/** Software-only accelerator descriptor — the fallback whenever no HW encoder is usable. */
+const SOFTWARE_HWACCEL: DetectedHwaccel = { type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" };
+
 export interface DecodeTestResult {
 	ok: boolean;
 	code: string | null;
@@ -75,22 +78,17 @@ let capabilities: FfmpegCapabilities = {
 	filters: new Set(),
 	encoders: new Set(),
 	hwaccels: new Set(),
-	detectedHwaccel: {
-		type: "none",
-		device: null,
-		h264Encoder: "libx264",
-		hevcEncoder: "libx265",
-	},
+	detectedHwaccel: SOFTWARE_HWACCEL,
 	verification: null,
 	toneMappingMethod: "none",
 };
 
 export async function initializeFfmpegCapabilities(): Promise<FfmpegCapabilities> {
 	const [versionOutput, filtersOutput, encodersOutput, hwaccelsOutput] = await Promise.all([
-		runFfmpeg(["-version"]),
-		runFfmpeg(["-hide_banner", "-filters"]),
-		runFfmpeg(["-hide_banner", "-encoders"]),
-		runFfmpeg(["-hide_banner", "-hwaccels"]),
+		spawnAndCollect({ cmd: [serverConfig.ffmpeg.path, "-version"], purpose: "diagnostic" }),
+		spawnAndCollect({ cmd: [serverConfig.ffmpeg.path, "-hide_banner", "-filters"], purpose: "diagnostic" }),
+		spawnAndCollect({ cmd: [serverConfig.ffmpeg.path, "-hide_banner", "-encoders"], purpose: "diagnostic" }),
+		spawnAndCollect({ cmd: [serverConfig.ffmpeg.path, "-hide_banner", "-hwaccels"], purpose: "diagnostic" }),
 	]);
 
 	if (versionOutput.exitCode !== 0) throw new Error(`FFmpeg version probe failed: ${versionOutput.stderr}`);
@@ -274,7 +272,7 @@ function getCandidateHwaccels(encoders: ReadonlySet<string>, hwaccels: ReadonlyS
 
 	if (configHw === "videotoolbox") return [buildResult("videotoolbox", null, "h264_videotoolbox", "hevc_videotoolbox")];
 
-	if (configHw === "none") return [{ type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" }];
+	if (configHw === "none") return [SOFTWARE_HWACCEL];
 
 	const driDevice = findDriDevice();
 	const candidates: DetectedHwaccel[] = [];
@@ -305,17 +303,7 @@ function getCandidateHwaccels(encoders: ReadonlySet<string>, hwaccels: ReadonlyS
 function resolveEffectiveHwaccel(encoders: ReadonlySet<string>, hwaccels: ReadonlySet<string>): DetectedHwaccel {
 	const candidates = getCandidateHwaccels(encoders, hwaccels);
 
-	return candidates[0] ?? { type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" };
-}
-
-async function runFfmpeg(args: string[], timeoutMs?: number): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-	const { exitCode, stdout, stderr } = await spawnAndCollect({
-		cmd: [serverConfig.ffmpeg.path, ...args],
-		timeoutMs,
-		purpose: "diagnostic",
-	});
-
-	return { exitCode, stdout, stderr };
+	return candidates[0] ?? SOFTWARE_HWACCEL;
 }
 
 // A 2-frame test encode on a slow single core flirts with a fixed 15 s
@@ -336,7 +324,7 @@ async function verifyHwaccelCandidates(
 ): Promise<{ detected: DetectedHwaccel; verification: HwaccelVerification | null }> {
 	if (candidates.length === 0) {
 		return {
-			detected: { type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" },
+			detected: SOFTWARE_HWACCEL,
 			verification: null,
 		};
 	}
@@ -405,7 +393,7 @@ async function verifyHwaccelCandidates(
 	}
 
 	return {
-		detected: { type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" },
+		detected: SOFTWARE_HWACCEL,
 		verification: firstFailure,
 	};
 }
@@ -428,7 +416,11 @@ function buildTestEncodeArgs(hw: DetectedHwaccel): string[] {
 
 async function runTestEncode(hw: DetectedHwaccel): Promise<{ ok: boolean; code: string | null; detail: string | null }> {
 	const args = buildTestEncodeArgs(hw);
-	const { exitCode, stderr } = await runFfmpeg(args, TEST_ENCODE_TIMEOUT_MS());
+	const { exitCode, stderr } = await spawnAndCollect({
+		cmd: [serverConfig.ffmpeg.path, ...args],
+		timeoutMs: TEST_ENCODE_TIMEOUT_MS(),
+		purpose: "diagnostic",
+	});
 	if (exitCode === 0) return { ok: true, code: null, detail: null };
 
 	return { ok: false, code: "ffmpeg.hwaccel.verify_failed", detail: stderr.trim() || `FFmpeg exited with code ${exitCode}` };
@@ -450,8 +442,9 @@ export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeT
 	try {
 		// Raw H.264 elementary stream with a .bin suffix — no temp file may look like
 		// a media file, cleanup helpers refuse to delete those.
-		const generate = await runFfmpeg(
-			[
+		const generate = await spawnAndCollect({
+			cmd: [
+				serverConfig.ffmpeg.path,
 				"-hide_banner",
 				"-loglevel",
 				"error",
@@ -472,8 +465,9 @@ export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeT
 				"-y",
 				probePath,
 			],
-			TEST_DECODE_TIMEOUT_MS(),
-		);
+			timeoutMs: TEST_DECODE_TIMEOUT_MS(),
+			purpose: "diagnostic",
+		});
 		if (generate.exitCode !== 0) {
 			return {
 				ok: false,
@@ -482,10 +476,24 @@ export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeT
 			};
 		}
 
-		const decode = await runFfmpeg(
-			["-hide_banner", "-loglevel", "error", ...hardwareDecodeArgs(hw), "-i", probePath, "-frames:v", "2", "-f", "null", "-"],
-			TEST_DECODE_TIMEOUT_MS(),
-		);
+		const decode = await spawnAndCollect({
+			cmd: [
+				serverConfig.ffmpeg.path,
+				"-hide_banner",
+				"-loglevel",
+				"error",
+				...hardwareDecodeArgs(hw),
+				"-i",
+				probePath,
+				"-frames:v",
+				"2",
+				"-f",
+				"null",
+				"-",
+			],
+			timeoutMs: TEST_DECODE_TIMEOUT_MS(),
+			purpose: "diagnostic",
+		});
 		if (decode.exitCode === 0) return { ok: true, code: null, detail: null };
 
 		return { ok: false, code: "ffmpeg.decode_test.decode_failed", detail: decode.stderr.trim() || `exit code ${decode.exitCode}` };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
-import type { DetectedHwaccel, ToneMapConfig } from "./ffmpeg.capabilities";
+import { type DetectedHwaccel, hardwareDecodeArgs, type ToneMapConfig } from "./ffmpeg.capabilities";
 import { buildHwaccelInputArgs, buildToneMapFilterChain, buildTranscodeVideoArgs } from "./ffmpeg.transcode-args";
 
 const VAAPI_TONEMAP_UPLOAD_PATTERN = /^tonemapx=.*,format=nv12,hwupload$/;
@@ -81,6 +81,14 @@ describe("buildHwaccelInputArgs", () => {
 		const args = buildHwaccelInputArgs(sdrDecision, hw("vaapi"), toneMap("tonemapx"));
 		expect(args).toContain("-hwaccel_output_format");
 		expect(args).toContain("-vaapi_device");
+	});
+
+	test("decode-only args are byte-identical to hardwareDecodeArgs for tone-mapped sessions", () => {
+		for (const type of ["nvenc", "vaapi", "qsv"] as const) {
+			const candidate = hw(type);
+
+			expect(buildHwaccelInputArgs(hdrDecision, candidate, toneMap("tonemapx"))).toEqual(hardwareDecodeArgs(candidate));
+		}
 	});
 });
 

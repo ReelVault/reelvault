@@ -1,16 +1,11 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { getEffectiveHwaccel, resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import { buildHlsMuxerArgs, buildHlsOutputPath, buildStreamMapArgs, segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
+import { buildHlsMuxerArgs, buildMetadataStripArgs, buildStreamMapArgs } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
+import { resolveStreamingThreads } from "@/integrations/ffmpeg/ffmpeg.threads";
 import { buildHwaccelInputArgs, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
-import { probeBudgetForFormat } from "@/integrations/ffprobe/ffprobe.probe-budgets";
 import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { NotFoundError } from "@/utils/errors";
-import { FileUtils } from "@/utils/file.utils";
-import { clamp } from "@/utils/math.utils";
-import { SEGMENT_OUTPUT_PATTERN } from "../../utils/segment-name.utils";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**
@@ -30,12 +25,9 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 		decision: PlaybackDecision,
 		startTime = 0,
 	): Promise<Subprocess> {
-		if (!(await FileUtils.exists(inputPath))) {
-			throw new NotFoundError(`Input file does not exist: ${inputPath}`);
-		}
+		await this.assertInputExists(inputPath);
 
-		const segmentPattern = buildHlsOutputPath(outputDir, SEGMENT_OUTPUT_PATTERN);
-		const startNumber = segmentStartNumber(startTime, this.config);
+		const { segmentPattern, startNumber } = this.resolveSegmentOutput(outputDir, startTime);
 
 		if (decision.audioTranscode) this.logger.debug("Transcoding audio", { sessionId });
 
@@ -51,10 +43,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 			// Budget per process shrinks with concurrent transcodes — nothing else
 			// corrects this (rescue never kills streaming processes).
 			const activeTranscodes = ffmpegProcessTracker.countByPurpose("streaming");
-			const threads =
-				configuredThreads > 0
-					? configuredThreads
-					: clamp(Math.floor(systemResourcesService.getFfmpegThreads() / Math.max(1, activeTranscodes + 1)), 1, 8);
+			const threads = resolveStreamingThreads(configuredThreads, activeTranscodes);
 			const hw = decision.videoTranscode && !decision.forceSoftware ? getEffectiveHwaccel() : undefined;
 			// Resolve once and share between the input (zero-copy decision) and output
 			// (filter chain) builders so both agree on whether tone-mapping will run.
@@ -63,10 +52,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 			const outputArgs = [
 				"-threads",
 				String(threads),
-				"-map_metadata",
-				"-1",
-				"-map_chapters",
-				"-1",
+				...buildMetadataStripArgs(),
 				...buildTranscodeVideoArgs(decision, this.config, hw, toneMap),
 				...buildTranscodeAudioArgs(decision),
 				...buildStreamMapArgs(decision),
@@ -75,12 +61,8 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 
 			// Probing flags, hardware input flags, then fast input seek. Order matters: FFmpeg
 			// processes input args left-to-right before opening the input file.
-			const probeBudget = probeBudgetForFormat(decision.formatName);
 			const inputArgs = [
-				"-analyzeduration",
-				probeBudget.analyzeduration,
-				"-probesize",
-				probeBudget.probesize,
+				...this.buildProbeInputArgs(decision.formatName),
 				...buildHwaccelInputArgs(decision, hw, toneMap),
 				...(startTime > 0 ? ["-ss", startTime.toString()] : []),
 			];

@@ -2,7 +2,7 @@ import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { clamp } from "@/utils/math.utils";
-import { getEffectiveHwaccel, type ToneMapConfig } from "./ffmpeg.capabilities";
+import { getEffectiveHwaccel, hardwareDecodeArgs, type ToneMapConfig } from "./ffmpeg.capabilities";
 
 export function buildTranscodeAudioArgs(decision: PlaybackDecision): string[] {
 	if (!decision.audioTranscode) return ["-c:a", "copy"];
@@ -72,10 +72,13 @@ export function buildHwaccelInputArgs(
 	const keepFramesInRam = Boolean(decision.tonemap && toneMap.method !== "none");
 
 	if (effectiveHw.type === "nvenc") {
+		// Decode-only args are byte-identical to the frame-extraction builder
+		// (`hardwareDecodeArgs`): software filters need frames in RAM, so no
+		// `-hwaccel_output_format`.
+		if (keepFramesInRam) return hardwareDecodeArgs(effectiveHw);
+
 		// `-hwaccel_output_format cuda` keeps decoded frames in VRAM (zero-copy) —
 		// without it every frame round-trips through system RAM before nvenc.
-		if (keepFramesInRam) return ["-hwaccel", "cuda", ...(effectiveHw.device ? ["-hwaccel_device", effectiveHw.device] : [])];
-
 		return ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", ...(effectiveHw.device ? ["-hwaccel_device", effectiveHw.device] : [])];
 	}
 
@@ -83,13 +86,13 @@ export function buildHwaccelInputArgs(
 		// `-vaapi_device` is the correct flag for VAAPI device selection;
 		// `-hwaccel_device` is for CUDA/QSV. Using the wrong flag silently
 		// falls back to the default device (or errors on multi-GPU systems).
-		if (keepFramesInRam) return ["-hwaccel", "vaapi", ...(effectiveHw.device ? ["-vaapi_device", effectiveHw.device] : [])];
+		if (keepFramesInRam) return hardwareDecodeArgs(effectiveHw);
 
 		return ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", ...(effectiveHw.device ? ["-vaapi_device", effectiveHw.device] : [])];
 	}
 
 	if (effectiveHw.type === "qsv") {
-		if (keepFramesInRam) return ["-hwaccel", "qsv", ...(effectiveHw.device ? ["-hwaccel_device", effectiveHw.device] : [])];
+		if (keepFramesInRam) return hardwareDecodeArgs(effectiveHw);
 
 		return ["-hwaccel", "qsv", "-hwaccel_output_format", "qsv", ...(effectiveHw.device ? ["-hwaccel_device", effectiveHw.device] : [])];
 	}

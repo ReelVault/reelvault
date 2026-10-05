@@ -11,6 +11,11 @@ export function buildStreamMapArgs(decision: PlaybackDecision): string[] {
 	return ["-map", "0:v:0", "-map", audioSelector, "-map", "-0:s"];
 }
 
+/** Strip source metadata and chapters — neither is meaningful for an HLS stream. */
+export function buildMetadataStripArgs(): string[] {
+	return ["-map_metadata", "-1", "-map_chapters", "-1"];
+}
+
 /**
  * Builds an HLS output path with forward slashes. FFmpeg's HLS muxer derives
  * the fMP4 init segment's directory from the playlist path with

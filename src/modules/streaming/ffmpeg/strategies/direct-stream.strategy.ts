@@ -1,11 +1,6 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { buildDirectStreamOutputArgs } from "@/integrations/ffmpeg/ffmpeg.direct-stream-args";
-import { buildHlsOutputPath, segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
-import { probeBudgetForFormat } from "@/integrations/ffprobe/ffprobe.probe-budgets";
-import { NotFoundError } from "@/utils/errors";
-import { FileUtils } from "@/utils/file.utils";
-import { SEGMENT_OUTPUT_PATTERN } from "../../utils/segment-name.utils";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**
@@ -26,23 +21,16 @@ export class DirectStreamStrategy extends BaseStreamingStrategy {
 		decision: PlaybackDecision,
 		startTime = 0,
 	): Promise<Subprocess> {
-		if (!(await FileUtils.exists(inputPath))) {
-			throw new NotFoundError(`Input file does not exist: ${inputPath}`);
-		}
+		await this.assertInputExists(inputPath);
 
-		const segmentPattern = buildHlsOutputPath(outputDir, SEGMENT_OUTPUT_PATTERN);
-		const startNumber = segmentStartNumber(startTime, this.config);
+		const { segmentPattern, startNumber } = this.resolveSegmentOutput(outputDir, startTime);
 
 		this.logger.debug(`Starting direct-stream at ${startTime}s (seg ${startNumber})`, { sessionId, startTime, startNumber });
 
 		const outputArgs = buildDirectStreamOutputArgs(decision, this.config, startNumber, segmentPattern);
 
-		const probeBudget = probeBudgetForFormat(decision.formatName);
 		const inputArgs = [
-			"-analyzeduration",
-			probeBudget.analyzeduration,
-			"-probesize",
-			probeBudget.probesize,
+			...this.buildProbeInputArgs(decision.formatName),
 			"-fflags",
 			"+genpts",
 			...(startTime > 0 ? ["-ss", startTime.toString(), "-noaccurate_seek"] : []),
