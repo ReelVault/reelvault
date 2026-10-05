@@ -12,7 +12,10 @@ type MediaFileTagData = Pick<CreateMediaFile, "source" | "edition" | "qualityTag
 interface FileTagDefinition {
 	value: string;
 	aliases: readonly string[];
-	pattern?: RegExp | undefined;
+}
+interface CompiledFileTagDefinition {
+	value: string;
+	pattern: RegExp;
 }
 interface ResolutionBucket {
 	readonly label: string;
@@ -73,7 +76,7 @@ export function mapMediaFileData(fileName: string, probe: FFProbeResult): MediaF
 	const technicalData = mapMediaProbe(probe);
 	const normalizedFileName = normalizeForMatching(fileName);
 	const editions = normalizedEditionDefinitions
-		.filter((definition) => definition.pattern?.test(normalizedFileName))
+		.filter((definition) => definition.pattern.test(normalizedFileName))
 		.map((definition) => definition.value);
 	const videoStream = selectDefaultOrFirstStream(technicalData.videoStreams);
 
@@ -180,8 +183,8 @@ function parseOptionalInteger(value: string | undefined): number | null {
 	return Number.isNaN(parsed) ? null : parsed;
 }
 
-function findFirstDefinition(fileName: string, definitions: readonly FileTagDefinition[]): string | null {
-	return definitions.find((definition) => definition.pattern?.test(fileName))?.value ?? null;
+function findFirstDefinition(fileName: string, definitions: readonly CompiledFileTagDefinition[]): string | null {
+	return definitions.find((definition) => definition.pattern.test(fileName))?.value ?? null;
 }
 
 function buildAliasPattern(aliases: readonly string[]): RegExp {
@@ -190,16 +193,11 @@ function buildAliasPattern(aliases: readonly string[]): RegExp {
 	return new RegExp(`(?:^|\\s)(?:${escaped.join("|")})(?:\\s|$)`);
 }
 
-function normalizeDefinitions(definitions: readonly FileTagDefinition[]): FileTagDefinition[] {
-	return definitions.map((definition) => {
-		const normalizedAliases = definition.aliases.map(normalizeForMatching);
-
-		return {
-			value: definition.value,
-			aliases: normalizedAliases,
-			pattern: buildAliasPattern(normalizedAliases),
-		};
-	});
+function normalizeDefinitions(definitions: readonly FileTagDefinition[]): CompiledFileTagDefinition[] {
+	return definitions.map((definition) => ({
+		value: definition.value,
+		pattern: buildAliasPattern(definition.aliases.map(normalizeForMatching)),
+	}));
 }
 
 function normalizeForMatching(value: string): string {

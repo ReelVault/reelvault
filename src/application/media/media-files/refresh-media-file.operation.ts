@@ -23,34 +23,36 @@ const defaultDependencies: MediaFileRefreshOperationDependencies = {
 	scheduleMetadata: (data, options) => enqueueMetadataRefresh(data, options),
 };
 
-class MediaFileRefreshService extends BaseService {
-	constructor() {
+export class MediaFileRefreshService extends BaseService {
+	private readonly dependencies: MediaFileRefreshOperationDependencies;
+
+	constructor(dependencies: MediaFileRefreshOperationDependencies = defaultDependencies) {
 		super("MediaFileRefreshService");
+		this.dependencies = dependencies;
 	}
 
 	async queue(
 		mediaFileId: string,
 		options: TaskSchedulingOptions = {},
-		dependencies: MediaFileRefreshOperationDependencies = defaultDependencies,
 		knownMetadataId?: string,
 	): Promise<{ technicalTask: ScheduledTask; metadataTask: ScheduledTask }> {
 		return await this.safeExecute(
 			"queue",
 			async () => {
-				const metadataId = knownMetadataId ?? (await dependencies.findById(mediaFileId))?.metadataId;
+				const metadataId = knownMetadataId ?? (await this.dependencies.findById(mediaFileId))?.metadataId;
 				if (!metadataId) {
 					throw new NotFoundError(`Media file not found: ${mediaFileId}`);
 				}
 
-				const activeTechnical = await dependencies.findActive("media-file-technical-refresh", mediaFileId);
+				const activeTechnical = await this.dependencies.findActive("media-file-technical-refresh", mediaFileId);
 				assertOperationCompatibility(activeTechnical, options.operationId, "technical media refresh");
-				const technicalTask = activeTechnical ?? (await dependencies.scheduleTechnical(mediaFileId, options));
+				const technicalTask = activeTechnical ?? (await this.dependencies.scheduleTechnical(mediaFileId, options));
 
-				const activeMetadata = await dependencies.findActive("metadata-refresh", metadataId);
+				const activeMetadata = await this.dependencies.findActive("metadata-refresh", metadataId);
 				assertOperationCompatibility(activeMetadata, options.operationId, "metadata refresh");
 				const metadataTask =
 					activeMetadata ??
-					(await dependencies.scheduleMetadata(
+					(await this.dependencies.scheduleMetadata(
 						{ metadataId },
 						{
 							...options,

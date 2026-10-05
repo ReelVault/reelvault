@@ -2,16 +2,11 @@ import type { MediaRecognitionCandidate } from "@reelvault/sdk/plugin";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 
-export async function recognizeWithPluginHooks(
-	filePath: string,
-	transformCandidate?: typeof pluginHookBus.runBeforeMediaRecognition,
-): Promise<Awaited<ReturnType<typeof recognitionService.recognize>>> {
-	const transform = transformCandidate ?? ((candidate) => pluginHookBus.runBeforeMediaRecognition(candidate));
-
+export async function recognizeWithPluginHooks(filePath: string): Promise<Awaited<ReturnType<typeof recognitionService.recognize>>> {
 	const result = recognitionService.recognize(filePath);
 	if (!result) return null;
 
-	const candidate = await transform({
+	const candidate = await pluginHookBus.runBeforeMediaRecognition({
 		type: result.type,
 		title: result.identity.title,
 		year: result.identity.year,

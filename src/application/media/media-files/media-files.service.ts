@@ -210,7 +210,7 @@ class MediaService extends BaseService {
 				reference: { type: "media-file", id: mediaFileId },
 				label: "media file refresh",
 				enqueue: async (operationId) => {
-					const queued = await mediaFileRefreshService.queue(mediaFileId, { operationId }, undefined, mediaFile.metadataId);
+					const queued = await mediaFileRefreshService.queue(mediaFileId, { operationId }, mediaFile.metadataId);
 
 					return { operationId: queued.technicalTask.operationId };
 				},

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createMockWorkerItem } from "@/workers/core/worker-runtime.test-utils";
-import { type MediaFileRefreshOperationDependencies, mediaFileRefreshService } from "./refresh-media-file.operation";
+import { type MediaFileRefreshOperationDependencies, MediaFileRefreshService } from "./refresh-media-file.operation";
 
 describe("media file refresh operation", () => {
 	test("connects technical refresh to metadata refresh with a dependency", async () => {
@@ -20,7 +20,9 @@ describe("media file refresh operation", () => {
 			},
 		};
 
-		await expect(mediaFileRefreshService.queue("media-1", { operationId: "operation-1" }, dependencies)).resolves.toMatchObject({
+		const service = new MediaFileRefreshService(dependencies);
+
+		await expect(service.queue("media-1", { operationId: "operation-1" })).resolves.toMatchObject({
 			technicalTask: { id: "technical-1" },
 			metadataTask: { id: "metadata-1" },
 		});
