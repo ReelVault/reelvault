@@ -71,7 +71,7 @@ class WatchedHistoryService extends BaseService {
 	async sync(body: CreateWatchedHistory, profileId?: string): Promise<{ success: true }> {
 		return await this.safeExecute("sync", async () => {
 			this.assertProfileId(profileId);
-			await watchedHistoryRepository.syncInTransaction({ ...body, profileId });
+			await watchedHistoryRepository.sync({ ...body, profileId });
 			discoverService.clearCache(profileId);
 			this.invalidateProfileCache(profileId);
 			invalidateProfileResponseBodies(profileId);
@@ -87,12 +87,12 @@ class WatchedHistoryService extends BaseService {
 		return await this.profileInsightsCache.getOrSet(cacheKey, async () => {
 			const now = new Date();
 			const days = RANGE_DAYS[range];
-			const since = days ? new Date(now.getTime() - days * DAY) : undefined;
-			const previousSince = since ? new Date(since.getTime() - days * DAY) : undefined;
+			const since = new Date(now.getTime() - days * DAY);
+			const previousSince = new Date(since.getTime() - days * DAY);
 
 			const [currentRows, previousRows, topMoviesRaw, topShowsRaw] = await Promise.all([
 				watchedHistoryRepository.findInsightAggregates(profileId, since, now),
-				previousSince && since ? watchedHistoryRepository.findInsightAggregates(profileId, previousSince, since) : [],
+				watchedHistoryRepository.findInsightAggregates(profileId, previousSince, since),
 				watchedHistoryRepository.findTopWatchedMedia({ profileId, since, limit: 10, mediaType: "movie" }),
 				watchedHistoryRepository.findTopWatchedMedia({ profileId, since, limit: 10, mediaType: "tv_show" }),
 			]);

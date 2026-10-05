@@ -45,7 +45,6 @@ class WatchedHistoryRepository {
 	readonly query = watchedHistory.query;
 	readonly selectMany = watchedHistory.selectMany;
 	readonly selectFirst = watchedHistory.selectFirst;
-	readonly findMany = watchedHistory.findMany;
 	readonly findOrCreate = watchedHistory.findOrCreate;
 	readonly insert = watchedHistory.insert;
 	readonly update = watchedHistory.update;
@@ -503,10 +502,6 @@ class WatchedHistoryRepository {
 			},
 			tx,
 		});
-	}
-
-	async syncInTransaction(input: CreateWatchedHistory & { profileId: string }): Promise<void> {
-		await this.sync(input);
 	}
 
 	async clearForProfile(profileId: string, tx?: DatabaseTransaction) {

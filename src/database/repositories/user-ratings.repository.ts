@@ -1,5 +1,4 @@
 import type {
-	FieldsConfig,
 	FieldsQuery,
 	PaginatedResponse,
 	PaginationQuery,
@@ -8,13 +7,11 @@ import type {
 	UserRatingFilters,
 	UserRatingSorting,
 } from "@reelvault/sdk/common";
-import { and, eq, type SQL } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, selectFirstWithFields, selectManyWithFields } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import type { QueryMap } from "@/database/utils/query-parser";
 
@@ -56,35 +53,6 @@ class UserRatingsRepository {
 	readonly count = userRatings.count;
 	readonly isExists = userRatings.isExists;
 
-	async findMany<F extends string>({
-		fields,
-		where,
-		orderBy,
-		limit,
-		offset,
-		tx,
-	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<UserRating, F>>> {
-		const data = await selectManyWithFields(userRatings, { where, orderBy, limit, offset, tx, fields });
-
-		return data.map((item) => QueryFields.apply(item, fields));
-	}
-
-	async findFirst<F extends string>({
-		where,
-		fields,
-		tx,
-	}: {
-		where?: SQL | undefined;
-		fields?: FieldsConfig<F> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<UserRating, F> | undefined> {
-		const data = await selectFirstWithFields(userRatings, { where, tx, fields });
-
-		if (!data) return undefined;
-
-		return QueryFields.apply(data, fields);
-	}
-
 	/** The profile's rating for a metadata row, if any. */
 	async findByProfileAndMetadata(profileId: string, metadataId: string) {
 		return await this.selectFirst({ where: and(eq(this.table.profileId, profileId), eq(this.table.metadataId, metadataId)) });
@@ -108,10 +76,6 @@ class UserRatingsRepository {
 		query?: PaginationQuery & FieldsQuery<F> & UserRatingFilters & UserRatingSorting,
 	): Promise<PaginatedResponse<SelectFields<UserRating, F>>> {
 		return await findPageWithQueryMap(userRatings, userRatingQueryMap, query);
-	}
-
-	async upsertInTransaction(input: { profileId: string; metadataId: string; rating: number }) {
-		return await this.upsert(input);
 	}
 
 	async deleteForProfileMetadata({ profileId, metadataId, tx }: { profileId: string; metadataId: string; tx?: DatabaseTransaction }) {

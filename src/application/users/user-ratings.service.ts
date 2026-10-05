@@ -32,7 +32,7 @@ class UserRatingsService extends BaseService {
 	async rate(body: { metadataId: string; rating: number }, profileId?: string): Promise<UserRating> {
 		return await this.safeExecute("rate", async () => {
 			this.assertProfileId(profileId);
-			const result = await userRatingsRepository.upsertInTransaction({ profileId, metadataId: body.metadataId, rating: body.rating });
+			const result = await userRatingsRepository.upsert({ profileId, metadataId: body.metadataId, rating: body.rating });
 			this.assertExists(result, "UserRating", body.metadataId);
 			discoverService.clearCache(profileId);
 			invalidateProfileResponseBodies(profileId);
