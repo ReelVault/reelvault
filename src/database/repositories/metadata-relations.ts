@@ -1,8 +1,10 @@
 import type { FieldsConfig, MetadataWithRelation } from "@reelvault/sdk/common";
 import { eq, getTableColumns, inArray } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { pickColumns } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { serverConstants } from "@/server.constants";
@@ -240,10 +242,6 @@ export function withRelations(metadata: typeof schema.metadata.$inferSelect, rel
 	};
 }
 
-export function rootFields<F extends string>(fields: FieldsConfig<F>): Set<string> {
-	return new Set(fields.fields.filter((field) => !field.includes(".")));
-}
-
 function relationFields<F extends string>(fields: FieldsConfig<F> | undefined, relation: string): Set<string> | undefined {
 	if (!fields?.fields.length) return undefined;
 
@@ -270,7 +268,7 @@ function ratingFields<F extends string>(fields: FieldsConfig<F> | undefined): Se
 
 const selectColumnsCache = new WeakMap<object, Map<string, Record<string, unknown>>>();
 
-export function selectColumns<T extends Record<string, unknown>>(
+export function selectColumns<T extends Record<string, SQLiteColumn>>(
 	requested: Set<string> | undefined,
 	columns: T,
 	required?: readonly string[],
@@ -278,7 +276,7 @@ export function selectColumns<T extends Record<string, unknown>>(
 
 export function selectColumns(
 	requested: Set<string> | undefined,
-	columns: Record<string, unknown>,
+	columns: Record<string, SQLiteColumn>,
 	required: readonly string[] = [],
 ): Record<string, unknown> {
 	if (!requested) return columns;
@@ -294,12 +292,7 @@ export function selectColumns(
 	const cached = cachedByKey.get(cacheKey);
 	if (cached) return cached;
 
-	const result: Record<string, unknown> = {};
-	for (const key of Object.keys(columns)) {
-		if (requiredFields.has(key) || requested.has(key)) {
-			result[key] = columns[key];
-		}
-	}
+	const result = pickColumns(columns, requested, required);
 
 	if (cachedByKey.size < 1000) cachedByKey.set(cacheKey, result);
 

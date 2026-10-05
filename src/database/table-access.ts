@@ -471,16 +471,33 @@ function buildProjection(
 	required: readonly string[],
 ): Record<string, SQLiteColumn> {
 	const requested = new Set([...fields.filter((field) => !field.includes(".")), ...required]);
-	const columns = getTableColumns(repository.table);
-	const selection: Record<string, SQLiteColumn> = {};
-	for (const [name, column] of Object.entries(columns)) {
-		if (requested.has(name)) selection[name] = column;
-	}
+	const columns: Record<string, SQLiteColumn> = getTableColumns(repository.table);
+	const selection = pickColumns(columns, requested);
 
 	const hasEntries = hasEntry(selection);
 	if (!hasEntries) return columns;
 
 	projectionCache.set(fieldsKey, selection);
+
+	return selection;
+}
+
+/**
+ * Picks the `requested`/`required` columns out of a table's column record.
+ * Shared primitive behind the field-projection builders (`buildProjection`,
+ * `selectColumns`, `buildRelationProjection`). An empty pick stays empty;
+ * callers that fall back to "all columns" handle that themselves.
+ */
+export function pickColumns(
+	columns: Record<string, SQLiteColumn>,
+	requested: ReadonlySet<string>,
+	required: readonly string[] = [],
+): Record<string, SQLiteColumn> {
+	const requiredFields = new Set(required);
+	const selection: Record<string, SQLiteColumn> = {};
+	for (const [name, column] of Object.entries(columns)) {
+		if (requiredFields.has(name) || requested.has(name)) selection[name] = column;
+	}
 
 	return selection;
 }

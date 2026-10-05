@@ -10,6 +10,7 @@ import { schema } from "@/database/schema";
 import { defineTableAccess } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
+import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { MINUTE, serverConstants } from "@/server.constants";
 import { ConflictError, NotFoundError } from "@/utils/errors";
@@ -108,28 +109,25 @@ class ImageRepository {
 		// Keyset-paged sweep — the optimization worker only needs the id list, but a
 		// single SELECT over a huge library would pin the event loop.
 		const ids: string[] = [];
-		let cursor: string | undefined;
-		for (;;) {
-			const rows = await databaseFactory
-				.getClient()
-				.select({ id: schema.images.id })
-				.from(schema.images)
-				.where(
-					and(
-						or(isNull(schema.images.optimizationVersion), lt(schema.images.optimizationVersion, currentVersion)),
-						cursor ? gt(schema.images.id, cursor) : undefined,
-					),
-				)
-				.orderBy(asc(schema.images.id))
-				.limit(IMAGE_SWEEP_PAGE_SIZE);
-			ids.push(...rows.map((row) => row.id));
-			if (rows.length < IMAGE_SWEEP_PAGE_SIZE) break;
-
-			const lastId = rows.at(-1)?.id;
-			if (!lastId) break;
-
-			cursor = lastId;
-		}
+		await collectKeysetPages({
+			pageSize: IMAGE_SWEEP_PAGE_SIZE,
+			fetchPage: (cursor) =>
+				databaseFactory
+					.getClient()
+					.select({ id: schema.images.id })
+					.from(schema.images)
+					.where(
+						and(
+							or(isNull(schema.images.optimizationVersion), lt(schema.images.optimizationVersion, currentVersion)),
+							cursor ? gt(schema.images.id, cursor) : undefined,
+						),
+					)
+					.orderBy(asc(schema.images.id))
+					.limit(IMAGE_SWEEP_PAGE_SIZE),
+			onPage: (rows) => {
+				ids.push(...rows.map((row) => row.id));
+			},
+		});
 
 		return ids;
 	}
@@ -171,31 +169,26 @@ class ImageRepository {
 
 		// Keyset-paged sweep — orphan detection still needs the full set, but the
 		// query must not materialize every row in one go.
-		let cursor: string | undefined;
-		for (;;) {
-			const rows = await client
-				.select({
-					id: schema.images.id,
-					localPath: schema.images.localPath,
-				})
-				.from(schema.images)
-				.where(cursor ? gt(schema.images.id, cursor) : undefined)
-				.orderBy(asc(schema.images.id))
-				.limit(IMAGE_SWEEP_PAGE_SIZE);
+		await collectKeysetPages({
+			pageSize: IMAGE_SWEEP_PAGE_SIZE,
+			fetchPage: (cursor) =>
+				client
+					.select({
+						id: schema.images.id,
+						localPath: schema.images.localPath,
+					})
+					.from(schema.images)
+					.where(cursor ? gt(schema.images.id, cursor) : undefined)
+					.orderBy(asc(schema.images.id))
+					.limit(IMAGE_SWEEP_PAGE_SIZE),
+			onPage: (rows) => {
+				for (const row of rows) {
+					if (row.localPath) localPaths.add(PathUtils.normalize(row.localPath));
 
-			for (const row of rows) {
-				if (row.localPath) localPaths.add(PathUtils.normalize(row.localPath));
-
-				if (row.id) imageIds.add(row.id);
-			}
-
-			if (rows.length < IMAGE_SWEEP_PAGE_SIZE) break;
-
-			const lastId = rows.at(-1)?.id;
-			if (!lastId) break;
-
-			cursor = lastId;
-		}
+					if (row.id) imageIds.add(row.id);
+				}
+			},
+		});
 
 		return { localPaths, imageIds };
 	}

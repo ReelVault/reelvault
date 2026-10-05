@@ -18,12 +18,10 @@ function createMockProvider(overrides: Partial<ProviderRow> = {}): ProviderRow {
 }
 
 const upsert = spyOn(providersRepository, "upsertByStableKey").mockResolvedValue([]);
-const selectMany = spyOn(providersRepository, "selectMany").mockResolvedValue([]);
 
 beforeEach(() => {
 	upsert.mockClear();
-	selectMany.mockClear();
-	selectMany.mockResolvedValue([]);
+	upsert.mockResolvedValue([]);
 });
 
 describe("syncNamedProviderEntities", () => {
@@ -81,8 +79,8 @@ describe("syncNamedProviderEntities", () => {
 
 	test("deduplicates associations by (entityId, providerId) pairs", async () => {
 		const persist: Array<{ entityId: string; providerId?: string | undefined }> = [];
-		// Two provider rows resolve for external ids g-1 and g-2.
-		selectMany.mockResolvedValue([
+		// The upsert returns the persisted provider rows for external ids g-1 and g-2.
+		upsert.mockResolvedValue([
 			createMockProvider({ id: "p-1", name: "tmdb", entityType: "genre", externalId: "g-1" }),
 			createMockProvider({ id: "p-2", name: "tmdb", entityType: "genre", externalId: "g-2" }),
 		]);

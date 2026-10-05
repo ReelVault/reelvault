@@ -1,5 +1,4 @@
 import type { ProviderEntityType } from "@reelvault/sdk/common";
-import { and, eq, inArray } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { forEachChunked, mapChunked } from "@/database/table-access";
@@ -64,7 +63,9 @@ export async function syncNamedProviderEntities<T extends NamedProviderEntity>({
 
 	const names = entityItems.map((item) => item.name);
 
-	await Promise.all([
+	// The provider upsert returns the persisted rows (inserted or conflict-updated),
+	// so the same rows never need a follow-up re-select.
+	const [, providers] = await Promise.all([
 		insertEntities(entityItems),
 		providersRepository.upsertByStableKey(
 			externalIds.map((externalId) => ({
@@ -77,22 +78,10 @@ export async function syncNamedProviderEntities<T extends NamedProviderEntity>({
 		),
 	]);
 
-	// Chunk the lookups: a title's full cast/crew can exceed SQLite's bound-variable
-	// limit, and one giant statement blocks the event loop longer than needed.
-	const selectAllEntities = async (): Promise<EntityRow[]> => mapChunked(names, (nameChunk) => selectEntities(nameChunk));
-	const selectAllProviders = async (): Promise<Array<typeof providersRepository.table.$inferSelect>> =>
-		mapChunked(externalIds, (idChunk) =>
-			providersRepository.selectMany({
-				where: and(
-					eq(providersRepository.table.name, providerName),
-					eq(providersRepository.table.entityType, entityType),
-					inArray(providersRepository.table.externalId, idChunk),
-				),
-				tx,
-			}),
-		);
-
-	const [entities, providers] = await Promise.all([selectAllEntities(), selectAllProviders()]);
+	// Chunk the entity lookups: a title's full cast/crew can exceed SQLite's
+	// bound-variable limit, and one giant statement blocks the event loop longer
+	// than needed.
+	const entities = await mapChunked(names, (nameChunk) => selectEntities(nameChunk));
 	const entityIds = toMap(
 		entities,
 		(entity) => entity.name,

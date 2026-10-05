@@ -55,6 +55,36 @@ export interface WorkerItemStats {
 	count: number;
 }
 
+/** WHERE guard for a running-job transition, optionally scoped to a runner and claim token. */
+function runningJobWhere(id: string, runnerId?: string, claimToken?: string): SQL | undefined {
+	return and(
+		eq(items.id, id),
+		eq(items.status, "running"),
+		...(runnerId ? [eq(items.runnerId, runnerId)] : []),
+		...(claimToken ? [eq(items.claimToken, claimToken)] : []),
+	);
+}
+
+/** Counts rows per non-null `operationId` — the per-operation counter aggregation shared by job transitions. */
+function toOperationCounts(rows: ReadonlyArray<{ operationId: string | null }>): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const row of rows) {
+		if (row.operationId) counts.set(row.operationId, (counts.get(row.operationId) ?? 0) + 1);
+	}
+
+	return counts;
+}
+
+/** Applies one operation-counter mutation per operation, in first-seen order. */
+async function applyOperationCounts(
+	counts: ReadonlyMap<string, number>,
+	apply: (operationId: string, amount: number) => Promise<unknown>,
+): Promise<void> {
+	for (const [operationId, amount] of counts) {
+		await apply(operationId, amount);
+	}
+}
+
 class WorkerJobRepository {
 	async enqueue(input: EnqueueWorkerItemInput): Promise<WorkerItem> {
 		const [item] = await this.enqueueMany([input]);
@@ -90,26 +120,19 @@ class WorkerJobRepository {
 				}));
 
 				const insertedItems: WorkerItem[] = [];
-				const insertedPerOperation = new Map<string, number>();
 				for (const chunkValues of chunk(values, serverConstants.database.queryChunkSize)) {
 					const inserted = await tx.insert(items).values(chunkValues).onConflictDoNothing().returning();
 					insertedItems.push(...inserted);
-					// Only actually-inserted rows count toward the operation total —
-					// dedupe fetch-backs were already counted at first enqueue.
-					for (const row of inserted) {
-						if (row.operationId) {
-							const prev = insertedPerOperation.get(row.operationId) ?? 0;
-							insertedPerOperation.set(row.operationId, prev + 1);
-						}
-					}
 				}
 
+				// Only actually-inserted rows count toward the operation total —
+				// dedupe fetch-backs were already counted at first enqueue.
+				const insertedPerOperation = toOperationCounts(insertedItems);
 				await this.fetchDedupedExisting(inputs, insertedItems, tx);
 
-				// Update operation counters per operation — only for actually-inserted rows.
-				for (const [operationId, amount] of insertedPerOperation) {
-					await workerOperationRepository.incrementTotalItems(operationId, amount, tx);
-				}
+				await applyOperationCounts(insertedPerOperation, (operationId, amount) =>
+					workerOperationRepository.incrementTotalItems(operationId, amount, tx),
+				);
 
 				return insertedItems;
 			},
@@ -419,14 +442,7 @@ class WorkerJobRepository {
 					completedAt: now,
 					updatedAt: now,
 				})
-				.where(
-					and(
-						eq(items.id, id),
-						eq(items.status, "running"),
-						eq(items.runnerId, runnerId),
-						...(claimToken ? [eq(items.claimToken, claimToken)] : []),
-					),
-				)
+				.where(runningJobWhere(id, runnerId, claimToken))
 				.returning({ id: items.id, operationId: items.operationId });
 
 			const updatedJob = updated[0];
@@ -455,14 +471,7 @@ class WorkerJobRepository {
 					claimToken: null,
 					updatedAt: new Date(),
 				})
-				.where(
-					and(
-						eq(items.id, id),
-						eq(items.status, "running"),
-						eq(items.runnerId, runnerId),
-						...(claimToken ? [eq(items.claimToken, claimToken)] : []),
-					),
-				)
+				.where(runningJobWhere(id, runnerId, claimToken))
 				.returning({ id: items.id, operationId: items.operationId });
 
 			const updatedJob = updated[0];
@@ -489,14 +498,7 @@ class WorkerJobRepository {
 					completedAt: now,
 					updatedAt: now,
 				})
-				.where(
-					and(
-						eq(items.id, id),
-						eq(items.status, "running"),
-						eq(items.runnerId, runnerId),
-						...(claimToken ? [eq(items.claimToken, claimToken)] : []),
-					),
-				)
+				.where(runningJobWhere(id, runnerId, claimToken))
 				.returning({ id: items.id, operationId: items.operationId });
 
 			const updatedJob = updated[0];
@@ -586,14 +588,9 @@ class WorkerJobRepository {
 				),
 		);
 
-		const perOperation = new Map<string, number>();
-		for (const row of affected) {
-			if (row.operationId) perOperation.set(row.operationId, (perOperation.get(row.operationId) ?? 0) + 1);
-		}
-
-		for (const [operationId, amount] of perOperation) {
-			await workerOperationRepository.markPendingJobsCancelled(operationId, now, tx, amount);
-		}
+		await applyOperationCounts(toOperationCounts(affected), (operationId, amount) =>
+			workerOperationRepository.markPendingJobsCancelled(operationId, now, tx, amount),
+		);
 	}
 
 	async cancelRunning(id: string, claimToken?: string): Promise<boolean> {
@@ -603,7 +600,7 @@ class WorkerJobRepository {
 			.getClient()
 			.update(items)
 			.set({ status: "cancelled", leaseUntil: null, runnerId: null, claimToken: null, completedAt: now, updatedAt: now })
-			.where(and(eq(items.id, id), eq(items.status, "running"), ...(claimToken ? [eq(items.claimToken, claimToken)] : [])))
+			.where(runningJobWhere(id, undefined, claimToken))
 			.returning({ id: items.id, operationId: items.operationId });
 
 		const updatedJob = updated[0];
@@ -628,14 +625,7 @@ class WorkerJobRepository {
 					claimToken: null,
 					updatedAt: new Date(),
 				})
-				.where(
-					and(
-						eq(items.id, id),
-						eq(items.status, "running"),
-						eq(items.runnerId, runnerId),
-						...(claimToken ? [eq(items.claimToken, claimToken)] : []),
-					),
-				)
+				.where(runningJobWhere(id, runnerId, claimToken))
 				.returning({ id: items.id, operationId: items.operationId });
 
 			const updatedJob = updated[0];
@@ -736,14 +726,9 @@ class WorkerJobRepository {
 			);
 
 			// Keep operation counters in sync, decrementing pendingItems (not runningItems).
-			const perOperation = new Map<string, number>();
-			for (const row of updated) {
-				if (row.operationId) perOperation.set(row.operationId, (perOperation.get(row.operationId) ?? 0) + 1);
-			}
-
-			for (const [operationId, amount] of perOperation) {
-				await workerOperationRepository.markPendingJobsCancelled(operationId, now, tx, amount);
-			}
+			await applyOperationCounts(toOperationCounts(updated), (operationId, amount) =>
+				workerOperationRepository.markPendingJobsCancelled(operationId, now, tx, amount),
+			);
 
 			return updated.length;
 		});
@@ -867,16 +852,10 @@ class WorkerJobRepository {
 			for (const row of res) updated.add(row.id);
 		}
 
-		const perOperation = new Map<string, number>();
-		for (const row of rows) {
-			if (row.operationId && updated.has(row.id)) {
-				perOperation.set(row.operationId, (perOperation.get(row.operationId) ?? 0) + 1);
-			}
-		}
-
-		for (const [operationId, amount] of perOperation) {
-			await workerOperationRepository.markJobRetried(operationId, now, tx, amount);
-		}
+		const recovered = rows.filter((row) => updated.has(row.id));
+		await applyOperationCounts(toOperationCounts(recovered), (operationId, amount) =>
+			workerOperationRepository.markJobRetried(operationId, now, tx, amount),
+		);
 
 		return updated.size;
 	}
@@ -910,20 +889,16 @@ class WorkerJobRepository {
 			for (const row of res) updated.add(row.id);
 		}
 
-		const cascadableIds: string[] = [];
-		const perOperation = new Map<string, number>();
-		for (const row of rows) {
-			if (!updated.has(row.id)) continue;
+		const failedRows = rows.filter((row) => updated.has(row.id));
+		await applyOperationCounts(toOperationCounts(failedRows), (operationId, amount) =>
+			workerOperationRepository.markJobFinished(operationId, "failed", now, tx, amount),
+		);
 
-			cascadableIds.push(row.id);
-			if (row.operationId) perOperation.set(row.operationId, (perOperation.get(row.operationId) ?? 0) + 1);
-		}
-
-		for (const [operationId, amount] of perOperation) {
-			await workerOperationRepository.markJobFinished(operationId, "failed", now, tx, amount);
-		}
-
-		await this.cascadeCancel(tx, cascadableIds, now);
+		await this.cascadeCancel(
+			tx,
+			failedRows.map((row) => row.id),
+			now,
+		);
 
 		return updated.size;
 	}
@@ -951,53 +926,8 @@ class WorkerJobRepository {
 			(row.attempts >= row.maxAttempts ? exhausted : retryable).push(row);
 		}
 
-		if (retryable.length > 0) {
-			const retryIds = retryable.map((r) => r.id);
-			await tx
-				.update(items)
-				.set({ status: "pending", leaseUntil: null, runnerId: null, claimToken: null, updatedAt: now })
-				.where(inArray(items.id, retryIds));
-
-			const retryPerOperation = new Map<string, number>();
-			for (const row of retryable) {
-				if (row.operationId) retryPerOperation.set(row.operationId, (retryPerOperation.get(row.operationId) ?? 0) + 1);
-			}
-
-			for (const [operationId, amount] of retryPerOperation) {
-				await workerOperationRepository.markJobRetried(operationId, now, tx, amount);
-			}
-		}
-
-		if (exhausted.length > 0) {
-			const failIds = exhausted.map((r) => r.id);
-			await tx
-				.update(items)
-				.set({
-					status: "failed",
-					leaseUntil: null,
-					runnerId: null,
-					claimToken: null,
-					error: "Lease expired after maximum attempts",
-					completedAt: now,
-					updatedAt: now,
-				})
-				.where(inArray(items.id, failIds));
-
-			const exhaustedPerOperation = new Map<string, number>();
-			for (const row of exhausted) {
-				if (row.operationId) exhaustedPerOperation.set(row.operationId, (exhaustedPerOperation.get(row.operationId) ?? 0) + 1);
-			}
-
-			for (const [operationId, amount] of exhaustedPerOperation) {
-				await workerOperationRepository.markJobFinished(operationId, "failed", now, tx, amount);
-			}
-
-			await this.cascadeCancel(
-				tx,
-				exhausted.map((row) => row.id),
-				now,
-			);
-		}
+		await this.recoverRetryableRows(tx, retryable, now);
+		await this.recoverExhaustedRows(tx, exhausted, now);
 	}
 
 	async trim(workerId: string, status: WorkerItemStatus, keepCount: number): Promise<number> {

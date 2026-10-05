@@ -3,6 +3,7 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
+import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { DAY, serverConstants } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
 import { ConflictError } from "@/utils/errors";
@@ -419,37 +420,31 @@ class WorkerOperationRepository {
 
 		const where = and(...conditions);
 		const pageSize = serverConstants.database.queryChunkSize;
-		let deletedOperationsCount = 0;
 		let deletedJobsCount = 0;
-		let cursor: string | undefined;
 
 		// Keyset-page instead of loading every matching operation id at once; each
 		// page's job+operation deletes run in one transaction so a failure cannot
 		// leave jobs deleted while their operation survives.
-		for (;;) {
-			const page = await databaseFactory
-				.getClient()
-				.select({ id: operations.id })
-				.from(operations)
-				.where(cursor ? and(where, gt(operations.id, cursor)) : where)
-				.orderBy(asc(operations.id))
-				.limit(pageSize);
-			if (page.length === 0) break;
+		const deletedOperationsCount = await collectKeysetPages({
+			pageSize,
+			fetchPage: (cursor) =>
+				databaseFactory
+					.getClient()
+					.select({ id: operations.id })
+					.from(operations)
+					.where(cursor ? and(where, gt(operations.id, cursor)) : where)
+					.orderBy(asc(operations.id))
+					.limit(pageSize),
+			onPage: async (page) => {
+				const opIds = page.map((row) => row.id);
+				deletedJobsCount += await databaseFactory.transaction(async (tx) => {
+					const jobsResult = await databaseFactory.getClient({ tx }).delete(jobs).where(inArray(jobs.operationId, opIds));
+					await databaseFactory.getClient({ tx }).delete(operations).where(inArray(operations.id, opIds));
 
-			const opIds = page.map((row) => row.id);
-			const jobsDeleted = await databaseFactory.transaction(async (tx) => {
-				const jobsResult = await databaseFactory.getClient({ tx }).delete(jobs).where(inArray(jobs.operationId, opIds));
-				await databaseFactory.getClient({ tx }).delete(operations).where(inArray(operations.id, opIds));
-
-				return jobsResult.changes;
-			});
-			deletedJobsCount += jobsDeleted;
-			deletedOperationsCount += opIds.length;
-
-			if (page.length < pageSize) break;
-
-			cursor = opIds[opIds.length - 1];
-		}
+					return jobsResult.changes;
+				});
+			},
+		});
 
 		return { deletedOperationsCount, deletedJobsCount };
 	}

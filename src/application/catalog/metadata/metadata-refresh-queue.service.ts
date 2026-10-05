@@ -1,9 +1,12 @@
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
+import { collectKeysetPages } from "@/database/utils/keyset-pages";
+import { trimAndFilter, unique } from "@/utils/array.utils";
 import { ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { enqueueManyMetadataRefresh, enqueueMetadataRefresh } from "@/workers/definitions/metadata/metadata-refresh.worker";
+import { batchChunks } from "@/workers/utils/batch-chunker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped";
 import { workerService } from "@/workers/worker.service";
 
@@ -55,22 +58,16 @@ class MetadataRefreshQueueService {
 		const { operationId, result: count } = await workerService.enqueueUnderOperation(
 			{ type: "metadata-refresh-all", reference: { type: "metadata-all", id: "all" } },
 			async (opId) => {
-				let cursor: string | undefined;
-				let enqueued = 0;
-				for (;;) {
-					const rows = await metadataRepository.findIdsPage(cursor, METADATA_REFRESH_ENQUEUE_PAGE_SIZE);
-					if (rows.length === 0) break;
-
-					await enqueueManyMetadataRefresh(
-						rows.map(({ id }) => ({ metadataId: id })),
-						{ operationId: opId },
-					);
-					enqueued += rows.length;
-					if (rows.length < METADATA_REFRESH_ENQUEUE_PAGE_SIZE) break;
-
-					cursor = rows.at(-1)?.id;
-					if (!cursor) break;
-				}
+				const enqueued = await collectKeysetPages({
+					pageSize: METADATA_REFRESH_ENQUEUE_PAGE_SIZE,
+					fetchPage: (cursor) => metadataRepository.findIdsPage(cursor, METADATA_REFRESH_ENQUEUE_PAGE_SIZE),
+					onPage: async (rows) => {
+						await enqueueManyMetadataRefresh(
+							rows.map(({ id }) => ({ metadataId: id })),
+							{ operationId: opId },
+						);
+					},
+				});
 
 				if (enqueued === 0) {
 					throw new ValidationError("No metadata to refresh", { code: "admin.metadata.refresh_empty" });
@@ -96,7 +93,7 @@ class MetadataRefreshQueueService {
 
 	/** Explicit id subset (e.g. the missing-translation admin filter) — one operation, deduped ids, page-sized inserts. */
 	private async queueBatch(metadataIds: string[], context: AdminAuditContext): Promise<{ operationId: string }> {
-		const ids = [...new Set(metadataIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+		const ids = unique(trimAndFilter(metadataIds));
 		if (ids.length === 0) {
 			throw new ValidationError("No metadata ids to refresh", { code: "admin.metadata.refresh_empty" });
 		}
@@ -111,8 +108,7 @@ class MetadataRefreshQueueService {
 			{ type: "metadata-refresh-all", reference: { type: "metadata-all", id: "batch" } },
 			async (opId) => {
 				let enqueued = 0;
-				for (let offset = 0; offset < ids.length; offset += METADATA_REFRESH_ENQUEUE_PAGE_SIZE) {
-					const page = ids.slice(offset, offset + METADATA_REFRESH_ENQUEUE_PAGE_SIZE);
+				for (const { items: page } of batchChunks(ids, METADATA_REFRESH_ENQUEUE_PAGE_SIZE)) {
 					await enqueueManyMetadataRefresh(
 						page.map((metadataId) => ({ metadataId })),
 						{ operationId: opId },

@@ -29,6 +29,7 @@ import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { userRatingsRepository } from "@/database/repositories/user-ratings.repository";
 import { watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
+import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { imageUploadService } from "@/modules/images/image-upload.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
@@ -461,20 +462,19 @@ class MetadataService extends BaseService {
 			// keep only a bounded sample in the audit payload (the full id list bloated
 			// the audit row forever).
 			const pageSize = serverConfig.database.queryChunkSize;
-			let count = 0;
 			const sample: string[] = [];
-			for (;;) {
-				const orphanIds = await metadataRepository.findOrphanIds(pageSize);
-				if (orphanIds.length === 0) break;
-
-				await metadataRepository.deleteOrphansByIds(orphanIds);
-				count += orphanIds.length;
-				if (sample.length < MAX_ORPHAN_AUDIT_IDS) {
-					sample.push(...orphanIds.slice(0, MAX_ORPHAN_AUDIT_IDS - sample.length));
-				}
-
-				if (orphanIds.length < pageSize) break;
-			}
+			const count = await collectKeysetPages({
+				pageSize,
+				// Each page deletes its own rows, so the query naturally advances to
+				// the next orphan set — the cursor is unused.
+				fetchPage: () => metadataRepository.findOrphanIds(pageSize),
+				onPage: async (orphanIds) => {
+					await metadataRepository.deleteOrphansByIds(orphanIds);
+					if (sample.length < MAX_ORPHAN_AUDIT_IDS) {
+						sample.push(...orphanIds.slice(0, MAX_ORPHAN_AUDIT_IDS - sample.length));
+					}
+				},
+			});
 
 			recordAuditSafe(
 				{

@@ -13,6 +13,7 @@ import { providersRepository } from "@/database/repositories/providers.repositor
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
+import { toMetadataValues } from "@/database/utils/metadata-values";
 import { createProviderStableKey } from "@/database/utils/stable-key";
 import { clamp, isValidRating } from "@/utils/math.utils";
 
@@ -91,18 +92,8 @@ class MetadataPersistenceRepository {
 				where: eq(schema.metadata.id, metadataId),
 				values: {
 					stableKey,
-					primaryProviderId: providerName,
-					title: metadata.title,
-					originalTitle: metadata.originalTitle,
-					overview: metadata.overview,
-					tagline: metadata.tagline,
-					releaseDate: metadata.releaseDate,
-					status: metadata.status,
+					...toMetadataValues(metadata, providerName, matchScore ?? 1.0),
 					popularity: metadata.popularity ?? 0,
-					budget: metadata.budget,
-					revenue: metadata.revenue,
-					matchScore: matchScore ?? 1.0,
-					hasMissingTranslation: metadata.hasMissingTranslation ?? false,
 					updatedAt: new Date(),
 				},
 				tx,

@@ -3,7 +3,7 @@ import { inArray } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { mapChunked } from "@/database/table-access";
+import { mapChunked, pickColumns } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { serverConstants } from "@/server.constants";
 import { groupBy } from "@/utils/array.utils";
@@ -43,16 +43,8 @@ export function buildRelationProjection(
 	columns: Record<string, SQLiteColumn>,
 	required: readonly string[],
 ): Record<string, SQLiteColumn> {
-	const projection: Record<string, SQLiteColumn> = {};
-	const requiredFields = new Set(required);
-	const relationSet = relationFields ? new Set(relationFields) : undefined;
-	for (const [name, column] of Object.entries(columns)) {
-		if (requiredFields.has(name) || relationSet?.has(name)) {
-			projection[name] = column;
-		}
-	}
-
-	return projection;
+	// `new Set(undefined)` is empty: without relation fields only `required` is kept.
+	return pickColumns(columns, new Set(relationFields), required);
 }
 
 export function buildMediaFileProjection(relationFields: string[] | undefined, relation: MediaFileRelation): typeof mediaFileColumns {

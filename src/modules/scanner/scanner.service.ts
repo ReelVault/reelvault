@@ -2,6 +2,7 @@ import { sleep } from "bun";
 import { toDomainError } from "@/application/context";
 import { databaseFactory } from "@/database/database";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { episodeRangeSpan, parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
@@ -92,32 +93,26 @@ export class ScannerService extends BaseService {
 		const removedAll: string[] = [];
 		const changedFiles: string[] = [];
 		let existingCount = 0;
-		let cursor: string | undefined;
-		for (;;) {
-			throwIfAborted(signal);
-			const rows = await this.dependencies.findStatsPage(libraryId, cursor, SCAN_DB_PAGE_SIZE);
-			if (rows.length === 0) break;
+		await collectKeysetPages({
+			pageSize: SCAN_DB_PAGE_SIZE,
+			beforePage: () => throwIfAborted(signal),
+			fetchPage: (cursor) => this.dependencies.findStatsPage(libraryId, cursor, SCAN_DB_PAGE_SIZE),
+			onPage: (rows) => {
+				for (const row of rows) {
+					existingCount++;
+					existingPaths.add(row.filePath);
+					pathCounts.set(row.filePath, (pathCounts.get(row.filePath) ?? 0) + 1);
+					const diskStat = statsByPath.get(row.filePath);
+					if (!diskStat) {
+						removedAll.push(row.filePath);
+						continue;
+					}
 
-			for (const row of rows) {
-				existingCount++;
-				existingPaths.add(row.filePath);
-				pathCounts.set(row.filePath, (pathCounts.get(row.filePath) ?? 0) + 1);
-				const diskStat = statsByPath.get(row.filePath);
-				if (!diskStat) {
-					removedAll.push(row.filePath);
-					continue;
+					if (row.size !== diskStat.size || row.sourceMtimeMs !== diskStat.mtimeMs) changedFiles.push(row.id);
 				}
-
-				if (row.size !== diskStat.size || row.sourceMtimeMs !== diskStat.mtimeMs) changedFiles.push(row.id);
-			}
-
-			if (rows.length < SCAN_DB_PAGE_SIZE) break;
-
-			cursor = rows.at(-1)?.id;
-			if (!cursor) break;
-
-			await sleep(0);
-		}
+			},
+			betweenPages: () => sleep(0),
+		});
 
 		return { existingPaths, pathCounts, removedAll, changedFiles, existingCount };
 	}

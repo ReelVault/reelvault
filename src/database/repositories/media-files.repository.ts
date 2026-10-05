@@ -18,6 +18,7 @@ import { defineTableAccess, findPageWithQueryMap, forEachChunked, mapChunked, se
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
+import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { toMediaCleanupData } from "@/database/utils/media-cleanup";
 import { buildRelationProjection } from "@/database/utils/media-file-projection";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
@@ -352,21 +353,12 @@ class MediaRepository {
 	 * the event loop (SQLite is synchronous).
 	 */
 	async scanAuditRows(onPage: (rows: MediaFileAuditRow[]) => Promise<void> | void): Promise<number> {
-		let total = 0;
-		let cursor: string | undefined;
-		for (;;) {
-			const rows = await this.findAuditRowsPage(cursor);
-			await onPage(rows);
-			total += rows.length;
-			if (rows.length < AUDIT_ROW_PAGE_SIZE) break;
-
-			const lastId = rows.at(-1)?.mediaFileId;
-			if (!lastId) break;
-
-			cursor = lastId;
-		}
-
-		return total;
+		return await collectKeysetPages({
+			pageSize: AUDIT_ROW_PAGE_SIZE,
+			fetchPage: (cursor) => this.findAuditRowsPage(cursor),
+			cursorOf: (rows) => rows.at(-1)?.mediaFileId,
+			onPage,
+		});
 	}
 
 	private async findAuditRowsPage(cursor?: string) {
@@ -385,27 +377,21 @@ class MediaRepository {
 
 	async findAllAuditRowIds() {
 		const allIds: string[] = [];
-		let cursor: string | undefined;
-		for (;;) {
-			const rows = await databaseFactory
-				.getClient()
-				.select({ id: schema.mediaFiles.id })
-				.from(schema.mediaFiles)
-				.innerJoin(schema.metadata, eq(schema.mediaFiles.metadataId, schema.metadata.id))
-				.where(cursor ? gt(schema.mediaFiles.id, cursor) : undefined)
-				.orderBy(asc(schema.mediaFiles.id))
-				.limit(AUDIT_ROW_PAGE_SIZE);
-			if (rows.length === 0) break;
-
-			for (const row of rows) allIds.push(row.id);
-
-			if (rows.length < AUDIT_ROW_PAGE_SIZE) break;
-
-			const lastId = rows.at(-1)?.id;
-			if (!lastId) break;
-
-			cursor = lastId;
-		}
+		await collectKeysetPages({
+			pageSize: AUDIT_ROW_PAGE_SIZE,
+			fetchPage: (cursor) =>
+				databaseFactory
+					.getClient()
+					.select({ id: schema.mediaFiles.id })
+					.from(schema.mediaFiles)
+					.innerJoin(schema.metadata, eq(schema.mediaFiles.metadataId, schema.metadata.id))
+					.where(cursor ? gt(schema.mediaFiles.id, cursor) : undefined)
+					.orderBy(asc(schema.mediaFiles.id))
+					.limit(AUDIT_ROW_PAGE_SIZE),
+			onPage: (rows) => {
+				for (const row of rows) allIds.push(row.id);
+			},
+		});
 
 		return allIds;
 	}
@@ -595,23 +581,20 @@ class MediaRepository {
 	> {
 		// Keyset-paged accumulation — avoids one giant SELECT on large libraries.
 		const allRows: Array<{ id: string; metadataId: string }> = [];
-		let cursor: string | undefined;
-		for (;;) {
-			const rows = await databaseFactory
-				.getClient({ tx })
-				.select({ id: this.table.id, metadataId: this.table.metadataId })
-				.from(this.table)
-				.where(cursor ? gt(this.table.id, cursor) : undefined)
-				.orderBy(asc(this.table.id))
-				.limit(AUDIT_ROW_PAGE_SIZE);
-			allRows.push(...rows);
-			if (rows.length < AUDIT_ROW_PAGE_SIZE) break;
-
-			const lastId = rows.at(-1)?.id;
-			if (!lastId) break;
-
-			cursor = lastId;
-		}
+		await collectKeysetPages({
+			pageSize: AUDIT_ROW_PAGE_SIZE,
+			fetchPage: (cursor) =>
+				databaseFactory
+					.getClient({ tx })
+					.select({ id: this.table.id, metadataId: this.table.metadataId })
+					.from(this.table)
+					.where(cursor ? gt(this.table.id, cursor) : undefined)
+					.orderBy(asc(this.table.id))
+					.limit(AUDIT_ROW_PAGE_SIZE),
+			onPage: (rows) => {
+				allRows.push(...rows);
+			},
+		});
 
 		return allRows;
 	}
@@ -914,24 +897,20 @@ class MediaRepository {
 	async findOrphanedMediaFileIds(batchSize = 500, tx?: DatabaseTransaction): Promise<string[]> {
 		const client = databaseFactory.getClient({ tx });
 		const orphanedIds: string[] = [];
-		let cursor: string | undefined;
-
-		for (;;) {
-			const batch = await client
-				.select({ id: schema.mediaFiles.id })
-				.from(schema.mediaFiles)
-				.leftJoin(schema.libraries, eq(schema.mediaFiles.libraryId, schema.libraries.id))
-				.where(cursor ? and(isNull(schema.libraries.id), gt(schema.mediaFiles.id, cursor)) : isNull(schema.libraries.id))
-				.orderBy(asc(schema.mediaFiles.id))
-				.limit(batchSize);
-
-			if (batch.length === 0) break;
-
-			for (const row of batch) orphanedIds.push(row.id);
-
-			cursor = batch.at(-1)?.id;
-			if (batch.length < batchSize) break;
-		}
+		await collectKeysetPages({
+			pageSize: batchSize,
+			fetchPage: (cursor) =>
+				client
+					.select({ id: schema.mediaFiles.id })
+					.from(schema.mediaFiles)
+					.leftJoin(schema.libraries, eq(schema.mediaFiles.libraryId, schema.libraries.id))
+					.where(cursor ? and(isNull(schema.libraries.id), gt(schema.mediaFiles.id, cursor)) : isNull(schema.libraries.id))
+					.orderBy(asc(schema.mediaFiles.id))
+					.limit(batchSize),
+			onPage: (batch) => {
+				for (const row of batch) orphanedIds.push(row.id);
+			},
+		});
 
 		return orphanedIds;
 	}

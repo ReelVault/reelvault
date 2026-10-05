@@ -14,11 +14,12 @@ import { and, asc, desc, eq, getTableColumns, gt, inArray, max, notExists, type 
 import { databaseFactory } from "@/database/database";
 import { providersRepository } from "@/database/repositories/providers.repository";
 import { schema } from "@/database/schema";
-import { cachedCount, defineTableAccess, filterSignature, forEachChunked, mapChunked } from "@/database/table-access";
+import { cachedCount, defineTableAccess, filterSignature, forEachChunked, mapChunked, selectManyWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { type CreatedAtCursor, decodeCursorFor, KeysetCursor, keysetWhere } from "@/database/utils/keyset-cursor";
 import { findMediaCleanupData } from "@/database/utils/media-cleanup";
+import { toMetadataValues } from "@/database/utils/metadata-values";
 import { QueryPagination } from "@/database/utils/pagination";
 import { QueryUtils } from "@/database/utils/query-parser";
 import { createLocalMetadataStableKey, createProviderStableKey } from "@/database/utils/stable-key";
@@ -28,7 +29,7 @@ import { createLogger } from "@/utils/logger";
 import { buildCollectionOrderBy, type MetadataRepositoryFilters, metadataQueryMap, titleMatchFilter } from "./metadata-filters";
 import type { MoreLikeThisSource } from "./metadata-recommendations";
 import { getMoreLikeThis } from "./metadata-recommendations";
-import { loadRelations, rootFields, selectColumns, withRelations } from "./metadata-relations";
+import { loadRelations, withRelations } from "./metadata-relations";
 
 const metadataCast = defineTableAccess("metadataCast", {
 	primaryKeyColumn: "personId",
@@ -177,7 +178,7 @@ class MetadataRepository {
 		requiredFields?: Array<keyof typeof metadataColumns> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<Array<typeof schema.metadata.$inferSelect>>;
-	private async selectMetadata<F extends string>({
+	private async selectMetadata({
 		fields,
 		where,
 		orderBy,
@@ -186,7 +187,7 @@ class MetadataRepository {
 		requiredFields,
 		tx,
 	}: {
-		fields?: FieldsConfig<F> | undefined;
+		fields?: FieldsConfig | undefined;
 		where?: SQL | undefined;
 		orderBy?: SQL | undefined;
 		limit?: number | undefined;
@@ -194,19 +195,17 @@ class MetadataRepository {
 		requiredFields?: Array<keyof typeof metadataColumns> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<unknown[]> {
-		if (!fields?.fields.length) return await this.selectMany({ where, orderBy, limit, offset, tx });
-
-		const client = databaseFactory.getClient({ tx });
-		const columns = selectColumns(rootFields(fields), metadataColumns, ["id", ...(requiredFields ?? [])]);
-		const baseQuery = client.select(columns).from(this.table).$dynamic();
-		const queryWithWhere = where ? baseQuery.where(where) : baseQuery;
-		const orderedQuery = orderBy ? queryWithWhere.orderBy(orderBy) : queryWithWhere;
-		let limitedQuery = orderedQuery;
-		if (limit !== undefined) limitedQuery = limitedQuery.limit(limit);
-
-		if (offset !== undefined && offset > 0) limitedQuery = limitedQuery.offset(offset);
-
-		return await limitedQuery;
+		// `id` is always required; `createdAt` is added by cursor-mode callers so
+		// the keyset cursor can be built from the projected row.
+		return await selectManyWithFields(metadataTable, {
+			fields,
+			required: ["id", ...(requiredFields ?? [])],
+			where,
+			orderBy,
+			limit,
+			offset,
+			tx,
+		});
 	}
 
 	/**
@@ -727,19 +726,8 @@ class MetadataRepository {
 		const created = !(existingByStableKey ?? existingMetadata);
 		const metadataValues = {
 			stableKey,
-			primaryProviderId: providerName,
 			type,
-			title: results.title,
-			originalTitle: results.originalTitle,
-			overview: results.overview,
-			tagline: results.tagline,
-			releaseDate: results.releaseDate,
-			status: results.status,
-			budget: results.budget,
-			revenue: results.revenue,
-			popularity: results.popularity,
-			hasMissingTranslation: results.hasMissingTranslation ?? false,
-			...(matchScore !== undefined ? { matchScore } : {}),
+			...toMetadataValues(results, providerName, matchScore),
 		};
 		let metadata = existingByStableKey ?? existingMetadata ?? undefined;
 		if (metadata) {
