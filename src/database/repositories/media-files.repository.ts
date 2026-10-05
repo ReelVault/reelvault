@@ -14,7 +14,7 @@ import { and, asc, eq, getTableColumns, gt, inArray, isNull, ne, or, type SQL } 
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, forEachChunked, mapChunked } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, forEachChunked, mapChunked, selectManyWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -570,7 +570,11 @@ class MediaRepository {
 		offset,
 		tx,
 	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<MediaFileWithRelation, F>>> {
-		const data = await this.selectMany({ where, orderBy, limit, offset, tx });
+		// Field-projected root rows skip the widest columns (filePath, formatName,
+		// …) right in SQL; id+libraryId are required so loadRelations can anchor.
+		const data = fields?.fields.length
+			? await selectManyWithFields(mediaFiles, { fields, required: ["id", "libraryId"], where, orderBy, limit, offset, tx })
+			: await this.selectMany({ where, orderBy, limit, offset, tx });
 		const related = await this.loadRelations(data, tx, fields);
 
 		const results: Array<SelectFields<MediaFileWithRelation, F>> = [];
