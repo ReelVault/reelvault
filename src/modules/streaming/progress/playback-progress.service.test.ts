@@ -242,7 +242,9 @@ describe("playback progress service", () => {
 	test("requires an authenticated profile", async () => {
 		const { service } = createService();
 
-		await expect(service.updatePlaybackProgress("file-1", { position: 10 })).rejects.toThrow("Profile not found");
+		const error: unknown = await service.updatePlaybackProgress("file-1", { position: 10 }).catch((caught: unknown) => caught);
+
+		expect(error).toMatchObject({ category: "unauthorized", code: "auth.profile_required" });
 	});
 
 	test("persists picked track languages per title/series", async () => {

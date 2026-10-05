@@ -84,7 +84,7 @@ class PlaybackProgressService extends BaseService {
 	async updatePlaybackProgress(fileId: string, body: UpdatePlaybackProgress, profileId?: string): Promise<{ success: true }> {
 		return await this.safeExecute("updatePlaybackProgress", async () => {
 			const { playbackRepository, watchedHistoryRepository, publisher } = this.dependencies;
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			const { mediaFile, existingProgress } = await playbackRepository.findProgressUpdateData(fileId, profileId);
 			this.assertExists(mediaFile, "MediaFile", fileId);
 
@@ -144,7 +144,7 @@ class PlaybackProgressService extends BaseService {
 	/** Language preferences saved for the title/series this file belongs to (for pre-selecting tracks on the next episode). */
 	async getStreamPrefs(fileId: string, profileId?: string): Promise<StreamPrefs | null> {
 		return await this.safeExecute("getStreamPrefs", async () => {
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			// One LEFT JOIN resolves file→metadata→prefs (was two chained selects).
 			const resolved = await this.dependencies.profileStreamPrefsRepository.findByMediaFile(fileId, profileId);
 			this.assertExists(resolved, "MediaFile", fileId);
@@ -156,7 +156,7 @@ class PlaybackProgressService extends BaseService {
 	async resetPlaybackProgress(fileId: string, profileId?: string): Promise<{ success: true }> {
 		return await this.safeExecute("resetPlaybackProgress", async () => {
 			const { playbackRepository } = this.dependencies;
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			const mediaFile = await playbackRepository.findMediaFileWithMetadata(fileId);
 			if (mediaFile?.metadataId) {
 				await playbackRepository.deleteMetadataProgress(profileId, mediaFile.metadataId);
@@ -185,7 +185,7 @@ class PlaybackProgressService extends BaseService {
 	): Promise<{ progress: MetadataPlaybackProgress; smartPlay: SmartPlay }> {
 		return await this.safeExecute("getPlaybackOverview", async () => {
 			const { playbackRepository } = this.dependencies;
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			const data = await playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, profileId, metadataType);
 			this.assertExists(data, "Metadata", metadataId);
 
@@ -199,7 +199,7 @@ class PlaybackProgressService extends BaseService {
 	async getPlaybackProgress(metadataId: string, profileId?: string, metadataType?: MetadataType): Promise<MetadataPlaybackProgress> {
 		return await this.safeExecute("getPlaybackProgress", async () => {
 			const { playbackRepository } = this.dependencies;
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			const data = await playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, profileId, metadataType);
 			this.assertExists(data, "Metadata", metadataId);
 
@@ -210,7 +210,7 @@ class PlaybackProgressService extends BaseService {
 	async getContinueWatching(profileId?: string, limit = 12): Promise<{ items: ContinueWatchingItem[] }> {
 		return await this.safeExecute("getContinueWatching", async () => {
 			const { playbackRepository } = this.dependencies;
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			const data = await playbackRepository.findContinueWatchingData(profileId, limit);
 			const preferences = await this.dependencies.profilePreferencesRepository.getEffective({ profileId });
 
@@ -221,7 +221,7 @@ class PlaybackProgressService extends BaseService {
 	async getSmartPlay(metadataId: string, profileId?: string): Promise<SmartPlay> {
 		return await this.safeExecute("getSmartPlay", async () => {
 			const { playbackRepository } = this.dependencies;
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			const data = await playbackRepository.findSmartPlayData(metadataId, profileId);
 			this.assertExists(data, "Metadata", metadataId);
 
@@ -238,7 +238,7 @@ class PlaybackProgressService extends BaseService {
 	/** Batch smart play + watchlist flags — one request for a whole grid of cards. */
 	async getSmartPlayBatch(metadataIds: string[], profileId?: string): Promise<BatchSmartPlayResponse> {
 		return await this.safeExecute("getSmartPlayBatch", async () => {
-			this.assertExists(profileId, "Profile", "auth");
+			this.assertProfileId(profileId);
 			const ids = unique(trimAndFilter(metadataIds)).slice(0, MAX_BATCH_IDS);
 			if (ids.length === 0) return { suggestions: [] };
 
