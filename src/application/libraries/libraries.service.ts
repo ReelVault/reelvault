@@ -74,11 +74,14 @@ class LibrariesService extends BaseService {
 			this.assertExists(library, "Library", libraryId);
 
 			if (options?.siblings) {
-				const { data: siblings } = await librariesRepository.findPage({ limit: 50 });
+				const [{ data: siblings }, providerPriorities] = await Promise.all([
+					librariesRepository.findPage({ limit: 50 }),
+					libraryProviderSettingsRepository.listForLibrary(libraryId),
+				]);
 
 				return Object.assign(library, {
 					siblings: siblings.filter((sibling) => sibling.id !== library.id),
-					providerPriorities: await libraryProviderSettingsRepository.listForLibrary(libraryId),
+					providerPriorities,
 				});
 			}
 

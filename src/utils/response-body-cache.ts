@@ -26,15 +26,35 @@ const RESPONSE_BODY_CACHE_MAX_TTL_MS = 5 * 60_000;
  * exceeds what the browser cache contract already promises. Write paths
  * invalidate through invalidateResponseBodies()/invalidateProfileResponseBodies().
  */
+/** NUL never appears in URLs or HTTP headers, so it is safe as a key segment separator. */
+const KEY_SEGMENT_SEPARATOR = "\u0000";
+
 const responseBodyCache = new MemoryCache<CachedResponseBody>({
 	// TTL is enforced per entry (expiresAt) so each route keeps its own max-age.
 	ttlMs: -1,
 	maxSize: systemResourcesService.getRamScaledCacheEntries(64, 128, 512),
 	name: "api.responseBody",
+	// Keep the per-profile index honest across LRU evictions.
+	onEvict: (key) => removeFromProfileIndex(key),
 });
 
-/** NUL never appears in URLs or HTTP headers, so it is safe as a key segment separator. */
-const KEY_SEGMENT_SEPARATOR = "\u0000";
+/**
+ * profileId → cached keys. invalidateProfileResponseBodies() runs on EVERY
+ * progress/watchlist write (each stream heartbeat), so invalidation must be a
+ * Set lookup, not a full cache scan.
+ */
+const profileKeyIndex = new Map<string, Set<string>>();
+
+function removeFromProfileIndex(key: string): void {
+	const profileId = key.split(KEY_SEGMENT_SEPARATOR)[2];
+	if (!profileId) return;
+
+	const keys = profileKeyIndex.get(profileId);
+	if (!keys) return;
+
+	keys.delete(key);
+	if (keys.size === 0) profileKeyIndex.delete(profileId);
+}
 
 /**
  * Path+query+identity key. The cookie (session) and resolved profile id make
@@ -64,6 +84,13 @@ export function getCachedResponseBody(key: string, now = Date.now()): CachedResp
 
 export function setCachedResponseBody(key: string, entry: CachedResponseBody): void {
 	responseBodyCache.set(key, entry);
+
+	const profileId = key.split(KEY_SEGMENT_SEPARATOR)[2];
+	if (!profileId) return;
+
+	const keys = profileKeyIndex.get(profileId);
+	if (keys) keys.add(key);
+	else profileKeyIndex.set(profileId, new Set([key]));
 }
 
 /**
@@ -79,20 +106,19 @@ const etagBodyCache = new MemoryCache<CachedEtagBody>({ ttlMs: 10_000, maxSize: 
 export function invalidateResponseBodies(): void {
 	etagBodyCache.clear();
 	responseBodyCache.clear();
+	profileKeyIndex.clear();
 }
 
 /**
  * Drops cached bodies scoped to one profile without flushing the whole cache.
- * Response-cache keys embed the profile id as their own segment, and ETag-body
- * cache keys embed it after a colon, so per-profile writes (progress,
- * watchlist, history) invalidate only the affected identity instead of nuking
- * every cached response.
+ * Response-cache keys index by profile id (O(1) per write); ETag-body cache
+ * keys embed it after a colon and live only 10s, so that one stays a scan.
  */
 export function invalidateProfileResponseBodies(profileId: string): void {
-	const needle = `${KEY_SEGMENT_SEPARATOR}${profileId}${KEY_SEGMENT_SEPARATOR}`;
-	for (const key of responseBodyCache.keys()) {
-		if (key.includes(needle)) responseBodyCache.delete(key);
+	for (const key of profileKeyIndex.get(profileId) ?? []) {
+		responseBodyCache.delete(key);
 	}
+	profileKeyIndex.delete(profileId);
 
 	for (const key of etagBodyCache.keys()) {
 		if (key.includes(profileId)) etagBodyCache.delete(key);

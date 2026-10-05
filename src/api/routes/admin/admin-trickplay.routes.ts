@@ -5,7 +5,7 @@ import { MediaFileIdParams } from "@/api/schemas/route-params";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import { MINUTE } from "@/server.constants";
-import { enqueueTrickplayGeneration } from "@/workers/definitions/media/trickplay-generate.worker";
+import { enqueueTrickplayGeneration, enqueueTrickplayGenerationMany } from "@/workers/definitions/media/trickplay-generate.worker";
 
 export const adminTrickplayRoutes = new Elysia({ prefix: "/trickplay", tags: ["Admin"] })
 	.use(commonModel)
@@ -34,11 +34,11 @@ export const adminTrickplayRoutes = new Elysia({ prefix: "/trickplay", tags: ["A
 		"/generate-all",
 		async ({ status }) => {
 			const mediaFileIds = await trickplayService.findMediaFileIdsMissingTrickplay();
-			for (const mediaFileId of mediaFileIds) {
-				await enqueueTrickplayGeneration(mediaFileId);
-			}
+			// One batched enqueue (shared operation, chunked inserts) instead of a
+			// per-file operation/transaction — thousands of files land in one pass.
+			const items = await enqueueTrickplayGenerationMany(mediaFileIds);
 
-			return status(202, { enqueued: mediaFileIds.length });
+			return status(202, { enqueued: items.length });
 		},
 		{
 			rateLimit: { name: "admin-trickplay-generate-all", max: 5, windowMs: MINUTE },

@@ -90,16 +90,18 @@ class CollectionsRepository {
 
 		// Page ids come back already ordered/limited from SQL — the previous version
 		// loaded EVERY qualifying collection id and passed them all into an `inArray`.
-		const total = await this.countWithMinimumMetadata({ where, minItems });
+		// Count and page ids share the same grouped subquery and are independent.
+		const [total, pageIds] = await Promise.all([
+			this.countWithMinimumMetadata({ where, minItems }),
+			this.findPageIdsWithMinimumMetadata({
+				where,
+				minItems,
+				orderBy,
+				limit: pagination.limit,
+				offset: pagination.offset,
+			}),
+		]);
 		if (total === 0) return QueryPagination.createResponse({ total: 0, pagination, data: [] });
-
-		const pageIds = await this.findPageIdsWithMinimumMetadata({
-			where,
-			minItems,
-			orderBy,
-			limit: pagination.limit,
-			offset: pagination.offset,
-		});
 		if (pageIds.length === 0) return QueryPagination.createResponse({ total, pagination, data: [] });
 
 		const data = await this.findMany({

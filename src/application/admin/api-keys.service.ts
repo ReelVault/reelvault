@@ -8,6 +8,7 @@ import { apiKeys } from "@/database/schemas/api-keys.schema";
 import { users } from "@/database/schemas/auth.schema";
 import { BaseService } from "@/utils/base-service";
 import { NotFoundError, ValidationError } from "@/utils/errors";
+import { MemoryCache } from "@/utils/memory-cache";
 import { detach } from "@/utils/promise.utils";
 
 const KEY_TAG = "rv_";
@@ -15,6 +16,9 @@ const KEY_RANDOM_BYTES = 24;
 /** `last_used_at` is a diagnostics signal, not an audit trail — one write per minute is plenty. */
 const LAST_USED_UPDATE_THROTTLE_MS = 60_000;
 const lastUsedWriteGates = new Set<string>();
+/** authenticate() runs on EVERY x-api-key request — a short-lived cache keeps the
+ * hot path at zero queries while key CRUD clears it (keys are few, clear is free). */
+const authenticateCache = new MemoryCache<AuthenticatedApiKey>({ ttlMs: 5_000, maxSize: 200, name: "api-keys.auth" });
 
 export type ApiKeyScope = "read_only" | "full";
 
@@ -80,6 +84,7 @@ class ApiKeysService extends BaseService {
 				updatedAt: now,
 			});
 
+		authenticateCache.clear();
 		this.logger.info("API key created", { keyId: id, scope: input.scope, expiresInDays: input.expiresAtDays ?? null });
 		recordAuditSafe(
 			{
@@ -109,12 +114,17 @@ class ApiKeysService extends BaseService {
 		const result = await databaseFactory.getClient().delete(apiKeys).where(eq(apiKeys.id, id));
 		if (result.changes === 0) throw new NotFoundError("API key not found", { code: "api_key.not_found" });
 
+		authenticateCache.clear();
 		this.logger.info("API key revoked", { keyId: id });
 		recordAuditSafe({ action: "delete", resourceType: "api_key", resourceId: id, context }, this.logger);
 	}
 
 	/** Resolves the owner of a presented key, or undefined when unknown or expired. */
 	async authenticate(rawKey: string): Promise<AuthenticatedApiKey | undefined> {
+		const cacheKey = hashKey(rawKey);
+		const cached = authenticateCache.get(cacheKey);
+		if (cached) return cached;
+
 		const rows = await databaseFactory
 			.getClient()
 			.select({
@@ -135,11 +145,14 @@ class ApiKeysService extends BaseService {
 
 		this.touchLastUsed(row.id);
 
-		return {
+		const authenticated: AuthenticatedApiKey = {
 			id: row.id,
 			scope: toScope(row.scope),
 			user: { id: row.userId, name: row.userName, email: row.userEmail, role: row.userRole },
 		};
+		authenticateCache.set(cacheKey, authenticated);
+
+		return authenticated;
 	}
 
 	private touchLastUsed(keyId: string): void {

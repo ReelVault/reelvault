@@ -37,3 +37,17 @@ export async function enqueueTrickplayGeneration(mediaFileId: string, options: W
 		},
 	);
 }
+
+/** One shared operation + one transaction for the whole catalog pass (generate-all). */
+export async function enqueueTrickplayGenerationMany(mediaFileIds: readonly string[]) {
+	return await workerService.addItems(
+		trickplayGenerateWorker.id,
+		mediaFileIds.map((mediaFileId) => ({
+			data: { mediaFileId },
+			options: {
+				dedupeKey: mediaFileId,
+				reference: { type: "media-file", id: mediaFileId },
+			},
+		})),
+	);
+}
