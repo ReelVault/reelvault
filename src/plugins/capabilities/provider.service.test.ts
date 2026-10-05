@@ -1,5 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import { metadataProviderSettingsRepository } from "@/database/repositories/metadata-provider-settings.repository";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";
 import { providerService } from "./provider.service";
@@ -42,7 +43,16 @@ function registerProviders(providers: MetadataProvider[]): void {
 	metadataProviderSettingsService.invalidateCache();
 }
 
+const originalList = metadataProviderSettingsRepository.list;
+
+beforeEach(() => {
+	// Settings lookups would otherwise hit the un-migrated test DB; these tests
+	// only need "no persisted overrides".
+	metadataProviderSettingsRepository.list = () => Promise.resolve([]);
+});
+
 afterEach(() => {
+	metadataProviderSettingsRepository.list = originalList;
 	pluginRegistry.clear();
 	metadataProviderSettingsService.invalidateCache();
 });

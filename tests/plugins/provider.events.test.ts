@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
@@ -7,9 +7,12 @@ process.env.NODE_ENV ??= "test";
 process.env.APP_PORT ??= "3030";
 process.env.ROOT_DIR ??= join(tmpdir(), `reelvault-tests-${process.pid}`);
 
+const { metadataProviderSettingsRepository } = await import("@/database/repositories/metadata-provider-settings.repository");
 const { pluginEventBus } = await import("@/plugins/runtime/plugin.events");
 const { providerService } = await import("@/plugins/capabilities/provider.service");
 const { pluginRegistry } = await import("@/plugins/lifecycle/plugin.registry");
+
+const originalSettingsList = metadataProviderSettingsRepository.list;
 
 const plugin: ReelVaultPlugin = { setup: async () => undefined };
 
@@ -49,7 +52,13 @@ function registerProvider(provider = createProvider()): void {
 }
 
 describe("provider events", () => {
+	beforeEach(() => {
+		// Settings lookups would otherwise hit the un-migrated test DB.
+		metadataProviderSettingsRepository.list = () => Promise.resolve([]);
+	});
+
 	afterEach(() => {
+		metadataProviderSettingsRepository.list = originalSettingsList;
 		pluginEventBus.offPlugin("event-observer");
 		pluginRegistry.clear();
 	});

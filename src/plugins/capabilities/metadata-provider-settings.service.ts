@@ -112,14 +112,7 @@ class MetadataProviderSettingsService extends BaseService {
 	private async getSettings(): Promise<Map<string, MetadataProviderSetting>> {
 		if (this.cachedSettings && this.cachedSettings.expiresAt > Date.now()) return this.cachedSettings.values;
 
-		let persistedSettings: MetadataProviderSetting[] = [];
-		try {
-			persistedSettings = await metadataProviderSettingsRepository.list();
-		} catch (error) {
-			const cause = error instanceof Error ? error.cause : undefined;
-			const errorText = `${String(error)} ${String(cause)}`;
-			if (!errorText.includes("no such table: metadata_provider_settings")) throw error;
-		}
+		const persistedSettings = await metadataProviderSettingsRepository.list();
 
 		const values = toMap(persistedSettings, (setting) => setting.providerId);
 		this.cachedSettings = { expiresAt: Date.now() + serverConfig.plugins.providers.settingsCacheTtlMs, values };
