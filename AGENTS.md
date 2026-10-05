@@ -25,7 +25,7 @@ bun run test
 
 ## Forbidden: silencing tools
 Never suppress a problem instead of fixing it. No linter blocks these, so YOU must:
-- Suppression comments: `// biome-ignore`, `// oxlint-disable`, `// eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`.
+- Suppression comments: `// biome-ignore`, `// oxlint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`.
 - Config weakening: turning a rule off or downgrading its severity in `biome.json`, `.oxlintrc.json`, `eslint.config.js` or `tsconfig.json`, or adding a file to their `ignores`/`ignorePatterns`.
 - Dead-code hiding: knip `ignore*` entries or `@public` tags to make unused code disappear. Delete the code.
 - Test evasion: `test.skip`, `test.todo`, loosened assertions, or deleting a failing test to get green.
@@ -38,7 +38,7 @@ When a type error appears, fix the model, not the cast (`t.Nullable`/`t.Optional
 - Flat, imperative, readable. No over-engineering, no deep nesting, no premature abstraction.
 - DTOs via `Static<typeof Schema>`; DB rows via `$inferSelect`/`InferTable`. Use library types instead of hand-rolling.
 - `exactOptionalPropertyTypes` is on: optional props receiving explicit `undefined` must be `foo?: T | undefined`.
-- Formatting is owned by Biome (+ ESLint `padding-line-between-statements`). Never hand-format.
+- Formatting is owned by Biome. Never hand-format.
 
 ## Architecture (enforced by Biome)
 - Clean Architecture: Domain / Application / Infrastructure. No DB schema or framework leakage into domain.
