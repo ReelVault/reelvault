@@ -15,6 +15,7 @@ import { LibraryIdParams } from "@/api/schemas/route-params";
 import { librariesService } from "@/application/libraries/libraries.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 import { sidecarAssetsService } from "@/modules/metadata-sidecars/sidecar-assets.service";
 import { MINUTE } from "@/server.constants";
 
@@ -56,8 +57,7 @@ export const librariesRoutes = new Elysia({
 		response: { ...ROUTE_ERRORS.AUTH, 200: "libraries.paginated.schema" },
 		// Home-screen staple; stats/paths already have 60 s server caches, this
 		// trims repeat HTTP work. Library mutations bust it via the short TTL.
-		cache: { maxAge: 15, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 15, private: true }),
 		detail: {
 			description: "Retrieve a paginated list of all media libraries defined in the system.",
 		},
@@ -80,13 +80,10 @@ export const librariesRoutes = new Elysia({
 		"/:libraryId",
 		async ({ params, query }) => await librariesService.getById(params.libraryId, query, { siblings: query.siblings === "true" }),
 		{
-			params: t.Object({
-				libraryId: t.String(),
-			}),
+			params: LibraryIdParams,
 			query: t.Composite([t.Object({ siblings: t.Optional(t.String()) }), t.Object({ fields: t.Optional(t.String()) })]),
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "library.schema" },
-			cache: { maxAge: 15, private: true },
-			deduplicate: {},
+			...cached({ maxAge: 15, private: true }),
 			detail: {
 				description: "Retrieve information about a specific library by its ID. Add ?siblings=true to include all libraries.",
 			},
@@ -123,9 +120,7 @@ export const librariesRoutes = new Elysia({
 			await librariesService.update(params.libraryId, body, query, { actorUserId: user?.id, headers: request.headers }),
 		{
 			adminOnly: true,
-			params: t.Object({
-				libraryId: t.String(),
-			}),
+			params: LibraryIdParams,
 			body: "libraries.update.body",
 			query: "fields.schema",
 			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "library.schema" },
@@ -140,9 +135,7 @@ export const librariesRoutes = new Elysia({
 			await librariesService.delete(params.libraryId, { actorUserId: user?.id, headers: request.headers }),
 		{
 			adminOnly: true,
-			params: t.Object({
-				libraryId: t.String(),
-			}),
+			params: LibraryIdParams,
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
 			detail: {
 				description: "Permanently remove a library and its configuration from the system.",
@@ -160,9 +153,7 @@ export const librariesRoutes = new Elysia({
 				max: 30,
 				windowMs: MINUTE,
 			},
-			params: t.Object({
-				libraryId: t.String(),
-			}),
+			params: LibraryIdParams,
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Manually trigger a scan of the library's paths to discover new media files.",

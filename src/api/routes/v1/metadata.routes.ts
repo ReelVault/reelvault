@@ -28,6 +28,7 @@ import { withEtagResponse } from "@/api/utils/etag.utils";
 import { metadataService } from "@/application/catalog/metadata/metadata.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 import { MINUTE } from "@/server.constants";
 
 const GlobalSearchQuerySchema = t.Object({
@@ -53,8 +54,7 @@ export const metadataRoutes = new Elysia({
 	.get("/", async ({ query, profile }) => await metadataService.getAll(query, profile?.id), {
 		query: t.Composite([PaginationSchema, FieldsSchema, MetadataFiltersSchema, MetadataSortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "metadata.paginated.schema" },
-		cache: { maxAge: 60, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 60, private: true }),
 		detail: {
 			description: "Retrieve a paginated list of metadata entries for movies and TV shows with advanced filtering.",
 		},
@@ -65,8 +65,7 @@ export const metadataRoutes = new Elysia({
 			max: 60,
 			windowMs: MINUTE,
 		},
-		cache: { maxAge: 30, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 30, private: true }),
 		query: GlobalSearchQuerySchema,
 		response: { ...ROUTE_ERRORS.AUTH, 200: GlobalSearchResponseSchema },
 		detail: {
@@ -90,8 +89,7 @@ export const metadataRoutes = new Elysia({
 	.get("/:metadataId/images/options", async ({ params }) => await metadataService.getImageOptions(params.metadataId), {
 		params: MetadataIdParams,
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: t.Array(MetadataImageOptionSchema) },
-		cache: { maxAge: 300, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 300, private: true }),
 		detail: { description: "Retrieve poster and backdrop candidates from linked metadata providers." },
 	})
 	.post(
@@ -146,8 +144,7 @@ export const metadataRoutes = new Elysia({
 		params: MetadataIdParams,
 		query: "fields.schema",
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "metadata.schema" },
-		cache: { maxAge: 120, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 120, private: true }),
 		detail: {
 			description: "Retrieve detailed information about a specific metadata entry by its ID.",
 		},

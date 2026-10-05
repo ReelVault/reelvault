@@ -108,7 +108,7 @@ export const authRoutes = new Elysia({
 		async ({ params, request, session, user }) => await sessionsService.revoke(params.sessionId, request.headers, session?.id, user?.id),
 		{
 			params: t.Object({ sessionId: t.String({ minLength: 1 }) }),
-			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
+			response: { ...ROUTE_ERRORS.AUTH, 403: "error.response", 404: "error.response", 200: "success.response" },
 			rateLimit: { name: "auth-session-revoke", max: 60, windowMs: MINUTE },
 			detail: { description: "Revoke one of the authenticated user's non-current sessions." },
 		},

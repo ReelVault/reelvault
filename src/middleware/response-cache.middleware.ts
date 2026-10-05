@@ -2,7 +2,7 @@ import { hash as bunHash } from "bun";
 import { Elysia } from "elysia";
 import { serverConfig } from "@/server.config";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
-import { getResponseStatus } from "@/utils/http.utils";
+import { getResponseStatus, pathWithQuery } from "@/utils/http.utils";
 import {
 	type CachedResponseBody,
 	getCachedResponseBody,
@@ -17,6 +17,14 @@ interface CacheOptions {
 	maxAge: number;
 	private?: boolean | undefined;
 	immutable?: boolean | undefined;
+}
+
+/**
+ * Route-options helper for the standard response-cache + in-flight-dedup pair.
+ * Use as `...cached({ maxAge: 60, private: true })` so routes opt in once.
+ */
+export function cached(options: CacheOptions) {
+	return { cache: options, deduplicate: {} };
 }
 
 /**
@@ -53,12 +61,8 @@ function resolveProfileId(context: object): string | undefined {
 }
 
 function cacheKeyFor(request: Request, resolvedProfileId?: string): string {
-	const rawUrl = request.url;
-	const pathStart = rawUrl.indexOf("/", rawUrl.indexOf("//") + 2);
-	const pathWithQuery = pathStart === -1 ? rawUrl : rawUrl.slice(pathStart);
-
 	return responseCacheKey({
-		pathWithQuery,
+		pathWithQuery: pathWithQuery(request.url),
 		cookie: request.headers.get("cookie") ?? "",
 		profileId: resolvedProfileId ?? request.headers.get("x-profile-id") ?? "",
 		auth: request.headers.get("authorization") ?? "",

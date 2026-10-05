@@ -56,16 +56,4 @@ export const ROUTE_ERRORS = {
 	},
 	/** Admin route with a 409 conflict (e.g. enable/disable state transitions). */
 	ADMIN_CONFLICT: { 401: "error.response", 403: "error.response", 404: "error.response", 409: "error.response" },
-	/** Body-validated admin route with a 409 conflict but no 404. */
-	VALIDATED_ADMIN_CONFLICT: { 400: "error.response", 401: "error.response", 403: "error.response", 409: "error.response" },
-	/** Body-validated admin route that is rate-limited (429) without a 409. */
-	VALIDATED_ADMIN_RATE_LIMITED: { 400: "error.response", 401: "error.response", 403: "error.response", 429: "error.response" },
-	/** Body-validated admin route that is both rate-limited (429) and conflict-prone (409). */
-	VALIDATED_ADMIN_CONFLICT_RATE_LIMITED: {
-		400: "error.response",
-		401: "error.response",
-		403: "error.response",
-		409: "error.response",
-		429: "error.response",
-	},
 } as const;

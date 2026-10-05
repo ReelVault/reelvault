@@ -4,6 +4,7 @@ import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.
 import { IdParams } from "@/api/schemas/route-params";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 
 export const notificationsRoutes = new Elysia({ prefix: "/notifications", tags: ["Notifications"] })
 	.use(commonModel)
@@ -23,8 +24,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications", tags: 
 			limit: t.Optional(ClampedNumeric(1, 200)),
 		}),
 		response: { ...ROUTE_ERRORS.AUTH, 200: t.Array(NotificationSchema) },
-		cache: { maxAge: 10, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve notifications for authenticated account and profile. Optional limit trims the result." },
 	})
 	.get("/unread-count", async ({ user, profile }) => await notificationsService.getUnreadCount(user?.id, profile?.id), {
@@ -39,6 +39,6 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications", tags: 
 	.patch("/:id", async ({ params, user, profile }) => await notificationsService.markRead(params.id, user?.id, profile?.id), {
 		params: IdParams,
 		body: t.Optional(t.Object({ read: t.Optional(t.Boolean()) })),
-		response: { ...ROUTE_ERRORS.ADMIN, 200: "success.response" },
+		response: { ...ROUTE_ERRORS.AUTH, 403: "error.response", 200: "success.response" },
 		detail: { description: "Mark a notification as read." },
 	});

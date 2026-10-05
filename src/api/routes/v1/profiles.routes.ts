@@ -53,9 +53,7 @@ export const profilesRoutes = new Elysia({
 		},
 	})
 	.get("/:id", async ({ params, query, user }) => await profilesService.getById(params.id, query, user?.id), {
-		params: t.Object({
-			id: t.String(),
-		}),
+		params: IdParams,
 		query: "fields.schema",
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "profile.schema" },
 		detail: {
@@ -63,9 +61,7 @@ export const profilesRoutes = new Elysia({
 		},
 	})
 	.patch("/:id", async ({ params, body, query, user }) => await profilesService.update(params.id, body, query, user?.id), {
-		params: t.Object({
-			id: t.String(),
-		}),
+		params: IdParams,
 		body: "profile.update.body",
 		query: "fields.schema",
 		response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "profile.schema" },
@@ -74,9 +70,7 @@ export const profilesRoutes = new Elysia({
 		},
 	})
 	.delete("/:id", async ({ params, user }) => await profilesService.delete(params.id, user?.id), {
-		params: t.Object({
-			id: t.String(),
-		}),
+		params: IdParams,
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
 		detail: {
 			description: "Permanently remove a profile from the account.",

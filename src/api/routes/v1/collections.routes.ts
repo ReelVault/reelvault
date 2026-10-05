@@ -8,6 +8,7 @@ import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { collectionsService } from "@/application/catalog/collections.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 
 export const collectionRoutes = new Elysia({
 	prefix: "/collections",
@@ -23,8 +24,7 @@ export const collectionRoutes = new Elysia({
 	.get("/", async ({ query }) => await collectionsService.getAll(query), {
 		query: t.Composite([PaginationSchema, FieldsSchema, CollectionFiltersSchema, CollectionSortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "collections.paginated.schema" },
-		cache: { maxAge: 120, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 120, private: true }),
 		detail: {
 			description: "Retrieve a paginated list of collections. By default, collections with fewer than two metadata items are excluded.",
 		},
@@ -35,8 +35,7 @@ export const collectionRoutes = new Elysia({
 		}),
 		query: "fields.schema",
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "collection.schema" },
-		cache: { maxAge: 120, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 120, private: true }),
 		detail: {
 			description: "Retrieve information about a specific collection by its ID.",
 		},

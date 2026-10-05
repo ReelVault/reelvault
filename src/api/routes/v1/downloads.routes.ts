@@ -25,7 +25,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 		{
 			rateLimit: { name: "downloads-prepare", max: 10, windowMs: MINUTE },
 			body: PrepareDownloadSchema,
-			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_RATE_LIMITED, 200: DownloadJobSchema },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 429: "error.response", 200: DownloadJobSchema },
 			detail: { description: "Prepare an offline (MP4) download of a media file." },
 		},
 	)

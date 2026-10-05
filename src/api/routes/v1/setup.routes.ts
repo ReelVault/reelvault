@@ -1,5 +1,6 @@
-import { ApiErrorResponseSchema, RegisterResponseSchema, SetupAdminRequestSchema, SetupStatusSchema } from "@reelvault/sdk/common";
+import { RegisterResponseSchema, SetupAdminRequestSchema, SetupStatusSchema } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
+import { commonModel } from "@/api/schemas/common.schemas";
 import { firstRunSetupService } from "@/application/auth/setup/first-run-setup.service";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
@@ -8,12 +9,12 @@ export const setupRoutes = new Elysia({
 	prefix: "/setup",
 	tags: ["Setup"],
 })
+	.use(commonModel)
 	.use(rateLimitMiddleware)
 	.model({
 		"setup.admin.body": SetupAdminRequestSchema,
 		"setup.status": SetupStatusSchema,
 		"setup.admin.response": RegisterResponseSchema,
-		"error.response": ApiErrorResponseSchema,
 	})
 	.get("/status", async () => await firstRunSetupService.getStatus(), {
 		response: {

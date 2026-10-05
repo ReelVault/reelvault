@@ -11,9 +11,10 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
-import { IdParams } from "@/api/schemas/route-params";
+import { IdParams, ProviderIdParams } from "@/api/schemas/route-params";
 import { binaryFileResponse } from "@/api/utils/binary-response.utils";
 import { authMiddleware } from "@/middleware/auth.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
 import { subtitlesService } from "@/modules/subtitles/subtitles.service";
 import { MINUTE } from "@/server.constants";
@@ -32,8 +33,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 	.guard({ auth: true })
 	.get("/providers", async () => await subtitlesService.getProviders(), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: t.Array(SubtitleProviderStatusSchema) },
-		cache: { maxAge: 300, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 300, private: true }),
 		detail: {
 			description: "List installed subtitle providers.",
 		},
@@ -55,7 +55,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 		async ({ params, body }) => await subtitlesService.downloadFromProvider(params.providerId, body),
 		{
 			adminOnly: true,
-			params: t.Object({ providerId: t.String() }),
+			params: ProviderIdParams,
 			body: SubtitleProviderDownloadRequestSchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "subtitle.schema" },
 			detail: {
@@ -66,8 +66,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 	.get("/", async ({ query }) => await subtitlesService.getAll(query), {
 		query: t.Composite([PaginationSchema, SubtitleFiltersSchema, SubtitleSortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "subtitles.paginated.schema" },
-		cache: { maxAge: 60, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 60, private: true }),
 		detail: {
 			description: "Retrieve a paginated list of subtitles.",
 		},
@@ -97,8 +96,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 			// Each miss spawns an FFmpeg extraction; cap the request rate per profile.
 			rateLimit: { name: "subtitle-content", max: 30, windowMs: MINUTE },
 			params: IdParams,
-			cache: { maxAge: 300, private: true },
-			deduplicate: {},
+			...cached({ maxAge: 300, private: true }),
 			response: {
 				// Binary subtitle body (or 304) — handler returns a Response, not JSON.
 				200: t.Any(),
@@ -111,21 +109,16 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 		},
 	)
 	.get("/:id", async ({ params }) => await subtitlesService.getById(params.id), {
-		params: t.Object({
-			id: t.String(),
-		}),
+		params: IdParams,
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "subtitle.schema" },
-		cache: { maxAge: 60, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 60, private: true }),
 		detail: {
 			description: "Retrieve detailed information about a specific subtitle by its ID.",
 		},
 	})
 	.patch("/:id", async ({ params, body }) => await subtitlesService.update(params.id, body), {
 		adminOnly: true,
-		params: t.Object({
-			id: t.String(),
-		}),
+		params: IdParams,
 		body: "subtitle.update.body",
 		response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "subtitle.schema" },
 		detail: {
@@ -134,9 +127,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 	})
 	.delete("/:id", async ({ params }) => await subtitlesService.delete(params.id), {
 		adminOnly: true,
-		params: t.Object({
-			id: t.String(),
-		}),
+		params: IdParams,
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
 		detail: {
 			description: "Permanently remove a subtitle record.",

@@ -1,7 +1,7 @@
 import { hash as bunHash } from "bun";
 import { Elysia } from "elysia";
 import { serverConfig } from "@/server.config";
-import { getResponseStatus } from "@/utils/http.utils";
+import { getResponseStatus, pathWithQuery } from "@/utils/http.utils";
 import { serializedBodyCache } from "./response-cache.middleware";
 
 interface DedupContext {
@@ -86,17 +86,13 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 
 				if (trackedCount >= serverConfig.requestDedup.maxConcurrent) return undefined;
 
-				const rawUrl = context.request.url;
-				// Pathname + search without a URL allocation (slice-based parser).
-				const pathStart = rawUrl.indexOf("/", rawUrl.indexOf("//") + 2);
-				const pathWithQuery = pathStart === -1 ? rawUrl : rawUrl.slice(pathStart);
 				const auth = context.request.headers.get("authorization") ?? "";
 				const cookie = context.request.headers.get("cookie") ?? "";
 				// The active profile may arrive via this header (instead of the profile cookie)
 				// — without it, two profiles of the same user would share deduplicated
 				// responses that contain per-profile state.
 				const profileId = context.request.headers.get("x-profile-id") ?? "";
-				const composed = `${pathWithQuery}:${auth}:${cookie}:${profileId}`;
+				const composed = `${pathWithQuery(context.request.url)}:${auth}:${cookie}:${profileId}`;
 				// Raw keys win the A/B benchmark at realistic lengths and make
 				// collisions impossible; oversized keys hash instead so a bounded
 				// in-flight map can't be amplified into a memory sink.

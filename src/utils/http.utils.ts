@@ -58,6 +58,19 @@ export function getPathname(url: string): string {
 }
 
 /**
+ * Extracts pathname + query string from a full URL string without constructing
+ * a URL object — avoids allocations on the hot request path.
+ *
+ * @example
+ * pathWithQuery("http://localhost:3000/v1/health?foo=bar") // "/v1/health?foo=bar"
+ */
+export function pathWithQuery(url: string): string {
+	const start = url.indexOf("/", url.indexOf("//") + 2);
+
+	return start === -1 ? url : url.slice(start);
+}
+
+/**
  * Normalizes a raw origin/URL string (with or without scheme) to a `URL`,
  * defaulting to `http:` when no scheme is given.
  *

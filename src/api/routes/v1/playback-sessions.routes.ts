@@ -57,7 +57,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 			rateLimit: { name: "playback-session", max: 30, windowMs: MINUTE },
 			body: CreatePlaybackSessionSchema,
 			headers: IdempotencyKeyHeadersSchema,
-			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_CONFLICT_RATE_LIMITED, 201: PlaybackSessionSchema },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 409: "error.response", 429: "error.response", 201: PlaybackSessionSchema },
 			detail: { description: "Create one idempotent, profile-owned HLS playback session." },
 		},
 	)

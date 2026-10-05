@@ -2,14 +2,9 @@ import { ApiKeyCreatedSchema, ApiKeyListSchema, CreateApiKeyRequestSchema } from
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { apiKeysService } from "@/application/admin/api-keys.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
+import { authMiddleware, requireAdmin } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
-
-/** Narrows the derived admin user for handler bodies (the macro guard is runtime-only). */
-function requireAdmin(user: { id: string } | null): asserts user is { id: string } {
-	if (!user) throw new Error("unreachable: adminOnly guard rejected the request");
-}
 
 export const adminApiKeysRoutes = new Elysia({ tags: ["Admin"] })
 	.use(commonModel)

@@ -9,7 +9,6 @@ import {
 	MetadataPlaybackProgressSchema,
 	ProfileInsightsSchema,
 	ProjectedResponseSchema,
-	PaginatedResponseSchema as SdkPaginatedResponseSchema,
 	SessionResponseSchema,
 	SmartPlayResponseSchema,
 	UserRatingFiltersSchema,
@@ -38,6 +37,7 @@ import { watchedHistoryService } from "@/application/users/watched-history.servi
 import { watchlistService } from "@/application/users/watchlist.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
 import { trimAndFilter } from "@/utils/array.utils";
@@ -51,7 +51,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 
 		"me.watchlist.schema": ProjectedResponseSchema(WatchlistSchema),
 		"me.watchlist.paginated.schema": PaginatedResponseSchema(ProjectedResponseSchema(WatchlistSchema)),
-		"me.watchlist.hydrated.paginated.schema": SdkPaginatedResponseSchema(HydratedWatchlistItemSchema),
+		"me.watchlist.hydrated.paginated.schema": PaginatedResponseSchema(HydratedWatchlistItemSchema),
 		"me.playback-suggestions.batch.response": BatchSmartPlayResponseSchema,
 		"me.watchlist.toggle.body": CreateWatchlistSchema,
 		"me.watchlist.toggle.response": t.Object({ added: t.Boolean() }),
@@ -84,8 +84,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.get("/continue-watching", async ({ query, profile }) => await playbackProgressService.getContinueWatching(profile?.id, query.limit), {
 		query: t.Object({ limit: t.Optional(ClampedNumeric(1, 50)) }),
 		response: { ...ROUTE_ERRORS.AUTH, 200: ContinueWatchingResponseSchema },
-		cache: { maxAge: 10, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve items to continue watching for the active profile." },
 	})
 	.get(
@@ -94,8 +93,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		{
 			params: MetadataIdParams,
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: MetadataPlaybackProgressSchema },
-			cache: { maxAge: 10, private: true },
-			deduplicate: {},
+			...cached({ maxAge: 10, private: true }),
 			detail: {
 				description:
 					"Retrieve playback progress for a specific title, including per-file saved progress resolved server-side (fileProgress).",
@@ -193,8 +191,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 			...ROUTE_ERRORS.AUTH,
 			200: t.Union([t.Ref("me.watchlist.paginated.schema"), t.Ref("me.watchlist.hydrated.paginated.schema")]),
 		},
-		cache: { maxAge: 10, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 10, private: true }),
 		detail: {
 			description:
 				"Retrieve watchlist items for the active profile. With hydrate=true every item embeds its full metadata card (single-request hydration).",
@@ -221,8 +218,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		{
 			query: t.Object({ ids: t.String() }),
 			response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.statuses.response" },
-			cache: { maxAge: 10, private: true },
-			deduplicate: {},
+			...cached({ maxAge: 10, private: true }),
 			detail: { description: "Batch check which titles are in the watchlist for the active profile." },
 		},
 	)
@@ -241,8 +237,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.get("/watched-history", async ({ query, profile }) => await watchedHistoryService.getAll(query, profile?.id), {
 		query: t.Composite([PaginationSchema, WatchedHistorySortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchedHistory.paginated.schema" },
-		cache: { maxAge: 10, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve watched history for the active profile." },
 	})
 	.post("/watched-history", async ({ body, profile }) => await watchedHistoryService.sync(body, profile?.id), {
@@ -253,8 +248,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.get("/watched-history/insights", async ({ query, profile }) => await watchedHistoryService.getInsights(query.range, profile?.id), {
 		query: t.Object({ range: InsightsRangeSchema }),
 		response: { ...ROUTE_ERRORS.AUTH, 200: ProfileInsightsSchema },
-		cache: { maxAge: 30, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 30, private: true }),
 		detail: { description: "Aggregate profile viewing activity insights." },
 	})
 	.get(
@@ -267,8 +261,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		{
 			query: t.Object({ year: t.Optional(t.Numeric({ minimum: 2000, maximum: 2100 })) }),
 			response: { ...ROUTE_ERRORS.AUTH, 200: WrappedInsightsSchema },
-			cache: { maxAge: 60, private: true },
-			deduplicate: {},
+			...cached({ maxAge: 60, private: true }),
 			detail: { description: "Get annual year-in-review summary for the active profile (ReelVault Wrapped)." },
 		},
 	)
@@ -290,8 +283,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.get("/ratings", async ({ query, profile }) => await userRatingsService.getRatings(query, profile?.id), {
 		query: t.Composite([PaginationSchema, FieldsSchema, UserRatingFiltersSchema, UserRatingSortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.userRatings.paginated.schema" },
-		cache: { maxAge: 10, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve all user ratings for the active profile." },
 	})
 	.post("/ratings", async ({ body, profile }) => await userRatingsService.rate(body, profile?.id), {

@@ -11,21 +11,13 @@ export const adminAnalyticsRoutes = new Elysia({ prefix: "/analytics", tags: ["A
 	.use(authMiddleware)
 	.use(rateLimitMiddleware)
 	.guard({ adminOnly: true })
-	.get(
-		"",
-		async ({ query }) => {
-			const days = query.days === undefined || query.days === 0 ? undefined : query.days;
-
-			return await adminAnalyticsService.getAnalytics(days);
+	.get("", async ({ query }) => await adminAnalyticsService.getAnalytics(query.days), {
+		rateLimit: { name: "admin-analytics", max: 60, windowMs: MINUTE },
+		query: t.Object({
+			days: t.Optional(t.Numeric({ minimum: 1, maximum: 365 })),
+		}),
+		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminAnalyticsSchema },
+		detail: {
+			description: "Retrieve comprehensive server-wide streaming and watch statistics for administrators.",
 		},
-		{
-			rateLimit: { name: "admin-analytics", max: 60, windowMs: MINUTE },
-			query: t.Object({
-				days: t.Optional(t.Numeric({ minimum: 1, maximum: 365 })),
-			}),
-			response: { ...ROUTE_ERRORS.ADMIN, 200: AdminAnalyticsSchema },
-			detail: {
-				description: "Retrieve comprehensive server-wide streaming and watch statistics for administrators.",
-			},
-		},
-	);
+	});

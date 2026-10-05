@@ -1,9 +1,11 @@
 import type { ImageQuery } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { ImageIdParams } from "@/api/schemas/route-params";
 import { binaryFileResponse } from "@/api/utils/binary-response.utils";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 import { imagesService } from "@/modules/images/images.service";
 
 const IMAGE_CACHE_CONTROL = "public, max-age=86400, immutable";
@@ -37,11 +39,8 @@ export const imagesRoutes = new Elysia({
 				max: 250,
 				windowMs: 10_000,
 			},
-			cache: { maxAge: 86400, immutable: true },
-			deduplicate: {},
-			params: t.Object({
-				imageId: t.String(),
-			}),
+			...cached({ maxAge: 86400, immutable: true }),
+			params: ImageIdParams,
 			query: t.Object({
 				width: t.Optional(t.Numeric({ minimum: 1, maximum: 4096 })),
 				w: t.Optional(t.Numeric({ minimum: 1, maximum: 4096 })),
@@ -65,9 +64,7 @@ export const imagesRoutes = new Elysia({
 	.use(authMiddleware)
 	.delete("/:imageId", async ({ params }) => await imagesService.delete(params.imageId), {
 		adminOnly: true,
-		params: t.Object({
-			imageId: t.String(),
-		}),
+		params: ImageIdParams,
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
 		detail: {
 			description: "Permanently remove an image and optionally its physical file from storage.",

@@ -48,7 +48,7 @@ export const adminUsersRoutes = new Elysia()
 		{
 			rateLimit: { name: "admin-users-create", max: 10, windowMs: MINUTE },
 			body: "admin.createUser",
-			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_CONFLICT, 200: "admin.user" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 409: "error.response", 200: "admin.user" },
 			detail: { description: "Create a new user account as an administrator." },
 		},
 	)
@@ -81,14 +81,7 @@ export const adminUsersRoutes = new Elysia()
 			rateLimit: { name: "admin-users-profiles-create", max: 30, windowMs: MINUTE },
 			params: UserIdParams,
 			body: "admin.createUserProfile",
-			response: {
-				200: "admin.userProfile",
-				400: "error.response",
-				401: "error.response",
-				403: "error.response",
-				404: "error.response",
-				409: "error.response",
-			},
+			response: { 200: "admin.userProfile", ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 409: "error.response" },
 			detail: { description: "Create a profile for a user account as an administrator." },
 		},
 	)

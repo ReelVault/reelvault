@@ -21,6 +21,7 @@ import { metadataService } from "@/application/catalog/metadata/metadata.service
 import { metadataRefreshQueueService } from "@/application/catalog/metadata/metadata-refresh-queue.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 import { MINUTE } from "@/server.constants";
 import { InternalError } from "@/utils/errors";
 import { RefreshMetadataSchema } from "./admin.schema";
@@ -76,16 +77,14 @@ export const adminSystemRoutes = new Elysia()
 			}),
 			...ROUTE_ERRORS.ADMIN,
 		},
-		cache: { maxAge: 10, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 10, private: true }),
 		detail: {
 			description: "Aggregate dashboard: stats, resource config, providers, plugins, and settings in one call.",
 		},
 	})
 	.get("/dashboard-view", async () => await adminService.dashboardView(), {
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.dashboardView" },
-		cache: { maxAge: 4, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 4, private: true }),
 		detail: {
 			description:
 				"Admin dashboard composite: stats, libraries, recent worker operations, audit feed, error logs and update status in one call.",
@@ -129,8 +128,7 @@ export const adminSystemRoutes = new Elysia()
 			to: t.Optional(t.String({ format: "date-time" })),
 		}),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.audit" },
-		cache: { maxAge: 10, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve administrator audit events with pagination and resource filters." },
 	})
 	.delete(

@@ -9,10 +9,9 @@ import {
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { quickConnectService } from "@/application/auth/quick-connect.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
+import { authMiddleware, requireUser } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
-import { UnauthorizedError } from "@/utils/errors";
 
 export const quickConnectRoutes = new Elysia({
 	prefix: "/quick-connect",
@@ -69,7 +68,7 @@ export const quickConnectRoutes = new Elysia({
 	.post(
 		"/authorize",
 		async ({ body, user, profile }) => {
-			if (!user) throw new UnauthorizedError("Unauthorized");
+			requireUser(user);
 
 			return await quickConnectService.authorize(body.code, user, profile);
 		},
@@ -86,7 +85,7 @@ export const quickConnectRoutes = new Elysia({
 	.post(
 		"/generate",
 		async ({ user, profile }) => {
-			if (!user) throw new UnauthorizedError("Unauthorized");
+			requireUser(user);
 
 			return await quickConnectService.generate(user, profile);
 		},

@@ -165,10 +165,19 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 		}),
 	});
 
-function requireUser(user: User | null): asserts user is User {
+export function requireUser(user: User | null): asserts user is User {
 	if (!user) {
 		logger.debug("Session expired or invalid");
 		throw new UnauthorizedError("Session expired or invalid", { code: "auth.session_invalid" });
+	}
+}
+
+/** Narrows the derived user for handler bodies after the `adminOnly` macro guard. */
+export function requireAdmin(user: User | null): asserts user is User {
+	requireUser(user);
+	if (user.role !== "admin") {
+		logger.debug("Admin access required");
+		throw new ForbiddenError("Admin access required", { code: "auth.admin_required" });
 	}
 }
 

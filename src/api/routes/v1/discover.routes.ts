@@ -5,6 +5,7 @@ import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.
 import { discoverService } from "@/application/users/discover.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 import { MINUTE } from "@/server.constants";
 
 export const discoverRoutes = new Elysia({
@@ -30,8 +31,7 @@ export const discoverRoutes = new Elysia({
 		response: { ...ROUTE_ERRORS.AUTH, 200: "discover.response" },
 		// The service already caches the per-profile view for 60 s; this caches the
 		// rendered body on top so repeat views skip serialization/validation too.
-		cache: { maxAge: 60, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 60, private: true }),
 		detail: {
 			description: "Retrieve items for the home dashboard, including recently added movies and TV shows.",
 		},

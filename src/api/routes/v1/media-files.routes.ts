@@ -21,7 +21,7 @@ import {
 	PaginationSchema,
 	ROUTE_ERRORS,
 } from "@/api/schemas/common.schemas";
-import { MediaFileIdParams, OperationIdParams } from "@/api/schemas/route-params";
+import { MediaFileArtifactParams, MediaFileIdParams, OperationIdParams } from "@/api/schemas/route-params";
 import { mediaService } from "@/application/media/media-files/media-files.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
@@ -134,10 +134,7 @@ export const mediaFilesRoutes = new Elysia({
 			return file;
 		},
 		{
-			params: t.Object({
-				mediaFileId: t.String(),
-				artifactId: t.String(),
-			}),
+			params: MediaFileArtifactParams,
 			response: {
 				// Binary artifact body — handler returns a Response (streamed file), not JSON.
 				...ROUTE_ERRORS.ADMIN_NOT_FOUND,

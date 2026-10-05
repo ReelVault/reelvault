@@ -11,6 +11,7 @@ import {
 import { CompanyIdParams } from "@/api/schemas/route-params";
 import { companiesService } from "@/application/catalog/companies.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 
 export const companiesRoutes = new Elysia({
 	prefix: "/companies",
@@ -26,8 +27,7 @@ export const companiesRoutes = new Elysia({
 	.get("/", async ({ query }) => await companiesService.getAll(query), {
 		query: t.Composite([PaginationSchema, FieldsSchema, CompanyFiltersSchema, CompanySortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "companies.paginated.schema" },
-		cache: { maxAge: 120, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 120, private: true }),
 		detail: {
 			description: "Retrieve a paginated list of all production companies.",
 		},
@@ -36,18 +36,14 @@ export const companiesRoutes = new Elysia({
 		params: CompanyIdParams,
 		query: t.Object({ limit: t.Optional(ClampedNumeric(1, 100)) }),
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: t.Array(MetadataSchema) },
-		cache: { maxAge: 60, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 60, private: true }),
 		detail: { description: "List catalog titles associated with a production company." },
 	})
 	.get("/:companyId", async ({ params, query }) => await companiesService.getById(params.companyId, query), {
-		params: t.Object({
-			companyId: t.String(),
-		}),
+		params: CompanyIdParams,
 		query: "fields.schema",
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "company.schema" },
-		cache: { maxAge: 120, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 120, private: true }),
 		detail: {
 			description: "Retrieve information about a specific production company by its ID.",
 		},

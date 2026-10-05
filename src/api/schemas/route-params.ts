@@ -36,3 +36,19 @@ export const OperationIdParams = t.Object({ operationId: t.String({ minLength: 1
 export const WorkerIdParams = t.Object({ workerId: t.String({ minLength: 1, maxLength: 128 }) });
 
 export const RepositoryIdParams = t.Object({ repositoryId: t.String({ minLength: 1, maxLength: 64 }) });
+
+export const GenreIdParams = t.Object({ genreId: t.String() });
+
+export const KeywordIdParams = t.Object({ keywordId: t.String() });
+
+export const SeasonIdParams = t.Object({ seasonId: t.String() });
+
+export const EpisodeIdParams = t.Object({ episodeId: t.String() });
+
+export const PersonIdParams = t.Object({ personId: t.String() });
+
+export const ImageIdParams = t.Object({ imageId: t.String() });
+
+export const MediaFileArtifactParams = t.Object({ mediaFileId: t.String(), artifactId: t.String() });
+
+export const ProviderIdParams = t.Object({ providerId: t.String() });

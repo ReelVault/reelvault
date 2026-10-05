@@ -1,8 +1,10 @@
 import { EpisodeFiltersSchema, EpisodeSortingSchema, EpisodeWithRelationsSchema, ProjectedResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { EpisodeIdParams } from "@/api/schemas/route-params";
 import { episodesService } from "@/application/catalog/episodes.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
+import { cached } from "@/middleware/response-cache.middleware";
 import { MINUTE } from "@/server.constants";
 
 export const episodesRoutes = new Elysia({
@@ -19,20 +21,16 @@ export const episodesRoutes = new Elysia({
 	.get("/", async ({ query }) => await episodesService.getAll(query), {
 		query: t.Composite([PaginationSchema, FieldsSchema, EpisodeFiltersSchema, EpisodeSortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "episodes.paginated.schema" },
-		cache: { maxAge: 60, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 60, private: true }),
 		detail: {
 			description: "Retrieve a paginated list of episodes, optionally filtered by seasonId.",
 		},
 	})
 	.get("/:episodeId", async ({ params, query }) => await episodesService.getById(params.episodeId, query), {
-		params: t.Object({
-			episodeId: t.String(),
-		}),
+		params: EpisodeIdParams,
 		query: "fields.schema",
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "episode.schema" },
-		cache: { maxAge: 120, private: true },
-		deduplicate: {},
+		...cached({ maxAge: 120, private: true }),
 		detail: {
 			description: "Retrieve detailed information about a specific episode by its ID.",
 		},
@@ -44,9 +42,7 @@ export const episodesRoutes = new Elysia({
 			max: 30,
 			windowMs: MINUTE,
 		},
-		params: t.Object({
-			episodeId: t.String(),
-		}),
+		params: EpisodeIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "episode.schema" },
 		detail: {
 			description: "Refresh episode metadata and download thumbnail if missing.",
@@ -59,9 +55,7 @@ export const episodesRoutes = new Elysia({
 			max: 30,
 			windowMs: MINUTE,
 		},
-		params: t.Object({
-			episodeId: t.String(),
-		}),
+		params: EpisodeIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "episode.schema" },
 		detail: {
 			description: "Force download and replace episode thumbnail.",
