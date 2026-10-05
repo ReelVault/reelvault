@@ -4,6 +4,7 @@ import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { NotFoundError } from "@/utils/errors";
 import type { SidecarSnapshotDocument, SidecarSnapshotResolver } from "./sidecar.types";
+import { extractYear } from "./sidecar-metadata.utils";
 
 export type EpisodeRecord = NonNullable<Awaited<ReturnType<typeof episodesRepository.findByPrimaryId>>>;
 
@@ -26,7 +27,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 			title: metadata.title,
 			originalTitle: metadata.originalTitle ?? undefined,
 			releaseDate: metadata.releaseDate,
-			year: toYear(metadata.releaseDate),
+			year: extractYear(metadata.releaseDate.slice(0, 4)),
 			overview: metadata.overview ?? undefined,
 			tagline: metadata.tagline ?? undefined,
 			status: metadata.status ?? undefined,
@@ -116,7 +117,7 @@ function createLocalSnapshot(
 		reelvaultSchemaVersion: 1,
 		title,
 		releaseDate: releaseDate ?? undefined,
-		year: releaseDate ? toYear(releaseDate) : undefined,
+		year: releaseDate ? extractYear(releaseDate.slice(0, 4)) : undefined,
 		overview: overview ?? undefined,
 		status: status ?? undefined,
 		identifiers: {},
@@ -128,10 +129,4 @@ function createLocalSnapshot(
 		crew: [],
 		ratings: [],
 	};
-}
-
-function toYear(date: string): number | undefined {
-	const year = Number(date.slice(0, 4));
-
-	return Number.isInteger(year) && year > 0 ? year : undefined;
 }

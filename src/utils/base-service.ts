@@ -1,6 +1,6 @@
 import type { Logger } from "@reelvault/sdk";
 import { WorkerCancellationError } from "@/workers/utils/worker-cancellation";
-import { DomainError, InternalError, NotFoundError, UnauthorizedError } from "./errors";
+import { DomainError, InternalError, notFoundError, UnauthorizedError } from "./errors";
 import { createLogger } from "./logger";
 
 type ErrorFactory = Error | ((cause?: unknown) => Error);
@@ -24,16 +24,12 @@ export class BaseService {
 	}
 
 	private throwNotFound(entityType: string, entityId?: string, customThrow?: ErrorFactory): never {
-		const message = entityId !== undefined ? `${entityType} not found: ${entityId}` : `${entityType} not found`;
 		if (customThrow) {
 			throw typeof customThrow === "function" ? customThrow() : customThrow;
 		}
 
 		// Granular code + params so API clients can translate without string matching.
-		throw new NotFoundError(message, {
-			code: "entity.not_found",
-			...(entityId !== undefined ? { params: { entityType, entityId } } : {}),
-		});
+		throw notFoundError(entityType, entityId);
 	}
 
 	assertExists<T>(value: T | null | undefined, entityType: string, entityId?: string, customThrow?: ErrorFactory): asserts value is T {

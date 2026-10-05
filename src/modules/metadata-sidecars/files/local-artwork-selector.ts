@@ -25,11 +25,14 @@ export function selectMovieArtwork(files: ReadonlyMap<string, string>): {
 }
 
 export function selectIgnoredAssets(paths: readonly string[]): IgnoredLocalAsset[] {
-	return paths.flatMap((path) => {
-		const fileName = PathUtils.getFileName(path);
+	return paths.flatMap((path) => toIgnoredAsset(path));
+}
 
-		return UNSUPPORTED_ARTWORK_REGEX.test(fileName) ? [{ path, fileName, reason: "unsupported-artwork-type" as const }] : [];
-	});
+/** Maps one path to the ignored-asset record when its file name is an unsupported artwork type. */
+export function toIgnoredAsset(path: string): IgnoredLocalAsset[] {
+	const fileName = PathUtils.getFileName(path);
+
+	return UNSUPPORTED_ARTWORK_REGEX.test(fileName) ? [{ path, fileName, reason: "unsupported-artwork-type" as const }] : [];
 }
 
 export function selectEpisodeThumbnail(videoPath: string, files: ReadonlyMap<string, string>): SidecarArtworkReference | undefined {

@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { UNSUPPORTED_ARTWORK_REGEX } from "./artwork.constants";
+import { toIgnoredAsset } from "./local-artwork-selector";
 import type { IgnoredLocalAsset } from "./local-media-grouping";
 
 /** Bounds so a pathological tree cannot exhaust memory or hang the request. */
@@ -44,10 +44,4 @@ async function visit(directory: string, depth: number, counter: { entries: numbe
 	);
 
 	return [...local, ...nested.flat()];
-}
-
-function toIgnoredAsset(path: string): IgnoredLocalAsset[] {
-	const fileName = PathUtils.getFileName(path);
-
-	return UNSUPPORTED_ARTWORK_REGEX.test(fileName) ? [{ path, fileName, reason: "unsupported-artwork-type" }] : [];
 }

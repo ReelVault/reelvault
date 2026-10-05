@@ -30,36 +30,44 @@ export function formatSeasonNumber(seasonNumber: number): string {
 	return String(seasonNumber).padStart(2, "0");
 }
 
-export const ReelVaultPathPolicy = {
-	movie(directory: string): string {
-		return assertWithinDirectory(directory, PathUtils.join(directory, "movie.reelvault.nfo"));
-	},
-	series(directory: string): string {
-		return assertWithinDirectory(directory, PathUtils.join(directory, "tvshow.reelvault.nfo"));
-	},
-	season(directory: string, seasonNumber: number): string {
-		return assertWithinDirectory(directory, PathUtils.join(directory, `season${formatSeasonNumber(seasonNumber)}-reelvault.nfo`));
-	},
-	episode(directory: string, videoBaseName: string): string {
-		return episodeDocumentPath(directory, videoBaseName, ".reelvault.nfo");
-	},
-};
+interface SidecarFileNames {
+	readonly movie: string;
+	readonly series: string;
+	readonly seasonSuffix: string;
+	readonly episodeSuffix: string;
+}
+
+function createSidecarPathPolicy(names: SidecarFileNames) {
+	return {
+		movie(directory: string): string {
+			return assertWithinDirectory(directory, PathUtils.join(directory, names.movie));
+		},
+		series(directory: string): string {
+			return assertWithinDirectory(directory, PathUtils.join(directory, names.series));
+		},
+		season(directory: string, seasonNumber: number): string {
+			return assertWithinDirectory(directory, PathUtils.join(directory, `season${formatSeasonNumber(seasonNumber)}${names.seasonSuffix}`));
+		},
+		episode(directory: string, videoBaseName: string): string {
+			return episodeDocumentPath(directory, videoBaseName, names.episodeSuffix);
+		},
+	};
+}
+
+export const ReelVaultPathPolicy = createSidecarPathPolicy({
+	movie: "movie.reelvault.nfo",
+	series: "tvshow.reelvault.nfo",
+	seasonSuffix: "-reelvault.nfo",
+	episodeSuffix: ".reelvault.nfo",
+});
 
 /** Standard NFO names as written by Kodi and read back by Kodi, Plex and Jellyfin. */
-export const KodiPathPolicy = {
-	movie(directory: string): string {
-		return assertWithinDirectory(directory, PathUtils.join(directory, "movie.nfo"));
-	},
-	series(directory: string): string {
-		return assertWithinDirectory(directory, PathUtils.join(directory, "tvshow.nfo"));
-	},
-	season(directory: string, seasonNumber: number): string {
-		return assertWithinDirectory(directory, PathUtils.join(directory, `season${formatSeasonNumber(seasonNumber)}.nfo`));
-	},
-	episode(directory: string, videoBaseName: string): string {
-		return episodeDocumentPath(directory, videoBaseName, ".nfo");
-	},
-};
+export const KodiPathPolicy = createSidecarPathPolicy({
+	movie: "movie.nfo",
+	series: "tvshow.nfo",
+	seasonSuffix: ".nfo",
+	episodeSuffix: ".nfo",
+});
 
 export function getSidecarPathPolicy(flavor: SidecarFlavor): typeof ReelVaultPathPolicy {
 	return flavor === "kodi" ? KodiPathPolicy : ReelVaultPathPolicy;

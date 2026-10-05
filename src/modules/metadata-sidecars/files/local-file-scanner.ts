@@ -9,9 +9,9 @@ import { PromiseUtils } from "@/utils/promise.utils";
 import type { SidecarArtworkReference } from "../sidecar.types";
 import { indexByLowerCaseName, selectEpisodeThumbnail, selectIgnoredAssets, selectMovieArtwork } from "./local-artwork-selector";
 import type { LocalEpisodeFile, LocalMovieFolder, LocalSeasonGroup, LocalSeriesGroup } from "./local-media-grouping";
+import { readSeasonNumber } from "./local-season.utils";
 
 const logger = createLogger("LocalFileScanner");
-const SEASON_NUMBER_REGEX = /season\s*(\d{1,2})/i;
 
 interface LocalFileScanner {
 	inspectMovie(videoPath: string): Promise<LocalMovieFolder>;
@@ -122,12 +122,6 @@ async function readFiles(directory: string): Promise<string[]> {
 	}
 
 	return result;
-}
-
-function readSeasonNumber(name: string): number | undefined {
-	const match = SEASON_NUMBER_REGEX.exec(name);
-
-	return match ? Number(match[1]) : undefined;
 }
 
 function toEpisodeFile(videoPath: string, index: ReadonlyMap<string, string>): LocalEpisodeFile {

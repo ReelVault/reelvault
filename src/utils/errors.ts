@@ -135,16 +135,20 @@ export function errorMessage(error: unknown): string {
 	return String(error);
 }
 
+/** Canonical not-found error carrying the translatable code + params for an entity. */
+export function notFoundError(entityType: string, entityId?: string): NotFoundError {
+	const message = entityId !== undefined ? `${entityType} not found: ${entityId}` : `${entityType} not found`;
+
+	return new NotFoundError(message, {
+		code: "entity.not_found",
+		...(entityId !== undefined ? { params: { entityType, entityId } } : {}),
+	});
+}
+
 /**
  * Standalone assertion for use outside BaseService (workers, utilities).
  * Throws NotFoundError when the value is null/undefined.
  */
 export function assertFound<T>(value: T | null | undefined, entityType: string, entityId?: string): asserts value is T {
-	if (value == null) {
-		const message = entityId !== undefined ? `${entityType} not found: ${entityId}` : `${entityType} not found`;
-		throw new NotFoundError(message, {
-			code: "entity.not_found",
-			...(entityId !== undefined ? { params: { entityType, entityId } } : {}),
-		});
-	}
+	if (value == null) throw notFoundError(entityType, entityId);
 }

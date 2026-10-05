@@ -1,5 +1,6 @@
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
+import { readSeasonNumber } from "./local-season.utils";
 
 export interface LocalNfoChain {
 	readonly movieDocument?: string | undefined;
@@ -8,7 +9,6 @@ export interface LocalNfoChain {
 	readonly episodeDocument?: string | undefined;
 }
 
-const SEASON_DIR_REGEX = /season\s*(\d{1,2})/i;
 const MAX_SERIES_LOOKUP_DEPTH = 3;
 
 /**
@@ -68,10 +68,4 @@ async function findUpwards(startDirectory: string, fileName: string): Promise<st
 	}
 
 	return undefined;
-}
-
-function readSeasonNumber(name: string): number | undefined {
-	const match = SEASON_DIR_REGEX.exec(name);
-
-	return match ? Number(match[1]) : undefined;
 }

@@ -6,7 +6,6 @@ import { readXmlAttr, readXmlObjects, readXmlText, readXmlTexts, readXmlValue } 
 
 const IMDB_REGEX = /^tt\d+$/;
 const NUMERIC_ID_REGEX = /^\d+$/;
-const YEAR_REGEX = /^\d{4}$/;
 const REMOTE_URL_REGEX = /^[a-z][a-z0-9+.-]*:\/\//i;
 
 /** Drops undefined/empty namespaces so the resulting identifier map only contains usable ids. */
@@ -25,15 +24,6 @@ export function validImdb(value: string | undefined): string | undefined {
 
 export function validTmdb(value: string | undefined): string | undefined {
 	return value && NUMERIC_ID_REGEX.test(value) ? value : undefined;
-}
-
-/** tvdb ids share the tmdb all-digits shape. */
-export function validTvdb(value: string | undefined): string | undefined {
-	return validTmdb(value);
-}
-
-export function toYear(value: string | undefined): number | undefined {
-	return value && YEAR_REGEX.test(value) ? Number(value) : undefined;
 }
 
 /**
@@ -76,7 +66,7 @@ export function toIdentifiers(node: Readonly<Record<string, unknown>>): External
 			readUniqueId(node, "imdb") ?? readXmlText(node, "imdbid") ?? readXmlText(node, "imdb_id") ?? readLegacyId(node, "imdb"),
 		),
 		tmdb: validTmdb(readUniqueId(node, "tmdb") ?? readXmlText(node, "tmdbid") ?? readLegacyId(node, "tmdb")),
-		tvdb: validTvdb(readUniqueId(node, "tvdb") ?? readXmlText(node, "tvdbid") ?? readLegacyId(node, "tvdb")),
+		tvdb: validTmdb(readUniqueId(node, "tvdb") ?? readXmlText(node, "tvdbid") ?? readLegacyId(node, "tvdb")),
 	});
 }
 

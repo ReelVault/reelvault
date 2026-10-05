@@ -10,7 +10,7 @@ import type {
 } from "../../sidecar.types";
 import { assertXmlDocumentSize, readXmlDocument } from "../../xml/xml-document.reader";
 import { readXmlObject, readXmlText } from "../../xml/xml-value.reader";
-import { writeXmlDocument } from "../../xml/xml-writer";
+import { writeXmlDocument, writeXmlIfChanged } from "../../xml/xml-writer";
 import type { SidecarFormatAdapter } from "../sidecar-format.adapter";
 
 const SNAPSHOT_VERSION = 1;
@@ -47,21 +47,13 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	}
 
 	async write({ documentPath, document }: SidecarFormatOutput): Promise<SidecarWriteResult> {
-		const contents = writeXmlDocument({
-			rootName: "reelvault",
-			values: { reelvaultSchemaVersion: document.reelvaultSchemaVersion || SNAPSHOT_VERSION, snapshot: JSON.stringify(document) },
-		});
-		// Ingest re-saves unchanged metadata constantly (a season drop hits the
-		// same tvshow.nfo once per episode file) — skip the tmp+rename when the
-		// content is already identical.
-		const existing = await readFile(documentPath, "utf8").catch(() => null);
-		if (existing === contents) {
-			return { documentPath, writtenFiles: [] };
-		}
-
-		await FileUtils.writeAtomic(documentPath, contents);
-
-		return { documentPath, writtenFiles: [documentPath] };
+		return await writeXmlIfChanged(
+			documentPath,
+			writeXmlDocument({
+				rootName: "reelvault",
+				values: { reelvaultSchemaVersion: document.reelvaultSchemaVersion || SNAPSHOT_VERSION, snapshot: JSON.stringify(document) },
+			}),
+		);
 	}
 }
 
