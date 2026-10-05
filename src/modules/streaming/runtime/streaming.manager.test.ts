@@ -84,6 +84,5 @@ describe("streaming session isolation", () => {
 			/* intentionally empty */
 		});
 		expect(streamingManager.getSessionAccess(sessionId)).toBeUndefined();
-		expect(streamingManager.hasActiveSession(sessionId)).toBe(false);
 	});
 });

@@ -11,7 +11,6 @@ const decision: PlaybackDecision = {
 
 function dependencies(overrides: Partial<StreamInitializerDependencies> = {}): StreamInitializerDependencies {
 	return {
-		hasActiveSession: () => false,
 		startSession: async () => undefined,
 		discardSession: async () => undefined,
 		releaseSessionReservation: () => undefined,

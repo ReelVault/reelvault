@@ -212,10 +212,6 @@ class StreamingManager {
 		playlistCache.invalidate(sessionId);
 	}
 
-	hasActiveSession(sessionId: string): boolean {
-		return this.store.has(sessionId);
-	}
-
 	/** Decision is exposed once the session reached `active` — mirrors "process is up" for clients. */
 	getSessionDecision(sessionId: string): PlaybackDecision | undefined {
 		const session = this.store.get(sessionId);

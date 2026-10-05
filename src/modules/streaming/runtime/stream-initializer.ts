@@ -1,6 +1,5 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { type ApplicationContext, toDomainError } from "@/application/context";
-import { InternalError } from "@/utils/errors";
 import { streamingManager } from "./streaming.manager";
 
 export interface StreamInitData {
@@ -16,14 +15,12 @@ export interface StreamInitResult {
 }
 
 export interface StreamInitializerDependencies {
-	hasActiveSession(sessionId: string): boolean;
 	startSession(sessionId: string, filePath: string, decision: PlaybackDecision, startTime: number, operationId?: string): Promise<void>;
 	discardSession(sessionId: string): Promise<void>;
 	releaseSessionReservation(sessionId: string): void;
 }
 
 const defaultDependencies: StreamInitializerDependencies = {
-	hasActiveSession: (sessionId) => streamingManager.hasActiveSession(sessionId),
 	startSession: (sessionId, filePath, decision, startTime, operationId) =>
 		streamingManager.startSession(sessionId, filePath, decision, startTime, operationId),
 	discardSession: (sessionId) => streamingManager.discardSession(sessionId),
@@ -40,25 +37,16 @@ export class StreamInitializer {
 	async initialize(data: StreamInitData, context: ApplicationContext): Promise<StreamInitResult> {
 		try {
 			context.signal?.throwIfAborted();
-			if (this.dependencies.hasActiveSession(data.sessionId)) {
-				context.logger?.debug("Restarting active session", {
-					sessionId: data.sessionId,
-					mediaFileId: data.mediaFileId,
-					mode: data.decision.mode,
-				});
-			}
-
 			context.logger?.debug("Starting session", {
 				sessionId: data.sessionId,
 				mediaFileId: data.mediaFileId,
 				mode: data.decision.mode,
 			});
-			let result: StreamInitResult | undefined;
+
 			let failure: ReturnType<typeof toDomainError> | undefined;
 			try {
 				await this.dependencies.startSession(data.sessionId, data.filePath, data.decision, 0, context.correlationId);
 				context.signal?.throwIfAborted();
-				result = { success: true, message: `Session started for ${data.sessionId}` };
 			} catch (error) {
 				failure = toDomainError(error, `Stream initialization failed: ${data.sessionId}`);
 			}
@@ -78,9 +66,7 @@ export class StreamInitializer {
 
 			if (failure) throw failure;
 
-			if (!result) throw new InternalError(`Stream initialization returned no result: ${data.sessionId}`);
-
-			return result;
+			return { success: true, message: `Session started for ${data.sessionId}` };
 		} catch (error) {
 			throw toDomainError(error, `Stream initialization failed: ${data.sessionId}`);
 		}
