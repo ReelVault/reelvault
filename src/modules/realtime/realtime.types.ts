@@ -10,7 +10,6 @@ export interface ClientConnectionInput {
 	readonly profileId?: string | null | undefined;
 	readonly sessionId?: string | null | undefined;
 	readonly socket: RealtimeSocket;
-	readonly connectedAt?: Date;
 }
 
 export interface RealtimeStats {

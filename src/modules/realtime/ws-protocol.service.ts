@@ -110,7 +110,6 @@ export const wsProtocol = {
 			// are delivered via the HLS session ID registered through subscribe_session.
 			sessionId: input.sessionId,
 			socket: ws.raw,
-			connectedAt: new Date(),
 		});
 	},
 

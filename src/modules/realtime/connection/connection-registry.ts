@@ -42,10 +42,6 @@ export class ConnectionRegistry {
 		return this.clients.get(connectionId);
 	}
 
-	has(connectionId: string): boolean {
-		return this.clients.has(connectionId);
-	}
-
 	getAll(): IterableIterator<ClientConnection> {
 		return this.clients.values();
 	}

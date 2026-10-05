@@ -6,9 +6,7 @@ export class ClientConnection {
 	profileId: string | null;
 	readonly sessionId: string | null;
 	private readonly socket: RealtimeSocket;
-	readonly connectedAt: Date;
 	lastActiveAt: number;
-	messagesSent = 0;
 
 	constructor(input: ClientConnectionInput) {
 		this.connectionId = input.connectionId;
@@ -16,7 +14,6 @@ export class ClientConnection {
 		this.profileId = input.profileId ?? null;
 		this.sessionId = input.sessionId ?? null;
 		this.socket = input.socket;
-		this.connectedAt = input.connectedAt ?? new Date();
 		this.lastActiveAt = Date.now();
 	}
 
@@ -31,7 +28,6 @@ export class ClientConnection {
 			}
 
 			this.socket.send(serializedMessage);
-			this.messagesSent++;
 			this.lastActiveAt = Date.now();
 
 			return true;
