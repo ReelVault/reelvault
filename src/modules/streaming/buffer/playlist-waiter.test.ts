@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $, spawn } from "bun";
+import { RequestTimeoutError } from "@/utils/errors";
 import { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
 import { SessionStore } from "../runtime/session-state/session-store";
 import { createMockPlaybackDecision } from "../streaming.test-utils";
@@ -94,13 +95,14 @@ describe("playlist waiter", () => {
 		);
 	});
 
-	test("waits for the playlist of a pending reservation and surfaces the wait timeout", async () => {
+	test("waits for the playlist of a pending reservation and surfaces the generation timeout", async () => {
 		const { waiter } = createWaiter("pending", { pending: true });
 		const started = Date.now();
 
-		// Note: waitForFile ends with "Timeout waiting for file" — the remap condition
-		// ("did not appear within") does not match the current message.
-		await expect(waiter.waitForPlaylist("s1", 60, () => Promise.resolve(false))).rejects.toThrow("Timeout waiting for file");
+		const error: unknown = await waiter.waitForPlaylist("s1", 60, async () => false).catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(RequestTimeoutError);
+		expect(error).toMatchObject({ category: "timeout", code: "playlist_generation_timeout" });
 		expect(Date.now() - started).toBeGreaterThanOrEqual(50);
 	});
 
@@ -113,6 +115,6 @@ describe("playlist waiter", () => {
 		await $`rm ${join(dir, "playlist.m3u8")}`.quiet();
 
 		// After invalidating the cushion and the playlist disappearing, the live process waits for the file until timeout.
-		await expect(waiter.waitForPlaylist("s1", 50, () => Promise.resolve(false))).rejects.toThrow("Timeout waiting for file");
+		await expect(waiter.waitForPlaylist("s1", 50, () => Promise.resolve(false))).rejects.toThrow("Playlist was not generated within 50ms");
 	});
 });

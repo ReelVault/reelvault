@@ -69,7 +69,7 @@ export class PlaylistWaiter {
 				// no watcher can be created — keep it tight, it sits on playback start.
 				await Promise.race([PromiseUtils.waitForFile(playlistPath, timeoutMs, 25, signal), exitPromise]);
 			} catch (error) {
-				if (error instanceof Error && error.message.includes("did not appear within")) {
+				if (error instanceof RequestTimeoutError) {
 					throw new RequestTimeoutError(`Playlist was not generated within ${timeoutMs}ms`, { code: "playlist_generation_timeout" });
 				}
 

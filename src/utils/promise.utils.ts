@@ -2,6 +2,7 @@ import { watch } from "node:fs/promises";
 import { file } from "bun";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
+import { RequestTimeoutError } from "./errors";
 
 const logger = createLogger("PromiseUtils");
 
@@ -65,8 +66,8 @@ export const PromiseUtils = {
 	/**
 	 * Waits for a file to appear on disk using fs.watch (event-driven).
 	 * Falls back to non-blocking polling only if the watcher cannot be created.
-	 * Resolves when found, rejects after timeoutMs or when `signal` aborts
-	 * (rejecting with the signal's reason when present).
+	 * Resolves when found, rejects with a RequestTimeoutError after timeoutMs,
+	 * or with the signal's reason when `signal` aborts.
 	 *
 	 * Watchers are shared per directory (ref-counted) — hls.js frequently
 	 * requests several missing segments of the same session directory at once,
@@ -146,7 +147,7 @@ export const PromiseUtils = {
 			timeoutTimer = setTimeout(() => {
 				if (!resolved) {
 					cleanup();
-					reject(new Error(`Timeout waiting for file: ${filePath}`));
+					reject(new RequestTimeoutError(`Timeout waiting for file: ${filePath}`));
 				}
 			}, timeoutMs);
 			timeoutTimer.unref();
