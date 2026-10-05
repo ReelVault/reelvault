@@ -1,7 +1,9 @@
 /**
  * Magic-byte allowlist for user uploads. The declared `Content-Type` is
  * client-controlled, and sharp happily rasterizes SVG sources — uploads must
- * be plain raster images we can name by their leading bytes alone.
+ * be plain raster images we can name by their leading bytes alone. Counterpart
+ * `getContentType` (processing/content-types.ts) is the intentionally broader
+ * download allowlist keyed by libvips-detected formats; do not merge the two.
  */
 const IMAGE_MAGIC: Array<{ format: string; test: (bytes: Buffer) => boolean }> = [
 	{ format: "jpeg", test: (b) => b.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])) },

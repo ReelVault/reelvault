@@ -1,12 +1,13 @@
 import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import { FileUtils, readFile } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
+import type { CanonicalSidecarDocument, SidecarArtwork, SidecarFormatInput } from "../../sidecar.types";
+import { extractYear } from "../../sidecar-metadata.utils";
 import { assertXmlDocumentSize, readXmlDocument, type XmlDocument } from "../../xml/xml-document.reader";
-import { readXmlAttr, readXmlObjects, readXmlText, readXmlTexts, readXmlValue } from "../../xml/xml-value.reader";
+import { readXmlAttr, readXmlObject, readXmlObjects, readXmlText, readXmlTexts, readXmlValue } from "../../xml/xml-value.reader";
+import { mapJellyfinArtwork } from "./jellyfin-artwork.mapper";
 
 const IMDB_REGEX = /^tt\d+$/;
 const NUMERIC_ID_REGEX = /^\d+$/;
-const REMOTE_URL_REGEX = /^[a-z][a-z0-9+.-]*:\/\//i;
 
 /** Drops undefined/empty namespaces so the resulting identifier map only contains usable ids. */
 export function toExternalIdentifiers(values: Record<string, string | undefined>): ExternalIdentifiers {
@@ -138,18 +139,67 @@ export function toDetailFields(node: Readonly<Record<string, unknown>>): DetailF
 	};
 }
 
-/** Resolves a sibling artwork reference, refusing escaping paths. Absolute
- * values (Jellyfin exports carry the source server's paths) are re-anchored to
- * the file name inside the document's own directory. Remote URLs have no local
- * counterpart and are rejected instead of resolving to a garbage subpath. */
-export function resolveLocalArtworkPath(documentPath: string, value: string | undefined): { path: string } | undefined {
-	if (!value || REMOTE_URL_REGEX.test(value)) return undefined;
+interface JellyfinTitleDocumentOptions {
+	readonly root: string;
+	readonly mediaKind: CanonicalSidecarDocument["mediaKind"];
+	/** Release-date element(s) in priority order (season: `premiered ?? aired`). */
+	readonly releaseDateElement: string | readonly string[];
+	readonly withTagline?: boolean | undefined;
+}
 
-	const directory = PathUtils.getDirName(documentPath);
-	const candidate = PathUtils.isAbsolute(value)
-		? PathUtils.join(directory, PathUtils.getFileName(value))
-		: PathUtils.resolve(directory, value);
-	if (!PathUtils.isSubpath(candidate, directory)) return undefined;
+/**
+ * Canonical document shared by the `<movie>`/`<tvshow>`/`<season>`/`<episodedetails>`
+ * roots. `mediaKind` also selects the mapped field set: movie/series carry the
+ * title-level details, season/episode only the reduced artwork their dialect supports.
+ */
+export async function readTitleDocument(
+	{ documentPath, content }: SidecarFormatInput,
+	{ root, mediaKind, releaseDateElement, withTagline = false }: JellyfinTitleDocumentOptions,
+): Promise<CanonicalSidecarDocument | null> {
+	const document = await loadJellyfinDocument(documentPath, content);
+	const node = document ? readXmlObject(document, root) : undefined;
+	if (!node) return null;
 
-	return { path: candidate };
+	const titleLevel = mediaKind === "movie" || mediaKind === "series";
+
+	return {
+		mediaKind,
+		identifiers: toIdentifiers(node),
+		title: readXmlText(node, "title"),
+		...(titleLevel
+			? {
+					originalTitle: readXmlText(node, "originaltitle"),
+					year: extractYear(readXmlText(node, "year")),
+					status: readXmlText(node, "status"),
+					...toDetailFields(node),
+				}
+			: {}),
+		releaseDate: readReleaseDate(node, releaseDateElement),
+		overview: readXmlText(node, "plot"),
+		...(withTagline ? { tagline: readXmlText(node, "tagline") } : {}),
+		artwork: mapTitleArtwork(mediaKind, documentPath, node),
+	};
+}
+
+/** `premiered ?? aired` for seasons; a single element for the other roots. */
+function readReleaseDate(node: Readonly<Record<string, unknown>>, elements: string | readonly string[]): string | undefined {
+	for (const element of typeof elements === "string" ? [elements] : elements) {
+		const value = readXmlText(node, element);
+		if (value !== undefined) return value;
+	}
+
+	return undefined;
+}
+
+/** Season/episode documents carry a single local image, movie/series the full art set. */
+function mapTitleArtwork(
+	mediaKind: CanonicalSidecarDocument["mediaKind"],
+	documentPath: string,
+	node: Readonly<Record<string, unknown>>,
+): SidecarArtwork {
+	const artwork = mapJellyfinArtwork(documentPath, node);
+	if (mediaKind === "season") return { poster: artwork.poster };
+	if (mediaKind === "episode") return { thumbnail: artwork.poster };
+
+	return artwork;
 }

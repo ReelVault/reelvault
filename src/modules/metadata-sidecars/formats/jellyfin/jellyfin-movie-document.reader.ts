@@ -1,25 +1,6 @@
 import type { CanonicalSidecarDocument, SidecarFormatInput } from "../../sidecar.types";
-import { extractYear } from "../../sidecar-metadata.utils";
-import { readXmlObject, readXmlText } from "../../xml/xml-value.reader";
-import { mapJellyfinArtwork } from "./jellyfin-artwork.mapper";
-import { loadJellyfinDocument, toDetailFields, toIdentifiers } from "./jellyfin-common";
+import { readTitleDocument } from "./jellyfin-common";
 
-export async function readJellyfinMovieDocument({ documentPath, content }: SidecarFormatInput): Promise<CanonicalSidecarDocument | null> {
-	const document = await loadJellyfinDocument(documentPath, content);
-	const movie = document ? readXmlObject(document, "movie") : undefined;
-	if (!movie) return null;
-
-	return {
-		mediaKind: "movie",
-		identifiers: toIdentifiers(movie),
-		title: readXmlText(movie, "title"),
-		originalTitle: readXmlText(movie, "originaltitle"),
-		year: extractYear(readXmlText(movie, "year")),
-		releaseDate: readXmlText(movie, "premiered"),
-		overview: readXmlText(movie, "plot"),
-		tagline: readXmlText(movie, "tagline"),
-		status: readXmlText(movie, "status"),
-		...toDetailFields(movie),
-		artwork: mapJellyfinArtwork(documentPath, movie),
-	};
+export async function readJellyfinMovieDocument(input: SidecarFormatInput): Promise<CanonicalSidecarDocument | null> {
+	return await readTitleDocument(input, { root: "movie", mediaKind: "movie", releaseDateElement: "premiered", withTagline: true });
 }

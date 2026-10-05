@@ -106,13 +106,14 @@ export class ImageProcessingService extends BaseService {
 	async replaceMetadataImage(metadataId: string, type: ImageProcess["type"], url: string, signal?: AbortSignal) {
 		return await this.safeExecute(
 			"replaceMetadataImage",
-			async () => {
-				throwIfAborted(signal);
-				const target = await this.dependencies.getMetadataTarget(metadataId, type);
-				const persisted = await this.dependencies.downloadAndPrepare(url, { ...target, currentLocalPath: undefined }, type, type, signal);
-				await this.dependencies.replaceMetadataImage(metadataId, type, persisted);
-				this.gc.tick();
-			},
+			() =>
+				this.persistOwnerImage({
+					signal,
+					fetchTarget: () => this.dependencies.getMetadataTarget(metadataId, type),
+					persist: (target) => this.dependencies.downloadAndPrepare(url, { ...target, currentLocalPath: undefined }, type, type, signal),
+					replace: (persisted) => this.dependencies.replaceMetadataImage(metadataId, type, persisted),
+					collectGarbage: true,
+				}),
 			{ logContext: { metadataId, type } },
 		);
 	}
@@ -132,11 +133,12 @@ export class ImageProcessingService extends BaseService {
 	async replaceMetadataImageWithUpload(metadataId: string, type: ImageProcess["type"], uploaded: UploadedImage) {
 		return await this.safeExecute(
 			"replaceMetadataImageWithUpload",
-			async () => {
-				const target = await this.dependencies.getMetadataTarget(metadataId, type);
-				const persisted = await this.prepareUpload(uploaded, target, type);
-				await this.dependencies.replaceMetadataImage(metadataId, type, persisted);
-			},
+			() =>
+				this.persistOwnerImage({
+					fetchTarget: () => this.dependencies.getMetadataTarget(metadataId, type),
+					persist: (target) => this.prepareUpload(uploaded, target, type),
+					replace: (persisted) => this.dependencies.replaceMetadataImage(metadataId, type, persisted),
+				}),
 			{ logContext: { metadataId, type } },
 		);
 	}
@@ -145,12 +147,12 @@ export class ImageProcessingService extends BaseService {
 	async replaceProfileAvatarFromUrl(profileId: string, url: string): Promise<{ imageId: string; avatarUrl: string }> {
 		return await this.safeExecute(
 			"replaceProfileAvatarFromUrl",
-			async () => {
-				const target = await this.dependencies.getProfileAvatarTarget(profileId);
-				const persisted = await this.dependencies.downloadAndPrepare(url, target, "avatar", "avatar");
-
-				return await this.dependencies.replaceProfileAvatar(profileId, persisted);
-			},
+			() =>
+				this.persistOwnerImage({
+					fetchTarget: () => this.dependencies.getProfileAvatarTarget(profileId),
+					persist: (target) => this.dependencies.downloadAndPrepare(url, target, "avatar", "avatar"),
+					replace: (persisted) => this.dependencies.replaceProfileAvatar(profileId, persisted),
+				}),
 			{ logContext: { profileId } },
 		);
 	}
@@ -158,12 +160,12 @@ export class ImageProcessingService extends BaseService {
 	async replaceProfileAvatarWithUpload(profileId: string, uploaded: UploadedImage): Promise<{ imageId: string; avatarUrl: string }> {
 		return await this.safeExecute(
 			"replaceProfileAvatarWithUpload",
-			async () => {
-				const target = await this.dependencies.getProfileAvatarTarget(profileId);
-				const persisted = await this.prepareUpload(uploaded, target, "avatar");
-
-				return await this.dependencies.replaceProfileAvatar(profileId, persisted);
-			},
+			() =>
+				this.persistOwnerImage({
+					fetchTarget: () => this.dependencies.getProfileAvatarTarget(profileId),
+					persist: (target) => this.prepareUpload(uploaded, target, "avatar"),
+					replace: (persisted) => this.dependencies.replaceProfileAvatar(profileId, persisted),
+				}),
 			{ logContext: { profileId } },
 		);
 	}
@@ -232,6 +234,30 @@ export class ImageProcessingService extends BaseService {
 			},
 			{ logContext: { personId } },
 		);
+	}
+
+	/** Fetches the owner target, persists one image and hands it to the owner
+	 * repository; `collectGarbage` mirrors the callers that tick the batch GC. */
+	private async persistOwnerImage<T>({
+		signal,
+		fetchTarget,
+		persist,
+		replace,
+		collectGarbage = false,
+	}: {
+		signal?: AbortSignal | undefined;
+		fetchTarget: () => Promise<ImageOwnerTarget>;
+		persist: (target: ImageOwnerTarget) => Promise<PersistedImageInput>;
+		replace: (persisted: PersistedImageInput) => Promise<T>;
+		collectGarbage?: boolean | undefined;
+	}): Promise<T> {
+		throwIfAborted(signal);
+		const target = await fetchTarget();
+		const persisted = await persist(target);
+		const result = await replace(persisted);
+		if (collectGarbage) this.gc.tick();
+
+		return result;
 	}
 
 	private async syncOwnerImage({

@@ -129,38 +129,13 @@ export class ImageDownloadPipeline extends BaseService {
 		variant: "poster" | "backdrop" | "avatar",
 		signal?: AbortSignal,
 	): Promise<Omit<PersistedImageInput, "localPath" | "stableKey">> {
-		throwIfAborted(signal);
-		await this.dependencies.createDirectory(PathUtils.getDirName(localPath));
-		await this.dependencies.deleteFile(localPath);
-
-		const sourcePath = createTempPath(localPath, ".source.tmp");
-		const optimizedPath = createTempPath(localPath, ".optimized.tmp");
-		try {
+		return await this.optimizeSource(localPath, variant, signal, async (sourcePath) => {
 			await this.dependencies.writeFile(sourcePath, await this.dependencies.readLocalFile(sourceFilePath));
 			const metadata = await this.dependencies.getImageMetadata(sourcePath);
 			if (metadata.format === "") throw new ValidationError(`Local file has no recognized image format: ${sourceFilePath}`);
 
 			getContentType(metadata.format);
-
-			throwIfAborted(signal);
-			const { data, info } = await this.dependencies.optimizeImageWithInfo(sourcePath, this.dependencies.resolveVariant(variant), signal);
-			if (!(await this.dependencies.writeFile(optimizedPath, data))) throw new InternalError(`Cannot write optimized image: ${localPath}`);
-
-			await this.dependencies.renameFile(optimizedPath, localPath);
-
-			const sourceHash = createHash("sha256").update(data).digest("hex");
-
-			return {
-				contentType: "image/webp",
-				width: info.width,
-				height: info.height,
-				fileSize: info.size,
-				sourceHash,
-			};
-		} finally {
-			await this.dependencies.deleteFile(sourcePath);
-			await this.dependencies.deleteFile(optimizedPath);
-		}
+		});
 	}
 
 	private async downloadAndGetInfo(
@@ -169,13 +144,7 @@ export class ImageDownloadPipeline extends BaseService {
 		variant: "poster" | "backdrop" | "avatar",
 		signal?: AbortSignal,
 	): Promise<Omit<PersistedImageInput, "localPath" | "stableKey">> {
-		throwIfAborted(signal);
-		await this.dependencies.createDirectory(PathUtils.getDirName(localPath));
-		await this.dependencies.deleteFile(localPath);
-
-		const sourcePath = createTempPath(localPath, ".source.tmp");
-		const optimizedPath = createTempPath(localPath, ".optimized.tmp");
-		try {
+		return await this.optimizeSource(localPath, variant, signal, async (sourcePath) => {
 			let downloadError: string | undefined;
 			const downloaded = await this.dependencies.download(url, sourcePath, {
 				signal,
@@ -192,6 +161,25 @@ export class ImageDownloadPipeline extends BaseService {
 				},
 			});
 			if (!downloaded) throw new ValidationError(`Cannot download a valid image from ${url}${downloadError ? `: ${downloadError}` : ""}`);
+		});
+	}
+
+	/** Optimizes and persists the bytes `acquire` placed at the temp source path;
+	 * acquisition (download vs local copy) is the only part that differs. */
+	private async optimizeSource(
+		localPath: string,
+		variant: "poster" | "backdrop" | "avatar",
+		signal: AbortSignal | undefined,
+		acquire: (sourcePath: string) => Promise<void>,
+	): Promise<Omit<PersistedImageInput, "localPath" | "stableKey">> {
+		throwIfAborted(signal);
+		await this.dependencies.createDirectory(PathUtils.getDirName(localPath));
+		await this.dependencies.deleteFile(localPath);
+
+		const sourcePath = createTempPath(localPath, ".source.tmp");
+		const optimizedPath = createTempPath(localPath, ".optimized.tmp");
+		try {
+			await acquire(sourcePath);
 
 			throwIfAborted(signal);
 			const { data, info } = await this.dependencies.optimizeImageWithInfo(sourcePath, this.dependencies.resolveVariant(variant), signal);
