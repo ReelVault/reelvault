@@ -12,10 +12,6 @@ export interface PathContext {
 export interface RecognitionResult {
 	type: "movie" | "tv_show";
 	identity: MediaIdentity;
-	meta: {
-		libraryStructure: string;
-		rootPath: string;
-	};
 }
 
 export interface RecognitionStrategy {

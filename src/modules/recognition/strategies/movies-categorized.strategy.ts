@@ -27,10 +27,6 @@ export class MoviesCategorizedStrategy implements RecognitionStrategy {
 						...fileIdentity,
 						year: fileIdentity.year ?? (Number.parseInt(parentFolder, 10) || undefined),
 					},
-					meta: {
-						libraryStructure: this.name,
-						rootPath: parentFolder,
-					},
 				};
 			}
 		}
@@ -55,10 +51,6 @@ export class MoviesCategorizedStrategy implements RecognitionStrategy {
 				title,
 				type: "movie",
 				year,
-			},
-			meta: {
-				libraryStructure: this.name,
-				rootPath: parentFolder,
 			},
 		};
 	}

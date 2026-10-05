@@ -14,10 +14,6 @@ export class MoviesBasicStrategy implements RecognitionStrategy {
 		return {
 			type: "movie",
 			identity,
-			meta: {
-				libraryStructure: this.name,
-				rootPath: fileName,
-			},
 		};
 	}
 }

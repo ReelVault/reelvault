@@ -46,7 +46,6 @@ export class SeriesCategorizedStrategy implements RecognitionStrategy {
 		return {
 			type: "tv_show",
 			identity: { title, year, type: "episode", season, episode, ...(episodeEnd !== undefined ? { episodeEnd } : {}) },
-			meta: { libraryStructure: this.name, rootPath: grandParentFolder },
 		};
 	}
 }
