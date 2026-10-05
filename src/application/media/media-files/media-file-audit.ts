@@ -1,8 +1,9 @@
 import type { MediaFileAuditItem, MediaFileAuditReason, MediaFileAuditResponse } from "@reelvault/sdk/common";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { type MediaFileAuditRow, mediaRepository } from "@/database/repositories/media-files.repository";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
-import { isSequelMismatch, rankCandidates } from "@/utils/media-match.utils";
+import { extractYear, isSequelMismatch, MIN_MATCH_SCORE, rankCandidates } from "@/utils/media-match.utils";
 import { mapLibraryType } from "@/utils/type.utils";
 
 const SEVERITY_WEIGHTS: Record<string, number> = { high: 3, low: 1, medium: 2 };
@@ -51,8 +52,8 @@ export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | 
 	}
 
 	if (recognized.year && row.metadataReleaseDate) {
-		const assignedYear = Number.parseInt(row.metadataReleaseDate.slice(0, 4), 10);
-		if (Number.isInteger(assignedYear)) {
+		const assignedYear = extractYear(row.metadataReleaseDate);
+		if (assignedYear !== undefined) {
 			const yearDiff = Math.abs(recognized.year - assignedYear);
 			if (yearDiff >= 3) {
 				reasons.push({
@@ -77,7 +78,7 @@ export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | 
 	)[0];
 	const simScore = simTitle ? Number(simTitle.score.toFixed(3)) : 0;
 
-	if (simScore < 0.45 && !reasons.some((r) => r.code === "sequel_mismatch")) {
+	if (simScore < MIN_MATCH_SCORE && !reasons.some((r) => r.code === "sequel_mismatch")) {
 		reasons.push({
 			code: "title_mismatch",
 			severity: "high",
@@ -103,7 +104,11 @@ export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | 
 		}
 	}
 
-	if (row.metadataMatchScore !== null && row.metadataMatchScore < 0.65 && reasons.length === 0) {
+	if (
+		row.metadataMatchScore !== null &&
+		row.metadataMatchScore < systemSettingsStore.get("metadata.minMatchScore") &&
+		reasons.length === 0
+	) {
 		reasons.push({
 			code: "low_confidence",
 			severity: "low",

@@ -536,7 +536,7 @@ function normalizeTitle(value: string): string {
 	return normalized;
 }
 
-function extractYear(date: string | undefined): number | undefined {
+export function extractYear(date: string | undefined): number | undefined {
 	const year = date && date.length >= 4 ? Number(date.slice(0, 4)) : undefined;
 
 	return year && Number.isInteger(year) ? year : undefined;

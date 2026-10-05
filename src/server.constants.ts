@@ -344,5 +344,3 @@ export const serverConstants = {
 		},
 	},
 };
-
-/** matchScore below this value is treated as a low-confidence provider match. */
