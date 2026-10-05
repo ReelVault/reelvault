@@ -1,15 +1,4 @@
-import {
-	fmtMs,
-	type HttpScenarioResult,
-	type HttpScenarioRun,
-	httpScenarioResult,
-	main,
-	printHttpResults,
-	printTable,
-	runHttpScenario,
-	suiteArgs,
-	task,
-} from "benchkit";
+import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, task } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
 import { subnetIp, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
@@ -113,48 +102,29 @@ const SCENARIOS: readonly WriteScenarioDefinition[] = [
 	{ name: "PATCH /v1/admin/settings (round-trip)", builder: settingsRoundTrip },
 ];
 
-function runScenario(
-	scenario: WriteScenarioDefinition,
-	concurrency: number,
-	context: AdminWriteContext,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioRun> {
-	return runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (workerIndex, requestIndex) => {
-			try {
-				const response = await fetch(scenario.builder(context, workerIndex, requestIndex));
-				if (!scenario.pair) {
-					const ok = response.status < 500;
-					await response.arrayBuffer();
+/** Create→delete pair: the latency of the whole cycle is one sample. */
+function pairWork(scenario: WriteScenarioDefinition, context: AdminWriteContext) {
+	return async (workerIndex: number, requestIndex: number): Promise<{ ok: boolean }> => {
+		try {
+			const response = await fetch(scenario.builder(context, workerIndex, requestIndex));
+			const ok = response.status < 500;
+			const body: unknown = await response.json();
+			let createdId: string | undefined;
+			if (isRecord(body) && typeof body.id === "string") createdId = body.id;
+			if (!createdId && isRecord(body) && isRecord(body.data) && typeof body.data.id === "string") createdId = body.data.id;
+			if (!createdId) return { ok: false };
 
-					return { ok };
-				}
+			const deleteResponse = await fetch(`${context.baseUrl}/v1/profiles/${createdId}`, {
+				method: "DELETE",
+				headers: workerHeaders(context, workerIndex),
+			});
+			await deleteResponse.arrayBuffer();
 
-				// Pair mode: create, then delete the created row — the latency of
-				// the whole create→delete cycle is one sample.
-				const ok = response.status < 500;
-				const body: unknown = await response.json();
-				let createdId: string | undefined;
-				if (isRecord(body) && typeof body.id === "string") createdId = body.id;
-				if (!createdId && isRecord(body) && isRecord(body.data) && typeof body.data.id === "string") createdId = body.data.id;
-				if (!createdId) return { ok: false };
-
-				const deleteResponse = await fetch(`${context.baseUrl}/v1/profiles/${createdId}`, {
-					method: "DELETE",
-					headers: workerHeaders(context, workerIndex),
-				});
-				await deleteResponse.arrayBuffer();
-
-				return { ok: ok && deleteResponse.status < 500 };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
+			return { ok: ok && deleteResponse.status < 500 };
+		} catch {
+			return { ok: false };
+		}
+	};
 }
 
 async function preloadNotificationIds(server: ManagedServer, workerIndex: number): Promise<string[]> {
@@ -258,20 +228,23 @@ if (!args.help) {
 			settingsPatchBody,
 		};
 
-		const results: HttpScenarioResult[] = [];
 		const scenarios = SCENARIOS.filter((scenario) => scenario.name !== "PATCH /v1/admin/settings (round-trip)" || settingsPatchBody);
-		for (const concurrency of args.concurrency) {
-			console.log(`\n[write-admin] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-			for (const scenario of scenarios) {
-				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-				const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
-				results.push(result);
-				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-				console.log(
-					`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-				);
-			}
-		}
+		const results = await runScenarioMatrix({
+			suite: "write-admin",
+			unit: "writes/s",
+			scenarios: scenarios.map((scenario) =>
+				scenario.pair
+					? { name: scenario.name, work: pairWork(scenario, context) }
+					: {
+							name: scenario.name,
+							requestFor: (workerIndex: number, requestIndex: number) => scenario.builder(context, workerIndex, requestIndex),
+							accept: (response: Response) => response.status < 500,
+						},
+			),
+			concurrency: args.concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+		});
 
 		printHttpResults(results);
 

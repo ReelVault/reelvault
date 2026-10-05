@@ -1,18 +1,6 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import {
-	fmtMs,
-	type HttpScenarioResult,
-	type HttpScenarioRun,
-	httpScenarioResult,
-	main,
-	printHttpResults,
-	printTable,
-	runHttpScenario,
-	suiteArgs,
-	summarizeLatencies,
-	task,
-} from "benchkit";
+import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
 import { subnetIp, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
@@ -98,31 +86,6 @@ const SCENARIOS: ReadonlyArray<readonly [string, PluginRequestBuilder]> = [
 	["GET /v1/plugins/<unknown>/... (404 guard)", unknownPlugin],
 	["GET /v1/me/watchlist?limit=24 (native baseline)", nativeBaseline],
 ];
-
-function runScenario(
-	scenario: readonly [string, PluginRequestBuilder],
-	concurrency: number,
-	context: PluginContext,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioRun> {
-	return runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (workerIndex, requestIndex) => {
-			try {
-				const response = await fetch(scenario[1](context, workerIndex, requestIndex));
-				const ok = response.status < 500;
-				await response.arrayBuffer();
-
-				return { ok };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
-}
 
 function resolvePluginZip(): string | undefined {
 	const pluginsDist = join(import.meta.dir, "..", "..", "..", "plugins", "dist", "plugins", PLUGIN_DIR);
@@ -303,7 +266,6 @@ if (!args.help) {
 
 		task("plugins: lifecycle + dispatch", async () => {
 			const server = await serverFixture();
-			const results: HttpScenarioResult[] = [];
 			console.log(`[plugins] installing ${zipPath}`);
 			await installPlugin(server, zipPath);
 			await seedRequests(server, SEED_REQUESTS); // 5 — the plugin caps active requests at 10
@@ -323,18 +285,18 @@ if (!args.help) {
 			await pairWritePhase(server);
 			await guardCounts(server);
 
-			for (const concurrency of args.concurrency) {
-				console.log(`\n[plugins] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-				for (const scenario of SCENARIOS) {
-					const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-					const result = httpScenarioResult(scenario[0], concurrency, run, args.durationMs);
-					results.push(result);
-					const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-					console.log(
-						`  ${scenario[0]}: ${result.requestsPerSecond.toFixed(0)} req/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-					);
-				}
-			}
+			const results = await runScenarioMatrix({
+				suite: "plugins",
+				unit: "req/s",
+				scenarios: SCENARIOS.map((scenario) => ({
+					name: scenario[0],
+					requestFor: (workerIndex: number, requestIndex: number) => scenario[1](context, workerIndex, requestIndex),
+					accept: (response: Response) => response.status < 500,
+				})),
+				concurrency: args.concurrency,
+				warmupMs: args.warmupMs,
+				durationMs: args.durationMs,
+			});
 
 			printHttpResults(results);
 		});

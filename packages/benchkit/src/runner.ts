@@ -152,8 +152,12 @@ export interface DiscoveryOptions {
 	strict?: boolean | undefined;
 }
 
-const STEM_SUFFIX = ".bench.ts";
-export const STEM_SUFFIX_REGEX = /\.bench\.ts$/;
+const STEM_SUFFIX_REGEX = /\.bench\.ts$/;
+
+/** Suite stem from a bench file path (`.../http.bench.ts` → `http`). */
+export function stemOf(file: string): string {
+	return basename(file).replace(STEM_SUFFIX_REGEX, "");
+}
 
 /** Compiles the `--only` unit-name filter; case-insensitive, undefined = no filter. */
 export function compileOnlyFilter(pattern: string | undefined): RegExp | undefined {
@@ -189,7 +193,7 @@ function readDescription(module: unknown): string {
 /** Discovers, imports and runs *.bench.ts files sequentially, gc-ing between them. */
 export async function runDiscovery(options: DiscoveryOptions): Promise<void> {
 	const { files, command, target } = options;
-	const stems = files.map((file) => basename(file).replace(STEM_SUFFIX, ""));
+	const stems = files.map((file) => stemOf(file));
 
 	if (!target || target === "help" || target === "--help" || target === "-h") {
 		printRunnerUsage(command, stems);
@@ -246,7 +250,7 @@ export async function runDiscovery(options: DiscoveryOptions): Promise<void> {
 			const units = selectUnits(collected, onlyRe);
 			matchedUnits += units.length;
 			const description = readDescription(module);
-			const stem = basename(file).replace(STEM_SUFFIX, "");
+			const stem = stemOf(file);
 			console.log(`[benchkit] running suite "${stem}": ${description}\n`);
 
 			const fileJson: RunnerJson["files"][number] = { file: basename(file), description, results: [] };
@@ -339,7 +343,7 @@ function printBaselineComparison(comparisons: readonly BaselineComparison[], pat
 function applyVerdicts(artifact: RunnerJson, comparisons: readonly BaselineComparison[]): void {
 	const byKey = new Map(comparisons.map((comparison) => [`${comparison.file}/${comparison.name}`, comparison.verdict]));
 	for (const file of artifact.files) {
-		const stem = file.file.replace(STEM_SUFFIX_REGEX, "");
+		const stem = stemOf(file.file);
 		for (const result of file.results) {
 			if (result.kind !== "bench") continue;
 
@@ -367,7 +371,7 @@ export async function runFile(meta: ImportMeta): Promise<void> {
 	}
 
 	try {
-		await executeUnits(units, [], undefined, basename(meta.path).replace(STEM_SUFFIX, ""));
+		await executeUnits(units, [], undefined, stemOf(meta.path));
 	} catch (error) {
 		console.error("Benchmark failed:", error);
 		process.exitCode = 1;

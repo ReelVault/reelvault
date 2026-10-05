@@ -1,17 +1,15 @@
 import {
 	fmtMs,
 	type HttpScenarioResult,
-	type HttpScenarioRun,
 	main,
 	printHttpResults,
 	printTable,
-	runHttpScenario,
+	runRequestScenario,
 	suiteArgs,
 	summarizeLatencies,
 	task,
 } from "benchkit";
 import { adminHeaders } from "./lib/identity";
-import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
 
 /**
@@ -22,39 +20,6 @@ import { createServerFixture } from "./lib/server-fixture";
  *  - thundering-herd dedup — N parallel first-time requests for the same
  *    variant must collapse to one Sharp encode (in-flight dedup).
  */
-
-function runDurationScenario(
-	server: ManagedServer,
-	urlFor: (requestIndex: number) => string,
-	concurrency: number,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioRun> {
-	return runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (requestIndex) => {
-			try {
-				const response = await fetch(urlFor(requestIndex), { headers: adminHeaders(server, "10.85.0.1", false) });
-				const ok = response.ok;
-				await response.arrayBuffer();
-
-				return { ok };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
-}
-
-function summarizeRun(name: string, run: HttpScenarioRun, durationMs: number): HttpScenarioResult {
-	const stats = summarizeLatencies(run.latencies);
-	const rps = run.successes / (durationMs / 1000);
-	const errorRate = run.requests > 0 ? ((run.requests - run.successes) / run.requests) * 100 : 0;
-
-	return { name, stats, requestsPerSecond: rps, errorRatePercent: errorRate };
-}
 
 export const meta = { description: "Image pipeline (width matrix, variant-cache LRU churn, thundering-herd dedup)" };
 
@@ -78,21 +43,27 @@ if (!args.help) {
 		// Width matrix — every request stays on one width so the variant cache serves it warm.
 		const widths = [342, 780, 1280, 1920];
 		for (const width of widths) {
-			const run = await runDurationScenario(managed, () => imageUrl(width), concurrency, args.warmupMs, args.durationMs);
-			const result = summarizeRun(`GET /v1/images/:id?w=${width} (warm variant)`, run, args.durationMs);
+			const result = await runRequestScenario({
+				name: `GET /v1/images/:id?w=${width} (warm variant)`,
+				concurrency,
+				warmupMs: args.warmupMs,
+				durationMs: args.durationMs,
+				requestFor: () => new Request(imageUrl(width), { headers: adminHeaders(managed, "10.85.0.1", false) }),
+			});
 			results.push(result);
 			console.log(`  w=${width}: ${result.requestsPerSecond.toFixed(0)} req/s, p95 ${result.stats.p95Ms.toFixed(1)}ms`);
 		}
 
 		// LRU churn — far more distinct widths than the variant cache holds.
-		const churn = await runDurationScenario(
-			managed,
-			(requestIndex) => imageUrl(200 + (requestIndex % 4000)),
+		// Pre-existing load pattern: the width keys off the worker index.
+		const churnResult = await runRequestScenario({
+			name: "GET /v1/images/:id?w=200..4200 (LRU churn, all misses)",
 			concurrency,
-			args.warmupMs,
-			args.durationMs,
-		);
-		const churnResult = summarizeRun("GET /v1/images/:id?w=200..4200 (LRU churn, all misses)", churn, args.durationMs);
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+			requestFor: (workerIndex) =>
+				new Request(imageUrl(200 + (workerIndex % 4000)), { headers: adminHeaders(managed, "10.85.0.1", false) }),
+		});
 		results.push(churnResult);
 		console.log(`  churn: ${churnResult.requestsPerSecond.toFixed(0)} req/s, p95 ${churnResult.stats.p95Ms.toFixed(1)}ms`);
 

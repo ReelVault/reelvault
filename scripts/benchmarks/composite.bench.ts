@@ -1,13 +1,4 @@
-import {
-	type HttpScenarioResult,
-	type HttpScenarioRun,
-	httpScenarioResult,
-	main,
-	printHttpResults,
-	runHttpScenario,
-	suiteArgs,
-	task,
-} from "benchkit";
+import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 import { subnetIp, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
@@ -158,27 +149,6 @@ const SCENARIOS: readonly SequenceScenario[] = [
 	{ name: "SEQ admin-dashboard-view (1.2)", builder: adminDashboardView12 },
 ];
 
-function runScenario(
-	scenario: SequenceScenario,
-	concurrency: number,
-	context: CompositeContext,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioRun> {
-	return runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (workerIndex, requestIndex) => {
-			try {
-				return { ok: await runSequence(scenario.builder(context, workerIndex, requestIndex)) };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
-}
-
 export const meta = { description: "Frontend page-open request sequences (dashboard, hero, details, player, watchlist) + 1.2 composites" };
 
 const args = suiteArgs();
@@ -205,19 +175,19 @@ if (!args.help) {
 			statusesBatch: [server.benchmarkMovieDetailId, server.benchmarkTvDetailId, "meta-0000010", "meta-0000020", "meta-0000030"].join(","),
 		};
 
-		const results: HttpScenarioResult[] = [];
-		for (const concurrency of args.concurrency) {
-			console.log(`\n[composite] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-			for (const scenario of SCENARIOS) {
-				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-				const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
-				results.push(result);
-				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-				console.log(
-					`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} visits/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-				);
-			}
-		}
+		const results = await runScenarioMatrix({
+			suite: "composite",
+			unit: "visits/s",
+			scenarios: SCENARIOS.map((scenario) => ({
+				name: scenario.name,
+				work: async (workerIndex: number, requestIndex: number) => ({
+					ok: await runSequence(scenario.builder(context, workerIndex, requestIndex)),
+				}),
+			})),
+			concurrency: args.concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+		});
 
 		printHttpResults(results);
 	});

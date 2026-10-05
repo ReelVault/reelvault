@@ -127,17 +127,140 @@ export async function runHttpScenario(options: HttpScenarioOptions): Promise<Htt
 	return { latencies: run.successLatencies, successes: run.successes, requests: run.requests };
 }
 
-/** Aggregates one scenario run into the printable/JSON result row. */
-export function httpScenarioResult(
-	scenarioName: string,
-	concurrency: number | string,
-	run: HttpScenarioRun,
-	durationMs: number,
-): HttpScenarioResult {
+/** Builds the request issued once per load-window iteration. */
+export type RequestFactory = (workerIndex: number, requestIndex: number) => Request | Promise<Request>;
+
+/** Custom multi-request work for scenarios that issue more than one request. */
+export type ScenarioWork = (workerIndex: number, requestIndex: number) => Promise<{ ok: boolean }>;
+
+export interface RequestScenarioOptions {
+	/** Display name for the result row; no `c=` prefix is added. */
+	name: string;
+	concurrency: number;
+	warmupMs: number;
+	durationMs: number;
+	requestFor: RequestFactory;
+	/** Success predicate applied after the body is drained; defaults to `response.ok`. */
+	accept?: ((response: Response) => boolean) | undefined;
+}
+
+/**
+ * One HTTP scenario at one concurrency: fetches `requestFor` per iteration,
+ * drains the body and aggregates the run into a printable result row.
+ */
+export async function runRequestScenario(options: RequestScenarioOptions): Promise<HttpScenarioResult> {
+	const run = await runHttpScenario({
+		concurrency: options.concurrency,
+		warmupMs: options.warmupMs,
+		durationMs: options.durationMs,
+		work: requestWork(options.requestFor, options.accept),
+	});
+
+	return scenarioResult(options.name, run, options.durationMs);
+}
+
+interface ScenarioMatrixEntryBase {
+	name: string;
+	/** Throughput unit for this row; defaults to the matrix unit. */
+	unit?: string | undefined;
+}
+
+/** A matrix row: a single-request factory or custom multi-request work. */
+export type ScenarioMatrixEntry =
+	| (ScenarioMatrixEntryBase & { requestFor: RequestFactory; accept?: ((response: Response) => boolean) | undefined })
+	| (ScenarioMatrixEntryBase & { work: ScenarioWork });
+
+export interface ScenarioMatrixOptions {
+	/** Suite tag in the progress header, e.g. `http` prints `[http] concurrency ...`. */
+	suite: string;
+	/** Default throughput unit for the log lines, e.g. `req/s`. */
+	unit: string;
+	concurrency: readonly number[];
+	warmupMs: number;
+	durationMs: number;
+	scenarios: readonly ScenarioMatrixEntry[];
+	/** Latency columns reported per log line; defaults to `p95`. */
+	latency?: "p50" | "p95" | "both" | undefined;
+	/** Decimal places for the logged latencies; defaults to 1. */
+	latencyDigits?: number | undefined;
+}
+
+/**
+ * Runs every scenario at every concurrency with the shared progress header and
+ * per-scenario throughput/error log line; returns the rows for `printHttpResults`.
+ */
+export async function runScenarioMatrix(options: ScenarioMatrixOptions): Promise<HttpScenarioResult[]> {
+	const results: HttpScenarioResult[] = [];
+	for (const concurrency of options.concurrency) {
+		console.log(`\n[${options.suite}] concurrency ${concurrency} (warmup ${options.warmupMs}ms, measure ${options.durationMs}ms)`);
+		for (const scenario of options.scenarios) {
+			const result = await runMatrixScenario(scenario, concurrency, options);
+			results.push(result);
+			const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
+			console.log(
+				`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} ${scenario.unit ?? options.unit}, ${latencyText(result.stats, options)}${failureNote}`,
+			);
+		}
+	}
+
+	return results;
+}
+
+async function runMatrixScenario(
+	scenario: ScenarioMatrixEntry,
+	concurrency: number,
+	options: ScenarioMatrixOptions,
+): Promise<HttpScenarioResult> {
+	if ("work" in scenario) {
+		const run = await runHttpScenario({
+			concurrency,
+			warmupMs: options.warmupMs,
+			durationMs: options.durationMs,
+			work: scenario.work,
+		});
+
+		return scenarioResult(`c=${concurrency} ${scenario.name}`, run, options.durationMs);
+	}
+
+	return runRequestScenario({
+		name: `c=${concurrency} ${scenario.name}`,
+		concurrency,
+		warmupMs: options.warmupMs,
+		durationMs: options.durationMs,
+		requestFor: scenario.requestFor,
+		accept: scenario.accept,
+	});
+}
+
+/** Wraps one request into a load sample: fetch, drain, accept, never throw. */
+function requestWork(requestFor: RequestFactory, accept: ((response: Response) => boolean) | undefined): ScenarioWork {
+	return async (workerIndex, requestIndex) => {
+		try {
+			const response = await fetch(await requestFor(workerIndex, requestIndex));
+			const ok = accept ? accept(response) : response.ok;
+			await response.arrayBuffer();
+
+			return { ok };
+		} catch {
+			return { ok: false };
+		}
+	};
+}
+
+function latencyText(stats: LatencyStats, options: Pick<ScenarioMatrixOptions, "latency" | "latencyDigits">): string {
+	const digits = options.latencyDigits ?? 1;
+	if (options.latency === "p50") return `p50 ${stats.p50Ms.toFixed(digits)}ms`;
+	if (options.latency === "both") return `p50 ${stats.p50Ms.toFixed(digits)}ms, p95 ${stats.p95Ms.toFixed(digits)}ms`;
+
+	return `p95 ${stats.p95Ms.toFixed(digits)}ms`;
+}
+
+/** Aggregates one scenario run into a printable/JSON result row under an explicit name. */
+function scenarioResult(name: string, run: HttpScenarioRun, durationMs: number): HttpScenarioResult {
 	const stats = summarizeLatencies(run.latencies);
 
 	return {
-		name: `c=${concurrency} ${scenarioName}`,
+		name,
 		stats,
 		requestsPerSecond: run.successes / (durationMs / 1000),
 		errorRatePercent: run.requests > 0 ? ((run.requests - run.successes) / run.requests) * 100 : 0,

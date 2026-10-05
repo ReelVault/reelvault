@@ -58,8 +58,10 @@ compare("stripDiacritics", {
 // Everything that is not a micro-measurement: load flows, audits, phase sequences.
 task("http scenarios", async () => {
 	const s = await server();
-	// runLoadWindow({ concurrency, warmupMs, durationMs, work }) — the shared
-	// deadline + discard-warmup + latency loop for all HTTP suites.
+	// runScenarioMatrix({ suite, unit, scenarios, concurrency, warmupMs, durationMs })
+	// — the shared concurrency loop, progress/failure logs and result rows; each
+	// scenario declares requestFor(workerIndex, requestIndex) or multi-request work.
+	// runRequestScenario(...) is the single-scenario form.
 });
 
 await main(import.meta); // the single tail line: --help → usage, otherwise runFile
@@ -79,7 +81,7 @@ Units are executed by the runner (`runDiscovery` / `runFile`):
 | `args.ts` | shared CLI parser (`--duration`, `--rows`, `--json`, `--strict`, …) + `suiteArgs()` (one parse per process) |
 | `stats.ts` | percentiles, `summarizeLatencies` |
 | `report.ts` | ASCII tables, formatters |
-| `harness.ts` | micro-timing (`measure`/`benchmark`/`benchmarkAsync`/`measureAsync`), result printers, `runHttpScenario` |
+| `harness.ts` | micro-timing (`measure`/`benchmark`/`benchmarkAsync`/`measureAsync`), result printers, `runHttpScenario`, `runRequestScenario`/`runScenarioMatrix` |
 | `compare.ts` | `abCompare` (batch+median), `compareVariants` (equal), `printAbResult` |
 | `load.ts` | `runLoadWindow` (one load loop for http/streaming/upload/auth/…), `parseSegments` |
 | `recorder.ts` | `Recorder` (per-op latencies + errors, `serialize()` to JSON) |

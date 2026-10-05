@@ -1,14 +1,12 @@
 import {
 	fmtMs,
-	type HttpScenarioResult,
-	type HttpScenarioRun,
-	httpScenarioResult,
 	main,
 	printHttpResults,
 	printTable,
-	runHttpScenario,
+	runRequestScenario,
+	runScenarioMatrix,
+	type ScenarioMatrixEntry,
 	suiteArgs,
-	summarizeLatencies,
 	task,
 } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
@@ -98,61 +96,36 @@ const idempotentReplay: SessionRequestBuilder = (context, worker, request) =>
 		body: JSON.stringify({ mediaFileId: context.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] }),
 	});
 
-const SCENARIOS: ReadonlyArray<readonly [string, SessionRequestBuilder]> = [
-	["POST /:id/heartbeat (empty, in-memory)", heartbeatEmpty],
-	["POST /:id/heartbeat (with progress upsert)", heartbeatProgress],
-	["GET /:id/transcode-progress", transcodeProgress],
-	["GET /:id/diagnostics", diagnostics],
-	["POST / (create path + release; 409/429 = guard)", createChurn],
-	["POST / (idempotent replay)", idempotentReplay],
-];
+/** 409/429 are the session guards working as designed — any non-5xx is a full decision-path sample. */
+const acceptSessionResponse = (response: Response): boolean => response.status < 500;
 
-function runScenario(
-	scenario: readonly [string, SessionRequestBuilder],
-	concurrency: number,
-	context: SessionsContext,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioRun> {
-	return runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (workerIndex, requestIndex) => {
-			try {
-				const response = await fetch(scenario[1](context, workerIndex, requestIndex));
-				if (!scenario[0].includes("churn")) {
-					const ok = response.status < 500;
-					await response.arrayBuffer();
+/**
+ * Churn: create then release. A rejected create (409 session limit / 429
+ * cooldown) still measures the full decision path; only real failures count.
+ */
+async function churnWork(context: SessionsContext, workerIndex: number, requestIndex: number): Promise<{ ok: boolean }> {
+	try {
+		const response = await fetch(createChurn(context, workerIndex, requestIndex));
+		if (response.status === 409 || response.status === 429) {
+			await response.arrayBuffer();
 
-					return { ok };
-				}
+			return { ok: true };
+		}
+		if (response.status >= 500) return { ok: false };
+		const created: unknown = await response.json();
+		const sessionId = isRecord(created) && typeof created.sessionId === "string" ? created.sessionId : undefined;
+		if (!sessionId) return { ok: false };
 
-				// Churn: create then release. 409 (session limit) and 429 (creation
-				// cooldown) are the guards working as designed — a rejected create
-				// IS a full decision-path sample. Only real failures count as errors.
-				if (response.status === 409 || response.status === 429) {
-					await response.arrayBuffer();
+		const del = await fetch(`${context.baseUrl}/v1/playback-sessions/${sessionId}`, {
+			method: "DELETE",
+			headers: headers(context, workerIndex, requestIndex),
+		});
+		await del.arrayBuffer();
 
-					return { ok: true };
-				}
-				if (response.status >= 500) return { ok: false };
-				const created: unknown = await response.json();
-				const sessionId = isRecord(created) && typeof created.sessionId === "string" ? created.sessionId : undefined;
-				if (!sessionId) return { ok: false };
-
-				const del = await fetch(`${context.baseUrl}/v1/playback-sessions/${sessionId}`, {
-					method: "DELETE",
-					headers: headers(context, workerIndex, requestIndex),
-				});
-				await del.arrayBuffer();
-
-				return { ok: del.status < 500 };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
+		return { ok: del.status < 500 };
+	} catch {
+		return { ok: false };
+	}
 }
 
 async function raiseSessionLimits(server: ManagedServer): Promise<void> {
@@ -212,33 +185,24 @@ async function authComparisonPhase(
 	];
 
 	for (const [name, auth] of variants) {
-		const run = await runHttpScenario({
+		const result = await runRequestScenario({
+			name,
 			concurrency,
 			warmupMs,
 			durationMs,
-			work: async () => {
-				try {
-					const response = await fetch(`${context.baseUrl}/v1/playback-sessions/${adminSessionId}/heartbeat`, {
-						method: "POST",
-						headers: {
-							...auth,
-							"x-profile-id": context.adminProfileId,
-							"content-type": "application/json",
-							"x-forwarded-for": "10.88.255.1",
-						},
-						body: JSON.stringify({ position: 42, duration: 600, isPaused: false }),
-					});
-					const ok = response.status < 500;
-					await response.arrayBuffer();
-
-					return { ok };
-				} catch {
-					return { ok: false };
-				}
-			},
+			requestFor: () =>
+				new Request(`${context.baseUrl}/v1/playback-sessions/${adminSessionId}/heartbeat`, {
+					method: "POST",
+					headers: {
+						...auth,
+						"x-profile-id": context.adminProfileId,
+						"content-type": "application/json",
+						"x-forwarded-for": "10.88.255.1",
+					},
+					body: JSON.stringify({ position: 42, duration: 600, isPaused: false }),
+				}),
 		});
-		const stats = summarizeLatencies(run.latencies.length > 0 ? run.latencies : [0]);
-		rows.push([name, `${(run.successes / (durationMs / 1000)).toFixed(0)} ops/s`, fmtMs(stats.p50Ms), fmtMs(stats.p95Ms)]);
+		rows.push([name, `${result.requestsPerSecond.toFixed(0)} ops/s`, fmtMs(result.stats.p50Ms), fmtMs(result.stats.p95Ms)]);
 	}
 
 	printTable("Auth comparison: heartbeat with progress (admin session)", ["auth", "throughput", "p50", "p95"], rows);
@@ -265,7 +229,6 @@ if (!args.help) {
 			return;
 		}
 
-		const results: HttpScenarioResult[] = [];
 		await raiseSessionLimits(server);
 
 		// One live session per worker identity (distinct profiles — the 500ms
@@ -291,16 +254,45 @@ if (!args.help) {
 			apiKey,
 		};
 
-		for (const concurrency of args.concurrency) {
-			console.log(`\n[sessions] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-			for (const scenario of SCENARIOS) {
-				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-				const result = httpScenarioResult(scenario[0], concurrency, run, args.durationMs);
-				results.push(result);
-				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-				console.log(`  ${scenario[0]}: ${result.requestsPerSecond.toFixed(0)} ops/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`);
-			}
-		}
+		const scenarioEntries: ScenarioMatrixEntry[] = [
+			{
+				name: "POST /:id/heartbeat (empty, in-memory)",
+				requestFor: (workerIndex, requestIndex) => heartbeatEmpty(context, workerIndex, requestIndex),
+				accept: acceptSessionResponse,
+			},
+			{
+				name: "POST /:id/heartbeat (with progress upsert)",
+				requestFor: (workerIndex, requestIndex) => heartbeatProgress(context, workerIndex, requestIndex),
+				accept: acceptSessionResponse,
+			},
+			{
+				name: "GET /:id/transcode-progress",
+				requestFor: (workerIndex, requestIndex) => transcodeProgress(context, workerIndex, requestIndex),
+				accept: acceptSessionResponse,
+			},
+			{
+				name: "GET /:id/diagnostics",
+				requestFor: (workerIndex, requestIndex) => diagnostics(context, workerIndex, requestIndex),
+				accept: acceptSessionResponse,
+			},
+			{
+				name: "POST / (create path + release; 409/429 = guard)",
+				work: (workerIndex, requestIndex) => churnWork(context, workerIndex, requestIndex),
+			},
+			{
+				name: "POST / (idempotent replay)",
+				requestFor: (workerIndex, requestIndex) => idempotentReplay(context, workerIndex, requestIndex),
+				accept: acceptSessionResponse,
+			},
+		];
+		const results = await runScenarioMatrix({
+			suite: "sessions",
+			unit: "ops/s",
+			scenarios: scenarioEntries,
+			concurrency: args.concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+		});
 
 		printHttpResults(results);
 

@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fmtMs, type HttpScenarioResult, main, printHttpResults, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
+import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { $ } from "bun";
 
 import { adminHeaders } from "./lib/identity";
@@ -119,7 +119,6 @@ if (!args.help) {
 
 		const fixtures = await prepareFixtures(server);
 		const headers = adminHeaders(server, "10.82.0.2");
-		const results: HttpScenarioResult[] = [];
 
 		const scenarios: Array<{ name: string; url: string }> = [
 			{
@@ -128,52 +127,17 @@ if (!args.help) {
 			},
 			{ name: "GET /v1/subtitles/:id/content (external file)", url: `${server.baseUrl}/v1/subtitles/${fixtures.externalId}/content` },
 		];
-
-		for (const concurrency of args.concurrency) {
-			console.log(`\n[subtitles] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-			for (const scenario of scenarios) {
-				const latencies: number[] = [];
-				let successes = 0;
-				let requests = 0;
-				const startedAt = performance.now();
-				const warmupEndsAt = startedAt + args.warmupMs;
-				const runDeadline = startedAt + args.warmupMs + args.durationMs;
-
-				await Promise.all(
-					Array.from({ length: concurrency }, () =>
-						(async () => {
-							while (performance.now() < runDeadline) {
-								const requestStartedAt = performance.now();
-								let ok = false;
-								try {
-									const response = await fetch(scenario.url, { headers });
-									ok = response.ok;
-									await response.arrayBuffer();
-								} catch {
-									ok = false;
-								}
-
-								const finishedAt = performance.now();
-								if (finishedAt >= warmupEndsAt) {
-									requests++;
-									if (ok) {
-										successes++;
-										latencies.push(finishedAt - requestStartedAt);
-									}
-								}
-							}
-						})(),
-					),
-				);
-
-				const stats = summarizeLatencies(latencies);
-				const rps = successes / (args.durationMs / 1000);
-				const errorRate = requests > 0 ? ((requests - successes) / requests) * 100 : 0;
-				results.push({ name: `c=${concurrency} ${scenario.name}`, stats, requestsPerSecond: rps, errorRatePercent: errorRate });
-				const failureNote = errorRate > 0 ? `, errors ${errorRate.toFixed(1)}%` : "";
-				console.log(`  ${scenario.name}: ${rps.toFixed(0)} req/s, p95 ${stats.p95Ms.toFixed(1)}ms${failureNote}`);
-			}
-		}
+		const results = await runScenarioMatrix({
+			suite: "subtitles",
+			unit: "req/s",
+			scenarios: scenarios.map((scenario) => ({
+				name: scenario.name,
+				requestFor: () => new Request(scenario.url, { headers }),
+			})),
+			concurrency: args.concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+		});
 
 		printHttpResults(results);
 

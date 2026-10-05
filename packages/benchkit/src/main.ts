@@ -1,6 +1,5 @@
-import { basename } from "node:path";
 import { printUsage, suiteArgs } from "./args";
-import { runFile, STEM_SUFFIX_REGEX } from "./runner";
+import { runFile, stemOf } from "./runner";
 
 /**
  * The one-line file tail: outside standalone execution this is a no-op (the
@@ -17,7 +16,7 @@ export async function main(meta: ImportMeta, options: { usageLabel?: string } = 
 		console.warn("[benchkit] baseline flags are supported by `bun run benchmark` only — ignoring");
 	}
 
-	const stem = basename(meta.path).replace(STEM_SUFFIX_REGEX, "");
+	const stem = stemOf(meta.path);
 	if (args.help) {
 		printUsage(options.usageLabel ?? `benchmark ${stem}`);
 

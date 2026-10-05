@@ -1,13 +1,4 @@
-import {
-	type HttpScenarioResult,
-	type HttpScenarioRun,
-	httpScenarioResult,
-	main,
-	printHttpResults,
-	runHttpScenario,
-	suiteArgs,
-	task,
-} from "benchkit";
+import { main, printHttpResults, runScenarioMatrix, type ScenarioMatrixEntry, suiteArgs, task } from "benchkit";
 import { subnetIp } from "./lib/identity";
 
 /**
@@ -396,31 +387,6 @@ const WRITE_SCENARIOS: ReadonlyArray<readonly [string, (context: BenchContext, r
 	],
 ];
 
-function runScenario(
-	scenario: readonly [string, RequestBuilder],
-	concurrency: number,
-	context: BenchContext,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioRun> {
-	return runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (workerIndex, requestIndex) => {
-			try {
-				const response = await fetch(scenario[1](context, workerIndex, requestIndex));
-				const ok = response.ok;
-				await response.arrayBuffer();
-
-				return { ok };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
-}
-
 export const meta = { description: "HTTP scenarios against a REAL-data server (external --baseUrl, no fixture)" };
 
 const args = suiteArgs();
@@ -430,7 +396,6 @@ if (!args.help && args.baseUrl) {
 	task("real-data: scenarios", async () => {
 		console.log(`[real-data] targeting ${target} (noCache: ${args.noCache})`);
 		const context = await resolveContext({ baseUrl: target, noCache: args.noCache });
-		const results: HttpScenarioResult[] = [];
 		// --scenario accepts a regex (e.g. "core:|me: watchlist") or a plain substring.
 		const scenarioFilter = args.scenario;
 		const scenarios = scenarioFilter
@@ -442,47 +407,31 @@ if (!args.help && args.baseUrl) {
 					}
 				})
 			: SCENARIOS;
+		const scenarioEntries: ScenarioMatrixEntry[] = scenarios.map((scenario) => ({
+			name: scenario[0],
+			requestFor: (workerIndex: number, requestIndex: number) => scenario[1](context, workerIndex, requestIndex),
+		}));
+		scenarioEntries.push(
+			...WRITE_SCENARIOS.map(([name, builder]) => ({
+				name,
+				unit: "writes/s",
+				requestFor: (_workerIndex: number, requestIndex: number) => builder(context, requestIndex),
+				// 429 is the deployment's limiter posture, not a bench failure —
+				// it counts as ok=false in the error rate but must not poison
+				// the latency mix as a server-side 5xx would.
+				accept: (response: Response) => response.status !== 429 && response.status < 500,
+			})),
+		);
 
-		for (const concurrency of args.concurrency) {
-			console.log(`\n[real-data] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-			for (const scenario of scenarios) {
-				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-				const result = httpScenarioResult(scenario[0], concurrency, run, args.durationMs);
-				results.push(result);
-				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-				console.log(
-					`  ${scenario[0]}: ${result.requestsPerSecond.toFixed(0)} req/s, p50 ${result.stats.p50Ms.toFixed(1)}ms, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-				);
-			}
-
-			for (const [name, builder] of WRITE_SCENARIOS) {
-				const run = await runHttpScenario({
-					concurrency,
-					warmupMs: args.warmupMs,
-					durationMs: args.durationMs,
-					work: async (_workerIndex, requestIndex) => {
-						try {
-							const response = await fetch(builder(context, requestIndex));
-							// 429 is the deployment's limiter posture, not a bench failure —
-							// it counts as ok=false in the error rate but must not poison
-							// the latency mix as a server-side 5xx would.
-							const ok = response.status !== 429 && response.status < 500;
-							await response.arrayBuffer();
-
-							return { ok };
-						} catch {
-							return { ok: false };
-						}
-					},
-				});
-				const result = httpScenarioResult(name, concurrency, run, args.durationMs);
-				results.push(result);
-				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-				console.log(
-					`  ${name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p50 ${result.stats.p50Ms.toFixed(1)}ms, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-				);
-			}
-		}
+		const results = await runScenarioMatrix({
+			suite: "real-data",
+			unit: "req/s",
+			latency: "both",
+			scenarios: scenarioEntries,
+			concurrency: args.concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+		});
 
 		printHttpResults(results);
 	});

@@ -1,11 +1,10 @@
 import {
 	type HttpScenarioResult,
-	httpScenarioResult,
 	main,
 	printHttpResults,
 	printTable,
 	type RssSummary,
-	runHttpScenario,
+	runRequestScenario,
 	startRssSampler,
 	suiteArgs,
 	task,
@@ -118,34 +117,6 @@ const writeMix: RequestBuilder = (server, worker, request) => {
 	return progressUpsert(server, worker, request);
 };
 
-async function runPhase(
-	name: string,
-	builder: RequestBuilder,
-	server: ManagedServer,
-	concurrency: number,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioResult> {
-	const run = await runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (workerIndex, requestIndex) => {
-			try {
-				const response = await fetch(builder(server, workerIndex, requestIndex));
-				const ok = response.ok;
-				await response.arrayBuffer();
-
-				return { ok };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
-
-	return httpScenarioResult(name, concurrency, run, durationMs);
-}
-
 const toMb = (bytes: number | undefined): string => (bytes === undefined ? "?" : `${(bytes / 1024 / 1024).toFixed(1)}MB`);
 
 function formatRss(summary: RssSummary): string[] {
@@ -181,7 +152,13 @@ if (!args.help) {
 					summary = captured;
 				});
 
-				const result = await runPhase(`${phaseName} (c=${concurrency})`, builder, server, concurrency, args.warmupMs, args.durationMs);
+				const result = await runRequestScenario({
+					name: `c=${concurrency} ${phaseName} (c=${concurrency})`,
+					concurrency,
+					warmupMs: args.warmupMs,
+					durationMs: args.durationMs,
+					requestFor: (workerIndex: number, requestIndex: number) => builder(server, workerIndex, requestIndex),
+				});
 				stopSampler();
 				results.push(result);
 				rssRows.push([`${phaseName} c=${concurrency}`, `${result.requestsPerSecond.toFixed(0)} req/s`, ...formatRss(summary)]);

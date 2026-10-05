@@ -1,16 +1,4 @@
-import {
-	fmtMs,
-	type HttpScenarioResult,
-	type HttpScenarioRun,
-	httpScenarioResult,
-	main,
-	printHttpResults,
-	printTable,
-	runHttpScenario,
-	suiteArgs,
-	summarizeLatencies,
-	task,
-} from "benchkit";
+import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
 import { subnetIp, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
@@ -105,31 +93,6 @@ const SCENARIOS: readonly WriteScenarioDefinition[] = [
 	{ name: "POST /v1/me/watched-history (sync)", builder: watchedHistorySync },
 ];
 
-function runScenario(
-	scenario: WriteScenarioDefinition,
-	concurrency: number,
-	context: WriteContext,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioRun> {
-	return runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (workerIndex, requestIndex) => {
-			try {
-				const response = await fetch(scenario.builder(context, workerIndex, requestIndex));
-				const ok = response.ok;
-				await response.arrayBuffer();
-
-				return { ok };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
-}
-
 async function preloadNotificationIds(server: ManagedServer, workerIndex: number): Promise<string[]> {
 	// Seeded notifications belong to the per-worker identities, not the admin —
 	// list them as their owner. Only unread ones: re-marking a read row is 403.
@@ -221,19 +184,17 @@ if (!args.help) {
 			notificationIds,
 		};
 
-		const results: HttpScenarioResult[] = [];
-		for (const concurrency of args.concurrency) {
-			console.log(`\n[write] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-			for (const scenario of SCENARIOS) {
-				const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
-				const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
-				results.push(result);
-				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-				console.log(
-					`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
-				);
-			}
-		}
+		const results = await runScenarioMatrix({
+			suite: "write",
+			unit: "writes/s",
+			scenarios: SCENARIOS.map((scenario) => ({
+				name: scenario.name,
+				requestFor: (workerIndex: number, requestIndex: number) => scenario.builder(context, workerIndex, requestIndex),
+			})),
+			concurrency: args.concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+		});
 
 		printHttpResults(results);
 

@@ -1,13 +1,4 @@
-import {
-	type HttpScenarioResult,
-	type HttpScenarioRun,
-	httpScenarioResult,
-	main,
-	printHttpResults,
-	runHttpScenario,
-	suiteArgs,
-	task,
-} from "benchkit";
+import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 import { subnetIp, workerCookie } from "./lib/identity";
 import { BENCH_USER, type ManagedServer } from "./lib/server";
 import { createServerFixture } from "./lib/server-fixture";
@@ -26,18 +17,18 @@ export const meta = { description: "Auth & session validation (public vs authed 
 
 interface AuthScenario {
 	name: string;
-	run: (server: ManagedServer, workerIndex: number, requestIndex: number) => Promise<Response>;
+	requestFor: (server: ManagedServer, workerIndex: number, requestIndex: number) => Request;
 }
 
 const publicHealth: AuthScenario = {
 	name: "GET /v1/health (public, no auth)",
-	run: (server) => fetch(`${server.baseUrl}/v1/health`),
+	requestFor: (server) => new Request(`${server.baseUrl}/v1/health`),
 };
 
 const authedRead: AuthScenario = {
 	name: "GET /v1/me/watchlist?limit=1 (authed derive)",
-	run: (server, workerIndex) =>
-		fetch(`${server.baseUrl}/v1/me/watchlist?limit=1`, {
+	requestFor: (server, workerIndex) =>
+		new Request(`${server.baseUrl}/v1/me/watchlist?limit=1`, {
 			headers: {
 				cookie: workerCookie(server, workerIndex),
 				"x-profile-id": server.profileIdFor(workerIndex),
@@ -48,8 +39,8 @@ const authedRead: AuthScenario = {
 
 const login: AuthScenario = {
 	name: "POST /v1/auth/login (password verify + session insert)",
-	run: (server, workerIndex) =>
-		fetch(`${server.baseUrl}/v1/auth/login`, {
+	requestFor: (server, workerIndex) =>
+		new Request(`${server.baseUrl}/v1/auth/login`, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
@@ -60,31 +51,6 @@ const login: AuthScenario = {
 };
 
 const SCENARIOS: readonly AuthScenario[] = [publicHealth, authedRead, login];
-
-function runScenario(
-	server: ManagedServer,
-	scenario: AuthScenario,
-	concurrency: number,
-	warmupMs: number,
-	durationMs: number,
-): Promise<HttpScenarioRun> {
-	return runHttpScenario({
-		concurrency,
-		warmupMs,
-		durationMs,
-		work: async (workerIndex, requestIndex) => {
-			try {
-				const response = await scenario.run(server, workerIndex, requestIndex);
-				const ok = response.ok;
-				await response.arrayBuffer();
-
-				return { ok };
-			} catch {
-				return { ok: false };
-			}
-		},
-	});
-}
 
 const args = suiteArgs();
 
@@ -99,19 +65,19 @@ if (!args.help) {
 		const server = await serverFixture();
 		console.log("[auth] server ready");
 
-		const results: HttpScenarioResult[] = [];
-		for (const concurrency of args.concurrency) {
-			console.log(`\n[auth] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-			for (const scenario of SCENARIOS) {
-				const run = await runScenario(server, scenario, concurrency, args.warmupMs, args.durationMs);
-				const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
-				results.push(result);
-				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
-				console.log(
-					`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} req/s, p50 ${result.stats.p50Ms.toFixed(2)}ms${failureNote}`,
-				);
-			}
-		}
+		const results = await runScenarioMatrix({
+			suite: "auth",
+			unit: "req/s",
+			latency: "p50",
+			latencyDigits: 2,
+			scenarios: SCENARIOS.map((scenario) => ({
+				name: scenario.name,
+				requestFor: (workerIndex: number, requestIndex: number) => scenario.requestFor(server, workerIndex, requestIndex),
+			})),
+			concurrency: args.concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+		});
 
 		printHttpResults(results);
 		console.log("\nSession-validation cost = (authed GET − public GET) per request, per concurrency row.");
