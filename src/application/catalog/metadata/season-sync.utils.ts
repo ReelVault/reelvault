@@ -6,6 +6,7 @@ import { systemResourcesService } from "@/system/system-resources.service";
 import { errorMessage } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { firstWinsByNumber } from "../catalog.utils";
 
 const logger = createLogger("SeasonSync");
 
@@ -15,17 +16,6 @@ export type SeasonImageTask =
 
 type SeasonRow = Awaited<ReturnType<typeof seasonsRepository.findByMetadataId>>[number];
 type EpisodeRow = Awaited<ReturnType<typeof episodesRepository.findBySeasonIds>>[number];
-
-/** First provider entry per integer key (invalid or duplicate keys skipped) — O(1) lookup instead of `.find()` in nested loops. */
-function firstWinsByNumber<T>(items: readonly T[], keyOf: (item: T) => string | number | undefined): Map<number, T> {
-	const map = new Map<number, T>();
-	for (const item of items) {
-		const key = Number(keyOf(item));
-		if (Number.isInteger(key) && !map.has(key)) map.set(key, item);
-	}
-
-	return map;
-}
 
 function collectSeasonImageTasks(
 	metadataId: string,

@@ -18,7 +18,7 @@ import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { fallbackEpisodeExternalId, fallbackSeasonExternalId } from "@/application/catalog/catalog.utils";
-import { applyMetadataCandidate, toMetadataCandidate } from "@/application/catalog/metadata/metadata-normalization";
+import { createFromProvider, processPersonImages } from "@/application/catalog/metadata/metadata-create.utils";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
@@ -37,8 +37,6 @@ import { videoParser } from "@/modules/scanner/probe/video-parser.service";
 import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
-import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { errorMessage, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
@@ -379,23 +377,16 @@ class MediaService extends BaseService {
 			});
 		}
 
-		const candidate = await pluginHookBus.runBeforeMetadataSave(toMetadataCandidate(mediaType, providerId, providerMetadata));
-		const normalized = applyMetadataCandidate(mediaType, providerId, providerMetadata, candidate);
-		const result = await metadataPersistenceRepository.createProviderMetadata({
+		const result = await createFromProvider({
 			type: mediaType,
 			providerName: providerId,
-			metadata: normalized,
+			providerMetadata,
 			matchScore: 1.0,
 		});
-		const targetMetadataId = result.metadata.id;
+		const targetMetadataId = result.metadataId;
 
 		await imageProcessingService.replaceProviderArtwork(targetMetadataId, providerMetadata);
-		if (result.personImages.length > 0) {
-			const personImages = result.personImages.slice(0, serverConfig.application.metadataPersonImageLimit);
-			await PromiseUtils.mapConcurrent(personImages, serverConfig.application.metadataImageEnqueueConcurrency, ({ personId, url }) =>
-				imageProcessingService.processPerson(personId, url, true),
-			);
-		}
+		await processPersonImages(result.personImages, ({ personId, url }) => imageProcessingService.processPerson(personId, url, true));
 
 		pluginEventBus.publish("metadata.saved", { metadataId: targetMetadataId });
 

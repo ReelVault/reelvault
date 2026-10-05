@@ -11,6 +11,17 @@ export function findFirstProviderResult<T extends { metadata?: unknown }>(result
 	return results.find((r) => r.metadata)?.metadata;
 }
 
+/** First provider entry per integer key (invalid or duplicate keys skipped) — O(1) lookup instead of `.find()` in nested loops. */
+export function firstWinsByNumber<T>(items: readonly T[], keyOf: (item: T) => string | number | undefined): Map<number, T> {
+	const map = new Map<number, T>();
+	for (const item of items) {
+		const key = Number(keyOf(item));
+		if (Number.isInteger(key) && !map.has(key)) map.set(key, item);
+	}
+
+	return map;
+}
+
 /** First season payload returned by the linked providers (results are pre-filtered to non-null metadata). */
 export async function fetchSeason(
 	links: ReadonlyArray<{ providerId: string; externalId: string }>,

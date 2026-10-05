@@ -8,6 +8,7 @@ import { BaseService } from "@/utils/base-service";
 import { errorMessage } from "@/utils/errors";
 import { PromiseUtils } from "@/utils/promise.utils";
 import type { ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
+import { processPersonImages } from "./metadata-create.utils";
 import { applyMetadataCandidate, toMetadataCandidate } from "./metadata-normalization";
 
 export interface RefreshableMetadata {
@@ -144,11 +145,8 @@ export class MetadataRefreshService extends BaseService {
 
 					if (this.dependencies.syncCredits) {
 						const personImages = await this.dependencies.syncCredits(existing.id, source.providerId, metadata, lockedFields);
-						const personLimit = 25;
-						await PromiseUtils.mapConcurrent(
-							personImages.slice(0, personLimit),
-							systemResourcesService.getIoConcurrency(),
-							({ personId, url }) => enqueueImages({ kind: "person", personId, urls: url }, { operationId: effectiveOperationId }),
+						await processPersonImages(personImages, ({ personId, url }) =>
+							enqueueImages({ kind: "person", personId, urls: url }, { operationId: effectiveOperationId }),
 						);
 					}
 

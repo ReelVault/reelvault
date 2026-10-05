@@ -12,17 +12,13 @@ import type { SidecarMetadataHint } from "@/modules/metadata-sidecars/files/loca
 import type { AggregatedProviderLink } from "@/plugins/capabilities/metadata-aggregator";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
-import { serverConfig } from "@/server.config";
-import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { InFlightMap } from "@/utils/in-flight-map";
 import { MemoryCache } from "@/utils/memory-cache";
-import { PromiseUtils } from "@/utils/promise.utils";
 import { enqueueImageProcessing, type ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
-import { fallbackEpisodeExternalId, fallbackSeasonExternalId, fetchSeason } from "../catalog.utils";
-import { applyMetadataCandidate, toMetadataCandidate } from "./metadata-normalization";
+import { fallbackEpisodeExternalId, fallbackSeasonExternalId, fetchSeason, firstWinsByNumber } from "../catalog.utils";
+import { type CreatedProviderMetadata, createFromProvider, processPersonImages } from "./metadata-create.utils";
 
 type EnqueueImages = (data: ImageProcessingData, options?: TaskSchedulingOptions) => Promise<unknown>;
 
@@ -32,13 +28,6 @@ function slugify(value: string): string {
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-|-$/g, "");
-}
-interface BaseMetadataProcess {
-	metadataId: string;
-	metadata: ProviderMetadataResult;
-	metadataStableKey: string | null;
-	created: boolean;
-	personImages: Array<{ personId: string; url: string }>;
 }
 interface MetadataProcessResult {
 	metadataId: string;
@@ -57,7 +46,7 @@ const enqueueImagesInBackground = (data: ImageProcessingData, options: TaskSched
 const libraryLanguageCache = new MemoryCache<string>({ ttlMs: 30_000, maxSize: 64, name: "metadata.libraryLanguage" });
 
 export class MetadataProcess extends BaseService {
-	private readonly baseMetadataProcesses = new InFlightMap<BaseMetadataProcess>();
+	private readonly baseMetadataProcesses = new InFlightMap<CreatedProviderMetadata>();
 	private readonly imageEnqueueProcesses = new InFlightMap<void>();
 	private readonly enqueueImages: EnqueueImages;
 
@@ -192,7 +181,7 @@ export class MetadataProcess extends BaseService {
 
 	/** Queues artwork for freshly created metadata rows after a successful match. */
 	private async withFreshImageEnqueue(
-		baseMetadata: BaseMetadataProcess,
+		baseMetadata: CreatedProviderMetadata,
 		scheduling: TaskSchedulingOptions | undefined,
 		process: () => Promise<MetadataProcessResult | undefined>,
 	): Promise<MetadataProcessResult | undefined> {
@@ -291,7 +280,7 @@ export class MetadataProcess extends BaseService {
 	private async createSidecarMetadata(
 		type: "movie" | "tv_show",
 		sidecar: SidecarMetadataHint,
-	): Promise<{ base: BaseMetadataProcess; providers: AggregatedProviderLink[] } | undefined> {
+	): Promise<{ base: CreatedProviderMetadata; providers: AggregatedProviderLink[] } | undefined> {
 		const title = sidecar.title;
 		if (!title) return undefined;
 
@@ -379,41 +368,21 @@ export class MetadataProcess extends BaseService {
 		providerMetadata: ProviderMetadataResult,
 		matchScore?: number,
 		providers?: AggregatedProviderLink[],
-	): Promise<BaseMetadataProcess> {
+	): Promise<CreatedProviderMetadata> {
 		const key = `${providerName}:${type}:${providerMetadata.externalId}`;
 
 		return await this.baseMetadataProcesses.run(key, () =>
-			this.createBaseMetadata(type, providerName, providerMetadata, matchScore, providers),
+			createFromProvider({ type, providerName, providerMetadata, matchScore, providers }),
 		);
 	}
 
-	private async createBaseMetadata(
-		type: "movie" | "tv_show",
-		providerName: string,
-		providerMetadata: ProviderMetadataResult,
-		matchScore?: number,
-		providers?: AggregatedProviderLink[],
-	): Promise<BaseMetadataProcess> {
-		const candidate = await pluginHookBus.runBeforeMetadataSave(toMetadataCandidate(type, providerName, providerMetadata));
-		const metadata = applyMetadataCandidate(type, providerName, providerMetadata, candidate);
-		const result = await metadataPersistenceRepository.createProviderMetadata({ type, providerName, providers, metadata, matchScore });
-
-		return {
-			metadataId: result.metadata.id,
-			metadata,
-			metadataStableKey: result.metadata.stableKey,
-			created: result.created,
-			personImages: result.personImages,
-		};
-	}
-
-	private async enqueueBaseMetadataImages(baseMetadata: BaseMetadataProcess, scheduling?: TaskSchedulingOptions): Promise<void> {
+	private async enqueueBaseMetadataImages(baseMetadata: CreatedProviderMetadata, scheduling?: TaskSchedulingOptions): Promise<void> {
 		if (!baseMetadata.created) return;
 
 		await this.imageEnqueueProcesses.run(baseMetadata.metadataId, () => this.enqueueBaseMetadataImagesOnce(baseMetadata, scheduling));
 	}
 
-	private async enqueueBaseMetadataImagesOnce(baseMetadata: BaseMetadataProcess, scheduling?: TaskSchedulingOptions): Promise<void> {
+	private async enqueueBaseMetadataImagesOnce(baseMetadata: CreatedProviderMetadata, scheduling?: TaskSchedulingOptions): Promise<void> {
 		await this.enqueueImages(
 			{
 				kind: "metadata",
@@ -426,8 +395,7 @@ export class MetadataProcess extends BaseService {
 			scheduling,
 		);
 
-		const personImages = baseMetadata.personImages.slice(0, serverConfig.application.metadataPersonImageLimit);
-		await PromiseUtils.mapConcurrent(personImages, serverConfig.application.metadataImageEnqueueConcurrency, ({ personId, url }) =>
+		await processPersonImages(baseMetadata.personImages, ({ personId, url }) =>
 			this.enqueueImages({ kind: "person", personId, urls: url }, scheduling),
 		);
 		pluginEventBus.publish("metadata.saved", { metadataId: baseMetadata.metadataId });
@@ -465,7 +433,7 @@ export class MetadataProcess extends BaseService {
 
 		let seasonInfo: ProviderSeasonResult | undefined;
 		if (metadata.seasons) {
-			const seasonsByNumber = toMap(metadata.seasons, (s) => s.seasonNumber);
+			const seasonsByNumber = firstWinsByNumber(metadata.seasons, (s) => s.seasonNumber);
 			seasonInfo = seasonsByNumber.get(parsed.season);
 		}
 
@@ -493,7 +461,7 @@ export class MetadataProcess extends BaseService {
 
 		let episodeInfo: ProviderEpisodeResult | undefined;
 		if (parsed.episode !== undefined && seasonInfo.episodes) {
-			const episodesByNumber = toMap(seasonInfo.episodes, (e) => e.episodeNumber);
+			const episodesByNumber = firstWinsByNumber(seasonInfo.episodes, (e) => e.episodeNumber);
 			episodeInfo = episodesByNumber.get(parsed.episode);
 		}
 
