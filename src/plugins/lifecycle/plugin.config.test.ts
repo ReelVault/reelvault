@@ -26,11 +26,6 @@ describe("plugin configuration", () => {
 			apiKey: "my-super-secret-api-key",
 			nested: { accessToken: "access-token-value" },
 		});
-		await expect(config.get("org.reelvault.config")).resolves.toEqual({
-			titlePrefix: "Example",
-			apiKey: "my-super-secret-api-key",
-			nested: { accessToken: "access-token-value" },
-		});
 
 		await config.save("org.reelvault.config", {
 			titlePrefix: "Updated Example",
@@ -47,7 +42,8 @@ describe("plugin configuration", () => {
 	test("rejects unsafe directory names", async () => {
 		const pluginsDirectory = await createPluginsDirectory();
 		const config = new PluginConfig(pluginsDirectory);
-		await expect(config.get("../outside")).rejects.toThrow("invalid directory name");
+
+		expect(() => config.resolvePluginDirectory("../outside")).toThrow("invalid directory name");
 	});
 
 	test("writes the config file with owner-only permissions", async () => {

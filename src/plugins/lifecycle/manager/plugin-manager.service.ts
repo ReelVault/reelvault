@@ -1,13 +1,5 @@
 import type { PluginConfigDetails } from "@reelvault/sdk/common";
-import type {
-	MetadataProvider,
-	PluginConfigField,
-	PluginRuntime,
-	PluginStatus,
-	ProviderStatus,
-	SubtitleProvider,
-	SubtitleProviderStatus,
-} from "@reelvault/sdk/plugin";
+import type { PluginConfigField, PluginRuntime, PluginStatus, SubtitleProvider, SubtitleProviderStatus } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
@@ -275,18 +267,6 @@ export class PluginManager {
 		return [...loaded, ...disabled, ...failed];
 	}
 
-	getProviders(): MetadataProvider[] {
-		return this.registry.getProviders();
-	}
-
-	getProviderStatus(): ProviderStatus[] {
-		return this.registry.getProviderStatus();
-	}
-
-	getProvider(providerId: string): MetadataProvider | undefined {
-		return this.registry.getProvider(providerId);
-	}
-
 	getSubtitleProviders(): SubtitleProvider[] {
 		return this.registry.getSubtitleProviders();
 	}
@@ -297,10 +277,6 @@ export class PluginManager {
 
 	getSubtitleProvider(providerId: string): SubtitleProvider | undefined {
 		return this.registry.getSubtitleProvider(providerId);
-	}
-
-	getConfig(pluginName: string) {
-		return this.config.get(pluginName);
 	}
 
 	private async resolvePluginDirectoryName(pluginId: string): Promise<string> {

@@ -19,25 +19,24 @@ export class PluginConfig {
 		this.pluginsDirectory = pluginsDirectory;
 	}
 
-	/** Config for the plugin by name. */
-	get(pluginName: string): Promise<Record<string, unknown>> {
-		try {
-			return this.load(this.resolvePluginDirectory(pluginName));
-		} catch (e) {
-			return Promise.reject(e);
-		}
-	}
-
 	/** Fully resolved config for a plugin directory, used at runtime. */
-	load(pluginDir: string): Promise<Record<string, unknown>> {
-		return this.loadRaw(pluginDir);
+	async load(pluginDir: string): Promise<Record<string, unknown>> {
+		const configPath = PathUtils.join(pluginDir, "config.json");
+		try {
+			const config = (await FileUtils.readJson<unknown>(configPath, { silent: true })) ?? {};
+			if (!isRecord(config)) return {};
+
+			return config;
+		} catch {
+			return {};
+		}
 	}
 
 	async save(pluginName: string, updatedConfig: Record<string, unknown>, pruneTo?: ReadonlySet<string>): Promise<Record<string, unknown>> {
 		const pluginDir = this.resolvePluginDirectory(pluginName);
 
 		return await this.saveMutex.runExclusive(pluginName, async () => {
-			const existingRaw = await this.loadRaw(pluginDir);
+			const existingRaw = await this.load(pluginDir);
 			const mergedConfig: Record<string, unknown> = { ...existingRaw };
 
 			for (const [key, value] of Object.entries(updatedConfig)) {
@@ -57,18 +56,6 @@ export class PluginConfig {
 
 			return persistedConfig;
 		});
-	}
-
-	private async loadRaw(pluginDir: string): Promise<Record<string, unknown>> {
-		const configPath = PathUtils.join(pluginDir, "config.json");
-		try {
-			const config = (await FileUtils.readJson<unknown>(configPath, { silent: true })) ?? {};
-			if (!isRecord(config)) return {};
-
-			return config;
-		} catch {
-			return {};
-		}
 	}
 
 	resolvePluginDirectory(pluginName: string): string {
