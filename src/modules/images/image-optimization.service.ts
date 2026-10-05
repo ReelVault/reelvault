@@ -8,12 +8,12 @@ import { createHash } from "@/utils/crypto.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { imageCacheEviction } from "./cache/image-cache.eviction";
 import { parseImageRequest } from "./cache/image-request.parser";
-import { InflightDedup } from "./cache/inflight.dedup";
 import { sourceVersionCache } from "./cache/source-version.cache";
 
 const CONTENT_TYPE = "image/webp";
@@ -25,7 +25,13 @@ export interface OptimizedImage {
 }
 
 class ImageOptimizationService extends BaseService {
-	private readonly inflight = new InflightDedup<OptimizedImage>();
+	// Coalesces concurrent identical optimizations: while one variant is being
+	// computed, every other request for the same cache path awaits its promise.
+	private readonly inflight = new MemoryCache<OptimizedImage>({
+		ttlMs: -1,
+		maxSize: -1,
+		name: "image-optimization-inflight",
+	});
 
 	constructor() {
 		super("ImageOptimizationService");
@@ -43,7 +49,7 @@ class ImageOptimizationService extends BaseService {
 			return { file: cachedFile, contentType: CONTENT_TYPE, options };
 		}
 
-		return await this.inflight.run(cachePath, () => this.optimizeAndCache(cacheDir, cachePath, sourcePath, options, signal));
+		return await this.inflight.getOrRun(cachePath, () => this.optimizeAndCache(cacheDir, cachePath, sourcePath, options, signal));
 	}
 
 	private async optimizeAndCache(

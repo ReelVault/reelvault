@@ -18,7 +18,7 @@ import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provide
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { BaseService } from "@/utils/base-service";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
-import { type SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
+import { type SubtitleContent, type SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
 import { type SubtitleFileCleaner, subtitleFileCleaner } from "./subtitle-file.cleaner";
 import { type SubtitleInfoCache, subtitleInfoCache } from "./subtitle-info.cache";
@@ -80,12 +80,7 @@ export class SubtitlesService extends BaseService {
 	}
 
 	async getById(id: string): Promise<Subtitle> {
-		return await this.safeExecute("getById", async () => {
-			const result = await this.dependencies.findById(id);
-			this.assertExists(result, "Subtitle", id);
-
-			return toPublicSubtitle(result);
-		});
+		return await this.safeExecute("getById", async () => await this.loadSubtitle(id, () => this.dependencies.findById(id)));
 	}
 
 	async getProviders(): Promise<SubtitleProviderStatus[]> {
@@ -99,14 +94,12 @@ export class SubtitlesService extends BaseService {
 	async downloadFromProvider(providerId: string, body: SubtitleProviderDownloadRequest): Promise<Subtitle> {
 		return await this.safeExecute("downloadFromProvider", async () => {
 			const subtitleId = await this.dependencies.downloadSubtitle(providerId, body);
-			const result = await this.dependencies.findById(subtitleId);
-			this.assertExists(result, "Subtitle", subtitleId);
 
-			return toPublicSubtitle(result);
+			return await this.loadSubtitle(subtitleId, () => this.dependencies.findById(subtitleId));
 		});
 	}
 
-	async getContent(id: string, signal?: AbortSignal): Promise<{ contentType: string; file: Blob }> {
+	async getContent(id: string, signal?: AbortSignal): Promise<SubtitleContent> {
 		return await this.safeExecute("getContent", async () => {
 			const info = await this.dependencies.infoCache.getOrSet(id);
 
@@ -117,20 +110,16 @@ export class SubtitlesService extends BaseService {
 	async create(body: CreateSubtitleRequest): Promise<Subtitle> {
 		return await this.safeExecute("create", async () => {
 			const type = resolveSubtitleType(body);
-			const result = await this.dependencies.createRow(body, type);
-			this.assertExists(result, "Subtitle", body.mediaFileId);
 
-			return toPublicSubtitle(result);
+			return await this.loadSubtitle(body.mediaFileId, () => this.dependencies.createRow(body, type));
 		});
 	}
 
 	async update(id: string, body: UpdateSubtitleRequest): Promise<Subtitle> {
 		return await this.safeExecute("update", async () => {
 			this.dependencies.infoCache.invalidate(id);
-			const result = await this.dependencies.updateRow(id, body);
-			this.assertExists(result, "Subtitle", id);
 
-			return toPublicSubtitle(result);
+			return await this.loadSubtitle(id, () => this.dependencies.updateRow(id, body));
 		});
 	}
 
@@ -146,6 +135,14 @@ export class SubtitlesService extends BaseService {
 
 			return { success: true };
 		});
+	}
+
+	/** Loads a subtitle row (asserting it exists under `id`) and maps it to the public contract. */
+	private async loadSubtitle(id: string, load: () => Promise<SubtitleEntity | null | undefined>): Promise<Subtitle> {
+		const result = await load();
+		this.assertExists(result, "Subtitle", id);
+
+		return toPublicSubtitle(result);
 	}
 }
 

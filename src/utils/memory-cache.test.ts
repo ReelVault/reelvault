@@ -1,6 +1,17 @@
 import { expect, test } from "bun:test";
 import { MemoryCache } from "./memory-cache";
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
+	let resolve!: (value: T) => void;
+	let reject!: (error: unknown) => void;
+	const promise = new Promise<T>((_resolve, _reject) => {
+		resolve = _resolve;
+		reject = _reject;
+	});
+
+	return { promise, resolve, reject };
+}
+
 test("mget reads only present/fresh entries", () => {
 	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1 });
 
@@ -148,4 +159,68 @@ test("getOrSetMany with an unresolved key from the loader does not produce an un
 		setTimeout(resolve, 0);
 	});
 	expect(cache.stats().pendingLoads).toBe(0);
+});
+
+test("getOrRun coalesces concurrent calls for the same key into one loader run", async () => {
+	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1 });
+	let runs = 0;
+	const gate = deferred<string>();
+	const loader = () => {
+		runs++;
+
+		return gate.promise;
+	};
+
+	const first = cache.getOrRun("key-1", loader);
+	const second = cache.getOrRun("key-1", loader);
+
+	gate.resolve("value");
+	expect(await first).toBe("value");
+	expect(await second).toBe("value");
+	expect(runs).toBe(1);
+});
+
+test("getOrRun runs the loader again once the previous run settled (no result caching)", async () => {
+	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1 });
+	let runs = 0;
+	const loader = () => {
+		runs++;
+
+		return Promise.resolve(runs);
+	};
+
+	expect(await cache.getOrRun("key-1", loader)).toBe(1);
+	expect(await cache.getOrRun("key-1", loader)).toBe(2);
+	expect(runs).toBe(2);
+	expect(cache.get("key-1")).toBeNull();
+});
+
+test("getOrRun keeps independent keys independent", async () => {
+	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1 });
+
+	expect(await Promise.all([cache.getOrRun("a", async () => "A"), cache.getOrRun("b", async () => "B")])).toEqual(["A", "B"]);
+});
+
+test("getOrRun propagates a failure to every waiter without poisoning the next run", async () => {
+	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1 });
+	let runs = 0;
+	const gate = deferred<string>();
+	const loader = () => {
+		runs++;
+
+		return gate.promise;
+	};
+
+	const first = cache.getOrRun("key-1", loader);
+	const second = cache.getOrRun("key-1", loader);
+	first.catch(() => undefined);
+	second.catch(() => undefined);
+	gate.reject(new Error("optimize failed"));
+
+	await expect(first).rejects.toThrow("optimize failed");
+	await expect(second).rejects.toThrow("optimize failed");
+	expect(runs).toBe(1);
+	expect(cache.stats().pendingLoads).toBe(0);
+
+	expect(await cache.getOrRun("key-1", async () => "recovered")).toBe("recovered");
 });

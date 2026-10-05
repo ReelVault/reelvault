@@ -74,8 +74,7 @@ class DownloadsService extends BaseService {
 				throw new ValidationError("This profile already has a download in progress");
 			}
 
-			const usedBytes = await downloadsRepository.storageUsedByProfile(profileId);
-			const maxBytes = serverConfig.downloads.maxStorageBytesPerProfile;
+			const { maxBytes, usedBytes } = await this.getStorageQuota(profileId);
 			if (maxBytes > 0 && usedBytes >= maxBytes) {
 				throw new ValidationError("Storage quota exceeded — delete older downloads first");
 			}
@@ -94,13 +93,13 @@ class DownloadsService extends BaseService {
 	async list(profileId: string): Promise<{ jobs: DownloadJobView[] }> {
 		const rows = await downloadsRepository.findByProfile(profileId);
 
-		return { jobs: rows.map((row) => this.toView(row)) };
+		return this.toJobList(rows, (row) => this.toView(row));
 	}
 
 	async listAll(): Promise<{ jobs: Array<DownloadJobView & { profileId: string }> }> {
 		const rows = await downloadsRepository.findAll();
 
-		return { jobs: rows.map((row) => ({ ...this.toView(row), profileId: row.profileId })) };
+		return this.toJobList(rows, (row) => ({ ...this.toView(row), profileId: row.profileId }));
 	}
 
 	/** Ownership-checked variants — a profile only ever sees its own jobs. */
@@ -123,21 +122,16 @@ class DownloadsService extends BaseService {
 	}
 
 	async resolveFileForProfile(jobId: string, profileId: string): Promise<{ fileName: string; blob: Blob } | null> {
-		const row = await this.getOwnedDownload(jobId, profileId);
-
-		return row ? this.resolveFileFromRow(row) : null;
+		return await this.resolveFileFromRow(await this.getOwnedDownload(jobId, profileId));
 	}
 
 	async cancel(downloadId: string): Promise<{ success: true }> {
-		const row = await downloadsRepository.findById(downloadId);
-		if (!row) throw new NotFoundError("Download not found", { code: "download_not_found" });
+		const row = await this.requireDownload(downloadId);
 
 		if (row.status === "completed")
 			throw new ValidationError("Completed download cannot be cancelled", { code: "completed_download_cancel" });
 
-		const kill = this.abortHandles.get(downloadId);
-		if (kill) kill();
-
+		this.killInFlight(downloadId);
 		await downloadsRepository.update(downloadId, { status: "cancelled" });
 		await this.deleteArtifactFile(row);
 
@@ -149,7 +143,7 @@ class DownloadsService extends BaseService {
 	async delete(downloadId: string): Promise<{ success: true }> {
 		const row = await downloadsRepository.findById(downloadId);
 		if (row) {
-			this.abortHandles.get(downloadId)?.();
+			this.killInFlight(downloadId);
 			await this.deleteArtifactFile(row);
 			await downloadsRepository.delete(downloadId);
 		}
@@ -159,19 +153,40 @@ class DownloadsService extends BaseService {
 
 	/** Completed download as a file handle — never exposes the storage path. */
 	async resolveFile(downloadId: string): Promise<{ fileName: string; blob: Blob } | null> {
-		const row = await downloadsRepository.findById(downloadId);
-
-		return row ? this.resolveFileFromRow(row) : null;
+		return await this.resolveFileFromRow(await downloadsRepository.findById(downloadId));
 	}
 
-	private async resolveFileFromRow(row: DownloadRow): Promise<{ fileName: string; blob: Blob } | null> {
-		if (row.status !== "completed" || !row.fileName) return null;
+	private async resolveFileFromRow(row: DownloadRow | null | undefined): Promise<{ fileName: string; blob: Blob } | null> {
+		if (row?.status !== "completed" || !row.fileName) return null;
 
 		const path = this.artifactPath(row.id, row.fileName);
 		const handle = file(path);
 		if (!(await handle.exists())) return null;
 
 		return { fileName: row.fileName, blob: handle };
+	}
+
+	private async requireDownload(downloadId: string): Promise<DownloadRow> {
+		const row = await downloadsRepository.findById(downloadId);
+		if (!row) throw new NotFoundError("Download not found", { code: "download_not_found" });
+
+		return row;
+	}
+
+	private killInFlight(downloadId: string): void {
+		this.abortHandles.get(downloadId)?.();
+	}
+
+	private async getStorageQuota(profileId: string): Promise<{ maxBytes: number; usedBytes: number }> {
+		return {
+			maxBytes: serverConfig.downloads.maxStorageBytesPerProfile,
+			usedBytes: await downloadsRepository.storageUsedByProfile(profileId),
+		};
+	}
+
+	/** Maps repository rows into the `{ jobs }` envelope shared by both list endpoints. */
+	private toJobList<T>(rows: DownloadRow[], map: (row: DownloadRow) => T): { jobs: T[] } {
+		return { jobs: rows.map((row) => map(row)) };
 	}
 
 	private artifactPath(downloadId: string, fileName: string): string {
@@ -382,9 +397,8 @@ class DownloadsService extends BaseService {
 			return;
 		}
 
-		const maxBytes = serverConfig.downloads.maxStorageBytesPerProfile;
-		const used = await downloadsRepository.storageUsedByProfile(profileId);
-		if (maxBytes > 0 && used + sizeBytes > maxBytes) {
+		const { maxBytes, usedBytes } = await this.getStorageQuota(profileId);
+		if (maxBytes > 0 && usedBytes + sizeBytes > maxBytes) {
 			await this.deleteArtifact(outputPath);
 			await downloadsRepository.update(downloadId, {
 				status: "failed",

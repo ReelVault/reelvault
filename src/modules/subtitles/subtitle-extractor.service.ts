@@ -1,15 +1,16 @@
 import { rename } from "node:fs/promises";
-import { type BunFile, file } from "bun";
+import { file } from "bun";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
 import { createTempPath, FileUtils } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
+import type { SubtitleContent } from "./subtitle-content.resolver";
+import { subtitleVttPath } from "./subtitle-path.utils";
 
 interface FfmpegRunResult {
 	exitCode: number | null;
@@ -32,7 +33,7 @@ const defaultDependencies: ServiceDependencies = {
 
 export class SubtitleExtractorService extends BaseService {
 	private readonly dependencies: ServiceDependencies;
-	private readonly inFlightExtractions = new Map<string, Promise<{ contentType: string; file: Blob } | null>>();
+	private readonly inFlightExtractions = new Map<string, Promise<SubtitleContent | null>>();
 	// Each extraction spawns an FFmpeg — concurrency derives from measured CPU capacity.
 	private readonly extractionSemaphore = PromiseUtils.createSemaphore(() => this.dependencies.getConcurrency());
 
@@ -47,7 +48,7 @@ export class SubtitleExtractorService extends BaseService {
 		streamIndex: number | null | undefined,
 		format?: string | null,
 		signal?: AbortSignal,
-	): Promise<{ contentType: string; file: Blob } | null> {
+	): Promise<SubtitleContent | null> {
 		throwIfAborted(signal);
 		if (isBitmapSubtitleFormat(format)) {
 			this.logger.warn("Bitmap subtitle extraction to WebVTT text track is not supported", { subtitleId, format });
@@ -67,7 +68,7 @@ export class SubtitleExtractorService extends BaseService {
 			return null;
 		}
 
-		const cacheFilePath = PathUtils.join(this.dependencies.subtitlesPath(), `${subtitleId}.vtt`);
+		const cacheFilePath = subtitleVttPath(this.dependencies.subtitlesPath(), subtitleId);
 		const cachedFile = file(cacheFilePath);
 
 		if (await cachedFile.exists()) {
@@ -99,7 +100,7 @@ export class SubtitleExtractorService extends BaseService {
 		mediaFilePath: string,
 		streamIndex: number,
 		cacheFilePath: string,
-	): Promise<{ contentType: "text/vtt"; file: BunFile } | null> {
+	): Promise<SubtitleContent | null> {
 		const tempFilePath = createTempPath(cacheFilePath, ".tmp");
 		try {
 			await DirUtils.create(this.dependencies.subtitlesPath());

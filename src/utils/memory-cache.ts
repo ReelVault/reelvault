@@ -197,6 +197,29 @@ export class MemoryCache<T, K extends string = string> {
 	}
 
 	/**
+	 * Deduplicates concurrent calls for the same key while `loader` runs, without
+	 * caching the result: once the loader settles, the next call runs it again.
+	 * A concurrent `getOrSet`/`getOrRun` for the same key shares the in-flight
+	 * promise; in-flight loads count toward `pendingLoads` in stats().
+	 */
+	getOrRun(key: K, loader: () => Promise<T>): Promise<T> {
+		const inFlight = this.pending.get(key);
+		if (inFlight) return inFlight;
+
+		const promise = (async () => {
+			try {
+				return await loader();
+			} finally {
+				this.pending.delete(key);
+			}
+		})();
+
+		this.pending.set(key, promise);
+
+		return promise;
+	}
+
+	/**
 	 * Reads multiple keys at once. Missing/expired keys are simply absent from
 	 * the returned Map (not set to null), so `result.has(key)` tells you what
 	 * was found. Each lookup goes through `get()`, so LRU order and hit/miss
