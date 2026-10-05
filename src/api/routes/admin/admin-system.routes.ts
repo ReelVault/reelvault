@@ -2,21 +2,14 @@ import {
 	AdminAuditPageSchema,
 	AdminCacheStatsSchema,
 	AdminDashboardViewResponseSchema,
-	AdminDatabaseBackupListSchema,
-	AdminDatabaseBackupSchema,
 	AdminFfmpegCapabilitiesSchema,
 	AdminFilesystemBrowseSchema,
-	AdminLogsPageSchema,
 	AdminResourcesResponseSchema,
 	AdminStatsSchema,
 	MetadataProviderConfigurationSchema,
 	OperationQueuedResponseSchema,
-	PluginCatalogEntrySchema,
-	PluginConfigDetailsSchema,
-	PluginRepositorySchema,
 	PluginRuntimeStatusSchema,
 	SystemSettingsGroupedSchema,
-	UpdatePluginConfigBodySchema,
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
@@ -39,19 +32,8 @@ export const adminSystemRoutes = new Elysia()
 		"admin.refreshMetadata": RefreshMetadataSchema,
 		"admin.stats": AdminStatsSchema,
 		"admin.dashboardView": AdminDashboardViewResponseSchema,
-		"admin.plugins": t.Array(PluginRuntimeStatusSchema),
-		"admin.plugin": PluginRuntimeStatusSchema,
-		"admin.pluginConfig": PluginConfigDetailsSchema,
-		"admin.pluginRepositories": t.Array(PluginRepositorySchema),
-		"admin.pluginRepository": PluginRepositorySchema,
-		"admin.pluginCatalog": t.Array(PluginCatalogEntrySchema),
-		"admin.updatePluginConfig": UpdatePluginConfigBodySchema,
-		"admin.metadataProviderConfigurations": t.Array(MetadataProviderConfigurationSchema),
-		"admin.logs": AdminLogsPageSchema,
 		"admin.audit": AdminAuditPageSchema,
 		"admin.filesystemBrowse": AdminFilesystemBrowseSchema,
-		"admin.databaseBackups": AdminDatabaseBackupListSchema,
-		"admin.databaseBackup": AdminDatabaseBackupSchema,
 	})
 	.guard({ adminOnly: true })
 	.use(rateLimitMiddleware)

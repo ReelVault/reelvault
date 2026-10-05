@@ -158,6 +158,7 @@ test("metadata provider reorder endpoint persists the requested order", async ()
 	});
 	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
 	let received: string[] | undefined;
+	providerService.getConfigurations = () => Promise.resolve([]);
 	providerService.reorderConfigurations = (providerIds) => {
 		received = [...providerIds];
 
@@ -352,8 +353,8 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 		expect(itemRes.status).toBe(200);
 
 		const cancelItemRes = await app.handle(
-			new Request("http://localhost/admin/workers/jobs/item-1", {
-				method: "DELETE",
+			new Request("http://localhost/admin/workers/jobs/item-1/cancel", {
+				method: "POST",
 				headers: { authorization: "Bearer admin" },
 			}),
 		);

@@ -170,17 +170,6 @@ export const adminWorkersRoutes = new Elysia()
 			detail: { description: "Cancel a pending or running worker job." },
 		},
 	)
-	.delete(
-		"/workers/jobs/:jobId",
-		async ({ params, user, request }) =>
-			await adminWorkerOperationsService.cancelItem(params.jobId, { actorUserId: user?.id, headers: request.headers }),
-		{
-			rateLimit: { name: "admin-workers-jobs-delete", max: 30, windowMs: MINUTE },
-			params: t.Object({ jobId: t.String({ minLength: 1 }) }),
-			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: SuccessResponseSchema },
-			detail: { description: "Cancel a pending or running worker job (DELETE alias)." },
-		},
-	)
 
 	.get("/workers/operations", async ({ query }) => await adminWorkerOperationsService.getOperations(query), {
 		rateLimit: { name: "admin-workers-operations-list", max: 120, windowMs: MINUTE },
