@@ -73,32 +73,20 @@ export class RealtimeService extends BaseService {
 	 * sending playback commands until the 60 s stale sweep.
 	 */
 	disconnectAuthSession(sessionId: string, reason = "Session revoked"): number {
-		let closed = 0;
-		for (const conn of this.registry.findConnectionsBySession(sessionId)) {
-			// `clientsBySession` also indexes playback subscriptions — only close
-			// connections whose AUTH session matches.
-			if (conn.sessionId !== sessionId) continue;
+		// `clientsBySession` also indexes playback subscriptions — only close
+		// connections whose AUTH session matches.
+		const connections = this.registry.findConnectionsBySession(sessionId).filter((conn) => conn.sessionId === sessionId);
 
-			conn.close(4001, reason);
-			this.unregister(conn.connectionId);
-			closed++;
-		}
-
-		return closed;
+		return this.disconnectWhere(connections, reason);
 	}
 
 	/** Closes every socket of a user (ban, password change), optionally sparing one auth session. */
 	disconnectUser(userId: string, exceptSessionId?: string): number {
-		let closed = 0;
-		for (const conn of this.registry.findConnectionsByUser(userId)) {
-			if (exceptSessionId && conn.sessionId === exceptSessionId) continue;
+		const connections = this.registry
+			.findConnectionsByUser(userId)
+			.filter((conn) => !exceptSessionId || conn.sessionId !== exceptSessionId);
 
-			conn.close(4001, "Session revoked");
-			this.unregister(conn.connectionId);
-			closed++;
-		}
-
-		return closed;
+		return this.disconnectWhere(connections, "Session revoked");
 	}
 
 	isSubscribedToPlaybackSession(connectionId: string, playbackSessionId: string): boolean {
@@ -110,19 +98,11 @@ export class RealtimeService extends BaseService {
 	}
 
 	sendToUser<E extends RealtimeEventName>(userId: string, type: E, payload: RealtimePayload<E>): void {
-		const connections = this.registry.findConnectionsByUser(userId);
-		if (connections.length === 0) return;
-
-		const message = this.serializeMessage(type, payload);
-		this.dispatch(connections, message);
+		this.sendToConnections(this.registry.findConnectionsByUser(userId), type, payload);
 	}
 
 	sendToProfile<E extends RealtimeEventName>(profileId: string, type: E, payload: RealtimePayload<E>): void {
-		const connections = this.registry.findConnectionsByProfile(profileId);
-		if (connections.length === 0) return;
-
-		const message = this.serializeMessage(type, payload);
-		this.dispatch(connections, message);
+		this.sendToConnections(this.registry.findConnectionsByProfile(profileId), type, payload);
 	}
 
 	/**
@@ -135,25 +115,16 @@ export class RealtimeService extends BaseService {
 		const connections = [...this.registry.getAll()];
 		const adminIds = await usersRepository.findAdminIdsByUserIds(connections.map((connection) => connection.userId));
 		const adminConnections = connections.filter((connection) => adminIds.has(connection.userId));
-		if (adminConnections.length === 0) return;
 
-		const message = this.serializeMessage(type, payload);
-		this.dispatch(adminConnections, message);
+		this.sendToConnections(adminConnections, type, payload);
 	}
 
 	sendToSession<E extends RealtimeEventName>(sessionId: string, type: E, payload: RealtimePayload<E>): void {
-		const connections = this.registry.findConnectionsBySession(sessionId);
-		if (connections.length === 0) return;
-
-		const message = this.serializeMessage(type, payload);
-		this.dispatch(connections, message);
+		this.sendToConnections(this.registry.findConnectionsBySession(sessionId), type, payload);
 	}
 
 	broadcast<E extends RealtimeEventName>(type: E, payload: RealtimePayload<E>): void {
-		if (this.registry.count() === 0) return;
-
-		const message = this.serializeMessage(type, payload);
-		this.dispatch(this.registry.getAll(), message);
+		this.sendToConnections([...this.registry.getAll()], type, payload);
 	}
 
 	sendPlaybackCommand(targetSessionId: string, command: PlaybackCommand, senderProfileId?: string): boolean {
@@ -166,18 +137,7 @@ export class RealtimeService extends BaseService {
 			senderProfileId,
 		});
 
-		let deliveredCount = 0;
-		for (const conn of connections) {
-			if (conn.safeSend(message)) {
-				deliveredCount++;
-				this.totalMessagesSent++;
-			} else {
-				// A failed send means a broken socket — drop it like `dispatch` does.
-				this.unregister(conn.connectionId);
-			}
-		}
-
-		return deliveredCount > 0;
+		return this.dispatch(connections, message) > 0;
 	}
 
 	getStats(): RealtimeStats {
@@ -211,15 +171,37 @@ export class RealtimeService extends BaseService {
 		return JSON.stringify(event);
 	}
 
-	private dispatch(connections: Iterable<ClientConnection>, message: string): void {
+	private sendToConnections<E extends RealtimeEventName>(connections: ClientConnection[], type: E, payload: RealtimePayload<E>): void {
+		if (connections.length === 0) return;
+
+		this.dispatch(connections, this.serializeMessage(type, payload));
+	}
+
+	private disconnectWhere(connections: ClientConnection[], reason: string): number {
+		let closed = 0;
+		for (const conn of connections) {
+			conn.close(4001, reason);
+			this.unregister(conn.connectionId);
+			closed++;
+		}
+
+		return closed;
+	}
+
+	/** Sends to every connection and returns how many messages were delivered. */
+	private dispatch(connections: Iterable<ClientConnection>, message: string): number {
+		let delivered = 0;
 		for (const conn of connections) {
 			if (conn.safeSend(message)) {
+				delivered++;
 				this.totalMessagesSent++;
 			} else {
 				// Failed send indicates broken socket; unregister eagerly
 				this.unregister(conn.connectionId);
 			}
 		}
+
+		return delivered;
 	}
 
 	private startStaleSweep(): void {
