@@ -1,12 +1,15 @@
 import {
+	BatchSmartPlayResponseSchema,
 	ContinueWatchingResponseSchema,
 	CreateUserRatingSchema,
 	CreateWatchedHistorySchema,
 	CreateWatchlistSchema,
+	HydratedWatchlistItemSchema,
 	InsightsRangeSchema,
 	MetadataPlaybackProgressSchema,
 	ProfileInsightsSchema,
 	ProjectedResponseSchema,
+	PaginatedResponseSchema as SdkPaginatedResponseSchema,
 	SessionResponseSchema,
 	SmartPlayResponseSchema,
 	UserRatingFiltersSchema,
@@ -48,6 +51,8 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 
 		"me.watchlist.schema": ProjectedResponseSchema(WatchlistSchema),
 		"me.watchlist.paginated.schema": PaginatedResponseSchema(ProjectedResponseSchema(WatchlistSchema)),
+		"me.watchlist.hydrated.paginated.schema": SdkPaginatedResponseSchema(HydratedWatchlistItemSchema),
+		"me.playback-suggestions.batch.response": BatchSmartPlayResponseSchema,
 		"me.watchlist.toggle.body": CreateWatchlistSchema,
 		"me.watchlist.toggle.response": t.Object({ added: t.Boolean() }),
 		"me.watchlist.status.response": t.Object({ inWatchlist: t.Boolean() }),
@@ -153,6 +158,19 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		},
 	)
 	.get(
+		"/playback-suggestions",
+		async ({ query, profile }) => {
+			const ids = trimAndFilter(query.metadataIds.split(","));
+
+			return await playbackProgressService.getSmartPlayBatch(ids, profile?.id);
+		},
+		{
+			query: t.Object({ metadataIds: t.String({ maxLength: 2000 }) }),
+			response: { ...ROUTE_ERRORS.AUTH, 200: "me.playback-suggestions.batch.response" },
+			detail: { description: "Batch smart-play suggestions + watchlist flags for card grids (max 50 ids)." },
+		},
+	)
+	.get(
 		"/playback-suggestions/:metadataId",
 		async ({ params, profile }) => await playbackProgressService.getSmartPlay(params.metadataId, profile?.id),
 		{
@@ -164,11 +182,23 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 
 	// --- WATCHLIST ---
 	.get("/watchlist", async ({ query, profile }) => await watchlistService.getAll(query, profile?.id), {
-		query: t.Composite([PaginationSchema, FieldsSchema, WatchlistFiltersSchema, WatchlistSortingSchema]),
-		response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.paginated.schema" },
+		query: t.Composite([
+			PaginationSchema,
+			FieldsSchema,
+			WatchlistFiltersSchema,
+			WatchlistSortingSchema,
+			t.Object({ hydrate: t.Optional(t.Union([t.Boolean(), t.BooleanString()])) }),
+		]),
+		response: {
+			...ROUTE_ERRORS.AUTH,
+			200: t.Union([t.Ref("me.watchlist.paginated.schema"), t.Ref("me.watchlist.hydrated.paginated.schema")]),
+		},
 		cache: { maxAge: 10, private: true },
 		deduplicate: {},
-		detail: { description: "Retrieve watchlist items for the active profile." },
+		detail: {
+			description:
+				"Retrieve watchlist items for the active profile. With hydrate=true every item embeds its full metadata card (single-request hydration).",
+		},
 	})
 	.post("/watchlist", async ({ body, profile }) => await watchlistService.add(body.metadataId, profile?.id), {
 		body: t.Object({ metadataId: t.String() }),

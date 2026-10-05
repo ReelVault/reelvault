@@ -1,6 +1,7 @@
 import type {
 	CreateWatchlist,
 	FieldsQuery,
+	HydratedWatchlistItem,
 	PaginatedResponse,
 	PaginationQuery,
 	SelectFields,
@@ -8,8 +9,9 @@ import type {
 	WatchlistFilters,
 	WatchlistSorting,
 } from "@reelvault/sdk/common";
+import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
-import { unique } from "@/utils/array.utils";
+import { isNotNullish, toMap, unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 
@@ -24,13 +26,28 @@ class WatchlistService extends BaseService {
 	}
 
 	async getAll<F extends string>(
-		query?: PaginationQuery & FieldsQuery<F> & WatchlistFilters & WatchlistSorting,
+		query?: PaginationQuery & FieldsQuery<F> & WatchlistFilters & WatchlistSorting & { hydrate?: boolean },
 		profileId?: string,
-	): Promise<PaginatedResponse<SelectFields<Watchlist, F>>> {
+	): Promise<PaginatedResponse<SelectFields<Watchlist, F>> | PaginatedResponse<HydratedWatchlistItem>> {
 		return await this.safeExecute("getAll", async () => {
 			this.assertProfileId(profileId);
+			const { hydrate, ...pageQuery } = query ?? {};
+			const page = await watchlistRepository.findPage({ ...pageQuery, profileId });
+			if (!hydrate || page.data.length === 0) return page;
 
-			return await watchlistRepository.findPage({ ...query, profileId });
+			// One batched card fetch replaces the client's second request (the old
+			// list→metadata waterfall). Titles missing their metadata row (deleted
+			// from the catalog) drop out, matching what the hydration used to return.
+			const cards = await metadataRepository.findManyByIdsWithRelations(unique(page.data.map((item) => item.metadataId)));
+			const cardsById = toMap(cards, (card) => card.id);
+			const data = page.data
+				.map((item) => {
+					const metadata = cardsById.get(item.metadataId);
+					return metadata ? { ...item, metadata } : undefined;
+				})
+				.filter((item) => isNotNullish(item));
+
+			return { ...page, data };
 		});
 	}
 

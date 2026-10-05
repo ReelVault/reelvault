@@ -1,4 +1,5 @@
 import type {
+	BatchSmartPlayResponse,
 	ContinueWatchingItem,
 	MetadataPlaybackProgress,
 	MetadataType,
@@ -9,6 +10,8 @@ import { playbackRepository as defaultPlaybackRepository } from "@/database/repo
 import { profilePreferencesRepository as defaultProfilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profileStreamPrefsRepository as defaultProfileStreamPrefsRepository } from "@/database/repositories/profile-stream-prefs.repository";
 import { watchedHistoryRepository as defaultWatchedHistoryRepository } from "@/database/repositories/watched-history.repository";
+import { watchlistRepository as defaultWatchlistRepository } from "@/database/repositories/watchlist.repository";
+import { isNotNullish, trimAndFilter, unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 import type { PlaybackProgressComputeData, SmartPlay, SmartPlayComputeData } from "../streaming.types";
@@ -30,8 +33,12 @@ export type PlaybackProgressRepo = Pick<
 >;
 
 export type WatchedHistoryRepo = Pick<typeof defaultWatchedHistoryRepository, "sync">;
+export type WatchlistRepo = Pick<typeof defaultWatchlistRepository, "findWatchlistedIds">;
 
-export type ProfileStreamPrefsRepo = Pick<typeof defaultProfileStreamPrefsRepository, "upsert" | "find">;
+/** Hard cap for the batch smart-play endpoint (guards giant query strings). */
+const MAX_BATCH_IDS = 50;
+
+export type ProfileStreamPrefsRepo = Pick<typeof defaultProfileStreamPrefsRepository, "upsert" | "find" | "findByMediaFile">;
 
 export interface ProfilePreferencesRepo {
 	getEffective(input: { profileId: string }): Promise<{ continueWatchingMinutes: number }>;
@@ -46,6 +53,7 @@ export interface ServiceDependencies {
 	watchedHistoryRepository: WatchedHistoryRepo;
 	profileStreamPrefsRepository: ProfileStreamPrefsRepo;
 	profilePreferencesRepository: ProfilePreferencesRepo;
+	watchlistRepository: WatchlistRepo;
 	publisher: PlaybackProgressPublisherDependency;
 }
 
@@ -54,6 +62,7 @@ const defaultDependencies: ServiceDependencies = {
 	watchedHistoryRepository: defaultWatchedHistoryRepository,
 	profileStreamPrefsRepository: defaultProfileStreamPrefsRepository,
 	profilePreferencesRepository: defaultProfilePreferencesRepository,
+	watchlistRepository: defaultWatchlistRepository,
 	publisher: new PlaybackProgressPublisher(),
 };
 
@@ -136,10 +145,11 @@ class PlaybackProgressService extends BaseService {
 	async getStreamPrefs(fileId: string, profileId?: string): Promise<StreamPrefs | null> {
 		return await this.safeExecute("getStreamPrefs", async () => {
 			this.assertExists(profileId, "Profile", "auth");
-			const mediaFile = await this.dependencies.playbackRepository.findMediaFileWithMetadata(fileId);
-			this.assertExists(mediaFile?.metadataId, "MediaFile", fileId);
+			// One LEFT JOIN resolves file→metadata→prefs (was two chained selects).
+			const resolved = await this.dependencies.profileStreamPrefsRepository.findByMediaFile(fileId, profileId);
+			this.assertExists(resolved, "MediaFile", fileId);
 
-			return await this.dependencies.profileStreamPrefsRepository.find(profileId, mediaFile.metadataId);
+			return resolved.prefs;
 		});
 	}
 
@@ -222,6 +232,36 @@ class PlaybackProgressService extends BaseService {
 				seasons: data.seasons,
 				episodes: data.episodes,
 			});
+		});
+	}
+
+	/** Batch smart play + watchlist flags — one request for a whole grid of cards. */
+	async getSmartPlayBatch(metadataIds: string[], profileId?: string): Promise<BatchSmartPlayResponse> {
+		return await this.safeExecute("getSmartPlayBatch", async () => {
+			this.assertExists(profileId, "Profile", "auth");
+			const ids = unique(trimAndFilter(metadataIds)).slice(0, MAX_BATCH_IDS);
+			if (ids.length === 0) return { suggestions: [] };
+
+			const [resolved, watchlisted] = await Promise.all([
+				Promise.all(
+					ids.map((metadataId) =>
+						this.getSmartPlay(metadataId, profileId)
+							.then((smartPlay) => ({ metadataId, suggestion: smartPlay.suggestion }))
+							.catch(() => ({ metadataId, suggestion: null })),
+					),
+				),
+				this.dependencies.watchlistRepository.findWatchlistedIds(profileId, ids).catch(() => new Set<string>()),
+			]);
+
+			return {
+				suggestions: resolved
+					.filter((item) => isNotNullish(item.metadataId))
+					.map((item) => ({
+						metadataId: item.metadataId,
+						suggestion: item.suggestion,
+						inWatchlist: watchlisted.has(item.metadataId),
+					})),
+			};
 		});
 	}
 }

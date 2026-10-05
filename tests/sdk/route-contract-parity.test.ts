@@ -4,6 +4,7 @@ import {
 	CompanySchema,
 	EpisodeWithRelationsSchema,
 	GenreSchema,
+	HydratedWatchlistItemSchema,
 	KeywordSchema,
 	LibraryDetailSchema,
 	LibraryWithRelationsSchema,
@@ -238,6 +239,14 @@ const REGISTRY: ContractRow[] = [
 		model: "me.watchlist.paginated.schema",
 		contract: WatchlistSchema,
 		projected: true,
+		paginated: true,
+	},
+	{
+		family: "watchlist hydrated list",
+		module: meRoutes,
+		model: "me.watchlist.hydrated.paginated.schema",
+		contract: HydratedWatchlistItemSchema,
+		projected: false,
 		paginated: true,
 	},
 	{

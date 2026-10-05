@@ -6,6 +6,7 @@ import {
 	PlaybackProgressService,
 	type ProfileStreamPrefsRepo,
 	type WatchedHistoryRepo,
+	type WatchlistRepo,
 } from "./playback-progress.service";
 
 type ContinueWatchingRepoData = Awaited<ReturnType<PlaybackProgressRepo["findContinueWatchingData"]>>;
@@ -22,6 +23,7 @@ interface TestHarness {
 
 function createService(
 	options: {
+		watchlistedIds?: string[];
 		existingProgress?:
 			| { completed: boolean; position?: number | null; audioStreamIndex?: number | null; subtitleId?: string | null }
 			| null
@@ -123,9 +125,14 @@ function createService(
 			return Promise.resolve();
 		},
 		find: () => Promise.resolve(null),
+		findByMediaFile: () => Promise.resolve(undefined),
+	};
+	const watchlistRepository: WatchlistRepo = {
+		findWatchlistedIds: () => Promise.resolve(new Set(options.watchlistedIds ?? [])),
 	};
 
 	const service = new PlaybackProgressService({
+		watchlistRepository,
 		playbackRepository,
 		watchedHistoryRepository,
 		profileStreamPrefsRepository,
@@ -256,4 +263,16 @@ describe("playback progress service", () => {
 
 		expect(prefsUpserts).toHaveLength(0);
 	});
+});
+
+test("batches smart play with watchlist flags and survives per-id failures", async () => {
+	const { service } = createService({ watchlistedIds: ["meta-1"] });
+
+	// The default stub resolves no smart-play data, so every id degrades to a
+	// null suggestion — the batch must still carry the watchlist flags through.
+	const result = await service.getSmartPlayBatch(["meta-1", "meta-2", "  "], "profile-1");
+
+	expect(result.suggestions).toHaveLength(2);
+	expect(result.suggestions[0]).toMatchObject({ metadataId: "meta-1", suggestion: null, inWatchlist: true });
+	expect(result.suggestions[1]).toMatchObject({ metadataId: "meta-2", suggestion: null, inWatchlist: false });
 });
