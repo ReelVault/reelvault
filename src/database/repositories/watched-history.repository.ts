@@ -5,18 +5,17 @@ import type {
 	TopWatchedMedia,
 	WatchedHistoryWithRelations,
 } from "@reelvault/sdk/common";
-import { and, asc, desc, eq, gte, inArray, lt, or, type SQL, type SQLWrapper, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, type SQL, type SQLWrapper, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount, defineTableAccess, filterSignature, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { type CreatedAtCursor, KeysetCursor } from "@/database/utils/keyset-cursor";
+import { type CreatedAtCursor, decodeCursorFor, KeysetCursor, keysetWhere } from "@/database/utils/keyset-cursor";
 import { QueryPagination } from "@/database/utils/pagination";
 import { QueryUtils } from "@/database/utils/query-parser";
 import { daysAgo, serverConstants } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { unique } from "@/utils/array.utils";
-import { ValidationError } from "@/utils/errors";
 
 const watchedHistory = defineTableAccess("watchedHistory", {
 	primaryKeyColumn: "id",
@@ -83,13 +82,7 @@ class WatchedHistoryRepository {
 		// Cursor mode orders by the full key (watchedAt, id) so pagination stays
 		// deterministic even when rows share a timestamp.
 		const where = cursor
-			? and(
-					eq(schema.watchedHistory.profileId, profileId),
-					or(
-						lt(schema.watchedHistory.watchedAt, new Date(cursor.createdAt)),
-						and(eq(schema.watchedHistory.watchedAt, new Date(cursor.createdAt)), lt(schema.watchedHistory.id, cursor.id)),
-					),
-				)
+			? and(eq(schema.watchedHistory.profileId, profileId), keysetWhere(schema.watchedHistory.watchedAt, schema.watchedHistory.id, cursor))
 			: eq(schema.watchedHistory.profileId, profileId);
 
 		const rows = await client
@@ -138,8 +131,7 @@ class WatchedHistoryRepository {
 		// Keyset pagination on the default listing (watchedAt desc) — offset pages
 		// scan past all preceding joined rows, a cursor seeks straight to the key.
 		const cursorMode = sortBy === "watchedAt" && sortOrder === "desc";
-		if (query.cursor && !cursorMode) throw new ValidationError("Pagination cursor requires descending watchedAt sorting");
-		const cursor = cursorMode && query.cursor ? KeysetCursor.decode(query.cursor) : undefined;
+		const cursor = decodeCursorFor(query.cursor, cursorMode, "Pagination cursor requires descending watchedAt sorting");
 
 		// The per-profile total only changes on history writes; caching it keeps the
 		// COUNT scan out of every page request (the write paths clear this cache's

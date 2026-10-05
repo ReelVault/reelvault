@@ -2,6 +2,8 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { DatabaseHelper } from "../utils/database-helper";
 
+const metadataStorageModes = ["database", "sidecar", "database_and_sidecar"] as const;
+
 export const libraries = sqliteTable(
 	"libraries",
 	{
@@ -9,9 +11,7 @@ export const libraries = sqliteTable(
 
 		name: text("name").notNull(),
 		type: text("type", { enum: ["movies", "tv_shows"] }).notNull(),
-		metadataStorageMode: text("metadata_storage_mode", { enum: ["database", "sidecar", "database_and_sidecar"] })
-			.notNull()
-			.default("database"),
+		metadataStorageMode: text("metadata_storage_mode", { enum: metadataStorageModes }).notNull().default("database"),
 		sidecarFlavor: text("sidecar_flavor", { enum: ["reelvault", "kodi"] })
 			.notNull()
 			.default("reelvault"),
@@ -38,7 +38,7 @@ export const libraryPaths = sqliteTable(
 
 		path: text("path").notNull(),
 		isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
-		metadataStorageMode: text("metadata_storage_mode", { enum: ["database", "sidecar", "database_and_sidecar"] }),
+		metadataStorageMode: text("metadata_storage_mode", { enum: metadataStorageModes }),
 
 		...DatabaseHelper.timestamps,
 	},

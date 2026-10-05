@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { DatabaseHelper } from "../utils/database-helper";
-import { createProviderJunction, createRatingsJunction } from "../utils/junction";
+import { createMetadataEntityJunction, createProviderJunction, createRatingsJunction } from "../utils/junction";
 import { collections } from "./collections.schema";
 import { companies } from "./companies.schema";
 import { genres } from "./genres.schema";
@@ -94,31 +94,28 @@ export const metadataCollections = sqliteTable(
 	],
 );
 
-export const metadataCompanies = sqliteTable(
+export const metadataCompanies = createMetadataEntityJunction(
 	"metadata_companies",
-	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
-		companyId: DatabaseHelper.tableRef("company_id", () => companies.id, { onDelete: "cascade" }),
-	},
-	(t) => [primaryKey({ columns: [t.metadataId, t.companyId] }), index("metadata_companies_company_idx").on(t.companyId)],
+	"companyId",
+	"company_id",
+	() => companies.id,
+	() => metadata.id,
 );
 
-export const metadataGenres = sqliteTable(
+export const metadataGenres = createMetadataEntityJunction(
 	"metadata_genres",
-	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
-		genreId: DatabaseHelper.tableRef("genre_id", () => genres.id, { onDelete: "cascade" }),
-	},
-	(t) => [primaryKey({ columns: [t.metadataId, t.genreId] }), index("metadata_genres_genre_idx").on(t.genreId)],
+	"genreId",
+	"genre_id",
+	() => genres.id,
+	() => metadata.id,
 );
 
-export const metadataKeywords = sqliteTable(
+export const metadataKeywords = createMetadataEntityJunction(
 	"metadata_keywords",
-	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
-		keywordId: DatabaseHelper.tableRef("keyword_id", () => keywords.id, { onDelete: "cascade" }),
-	},
-	(t) => [primaryKey({ columns: [t.metadataId, t.keywordId] }), index("metadata_keywords_keyword_idx").on(t.keywordId)],
+	"keywordId",
+	"keyword_id",
+	() => keywords.id,
+	() => metadata.id,
 );
 
 export const metadataCast = sqliteTable(

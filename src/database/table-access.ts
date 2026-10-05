@@ -139,9 +139,6 @@ export interface TableAccessBase<TTable extends DatabaseTables> {
 }
 
 export interface TableAccess<TTable extends DatabaseTables> extends TableAccessBase<TTable> {
-	tableName: TTable;
-	table: SchemaTable[TTable];
-	primaryKeyColumn: SQLiteColumn;
 	query: (tx?: DatabaseTransaction) => DatabaseType["query"][TTable];
 	selectMany: (params?: SelectManyParams) => Promise<Array<TableSelect<TTable>>>;
 	selectFirst: (params?: { where?: SQL | undefined; tx?: DatabaseTransaction | undefined }) => Promise<TableSelect<TTable> | undefined>;
@@ -411,14 +408,8 @@ async function selectMany<TTable extends DatabaseTables>(
 	{ where, orderBy, limit, offset, tx }: SelectManyParams = {},
 ): Promise<unknown[]> {
 	const baseQuery = databaseFactory.getClient({ tx }).select().from(repository.table).where(where).$dynamic();
-	const orderedQuery = orderBy ? baseQuery.orderBy(orderBy) : baseQuery;
-	let limitedQuery = orderedQuery;
 
-	if (limit !== undefined) limitedQuery = limitedQuery.limit(limit);
-
-	if (offset !== undefined && offset > 0) limitedQuery = limitedQuery.offset(offset);
-
-	return await limitedQuery;
+	return await applyWindow(baseQuery, { orderBy, limit, offset });
 }
 
 async function selectFirst<TTable extends DatabaseTables>(
@@ -449,13 +440,28 @@ export async function selectManyWithFields<TTable extends DatabaseTables>(
 
 	const client = databaseFactory.getClient({ tx: rest.tx });
 	const baseQuery = client.select(selection).from(repository.table).where(rest.where).$dynamic();
-	const orderedQuery = rest.orderBy ? baseQuery.orderBy(rest.orderBy) : baseQuery;
-	let limitedQuery = orderedQuery;
-	if (rest.limit !== undefined) limitedQuery = limitedQuery.limit(rest.limit);
 
-	if (rest.offset !== undefined && rest.offset > 0) limitedQuery = limitedQuery.offset(rest.offset);
+	return await applyWindow(baseQuery, rest);
+}
 
-	return await limitedQuery;
+/** Minimal chain surface shared by the dynamic select builders used below. */
+interface WindowedQuery<TQuery> extends PromiseLike<unknown[]> {
+	orderBy(orderBy: SQL): TQuery;
+	limit(limit: number): TQuery;
+	offset(offset: number): TQuery;
+}
+
+/** Shared ORDER BY / LIMIT / OFFSET window for `selectMany` and `selectManyWithFields`. */
+async function applyWindow<TQuery extends WindowedQuery<TQuery>>(
+	query: TQuery,
+	{ orderBy, limit, offset }: Pick<SelectManyParams, "orderBy" | "limit" | "offset">,
+): Promise<unknown[]> {
+	let result = orderBy ? query.orderBy(orderBy) : query;
+	if (limit !== undefined) result = result.limit(limit);
+
+	if (offset !== undefined && offset > 0) result = result.offset(offset);
+
+	return await result;
 }
 
 function buildProjection(
@@ -525,6 +531,16 @@ async function findOrCreate<TTable extends DatabaseTables>(
 	return selectFirst(repository, { where: whereClause, tx });
 }
 
+/** Normalizes a single insert value or list to an array; empty/falsy lists become `[]`. */
+function toInsertValuesArray<TTable extends DatabaseTables>(
+	values: TableInsertValue<TTable> | Array<TableInsertValue<TTable>>,
+): Array<TableInsertValue<TTable>> {
+	const valuesArray = Array.isArray(values) ? values : [values];
+	if (valuesArray.length === 0 || !valuesArray[0]) return [];
+
+	return valuesArray;
+}
+
 async function insertRows<TTable extends DatabaseTables>(
 	repository: TableAccessBase<TTable>,
 	{
@@ -535,8 +551,8 @@ async function insertRows<TTable extends DatabaseTables>(
 		tx?: DatabaseTransaction | undefined;
 	},
 ): Promise<void> {
-	const valuesArray = Array.isArray(values) ? values : [values];
-	if (valuesArray.length === 0 || !valuesArray[0]) return;
+	const valuesArray = toInsertValuesArray(values);
+	if (valuesArray.length === 0) return;
 
 	// Generic insert is intentionally idempotent: `onConflictDoNothing` lets the
 	// repositories that use it (watchlist add, subtitle upsert, audit records,
@@ -557,8 +573,8 @@ async function insertRowsReturning<TTable extends DatabaseTables>(
 		tx?: DatabaseTransaction | undefined;
 	},
 ): Promise<Array<TableSelect<TTable>>> {
-	const valuesArray = Array.isArray(values) ? values : [values];
-	if (valuesArray.length === 0 || !valuesArray[0]) return [];
+	const valuesArray = toInsertValuesArray(values);
+	if (valuesArray.length === 0) return [];
 
 	const client = databaseFactory.getClient({ tx });
 	const query = client.insert(repository.table).values(valuesArray);
@@ -581,6 +597,36 @@ function whereClauseFor<TTable extends DatabaseTables>(
 	return where;
 }
 
+/**
+ * Validates the update target, drops no-op updates (empty id list or values)
+ * and stamps `updatedAt` when the table has the column and the caller did not
+ * set it. Returns `undefined` when there is nothing to update.
+ */
+function resolveUpdateSet<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	{
+		primaryId,
+		ids,
+		where,
+		values,
+	}: {
+		primaryId?: string | undefined;
+		ids?: string[] | undefined;
+		where?: SQL | undefined;
+		values: TableUpdateSet<TTable>;
+	},
+): TableUpdateSet<TTable> | undefined {
+	if (!(where || primaryId || ids?.length)) {
+		throw new Error(`${repository.tableName}: update requires 'primaryId', 'ids' or 'where'`);
+	}
+
+	if (ids?.length === 0) return undefined;
+
+	if (!hasEntry(values)) return undefined;
+
+	return "updatedAt" in repository.table && !("updatedAt" in values) ? { ...values, updatedAt: new Date() } : values;
+}
+
 async function updateRows<TTable extends DatabaseTables>(
 	repository: TableAccessBase<TTable>,
 	{
@@ -597,20 +643,13 @@ async function updateRows<TTable extends DatabaseTables>(
 		tx?: DatabaseTransaction | undefined;
 	},
 ): Promise<void> {
-	if (!(where || primaryId || ids?.length)) {
-		throw new Error(`${repository.tableName}: update requires 'primaryId', 'ids' or 'where'`);
-	}
+	const updateSet = resolveUpdateSet(repository, { primaryId, ids, where, values });
+	if (!updateSet) return;
 
-	if (ids?.length === 0) return;
-
-	const hasValues = hasEntry(values);
-	if (!hasValues) return;
-
-	const valuesWithTimestamp = "updatedAt" in repository.table && !("updatedAt" in values) ? { ...values, updatedAt: new Date() } : values;
 	await databaseFactory
 		.getClient({ tx })
 		.update(repository.table)
-		.set(valuesWithTimestamp)
+		.set(updateSet)
 		.where(whereClauseFor(repository, { primaryId, ids, where }));
 }
 
@@ -630,21 +669,13 @@ async function updateRowsReturning<TTable extends DatabaseTables>(
 		tx?: DatabaseTransaction | undefined;
 	},
 ): Promise<Array<TableSelect<TTable>>> {
-	if (!(where || primaryId || ids?.length)) {
-		throw new Error(`${repository.tableName}: update requires 'primaryId', 'ids' or 'where'`);
-	}
-
-	if (ids?.length === 0) return [];
-
-	const hasValues = hasEntry(values);
-	if (!hasValues) return [];
-
-	const valuesWithTimestamp = "updatedAt" in repository.table && !("updatedAt" in values) ? { ...values, updatedAt: new Date() } : values;
+	const updateSet = resolveUpdateSet(repository, { primaryId, ids, where, values });
+	if (!updateSet) return [];
 
 	return await databaseFactory
 		.getClient({ tx })
 		.update(repository.table)
-		.set(valuesWithTimestamp)
+		.set(updateSet)
 		.where(whereClauseFor(repository, { primaryId, ids, where }))
 		.returning();
 }

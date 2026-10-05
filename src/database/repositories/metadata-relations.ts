@@ -29,6 +29,22 @@ const castColumns = {
 const crewColumns = { job: schema.metadataCrew.job, department: schema.metadataCrew.department };
 const ratingColumns = getTableColumns(schema.metadataRatings);
 
+/** Fresh empty relation payload — callers mutate the arrays, so never share one instance. */
+function emptyRelationData(): MetadataRelationData {
+	return {
+		collections: [],
+		companies: [],
+		genres: [],
+		keywords: [],
+		cast: [],
+		crew: [],
+		images: [],
+		rating: { avgScore: 0, scores: [] },
+		providers: [],
+		lockedFields: [],
+	};
+}
+
 export async function loadRelations<F extends string>(
 	metadataIds: string[],
 	tx?: DatabaseTransaction,
@@ -159,18 +175,7 @@ export async function loadRelations<F extends string>(
 	]);
 
 	for (const metadataId of metadataIds) {
-		relationsByMetadataId.set(metadataId, {
-			collections: [],
-			companies: [],
-			genres: [],
-			keywords: [],
-			cast: [],
-			crew: [],
-			images: [],
-			rating: { avgScore: 0, scores: [] },
-			providers: [],
-			lockedFields: [],
-		});
+		relationsByMetadataId.set(metadataId, emptyRelationData());
 	}
 
 	for (const row of collections) relationsByMetadataId.get(row.metadataId)?.collections.push(row.data);
@@ -221,18 +226,7 @@ export async function loadRelations<F extends string>(
 }
 
 export function withRelations(metadata: typeof schema.metadata.$inferSelect, relations?: MetadataRelationData): MetadataWithRelation {
-	const data = relations ?? {
-		collections: [],
-		companies: [],
-		genres: [],
-		keywords: [],
-		cast: [],
-		crew: [],
-		images: [],
-		rating: { avgScore: 0, scores: [] },
-		providers: [],
-		lockedFields: [],
-	};
+	const data = relations ?? emptyRelationData();
 
 	return {
 		...metadata,

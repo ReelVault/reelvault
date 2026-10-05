@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, lt, type SQL, sql } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
@@ -212,6 +213,13 @@ class WorkerOperationRepository {
 		const newFailed = sql`${operations.failedItems} + ${jobStatus === "failed" ? amount : 0}`;
 		const newCancelled = sql`${operations.cancelledItems} + ${jobStatus === "cancelled" ? amount : 0}`;
 		const newFinished = sql`(${newCompleted} + ${newFailed} + ${newCancelled})`;
+		const statusBranches = sql`WHEN ${newFinished} >= ${operations.totalItems} AND ${newRunning} = 0 THEN
+						CASE
+							WHEN ${operations.cancelRequested} OR ${newCancelled} > 0 THEN 'cancelled'
+							WHEN ${newFailed} > 0 THEN 'failed'
+							ELSE 'completed'
+						END
+					WHEN ${newRunning} = 0 AND ${operations.totalItems} - ${newFinished} > 0 THEN 'pending'`;
 
 		await databaseFactory
 			.getClient({ tx })
@@ -224,24 +232,9 @@ class WorkerOperationRepository {
 				// While a live streaming slot holds the operation open, the percent
 				// belongs to the transcode progress monitor — a finishing job (the
 				// seconds-long stream-init) must not stomp it back to the item ratio.
-				progressPercent: sql`CASE
-					WHEN ${newRunning} > 0 THEN ${operations.progressPercent}
-					WHEN ${operations.totalItems} > 0 THEN CAST(ROUND(${newFinished} * 100.0 / ${operations.totalItems}) AS INTEGER)
-					ELSE 100
-				END`,
-				status: sql`CASE
-					WHEN ${operations.status} = 'cancelled' THEN 'cancelled'
-					WHEN ${newFinished} >= ${operations.totalItems} AND ${newRunning} = 0 THEN
-						CASE
-							WHEN ${operations.cancelRequested} OR ${newCancelled} > 0 THEN 'cancelled'
-							WHEN ${newFailed} > 0 THEN 'failed'
-							ELSE 'completed'
-						END
-					WHEN ${newRunning} = 0 AND ${operations.totalItems} - ${newFinished} > 0 THEN 'pending'
-					WHEN ${newRunning} > 0 THEN 'running'
-					ELSE ${operations.status}
-				END`,
-				completedAt: sql`CASE WHEN ${newFinished} >= ${operations.totalItems} AND ${newRunning} = 0 THEN ${Math.floor(now.getTime() / 1000)} ELSE ${operations.completedAt} END`,
+				progressPercent: buildProgressPercentCase(newRunning, newFinished),
+				status: buildStatusCase(newRunning, statusBranches),
+				completedAt: buildCompletedAtCase(newRunning, newFinished, now),
 				updatedAt: now,
 			})
 			.where(eq(operations.id, operationId));
@@ -265,18 +258,12 @@ class WorkerOperationRepository {
 			.set({
 				pendingItems: remainingPending,
 				cancelledItems: newCancelled,
-				progressPercent: sql`CASE
-					WHEN ${operations.runningItems} > 0 THEN ${operations.progressPercent}
-					WHEN ${operations.totalItems} > 0 THEN CAST(ROUND(${newFinished} * 100.0 / ${operations.totalItems}) AS INTEGER)
-					ELSE 100
-				END`,
-				status: sql`CASE
-					WHEN ${operations.status} = 'cancelled' THEN 'cancelled'
-					WHEN ${newFinished} >= ${operations.totalItems} AND ${operations.runningItems} = 0 THEN 'cancelled'
-					WHEN ${operations.runningItems} > 0 THEN 'running'
-					ELSE ${operations.status}
-				END`,
-				completedAt: sql`CASE WHEN ${newFinished} >= ${operations.totalItems} AND ${operations.runningItems} = 0 THEN ${Math.floor(now.getTime() / 1000)} ELSE ${operations.completedAt} END`,
+				progressPercent: buildProgressPercentCase(operations.runningItems, newFinished),
+				status: buildStatusCase(
+					operations.runningItems,
+					sql`WHEN ${newFinished} >= ${operations.totalItems} AND ${operations.runningItems} = 0 THEN 'cancelled'`,
+				),
+				completedAt: buildCompletedAtCase(operations.runningItems, newFinished, now),
 				updatedAt: now,
 			})
 			.where(eq(operations.id, operationId));
@@ -488,4 +475,38 @@ function computeEtaMs(completedItems: number, pendingItems: number, startedAt: D
 	const rate = completedItems / elapsed;
 
 	return rate > 0 ? Math.round(pendingItems / rate) : null;
+}
+
+// The CASE builders below keep the original template indentation so the
+// generated SQL stays byte-identical to the inline expressions they replaced.
+
+/**
+ * Item-ratio progress percent, frozen while `running` holds a live slot (the
+ * transcode progress monitor owns the percent then).
+ */
+function buildProgressPercentCase(running: SQL | SQLiteColumn, newFinished: SQL): SQL {
+	return sql`CASE
+					WHEN ${running} > 0 THEN ${operations.progressPercent}
+					WHEN ${operations.totalItems} > 0 THEN CAST(ROUND(${newFinished} * 100.0 / ${operations.totalItems}) AS INTEGER)
+					ELSE 100
+				END`;
+}
+
+/**
+ * Status CASE frame shared by the job-finishing writers: a cancelled operation
+ * stays cancelled, `branches` decides the finished/pending cases and a live
+ * running slot keeps the operation running.
+ */
+function buildStatusCase(running: SQL | SQLiteColumn, branches: SQL): SQL {
+	return sql`CASE
+					WHEN ${operations.status} = 'cancelled' THEN 'cancelled'
+					${branches}
+					WHEN ${running} > 0 THEN 'running'
+					ELSE ${operations.status}
+				END`;
+}
+
+/** Stamps `now` once the operation is finished and idle, otherwise keeps `completedAt`. */
+function buildCompletedAtCase(running: SQL | SQLiteColumn, newFinished: SQL, now: Date): SQL {
+	return sql`CASE WHEN ${newFinished} >= ${operations.totalItems} AND ${running} = 0 THEN ${Math.floor(now.getTime() / 1000)} ELSE ${operations.completedAt} END`;
 }

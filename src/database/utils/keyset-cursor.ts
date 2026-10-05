@@ -1,3 +1,4 @@
+import { and, eq, lt, or, type SQL, type SQLWrapper } from "drizzle-orm";
 import { ValidationError } from "@/utils/errors";
 import { safeParseJson } from "@/utils/file.utils";
 import { isFiniteNumber, isNonEmptyString, isRecord } from "@/utils/type.utils";
@@ -32,3 +33,20 @@ export const KeysetCursor = {
 		return parsed;
 	},
 };
+
+/**
+ * Decodes a cursor only when the query is in cursor mode — a cursor on any
+ * other sort order is a client error, not a silently ignored parameter.
+ */
+export function decodeCursorFor(cursor: string | undefined, cursorMode: boolean, errorMessage: string): CreatedAtCursor | undefined {
+	if (cursor && !cursorMode) throw new ValidationError(errorMessage);
+
+	return cursor && cursorMode ? KeysetCursor.decode(cursor) : undefined;
+}
+
+/** Keyset seek predicate for a `(date, id)` descending order: strictly older, or same date with a smaller id. */
+export function keysetWhere(dateColumn: SQLWrapper, idColumn: SQLWrapper, cursor: CreatedAtCursor): SQL | undefined {
+	const date = new Date(cursor.createdAt);
+
+	return or(lt(dateColumn, date), and(eq(dateColumn, date), lt(idColumn, cursor.id)));
+}
