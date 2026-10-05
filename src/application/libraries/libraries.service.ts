@@ -19,6 +19,7 @@ import { type ScanFindingItem, scanFindingsRepository } from "@/database/reposit
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { BaseService } from "@/utils/base-service";
 import { ConflictError, ValidationError } from "@/utils/errors";
+import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import {
@@ -32,8 +33,6 @@ import { ingestLibraryCache } from "@/workers/definitions/media/media-file-inges
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped";
 import { libraryWatcherService } from "./watching/library-watcher.service";
 
-const METADATA_LANGUAGE_PATTERN = /^[a-z]{2,3}(?:-[A-Za-z]{2})?$/;
-
 /**
  * Server-owned normalization for the per-library metadata language override:
  * `null`/empty clears it, otherwise an ISO language tag is required.
@@ -46,7 +45,7 @@ function normalizeMetadataLanguage(value: string | null | undefined): string | n
 	const trimmed = value.trim();
 	if (!trimmed) return null;
 
-	if (!METADATA_LANGUAGE_PATTERN.test(trimmed)) {
+	if (!LANGUAGE_TAG_PATTERN.test(trimmed)) {
 		throw new ValidationError("metadataLanguage must be an ISO language code like 'pl' or 'en-US'", {
 			code: "library.invalid_metadata_language",
 		});

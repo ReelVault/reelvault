@@ -5,11 +5,12 @@ import { readSidecarMetadataHint, type SidecarMetadataHint } from "@/modules/met
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { InFlightMap } from "@/utils/in-flight-map";
 import { PathUtils } from "@/utils/path.utils";
 import { throwIfAborted, WorkerCancellationError } from "@/workers/utils/worker-cancellation";
 import type { RecognitionResult } from "../../recognition/recognition.types";
 import { episodeRangeTargets } from "../../recognition/utils/recognition.utils";
-import { mapChaptersToMarkers } from "../probe/chapters-to-markers.utils";
+import { type ChapterMarkerDraft, mapChaptersToMarkers } from "../probe/chapters-to-markers.utils";
 import { mapMediaFileData } from "../probe/media-probe.mapper";
 import { videoParser } from "../probe/video-parser.service";
 import { recognizeWithPluginHooks } from "../recognition/recognition";
@@ -21,9 +22,16 @@ import type {
 	SkippedMediaFile,
 } from "../scanner.types";
 
+interface ProbeAndMapResult {
+	tech: Awaited<ReturnType<typeof videoParser.probe>>;
+	stats: Awaited<ReturnType<typeof FileUtils.getStats>>;
+	mediaFileData: ReturnType<typeof mapMediaFileData> | null;
+	markers?: ChapterMarkerDraft[] | undefined;
+}
+
 class MediaFileProcessor extends BaseService {
 	private metadataProcessInstance: MetadataProcess | undefined;
-	private readonly processingFiles = new Map<string, Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null>>();
+	private readonly processingFiles = new InFlightMap<ProcessedMediaFileWithMarkers | SkippedMediaFile | null>();
 
 	constructor() {
 		super("MediaFileProcessor");
@@ -61,17 +69,60 @@ class MediaFileProcessor extends BaseService {
 		scheduling?: TaskSchedulingOptions,
 		options?: { libraryId?: string | undefined },
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
-		const existingProcess = this.processingFiles.get(filePath);
-		if (existingProcess) return await existingProcess;
+		return await this.processingFiles.run(filePath, () =>
+			this.processOnce(libraryType, filePath, skipExistingLookup, signal, scheduling, options),
+		);
+	}
 
-		const processing = this.processOnce(libraryType, filePath, skipExistingLookup, signal, scheduling, options);
-		this.processingFiles.set(filePath, processing);
+	/**
+	 * Probe and file stats run concurrently for both single- and multi-episode
+	 * files; failures degrade to `null` fields (probe failures are warned),
+	 * never abort.
+	 */
+	private async probeAndMap(filePath: string, fileName: string, signal?: AbortSignal): Promise<ProbeAndMapResult> {
+		const [technicalData, fileStats] = await Promise.allSettled([videoParser.probe(filePath, signal), FileUtils.getStats(filePath)]);
 
-		try {
-			return await processing;
-		} finally {
-			this.processingFiles.delete(filePath);
+		if (technicalData.status === "rejected") {
+			this.logger.warn("Failed to probe video", { filePath, error: technicalData.reason });
 		}
+
+		const tech = technicalData.status === "fulfilled" ? technicalData.value : null;
+		const stats = fileStats.status === "fulfilled" ? fileStats.value : null;
+		const mediaFileData = tech ? mapMediaFileData(fileName, tech) : null;
+
+		return {
+			tech,
+			stats,
+			mediaFileData,
+			...(tech ? { markers: mapChaptersToMarkers(tech.chapters ?? []) } : {}),
+		};
+	}
+
+	/** Shared shape of a processed file — identity fields plus the probed technical data. */
+	private buildProcessedMediaFile(params: {
+		metadataId: string;
+		movieId: string | null;
+		episodeId: string | null;
+		filePath: string;
+		fileName: string;
+		probe: ProbeAndMapResult;
+		additionalTargets?: AdditionalEpisodeTarget[] | undefined;
+	}): ProcessedMediaFileWithMarkers {
+		const { metadataId, movieId, episodeId, filePath, fileName, probe, additionalTargets } = params;
+
+		return {
+			metadataId,
+			movieId,
+			episodeId,
+			filePath,
+			fileName,
+			...(probe.mediaFileData ?? createEmptyMediaFileData()),
+			...(probe.markers ? { automaticMarkers: probe.markers } : {}),
+			isEnabled: true,
+			size: probe.stats?.size ?? probe.mediaFileData?.size ?? null,
+			sourceMtimeMs: probe.stats ? Math.floor(probe.stats.mtimeMs) : null,
+			...(additionalTargets && additionalTargets.length > 0 ? { additionalTargets } : {}),
+		};
 	}
 
 	private async processOnce(
@@ -124,47 +175,37 @@ class MediaFileProcessor extends BaseService {
 					options,
 				});
 
-			const [technicalData, metadata, fileStats] = await Promise.allSettled([
-				videoParser.probe(filePath, signal),
+			const sidecar = await this.readSidecarHint(filePath, recognition.type);
+			const [probeResult, metadataResult] = await Promise.allSettled([
+				this.probeAndMap(filePath, fileName, signal),
 				this.metadataProcess.checkMetadata({
 					type: recognition.type,
 					parsed: recognition.identity,
-					sidecar: await this.readSidecarHint(filePath, recognition.type),
+					sidecar,
 					signal,
 					scheduling,
 					libraryId: options?.libraryId,
 				}),
-				FileUtils.getStats(filePath),
 			]);
 			throwIfAborted(signal);
 
-			const tech = technicalData.status === "fulfilled" ? technicalData.value : null;
-			const meta = metadata.status === "fulfilled" ? metadata.value : null;
-			const stats = fileStats.status === "fulfilled" ? fileStats.value : null;
-			const mediaFileData = tech ? mapMediaFileData(fileName, tech) : null;
+			if (probeResult.status === "rejected") throw probeResult.reason;
 
-			if (technicalData.status === "rejected") {
-				this.logger.warn("Failed to probe video", { filePath, error: technicalData.reason });
+			if (metadataResult.status === "rejected") {
+				this.logger.warn("Failed to check metadata", { filePath, error: metadataResult.reason });
 			}
 
-			if (metadata.status === "rejected") {
-				this.logger.warn("Failed to check metadata", { filePath, error: metadata.reason });
-			}
-
+			const meta = metadataResult.status === "fulfilled" ? metadataResult.value : null;
 			if (!meta?.metadataId) return { skipReason: "no_metadata_match", fileName };
 
-			return {
+			return this.buildProcessedMediaFile({
 				metadataId: meta.metadataId,
 				movieId: meta.movieId ?? null,
 				episodeId: meta.episodeId ?? null,
 				filePath,
 				fileName,
-				...(mediaFileData ?? createEmptyMediaFileData()),
-				...(tech ? { automaticMarkers: mapChaptersToMarkers(tech.chapters ?? []) } : {}),
-				isEnabled: true,
-				size: stats?.size ?? mediaFileData?.size ?? null,
-				sourceMtimeMs: stats ? Math.floor(stats.mtimeMs) : null,
-			};
+				probe: probeResult.value,
+			});
 		} catch (error) {
 			// Cancellation happens whenever a newer scan supersedes the running one —
 			// expected, not a failure.
@@ -202,16 +243,8 @@ class MediaFileProcessor extends BaseService {
 		options?: { libraryId?: string | undefined } | undefined;
 	}): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
 		const sidecar = await this.readSidecarHint(filePath, recognition.type);
-		const [technicalData, fileStats] = await Promise.allSettled([videoParser.probe(filePath, signal), FileUtils.getStats(filePath)]);
+		const probe = await this.probeAndMap(filePath, fileName, signal);
 		throwIfAborted(signal);
-
-		if (technicalData.status === "rejected") {
-			this.logger.warn("Failed to probe video", { filePath, error: technicalData.reason });
-		}
-
-		const tech = technicalData.status === "fulfilled" ? technicalData.value : null;
-		const stats = fileStats.status === "fulfilled" ? fileStats.value : null;
-		const mediaFileData = tech ? mapMediaFileData(fileName, tech) : null;
 
 		const targets: AdditionalEpisodeTarget[] = [];
 		for (const episode of episodeTargets) {
@@ -238,31 +271,27 @@ class MediaFileProcessor extends BaseService {
 		const first = targets[0];
 		if (!first) return { skipReason: "no_metadata_match", fileName };
 
-		const rest = targets.slice(1);
-
-		return {
+		return this.buildProcessedMediaFile({
 			metadataId: first.metadataId,
 			movieId: first.movieId,
 			episodeId: first.episodeId,
 			filePath,
 			fileName,
-			...(mediaFileData ?? createEmptyMediaFileData()),
-			...(tech ? { automaticMarkers: mapChaptersToMarkers(tech.chapters ?? []) } : {}),
-			isEnabled: true,
-			size: stats?.size ?? mediaFileData?.size ?? null,
-			sourceMtimeMs: stats ? Math.floor(stats.mtimeMs) : null,
-			...(rest.length > 0 ? { additionalTargets: rest } : {}),
-		};
+			probe,
+			additionalTargets: targets.slice(1),
+		});
 	}
 }
 
-function createEmptyMediaFileData(): Omit<ProcessedMediaFile, "metadataId" | "movieId" | "episodeId" | "filePath" | "fileName"> {
+type EmptyMediaFileData = Omit<
+	ProcessedMediaFile,
+	"metadataId" | "movieId" | "episodeId" | "filePath" | "fileName" | "isEnabled" | "size" | "sourceMtimeMs"
+>;
+
+function createEmptyMediaFileData(): EmptyMediaFileData {
 	return {
 		formatName: null,
 		duration: null,
-		size: null,
-		sourceMtimeMs: null,
-		isEnabled: true,
 		bitRate: null,
 		videoStreams: [],
 		audioStreams: [],

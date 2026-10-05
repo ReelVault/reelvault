@@ -7,6 +7,7 @@ import { findSidecarSubtitles, importSidecarSubtitles, parseSidecarSubtitleName 
 describe("parseSidecarSubtitleName", () => {
 	test("accepts an exact-base subtitle without language", () => {
 		expect(parseSidecarSubtitleName("Movie (2010)", "Movie (2010).srt")).toEqual({
+			extension: "srt",
 			isDefault: false,
 			isForced: false,
 			isHearingImpaired: false,
@@ -15,12 +16,14 @@ describe("parseSidecarSubtitleName", () => {
 
 	test("parses language and flag tokens", () => {
 		expect(parseSidecarSubtitleName("Movie (2010)", "Movie (2010).pl.forced.srt")).toEqual({
+			extension: "srt",
 			language: "pl",
 			isDefault: false,
 			isForced: true,
 			isHearingImpaired: false,
 		});
 		expect(parseSidecarSubtitleName("Movie (2010)", "Movie (2010).en.default.sdh.ass")).toEqual({
+			extension: "ass",
 			language: "en",
 			isDefault: true,
 			isForced: false,
