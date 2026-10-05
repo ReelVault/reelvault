@@ -52,7 +52,7 @@ describe("resolveSessionAccess", () => {
 			resolveSessionAccess(
 				"s1",
 				() => undefined,
-				() => ({ reason: "admin.stop" }),
+				() => ({ reason: "admin-stop" }),
 			),
 		).toThrow("terminated");
 	});

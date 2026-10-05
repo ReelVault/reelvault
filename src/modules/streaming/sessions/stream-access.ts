@@ -45,6 +45,15 @@ export async function assertActiveStreamAccess({
 	}
 }
 
+/**
+ * Any admin-issued termination reason (`admin.terminated`, `admin-stop`, …) is
+ * a deliberate kill. Every guard must agree on that, otherwise a session killed
+ * with a loose reason can be recreated moments later.
+ */
+export function isAdminTerminationReason(reason: string): boolean {
+	return reason.startsWith("admin");
+}
+
 export function resolveSessionAccess(
 	sessionId: string,
 	getSessionAccess: (id: string) => SessionAccessInfo | undefined,
@@ -53,10 +62,9 @@ export function resolveSessionAccess(
 	const session = getSessionAccess(sessionId);
 	if (!session) {
 		const terminated = getTerminatedSession(sessionId);
-		// Any admin-issued termination reason (`admin.terminated`, `admin-stop`, …)
-		// is a deliberate kill and gets a distinct code so the client can show the
+		// A deliberate admin kill gets a distinct code so the client can show the
 		// terminated UI instead of silently reconnecting.
-		if (terminated?.reason.startsWith("admin")) {
+		if (terminated && isAdminTerminationReason(terminated.reason)) {
 			throw new ForbiddenError("Playback session was terminated", { code: "stream.session_terminated" });
 		}
 

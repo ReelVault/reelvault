@@ -18,7 +18,7 @@ import { PlaybackSessionIdempotencyRegistry } from "./playback-session-idempoten
 import { SessionCreationGuard } from "./session-creation.guard";
 import { SessionLifecyclePublisher } from "./session-events.publisher";
 import { assertSafeId, parseCapabilities, toPlaybackSessionInput } from "./session-request.mapper";
-import { resolveSessionAccess } from "./stream-access";
+import { isAdminTerminationReason, resolveSessionAccess } from "./stream-access";
 
 export type PlaybackSessionCandidate = SessionSelectionInput["file"] & {
 	id: string;
@@ -98,7 +98,7 @@ export class SessionLifecycleService extends BaseService {
 		if (!profileId) throw new ValidationError("An active profile is required to create a streaming session");
 
 		const recentTermination = this.dependencies.runtime.isProfileTerminatedRecently(profileId, body.mediaFileId, 20_000);
-		if (recentTermination?.reason.startsWith("admin.")) {
+		if (recentTermination && isAdminTerminationReason(recentTermination.reason)) {
 			throw new ForbiddenError("Playback session was terminated", { code: "stream.session_terminated" });
 		}
 

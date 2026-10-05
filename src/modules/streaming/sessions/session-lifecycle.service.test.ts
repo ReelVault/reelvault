@@ -75,7 +75,7 @@ function createService(
 				}
 			: async () => ({ operationId: "op-1" }),
 		runtime: {
-			isProfileTerminatedRecently: () => (options.terminatedByAdmin ? { reason: "admin.terminated" } : null),
+			isProfileTerminatedRecently: () => (options.terminatedByAdmin ? { reason: "admin-stop" } : null),
 			reserveSession: () => !options.reserveFails,
 			registerSession: (sessionId: string) => {
 				calls.registered.push(sessionId);
