@@ -1,6 +1,7 @@
 import {
 	AdminAuditPageSchema,
 	AdminCacheStatsSchema,
+	AdminDashboardViewResponseSchema,
 	AdminDatabaseBackupListSchema,
 	AdminDatabaseBackupSchema,
 	AdminFfmpegCapabilitiesSchema,
@@ -37,6 +38,7 @@ export const adminSystemRoutes = new Elysia()
 	.model({
 		"admin.refreshMetadata": RefreshMetadataSchema,
 		"admin.stats": AdminStatsSchema,
+		"admin.dashboardView": AdminDashboardViewResponseSchema,
 		"admin.plugins": t.Array(PluginRuntimeStatusSchema),
 		"admin.plugin": PluginRuntimeStatusSchema,
 		"admin.pluginConfig": PluginConfigDetailsSchema,
@@ -96,6 +98,15 @@ export const adminSystemRoutes = new Elysia()
 		deduplicate: {},
 		detail: {
 			description: "Aggregate dashboard: stats, resource config, providers, plugins, and settings in one call.",
+		},
+	})
+	.get("/dashboard-view", async () => await adminService.dashboardView(), {
+		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.dashboardView" },
+		cache: { maxAge: 4, private: true },
+		deduplicate: {},
+		detail: {
+			description:
+				"Admin dashboard composite: stats, libraries, recent worker operations, audit feed, error logs and update status in one call.",
 		},
 	})
 	.get("/resources", async () => await adminResourcesService.getResourcesView(), {

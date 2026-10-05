@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	AdminDashboardViewResponseSchema,
 	CollectionWithRelationsSchema,
 	CompanySchema,
 	EpisodeWithRelationsSchema,
@@ -21,6 +22,7 @@ import {
 	WatchlistSchema,
 } from "@reelvault/sdk/common";
 import { type TSchema, t } from "elysia";
+import { adminSystemRoutes } from "@/api/routes/admin/admin-system.routes";
 import { collectionRoutes } from "@/api/routes/v1/collections.routes";
 import { companiesRoutes } from "@/api/routes/v1/companies.routes";
 import { episodesRoutes } from "@/api/routes/v1/episodes.routes";
@@ -298,8 +300,15 @@ const REGISTRY: ContractRow[] = [
 		projected: false,
 		paginated: true,
 	},
+	{
+		family: "admin dashboard-view",
+		module: adminSystemRoutes,
+		model: "admin.dashboardView",
+		contract: AdminDashboardViewResponseSchema,
+		projected: false,
+		paginated: false,
+	},
 ];
-
 /** Rebuilds the schema expression the route is expected to have registered. */
 function expectedModelSchema(row: ContractRow): unknown {
 	const item = row.projected ? ProjectedResponseSchema(row.contract) : row.contract;

@@ -2,13 +2,17 @@ import { readdir, stat } from "node:fs/promises";
 import { getHeapStatistics } from "node:v8";
 import type {
 	AdminCacheStats,
+	AdminDashboardViewResponse,
 	AdminFilesystemBrowse,
 	AdminStats,
 	MetadataProviderConfiguration,
 	PluginConfigDetails,
 	PluginRuntimeStatus,
 } from "@reelvault/sdk/common";
+import { librariesService } from "@/application/libraries/libraries.service";
 import { pluginAdminService } from "@/application/plugin-admin.service";
+import { updateCheckService } from "@/application/updates/update-check.service";
+import { updateInstallService } from "@/application/updates/update-install.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { adminStatsRepository } from "@/database/repositories/admin-stats.repository";
 import { playbackStreamingService } from "@/modules/streaming/streaming.service";
@@ -25,8 +29,11 @@ import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { measureDirectory } from "@/utils/server-data.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
+import { SERVER_VERSION } from "@/version";
+import { resolveWebVersion } from "@/web/web-dist";
 import { workerService } from "@/workers/worker.service";
-import { recordAuditSafe } from "./admin-audit.service";
+import { adminAuditService, recordAuditSafe } from "./admin-audit.service";
+import { adminLogsService } from "./admin-logs.service";
 import { systemSettingsService } from "./system-settings.service";
 
 // Full-table COUNT/SUM triple (media_files/metadata/markers) — cheap data that
@@ -159,6 +166,46 @@ class AdminService extends BaseService {
 				providers,
 				plugins: pluginList,
 				settings,
+			};
+		});
+	}
+
+	/**
+	 * Composite view for the admin dashboard page: the six calls the client
+	 * used to fan out (stats, libraries, worker operations, audit feed, error
+	 * logs, update status) run here in parallel behind one request.
+	 */
+	async dashboardView(): Promise<AdminDashboardViewResponse> {
+		return await this.safeExecute("dashboardView", async () => {
+			await updateCheckService.checkLatest(false);
+			const updateState = updateCheckService.getState();
+
+			const [stats, libraries, operations, audit, logs] = await Promise.all([
+				this.stats(),
+				librariesService.getAll({ limit: 50 }),
+				Promise.resolve(workerService.listOperations({ page: 1, limit: 8 })),
+				adminAuditService.getAll({ page: 1, limit: 6 }),
+				adminLogsService.getLogs({ level: "warn,error,fatal", limit: 6 }),
+			]);
+
+			return {
+				stats,
+				libraries: libraries.data,
+				operations,
+				audit,
+				logs,
+				update: {
+					serverVersion: SERVER_VERSION,
+					webVersion: resolveWebVersion(),
+					...updateState,
+					installType: updateInstallService.getInstallType(),
+					flavor: updateInstallService.getInstallType() === "archive" ? updateInstallService.getFlavor() : null,
+					serverRollbackAvailable: updateInstallService.isRollbackAvailable("server"),
+					webRollbackAvailable: updateInstallService.isRollbackAvailable("web"),
+					serverLastError: updateInstallService.getLastError("server") ?? updateState.serverLastError,
+					webLastError: updateInstallService.getLastError("web") ?? updateState.webLastError,
+					job: updateInstallService.getJob(),
+				},
 			};
 		});
 	}
