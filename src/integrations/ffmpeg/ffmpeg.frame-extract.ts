@@ -7,10 +7,7 @@ export function buildFrameExtractionCommand(
 	hwDecodeArgs?: string[],
 ): string[] {
 	const format = request.format ?? "webp";
-	const outputArguments = format === "webp" ? ["-c:v", "libwebp"] : ["-c:v", "mjpeg"];
 	const scaleArguments = request.width ? ["-vf", `scale=${request.width}:-2`] : [];
-	const formatOrOverwriteArguments = outputPath ? ["-y"] : ["-f", "image2pipe"];
-	const targetOutput = outputPath ?? "-";
 
 	return [
 		"-hide_banner",
@@ -24,15 +21,13 @@ export function buildFrameExtractionCommand(
 		"-frames:v",
 		"1",
 		...scaleArguments,
-		...outputArguments,
-		...formatOrOverwriteArguments,
-		targetOutput,
+		...codecArguments(format),
+		...outputTargetArguments(outputPath),
 	];
 }
 
 export function buildSpriteExtractionCommand(inputPath: string, request: SpriteExtractionRequest, outputPath?: string): string[] {
 	const format = request.format ?? "webp";
-	const outputArguments = format === "webp" ? ["-c:v", "libwebp"] : ["-c:v", "mjpeg"];
 	const inputs = request.timeMs.flatMap((timeMs) => ["-ss", (timeMs / 1000).toFixed(3), "-i", inputPath]);
 	const filters = request.timeMs.map(
 		(_, index) =>
@@ -40,8 +35,6 @@ export function buildSpriteExtractionCommand(inputPath: string, request: SpriteE
 	);
 	const spriteInputs = request.timeMs.map((_, index) => `[s${index}]`).join("");
 	const layout = request.timeMs.map((_, index) => spritePosition(index, request.columns)).join("|");
-	const formatOrOverwriteArguments = outputPath ? ["-y"] : ["-f", "image2pipe"];
-	const targetOutput = outputPath ?? "-";
 
 	return [
 		"-hide_banner",
@@ -54,9 +47,8 @@ export function buildSpriteExtractionCommand(inputPath: string, request: SpriteE
 		"[sprite]",
 		"-frames:v",
 		"1",
-		...outputArguments,
-		...formatOrOverwriteArguments,
-		targetOutput,
+		...codecArguments(format),
+		...outputTargetArguments(outputPath),
 	];
 }
 
@@ -69,7 +61,6 @@ export function buildSingleFrameExtractionCommand(
 	outputPath: string,
 	hwDecodeArgs?: string[],
 ): string[] {
-	const outputArguments = format === "webp" ? ["-c:v", "libwebp"] : ["-c:v", "mjpeg"];
 	const filter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`;
 
 	return [
@@ -85,9 +76,8 @@ export function buildSingleFrameExtractionCommand(
 		"1",
 		"-vf",
 		filter,
-		...outputArguments,
-		"-y",
-		outputPath,
+		...codecArguments(format),
+		...outputTargetArguments(outputPath),
 	];
 }
 
@@ -98,8 +88,6 @@ export function buildSpriteTileCommand(
 	format: FrameImageFormat,
 	outputPath: string,
 ): string[] {
-	const outputArguments = format === "webp" ? ["-c:v", "libwebp"] : ["-c:v", "mjpeg"];
-
 	return [
 		"-hide_banner",
 		"-loglevel",
@@ -108,10 +96,19 @@ export function buildSpriteTileCommand(
 		framesInputPattern,
 		"-vf",
 		`tile=layout=${columns}x${rows}`,
-		...outputArguments,
-		"-y",
-		outputPath,
+		...codecArguments(format),
+		...outputTargetArguments(outputPath),
 	];
+}
+
+/** The encoder is chosen by output format — WebP or MJPEG for every extraction command. */
+function codecArguments(format: FrameImageFormat): string[] {
+	return format === "webp" ? ["-c:v", "libwebp"] : ["-c:v", "mjpeg"];
+}
+
+/** `-y <path>` for file outputs; `-f image2pipe -` when the image goes to stdout. */
+function outputTargetArguments(outputPath?: string): string[] {
+	return outputPath ? ["-y", outputPath] : ["-f", "image2pipe", "-"];
 }
 
 function spritePosition(index: number, columns: number): string {

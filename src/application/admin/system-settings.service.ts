@@ -6,7 +6,7 @@ import {
 	type SystemSettingKey,
 	type SystemSettingValue,
 } from "@/config/system-settings.definition";
-import { systemSettingsStore } from "@/config/system-settings.store";
+import { serializeSettingValue, systemSettingsStore } from "@/config/system-settings.store";
 import type { SettingGroup } from "@/config/system-settings.types";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { type SystemSettingRow, systemSettingsRepository } from "@/database/repositories/system-settings.repository";
@@ -65,11 +65,8 @@ class SystemSettingsService extends BaseService {
 		for (const row of rows) {
 			if (!isSystemSettingKey(row.key)) continue;
 
-			const def = SYSTEM_SETTINGS[row.key];
-
 			try {
-				const parsed = def.parse(row.value);
-				systemSettingsStore.setRuntimeValue(row.key, parsed);
+				systemSettingsStore.setParsedRuntimeValue(row.key, SYSTEM_SETTINGS[row.key].parse(row.value));
 			} catch (error) {
 				this.logger.warn("Failed to parse setting value, using default", { key: row.key, error });
 			}
@@ -120,12 +117,7 @@ class SystemSettingsService extends BaseService {
 		rawValue: unknown,
 	): { parsedValue: SystemSettingValue<K>; finalSerialized: string } {
 		const def = SYSTEM_SETTINGS[key];
-		let serialized: string;
-		if (typeof rawValue === "string") serialized = rawValue;
-		else if (Array.isArray(rawValue)) serialized = JSON.stringify(rawValue);
-		else serialized = String(rawValue);
-
-		const parsedValue = def.parse(serialized);
+		const parsedValue = def.parse(serializeSettingValue(rawValue));
 		const finalSerialized = def.serialize(parsedValue);
 
 		return { parsedValue, finalSerialized };
@@ -139,7 +131,7 @@ class SystemSettingsService extends BaseService {
 
 		const dbEntries: Array<{ key: string; value: string }> = [];
 		const beforeValues: Record<string, unknown> = {};
-		const afterValues = new Map<SystemSettingKey, unknown>();
+		const afterValues = new Map<SystemSettingKey, SystemSettingValue<SystemSettingKey>>();
 
 		for (const [key, rawValue] of Object.entries(updates)) {
 			if (!isSystemSettingKey(key)) continue;
@@ -166,7 +158,7 @@ class SystemSettingsService extends BaseService {
 			// diverged from what is actually stored.
 			await systemSettingsRepository.setMany(dbEntries);
 			for (const [key, value] of afterValues.entries()) {
-				systemSettingsStore.setRuntimeValue(key, value);
+				systemSettingsStore.setParsedRuntimeValue(key, value);
 			}
 
 			recordAuditSafe(

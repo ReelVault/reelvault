@@ -141,18 +141,14 @@ export class PluginInstaller {
 	}
 
 	async verify(): Promise<InstalledPlugin[]> {
-		const plugins = await this.list();
-		await PromiseUtils.mapConcurrent(plugins, VERIFICATION_CONCURRENCY(), async (plugin) => {
-			const directory = this.lockfileStore.resolveInstalledDirectory(plugin.id, plugin.record);
-			await assertSourceDirectory(directory);
-			await assertNoSymbolicLinks(directory, VERIFICATION_CONCURRENCY());
-			const integrity = await calculateDirectoryIntegrity(directory);
+		const hashed = await this.hashInstalledPlugins();
+		for (const { plugin, integrity } of hashed) {
 			if (integrity !== plugin.record.integrity) {
 				throw new ValidationError(`Plugin ${plugin.id} integrity does not match ${LOCKFILE_NAME}`);
 			}
-		});
+		}
 
-		return plugins;
+		return hashed.map(({ plugin }) => plugin);
 	}
 
 	/**
@@ -162,25 +158,34 @@ export class PluginInstaller {
 	 * whose records changed.
 	 */
 	async refreshIntegrity(): Promise<string[]> {
-		const plugins = await this.list();
-		if (plugins.length === 0) return [];
+		const hashed = await this.hashInstalledPlugins();
+		if (hashed.length === 0) return [];
 
 		const lockfile = await this.lockfileStore.read();
 		const refreshed: string[] = [];
-		await PromiseUtils.mapConcurrent(plugins, VERIFICATION_CONCURRENCY(), async (plugin) => {
-			const directory = this.lockfileStore.resolveInstalledDirectory(plugin.id, plugin.record);
-			await assertSourceDirectory(directory);
-			await assertNoSymbolicLinks(directory, VERIFICATION_CONCURRENCY());
-			const integrity = await calculateDirectoryIntegrity(directory);
-			if (integrity === plugin.record.integrity) return;
+		for (const { plugin, integrity } of hashed) {
+			if (integrity === plugin.record.integrity) continue;
 
 			lockfile.plugins[plugin.id] = { ...plugin.record, integrity };
 			refreshed.push(plugin.id);
-		});
+		}
 
 		if (refreshed.length > 0) await this.lockfileStore.write(lockfile);
 
 		return refreshed.toSorted((left, right) => left.localeCompare(right));
+	}
+
+	/** Re-hashes every installed package and returns each plugin with its current on-disk integrity. */
+	private async hashInstalledPlugins(): Promise<Array<{ plugin: InstalledPlugin; integrity: string }>> {
+		const plugins = await this.list();
+
+		return await PromiseUtils.mapConcurrent(plugins, VERIFICATION_CONCURRENCY(), async (plugin) => {
+			const directory = this.lockfileStore.resolveInstalledDirectory(plugin.id, plugin.record);
+			await assertSourceDirectory(directory);
+			await assertNoSymbolicLinks(directory, VERIFICATION_CONCURRENCY());
+
+			return { plugin, integrity: await calculateDirectoryIntegrity(directory) };
+		});
 	}
 
 	async setDisabled(pluginId: string, disabled: boolean): Promise<void> {

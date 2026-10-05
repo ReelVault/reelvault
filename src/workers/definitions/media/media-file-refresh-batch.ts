@@ -1,7 +1,7 @@
 import type { TaskSchedulingOptions } from "@/application/context";
 import type { WorkerItem } from "@/database/repositories/worker.repository";
 import { chunk } from "@/utils/array.utils";
-import { ConflictError } from "@/utils/errors";
+import { assertOperationCompatibility } from "@/workers/utils/operation-compat";
 import { ENQUEUE_BATCH_SIZE } from "@/workers/worker.constants";
 import { workerService } from "@/workers/worker.service";
 import { metadataRefreshWorker } from "../metadata/metadata-refresh.worker";
@@ -32,12 +32,12 @@ export async function enqueueMediaFileRefreshBatch(
 			mediaFileTechnicalRefreshWorker.id,
 			targets.map(({ id }) => id),
 		);
-		assertSameOperation(existingTechnical, options.operationId, "technical media refresh");
+		assertOperationCompatibility(existingTechnical, options.operationId, "technical media refresh");
 		const existingMetadata = await workerService.findActiveItems(
 			metadataRefreshWorker.id,
 			targets.map(({ metadataId }) => metadataId),
 		);
-		assertSameOperation(existingMetadata, options.operationId, "metadata refresh");
+		assertOperationCompatibility(existingMetadata, options.operationId, "metadata refresh");
 	}
 
 	// Phase 1: technical refreshes, deduplicated per media file.
@@ -54,7 +54,7 @@ export async function enqueueMediaFileRefreshBatch(
 		);
 	}
 
-	assertSameOperation(technicalItems, options.operationId, "technical media refresh");
+	assertOperationCompatibility(technicalItems, options.operationId, "technical media refresh");
 
 	const technicalIdByMediaFileId = new Map<string, string>();
 	for (const item of technicalItems) {
@@ -75,17 +75,6 @@ export async function enqueueMediaFileRefreshBatch(
 				},
 			})),
 		);
-		assertSameOperation(metadataItems, options.operationId, "metadata refresh");
-	}
-}
-
-/** Reproduces the single-file refresh operation's operation-compatibility check. */
-function assertSameOperation(items: ReadonlyArray<{ operationId: string | null }>, operationId: string | undefined, label: string): void {
-	if (!operationId) return;
-
-	for (const item of items) {
-		if (item.operationId && item.operationId !== operationId) {
-			throw new ConflictError(`Active ${label} belongs to another operation`);
-		}
+		assertOperationCompatibility(metadataItems, options.operationId, "metadata refresh");
 	}
 }

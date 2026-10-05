@@ -3,10 +3,9 @@ import { file } from "bun";
 import { databaseFactory } from "@/database/database";
 import { pluginBlobsRepository } from "@/database/repositories/plugin-storage.repository";
 import type { DatabaseTransaction, InferTable } from "@/database/types";
-import { contentByteSize, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
+import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
-import { DirUtils } from "@/utils/directory.utils";
 import { ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { KeyedMutex } from "@/utils/mutex";
@@ -23,25 +22,14 @@ type PluginBlobRow = InferTable<"pluginBlobs">;
 
 class PluginBlobsService extends BaseService {
 	private readonly operationQueue = new KeyedMutex();
-	private storageDirectoryReady?: Promise<void> | undefined;
+	/** Creates the blob storage directory once per process instead of on every put(). */
+	private readonly ensureStorageDirectory = createDirectoryOnce(
+		serverConfig.paths.pluginBlobs,
+		() => new ValidationError(`Failed to create plugin blob storage directory: ${serverConfig.paths.pluginBlobs}`),
+	);
 
 	constructor() {
 		super("PluginBlobsService");
-	}
-
-	/** Creates the blob storage directory once per process instead of on every put(). */
-	private async ensureStorageDirectory(): Promise<void> {
-		this.storageDirectoryReady ??= this.createStorageDirectory();
-		await this.storageDirectoryReady;
-	}
-
-	private async createStorageDirectory(): Promise<void> {
-		const created = await DirUtils.create(serverConfig.paths.pluginBlobs);
-		if (!created) {
-			// Allow a retry on the next put() instead of caching the failure.
-			this.storageDirectoryReady = undefined;
-			throw new ValidationError(`Failed to create plugin blob storage directory: ${serverConfig.paths.pluginBlobs}`);
-		}
 	}
 
 	async put(pluginId: string, key: string, content: Blob | Uint8Array, options: PluginBlobWriteOptions): Promise<PluginBlobMetadata> {

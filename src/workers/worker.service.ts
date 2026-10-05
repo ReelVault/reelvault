@@ -183,7 +183,7 @@ class WorkerService extends BaseService {
 	async drainWorkers(workerIds: readonly string[], timeoutMs: number): Promise<void> {
 		if (workerIds.length === 0) return;
 
-		await this.pool.drainWorkers(workerIds, timeoutMs);
+		await this.pool.drain(timeoutMs, workerIds);
 		await Promise.all(
 			workerIds.map((workerId) =>
 				this.cancelAllPending(workerId).catch(() => {

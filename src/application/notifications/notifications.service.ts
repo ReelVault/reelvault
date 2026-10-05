@@ -77,17 +77,7 @@ class NotificationsService extends BaseService {
 				data: notification.data ?? {},
 				link: notification.link ?? null,
 			};
-			pluginEventBus.publish("notification.created", {
-				notificationId: outgoing.id,
-				userId: outgoing.userId,
-				profileId: notification.profileId,
-				type: outgoing.type,
-				title: outgoing.title,
-				message: outgoing.message,
-				link: outgoing.link,
-				data: outgoing.data,
-				sourcePluginId,
-			});
+			this.emitNotificationCreated({ ...outgoing, sourcePluginId });
 			const realtimePayload = {
 				id,
 				userId: notification.userId,
@@ -102,11 +92,6 @@ class NotificationsService extends BaseService {
 			} else {
 				realtimeService.sendToUser(notification.userId, "notification:created", realtimePayload);
 			}
-
-			// External channels are best-effort: delivery runs detached so a slow
-			// webhook never delays the API response (registry contains per-channel
-			// error isolation).
-			detach(dispatchNotificationToChannels(outgoing));
 
 			return id;
 		});
@@ -234,8 +219,8 @@ class NotificationsService extends BaseService {
 					const notifId = ids[i];
 					if (!(recipient && notifId)) continue;
 
-					pluginEventBus.publish("notification.created", {
-						notificationId: notifId,
+					this.emitNotificationCreated({
+						id: notifId,
 						userId: recipient.userId,
 						profileId: recipient.profileId,
 						type: "new_episode",
@@ -244,21 +229,54 @@ class NotificationsService extends BaseService {
 						link: `/details/${input.metadataId}`,
 						data: items[i]?.data ?? {},
 					});
-					detach(
-						dispatchNotificationToChannels({
-							id: notifId,
-							userId: recipient.userId,
-							profileId: recipient.profileId,
-							type: "new_episode",
-							title: items[i]?.title ?? "notification.new_episode",
-							message: null,
-							link: `/details/${input.metadataId}`,
-							data: items[i]?.data ?? {},
-						}),
-					);
 				}
 			}
 		});
+	}
+
+	/**
+	 * Publishes a created notification to plugin listeners and external delivery
+	 * channels. Realtime delivery stays with each caller — the batch
+	 * new-episode path predates it.
+	 */
+	private emitNotificationCreated(notification: {
+		id: string;
+		userId: string;
+		profileId?: string | undefined;
+		type: string;
+		title: string;
+		message: string | null;
+		link: string | null;
+		data: Record<string, unknown>;
+		sourcePluginId?: string | null | undefined;
+	}): void {
+		pluginEventBus.publish("notification.created", {
+			notificationId: notification.id,
+			userId: notification.userId,
+			profileId: notification.profileId,
+			type: notification.type,
+			title: notification.title,
+			message: notification.message,
+			link: notification.link,
+			data: notification.data,
+			...(notification.sourcePluginId !== undefined ? { sourcePluginId: notification.sourcePluginId } : {}),
+		});
+
+		// External channels are best-effort: delivery runs detached so a slow
+		// webhook never delays the API response (registry contains per-channel
+		// error isolation).
+		detach(
+			dispatchNotificationToChannels({
+				id: notification.id,
+				userId: notification.userId,
+				profileId: notification.profileId,
+				type: notification.type,
+				title: notification.title,
+				message: notification.message,
+				link: notification.link,
+				data: notification.data,
+			}),
+		);
 	}
 
 	private async assertProfileBelongsToUser(userId: string, profileId?: string): Promise<void> {

@@ -8,10 +8,9 @@ import type { SubtitleDownload } from "@reelvault/sdk/plugin";
 import { file } from "bun";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { contentByteSize, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
+import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
-import { DirUtils } from "@/utils/directory.utils";
 import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -24,28 +23,19 @@ const supportedFormats: ReadonlySet<string> = new Set(serverConfig.plugins.subti
 const leadingDotRegex = /^\./;
 
 class SubtitleProviderService extends BaseService {
-	private storageDirectoryReady?: Promise<void> | undefined;
+	/** Creates the subtitle storage directory once per process instead of on every download. */
+	private readonly ensureStorageDirectory = createDirectoryOnce(
+		serverConfig.paths.subtitles,
+		() =>
+			new InternalError(`Failed to create subtitle storage directory: ${serverConfig.paths.subtitles}`, {
+				code: "plugin.subtitle.storage_error",
+			}),
+	);
 
 	constructor() {
 		super("SubtitleProviderService");
 	}
 
-	/** Creates the subtitle storage directory once per process instead of on every download. */
-	private async ensureStorageDirectory(): Promise<void> {
-		this.storageDirectoryReady ??= this.createStorageDirectory();
-		await this.storageDirectoryReady;
-	}
-
-	private async createStorageDirectory(): Promise<void> {
-		const created = await DirUtils.create(serverConfig.paths.subtitles);
-		if (!created) {
-			// Allow a retry on the next download() instead of caching the failure.
-			this.storageDirectoryReady = undefined;
-			throw new InternalError(`Failed to create subtitle storage directory: ${serverConfig.paths.subtitles}`, {
-				code: "plugin.subtitle.storage_error",
-			});
-		}
-	}
 	async search(request: SubtitleProviderSearchRequest): Promise<SubtitleProviderSearchResponse[]> {
 		const media = await this.getMediaItem(request.mediaFileId);
 		const results = await PromiseUtils.mapConcurrent(

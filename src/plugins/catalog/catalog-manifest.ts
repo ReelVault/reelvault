@@ -1,5 +1,6 @@
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { ValidationError } from "@/utils/errors";
+import { isValidSemver } from "@/utils/semver.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 
 /** The repository seeded into a fresh server so the catalog is never empty. */
@@ -14,7 +15,6 @@ export const PLUGIN_CATALOG_CATEGORIES = ["metadata", "subtitles", "automation",
 
 export type PluginCatalogCategory = (typeof PLUGIN_CATALOG_CATEGORIES)[number];
 
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
 const SHA256_PATTERN = /^sha256-[a-f0-9]{64}$/;
 const HTTPS_URL_PATTERN = /^https:\/\/\S+$/;
 const MAX_MANIFEST_BYTES = 5 * 1024 * 1024;
@@ -163,14 +163,7 @@ function validateEntry(entry: unknown, index: number): PluginCatalogEntry {
 	if (!PLUGIN_IDENTIFIER_PATTERN.test(id)) throw new ValidationError(`${failure("id")} has an unsupported identifier format`);
 
 	const name = assertString(entry.name, failure("name"), 200);
-	const version = assertString(entry.version, failure("version"), 32);
-	if (!SEMVER_PATTERN.test(version)) throw new ValidationError(`${failure("version")} must be semantic version`);
-
-	const downloadUrl = assertString(entry.downloadUrl, failure("downloadUrl"), 2048);
-	if (!isHttpsUrl(downloadUrl)) throw new ValidationError(`${failure("downloadUrl")} must be an https URL`);
-
-	const checksum = assertString(entry.checksum, failure("checksum"), 71);
-	if (!SHA256_PATTERN.test(checksum)) throw new ValidationError(`${failure("checksum")} must be 'sha256-' followed by 64 hex digits`);
+	const { version, downloadUrl, checksum } = assertReleaseFields(failure, entry);
 
 	const categoryValue = entry.category === undefined ? "other" : entry.category;
 	if (typeof categoryValue !== "string" || !isPluginCatalogCategory(categoryValue)) {
@@ -220,14 +213,7 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 
 		const failure = (name: string): string => `Catalog plugin #${index}: invalid version '${name}'`;
 
-		const version = assertString(item.version, failure("version"), 32);
-		if (!SEMVER_PATTERN.test(version)) throw new ValidationError(`${failure("version")} must be semantic version`);
-
-		const downloadUrl = assertString(item.downloadUrl, failure("downloadUrl"), 2048);
-		if (!isHttpsUrl(downloadUrl)) throw new ValidationError(`${failure("downloadUrl")} must be an https URL`);
-
-		const checksum = assertString(item.checksum, failure("checksum"), 71);
-		if (!SHA256_PATTERN.test(checksum)) throw new ValidationError(`${failure("checksum")} must be 'sha256-' followed by 64 hex digits`);
+		const { version, downloadUrl, checksum } = assertReleaseFields(failure, item);
 
 		if (seen.has(version)) throw new ValidationError(`Catalog plugin #${index}: duplicate version '${version}'`);
 
@@ -256,6 +242,23 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 	return versions.length > 0 ? versions : undefined;
 }
 
+/** Version/downloadUrl/checksum invariants shared by the latest entry and every published version entry. */
+function assertReleaseFields(
+	failure: (name: string) => string,
+	fields: Record<string, unknown>,
+): { version: string; downloadUrl: string; checksum: string } {
+	const version = assertString(fields.version, failure("version"), 32);
+	if (!isValidSemver(version)) throw new ValidationError(`${failure("version")} must be semantic version`);
+
+	const downloadUrl = assertString(fields.downloadUrl, failure("downloadUrl"), 2048);
+	if (!isHttpsUrl(downloadUrl)) throw new ValidationError(`${failure("downloadUrl")} must be an https URL`);
+
+	const checksum = assertString(fields.checksum, failure("checksum"), 71);
+	if (!SHA256_PATTERN.test(checksum)) throw new ValidationError(`${failure("checksum")} must be 'sha256-' followed by 64 hex digits`);
+
+	return { version, downloadUrl, checksum };
+}
+
 function optionalIsoDate(value: unknown, key: string): Partial<Record<string, string>> {
 	if (value === undefined || value === null) return {};
 
@@ -270,7 +273,7 @@ function optionalMinServerVersion(value: unknown, label: string): { minServerVer
 	if (value === undefined || value === null) return {};
 
 	const version = assertString(value, label, 32);
-	if (!SEMVER_PATTERN.test(version)) throw new ValidationError(`${label} must be semantic version`);
+	if (!isValidSemver(version)) throw new ValidationError(`${label} must be semantic version`);
 
 	return { minServerVersion: version };
 }

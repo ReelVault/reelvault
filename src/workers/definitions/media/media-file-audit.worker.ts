@@ -3,7 +3,7 @@ import { type ApplicationContext, withDomainError } from "@/application/context"
 import { auditMediaFileRow, buildMediaFileAuditReport } from "@/application/media/media-files/media-file-audit";
 import { type MediaFileAuditRow, mediaRepository } from "@/database/repositories/media-files.repository";
 import { serverConfig } from "@/server.config";
-import { scanFanoutTask } from "@/workers/definitions/shared/scan-fanout";
+import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -118,12 +118,12 @@ export function scanMediaMatchAuditTask(
 	const { enqueue, enqueueMany } = dependencies;
 
 	return withDomainError("Media match audit scan failed", () =>
-		scanFanoutTask<MediaFileAuditData>({
+		scanAndEnqueueTask<string, MediaFileAuditData>({
 			context,
 			label: "Media match audit tasks queued",
 			findIds: () => dependencies.findAllAuditRowIds(),
 			toData: (mediaFileId) => ({ mediaFileId }),
-			enqueue: (...input) => enqueue(...input),
+			enqueueItem: (...input) => enqueue(...input),
 			...(enqueueMany ? { enqueueMany: (...input: Parameters<NonNullable<typeof enqueueMany>>) => enqueueMany(...input) } : {}),
 		}),
 	);

@@ -1,8 +1,26 @@
+import { timingSafeEqual } from "node:crypto";
 import { CryptoHasher, password } from "bun";
 
 interface Hasher {
 	update(data: string | Uint8Array): Hasher;
 	digest(encoding: "hex" | "base64"): string;
+}
+
+const CHECKSUM_PREFIX_REGEX = /^sha256-/;
+
+/**
+ * Constant-time comparison of two strings. With `checksum` enabled a leading
+ * `sha256-` is stripped from both sides and hex case is ignored, so a streamed
+ * archive hash (`sha256-<hex>`) can be compared against a published plain-hex
+ * digest without pre-normalizing at the call site.
+ */
+export function constantTimeEquals(actual: string, expected: string, options: { checksum?: boolean } = {}): boolean {
+	const left = options.checksum ? actual.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase() : actual;
+	const right = options.checksum ? expected.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase() : expected;
+	const actualBytes = Buffer.from(left);
+	const expectedBytes = Buffer.from(right);
+
+	return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
 
 /**

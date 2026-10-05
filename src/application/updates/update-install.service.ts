@@ -37,7 +37,6 @@ const MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
 /** A slow line downloading the archive needs far more than the plugin default. */
 const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
-const CHECKSUM_PREFIX_REGEX = /^sha256-/;
 
 export type UpdateJobState = "downloading" | "verifying" | "extracting" | "swapping" | "restarting";
 
@@ -112,29 +111,17 @@ export class UpdateInstallService extends BaseService {
 	cleanupStaleArtifacts(): void {
 		if (this.job) return;
 
-		for (const dir of [STAGING_DIR, PENDING_DIR, DISCARD_DIR]) {
-			try {
-				rmSync(join(this.root, dir), { recursive: true, force: true });
-			} catch (error) {
-				this.logger.debug("Could not remove stale update directory", { dir, error });
-			}
-		}
+		this.removeScratchDirectories([STAGING_DIR, PENDING_DIR, DISCARD_DIR], (dir, error) =>
+			this.logger.debug("Could not remove stale update directory", { dir, error }),
+		);
 	}
 
 	async startInstall(target: UpdateComponent): Promise<{ started: boolean; target: UpdateComponent; version: string }> {
 		const release = await this.assertInstallPreconditions(target);
 		if (this.job) throw new ConflictError("An update is already in progress", { code: "update.install_already_running" });
 
-		this.job = {
-			target,
-			state: "downloading",
-			progressPercent: 5,
-			message: null,
-			startedAt: new Date().toISOString(),
-			targetVersion: release.version,
-		};
-		if (target === "server") this.lastServerError = null;
-		else this.lastWebError = null;
+		this.beginJob(target, "downloading", 5, release.version);
+		this.setLastError(target, null);
 
 		detach(this.runInstall(target, release));
 
@@ -145,14 +132,7 @@ export class UpdateInstallService extends BaseService {
 		this.assertRollbackPreconditions(target);
 		const restoredVersion = readPreviousVersion(this.root, target);
 
-		this.job = {
-			target,
-			state: "swapping",
-			progressPercent: 90,
-			message: null,
-			startedAt: new Date().toISOString(),
-			targetVersion: restoredVersion,
-		};
+		this.beginJob(target, "swapping", 90, restoredVersion);
 
 		this.runRollback(target);
 
@@ -252,7 +232,7 @@ export class UpdateInstallService extends BaseService {
 				if (!expected) {
 					throw new ValidationError(`SHA256SUMS.txt has no entry for ${assetName}`, { code: "update.checksum_mismatch" });
 				}
-				assertChecksumMatches(download.checksum.replace(CHECKSUM_PREFIX_REGEX, ""), expected);
+				assertChecksumMatches(download.checksum, expected);
 
 				if (target === "web") {
 					await this.applyWebUpdate(download.filePath, release.version);
@@ -263,18 +243,11 @@ export class UpdateInstallService extends BaseService {
 				await download.cleanup();
 			}
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "unknown error";
-			if (target === "server") this.lastServerError = message;
-			else this.lastWebError = message;
+			this.setLastError(target, error instanceof Error ? error.message : "unknown error");
 			this.job = null;
 			this.logger.error(`Update install for ${target} failed`, error);
-			for (const dir of [STAGING_DIR, PENDING_DIR]) {
-				try {
-					rmSync(join(this.root, dir), { recursive: true, force: true });
-				} catch {
-					// staging cleanup must never mask the original failure
-				}
-			}
+			// staging cleanup must never mask the original failure
+			this.removeScratchDirectories([STAGING_DIR, PENDING_DIR]);
 		}
 	}
 
@@ -285,8 +258,7 @@ export class UpdateInstallService extends BaseService {
 	private async applyWebUpdate(archivePath: string, version: string): Promise<void> {
 		const stagingRoot = join(this.root, STAGING_DIR);
 		this.setJob("extracting", 75, null);
-		rmSync(stagingRoot, { recursive: true, force: true });
-		mkdirSync(stagingRoot, { recursive: true });
+		this.resetDirectory(stagingRoot);
 		// The web zip carries the dist contents at its root — the extraction
 		// directory itself becomes the new `web/`.
 		await extractArchive(archivePath, stagingRoot, MAX_UNCOMPRESSED_BYTES);
@@ -307,8 +279,7 @@ export class UpdateInstallService extends BaseService {
 			// Running executables lock their files: extract now, swap after exit.
 			const pendingRoot = join(this.root, PENDING_DIR);
 			this.setJob("swapping", 85, null);
-			rmSync(pendingRoot, { recursive: true, force: true });
-			mkdirSync(pendingRoot, { recursive: true });
+			this.resetDirectory(pendingRoot);
 			await extractArchive(archivePath, pendingRoot, MAX_UNCOMPRESSED_BYTES);
 			this.assertServerStagedLayout(join(pendingRoot, "ReelVault"));
 
@@ -317,8 +288,7 @@ export class UpdateInstallService extends BaseService {
 		} else {
 			const stagingRoot = join(this.root, STAGING_DIR);
 			this.setJob("extracting", 75, null);
-			rmSync(stagingRoot, { recursive: true, force: true });
-			mkdirSync(stagingRoot, { recursive: true });
+			this.resetDirectory(stagingRoot);
 			await extractArchive(archivePath, stagingRoot, MAX_UNCOMPRESSED_BYTES);
 			const stagedApp = join(stagingRoot, "ReelVault");
 			this.assertServerStagedLayout(stagedApp);
@@ -353,9 +323,7 @@ export class UpdateInstallService extends BaseService {
 				this.restartScheduler.scheduleRestart(this.root);
 			}
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "unknown error";
-			if (target === "server") this.lastServerError = message;
-			else this.lastWebError = message;
+			this.setLastError(target, error instanceof Error ? error.message : "unknown error");
 			this.job = null;
 			this.logger.error(`Rollback for ${target} failed`, error);
 		}
@@ -388,6 +356,30 @@ export class UpdateInstallService extends BaseService {
 		if (!this.job) return;
 
 		this.job = { ...this.job, state, progressPercent, message };
+	}
+
+	private beginJob(target: UpdateComponent, state: UpdateJobState, progressPercent: number, targetVersion: string): void {
+		this.job = { target, state, progressPercent, message: null, startedAt: new Date().toISOString(), targetVersion };
+	}
+
+	private setLastError(target: UpdateComponent, message: string | null): void {
+		if (target === "server") this.lastServerError = message;
+		else this.lastWebError = message;
+	}
+
+	private resetDirectory(path: string): void {
+		rmSync(path, { recursive: true, force: true });
+		mkdirSync(path, { recursive: true });
+	}
+
+	private removeScratchDirectories(directories: readonly string[], onError?: (dir: string, error: unknown) => void): void {
+		for (const dir of directories) {
+			try {
+				rmSync(join(this.root, dir), { recursive: true, force: true });
+			} catch (error) {
+				onError?.(dir, error);
+			}
+		}
 	}
 
 	private async fetchText(url: string): Promise<string> {

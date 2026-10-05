@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { constantTimeEquals } from "@/utils/crypto.utils";
 import { ValidationError } from "@/utils/errors";
 
 const SHA256_LINE_REGEX = /^([0-9a-fA-F]{64})\s+\*?(.+)$/;
@@ -35,9 +35,7 @@ export function checksumForFile(contents: string, fileName: string): string | un
 
 /** Constant-time comparison of the streamed hash against the published digest. */
 export function assertChecksumMatches(actualHex: string, expectedHex: string): void {
-	const actual = Buffer.from(actualHex.toLowerCase());
-	const expected = Buffer.from(expectedHex.toLowerCase());
-	if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+	if (!constantTimeEquals(actualHex, expectedHex, { checksum: true })) {
 		throw new ValidationError("Downloaded release archive failed the SHA256 verification", { code: "update.checksum_mismatch" });
 	}
 }

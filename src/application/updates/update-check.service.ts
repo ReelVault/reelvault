@@ -1,7 +1,7 @@
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { BaseService } from "@/utils/base-service";
 import { detach } from "@/utils/promise.utils";
-import { isNewerVersion } from "@/utils/semver.utils";
+import { isNewerVersion, isValidSemver } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
 import { SERVER_VERSION } from "@/version";
@@ -13,7 +13,6 @@ const WEB_RELEASES_URL = "https://api.github.com/repos/ReelVault/website/release
 const CHECK_TTL_MS = 6 * 60 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const TAG_V_PREFIX_REGEX = /^v/;
-const SEMVER_REGEX = /^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$/;
 
 export interface UpdateCheckState {
 	serverLatest: AdminUpdateRelease | null;
@@ -75,7 +74,7 @@ async function toWebRelease(payload: unknown, fetcher: ReleaseFetcher): Promise<
 		const manifest: unknown = await response.json();
 		if (isRecord(manifest) && typeof manifest.minServerVersion === "string") {
 			const min = manifest.minServerVersion.replace(TAG_V_PREFIX_REGEX, "");
-			if (!SEMVER_REGEX.test(min)) throw new Error(`Compatibility manifest has an invalid minServerVersion: ${manifest.minServerVersion}`);
+			if (!isValidSemver(min)) throw new Error(`Compatibility manifest has an invalid minServerVersion: ${manifest.minServerVersion}`);
 
 			release.minServerVersion = min;
 		}
@@ -181,22 +180,22 @@ export class UpdateCheckService extends BaseService {
 	}
 
 	private async fetchServerRelease(): Promise<AdminUpdateRelease | null> {
-		const response = await this.fetcher(SERVER_RELEASES_URL);
-		if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-		const payload: unknown = await response.json();
-		const release = toRelease(payload);
-		if (!release) throw new Error("Release payload was missing a usable tag name");
-
-		return release;
+		return await this.fetchRelease(SERVER_RELEASES_URL, toRelease);
 	}
 
 	private async fetchWebRelease(): Promise<AdminUpdateRelease | null> {
-		const response = await this.fetcher(WEB_RELEASES_URL);
+		return await this.fetchRelease(WEB_RELEASES_URL, (payload) => toWebRelease(payload, this.fetcher));
+	}
+
+	private async fetchRelease(
+		url: string,
+		mapPayload: (payload: unknown) => AdminUpdateRelease | null | Promise<AdminUpdateRelease | null>,
+	): Promise<AdminUpdateRelease | null> {
+		const response = await this.fetcher(url);
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
 		const payload: unknown = await response.json();
-		const release = await toWebRelease(payload, this.fetcher);
+		const release = await mapPayload(payload);
 		if (!release) throw new Error("Release payload was missing a usable tag name");
 
 		return release;

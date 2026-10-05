@@ -1,9 +1,16 @@
 const SEMVER_REGEX = /^v?(\d+)\.(\d+)\.(\d+)/;
+/** Full-match `1.2.3` with an optional prerelease/build suffix (no `v` prefix). */
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
 
 export interface SemverParts {
 	major: number;
 	minor: number;
 	patch: number;
+}
+
+/** True when `version` is a plain semantic version (`1.2.3`, `1.2.3-beta.1`, `1.2.3+build`). */
+export function isValidSemver(version: string): boolean {
+	return SEMVER_PATTERN.test(version);
 }
 
 /** Parses `1.2.3` / `v1.2.3` (prerelease suffixes ignored). Returns null for garbage. */

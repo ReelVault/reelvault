@@ -1,29 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { type ScanFanoutInput, scanFanoutTask } from "./scan-fanout";
+import { type ScanAndEnqueueOptions, scanAndEnqueueTask } from "./scan-and-enqueue";
 
 interface TestItem {
 	imageId: string;
 }
 
-function baseInput(overrides: Partial<ScanFanoutInput<TestItem>> = {}): ScanFanoutInput<TestItem> {
+function baseInput(overrides: Partial<ScanAndEnqueueOptions<string, TestItem>> = {}): ScanAndEnqueueOptions<string, TestItem> {
 	return {
 		context: {},
 		label: "Test items queued",
 		findIds: () => Promise.resolve([]),
 		toData: (imageId) => ({ imageId }),
-		enqueue: () => Promise.resolve(undefined),
+		enqueueItem: () => Promise.resolve(undefined),
 		...overrides,
 	};
 }
 
-describe("scanFanoutTask", () => {
+describe("scanAndEnqueueTask", () => {
 	test("enqueues one task per id through the per-item path", async () => {
 		const enqueued: Array<{ data: TestItem; operationId?: string | undefined; dependsOnTaskIds?: string[] | undefined }> = [];
-		const result = await scanFanoutTask(
+		const result = await scanAndEnqueueTask(
 			baseInput({
 				context: { operationId: "operation-1", taskId: "task-1" },
 				findIds: () => Promise.resolve(["id-1", "id-2", "id-3"]),
-				enqueue: (data, options) => {
+				enqueueItem: (data, options) => {
 					enqueued.push({ data, operationId: options.operationId, dependsOnTaskIds: options.dependsOnTaskIds });
 
 					return Promise.resolve(undefined);
@@ -42,7 +42,7 @@ describe("scanFanoutTask", () => {
 	test("passes the scan signal to findIds", async () => {
 		const controller = new AbortController();
 		let received: AbortSignal | undefined;
-		await scanFanoutTask(
+		await scanAndEnqueueTask(
 			baseInput({
 				context: { signal: controller.signal },
 				findIds: (signal) => {
@@ -59,10 +59,10 @@ describe("scanFanoutTask", () => {
 	test("prefers the batched path and maps ids to data objects", async () => {
 		const batches: TestItem[][] = [];
 		const perItem: string[] = [];
-		const result = await scanFanoutTask(
+		const result = await scanAndEnqueueTask(
 			baseInput({
 				findIds: () => Promise.resolve(["id-1", "id-2", "id-3"]),
-				enqueue: (_data, _options) => {
+				enqueueItem: (_data, _options) => {
 					perItem.push("called");
 
 					return Promise.resolve(undefined);

@@ -167,21 +167,17 @@ class PluginFfmpegService extends BaseService {
 				framePath,
 				hwDecodeArgs,
 			);
-			let result = await ffMpegService.runToCompletion(frameCmd, {
-				timeoutMs: FFMPEG_TIMEOUT_MS,
-				maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
-			});
-			if (result.exitCode !== 0 && hwDecodeArgs.length > 0) {
+			const softwareFrameCmd =
+				hwDecodeArgs.length > 0
+					? buildSingleFrameExtractionCommand(filePath, timeMs, request.width, request.height, request.format ?? "webp", framePath)
+					: undefined;
+			const result = await this.runWithHwFallback(frameCmd, softwareFrameCmd, (exitCode) =>
 				this.logger.warn("HW decode failed for sprite frame — retrying with software decode", {
 					mediaFileId: request.mediaFileId,
 					timeMs,
-					exitCode: result.exitCode,
-				});
-				result = await ffMpegService.runToCompletion(
-					buildSingleFrameExtractionCommand(filePath, timeMs, request.width, request.height, request.format ?? "webp", framePath),
-					{ timeoutMs: FFMPEG_TIMEOUT_MS, maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes },
-				);
-			}
+					exitCode,
+				}),
+			);
 
 			if (result.exitCode !== 0) {
 				this.logger.error(
@@ -261,6 +257,29 @@ class PluginFfmpegService extends BaseService {
 	}
 
 	/**
+	 * Runs the primary ffmpeg command and, when it fails and software-decode
+	 * fallback args are available, logs `onFallback` and retries once with them.
+	 */
+	private async runWithHwFallback(
+		primaryArgs: string[],
+		fallbackArgs: string[] | undefined,
+		onFallback: (exitCode: number | null) => void,
+	): Promise<{ exitCode: number | null; stderr: string }> {
+		const result = await ffMpegService.runToCompletion(primaryArgs, {
+			timeoutMs: FFMPEG_TIMEOUT_MS,
+			maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
+		});
+		if (result.exitCode === 0 || !fallbackArgs) return result;
+
+		onFallback(result.exitCode);
+
+		return await ffMpegService.runToCompletion(fallbackArgs, {
+			timeoutMs: FFMPEG_TIMEOUT_MS,
+			maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
+		});
+	}
+
+	/**
 	 * Runs an ffmpeg command to completion and returns its output file, validated to be a
 	 * non-empty image within size limits. When `softwareFallbackArgs` is provided and the
 	 * first run fails, it is retried once with those args (software decode).
@@ -272,17 +291,12 @@ class PluginFfmpegService extends BaseService {
 		tempFilePath: string,
 		softwareFallbackArgs?: string[],
 	): Promise<Uint8Array> {
-		let { exitCode, stderr } = await ffMpegService.runToCompletion(args, {
-			timeoutMs: FFMPEG_TIMEOUT_MS,
-			maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
-		});
-		if (exitCode !== 0 && softwareFallbackArgs) {
-			this.logger.warn("HW decode failed — retrying frame extraction with software decode", { mediaFileId, exitCode });
-			({ exitCode, stderr } = await ffMpegService.runToCompletion(softwareFallbackArgs, {
-				timeoutMs: FFMPEG_TIMEOUT_MS,
-				maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
-			}));
-		}
+		const { exitCode, stderr } = await this.runWithHwFallback(args, softwareFallbackArgs, (failedExitCode) =>
+			this.logger.warn("HW decode failed — retrying frame extraction with software decode", {
+				mediaFileId,
+				exitCode: failedExitCode,
+			}),
+		);
 
 		if (exitCode !== 0) {
 			await FileUtils.delete(tempFilePath);

@@ -1,10 +1,9 @@
-import { timingSafeEqual } from "node:crypto";
 import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { Gunzip, Unzip, UnzipInflate } from "fflate";
-import { createHash } from "@/utils/crypto.utils";
+import { constantTimeEquals, createHash } from "@/utils/crypto.utils";
 import { ValidationError } from "@/utils/errors";
 import { guardedFetch } from "@/utils/url-guard.utils";
 
@@ -113,9 +112,7 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
  * catalog manifest before a single byte is extracted.
  */
 export function assertChecksumMatches(actual: string, expected: string): void {
-	const actualBytes = Buffer.from(actual);
-	const expectedBytes = Buffer.from(expected);
-	if (actualBytes.length !== expectedBytes.length || !timingSafeEqual(actualBytes, expectedBytes)) {
+	if (!constantTimeEquals(actual, expected)) {
 		throw new ValidationError("Plugin package checksum does not match the catalog manifest");
 	}
 }

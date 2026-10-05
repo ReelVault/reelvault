@@ -23,6 +23,17 @@ function cloneSettingValue(value: unknown, _key?: SystemSettingKey): unknown {
 	return value;
 }
 
+/**
+ * String form a setting definition's `parse` accepts: strings pass through,
+ * arrays are JSON-encoded, other scalars use `String`. Shared with the admin
+ * service so both paths serialize raw input identically.
+ */
+export function serializeSettingValue(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (Array.isArray(value)) return JSON.stringify(value);
+	return String(value);
+}
+
 class SystemSettingsStore {
 	// Settings should not expire or be evicted by a size limit — this is not a "cache" in the TTL sense,
 	// but a runtime-override layer on top of the hardcoded defaults.
@@ -72,16 +83,16 @@ class SystemSettingsStore {
 		const def = this.definition(key);
 		// Round-trip through the definition so the store can never hold an
 		// invalidated value, even if a caller bypasses updateSettings().
-		let raw: string;
-		if (typeof value === "string") {
-			raw = value;
-		} else if (Array.isArray(value)) {
-			raw = JSON.stringify(value);
-		} else {
-			raw = String(value);
-		}
+		this.runtime.set(key, def.parse(serializeSettingValue(value)));
+	}
 
-		this.runtime.set(key, def.parse(raw));
+	/**
+	 * Stores a value a caller already parsed through the key's definition (the
+	 * admin update path). Raw input must still go through `setRuntimeValue`,
+	 * which re-validates.
+	 */
+	setParsedRuntimeValue<K extends SystemSettingKey>(key: K, value: SystemSettingValue<K>): void {
+		this.runtime.set(key, value);
 	}
 
 	setRuntimeValues(values: Partial<Record<SystemSettingKey, unknown>>): void {

@@ -20,6 +20,7 @@ import { unique } from "@/utils/array.utils";
 import { ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
+import { isValidSemver } from "@/utils/semver.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 
 const CAPABILITY_NAMES: ReadonlySet<string> = PLUGIN_CAPABILITY_SET;
@@ -35,8 +36,6 @@ const PLUGIN_UI_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Page paths are single URL segments mounted under `/plugins/<id>/page/`. */
 const PLUGIN_UI_PAGE_PATH_PATTERN = /^[A-Za-z0-9._-]+$/;
-
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
 
 /** Custom element names must contain a hyphen and be lowercase (WHATWG custom elements spec). */
 const CUSTOM_ELEMENT_NAME_PATTERN = /^[a-z][a-z0-9._]*-[a-z0-9._-]*$/;
@@ -91,7 +90,7 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 
 	if (value.minServerVersion !== undefined) {
 		assertNonEmptyString(value.minServerVersion, "minServerVersion");
-		if (!SEMVER_PATTERN.test(value.minServerVersion)) {
+		if (!isValidSemver(value.minServerVersion)) {
 			throw new ValidationError(`Plugin manifest minServerVersion must be a semantic version: ${value.minServerVersion}`);
 		}
 	}

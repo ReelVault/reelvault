@@ -1,7 +1,7 @@
 import { type ApplicationContext, withDomainError } from "@/application/context";
 import { type ImageOptimizationOutcome, imageMaintenanceService } from "@/modules/images/image-maintenance.service";
 import { MINUTE } from "@/server.constants";
-import { scanFanoutTask } from "@/workers/definitions/shared/scan-fanout";
+import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -100,12 +100,12 @@ export function scanImagesForOptimizationTask(
 	const { enqueue, enqueueMany } = dependencies;
 
 	return withDomainError("Image optimization scan failed", () =>
-		scanFanoutTask<ImageOptimizationData>({
+		scanAndEnqueueTask<string, ImageOptimizationData>({
 			context,
 			label: "Image optimizations queued",
 			findIds: (signal) => dependencies.findOutdatedImageIds(signal),
 			toData: (imageId) => ({ imageId }),
-			enqueue: (...input) => enqueue(...input),
+			enqueueItem: (...input) => enqueue(...input),
 			...(enqueueMany ? { enqueueMany: (...input: Parameters<NonNullable<typeof enqueueMany>>) => enqueueMany(...input) } : {}),
 		}),
 	);

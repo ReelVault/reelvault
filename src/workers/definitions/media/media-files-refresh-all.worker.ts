@@ -39,9 +39,10 @@ export function refreshAllMediaFilesTask(
 	return withDomainError(
 		"All media file refreshes failed",
 		async () =>
-			await scanAndEnqueueTask<{ id: string; metadataId: string }>({
+			await scanAndEnqueueTask<{ id: string; metadataId: string }, { id: string; metadataId: string }>({
 				context,
 				findIds: () => dependencies.findAll(),
+				toData: (item) => item,
 				enqueueItem: async (item, options) => {
 					await dependencies.enqueueBatch([item], options);
 				},

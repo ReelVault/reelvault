@@ -1,7 +1,30 @@
 import { write } from "bun";
 import { serverConfig } from "@/server.config";
+import { DirUtils } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
+
+/**
+ * Creates `directory` once per process and returns an idempotent ensurer. A
+ * failed attempt is not cached — the next call retries. `failure` builds the
+ * caller's domain error so error types/codes stay with each service.
+ */
+export function createDirectoryOnce(directory: string, failure: () => Error): () => Promise<void> {
+	let ready: Promise<void> | undefined;
+
+	return async () => {
+		ready ??= (async () => {
+			if (!(await DirUtils.create(directory))) throw failure();
+		})();
+
+		try {
+			await ready;
+		} catch (error) {
+			ready = undefined;
+			throw error;
+		}
+	};
+}
 
 /**
  * Writes `content` to `path` on disk and then runs `persist` (typically a

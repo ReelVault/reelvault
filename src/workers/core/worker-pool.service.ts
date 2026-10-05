@@ -415,31 +415,19 @@ export class WorkerExecutionPoolService extends BaseService {
 		}
 	}
 
-	async drain(timeoutMs = DEFAULT_DRAIN_TIMEOUT_MS): Promise<void> {
-		const inflight = [...this.running.values()].map((exec) => exec.promise);
+	/**
+	 * Waits for in-flight executions to settle, bounded by `timeoutMs` so a
+	 * handler that ignores its abort signal cannot block shutdown (or a plugin
+	 * uninstall) forever. When `workerIds` is given only those workers are
+	 * awaited.
+	 */
+	async drain(timeoutMs = DEFAULT_DRAIN_TIMEOUT_MS, workerIds?: readonly string[]): Promise<void> {
+		const ids = workerIds ? new Set(workerIds) : null;
+		const inflight = [...this.running.values()].filter((exec) => !ids || ids.has(exec.workerId)).map((exec) => exec.promise);
 		if (inflight.length === 0) return;
 
 		// Bounded: a handler that ignores the abort must not stall shutdown until the
 		// global force-exit timer.
-		await Promise.race([
-			Promise.allSettled(inflight),
-			new Promise<void>((resolve) => {
-				const timer = setTimeout(resolve, timeoutMs);
-				timer.unref();
-			}),
-		]);
-	}
-
-	/**
-	 * Waits for in-flight executions of the given workers to settle, bounded by
-	 * `timeoutMs` so a handler that ignores its abort signal cannot block a
-	 * plugin uninstall forever.
-	 */
-	async drainWorkers(workerIds: readonly string[], timeoutMs: number): Promise<void> {
-		const ids = new Set(workerIds);
-		const inflight = [...this.running.values()].filter((exec) => ids.has(exec.workerId)).map((exec) => exec.promise);
-		if (inflight.length === 0) return;
-
 		await Promise.race([
 			Promise.allSettled(inflight),
 			new Promise<void>((resolve) => {

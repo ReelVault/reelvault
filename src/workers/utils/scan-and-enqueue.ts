@@ -10,26 +10,29 @@ export interface ScanAndEnqueueResult {
 	queued: number;
 }
 
-export interface ScanAndEnqueueOptions<T> {
+export interface ScanAndEnqueueOptions<TId, T> {
 	context: ApplicationContext;
-	findIds: (signal?: AbortSignal) => Promise<T[]>;
+	findIds: (signal?: AbortSignal) => Promise<TId[]>;
+	/** Maps a scanned id to the task payload enqueued for it. */
+	toData: (id: TId) => T;
 	enqueueItem: (item: T, options: WorkerEnqueueOptions) => Promise<unknown>;
 	enqueueMany?: (items: T[], options: WorkerEnqueueOptions) => Promise<unknown> | undefined;
 	label: string;
 }
 
 /**
- * Generic scan-and-enqueue pattern: fetch IDs, then batch-enqueue them.
- * Shared by image-optimization-all, media-match-audit-all, and
- * media-files-refresh-all workers.
+ * Generic scan-and-enqueue pattern: fetch IDs, map each to its task payload,
+ * then batch-enqueue them. Shared by image-optimization-all,
+ * media-match-audit-all, and media-files-refresh-all workers.
  */
-export async function scanAndEnqueueTask<T>({
+export async function scanAndEnqueueTask<TId, T>({
 	context,
 	findIds,
+	toData,
 	enqueueItem,
 	enqueueMany,
 	label,
-}: ScanAndEnqueueOptions<T>): Promise<ScanAndEnqueueResult> {
+}: ScanAndEnqueueOptions<TId, T>): Promise<ScanAndEnqueueResult> {
 	const startedAt = performance.now();
 	const ids = await findIds(context.signal);
 	const schedulingOptions: WorkerEnqueueOptions = {
@@ -41,7 +44,10 @@ export async function scanAndEnqueueTask<T>({
 	if (enqueueMany) {
 		for (const { items: idChunk } of batchChunks(ids, ENQUEUE_BATCH_SIZE)) {
 			context.signal?.throwIfAborted();
-			await enqueueMany(idChunk, schedulingOptions);
+			await enqueueMany(
+				idChunk.map((id) => toData(id)),
+				schedulingOptions,
+			);
 			queued += idChunk.length;
 		}
 	} else {
@@ -49,7 +55,7 @@ export async function scanAndEnqueueTask<T>({
 			ids,
 			systemResourcesService.getIngestConcurrency(),
 			async (id) => {
-				await enqueueItem(id, schedulingOptions);
+				await enqueueItem(toData(id), schedulingOptions);
 				queued++;
 			},
 			context.signal,

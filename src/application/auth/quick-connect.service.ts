@@ -170,14 +170,7 @@ export class QuickConnectService extends BaseService {
 				...(entry.signedToken && isNativeClient(request) ? { token: entry.signedToken } : {}),
 			};
 
-			const headers = new Headers({ "Content-Type": "application/json" });
-			if (entry.cookies) {
-				for (const cookie of entry.cookies) {
-					headers.append("Set-Cookie", cookie);
-				}
-			}
-
-			return rewriteCookieDomain(new Response(JSON.stringify(responseData), { status: 200, headers }), request.headers.get("origin"));
+			return this.respondWithSessionCookies(responseData, entry.cookies, request);
 		});
 	}
 
@@ -287,13 +280,18 @@ export class QuickConnectService extends BaseService {
 				redirect: false,
 			};
 
-			const headers = new Headers({ "Content-Type": "application/json" });
-			for (const cookie of cookies) {
-				headers.append("Set-Cookie", cookie);
-			}
-
-			return rewriteCookieDomain(new Response(JSON.stringify(responseData), { status: 200, headers }), request.headers.get("origin"));
+			return this.respondWithSessionCookies(responseData, cookies, request);
 		});
+	}
+
+	/** JSON response carrying the session cookies, with the request's cookie-domain rewrite applied. */
+	private respondWithSessionCookies(responseData: unknown, cookies: readonly string[] | undefined, request: Request): Response {
+		const headers = new Headers({ "Content-Type": "application/json" });
+		for (const cookie of cookies ?? []) {
+			headers.append("Set-Cookie", cookie);
+		}
+
+		return rewriteCookieDomain(new Response(JSON.stringify(responseData), { status: 200, headers }), request.headers.get("origin"));
 	}
 }
 
