@@ -1,4 +1,5 @@
 import { realtimeService } from "@/modules/realtime/realtime.service";
+import { BoundedMap } from "../utils/bounded-map";
 
 const IMPLICIT_SEEK_COOLDOWN_MS = 10_000;
 /** Bound the per-session cooldown map — entries older than the cooldown are stale. */
@@ -28,10 +29,11 @@ export interface SeekedAnnouncement {
  */
 export class ImplicitSeekCoordinator {
 	private readonly dependencies: ImplicitSeekDependencies;
-	private readonly lastSeekAt = new Map<string, number>();
+	private readonly lastSeekAt: BoundedMap<number>;
 
 	constructor(dependencies: Partial<ImplicitSeekDependencies> = {}) {
 		this.dependencies = { ...defaultDependencies, ...dependencies };
+		this.lastSeekAt = new BoundedMap({ maxEntries: MAX_TRACKED_SESSIONS, now: this.dependencies.now });
 	}
 
 	tryBegin(sessionId: string): boolean {
@@ -41,17 +43,15 @@ export class ImplicitSeekCoordinator {
 			return false;
 		}
 
-		if (this.lastSeekAt.size >= MAX_TRACKED_SESSIONS) this.pruneStale(now);
+		if (this.lastSeekAt.size >= MAX_TRACKED_SESSIONS) this.pruneStale();
 
 		this.lastSeekAt.set(sessionId, now);
 
 		return true;
 	}
 
-	private pruneStale(now: number): void {
-		for (const [sessionId, lastSeekAt] of this.lastSeekAt) {
-			if (now - lastSeekAt >= this.dependencies.cooldownMs) this.lastSeekAt.delete(sessionId);
-		}
+	private pruneStale(): void {
+		this.lastSeekAt.prune((lastSeekAt, now) => now - lastSeekAt >= this.dependencies.cooldownMs);
 	}
 
 	invalidate(sessionId: string): void {

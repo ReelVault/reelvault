@@ -2,6 +2,7 @@ import { BaseService } from "@/utils/base-service";
 import { errorMessage, InternalError, isMissingFile, RequestTimeoutError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
+import { PLAYLIST_FILE_NAME } from "../utils/segment-name.utils";
 import { type PlaylistCache, type PlaylistStats, playlistCache } from "./playlist.cache";
 
 export interface PlaylistFileReader {
@@ -50,7 +51,7 @@ export class PlaylistService extends BaseService {
 			throw new InternalError(errorMessage(error));
 		}
 
-		const playlistPath = runtime.getFilePath(sessionId, "playlist.m3u8");
+		const playlistPath = runtime.getFilePath(sessionId, PLAYLIST_FILE_NAME);
 		const stats = await getStats(playlistPath);
 
 		if (stats) {

@@ -10,6 +10,7 @@ import { systemResourcesService } from "@/system/system-resources.service";
 import { NotFoundError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { clamp } from "@/utils/math.utils";
+import { SEGMENT_OUTPUT_PATTERN } from "../../utils/segment-name.utils";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**
@@ -33,7 +34,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 			throw new NotFoundError(`Input file does not exist: ${inputPath}`);
 		}
 
-		const segmentPattern = buildHlsOutputPath(outputDir, "seg_%d.m4s");
+		const segmentPattern = buildHlsOutputPath(outputDir, SEGMENT_OUTPUT_PATTERN);
 		const startNumber = segmentStartNumber(startTime, this.config);
 
 		if (decision.audioTranscode) this.logger.debug("Transcoding audio", { sessionId });

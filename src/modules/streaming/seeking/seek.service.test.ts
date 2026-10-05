@@ -37,14 +37,15 @@ describe("seek service", () => {
 		expect(seekCalls.every((call) => call.position === 0)).toBe(true);
 	});
 
-	test("clamps the position before the EOF guard", async () => {
+	test("clamps the reported position before the EOF guard and forwards the raw position", async () => {
 		const { service, seekCalls } = createService({ duration: 600 });
 
 		const result = await service.seek("s1", 599.5);
 
-		// EOF guard = 1s: the maximum position is 599.
+		// EOF guard = 1s: the maximum reported position is 599; SessionSeeker
+		// applies the clamp to the raw position it receives.
 		expect(result.position).toBe(599);
-		expect(seekCalls[0]?.position).toBe(599);
+		expect(seekCalls[0]?.position).toBe(599.5);
 	});
 
 	test("keeps the raw position when the duration is unknown", async () => {
@@ -53,11 +54,12 @@ describe("seek service", () => {
 		expect((await service.seek("s1", 42)).position).toBe(42);
 	});
 
-	test("rejects negative positions to zero", async () => {
+	test("reports negative positions as zero and forwards the raw position", async () => {
 		const { service, seekCalls } = createService();
 
 		expect((await service.seek("s1", -10)).position).toBe(0);
-		expect(seekCalls[0]?.position).toBe(0);
+		// SessionSeeker owns flooring negative offsets.
+		expect(seekCalls[0]?.position).toBe(-10);
 	});
 
 	test("fails when the session has no decision yet", () => {

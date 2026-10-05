@@ -13,7 +13,7 @@ import { playlistCache } from "../playlist/playlist.cache";
 import { SessionSeeker } from "../seeking/session-seeker";
 import type { HlsBufferAnalysis, SessionReleaseOutcome, StreamingLifecycleCallbacks, TerminatedSessionEntry } from "../streaming.types";
 import { resolveSeekTimelineStart } from "../utils/seek-timeline.utils";
-import { parseSegmentName } from "../utils/segment-name.utils";
+import { PLAYLIST_FILE_NAME, parseSegmentName } from "../utils/segment-name.utils";
 import { SessionReaper } from "./session-state/session-reaper";
 import { SessionReservationTracker } from "./session-state/session-reservation.tracker";
 import { SessionStore } from "./session-state/session-store";
@@ -61,7 +61,7 @@ class StreamingManager {
 			() => this.config.maxSessions,
 			() => serverConfig.stream.maxSessionsPerUser,
 		);
-		this.bufferCache = new BufferAnalysisCache(config.hlsSegmentDuration, (sessionId) => this.getFilePath(sessionId, "playlist.m3u8"));
+		this.bufferCache = new BufferAnalysisCache(config.hlsSegmentDuration, (sessionId) => this.getFilePath(sessionId, PLAYLIST_FILE_NAME));
 		this.processManager = new ProcessManager(config, this.store, this.reservations);
 		this.seeker = new SessionSeeker(this.store, serverConfig.stream.seekDebounceMs, (sessionId, offset, decision) =>
 			this.doSeek(sessionId, offset, decision),

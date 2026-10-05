@@ -1,12 +1,11 @@
 import type { StreamSeekResponse } from "@reelvault/sdk/common";
 import { BaseService } from "@/utils/base-service";
 import { RequestTimeoutError } from "@/utils/errors";
-import { clamp } from "@/utils/math.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import { defaultFindForStreamingDuration, defaultRequireSession } from "../contracts";
 import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import type { RequireSession } from "../streaming.types";
-import { SEEK_EOF_GUARD_SECONDS } from "../utils/playback-budgets";
+import { clampSeekOffsetToDuration } from "../utils/playback-budgets";
 
 interface ServiceDependencies {
 	requireSession: RequireSession;
@@ -38,12 +37,13 @@ export class SeekService extends BaseService {
 
 		const rawPosition = isFiniteNumber(requestedPosition) ? requestedPosition : 0;
 		const duration = file.duration ?? null;
-		const position =
-			duration && duration > 0 ? clamp(rawPosition, 0, Math.max(0, duration - SEEK_EOF_GUARD_SECONDS)) : Math.max(0, rawPosition);
+		// SessionSeeker owns the seek-offset clamp; this only reports the clamped
+		// position back to the client (route contract: [0, duration - EOF guard]).
+		const position = clampSeekOffsetToDuration(rawPosition, duration);
 		const decision = getSessionDecision(sessionId);
 		if (!decision) throw new RequestTimeoutError("Streaming session is not ready yet. Try again in a moment.");
 
-		const { startTime, reusedBuffer } = await seekTo(sessionId, position, decision);
+		const { startTime, reusedBuffer } = await seekTo(sessionId, rawPosition, decision);
 
 		return { position, startTime, reusedBuffer };
 	}

@@ -5,13 +5,12 @@ import { NotFoundError, RequestTimeoutError, ValidationError } from "@/utils/err
 import { defaultRequireSession } from "../contracts";
 import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import type { SeekResult } from "../streaming.types";
+import { INIT_SEGMENT_FILE_NAME, isSegmentFile } from "../utils/segment-name.utils";
 import { ImplicitSeekCoordinator } from "./implicit-seek.coordinator";
 import { SegmentLookup, type SegmentWaitContext } from "./segment-lookup";
 
-const SAFE_SEGMENT_PATTERN = /^(init\.mp4|seg_\d+\.m4s)$/;
-
 function assertSafeSegment(segment: string): void {
-	if (!SAFE_SEGMENT_PATTERN.test(segment)) {
+	if (!isSegmentFile(segment)) {
 		throw new ValidationError("Invalid segment name");
 	}
 }
@@ -72,7 +71,7 @@ export class SegmentService extends BaseService {
 		try {
 			const segmentDuration = serverConfig.stream.hlsSegmentDurationSeconds;
 			const sessionStartTime = runtime.getSessionStartTime(sessionId);
-			const segmentInfo = segment !== "init.mp4" ? runtime.getSegmentInfo(segment) : null;
+			const segmentInfo = segment !== INIT_SEGMENT_FILE_NAME ? runtime.getSegmentInfo(segment) : null;
 
 			if (segmentInfo && sessionStartTime !== undefined && segmentInfo.startTime < sessionStartTime) {
 				throw new NotFoundError(`Obsolete segment requested: ${segment}`);

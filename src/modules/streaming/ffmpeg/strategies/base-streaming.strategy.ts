@@ -7,6 +7,7 @@ import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
 import { transcodeProgressMonitor } from "../../runtime/transcode-progress.monitor";
 import type { StreamingStrategy } from "../../streaming.types";
+import { PLAYLIST_FILE_NAME } from "../../utils/segment-name.utils";
 
 /**
  * Shared plumbing for streaming strategies: the ffmpeg builder chain, progress
@@ -73,6 +74,6 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 
 				detach(transcodeProgressMonitor.onFfmpegExit(sessionId, exitCode, signalCode));
 			})
-			.run(buildHlsOutputPath(outputDir, "playlist.m3u8"));
+			.run(buildHlsOutputPath(outputDir, PLAYLIST_FILE_NAME));
 	}
 }

@@ -11,8 +11,9 @@ import { isFiniteNumber } from "@/utils/type.utils";
 export const SEEK_EOF_GUARD_SECONDS = 1;
 
 export function clampSeekOffsetToDuration(offset: number, durationSeconds?: number | null): number {
-	// The only offset clamp for seeks: floor at 0 (and reject NaN) here so callers
-	// do not need their own `Math.max(0, …)` before aligning to a segment.
+	// The single seek-offset clamp: floor at 0 (reject NaN) and apply the EOF
+	// guard. SessionSeeker enforces it before segment alignment; SeekService
+	// reuses it only to report the clamped position back to clients.
 	if (!isFiniteNumber(offset) || offset <= 0) return 0;
 
 	if (!durationSeconds || durationSeconds <= 0) return offset;

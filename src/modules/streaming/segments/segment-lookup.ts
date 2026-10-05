@@ -3,6 +3,7 @@ import { serverConfig } from "@/server.config";
 import { isMissingFile, NotFoundError, RequestTimeoutError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { INIT_SEGMENT_FILE_NAME } from "../utils/segment-name.utils";
 
 const POLL_INTERVAL_MS = 200;
 
@@ -50,27 +51,18 @@ export class SegmentLookup {
 		}
 
 		const initialWaitMs = this.dependencies.initialWaitMs ?? serverConfig.stream.initialSegmentTimeoutMs;
-		try {
-			await this.dependencies.waitForFile(filePath, initialWaitMs, POLL_INTERVAL_MS, signal);
+		const initialFile = await this.waitThenRead(filePath, initialWaitMs, signal);
+		if (initialFile) return initialFile;
 
-			return this.read(filePath);
-		} catch (error) {
-			if (signal?.aborted) throw error;
-		}
-
-		if (segment === "init.mp4") throw new NotFoundError("fMP4 init segment was not generated in time", { code: "init_segment_not_found" });
+		if (segment === INIT_SEGMENT_FILE_NAME)
+			throw new NotFoundError("fMP4 init segment was not generated in time", { code: "init_segment_not_found" });
 
 		if (context.isSeeking()) {
 			const seekWaitMs = this.dependencies.seekWaitMs ?? serverConfig.stream.seekSegmentTimeoutMs;
-			try {
-				await this.dependencies.waitForFile(filePath, seekWaitMs, POLL_INTERVAL_MS, signal);
+			const seekFile = await this.waitThenRead(filePath, seekWaitMs, signal);
+			if (seekFile) return seekFile;
 
-				return this.read(filePath);
-			} catch (error) {
-				if (signal?.aborted) throw error;
-
-				throw new NotFoundError(`Segment not found after ongoing seek: ${segment}`);
-			}
+			throw new NotFoundError(`Segment not found after ongoing seek: ${segment}`);
 		}
 
 		if (context.isNearActiveWindow) {
@@ -82,6 +74,14 @@ export class SegmentLookup {
 
 	async readAfterSeek(context: SegmentWaitContext, timeoutMs: number): Promise<BunFile> {
 		const { filePath, segment, signal } = context;
+		const seekFile = await this.waitThenRead(filePath, timeoutMs, signal);
+		if (seekFile) return seekFile;
+
+		throw new NotFoundError(`Segment not found after seek: ${segment}`);
+	}
+
+	/** Waits for the file and reads it; aborts rethrow, other wait failures return undefined for the caller to map. */
+	private async waitThenRead(filePath: string, timeoutMs: number, signal?: AbortSignal): Promise<BunFile | undefined> {
 		try {
 			await this.dependencies.waitForFile(filePath, timeoutMs, POLL_INTERVAL_MS, signal);
 
@@ -89,7 +89,7 @@ export class SegmentLookup {
 		} catch (error) {
 			if (signal?.aborted) throw error;
 
-			throw new NotFoundError(`Segment not found after seek: ${segment}`);
+			return undefined;
 		}
 	}
 

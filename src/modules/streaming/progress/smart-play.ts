@@ -143,7 +143,11 @@ export function selectEpisodeSmartPlay(
 	return firstFile ? { type: "new", mediaFileId: firstFile.id } : undefined;
 }
 
-function compareEpisodes(left: Episode, right: Episode, useAbsolute: boolean): number {
+export function compareEpisodes(
+	left: { seasonNumber: number; episodeNumber: number; absoluteNumber?: number | null },
+	right: { seasonNumber: number; episodeNumber: number; absoluteNumber?: number | null },
+	useAbsolute: boolean,
+): number {
 	if (useAbsolute) {
 		// Absolute (anime) ordering; episodes without a number sort last.
 		const leftAbsolute = left.absoluteNumber ?? Number.MAX_SAFE_INTEGER;

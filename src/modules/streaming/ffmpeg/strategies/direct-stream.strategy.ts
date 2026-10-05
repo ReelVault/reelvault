@@ -5,6 +5,7 @@ import { buildHlsOutputPath, segmentStartNumber } from "@/integrations/ffmpeg/ff
 import { probeBudgetForFormat } from "@/integrations/ffprobe/ffprobe.probe-budgets";
 import { NotFoundError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { SEGMENT_OUTPUT_PATTERN } from "../../utils/segment-name.utils";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**
@@ -29,7 +30,7 @@ export class DirectStreamStrategy extends BaseStreamingStrategy {
 			throw new NotFoundError(`Input file does not exist: ${inputPath}`);
 		}
 
-		const segmentPattern = buildHlsOutputPath(outputDir, "seg_%d.m4s");
+		const segmentPattern = buildHlsOutputPath(outputDir, SEGMENT_OUTPUT_PATTERN);
 		const startNumber = segmentStartNumber(startTime, this.config);
 
 		this.logger.debug(`Starting direct-stream at ${startTime}s (seg ${startNumber})`, { sessionId, startTime, startNumber });

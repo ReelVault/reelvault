@@ -1,5 +1,6 @@
 import { MINUTE } from "@/server.constants";
 import { TooManyRequestsError } from "@/utils/errors";
+import { BoundedMap } from "../utils/bounded-map";
 
 const DEFAULT_COOLDOWN_MS = 500;
 const SWEEP_INTERVAL_MS = 30_000;
@@ -13,15 +14,14 @@ interface GuardOptions {
 
 export class SessionCreationGuard {
 	private readonly cooldownMs: number;
-	private readonly maxEntries: number;
 	private readonly now: () => number;
-	private readonly lastCreationByProfile = new Map<string, number>();
+	private readonly lastCreationByProfile: BoundedMap<number>;
 	private lastSweepTime = 0;
 
 	constructor(options: GuardOptions = {}) {
 		this.cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS;
-		this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
 		this.now = options.now ?? Date.now;
+		this.lastCreationByProfile = new BoundedMap({ maxEntries: options.maxEntries ?? DEFAULT_MAX_ENTRIES, now: this.now });
 	}
 
 	assertCooldown(profileId: string): void {
@@ -33,19 +33,11 @@ export class SessionCreationGuard {
 			);
 		}
 
-		this.lastCreationByProfile.delete(profileId);
-		if (this.lastCreationByProfile.size >= this.maxEntries) {
-			const oldestKey = this.lastCreationByProfile.keys().next().value;
-			if (oldestKey !== undefined) this.lastCreationByProfile.delete(oldestKey);
-		}
-
 		this.lastCreationByProfile.set(profileId, now);
 
 		if (now - this.lastSweepTime > SWEEP_INTERVAL_MS) {
 			this.lastSweepTime = now;
-			for (const [id, time] of this.lastCreationByProfile) {
-				if (now - time > MINUTE) this.lastCreationByProfile.delete(id);
-			}
+			this.lastCreationByProfile.prune((time, sweepNow) => sweepNow - time > MINUTE);
 		}
 	}
 }

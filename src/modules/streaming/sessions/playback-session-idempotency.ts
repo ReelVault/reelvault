@@ -1,9 +1,10 @@
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
-import { unique } from "@/utils/array.utils";
 import { ConflictError } from "@/utils/errors";
 import { detach } from "@/utils/promise.utils";
 import { normalizeLower } from "@/utils/type.utils";
+import { BoundedMap } from "../utils/bounded-map";
+import { normalizeStringList } from "../utils/string-list.utils";
 
 interface Entry<T> {
 	fingerprint: string;
@@ -21,12 +22,11 @@ const DEFAULT_MAX_ENTRIES = 1_000;
  * does not claim to provide cross-node guarantees.
  */
 export class PlaybackSessionIdempotencyRegistry<T = unknown> {
-	private readonly entries = new Map<string, Entry<T>>();
-	private readonly maxEntries: number;
+	private readonly entries: BoundedMap<Entry<T>>;
 	private lastSweepAt = 0;
 
 	constructor(maxEntries = DEFAULT_MAX_ENTRIES) {
-		this.maxEntries = maxEntries;
+		this.entries = new BoundedMap({ maxEntries });
 	}
 
 	execute(profileId: string, idempotencyKey: string, body: Record<string, unknown>, create: () => Promise<T>): Promise<T> {
@@ -45,12 +45,6 @@ export class PlaybackSessionIdempotencyRegistry<T = unknown> {
 
 		const { promise, resolve, reject } = Promise.withResolvers<T>();
 		const entry: Entry<T> = { fingerprint, promise, expiresAt: Date.now() + PENDING_ENTRY_TTL_MS };
-		this.entries.delete(key);
-		if (this.entries.size >= this.maxEntries) {
-			const oldestKey = this.entries.keys().next().value;
-			if (oldestKey !== undefined) this.entries.delete(oldestKey);
-		}
-
 		this.entries.set(key, entry);
 
 		detach(
@@ -74,9 +68,7 @@ export class PlaybackSessionIdempotencyRegistry<T = unknown> {
 		if (this.entries.size <= 100 && now - this.lastSweepAt < SWEEP_INTERVAL_MS) return;
 
 		this.lastSweepAt = now;
-		for (const [key, entry] of this.entries) {
-			if (entry.expiresAt !== undefined && entry.expiresAt <= now) this.entries.delete(key);
-		}
+		this.entries.prune((entry, sweepNow) => entry.expiresAt !== undefined && entry.expiresAt <= sweepNow);
 	}
 }
 
@@ -106,7 +98,7 @@ function fingerprintValue(value: unknown): string {
 function normalizeCodecs(value: unknown): string[] {
 	if (!Array.isArray(value)) return [];
 
-	return unique(value.map((v) => normalizeString(v)).filter(Boolean)).toSorted();
+	return normalizeStringList(value);
 }
 
 function normalizeString(value: unknown): string {

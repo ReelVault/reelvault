@@ -5,6 +5,7 @@ import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import type { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
 import type { SessionStore } from "../runtime/session-state/session-store";
+import { PLAYLIST_FILE_NAME } from "../utils/segment-name.utils";
 import { parseHlsBuffer } from "./hls-buffer";
 
 export class PlaylistWaiter {
@@ -32,7 +33,7 @@ export class PlaylistWaiter {
 		retryWithSoftwareEncoder: (sessionId: string, session: StreamingSession) => Promise<boolean>,
 		signal?: AbortSignal,
 	): Promise<void> {
-		const playlistPath = this.getFilePath(sessionId, "playlist.m3u8");
+		const playlistPath = this.getFilePath(sessionId, PLAYLIST_FILE_NAME);
 
 		if (!(await FileUtils.exists(playlistPath))) {
 			let session = this.store.get(sessionId);

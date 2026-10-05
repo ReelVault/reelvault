@@ -4,7 +4,7 @@ import { clamp } from "@/utils/math.utils";
 import type { ContinueWatchingData } from "../streaming.types";
 import { computeProgressPercent } from "../utils/playback-position.utils";
 import { latestProgressByEpisode } from "./progress.utils";
-import { findMostRecentProgress, nextEpisodeAfter, selectPreferredMediaFile } from "./smart-play";
+import { compareEpisodes, findMostRecentProgress, nextEpisodeAfter, selectPreferredMediaFile } from "./smart-play";
 
 type ContinueCandidate = ContinueWatchingItem & { updatedAt: Date };
 
@@ -120,13 +120,10 @@ function buildTvCandidate(
 	const metaEpisodes = metaSeasons.flatMap((s) => episodesBySeasonId.get(s.id) ?? []);
 	const filesByEpisodeId = groupBy(metaFiles, (file) => file.episodeId);
 
-	const playableEpisodes = metaEpisodes.filter((ep) => filesByEpisodeId.has(ep.id));
-	playableEpisodes.sort((a, b) => {
-		const sA = seasonById.get(a.seasonId)?.seasonNumber ?? 0;
-		const sB = seasonById.get(b.seasonId)?.seasonNumber ?? 0;
-
-		return sA - sB || a.episodeNumber - b.episodeNumber;
-	});
+	const playableEpisodes = metaEpisodes
+		.filter((ep) => filesByEpisodeId.has(ep.id))
+		.map((ep) => ({ ...ep, seasonNumber: seasonById.get(ep.seasonId)?.seasonNumber ?? 0 }));
+	playableEpisodes.sort((a, b) => compareEpisodes(a, b, false));
 
 	if (playableEpisodes.length === 0) return null;
 

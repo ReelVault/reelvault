@@ -1,10 +1,9 @@
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { DEFAULT_BROWSER_CAPABILITIES } from "@reelvault/sdk/common";
-import { unique } from "@/utils/array.utils";
 import { ValidationError } from "@/utils/errors";
-import { normalizeLower } from "@/utils/type.utils";
 import { HDR_TRANSFER_ALLOWLIST } from "../decisions/codec-maps";
 import type { PlaybackSessionInput } from "../streaming.types";
+import { normalizeStringList } from "../utils/string-list.utils";
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -12,12 +11,7 @@ const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 function parseList(val?: string): string[] {
 	if (!val) return [];
 
-	return unique(
-		val
-			.split(",")
-			.map((v) => normalizeLower(v))
-			.filter(Boolean),
-	).toSorted();
+	return normalizeStringList(val.split(","));
 }
 
 function normalize<T>(value: T | null | undefined): T | undefined {

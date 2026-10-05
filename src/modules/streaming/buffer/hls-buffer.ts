@@ -1,8 +1,8 @@
 import { clamp } from "@/utils/math.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import type { HlsBufferAnalysis, HlsBufferedSegment, HlsBufferRange } from "../streaming.types";
+import { parseSegmentUriIndex } from "../utils/segment-name.utils";
 
-const SEGMENT_PATTERN = /(?:^|\/)seg_(\d+)\.m4s(?:\?.*)?$/;
 const DURATION_PATTERN = /^#EXTINF:([\d.]+)/;
 const LINE_SEPARATOR_PATTERN = /\r?\n/;
 
@@ -29,12 +29,11 @@ export function parseHlsBuffer(playlist: string, segmentDuration: number): HlsBu
 
 		if (line.startsWith("#") || pendingDuration === null) continue;
 
-		const segmentMatch = line.match(SEGMENT_PATTERN);
+		const segmentIndex = parseSegmentUriIndex(line);
 		const duration = pendingDuration;
 		pendingDuration = null;
-		if (!segmentMatch) continue;
+		if (segmentIndex === null) continue;
 
-		const segmentIndex = Number(segmentMatch[1]);
 		const startTime = segmentIndex * segmentDuration;
 		uniqueByIndex.set(segmentIndex, {
 			index: segmentIndex,

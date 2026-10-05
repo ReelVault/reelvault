@@ -184,10 +184,9 @@ class PlaybackProgressService extends BaseService {
 		metadataType?: MetadataType,
 	): Promise<{ progress: MetadataPlaybackProgress; smartPlay: SmartPlay }> {
 		return await this.safeExecute("getPlaybackOverview", async () => {
-			const { playbackRepository } = this.dependencies;
-			this.assertProfileId(profileId);
-			const data = await playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, profileId, metadataType);
-			this.assertExists(data, "Metadata", metadataId);
+			const data = await this.loadTitleProgressData(metadataId, profileId, (resolvedProfileId) =>
+				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId, metadataType),
+			);
 
 			return {
 				progress: computePlaybackProgress(data),
@@ -198,10 +197,9 @@ class PlaybackProgressService extends BaseService {
 
 	async getPlaybackProgress(metadataId: string, profileId?: string, metadataType?: MetadataType): Promise<MetadataPlaybackProgress> {
 		return await this.safeExecute("getPlaybackProgress", async () => {
-			const { playbackRepository } = this.dependencies;
-			this.assertProfileId(profileId);
-			const data = await playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, profileId, metadataType);
-			this.assertExists(data, "Metadata", metadataId);
+			const data = await this.loadTitleProgressData(metadataId, profileId, (resolvedProfileId) =>
+				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId, metadataType),
+			);
 
 			return computePlaybackProgress(data);
 		});
@@ -220,10 +218,9 @@ class PlaybackProgressService extends BaseService {
 
 	async getSmartPlay(metadataId: string, profileId?: string): Promise<SmartPlay> {
 		return await this.safeExecute("getSmartPlay", async () => {
-			const { playbackRepository } = this.dependencies;
-			this.assertProfileId(profileId);
-			const data = await playbackRepository.findSmartPlayData(metadataId, profileId);
-			this.assertExists(data, "Metadata", metadataId);
+			const data = await this.loadTitleProgressData(metadataId, profileId, (resolvedProfileId) =>
+				this.dependencies.playbackRepository.findSmartPlayData(metadataId, resolvedProfileId),
+			);
 
 			return computeSmartPlay({
 				metadata: data.metadata,
@@ -233,6 +230,19 @@ class PlaybackProgressService extends BaseService {
 				episodes: data.episodes,
 			});
 		});
+	}
+
+	/** Shared title-progress load: active profile, repository fetch and existence check. */
+	private async loadTitleProgressData<T>(
+		metadataId: string,
+		profileId: string | undefined,
+		load: (profileId: string) => Promise<T | null | undefined>,
+	): Promise<T> {
+		this.assertProfileId(profileId);
+		const data = await load(profileId);
+		this.assertExists(data, "Metadata", metadataId);
+
+		return data;
 	}
 
 	/** Batch smart play + watchlist flags — one request for a whole grid of cards. */
