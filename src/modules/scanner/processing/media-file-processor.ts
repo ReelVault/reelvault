@@ -8,6 +8,7 @@ import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { throwIfAborted, WorkerCancellationError } from "@/workers/utils/worker-cancellation";
 import type { RecognitionResult } from "../../recognition/recognition.types";
+import { episodeRangeTargets } from "../../recognition/utils/recognition.utils";
 import { mapChaptersToMarkers } from "../probe/chapters-to-markers.utils";
 import { mapMediaFileData } from "../probe/media-probe.mapper";
 import { videoParser } from "../probe/video-parser.service";
@@ -19,26 +20,6 @@ import type {
 	ProcessedMediaFileWithMarkers,
 	SkippedMediaFile,
 } from "../scanner.types";
-
-/** Upper bound on episodes a single file may claim — longer "ranges" are scene noise. */
-const MAX_EPISODE_RANGE_SPAN = 12;
-
-/**
- * Episode numbers covered by the parsed identity: `[3]` for a plain SxxExx
- * file, `[3, 4, 5]` for S01E03-E05. `undefined` when the file is not a
- * multi-episode candidate (movies, single episodes, malformed ranges).
- */
-function episodeRangeTargets(identity: RecognitionResult["identity"]): number[] | undefined {
-	if (identity.type !== "episode" || identity.episode === undefined) return undefined;
-
-	const start = identity.episode;
-	const end = identity.episodeEnd ?? start;
-	const span = end - start + 1;
-	if (span <= 1) return undefined;
-	if (span > MAX_EPISODE_RANGE_SPAN) return undefined;
-
-	return Array.from({ length: span }, (_, index) => start + index);
-}
 
 class MediaFileProcessor extends BaseService {
 	private metadataProcessInstance: MetadataProcess | undefined;

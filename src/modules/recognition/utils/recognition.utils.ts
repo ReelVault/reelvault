@@ -105,6 +105,36 @@ export function extractSeasonEpisode(fileName: string): { season?: number; episo
 	};
 }
 
+/** Upper bound on episodes a single file may claim — longer "ranges" are scene noise. */
+export const MAX_EPISODE_RANGE_SPAN = 12;
+
+/**
+ * Episodes covered by the identity when it names a range (S01E03-E05 → 3).
+ * `undefined` for movies, single episodes, descending and over-long ranges.
+ */
+export function episodeRangeSpan(identity: MediaIdentity | null | undefined): number | undefined {
+	if (identity?.type !== "episode" || identity.episode === undefined) return undefined;
+
+	const span = (identity.episodeEnd ?? identity.episode) - identity.episode + 1;
+	if (span <= 1 || span > MAX_EPISODE_RANGE_SPAN) return undefined;
+
+	return span;
+}
+
+/**
+ * Episode numbers covered by the parsed identity: `[3]` for a plain SxxExx
+ * file, `[3, 4, 5]` for S01E03-E05. `undefined` when the file is not a
+ * multi-episode candidate (movies, single episodes, malformed ranges).
+ */
+export function episodeRangeTargets(identity: MediaIdentity | null | undefined): number[] | undefined {
+	const span = episodeRangeSpan(identity);
+	if (span === undefined || identity?.episode === undefined) return undefined;
+
+	const start = identity.episode;
+
+	return Array.from({ length: span }, (_, index) => start + index);
+}
+
 /** Shared title-resolution logic used by both series-basic and series-categorized strategies. */
 export function resolveShowTitle(
 	showIdentity: MediaIdentity,

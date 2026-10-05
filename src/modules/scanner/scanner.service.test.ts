@@ -110,4 +110,38 @@ describe("ScannerService.scanPaths", () => {
 
 		expect(cleanupCalls).toEqual([]);
 	});
+
+	test("re-ingests a range file that owns fewer rows than its name spans", async () => {
+		const filePath = `${SCAN_ROOT}/Show.S01E01-E03.mkv`;
+		const { service } = createService({
+			diskFiles: [filePath],
+			dbRows: [{ id: "row-a", filePath, size: 100, sourceMtimeMs: 500 }],
+		});
+
+		const result = await service.scanPaths("lib-1", "tv_show", [SCAN_ROOT]);
+
+		expect(result.newFilePaths).toEqual([filePath]);
+	});
+
+	test("does not re-ingest a range file once every covered episode has a row", async () => {
+		const filePath = `${SCAN_ROOT}/Show.S01E01-E03.mkv`;
+		const dbRows = [1, 2, 3].map((index) => ({ id: `row-${index}`, filePath, size: 100, sourceMtimeMs: 500 }));
+		const { service } = createService({ diskFiles: [filePath], dbRows });
+
+		const result = await service.scanPaths("lib-1", "tv_show", [SCAN_ROOT]);
+
+		expect(result.newFilePaths).toEqual([]);
+	});
+
+	test("does not re-ingest a range longer than the supported episode span", async () => {
+		const filePath = `${SCAN_ROOT}/Show.S01E01-E99.mkv`;
+		const { service } = createService({
+			diskFiles: [filePath],
+			dbRows: [{ id: "row-a", filePath, size: 100, sourceMtimeMs: 500 }],
+		});
+
+		const result = await service.scanPaths("lib-1", "tv_show", [SCAN_ROOT]);
+
+		expect(result.newFilePaths).toEqual([]);
+	});
 });

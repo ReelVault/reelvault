@@ -1,9 +1,8 @@
-import type { MediaIdentity } from "@reelvault/sdk/common";
 import { sleep } from "bun";
 import { toDomainError } from "@/application/context";
 import { databaseFactory } from "@/database/database";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
+import { episodeRangeSpan, parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { PathUtils } from "@/utils/path.utils";
@@ -17,20 +16,11 @@ import { filterPathsWithinRoots } from "./utils/scanner.utils";
 /** Rows read per keyset page while diffing a library against disk. */
 const SCAN_DB_PAGE_SIZE = 5000;
 
-/** Episode span claimed by a file name, when it names a range (S01E03-E05 → 3). */
-function rangeSpanFor(filePath: string): number | undefined {
-	const identity: MediaIdentity | null = parseFileName(PathUtils.getFileName(filePath));
-	if (identity?.type !== "episode" || identity.episode === undefined || identity.episodeEnd === undefined) return undefined;
-
-	const span = identity.episodeEnd - identity.episode + 1;
-
-	return span > 1 ? span : undefined;
-}
-
 /**
  * A range file imported before multi-episode support owns fewer rows than its
  * name spans — re-ingest it so the missing episodes get their rows (idempotent:
- * existing rows conflict-do-nothing).
+ * existing rows conflict-do-nothing). Uses the same capped span as the
+ * processor, so an over-long "range" treated as scene noise is never re-read.
  */
 function collectRangeBackfills(
 	filesOnDisk: readonly string[],
@@ -41,7 +31,7 @@ function collectRangeBackfills(
 	for (const filePath of filesOnDisk) {
 		if (!existingPaths.has(filePath)) continue;
 
-		const span = rangeSpanFor(filePath);
+		const span = episodeRangeSpan(parseFileName(PathUtils.getFileName(filePath)));
 		if (span !== undefined && span > (pathCounts.get(filePath) ?? 0)) newFiles.push(filePath);
 	}
 }

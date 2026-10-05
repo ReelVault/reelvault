@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MediaIdentity } from "@reelvault/sdk/common";
-import { extractSeasonEpisode, parseFileName, resolveShowTitle } from "./recognition.utils";
+import { episodeRangeSpan, episodeRangeTargets, extractSeasonEpisode, parseFileName, resolveShowTitle } from "./recognition.utils";
 
 function identity(title: string, year?: number): MediaIdentity {
 	return { title, type: "movie", year };
@@ -70,6 +70,40 @@ describe("multi-episode ranges and copy suffixes", () => {
 	test("keeps bare dot and space episode markers working", () => {
 		expect(extractSeasonEpisode("Show - 01.mkv")).toEqual({ episode: 1 });
 		expect(extractSeasonEpisode("Show.E02.mkv")).toEqual({ episode: 2 });
+	});
+});
+
+describe("episodeRangeSpan and episodeRangeTargets", () => {
+	test("returns no range for a plain episode", () => {
+		const single: MediaIdentity = { title: "Show", type: "episode", season: 1, episode: 3 };
+
+		expect(episodeRangeSpan(single)).toBeUndefined();
+		expect(episodeRangeTargets(single)).toBeUndefined();
+	});
+
+	test("expands a supported range into every covered episode", () => {
+		const range: MediaIdentity = { title: "Show", type: "episode", season: 1, episode: 3, episodeEnd: 5 };
+
+		expect(episodeRangeSpan(range)).toBe(3);
+		expect(episodeRangeTargets(range)).toEqual([3, 4, 5]);
+	});
+
+	test("treats an over-long range as scene noise", () => {
+		const overLong: MediaIdentity = { title: "Show", type: "episode", season: 1, episode: 1, episodeEnd: 99 };
+
+		expect(episodeRangeSpan(overLong)).toBeUndefined();
+		expect(episodeRangeTargets(overLong)).toBeUndefined();
+	});
+
+	test("ignores movies, descending ranges and missing episode numbers", () => {
+		const movie: MediaIdentity = { title: "Movie", type: "movie" };
+		const descending: MediaIdentity = { title: "Show", type: "episode", season: 1, episode: 5, episodeEnd: 2 };
+		const noEpisode: MediaIdentity = { title: "Show", type: "episode", season: 1 };
+
+		expect(episodeRangeSpan(movie)).toBeUndefined();
+		expect(episodeRangeSpan(descending)).toBeUndefined();
+		expect(episodeRangeSpan(noEpisode)).toBeUndefined();
+		expect(episodeRangeTargets(null)).toBeUndefined();
 	});
 });
 
