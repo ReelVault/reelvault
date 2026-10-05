@@ -21,6 +21,7 @@ import { createServerFixture } from "./lib/server-fixture";
 
 interface CompositeContext {
 	baseUrl: string;
+	adminCookie: string;
 	cookieFor: (workerIndex: number, requestIndex: number) => string;
 	profileIdFor: (workerIndex: number, requestIndex: number) => string;
 	movieId: string;
@@ -133,9 +134,10 @@ const batchSuggestions12: SequenceBuilder = (context, workerIndex, requestIndex)
 	}),
 ];
 
-const adminDashboardView12: SequenceBuilder = (context, workerIndex, requestIndex) => [
+const adminDashboardView12: SequenceBuilder = (context) => [
+	// adminOnly route — the admin identity the admin layout authenticates as.
 	new Request(`${context.baseUrl}/v1/admin/dashboard-view`, {
-		headers: { cookie: context.cookieFor(workerIndex, requestIndex), "x-forwarded-for": "10.84.255.1" },
+		headers: { cookie: context.adminCookie, "x-forwarded-for": "10.84.255.1" },
 	}),
 ];
 
@@ -193,6 +195,7 @@ if (!args.help) {
 			// The statuses batch mirrors what the website cards request on first paint.
 			const context: CompositeContext = {
 				baseUrl: server.baseUrl,
+				adminCookie: server.cookie,
 				cookieFor: (workerIndex, requestIndex) =>
 					server.workerCookies[(workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)] ?? server.cookie,
 				profileIdFor: (workerIndex, requestIndex) =>

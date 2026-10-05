@@ -257,6 +257,14 @@ const pluginsList: RequestBuilder = (context, workerIndex, _requestIndex) =>
 const mediaFilesList: RequestBuilder = (context, workerIndex, requestIndex) =>
 	new Request(`${context.baseUrl}/v1/media-files?limit=24`, authHeaders(context, workerIndex, requestIndex));
 
+// The admin media list's exact shape — root projection skips the widest
+// columns in SQL (filePath, formatName) and drops the videoStreams relation.
+const mediaFilesProjected: RequestBuilder = (context, workerIndex, requestIndex) =>
+	new Request(
+		`${context.baseUrl}/v1/media-files?limit=100&fields=id,fileName,filePath,formatName,duration,size,isDefault,qualityTag,source,library,audioStreams,subtitles`,
+		authHeaders(context, workerIndex, requestIndex),
+	);
+
 const MIX: ReadonlyArray<readonly [RequestBuilder, number]> = [
 	[metadataList, 0.35],
 	[globalSearch, 0.18],
@@ -332,6 +340,7 @@ const SCENARIOS: readonly ScenarioDefinition[] = [
 	{ name: "GET /v1/providers", builder: providersList },
 	{ name: "GET /v1/plugins (admin)", builder: pluginsList },
 	{ name: "GET /v1/media-files?limit=24", builder: mediaFilesList },
+	{ name: "GET /v1/media-files?limit=100&fields=... (projected)", builder: mediaFilesProjected },
 	{
 		name: "Mixed traffic (35% browse, 18% search, 12% image, 8% continue+detail, ...)",
 		builder: mixedTraffic,
