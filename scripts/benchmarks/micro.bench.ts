@@ -6,11 +6,14 @@
  * benchmark before/after (AGENTS: always record before/after, even for "worse").
  */
 
-import { brotliCompress, constants, gzip } from "node:zlib";
+import { brotliCompress, constants } from "node:zlib";
 import { bench, compare, group, main, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
 import { hash as bunHash, CryptoHasher } from "bun";
+import { parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
+import { compressBuffer } from "@/utils/compression.utils";
 import { getPathname } from "@/utils/http.utils";
-import { boundedLevenshtein } from "@/utils/media-match.utils";
+import { boundedLevenshtein, splitToSet, stripDiacritics, writeBigramCodes } from "@/utils/media-match.utils";
+import { parseColonSeparatedSeconds } from "@/utils/time.utils";
 
 export const meta = {
 	description: "A/B implementation pairs (cache keys, LRU touch, parsers, hashing, compression) — informs, never auto-adopts",
@@ -31,27 +34,6 @@ function parseSegmentNameRegex(segmentName: string, segmentDuration: number): { 
 	return { index, startTime: index * segmentDuration };
 }
 
-function parseSegmentNameSlice(segmentName: string, segmentDuration: number): { startTime: number; index: number } {
-	// seg_N.m4s is a server-generated fixed format — no regex needed.
-	const index = Number.parseInt(segmentName.slice(4, -4), 10);
-	if (Number.isNaN(index)) return { startTime: 0, index: 0 };
-
-	return { index, startTime: index * segmentDuration };
-}
-
-function parseColonSplit(value: string): number {
-	const parts = value.split(":");
-	let total = 0;
-	for (const part of parts) {
-		const parsed = Number.parseFloat(part);
-		if (Number.isNaN(parsed)) return Number.NaN;
-
-		total = total * 60 + parsed;
-	}
-
-	return total;
-}
-
 function parseColonCharCode(value: string): number {
 	// Manual scan: same result as split+parseFloat, without allocating the array.
 	let total = 0;
@@ -67,12 +49,6 @@ function parseColonCharCode(value: string): number {
 	}
 
 	return total;
-}
-
-const DIACRITICS_PATTERN = /\p{M}/gu;
-
-function stripDiacriticsNfd(value: string): string {
-	return value.normalize("NFD").replace(DIACRITICS_PATTERN, "");
 }
 
 // Single pass over a fixed replacement table (Polish + common Latin-1 accents).
@@ -126,33 +102,10 @@ function getUrlSample(requestIndex: number): string {
 	return `http://127.0.0.1:18472/v1/metadata?limit=24&page=${requestIndex}&fields=id,title${requestIndex % 2 ? "&sort=added" : ""}`;
 }
 
-async function compress(input: Buffer, encoding: "br4" | "br2" | "gzip1"): Promise<Buffer> {
-	if (encoding === "br4") {
-		return await new Promise<Buffer>((resolve, reject) => {
-			brotliCompress(input, { params: { [constants.BROTLI_PARAM_QUALITY]: 4, [constants.BROTLI_PARAM_LGWIN]: 18 } }, (error, result) => {
-				if (error) {
-					reject(error);
-				} else {
-					resolve(result);
-				}
-			});
-		});
-	}
-
-	if (encoding === "br2") {
-		return await new Promise<Buffer>((resolve, reject) => {
-			brotliCompress(input, { params: { [constants.BROTLI_PARAM_QUALITY]: 2, [constants.BROTLI_PARAM_LGWIN]: 18 } }, (error, result) => {
-				if (error) {
-					reject(error);
-				} else {
-					resolve(result);
-				}
-			});
-		});
-	}
-
+/** Alternative variant only: production quality/level come from `compressBuffer`. */
+async function compressBrotliQuality2(input: Buffer): Promise<Buffer> {
 	return await new Promise<Buffer>((resolve, reject) => {
-		gzip(input, { level: 1 }, (error, result) => {
+		brotliCompress(input, { params: { [constants.BROTLI_PARAM_QUALITY]: 2, [constants.BROTLI_PARAM_LGWIN]: 18 } }, (error, result) => {
 			if (error) {
 				reject(error);
 			} else {
@@ -175,40 +128,9 @@ function buildCatalogPayload(rows: number): string {
 	return JSON.stringify({ page: 1, limit: rows, total: rows, totalPages: 1, data: items });
 }
 
-/** Encodes adjacent non-space code-unit pairs; mirrors the production bigram helper. */
-function codeInto(value: string, out: number[]): void {
-	out.length = 0;
-	let prev = -1;
-	for (let i = 0; i < value.length; i++) {
-		const code = value.charCodeAt(i);
-		if (code === 32) continue;
-
-		if (prev >= 0) out.push(prev * 65536 + code);
-
-		prev = code;
-	}
-
-	// Mirror toBigrams' single-char fallback with a distinct marker code.
-	if (out.length === 0 && prev >= 0) out.push(-1 - prev);
-}
-
 function tokensSplit(value: string): Set<string> {
 	const set = new Set<string>();
 	for (const token of value.split(" ")) if (token) set.add(token);
-
-	return set;
-}
-
-function tokensScan(value: string): Set<string> {
-	const set = new Set<string>();
-	let start = 0;
-	for (let i = 0; i <= value.length; i++) {
-		if (i === value.length || value.charCodeAt(i) === 32) {
-			if (i > start) set.add(value.slice(start, i));
-
-			start = i + 1;
-		}
-	}
 
 	return set;
 }
@@ -328,7 +250,7 @@ if (!args.help) {
 				name: "slice+parseInt",
 				fn: () => {
 					let sink = 0;
-					for (const name of segmentNames) sink += parseSegmentNameSlice(name, 4).startTime;
+					for (const name of segmentNames) sink += parseSegmentName(name, 4).startTime;
 
 					return sink;
 				},
@@ -344,7 +266,7 @@ if (!args.help) {
 				name: "split+parseFloat",
 				fn: () => {
 					let sink = 0;
-					for (const value of timeStrings) sink += parseColonSplit(value);
+					for (const value of timeStrings) sink += parseColonSeparatedSeconds(value);
 
 					return sink;
 				},
@@ -369,7 +291,7 @@ if (!args.help) {
 				name: "NFD + \\p{M}",
 				fn: () => {
 					let sink = "";
-					for (const title of titleSamples) sink = stripDiacriticsNfd(title);
+					for (const title of titleSamples) sink = stripDiacritics(title);
 
 					return sink;
 				},
@@ -508,8 +430,8 @@ if (!args.help) {
 	const codesB: number[] = [];
 	const freqScratch = new Map<number, number>();
 	const diceNumeric = (a: string, b: string): number => {
-		codeInto(a, codesA);
-		codeInto(b, codesB);
+		writeBigramCodes(a, codesA);
+		writeBigramCodes(b, codesB);
 		if (codesA.length === 0 || codesB.length === 0) return 0;
 
 		freqScratch.clear();
@@ -596,8 +518,8 @@ if (!args.help) {
 		}
 	};
 	const diceOpenAddressed = (a: string, b: string): number => {
-		codeInto(a, codesA);
-		codeInto(b, codesB);
+		writeBigramCodes(a, codesA);
+		writeBigramCodes(b, codesB);
 		if (codesA.length === 0 || codesB.length === 0) return 0;
 
 		hashUsed.fill(0);
@@ -649,7 +571,7 @@ if (!args.help) {
 				name: "manual scan",
 				fn: () => {
 					let sink = 0;
-					for (const { a, b } of matchPairs) sink += overlapWith(tokensScan, a, b);
+					for (const { a, b } of matchPairs) sink += overlapWith(splitToSet, a, b);
 
 					return sink;
 				},
@@ -664,17 +586,17 @@ if (!args.help) {
 	task("micro: compression (per compress call)", async () => {
 		const payload = Buffer.from(buildCatalogPayload(24));
 		console.log(`\n[micro] compression A/B on a realistic 24-item catalog payload (${(payload.length / 1024).toFixed(1)} KB raw)...\n`);
-		const br4 = await compress(payload, "br4");
-		const br2 = await compress(payload, "br2");
-		const gz1 = await compress(payload, "gzip1");
+		const br4 = await compressBuffer(payload, "br");
+		const br2 = await compressBrotliQuality2(payload);
+		const gz1 = await compressBuffer(payload, "gzip");
 		console.log(
 			`  sizes: br-q4 ${(br4.length / 1024).toFixed(1)}KB, br-q2 ${(br2.length / 1024).toFixed(1)}KB, gzip-1 ${(gz1.length / 1024).toFixed(1)}KB\n`,
 		);
 
 		const compressionResults = [
-			await measureAsync("brotli quality 4 (current)", () => compress(payload, "br4"), { iterations: args.iterations }),
-			await measureAsync("brotli quality 2", () => compress(payload, "br2"), { iterations: args.iterations }),
-			await measureAsync("gzip level 1 (current)", () => compress(payload, "gzip1"), { iterations: args.iterations }),
+			await measureAsync("brotli quality 4 (current)", () => compressBuffer(payload, "br"), { iterations: args.iterations }),
+			await measureAsync("brotli quality 2", () => compressBrotliQuality2(payload), { iterations: args.iterations }),
+			await measureAsync("gzip level 1 (current)", () => compressBuffer(payload, "gzip"), { iterations: args.iterations }),
 		];
 
 		// ─── Large-payload compression A/B (details-view class, ~200 KB) ───────
@@ -705,22 +627,22 @@ if (!args.help) {
 		}));
 		const largePayload = Buffer.from(JSON.stringify({ data: largeItems }));
 		console.log(`\n[micro] compression A/B on a large details-view-class payload (${(largePayload.length / 1024).toFixed(0)} KB raw)...\n`);
-		const largeBr4 = await compress(largePayload, "br4");
-		const largeBr2 = await compress(largePayload, "br2");
-		const largeGz1 = await compress(largePayload, "gzip1");
+		const largeBr4 = await compressBuffer(largePayload, "br");
+		const largeBr2 = await compressBrotliQuality2(largePayload);
+		const largeGz1 = await compressBuffer(largePayload, "gzip");
 		console.log(
 			`  sizes: br-q4 ${(largeBr4.length / 1024).toFixed(0)}KB, br-q2 ${(largeBr2.length / 1024).toFixed(0)}KB, gzip-1 ${(largeGz1.length / 1024).toFixed(0)}KB\n`,
 		);
 
 		compressionResults.push(
 			...(await Promise.all([
-				measureAsync("large payload: brotli q4 (current)", () => compress(largePayload, "br4"), {
+				measureAsync("large payload: brotli q4 (current)", () => compressBuffer(largePayload, "br"), {
 					iterations: Math.max(10, Math.floor(args.iterations / 5)),
 				}),
-				measureAsync("large payload: brotli q2", () => compress(largePayload, "br2"), {
+				measureAsync("large payload: brotli q2", () => compressBrotliQuality2(largePayload), {
 					iterations: Math.max(10, Math.floor(args.iterations / 5)),
 				}),
-				measureAsync("large payload: gzip level 1", () => compress(largePayload, "gzip1"), {
+				measureAsync("large payload: gzip level 1", () => compressBuffer(largePayload, "gzip"), {
 					iterations: Math.max(10, Math.floor(args.iterations / 5)),
 				}),
 			])),

@@ -355,7 +355,7 @@ function prepareTitleCached(rawTitle: string): PreparedTitle {
 }
 
 /** Encodes adjacent non-space code-unit pairs into 32-bit codes, without substring allocation. */
-function writeBigramCodes(value: string, out: number[]): void {
+export function writeBigramCodes(value: string, out: number[]): void {
 	out.length = 0;
 	let previous = -1;
 	for (let index = 0; index < value.length; index++) {
@@ -475,7 +475,7 @@ function tokenOverlap(expected: PreparedTitle, candidate: PreparedTitle): number
 	return (2 * intersectionSize) / (tokensA.size + tokensB.size);
 }
 
-function splitToSet(value: string): Set<string> {
+export function splitToSet(value: string): Set<string> {
 	const set = new Set<string>();
 	let start = 0;
 	for (let index = 0; index <= value.length; index++) {
