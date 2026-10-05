@@ -150,7 +150,13 @@ async function resolveContext(args: { baseUrl: string; noCache: boolean }): Prom
 	context.mediaFileId = stringField(listItems(await getJson(context, "/v1/media-files?limit=1"))[0], "id");
 	context.genreId = stringField(listItems(await getJson(context, "/v1/genres?limit=1"))[0], "id");
 	context.personId = stringField(listItems(await getJson(context, "/v1/people?limit=1"))[0], "id");
-	context.adminUserId = stringField(listItems(await getJson(context, "/v1/admin/users?page=1&limit=1"))[0], "id");
+	try {
+		context.adminUserId = stringField(listItems(await getJson(context, "/v1/admin/users?page=1&limit=1"))[0], "id");
+	} catch {
+		// Non-admin sessions (or stricter query schemas) skip the admin detail ids —
+		// scenarios interpolating {adminUserId} will 4xx and show up in the error rate.
+		context.adminUserId = "";
+	}
 
 	console.log(
 		`[real-data] resolved ids — library ${context.libraryId ? "ok" : "?"}, movie ${context.movieId ? "ok" : "?"}, tv ${context.tvId ? "ok" : "?"}, image ${context.imageId ? "ok" : "?"}, total ${context.totalMetadata}`,
@@ -344,6 +350,51 @@ const MATRIX_SCENARIOS: ReadonlyArray<readonly [string, RequestBuilder]> = ROUTE
 
 const SCENARIOS: ReadonlyArray<readonly [string, RequestBuilder]> = [...HEADLINE_SCENARIOS, ...MATRIX_SCENARIOS];
 
+// Write scenarios run against the real instance on the BENCH account only, and
+// avoid unbounded growth (no history sync): toggles flip back and forth, the
+// progress upsert rewrites one hot row, mark-all-read is idempotent.
+function writeHeaders(context: BenchContext, requestIndex: number): RequestInit {
+	return {
+		headers: {
+			cookie: context.cookie,
+			"x-profile-id": context.profileId,
+			"content-type": "application/json",
+			...(context.noCache ? { "cache-control": "no-cache" } : {}),
+			"x-forwarded-for": `10.85.${Math.floor(requestIndex / 250) % 250}.${(requestIndex % 250) + 1}`,
+		},
+	};
+}
+
+const WRITE_SCENARIOS: ReadonlyArray<readonly [string, (context: BenchContext, requestIndex: number) => Request]> = [
+	[
+		"write: watchlist toggle",
+		(context, requestIndex) =>
+			new Request(`${context.baseUrl}/v1/me/watchlist/toggle`, {
+				method: "POST",
+				...writeHeaders(context, requestIndex),
+				body: JSON.stringify({ metadataId: context.movieId }),
+			}),
+	],
+	[
+		"write: playback-progress upsert",
+		(context, requestIndex) =>
+			new Request(`${context.baseUrl}/v1/me/media-files/${context.mediaFileId}/playback-progress`, {
+				method: "PUT",
+				...writeHeaders(context, requestIndex),
+				body: JSON.stringify({ position: requestIndex % 600 }),
+			}),
+	],
+	[
+		"write: notifications mark-all-read",
+		(context, requestIndex) =>
+			new Request(`${context.baseUrl}/v1/notifications/`, {
+				method: "PATCH",
+				...writeHeaders(context, requestIndex),
+				body: JSON.stringify({ all: true, read: true }),
+			}),
+	],
+];
+
 function runScenario(
 	scenario: readonly [string, RequestBuilder],
 	concurrency: number,
@@ -379,7 +430,17 @@ if (!args.help && args.baseUrl) {
 		console.log(`[real-data] targeting ${target} (noCache: ${args.noCache})`);
 		const context = await resolveContext({ baseUrl: target, noCache: args.noCache });
 		const results: HttpScenarioResult[] = [];
-		const scenarios = args.scenario ? SCENARIOS.filter((scenario) => scenario[0].includes(args.scenario ?? "")) : SCENARIOS;
+		// --scenario accepts a regex (e.g. "core:|me: watchlist") or a plain substring.
+		const scenarioFilter = args.scenario;
+		const scenarios = scenarioFilter
+			? SCENARIOS.filter((scenario) => {
+					try {
+						return new RegExp(scenarioFilter, "i").test(scenario[0]);
+					} catch {
+						return scenario[0].includes(scenarioFilter);
+					}
+				})
+			: SCENARIOS;
 
 		for (const concurrency of args.concurrency) {
 			console.log(`\n[real-data] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
@@ -390,6 +451,34 @@ if (!args.help && args.baseUrl) {
 				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
 				console.log(
 					`  ${scenario[0]}: ${result.requestsPerSecond.toFixed(0)} req/s, p50 ${result.stats.p50Ms.toFixed(1)}ms, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
+				);
+			}
+
+			for (const [name, builder] of WRITE_SCENARIOS) {
+				const run = await runHttpScenario({
+					concurrency,
+					warmupMs: args.warmupMs,
+					durationMs: args.durationMs,
+					work: async (_workerIndex, requestIndex) => {
+						try {
+							const response = await fetch(builder(context, requestIndex));
+							// 429 is the deployment's limiter posture, not a bench failure —
+							// it counts as ok=false in the error rate but must not poison
+							// the latency mix as a server-side 5xx would.
+							const ok = response.status !== 429 && response.status < 500;
+							await response.arrayBuffer();
+
+							return { ok };
+						} catch {
+							return { ok: false };
+						}
+					},
+				});
+				const result = httpScenarioResult(name, concurrency, run, args.durationMs);
+				results.push(result);
+				const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
+				console.log(
+					`  ${name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p50 ${result.stats.p50Ms.toFixed(1)}ms, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
 				);
 			}
 		}

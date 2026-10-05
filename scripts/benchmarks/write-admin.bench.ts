@@ -1,0 +1,289 @@
+import {
+	fmtMs,
+	type HttpScenarioResult,
+	type HttpScenarioRun,
+	httpScenarioResult,
+	main,
+	printHttpResults,
+	printTable,
+	runHttpScenario,
+	suiteArgs,
+	task,
+} from "benchkit";
+import { isRecord } from "@/utils/type.utils";
+import { subnetIp } from "./lib/identity";
+import type { ManagedServer } from "./lib/server";
+import { createServerFixture } from "./lib/server-fixture";
+
+/**
+ * Admin + account write endpoints — the mutation surfaces no other suite
+ * covers (scan enqueue, bulk notification mark-read, profile/preferences
+ * mutations, settings round-trip). One identity per worker, like write.ts.
+ * The trickplay generate-all phase runs LAST and one-shot: a single call
+ * enqueues a job per media file missing previews, which would flood every
+ * other measurement with worker churn if it ran mid-suite.
+ */
+
+interface AdminWriteContext {
+	baseUrl: string;
+	cookieFor: (workerIndex: number) => string;
+	profileIdFor: (workerIndex: number) => string;
+	adminCookie: string;
+	adminProfileId: string;
+	libraryId: string;
+	/** Preloaded unread notification ids per worker identity. */
+	notificationIds: string[][];
+	/** First settings key + current value resolved at setup (round-trip body). */
+	settingsPatchBody: Record<string, unknown> | undefined;
+}
+
+type WriteRequestBuilder = (context: AdminWriteContext, workerIndex: number, requestIndex: number) => Request;
+
+function workerHeaders(context: AdminWriteContext, workerIndex: number): Record<string, string> {
+	return {
+		cookie: context.cookieFor(workerIndex),
+		"x-profile-id": context.profileIdFor(workerIndex),
+		"x-forwarded-for": subnetIp(83, workerIndex),
+	};
+}
+
+function adminRequest(context: AdminWriteContext, method: string, path: string, body?: unknown): Request {
+	const headers: Record<string, string> = {
+		cookie: context.adminCookie,
+		"x-profile-id": context.adminProfileId,
+		"x-forwarded-for": "10.83.255.1",
+	};
+	if (body !== undefined) headers["content-type"] = "application/json";
+
+	return new Request(`${context.baseUrl}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+}
+
+const scanEnqueue: WriteRequestBuilder = (context) =>
+	// Scans enqueue into worker_jobs; a concurrent duplicate settles as 409,
+	// which is still a full enqueue-path measurement — counted as status < 500.
+	adminRequest(context, "POST", `/v1/libraries/${context.libraryId}/scan`);
+
+const notificationsMarkRead: WriteRequestBuilder = (context, workerIndex) => {
+	const ids = context.notificationIds[workerIndex] ?? [];
+	const body = ids.length > 0 ? { ids, read: true } : { all: true, read: true };
+
+	return new Request(`${context.baseUrl}/v1/notifications/`, {
+		method: "PATCH",
+		headers: { ...workerHeaders(context, workerIndex), "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+};
+
+const preferencesLanguageToggle: WriteRequestBuilder = (context, workerIndex, requestIndex) =>
+	new Request(`${context.baseUrl}/v1/profiles/${context.profileIdFor(workerIndex)}/preferences`, {
+		method: "PATCH",
+		headers: { ...workerHeaders(context, workerIndex), "content-type": "application/json" },
+		// Alternating non-default values keep the sparse-override row alive —
+		// every request is a real upsert, never a prune-delete no-op.
+		body: JSON.stringify({ language: requestIndex % 2 === 0 ? "pl" : "en" }),
+	});
+
+const profileCreateDelete: WriteRequestBuilder = (context, workerIndex, requestIndex) => {
+	// Encode both pair halves in one request: POST carries the name, the DELETE
+	// path is derived from the created id by the work function.
+	const name = `Bench Pair ${workerIndex}-${requestIndex >> 1}`;
+
+	return new Request(`${context.baseUrl}/v1/profiles`, {
+		method: "POST",
+		headers: { ...workerHeaders(context, workerIndex), "content-type": "application/json" },
+		body: JSON.stringify({ name }),
+	});
+};
+
+const settingsRoundTrip: WriteRequestBuilder = (context) =>
+	adminRequest(context, "PATCH", "/v1/admin/settings", context.settingsPatchBody ?? {});
+
+interface WriteScenarioDefinition {
+	name: string;
+	builder: WriteRequestBuilder;
+	/** The work function drives multi-request pairs; single-request by default. */
+	pair?: boolean;
+}
+
+const SCENARIOS: readonly WriteScenarioDefinition[] = [
+	{ name: "POST /v1/libraries/:id/scan (enqueue)", builder: scanEnqueue },
+	{ name: "PATCH /v1/notifications/ (bulk mark-read)", builder: notificationsMarkRead },
+	{ name: "PATCH /v1/profiles/:id/preferences (language toggle)", builder: preferencesLanguageToggle },
+	{ name: "POST+DELETE /v1/profiles (create/delete pair)", builder: profileCreateDelete, pair: true },
+	{ name: "PATCH /v1/admin/settings (round-trip)", builder: settingsRoundTrip },
+];
+
+function runScenario(
+	scenario: WriteScenarioDefinition,
+	concurrency: number,
+	context: AdminWriteContext,
+	warmupMs: number,
+	durationMs: number,
+): Promise<HttpScenarioRun> {
+	return runHttpScenario({
+		concurrency,
+		warmupMs,
+		durationMs,
+		work: async (workerIndex, requestIndex) => {
+			try {
+				const response = await fetch(scenario.builder(context, workerIndex, requestIndex));
+				if (!scenario.pair) {
+					const ok = response.status < 500;
+					await response.arrayBuffer();
+
+					return { ok };
+				}
+
+				// Pair mode: create, then delete the created row — the latency of
+				// the whole create→delete cycle is one sample.
+				const ok = response.status < 500;
+				const body: unknown = await response.json();
+				let createdId: string | undefined;
+				if (isRecord(body) && typeof body.id === "string") createdId = body.id;
+				if (!createdId && isRecord(body) && isRecord(body.data) && typeof body.data.id === "string") createdId = body.data.id;
+				if (!createdId) return { ok: false };
+
+				const deleteResponse = await fetch(`${context.baseUrl}/v1/profiles/${createdId}`, {
+					method: "DELETE",
+					headers: workerHeaders(context, workerIndex),
+				});
+				await deleteResponse.arrayBuffer();
+
+				return { ok: ok && deleteResponse.status < 500 };
+			} catch {
+				return { ok: false };
+			}
+		},
+	});
+}
+
+async function preloadNotificationIds(server: ManagedServer, workerIndex: number): Promise<string[]> {
+	const response = await fetch(`${server.baseUrl}/v1/notifications?unreadOnly=true&limit=50`, {
+		headers: {
+			cookie: server.workerCookies[workerIndex] ?? server.cookie,
+			"x-profile-id": server.profileIdFor(workerIndex),
+			"x-forwarded-for": "10.83.0.1",
+		},
+	});
+	if (!response.ok) return [];
+
+	const payload: unknown = await response.json();
+	if (!Array.isArray(payload)) return [];
+
+	return payload.flatMap((item) => (isRecord(item) && typeof item.id === "string" ? [item.id] : []));
+}
+
+/** Resolves the first settings key and its current value for a write-that-changes-nothing PATCH. */
+async function resolveSettingsPatchBody(server: ManagedServer): Promise<Record<string, unknown> | undefined> {
+	const get = await fetch(`${server.baseUrl}/v1/admin/settings`, {
+		headers: { cookie: server.cookie, "x-forwarded-for": "10.83.255.1" },
+	});
+	if (!get.ok) return undefined;
+
+	const grouped: unknown = await get.json();
+	if (!isRecord(grouped)) return undefined;
+
+	for (const group of Object.values(grouped)) {
+		if (!Array.isArray(group)) continue;
+		for (const item of group) {
+			if (!isRecord(item) || typeof item.key !== "string") continue;
+
+			return { [item.key]: item.value };
+		}
+	}
+
+	return undefined;
+}
+
+/** One-shot: a single generate-all enqueues one worker job per file missing previews. */
+async function trickplayGenerateAllPhase(context: AdminWriteContext): Promise<void> {
+	const statsResponse = await fetch(`${context.baseUrl}/v1/admin/trickplay/stats`, {
+		headers: { cookie: context.adminCookie, "x-profile-id": context.adminProfileId, "x-forwarded-for": "10.83.255.2" },
+	});
+	let missing = -1;
+	if (statsResponse.ok) {
+		const stats: unknown = await statsResponse.json();
+		if (isRecord(stats)) {
+			const value = stats.missing ?? stats.withoutTrickplay ?? stats.total;
+			if (typeof value === "number") missing = value;
+		}
+	}
+
+	const startedAt = performance.now();
+	const response = await fetch(`${context.baseUrl}/v1/admin/trickplay/generate-all`, {
+		method: "POST",
+		headers: { cookie: context.adminCookie, "x-profile-id": context.adminProfileId, "x-forwarded-for": "10.83.255.2" },
+	});
+	const body: unknown = await response.json().catch(() => null);
+	const wallMs = performance.now() - startedAt;
+	const enqueued = isRecord(body) && typeof body.enqueued === "number" ? body.enqueued : -1;
+
+	printTable(
+		"POST /v1/admin/trickplay/generate-all (one-shot wall clock)",
+		["missing files", "enqueued", "wall", "status"],
+		[[String(missing), String(enqueued), fmtMs(wallMs), String(response.status)]],
+	);
+}
+
+export const meta = { description: "Admin/account write endpoints (scan, bulk mark-read, profiles, settings, trickplay generate-all)" };
+
+const args = suiteArgs();
+
+if (!args.help) {
+	const serverFixture = createServerFixture({
+		seedRows: args.rows,
+		workerCount: Math.max(...args.concurrency),
+		keepServer: args.keepServer,
+	});
+
+	task("write-admin: endpoints", async () => {
+		let server: ManagedServer | undefined;
+		try {
+			server = await serverFixture();
+			const managed = server;
+			const workerCount = managed.workerCookies.length;
+			const notificationIds = await Promise.all(
+				Array.from({ length: workerCount }, (_, workerIndex) => preloadNotificationIds(managed, workerIndex)),
+			);
+			const settingsPatchBody = await resolveSettingsPatchBody(managed);
+			console.log(
+				`[write-admin] server ready, ${workerCount} identities, ${notificationIds.flat().length} unread notifications, settings patch ${settingsPatchBody ? Object.keys(settingsPatchBody).join(",") : "unavailable"}`,
+			);
+
+			const context: AdminWriteContext = {
+				baseUrl: managed.baseUrl,
+				cookieFor: (workerIndex) => managed.workerCookies[workerIndex % managed.workerCookies.length] ?? managed.cookie,
+				profileIdFor: (workerIndex) => managed.profileIdFor(workerIndex),
+				adminCookie: managed.cookie,
+				adminProfileId: managed.adminProfileId,
+				libraryId: managed.benchmarkLibraryId,
+				notificationIds,
+				settingsPatchBody,
+			};
+
+			const results: HttpScenarioResult[] = [];
+			const scenarios = SCENARIOS.filter((scenario) => scenario.name !== "PATCH /v1/admin/settings (round-trip)" || settingsPatchBody);
+			for (const concurrency of args.concurrency) {
+				console.log(`\n[write-admin] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+				for (const scenario of scenarios) {
+					const run = await runScenario(scenario, concurrency, context, args.warmupMs, args.durationMs);
+					const result = httpScenarioResult(scenario.name, concurrency, run, args.durationMs);
+					results.push(result);
+					const failureNote = result.errorRatePercent > 0 ? `, errors ${result.errorRatePercent.toFixed(1)}%` : "";
+					console.log(
+						`  ${scenario.name}: ${result.requestsPerSecond.toFixed(0)} writes/s, p95 ${result.stats.p95Ms.toFixed(1)}ms${failureNote}`,
+					);
+				}
+			}
+
+			printHttpResults(results);
+
+			// LAST: generate-all floods the worker queue with per-file jobs.
+			await trickplayGenerateAllPhase(context);
+		} finally {
+			if (!args.keepServer) await server?.stop();
+		}
+	});
+}
+
+await main(import.meta);

@@ -59,8 +59,8 @@ export interface StartServerOptions {
 	withWebDist?: boolean | undefined;
 }
 
-const SETUP_TOKEN = "reelvault-benchmark-setup-token-0123456789";
-const AUTH_SECRET = "reelvault-benchmark-auth-secret-0123456789";
+export const SETUP_TOKEN = "reelvault-benchmark-setup-token-0123456789";
+export const AUTH_SECRET = "reelvault-benchmark-auth-secret-0123456789";
 
 /** Admin credentials the auth benchmark logs in with (route multiplier makes the login limit a non-issue). */
 export const BENCH_USER = { name: "Benchmark Admin", email: "benchmark@reelvault.local", password: "benchmark-password-123" };
@@ -87,9 +87,10 @@ const UNREAD_NOTIFICATIONS = 15;
 const BENCHMARK_POSTER_PNG_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAAIAAAADACAIAAABDBPzwAAAACXBIWXMAAAPoAAAD6AG1e1JrAAACjUlEQVR4nO3VSREDQRADwYVjTIOpQBuGHp0RQlC6vveL3g7Ch/6bRpABMaDLLdSAGNA8hhrQHIQJ6qZ8QAxoHkMNaA7CBHVTPiAGNI+hBjQHYYK6KR8QA5rHUAOagzBB3ZQPiAHNY6gBzUGYoG7KB8SA5jHUgOYgTFA35QNiQPMYakBzECaom/IBMaB5DDWgOQgT1E35gBjQPIYa0ByECeqmfEAMaB5DDWgOwgR1Uz4gBjSPoQY0B2GCuikfEAOax1ADmoMwQd2UD4gBzWOoAc1BmKBuygfEgOYx1IDmIExQN+UDYkDzGGpAcxAmqJvyATGgeQw1oDkIE9RN+YAY0DyGGtAchAnqpnxADGgeQw1oDsIEdVM+IAY0j6EGNAdhgropHxADmsdQA5qDMEHdlA+IAc1jqAHNQZigbsoHxIDmMdSA5iBMUDflA2JA8xhqQHMQJqib8gExoHkMNaA5CBPUTfmAGNA8hhrQHIQJ6qZ8QAxoHkMNaA7CBHVTPiAGNI+hBjQHYYK6KR8QA5rHUAOagzBB3ZQPiAHNY6gBzUGYoG7KB8SA5jHUgOYgTFA35QNiQPMYakBzECaom/IBMaB5DDWgOQgT1E35gBjQPIYa0ByECeqmfEAMaB5DDWgOwgR1Uz4gBjSPoQY0B2GCuikfEAOax1ADmoMwQd2UD4gBzWOoAc1BmKBuygfEgOYx1IDmIExQN+UDYkDzGGpAcxAmqJvyATGgeQw1oDkIE9RN+YAY0DyGGtAchAnqpnxADGgeQw1oDsIEdVM+IAY0j6EGNAdhgropHxADmsdQA5qDMEHdlA+IAc1jqAHNQZigbsoHxIDmMdSA5iBMUDflA2JA8xhqQHMQJqg5i4n+F3FF7AYuVFkAAAAASUVORK5CYII=";
 
-const repoRoot = join(import.meta.dir, "..", "..", "..");
+/** Absolute path of the reelvault repo — cwd for spawned/migrated server processes. */
+export const repoRoot = join(import.meta.dir, "..", "..", "..");
 
-function serverEnv(port: number, rootDir: string, webDist?: string): Record<string, string> {
+export function serverEnv(port: number, rootDir: string, webDist?: string): Record<string, string> {
 	return {
 		...process.env,
 		APP_PORT: String(port),
@@ -122,6 +123,22 @@ function migrateDatabase(port: number, rootDir: string): void {
 		stderr: "pipe",
 	});
 	if (migration.exitCode !== 0) throw new Error(`runtime migration failed with exit code ${migration.exitCode}`);
+}
+
+/**
+ * Seeds the rate-limit SYSTEM SETTINGS to their load-test ceilings. The env
+ * hatches (REELVAULT_RATE_LIMIT_*) stopped working when these limits moved
+ * into the settings store (server.config.ts reads the store live), so without
+ * this row the benchmark measures the limiter's 1000 req/min/IP instead of the
+ * server. Multiplier clamps at its definition max (10_000).
+ */
+function seedBenchSettings(rootDir: string): void {
+	const database = new Database(join(rootDir, "reelvault.sqlite"));
+	const now = Date.now();
+	const upsert = database.prepare("INSERT OR REPLACE INTO system_settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)");
+	upsert.run("network.rateLimit.globalMax", "1000000", now, now);
+	upsert.run("network.rateLimit.routeMultiplier", "10000", now, now);
+	database.close();
 }
 
 /** Seeds a realistic catalog so listing/search endpoints return non-trivial payloads. */
@@ -576,6 +593,7 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 	migrateDatabase(port, rootDir);
 	const seedRows = options.seedRows ?? 5_000;
 	seedCatalog(rootDir, seedRows);
+	seedBenchSettings(rootDir);
 
 	let sampleMediaPath = "";
 	if (options.withSampleMedia) {

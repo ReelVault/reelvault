@@ -50,7 +50,7 @@ function isWsMessage(value: unknown): value is WsMessage {
 	return isRecord(value) && typeof value.type === "string";
 }
 
-async function connect(server: ManagedServer, profileId: string): Promise<WsConnection> {
+async function connect(server: ManagedServer, profileId: string, workerIndex = 0): Promise<WsConnection> {
 	const queued: WsMessage[] = [];
 	const waiters: Array<(message: WsMessage) => void> = [];
 	const candidate: unknown = Reflect.get(globalThis, "WebSocket");
@@ -59,7 +59,7 @@ async function connect(server: ManagedServer, profileId: string): Promise<WsConn
 	// Bun's constructor takes the session cookie as a request header — the
 	// auth for /v1/events/ws.
 	const socket = new candidate(`${server.baseUrl.replace("http", "ws")}/v1/events/ws?profileId=${profileId}`, {
-		headers: { cookie: server.workerCookies[0] ?? server.cookie },
+		headers: { cookie: server.workerCookies[workerIndex] ?? server.workerCookies[0] ?? server.cookie },
 	});
 	socket.addEventListener("message", (event: MessageEvent) => {
 		let parsed: unknown;
@@ -190,7 +190,124 @@ async function fanOutPhase(server: ManagedServer, profileId: string, connectionC
 	}
 }
 
-export const meta = { description: "Realtime WS (ping/pong RTT at N connections, playback event fan-out)" };
+/**
+ * Fan-out across MANY profiles: one socket per identity, a session created per
+ * profile, trigger→receipt measured per event. The single-profile fan-out
+ * above stresses one broadcast list; this stresses the per-profile routing
+ * path the downloads/streams dashboards actually ride on.
+ */
+async function multiProfileFanOutPhase(server: ManagedServer, profileCount: number): Promise<void> {
+	const connections: WsConnection[] = [];
+	try {
+		// The session-creation guard enforces a 500ms per-profile cooldown, so each
+		// identity creates AT MOST ONE session in this phase.
+		const identities = Math.min(profileCount, server.workerCookies.length);
+		for (let index = 0; index < identities; index++) {
+			connections.push(await connect(server, server.profileIdFor(index), index));
+		}
+
+		await sleep(550);
+
+		const latencies: number[] = [];
+		for (let index = 0; index < identities; index++) {
+			const profileId = server.profileIdFor(index);
+			const headers = {
+				"content-type": "application/json",
+				cookie: server.workerCookies[index] ?? server.cookie,
+				"x-profile-id": profileId,
+				"idempotency-key": `benchmark-realtime-multi-${index}-${Date.now()}`,
+				"x-forwarded-for": "10.86.1.1",
+			};
+			const create = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ mediaFileId: server.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] }),
+			});
+			if (!create.ok) throw new Error(`multi-profile trigger failed: HTTP ${create.status} ${await create.text()}`);
+			const created: unknown = await create.json();
+			const sessionId =
+				typeof created === "object" && created !== null && "sessionId" in created && typeof created.sessionId === "string"
+					? created.sessionId
+					: undefined;
+
+			const startedAt = performance.now();
+			const connection = connections[index];
+			if (connection) await nextMessage(connection, EVENT_TIMEOUT_MS);
+			latencies.push(performance.now() - startedAt);
+
+			if (sessionId) await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}`, { method: "DELETE", headers });
+			await sleep(550);
+		}
+
+		const stats = summarizeLatencies(latencies.length > 0 ? latencies : [0]);
+		printTable(
+			`WS multi-profile fan-out (${identities} profiles, trigger→receipt per event)`,
+			["samples", "p50", "p95", "max"],
+			[[String(stats.count), fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+		);
+	} finally {
+		for (const connection of connections) {
+			connection.socket.close();
+		}
+	}
+}
+
+/** Event burst: one profile, K sockets, R rapid session create/delete cycles. */
+async function eventBurstPhase(server: ManagedServer, profileId: string, socketCount: number, cycles: number): Promise<void> {
+	const connections: WsConnection[] = [];
+	try {
+		for (let index = 0; index < socketCount; index++) {
+			connections.push(await connect(server, profileId));
+		}
+
+		await sleep(500);
+
+		const headers = {
+			"content-type": "application/json",
+			cookie: server.workerCookies[0] ?? server.cookie,
+			"x-profile-id": profileId,
+			"idempotency-key": "benchmark-realtime-burst",
+			"x-forwarded-for": "10.86.2.1",
+		};
+
+		const startedAt = performance.now();
+		let delivered = 0;
+		for (let cycle = 0; cycle < cycles; cycle++) {
+			headers["idempotency-key"] = `benchmark-realtime-burst-${cycle}-${Date.now()}`;
+			const create = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ mediaFileId: server.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] }),
+			});
+			if (!create.ok) throw new Error(`burst trigger failed: HTTP ${create.status} ${await create.text()}`);
+			const created: unknown = await create.json();
+			const sessionId =
+				typeof created === "object" && created !== null && "sessionId" in created && typeof created.sessionId === "string"
+					? created.sessionId
+					: undefined;
+
+			await Promise.all(connections.map((connection) => nextMessage(connection, EVENT_TIMEOUT_MS)));
+			delivered += connections.length;
+
+			if (sessionId) await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}`, { method: "DELETE", headers });
+			// Session-creation guard: 500ms per-profile cooldown between cycles.
+			await sleep(550);
+		}
+
+		const wallMs = performance.now() - startedAt;
+		printTable(
+			`WS event burst (${cycles} cycles → ${socketCount} sockets)`,
+			["events delivered", "events/s", "wall"],
+			[[String(delivered), (delivered / (wallMs / 1000)).toFixed(0), fmtMs(wallMs)]],
+		);
+	} finally {
+		for (const connection of connections) {
+			connection.socket.close();
+		}
+	}
+}
+
+export const meta = { description: "Realtime WS (ping/pong RTT, playback fan-out, multi-profile fan-out, event burst)" };
 
 const args = suiteArgs();
 
@@ -198,6 +315,7 @@ if (!args.help) {
 	const serverFixture = createServerFixture({
 		seedRows: args.rows,
 		withSampleMedia: true,
+		workerCount: Math.max(...args.concurrency),
 		keepServer: args.keepServer,
 	});
 
@@ -219,6 +337,9 @@ if (!args.help) {
 				await pingPongPhase(server, profileId, count, args.durationMs);
 				await fanOutPhase(server, profileId, count);
 			}
+
+			await multiProfileFanOutPhase(server, Math.min(30, Math.max(10, server.workerCookies.length * 3)));
+			await eventBurstPhase(server, profileId, 10, 20);
 		} finally {
 			if (!args.keepServer) {
 				await server?.stop();
