@@ -39,11 +39,7 @@ export async function refreshMetadataTask(data: MetadataRefreshData, context: Ap
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
 export function enqueueMetadataRefresh(data: MetadataRefreshData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(metadataRefreshWorker.id, data, {
-		...options,
-		dedupeKey: data.metadataId,
-		reference: { type: "metadata", id: data.metadataId },
-	});
+	return workerService.addItem(metadataRefreshWorker.id, data, { ...options, ...metadataRefreshQueueOptions(data) });
 }
 
 export function enqueueManyMetadataRefresh(items: MetadataRefreshData[], options: WorkerEnqueueOptions = {}) {
@@ -51,11 +47,14 @@ export function enqueueManyMetadataRefresh(items: MetadataRefreshData[], options
 		metadataRefreshWorker.id,
 		items.map((data) => ({
 			data,
-			options: {
-				...options,
-				dedupeKey: data.metadataId,
-				reference: { type: "metadata", id: data.metadataId },
-			},
+			options: { ...options, ...metadataRefreshQueueOptions(data) },
 		})),
 	);
+}
+
+function metadataRefreshQueueOptions(data: MetadataRefreshData) {
+	return {
+		dedupeKey: data.metadataId,
+		reference: { type: "metadata", id: data.metadataId },
+	};
 }

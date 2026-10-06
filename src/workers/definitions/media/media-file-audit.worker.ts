@@ -98,11 +98,7 @@ function enqueueMediaFileAuditMany(items: MediaFileAuditData[], options: WorkerE
 		mediaFileAuditWorker.id,
 		items.map((data) => ({
 			data,
-			options: {
-				...options,
-				dedupeKey: `media-match-audit:${data.mediaFileId}`,
-				reference: { type: "media-file", id: data.mediaFileId },
-			},
+			options: { ...options, ...mediaFileAuditQueueOptions(data) },
 		})),
 	);
 }
@@ -110,9 +106,12 @@ function enqueueMediaFileAuditMany(items: MediaFileAuditData[], options: WorkerE
 // ─── Enqueue Functions ────────────────────────────────────────────────────────
 
 export function enqueueMediaFileAudit(data: MediaFileAuditData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(mediaFileAuditWorker.id, data, {
-		...options,
+	return workerService.addItem(mediaFileAuditWorker.id, data, { ...options, ...mediaFileAuditQueueOptions(data) });
+}
+
+function mediaFileAuditQueueOptions(data: MediaFileAuditData) {
+	return {
 		dedupeKey: `media-match-audit:${data.mediaFileId}`,
 		reference: { type: "media-file", id: data.mediaFileId },
-	});
+	};
 }

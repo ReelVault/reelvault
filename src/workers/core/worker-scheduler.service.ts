@@ -3,6 +3,7 @@ import type {
 	TaskTrigger,
 	WorkerCategory,
 	WorkerCategoryRunResponse,
+	WorkerDefinition,
 	WorkerQueueStats,
 	WorkerSummary,
 } from "@reelvault/sdk/common";
@@ -19,6 +20,19 @@ import { enqueueWithOperation } from "./worker-operation-enqueue";
 import { getWorkerRuntime } from "./worker-runtime";
 
 const TIME_OF_DAY_REGEX = /^\d{2}:\d{2}$/;
+
+/** Zeroed queue stats for a worker that has no job rows yet. */
+function emptyWorkerStats(def: WorkerDefinition): WorkerQueueStats {
+	return {
+		workerId: def.id,
+		concurrency: def.concurrency ?? 1,
+		timeoutMs: def.timeoutMs ?? MINUTE,
+		waiting: 0,
+		active: 0,
+		completed: 0,
+		failed: 0,
+	};
+}
 
 export class WorkerSchedulerService extends BaseService {
 	private readonly customTriggers = new Map<string, TaskTrigger[]>();
@@ -255,15 +269,7 @@ export class WorkerSchedulerService extends BaseService {
 		const statsMap = new Map<string, WorkerQueueStats>();
 
 		for (const def of definitions) {
-			statsMap.set(def.id, {
-				workerId: def.id,
-				concurrency: def.concurrency ?? 1,
-				timeoutMs: def.timeoutMs ?? MINUTE,
-				waiting: 0,
-				active: 0,
-				completed: 0,
-				failed: 0,
-			});
+			statsMap.set(def.id, emptyWorkerStats(def));
 		}
 
 		for (const row of statsRows) {
@@ -295,15 +301,7 @@ export class WorkerSchedulerService extends BaseService {
 				category: def.category ?? "application",
 				concurrency: def.concurrency ?? 1,
 				timeoutMs: def.timeoutMs ?? MINUTE,
-				stats: statsMap.get(def.id) ?? {
-					workerId: def.id,
-					concurrency: 1,
-					timeoutMs: MINUTE,
-					waiting: 0,
-					active: 0,
-					completed: 0,
-					failed: 0,
-				},
+				stats: statsMap.get(def.id) ?? emptyWorkerStats(def),
 				triggers,
 				...pickDefined({ description: def.description, lastExecution }),
 			});

@@ -11,6 +11,18 @@ import { workerService } from "@/workers/worker.service";
 /** Absolute cap on a plugin-declared job timeout (24h) — a job must not stall a slot forever. */
 const MAX_PLUGIN_JOB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
+/** One entry of a plugin job batch (`jobs.enqueueMany` / `scope.enqueueJobs`). */
+export interface PluginJobBatchItem {
+	data: unknown;
+	options?: PluginEnqueueOptions;
+}
+
+/** Operation/reference overrides applied to a whole plugin job batch. */
+export interface PluginJobBatchOptions {
+	operationId?: string;
+	reference?: { type: string; id: string };
+}
+
 function clampPluginJobConcurrency(workerId: string, value: number | undefined): number | undefined {
 	if (value === undefined) return undefined;
 
@@ -110,8 +122,8 @@ class PluginJobsService extends BaseService {
 	async enqueueMany(
 		pluginId: string,
 		name: string,
-		items: Array<{ data: unknown; options?: PluginEnqueueOptions }>,
-		commonOptions?: { operationId?: string; reference?: { type: string; id: string } },
+		items: PluginJobBatchItem[],
+		commonOptions?: PluginJobBatchOptions,
 	): Promise<PluginJobHandle[]> {
 		if (!isNonEmptyString(name)) {
 			throw new ValidationError(`Plugin '${pluginId}' failed to enqueue jobs: 'name' must be a non-empty string.`);
@@ -149,29 +161,4 @@ class PluginJobsService extends BaseService {
 	}
 }
 
-const pluginJobsService = new PluginJobsService();
-
-export function validatePluginJobSchedule(job: PluginJobDefinition): void {
-	pluginJobsService.validateSchedule(job);
-}
-
-export function registerPluginJobs(pluginId: string, jobs: readonly PluginJobDefinition[]): Promise<string[]> {
-	return pluginJobsService.register(pluginId, jobs);
-}
-
-export function enqueuePluginJob(pluginId: string, name: string, data: unknown, options?: PluginEnqueueOptions): Promise<PluginJobHandle> {
-	return pluginJobsService.enqueue(pluginId, name, data, options);
-}
-
-export function enqueuePluginJobs(
-	pluginId: string,
-	name: string,
-	items: Array<{ data: unknown; options?: PluginEnqueueOptions }>,
-	commonOptions?: { operationId?: string; reference?: { type: string; id: string } },
-): Promise<PluginJobHandle[]> {
-	return pluginJobsService.enqueueMany(pluginId, name, items, commonOptions);
-}
-
-export function unregisterPluginJobs(names: readonly string[]): void {
-	pluginJobsService.unregister(names);
-}
+export const pluginJobsService = new PluginJobsService();

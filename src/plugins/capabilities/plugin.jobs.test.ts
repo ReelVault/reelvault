@@ -1,17 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { workerService } from "@/workers/worker.service";
-import { registerPluginJobs, unregisterPluginJobs } from "./plugin.jobs";
+import { pluginJobsService } from "./plugin.jobs";
 
 const MAX_PLUGIN_JOB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const registered: string[][] = [];
 
 afterEach(() => {
-	for (const names of registered.splice(0)) unregisterPluginJobs(names);
+	for (const names of registered.splice(0)) pluginJobsService.unregister(names);
 });
 
 describe("plugin job clamps", () => {
 	test("clamps plugin-declared concurrency and timeout to safe ceilings", async () => {
-		const names = await registerPluginJobs("org.reelvault.clamp", [
+		const names = await pluginJobsService.register("org.reelvault.clamp", [
 			{
 				name: "huge",
 				handler: async () => undefined,
@@ -29,14 +29,14 @@ describe("plugin job clamps", () => {
 	});
 
 	test("namespaces a local job name with its plugin id", async () => {
-		const names = await registerPluginJobs("org.reelvault.trickplay", [{ name: "generate", handler: async () => undefined }]);
+		const names = await pluginJobsService.register("org.reelvault.trickplay", [{ name: "generate", handler: async () => undefined }]);
 		registered.push(names);
 
 		expect(names).toEqual(["org.reelvault.trickplay:generate"]);
 	});
 
 	test("leaves an unspecified concurrency for hardware-based allocation", async () => {
-		const names = await registerPluginJobs("org.reelvault.clamp", [{ name: "auto", handler: async () => undefined }]);
+		const names = await pluginJobsService.register("org.reelvault.clamp", [{ name: "auto", handler: async () => undefined }]);
 		registered.push(names);
 
 		const definition = workerService.getDefinitions().find((candidate) => candidate.id === names[0]);

@@ -23,13 +23,7 @@ import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { scheduledTasksService } from "@/workers/scheduled-tasks.service";
 import { guardedPluginFetch } from "../../capabilities/plugin.http";
-import {
-	enqueuePluginJob,
-	enqueuePluginJobs,
-	registerPluginJobs,
-	unregisterPluginJobs,
-	validatePluginJobSchedule,
-} from "../../capabilities/plugin.jobs";
+import { type PluginJobBatchItem, type PluginJobBatchOptions, pluginJobsService } from "../../capabilities/plugin.jobs";
 import { registerNotificationChannel, unregisterPluginNotificationChannels } from "../../runtime/notification-channel.registry";
 import { pluginAccessBus } from "../../runtime/plugin.access";
 import { pluginEventBus } from "../../runtime/plugin.events";
@@ -49,7 +43,12 @@ export interface PluginScopeApi {
 	addScheduledTask(task: PluginScheduledTaskDefinition): void;
 	addHttpRoute(route: PluginHttpRoute): void;
 	enqueueJob(pluginId: string, name: string, data: unknown, options?: PluginEnqueueOptions): Promise<PluginJobHandle>;
-	enqueueJobs(pluginId: string, name: string, items: unknown[], options?: PluginEnqueueOptions): Promise<PluginJobHandle[]>;
+	enqueueJobs(
+		pluginId: string,
+		name: string,
+		items: PluginJobBatchItem[],
+		commonOptions?: PluginJobBatchOptions,
+	): Promise<PluginJobHandle[]>;
 	/** Contravariant handler erase: accepts every typed event handler while staying assignable to the bus. */
 	subscribe(pluginId: string, event: PluginEventName, handler: PluginEventHandlerErased): void;
 	subscribeBeforeArtifactCreate(pluginId: string, handler: BeforeArtifactCreateHook): void;
@@ -128,7 +127,7 @@ export class PluginScope {
 			throw new ValidationError("Plugin job name must be non-empty");
 		}
 
-		validatePluginJobSchedule(job);
+		pluginJobsService.validateSchedule(job);
 		if (this.jobNames.has(job.name)) {
 			throw new ValidationError(`Plugin job ${job.name} is registered more than once`);
 		}
@@ -163,7 +162,7 @@ export class PluginScope {
 	async registerJobs(pluginId: string): Promise<void> {
 		this.pluginId = pluginId;
 		if (this.jobs.length > 0) {
-			const names = await registerPluginJobs(pluginId, this.jobs);
+			const names = await pluginJobsService.register(pluginId, this.jobs);
 			for (const name of names) this.jobNames.add(name);
 		}
 
@@ -195,20 +194,20 @@ export class PluginScope {
 			throw new ValidationError(`Plugin job ${name} is not registered`);
 		}
 
-		return await enqueuePluginJob(pluginId, name, data, options);
+		return await pluginJobsService.enqueue(pluginId, name, data, options);
 	}
 
 	async enqueueJobs(
 		pluginId: string,
 		name: string,
-		items: Array<{ data: unknown; options?: PluginEnqueueOptions }>,
-		commonOptions?: { operationId?: string; reference?: { type: string; id: string } },
+		items: PluginJobBatchItem[],
+		commonOptions?: PluginJobBatchOptions,
 	): Promise<PluginJobHandle[]> {
 		if (!this.jobNames.has(name)) {
 			throw new ValidationError(`Plugin job ${name} is not registered`);
 		}
 
-		return await enqueuePluginJobs(pluginId, name, items, commonOptions);
+		return await pluginJobsService.enqueueMany(pluginId, name, items, commonOptions);
 	}
 
 	getProviders(): readonly MetadataProvider[] {
@@ -285,7 +284,7 @@ export class PluginScope {
 		}
 
 		if (this.jobNames.size > 0) {
-			unregisterPluginJobs([...this.jobNames]);
+			pluginJobsService.unregister([...this.jobNames]);
 		}
 
 		await PromiseUtils.mapConcurrent(

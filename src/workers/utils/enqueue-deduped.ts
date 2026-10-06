@@ -32,14 +32,21 @@ export async function enqueueDeduped(options: {
 	// is imported from application services that the worker graph also imports.
 	const { workerService } = await import("@/workers/worker.service");
 
-	for (const { workerId, dedupeKey } of options.targets) {
-		const existing = await workerService.findActiveItem(workerId, dedupeKey);
-		if (existing) {
-			if (!existing.operationId) throw new InternalError(`Active ${options.label} has no operation`);
+	const findActiveTarget = async (): Promise<DedupedEnqueue | undefined> => {
+		for (const { workerId, dedupeKey } of options.targets) {
+			const existing = await workerService.findActiveItem(workerId, dedupeKey);
+			if (existing) {
+				if (!existing.operationId) throw new InternalError(`Active ${options.label} has no operation`);
 
-			return { success: true, operationId: existing.operationId, status: "pending" };
+				return { success: true, operationId: existing.operationId, status: "pending" };
+			}
 		}
-	}
+
+		return undefined;
+	};
+
+	const activeTarget = await findActiveTarget();
+	if (activeTarget) return activeTarget;
 
 	try {
 		const { result: operationId } = await workerService.enqueueUnderOperation(
@@ -59,14 +66,8 @@ export async function enqueueDeduped(options: {
 		// including one created by the losing trigger's winner — means the caller's
 		// intent is already satisfied; otherwise the trigger is genuinely
 		// un-serviceable right now, which is a conflict, not a 500.
-		for (const { workerId, dedupeKey } of options.targets) {
-			const existing = await workerService.findActiveItem(workerId, dedupeKey);
-			if (existing) {
-				if (!existing.operationId) throw new InternalError(`Active ${options.label} has no operation`);
-
-				return { success: true, operationId: existing.operationId, status: "pending" };
-			}
-		}
+		const racedTarget = await findActiveTarget();
+		if (racedTarget) return racedTarget;
 
 		throw new ConflictError(`Could not enqueue ${options.label}`, { cause: error });
 	}

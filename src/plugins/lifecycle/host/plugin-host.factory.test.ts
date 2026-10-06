@@ -17,6 +17,7 @@ import type {
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
 import { stubMethod } from "../../../../tests/helpers/method-stub";
+import type { PluginJobBatchItem, PluginJobBatchOptions } from "../../capabilities/plugin.jobs";
 import type { PluginEventHandlerErased, PluginScopeApi } from "./plugin.scope";
 import { createPluginHost } from "./plugin-host.factory";
 
@@ -70,7 +71,12 @@ class ScopeSpy implements PluginScopeApi {
 		return Promise.resolve({ id: `${pluginId}:${name}:1`, name });
 	}
 
-	enqueueJobs(pluginId: string, name: string): Promise<PluginJobHandle[]> {
+	enqueueJobs(
+		pluginId: string,
+		name: string,
+		_items: PluginJobBatchItem[],
+		_commonOptions?: PluginJobBatchOptions,
+	): Promise<PluginJobHandle[]> {
 		this.enqueues.push({ name, data: "many" });
 
 		return Promise.resolve([{ id: `${pluginId}:${name}:1`, name }]);

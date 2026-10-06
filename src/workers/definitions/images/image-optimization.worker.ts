@@ -84,12 +84,7 @@ function enqueueImageOptimizationMany(items: ImageOptimizationData[], options: W
 		imageOptimizationWorker.id,
 		items.map((data) => ({
 			data,
-			options: {
-				...options,
-				dedupeKey: `image-optimization:${data.imageId}`,
-				reference: { type: "image", id: data.imageId },
-				priority: 50,
-			},
+			options: { ...options, ...imageOptimizationQueueOptions(data) },
 		})),
 	);
 }
@@ -97,10 +92,13 @@ function enqueueImageOptimizationMany(items: ImageOptimizationData[], options: W
 // ─── Enqueue Functions ────────────────────────────────────────────────────────
 
 export function enqueueImageOptimization(data: ImageOptimizationData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(imageOptimizationWorker.id, data, {
-		...options,
+	return workerService.addItem(imageOptimizationWorker.id, data, { ...options, ...imageOptimizationQueueOptions(data) });
+}
+
+function imageOptimizationQueueOptions(data: ImageOptimizationData) {
+	return {
 		dedupeKey: `image-optimization:${data.imageId}`,
 		reference: { type: "image", id: data.imageId },
 		priority: 50,
-	});
+	};
 }

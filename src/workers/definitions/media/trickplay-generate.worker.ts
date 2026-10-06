@@ -27,15 +27,14 @@ export const trickplayGenerateWorker = createWorkerDefinition<{ mediaFileId: str
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
 export async function enqueueTrickplayGeneration(mediaFileId: string, options: WorkerEnqueueOptions = {}) {
-	return await workerService.addItem(
-		trickplayGenerateWorker.id,
-		{ mediaFileId },
-		{
-			...options,
-			dedupeKey: mediaFileId,
-			reference: { type: "media-file", id: mediaFileId },
-		},
-	);
+	return await workerService.addItem(trickplayGenerateWorker.id, { mediaFileId }, { ...options, ...trickplayQueueOptions(mediaFileId) });
+}
+
+function trickplayQueueOptions(mediaFileId: string) {
+	return {
+		dedupeKey: mediaFileId,
+		reference: { type: "media-file", id: mediaFileId },
+	};
 }
 
 /** One shared operation + one transaction for the whole catalog pass (generate-all). */
@@ -44,10 +43,7 @@ export async function enqueueTrickplayGenerationMany(mediaFileIds: readonly stri
 		trickplayGenerateWorker.id,
 		mediaFileIds.map((mediaFileId) => ({
 			data: { mediaFileId },
-			options: {
-				dedupeKey: mediaFileId,
-				reference: { type: "media-file", id: mediaFileId },
-			},
+			options: trickplayQueueOptions(mediaFileId),
 		})),
 	);
 }
