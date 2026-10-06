@@ -3,7 +3,7 @@ import { episodesRepository } from "@/database/repositories/episodes.repository"
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { isNotNullish } from "@/utils/array.utils";
+import { isNotNullish, toMap, unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { KeyedMutex } from "@/utils/mutex";
 import { PathUtils } from "@/utils/path.utils";
@@ -60,47 +60,58 @@ export class SidecarMetadataStorageService extends BaseService {
 		const savedSeries = new Set<string>();
 		const savedSeasons = new Set<string>();
 		const writes = new KeyedMutex();
-		const episodeCache = new Map<string, Promise<EpisodeRecord | undefined>>();
-		const seasonCache = new Map<string, Promise<SeasonRecord | undefined>>();
+
+		const sidecarFiles = mediaFiles.filter((mediaFile) => usesSidecars(resolveMetadataStorageMode(library, mediaFile.filePath)));
+		if (sidecarFiles.length === 0) return;
+
+		// Batch-resolve episodes and seasons for the whole batch: previously one
+		// lookup per distinct id (a series sidecar sync paid one episode query per
+		// episode). Chunked `findByIds` keeps the SQLite variable limit in check.
+		const episodeIds = unique(sidecarFiles.map((mediaFile) => mediaFile.episodeId).filter((episodeId) => isNotNullish(episodeId)));
+		const episodesById =
+			episodeIds.length > 0
+				? toMap(
+						await episodesRepository.findRecordsByIds({
+							ids: episodeIds,
+							fields: QueryFields.parse({ fields: "id,seasonId,title,episodeNumber,airDate,overview,imageId" }),
+						}),
+						(episode) => episode.id,
+					)
+				: new Map<string, EpisodeRecord>();
+		const seasonIds = unique([...episodesById.values()].map((episode) => episode.seasonId));
+		const seasonsById =
+			seasonIds.length > 0
+				? toMap(
+						await seasonsRepository.findByIds({
+							ids: seasonIds,
+							fields: QueryFields.parse({ fields: "id,seasonNumber,name,airDate,overview,status,imageId" }),
+						}),
+						(season) => season.id,
+					)
+				: new Map<string, SeasonRecord>();
 
 		const targets = await PromiseUtils.mapConcurrent(
-			mediaFiles,
+			sidecarFiles,
 			systemResourcesService.getIoConcurrency(),
-			async (mediaFile): Promise<SaveTarget | null> => {
-				if (!usesSidecars(resolveMetadataStorageMode(library, mediaFile.filePath))) return null;
+			(mediaFile): Promise<SaveTarget | null> => {
+				if (mediaFile.movieId) return Promise.resolve({ mediaFile });
 
-				if (mediaFile.movieId) return { mediaFile };
+				if (!mediaFile.episodeId) return Promise.resolve(null);
 
-				if (!mediaFile.episodeId) return null;
-
-				const episodePromise =
-					episodeCache.get(mediaFile.episodeId) ??
-					episodesRepository.findByPrimaryId({
-						primaryId: mediaFile.episodeId,
-						fields: QueryFields.parse({ fields: "id,seasonId,title,episodeNumber,airDate,overview,imageId" }),
-					});
-				episodeCache.set(mediaFile.episodeId, episodePromise);
-				const episode = await episodePromise;
 				// Concurrent catalog changes (library removal mid-scan) can delete the
 				// episode/season rows under us — skip this file instead of failing the
 				// whole sidecar batch.
+				const episode = episodesById.get(mediaFile.episodeId);
 				if (!episode) {
 					this.logger.warn("Episode row missing — skipping sidecar save for media file", {
 						mediaFilePath: mediaFile.filePath,
 						episodeId: mediaFile.episodeId,
 					});
 
-					return null;
+					return Promise.resolve(null);
 				}
 
-				const seasonPromise =
-					seasonCache.get(episode.seasonId) ??
-					seasonsRepository.findByPrimaryId({
-						primaryId: episode.seasonId,
-						fields: QueryFields.parse({ fields: "id,seasonNumber,name,airDate,overview,status,imageId" }),
-					});
-				seasonCache.set(episode.seasonId, seasonPromise);
-				const season = await seasonPromise;
+				const season = seasonsById.get(episode.seasonId);
 				if (!season) {
 					this.logger.warn("Season row missing — skipping sidecar save for media file", {
 						mediaFilePath: mediaFile.filePath,
@@ -108,10 +119,10 @@ export class SidecarMetadataStorageService extends BaseService {
 						seasonId: episode.seasonId,
 					});
 
-					return null;
+					return Promise.resolve(null);
 				}
 
-				return { mediaFile, episode, season };
+				return Promise.resolve({ mediaFile, episode, season });
 			},
 		);
 

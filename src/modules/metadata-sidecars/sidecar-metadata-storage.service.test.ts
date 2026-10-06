@@ -97,27 +97,31 @@ describe("SidecarMetadataStorageService", () => {
 		const episodes = await import("@/database/repositories/episodes.repository");
 		const seasons = await import("@/database/repositories/seasons.repository");
 		activeStubs.push(
-			stubMethod(episodes.episodesRepository, "findByPrimaryId", (input: { primaryId: string }) =>
-				Promise.resolve({
-					id: input.primaryId,
-					seasonId: "season-1",
-					title: "Dulcinea",
-					episodeNumber: 1,
-					airDate: null,
-					overview: null,
-					imageId: null,
-				}),
+			stubMethod(episodes.episodesRepository, "findRecordsByIds", ({ ids }: { ids: string[] }) =>
+				Promise.resolve(
+					ids.map((id) => ({
+						id,
+						seasonId: "season-1",
+						title: "Dulcinea",
+						episodeNumber: 1,
+						airDate: null,
+						overview: null,
+						imageId: null,
+					})),
+				),
 			),
-			stubMethod(seasons.seasonsRepository, "findByPrimaryId", () =>
-				Promise.resolve({
-					id: "season-1",
-					seasonNumber: 1,
-					name: "Season One",
-					airDate: null,
-					overview: null,
-					status: null,
-					imageId: null,
-				}),
+			stubMethod(seasons.seasonsRepository, "findByIds", () =>
+				Promise.resolve([
+					{
+						id: "season-1",
+						seasonNumber: 1,
+						name: "Season One",
+						airDate: null,
+						overview: null,
+						status: null,
+						imageId: null,
+					},
+				]),
 			),
 		);
 
@@ -140,7 +144,7 @@ describe("SidecarMetadataStorageService", () => {
 	test("skips media files whose episode row disappeared mid-scan", async () => {
 		const { calls, writer } = recordingWriter();
 		const episodes = await import("@/database/repositories/episodes.repository");
-		activeStubs.push(stubMethod(episodes.episodesRepository, "findByPrimaryId", () => Promise.resolve(undefined)));
+		activeStubs.push(stubMethod(episodes.episodesRepository, "findRecordsByIds", () => Promise.resolve([])));
 
 		await new SidecarMetadataStorageService(writer, recordingArtwork()).saveLibraryMedia(
 			{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
@@ -148,6 +152,60 @@ describe("SidecarMetadataStorageService", () => {
 		);
 
 		expect(calls).toEqual([]);
+	});
+
+	test("resolves episodes and seasons with one batched lookup each", async () => {
+		const { writer } = recordingWriter();
+		const episodes = await import("@/database/repositories/episodes.repository");
+		const seasons = await import("@/database/repositories/seasons.repository");
+		const episodeLookups: string[][] = [];
+		const seasonLookups: string[][] = [];
+		activeStubs.push(
+			stubMethod(episodes.episodesRepository, "findRecordsByIds", ({ ids }: { ids: string[] }) => {
+				episodeLookups.push(ids);
+
+				return Promise.resolve(
+					ids.map((id) => ({
+						id,
+						seasonId: id.endsWith("1") ? "season-1" : "season-2",
+						title: id,
+						episodeNumber: 1,
+						airDate: null,
+						overview: null,
+						imageId: null,
+					})),
+				);
+			}),
+			stubMethod(seasons.seasonsRepository, "findByIds", ({ ids }: { ids: string[] }) => {
+				seasonLookups.push(ids);
+
+				return Promise.resolve(
+					ids.map((id) => ({
+						id,
+						seasonNumber: 1,
+						name: id,
+						airDate: null,
+						overview: null,
+						status: null,
+						imageId: null,
+					})),
+				);
+			}),
+		);
+
+		await new SidecarMetadataStorageService(writer, recordingArtwork()).saveLibraryMedia(
+			{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
+			[
+				{ filePath: "/media/show/Season 01/s01e01.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-1" },
+				{ filePath: "/media/show/Season 01/s01e02.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-2" },
+				{ filePath: "/media/show/Season 02/s02e01.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-3" },
+			],
+		);
+
+		expect(episodeLookups).toHaveLength(1);
+		expect(episodeLookups[0]?.toSorted()).toEqual(["episode-1", "episode-2", "episode-3"]);
+		expect(seasonLookups).toHaveLength(1);
+		expect(seasonLookups[0]?.toSorted()).toEqual(["season-1", "season-2"]);
 	});
 
 	test("threads the library flavor into the writer and exports artwork beside the documents", async () => {

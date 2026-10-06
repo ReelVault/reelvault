@@ -13,7 +13,7 @@ import { and, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, parseFieldsForRead } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, mapChunked, parseFieldsForRead } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -21,6 +21,7 @@ import { findFirstWithMediaFiles, findManyWithMediaFiles } from "@/database/util
 import type { QueryMap } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { findOrCreateWithIdentityRecovery } from "@/database/utils/upsert-by-identity";
+import { unique } from "@/utils/array.utils";
 
 const episodes = defineTableAccess("episodes", {
 	primaryKeyColumn: "id",
@@ -247,6 +248,21 @@ class EpisodesRepository {
 		if (!row) return undefined;
 
 		return QueryFields.apply<EpisodeWithRelations, F>(row, fields);
+	}
+
+	/**
+	 * Batch variant of `findByPrimaryId` (media files attached, same projection
+	 * semantics) for callers that resolve many episodes at once — e.g. the
+	 * sidecar batch save. Chunked by the shared bound-variable limit.
+	 */
+	async findRecordsByIds<F extends string>(params: {
+		ids: readonly string[];
+		fields?: FieldsConfig<F> | undefined;
+	}): Promise<Array<SelectFields<EpisodeWithRelations, F>>> {
+		const ids = unique(params.ids.filter(Boolean));
+		if (ids.length === 0) return [];
+
+		return await mapChunked(ids, async (idChunk) => await this.findMany({ where: inArray(this.table.id, idChunk), fields: params.fields }));
 	}
 
 	async findByPrimaryId<F extends string>({
