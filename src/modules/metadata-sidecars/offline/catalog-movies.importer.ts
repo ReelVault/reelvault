@@ -1,31 +1,20 @@
 import type { Database } from "bun:sqlite";
 import { PathUtils } from "@/utils/path.utils";
-import type { CatalogImportResult, OfflineRebuildIssue } from "../offline-rebuild-report";
-import {
-	type CatalogImporterDependencies,
-	collectImportDocuments,
-	defaultCatalogImporterDependencies,
-	insertMetadataRow,
-} from "./catalog-importer.common";
+import type { OfflineRebuildIssue } from "../offline-rebuild-report";
+import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.common";
 import { type CatalogDirectoryNode, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
 
-export class CatalogMoviesImporter {
-	private readonly dependencies: CatalogImporterDependencies;
-
-	constructor(dependencies: CatalogImporterDependencies = defaultCatalogImporterDependencies) {
-		this.dependencies = dependencies;
-	}
-
-	async import(
+export class CatalogMoviesImporter extends CatalogImporter {
+	protected buildImportOptions(
 		database: Database,
 		libraryId: string,
 		root: string,
 		tree: ReadonlyMap<string, CatalogDirectoryNode>,
 		skipped: OfflineRebuildIssue[],
-	): Promise<CatalogImportResult> {
+	): CollectImportDocumentsOptions {
 		const documents = findDocumentsByNames(tree, root, ["movie.nfo", "movie.reelvault.nfo"]);
 
-		return await collectImportDocuments(this.dependencies, {
+		return {
 			documents,
 			mediaKind: "movie",
 			skipReason: "unsupported or invalid movie sidecar",
@@ -57,6 +46,6 @@ export class CatalogMoviesImporter {
 
 				return fileIndex;
 			},
-		});
+		};
 	}
 }

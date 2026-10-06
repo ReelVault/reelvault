@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { metadataSidecarsService } from "../metadata-sidecars.service";
 import type { CatalogImportResult, OfflineRebuildIssue } from "../offline-rebuild-report";
 import type { CanonicalSidecarDocument, SidecarDocumentReader } from "../sidecar.types";
+import type { CatalogDirectoryNode } from "./catalog-tree.walker";
 
 export interface CatalogImporterDependencies {
 	readSidecarDocument: SidecarDocumentReader;
@@ -43,6 +44,37 @@ export async function collectImportDocuments(
 	}
 
 	return { entries, mediaFiles };
+}
+
+/**
+ * Import skeleton shared by the movie and series catalog importers: owns the
+ * dependencies and runs the collect loop; subclasses only describe the
+ * documents they claim and how one valid document is persisted.
+ */
+export abstract class CatalogImporter {
+	private readonly dependencies: CatalogImporterDependencies;
+
+	constructor(dependencies: CatalogImporterDependencies = defaultCatalogImporterDependencies) {
+		this.dependencies = dependencies;
+	}
+
+	async import(
+		database: Database,
+		libraryId: string,
+		root: string,
+		tree: ReadonlyMap<string, CatalogDirectoryNode>,
+		skipped: OfflineRebuildIssue[],
+	): Promise<CatalogImportResult> {
+		return await collectImportDocuments(this.dependencies, this.buildImportOptions(database, libraryId, root, tree, skipped));
+	}
+
+	protected abstract buildImportOptions(
+		database: Database,
+		libraryId: string,
+		root: string,
+		tree: ReadonlyMap<string, CatalogDirectoryNode>,
+		skipped: OfflineRebuildIssue[],
+	): CollectImportDocumentsOptions;
 }
 
 /** Metadata row shared by the movie and series offline catalog importers. */

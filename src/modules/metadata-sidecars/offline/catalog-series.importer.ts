@@ -1,32 +1,21 @@
 import type { Database } from "bun:sqlite";
 import { PathUtils } from "@/utils/path.utils";
-import type { CatalogImportResult, OfflineRebuildIssue } from "../offline-rebuild-report";
+import type { OfflineRebuildIssue } from "../offline-rebuild-report";
 import { parseEpisode } from "./catalog-episode.parser";
-import {
-	type CatalogImporterDependencies,
-	collectImportDocuments,
-	defaultCatalogImporterDependencies,
-	insertMetadataRow,
-} from "./catalog-importer.common";
+import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.common";
 import { type CatalogDirectoryNode, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
 
-export class CatalogSeriesImporter {
-	private readonly dependencies: CatalogImporterDependencies;
-
-	constructor(dependencies: CatalogImporterDependencies = defaultCatalogImporterDependencies) {
-		this.dependencies = dependencies;
-	}
-
-	async import(
+export class CatalogSeriesImporter extends CatalogImporter {
+	protected buildImportOptions(
 		database: Database,
 		libraryId: string,
 		root: string,
 		tree: ReadonlyMap<string, CatalogDirectoryNode>,
 		skipped: OfflineRebuildIssue[],
-	): Promise<CatalogImportResult> {
+	): CollectImportDocumentsOptions {
 		const documents = findDocumentsByNames(tree, root, ["tvshow.nfo", "tvshow.reelvault.nfo"]);
 
-		return await collectImportDocuments(this.dependencies, {
+		return {
 			documents,
 			mediaKind: "series",
 			skipReason: "unsupported or invalid series sidecar",
@@ -59,6 +48,6 @@ export class CatalogSeriesImporter {
 
 				return mediaFiles;
 			},
-		});
+		};
 	}
 }
