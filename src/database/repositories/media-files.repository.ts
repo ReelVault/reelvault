@@ -64,6 +64,7 @@ const mediaFileSubtitles = defineTableAccess("subtitles", {
 });
 const videoStreamColumns = getTableColumns(schema.mediaFileVideoStreams);
 const audioStreamColumns = getTableColumns(schema.mediaFileAudioStreams);
+const subtitleColumns = getTableColumns(schema.subtitles);
 const libraryColumns = {
 	id: schema.libraries.id,
 	name: schema.libraries.name,
@@ -774,6 +775,9 @@ class MediaRepository {
 		const libraryProjection = fields?.relations.library?.length
 			? buildRelationProjection(fields.relations.library, libraryColumns, ["id"])
 			: undefined;
+		const subtitleProjection = fields?.relations.subtitles?.length
+			? buildRelationProjection(fields.relations.subtitles, subtitleColumns, ["mediaFileId"])
+			: undefined;
 		// The relation bundle must be complete for every row (see LoadedMediaFileRelations):
 		// callers omit rows whose relations did not load, so `library` has to be fetched
 		// even when the field projection excludes it. Skipping it here made every
@@ -819,12 +823,19 @@ class MediaRepository {
 			librariesQuery = Promise.resolve([]);
 		}
 
+		let subtitlesQuery: PromiseLike<Array<typeof schema.subtitles.$inferSelect>>;
+		if (subtitleProjection) {
+			subtitlesQuery = client.select(subtitleProjection).from(schema.subtitles).where(inArray(schema.subtitles.mediaFileId, mediaFileIds));
+		} else if (QueryFields.includes(fields, "subtitles")) {
+			subtitlesQuery = client.select().from(schema.subtitles).where(inArray(schema.subtitles.mediaFileId, mediaFileIds));
+		} else {
+			subtitlesQuery = Promise.resolve([]);
+		}
+
 		const [videoStreams, audioStreams, subtitles, libraries] = await Promise.all([
 			videoStreamsQuery,
 			audioStreamsQuery,
-			QueryFields.includes(fields, "subtitles")
-				? client.select().from(schema.subtitles).where(inArray(schema.subtitles.mediaFileId, mediaFileIds))
-				: Promise.resolve([]),
+			subtitlesQuery,
 			librariesQuery,
 		]);
 

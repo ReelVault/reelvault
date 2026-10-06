@@ -20,6 +20,7 @@ import {
 	forEachChunked,
 	type ProjectedSelectParams,
 	parseFieldsForRead,
+	selectManyWithFields,
 } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
@@ -236,7 +237,7 @@ class LibrariesRepository {
 		offset,
 		tx,
 	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<LibraryWithRelations, F>>> {
-		const data = await this.selectMany({ where, orderBy, limit, offset, tx });
+		const data = await selectManyWithFields(libraries, { fields, required: ["id"], where, orderBy, limit, offset, tx });
 		const relations = await this.loadRelations(
 			data.map((library) => library.id),
 			tx,

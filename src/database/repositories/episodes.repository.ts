@@ -13,7 +13,14 @@ import { and, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, forEachChunked, mapChunked, parseFieldsForRead } from "@/database/table-access";
+import {
+	defineTableAccess,
+	findPageWithQueryMap,
+	forEachChunked,
+	mapChunked,
+	parseFieldsForRead,
+	selectManyWithFields,
+} from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -225,7 +232,7 @@ class EpisodesRepository {
 		offset,
 		tx,
 	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<EpisodeWithRelations, F>>> {
-		const data = await this.selectMany({ where, orderBy, limit, offset, tx });
+		const data = await selectManyWithFields(episodes, { fields, required: ["id"], where, orderBy, limit, offset, tx });
 		const rows = await findManyWithMediaFiles(data, { fields, relation: "episodeId", tx });
 
 		return rows.map((item) => QueryFields.apply<EpisodeWithRelations, F>(item, fields));

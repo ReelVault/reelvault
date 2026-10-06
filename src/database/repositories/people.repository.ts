@@ -17,7 +17,7 @@ import { databaseFactory } from "@/database/database";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, forEachChunked, parseFieldsForRead } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, forEachChunked, parseFieldsForRead, selectManyWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -121,7 +121,7 @@ class PeopleRepository {
 		offset,
 		tx,
 	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<PersonWithRelations, F>>> {
-		const data = await this.selectMany({ where, orderBy, limit, offset, tx });
+		const data = await selectManyWithFields(people, { fields, required: ["id", "imageId"], where, orderBy, limit, offset, tx });
 		const imageIds = QueryFields.includes(fields, "image") ? data.flatMap((p) => (p.imageId ? [p.imageId] : [])) : [];
 		const images =
 			imageIds.length > 0 ? await this.loadImages(imageIds, tx, fields) : new Map<string, NonNullable<PersonWithRelations["image"]>>();
