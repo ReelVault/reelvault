@@ -16,6 +16,7 @@ beforeAll(() => {
 			worker_id TEXT NOT NULL,
 			status TEXT NOT NULL,
 			operation_id TEXT,
+			depends_on_job_id TEXT,
 			data TEXT NOT NULL DEFAULT '{}',
 			run_at INTEGER,
 			completed_at INTEGER,
@@ -77,5 +78,37 @@ describe("workerJobRepository.trimMany", () => {
 
 		expect(await workerJobRepository.trimMany("completed", new Map())).toBe(0);
 		expect(remainingIds()).toEqual(["completed-job", "failed-job"]);
+	});
+});
+
+describe("workerJobRepository.cancelPending", () => {
+	test("cancels a pending job and reports false for missing or non-pending rows", async () => {
+		insertJob("pending-job", "w-1", 1, { status: "pending" });
+		insertJob("running-job", "w-1", 2, { status: "running" });
+
+		expect(await workerJobRepository.cancelPending("missing-job")).toBe(false);
+		expect(await workerJobRepository.cancelPending("running-job")).toBe(false);
+		expect(await workerJobRepository.cancelPending("pending-job")).toBe(true);
+		expect(await workerJobRepository.cancelPending("pending-job")).toBe(false);
+
+		const statuses = sqlite.query("SELECT id, status FROM worker_jobs ORDER BY id").all();
+		expect(statuses).toEqual([
+			{ id: "pending-job", status: "cancelled" },
+			{ id: "running-job", status: "running" },
+		]);
+	});
+
+	test("cascades cancellation to pending dependents", async () => {
+		insertJob("parent-job", "w-1", 1, { status: "pending" });
+		insertJob("child-job", "w-1", 2, { status: "pending" });
+		sqlite.run("UPDATE worker_jobs SET depends_on_job_id = 'parent-job' WHERE id = 'child-job'");
+
+		expect(await workerJobRepository.cancelPending("parent-job")).toBe(true);
+
+		const statuses = sqlite.query("SELECT id, status FROM worker_jobs ORDER BY id").all();
+		expect(statuses).toEqual([
+			{ id: "child-job", status: "cancelled" },
+			{ id: "parent-job", status: "cancelled" },
+		]);
 	});
 });

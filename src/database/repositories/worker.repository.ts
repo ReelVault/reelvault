@@ -508,33 +508,30 @@ class WorkerJobRepository {
 
 	async cancelPending(id: string, tx?: DatabaseTransaction): Promise<boolean> {
 		const client = databaseFactory.getClient({ tx });
-		const [item] = await client.select({ operationId: items.operationId }).from(items).where(eq(items.id, id)).limit(1);
-		if (!item) return false;
-
 		const now = new Date();
-		const updated = await client
+		// The guarded UPDATE reports both "missing" and "not pending" as an empty
+		// result — the leading existence SELECT was redundant.
+		const [updated] = await client
 			.update(items)
 			.set({ status: "cancelled", completedAt: now, updatedAt: now })
 			.where(and(eq(items.id, id), eq(items.status, "pending")))
-			.returning({ id: items.id });
+			.returning({ id: items.id, operationId: items.operationId });
 
-		if (updated.length === 1) {
-			if (item.operationId) {
-				await workerOperationRepository.markPendingJobsCancelled(item.operationId, now, tx, 1);
-			}
+		if (!updated) return false;
 
-			if (tx) {
-				await this.cascadeCancel(tx, [id], now);
-			} else {
-				await databaseFactory.transaction(async (innerTx) => {
-					await this.cascadeCancel(innerTx, [id], now);
-				});
-			}
-
-			return true;
+		if (updated.operationId) {
+			await workerOperationRepository.markPendingJobsCancelled(updated.operationId, now, tx, 1);
 		}
 
-		return false;
+		if (tx) {
+			await this.cascadeCancel(tx, [id], now);
+		} else {
+			await databaseFactory.transaction(async (innerTx) => {
+				await this.cascadeCancel(innerTx, [id], now);
+			});
+		}
+
+		return true;
 	}
 
 	/**
