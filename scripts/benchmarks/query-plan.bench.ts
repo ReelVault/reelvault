@@ -90,6 +90,30 @@ function buildCases(rows: number, now: number): QueryCase[] {
 			sql: `SELECT ${metadataColumns} FROM metadata WHERE release_date >= '2020-01-01' AND release_date <= '2023-12-31' AND EXISTS (SELECT 1 FROM metadata_genres WHERE metadata_genres.metadata_id = metadata.id AND metadata_genres.genre_id IN ('genre-1')) AND ${hasMedia} ORDER BY title, id LIMIT 24`,
 		},
 		{
+			name: "metadata typed sortTitle browse (index-hardening)",
+			sql: `SELECT ${metadataColumns} FROM metadata WHERE type = 'movie' AND ${hasMedia} ORDER BY COALESCE(sort_title, title) COLLATE NOCASE, id LIMIT 24`,
+		},
+		{
+			name: "media-files scanner keyset by library (index-hardening)",
+			sql: "SELECT id, file_path FROM media_files WHERE library_id = 'lib-bench' AND id > 'mf-meta-0000100' ORDER BY id LIMIT 500",
+		},
+		{
+			name: "downloads by media file (index-hardening)",
+			sql: "SELECT id, status FROM downloads WHERE media_file_id = 'mf-meta-0000001' ORDER BY created_at DESC LIMIT 20",
+		},
+		{
+			name: "watched-history sortBy createdAt (index-hardening)",
+			sql: "SELECT id FROM watched_history WHERE profile_id = 'profile-1' ORDER BY created_at DESC, id DESC LIMIT 50",
+		},
+		{
+			name: "worker jobs by worker+status newest (index-hardening)",
+			sql: "SELECT id, created_at FROM worker_jobs WHERE worker_id = 'media-file-analysis' AND status = 'completed' ORDER BY created_at DESC LIMIT 20",
+		},
+		{
+			name: "subtitles by media file newest (index-hardening)",
+			sql: "SELECT id FROM subtitles WHERE media_file_id = 'mf-meta-0000001' ORDER BY created_at ASC LIMIT 50",
+		},
+		{
 			name: "metadata count (browse filter)",
 			sql: `SELECT count(*) FROM metadata WHERE ${hasMedia}`,
 		},
