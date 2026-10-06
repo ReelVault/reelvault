@@ -6,30 +6,39 @@ import { workerService } from "@/workers/worker.service";
 import { playlistService } from "../playlist/playlist.service";
 import { streamingManager } from "./streaming.manager";
 
-// Import-time wiring on purpose: the playback routes import this module during
-// boot, before any session can start. Callback bodies dereference their imports
-// lazily, so this module can never hit a TDZ in an import cycle.
-streamingManager.configureLifecycleCallbacks({
-	cancelOperation: async (operationId) => await workerService.cancelOperation(operationId),
-	onSessionStarted: ({ sessionId, mediaFileId, profileId }) => {
-		pluginEventBus.publish("playback.session.started", { sessionId, mediaFileId });
-		// Per-session/per-profile, not a global broadcast — other users must
-		// not receive session ids or media ids.
-		realtimeService.sendToProfile(profileId, "playback:session:started", { sessionId, mediaFileId });
-	},
-	onSessionEnded: ({ sessionId, mediaFileId, profileId, reason }) => {
-		pluginEventBus.publish("playback.session.ended", { sessionId, mediaFileId, reason });
-		pluginEventBus.publish("playback.lifecycle.stopped", {
-			sessionId,
-			mediaFileId,
-			reason,
-			stoppedAt: new Date().toISOString(),
-		});
-		realtimeService.sendToProfile(profileId, "playback:session:ended", { sessionId, mediaFileId, reason });
-		realtimeService.dropPlaybackSession(sessionId);
-		playlistService.invalidate(sessionId);
-	},
-});
+let lifecycleRegistered = false;
+
+/**
+ * Configures the streaming manager lifecycle callbacks once, at boot. Callback
+ * bodies dereference their imports lazily, so this module can never hit a TDZ
+ * in an import cycle.
+ */
+export function registerStreamingLifecycle(): void {
+	if (lifecycleRegistered) return;
+
+	lifecycleRegistered = true;
+	streamingManager.configureLifecycleCallbacks({
+		cancelOperation: async (operationId) => await workerService.cancelOperation(operationId),
+		onSessionStarted: ({ sessionId, mediaFileId, profileId }) => {
+			pluginEventBus.publish("playback.session.started", { sessionId, mediaFileId });
+			// Per-session/per-profile, not a global broadcast — other users must
+			// not receive session ids or media ids.
+			realtimeService.sendToProfile(profileId, "playback:session:started", { sessionId, mediaFileId });
+		},
+		onSessionEnded: ({ sessionId, mediaFileId, profileId, reason }) => {
+			pluginEventBus.publish("playback.session.ended", { sessionId, mediaFileId, reason });
+			pluginEventBus.publish("playback.lifecycle.stopped", {
+				sessionId,
+				mediaFileId,
+				reason,
+				stoppedAt: new Date().toISOString(),
+			});
+			realtimeService.sendToProfile(profileId, "playback:session:ended", { sessionId, mediaFileId, reason });
+			realtimeService.dropPlaybackSession(sessionId);
+			playlistService.invalidate(sessionId);
+		},
+	});
+}
 
 /** Active playback sessions owned by one profile, with media titles (remote-control page). */
 export async function listMinePlaybackSessions(profileId: string | undefined) {

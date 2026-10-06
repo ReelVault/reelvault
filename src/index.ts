@@ -21,6 +21,7 @@ import { requestDedupMiddleware } from "./middleware/request-dedup.middleware";
 import { requestLoggerMiddleware } from "./middleware/request-logger.middleware";
 import { responseCacheMiddleware } from "./middleware/response-cache.middleware";
 import { securityHeadersMiddleware } from "./middleware/security.middleware";
+import { registerStreamingLifecycle } from "./modules/streaming/runtime/streaming.runtime";
 import { pluginManager } from "./plugins/lifecycle/plugin.manager";
 import { serverConfig } from "./server.config";
 import { Shutdown, setActiveShutdown } from "./shutdown";
@@ -69,6 +70,9 @@ async function setupServer(): Promise<void> {
 		logger.info("Loading queue service...");
 		const builtInWorkers = await loadBuiltInWorkers();
 		await workerService.initialize(builtInWorkers);
+
+		// Streaming lifecycle callbacks must be configured before any session can start.
+		registerStreamingLifecycle();
 
 		await scheduledTasksService.init();
 
