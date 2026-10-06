@@ -5,12 +5,12 @@ import {
 	type WorkerOperationStatus,
 	workerOperationRepository,
 } from "@/database/repositories/worker-operation.repository";
+import { QueryPagination } from "@/database/utils/pagination";
 import { daysAgo } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
 import { safeParseJson } from "@/utils/file.utils";
-import { clamp } from "@/utils/math.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { toJobContract, toOperationContract } from "../utils/worker-stats.mapper";
 import { getWorkerRuntime } from "./worker-runtime";
@@ -39,21 +39,18 @@ export class WorkerOperationsService extends BaseService {
 	async list(
 		options: { status?: WorkerOperationStatus | "active" | undefined; page?: number | undefined; limit?: number | undefined } = {},
 	) {
-		const page = clamp(options.page ?? 1, 1, 1000);
-		const limit = clamp(options.limit ?? 50, 1, 100);
+		const pagination = QueryPagination.resolvePageParams(options, { defaultLimit: 50 });
 		const result = await workerOperationRepository.list({
 			status: options.status,
-			limit,
-			offset: (page - 1) * limit,
+			limit: pagination.limit,
+			offset: pagination.offset,
 		});
 
-		return {
-			page,
-			limit,
+		return QueryPagination.createResponse({
 			total: result.total,
-			totalPages: result.total > 0 ? Math.ceil(result.total / limit) : 0,
+			pagination,
 			data: result.data.map(toOperationContract),
-		};
+		});
 	}
 
 	async getOperationJobs(
@@ -65,27 +62,21 @@ export class WorkerOperationsService extends BaseService {
 			limit?: number | undefined;
 		} = {},
 	) {
-		const page = clamp(options.page ?? 1, 1, 1000);
-		const limit = clamp(options.limit ?? 50, 1, 100);
-		const offset = (page - 1) * limit;
-
+		const pagination = QueryPagination.resolvePageParams(options, { defaultLimit: 50 });
 		const [summary, { items, total }] = await Promise.all([
 			workerOperationRepository.getOperationItemsSummary(id),
 			workerOperationRepository.listItems(id, {
 				status: options.status,
 				search: options.search,
-				limit,
-				offset,
+				limit: pagination.limit,
+				offset: pagination.offset,
 			}),
 		]);
 
 		return {
 			items: items.map((item) => toJobContract(item, item.dependsOnJobId ? [item.dependsOnJobId] : [])),
 			summary,
-			page,
-			limit,
-			total,
-			totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+			...QueryPagination.buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),
 		};
 	}
 

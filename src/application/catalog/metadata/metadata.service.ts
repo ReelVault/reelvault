@@ -1,5 +1,7 @@
 import type {
 	CreateMetadata,
+	CursorPaginatedResponse,
+	CursorPaginationQuery,
 	FieldsQuery,
 	MetadataDetailsViewResponse,
 	MetadataFilters,
@@ -160,9 +162,9 @@ class MetadataService extends BaseService {
 	}
 
 	async getAll<F extends string>(
-		query?: PaginationQuery & FieldsQuery<F> & MetadataFilters & MetadataSorting,
+		query?: CursorPaginationQuery & FieldsQuery<F> & MetadataFilters & MetadataSorting,
 		viewerProfileId?: string,
-	): Promise<PaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
+	): Promise<CursorPaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
 		return await this.safeExecute("getAll", async () => {
 			// Profile-scoped filters never take the profile from the query string —
 			// the service pairs the client-facing status with the resolved viewer
@@ -424,7 +426,12 @@ class MetadataService extends BaseService {
 		},
 	): Promise<SelectFields<MetadataWithRelation, F>> {
 		const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId);
-		if (!providerMetadata) throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID");
+		if (!providerMetadata) {
+			throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID", {
+				code: "metadata.provider_details_not_found",
+				params: { providerId: body.providerId, externalId: body.externalId },
+			});
+		}
 
 		await options.persist(providerMetadata);
 
@@ -506,7 +513,12 @@ class MetadataService extends BaseService {
 
 	async mergeMetadata(targetId: string, sourceId: string, context?: AdminAuditContext): Promise<{ success: true; targetId: string }> {
 		return await this.safeExecute("mergeMetadata", async () => {
-			if (targetId === sourceId) throw new ValidationError("Target and source metadata must be different");
+			if (targetId === sourceId) {
+				throw new ValidationError("Target and source metadata must be different", {
+					code: "metadata.merge_same_id",
+					params: { metadataId: targetId },
+				});
+			}
 
 			const [target, source] = await Promise.all([
 				metadataRepository.findByIdForRead(targetId),
@@ -560,7 +572,10 @@ class MetadataService extends BaseService {
 			const primaryProvider =
 				(metadata.primaryProviderId ? providersByName.get(metadata.primaryProviderId) : undefined) ?? metadata.providers[0];
 			if (!primaryProvider) {
-				throw new NotFoundError("Metadata provider not found for title");
+				throw new NotFoundError("Metadata provider not found for title", {
+					code: "metadata.provider_not_found",
+					params: { metadataId },
+				});
 			}
 
 			const providerMetadata = await providerService.fetchDetailsByProvider(
@@ -569,7 +584,10 @@ class MetadataService extends BaseService {
 				primaryProvider.externalId,
 			);
 			if (!providerMetadata) {
-				throw new NotFoundError("Could not fetch details from provider");
+				throw new NotFoundError("Could not fetch details from provider", {
+					code: "metadata.provider_details_not_found",
+					params: { providerId: primaryProvider.name, externalId: primaryProvider.externalId },
+				});
 			}
 
 			const isForce = options.force ?? true;

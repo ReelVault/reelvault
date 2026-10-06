@@ -50,8 +50,8 @@ class AdminUsersService extends BaseService {
 			});
 
 			return {
+				...QueryPagination.buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),
 				data: data.map((item) => toAdminUser(item)),
-				pagination: QueryPagination.buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),
 			};
 		});
 	}

@@ -2,6 +2,7 @@ import { readdir, rmdir, stat, truncate, unlink } from "node:fs/promises";
 import type { AdminLogEntry, AdminLogFileInfo, AdminLogsPage } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
+import { QueryPagination } from "@/database/utils/pagination";
 import { serverConfig } from "@/server.config";
 import { DAY } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
@@ -211,7 +212,7 @@ class AdminLogsService extends BaseService {
 		const cleanId = PathUtils.normalize(fileId.trim()).replace(leadingParentTraversalPattern, "");
 		const targetPath = PathUtils.resolve(PathUtils.join(logsRoot, cleanId));
 		if (!PathUtils.isSubpath(targetPath, logsRoot) && targetPath !== logsRoot) {
-			throw new ValidationError("Invalid log file path");
+			throw new ValidationError("Invalid log file path", { code: "admin.log_path_invalid", params: { fileId } });
 		}
 
 		return { filePath: targetPath, filename: PathUtils.getFileName(targetPath) };
@@ -494,8 +495,7 @@ class AdminLogsService extends BaseService {
 		const targetLevels = query?.level && query.level !== "all" ? new Set(query.level.split(",").map((l) => normalizeLower(l))) : undefined;
 		const hasErrorsFilter = targetLevels?.has("errors") ?? false;
 
-		const limit = Math.max(1, query?.limit ?? 100);
-		const page = Math.max(1, query?.page ?? 1);
+		const { page, limit } = QueryPagination.resolvePageParams(query ?? {}, { defaultLimit: 100 });
 		const windowStart = (page - 1) * limit;
 		const windowEnd = windowStart + limit;
 		let totalMatching = 0;
@@ -520,9 +520,10 @@ class AdminLogsService extends BaseService {
 			totalMatching++;
 		}
 
-		const totalPages = Math.ceil(totalMatching / limit) || 1;
-
-		return { data: parsedEntries, pagination: { total: totalMatching, page, limit, totalPages } };
+		return {
+			...QueryPagination.buildAdminPagination({ total: totalMatching, page, limit }),
+			data: parsedEntries,
+		};
 	}
 }
 

@@ -27,6 +27,7 @@ import {
 import { Elysia, t } from "elysia";
 import {
 	ClampedNumeric,
+	CursorPaginationSchema,
 	commonModel,
 	FieldsSchema,
 	PaginatedResponseSchema,
@@ -223,7 +224,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 
 	// --- WATCHED HISTORY ---
 	.get("/watched-history", async ({ query, profile }) => await watchedHistoryService.getAll(query, profile?.id), {
-		query: t.Composite([PaginationSchema, WatchedHistorySortingSchema]),
+		query: t.Composite([CursorPaginationSchema, WatchedHistorySortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchedHistory.paginated.schema" },
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve watched history for the active profile." },

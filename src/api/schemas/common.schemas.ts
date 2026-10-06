@@ -1,5 +1,6 @@
 import { ApiErrorResponseSchema, PaginatedResponseSchema, SuccessResponseSchema } from "@reelvault/sdk/common";
 import Elysia, { t } from "elysia";
+import { serverConstants } from "@/server.constants";
 import { clamp } from "@/utils/math.utils";
 
 export { PaginatedResponseSchema };
@@ -11,9 +12,16 @@ export function ClampedNumeric(minimum: number, maximum: number, options?: Param
 		.Encode((value) => value);
 }
 
+/** Offset pagination query — `page`/`limit` only; cursor endpoints use `CursorPaginationSchema`. */
 export const PaginationSchema = t.Object({
-	page: t.Optional(ClampedNumeric(1, 1000)),
-	limit: t.Optional(ClampedNumeric(1, 100)),
+	page: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxPage)),
+	limit: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxLimit)),
+});
+
+/** Cursor-capable pagination query — only routes whose repository honors `cursor`. */
+export const CursorPaginationSchema = t.Object({
+	page: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxPage)),
+	limit: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxLimit)),
 	cursor: t.Optional(t.String({ minLength: 1, maxLength: 512 })),
 });
 

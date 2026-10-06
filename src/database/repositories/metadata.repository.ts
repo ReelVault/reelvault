@@ -1,5 +1,7 @@
 import type {
 	CreateMetadata,
+	CursorPaginatedResponse,
+	CursorPaginationQuery,
 	FieldsConfig,
 	FieldsQuery,
 	MetadataSorting,
@@ -29,8 +31,10 @@ import { type CreatedAtCursor, decodeCursorFor, KeysetCursor, keysetWhere } from
 import { findMediaCleanupData } from "@/database/utils/media-cleanup";
 import { toMetadataValues } from "@/database/utils/metadata-values";
 import { QueryPagination } from "@/database/utils/pagination";
+import { findFirstProviderLinkFor } from "@/database/utils/provider-link";
 import { QueryUtils } from "@/database/utils/query-parser";
 import { createLocalMetadataStableKey, createProviderStableKey } from "@/database/utils/stable-key";
+import { runInTransaction } from "@/database/utils/transaction";
 import { hasEntry } from "@/utils/array.utils";
 import { NotFoundError, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
@@ -130,6 +134,17 @@ const metadataTable = defineTableAccess("metadata", {
 
 const metadataColumns = getTableColumns(schema.metadata);
 
+/** Args shared by the private selectMetadata and the public findMany/findManyWithCursor. */
+interface MetadataSelectArgs<F extends string> {
+	fields?: FieldsConfig<F> | undefined;
+	where?: SQL | undefined;
+	orderBy?: SQL | undefined;
+	limit?: number | undefined;
+	offset?: number | undefined;
+	requiredFields?: Array<keyof typeof metadataColumns> | undefined;
+	tx?: DatabaseTransaction | undefined;
+}
+
 /** Flat metadata row (no relations) — the DTO returned by `findRootsById`. */
 export type MetadataRootRow = typeof schema.metadata.$inferSelect;
 
@@ -177,15 +192,7 @@ class MetadataRepository {
 			.limit(limit);
 	}
 
-	private selectMetadata<F extends string>(args: {
-		fields?: FieldsConfig<F> | undefined;
-		where?: SQL | undefined;
-		orderBy?: SQL | undefined;
-		limit?: number | undefined;
-		offset?: number | undefined;
-		requiredFields?: Array<keyof typeof metadataColumns> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<Array<typeof schema.metadata.$inferSelect>>;
+	private selectMetadata<F extends string>(args: MetadataSelectArgs<F>): Promise<Array<typeof schema.metadata.$inferSelect>>;
 	private async selectMetadata({
 		fields,
 		where,
@@ -194,15 +201,7 @@ class MetadataRepository {
 		offset,
 		requiredFields,
 		tx,
-	}: {
-		fields?: FieldsConfig | undefined;
-		where?: SQL | undefined;
-		orderBy?: SQL | undefined;
-		limit?: number | undefined;
-		offset?: number | undefined;
-		requiredFields?: Array<keyof typeof metadataColumns> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<unknown[]> {
+	}: MetadataSelectArgs<string>): Promise<unknown[]> {
 		// `id` is always required; `createdAt` is added by cursor-mode callers so
 		// the keyset cursor can be built from the projected row.
 		return await selectManyWithFields(metadataTable, {
@@ -227,16 +226,30 @@ class MetadataRepository {
 		offset,
 		requiredFields,
 		tx,
-	}: {
-		fields?: FieldsConfig<F> | undefined;
-		where?: SQL | undefined;
-		orderBy?: SQL | undefined;
-		limit?: number | undefined;
-		offset?: number | undefined;
-		requiredFields?: Array<keyof typeof metadataColumns> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<Array<SelectFields<MetadataWithRelation, F>>> {
+	}: MetadataSelectArgs<F>): Promise<Array<SelectFields<MetadataWithRelation, F>>> {
 		const data = await this.selectMetadata({ fields, where, orderBy, limit, offset, requiredFields, tx });
+
+		return await this.hydrateRows(data, fields, tx);
+	}
+
+	async findManyWithCursor<F extends string>(
+		args: MetadataSelectArgs<F>,
+	): Promise<{ data: Array<SelectFields<MetadataWithRelation, F>>; cursor?: CreatedAtCursor }> {
+		const data = await this.selectMetadata(args);
+		const last = data.at(-1);
+
+		return {
+			data: await this.hydrateRows(data, args.fields, args.tx),
+			...(last ? { cursor: { createdAt: last.createdAt.getTime(), id: last.id } } : {}),
+		};
+	}
+
+	/** Loads the relation graph for a page of metadata rows and applies the field selection. */
+	private async hydrateRows<F extends string>(
+		data: Array<typeof schema.metadata.$inferSelect>,
+		fields?: FieldsConfig<F>,
+		tx?: DatabaseTransaction,
+	): Promise<Array<SelectFields<MetadataWithRelation, F>>> {
 		const relations = await loadRelations(
 			data.map((metadata) => metadata.id),
 			tx,
@@ -246,32 +259,9 @@ class MetadataRepository {
 		return data.map((item) => QueryFields.apply(withRelations(item, relations.get(item.id)), fields));
 	}
 
-	async findManyWithCursor<F extends string>(args: {
-		fields?: FieldsConfig<F> | undefined;
-		where?: SQL | undefined;
-		orderBy?: SQL | undefined;
-		limit?: number | undefined;
-		offset?: number | undefined;
-		requiredFields?: Array<keyof typeof metadataColumns> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<{ data: Array<SelectFields<MetadataWithRelation, F>>; cursor?: CreatedAtCursor }> {
-		const data = await this.selectMetadata(args);
-		const last = data.at(-1);
-		const relations = await loadRelations(
-			data.map((metadata) => metadata.id),
-			args.tx,
-			args.fields,
-		);
-
-		return {
-			data: data.map((item) => QueryFields.apply(withRelations(item, relations.get(item.id)), args.fields)),
-			...(last ? { cursor: { createdAt: last.createdAt.getTime(), id: last.id } } : {}),
-		};
-	}
-
 	async findPage<F extends string>(
-		query?: PaginationQuery & FieldsQuery<F> & MetadataRepositoryFilters & MetadataSorting,
-	): Promise<PaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
+		query?: CursorPaginationQuery & FieldsQuery<F> & MetadataRepositoryFilters & MetadataSorting,
+	): Promise<CursorPaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
 		const { pagination, fields, sorting, filters } = QueryUtils.parseWithFilters<F, MetadataRepositoryFilters, MetadataSorting>(query);
 		const where = QueryUtils.buildWhereConditions(filters, metadataQueryMap.filters);
 		const cursorMode =
@@ -375,15 +365,7 @@ class MetadataRepository {
 
 	/** First provider link (external id + provider name) for a metadata row. */
 	async findFirstProviderLink(metadataId: string): Promise<{ externalId: string; name: string } | undefined> {
-		const [row] = await databaseFactory
-			.getClient()
-			.select({ externalId: schema.providers.externalId, name: schema.providers.name })
-			.from(schema.metadataProviders)
-			.innerJoin(schema.providers, eq(schema.metadataProviders.providerId, schema.providers.id))
-			.where(eq(schema.metadataProviders.metadataId, metadataId))
-			.limit(1);
-
-		return row;
+		return await findFirstProviderLinkFor(schema.metadataProviders, schema.metadataProviders.metadataId, metadataId);
 	}
 
 	/**
@@ -448,7 +430,7 @@ class MetadataRepository {
 	}
 
 	async setLockedFields(metadataId: string, fields: readonly string[], tx?: DatabaseTransaction): Promise<void> {
-		const runner = async (transaction: DatabaseTransaction) => {
+		await runInTransaction(tx, async (transaction) => {
 			const client = databaseFactory.getClient({ tx: transaction });
 			await client.delete(schema.metadataLockedFields).where(eq(schema.metadataLockedFields.metadataId, metadataId));
 			if (fields.length > 0) {
@@ -471,13 +453,7 @@ class MetadataRepository {
 					);
 				}
 			}
-		};
-
-		if (tx) {
-			await runner(tx);
-		} else {
-			await databaseFactory.transaction(runner);
-		}
+		});
 	}
 
 	async createAndRead<F extends string>(
@@ -652,7 +628,7 @@ class MetadataRepository {
 	async deleteOrphansByIds(orphanIds: string[], tx?: DatabaseTransaction): Promise<number> {
 		if (orphanIds.length === 0) return 0;
 
-		const runner = async (targetTx: DatabaseTransaction) => {
+		return await runInTransaction(tx, async (targetTx) => {
 			const client = databaseFactory.getClient({ tx: targetTx });
 			let deletedCount = 0;
 			await forEachChunked(orphanIds, async (idChunk) => {
@@ -661,9 +637,7 @@ class MetadataRepository {
 			});
 
 			return deletedCount;
-		};
-
-		return tx ? await runner(tx) : await databaseFactory.transaction(runner);
+		});
 	}
 
 	async findMediaFileCleanupData(metadataId: string, tx?: DatabaseTransaction) {

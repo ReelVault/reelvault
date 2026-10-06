@@ -1,9 +1,9 @@
 import type {
 	CreateWatchedHistory,
+	CursorPaginatedResponse,
+	CursorPaginationQuery,
 	GenreDistribution,
 	InsightsRange,
-	PaginatedResponse,
-	PaginationQuery,
 	ProfileInsights,
 	TopWatchedMedia,
 	WatchedHistoryWithRelations,
@@ -33,9 +33,9 @@ class WatchedHistoryService extends BaseService {
 	}
 
 	async getAll(
-		query: PaginationQuery & { sortBy?: "watchedAt" | "createdAt"; sortOrder?: "asc" | "desc" },
+		query: CursorPaginationQuery & { sortBy?: "watchedAt" | "createdAt"; sortOrder?: "asc" | "desc" },
 		profileId?: string,
-	): Promise<PaginatedResponse<WatchedHistoryWithRelations>> {
+	): Promise<CursorPaginatedResponse<WatchedHistoryWithRelations>> {
 		return await this.safeExecute("getAll", async () => {
 			this.assertProfileId(profileId);
 

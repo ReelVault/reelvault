@@ -1,7 +1,7 @@
 import type {
 	CreateWatchedHistory,
-	PaginatedResponse,
-	PaginationQuery,
+	CursorPaginatedResponse,
+	CursorPaginationQuery,
 	TopWatchedMedia,
 	WatchedHistoryWithRelations,
 } from "@reelvault/sdk/common";
@@ -123,8 +123,8 @@ class WatchedHistoryRepository {
 
 	async findPage(
 		profileId: string,
-		query: PaginationQuery & { sortBy?: "watchedAt" | "createdAt"; sortOrder?: "asc" | "desc" },
-	): Promise<PaginatedResponse<WatchedHistoryWithRelations>> {
+		query: CursorPaginationQuery & { sortBy?: "watchedAt" | "createdAt"; sortOrder?: "asc" | "desc" },
+	): Promise<CursorPaginatedResponse<WatchedHistoryWithRelations>> {
 		const { pagination } = QueryUtils.parseStandard(query);
 		const sortBy = query.sortBy ?? "watchedAt";
 		const sortOrder = query.sortOrder ?? "desc";

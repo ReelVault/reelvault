@@ -57,14 +57,17 @@ test("admin audit endpoint returns a page for an authorized administrator", asyn
 	});
 	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
 	adminAuditService.getAll = async () => ({
+		page: 1,
+		limit: 50,
+		total: 0,
+		totalPages: 0,
 		data: [],
-		pagination: { total: 0, page: 1, limit: 50, totalPages: 1 },
 	});
 
 	const response = await app.handle(new Request("http://localhost/admin/audit?limit=50", { headers: { authorization: "Bearer admin" } }));
 
 	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ data: [], pagination: { total: 0, page: 1, limit: 50, totalPages: 1 } });
+	expect(await response.json()).toEqual({ page: 1, limit: 50, total: 0, totalPages: 0, data: [] });
 });
 
 test("admin audit endpoint rejects an authenticated user without permission", async () => {

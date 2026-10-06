@@ -36,6 +36,7 @@ class AdminAuditService extends BaseService {
 			const result = await adminAuditRepository.findMany({ ...query, page: pagination.page, limit: pagination.limit });
 
 			return {
+				...QueryPagination.buildAdminPagination({ total: result.total, page: pagination.page, limit: pagination.limit }),
 				data: result.data.map(
 					(entry) =>
 						({
@@ -54,7 +55,6 @@ class AdminAuditService extends BaseService {
 							createdAt: entry.createdAt.toISOString(),
 						}) satisfies AdminAuditEntry,
 				),
-				pagination: QueryPagination.buildAdminPagination({ total: result.total, page: pagination.page, limit: pagination.limit }),
 			};
 		});
 	}
@@ -108,8 +108,12 @@ export async function auditedUpdate<T>(params: AuditedUpdateParams<T>): Promise<
 	return result;
 }
 
-/** Fire-and-forget audit log record — catches and logs errors instead of propagating. */
-// TODO: Move to a service
+/**
+ * Fire-and-forget audit log record — catches and logs errors instead of
+ * propagating. Deliberately a free function taking the caller's logger: an
+ * audit failure is attributed to the service that attempted the write, not to
+ * AdminAuditService.
+ */
 export function recordAuditSafe(entry: AdminAuditRecord, logger: Logger): void {
 	detach(
 		(async () => {

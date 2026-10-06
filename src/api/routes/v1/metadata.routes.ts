@@ -17,6 +17,7 @@ import {
 import { Elysia, t } from "elysia";
 import {
 	ClampedNumeric,
+	CursorPaginationSchema,
 	commonModel,
 	FieldsSchema,
 	PaginatedResponseSchema,
@@ -52,7 +53,7 @@ export const metadataRoutes = new Elysia({
 	})
 	.guard({ auth: true })
 	.get("/", async ({ query, profile }) => await metadataService.getAll(query, profile?.id), {
-		query: t.Composite([PaginationSchema, FieldsSchema, MetadataFiltersSchema, MetadataSortingSchema]),
+		query: t.Composite([CursorPaginationSchema, FieldsSchema, MetadataFiltersSchema, MetadataSortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "metadata.paginated.schema" },
 		...cached({ maxAge: 60, private: true }),
 		detail: {
