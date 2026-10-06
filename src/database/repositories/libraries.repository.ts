@@ -14,7 +14,13 @@ import type {
 import { and, eq, inArray, ne, notExists, notInArray, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { defineTableAccess, findPageWithQueryMap, forEachChunked, type ProjectedSelectParams } from "@/database/table-access";
+import {
+	defineTableAccess,
+	findPageWithQueryMap,
+	forEachChunked,
+	type ProjectedSelectParams,
+	parseFieldsForRead,
+} from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -140,9 +146,7 @@ class LibrariesRepository {
 	}
 
 	async findByIdForRead<F extends string>(libraryId: string, query?: FieldsQuery<F>) {
-		const { fields } = QueryUtils.parseStandard(query);
-
-		return await this.findById({ primaryId: libraryId, fields });
+		return await this.findById({ primaryId: libraryId, fields: parseFieldsForRead(query) });
 	}
 
 	async updateAndRead<F extends string>(libraryId: string, body: UpdateLibrary, query?: FieldsQuery<F>) {

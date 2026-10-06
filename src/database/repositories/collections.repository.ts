@@ -16,7 +16,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess } from "@/database/table-access";
+import { defineTableAccess, parseFieldsForRead } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -114,9 +114,7 @@ class CollectionsRepository {
 	}
 
 	async findByIdForRead<F extends string>(collectionId: string, query?: FieldsQuery<F>) {
-		const { fields } = QueryUtils.parseStandard(query);
-
-		return await this.findById({ primaryId: collectionId, fields });
+		return await this.findById({ primaryId: collectionId, fields: parseFieldsForRead(query) });
 	}
 
 	async findByName(name: string) {

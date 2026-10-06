@@ -2,7 +2,14 @@ import type { FieldsQuery, PaginatedResponse, PaginationQuery, ProviderEntityTyp
 import { eq, inArray } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
-import { findPageWithQueryMap, type SchemaTable, type TableAccess, type TableSelect } from "@/database/table-access";
+import {
+	defineRepository,
+	findPageWithQueryMap,
+	parseFieldsForRead,
+	type SchemaTable,
+	type TableAccess,
+	type TableSelect,
+} from "@/database/table-access";
 import type { DatabaseTables, DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
@@ -77,39 +84,15 @@ export function defineNamedEntityRepository<
 		return existing;
 	};
 
-	return {
-		table: config.table,
-		primaryKeyColumn: entity.primaryKeyColumn,
-		query: entity.query,
-		selectMany: entity.selectMany,
-		selectFirst: entity.selectFirst,
-		findMany: entity.findMany,
-		findById: entity.findById,
-		findOrCreate: entity.findOrCreate,
-		insert: entity.insert,
-		update: entity.update,
-		count: entity.count,
-		isExists: entity.isExists,
-		delete: entity.delete,
+	return defineRepository(entity, {
 		insertProviders: providerEntity.insert,
-
-		insertReturning: entity.insertReturning,
-		updateReturning: entity.updateReturning,
-		updateAndReturn: entity.updateAndReturn,
-		deleteReturning: entity.deleteReturning,
-		deleteAndReturn: entity.deleteAndReturn,
-		findByIds: entity.findByIds,
-		findByColumnIn: entity.findByColumnIn,
 
 		findPage: async <F extends string>(
 			query?: PaginationQuery & FieldsQuery<F> & TFilters & TSorting,
 		): Promise<PaginatedResponse<SelectFields<EntityRow, F>>> => await findPageWithQueryMap(entity, config.queryMap, query),
 
-		findByIdForRead: async <F extends string>(entityId: string, query?: FieldsQuery<F>) => {
-			const { fields } = QueryUtils.parseStandard(query);
-
-			return await entity.findById({ primaryId: entityId, fields });
-		},
+		findByIdForRead: async <F extends string>(entityId: string, query?: FieldsQuery<F>) =>
+			await entity.findById({ primaryId: entityId, fields: parseFieldsForRead(query) }),
 
 		createAndRead: async <F extends string>(
 			body: { name: string },
@@ -169,5 +152,5 @@ export function defineNamedEntityRepository<
 				},
 			});
 		},
-	};
+	});
 }

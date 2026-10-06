@@ -13,7 +13,7 @@ import type {
 import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { defineTableAccess, findPageWithQueryMap } from "@/database/table-access";
+import { defineRepository, defineTableAccess, findPageWithQueryMap } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -48,41 +48,23 @@ const subtitleQueryMap: QueryMap<SubtitleFilters, SubtitleSorting> = {
 	defaults: { sortBy: "createdAt", sortOrder: "asc" },
 };
 
-class SubtitlesRepository {
-	readonly table = schema.subtitles;
-	readonly primaryKeyColumn = subtitles.primaryKeyColumn;
-	readonly query = subtitles.query;
-	readonly selectMany = subtitles.selectMany;
-	readonly selectFirst = subtitles.selectFirst;
-	readonly findOrCreate = subtitles.findOrCreate;
-	readonly insert = subtitles.insert;
-	readonly update = subtitles.update;
-	readonly delete = subtitles.delete;
-	readonly count = subtitles.count;
-	readonly isExists = subtitles.isExists;
-	readonly insertReturning = subtitles.insertReturning;
-	readonly updateReturning = subtitles.updateReturning;
-	readonly updateAndReturn = subtitles.updateAndReturn;
-	readonly deleteReturning = subtitles.deleteReturning;
-	readonly findByIds = subtitles.findByIds;
-	readonly findByColumnIn = subtitles.findByColumnIn;
-
+const overrides = {
 	async findPage(query?: PaginationQuery & SubtitleFilters & SubtitleSorting): Promise<PaginatedResponse<SubtitleEntity>> {
 		return await findPageWithQueryMap(subtitles, subtitleQueryMap, query);
-	}
+	},
 
 	async findByMediaFileId(mediaFileId: string, tx?: DatabaseTransaction) {
-		return await this.selectMany({
-			where: eq(this.table.mediaFileId, mediaFileId),
+		return await getSubtitlesRepository().selectMany({
+			where: eq(subtitles.table.mediaFileId, mediaFileId),
 			tx,
 		});
-	}
+	},
 
 	async createAndRead(body: CreateSubtitleRequest, type: SubtitleType) {
 		const { sourcePath, ...values } = body;
 		const subtitle = await databaseFactory.transaction(
 			async (tx) =>
-				await this.findOrCreateForMediaFile({
+				await getSubtitlesRepository().findOrCreateForMediaFile({
 					mediaFileId: body.mediaFileId,
 					streamIndex: body.streamIndex,
 					filePath: sourcePath,
@@ -92,18 +74,18 @@ class SubtitlesRepository {
 		);
 
 		return subtitle;
-	}
+	},
 
 	async updateAndRead(id: string, body: UpdateSubtitleRequest) {
 		const { sourcePath, ...values } = body;
 		const updateValues = sourcePath === undefined ? values : { ...values, filePath: sourcePath };
 
 		return await subtitles.updateAndReturn({ primaryId: id, values: updateValues });
-	}
+	},
 
 	async deleteAndReturn(id: string) {
 		return await subtitles.deleteAndReturn({ primaryId: id });
-	}
+	},
 
 	async findFirst<F extends string>({
 		where,
@@ -114,12 +96,12 @@ class SubtitlesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<SubtitleEntity, F> | undefined> {
-		const data = await this.selectFirst({ where, tx });
+		const data = await getSubtitlesRepository().selectFirst({ where, tx });
 
 		if (!data) return undefined;
 
 		return QueryFields.apply(data, fields);
-	}
+	},
 
 	async findByPrimaryId<F extends string>({
 		primaryId,
@@ -130,8 +112,8 @@ class SubtitlesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<SubtitleEntity, F> | undefined> {
-		return await this.findFirst({ where: eq(this.primaryKeyColumn, primaryId), fields, tx });
-	}
+		return await getSubtitlesRepository().findFirst({ where: eq(subtitles.primaryKeyColumn, primaryId), fields, tx });
+	},
 
 	async findOrCreateForMediaFile({
 		mediaFileId,
@@ -148,15 +130,19 @@ class SubtitlesRepository {
 	}) {
 		let sourceCondition: SQL | undefined;
 		if (streamIndex !== undefined) {
-			sourceCondition = eq(this.table.streamIndex, streamIndex);
+			sourceCondition = eq(subtitles.table.streamIndex, streamIndex);
 		} else if (filePath !== undefined) {
-			sourceCondition = eq(this.table.filePath, filePath);
+			sourceCondition = eq(subtitles.table.filePath, filePath);
 		} else {
-			sourceCondition = isNull(this.table.filePath);
+			sourceCondition = isNull(subtitles.table.filePath);
 		}
 
-		return await this.findOrCreate({ where: and(eq(this.table.mediaFileId, mediaFileId), sourceCondition), values, tx });
-	}
+		return await getSubtitlesRepository().findOrCreate({
+			where: and(eq(subtitles.table.mediaFileId, mediaFileId), sourceCondition),
+			values,
+			tx,
+		});
+	},
 
 	async findExternalByMediaFileAndLanguage({
 		mediaFileId,
@@ -167,11 +153,20 @@ class SubtitlesRepository {
 		language: string;
 		tx?: DatabaseTransaction | undefined;
 	}) {
-		return await this.findFirst({
-			where: and(eq(this.table.mediaFileId, mediaFileId), eq(this.table.language, language), eq(this.table.type, "external")),
+		return await getSubtitlesRepository().findFirst({
+			where: and(
+				eq(subtitles.table.mediaFileId, mediaFileId),
+				eq(subtitles.table.language, language),
+				eq(subtitles.table.type, "external"),
+			),
 			tx,
 		});
-	}
-}
+	},
+};
 
-export const subtitlesRepository = new SubtitlesRepository();
+export const subtitlesRepository = defineRepository(subtitles, overrides);
+
+/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+function getSubtitlesRepository() {
+	return subtitlesRepository;
+}

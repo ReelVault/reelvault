@@ -13,12 +13,12 @@ import { and, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, parseFieldsForRead } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import { attachMediaFiles } from "@/database/utils/media-file-projection";
-import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
+import type { QueryMap } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { findOrCreateWithIdentityRecovery } from "@/database/utils/upsert-by-identity";
 
@@ -76,9 +76,7 @@ class EpisodesRepository {
 	}
 
 	async findByIdForRead<F extends string>(episodeId: string, query?: FieldsQuery<F>) {
-		const { fields } = QueryUtils.parseStandard(query);
-
-		return await this.findByPrimaryId({ primaryId: episodeId, fields });
+		return await this.findByPrimaryId({ primaryId: episodeId, fields: parseFieldsForRead(query) });
 	}
 
 	/** All episodes belonging to any of the given seasons (raw rows). */

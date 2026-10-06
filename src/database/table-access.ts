@@ -260,6 +260,56 @@ export function defineTableAccess<TTable extends DatabaseTables>(
 	};
 }
 
+/** Table-access surface a repository exposes — the internal `tableName` discriminator stays private. */
+export type RepositoryDelegations<TTable extends DatabaseTables> = Omit<TableAccess<TTable>, "tableName">;
+
+/**
+ * Merges a table-access object's generic delegations with repository-specific
+ * methods. Overrides are applied after the spread, so a repository's own
+ * hydrating `findById`/`findByPrimaryId`/`findMany` always wins over the
+ * table-access twin — delegating a read to that twin silently drops relations
+ * (see AGENTS.md).
+ */
+export function defineRepository<TTable extends DatabaseTables, TOverrides extends object>(
+	access: TableAccess<TTable>,
+	overrides: TOverrides,
+): Omit<RepositoryDelegations<TTable>, keyof TOverrides> & TOverrides {
+	const delegations: RepositoryDelegations<TTable> = {
+		table: access.table,
+		primaryKeyColumn: access.primaryKeyColumn,
+		query: access.query,
+		selectMany: access.selectMany,
+		selectFirst: access.selectFirst,
+		findMany: access.findMany,
+		findById: access.findById,
+		findOrCreate: access.findOrCreate,
+		insert: access.insert,
+		update: access.update,
+		count: access.count,
+		isExists: access.isExists,
+		delete: access.delete,
+		insertReturning: access.insertReturning,
+		updateReturning: access.updateReturning,
+		updateAndReturn: access.updateAndReturn,
+		deleteReturning: access.deleteReturning,
+		deleteAndReturn: access.deleteAndReturn,
+		findByIds: access.findByIds,
+		findByColumnIn: access.findByColumnIn,
+	};
+
+	return { ...delegations, ...overrides };
+}
+
+/**
+ * Parses the standard `fields` query for a repository read-by-id path. Use it
+ * in `findByIdForRead` and hand the result to the repository's own hydrating
+ * `findById`/`findByPrimaryId` — never to the table-access `findById` twin,
+ * which returns the flat row and silently drops relations.
+ */
+export function parseFieldsForRead<F extends string>(query?: FieldsQuery<F>): FieldsConfig<F> {
+	return QueryFields.parse({ fields: query?.fields });
+}
+
 export async function findPageWithQueryMap<
 	TTable extends DatabaseTables,
 	TFilters extends object,

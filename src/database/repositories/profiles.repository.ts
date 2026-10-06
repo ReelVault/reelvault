@@ -12,7 +12,13 @@ import type {
 import { and, desc, eq, ne } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { defineTableAccess, findPageWithQueryMap, selectFirstWithFields } from "@/database/table-access";
+import {
+	defineRepository,
+	defineTableAccess,
+	findPageWithQueryMap,
+	parseFieldsForRead,
+	selectFirstWithFields,
+} from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -60,38 +66,19 @@ const profileQueryMap: QueryMap<ProfileFilters, ProfileSorting> = {
 	defaults: { sortBy: "name", sortOrder: "asc" },
 };
 
-class ProfilesRepository {
-	readonly table = schema.profiles;
-	readonly primaryKeyColumn = profiles.primaryKeyColumn;
-	readonly query = profiles.query;
-	readonly selectMany = profiles.selectMany;
-	readonly selectFirst = profiles.selectFirst;
-	readonly findOrCreate = profiles.findOrCreate;
-	readonly insert = profiles.insert;
-	readonly update = profiles.update;
-	readonly delete = profiles.delete;
-	readonly count = profiles.count;
-	readonly isExists = profiles.isExists;
-	readonly insertReturning = profiles.insertReturning;
-	readonly updateReturning = profiles.updateReturning;
-	readonly updateAndReturn = profiles.updateAndReturn;
-	readonly deleteReturning = profiles.deleteReturning;
-	readonly deleteAndReturn = profiles.deleteAndReturn;
-	readonly findByIds = profiles.findByIds;
-	readonly findByColumnIn = profiles.findByColumnIn;
-
+const overrides = {
 	/**
 	 * Auth hot-path lookup (profile context for every authenticated request).
 	 * Served from a short-TTL in-memory cache; mutations invalidate implicitly.
 	 */
 	async findByPrimaryIdCached(profileId: string): Promise<Profile | undefined> {
 		return await readProfileCached(profileId);
-	}
+	},
 
 	/** Drops any cached auth-context copy of the profile (call after direct mutations). */
 	invalidateCached(profileId: string): void {
 		profileCache.delete(profileId);
-	}
+	},
 
 	async findByPrimaryId<F extends string>({
 		primaryId,
@@ -102,12 +89,12 @@ class ProfilesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<Profile, F> | undefined> {
-		const person = await selectFirstWithFields(profiles, { where: eq(this.primaryKeyColumn, primaryId), tx, fields });
+		const profile = await selectFirstWithFields(profiles, { where: eq(profiles.primaryKeyColumn, primaryId), tx, fields });
 
-		if (!person) return undefined;
+		if (!profile) return undefined;
 
-		return QueryFields.apply(person, fields);
-	}
+		return QueryFields.apply(profile, fields);
+	},
 
 	async create<F extends string>({
 		userId,
@@ -122,7 +109,7 @@ class ProfilesRepository {
 	}): Promise<SelectFields<Profile, F> | undefined> {
 		const [data] = await databaseFactory
 			.getClient({ tx })
-			.insert(this.table)
+			.insert(profiles.table)
 			.values({
 				userId,
 				name: body.name,
@@ -134,31 +121,37 @@ class ProfilesRepository {
 		if (!data) return undefined;
 
 		return QueryFields.apply(data, fields);
-	}
+	},
 
 	async isNameTaken({ userId, name, excludeId }: { userId: string; name: string; excludeId?: string }): Promise<boolean> {
-		return await this.isExists({
-			where: and(eq(this.table.userId, userId), eq(this.table.name, name), excludeId ? ne(this.table.id, excludeId) : undefined),
+		return await getProfilesRepository().isExists({
+			where: and(
+				eq(profiles.table.userId, userId),
+				eq(profiles.table.name, name),
+				excludeId ? ne(profiles.table.id, excludeId) : undefined,
+			),
 		});
-	}
+	},
 
 	async countByUserId(userId: string): Promise<number> {
-		return await this.count({ where: eq(this.table.userId, userId) });
-	}
+		return await getProfilesRepository().count({ where: eq(profiles.table.userId, userId) });
+	},
 
 	async findByUserId(userId: string): Promise<Profile[]> {
-		return await this.selectMany({ where: eq(this.table.userId, userId), orderBy: desc(this.table.createdAt) });
-	}
+		return await getProfilesRepository().selectMany({ where: eq(profiles.table.userId, userId), orderBy: desc(profiles.table.createdAt) });
+	},
 
 	async findByUserAndId(userId: string, profileId: string): Promise<Profile | undefined> {
-		return await this.selectFirst({ where: and(eq(this.table.userId, userId), eq(this.table.id, profileId)) });
-	}
+		return await getProfilesRepository().selectFirst({
+			where: and(eq(profiles.table.userId, userId), eq(profiles.table.id, profileId)),
+		});
+	},
 
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & ProfileFilters & ProfileSorting,
 	): Promise<PaginatedResponse<SelectFields<Profile, F>>> {
 		return await findPageWithQueryMap(profiles, profileQueryMap, query);
-	}
+	},
 
 	async createAndRead<F extends string>(
 		userId: string,
@@ -167,14 +160,12 @@ class ProfilesRepository {
 	): Promise<SelectFields<Profile, F> | undefined> {
 		const { fields } = QueryUtils.parseStandard(query);
 
-		return await this.create({ userId, body, fields });
-	}
+		return await getProfilesRepository().create({ userId, body, fields });
+	},
 
 	async findByIdForRead<F extends string>(profileId: string, query?: FieldsQuery<F>): Promise<SelectFields<Profile, F> | undefined> {
-		const { fields } = QueryUtils.parseStandard(query);
-
-		return await this.findByPrimaryId({ primaryId: profileId, fields });
-	}
+		return await getProfilesRepository().findByPrimaryId({ primaryId: profileId, fields: parseFieldsForRead(query) });
+	},
 
 	async updateAndRead<F extends string>(
 		profileId: string,
@@ -185,12 +176,20 @@ class ProfilesRepository {
 		profileCache.delete(profileId);
 
 		return await profiles.updateAndReturn({ primaryId: profileId, values, fields });
-	}
+	},
 
 	async deleteOwned({ profileId, userId, tx }: { profileId: string; userId: string; tx?: DatabaseTransaction }): Promise<void> {
-		await this.delete({ where: and(eq(this.table.userId, userId), eq(this.table.id, profileId)), tx });
+		await getProfilesRepository().delete({
+			where: and(eq(profiles.table.userId, userId), eq(profiles.table.id, profileId)),
+			tx,
+		});
 		profileCache.delete(profileId);
-	}
-}
+	},
+};
 
-export const profilesRepository = new ProfilesRepository();
+export const profilesRepository = defineRepository(profiles, overrides);
+
+/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+function getProfilesRepository() {
+	return profilesRepository;
+}

@@ -11,11 +11,17 @@ import type {
 import { and, eq, ne, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { defineTableAccess, findPageWithQueryMap, selectFirstWithFields } from "@/database/table-access";
+import {
+	defineRepository,
+	defineTableAccess,
+	findPageWithQueryMap,
+	parseFieldsForRead,
+	selectFirstWithFields,
+} from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
-import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
+import type { QueryMap } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { findOrCreateWithIdentityRecovery } from "@/database/utils/upsert-by-identity";
 
@@ -42,47 +48,28 @@ const seasonQueryMap: QueryMap<SeasonFilters, SeasonSorting> = {
 	defaults: { sortBy: "seasonNumber", sortOrder: "asc" },
 };
 
-class SeasonsRepository {
-	readonly table = schema.seasons;
-	readonly primaryKeyColumn = seasons.primaryKeyColumn;
-	readonly query = seasons.query;
-	readonly selectMany = seasons.selectMany;
-	readonly selectFirst = seasons.selectFirst;
-	readonly findOrCreate = seasons.findOrCreate;
-	readonly insert = seasons.insert;
-	readonly update = seasons.update;
-	readonly delete = seasons.delete;
-	readonly count = seasons.count;
-	readonly isExists = seasons.isExists;
-	readonly insertReturning = seasons.insertReturning;
-	readonly updateReturning = seasons.updateReturning;
-	readonly updateAndReturn = seasons.updateAndReturn;
-	readonly deleteReturning = seasons.deleteReturning;
-	readonly deleteAndReturn = seasons.deleteAndReturn;
-	readonly findByIds = seasons.findByIds;
-	readonly findByColumnIn = seasons.findByColumnIn;
-
+const overrides = {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & SeasonFilters & SeasonSorting,
 	): Promise<PaginatedResponse<SelectFields<Season, F>>> {
 		return await findPageWithQueryMap(seasons, seasonQueryMap, query);
-	}
+	},
 
 	async findByIdForRead<F extends string>(seasonId: string, query?: FieldsQuery<F>) {
-		const { fields } = QueryUtils.parseStandard(query);
-
-		return await this.findByPrimaryId({ primaryId: seasonId, fields });
-	}
+		return await getSeasonsRepository().findByPrimaryId({ primaryId: seasonId, fields: parseFieldsForRead(query) });
+	},
 
 	/** All seasons for a metadata row (raw rows, no relations). */
 	async findByMetadataId(metadataId: string) {
-		return await this.selectMany({ where: eq(this.table.metadataId, metadataId) });
-	}
+		return await getSeasonsRepository().selectMany({ where: eq(seasons.table.metadataId, metadataId) });
+	},
 
 	/** A season by its metadata row and number. */
 	async findByMetadataAndNumber(metadataId: string, seasonNumber: number) {
-		return await this.findFirst({ where: and(eq(this.table.metadataId, metadataId), eq(this.table.seasonNumber, seasonNumber)) });
-	}
+		return await getSeasonsRepository().findFirst({
+			where: and(eq(seasons.table.metadataId, metadataId), eq(seasons.table.seasonNumber, seasonNumber)),
+		});
+	},
 
 	async findOrCreateByIdentity({
 		metadataId,
@@ -107,10 +94,10 @@ class SeasonsRepository {
 			upsert: async () => {
 				const [season] = await databaseFactory
 					.getClient({ tx })
-					.insert(this.table)
+					.insert(seasons.table)
 					.values({ ...values, stableKey })
 					.onConflictDoUpdate({
-						target: this.table.stableKey,
+						target: seasons.table.stableKey,
 						set: {
 							metadataId: sql`excluded.metadata_id`,
 							imageId: sql`excluded.image_id`,
@@ -122,28 +109,31 @@ class SeasonsRepository {
 							updatedAt: new Date(),
 						},
 						setWhere:
-							or(ne(this.table.metadataId, sql`excluded.metadata_id`), ne(this.table.seasonNumber, sql`excluded.season_number`)) ??
+							or(ne(seasons.table.metadataId, sql`excluded.metadata_id`), ne(seasons.table.seasonNumber, sql`excluded.season_number`)) ??
 							sql`1 = 1`,
 					})
 					.returning();
 
 				return season;
 			},
-			findByStableKey: async () => await this.selectFirst({ where: eq(this.table.stableKey, stableKey), tx }),
+			findByStableKey: async () => await getSeasonsRepository().selectFirst({ where: eq(seasons.table.stableKey, stableKey), tx }),
 			findByIdentity: async () =>
-				await this.selectFirst({ where: and(eq(this.table.metadataId, metadataId), eq(this.table.seasonNumber, seasonNumber)), tx }),
+				await getSeasonsRepository().selectFirst({
+					where: and(eq(seasons.table.metadataId, metadataId), eq(seasons.table.seasonNumber, seasonNumber)),
+					tx,
+				}),
 			reconcile: async (existing) => {
 				const [updated] = await databaseFactory
 					.getClient({ tx })
-					.update(this.table)
+					.update(seasons.table)
 					.set({ ...values, stableKey, updatedAt: new Date() })
-					.where(eq(this.table.id, existing.id))
+					.where(eq(seasons.table.id, existing.id))
 					.returning();
 
 				return updated ?? existing;
 			},
 		});
-	}
+	},
 
 	async findByPrimaryId<F extends string>({
 		primaryId,
@@ -154,8 +144,8 @@ class SeasonsRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<Season, F> | undefined> {
-		return await this.findFirst({ where: eq(this.primaryKeyColumn, primaryId), fields, tx });
-	}
+		return await getSeasonsRepository().findFirst({ where: eq(seasons.primaryKeyColumn, primaryId), fields, tx });
+	},
 
 	async findFirst<F extends string>({
 		where,
@@ -171,7 +161,12 @@ class SeasonsRepository {
 		if (!data) return undefined;
 
 		return QueryFields.apply(data, fields);
-	}
-}
+	},
+};
 
-export const seasonsRepository = new SeasonsRepository();
+export const seasonsRepository = defineRepository(seasons, overrides);
+
+/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+function getSeasonsRepository() {
+	return seasonsRepository;
+}

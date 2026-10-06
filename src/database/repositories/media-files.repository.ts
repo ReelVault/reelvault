@@ -14,7 +14,14 @@ import { and, asc, eq, getTableColumns, gt, inArray, isNull, ne, or, type SQL } 
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, forEachChunked, mapChunked, selectManyWithFields } from "@/database/table-access";
+import {
+	defineTableAccess,
+	findPageWithQueryMap,
+	forEachChunked,
+	mapChunked,
+	parseFieldsForRead,
+	selectManyWithFields,
+} from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -167,9 +174,7 @@ class MediaRepository {
 	}
 
 	async findByIdForRead<F extends string>(mediaFileId: string, query?: FieldsQuery<F>) {
-		const { fields } = QueryUtils.parseStandard(query);
-
-		return await this.findByPrimaryId({ primaryId: mediaFileId, fields });
+		return await this.findByPrimaryId({ primaryId: mediaFileId, fields: parseFieldsForRead(query) });
 	}
 
 	async updateAndRead<F extends string>(mediaFileId: string, body: UpdateMediaFile, query?: FieldsQuery<F>) {

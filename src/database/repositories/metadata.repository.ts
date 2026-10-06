@@ -14,7 +14,15 @@ import { and, asc, desc, eq, getTableColumns, gt, inArray, max, notExists, type 
 import { databaseFactory } from "@/database/database";
 import { providersRepository } from "@/database/repositories/providers.repository";
 import { schema } from "@/database/schema";
-import { cachedCount, defineTableAccess, filterSignature, forEachChunked, mapChunked, selectManyWithFields } from "@/database/table-access";
+import {
+	cachedCount,
+	defineTableAccess,
+	filterSignature,
+	forEachChunked,
+	mapChunked,
+	parseFieldsForRead,
+	selectManyWithFields,
+} from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { type CreatedAtCursor, decodeCursorFor, KeysetCursor, keysetWhere } from "@/database/utils/keyset-cursor";
@@ -325,9 +333,7 @@ class MetadataRepository {
 		metadataId: string,
 		query?: FieldsQuery<F>,
 	): Promise<SelectFields<MetadataWithRelation, F> | undefined> {
-		const { fields } = QueryUtils.parseStandard(query);
-
-		return await this.findById({ primaryId: metadataId, fields });
+		return await this.findById({ primaryId: metadataId, fields: parseFieldsForRead(query) });
 	}
 
 	async findProviderDetails(metadataId: string) {

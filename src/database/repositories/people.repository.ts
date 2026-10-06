@@ -17,7 +17,7 @@ import { databaseFactory } from "@/database/database";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, forEachChunked } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, forEachChunked, parseFieldsForRead } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -74,9 +74,7 @@ class PeopleRepository {
 	}
 
 	async findByIdForRead<F extends string>(personId: string, query?: FieldsQuery<F>) {
-		const { fields } = QueryUtils.parseStandard(query);
-
-		return await this.findByPrimaryId({ primaryId: personId, fields });
+		return await this.findByPrimaryId({ primaryId: personId, fields: parseFieldsForRead(query) });
 	}
 
 	async createAndRead<F extends string>(

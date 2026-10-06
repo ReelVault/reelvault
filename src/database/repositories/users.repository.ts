@@ -1,7 +1,6 @@
 import type { FieldsConfig, SelectFields, User } from "@reelvault/sdk/common";
 import { and, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
-import { schema } from "@/database/schema";
-import { defineTableAccess } from "@/database/table-access";
+import { defineRepository, defineTableAccess } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 
@@ -9,64 +8,47 @@ const users = defineTableAccess("users", {
 	primaryKeyColumn: "id",
 });
 
-class UsersRepository {
-	readonly table = schema.users;
-	readonly primaryKeyColumn = users.primaryKeyColumn;
-	readonly query = users.query;
-	readonly selectMany = users.selectMany;
-	readonly selectFirst = users.selectFirst;
-	readonly findOrCreate = users.findOrCreate;
-	readonly insert = users.insert;
-	readonly update = users.update;
-	readonly delete = users.delete;
-	readonly count = users.count;
-	readonly isExists = users.isExists;
-	readonly insertReturning = users.insertReturning;
-	readonly updateReturning = users.updateReturning;
-	readonly updateAndReturn = users.updateAndReturn;
-	readonly deleteReturning = users.deleteReturning;
-	readonly deleteAndReturn = users.deleteAndReturn;
-	readonly findByIds = users.findByIds;
-	readonly findByColumnIn = users.findByColumnIn;
-
+const overrides = {
 	async findByEmail(email: string): Promise<User | undefined> {
-		return await this.findFirst({ where: eq(this.table.email, email) });
-	}
+		return await getUsersRepository().findFirst({ where: eq(users.table.email, email) });
+	},
 
 	async findById(userId: string): Promise<User | undefined> {
-		return await this.selectFirst({ where: eq(this.table.id, userId) });
-	}
+		return await getUsersRepository().selectFirst({ where: eq(users.table.id, userId) });
+	},
 
 	async findForAdministration({ search, limit, offset }: { search?: string | undefined; limit: number; offset: number }) {
-		const where = search ? or(like(this.table.name, `%${search}%`), like(this.table.email, `%${search}%`)) : undefined;
+		const where = search ? or(like(users.table.name, `%${search}%`), like(users.table.email, `%${search}%`)) : undefined;
 		const [total, data] = await Promise.all([
-			this.count({ where }),
-			this.selectMany({ where, orderBy: desc(this.table.createdAt), limit, offset }),
+			getUsersRepository().count({ where }),
+			getUsersRepository().selectMany({ where, orderBy: desc(users.table.createdAt), limit, offset }),
 		]);
 
 		return { total, data };
-	}
+	},
 
 	async countAdministrators(): Promise<number> {
-		return await this.count({ where: eq(this.table.role, "admin") });
-	}
+		return await getUsersRepository().count({ where: eq(users.table.role, "admin") });
+	},
 
 	async findAllAdministrators(): Promise<User[]> {
-		return await this.selectMany({ where: eq(this.table.role, "admin") });
-	}
+		return await getUsersRepository().selectMany({ where: eq(users.table.role, "admin") });
+	},
 
 	/** Role lookup for realtime fan-out — only admin ids among the given users. */
 	async findAdminIdsByUserIds(userIds: readonly string[]): Promise<Set<string>> {
 		if (userIds.length === 0) return new Set();
 
-		const rows = await this.selectMany({ where: and(inArray(this.table.id, [...userIds]), eq(this.table.role, "admin")) });
+		const rows = await getUsersRepository().selectMany({
+			where: and(inArray(users.table.id, [...userIds]), eq(users.table.role, "admin")),
+		});
 
 		return new Set(rows.map((row) => row.id));
-	}
+	},
 
 	async promoteToAdmin(userId: string): Promise<void> {
-		await this.update({ where: eq(this.table.id, userId), values: { role: "admin" } });
-	}
+		await getUsersRepository().update({ where: eq(users.table.id, userId), values: { role: "admin" } });
+	},
 
 	/**
 	 * Get a single user by a custom WHERE clause, with optional field projection.
@@ -80,12 +62,16 @@ class UsersRepository {
 		where?: SQL | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<User, F> | undefined> {
-		const role = await this.selectFirst({ where, tx });
+		const row = await getUsersRepository().selectFirst({ where, tx });
+		if (!row) return undefined;
 
-		if (!role) return undefined;
+		return QueryFields.apply(row, fields);
+	},
+};
 
-		return QueryFields.apply(role, fields);
-	}
+export const usersRepository = defineRepository(users, overrides);
+
+/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+function getUsersRepository() {
+	return usersRepository;
 }
-
-export const usersRepository = new UsersRepository();
