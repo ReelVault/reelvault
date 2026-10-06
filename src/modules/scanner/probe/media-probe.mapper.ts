@@ -1,5 +1,5 @@
 import type { CreateMediaFile } from "@reelvault/sdk/common";
-import type { FFProbeResult, FFProbeStream } from "@/integrations/ffprobe/ffprobe.types";
+import type { FFProbeResult, FFProbeStream, FfprobeAudioStream, VideoStream } from "@/integrations/ffprobe/ffprobe.types";
 import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences";
 import { escapeRegex } from "@/utils/http.utils";
 import {
@@ -67,11 +67,7 @@ export function mapMediaProbe(tech: FFProbeResult): MediaFileTechnicalData {
 				colorSpace: stream.color_space ?? null,
 				doviProfile: doviRecord?.dv_profile ?? null,
 				frameRate: stream.avg_frame_rate ?? null,
-				bitRate: parseOptionalInteger(stream.bit_rate),
-				language: stream.tags?.language ?? null,
-				title: stream.tags?.title ?? null,
-				isDefault: stream.disposition?.default === 1,
-				isForced: stream.disposition?.forced === 1,
+				...mapSharedStreamFields(stream),
 			});
 		} else if (isUsableAudioStream(stream)) {
 			audioStreams.push({
@@ -81,11 +77,7 @@ export function mapMediaProbe(tech: FFProbeResult): MediaFileTechnicalData {
 				channels: stream.channels,
 				channelLayout: stream.channel_layout ?? null,
 				sampleRate: parseOptionalInteger(stream.sample_rate),
-				bitRate: parseOptionalInteger(stream.bit_rate),
-				language: stream.tags?.language ?? null,
-				title: stream.tags?.title ?? null,
-				isDefault: stream.disposition?.default === 1,
-				isForced: stream.disposition?.forced === 1,
+				...mapSharedStreamFields(stream),
 				isCommentary: stream.disposition?.comment === 1,
 			});
 		} else {
@@ -109,6 +101,17 @@ export function mapMediaProbe(tech: FFProbeResult): MediaFileTechnicalData {
 		videoStreams,
 		audioStreams,
 		subtitles,
+	};
+}
+
+/** Stream fields whose mapping is identical for video and audio rows. */
+function mapSharedStreamFields(stream: VideoStream | FfprobeAudioStream) {
+	return {
+		bitRate: parseOptionalInteger(stream.bit_rate),
+		language: stream.tags?.language ?? null,
+		title: stream.tags?.title ?? null,
+		isDefault: stream.disposition?.default === 1,
+		isForced: stream.disposition?.forced === 1,
 	};
 }
 
