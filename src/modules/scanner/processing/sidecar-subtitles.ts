@@ -87,34 +87,35 @@ export async function findSidecarSubtitles(videoFilePath: string): Promise<Sidec
 /**
  * Idempotent: a language already imported for this media file wins (first file
  * alphabetically), because the external-unique index keys (mediaFileId,
- * language, type) — two same-language files would otherwise collide.
+ * language, type) — two same-language files would otherwise collide. One
+ * existence probe plus one bulk insert replace the per-candidate SELECT+INSERT.
  */
 export async function importSidecarSubtitles(mediaFileId: string, videoFilePath: string) {
 	const candidates = await findSidecarSubtitles(videoFilePath);
 	if (candidates.length === 0) return 0;
 
-	let imported = 0;
-	for (const candidate of candidates) {
-		const existing = await subtitlesRepository.findExternalByMediaFileAndLanguage({
+	const seen = await subtitlesRepository.findExternalLanguagesByMediaFile(mediaFileId);
+	const missing = candidates.filter((candidate) => {
+		if (seen.has(candidate.language)) return false;
+		seen.add(candidate.language);
+
+		return true;
+	});
+	if (missing.length === 0) return 0;
+
+	const inserted = await subtitlesRepository.insertReturning({
+		values: missing.map((candidate) => ({
 			mediaFileId,
 			language: candidate.language,
-		});
-		if (existing) continue;
+			format: candidate.format,
+			filePath: candidate.filePath,
+			type: "external",
+			isDefault: candidate.isDefault,
+			isForced: candidate.isForced,
+			isHearingImpaired: candidate.isHearingImpaired,
+		})),
+		onConflict: "doNothing",
+	});
 
-		await subtitlesRepository.createAndRead(
-			{
-				mediaFileId,
-				language: candidate.language,
-				format: candidate.format,
-				sourcePath: candidate.filePath,
-				isDefault: candidate.isDefault,
-				isForced: candidate.isForced,
-				isHearingImpaired: candidate.isHearingImpaired,
-			},
-			"external",
-		);
-		imported += 1;
-	}
-
-	return imported;
+	return inserted.length;
 }

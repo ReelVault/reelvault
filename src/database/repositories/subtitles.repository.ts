@@ -146,6 +146,16 @@ const overrides = {
 			tx,
 		});
 	},
+
+	/** Existing external-subtitle languages of one media file (batch probe for sidecar imports). */
+	async findExternalLanguagesByMediaFile(mediaFileId: string, tx?: DatabaseTransaction): Promise<Set<string>> {
+		const rows = await getSubtitlesRepository().selectMany({
+			where: and(eq(subtitles.table.mediaFileId, mediaFileId), eq(subtitles.table.type, "external")),
+			tx,
+		});
+
+		return new Set(rows.map((row) => row.language));
+	},
 };
 
 export const subtitlesRepository = defineRepository(subtitles, overrides);
