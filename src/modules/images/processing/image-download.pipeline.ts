@@ -59,15 +59,8 @@ export class ImageDownloadPipeline extends BaseService {
 		signal?: AbortSignal,
 	): Promise<PersistedImageInput> {
 		throwIfAborted(signal);
-		const temporaryPath = this.createTemporaryImagePath();
-		const source = await this.downloadAndGetInfo(url, temporaryPath, variant, signal);
-		const placed = await this.placeAtStablePath(temporaryPath, {
-			ownerStableKey: target.ownerStableKey,
-			imageType,
-			sourceHash: source.sourceHash,
-		});
 
-		return { ...source, ...placed };
+		return await this.prepareImage(target, variant, imageType, signal, (sourcePath) => this.downloadSource(url, sourcePath, signal));
 	}
 
 	/** Same optimize+persist flow as downloads, but the source is a local file (sidecar artwork). */
@@ -79,15 +72,8 @@ export class ImageDownloadPipeline extends BaseService {
 		signal?: AbortSignal,
 	): Promise<PersistedImageInput> {
 		throwIfAborted(signal);
-		const temporaryPath = this.createTemporaryImagePath();
-		const source = await this.copyAndGetInfo(sourceFilePath, temporaryPath, variant, signal);
-		const placed = await this.placeAtStablePath(temporaryPath, {
-			ownerStableKey: target.ownerStableKey,
-			imageType,
-			sourceHash: source.sourceHash,
-		});
 
-		return { ...source, ...placed };
+		return await this.prepareImage(target, variant, imageType, signal, (sourcePath) => this.copySource(sourceFilePath, sourcePath));
 	}
 
 	async placeAtStablePath(
@@ -123,45 +109,53 @@ export class ImageDownloadPipeline extends BaseService {
 		return stablePath;
 	}
 
-	private async copyAndGetInfo(
-		sourceFilePath: string,
-		localPath: string,
+	/** Temp path + optimize + stable-path placement shared by both acquisition paths. */
+	private async prepareImage(
+		target: ImageOwnerTarget,
 		variant: "poster" | "backdrop" | "avatar",
-		signal?: AbortSignal,
-	): Promise<Omit<PersistedImageInput, "localPath" | "stableKey">> {
-		return await this.optimizeSource(localPath, variant, signal, async (sourcePath) => {
-			await this.dependencies.writeFile(sourcePath, await this.dependencies.readLocalFile(sourceFilePath));
-			const metadata = await this.dependencies.getImageMetadata(sourcePath);
-			if (metadata.format === "") throw new ValidationError(`Local file has no recognized image format: ${sourceFilePath}`);
-
-			getContentType(metadata.format);
+		imageType: string,
+		signal: AbortSignal | undefined,
+		acquire: (sourcePath: string) => Promise<void>,
+	): Promise<PersistedImageInput> {
+		const temporaryPath = this.createTemporaryImagePath();
+		const source = await this.optimizeSource(temporaryPath, variant, signal, acquire);
+		const placed = await this.placeAtStablePath(temporaryPath, {
+			ownerStableKey: target.ownerStableKey,
+			imageType,
+			sourceHash: source.sourceHash,
 		});
+
+		return { ...source, ...placed };
 	}
 
-	private async downloadAndGetInfo(
-		url: string,
-		localPath: string,
-		variant: "poster" | "backdrop" | "avatar",
-		signal?: AbortSignal,
-	): Promise<Omit<PersistedImageInput, "localPath" | "stableKey">> {
-		return await this.optimizeSource(localPath, variant, signal, async (sourcePath) => {
-			let downloadError: string | undefined;
-			const downloaded = await this.dependencies.download(url, sourcePath, {
-				signal,
-				validate: async (temporaryPath) => {
-					throwIfAborted(signal);
-					const metadata = await this.dependencies.getImageMetadata(temporaryPath);
-					const format: string | undefined = metadata.format;
-					if (format === "") throw new ValidationError("Downloaded file has no recognized image format");
+	/** Copies a local artwork file to the temp source path. */
+	private async copySource(sourceFilePath: string, sourcePath: string): Promise<void> {
+		await this.dependencies.writeFile(sourcePath, await this.dependencies.readLocalFile(sourceFilePath));
+		await this.assertRecognizedImage(sourcePath, `Local file has no recognized image format: ${sourceFilePath}`);
+	}
 
-					getContentType(format);
-				},
-				onError: (error) => {
-					downloadError = errorMessage(error);
-				},
-			});
-			if (!downloaded) throw new ValidationError(`Cannot download a valid image from ${url}${downloadError ? `: ${downloadError}` : ""}`);
+	/** Downloads the URL to the temp source path, surfacing the download error in the ValidationError. */
+	private async downloadSource(url: string, sourcePath: string, signal?: AbortSignal): Promise<void> {
+		let downloadError: string | undefined;
+		const downloaded = await this.dependencies.download(url, sourcePath, {
+			signal,
+			validate: async (temporaryPath) => {
+				throwIfAborted(signal);
+				await this.assertRecognizedImage(temporaryPath, "Downloaded file has no recognized image format");
+			},
+			onError: (error) => {
+				downloadError = errorMessage(error);
+			},
 		});
+		if (!downloaded) throw new ValidationError(`Cannot download a valid image from ${url}${downloadError ? `: ${downloadError}` : ""}`);
+	}
+
+	/** Rejects an empty detected format, then checks the format against the content-type allowlist. */
+	private async assertRecognizedImage(imagePath: string, emptyFormatMessage: string): Promise<void> {
+		const metadata = await this.dependencies.getImageMetadata(imagePath);
+		if (metadata.format === "") throw new ValidationError(emptyFormatMessage);
+
+		getContentType(metadata.format);
 	}
 
 	/** Optimizes and persists the bytes `acquire` placed at the temp source path;
