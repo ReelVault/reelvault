@@ -46,7 +46,7 @@ function parseFields<F extends string>({ fields: fieldsString }: { fields?: F | 
 	}
 
 	const relations: Record<string, string[]> = {};
-	const fieldSet = new Set(fields);
+	const fieldSet = buildFieldSet(fields);
 	for (const field of fields) {
 		const dotIndex = field.indexOf(".");
 		if (dotIndex !== -1) {
@@ -54,13 +54,25 @@ function parseFields<F extends string>({ fields: fieldsString }: { fields?: F | 
 			const child = field.slice(dotIndex + 1);
 			relations[parent] ??= [];
 			relations[parent].push(child);
-			fieldSet.add(`${parent}.*`);
 		}
 	}
 
 	const mask = buildFieldMask(fields);
 
 	return { fields, relations, __original: fieldsString, _mask: mask, _fieldSet: fieldSet };
+}
+
+/** Selected fields plus a `parent.*` marker for every nested field (used by `includesField`). */
+function buildFieldSet(fields: readonly string[]): Set<string> {
+	const fieldSet = new Set(fields);
+	for (const field of fields) {
+		const dotIndex = field.indexOf(".");
+		if (dotIndex !== -1) {
+			fieldSet.add(`${field.slice(0, dotIndex)}.*`);
+		}
+	}
+
+	return fieldSet;
 }
 
 /**
@@ -81,12 +93,9 @@ function applyFields(data: object, config?: ParsedFieldsConfig): unknown {
 function includesField<F extends string>(config: ParsedFieldsConfig<F> | undefined, field: string): boolean {
 	if (!config?.fields.length) return true;
 
-	const fieldSet = config._fieldSet instanceof Set ? config._fieldSet : undefined;
-	if (fieldSet) {
-		return fieldSet.has(field) || fieldSet.has(`${field}.*`);
-	}
+	const fieldSet = config._fieldSet instanceof Set ? config._fieldSet : buildFieldSet(config.fields);
 
-	return config.fields.some((selectedField) => selectedField === field || selectedField.startsWith(`${field}.`));
+	return fieldSet.has(field) || fieldSet.has(`${field}.*`);
 }
 
 /**

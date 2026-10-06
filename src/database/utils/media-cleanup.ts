@@ -1,7 +1,9 @@
-import { eq, type SQL } from "drizzle-orm";
+import { eq, inArray, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
+import { serverConstants } from "@/server.constants";
+import { chunk } from "@/utils/array.utils";
 
 export interface MediaCleanupData {
 	artifactStorageKeys: string[];
@@ -58,4 +60,35 @@ export async function findMediaCleanupData({
 	]);
 
 	return toMediaCleanupData(subtitles, artifacts, { filterNullSubtitlePaths });
+}
+
+/**
+ * Collects artifact keys and subtitle references for a list of media file ids,
+ * chunked so one statement cannot exceed SQLite's bound-variable limit.
+ */
+export async function findCleanupDataForMediaFileIds(mediaFileIds: readonly string[], tx?: DatabaseTransaction): Promise<MediaCleanupData> {
+	if (mediaFileIds.length === 0) return toMediaCleanupData([], []);
+
+	const client = databaseFactory.getClient({ tx });
+	const idChunks = chunk([...mediaFileIds], serverConstants.database.queryChunkSize);
+	const [subtitleResults, artifactResults] = await Promise.all([
+		Promise.all(
+			idChunks.map((idChunk) =>
+				client
+					.select({ id: schema.subtitles.id, filePath: schema.subtitles.filePath })
+					.from(schema.subtitles)
+					.where(inArray(schema.subtitles.mediaFileId, idChunk)),
+			),
+		),
+		Promise.all(
+			idChunks.map((idChunk) =>
+				client
+					.select({ storageKey: schema.mediaArtifacts.storageKey })
+					.from(schema.mediaArtifacts)
+					.where(inArray(schema.mediaArtifacts.mediaFileId, idChunk)),
+			),
+		),
+	]);
+
+	return toMediaCleanupData(subtitleResults.flat(), artifactResults.flat());
 }

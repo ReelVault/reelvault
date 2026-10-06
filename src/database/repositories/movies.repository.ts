@@ -7,7 +7,7 @@ import { defineTableAccess, findPageWithQueryMap } from "@/database/table-access
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
-import { attachMediaFiles } from "@/database/utils/media-file-projection";
+import { findManyWithMediaFiles } from "@/database/utils/media-file-projection";
 import type { QueryMap } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { findOrCreateWithIdentityRecovery } from "@/database/utils/upsert-by-identity";
@@ -100,11 +100,7 @@ class MoviesRepository {
 		tx,
 	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<MovieWithRelations, F>>> {
 		const data = await this.selectMany({ where, orderBy, limit, offset, tx });
-		if (!QueryFields.includes(fields, "mediaFiles")) {
-			return data.map((item) => QueryFields.apply({ ...item, mediaFiles: [] }, fields));
-		}
-
-		const rows = await attachMediaFiles(data, { fields, relation: "movieId", tx });
+		const rows = await findManyWithMediaFiles(data, { fields, relation: "movieId", tx });
 
 		return rows.map((item) => QueryFields.apply<MovieWithRelations, F>(item, fields));
 	}

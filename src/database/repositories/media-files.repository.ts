@@ -11,6 +11,7 @@ import type {
 	UpdateMediaFile,
 } from "@reelvault/sdk/common";
 import { and, asc, eq, getTableColumns, gt, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
@@ -26,11 +27,12 @@ import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
-import { toMediaCleanupData } from "@/database/utils/media-cleanup";
+import { findCleanupDataForMediaFileIds } from "@/database/utils/media-cleanup";
 import { buildRelationProjection } from "@/database/utils/media-file-projection";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
-import { MINUTE, serverConstants } from "@/server.constants";
-import { chunk, groupBy, hasEntry, toMap, unique } from "@/utils/array.utils";
+import { runInTransaction } from "@/database/utils/transaction";
+import { MINUTE } from "@/server.constants";
+import { groupBy, hasEntry, toMap, unique } from "@/utils/array.utils";
 import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 
@@ -337,13 +339,18 @@ class MediaRepository {
 		});
 	}
 
-	async findAuditRow(mediaFileId: string) {
-		const client = databaseFactory.getClient();
-		const [row] = await client
-			.select(mediaFileAuditProjection)
+	/** Base audit select: media file joined to its metadata row, shared by the single, paged and id-only audit reads. */
+	private auditRows<TSelection extends Record<string, SQLiteColumn | SQL>>(selection: TSelection) {
+		return databaseFactory
+			.getClient()
+			.select(selection)
 			.from(schema.mediaFiles)
+			.innerJoin(schema.metadata, eq(schema.mediaFiles.metadataId, schema.metadata.id));
+	}
+
+	async findAuditRow(mediaFileId: string) {
+		const [row] = await this.auditRows(mediaFileAuditProjection)
 			.innerJoin(schema.libraries, eq(schema.mediaFiles.libraryId, schema.libraries.id))
-			.innerJoin(schema.metadata, eq(schema.mediaFiles.metadataId, schema.metadata.id))
 			.leftJoin(schema.episodes, eq(schema.mediaFiles.episodeId, schema.episodes.id))
 			.leftJoin(schema.seasons, eq(schema.episodes.seasonId, schema.seasons.id))
 			.where(eq(schema.mediaFiles.id, mediaFileId))
@@ -367,12 +374,8 @@ class MediaRepository {
 	}
 
 	private async findAuditRowsPage(cursor?: string) {
-		return await databaseFactory
-			.getClient()
-			.select(mediaFileAuditProjection)
-			.from(schema.mediaFiles)
+		return await this.auditRows(mediaFileAuditProjection)
 			.innerJoin(schema.libraries, eq(schema.mediaFiles.libraryId, schema.libraries.id))
-			.innerJoin(schema.metadata, eq(schema.mediaFiles.metadataId, schema.metadata.id))
 			.leftJoin(schema.episodes, eq(schema.mediaFiles.episodeId, schema.episodes.id))
 			.leftJoin(schema.seasons, eq(schema.episodes.seasonId, schema.seasons.id))
 			.where(cursor ? gt(schema.mediaFiles.id, cursor) : undefined)
@@ -385,11 +388,7 @@ class MediaRepository {
 		await collectKeysetPages({
 			pageSize: AUDIT_ROW_PAGE_SIZE,
 			fetchPage: (cursor) =>
-				databaseFactory
-					.getClient()
-					.select({ id: schema.mediaFiles.id })
-					.from(schema.mediaFiles)
-					.innerJoin(schema.metadata, eq(schema.mediaFiles.metadataId, schema.metadata.id))
+				this.auditRows({ id: schema.mediaFiles.id })
 					.where(cursor ? gt(schema.mediaFiles.id, cursor) : undefined)
 					.orderBy(asc(schema.mediaFiles.id))
 					.limit(AUDIT_ROW_PAGE_SIZE),
@@ -409,7 +408,7 @@ class MediaRepository {
 	async createWithStreams(data: CreateMediaFile, tx?: DatabaseTransaction) {
 		const { videoStreams, audioStreams, subtitles = [], ...mediaFileValues } = data;
 
-		const run = async (runTx: DatabaseTransaction) => {
+		return await runInTransaction(tx, async (runTx) => {
 			const [createdMediaFile] = await runTx.insert(this.table).values(mediaFileValues).onConflictDoNothing().returning();
 			if (!createdMediaFile) {
 				// Multi-episode files own several rows per path — fetch the row for
@@ -446,9 +445,7 @@ class MediaRepository {
 			]);
 
 			return { mediaFile: createdMediaFile, created: true };
-		};
-
-		return tx ? await run(tx) : await databaseFactory.transaction(run);
+		});
 	}
 
 	/** Marks the post-create sidecar write so a retry does not repeat it. */
@@ -641,14 +638,7 @@ class MediaRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<MediaFileWithRelation, F> | undefined> {
-		const media = await this.selectFirst({ where: eq(this.primaryKeyColumn, primaryId), tx });
-
-		if (!media) return undefined;
-
-		const relations = (await this.loadRelations([media], tx, fields)).get(media.id);
-		if (!relations) return undefined;
-
-		return QueryFields.apply<MediaFileWithRelation, F>({ ...media, ...relations }, fields);
+		return await this.findOneHydrated(eq(this.primaryKeyColumn, primaryId), fields, tx);
 	}
 
 	/**
@@ -663,7 +653,16 @@ class MediaRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<MediaFileWithRelation, F> | undefined> {
-		const media = await this.selectFirst({ where: eq(this.table.filePath, filePath), tx });
+		return await this.findOneHydrated(eq(this.table.filePath, filePath), fields, tx);
+	}
+
+	/** Shared single-row read: flat row + relation bundle + field selection. */
+	private async findOneHydrated<F extends string>(
+		where: SQL,
+		fields?: FieldsConfig<F>,
+		tx?: DatabaseTransaction,
+	): Promise<SelectFields<MediaFileWithRelation, F> | undefined> {
+		const media = await this.selectFirst({ where, tx });
 
 		if (!media) return undefined;
 
@@ -729,47 +728,11 @@ class MediaRepository {
 	}
 
 	async findCleanupDataByMediaFileIds(mediaFileIds: readonly string[], tx?: DatabaseTransaction) {
-		if (mediaFileIds.length === 0) return toMediaCleanupData([], []);
-
-		const client = databaseFactory.getClient({ tx });
-		const idChunks = chunk(mediaFileIds, serverConstants.database.queryChunkSize);
-		const [subtitleResults, artifactResults] = await Promise.all([
-			Promise.all(
-				idChunks.map((idChunk) =>
-					client
-						.select({ id: schema.subtitles.id, filePath: schema.subtitles.filePath })
-						.from(schema.subtitles)
-						.where(inArray(schema.subtitles.mediaFileId, idChunk)),
-				),
-			),
-			Promise.all(
-				idChunks.map((idChunk) =>
-					client
-						.select({ storageKey: schema.mediaArtifacts.storageKey })
-						.from(schema.mediaArtifacts)
-						.where(inArray(schema.mediaArtifacts.mediaFileId, idChunk)),
-				),
-			),
-		]);
-
-		return toMediaCleanupData(subtitleResults.flat(), artifactResults.flat());
+		return await findCleanupDataForMediaFileIds(mediaFileIds, tx);
 	}
 
 	async findCleanupData(mediaFileId: string, tx?: DatabaseTransaction) {
-		// Single-file deletes are the common path — skip chunking and the nested Promise.all.
-		const client = databaseFactory.getClient({ tx });
-		const [subtitles, artifacts] = await Promise.all([
-			client
-				.select({ id: schema.subtitles.id, filePath: schema.subtitles.filePath })
-				.from(schema.subtitles)
-				.where(eq(schema.subtitles.mediaFileId, mediaFileId)),
-			client
-				.select({ storageKey: schema.mediaArtifacts.storageKey })
-				.from(schema.mediaArtifacts)
-				.where(eq(schema.mediaArtifacts.mediaFileId, mediaFileId)),
-		]);
-
-		return toMediaCleanupData(subtitles, artifacts);
+		return await findCleanupDataForMediaFileIds([mediaFileId], tx);
 	}
 
 	/**

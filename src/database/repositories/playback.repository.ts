@@ -63,23 +63,7 @@ class PlaybackRepository {
 			return { metadata, mediaFiles, progressRows, seasons: [], episodes: [] };
 		}
 
-		const [seasons, episodes] = await Promise.all([
-			client
-				.select({ id: schema.seasons.id, seasonNumber: schema.seasons.seasonNumber })
-				.from(schema.seasons)
-				.where(eq(schema.seasons.metadataId, metadataId)),
-			client
-				.select({
-					id: schema.episodes.id,
-					seasonId: schema.episodes.seasonId,
-					episodeNumber: schema.episodes.episodeNumber,
-					absoluteNumber: schema.episodes.absoluteNumber,
-					episodeType: schema.episodes.episodeType,
-				})
-				.from(schema.episodes)
-				.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
-				.where(eq(schema.seasons.metadataId, metadataId)),
-		]);
+		const { seasons, episodes } = await this.findSeasonsAndEpisodes([metadataId]);
 
 		return { metadata, mediaFiles, progressRows, seasons, episodes };
 	}
@@ -95,6 +79,40 @@ class PlaybackRepository {
 			seasons: data.seasons,
 			episodes: data.episodes.filter((ep) => ep.episodeType === "regular"),
 		};
+	}
+
+	/**
+	 * Seasons + episodes of the given titles. `regularOnly` drops specials,
+	 * which the continue-watching view does not surface.
+	 */
+	private async findSeasonsAndEpisodes(metadataIds: readonly string[], options?: { regularOnly?: boolean; tx?: DatabaseTransaction }) {
+		const client = databaseFactory.getClient({ tx: options?.tx });
+		const metadataIdFilter = inArray(schema.seasons.metadataId, [...metadataIds]);
+
+		const [seasons, episodes] = await Promise.all([
+			client
+				.select({
+					id: schema.seasons.id,
+					metadataId: schema.seasons.metadataId,
+					seasonNumber: schema.seasons.seasonNumber,
+				})
+				.from(schema.seasons)
+				.where(metadataIdFilter),
+			client
+				.select({
+					id: schema.episodes.id,
+					seasonId: schema.episodes.seasonId,
+					episodeNumber: schema.episodes.episodeNumber,
+					absoluteNumber: schema.episodes.absoluteNumber,
+					title: schema.episodes.title,
+					episodeType: schema.episodes.episodeType,
+				})
+				.from(schema.episodes)
+				.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
+				.where(options?.regularOnly ? and(metadataIdFilter, eq(schema.episodes.episodeType, "regular")) : metadataIdFilter),
+		]);
+
+		return { seasons, episodes };
 	}
 
 	async findProgressUpdateData(fileId: string, profileId: string) {
@@ -275,7 +293,7 @@ class PlaybackRepository {
 			if (metadataIds.length >= maxMetadataIds) break;
 		}
 
-		const [metadataList, mediaFiles, seasons, episodes, backdrops] = await Promise.all([
+		const [metadataList, mediaFiles, seasonsAndEpisodes, backdrops] = await Promise.all([
 			client
 				.select({
 					id: schema.metadata.id,
@@ -296,26 +314,7 @@ class PlaybackRepository {
 				})
 				.from(schema.mediaFiles)
 				.where(inArray(schema.mediaFiles.metadataId, metadataIds)),
-			client
-				.select({
-					id: schema.seasons.id,
-					metadataId: schema.seasons.metadataId,
-					seasonNumber: schema.seasons.seasonNumber,
-				})
-				.from(schema.seasons)
-				.where(inArray(schema.seasons.metadataId, metadataIds)),
-			client
-				.select({
-					id: schema.episodes.id,
-					seasonId: schema.episodes.seasonId,
-					episodeNumber: schema.episodes.episodeNumber,
-					absoluteNumber: schema.episodes.absoluteNumber,
-					title: schema.episodes.title,
-					episodeType: schema.episodes.episodeType,
-				})
-				.from(schema.episodes)
-				.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
-				.where(and(inArray(schema.seasons.metadataId, metadataIds), eq(schema.episodes.episodeType, "regular"))),
+			this.findSeasonsAndEpisodes(metadataIds, { regularOnly: true }),
 			client
 				.select({
 					metadataId: schema.metadataImages.metadataId,
@@ -327,7 +326,14 @@ class PlaybackRepository {
 				.where(and(inArray(schema.metadataImages.metadataId, metadataIds), eq(schema.metadataImages.imageType, "backdrop"))),
 		]);
 
-		return { progressRows, metadataList, mediaFiles, seasons, episodes, backdrops };
+		return {
+			progressRows,
+			metadataList,
+			mediaFiles,
+			seasons: seasonsAndEpisodes.seasons,
+			episodes: seasonsAndEpisodes.episodes,
+			backdrops,
+		};
 	}
 }
 

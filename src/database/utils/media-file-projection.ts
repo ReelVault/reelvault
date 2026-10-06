@@ -5,6 +5,7 @@ import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { mapChunked, pickColumns } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
+import { QueryFields } from "@/database/utils/fields";
 import { serverConstants } from "@/server.constants";
 import { groupBy } from "@/utils/array.utils";
 
@@ -99,4 +100,43 @@ export async function attachMediaFiles<F extends string, TRow extends { id: stri
 	const mediaFilesByParentId = groupBy(mediaFiles, (mediaFile) => mediaFile[options.relation]);
 
 	return rows.map((row) => ({ ...row, mediaFiles: mediaFilesByParentId.get(row.id) ?? [] }));
+}
+
+interface WithMediaFiles {
+	mediaFiles: Array<typeof schema.mediaFiles.$inferSelect>;
+}
+
+/**
+ * Shared catalog read: attaches the `mediaFiles` relation to parent rows.
+ * When `fields` excludes `mediaFiles` the relation is attached as an empty
+ * array without querying (same contract as before). The caller applies its own
+ * field projection — only the repository knows its DTO type.
+ */
+export async function findManyWithMediaFiles<F extends string, TRow extends { id: string }>(
+	rows: TRow[],
+	options: {
+		fields?: FieldsConfig<F> | undefined;
+		relation: MediaFileRelation;
+		tx?: DatabaseTransaction | undefined;
+	},
+): Promise<Array<TRow & WithMediaFiles>> {
+	if (!QueryFields.includes(options.fields, "mediaFiles")) {
+		return rows.map((row) => ({ ...row, mediaFiles: [] }));
+	}
+
+	return await attachMediaFiles(rows, options);
+}
+
+/** Single-row variant of {@link findManyWithMediaFiles}. */
+export async function findFirstWithMediaFiles<F extends string, TRow extends { id: string }>(
+	row: TRow,
+	options: {
+		fields?: FieldsConfig<F> | undefined;
+		relation: MediaFileRelation;
+		tx?: DatabaseTransaction | undefined;
+	},
+): Promise<(TRow & WithMediaFiles) | undefined> {
+	const rows = await findManyWithMediaFiles([row], options);
+
+	return rows[0];
 }

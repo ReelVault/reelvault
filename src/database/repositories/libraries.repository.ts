@@ -28,6 +28,7 @@ import { findMediaCleanupData, type MediaCleanupData } from "@/database/utils/me
 import { buildMediaFileProjection } from "@/database/utils/media-file-projection";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
+import { runInTransaction } from "@/database/utils/transaction";
 import { MINUTE } from "@/server.constants";
 import { groupBy, hasEntry, toMap } from "@/utils/array.utils";
 import { ConflictError } from "@/utils/errors";
@@ -157,7 +158,9 @@ class LibrariesRepository {
 	}
 
 	async update({ primaryId, values, tx }: { primaryId: string; values: UpdateLibrary; tx?: DatabaseTransaction }): Promise<void> {
-		const run = async (activeTx: DatabaseTransaction | undefined): Promise<void> => {
+		// Atomic: a path conflict / invalid path must not leave the library row
+		// updated without its paths.
+		await runInTransaction(tx, async (activeTx) => {
 			const { paths, ...libraryValues } = values;
 			if (hasEntry(libraryValues)) {
 				await libraries.update({ primaryId, values: libraryValues, tx: activeTx });
@@ -166,11 +169,7 @@ class LibrariesRepository {
 			if (paths !== undefined) {
 				await this.replacePaths(primaryId, paths, activeTx);
 			}
-		};
-		// Atomic: a path conflict / invalid path must not leave the library row
-		// updated without its paths.
-		if (tx) await run(tx);
-		else await databaseFactory.transaction(run);
+		});
 
 		this.clearStatsCache();
 	}
@@ -298,7 +297,8 @@ class LibrariesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<LibraryWithRelations, F> | undefined> {
-		const run = async (activeTx: DatabaseTransaction | undefined): Promise<SelectFields<LibraryWithRelations, F> | undefined> => {
+		// Atomic: the library row and its paths must be created together.
+		const result = await runInTransaction(tx, async (activeTx): Promise<SelectFields<LibraryWithRelations, F> | undefined> => {
 			const [inserted] = await this.insertReturning({
 				values: {
 					name,
@@ -319,10 +319,7 @@ class LibrariesRepository {
 				fields,
 				tx: activeTx,
 			});
-		};
-
-		// Atomic: the library row and its paths must be created together.
-		const result = tx ? await run(tx) : await databaseFactory.transaction(run);
+		});
 		this.clearStatsCache();
 
 		return result;

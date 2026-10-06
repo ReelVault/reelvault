@@ -13,9 +13,8 @@ import type {
 import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { defineRepository, defineTableAccess, findPageWithQueryMap } from "@/database/table-access";
+import { defineRepository, defineTableAccess, findPageWithQueryMap, selectFirstWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import type { QueryMap } from "@/database/utils/query-parser";
 
@@ -96,11 +95,7 @@ const overrides = {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<SubtitleEntity, F> | undefined> {
-		const data = await getSubtitlesRepository().selectFirst({ where, tx });
-
-		if (!data) return undefined;
-
-		return QueryFields.apply(data, fields);
+		return await selectFirstWithFields(subtitles, { where, tx, fields });
 	},
 
 	async findByPrimaryId<F extends string>({

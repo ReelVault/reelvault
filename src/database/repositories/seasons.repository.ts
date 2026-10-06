@@ -19,7 +19,6 @@ import {
 	selectFirstWithFields,
 } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import type { QueryMap } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
@@ -156,11 +155,7 @@ const overrides = {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<Season, F> | undefined> {
-		const data = await selectFirstWithFields(seasons, { where, tx, fields });
-
-		if (!data) return undefined;
-
-		return QueryFields.apply(data, fields);
+		return await selectFirstWithFields(seasons, { where, tx, fields });
 	},
 };
 

@@ -25,6 +25,13 @@ export interface ProviderEntityAssociation<T extends NamedProviderEntity> {
 	providerId?: string | undefined;
 }
 
+/** Callbacks both provider-entity sync entry points hand to the shared pipeline. */
+export interface ProviderEntitySyncHandlers<T extends NamedProviderEntity> {
+	insertEntities: (items: Array<{ name: string; stableKey: string }>) => Promise<void>;
+	selectEntities: (names: string[]) => Promise<EntityRow[]>;
+	persistAssociations: (associations: Array<ProviderEntityAssociation<T>>) => Promise<void>;
+}
+
 export async function syncNamedProviderEntities<T extends NamedProviderEntity>({
 	items,
 	providerName,
@@ -38,10 +45,7 @@ export async function syncNamedProviderEntities<T extends NamedProviderEntity>({
 	providerName: string;
 	entityType: ProviderEntityType;
 	tx?: DatabaseTransaction | undefined;
-	insertEntities: (items: Array<{ name: string; stableKey: string }>) => Promise<void>;
-	selectEntities: (names: string[]) => Promise<EntityRow[]>;
-	persistAssociations: (associations: Array<ProviderEntityAssociation<T>>) => Promise<void>;
-}): Promise<void> {
+} & ProviderEntitySyncHandlers<T>): Promise<void> {
 	if (items.length === 0) return;
 
 	const uniqueProviderItems = [...toMap(items, (item) => item.id).values()];
@@ -152,10 +156,7 @@ export async function processNamedEntities<T extends NamedProviderEntity>({
 	entityType: ProviderEntityType;
 	entityLabel: string;
 	tx?: DatabaseTransaction | undefined;
-	insertEntities: (items: Array<{ name: string; stableKey: string }>) => Promise<void>;
-	selectEntities: (names: string[]) => Promise<EntityRow[]>;
-	persistAssociations: (associations: Array<ProviderEntityAssociation<T>>) => Promise<void>;
-}): Promise<void> {
+} & ProviderEntitySyncHandlers<T>): Promise<void> {
 	const logger = createLogger("processNamedEntities");
 	if (!items?.length) {
 		logger.debug(`No ${entityLabel} to process`);

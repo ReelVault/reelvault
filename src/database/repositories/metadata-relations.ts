@@ -1,6 +1,6 @@
 import type { FieldsConfig, MetadataWithRelation } from "@reelvault/sdk/common";
 import { eq, getTableColumns, inArray } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { SelectedFieldsFlat, SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
@@ -30,6 +30,28 @@ const castColumns = {
 };
 const crewColumns = { job: schema.metadataCrew.job, department: schema.metadataCrew.department };
 const ratingColumns = getTableColumns(schema.metadataRatings);
+
+/**
+ * Loads a plain metadata↔entity junction (collections/companies/genres/keywords/
+ * providers): the entity columns (optionally projected) keyed by metadata id.
+ */
+function loadNamedRelation<TSelection extends SelectedFieldsFlat, TMetadataId extends SQLiteColumn>(
+	client: DatabaseTransaction,
+	metadataIds: string[],
+	params: {
+		metadataId: TMetadataId;
+		junctionTable: SQLiteTable;
+		entityColumn: SQLiteColumn;
+		entityTable: SQLiteTable & { id: SQLiteColumn };
+		data: TSelection;
+	},
+) {
+	return client
+		.select({ metadataId: params.metadataId, data: params.data })
+		.from(params.junctionTable)
+		.innerJoin(params.entityTable, eq(params.entityTable.id, params.entityColumn))
+		.where(inArray(params.metadataId, metadataIds));
+}
 
 /** Fresh empty relation payload — callers mutate the arrays, so never share one instance. */
 function emptyRelationData(): MetadataRelationData {
@@ -74,44 +96,40 @@ export async function loadRelations<F extends string>(
 
 	const [collections, companies, genres, keywords, cast, crew, images, ratings, providers, lockedFields] = await Promise.all([
 		loadIf(includes("collections"), async () =>
-			client
-				.select({
-					metadataId: schema.metadataCollections.metadataId,
-					data: selectColumns(relationFields(fields, "collections"), collectionColumns),
-				})
-				.from(schema.metadataCollections)
-				.innerJoin(schema.collections, eq(schema.collections.id, schema.metadataCollections.collectionId))
-				.where(inArray(schema.metadataCollections.metadataId, metadataIds)),
+			loadNamedRelation(client, metadataIds, {
+				metadataId: schema.metadataCollections.metadataId,
+				junctionTable: schema.metadataCollections,
+				entityColumn: schema.metadataCollections.collectionId,
+				entityTable: schema.collections,
+				data: selectColumns(relationFields(fields, "collections"), collectionColumns),
+			}),
 		),
 		loadIf(includes("companies"), async () =>
-			client
-				.select({
-					metadataId: schema.metadataCompanies.metadataId,
-					data: selectColumns(relationFields(fields, "companies"), companyColumns),
-				})
-				.from(schema.metadataCompanies)
-				.innerJoin(schema.companies, eq(schema.companies.id, schema.metadataCompanies.companyId))
-				.where(inArray(schema.metadataCompanies.metadataId, metadataIds)),
+			loadNamedRelation(client, metadataIds, {
+				metadataId: schema.metadataCompanies.metadataId,
+				junctionTable: schema.metadataCompanies,
+				entityColumn: schema.metadataCompanies.companyId,
+				entityTable: schema.companies,
+				data: selectColumns(relationFields(fields, "companies"), companyColumns),
+			}),
 		),
 		loadIf(includes("genres"), async () =>
-			client
-				.select({
-					metadataId: schema.metadataGenres.metadataId,
-					data: selectColumns(relationFields(fields, "genres"), genreColumns),
-				})
-				.from(schema.metadataGenres)
-				.innerJoin(schema.genres, eq(schema.genres.id, schema.metadataGenres.genreId))
-				.where(inArray(schema.metadataGenres.metadataId, metadataIds)),
+			loadNamedRelation(client, metadataIds, {
+				metadataId: schema.metadataGenres.metadataId,
+				junctionTable: schema.metadataGenres,
+				entityColumn: schema.metadataGenres.genreId,
+				entityTable: schema.genres,
+				data: selectColumns(relationFields(fields, "genres"), genreColumns),
+			}),
 		),
 		loadIf(includes("keywords"), async () =>
-			client
-				.select({
-					metadataId: schema.metadataKeywords.metadataId,
-					data: selectColumns(relationFields(fields, "keywords"), keywordColumns),
-				})
-				.from(schema.metadataKeywords)
-				.innerJoin(schema.keywords, eq(schema.keywords.id, schema.metadataKeywords.keywordId))
-				.where(inArray(schema.metadataKeywords.metadataId, metadataIds)),
+			loadNamedRelation(client, metadataIds, {
+				metadataId: schema.metadataKeywords.metadataId,
+				junctionTable: schema.metadataKeywords,
+				entityColumn: schema.metadataKeywords.keywordId,
+				entityTable: schema.keywords,
+				data: selectColumns(relationFields(fields, "keywords"), keywordColumns),
+			}),
 		),
 		loadIf(includes("cast"), async () =>
 			client
@@ -156,14 +174,13 @@ export async function loadRelations<F extends string>(
 				.where(inArray(schema.metadataRatings.metadataId, metadataIds)),
 		),
 		loadIf(includes("providers"), async () =>
-			client
-				.select({
-					metadataId: schema.metadataProviders.metadataId,
-					data: selectColumns(relationFields(fields, "providers"), providerColumns),
-				})
-				.from(schema.metadataProviders)
-				.innerJoin(schema.providers, eq(schema.providers.id, schema.metadataProviders.providerId))
-				.where(inArray(schema.metadataProviders.metadataId, metadataIds)),
+			loadNamedRelation(client, metadataIds, {
+				metadataId: schema.metadataProviders.metadataId,
+				junctionTable: schema.metadataProviders,
+				entityColumn: schema.metadataProviders.providerId,
+				entityTable: schema.providers,
+				data: selectColumns(relationFields(fields, "providers"), providerColumns),
+			}),
 		),
 		loadIf(includes("lockedFields"), async () =>
 			client

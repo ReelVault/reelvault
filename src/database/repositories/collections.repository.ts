@@ -23,6 +23,7 @@ import { QueryFiltering } from "@/database/utils/filtering";
 import { QueryPagination } from "@/database/utils/pagination";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
+import { runInTransaction } from "@/database/utils/transaction";
 import { serverConstants } from "@/server.constants";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
 import { createLogger } from "@/utils/logger";
@@ -303,7 +304,7 @@ class CollectionsRepository {
 	async updateManualOrder({ collectionId, metadataIds, tx }: { collectionId: string; metadataIds: string[]; tx?: DatabaseTransaction }) {
 		if (metadataIds.length === 0) return;
 
-		const runner = async (targetTx: DatabaseTransaction) => {
+		await runInTransaction(tx, async (targetTx) => {
 			const client = databaseFactory.getClient({ tx: targetTx });
 			// Chunk the update: a large manually-ordered collection can exceed SQLite's
 			// bound-variable limit (both the CASE list and the inArray).
@@ -317,12 +318,7 @@ class CollectionsRepository {
 					})
 					.where(and(eq(schema.metadataCollections.collectionId, collectionId), inArray(schema.metadataCollections.metadataId, idChunk)));
 			}
-		};
-		if (tx) {
-			await runner(tx);
-		} else {
-			await databaseFactory.transaction(runner);
-		}
+		});
 	}
 
 	/**

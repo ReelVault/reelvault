@@ -3,6 +3,7 @@ import { and, asc, eq, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { defineRepository, defineTableAccess, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
+import { runInTransaction } from "@/database/utils/transaction";
 
 const mediaMarkers = defineTableAccess("mediaMarkers", {
 	primaryKeyColumn: "id",
@@ -46,7 +47,7 @@ const overrides = {
 		options?: { pluginId?: string; source?: "automatic" | "manual" | "plugin" },
 		tx?: DatabaseTransaction,
 	) {
-		const runInTransaction = async (targetTx: DatabaseTransaction) => {
+		return await runInTransaction(tx, async (targetTx) => {
 			// Scoped replace: a caller passing a scope (pluginId / source) replaces
 			// only its own markers — wiping the whole file would let two producers
 			// overwrite each other and destroy manually created markers.
@@ -76,9 +77,7 @@ const overrides = {
 			);
 
 			return inserted.toSorted((a, b) => a.startSeconds - b.startSeconds);
-		};
-
-		return tx ? await runInTransaction(tx) : await databaseFactory.transaction(runInTransaction);
+		});
 	},
 
 	async deleteByMediaFileId(mediaFileId: string, tx?: DatabaseTransaction) {

@@ -4,6 +4,7 @@ import { v7 as uuidv7 } from "uuid";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
+import { runInTransaction } from "@/database/utils/transaction";
 
 const schedules = schema.workerSchedules;
 
@@ -71,7 +72,7 @@ class WorkerSchedulesRepository {
 	}
 
 	async setTriggers(workerId: string, triggers: TaskTrigger[], tx?: DatabaseTransaction): Promise<void> {
-		const runner = async (targetTx: DatabaseTransaction) => {
+		await runInTransaction(tx, async (targetTx) => {
 			const client = databaseFactory.getClient({ tx: targetTx });
 			const now = new Date();
 			await client
@@ -89,16 +90,11 @@ class WorkerSchedulesRepository {
 						updatedAt: now,
 					},
 				});
-		};
-		if (tx) {
-			await runner(tx);
-		} else {
-			await databaseFactory.transaction(runner);
-		}
+		});
 	}
 
 	async updateExecution(workerId: string, execution: WorkerExecutionRecord, tx?: DatabaseTransaction): Promise<void> {
-		const runner = async (targetTx: DatabaseTransaction) => {
+		await runInTransaction(tx, async (targetTx) => {
 			const client = databaseFactory.getClient({ tx: targetTx });
 			const now = new Date();
 			const lastRunAt = execution.startedAt ?? execution.completedAt;
@@ -126,12 +122,7 @@ class WorkerSchedulesRepository {
 						updatedAt: now,
 					},
 				});
-		};
-		if (tx) {
-			await runner(tx);
-		} else {
-			await databaseFactory.transaction(runner);
-		}
+		});
 	}
 }
 

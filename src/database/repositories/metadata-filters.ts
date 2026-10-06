@@ -137,6 +137,32 @@ function buildDurationFilter(bound: "min" | "max", minutes: number): SQL | undef
 	);
 }
 
+/** EXISTS probe over the media-file → playback-progress join scoped to `baseWhere`. */
+function watchedStatusExists(baseWhere: SQL[], ...extra: SQL[]): SQL {
+	const client = databaseFactory.getClient();
+
+	return exists(
+		client
+			.select({ one: sql`1` })
+			.from(schema.mediaFiles)
+			.innerJoin(schema.playbackProgress, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
+			.where(and(...baseWhere, ...extra)),
+	);
+}
+
+/** NOT EXISTS counterpart of {@link watchedStatusExists} (no progress row at all). */
+function watchedStatusNotExists(baseWhere: SQL[]): SQL {
+	const client = databaseFactory.getClient();
+
+	return notExists(
+		client
+			.select({ one: sql`1` })
+			.from(schema.mediaFiles)
+			.innerJoin(schema.playbackProgress, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
+			.where(and(...baseWhere)),
+	);
+}
+
 /**
  * Watched-state filter scoped to one profile. The service layers the viewer
  * profile on top of the client-facing status, so the profile never comes from
@@ -146,40 +172,45 @@ function buildDurationFilter(bound: "min" | "max", minutes: number): SQL | undef
 function buildWatchedStatusFilter(filter: ProfileScopedFilter): SQL | undefined {
 	const { profileId, status } = filter;
 
-	const client = databaseFactory.getClient();
 	const baseWhere = [eq(schema.mediaFiles.metadataId, schema.metadata.id), eq(schema.playbackProgress.profileId, profileId)];
 
 	if (status === "watched") {
-		return exists(
-			client
-				.select({ one: sql`1` })
-				.from(schema.mediaFiles)
-				.innerJoin(schema.playbackProgress, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
-				.where(and(...baseWhere, eq(schema.playbackProgress.completed, true))),
-		);
+		return watchedStatusExists(baseWhere, eq(schema.playbackProgress.completed, true));
 	}
 
 	if (status === "in_progress") {
-		return exists(
-			client
-				.select({ one: sql`1` })
-				.from(schema.mediaFiles)
-				.innerJoin(schema.playbackProgress, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
-				.where(and(...baseWhere, eq(schema.playbackProgress.completed, false), gt(schema.playbackProgress.position, 0))),
-		);
+		return watchedStatusExists(baseWhere, eq(schema.playbackProgress.completed, false), gt(schema.playbackProgress.position, 0));
 	}
 
 	if (status === "unwatched") {
-		return notExists(
-			client
-				.select({ one: sql`1` })
-				.from(schema.mediaFiles)
-				.innerJoin(schema.playbackProgress, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
-				.where(and(...baseWhere)),
-		);
+		return watchedStatusNotExists(baseWhere);
 	}
 
 	return undefined;
+}
+
+/** EXISTS probe over `user_ratings` scoped to `baseWhere`. */
+function userRatingExists(baseWhere: SQL[], ...extra: SQL[]): SQL {
+	const client = databaseFactory.getClient();
+
+	return exists(
+		client
+			.select({ one: sql`1` })
+			.from(schema.userRatings)
+			.where(and(...baseWhere, ...extra)),
+	);
+}
+
+/** NOT EXISTS counterpart of {@link userRatingExists} (no rating row at all). */
+function userRatingNotExists(baseWhere: SQL[]): SQL {
+	const client = databaseFactory.getClient();
+
+	return notExists(
+		client
+			.select({ one: sql`1` })
+			.from(schema.userRatings)
+			.where(and(...baseWhere)),
+	);
 }
 
 /**
@@ -190,34 +221,18 @@ function buildUserRatingFilter(filter: ProfileScopedFilter): SQL | undefined {
 	const { profileId } = filter;
 	const choice = filter.status;
 
-	const client = databaseFactory.getClient();
 	const baseWhere = [eq(schema.userRatings.metadataId, schema.metadata.id), eq(schema.userRatings.profileId, profileId)];
 
 	if (choice === "liked") {
-		return exists(
-			client
-				.select({ one: sql`1` })
-				.from(schema.userRatings)
-				.where(and(...baseWhere, gt(schema.userRatings.rating, 0))),
-		);
+		return userRatingExists(baseWhere, gt(schema.userRatings.rating, 0));
 	}
 
 	if (choice === "disliked") {
-		return exists(
-			client
-				.select({ one: sql`1` })
-				.from(schema.userRatings)
-				.where(and(...baseWhere, eq(schema.userRatings.rating, 0))),
-		);
+		return userRatingExists(baseWhere, eq(schema.userRatings.rating, 0));
 	}
 
 	if (choice === "unrated") {
-		return notExists(
-			client
-				.select({ one: sql`1` })
-				.from(schema.userRatings)
-				.where(and(...baseWhere)),
-		);
+		return userRatingNotExists(baseWhere);
 	}
 
 	return undefined;

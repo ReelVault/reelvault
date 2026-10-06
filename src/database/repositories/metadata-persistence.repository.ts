@@ -15,6 +15,7 @@ import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
 import { toMetadataValues } from "@/database/utils/metadata-values";
 import { createProviderStableKey } from "@/database/utils/stable-key";
+import { runInTransaction } from "@/database/utils/transaction";
 import { clamp, isValidRating } from "@/utils/math.utils";
 
 class MetadataPersistenceRepository {
@@ -248,7 +249,7 @@ class MetadataPersistenceRepository {
 		episodeInfo?: ProviderEpisodeResult | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}) {
-		const runner = async (tx: DatabaseTransaction) => {
+		return await runInTransaction(parentTx, async (tx) => {
 			const season = await seasonsRepository.findOrCreateByIdentity({
 				metadataId,
 				seasonNumber: Number(seasonInfo.seasonNumber),
@@ -285,9 +286,7 @@ class MetadataPersistenceRepository {
 							: undefined,
 					}
 				: undefined;
-		};
-
-		return parentTx ? await runner(parentTx) : await databaseFactory.transaction(runner);
+		});
 	}
 
 	private async createMetadataRelations(

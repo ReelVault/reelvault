@@ -23,15 +23,15 @@ export const QueryPagination = {
 		options: { defaultLimit: number; maxLimit?: number | undefined },
 	): PaginationConfig {
 		const maxLimit = options.maxLimit ?? serverConstants.api.pagination.maxLimit;
-		const page = Math.max(1, query.page ?? 1);
+		const page = clamp(query.page ?? 1, 1, serverConstants.api.pagination.maxPage);
 		const limit = clamp(query.limit ?? options.defaultLimit, 1, maxLimit);
 
 		return { page, limit, offset: (page - 1) * limit };
 	},
 
-	/** Admin pagination block — always at least one page, even for an empty result. */
+	/** Admin pagination meta — zero pages for an empty result, like `createResponse`. */
 	buildAdminPagination({ total, page, limit }: { total: number; page: number; limit: number }) {
-		return { total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+		return { page, limit, total, totalPages: total > 0 ? Math.ceil(total / limit) : 0 };
 	},
 
 	/**

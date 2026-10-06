@@ -13,4 +13,13 @@ describe("QueryPagination", () => {
 	test("uses safe defaults", () => {
 		expect(QueryPagination.parse({})).toEqual({ page: 1, limit: 20, offset: 0 });
 	});
+
+	test("reports zero pages for an empty admin result", () => {
+		expect(QueryPagination.buildAdminPagination({ total: 0, page: 1, limit: 50 })).toEqual({
+			page: 1,
+			limit: 50,
+			total: 0,
+			totalPages: 0,
+		});
+	});
 });

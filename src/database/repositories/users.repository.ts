@@ -1,8 +1,7 @@
 import type { FieldsConfig, SelectFields, User } from "@reelvault/sdk/common";
 import { and, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
-import { defineRepository, defineTableAccess } from "@/database/table-access";
+import { defineRepository, defineTableAccess, selectFirstWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { QueryFields } from "@/database/utils/fields";
 
 const users = defineTableAccess("users", {
 	primaryKeyColumn: "id",
@@ -62,10 +61,7 @@ const overrides = {
 		where?: SQL | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<User, F> | undefined> {
-		const row = await getUsersRepository().selectFirst({ where, tx });
-		if (!row) return undefined;
-
-		return QueryFields.apply(row, fields);
+		return await selectFirstWithFields(users, { where, tx, fields });
 	},
 };
 

@@ -22,6 +22,7 @@ import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
 import { buildRelationProjection } from "@/database/utils/media-file-projection";
+import { findFirstProviderLinkFor } from "@/database/utils/provider-link";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
 import { createLocalStableKey, createProviderStableKey } from "@/database/utils/stable-key";
 import { toMap } from "@/utils/array.utils";
@@ -178,15 +179,7 @@ class PeopleRepository {
 
 	/** First provider link for a person (id + provider name), if any. */
 	async findFirstProviderLink(personId: string): Promise<{ externalId: string; name: string } | undefined> {
-		const [row] = await databaseFactory
-			.getClient()
-			.select({ externalId: schema.providers.externalId, name: schema.providers.name })
-			.from(schema.personProviders)
-			.innerJoin(schema.providers, eq(schema.providers.id, schema.personProviders.providerId))
-			.where(eq(schema.personProviders.personId, personId))
-			.limit(1);
-
-		return row;
+		return await findFirstProviderLinkFor(schema.personProviders, schema.personProviders.personId, personId);
 	}
 
 	async processMetadataCredits({

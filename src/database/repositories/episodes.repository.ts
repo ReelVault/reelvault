@@ -17,7 +17,7 @@ import { defineTableAccess, findPageWithQueryMap, parseFieldsForRead } from "@/d
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
-import { attachMediaFiles } from "@/database/utils/media-file-projection";
+import { findFirstWithMediaFiles, findManyWithMediaFiles } from "@/database/utils/media-file-projection";
 import type { QueryMap } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { findOrCreateWithIdentityRecovery } from "@/database/utils/upsert-by-identity";
@@ -194,11 +194,7 @@ class EpisodesRepository {
 		tx,
 	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<EpisodeWithRelations, F>>> {
 		const data = await this.selectMany({ where, orderBy, limit, offset, tx });
-		if (!QueryFields.includes(fields, "mediaFiles")) {
-			return data.map((item) => QueryFields.apply({ ...item, mediaFiles: [] }, fields));
-		}
-
-		const rows = await attachMediaFiles(data, { fields, relation: "episodeId", tx });
+		const rows = await findManyWithMediaFiles(data, { fields, relation: "episodeId", tx });
 
 		return rows.map((item) => QueryFields.apply<EpisodeWithRelations, F>(item, fields));
 	}
@@ -216,11 +212,7 @@ class EpisodesRepository {
 
 		if (!data) return undefined;
 
-		if (!QueryFields.includes(fields, "mediaFiles")) {
-			return QueryFields.apply({ ...data, mediaFiles: [] }, fields);
-		}
-
-		const [row] = await attachMediaFiles([data], { fields, relation: "episodeId", tx });
+		const row = await findFirstWithMediaFiles(data, { fields, relation: "episodeId", tx });
 		if (!row) return undefined;
 
 		return QueryFields.apply<EpisodeWithRelations, F>(row, fields);

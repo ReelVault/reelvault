@@ -249,11 +249,11 @@ export function defineTableAccess<TTable extends DatabaseTables>(
 		findOrCreate: (params) => findOrCreate(repository, params),
 		insert: (params) => insertRows(repository, params),
 		insertReturning: (params) => insertRowsReturning(repository, params),
-		update: (params) => updateRows(repository, params),
-		updateReturning: (params) => updateRowsReturning(repository, params),
+		update: (params) => runUpdate(repository, params),
+		updateReturning: (params) => runUpdate(repository, params, true),
 		updateAndReturn: (params) => updateAndReturn(repository, params),
-		delete: (params) => deleteRows(repository, params),
-		deleteReturning: (params) => deleteRowsReturning(repository, params),
+		delete: (params) => runDelete(repository, params),
+		deleteReturning: (params) => runDelete(repository, params, true),
 		deleteAndReturn: (params) => deleteAndReturn(repository, params),
 		count: (params) => countRows(repository, params),
 		isExists: (params) => isExists(repository, params),
@@ -310,6 +310,15 @@ export function parseFieldsForRead<F extends string>(query?: FieldsQuery<F>): Fi
 	return QueryFields.parse({ fields: query?.fields });
 }
 
+type FindManyPageFn<F extends string, TRow> = (params: {
+	where?: SQL | undefined;
+	orderBy?: SQL | undefined;
+	fields?: FieldsConfig<F> | undefined;
+	limit?: number | undefined;
+	offset?: number | undefined;
+	tx?: DatabaseTransaction | undefined;
+}) => Promise<TRow[]>;
+
 export async function findPageWithQueryMap<
 	TTable extends DatabaseTables,
 	TFilters extends object,
@@ -336,14 +345,7 @@ export async function findPageWithQueryMap<
 	 * enrichment) pass it here so pagination shares one implementation; when
 	 * omitted the table-access `findMany` is used directly.
 	 */
-	findMany: (params: {
-		where?: SQL | undefined;
-		orderBy?: SQL | undefined;
-		fields?: FieldsConfig<F> | undefined;
-		limit?: number | undefined;
-		offset?: number | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}) => Promise<TRow[]>,
+	findMany: FindManyPageFn<F, TRow>,
 ): Promise<PaginatedResponse<TRow>>;
 
 export async function findPageWithQueryMap<
@@ -356,14 +358,7 @@ export async function findPageWithQueryMap<
 	access: TableAccess<TTable>,
 	queryMap: QueryMap<TFilters, TSorting>,
 	query: (PaginationQuery & FieldsQuery<F> & TFilters & TSorting) | undefined,
-	findMany?: (params: {
-		where?: SQL | undefined;
-		orderBy?: SQL | undefined;
-		fields?: FieldsConfig<F> | undefined;
-		limit?: number | undefined;
-		offset?: number | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}) => Promise<TRow[]>,
+	findMany?: FindManyPageFn<F, TRow>,
 ): Promise<PaginatedResponse<TRow> | PaginatedResponse<SelectFields<TableSelect<TTable>, F>>> {
 	const { pagination, fields, sorting, filters } = QueryUtils.parseWithFilters<F, TFilters, TSorting>(query);
 	const where = QueryUtils.buildWhereConditions(filters, queryMap.filters);
@@ -694,57 +689,44 @@ function resolveUpdateSet<TTable extends DatabaseTables>(
 	return "updatedAt" in repository.table && !("updatedAt" in values) ? { ...values, updatedAt: new Date() } : values;
 }
 
-async function updateRows<TTable extends DatabaseTables>(
-	repository: TableAccessBase<TTable>,
-	{
-		primaryId,
-		ids,
-		where,
-		values,
-		tx,
-	}: {
-		primaryId?: string | undefined;
-		ids?: string[] | undefined;
-		where?: SQL | undefined;
-		values: TableUpdateSet<TTable>;
-		tx?: DatabaseTransaction | undefined;
-	},
-): Promise<void> {
-	const updateSet = resolveUpdateSet(repository, { primaryId, ids, where, values });
-	if (!updateSet) return;
+interface UpdateParams<TTable extends DatabaseTables> {
+	primaryId?: string | undefined;
+	ids?: string[] | undefined;
+	where?: SQL | undefined;
+	values: TableUpdateSet<TTable>;
+	tx?: DatabaseTransaction | undefined;
+}
 
-	await databaseFactory
+function runUpdate<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	params: UpdateParams<TTable>,
+	returning: true,
+): Promise<Array<TableSelect<TTable>>>;
+function runUpdate<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	params: UpdateParams<TTable>,
+	returning?: false,
+): Promise<undefined>;
+async function runUpdate<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	{ primaryId, ids, where, values, tx }: UpdateParams<TTable>,
+	returning = false,
+): Promise<Array<TableSelect<TTable>> | undefined> {
+	const updateSet = resolveUpdateSet(repository, { primaryId, ids, where, values });
+	if (!updateSet) return returning ? [] : undefined;
+
+	const query = databaseFactory
 		.getClient({ tx })
 		.update(repository.table)
 		.set(updateSet)
 		.where(whereClauseFor(repository, { primaryId, ids, where }));
-}
 
-async function updateRowsReturning<TTable extends DatabaseTables>(
-	repository: TableAccessBase<TTable>,
-	{
-		primaryId,
-		ids,
-		where,
-		values,
-		tx,
-	}: {
-		primaryId?: string | undefined;
-		ids?: string[] | undefined;
-		where?: SQL | undefined;
-		values: TableUpdateSet<TTable>;
-		tx?: DatabaseTransaction | undefined;
-	},
-): Promise<Array<TableSelect<TTable>>> {
-	const updateSet = resolveUpdateSet(repository, { primaryId, ids, where, values });
-	if (!updateSet) return [];
+	if (!returning) {
+		await query;
+		return undefined;
+	}
 
-	return await databaseFactory
-		.getClient({ tx })
-		.update(repository.table)
-		.set(updateSet)
-		.where(whereClauseFor(repository, { primaryId, ids, where }))
-		.returning();
+	return await query.returning();
 }
 
 async function updateAndReturn<TTable extends DatabaseTables, F extends string>(
@@ -761,60 +743,48 @@ async function updateAndReturn<TTable extends DatabaseTables, F extends string>(
 		tx?: DatabaseTransaction | undefined;
 	},
 ): Promise<SelectFields<TableSelect<TTable>, F> | undefined> {
-	const [row] = await updateRowsReturning(repository, { primaryId, values, tx });
+	const [row] = await runUpdate(repository, { primaryId, values, tx }, true);
 	if (!row) return undefined;
 
 	return QueryFields.apply(row, fields);
 }
 
-async function deleteRows<TTable extends DatabaseTables>(
-	repository: TableAccessBase<TTable>,
-	{
-		primaryId,
-		ids,
-		where,
-		tx,
-	}: {
-		primaryId?: string | undefined;
-		ids?: string[] | undefined;
-		where?: SQL | undefined;
-		tx?: DatabaseTransaction | undefined;
-	},
-): Promise<void> {
-	if (!(where || primaryId || ids?.length)) {
-		throw new Error(`${repository.tableName}: delete requires 'primaryId', 'ids' or 'where'`);
-	}
-
-	if (ids?.length === 0) return;
-
-	await databaseFactory.getClient({ tx }).delete(repository.table).where(whereClauseFor(repository, { primaryId, ids, where }));
+interface DeleteParams {
+	primaryId?: string | undefined;
+	ids?: string[] | undefined;
+	where?: SQL | undefined;
+	tx?: DatabaseTransaction | undefined;
 }
 
-async function deleteRowsReturning<TTable extends DatabaseTables>(
+function runDelete<TTable extends DatabaseTables>(
 	repository: TableAccessBase<TTable>,
-	{
-		primaryId,
-		ids,
-		where,
-		tx,
-	}: {
-		primaryId?: string | undefined;
-		ids?: string[] | undefined;
-		where?: SQL | undefined;
-		tx?: DatabaseTransaction | undefined;
-	},
-): Promise<Array<TableSelect<TTable>>> {
+	params: DeleteParams,
+	returning: true,
+): Promise<Array<TableSelect<TTable>>>;
+function runDelete<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	params: DeleteParams,
+	returning?: false,
+): Promise<undefined>;
+async function runDelete<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	{ primaryId, ids, where, tx }: DeleteParams,
+	returning = false,
+): Promise<Array<TableSelect<TTable>> | undefined> {
 	if (!(where || primaryId || ids?.length)) {
 		throw new Error(`${repository.tableName}: delete requires 'primaryId', 'ids' or 'where'`);
 	}
 
-	if (ids?.length === 0) return [];
+	if (ids?.length === 0) return returning ? [] : undefined;
 
-	return await databaseFactory
-		.getClient({ tx })
-		.delete(repository.table)
-		.where(whereClauseFor(repository, { primaryId, ids, where }))
-		.returning();
+	const query = databaseFactory.getClient({ tx }).delete(repository.table).where(whereClauseFor(repository, { primaryId, ids, where }));
+
+	if (!returning) {
+		await query;
+		return undefined;
+	}
+
+	return await query.returning();
 }
 
 async function deleteAndReturn<TTable extends DatabaseTables>(
@@ -827,7 +797,7 @@ async function deleteAndReturn<TTable extends DatabaseTables>(
 		tx?: DatabaseTransaction | undefined;
 	},
 ): Promise<TableSelect<TTable> | undefined> {
-	const [row] = await deleteRowsReturning(repository, { primaryId, tx });
+	const [row] = await runDelete(repository, { primaryId, tx }, true);
 
 	return row;
 }

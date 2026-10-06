@@ -1,5 +1,6 @@
 import type { WorkerBackoffType } from "@reelvault/sdk/common";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, type SQL, sql } from "drizzle-orm";
+import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { forEachChunked, mapChunked } from "@/database/table-access";
@@ -21,6 +22,9 @@ export type ActiveWorkerItem = Pick<WorkerItem, "id" | "operationId">;
 
 /** Worker-job row without the `data` payload blob, for list/admin reads. */
 export type WorkerItemSummary = Omit<WorkerItem, "data">;
+
+/** Clears a running job's claim identically across every terminal/recovery transition. */
+const RELEASE_CLAIM = { leaseUntil: null, runnerId: null, claimToken: null } as const;
 
 export interface EnqueueWorkerItemInput {
 	id: string;
@@ -435,9 +439,7 @@ class WorkerJobRepository {
 					status: "completed",
 					result,
 					error: null,
-					leaseUntil: null,
-					runnerId: null,
-					claimToken: null,
+					...RELEASE_CLAIM,
 					progressPercent: 100,
 					completedAt: now,
 					updatedAt: now,
@@ -466,9 +468,7 @@ class WorkerJobRepository {
 					status: "pending",
 					runAt,
 					error,
-					leaseUntil: null,
-					runnerId: null,
-					claimToken: null,
+					...RELEASE_CLAIM,
 					updatedAt: new Date(),
 				})
 				.where(runningJobWhere(id, runnerId, claimToken))
@@ -492,9 +492,7 @@ class WorkerJobRepository {
 				.set({
 					status: "failed",
 					error,
-					leaseUntil: null,
-					runnerId: null,
-					claimToken: null,
+					...RELEASE_CLAIM,
 					completedAt: now,
 					updatedAt: now,
 				})
@@ -599,7 +597,7 @@ class WorkerJobRepository {
 		const updated = await databaseFactory
 			.getClient()
 			.update(items)
-			.set({ status: "cancelled", leaseUntil: null, runnerId: null, claimToken: null, completedAt: now, updatedAt: now })
+			.set({ status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now })
 			.where(runningJobWhere(id, undefined, claimToken))
 			.returning({ id: items.id, operationId: items.operationId });
 
@@ -613,28 +611,7 @@ class WorkerJobRepository {
 
 	/** Returns an aborted running task to the queue with its attempt counter preserved (server rescue). */
 	async requeueRunning(id: string, runnerId: string, reason: string, claimToken?: string): Promise<boolean> {
-		return await databaseFactory.transaction(async (tx) => {
-			const updated = await tx
-				.update(items)
-				.set({
-					status: "pending",
-					runAt: new Date(),
-					error: reason,
-					leaseUntil: null,
-					runnerId: null,
-					claimToken: null,
-					updatedAt: new Date(),
-				})
-				.where(runningJobWhere(id, runnerId, claimToken))
-				.returning({ id: items.id, operationId: items.operationId });
-
-			const updatedJob = updated[0];
-			if (updatedJob?.operationId) {
-				await workerOperationRepository.markJobRetried(updatedJob.operationId, new Date(), tx);
-			}
-
-			return updatedJob !== undefined;
-		});
+		return await this.retry(id, runnerId, new Date(), reason, claimToken);
 	}
 
 	async cancelPendingByOperation(operationId: string): Promise<number> {
@@ -753,7 +730,7 @@ class WorkerJobRepository {
 		await databaseFactory
 			.getClient()
 			.update(items)
-			.set({ status: "cancelled", leaseUntil: null, runnerId: null, claimToken: null, completedAt: now, updatedAt: now })
+			.set({ status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now })
 			.where(and(...conditions));
 
 		for (const item of runningByOperation) {
@@ -839,18 +816,11 @@ class WorkerJobRepository {
 	): Promise<number> {
 		if (rows.length === 0) return 0;
 
-		const updated = new Set<string>();
-		for (const chunkIds of chunk(
+		const updated = await this.updateRunningRowsChunked(
+			tx,
 			rows.map((row) => row.id),
-			serverConstants.database.queryChunkSize,
-		)) {
-			const res = await tx
-				.update(items)
-				.set({ status: "pending", leaseUntil: null, runnerId: null, claimToken: null, updatedAt: now })
-				.where(and(inArray(items.id, chunkIds), eq(items.status, "running")))
-				.returning({ id: items.id });
-			for (const row of res) updated.add(row.id);
-		}
+			{ status: "pending", ...RELEASE_CLAIM, updatedAt: now },
+		);
 
 		const recovered = rows.filter((row) => updated.has(row.id));
 		await applyOperationCounts(toOperationCounts(recovered), (operationId, amount) =>
@@ -868,26 +838,17 @@ class WorkerJobRepository {
 	): Promise<number> {
 		if (rows.length === 0) return 0;
 
-		const updated = new Set<string>();
-		for (const chunkIds of chunk(
+		const updated = await this.updateRunningRowsChunked(
+			tx,
 			rows.map((row) => row.id),
-			serverConstants.database.queryChunkSize,
-		)) {
-			const res = await tx
-				.update(items)
-				.set({
-					status: "failed",
-					leaseUntil: null,
-					runnerId: null,
-					claimToken: null,
-					error: "Lease expired after maximum attempts",
-					completedAt: now,
-					updatedAt: now,
-				})
-				.where(and(inArray(items.id, chunkIds), eq(items.status, "running")))
-				.returning({ id: items.id });
-			for (const row of res) updated.add(row.id);
-		}
+			{
+				status: "failed",
+				...RELEASE_CLAIM,
+				error: "Lease expired after maximum attempts",
+				completedAt: now,
+				updatedAt: now,
+			},
+		);
 
 		const failedRows = rows.filter((row) => updated.has(row.id));
 		await applyOperationCounts(toOperationCounts(failedRows), (operationId, amount) =>
@@ -901,6 +862,25 @@ class WorkerJobRepository {
 		);
 
 		return updated.size;
+	}
+
+	/** Guarded UPDATE per id chunk (`status = 'running'`), returning the ids actually transitioned. */
+	private async updateRunningRowsChunked(
+		tx: DatabaseTransaction,
+		ids: readonly string[],
+		values: SQLiteUpdateSetSource<typeof items>,
+	): Promise<Set<string>> {
+		const updated = new Set<string>();
+		for (const chunkIds of chunk([...ids], serverConstants.database.queryChunkSize)) {
+			const res = await tx
+				.update(items)
+				.set(values)
+				.where(and(inArray(items.id, chunkIds), eq(items.status, "running")))
+				.returning({ id: items.id });
+			for (const row of res) updated.add(row.id);
+		}
+
+		return updated;
 	}
 
 	private async recoverExpired(workerId: string, now: Date, tx: DatabaseTransaction, excludeActiveIds?: string[]): Promise<void> {

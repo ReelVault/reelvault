@@ -14,6 +14,7 @@ import { defineRepository, defineTableAccess, findPageWithQueryMap, mapChunked }
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFiltering } from "@/database/utils/filtering";
 import type { QueryMap } from "@/database/utils/query-parser";
+import { runInTransaction } from "@/database/utils/transaction";
 
 const watchlist = defineTableAccess("watchlist", {
 	primaryKeyColumn: "id",
@@ -33,7 +34,7 @@ const watchlistQueryMap: QueryMap<WatchlistFilters, WatchlistSorting> = {
 
 const overrides = {
 	async toggle({ profileId, metadataId, tx }: { profileId: string; metadataId: string; tx?: DatabaseTransaction }) {
-		const run = async (client: ReturnType<typeof databaseFactory.getClient>) => {
+		return await runInTransaction(tx, async (client) => {
 			const deleted = await client
 				.delete(watchlist.table)
 				.where(and(eq(watchlist.table.profileId, profileId), eq(watchlist.table.metadataId, metadataId)))
@@ -46,9 +47,7 @@ const overrides = {
 			await client.insert(watchlist.table).values({ profileId, metadataId }).onConflictDoNothing();
 
 			return { added: true };
-		};
-
-		return tx ? await run(tx) : await databaseFactory.transaction(run);
+		});
 	},
 
 	async remove(profileId: string, metadataId: string): Promise<void> {
