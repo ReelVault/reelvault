@@ -100,3 +100,10 @@ export function findMatchingFiles(
 
 	return matched;
 }
+
+/** Finds sidecar documents by file name (case-insensitive) anywhere below the root. */
+export function findDocumentsByNames(tree: ReadonlyMap<string, CatalogDirectoryNode>, root: string, names: readonly string[]): string[] {
+	const normalizedNames = new Set(names.map((name) => name.toLowerCase()));
+
+	return findMatchingFiles(tree, root, (path) => normalizedNames.has(PathUtils.getFileName(path).toLowerCase()));
+}

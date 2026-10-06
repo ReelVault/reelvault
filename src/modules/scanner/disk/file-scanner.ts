@@ -7,22 +7,35 @@ import { PromiseUtils } from "@/utils/promise.utils";
 import type { FilePathChanges } from "../scanner.types";
 import { compareFilePaths, filterPathsWithinRoots } from "../utils/scanner.utils";
 
+interface ScanOptions {
+	paths: string[];
+	extensions?: readonly string[] | undefined;
+	maxDepth?: number | undefined;
+	signal?: AbortSignal | undefined;
+}
+
+/** Applies the defaults shared by `scan` and `scanWithStats`. */
+function resolveScanOptions(options: ScanOptions): {
+	paths: string[];
+	extensions: readonly string[];
+	maxDepth: number;
+	signal: AbortSignal | undefined;
+} {
+	return {
+		paths: options.paths,
+		extensions: options.extensions ?? serverConfig.media.supportedVideoExtensions,
+		maxDepth: options.maxDepth ?? 10,
+		signal: options.signal,
+	};
+}
+
 class FileScannerService extends BaseService {
 	constructor() {
 		super("FileScannerService");
 	}
 
-	async scan({
-		paths,
-		extensions = serverConfig.media.supportedVideoExtensions,
-		maxDepth = 10,
-		signal,
-	}: {
-		paths: string[];
-		extensions?: readonly string[] | undefined;
-		maxDepth?: number | undefined;
-		signal?: AbortSignal | undefined;
-	}): Promise<string[]> {
+	async scan(options: ScanOptions): Promise<string[]> {
+		const { paths, extensions, maxDepth, signal } = resolveScanOptions(options);
 		const scannedPaths = await PromiseUtils.mapConcurrent(
 			paths,
 			systemResourcesService.getScannerConcurrency(),
@@ -44,17 +57,8 @@ class FileScannerService extends BaseService {
 		return [...seen];
 	}
 
-	async scanWithStats({
-		paths,
-		extensions = serverConfig.media.supportedVideoExtensions,
-		maxDepth = 10,
-		signal,
-	}: {
-		paths: string[];
-		extensions?: readonly string[] | undefined;
-		maxDepth?: number | undefined;
-		signal?: AbortSignal | undefined;
-	}): Promise<ScannedFileEntry[]> {
+	async scanWithStats(options: ScanOptions): Promise<ScannedFileEntry[]> {
+		const { paths, extensions, maxDepth, signal } = resolveScanOptions(options);
 		const scannedEntries = await PromiseUtils.mapConcurrent(
 			paths,
 			systemResourcesService.getScannerConcurrency(),

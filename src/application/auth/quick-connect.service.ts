@@ -189,7 +189,7 @@ export class QuickConnectService extends BaseService {
 			// Synchronous claim: two concurrent authorizes of the same code must not
 			// create two sessions (the pending check alone races across awaits).
 			if (entry.status !== "pending" || entry.authorizing) {
-				throw new ValidationError("Quick connect code has already been used");
+				throw new ValidationError("Quick connect code has already been used", { code: "quick_connect.code_already_used" });
 			}
 
 			entry.authorizing = true;
@@ -262,11 +262,11 @@ export class QuickConnectService extends BaseService {
 			const entry = this.findByNormalizedCode(normalized);
 
 			if (entry?.type !== "voucher" || !entry.userId) {
-				throw new NotFoundError("Invalid or expired login code");
+				throw new NotFoundError("Invalid or expired login code", { code: "quick_connect.voucher_invalid" });
 			}
 
 			if (entry.status !== "pending") {
-				throw new ValidationError("Login code has already been used");
+				throw new ValidationError("Login code has already been used", { code: "quick_connect.voucher_already_used" });
 			}
 
 			// Invalidate voucher immediately so it's one-time use

@@ -121,7 +121,10 @@ class NotificationsService extends BaseService {
 			this.assertUserId(userId);
 			const marked = await notificationsRepository.markReadForRecipient(id, userId, profileId);
 			if (!marked) {
-				throw new ForbiddenError("Notification is not available to this account or profile");
+				throw new ForbiddenError("Notification is not available to this account or profile", {
+					code: "notification.access_denied",
+					params: { notificationId: id },
+				});
 			}
 
 			unreadCountCache.delete(unreadCountKey(userId, profileId));
@@ -284,7 +287,10 @@ class NotificationsService extends BaseService {
 
 		const profile = await profilesRepository.findByUserAndId(userId, profileId);
 		if (!profile) {
-			throw new ForbiddenError("Notification profile does not belong to the user");
+			throw new ForbiddenError("Notification profile does not belong to the user", {
+				code: "profile.not_owned",
+				params: { profileId, userId },
+			});
 		}
 	}
 }

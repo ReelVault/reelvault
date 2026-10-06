@@ -111,7 +111,12 @@ class AdminWorkerOperationsService extends BaseService {
 		this.assertExists(operation, "Worker operation", id);
 
 		const cancelled = await workerService.cancelOperation(id);
-		if (!cancelled) throw new ConflictError("The worker operation could not be cancelled");
+		if (!cancelled) {
+			throw new ConflictError("The worker operation could not be cancelled", {
+				code: "worker.operation_cancel_failed",
+				params: { operationId: id },
+			});
+		}
 
 		recordAuditSafe(
 			{
@@ -169,11 +174,19 @@ class AdminWorkerOperationsService extends BaseService {
 		const item = await workerService.getItem(id);
 		this.assertExists(item, "Worker item", id);
 		if (item.status !== "pending" && item.status !== "running") {
-			throw new ConflictError("Only pending or running worker items can be cancelled");
+			throw new ConflictError("Only pending or running worker items can be cancelled", {
+				code: "worker.item_not_cancellable",
+				params: { itemId: id, status: item.status },
+			});
 		}
 
 		const cancelled = await workerService.cancelItem(id);
-		if (!cancelled) throw new ConflictError("The worker item could not be cancelled");
+		if (!cancelled) {
+			throw new ConflictError("The worker item could not be cancelled", {
+				code: "worker.item_cancel_failed",
+				params: { itemId: id },
+			});
+		}
 
 		recordAuditSafe(
 			{

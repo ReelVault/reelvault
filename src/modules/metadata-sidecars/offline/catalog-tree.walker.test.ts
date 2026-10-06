@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CatalogTreeWalker, findMatchingFiles } from "./catalog-tree.walker";
+import { CatalogTreeWalker, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
 
 describe("CatalogTreeWalker", () => {
 	test("collects every file and subdirectory grouped by parent path", async () => {
@@ -65,6 +65,24 @@ describe("findMatchingFiles", () => {
 
 	test("an unknown directory matches nothing", () => {
 		expect(findMatchingFiles(tree, "/missing", () => true)).toEqual([]);
+	});
+});
+
+describe("findDocumentsByNames", () => {
+	const tree = new Map<string, { files: string[]; subdirectories: string[] }>([
+		["/lib", { files: ["/lib/Movie.NFO", "/lib/tvshow.nfo"], subdirectories: ["/lib/show"] }],
+		["/lib/show", { files: ["/lib/show/movie.reelvault.nfo"], subdirectories: [] }],
+	]);
+
+	test("matches sidecar names case-insensitively and recursively", () => {
+		expect(findDocumentsByNames(tree, "/lib", ["movie.nfo", "movie.reelvault.nfo"])).toEqual([
+			"/lib/Movie.NFO",
+			"/lib/show/movie.reelvault.nfo",
+		]);
+	});
+
+	test("ignores unrelated documents", () => {
+		expect(findDocumentsByNames(tree, "/lib", ["tvshow.nfo"])).toEqual(["/lib/tvshow.nfo"]);
 	});
 });
 

@@ -503,7 +503,12 @@ class MediaService extends BaseService {
 			// Only library.type is read here — the default fetch would run the
 			// library stats/path aggregates for a single string comparison.
 			const library = await librariesRepository.findByIdForRead(mediaFile.libraryId, { fields: "id,type" });
-			if (!library) throw new NotFoundError("Library not found for this media file");
+			if (!library) {
+				throw new NotFoundError("Library not found for this media file", {
+					code: "media_file.library_not_found",
+					params: { libraryId: mediaFile.libraryId },
+				});
+			}
 
 			const mediaType = mapLibraryType(library.type);
 			const targetMetadataId = await this.resolveReassignTarget(body, mediaType);

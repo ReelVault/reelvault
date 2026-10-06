@@ -8,7 +8,7 @@ import {
 	defaultCatalogImporterDependencies,
 	insertMetadataRow,
 } from "./catalog-importer.common";
-import { type CatalogDirectoryNode, findMatchingFiles } from "./catalog-tree.walker";
+import { type CatalogDirectoryNode, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
 
 export class CatalogSeriesImporter {
 	private readonly dependencies: CatalogImporterDependencies;
@@ -24,11 +24,7 @@ export class CatalogSeriesImporter {
 		tree: ReadonlyMap<string, CatalogDirectoryNode>,
 		skipped: OfflineRebuildIssue[],
 	): Promise<CatalogImportResult> {
-		const documents = findMatchingFiles(tree, root, (path) => {
-			const name = PathUtils.getFileName(path).toLowerCase();
-
-			return name === "tvshow.nfo" || name === "tvshow.reelvault.nfo";
-		});
+		const documents = findDocumentsByNames(tree, root, ["tvshow.nfo", "tvshow.reelvault.nfo"]);
 
 		return await collectImportDocuments(this.dependencies, {
 			documents,

@@ -179,20 +179,10 @@ class SystemSettingsService extends BaseService {
 			const changedKeys = [...afterValues.keys()];
 			this.logger.info("Updated system settings", { keys: changedKeys });
 
-			let needsWatcherSync = false;
-			let needsFfmpegReload = false;
-			for (const key of changedKeys) {
-				if (key.startsWith("scanning.autoWatcher")) needsWatcherSync = true;
-
-				if (key.startsWith("ffmpeg.") || key === "ffprobe.path") needsFfmpegReload = true;
-			}
-
-			if (needsWatcherSync) await libraryWatcherService.syncWatchers();
-
-			if (needsFfmpegReload) await this.reloadFfmpeg();
+			await this.applySettingsSideEffects(changedKeys);
 		}
 
-		return this.getAll();
+		return await this.getAll();
 	}
 
 	async resetSettings(keys?: string[], context?: AdminAuditContext): Promise<Record<SettingGroup, SystemSettingItemView[]>> {
@@ -229,20 +219,29 @@ class SystemSettingsService extends BaseService {
 
 			this.logger.info("Reset system settings to defaults", { keys: keysToReset });
 
-			let needsWatcherSync = false;
-			let needsFfmpegReload = false;
-			for (const key of keysToReset) {
-				if (key.startsWith("scanning.autoWatcher")) needsWatcherSync = true;
-
-				if (key.startsWith("ffmpeg.") || key === "ffprobe.path") needsFfmpegReload = true;
-			}
-
-			if (needsWatcherSync) await libraryWatcherService.syncWatchers();
-
-			if (needsFfmpegReload) await this.reloadFfmpeg();
+			await this.applySettingsSideEffects(keysToReset);
 		}
 
 		return await this.getAll();
+	}
+
+	/**
+	 * Runtime side effects a settings write requires (watcher re-sync, FFmpeg
+	 * reload). Always runs after persistence, so a failed write never triggers
+	 * them; the same key rules apply to updates and resets.
+	 */
+	private async applySettingsSideEffects(keys: readonly string[]): Promise<void> {
+		let needsWatcherSync = false;
+		let needsFfmpegReload = false;
+		for (const key of keys) {
+			if (key.startsWith("scanning.autoWatcher")) needsWatcherSync = true;
+
+			if (key.startsWith("ffmpeg.") || key === "ffprobe.path") needsFfmpegReload = true;
+		}
+
+		if (needsWatcherSync) await libraryWatcherService.syncWatchers();
+
+		if (needsFfmpegReload) await this.reloadFfmpeg();
 	}
 
 	private async reloadFfmpeg(): Promise<void> {

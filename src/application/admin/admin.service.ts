@@ -183,7 +183,7 @@ class AdminService extends BaseService {
 			const [stats, libraries, operations, audit, logs] = await Promise.all([
 				this.stats(),
 				librariesService.getAll({ limit: 50 }),
-				Promise.resolve(workerService.listOperations({ page: 1, limit: 8 })),
+				workerService.listOperations({ page: 1, limit: 8 }),
 				adminAuditService.getAll({ page: 1, limit: 6 }),
 				adminLogsService.getLogs({ level: "warn,error,fatal", limit: 6 }),
 			]);

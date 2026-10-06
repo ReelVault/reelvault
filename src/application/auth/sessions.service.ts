@@ -35,10 +35,14 @@ class SessionsService extends BaseService {
 		return await this.safeExecute("revoke", async () => {
 			this.assertPresent(headers, "Request headers are required to revoke a session");
 			this.assertUserId(userId);
-			if (sessionId === currentSessionId) throw new ForbiddenError("Use logout to revoke the current session");
+			if (sessionId === currentSessionId) {
+				throw new ForbiddenError("Use logout to revoke the current session", { code: "auth.current_session_revoke_forbidden" });
+			}
 
 			const token = await sessionsRepository.findTokenByIdAndUserId({ sessionId, userId });
-			if (!token) throw new NotFoundError("Session not found");
+			if (!token) {
+				throw new NotFoundError("Session not found", { code: "auth.session_not_found", params: { sessionId } });
+			}
 
 			await betterAuthApi.revokeSession({ token, headers });
 			realtimeService.sendToSession(sessionId, "auth:session:revoked", { sessionId });
