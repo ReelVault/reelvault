@@ -75,6 +75,11 @@ if (!args.help) {
 		async () => await mediaRepository.findPage({ limit: 24, fields: "id,fileName,subtitles.id,subtitles.language" }),
 		{ warmup: 5, iterations: args.iterations },
 	);
+	bench(
+		"metadataRepository.findRecentlyAddedByType (movie, 20)",
+		async () => await metadataRepository.findRecentlyAddedByType("movie", 20),
+		{ warmup: 5, iterations: args.iterations },
+	);
 }
 
 await main(import.meta);
