@@ -15,6 +15,7 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { BaseService } from "@/utils/base-service";
 import { InFlightMap } from "@/utils/in-flight-map";
 import { MemoryCache } from "@/utils/memory-cache";
+import { normalizeForMatching } from "@/utils/release-tags.constants";
 import { enqueueImageProcessing, type ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { fallbackEpisodeExternalId, fallbackSeasonExternalId, fetchSeason, firstWinsByNumber } from "../catalog.utils";
@@ -24,10 +25,7 @@ type EnqueueImages = (data: ImageProcessingData, options?: TaskSchedulingOptions
 
 /** Deterministic slug for sidecar-derived external ids / genre ids. */
 function slugify(value: string): string {
-	return value
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-|-$/g, "");
+	return normalizeForMatching(value).replaceAll(" ", "-");
 }
 interface MetadataProcessResult {
 	metadataId: string;

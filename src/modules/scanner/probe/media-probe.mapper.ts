@@ -2,6 +2,13 @@ import type { CreateMediaFile } from "@reelvault/sdk/common";
 import type { FFProbeResult, FFProbeStream } from "@/integrations/ffprobe/ffprobe.types";
 import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences";
 import { escapeRegex } from "@/utils/http.utils";
+import {
+	EDITION_TAGS,
+	normalizeForMatching,
+	RESOLUTION_BUCKETS,
+	type ReleaseTagDefinition,
+	SOURCE_TAGS,
+} from "@/utils/release-tags.constants";
 
 type MediaFileTechnicalData = Pick<
 	CreateMediaFile,
@@ -9,67 +16,18 @@ type MediaFileTechnicalData = Pick<
 >;
 type MediaFileTagData = Pick<CreateMediaFile, "source" | "edition" | "qualityTag">;
 
-interface FileTagDefinition {
-	value: string;
-	aliases: readonly string[];
-}
 interface CompiledFileTagDefinition {
 	value: string;
 	pattern: RegExp;
 }
-interface ResolutionBucket {
-	readonly label: string;
-	readonly minWidth: number;
-}
 
-const resolutionBuckets: readonly ResolutionBucket[] = [
-	{ label: "4320p", minWidth: 7000 },
-	{ label: "2160p", minWidth: 3200 },
-	{ label: "1440p", minWidth: 2300 },
-	{ label: "1080p", minWidth: 1800 },
-	{ label: "720p", minWidth: 1200 },
-	{ label: "576p", minWidth: 900 },
-	{ label: "480p", minWidth: 700 },
-	{ label: "360p", minWidth: 500 },
-	{ label: "240p", minWidth: 0 },
-] as const;
-
-const sourceDefinitions: FileTagDefinition[] = [
-	{ value: "WEB-DL", aliases: ["web-dl", "web dl", "webrip", "web rip"] },
-	{ value: "BluRay", aliases: ["bluray", "blu-ray", "blu ray", "bdrip", "bd-rip", "bd rip", "brrip", "br-rip", "br rip"] },
-	{ value: "Remux", aliases: ["remux"] },
-	{ value: "HDTV", aliases: ["hdtv"] },
-	{ value: "DVD", aliases: ["dvd", "dvdrip", "dvd-rip", "dvd rip"] },
-	{ value: "VHS", aliases: ["vhs"] },
-	{ value: "CAM", aliases: ["cam"] },
-	{ value: "TS", aliases: ["ts", "telesync"] },
-	{ value: "TC", aliases: ["tc", "telecine"] },
-];
-
-const editionDefinitions: FileTagDefinition[] = [
-	{ value: "Director's Cut", aliases: ["director's cut", "directors cut", "director cut"] },
-	{ value: "Special Edition", aliases: ["special edition"] },
-	{ value: "Collector's Edition", aliases: ["collector's edition", "collectors edition"] },
-	{ value: "Extended", aliases: ["extended", "extended cut"] },
-	{ value: "Remastered", aliases: ["remastered", "remaster"] },
-	{ value: "Unrated", aliases: ["unrated"] },
-	{ value: "Theatrical", aliases: ["theatrical cut", "theatrical"] },
-	{ value: "IMAX", aliases: ["imax"] },
-	{ value: "Anniversary", aliases: ["anniversary"] },
-	{ value: "Ultimate", aliases: ["ultimate edition", "ultimate"] },
-	{ value: "Final Cut", aliases: ["final cut"] },
-	{ value: "Open Matte", aliases: ["open matte"] },
-];
-
-const NON_ALPHANUMERIC = /[^a-z0-9]+/g;
-
-const normalizedSourceDefinitions = normalizeDefinitions(sourceDefinitions);
-const normalizedEditionDefinitions = normalizeDefinitions(editionDefinitions);
+const normalizedSourceDefinitions = normalizeDefinitions(SOURCE_TAGS);
+const normalizedEditionDefinitions = normalizeDefinitions(EDITION_TAGS);
 
 function resolveQualityTag(width: number | undefined): string | null {
 	if (!width) return null;
 
-	return resolutionBuckets.find((bucket) => width >= bucket.minWidth)?.label ?? null;
+	return RESOLUTION_BUCKETS.find((bucket) => width >= bucket.minWidth)?.label ?? null;
 }
 
 export function mapMediaFileData(fileName: string, probe: FFProbeResult): MediaFileTechnicalData & MediaFileTagData {
@@ -193,13 +151,9 @@ function buildAliasPattern(aliases: readonly string[]): RegExp {
 	return new RegExp(`(?:^|\\s)(?:${escaped.join("|")})(?:\\s|$)`);
 }
 
-function normalizeDefinitions(definitions: readonly FileTagDefinition[]): CompiledFileTagDefinition[] {
+function normalizeDefinitions(definitions: readonly ReleaseTagDefinition[]): CompiledFileTagDefinition[] {
 	return definitions.map((definition) => ({
 		value: definition.value,
 		pattern: buildAliasPattern(definition.aliases.map(normalizeForMatching)),
 	}));
-}
-
-function normalizeForMatching(value: string): string {
-	return value.toLowerCase().replace(NON_ALPHANUMERIC, " ").trim();
 }

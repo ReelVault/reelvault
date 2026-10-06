@@ -354,42 +354,28 @@ class MetadataService extends BaseService {
 			const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type" });
 			this.assertExists(existing, "Metadata", metadataId);
 
-			const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId);
-			if (!providerMetadata) throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID");
+			return await this.updateLinkedProvider(metadataId, existing, body, query, context, {
+				resourceType: "metadata_rematch",
+				persist: async (providerMetadata) => {
+					await metadataPersistenceRepository.rematchProviderMetadata({
+						metadataId,
+						type: existing.type,
+						providerName: body.providerId,
+						metadata: providerMetadata,
+						matchScore: 1.0,
+					});
 
-			await metadataPersistenceRepository.rematchProviderMetadata({
-				metadataId,
-				type: existing.type,
-				providerName: body.providerId,
-				metadata: providerMetadata,
-				matchScore: 1.0,
-			});
+					await imageProcessingService.replaceProviderArtwork(metadataId, providerMetadata);
 
-			await imageProcessingService.replaceProviderArtwork(metadataId, providerMetadata);
-
-			if (existing.type === "tv_show" && providerMetadata.seasons) {
-				await syncSeasonsAndEpisodes(metadataId, providerMetadata.seasons);
-			}
-
-			this.invalidateReadCaches();
-			pluginEventBus.publish("metadata.saved", { metadataId });
-			sidecarSyncService.scheduleSync(metadataId);
-			const updated = await metadataRepository.findByIdForRead(metadataId, query);
-			this.assertExists(updated, "Metadata", metadataId);
-
-			recordAuditSafe(
-				{
-					action: "update",
-					resourceType: "metadata_rematch",
-					resourceId: metadataId,
-					before: existing,
-					after: { providerId: body.providerId, externalId: body.externalId, updated },
-					context,
+					if (existing.type === "tv_show" && providerMetadata.seasons) {
+						await syncSeasonsAndEpisodes(metadataId, providerMetadata.seasons);
+					}
 				},
-				this.logger,
-			);
-
-			return updated;
+				afterInvalidate: () => {
+					pluginEventBus.publish("metadata.saved", { metadataId });
+					sidecarSyncService.scheduleSync(metadataId);
+				},
+			});
 		});
 	}
 
@@ -408,30 +394,58 @@ class MetadataService extends BaseService {
 			const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type,providers" });
 			this.assertExists(existing, "Metadata", metadataId);
 
-			const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId);
-			if (!providerMetadata) throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID");
-
-			await metadataPersistenceRepository.linkProvider(metadataId, existing.type, body.providerId, body.externalId);
-			await metadataRefreshService.refresh(metadataId, { prefetchedProviders: { [body.providerId]: providerMetadata } });
-
-			this.invalidateReadCaches();
-			const updated = await metadataRepository.findByIdForRead(metadataId, query);
-			this.assertExists(updated, "Metadata", metadataId);
-
-			recordAuditSafe(
-				{
-					action: "update",
-					resourceType: "metadata_link_provider",
-					resourceId: metadataId,
-					before: existing,
-					after: { providerId: body.providerId, externalId: body.externalId, updated },
-					context,
+			return await this.updateLinkedProvider(metadataId, existing, body, query, context, {
+				resourceType: "metadata_link_provider",
+				persist: async (providerMetadata) => {
+					await metadataPersistenceRepository.linkProvider(metadataId, existing.type, body.providerId, body.externalId);
+					await metadataRefreshService.refresh(metadataId, { prefetchedProviders: { [body.providerId]: providerMetadata } });
 				},
-				this.logger,
-			);
-
-			return updated;
+			});
 		});
+	}
+
+	/**
+	 * Shared tail of {@link rematch} and {@link linkProvider}: fetch the provider
+	 * payload, run the caller's persistence step, invalidate read caches, re-read
+	 * the row and record the audit entry. Everything that differs between the
+	 * callers (persistence/artwork work and rematch's event/sidecar hooks) stays
+	 * in `options`.
+	 */
+	private async updateLinkedProvider<F extends string>(
+		metadataId: string,
+		existing: { type: "movie" | "tv_show" },
+		body: { providerId: string; externalId: string },
+		query: FieldsQuery<F> | undefined,
+		context: AdminAuditContext | undefined,
+		options: {
+			resourceType: string;
+			persist: (providerMetadata: ProviderMetadataResult) => Promise<void>;
+			afterInvalidate?: () => void;
+		},
+	): Promise<SelectFields<MetadataWithRelation, F>> {
+		const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId);
+		if (!providerMetadata) throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID");
+
+		await options.persist(providerMetadata);
+
+		this.invalidateReadCaches();
+		options.afterInvalidate?.();
+		const updated = await metadataRepository.findByIdForRead(metadataId, query);
+		this.assertExists(updated, "Metadata", metadataId);
+
+		recordAuditSafe(
+			{
+				action: "update",
+				resourceType: options.resourceType,
+				resourceId: metadataId,
+				before: existing,
+				after: { providerId: body.providerId, externalId: body.externalId, updated },
+				context,
+			},
+			this.logger,
+		);
+
+		return updated;
 	}
 
 	async delete(metadataId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {

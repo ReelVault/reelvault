@@ -1,19 +1,19 @@
 import type { MediaIdentity } from "@reelvault/sdk/common";
 import { MemoryCache } from "@/utils/memory-cache";
+import { SCENE_NOISE } from "@/utils/release-tags.constants";
 import { EPISODE_FILE_PATTERN, YEAR_FOLDER_PATTERN, YEAR_TITLE_PATTERN } from "./recognition.constants";
 
 const EXT_PATTERN = /\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|vob|ogv|divx|mpg|mpeg|iso|nfo|srt|sub|ass)$/i;
+// `episodeMarker` captures the SxxExx / NxN marker with its optional range tail;
+// the numbers themselves are parsed by `extractSeasonEpisode`.
 const SERIES_PATTERN =
-	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?:s(?<season>\d{1,2})e(?<episode>\d{1,2})|(?<season_alt>\d{1,2})x(?<episode_alt>\d{1,2}))(?:[-_. ]{1,2}e?(?<episode_end>\d{1,2})(?!\d))?/i;
+	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?<episodeMarker>(?:s\d{1,2}e\d{1,2}|\d{1,2}x\d{1,2})(?:[-_. ]{1,2}e?\d{1,2}(?!\d))?)/i;
 const MOVIE_PATTERN = /^(?<title>.+?)(?:[\s._(]+)(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?/i;
 const DOT_UNDERSCORE_PATTERN = /[._]/g;
 
 function cleanTitle(str: string): string {
 	return str.replace(DOT_UNDERSCORE_PATTERN, " ").replace(/\s+/g, " ").trim();
 }
-
-const SCENE_NOISE_PATTERN =
-	/\b(?:2160p|1080p|1080i|720p|480p|4k|uhd|bluray|bdrip|brrip|web[-_. ]?dl|webrip|hdrip|dvdrip|remux|h264|h265|x264|x265|hevc|avc|10bit|ddp[57]\.1|truehd|atmos|aac(?:\d\.\d)?|ac3|dts(?:-hd)?|flac|multi|dubbed|lektor|subbed|repack|proper|extended|unrated|directors\.cut)\b.*$/i;
 
 /**
  * Memoized: a season folder re-parses the same show/folder names once per
@@ -38,22 +38,23 @@ export function parseFileName(fileName: string): MediaIdentity | null {
 function parseFileNameUncached(fileName: string): MediaIdentity | null {
 	const nameWithoutExt = fileName.replace(EXT_PATTERN, "");
 
-	// 1. Najpierw szukamy wzorca serialu (S01E01 lub 1x01)
+	// 1. Series marker (SxxExx / NxN): title/year come from the anchored
+	// pattern, the season/episode numbers from the shared extractor.
 	const seriesMatch = nameWithoutExt.match(SERIES_PATTERN);
 	if (seriesMatch?.groups) {
-		const { title, year, season, episode, season_alt, episode_alt, episode_end } = seriesMatch.groups;
-		const episodeNumber = Number.parseInt(episode ?? episode_alt ?? "0", 10);
-		const episodeEnd = episode_end ? Number.parseInt(episode_end, 10) : undefined;
+		const { title, year, episodeMarker } = seriesMatch.groups;
+		const { season, episode, episodeEnd } = extractSeasonEpisode(episodeMarker ?? "");
 
-		return {
-			title: cleanTitle(title ?? nameWithoutExt),
-			type: "episode",
-			season: Number.parseInt(season ?? season_alt ?? "0", 10),
-			episode: episodeNumber,
-			// A descending "range" (E05-E02) is scene noise, not a multi-episode file.
-			...(episodeEnd !== undefined && episodeEnd > episodeNumber ? { episodeEnd } : {}),
-			year: year ? Number.parseInt(year, 10) : undefined,
-		};
+		if (episode !== undefined) {
+			return {
+				title: cleanTitle(title ?? nameWithoutExt),
+				type: "episode",
+				season,
+				episode,
+				...(episodeEnd !== undefined ? { episodeEnd } : {}),
+				year: year ? Number.parseInt(year, 10) : undefined,
+			};
+		}
 	}
 
 	// 2. If no season was found, look for a movie with a year
@@ -71,7 +72,7 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
 	}
 
 	// 3. Fallback — no year and no season pattern in the name: strip scene noise and treat the rest as the title
-	const stripped = nameWithoutExt.replace(SCENE_NOISE_PATTERN, "").trim();
+	const stripped = nameWithoutExt.replace(SCENE_NOISE, "").trim();
 	const title = cleanTitle(stripped || nameWithoutExt);
 	if (!title) return null;
 
@@ -84,10 +85,31 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
 
 /**
  * Season/episode numbers extracted straight from a file name via
- * `EPISODE_FILE_PATTERN` — the fallback both series strategies use when
- * `parseFileName` found no SxxExx marker. Covers every named group.
+ * `EPISODE_FILE_PATTERN` — the single number parser, used by `parseFileName`
+ * (on the matched marker tail) and as the fallback both series strategies use
+ * when `parseFileName` found no SxxExx marker. Covers every named group.
+ *
+ * Memoized: both series strategies run this on the same file name before the
+ * movie strategies get their turn, so movie layouts would otherwise pay the
+ * regex twice per file.
  */
+const extractCache = new MemoryCache<{ season?: number; episode?: number; episodeEnd?: number }>({
+	ttlMs: -1,
+	maxSize: 10_000,
+	name: "extract-episode",
+});
+
 export function extractSeasonEpisode(fileName: string): { season?: number; episode?: number; episodeEnd?: number } {
+	const cached = extractCache.get(fileName);
+	if (cached !== null) return { ...cached };
+
+	const result = extractSeasonEpisodeUncached(fileName);
+	extractCache.set(fileName, result);
+
+	return result;
+}
+
+function extractSeasonEpisodeUncached(fileName: string): { season?: number; episode?: number; episodeEnd?: number } {
 	const match = fileName.match(EPISODE_FILE_PATTERN);
 	if (!match?.groups) return {};
 
@@ -103,6 +125,30 @@ export function extractSeasonEpisode(fileName: string): { season?: number; episo
 		...(episodeNumber !== undefined ? { episode: episodeNumber } : {}),
 		...(episodeNumber !== undefined && endNumber !== undefined && endNumber > episodeNumber ? { episodeEnd: endNumber } : {}),
 	};
+}
+
+/**
+ * Resolves the season/episode numbers a series strategy should use for a file:
+ * the parsed identity first, then the episode extractor as fallback, with the
+ * enclosing season folder as the last season source.
+ */
+export function resolveEpisodeNumbers(
+	fileName: string,
+	fileIdentity: MediaIdentity | null,
+	folderSeason?: number,
+): { season?: number | undefined; episode?: number | undefined; episodeEnd?: number | undefined } {
+	let season = fileIdentity?.season ?? folderSeason;
+	let episode = fileIdentity?.episode;
+	let episodeEnd = fileIdentity?.episodeEnd;
+
+	if (episode === undefined) {
+		const extracted = extractSeasonEpisode(fileName);
+		season ??= extracted.season;
+		episode = extracted.episode;
+		episodeEnd = extracted.episodeEnd;
+	}
+
+	return { season, episode, episodeEnd };
 }
 
 /** Upper bound on episodes a single file may claim — longer "ranges" are scene noise. */

@@ -1,7 +1,5 @@
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "../recognition.types";
-import { extractSeasonEpisode, parseFileName, resolveShowTitle } from "../utils/recognition.utils";
-
-const SERIES_EPISODE_PATTERN = /s\d{1,2}e\d{1,2}|\d{1,2}x\d{1,2}/i;
+import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "../utils/recognition.utils";
 
 export class SeriesBasicStrategy implements RecognitionStrategy {
 	readonly name = "series-basic";
@@ -10,24 +8,14 @@ export class SeriesBasicStrategy implements RecognitionStrategy {
 		const { parentFolder, fileName } = ctx;
 		if (!(parentFolder && fileName)) return null;
 
-		if (!SERIES_EPISODE_PATTERN.test(fileName)) return null;
+		// Resolve the file's episode numbers first: a movie file bails out here
+		// without paying for the show-folder parse.
+		const fileIdentity = parseFileName(fileName);
+		const { season, episode, episodeEnd } = resolveEpisodeNumbers(fileName, fileIdentity);
+		if (season === undefined || episode === undefined) return null;
 
 		const showIdentity = parseFileName(parentFolder);
 		if (!showIdentity) return null;
-
-		const fileIdentity = parseFileName(fileName);
-		let season = fileIdentity?.season;
-		let episode = fileIdentity?.episode;
-		let episodeEnd = fileIdentity?.episodeEnd;
-
-		if (season === undefined || episode === undefined) {
-			const extracted = extractSeasonEpisode(fileName);
-			season ??= extracted.season;
-			episode ??= extracted.episode;
-			episodeEnd ??= extracted.episodeEnd;
-		}
-
-		if (season === undefined || episode === undefined) return null;
 
 		const { title, year } = resolveShowTitle(showIdentity, fileIdentity);
 

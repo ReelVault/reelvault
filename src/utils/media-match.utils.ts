@@ -1,5 +1,6 @@
 import { unique } from "./array.utils";
 import { MemoryCache } from "./memory-cache";
+import { EDITION_NOISE } from "./release-tags.constants";
 
 const DIACRITICS_PATTERN = /\p{M}/gu;
 
@@ -138,8 +139,6 @@ const TITLE_SCORE_WEIGHT = 0.58;
 const YEAR_SCORE_WEIGHT = 0.3;
 const POPULARITY_SCORE_WEIGHT = 0.12;
 
-const EDITION_NOISE =
-	/\b(?:directors?\s+cut|extended(?:\s+cut|\s+edition)?|theatrical(?:\s+cut|\s+version)?|unrated(?:\s+cut|\s+version)?|remastered|imax(?:\s+edition)?|special\s+edition|final\s+cut|ultimate\s+cut)\b/gi;
 const LEADING_THE = /^the\s+/i;
 const AND_WORD_GLOBAL = /\band\b/gi;
 // Recognition leftovers like "Show (2011) -" (dash kept from " - S01E01 - ") must

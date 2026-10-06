@@ -154,4 +154,37 @@ describe("recognition service", () => {
 		expect(result?.identity.season).toBe(4);
 		expect(result?.identity.episode).toBe(1);
 	});
+
+	test("recognizes a basic-structure file whose SxxExx marker has no separator before it", () => {
+		const result = recognitionService.recognize("/media/Series/Friends (1994)/xS01E01.mkv");
+
+		expect(result).not.toBeNull();
+		expect(result?.type).toBe("tv_show");
+		expect(result?.identity.season).toBe(1);
+		expect(result?.identity.episode).toBe(1);
+	});
+
+	test("does not invent a season for a bare episode number in a basic structure", () => {
+		const result = recognitionService.recognize("/media/Series/Friends (1994)/Friends - 01.mkv");
+
+		expect(result?.type).toBe("movie");
+		expect(result?.identity.season).toBeUndefined();
+		expect(result?.identity.episode).toBeUndefined();
+	});
+
+	test("prefers the anchored marker over an earlier bare number in the file name", () => {
+		const result = recognitionService.recognize("/media/Series/Friends (1994)/Friends - 01 - S01E02.mkv");
+
+		expect(result?.type).toBe("tv_show");
+		expect(result?.identity.season).toBe(1);
+		expect(result?.identity.episode).toBe(2);
+	});
+
+	test("keeps the anchored marker when the file name contains a resolution", () => {
+		const result = recognitionService.recognize("/media/Series/Friends (1994)/Friends.1920x1080.S01E02.mkv");
+
+		expect(result?.type).toBe("tv_show");
+		expect(result?.identity.season).toBe(1);
+		expect(result?.identity.episode).toBe(2);
+	});
 });

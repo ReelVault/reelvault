@@ -1,5 +1,5 @@
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "../recognition.types";
-import { extractSeasonEpisode, parseFileName, resolveShowTitle } from "../utils/recognition.utils";
+import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "../utils/recognition.utils";
 
 const SEASON_FOLDER_PATTERN = /^(?:Season|Sezon|S)\s*\d+|^Specials$/i;
 const SEASON_FOLDER_MATCH_PATTERN = /^(?:Season|Sezon|S)\s*(\d+)/i;
@@ -26,16 +26,7 @@ export class SeriesCategorizedStrategy implements RecognitionStrategy {
 		}
 
 		const fileIdentity = parseFileName(fileName);
-		let season = fileIdentity?.season ?? folderSeason;
-		let episode = fileIdentity?.episode;
-		let episodeEnd = fileIdentity?.episodeEnd;
-
-		if (episode === undefined) {
-			const extracted = extractSeasonEpisode(fileName);
-			season ??= extracted.season;
-			episode = extracted.episode;
-			episodeEnd = extracted.episodeEnd;
-		}
+		const { season, episode, episodeEnd } = resolveEpisodeNumbers(fileName, fileIdentity, folderSeason);
 
 		if (season === undefined || episode === undefined) return null;
 

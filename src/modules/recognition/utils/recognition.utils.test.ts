@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { MediaIdentity } from "@reelvault/sdk/common";
-import { episodeRangeSpan, episodeRangeTargets, extractSeasonEpisode, parseFileName, resolveShowTitle } from "./recognition.utils";
+import {
+	episodeRangeSpan,
+	episodeRangeTargets,
+	extractSeasonEpisode,
+	parseFileName,
+	resolveEpisodeNumbers,
+	resolveShowTitle,
+} from "./recognition.utils";
 
 function identity(title: string, year?: number): MediaIdentity {
 	return { title, type: "movie", year };
@@ -70,6 +77,70 @@ describe("multi-episode ranges and copy suffixes", () => {
 	test("keeps bare dot and space episode markers working", () => {
 		expect(extractSeasonEpisode("Show - 01.mkv")).toEqual({ episode: 1 });
 		expect(extractSeasonEpisode("Show.E02.mkv")).toEqual({ episode: 2 });
+	});
+});
+
+describe("episode marker delegation edge cases", () => {
+	test("keeps the anchored marker when a resolution precedes it", () => {
+		expect(parseFileName("Show.1920x1080.S01E02.mkv")).toEqual({
+			title: "Show 1920x1080",
+			type: "episode",
+			season: 1,
+			episode: 2,
+			year: undefined,
+		});
+	});
+
+	test("does not read a marker without a separator as a series file", () => {
+		expect(parseFileName("xS01E01.mkv")).toEqual({ title: "xS01E01", type: "movie", year: undefined });
+	});
+
+	test("truncates an over-long episode number exactly like the extractor", () => {
+		expect(parseFileName("Show.S1E100.mkv")).toMatchObject({ season: 1, episode: 10 });
+	});
+
+	test("prefers the marker over an earlier bare number", () => {
+		expect(parseFileName("Show - 01 - S01E02.mkv")).toMatchObject({ title: "Show - 01", season: 1, episode: 2 });
+	});
+
+	test("reads a dotted range after a 1x01 marker", () => {
+		expect(parseFileName("Show.1x01.2x03.mkv")).toMatchObject({ season: 1, episode: 1, episodeEnd: 2 });
+	});
+
+	test("keeps a copy suffix out of the episode branch", () => {
+		expect(parseFileName("Show_001.mkv")).toEqual({ title: "Show 001", type: "movie", year: undefined });
+	});
+});
+
+describe("resolveEpisodeNumbers", () => {
+	test("prefers the parsed identity over the extractor", () => {
+		const parsed: MediaIdentity = { title: "Show", type: "episode", season: 2, episode: 5 };
+
+		expect(resolveEpisodeNumbers("Show - 01.mkv", parsed)).toEqual({ season: 2, episode: 5, episodeEnd: undefined });
+	});
+
+	test("falls back to the filename extractor for a bare episode number", () => {
+		const parsed: MediaIdentity = { title: "Show - 05", type: "movie", year: undefined };
+
+		expect(resolveEpisodeNumbers("Show - 05.mkv", parsed)).toEqual({ season: undefined, episode: 5, episodeEnd: undefined });
+	});
+
+	test("uses the folder season for a bare episode number", () => {
+		expect(resolveEpisodeNumbers("Show - 05.mkv", null, 3)).toEqual({ season: 3, episode: 5, episodeEnd: undefined });
+	});
+
+	test("keeps the identity season over the folder season", () => {
+		const parsed: MediaIdentity = { title: "Show", type: "episode", season: 2, episode: 5 };
+
+		expect(resolveEpisodeNumbers("Show.S02E05.mkv", parsed, 3)).toEqual({ season: 2, episode: 5, episodeEnd: undefined });
+	});
+
+	test("returns an unresolved result for a file without episode markers", () => {
+		expect(resolveEpisodeNumbers("Movie.2008.mkv", null)).toEqual({
+			season: undefined,
+			episode: undefined,
+			episodeEnd: undefined,
+		});
 	});
 });
 

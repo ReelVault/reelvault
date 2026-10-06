@@ -1,9 +1,7 @@
+import { GENERIC_FOLDER_NAMES } from "@/utils/release-tags.constants";
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "../recognition.types";
 import { YEAR_FOLDER_PATTERN } from "../utils/recognition.constants";
 import { parseFileName } from "../utils/recognition.utils";
-
-const GENERIC_FOLDER_NAMES =
-	/^(?:movies|filmy|film|cinema|kino|downloads|pobrane|video|wideo|media|temp|complete|4k|1080p|720p|bluray|uhd|remux)$/i;
 
 export class MoviesCategorizedStrategy implements RecognitionStrategy {
 	readonly name = "movies-categorized";
