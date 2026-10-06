@@ -19,6 +19,11 @@ export interface CatalogSeedOptions {
 	};
 	/** playback_progress rows every 5th catalog row (profile-1, mid-position). */
 	progress?: boolean;
+	/** Creates the user+profile rows referenced by history/progress so runtime writes pass FK checks. */
+	profile?: {
+		id: string;
+		userId?: string | undefined;
+	};
 	/** worker_jobs backlog (25% running, rest pending) for the claim queries. */
 	workerJobs?: number;
 	/** TV rows: series with seasons × episodesPerSeason episodes, each with a media file. */
@@ -90,6 +95,25 @@ export function seedCatalog(db: Database, options: CatalogSeedOptions): number {
 		for (let k = 0; k < 10; k++) insertKeyword.run(`kw-${k}`, `kw-${k}`, `Keyword ${k}`, now, now);
 
 		for (let c = 0; c < 5; c++) insertCollection.run(`col-${c}`, `col-${c}`, `Collection ${c}`, now, now);
+	}
+
+	const profile = options.profile;
+	if (profile) {
+		const userId = profile.userId ?? `user-${profile.id}`;
+		db.prepare("INSERT INTO users (id, name, email, emailVerified, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)").run(
+			userId,
+			userId,
+			`${userId}@bench.local`,
+			now,
+			now,
+		);
+		db.prepare("INSERT INTO profiles (id, userId, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+			profile.id,
+			userId,
+			profile.id,
+			now,
+			now,
+		);
 	}
 
 	const history = options.history;

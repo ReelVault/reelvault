@@ -6,6 +6,7 @@ import { mediaRepository } from "@/database/repositories/media-files.repository"
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { moviesRepository } from "@/database/repositories/movies.repository";
 import { peopleRepository } from "@/database/repositories/people.repository";
+import { playbackRepository } from "@/database/repositories/playback.repository";
 import { watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { seedCatalog } from "./lib/seed";
 
@@ -28,6 +29,7 @@ if (!args.help) {
 		people: 200,
 		history: { profileId: PROFILE_ID, everyNth: 3, duration: 6000 },
 		series: { shows: 2, seasons: 2, episodesPerSeason: 10 },
+		profile: { id: PROFILE_ID },
 		analyze: true,
 	});
 
@@ -78,6 +80,31 @@ if (!args.help) {
 	bench(
 		"metadataRepository.findRecentlyAddedByType (movie, 20)",
 		async () => await metadataRepository.findRecentlyAddedByType("movie", 20),
+		{ warmup: 5, iterations: args.iterations },
+	);
+	bench("metadataRepository.findTypeById (prepared shape)", async () => await metadataRepository.findTypeById(MOVIE_ID), {
+		warmup: 5,
+		iterations: args.iterations,
+	});
+	bench("metadataRepository.findRootsById (prepared shape)", async () => await metadataRepository.findRootsById(MOVIE_ID), {
+		warmup: 5,
+		iterations: args.iterations,
+	});
+	bench(
+		"playbackRepository.findProgressUpdateData (prepared shape)",
+		async () => await playbackRepository.findProgressUpdateData(`mf-${MOVIE_ID}`, PROFILE_ID),
+		{ warmup: 5, iterations: args.iterations },
+	);
+	bench(
+		"playbackRepository.upsertProgress (prepared shape)",
+		async () =>
+			await playbackRepository.upsertProgress({
+				profileId: PROFILE_ID,
+				fileId: `mf-${MOVIE_ID}`,
+				position: 1000,
+				duration: 6000,
+				completed: false,
+			}),
 		{ warmup: 5, iterations: args.iterations },
 	);
 }
