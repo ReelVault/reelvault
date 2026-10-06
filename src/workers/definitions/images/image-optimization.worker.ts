@@ -19,14 +19,6 @@ export interface ImageOptimizationScanResult {
 	queued: number;
 }
 
-export interface ImageOptimizationTaskDependencies {
-	findOutdatedImageIds(signal?: AbortSignal): Promise<string[]>;
-	optimizeImageById(imageId: string, signal?: AbortSignal): Promise<ImageOptimizationOutcome>;
-	enqueue: (data: ImageOptimizationData, options: WorkerEnqueueOptions) => Promise<unknown>;
-	/** Optional batched variant — used preferentially to avoid one INSERT per image. */
-	enqueueMany?: (items: ImageOptimizationData[], options: WorkerEnqueueOptions) => Promise<unknown>;
-}
-
 // ─── Worker Definitions ───────────────────────────────────────────────────────
 
 export const imageOptimizationWorker = createWorkerDefinition<ImageOptimizationData>(
@@ -46,25 +38,6 @@ export const imageOptimizationWorker = createWorkerDefinition<ImageOptimizationD
 		await processImageOptimizationTask({ imageId: data.imageId }, { signal, operationId, correlationId: operationId, taskId }),
 );
 
-const defaultDependencies: ImageOptimizationTaskDependencies = {
-	findOutdatedImageIds: (signal) => imageMaintenanceService.findOutdatedImageIds(signal),
-	optimizeImageById: (imageId, signal) => imageMaintenanceService.optimizeImageById(imageId, signal),
-	enqueue: enqueueImageOptimization,
-	enqueueMany: (items, options) =>
-		workerService.addItems(
-			imageOptimizationWorker.id,
-			items.map((data) => ({
-				data,
-				options: {
-					...options,
-					dedupeKey: `image-optimization:${data.imageId}`,
-					reference: { type: "image", id: data.imageId },
-					priority: 50,
-				},
-			})),
-		),
-};
-
 export const imageOptimizationScanWorker = createWorkerDefinition<Record<string, never>>(
 	"image-optimization-all",
 	() => ({
@@ -81,33 +54,43 @@ export const imageOptimizationScanWorker = createWorkerDefinition<Record<string,
 export function processImageOptimizationTask(
 	data: ImageOptimizationData,
 	context: ApplicationContext = {},
-	dependencies: ImageOptimizationTaskDependencies = defaultDependencies,
 ): Promise<ImageOptimizationResult> {
 	return withDomainError(`Image optimization failed: ${data.imageId}`, async () => {
 		context.signal?.throwIfAborted();
 		if (!data.imageId) throw new Error("Image optimization task requires an imageId");
 
-		const outcome = await dependencies.optimizeImageById(data.imageId, context.signal);
+		const outcome = await imageMaintenanceService.optimizeImageById(data.imageId, context.signal);
 
 		return { imageId: data.imageId, outcome };
 	});
 }
 
-export function scanImagesForOptimizationTask(
-	context: ApplicationContext = {},
-	dependencies: ImageOptimizationTaskDependencies = defaultDependencies,
-): Promise<ImageOptimizationScanResult> {
-	const { enqueue, enqueueMany } = dependencies;
-
+export function scanImagesForOptimizationTask(context: ApplicationContext = {}): Promise<ImageOptimizationScanResult> {
 	return withDomainError("Image optimization scan failed", () =>
 		scanAndEnqueueTask<string, ImageOptimizationData>({
 			context,
 			label: "Image optimizations queued",
-			findIds: (signal) => dependencies.findOutdatedImageIds(signal),
+			findIds: (signal) => imageMaintenanceService.findOutdatedImageIds(signal),
 			toData: (imageId) => ({ imageId }),
-			enqueueItem: (...input) => enqueue(...input),
-			...(enqueueMany ? { enqueueMany: (...input: Parameters<NonNullable<typeof enqueueMany>>) => enqueueMany(...input) } : {}),
+			enqueueItem: (data, options) => enqueueImageOptimization(data, options),
+			enqueueMany: (items, options) => enqueueImageOptimizationMany(items, options),
 		}),
+	);
+}
+
+/** Batched variant of {@link enqueueImageOptimization} — one INSERT batch instead of one per image. */
+function enqueueImageOptimizationMany(items: ImageOptimizationData[], options: WorkerEnqueueOptions) {
+	return workerService.addItems(
+		imageOptimizationWorker.id,
+		items.map((data) => ({
+			data,
+			options: {
+				...options,
+				dedupeKey: `image-optimization:${data.imageId}`,
+				reference: { type: "image", id: data.imageId },
+				priority: 50,
+			},
+		})),
 	);
 }
 

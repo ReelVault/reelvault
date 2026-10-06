@@ -15,7 +15,7 @@ import { detach } from "@/utils/promise.utils";
 import { pickDefined } from "@/utils/type.utils";
 import { computeNextRunAt } from "../utils/worker-policy.utils";
 import { applyStats } from "../utils/worker-stats.mapper";
-import { workerOperationsService } from "./worker-operations.service";
+import { enqueueWithOperation } from "./worker-operation-enqueue";
 import { getWorkerRuntime } from "./worker-runtime";
 
 const TIME_OF_DAY_REGEX = /^\d{2}:\d{2}$/;
@@ -137,27 +137,11 @@ export class WorkerSchedulerService extends BaseService {
 				if (existing) return;
 			}
 
-			let opId = operationId;
-			let createdOperation = false;
-			if (!opId) {
-				const op = await workerOperationsService.create({
-					type: workerId,
-					reference: { type: "worker", id: workerId },
-				});
-				opId = op.id;
-				createdOperation = true;
-			}
-
-			try {
-				await getWorkerRuntime().queue.enqueue(workerId, data, { dedupeKey, operationId: opId });
-			} catch (error) {
-				if (createdOperation)
-					await workerOperationsService.remove(opId).catch(() => {
-						// intentionally empty
-					});
-
-				throw error;
-			}
+			await enqueueWithOperation(
+				{ type: workerId, reference: { type: "worker", id: workerId } },
+				(opId) => getWorkerRuntime().queue.enqueue(workerId, data, { dedupeKey, operationId: opId }),
+				{ operationId },
+			);
 		} catch (error) {
 			this.logger.warn("Could not enqueue scheduled worker task", { workerId, dedupeKey, error });
 		}
@@ -204,27 +188,19 @@ export class WorkerSchedulerService extends BaseService {
 			throw new ConflictError(`Worker "${workerId}" already has a pending or running manual task`);
 		}
 
-		const operation = await workerOperationsService.create({
-			type: workerId,
-			reference: { type: "worker", id: workerId },
-		});
+		// A failed enqueue must not leave a dangling operation behind.
+		const { operationId, result: job } = await enqueueWithOperation(
+			{ type: workerId, reference: { type: "worker", id: workerId } },
+			(opId) =>
+				getWorkerRuntime().queue.enqueue(workerId, data, {
+					dedupeKey: `manual:${workerId}`,
+					// Negative = highest priority (claim sorts ascending).
+					priority: -10,
+					operationId: opId,
+				}),
+		);
 
-		try {
-			const job = await getWorkerRuntime().queue.enqueue(workerId, data, {
-				dedupeKey: `manual:${workerId}`,
-				// Negative = highest priority (claim sorts ascending).
-				priority: -10,
-				operationId: operation.id,
-			});
-
-			return { success: true, jobId: job.id, operationId: operation.id };
-		} catch (error) {
-			// Do not leave a dangling operation when the enqueue is rejected.
-			await workerOperationsService.remove(operation.id).catch(() => {
-				// intentionally empty
-			});
-			throw error;
-		}
+		return { success: true, jobId: job.id, operationId };
 	}
 
 	/**

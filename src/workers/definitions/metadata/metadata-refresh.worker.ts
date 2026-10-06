@@ -13,19 +13,6 @@ export interface MetadataRefreshResult {
 	providerId: string;
 }
 
-export interface MetadataRefreshTaskDependencies {
-	refresh(
-		metadataId: string,
-		options?: { correlationId?: string | undefined; operationId?: string | undefined; signal?: AbortSignal | undefined },
-	): Promise<MetadataRefreshResult>;
-}
-
-const defaultDependencies: MetadataRefreshTaskDependencies = {
-	refresh: async (metadataId, options) => {
-		return await metadataRefreshService.refresh(metadataId, options);
-	},
-};
-
 // ─── Worker Definition ────────────────────────────────────────────────────────
 
 export const metadataRefreshWorker = createWorkerDefinition<MetadataRefreshData>(
@@ -37,15 +24,11 @@ export const metadataRefreshWorker = createWorkerDefinition<MetadataRefreshData>
 
 // ─── Task Function ────────────────────────────────────────────────────────────
 
-export async function refreshMetadataTask(
-	data: MetadataRefreshData,
-	context: ApplicationContext = {},
-	dependencies: MetadataRefreshTaskDependencies = defaultDependencies,
-): Promise<MetadataRefreshResult> {
+export async function refreshMetadataTask(data: MetadataRefreshData, context: ApplicationContext = {}): Promise<MetadataRefreshResult> {
 	return await withDomainError(`Metadata refresh failed: ${data.metadataId}`, async () => {
 		context.signal?.throwIfAborted();
 
-		return await dependencies.refresh(data.metadataId, {
+		return await metadataRefreshService.refresh(data.metadataId, {
 			correlationId: context.correlationId,
 			operationId: context.operationId,
 			signal: context.signal,

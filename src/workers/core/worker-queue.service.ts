@@ -11,7 +11,7 @@ import { serverConfig } from "@/server.config";
 import { daysAgo } from "@/server.constants";
 import { BaseService } from "@/utils/base-service";
 import { NotFoundError } from "@/utils/errors";
-import { workerOperationsService } from "./worker-operations.service";
+import { enqueueWithOperation } from "./worker-operation-enqueue";
 import { getWorkerRuntime } from "./worker-runtime";
 
 export class WorkerQueueService extends BaseService {
@@ -29,41 +29,19 @@ export class WorkerQueueService extends BaseService {
 		const definition = getWorkerRuntime().registry.get(workerId);
 		if (!definition) throw new NotFoundError(`Worker "${workerId}" is not registered`);
 
-		let operationId = options.operationId;
-		let createdOperation = false;
-		if (!operationId) {
-			const op = await workerOperationsService.create({
-				type: workerId,
-				reference: { type: "worker", id: workerId },
-			});
-			operationId = op.id;
-			createdOperation = true;
-		}
+		const { result } = await enqueueWithOperation(
+			{ type: workerId, reference: { type: "worker", id: workerId } },
+			(operationId) => workerJobRepository.enqueue(this.buildWorkerItemInput(workerId, data, { ...options, operationId }, definition)),
+			{
+				operationId: options.operationId,
+				// A dedupe hit returns the *existing* row with its own operation.
+				isAttached: (item, operationId) => item.operationId === operationId,
+			},
+		);
 
-		const item = this.buildWorkerItemInput(workerId, data, { ...options, operationId }, definition);
-		try {
-			const result = await workerJobRepository.enqueue(item);
-			// A dedupe hit returns the *existing* row with its own operation — the
-			// freshly created operation would otherwise stay `pending` forever with 0 items.
-			if (createdOperation && result.operationId !== operationId) {
-				await workerOperationsService.remove(operationId).catch(() => {
-					// intentionally empty
-				});
-			}
+		this.onEnqueueCallback?.();
 
-			this.onEnqueueCallback?.();
-
-			return result;
-		} catch (error) {
-			if (createdOperation) {
-				// Best-effort cleanup — ignore failures
-				await workerOperationsService.remove(operationId).catch(() => {
-					// intentionally empty
-				});
-			}
-
-			throw error;
-		}
+		return result;
 	}
 
 	async enqueueMany(workerId: string, entries: Array<{ data: unknown; options?: AddWorkerItemOptions }>): Promise<WorkerItem[]> {
@@ -72,44 +50,26 @@ export class WorkerQueueService extends BaseService {
 		const definition = getWorkerRuntime().registry.get(workerId);
 		if (!definition) throw new NotFoundError(`Worker "${workerId}" is not registered`);
 
-		let sharedOperationId: string | undefined;
-		let createdOperation = false;
-		if (entries.some((e) => !e.options?.operationId)) {
-			const op = await workerOperationsService.create({
-				type: workerId,
-				reference: { type: "worker", id: workerId },
-			});
-			sharedOperationId = op.id;
-			createdOperation = true;
+		const buildInputs = (operationId?: string) =>
+			entries.map(({ data, options = {} }) =>
+				this.buildWorkerItemInput(workerId, data, { ...options, operationId: options.operationId ?? operationId }, definition),
+			);
+
+		let items: WorkerItem[];
+		if (entries.some((entry) => !entry.options?.operationId)) {
+			({ result: items } = await enqueueWithOperation(
+				{ type: workerId, reference: { type: "worker", id: workerId } },
+				(operationId) => workerJobRepository.enqueueMany(buildInputs(operationId)),
+				// Every entry losing the dedupe race leaves the shared operation with no items.
+				{ isAttached: (batch, operationId) => batch.some((item) => item.operationId === operationId) },
+			));
+		} else {
+			items = await workerJobRepository.enqueueMany(buildInputs());
 		}
 
-		const opId = sharedOperationId;
-		const inputs = entries.map(({ data, options = {} }) =>
-			this.buildWorkerItemInput(workerId, data, { ...options, operationId: options.operationId ?? opId }, definition),
-		);
+		this.onEnqueueCallback?.();
 
-		try {
-			const items = await workerJobRepository.enqueueMany(inputs);
-			// Every entry lost the dedupe race — the shared operation has no items.
-			if (createdOperation && opId && !items.some((item) => item.operationId === opId)) {
-				await workerOperationsService.remove(opId).catch(() => {
-					// intentionally empty
-				});
-			}
-
-			this.onEnqueueCallback?.();
-
-			return items;
-		} catch (error) {
-			if (createdOperation && opId) {
-				// Best-effort cleanup — ignore failures
-				await workerOperationsService.remove(opId).catch(() => {
-					// intentionally empty
-				});
-			}
-
-			throw error;
-		}
+		return items;
 	}
 
 	findActive(workerId: string, dedupeKey: string): Promise<ActiveWorkerItem | undefined> {

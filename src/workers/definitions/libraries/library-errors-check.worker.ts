@@ -28,18 +28,6 @@ export interface LibraryErrorsCheckResult {
 	problematicFiles: LibraryErrorsCheckProblem[];
 }
 
-export interface LibraryErrorsCheckTaskDependencies {
-	findMkvFiles(libraryPaths: string[], signal?: AbortSignal): Promise<string[]>;
-	checkFile(filePath: string, signal?: AbortSignal): Promise<string>;
-}
-
-const defaultDependencies: LibraryErrorsCheckTaskDependencies = {
-	findMkvFiles: (libraryPaths, signal) =>
-		fileScannerService.scan({ paths: libraryPaths, extensions: [MKV_EXTENSION_PATTERN], maxDepth: Number.POSITIVE_INFINITY, signal }),
-	checkFile: async (filePath, signal) =>
-		(await ffMpegService.runToCompletion(["-v", "error", "-i", filePath, "-f", "null", "-"], { signal, stdout: "ignore" })).stderr,
-};
-
 export function normalizeLibraryPaths(libraryPaths: string[]): string[] {
 	return unique(trimAndFilter(libraryPaths), (libraryPath) => PathUtils.resolve(libraryPath)).toSorted();
 }
@@ -60,15 +48,16 @@ export const libraryErrorsCheckWorker = createWorkerDefinition<LibraryErrorsChec
 
 // ─── Task Function ────────────────────────────────────────────────────────────
 
-export function checkLibraryErrorsTask(
-	data: LibraryErrorsCheckData,
-	context: ApplicationContext,
-	dependencies: LibraryErrorsCheckTaskDependencies = defaultDependencies,
-): Promise<LibraryErrorsCheckResult> {
+export function checkLibraryErrorsTask(data: LibraryErrorsCheckData, context: ApplicationContext): Promise<LibraryErrorsCheckResult> {
 	return withDomainError("Library FFmpeg error check failed", async () => {
 		context.signal?.throwIfAborted();
 		const libraryPaths = normalizeLibraryPaths(data.libraryPaths);
-		const filePaths = await dependencies.findMkvFiles(libraryPaths, context.signal);
+		const filePaths = await fileScannerService.scan({
+			paths: libraryPaths,
+			extensions: [MKV_EXTENSION_PATTERN],
+			maxDepth: Number.POSITIVE_INFINITY,
+			signal: context.signal,
+		});
 		const problematicFiles: LibraryErrorsCheckProblem[] = [];
 
 		// Run a small batch of FFmpeg full-decode checks in parallel. Sequential
@@ -86,7 +75,12 @@ export function checkLibraryErrorsTask(
 					totalFiles: filePaths.length,
 				});
 
-				const errors = (await dependencies.checkFile(filePath, context.signal)).trim();
+				const errors = (
+					await ffMpegService.runToCompletion(["-v", "error", "-i", filePath, "-f", "null", "-"], {
+						signal: context.signal,
+						stdout: "ignore",
+					})
+				).stderr.trim();
 				if (!errors) return;
 
 				problematicFiles.push({ filePath, errors });

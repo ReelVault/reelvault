@@ -4,7 +4,7 @@ import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
-import { workerOperationsService } from "@/workers/core/worker-operations.service";
+import { enqueueWithOperation } from "@/workers/core/worker-operation-enqueue";
 import { assertCronExpression } from "@/workers/utils/worker-policy.utils";
 import { workerService } from "@/workers/worker.service";
 
@@ -98,32 +98,13 @@ class PluginJobsService extends BaseService {
 		}
 
 		const namespacedName = this.namespace(pluginId, name);
-		let operationId = options?.operationId;
-		let createdOperation = false;
-		if (!operationId) {
-			const op = await workerOperationsService.create({
-				type: namespacedName,
-				reference: options?.reference ?? { type: "plugin", id: pluginId },
-			});
-			operationId = op.id;
-			createdOperation = true;
-		}
+		const { operationId, result: queuedItem } = await enqueueWithOperation(
+			{ type: namespacedName, reference: options?.reference ?? { type: "plugin", id: pluginId } },
+			(opId) => workerService.addItem(namespacedName, data, { ...options, operationId: opId }),
+			{ operationId: options?.operationId },
+		);
 
-		try {
-			const queuedItem = await workerService.addItem(namespacedName, data, {
-				...options,
-				operationId,
-			});
-
-			return { id: queuedItem.id, name, operationId };
-		} catch (error) {
-			if (createdOperation)
-				await workerOperationsService.remove(operationId).catch(() => {
-					// intentionally empty
-				});
-
-			throw error;
-		}
+		return { id: queuedItem.id, name, operationId };
 	}
 
 	async enqueueMany(
@@ -139,43 +120,28 @@ class PluginJobsService extends BaseService {
 		if (items.length === 0) return [];
 
 		const namespacedName = this.namespace(pluginId, name);
-		let operationId = commonOptions?.operationId;
-		let createdOperation = false;
-		if (!operationId) {
-			const op = await workerOperationsService.create({
-				type: namespacedName,
-				reference: commonOptions?.reference ?? { type: "plugin", id: pluginId },
-			});
-			operationId = op.id;
-			createdOperation = true;
-		}
-
-		const entries = items.map((item) => ({
-			data: item.data,
-			options: {
-				...item.options,
-				operationId: item.options?.operationId ?? operationId,
+		const { operationId, result: queuedItems } = await enqueueWithOperation(
+			{ type: namespacedName, reference: commonOptions?.reference ?? { type: "plugin", id: pluginId } },
+			(opId) =>
+				workerService.addItems(
+					namespacedName,
+					items.map((item) => ({
+						data: item.data,
+						options: {
+							...item.options,
+							operationId: item.options?.operationId ?? opId,
+						},
+					})),
+				),
+			{
+				operationId: commonOptions?.operationId,
+				// addItems is not atomic across the whole batch — cancel whatever was
+				// inserted under the operation before removing it, so nothing is orphaned.
+				onFailure: (opId) => workerService.cancelAllPending(opId),
 			},
-		}));
+		);
 
-		try {
-			const queuedItems = await workerService.addItems(namespacedName, entries);
-
-			return queuedItems.map((item) => ({ id: item.id, name, operationId }));
-		} catch (error) {
-			// addItems is not atomic across the whole batch — clean up the operation
-			// (and any jobs already inserted under it) so nothing is orphaned.
-			if (createdOperation) {
-				await workerService.cancelAllPending(operationId).catch(() => {
-					// intentionally empty
-				});
-				await workerOperationsService.remove(operationId).catch(() => {
-					// intentionally empty
-				});
-			}
-
-			throw error;
-		}
+		return queuedItems.map((item) => ({ id: item.id, name, operationId }));
 	}
 
 	unregister(names: readonly string[]): void {

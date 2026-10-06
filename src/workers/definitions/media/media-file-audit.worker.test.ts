@@ -1,7 +1,16 @@
-import { describe, expect, test } from "bun:test";
-import type { MediaFileAuditItem } from "@reelvault/sdk/common";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { MediaFileAuditRow } from "@/database/repositories/media-files.repository";
-import { auditMediaFileTask, type MediaFileAuditTaskDependencies, scanMediaMatchAuditTask } from "./media-file-audit.worker";
+import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { recognitionService } from "@/modules/recognition/recognition.service";
+import { workerService } from "@/workers/worker.service";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { auditMediaFileTask, scanMediaMatchAuditTask } from "./media-file-audit.worker";
+
+const activeStubs: Array<{ restore(): void }> = [];
+
+afterEach(() => {
+	for (const stub of activeStubs.splice(0)) stub.restore();
+});
 
 function createMockAuditRow(overrides: Partial<MediaFileAuditRow> = {}): MediaFileAuditRow {
 	return {
@@ -23,74 +32,72 @@ function createMockAuditRow(overrides: Partial<MediaFileAuditRow> = {}): MediaFi
 	};
 }
 
-function createMockAuditItem(overrides: Partial<MediaFileAuditItem> = {}): MediaFileAuditItem {
-	return {
-		mediaFileId: "file-1",
-		fileName: "movie.mkv",
-		filePath: "/media/movie.mkv",
-		libraryId: "lib-1",
-		mediaType: "movie",
-		currentMetadata: {
-			id: "meta-1",
-			title: "Movie",
-		},
-		recognized: {
-			title: "Movie",
-		},
-		similarityScore: 0.2,
-		reasons: [],
-		...overrides,
-	};
-}
-
-function dependencies(overrides: Partial<MediaFileAuditTaskDependencies> = {}): MediaFileAuditTaskDependencies {
-	return {
-		findAuditRow: async (mediaFileId) => createMockAuditRow({ mediaFileId }),
-		findAllAuditRowIds: async () => ["file-1", "file-2"],
-		auditRow: () => null,
-		enqueue: async () => undefined,
-		...overrides,
-	};
-}
-
 describe("media file audit task", () => {
 	test("reports whether a single file is a suspect", async () => {
-		const result = await auditMediaFileTask(
-			{ mediaFileId: "file-1" },
-			{},
-			dependencies({
-				auditRow: () => createMockAuditItem({ mediaFileId: "file-1", similarityScore: 0.2, reasons: [] }),
-			}),
+		activeStubs.push(
+			stubMethod(recognitionService, "recognize", () => null),
+			stubMethod(mediaRepository, "findAuditRow", () =>
+				Promise.resolve(
+					createMockAuditRow({
+						mediaFileId: "file-1",
+						fileName: "unrelated.mkv",
+						filePath: "/media/unrelated.mkv",
+						metadataTitle: "Zebra Documentary",
+					}),
+				),
+			),
 		);
+
+		const result = await auditMediaFileTask({ mediaFileId: "file-1" });
 
 		expect(result).toEqual({ mediaFileId: "file-1", suspect: true });
 	});
 
 	test("reports non-suspect for clean files and missing rows", async () => {
-		const clean = await auditMediaFileTask({ mediaFileId: "file-1" }, {}, dependencies());
+		activeStubs.push(stubMethod(recognitionService, "recognize", () => null));
+		const findAuditRow = stubMethod(mediaRepository, "findAuditRow", () =>
+			Promise.resolve(createMockAuditRow({ fileName: "Movie.2024.mkv", filePath: "/media/Movie.2024.mkv" })),
+		);
+
+		const clean = await auditMediaFileTask({ mediaFileId: "file-1" });
 		expect(clean).toEqual({ mediaFileId: "file-1", suspect: false });
 
-		const missing = await auditMediaFileTask({ mediaFileId: "gone" }, {}, dependencies({ findAuditRow: async () => undefined }));
+		findAuditRow.restore();
+		activeStubs.push(stubMethod(mediaRepository, "findAuditRow", () => Promise.resolve(undefined)));
+
+		const missing = await auditMediaFileTask({ mediaFileId: "gone" });
 		expect(missing).toEqual({ mediaFileId: "gone", suspect: false });
 	});
 
 	test("requires a mediaFileId", async () => {
-		await expect(auditMediaFileTask({ mediaFileId: "" }, {}, dependencies())).rejects.toMatchObject({ code: "internal" });
+		await expect(auditMediaFileTask({ mediaFileId: "" })).rejects.toMatchObject({ code: "internal" });
 	});
 
 	test("queues one task per audited file with parent operation", async () => {
 		const queued: Array<{ mediaFileId: string; operationId?: string | undefined; dependsOnTaskIds?: string[] | undefined }> = [];
-		const result = await scanMediaMatchAuditTask(
-			{ operationId: "operation-1", taskId: "task-1" },
-			dependencies({
-				findAllAuditRowIds: async () => ["file-1", "file-2", "file-3"],
-				enqueue: (data, options) => {
-					queued.push({ mediaFileId: data.mediaFileId, operationId: options.operationId, dependsOnTaskIds: options.dependsOnTaskIds });
+		activeStubs.push(
+			stubMethod(mediaRepository, "findAllAuditRowIds", () => Promise.resolve(["file-1", "file-2", "file-3"])),
+			stubMethod(
+				workerService,
+				"addItems",
+				(
+					_workerId: string,
+					entries: Array<{ data: { mediaFileId: string }; options?: { operationId?: string; dependsOnTaskIds?: string[] } }>,
+				) => {
+					for (const entry of entries) {
+						queued.push({
+							mediaFileId: entry.data.mediaFileId,
+							operationId: entry.options?.operationId,
+							dependsOnTaskIds: entry.options?.dependsOnTaskIds,
+						});
+					}
 
-					return Promise.resolve(undefined);
+					return Promise.resolve([]);
 				},
-			}),
+			),
 		);
+
+		const result = await scanMediaMatchAuditTask({ operationId: "operation-1", taskId: "task-1" });
 
 		expect(result).toEqual({ requested: 3, queued: 3 });
 		expect(queued.map((item) => item.mediaFileId)).toEqual(["file-1", "file-2", "file-3"]);
@@ -101,13 +108,8 @@ describe("media file audit task", () => {
 	});
 
 	test("converts scan failures to domain errors", async () => {
-		await expect(
-			scanMediaMatchAuditTask(
-				{},
-				dependencies({
-					findAllAuditRowIds: () => Promise.reject(new Error("database unavailable")),
-				}),
-			),
-		).rejects.toMatchObject({ code: "internal" });
+		activeStubs.push(stubMethod(mediaRepository, "findAllAuditRowIds", () => Promise.reject(new Error("database unavailable"))));
+
+		await expect(scanMediaMatchAuditTask({})).rejects.toMatchObject({ code: "internal" });
 	});
 });

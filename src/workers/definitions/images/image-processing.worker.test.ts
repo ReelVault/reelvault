@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { serverConfig } from "@/server.config";
 import { createMockWorkerItem } from "@/workers/core/worker-runtime.test-utils";
-import { enqueueImageProcessing, type ImageProcessingTaskDependencies, processImageTask } from "./image-processing.worker";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { enqueueImageProcessing, processImageTask } from "./image-processing.worker";
+
+const activeStubs: Array<{ restore(): void }> = [];
+
+afterEach(() => {
+	for (const stub of activeStubs.splice(0)) stub.restore();
+});
 
 describe("image-processing worker", () => {
 	let restoreAddItem: (() => void) | undefined;
@@ -22,34 +30,49 @@ describe("image-processing worker", () => {
 
 	test("processes image targets through one task per entity type", async () => {
 		const calls: string[] = [];
-		const dependencies: ImageProcessingTaskDependencies = {
-			processMetadata: async () => calls.push("metadata"),
-			processPerson: async () => calls.push("person"),
-			processSeason: async ({ seasonId }) => calls.push(`season:${seasonId}`),
-			processEpisode: async ({ episodeId }) => calls.push(`episode:${episodeId}`),
-		};
+		activeStubs.push(
+			stubMethod(imageProcessingService, "processMetadata", () => {
+				calls.push("metadata");
 
-		await expect(processImageTask({ kind: "person", personId: "person-1", urls: "url" }, {}, dependencies)).resolves.toEqual({
+				return Promise.resolve(undefined);
+			}),
+			stubMethod(imageProcessingService, "processPerson", () => {
+				calls.push("person");
+
+				return Promise.resolve(undefined);
+			}),
+			stubMethod(imageProcessingService, "processSeason", (input: { seasonId: string }) => {
+				calls.push(`season:${input.seasonId}`);
+
+				return Promise.resolve(undefined);
+			}),
+			stubMethod(imageProcessingService, "processEpisode", (input: { episodeId: string }) => {
+				calls.push(`episode:${input.episodeId}`);
+
+				return Promise.resolve(undefined);
+			}),
+		);
+
+		await expect(processImageTask({ kind: "person", personId: "person-1", urls: "url" })).resolves.toEqual({
 			entityType: "person",
 			entityId: "person-1",
 		});
-		await expect(processImageTask({ kind: "metadata", metadataId: "metadata-1", urls: [] }, {}, dependencies)).resolves.toEqual({
+		await expect(processImageTask({ kind: "metadata", metadataId: "metadata-1", urls: [] })).resolves.toEqual({
 			entityType: "metadata",
 			entityId: "metadata-1",
 		});
 		await expect(
-			processImageTask(
-				{ kind: "season", metadataId: "metadata-1", seasonId: "season-1", seasonNumber: "2", urls: "url" },
-				{},
-				dependencies,
-			),
+			processImageTask({ kind: "season", metadataId: "metadata-1", seasonId: "season-1", seasonNumber: "2", urls: "url" }),
 		).resolves.toEqual({ entityType: "season", entityId: "season-1" });
 		await expect(
-			processImageTask(
-				{ kind: "episode", metadataId: "metadata-1", episodeId: "episode-1", seasonNumber: "2", episodeNumber: "3", urls: "url" },
-				{},
-				dependencies,
-			),
+			processImageTask({
+				kind: "episode",
+				metadataId: "metadata-1",
+				episodeId: "episode-1",
+				seasonNumber: "2",
+				episodeNumber: "3",
+				urls: "url",
+			}),
 		).resolves.toEqual({ entityType: "episode", entityId: "episode-1" });
 
 		expect(calls).toEqual(["person", "metadata", "season:season-1", "episode:episode-1"]);

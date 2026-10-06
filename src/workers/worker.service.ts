@@ -6,6 +6,7 @@ import { resourceAllocator } from "@/system/resource-allocator";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { BaseService } from "@/utils/base-service";
 import { detach } from "@/utils/promise.utils";
+import { enqueueWithOperation } from "./core/worker-operation-enqueue";
 import { type WorkerOperationsService, workerOperationsService } from "./core/worker-operations.service";
 import { WorkerPollingService } from "./core/worker-polling.service";
 import { WorkerExecutionPoolService } from "./core/worker-pool.service";
@@ -214,22 +215,14 @@ class WorkerService extends BaseService {
 	/**
 	 * Creates an operation, runs `enqueue` (which should attach the enqueue to
 	 * the operation via `options.operationId`), and removes the operation again
-	 * when the enqueue fails — the shared variant of the try/removeOperation
-	 * cleanup that call sites previously duplicated.
+	 * when the enqueue fails — shared with the queue/scheduler/plugin enqueue
+	 * paths via {@link enqueueWithOperation}.
 	 */
 	async enqueueUnderOperation<T>(
 		input: { type: string; reference?: { type: string; id: string } },
 		enqueue: (operationId: string) => Promise<T>,
 	): Promise<{ operationId: string; result: T }> {
-		const operation = await this.createOperation(input);
-		try {
-			const result = await enqueue(operation.id);
-
-			return { operationId: operation.id, result };
-		} catch (error) {
-			await this.removeOperation(operation.id);
-			throw error;
-		}
+		return await enqueueWithOperation(input, enqueue);
 	}
 
 	getOperation(id: string) {

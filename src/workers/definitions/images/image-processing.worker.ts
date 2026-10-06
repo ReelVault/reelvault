@@ -25,36 +25,6 @@ export interface ImageProcessingResult {
 
 // ─── Worker Definition ────────────────────────────────────────────────────────
 
-export interface ImageProcessingTaskDependencies {
-	processMetadata(
-		metadataId: string,
-		images: Extract<ImageProcessingData, { kind: "metadata" }>["urls"],
-		signal?: AbortSignal,
-	): Promise<unknown>;
-	processPerson(personId: string, imagesUrl: string, signal?: AbortSignal): Promise<unknown>;
-	processSeason(
-		input: { metadataId: string; seasonId: string; seasonNumber: string; imagesUrl: string },
-		signal?: AbortSignal,
-	): Promise<unknown>;
-	processEpisode(
-		input: {
-			metadataId: string;
-			episodeId: string;
-			seasonNumber: string;
-			episodeNumber: string;
-			imagesUrl: string;
-		},
-		signal?: AbortSignal,
-	): Promise<unknown>;
-}
-
-const defaultDependencies: ImageProcessingTaskDependencies = {
-	processMetadata: (metadataId, images, signal) => imageProcessingService.processMetadata(metadataId, images, false, signal),
-	processPerson: (personId, imagesUrl, signal) => imageProcessingService.processPerson(personId, imagesUrl, false, signal),
-	processSeason: (input, signal) => imageProcessingService.processSeason(input, signal),
-	processEpisode: (input, signal) => imageProcessingService.processEpisode(input, signal),
-};
-
 export const imageProcessingWorker = createWorkerDefinition<ImageProcessingData>(
 	"image-processing",
 	() => serverConfig.workers.definitions.imageProcessing,
@@ -64,28 +34,23 @@ export const imageProcessingWorker = createWorkerDefinition<ImageProcessingData>
 
 // ─── Task Function ────────────────────────────────────────────────────────────
 
-export async function processImageTask(
-	data: ImageProcessingData,
-	context: ApplicationContext = {},
-	dependencies: ImageProcessingTaskDependencies = defaultDependencies,
-): Promise<ImageProcessingResult> {
+export async function processImageTask(data: ImageProcessingData, context: ApplicationContext = {}): Promise<ImageProcessingResult> {
 	try {
 		context.signal?.throwIfAborted();
 		switch (data.kind) {
 			case "metadata":
-				await dependencies.processMetadata(data.metadataId, data.urls, context.signal);
+				await imageProcessingService.processMetadata(data.metadataId, data.urls, false, context.signal);
 
 				return { entityType: data.kind, entityId: data.metadataId };
 			case "person":
-				await dependencies.processPerson(data.personId, data.urls, context.signal);
+				await imageProcessingService.processPerson(data.personId, data.urls, false, context.signal);
 
 				return { entityType: data.kind, entityId: data.personId };
 			case "season":
-				await dependencies.processSeason(
+				await imageProcessingService.processSeason(
 					{
 						metadataId: data.metadataId,
 						seasonId: data.seasonId,
-						seasonNumber: data.seasonNumber,
 						imagesUrl: data.urls,
 					},
 					context.signal,
@@ -93,12 +58,10 @@ export async function processImageTask(
 
 				return { entityType: data.kind, entityId: data.seasonId };
 			case "episode":
-				await dependencies.processEpisode(
+				await imageProcessingService.processEpisode(
 					{
 						metadataId: data.metadataId,
 						episodeId: data.episodeId,
-						seasonNumber: data.seasonNumber,
-						episodeNumber: data.episodeNumber,
 						imagesUrl: data.urls,
 					},
 					context.signal,

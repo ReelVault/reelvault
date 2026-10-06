@@ -1,7 +1,7 @@
-import type { MediaFileAuditItem, MediaFileAuditResponse } from "@reelvault/sdk/common";
+import type { MediaFileAuditResponse } from "@reelvault/sdk/common";
 import { type ApplicationContext, withDomainError } from "@/application/context";
 import { auditMediaFileRow, buildMediaFileAuditReport } from "@/application/media/media-files/media-file-audit";
-import { type MediaFileAuditRow, mediaRepository } from "@/database/repositories/media-files.repository";
+import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { serverConfig } from "@/server.config";
 import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue";
 import { workerService } from "@/workers/worker.service";
@@ -21,15 +21,6 @@ export interface MediaMatchAuditScanResult {
 	queued: number;
 }
 
-export interface MediaFileAuditTaskDependencies {
-	findAuditRow(mediaFileId: string): Promise<MediaFileAuditRow | undefined>;
-	findAllAuditRowIds(): Promise<string[]>;
-	auditRow(row: MediaFileAuditRow): MediaFileAuditItem | null;
-	enqueue: (data: MediaFileAuditData, options: WorkerEnqueueOptions) => Promise<unknown>;
-	/** Optional batched variant — used preferentially to avoid one INSERT per file. */
-	enqueueMany?: (items: MediaFileAuditData[], options: WorkerEnqueueOptions) => Promise<unknown>;
-}
-
 // ─── Worker Definitions ───────────────────────────────────────────────────────
 
 export const mediaFileAuditWorker = createWorkerDefinition<MediaFileAuditData>(
@@ -38,25 +29,6 @@ export const mediaFileAuditWorker = createWorkerDefinition<MediaFileAuditData>(
 	async ({ data, signal, operationId, taskId }) =>
 		await auditMediaFileTask({ mediaFileId: data.mediaFileId }, { signal, operationId, correlationId: operationId, taskId }),
 );
-
-const defaultDependencies: MediaFileAuditTaskDependencies = {
-	findAuditRow: (mediaFileId) => mediaRepository.findAuditRow(mediaFileId),
-	findAllAuditRowIds: () => mediaRepository.findAllAuditRowIds(),
-	auditRow: (row) => auditMediaFileRow(row),
-	enqueue: enqueueMediaFileAudit,
-	enqueueMany: (items, options) =>
-		workerService.addItems(
-			mediaFileAuditWorker.id,
-			items.map((data) => ({
-				data,
-				options: {
-					...options,
-					dedupeKey: `media-match-audit:${data.mediaFileId}`,
-					reference: { type: "media-file", id: data.mediaFileId },
-				},
-			})),
-		),
-};
 
 export const mediaMatchAuditScanWorker = createWorkerDefinition<Record<string, never>>(
 	"media-match-audit-all",
@@ -95,37 +67,43 @@ export function enqueueMediaFileAuditReport(options: WorkerEnqueueOptions = {}) 
 
 // ─── Task Functions ───────────────────────────────────────────────────────────
 
-export function auditMediaFileTask(
-	data: MediaFileAuditData,
-	context: ApplicationContext = {},
-	dependencies: MediaFileAuditTaskDependencies = defaultDependencies,
-): Promise<MediaFileAuditResult> {
+export function auditMediaFileTask(data: MediaFileAuditData, context: ApplicationContext = {}): Promise<MediaFileAuditResult> {
 	return withDomainError(`Media file audit failed: ${data.mediaFileId}`, async () => {
 		context.signal?.throwIfAborted();
 		if (!data.mediaFileId) throw new Error("Media file audit task requires a mediaFileId");
 
-		const row = await dependencies.findAuditRow(data.mediaFileId);
+		const row = await mediaRepository.findAuditRow(data.mediaFileId);
 		if (!row) return { mediaFileId: data.mediaFileId, suspect: false };
 
-		return { mediaFileId: data.mediaFileId, suspect: dependencies.auditRow(row) !== null };
+		return { mediaFileId: data.mediaFileId, suspect: auditMediaFileRow(row) !== null };
 	});
 }
 
-export function scanMediaMatchAuditTask(
-	context: ApplicationContext = {},
-	dependencies: MediaFileAuditTaskDependencies = defaultDependencies,
-): Promise<MediaMatchAuditScanResult> {
-	const { enqueue, enqueueMany } = dependencies;
-
+export function scanMediaMatchAuditTask(context: ApplicationContext = {}): Promise<MediaMatchAuditScanResult> {
 	return withDomainError("Media match audit scan failed", () =>
 		scanAndEnqueueTask<string, MediaFileAuditData>({
 			context,
 			label: "Media match audit tasks queued",
-			findIds: () => dependencies.findAllAuditRowIds(),
+			findIds: () => mediaRepository.findAllAuditRowIds(),
 			toData: (mediaFileId) => ({ mediaFileId }),
-			enqueueItem: (...input) => enqueue(...input),
-			...(enqueueMany ? { enqueueMany: (...input: Parameters<NonNullable<typeof enqueueMany>>) => enqueueMany(...input) } : {}),
+			enqueueItem: (data, options) => enqueueMediaFileAudit(data, options),
+			enqueueMany: (items, options) => enqueueMediaFileAuditMany(items, options),
 		}),
+	);
+}
+
+/** Batched variant of {@link enqueueMediaFileAudit} — one INSERT batch instead of one per file. */
+function enqueueMediaFileAuditMany(items: MediaFileAuditData[], options: WorkerEnqueueOptions) {
+	return workerService.addItems(
+		mediaFileAuditWorker.id,
+		items.map((data) => ({
+			data,
+			options: {
+				...options,
+				dedupeKey: `media-match-audit:${data.mediaFileId}`,
+				reference: { type: "media-file", id: data.mediaFileId },
+			},
+		})),
 	);
 }
 

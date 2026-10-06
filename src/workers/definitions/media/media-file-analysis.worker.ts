@@ -1,5 +1,3 @@
-import type { PluginMediaFile } from "@reelvault/sdk/common";
-import type { MediaAnalysis, PluginEventInput } from "@reelvault/sdk/plugin";
 import { type ApplicationContext, withDomainError } from "@/application/context";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
@@ -21,20 +19,6 @@ export interface MediaFileAnalysisResult {
 	analyzed: boolean;
 }
 
-export interface MediaFileAnalysisTaskDependencies {
-	getPublicMedia(mediaFileId: string): Promise<PluginMediaFile | null>;
-	analyzeMedia(media: PluginMediaFile): Promise<MediaAnalysis>;
-	updateMediaFile(mediaFileId: string, values: MediaAnalysis): Promise<void>;
-	emitMediaReady(input: PluginEventInput<"media.file.ready">): Promise<void>;
-}
-
-const defaultDependencies: MediaFileAnalysisTaskDependencies = {
-	getPublicMedia: (mediaFileId) => pluginMediaService.get(mediaFileId),
-	analyzeMedia: (media) => pluginRegistry.analyzeMedia(media),
-	updateMediaFile: (mediaFileId, values) => mediaRepository.update({ primaryId: mediaFileId, values }),
-	emitMediaReady: (input) => pluginEventBus.emit("media.file.ready", input),
-};
-
 // ─── Worker Definition ────────────────────────────────────────────────────────
 
 export const mediaFileAnalysisWorker = createWorkerDefinition<MediaFileAnalysisData>(
@@ -49,23 +33,22 @@ export const mediaFileAnalysisWorker = createWorkerDefinition<MediaFileAnalysisD
 export async function analyzeMediaFileTask(
 	data: MediaFileAnalysisData,
 	context: ApplicationContext = {},
-	dependencies: MediaFileAnalysisTaskDependencies = defaultDependencies,
 ): Promise<MediaFileAnalysisResult> {
 	return await withDomainError(`Media file analysis failed: ${data.mediaFileId}`, async () => {
 		context.signal?.throwIfAborted();
-		const publicMediaFile = await dependencies.getPublicMedia(data.mediaFileId);
+		const publicMediaFile = await pluginMediaService.get(data.mediaFileId);
 		let analyzed = false;
 		if (publicMediaFile) {
-			const analysis = await dependencies.analyzeMedia(publicMediaFile);
+			const analysis = await pluginRegistry.analyzeMedia(publicMediaFile);
 
 			const hasAnalysis = hasEntry(analysis);
 			if (hasAnalysis) {
-				await dependencies.updateMediaFile(data.mediaFileId, analysis);
+				await mediaRepository.update({ primaryId: data.mediaFileId, values: analysis });
 				analyzed = true;
 			}
 		}
 
-		await dependencies.emitMediaReady({
+		await pluginEventBus.emit("media.file.ready", {
 			libraryId: data.libraryId,
 			mediaFileId: data.mediaFileId,
 			metadataId: data.metadataId,

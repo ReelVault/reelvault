@@ -1,27 +1,37 @@
-import { describe, expect, test } from "bun:test";
-import {
-	checkLibraryErrorsTask,
-	createLibraryErrorsCheckDedupeKey,
-	type LibraryErrorsCheckTaskDependencies,
-} from "./library-errors-check.worker";
+import { afterEach, describe, expect, test } from "bun:test";
+import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
+import { fileScannerService } from "@/modules/scanner/disk/file-scanner";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { checkLibraryErrorsTask, createLibraryErrorsCheckDedupeKey } from "./library-errors-check.worker";
+
+const activeStubs: Array<{ restore(): void }> = [];
+
+afterEach(() => {
+	for (const stub of activeStubs.splice(0)) stub.restore();
+});
 
 describe("library error check task", () => {
 	test("checks every discovered MKV and returns FFmpeg errors with file paths", async () => {
 		const checked: string[] = [];
-		const dependencies: LibraryErrorsCheckTaskDependencies = {
-			findMkvFiles: (libraryPaths) => {
-				expect(libraryPaths).toEqual(["/media/movies"]);
+		activeStubs.push(
+			stubMethod(fileScannerService, "scan", (options: { paths: string[] }) => {
+				expect(options.paths).toEqual(["/media/movies"]);
 
 				return Promise.resolve(["/media/movies/clean.mkv", "/media/movies/broken.MkV"]);
-			},
-			checkFile: (filePath) => {
+			}),
+			stubMethod(ffMpegService, "runToCompletion", (args: string[]) => {
+				const filePath = args[3] ?? "";
 				checked.push(filePath);
 
-				return Promise.resolve(filePath.endsWith("broken.MkV") ? "[matroska] damaged frame" : "");
-			},
-		};
+				return Promise.resolve({
+					exitCode: 0,
+					stdout: new Uint8Array(),
+					stderr: filePath.endsWith("broken.MkV") ? "[matroska] damaged frame" : "",
+				});
+			}),
+		);
 
-		await expect(checkLibraryErrorsTask({ libraryPaths: ["/media/movies", "/media/movies"] }, {}, dependencies)).resolves.toEqual({
+		await expect(checkLibraryErrorsTask({ libraryPaths: ["/media/movies", "/media/movies"] }, {})).resolves.toEqual({
 			libraryPaths: ["/media/movies"],
 			scannedFiles: 2,
 			cleanFiles: 1,
