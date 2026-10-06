@@ -221,3 +221,50 @@ describe("pluginArtifactsService.removeStorageFiles", () => {
 		expect(deleted[1]?.endsWith(PathUtils.join("mf-1", "b"))).toBe(true);
 	});
 });
+
+describe("pluginArtifactsService bulk cleanup", () => {
+	test("deleteByMediaFileIdAndKind removes matching rows in one delete statement", async () => {
+		const deleteCalls: Array<{ ids?: string[] }> = [];
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByMediaFileId", () =>
+				Promise.resolve([
+					{ id: "a-1", kind: "chapters", pluginId: "org.reelvault.test", storageKey: "mf-1/a-1" },
+					{ id: "a-2", kind: "chapters", pluginId: "org.reelvault.test", storageKey: "mf-1/a-2" },
+					{ id: "a-3", kind: "trickplay", pluginId: "org.reelvault.test", storageKey: "mf-1/a-3" },
+				]),
+			),
+			stubMethod(mediaArtifactsRepository, "delete", (params: { ids?: string[] }) => {
+				deleteCalls.push(params);
+
+				return Promise.resolve();
+			}),
+			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
+		);
+
+		const removed = await pluginArtifactsService.deleteByMediaFileIdAndKind("mf-1", "chapters", "org.reelvault.test");
+
+		expect(removed).toBe(2);
+		expect(deleteCalls).toEqual([{ ids: ["a-1", "a-2"] }]);
+	});
+
+	test("removeForPlugin removes every artifact of the plugin in one delete statement", async () => {
+		const deleteCalls: Array<{ ids?: string[] }> = [];
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByPluginId", () =>
+				Promise.resolve([
+					{ id: "a-1", storageKey: "mf-1/a-1" },
+					{ id: "a-2", storageKey: "mf-1/a-2" },
+				]),
+			),
+			stubMethod(mediaArtifactsRepository, "delete", (params: { ids?: string[] }) => {
+				deleteCalls.push(params);
+
+				return Promise.resolve();
+			}),
+			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
+		);
+
+		expect(await pluginArtifactsService.removeForPlugin("org.reelvault.test")).toBe(2);
+		expect(deleteCalls).toEqual([{ ids: ["a-1", "a-2"] }]);
+	});
+});

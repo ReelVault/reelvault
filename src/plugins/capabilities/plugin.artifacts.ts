@@ -3,6 +3,7 @@ import { file } from "bun";
 import { databaseFactory } from "@/database/database";
 import { mediaArtifactsRepository } from "@/database/repositories/media-artifacts.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { forEachChunked } from "@/database/table-access";
 import type { InferTable } from "@/database/types";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
@@ -114,8 +115,11 @@ class PluginArtifactsService extends BaseService {
 		const matching = artifacts.filter((a) => a.kind === kind && (pluginId === undefined || a.pluginId === pluginId));
 		if (matching.length === 0) return 0;
 
-		await PromiseUtils.mapConcurrent(matching, serverConfig.plugins.artifacts.cleanupConcurrency, (artifact) =>
-			mediaArtifactsRepository.delete({ primaryId: artifact.id }),
+		await forEachChunked(
+			matching.map((artifact) => artifact.id),
+			async (ids) => {
+				await mediaArtifactsRepository.delete({ ids });
+			},
 		);
 		await this.removeStorageFiles(matching.map((a) => a.storageKey));
 
@@ -137,8 +141,11 @@ class PluginArtifactsService extends BaseService {
 		const artifacts = await mediaArtifactsRepository.findByPluginId(pluginId);
 		if (artifacts.length === 0) return 0;
 
-		await PromiseUtils.mapConcurrent(artifacts, serverConfig.plugins.artifacts.cleanupConcurrency, (artifact) =>
-			mediaArtifactsRepository.delete({ primaryId: artifact.id }),
+		await forEachChunked(
+			artifacts.map((artifact) => artifact.id),
+			async (ids) => {
+				await mediaArtifactsRepository.delete({ ids });
+			},
 		);
 		await this.removeStorageFiles(artifacts.map((artifact) => artifact.storageKey));
 

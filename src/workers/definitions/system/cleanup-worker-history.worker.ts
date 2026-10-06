@@ -25,15 +25,22 @@ export const cleanupWorkerHistoryWorker = createWorkerDefinition(
 		});
 
 		// Honour each worker's configured retention (removeOnComplete/removeOnFail)
-		// for standalone jobs. `trim` excludes operation-grouped jobs, so this never
-		// races the operation purge above.
+		// for standalone jobs. `trimMany` excludes operation-grouped jobs, so this
+		// never races the operation purge above — and it runs as one DELETE per
+		// status instead of one DELETE per worker.
+		const keepCompleted = new Map<string, number>();
+		const keepFailed = new Map<string, number>();
 		for (const definition of getWorkerRuntime().registry.getAll()) {
-			const keepCompleted = resolveKeepCount(definition.removeOnComplete);
-			const keepFailed = resolveKeepCount(definition.removeOnFail);
-			if (keepCompleted !== undefined) await workerJobRepository.trim(definition.id, "completed", keepCompleted);
+			const completed = resolveKeepCount(definition.removeOnComplete);
+			if (completed !== undefined) keepCompleted.set(definition.id, completed);
 
-			if (keepFailed !== undefined) await workerJobRepository.trim(definition.id, "failed", keepFailed);
+			const failed = resolveKeepCount(definition.removeOnFail);
+			if (failed !== undefined) keepFailed.set(definition.id, failed);
 		}
+
+		if (keepCompleted.size > 0) await workerJobRepository.trimMany("completed", keepCompleted);
+
+		if (keepFailed.size > 0) await workerJobRepository.trimMany("failed", keepFailed);
 
 		return result;
 	},

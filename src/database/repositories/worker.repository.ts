@@ -956,6 +956,38 @@ class WorkerJobRepository {
 		return result.changes;
 	}
 
+	/**
+	 * Retention trim for many workers in one statement: a per-worker ROW_NUMBER
+	 * decides which standalone terminal jobs survive. Replaces the per-worker
+	 * DELETE loop in the weekly cleanup (previously up to two DELETEs per
+	 * registered worker).
+	 */
+	async trimMany(status: WorkerItemStatus, keepCounts: ReadonlyMap<string, number>): Promise<number> {
+		if (keepCounts.size === 0) return 0;
+
+		const workerIds = [...keepCounts.keys()];
+		const keepCase = sql.join(
+			workerIds.map((workerId) => sql`WHEN ${workerId} THEN ${keepCounts.get(workerId) ?? 0}`),
+			sql` `,
+		);
+		const result = await databaseFactory
+			.getClient()
+			.delete(items)
+			.where(sql`
+			${items.id} IN (
+				SELECT id FROM (
+					SELECT id, worker_id, ROW_NUMBER() OVER (
+						PARTITION BY worker_id ORDER BY completed_at DESC, created_at DESC
+					) AS rn
+					FROM ${items}
+					WHERE ${and(inArray(items.workerId, workerIds), eq(items.status, status), isNull(items.operationId))}
+				) WHERE rn > CASE worker_id ${keepCase} ELSE 0 END
+			)
+		`);
+
+		return result.changes;
+	}
+
 	async purgeTerminalJobs(
 		options: { status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined; cutoffDate?: Date | undefined } = {},
 	): Promise<number> {

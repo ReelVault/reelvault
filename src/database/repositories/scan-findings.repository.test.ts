@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { ScanFindingsRepository } from "@/database/repositories/scan-findings.repository";
 import { schema } from "@/database/schema";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 
 const client = databaseFactory.getClient();
 
@@ -60,5 +61,39 @@ describe("scanFindingsRepository", () => {
 		await repository.remove("lib-1", "/media/a.mkv");
 
 		expect(await repository.list("lib-1")).toEqual([{ filePath: "/media/b.mkv", fileName: "b.mkv", reason: "type_mismatch" }]);
+	});
+
+	test("pruneStale bulk-deletes stale findings inside scanned roots only", async () => {
+		const repository = createRepository();
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" });
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/b.mkv", fileName: "b.mkv", reason: "type_mismatch" });
+		await repository.upsert({ libraryId: "lib-1", filePath: "/other/c.mkv", fileName: "c.mkv", reason: "type_mismatch" });
+
+		await repository.pruneStale("lib-1", ["/media/a.mkv"], ["/media"]);
+
+		expect(await repository.list("lib-1")).toEqual([
+			{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" },
+			{ filePath: "/other/c.mkv", fileName: "c.mkv", reason: "type_mismatch" },
+		]);
+	});
+
+	test("removeMany issues a single delete statement for a small path list", async () => {
+		const deleteStatements: number[] = [];
+		const fakeClient = {
+			delete: () => {
+				deleteStatements.push(1);
+
+				return { where: async () => ({ changes: 0 }) };
+			},
+		};
+		const stub = stubMethod(databaseFactory, "getClient", () => fakeClient);
+		try {
+			const repository = createRepository();
+			await repository.removeMany("lib-1", ["/media/a.mkv", "/media/b.mkv", "/media/c.mkv"]);
+
+			expect(deleteStatements).toHaveLength(1);
+		} finally {
+			stub.restore();
+		}
 	});
 });

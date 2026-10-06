@@ -1,6 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { forEachChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import type { ScanFindingReason } from "@/modules/scanner/scanner.types";
 
@@ -48,6 +49,16 @@ export class ScanFindingsRepository {
 			.where(and(eq(this.table.libraryId, libraryId), eq(this.table.filePath, filePath)));
 	}
 
+	/** Bulk delete chunked to SQLite's bound-variable limit (one statement per chunk). */
+	async removeMany(libraryId: string, filePaths: readonly string[], tx?: DatabaseTransaction): Promise<void> {
+		await forEachChunked(filePaths, async (chunk) => {
+			await this.database
+				.getClient({ tx })
+				.delete(this.table)
+				.where(and(eq(this.table.libraryId, libraryId), inArray(this.table.filePath, chunk)));
+		});
+	}
+
 	async list(libraryId: string, tx?: DatabaseTransaction): Promise<ScanFindingItem[]> {
 		return await this.database
 			.getClient({ tx })
@@ -69,12 +80,15 @@ export class ScanFindingsRepository {
 		if (findings.length === 0) return;
 
 		const seen = new Set(scannedFilePaths);
+		const stalePaths: string[] = [];
 		for (const finding of findings) {
 			const withinScannedRoot = scannedRoots.some((root) => finding.filePath.startsWith(root.endsWith("/") ? root : `${root}/`));
 			if (withinScannedRoot && !seen.has(finding.filePath)) {
-				await this.remove(libraryId, finding.filePath);
+				stalePaths.push(finding.filePath);
 			}
 		}
+
+		await this.removeMany(libraryId, stalePaths);
 	}
 }
 
