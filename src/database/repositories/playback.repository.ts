@@ -4,6 +4,7 @@ import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
 import { metadataImageOn } from "@/database/utils/join-conditions";
+import { groupBy, toMap } from "@/utils/array.utils";
 import { metadataRepository } from "./metadata.repository";
 
 class PlaybackRepository {
@@ -80,6 +81,82 @@ class PlaybackRepository {
 			seasons: data.seasons,
 			episodes: data.episodes.filter((ep) => ep.episodeType === "regular"),
 		};
+	}
+
+	/**
+	 * Batched smart-play source data for a card grid (bounded id list, ≤50):
+	 * one metadata read, one media-file read, one progress read and — only when
+	 * the batch contains series — one seasons+episodes read for the whole list.
+	 * Replaces the per-id `findSmartPlayData` fan-out (3-5 statements per id).
+	 */
+	async findSmartPlayBatchData(metadataIds: readonly string[], profileId: string) {
+		if (metadataIds.length === 0) return [];
+
+		const client = databaseFactory.getClient();
+		const ids = [...metadataIds];
+		const metadataRows = await client
+			.select({ id: schema.metadata.id, type: schema.metadata.type, numberingMode: schema.metadata.numberingMode })
+			.from(schema.metadata)
+			.where(inArray(schema.metadata.id, ids));
+		const metadataById = toMap(metadataRows, (row) => row.id);
+		const seriesIds = metadataRows.filter((row) => row.type !== "movie").map((row) => row.id);
+
+		const [mediaFiles, progressRows, seasonsAndEpisodes] = await Promise.all([
+			client
+				.select({
+					id: schema.mediaFiles.id,
+					metadataId: schema.mediaFiles.metadataId,
+					movieId: schema.mediaFiles.movieId,
+					episodeId: schema.mediaFiles.episodeId,
+					isDefault: schema.mediaFiles.isDefault,
+					updatedAt: schema.mediaFiles.updatedAt,
+				})
+				.from(schema.mediaFiles)
+				.where(inArray(schema.mediaFiles.metadataId, ids)),
+			client
+				.select({
+					metadataId: schema.mediaFiles.metadataId,
+					mediaFileId: schema.playbackProgress.mediaFileId,
+					episodeId: schema.mediaFiles.episodeId,
+					movieId: schema.mediaFiles.movieId,
+					position: schema.playbackProgress.position,
+					duration: schema.playbackProgress.duration,
+					completed: schema.playbackProgress.completed,
+					audioStreamIndex: schema.playbackProgress.audioStreamIndex,
+					subtitleId: schema.playbackProgress.subtitleId,
+					updatedAt: schema.playbackProgress.updatedAt,
+				})
+				.from(schema.playbackProgress)
+				.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.playbackProgress.mediaFileId))
+				.where(and(eq(schema.playbackProgress.profileId, profileId), inArray(schema.mediaFiles.metadataId, ids))),
+			seriesIds.length > 0 ? this.findSeasonsAndEpisodes(seriesIds) : Promise.resolve({ seasons: [], episodes: [] }),
+		]);
+
+		const mediaFilesByMetadataId = groupBy(mediaFiles, (file) => file.metadataId);
+		const progressByMetadataId = groupBy(progressRows, (progress) => progress.metadataId);
+		const seasonMetadataId = toMap(
+			seasonsAndEpisodes.seasons,
+			(season) => season.id,
+			(season) => season.metadataId,
+		);
+
+		return ids.map((metadataId) => {
+			const metadata = metadataById.get(metadataId);
+			if (!metadata) return { metadataId, data: null };
+
+			return {
+				metadataId,
+				data: {
+					metadata: { type: metadata.type, numberingMode: metadata.numberingMode },
+					mediaFiles: mediaFilesByMetadataId.get(metadataId) ?? [],
+					progressRows: progressByMetadataId.get(metadataId) ?? [],
+					seasons: seasonsAndEpisodes.seasons.filter((season) => season.metadataId === metadataId),
+					episodes: seasonsAndEpisodes.episodes.filter(
+						(episode) => episode.episodeType === "regular" && seasonMetadataId.get(episode.seasonId) === metadataId,
+					),
+				},
+			};
+		});
 	}
 
 	/**

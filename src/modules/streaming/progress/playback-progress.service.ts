@@ -11,7 +11,7 @@ import { profilePreferencesRepository as defaultProfilePreferencesRepository } f
 import { profileStreamPrefsRepository as defaultProfileStreamPrefsRepository } from "@/database/repositories/profile-stream-prefs.repository";
 import { watchedHistoryRepository as defaultWatchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { watchlistRepository as defaultWatchlistRepository } from "@/database/repositories/watchlist.repository";
-import { isNotNullish, trimAndFilter, unique } from "@/utils/array.utils";
+import { trimAndFilter, unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 import type { PlaybackProgressComputeData, SmartPlay, SmartPlayComputeData } from "../streaming.types";
@@ -28,6 +28,7 @@ export type PlaybackProgressRepo = Pick<
 	| "findContinueWatchingData"
 	| "findPlaybackProgressAndSmartPlayData"
 	| "findSmartPlayData"
+	| "findSmartPlayBatchData"
 	| "deleteProgress"
 	| "deleteMetadataProgress"
 >;
@@ -252,25 +253,20 @@ class PlaybackProgressService extends BaseService {
 			const ids = unique(trimAndFilter(metadataIds)).slice(0, MAX_BATCH_IDS);
 			if (ids.length === 0) return { suggestions: [] };
 
-			const [resolved, watchlisted] = await Promise.all([
-				Promise.all(
-					ids.map((metadataId) =>
-						this.getSmartPlay(metadataId, profileId)
-							.then((smartPlay) => ({ metadataId, suggestion: smartPlay.suggestion }))
-							.catch(() => ({ metadataId, suggestion: null })),
-					),
-				),
+			const [batch, watchlisted] = await Promise.all([
+				this.dependencies.playbackRepository.findSmartPlayBatchData(ids, profileId).catch(() => []),
 				this.dependencies.watchlistRepository.findWatchlistedIds(profileId, ids).catch(() => new Set<string>()),
 			]);
+			const suggestionByMetadataId = new Map(
+				batch.map((entry) => [entry.metadataId, entry.data ? computeSmartPlay(entry.data).suggestion : null]),
+			);
 
 			return {
-				suggestions: resolved
-					.filter((item) => isNotNullish(item.metadataId))
-					.map((item) => ({
-						metadataId: item.metadataId,
-						suggestion: item.suggestion,
-						inWatchlist: watchlisted.has(item.metadataId),
-					})),
+				suggestions: ids.map((metadataId) => ({
+					metadataId,
+					suggestion: suggestionByMetadataId.get(metadataId) ?? null,
+					inWatchlist: watchlisted.has(metadataId),
+				})),
 			};
 		});
 	}

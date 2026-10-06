@@ -10,6 +10,7 @@ import {
 } from "./playback-progress.service";
 
 type ContinueWatchingRepoData = Awaited<ReturnType<PlaybackProgressRepo["findContinueWatchingData"]>>;
+type SmartPlayBatchEntries = Awaited<ReturnType<PlaybackProgressRepo["findSmartPlayBatchData"]>>;
 
 interface TestHarness {
 	service: PlaybackProgressService;
@@ -30,6 +31,8 @@ function createService(
 			| undefined;
 		continueWatchingData?: ContinueWatchingRepoData;
 		fileMetadataId?: string | null | undefined;
+		smartPlayBatchData?: SmartPlayBatchEntries;
+		smartPlayBatchFails?: boolean;
 	} = {},
 ): TestHarness {
 	const upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]> = [];
@@ -101,6 +104,11 @@ function createService(
 				seasons: [],
 				episodes: [],
 			}),
+		findSmartPlayBatchData: () => {
+			if (options.smartPlayBatchFails) return Promise.reject(new Error("batch repository failure"));
+
+			return Promise.resolve(options.smartPlayBatchData ?? []);
+		},
 	};
 
 	const watchedHistoryRepository: WatchedHistoryRepo = {
@@ -267,12 +275,36 @@ describe("playback progress service", () => {
 	});
 });
 
-test("batches smart play with watchlist flags and survives per-id failures", async () => {
-	const { service } = createService({ watchlistedIds: ["meta-1"] });
+test("batches smart play with watchlist flags and maps per-id repository data", async () => {
+	const updatedAt = new Date("2026-01-02T00:00:00Z");
+	const { service } = createService({
+		watchlistedIds: ["meta-1"],
+		smartPlayBatchData: [
+			{
+				metadataId: "meta-1",
+				data: {
+					metadata: { type: "movie", numberingMode: null },
+					mediaFiles: [{ id: "file-1", metadataId: "meta-1", movieId: "movie-1", episodeId: null, isDefault: true, updatedAt }],
+					progressRows: [],
+					seasons: [],
+					episodes: [],
+				},
+			},
+			{ metadataId: "meta-2", data: null },
+		],
+	});
 
-	// The default stub resolves no smart-play data, so every id degrades to a
-	// null suggestion — the batch must still carry the watchlist flags through.
 	const result = await service.getSmartPlayBatch(["meta-1", "meta-2", "  "], "profile-1");
+
+	expect(result.suggestions).toHaveLength(2);
+	expect(result.suggestions[0]).toEqual({ metadataId: "meta-1", suggestion: { type: "new", mediaFileId: "file-1" }, inWatchlist: true });
+	expect(result.suggestions[1]).toEqual({ metadataId: "meta-2", suggestion: null, inWatchlist: false });
+});
+
+test("degrades the whole batch to null suggestions when the repository fails", async () => {
+	const { service } = createService({ watchlistedIds: ["meta-1"], smartPlayBatchFails: true });
+
+	const result = await service.getSmartPlayBatch(["meta-1", "meta-2"], "profile-1");
 
 	expect(result.suggestions).toHaveLength(2);
 	expect(result.suggestions[0]).toMatchObject({ metadataId: "meta-1", suggestion: null, inWatchlist: true });
