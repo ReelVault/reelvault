@@ -245,6 +245,35 @@ if (!args.help) {
 		mmapResults.push(measure("browse WITH mmap_size=256MB", () => browseProbe.all(), { iterations: 300 }));
 		printMicroResults(mmapResults);
 	});
+
+	// ─── A/B: FTS5 optimize after update churn (informs cleanup worker) ────
+	task("database: FTS5 optimize after update churn", async () => {
+		const { db, rows } = await database();
+		const search = db.prepare(
+			"SELECT m.id FROM metadata_fts f JOIN metadata m ON m.id = f.metadata_id WHERE metadata_fts MATCH 'star*' ORDER BY rank LIMIT 24",
+		);
+		const segmentCount = (): number => {
+			const row = db.query("SELECT count(*) AS count FROM metadata_fts_data").get();
+
+			return isRecord(row) && typeof row.count === "number" ? row.count : -1;
+		};
+
+		// Churn: every title update deletes + reinserts its FTS row, accumulating
+		// segments. Cap the updates at the seeded row count.
+		const churnRows = Math.min(1000, rows);
+		db.run("BEGIN");
+		const updateTitle = db.prepare("UPDATE metadata SET title = title || ' x' WHERE id = ?");
+		for (let i = 0; i < churnRows; i++) updateTitle.run(`meta-${String(i).padStart(7, "0")}`);
+		db.run("COMMIT");
+
+		const before = measure("FTS search after churn (no optimize)", () => search.all(), { iterations: 200 });
+		const segmentsBefore = segmentCount();
+		db.run("INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')");
+		const after = measure("FTS search after FTS5 optimize", () => search.all(), { iterations: 200 });
+		const segmentsAfter = segmentCount();
+		printMicroResults([before, after]);
+		console.log(`  metadata_fts_data rows: ${segmentsBefore} -> ${segmentsAfter} (${churnRows} title updates)`);
+	});
 }
 
 await main(import.meta);
