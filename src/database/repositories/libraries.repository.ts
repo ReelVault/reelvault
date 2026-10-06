@@ -85,7 +85,7 @@ class LibrariesRepository {
 	readonly delete = libraries.delete;
 	readonly deletePaths = libraryPaths.delete;
 
-	private readonly libraryStatsCache = new MemoryCache<{ totalMediaFiles: number; totalSize: number }>({
+	private readonly libraryStatsCache = new MemoryCache<LibraryStats>({
 		ttlMs: MINUTE,
 		maxSize: 100,
 		name: "library-stats",
@@ -345,12 +345,25 @@ class LibrariesRepository {
 			: undefined;
 		const shouldLoadMediaFiles = Boolean(fields?.fields.length && QueryFields.includes(fields, "mediaFiles"));
 		const shouldLoadPaths = !fields?.fields.length || QueryFields.includes(fields, "paths");
+		// The aggregate is only needed when the caller reads library-level stats or
+		// paths (single-path path stats reuse it). Narrow field reads like
+		// `{fields:"id,type"}` must not pay for a COUNT+SUM over media_files.
+		const shouldLoadStats =
+			!fields?.fields.length ||
+			shouldLoadPaths ||
+			QueryFields.includes(fields, "totalMediaFiles") ||
+			QueryFields.includes(fields, "totalSize");
 
 		// Uncached ids are aggregated in one query and cached per key; concurrent
 		// callers sharing a library id reuse a single in-flight load.
-		const libraryStatsPromise: Promise<Map<string, LibraryStats>> = tx
-			? this.loadLibraryStats(libraryIds, tx)
-			: this.libraryStatsCache.getOrSetMany(libraryIds, async (missing) => await this.loadLibraryStats(missing));
+		let libraryStatsPromise: Promise<Map<string, LibraryStats>>;
+		if (!shouldLoadStats) {
+			libraryStatsPromise = Promise.resolve(new Map<string, LibraryStats>());
+		} else if (tx) {
+			libraryStatsPromise = this.loadLibraryStats(libraryIds, tx);
+		} else {
+			libraryStatsPromise = this.libraryStatsCache.getOrSetMany(libraryIds, async (missing) => await this.loadLibraryStats(missing));
+		}
 
 		const pathsPromise = shouldLoadPaths
 			? client.select().from(schema.libraryPaths).where(inArray(schema.libraryPaths.libraryId, libraryIds))
