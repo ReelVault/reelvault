@@ -16,6 +16,8 @@
  */
 
 import { main, printTable, suiteArgs, task } from "benchkit";
+import type { SidecarArtworkWriter } from "@/modules/metadata-sidecars/saver/sidecar-artwork.exporter";
+import type { SidecarMetadataWriter } from "@/modules/metadata-sidecars/sidecar.types";
 import { seedCatalog } from "./lib/seed";
 
 // Statement counting must be enabled before the ambient factory is constructed,
@@ -28,6 +30,8 @@ const { mediaRepository } = await import("@/database/repositories/media-files.re
 const { metadataRepository } = await import("@/database/repositories/metadata.repository");
 const { playbackRepository } = await import("@/database/repositories/playback.repository");
 const { watchedHistoryRepository } = await import("@/database/repositories/watched-history.repository");
+const { playbackViewService } = await import("@/application/media/playback-view.service");
+const { SidecarMetadataStorageService } = await import("@/modules/metadata-sidecars/sidecar-metadata-storage.service");
 const { playbackProgressService } = await import("@/modules/streaming/progress/playback-progress.service");
 
 export const meta = { description: "Statement-count audit (queries per operation, targets gate --strict)" };
@@ -56,8 +60,29 @@ if (!args.help) {
 			repositoryExtras: true,
 			history: { profileId: PROFILE_ID, everyNth: 3, duration: 3000 },
 			progress: true,
+			series: { shows: 1, seasons: 2, episodesPerSeason: 10 },
 			analyze: true,
 		});
+
+		const sidecarFiles = Array.from({ length: 20 }, (_, index) => ({
+			filePath: `/media/show/Season 0${Math.floor(index / 10) + 1}/episode-${index}.mkv`,
+			metadataId: "show-0",
+			movieId: null,
+			episodeId: `episode-0-${Math.floor(index / 10)}-${index % 10}`,
+		}));
+		const sidecarStorage = new SidecarMetadataStorageService(
+			{
+				saveMovie: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
+				saveSeries: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
+				saveSeason: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
+				saveEpisode: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
+			} satisfies SidecarMetadataWriter,
+			{
+				saveTitleArtwork: () => Promise.resolve([]),
+				saveSeasonArtwork: () => Promise.resolve([]),
+				saveEpisodeArtwork: () => Promise.resolve([]),
+			} satisfies SidecarArtworkWriter,
+		);
 
 		const cases: OperationCase[] = [
 			{
@@ -99,6 +124,20 @@ if (!args.help) {
 				name: "playbackRepository.findContinueWatchingData (12)",
 				target: null,
 				run: () => playbackRepository.findContinueWatchingData(PROFILE_ID, 12),
+			},
+			{
+				name: "playbackViewService.getPlaybackView (episode → next)",
+				target: 16,
+				run: () => playbackViewService.getPlaybackView("mf-episode-0-0-0", PROFILE_ID),
+			},
+			{
+				name: "sidecarMetadataStorage.saveLibraryMedia (20 episode files)",
+				target: 6,
+				run: () =>
+					sidecarStorage.saveLibraryMedia(
+						{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
+						sidecarFiles,
+					),
 			},
 		];
 

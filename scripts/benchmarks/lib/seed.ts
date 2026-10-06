@@ -21,6 +21,12 @@ export interface CatalogSeedOptions {
 	progress?: boolean;
 	/** worker_jobs backlog (25% running, rest pending) for the claim queries. */
 	workerJobs?: number;
+	/** TV rows: series with seasons × episodesPerSeason episodes, each with a media file. */
+	series?: {
+		shows: number;
+		seasons: number;
+		episodesPerSeason: number;
+	};
 	/** people rows (default 100); cast rotates over them. */
 	people?: number;
 	/** Run ANALYZE after seeding so the planner sees statistics. */
@@ -75,9 +81,6 @@ export function seedCatalog(db: Database, options: CatalogSeedOptions): number {
 	const insertProgress = db.prepare(
 		"INSERT INTO playback_progress (id, profile_id, media_file_id, position, duration, completed, created_at, updated_at) VALUES (?, 'profile-1', ?, 1000, 6000, 0, ?, ?)",
 	);
-	const insertJob = db.prepare(
-		"INSERT INTO worker_jobs (id, worker_id, data, status, priority, attempts, max_attempts, run_at, created_at, updated_at) VALUES (?, 'media-file-analysis', '{}', ?, 0, 0, 3, ?, ?, ?)",
-	);
 
 	for (let g = 0; g < 10; g++) insertGenre.run(`genre-${g}`, `genre-${g}`, `Genre ${g}`, now, now);
 
@@ -124,16 +127,68 @@ export function seedCatalog(db: Database, options: CatalogSeedOptions): number {
 		if (options.progress && i % 5 === 0) insertProgress.run(`pp-${i}`, `mf-${id}`, createdAt, now - i);
 	}
 
-	if (options.workerJobs !== undefined) {
-		for (let i = 0; i < options.workerJobs; i++) {
-			const status = i % 50 === 0 ? "running" : "pending";
-			insertJob.run(`job-${i}`, status, now, now + i, now + i);
-		}
-	}
+	if (options.workerJobs !== undefined) seedWorkerJobs(db, options.workerJobs, now);
+
+	if (options.series) seedSeries(db, { series: options.series, matchScore: options.matchScore ?? false, now });
 
 	db.run("COMMIT");
 	db.run("PRAGMA foreign_keys = ON");
 	if (options.analyze) db.run("ANALYZE");
 
 	return now;
+}
+
+/** worker_jobs backlog for the claim/purge suites (every 50th row is running). */
+function seedWorkerJobs(db: Database, count: number, now: number): void {
+	const insertJob = db.prepare(
+		"INSERT INTO worker_jobs (id, worker_id, data, status, priority, attempts, max_attempts, run_at, created_at, updated_at) VALUES (?, 'media-file-analysis', '{}', ?, 0, 0, 3, ?, ?, ?)",
+	);
+
+	for (let i = 0; i < count; i++) {
+		const status = i % 50 === 0 ? "running" : "pending";
+		insertJob.run(`job-${i}`, status, now, now + i, now + i);
+	}
+}
+
+/** TV rows for suites that need seasons/episodes (playback view, sidecar saves). */
+function seedSeries(db: Database, options: { series: NonNullable<CatalogSeedOptions["series"]>; matchScore: boolean; now: number }): void {
+	const { series, now } = options;
+	const matchScoreColumn = options.matchScore ? ", match_score" : "";
+	const matchScorePlaceholder = options.matchScore ? ", ?" : "";
+	const insertShow = db.prepare(
+		`INSERT INTO metadata (id, stable_key, title, original_title, overview, tagline, type, status, release_date, origin_country, popularity${matchScoreColumn}, created_at, updated_at) VALUES (?, ?, ?, ?, 'Overview', 'Tagline', 'tv_show', 'released', '2024-01-01', 'US', 50${matchScorePlaceholder}, ?, ?)`,
+	);
+	const insertSeason = db.prepare(
+		"INSERT INTO seasons (id, stable_key, metadata_id, season_number, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	);
+	const insertEpisode = db.prepare(
+		"INSERT INTO episodes (id, stable_key, season_id, type, episode_number, title, created_at, updated_at) VALUES (?, ?, ?, 'regular', ?, ?, ?, ?)",
+	);
+	const insertEpisodeFile = db.prepare(
+		"INSERT INTO media_files (id, library_id, metadata_id, episode_id, file_path, file_name, duration, file_size, is_default, created_at, updated_at) VALUES (?, 'lib-bench', ?, ?, ?, ?, 6000, 4000000000, 1, ?, ?)",
+	);
+
+	for (let showIndex = 0; showIndex < series.shows; showIndex++) {
+		const showId = `show-${showIndex}`;
+		insertShow.run(
+			showId,
+			showId,
+			`Series ${showIndex}`,
+			`Series ${showIndex}`,
+			...(options.matchScore ? [(showIndex % 100) / 100] : []),
+			now,
+			now,
+		);
+
+		for (let seasonIndex = 0; seasonIndex < series.seasons; seasonIndex++) {
+			const seasonId = `season-${showIndex}-${seasonIndex}`;
+			insertSeason.run(seasonId, seasonId, showId, seasonIndex + 1, `Season ${seasonIndex + 1}`, now, now);
+
+			for (let episodeIndex = 0; episodeIndex < series.episodesPerSeason; episodeIndex++) {
+				const episodeId = `episode-${showIndex}-${seasonIndex}-${episodeIndex}`;
+				insertEpisode.run(episodeId, episodeId, seasonId, episodeIndex + 1, `Episode ${episodeIndex + 1}`, now, now);
+				insertEpisodeFile.run(`mf-${episodeId}`, showId, episodeId, `/media/${episodeId}.mkv`, `${episodeId}.mkv`, now, now);
+			}
+		}
+	}
 }
