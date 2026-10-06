@@ -221,6 +221,8 @@ class WorkerJobRepository {
 			.limit(1);
 		if (!pending) return [];
 
+		const startedByOperation = new Map<string, number>();
+
 		return await databaseFactory.transaction(async (tx) => {
 			await this.recoverExpired(workerId, now, tx, input.excludeActiveIds);
 
@@ -287,11 +289,16 @@ class WorkerJobRepository {
 					// Subsequent claims in this transaction must see the new running row.
 					runningCount++;
 					if (claimed.operationId) {
-						await workerOperationRepository.markJobStarted(claimed.operationId, now, tx);
+						startedByOperation.set(claimed.operationId, (startedByOperation.get(claimed.operationId) ?? 0) + 1);
 					}
 
 					claimedItems.push(claimed);
 				}
+			}
+
+			// One counter update per operation instead of one per claimed job.
+			for (const [operationId, amount] of startedByOperation) {
+				await workerOperationRepository.markJobStarted(operationId, now, tx, amount);
 			}
 
 			return claimedItems;

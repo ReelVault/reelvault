@@ -108,15 +108,17 @@ class WorkerOperationRepository {
 			.where(eq(operations.id, operationId));
 	}
 
-	async markJobStarted(operationId: string, now: Date = new Date(), tx?: DatabaseTransaction): Promise<void> {
+	async markJobStarted(operationId: string, now: Date = new Date(), tx?: DatabaseTransaction, amount = 1): Promise<void> {
+		if (amount <= 0) return;
+
 		await databaseFactory
 			.getClient({ tx })
 			.update(operations)
 			.set({
 				// UPDATE SET expressions see the pre-update row values in SQLite
 				status: sql`CASE WHEN ${operations.status} = 'pending' THEN 'running' ELSE ${operations.status} END`,
-				pendingItems: sql`MAX(${operations.pendingItems} - 1, 0)`,
-				runningItems: sql`${operations.runningItems} + 1`,
+				pendingItems: sql`MAX(${operations.pendingItems} - ${amount}, 0)`,
+				runningItems: sql`${operations.runningItems} + ${amount}`,
 				startedAt: sql`COALESCE(${operations.startedAt}, ${Math.floor(now.getTime() / 1000)})`,
 				updatedAt: now,
 			})
