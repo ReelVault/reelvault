@@ -1,8 +1,11 @@
 import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, task } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
 import { subnetIp, workerCookie } from "./lib/identity";
+import { preloadUnreadNotificationIds } from "./lib/notifications";
+import { jsonRequest } from "./lib/request";
+import { toScenarioEntries } from "./lib/scenarios";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Admin + account write endpoints — the mutation surfaces no other suite
@@ -36,15 +39,14 @@ function workerHeaders(context: AdminWriteContext, workerIndex: number): Record<
 	};
 }
 
-function adminRequest(context: AdminWriteContext, method: string, path: string, body?: unknown): Request {
+function adminRequest(context: AdminWriteContext, method: "POST" | "PATCH", path: string, body?: unknown): Request {
 	const headers: Record<string, string> = {
 		cookie: context.adminCookie,
 		"x-profile-id": context.adminProfileId,
 		"x-forwarded-for": "10.83.255.1",
 	};
-	if (body !== undefined) headers["content-type"] = "application/json";
 
-	return new Request(`${context.baseUrl}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+	return jsonRequest(`${context.baseUrl}${path}`, method, headers, body);
 }
 
 const scanEnqueue: WriteRequestBuilder = (context) =>
@@ -56,32 +58,27 @@ const notificationsMarkRead: WriteRequestBuilder = (context, workerIndex) => {
 	const ids = context.notificationIds[workerIndex] ?? [];
 	const body = ids.length > 0 ? { ids, read: true } : { all: true, read: true };
 
-	return new Request(`${context.baseUrl}/v1/notifications/`, {
-		method: "PATCH",
-		headers: { ...workerHeaders(context, workerIndex), "content-type": "application/json" },
-		body: JSON.stringify(body),
-	});
+	return jsonRequest(`${context.baseUrl}/v1/notifications/`, "PATCH", workerHeaders(context, workerIndex), body);
 };
 
 const preferencesLanguageToggle: WriteRequestBuilder = (context, workerIndex, requestIndex) =>
-	new Request(`${context.baseUrl}/v1/profiles/${context.profileIdFor(workerIndex)}/preferences`, {
-		method: "PATCH",
-		headers: { ...workerHeaders(context, workerIndex), "content-type": "application/json" },
-		// Alternating non-default values keep the sparse-override row alive —
-		// every request is a real upsert, never a prune-delete no-op.
-		body: JSON.stringify({ language: requestIndex % 2 === 0 ? "pl" : "en" }),
-	});
+	// Alternating non-default values keep the sparse-override row alive —
+	// every request is a real upsert, never a prune-delete no-op.
+	jsonRequest(
+		`${context.baseUrl}/v1/profiles/${context.profileIdFor(workerIndex)}/preferences`,
+		"PATCH",
+		workerHeaders(context, workerIndex),
+		{
+			language: requestIndex % 2 === 0 ? "pl" : "en",
+		},
+	);
 
 const profileCreateDelete: WriteRequestBuilder = (context, workerIndex, requestIndex) => {
 	// Encode both pair halves in one request: POST carries the name, the DELETE
 	// path is derived from the created id by the work function.
 	const name = `Bench Pair ${workerIndex}-${requestIndex >> 1}`;
 
-	return new Request(`${context.baseUrl}/v1/profiles`, {
-		method: "POST",
-		headers: { ...workerHeaders(context, workerIndex), "content-type": "application/json" },
-		body: JSON.stringify({ name }),
-	});
+	return jsonRequest(`${context.baseUrl}/v1/profiles`, "POST", workerHeaders(context, workerIndex), { name });
 };
 
 const settingsRoundTrip: WriteRequestBuilder = (context) =>
@@ -125,22 +122,6 @@ function pairWork(scenario: WriteScenarioDefinition, context: AdminWriteContext)
 			return { ok: false };
 		}
 	};
-}
-
-async function preloadNotificationIds(server: ManagedServer, workerIndex: number): Promise<string[]> {
-	const response = await fetch(`${server.baseUrl}/v1/notifications?unreadOnly=true&limit=50`, {
-		headers: {
-			cookie: workerCookie(server, workerIndex),
-			"x-profile-id": server.profileIdFor(workerIndex),
-			"x-forwarded-for": "10.83.0.1",
-		},
-	});
-	if (!response.ok) return [];
-
-	const payload: unknown = await response.json();
-	if (!Array.isArray(payload)) return [];
-
-	return payload.flatMap((item) => (isRecord(item) && typeof item.id === "string" ? [item.id] : []));
 }
 
 /** Resolves the first settings key and its current value for a write-that-changes-nothing PATCH. */
@@ -200,17 +181,13 @@ export const meta = { description: "Admin/account write endpoints (scan, bulk ma
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args);
 
 	task("write-admin: endpoints", async () => {
 		const server = await serverFixture();
 		const workerCount = server.workerCookies.length;
 		const notificationIds = await Promise.all(
-			Array.from({ length: workerCount }, (_, workerIndex) => preloadNotificationIds(server, workerIndex)),
+			Array.from({ length: workerCount }, (_, workerIndex) => preloadUnreadNotificationIds(server, workerIndex, "10.83.0.1")),
 		);
 		const settingsPatchBody = await resolveSettingsPatchBody(server);
 		console.log(
@@ -232,15 +209,10 @@ if (!args.help) {
 		const results = await runScenarioMatrix({
 			suite: "write-admin",
 			unit: "writes/s",
-			scenarios: scenarios.map((scenario) =>
-				scenario.pair
-					? { name: scenario.name, work: pairWork(scenario, context) }
-					: {
-							name: scenario.name,
-							requestFor: (workerIndex: number, requestIndex: number) => scenario.builder(context, workerIndex, requestIndex),
-							accept: (response: Response) => response.status < 500,
-						},
-			),
+			scenarios: toScenarioEntries(scenarios, context, {
+				accept: (response) => response.status < 500,
+				workFor: (scenario) => (scenario.pair ? pairWork(scenario, context) : undefined),
+			}),
 			concurrency: args.concurrency,
 			warmupMs: args.warmupMs,
 			durationMs: args.durationMs,

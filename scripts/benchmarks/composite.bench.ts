@@ -1,7 +1,7 @@
 import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
-import { subnetIp, workerCookie } from "./lib/identity";
+import { contextHeaders, rotatingIdentity } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Frontend page-open SEQUENCES, measured as one sample per page visit — the
@@ -23,15 +23,6 @@ interface CompositeContext {
 }
 
 type SequenceBuilder = (context: CompositeContext, workerIndex: number, requestIndex: number) => Request[];
-
-function headers(context: CompositeContext, workerIndex: number, requestIndex: number, withProfile = false): Record<string, string> {
-	const cookie = context.cookieFor(workerIndex, requestIndex);
-	return {
-		cookie,
-		...(withProfile ? { "x-profile-id": context.profileIdFor(workerIndex, requestIndex) } : {}),
-		"x-forwarded-for": subnetIp(84, workerIndex),
-	};
-}
 
 /** Issues the sequence in parallel (the browser fires these in one batch) and drains every body. */
 async function runSequence(requests: Request[]): Promise<boolean> {
@@ -59,70 +50,76 @@ async function runSequence(requests: Request[]): Promise<boolean> {
 }
 
 const dashboardOpen: SequenceBuilder = (context, workerIndex, requestIndex) => [
-	new Request(`${context.baseUrl}/v1/discover?limit=10`, { headers: headers(context, workerIndex, requestIndex, true) }),
-	new Request(`${context.baseUrl}/v1/me/continue-watching?limit=12`, { headers: headers(context, workerIndex, requestIndex, true) }),
+	new Request(`${context.baseUrl}/v1/discover?limit=10`, { headers: contextHeaders(context, 84, workerIndex, requestIndex, true) }),
+	new Request(`${context.baseUrl}/v1/me/continue-watching?limit=12`, {
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
+	}),
 	new Request(`${context.baseUrl}/v1/metadata?limit=10&sortBy=popularity&sortOrder=desc`, {
-		headers: headers(context, workerIndex, requestIndex),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex),
 	}),
 	new Request(`${context.baseUrl}/v1/me/watchlist/statuses?ids=${context.statusesBatch}`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 ];
 
 const heroRotation: SequenceBuilder = (context, workerIndex, requestIndex) => [
 	new Request(`${context.baseUrl}/v1/me/playback-suggestions/${context.movieId}`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 	new Request(`${context.baseUrl}/v1/me/watchlist/statuses?ids=${context.movieId}`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 ];
 
 const detailsOpenSeries: SequenceBuilder = (context, workerIndex, requestIndex) => [
 	new Request(`${context.baseUrl}/v1/metadata/${context.tvId}/details-view`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
-	new Request(`${context.baseUrl}/v1/metadata/${context.tvId}/similar?limit=12`, { headers: headers(context, workerIndex, requestIndex) }),
+	new Request(`${context.baseUrl}/v1/metadata/${context.tvId}/similar?limit=12`, {
+		headers: contextHeaders(context, 84, workerIndex, requestIndex),
+	}),
 ];
 
 const playerOpen: SequenceBuilder = (context, workerIndex, requestIndex) => [
 	new Request(`${context.baseUrl}/v1/playback-sessions/view/${context.mediaFileId}`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 	new Request(`${context.baseUrl}/v1/me/playback-progress/${context.movieId}`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 	new Request(`${context.baseUrl}/v1/media-files/${context.mediaFileId}/markers`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 	new Request(`${context.baseUrl}/v1/subtitles?mediaFileId=${context.mediaFileId}&limit=100`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 	new Request(`${context.baseUrl}/v1/seasons?metadataId=${context.tvId}&limit=24`, {
-		headers: headers(context, workerIndex, requestIndex),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex),
 	}),
 	new Request(`${context.baseUrl}/v1/episodes?metadataId=${context.tvId}&limit=50`, {
-		headers: headers(context, workerIndex, requestIndex),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex),
 	}),
 ];
 
 /** Watchlist page today: list ids, then hydrate cards with a second request (the waterfall the 1.2 view kills). */
 const watchlistHydrateToday: SequenceBuilder = (context, workerIndex, requestIndex) => [
-	new Request(`${context.baseUrl}/v1/me/watchlist?limit=24`, { headers: headers(context, workerIndex, requestIndex, true) }),
+	new Request(`${context.baseUrl}/v1/me/watchlist?limit=24`, { headers: contextHeaders(context, 84, workerIndex, requestIndex, true) }),
 	new Request(`${context.baseUrl}/v1/metadata?metadataIds=${context.statusesBatch}&fields=id,title,type,releaseDate,posterImageId`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 ];
 
 // S7 ships as hydrate=true on the existing list route — a dedicated /view
 // path would be swallowed by GET /me/watchlist/:metadataId.
 const watchlistHydrate12: SequenceBuilder = (context, workerIndex, requestIndex) => [
-	new Request(`${context.baseUrl}/v1/me/watchlist?limit=24&hydrate=true`, { headers: headers(context, workerIndex, requestIndex, true) }),
+	new Request(`${context.baseUrl}/v1/me/watchlist?limit=24&hydrate=true`, {
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
+	}),
 ];
 
 const batchSuggestions12: SequenceBuilder = (context, workerIndex, requestIndex) => [
 	new Request(`${context.baseUrl}/v1/me/playback-suggestions?metadataIds=${context.statusesBatch}`, {
-		headers: headers(context, workerIndex, requestIndex, true),
+		headers: contextHeaders(context, 84, workerIndex, requestIndex, true),
 	}),
 ];
 
@@ -154,11 +151,7 @@ export const meta = { description: "Frontend page-open request sequences (dashbo
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args);
 
 	task("composite: sequences", async () => {
 		const server: ManagedServer = await serverFixture();
@@ -166,9 +159,7 @@ if (!args.help) {
 		const context: CompositeContext = {
 			baseUrl: server.baseUrl,
 			adminCookie: server.cookie,
-			cookieFor: (workerIndex, requestIndex) => workerCookie(server, workerIndex * 997 + requestIndex),
-			profileIdFor: (workerIndex, requestIndex) =>
-				server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
+			...rotatingIdentity(server),
 			movieId: server.benchmarkMovieDetailId,
 			tvId: server.benchmarkTvDetailId,
 			mediaFileId: server.benchmarkMediaFileId,

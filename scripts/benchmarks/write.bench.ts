@@ -1,8 +1,9 @@
 import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
-import { isRecord } from "@/utils/type.utils";
 import { subnetIp, workerCookie } from "./lib/identity";
-import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { preloadUnreadNotificationIds } from "./lib/notifications";
+import { jsonRequest } from "./lib/request";
+import { toScenarioEntries } from "./lib/scenarios";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Mutation/write endpoint suite — the least-measured shared path before this
@@ -30,14 +31,6 @@ function writeHeaders(context: WriteContext, workerIndex: number): Record<string
 		"x-profile-id": context.profileIdFor(workerIndex),
 		"x-forwarded-for": subnetIp(80, workerIndex),
 	};
-}
-
-function jsonRequest(url: string, method: "POST" | "PUT" | "PATCH" | "DELETE", headers: Record<string, string>, body?: unknown): Request {
-	return new Request(url, {
-		method,
-		headers: body === undefined ? headers : { ...headers, "content-type": "application/json" },
-		...(body === undefined ? {} : { body: JSON.stringify(body) }),
-	});
 }
 
 const playbackProgressUpsert: WriteRequestBuilder = (context, workerIndex, requestIndex) =>
@@ -93,24 +86,6 @@ const SCENARIOS: readonly WriteScenarioDefinition[] = [
 	{ name: "POST /v1/me/watched-history (sync)", builder: watchedHistorySync },
 ];
 
-async function preloadNotificationIds(server: ManagedServer, workerIndex: number): Promise<string[]> {
-	// Seeded notifications belong to the per-worker identities, not the admin —
-	// list them as their owner. Only unread ones: re-marking a read row is 403.
-	const response = await fetch(`${server.baseUrl}/v1/notifications?unreadOnly=true&limit=50`, {
-		headers: {
-			cookie: workerCookie(server, workerIndex),
-			"x-profile-id": server.profileIdFor(workerIndex),
-			"x-forwarded-for": "10.80.0.1",
-		},
-	});
-	if (!response.ok) return [];
-
-	const payload: unknown = await response.json();
-	if (!Array.isArray(payload)) return [];
-
-	return payload.flatMap((item) => (isRecord(item) && typeof item.id === "string" ? [item.id] : []));
-}
-
 /**
  * Mark-read phase — a notification flips read exactly once (re-marking an
  * already-read id is a 403), so this cannot be a sustained write loop. Instead
@@ -162,17 +137,13 @@ export const meta = { description: "Mutation/write endpoints (playback-progress 
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args);
 
 	task("write: endpoints", async () => {
 		const server = await serverFixture();
 		const workerCount = server.workerCookies.length;
 		const notificationIds = await Promise.all(
-			Array.from({ length: workerCount }, (_, workerIndex) => preloadNotificationIds(server, workerIndex)),
+			Array.from({ length: workerCount }, (_, workerIndex) => preloadUnreadNotificationIds(server, workerIndex, "10.80.0.1")),
 		);
 		console.log(`[write] server ready, ${workerCount} identities, ${notificationIds.flat().length} notification ids`);
 
@@ -187,10 +158,7 @@ if (!args.help) {
 		const results = await runScenarioMatrix({
 			suite: "write",
 			unit: "writes/s",
-			scenarios: SCENARIOS.map((scenario) => ({
-				name: scenario.name,
-				requestFor: (workerIndex: number, requestIndex: number) => scenario.builder(context, workerIndex, requestIndex),
-			})),
+			scenarios: toScenarioEntries(SCENARIOS, context),
 			concurrency: args.concurrency,
 			warmupMs: args.warmupMs,
 			durationMs: args.durationMs,

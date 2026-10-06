@@ -4,7 +4,7 @@ import { isRecord } from "@/utils/type.utils";
 
 import { createPlaybackSession, deletePlaybackSession } from "./lib/playback";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Realtime WebSocket suite. Zero coverage before this existed. Bun's WebSocket
@@ -280,12 +280,7 @@ export const meta = { description: "Realtime WS (ping/pong RTT, playback fan-out
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		withSampleMedia: true,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
 
 	task("realtime: phases", async () => {
 		const server = await serverFixture();

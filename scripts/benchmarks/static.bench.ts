@@ -1,6 +1,6 @@
 import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 interface StaticScenarioContext {
 	baseUrl: string;
@@ -39,12 +39,7 @@ export const meta = { description: "Static web UI serving (SPA entry, immutable 
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		withWebDist: true,
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args, { withWebDist: true });
 
 	task("static: scenarios", async () => {
 		const managed = await serverFixture();

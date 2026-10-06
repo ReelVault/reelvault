@@ -1,7 +1,7 @@
 import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 import { subnetIp, workerCookie } from "./lib/identity";
 import { BENCH_USER, type ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 export const meta = { description: "Auth & session validation (public vs authed derive delta, login throughput)" };
 
@@ -55,11 +55,7 @@ const SCENARIOS: readonly AuthScenario[] = [publicHealth, authedRead, login];
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args);
 
 	task("auth: scenarios", async () => {
 		const server = await serverFixture();

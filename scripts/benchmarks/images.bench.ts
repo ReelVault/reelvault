@@ -10,7 +10,7 @@ import {
 	task,
 } from "benchkit";
 import { adminHeaders } from "./lib/identity";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Image pipeline suite beyond the single ?w=342 GET in http.ts:
@@ -26,11 +26,7 @@ export const meta = { description: "Image pipeline (width matrix, variant-cache 
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args);
 
 	task("images: pipeline", async () => {
 		const managed = await serverFixture();

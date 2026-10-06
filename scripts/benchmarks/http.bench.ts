@@ -1,6 +1,7 @@
 import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
-import { subnetIp } from "./lib/identity";
-import { createServerFixture } from "./lib/server-fixture";
+import { identityIndexFor, subnetIp } from "./lib/identity";
+import { toScenarioEntries } from "./lib/scenarios";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 interface ScenarioContext {
 	baseUrl: string;
@@ -31,7 +32,7 @@ type RequestBuilder = (context: ScenarioContext, workerIndex: number, requestInd
 const defaultProfileIdFor = (index: number): string => `profile-bench-${index}`;
 
 function authHeaders(context: ScenarioContext, workerIndex: number, requestIndex: number, withProfile = false): RequestInit {
-	const identityIndex = (workerIndex * 997 + requestIndex) % Math.max(context.cookies.length, 1);
+	const identityIndex = identityIndexFor(workerIndex, requestIndex, context.cookies.length);
 	const cookie = context.cookies[identityIndex];
 	const ip = subnetIp(77, identityIndex);
 	const headers: Record<string, string> = {
@@ -343,11 +344,7 @@ export const meta = { description: "HTTP API throughput & latency (browse, searc
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args);
 
 	task("http: scenarios", async () => {
 		let baseUrl = args.baseUrl;
@@ -422,10 +419,7 @@ if (!args.help) {
 		const results = await runScenarioMatrix({
 			suite: "http",
 			unit: "req/s",
-			scenarios: scenarios.map((scenario) => ({
-				name: scenario.name,
-				requestFor: (workerIndex: number, requestIndex: number) => scenario.builder(context, workerIndex, requestIndex),
-			})),
+			scenarios: toScenarioEntries(scenarios, context),
 			concurrency: args.concurrency,
 			warmupMs: args.warmupMs,
 			durationMs: args.durationMs,

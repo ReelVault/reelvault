@@ -3,7 +3,7 @@ import { sleep } from "bun";
 
 import { authHeaders } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Downloads suite. Zero coverage before this existed: enqueue → ffmpeg
@@ -95,11 +95,9 @@ export const meta = { description: "Downloads (prepare → ffmpeg stream-copy �
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
+	const serverFixture = suiteServerFixture(args, {
 		workerCount: Math.max(1, Math.min(4, Math.max(...args.concurrency))),
 		withSampleMedia: true,
-		keepServer: args.keepServer,
 	});
 
 	task("downloads: phases", async () => {

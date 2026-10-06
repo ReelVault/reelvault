@@ -2,9 +2,10 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { subnetIp, workerCookie } from "./lib/identity";
+import { contextHeaders, rotatingIdentity, workerCookie } from "./lib/identity";
+import { type NamedScenario, toScenarioEntries } from "./lib/scenarios";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Plugin runtime suite. Installs the media-requests plugin from the sibling
@@ -38,53 +39,45 @@ interface PluginContext {
 
 type PluginRequestBuilder = (context: PluginContext, workerIndex: number, requestIndex: number) => Request;
 
-function headers(context: PluginContext, workerIndex: number, requestIndex: number, withProfile = false): Record<string, string> {
-	return {
-		cookie: context.cookieFor(workerIndex, requestIndex),
-		...(withProfile ? { "x-profile-id": context.profileIdFor(workerIndex, requestIndex) } : {}),
-		"x-forwarded-for": subnetIp(87, workerIndex),
-	};
-}
-
 const listRequests: PluginRequestBuilder = (context, worker, request) =>
 	new Request(`${context.baseUrl}/v1/plugins/${PLUGIN_ID}/requests?limit=50`, {
-		headers: headers(context, worker, request, true),
+		headers: contextHeaders(context, 87, worker, request, true),
 	});
 
 const summary: PluginRequestBuilder = (context, worker, request) =>
 	new Request(`${context.baseUrl}/v1/plugins/${PLUGIN_ID}/requests/summary`, {
-		headers: headers(context, worker, request, true),
+		headers: contextHeaders(context, 87, worker, request, true),
 	});
 
 const uiManifest: PluginRequestBuilder = (context, worker, request) =>
-	new Request(`${context.baseUrl}/v1/plugins/ui/manifest`, { headers: headers(context, worker, request, true) });
+	new Request(`${context.baseUrl}/v1/plugins/ui/manifest`, { headers: contextHeaders(context, 87, worker, request, true) });
 
 const uiAsset: PluginRequestBuilder = (context, worker, request) =>
 	new Request(`${context.baseUrl}/v1/plugins/ui/${PLUGIN_DIR}/dist/ui/index.js`, {
-		headers: headers(context, worker, request),
+		headers: contextHeaders(context, 87, worker, request),
 	});
 
 const uiAsset304: PluginRequestBuilder = (context, worker, request) =>
 	new Request(`${context.baseUrl}/v1/plugins/ui/${PLUGIN_DIR}/dist/ui/index.js`, {
-		headers: { ...headers(context, worker, request), "if-none-match": context.assetEtag },
+		headers: { ...contextHeaders(context, 87, worker, request), "if-none-match": context.assetEtag },
 	});
 
 const unknownPlugin: PluginRequestBuilder = (context, worker, request) =>
 	new Request(`${context.baseUrl}/v1/plugins/org.reelvault.nonexistent/requests`, {
-		headers: headers(context, worker, request, true),
+		headers: contextHeaders(context, 87, worker, request, true),
 	});
 
 const nativeBaseline: PluginRequestBuilder = (context, worker, request) =>
-	new Request(`${context.baseUrl}/v1/me/watchlist?limit=24`, { headers: headers(context, worker, request, true) });
+	new Request(`${context.baseUrl}/v1/me/watchlist?limit=24`, { headers: contextHeaders(context, 87, worker, request, true) });
 
-const SCENARIOS: ReadonlyArray<readonly [string, PluginRequestBuilder]> = [
-	[`GET /v1/plugins/${PLUGIN_DIR}/requests?limit=50`, listRequests],
-	[`GET /v1/plugins/${PLUGIN_DIR}/requests/summary`, summary],
-	["GET /v1/plugins/ui/manifest", uiManifest],
-	["GET /v1/plugins/ui/.../index.js (391KB asset)", uiAsset],
-	["GET /v1/plugins/ui/.../index.js (304 revalidate)", uiAsset304],
-	["GET /v1/plugins/<unknown>/... (404 guard)", unknownPlugin],
-	["GET /v1/me/watchlist?limit=24 (native baseline)", nativeBaseline],
+const SCENARIOS: ReadonlyArray<NamedScenario<PluginContext>> = [
+	{ name: `GET /v1/plugins/${PLUGIN_DIR}/requests?limit=50`, builder: listRequests },
+	{ name: `GET /v1/plugins/${PLUGIN_DIR}/requests/summary`, builder: summary },
+	{ name: "GET /v1/plugins/ui/manifest", builder: uiManifest },
+	{ name: "GET /v1/plugins/ui/.../index.js (391KB asset)", builder: uiAsset },
+	{ name: "GET /v1/plugins/ui/.../index.js (304 revalidate)", builder: uiAsset304 },
+	{ name: "GET /v1/plugins/<unknown>/... (404 guard)", builder: unknownPlugin },
+	{ name: "GET /v1/me/watchlist?limit=24 (native baseline)", builder: nativeBaseline },
 ];
 
 function resolvePluginZip(): string | undefined {
@@ -258,11 +251,7 @@ if (!args.help) {
 	if (!zipPath) {
 		console.log("[plugins] skipped — org.reelvault.requests zip not found under ../../plugins/dist/plugins (clone the plugins repo)");
 	} else {
-		const serverFixture = createServerFixture({
-			seedRows: args.rows,
-			workerCount: Math.max(...args.concurrency),
-			keepServer: args.keepServer,
-		});
+		const serverFixture = suiteServerFixture(args);
 
 		task("plugins: lifecycle + dispatch", async () => {
 			const server = await serverFixture();
@@ -273,9 +262,7 @@ if (!args.help) {
 
 			const context: PluginContext = {
 				baseUrl: server.baseUrl,
-				cookieFor: (workerIndex, requestIndex) => workerCookie(server, workerIndex * 997 + requestIndex),
-				profileIdFor: (workerIndex, requestIndex) =>
-					server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
+				...rotatingIdentity(server),
 				adminCookie: server.cookie,
 				adminProfileId: server.adminProfileId,
 				assetEtag,
@@ -288,11 +275,7 @@ if (!args.help) {
 			const results = await runScenarioMatrix({
 				suite: "plugins",
 				unit: "req/s",
-				scenarios: SCENARIOS.map((scenario) => ({
-					name: scenario[0],
-					requestFor: (workerIndex: number, requestIndex: number) => scenario[1](context, workerIndex, requestIndex),
-					accept: (response: Response) => response.status < 500,
-				})),
+				scenarios: toScenarioEntries(SCENARIOS, context, { accept: (response) => response.status < 500 }),
 				concurrency: args.concurrency,
 				warmupMs: args.warmupMs,
 				durationMs: args.durationMs,

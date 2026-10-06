@@ -10,10 +10,10 @@ import {
 	task,
 } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { subnetIp, workerCookie } from "./lib/identity";
+import { contextHeaders, rotatingIdentity, subnetIp } from "./lib/identity";
 import { createPlaybackSession } from "./lib/playback";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Playback-session CONTROL-PLANE suite (no media segments — ffmpeg data-plane
@@ -46,39 +46,31 @@ interface SessionsContext {
 
 type SessionRequestBuilder = (context: SessionsContext, workerIndex: number, requestIndex: number) => Request;
 
-function headers(context: SessionsContext, workerIndex: number, requestIndex: number): Record<string, string> {
-	return {
-		cookie: context.cookieFor(workerIndex, requestIndex),
-		"x-profile-id": context.profileIdFor(workerIndex, requestIndex),
-		"x-forwarded-for": subnetIp(88, workerIndex),
-	};
-}
-
 function sessionPath(context: SessionsContext, workerIndex: number, suffix: string): string {
 	return `${context.baseUrl}/v1/playback-sessions/${context.sessionIdFor(workerIndex)}${suffix}`;
 }
 
 const heartbeatEmpty: SessionRequestBuilder = (context, worker, request) =>
-	new Request(sessionPath(context, worker, "/heartbeat"), { method: "POST", headers: headers(context, worker, request) });
+	new Request(sessionPath(context, worker, "/heartbeat"), { method: "POST", headers: contextHeaders(context, 88, worker, request, true) });
 
 const heartbeatProgress: SessionRequestBuilder = (context, worker, request) =>
 	new Request(sessionPath(context, worker, "/heartbeat"), {
 		method: "POST",
-		headers: { ...headers(context, worker, request), "content-type": "application/json" },
+		headers: { ...contextHeaders(context, 88, worker, request, true), "content-type": "application/json" },
 		body: JSON.stringify({ position: request % 600, duration: 600, isPaused: false }),
 	});
 
 const transcodeProgress: SessionRequestBuilder = (context, worker, request) =>
-	new Request(sessionPath(context, worker, "/transcode-progress"), { headers: headers(context, worker, request) });
+	new Request(sessionPath(context, worker, "/transcode-progress"), { headers: contextHeaders(context, 88, worker, request, true) });
 
 const diagnostics: SessionRequestBuilder = (context, worker, request) =>
-	new Request(sessionPath(context, worker, "/diagnostics"), { headers: headers(context, worker, request) });
+	new Request(sessionPath(context, worker, "/diagnostics"), { headers: contextHeaders(context, 88, worker, request, true) });
 
 const createChurn: SessionRequestBuilder = (context, worker, request) =>
 	new Request(`${context.baseUrl}/v1/playback-sessions`, {
 		method: "POST",
 		headers: {
-			...headers(context, worker, request),
+			...contextHeaders(context, 88, worker, request, true),
 			"content-type": "application/json",
 			"idempotency-key": `bench-churn-${worker}-${request}`,
 		},
@@ -89,7 +81,7 @@ const idempotentReplay: SessionRequestBuilder = (context, worker, request) =>
 	new Request(`${context.baseUrl}/v1/playback-sessions`, {
 		method: "POST",
 		headers: {
-			...headers(context, worker, request),
+			...contextHeaders(context, 88, worker, request, true),
 			"content-type": "application/json",
 			"idempotency-key": context.idempotencyKeyFor(worker),
 		},
@@ -118,7 +110,7 @@ async function churnWork(context: SessionsContext, workerIndex: number, requestI
 
 		const del = await fetch(`${context.baseUrl}/v1/playback-sessions/${sessionId}`, {
 			method: "DELETE",
-			headers: headers(context, workerIndex, requestIndex),
+			headers: contextHeaders(context, 88, workerIndex, requestIndex, true),
 		});
 		await del.arrayBuffer();
 
@@ -213,11 +205,9 @@ export const meta = { description: "Playback-session control plane (heartbeat, p
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
+	const serverFixture = suiteServerFixture(args, {
 		workerCount: Math.max(...args.concurrency, 12),
 		withSampleMedia: true,
-		keepServer: args.keepServer,
 	});
 
 	task("sessions-control: phases", async () => {
@@ -243,9 +233,7 @@ if (!args.help) {
 
 		const context: SessionsContext = {
 			baseUrl: server.baseUrl,
-			cookieFor: (workerIndex, requestIndex) => workerCookie(server, workerIndex * 997 + requestIndex),
-			profileIdFor: (workerIndex, requestIndex) =>
-				server.profileIdFor((workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1)),
+			...rotatingIdentity(server),
 			adminCookie: server.cookie,
 			adminProfileId: server.adminProfileId,
 			sampleMediaId: server.sampleMediaId,

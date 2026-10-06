@@ -6,7 +6,7 @@ import { $ } from "bun";
 
 import { adminHeaders } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Subtitles suite. Zero coverage before this existed. Fixtures:
@@ -101,12 +101,7 @@ export const meta = { description: "Subtitles (list/info cache, external content
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		withSampleMedia: true,
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
 
 	task("subtitles: phases", async () => {
 		const server = await serverFixture();

@@ -14,8 +14,9 @@ import {
 import { sleep } from "bun";
 import { authHeaders, subnetIp } from "./lib/identity";
 import { createPlaybackSession, deletePlaybackSession, parseSegmentNames } from "./lib/playback";
+import { toScenarioResult } from "./lib/scenario-result";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 async function fetchPlaylistSegments(server: ManagedServer, sessionId: string): Promise<string[]> {
 	const response = await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}/playlist`, {
@@ -289,12 +290,7 @@ export const meta = { description: "HLS streaming engine (playback session, play
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		withSampleMedia: true,
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
 
 	task("streaming: phases", async () => {
 		if (args.baseUrl) {
@@ -331,12 +327,16 @@ if (!args.help) {
 			totalBytes += run.totalBytes;
 			const stats = summarizeLatencies(run.latencies);
 			const okCount = run.latencies.length - run.non2xx;
-			results.push({
-				name: run.name,
-				stats,
-				requestsPerSecond: okCount / (run.elapsedMs / 1000),
-				errorRatePercent: run.latencies.length > 0 ? (run.non2xx / run.latencies.length) * 100 : 0,
-			});
+			results.push(
+				toScenarioResult({
+					name: run.name,
+					stats,
+					throughputCount: okCount,
+					elapsedMs: run.elapsedMs,
+					errorCount: run.non2xx,
+					total: run.latencies.length,
+				}),
+			);
 			printTable(
 				`Throughput c=${concurrency}`,
 				["MB/s", "segments/s", "p50", "p95", "p99", "non-2xx"],
@@ -358,12 +358,16 @@ if (!args.help) {
 			totalBytes += rangeRun.totalBytes;
 			const rangeStats = summarizeLatencies(rangeRun.latencies);
 			const rangeOkCount = rangeRun.latencies.length - rangeRun.non2xx;
-			results.push({
-				name: rangeRun.name,
-				stats: rangeStats,
-				requestsPerSecond: rangeOkCount / (rangeRun.elapsedMs / 1000),
-				errorRatePercent: rangeRun.latencies.length > 0 ? (rangeRun.non2xx / rangeRun.latencies.length) * 100 : 0,
-			});
+			results.push(
+				toScenarioResult({
+					name: rangeRun.name,
+					stats: rangeStats,
+					throughputCount: rangeOkCount,
+					elapsedMs: rangeRun.elapsedMs,
+					errorCount: rangeRun.non2xx,
+					total: rangeRun.latencies.length,
+				}),
+			);
 			printTable(
 				`Throughput Range 256KiB c=${concurrency}`,
 				["MB/s", "req/s", "p50", "p95", "p99", "non-2xx"],

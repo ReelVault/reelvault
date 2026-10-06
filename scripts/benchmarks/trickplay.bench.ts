@@ -4,7 +4,7 @@ import { isRecord } from "@/utils/type.utils";
 
 import { adminHeaders } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * Trickplay suite. Zero coverage before this existed: generation is one of the
@@ -41,11 +41,7 @@ export const meta = { description: "Trickplay (ffmpeg sprite/VTT generation e2e,
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		withSampleMedia: true,
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args, { workerCount: 1, withSampleMedia: true });
 
 	task("trickplay: phases", async () => {
 		const server = await serverFixture();

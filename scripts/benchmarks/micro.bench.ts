@@ -115,15 +115,22 @@ async function compressBrotliQuality2(input: Buffer): Promise<Buffer> {
 	});
 }
 
-function buildCatalogPayload(rows: number): string {
-	const items = Array.from({ length: rows }, (_, index) => ({
+/** One catalog item of the synthetic browse payload; key order is part of the JSON bytes. */
+function catalogItem(index: number, overview: string) {
+	return {
 		id: `meta-${String(index).padStart(7, "0")}`,
 		title: `Benchmark Title ${index}`,
 		type: index % 8 === 0 ? "tv_show" : "movie",
 		releaseDate: `202${index % 5}-0${(index % 9) + 1}-15`,
-		overview: "Benchmark overview text for load testing with a realistic length sentence.",
+		overview,
 		popularity: (index % 1000) / 10,
-	}));
+	};
+}
+
+function buildCatalogPayload(rows: number): string {
+	const items = Array.from({ length: rows }, (_, index) =>
+		catalogItem(index, "Benchmark overview text for load testing with a realistic length sentence."),
+	);
 
 	return JSON.stringify({ page: 1, limit: rows, total: rows, totalPages: 1, data: items });
 }
@@ -604,12 +611,7 @@ if (!args.help) {
 		// threshold; detail-page aggregations produce 100 KB+ JSON where the
 		// per-request compress cost is the dominant CPU term.
 		const largeItems = Array.from({ length: 400 }, (_item, index) => ({
-			id: `meta-${String(index).padStart(7, "0")}`,
-			title: `Benchmark Title ${index}`,
-			type: index % 8 === 0 ? "tv_show" : "movie",
-			releaseDate: `202${index % 5}-0${(index % 9) + 1}-15`,
-			overview: "Benchmark overview text for load testing with a realistic length sentence.".repeat(4),
-			popularity: (index % 1000) / 10,
+			...catalogItem(index, "Benchmark overview text for load testing with a realistic length sentence.".repeat(4)),
 			genres: ["Action", "Adventure", "Sci-Fi", "Drama"],
 			cast: Array.from({ length: 12 }, (_person, castIndex) => ({
 				name: `Person ${index}-${castIndex}`,

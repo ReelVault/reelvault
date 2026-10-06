@@ -1,4 +1,4 @@
-import { type Fixture, fixture } from "benchkit";
+import { type BenchmarkArgs, type Fixture, fixture } from "benchkit";
 import { type ManagedServer, startBenchmarkServer } from "./server";
 
 export interface CreateServerFixtureOptions {
@@ -28,5 +28,15 @@ export function createServerFixture(options: CreateServerFixtureOptions): Fixtur
 		if (!options.keepServer) onCleanup(() => managed.stop());
 
 		return managed;
+	});
+}
+
+/** The standard suite fixture: seed rows, one identity per worker, caller-owned flags. */
+export function suiteServerFixture(args: BenchmarkArgs, overrides: Partial<CreateServerFixtureOptions> = {}): Fixture<ManagedServer> {
+	return createServerFixture({
+		seedRows: args.rows,
+		workerCount: Math.max(...args.concurrency),
+		keepServer: args.keepServer,
+		...overrides,
 	});
 }

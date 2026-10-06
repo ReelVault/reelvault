@@ -9,9 +9,9 @@ import {
 	suiteArgs,
 	task,
 } from "benchkit";
-import { authHeaders, workerCookie } from "./lib/identity";
+import { authHeaders, identityIndexFor, workerCookie } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 /**
  * RSS-under-load suite: replays a realistic read mix and a write mix against
@@ -27,7 +27,7 @@ const RSS_SAMPLE_INTERVAL_MS = 500;
 type RequestBuilder = (server: ManagedServer, workerIndex: number, requestIndex: number) => Request;
 
 function readHeaders(server: ManagedServer, workerIndex: number, requestIndex: number, withProfile = false): Record<string, string> {
-	const identityIndex = (workerIndex * 997 + requestIndex) % Math.max(server.workerCookies.length, 1);
+	const identityIndex = identityIndexFor(workerIndex, requestIndex, server.workerCookies.length);
 
 	return authHeaders(server, identityIndex, 90, withProfile);
 }
@@ -128,11 +128,7 @@ export const meta = { description: "Server RSS under sustained read + write load
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args);
 
 	task("memory: RSS under load", async () => {
 		const server = await serverFixture();

@@ -33,3 +33,43 @@ export function adminHeaders(server: ManagedServer, forwardedFor: string, withPr
 		"x-forwarded-for": forwardedFor,
 	};
 }
+
+/**
+ * Identity index for the rotating scheme: worker w starts at w and advances by
+ * `stride` per request so consecutive requests from one worker land on
+ * different identities (rate limits spread instead of piling up).
+ */
+export function identityIndexFor(workerIndex: number, requestIndex: number, count: number, stride = 997): number {
+	return (workerIndex * stride + requestIndex) % Math.max(count, 1);
+}
+
+/** Cookie+profile pair of the rotating identity scheme, bound to one managed server. */
+export interface RotatingIdentity {
+	cookieFor(workerIndex: number, requestIndex: number): string;
+	profileIdFor(workerIndex: number, requestIndex: number): string;
+}
+
+export function rotatingIdentity(server: ManagedServer): RotatingIdentity {
+	const identityFor = (workerIndex: number, requestIndex: number): number =>
+		identityIndexFor(workerIndex, requestIndex, server.workerCookies.length);
+
+	return {
+		cookieFor: (workerIndex, requestIndex) => workerCookie(server, identityFor(workerIndex, requestIndex)),
+		profileIdFor: (workerIndex, requestIndex) => server.profileIdFor(identityFor(workerIndex, requestIndex)),
+	};
+}
+
+/** Identity headers for a context exposing the rotating cookie/profile pair. */
+export function contextHeaders(
+	context: RotatingIdentity,
+	subnet: number,
+	workerIndex: number,
+	requestIndex: number,
+	withProfile = false,
+): Record<string, string> {
+	return {
+		cookie: context.cookieFor(workerIndex, requestIndex),
+		...(withProfile ? { "x-profile-id": context.profileIdFor(workerIndex, requestIndex) } : {}),
+		"x-forwarded-for": subnetIp(subnet, workerIndex),
+	};
+}

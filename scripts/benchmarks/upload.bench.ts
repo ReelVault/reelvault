@@ -12,8 +12,9 @@ import {
 } from "benchkit";
 import sharp from "sharp";
 import { subnetIp } from "./lib/identity";
+import { toScenarioResult } from "./lib/scenario-result";
 import type { ManagedServer } from "./lib/server";
-import { createServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server-fixture";
 
 const ROUTE_FILE_MAX_MB = 18;
 
@@ -76,11 +77,7 @@ export const meta = { description: "Image upload pipeline (multipart ingest & Sh
 const args = suiteArgs();
 
 if (!args.help) {
-	const serverFixture = createServerFixture({
-		seedRows: args.rows,
-		workerCount: Math.max(...args.concurrency),
-		keepServer: args.keepServer,
-	});
+	const serverFixture = suiteServerFixture(args);
 
 	task("upload: pipeline", async () => {
 		const image = await createBenchmarkImage(args.sizeMb || DEFAULT_UPLOAD_SIZE_MB);
@@ -95,12 +92,16 @@ if (!args.help) {
 			const run = await runUploads(server, image, concurrency, args.warmupMs, args.durationMs);
 			totalUploaded += run.uploadedBytes;
 			const stats = summarizeLatencies(run.latencies);
-			results.push({
-				name: `image upload c=${concurrency}`,
-				stats,
-				requestsPerSecond: run.requests / (args.durationMs / 1000),
-				errorRatePercent: run.requests > 0 ? (run.non2xx / run.requests) * 100 : 0,
-			});
+			results.push(
+				toScenarioResult({
+					name: `image upload c=${concurrency}`,
+					stats,
+					throughputCount: run.requests,
+					elapsedMs: args.durationMs,
+					errorCount: run.non2xx,
+					total: run.requests,
+				}),
+			);
 			printTable(
 				`Upload c=${concurrency}`,
 				["req/s", "MB/s in", "p50", "p95", "p99", "max", "non-2xx"],
