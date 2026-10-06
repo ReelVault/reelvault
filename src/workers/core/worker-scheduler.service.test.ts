@@ -83,6 +83,17 @@ beforeEach(async () => {
 
 			return Promise.resolve();
 		}),
+		stubMethod(schedulesRepo, "setNextRunAtMany", (entries: Array<{ workerId: string; nextRunAt: Date | null }>) => {
+			for (const entry of entries) {
+				nextRunAtCalls.push(entry);
+				if (!entry.nextRunAt) continue;
+
+				const row = scheduleRows.get(entry.workerId) ?? { workerId: entry.workerId, triggers: [], isEnabled: true };
+				scheduleRows.set(entry.workerId, { ...row, nextRunAt: entry.nextRunAt });
+			}
+
+			return Promise.resolve();
+		}),
 	);
 
 	const workerRepo = await import("@/database/repositories/worker.repository");

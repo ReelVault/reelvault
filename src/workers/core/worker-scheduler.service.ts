@@ -118,8 +118,10 @@ export class WorkerSchedulerService extends BaseService {
 
 		// Deadline-based scheduling: every worker carries a persisted nextRunAt.
 		// A deadline missed during downtime fires exactly once here (no minute
-		// replay, no flood), then advances past `now`.
+		// replay, no flood), then advances past `now`. Deadlines are armed and
+		// advanced in one batched write after the loop instead of one per worker.
 		const scheduleRows = await workerSchedulesRepository.getAllSchedules();
+		const deadlineUpdates: Array<{ workerId: string; nextRunAt: Date | null }> = [];
 		for (const def of definitions) {
 			const row = scheduleRows.get(def.id);
 			if (row && !row.isEnabled) continue;
@@ -130,7 +132,7 @@ export class WorkerSchedulerService extends BaseService {
 			const due = row?.nextRunAt ?? null;
 			if (due === null) {
 				// First pass for this worker — arm the deadline without firing.
-				await workerSchedulesRepository.setNextRunAt(def.id, computeNextRunAt(triggers, cron, now));
+				deadlineUpdates.push({ workerId: def.id, nextRunAt: computeNextRunAt(triggers, cron, now) });
 				continue;
 			}
 
@@ -138,8 +140,10 @@ export class WorkerSchedulerService extends BaseService {
 
 			this.logger.debug("Triggering scheduled worker", { workerId: def.id, dueAt: due.toISOString() });
 			await this.enqueueScheduled(def.id, `schedule:${def.id}:${due.getTime()}`, def.schedule?.data, def.schedule?.operationId);
-			await workerSchedulesRepository.setNextRunAt(def.id, computeNextRunAt(triggers, cron, now));
+			deadlineUpdates.push({ workerId: def.id, nextRunAt: computeNextRunAt(triggers, cron, now) });
 		}
+
+		await workerSchedulesRepository.setNextRunAtMany(deadlineUpdates);
 	}
 
 	private async enqueueScheduled(workerId: string, dedupeKey: string, data: unknown = {}, operationId?: string): Promise<void> {

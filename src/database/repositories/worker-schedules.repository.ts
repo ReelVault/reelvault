@@ -1,8 +1,9 @@
 import type { TaskTrigger } from "@reelvault/sdk/common";
-import { eq } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { forEachChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { runInTransaction } from "@/database/utils/transaction";
 
@@ -69,6 +70,43 @@ class WorkerSchedulesRepository {
 				target: schedules.workerId,
 				set: { nextRunAt, updatedAt: now },
 			});
+	}
+
+	/**
+	 * Batch variant of {@link setNextRunAt} for the scheduler pass: one multi-row
+	 * upsert for armed/advanced deadlines, one chunked UPDATE for cleared ones.
+	 * Replaces one write per registered worker on startup and per due worker.
+	 */
+	async setNextRunAtMany(entries: ReadonlyArray<{ workerId: string; nextRunAt: Date | null }>): Promise<void> {
+		if (entries.length === 0) return;
+
+		const now = new Date();
+		const scheduled = entries.filter((entry): entry is { workerId: string; nextRunAt: Date } => entry.nextRunAt !== null);
+		if (scheduled.length > 0) {
+			await forEachChunked(scheduled, async (chunk) => {
+				await databaseFactory
+					.getClient()
+					.insert(schedules)
+					.values(
+						chunk.map((entry) => ({ id: uuidv7(), workerId: entry.workerId, triggers: [], isEnabled: true, nextRunAt: entry.nextRunAt })),
+					)
+					.onConflictDoUpdate({
+						target: schedules.workerId,
+						set: { nextRunAt: sql`excluded.next_run_at`, updatedAt: now },
+					});
+			});
+		}
+
+		const cleared = entries.filter((entry) => entry.nextRunAt === null).map((entry) => entry.workerId);
+		if (cleared.length > 0) {
+			await forEachChunked(cleared, async (chunk) => {
+				await databaseFactory
+					.getClient()
+					.update(schedules)
+					.set({ nextRunAt: null, updatedAt: now })
+					.where(inArray(schedules.workerId, chunk));
+			});
+		}
 	}
 
 	async setTriggers(workerId: string, triggers: TaskTrigger[], tx?: DatabaseTransaction): Promise<void> {
