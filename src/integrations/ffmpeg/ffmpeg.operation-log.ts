@@ -68,8 +68,7 @@ export class FfmpegOperationLog {
 		this.writeLine(`finishedAt: ${new Date().toISOString()}`);
 		this.writeLine(`durationMs: ${Date.now() - this.startedAt}`);
 
-		// TODO: consider using errorMessage() from @/utils/errors.ts once we decide whether stack traces are needed in operation logs
-		if (error) this.writeLine(`error: ${error instanceof Error ? (error.stack ?? error.message) : errorMessage(error)}`);
+		if (error) this.writeLine(`error: ${errorMessage(error)}`);
 
 		this.writeLine("=== FFmpeg operation finished ===");
 		this.finished = true;

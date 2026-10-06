@@ -180,7 +180,8 @@ export class MetadataRefreshService extends BaseService {
 			return left.name.localeCompare(right.name) || left.externalId.localeCompare(right.externalId);
 		});
 
-		// TODO: Consider adding network-speed test or admin-configurable concurrency for provider fetches.
+		// Bounded by the title's provider-link count. If this ever needs a cap, derive it
+		// from systemResourcesService rather than adding a setting (AGENTS).
 		const results = await Promise.all(
 			providers.map(async (provider): Promise<ProviderContribution | null> => {
 				try {
