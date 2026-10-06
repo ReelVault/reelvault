@@ -1,11 +1,89 @@
 import type { MetadataType } from "@reelvault/sdk/common";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { v7 as uuidv7 } from "uuid";
 import { databaseFactory } from "@/database/database";
+import { createPreparedQuery } from "@/database/prepared-queries";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
 import { metadataImageOn } from "@/database/utils/join-conditions";
 import { groupBy, toMap } from "@/utils/array.utils";
 import { metadataRepository } from "./metadata.repository";
+
+/**
+ * Fixed-shape playback queries (Faza 3 pilot). Inserts bind `id`/timestamps
+ * explicitly because `$defaultFn` values freeze at `prepare()` time.
+ */
+const preparedFindProgressUpdateData = createPreparedQuery((client) =>
+	client
+		.select({
+			id: schema.mediaFiles.id,
+			duration: schema.mediaFiles.duration,
+			metadataId: schema.mediaFiles.metadataId,
+			completed: schema.playbackProgress.completed,
+			position: schema.playbackProgress.position,
+			audioStreamIndex: schema.playbackProgress.audioStreamIndex,
+			subtitleId: schema.playbackProgress.subtitleId,
+		})
+		.from(schema.mediaFiles)
+		.leftJoin(
+			schema.playbackProgress,
+			and(
+				eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id),
+				eq(schema.playbackProgress.profileId, sql.placeholder("profileId")),
+			),
+		)
+		.where(eq(schema.mediaFiles.id, sql.placeholder("fileId")))
+		.limit(1)
+		.prepare(),
+);
+
+function buildUpsertProgress(client: DatabaseTransaction, withAudio: boolean, withSubtitle: boolean) {
+	const updateSet = {
+		position: sql.placeholder("position"),
+		duration: sql.placeholder("duration"),
+		completed: sql.placeholder("completed"),
+		updatedAt: sql.placeholder("updatedAt"),
+		...(withAudio ? { audioStreamIndex: sql.placeholder("audioStreamIndex") } : {}),
+		...(withSubtitle ? { subtitleId: sql.placeholder("subtitleId") } : {}),
+	};
+
+	return client
+		.insert(schema.playbackProgress)
+		.values({
+			id: sql.placeholder("id"),
+			profileId: sql.placeholder("profileId"),
+			mediaFileId: sql.placeholder("fileId"),
+			position: sql.placeholder("position"),
+			duration: sql.placeholder("duration"),
+			completed: sql.placeholder("completed"),
+			audioStreamIndex: sql.placeholder("audioStreamIndex"),
+			subtitleId: sql.placeholder("subtitleId"),
+			createdAt: sql.placeholder("createdAt"),
+			updatedAt: sql.placeholder("updatedAt"),
+		})
+		.onConflictDoUpdate({
+			target: [schema.playbackProgress.profileId, schema.playbackProgress.mediaFileId],
+			set: updateSet,
+		})
+		.prepare();
+}
+
+const preparedUpsertProgress = {
+	audioSubtitle: createPreparedQuery((client) => buildUpsertProgress(client, true, true)),
+	audio: createPreparedQuery((client) => buildUpsertProgress(client, true, false)),
+	subtitle: createPreparedQuery((client) => buildUpsertProgress(client, false, true)),
+	none: createPreparedQuery((client) => buildUpsertProgress(client, false, false)),
+};
+
+function selectUpsertProgressPrepared(hasAudio: boolean, hasSubtitle: boolean) {
+	if (hasAudio && hasSubtitle) return preparedUpsertProgress.audioSubtitle;
+
+	if (hasAudio) return preparedUpsertProgress.audio;
+
+	if (hasSubtitle) return preparedUpsertProgress.subtitle;
+
+	return preparedUpsertProgress.none;
+}
 
 class PlaybackRepository {
 	/** Distinct profiles that have watched any file of this metadata row. */
@@ -194,25 +272,7 @@ class PlaybackRepository {
 	}
 
 	async findProgressUpdateData(fileId: string, profileId: string) {
-		const client = databaseFactory.getClient();
-		const row = await client
-			.select({
-				id: schema.mediaFiles.id,
-				duration: schema.mediaFiles.duration,
-				metadataId: schema.mediaFiles.metadataId,
-				completed: schema.playbackProgress.completed,
-				position: schema.playbackProgress.position,
-				audioStreamIndex: schema.playbackProgress.audioStreamIndex,
-				subtitleId: schema.playbackProgress.subtitleId,
-			})
-			.from(schema.mediaFiles)
-			.leftJoin(
-				schema.playbackProgress,
-				and(eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id), eq(schema.playbackProgress.profileId, profileId)),
-			)
-			.where(eq(schema.mediaFiles.id, fileId))
-			.limit(1)
-			.then((rows) => rows[0]);
+		const [row] = await preparedFindProgressUpdateData(databaseFactory.getClient()).execute({ fileId, profileId });
 
 		if (!row) {
 			return { mediaFile: undefined, existingProgress: undefined };
@@ -272,27 +332,21 @@ class PlaybackRepository {
 		subtitleId?: string | null | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}) {
-		const updateValues: Record<string, unknown> = { position, duration, completed, updatedAt: new Date() };
-		if (audioStreamIndex !== undefined) updateValues.audioStreamIndex = audioStreamIndex;
+		const now = new Date();
+		const prepared = selectUpsertProgressPrepared(audioStreamIndex !== undefined, subtitleId !== undefined);
 
-		if (subtitleId !== undefined) updateValues.subtitleId = subtitleId;
-
-		await databaseFactory
-			.getClient({ tx })
-			.insert(schema.playbackProgress)
-			.values({
-				profileId,
-				mediaFileId: fileId,
-				position,
-				duration,
-				completed,
-				audioStreamIndex: audioStreamIndex ?? null,
-				subtitleId: subtitleId ?? null,
-			})
-			.onConflictDoUpdate({
-				target: [schema.playbackProgress.profileId, schema.playbackProgress.mediaFileId],
-				set: updateValues,
-			});
+		await prepared(databaseFactory.getClient({ tx })).execute({
+			id: uuidv7(),
+			profileId,
+			fileId,
+			position,
+			duration,
+			completed,
+			audioStreamIndex: audioStreamIndex ?? null,
+			subtitleId: subtitleId ?? null,
+			createdAt: now,
+			updatedAt: now,
+		});
 	}
 
 	async deleteProgress(profileId: string, fileId: string, tx?: DatabaseTransaction) {

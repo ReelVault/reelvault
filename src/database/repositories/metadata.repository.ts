@@ -14,6 +14,7 @@ import type {
 import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { and, asc, desc, eq, exists, getTableColumns, gt, inArray, notExists, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
+import { createPreparedQuery } from "@/database/prepared-queries";
 import { providersRepository } from "@/database/repositories/providers.repository";
 import { schema } from "@/database/schema";
 import {
@@ -133,6 +134,26 @@ const metadataTable = defineTableAccess("metadata", {
 });
 
 const metadataColumns = getTableColumns(schema.metadata);
+
+// Fixed-shape PK reads for hot paths (Faza 3 pilot): one prepared query per
+// connection, reused across calls.
+const preparedFindTypeById = createPreparedQuery((client) =>
+	client
+		.select({ type: schema.metadata.type, numberingMode: schema.metadata.numberingMode })
+		.from(schema.metadata)
+		.where(eq(schema.metadata.id, sql.placeholder("id")))
+		.limit(1)
+		.prepare(),
+);
+
+const preparedFindRootsById = createPreparedQuery((client) =>
+	client
+		.select()
+		.from(schema.metadata)
+		.where(eq(schema.metadata.id, sql.placeholder("id")))
+		.limit(1)
+		.prepare(),
+);
 
 /** Args shared by the private selectMetadata and the public findMany/findManyWithCursor. */
 interface MetadataSelectArgs<F extends string> {
@@ -331,7 +352,9 @@ class MetadataRepository {
 	}
 
 	async findTypeById(metadataId: string) {
-		return await this.findById({ primaryId: metadataId, fields: QueryFields.parse({ fields: "type,numberingMode" }) });
+		const [row] = await preparedFindTypeById(databaseFactory.getClient()).execute({ id: metadataId });
+
+		return row;
 	}
 
 	async findNumberingModeById(metadataId: string) {
@@ -345,7 +368,9 @@ class MetadataRepository {
 	 * only ship the root row (e.g. the playback view) must use this instead.
 	 */
 	async findRootsById(metadataId: string): Promise<typeof schema.metadata.$inferSelect | undefined> {
-		return await this.selectFirst({ where: eq(this.primaryKeyColumn, metadataId) });
+		const [row] = await preparedFindRootsById(databaseFactory.getClient()).execute({ id: metadataId });
+
+		return row;
 	}
 
 	/** Full metadata rows with default relations (images, genres, rating) for a set of ids. */
