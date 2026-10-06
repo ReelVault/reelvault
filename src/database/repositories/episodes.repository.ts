@@ -13,7 +13,7 @@ import { and, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, findPageWithQueryMap, mapChunked, parseFieldsForRead } from "@/database/table-access";
+import { defineTableAccess, findPageWithQueryMap, forEachChunked, mapChunked, parseFieldsForRead } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -275,6 +275,43 @@ class EpisodesRepository {
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
 		return await this.findFirst({ where: eq(this.primaryKeyColumn, primaryId), fields, tx });
+	}
+
+	/**
+	 * Chunked CASE update for provider syncs: one statement per chunk assigns
+	 * per-row values, and rows that omit a field keep their stored value. Replaces
+	 * one autocommit UPDATE per changed episode.
+	 */
+	async updateManyFields(
+		updates: ReadonlyArray<{
+			id: string;
+			values: Partial<Pick<typeof schema.episodes.$inferInsert, "title" | "overview" | "airDate" | "absoluteNumber">>;
+		}>,
+	): Promise<void> {
+		const rows = updates.filter((update) => Object.keys(update.values).length > 0);
+		if (rows.length === 0) return;
+
+		const client = databaseFactory.getClient();
+		await forEachChunked(rows, async (chunk) => {
+			const set: { title?: SQL; overview?: SQL; airDate?: SQL; absoluteNumber?: SQL; updatedAt: Date } = { updatedAt: new Date() };
+			for (const field of ["title", "overview", "airDate", "absoluteNumber"] as const) {
+				const provided = chunk.filter((row) => row.values[field] !== undefined);
+				if (provided.length === 0) continue;
+
+				const cases = provided.map((row) => sql`WHEN ${row.id} THEN ${row.values[field]}`);
+				set[field] = sql`CASE ${schema.episodes.id} ${sql.join(cases, sql` `)} ELSE ${schema.episodes[field]} END`;
+			}
+
+			await client
+				.update(schema.episodes)
+				.set(set)
+				.where(
+					inArray(
+						schema.episodes.id,
+						chunk.map((row) => row.id),
+					),
+				);
+		});
 	}
 }
 

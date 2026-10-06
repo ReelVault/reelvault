@@ -22,7 +22,7 @@ beforeEach(async () => {
 	const seasonsRepo = seasons.seasonsRepository;
 	activeStubs.push(
 		stubMethod(seasonsRepo, "findByMetadataId", () => Promise.resolve([])),
-		stubMethod(seasonsRepo, "update", (...args: never[]) => {
+		stubMethod(seasonsRepo, "updateManyFields", (...args: never[]) => {
 			seasonUpdates.push(args);
 
 			return Promise.resolve(undefined);
@@ -34,7 +34,7 @@ beforeEach(async () => {
 	const episodesRepo = episodes.episodesRepository;
 	activeStubs.push(
 		stubMethod(episodesRepo, "findBySeasonIds", () => Promise.resolve([])),
-		stubMethod(episodesRepo, "update", (...args: never[]) => {
+		stubMethod(episodesRepo, "updateManyFields", (...args: never[]) => {
 			episodeUpdates.push(args);
 
 			return Promise.resolve(undefined);
@@ -123,7 +123,7 @@ describe("syncSeasonsAndEpisodes", () => {
 		const tasks = await sync("meta-1", [season(1, { posterPath: "/posters/s1.jpg", overview: "new overview" })]);
 
 		expect(seasonUpdates).toHaveLength(1);
-		expect(seasonUpdates[0]?.[0]).toMatchObject({ primaryId: "s-1" });
+		expect(seasonUpdates[0]?.[0]).toEqual([expect.objectContaining({ id: "s-1" })]);
 		expect(tasks).toEqual([{ kind: "season", metadataId: "meta-1", seasonId: "s-1", seasonNumber: "1", urls: "/posters/s1.jpg" }]);
 	});
 
@@ -155,7 +155,9 @@ describe("syncSeasonsAndEpisodes", () => {
 		const tasks = await sync("meta-1", [season(1, { episodes: [episode(1), episode(2, { thumbnailPath: "/thumbs/e2.jpg" })] })]);
 
 		expect(episodeUpdates).toHaveLength(1);
-		expect(episodeUpdates[0]?.[0]).toMatchObject({ primaryId: "e-2", values: { title: "Episode 2" } });
+		expect(episodeUpdates[0]?.[0]).toEqual([
+			expect.objectContaining({ id: "e-2", values: expect.objectContaining({ title: "Episode 2" }) }),
+		]);
 		expect(tasks).toEqual([
 			{ kind: "episode", metadataId: "meta-1", episodeId: "e-2", seasonNumber: "1", episodeNumber: "2", urls: "/thumbs/e2.jpg" },
 		]);

@@ -2,10 +2,8 @@ import type { ProviderEpisodeResult, ProviderSeasonResult } from "@reelvault/sdk
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
-import { systemResourcesService } from "@/system/system-resources.service";
 import { errorMessage } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
-import { PromiseUtils } from "@/utils/promise.utils";
 import { firstWinsByNumber } from "../catalog.utils";
 
 const logger = createLogger("SeasonSync");
@@ -16,6 +14,8 @@ export type SeasonImageTask =
 
 type SeasonRow = Awaited<ReturnType<typeof seasonsRepository.findByMetadataId>>[number];
 type EpisodeRow = Awaited<ReturnType<typeof episodesRepository.findBySeasonIds>>[number];
+type SeasonUpdate = Parameters<typeof seasonsRepository.updateManyFields>[0][number];
+type EpisodeUpdate = Parameters<typeof episodesRepository.updateManyFields>[0][number];
 
 function collectSeasonImageTasks(
 	metadataId: string,
@@ -95,7 +95,7 @@ function processExistingEpisode(
 	existingSeason: SeasonRow,
 	existingEpisode: EpisodeRow,
 	episodeInfo: ProviderEpisodeResult,
-	updatePromises: Array<Promise<unknown>>,
+	episodeUpdates: EpisodeUpdate[],
 	tasks: SeasonImageTask[],
 ): boolean {
 	// Drizzle skips `undefined` fields in .set(), so only compare provided values.
@@ -109,17 +109,15 @@ function processExistingEpisode(
 		]);
 
 	if (changed) {
-		updatePromises.push(
-			episodesRepository.update({
-				primaryId: existingEpisode.id,
-				values: {
-					title: episodeInfo.name,
-					overview: episodeInfo.overview,
-					airDate: episodeInfo.airDate,
-					...(absoluteNumber !== undefined ? { absoluteNumber } : {}),
-				},
-			}),
-		);
+		episodeUpdates.push({
+			id: existingEpisode.id,
+			values: {
+				title: episodeInfo.name,
+				overview: episodeInfo.overview,
+				airDate: episodeInfo.airDate,
+				...(absoluteNumber !== undefined ? { absoluteNumber } : {}),
+			},
+		});
 	}
 
 	if (episodeInfo.thumbnailPath) {
@@ -144,7 +142,7 @@ function processExistingEpisodes(
 		episodesBySeason: Map<string, EpisodeRow[]>;
 		fetchedEpisodes: Map<number, ProviderEpisodeResult[]>;
 	},
-	updatePromises: Array<Promise<unknown>>,
+	episodeUpdates: EpisodeUpdate[],
 	tasks: SeasonImageTask[],
 ): boolean {
 	const { metadataId, existingSeasons, seasonsByNumber, episodesBySeason, fetchedEpisodes } = params;
@@ -167,7 +165,7 @@ function processExistingEpisodes(
 			const episodeInfo = episodesByNumber.get(existingEpisode.episodeNumber);
 			if (!episodeInfo) continue;
 
-			if (processExistingEpisode(metadataId, existingSeason, existingEpisode, episodeInfo, updatePromises, tasks)) {
+			if (processExistingEpisode(metadataId, existingSeason, existingEpisode, episodeInfo, episodeUpdates, tasks)) {
 				episodeMissingTranslation = true;
 			}
 		}
@@ -189,17 +187,20 @@ export async function syncSeasonsAndEpisodes(
 
 	const seasonsByNumber = firstWinsByNumber(seasons, (season) => season.seasonNumber);
 
-	// Batch-update only changed seasons in parallel.
+	// One chunked CASE update for all changed seasons.
 	// Drizzle skips `undefined` fields in .set(), so only compare provided values.
-	await PromiseUtils.mapConcurrent(existingSeasons, systemResourcesService.getIoConcurrency(), (existingSeason) => {
+	const seasonUpdates: SeasonUpdate[] = [];
+	for (const existingSeason of existingSeasons) {
 		const seasonInfo = seasonsByNumber.get(existingSeason.seasonNumber);
-		if (!seasonInfo) return Promise.resolve();
+		if (!seasonInfo) continue;
 
 		const values = { name: seasonInfo.name, overview: seasonInfo.overview, airDate: seasonInfo.airDate, status: seasonInfo.status };
-		if (!changedFields(existingSeason, values, ["name", "overview", "airDate", "status"])) return Promise.resolve();
+		if (!changedFields(existingSeason, values, ["name", "overview", "airDate", "status"])) continue;
 
-		return seasonsRepository.update({ primaryId: existingSeason.id, values });
-	});
+		seasonUpdates.push({ id: existingSeason.id, values });
+	}
+
+	if (seasonUpdates.length > 0) await seasonsRepository.updateManyFields(seasonUpdates);
 
 	// Propagate child fallback-language content to the series-level flag.
 	let missingTranslation = existingSeasons.some((season) => seasonsByNumber.get(season.seasonNumber)?.hasMissingTranslation === true);
@@ -226,16 +227,16 @@ export async function syncSeasonsAndEpisodes(
 	});
 	const fetchedEpisodes = await fetchMissingEpisodeMap(seasonsNeedingFetch, fetchMissingEpisodes);
 
-	const updatePromises: Array<Promise<unknown>> = [];
+	const episodeUpdates: EpisodeUpdate[] = [];
 	const episodeTasks: SeasonImageTask[] = [];
 	const episodeMissingTranslation = processExistingEpisodes(
 		{ metadataId, existingSeasons, seasonsByNumber, episodesBySeason, fetchedEpisodes },
-		updatePromises,
+		episodeUpdates,
 		episodeTasks,
 	);
 	missingTranslation ||= episodeMissingTranslation;
 
-	await PromiseUtils.mapConcurrent(updatePromises, systemResourcesService.getIoConcurrency(), (p) => p);
+	if (episodeUpdates.length > 0) await episodesRepository.updateManyFields(episodeUpdates);
 	tasks.push(...episodeTasks);
 
 	if (missingTranslation) {

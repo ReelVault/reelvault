@@ -7,13 +7,14 @@ import type {
 	SeasonSorting,
 	SelectFields,
 } from "@reelvault/sdk/common";
-import { and, eq, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import {
 	defineRepository,
 	defineTableAccess,
 	findPageWithQueryMap,
+	forEachChunked,
 	parseFieldsForRead,
 	selectFirstWithFields,
 } from "@/database/table-access";
@@ -145,6 +146,43 @@ const overrides = {
 
 	async findFirst<F extends string>(params: FindFirstReadParams<F>): Promise<SelectFields<Season, F> | undefined> {
 		return await selectFirstWithFields(seasons, params);
+	},
+
+	/**
+	 * Chunked CASE update for provider syncs: one statement per chunk assigns
+	 * per-row values, and rows that omit a field keep their stored value. Replaces
+	 * one autocommit UPDATE per changed season.
+	 */
+	async updateManyFields(
+		updates: ReadonlyArray<{
+			id: string;
+			values: Partial<Pick<typeof schema.seasons.$inferInsert, "name" | "overview" | "airDate" | "status">>;
+		}>,
+	): Promise<void> {
+		const rows = updates.filter((update) => Object.keys(update.values).length > 0);
+		if (rows.length === 0) return;
+
+		const client = databaseFactory.getClient();
+		await forEachChunked(rows, async (chunk) => {
+			const set: { name?: SQL; overview?: SQL; airDate?: SQL; status?: SQL; updatedAt: Date } = { updatedAt: new Date() };
+			for (const field of ["name", "overview", "airDate", "status"] as const) {
+				const provided = chunk.filter((row) => row.values[field] !== undefined);
+				if (provided.length === 0) continue;
+
+				const cases = provided.map((row) => sql`WHEN ${row.id} THEN ${row.values[field]}`);
+				set[field] = sql`CASE ${schema.seasons.id} ${sql.join(cases, sql` `)} ELSE ${schema.seasons[field]} END`;
+			}
+
+			await client
+				.update(schema.seasons)
+				.set(set)
+				.where(
+					inArray(
+						schema.seasons.id,
+						chunk.map((row) => row.id),
+					),
+				);
+		});
 	},
 };
 
