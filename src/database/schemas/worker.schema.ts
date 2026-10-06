@@ -51,7 +51,9 @@ export const workerJobs = sqliteTable(
 		index("worker_jobs_claim_idx").on(table.workerId, table.status, table.priority, table.runAt, table.createdAt),
 		index("worker_jobs_pending_poll_idx").on(table.status, table.runAt, table.workerId),
 		index("worker_jobs_lease_idx").on(table.status, table.leaseUntil),
-		index("worker_jobs_worker_completed_idx").on(table.workerId, table.status, table.completedAt),
+		// The created_at tiebreaker lets the weekly retention trim walk the index
+		// instead of a last-term TEMP B-TREE (ORDER BY completed_at DESC, created_at DESC).
+		index("worker_jobs_worker_completed_created_idx").on(table.workerId, table.status, table.completedAt, table.createdAt),
 		index("worker_jobs_operation_idx").on(table.operationId, table.status, table.createdAt),
 		// Admin/live job lists filter worker+status (or operation) and sort by
 		// created_at; the existing composites lead with a column the sort can't use.

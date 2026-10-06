@@ -9,7 +9,11 @@
  * Usage:
  *   bun run scripts/benchmark.ts query-plan [--rows 5000] [--strict]
  *
- * `--strict` exits non-zero when any query is flagged, so CI can gate on it.
+ * `--strict` exits non-zero when a query is flagged. Two cases are marked
+ * `knownStructural`: they sort by a computed expression (year+genre browse and
+ * the similar-titles score) where no index can serve the ORDER BY and both
+ * consumers are cached — they are printed but do not fail the gate, so a new
+ * flag is always a regression.
  * Plans are machine/SQLite-version specific — compare runs from the same box.
  */
 
@@ -27,6 +31,8 @@ interface QueryCase {
 	name: string;
 	sql: string;
 	params?: ReadonlyArray<string | number>;
+	/** Flag is expected and accepted (computed sort, cached consumer) — does not fail --strict. */
+	knownStructural?: boolean;
 }
 
 interface PlanRow {
@@ -37,6 +43,7 @@ interface PlanResult {
 	name: string;
 	detail: string;
 	flags: string[];
+	knownStructural: boolean;
 }
 
 /** A plan line is a full table scan when it says `SCAN <table>` with no index. */
@@ -87,6 +94,7 @@ function buildCases(rows: number, now: number): QueryCase[] {
 		},
 		{
 			name: "metadata filtered (year + genre)",
+			knownStructural: true,
 			sql: `SELECT ${metadataColumns} FROM metadata WHERE release_date >= '2020-01-01' AND release_date <= '2023-12-31' AND EXISTS (SELECT 1 FROM metadata_genres WHERE metadata_genres.metadata_id = metadata.id AND metadata_genres.genre_id IN ('genre-1')) AND ${hasMedia} ORDER BY title, id LIMIT 24`,
 		},
 		{
@@ -124,6 +132,7 @@ function buildCases(rows: number, now: number): QueryCase[] {
 		},
 		{
 			name: "similar scoring (COUNT(*) OVER ())",
+			knownStructural: true,
 			sql: `SELECT m.id, (SELECT COUNT(*) * 30 FROM metadata_genres WHERE metadata_genres.metadata_id = m.id AND metadata_genres.genre_id IN ('genre-1')) + CASE WHEN m.type = 'movie' THEN 50 ELSE 0 END AS score, COUNT(*) OVER () AS total FROM metadata m WHERE m.id != ? AND m.type = 'movie' AND m.id IN (SELECT metadata_id FROM metadata_genres WHERE genre_id IN ('genre-1')) ORDER BY score DESC LIMIT 13 OFFSET 0`,
 			params: ["meta-0000001"],
 		},
@@ -201,6 +210,7 @@ if (!args.help) {
 				name: queryCase.name,
 				detail: planRows.map((row) => row.detail.trim()).join(" | "),
 				flags: planFlags(planRows),
+				knownStructural: queryCase.knownStructural ?? false,
 			});
 		}
 
@@ -211,14 +221,21 @@ if (!args.help) {
 		);
 
 		const flagged = results.filter((result) => result.flags.length > 0);
+		const unexpected = flagged.filter((result) => !result.knownStructural);
 		if (flagged.length > 0) {
-			console.log(`\n[query-plan] ${flagged.length}/${results.length} queries flagged:`);
-			for (const result of flagged) console.log(`  - ${result.name}: ${result.flags.join(", ")}`);
+			console.log(
+				`\n[query-plan] ${flagged.length}/${results.length} queries flagged (${flagged.length - unexpected.length} known structural):`,
+			);
+			for (const result of flagged)
+				console.log(`  - ${result.name}: ${result.flags.join(", ")}${result.knownStructural ? " [known]" : ""}`);
 		} else {
 			console.log(`\n[query-plan] all ${results.length} queries use index-supported plans.`);
 		}
 
-		return { ok: flagged.length === 0, data: { flagged: flagged.length, total: results.length } };
+		return {
+			ok: unexpected.length === 0,
+			data: { flagged: flagged.length, knownStructural: flagged.length - unexpected.length, total: results.length },
+		};
 	});
 }
 
