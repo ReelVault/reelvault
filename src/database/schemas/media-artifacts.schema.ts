@@ -19,6 +19,8 @@ export const mediaArtifacts = sqliteTable(
 	},
 	(table) => [
 		index("media_artifacts_media_file_created_idx").on(table.mediaFileId, table.createdAt),
+		// Plugin artifact cleanup scans by plugin and sorts newest-first.
+		index("media_artifacts_plugin_created_idx").on(table.pluginId, table.createdAt),
 		uniqueIndex("media_artifacts_stable_key_idx").on(table.stableKey),
 	],
 );

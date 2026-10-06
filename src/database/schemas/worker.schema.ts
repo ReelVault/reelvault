@@ -53,6 +53,14 @@ export const workerJobs = sqliteTable(
 		index("worker_jobs_lease_idx").on(table.status, table.leaseUntil),
 		index("worker_jobs_worker_completed_idx").on(table.workerId, table.status, table.completedAt),
 		index("worker_jobs_operation_idx").on(table.operationId, table.status, table.createdAt),
+		// Admin/live job lists filter worker+status (or operation) and sort by
+		// created_at; the existing composites lead with a column the sort can't use.
+		index("worker_jobs_worker_status_created_idx").on(table.workerId, table.status, table.createdAt),
+		index("worker_jobs_operation_created_idx").on(table.operationId, table.createdAt),
+		index("worker_jobs_status_created_idx").on(table.status, table.createdAt),
+		// Orphan/expired recovery only ever scans running rows — a partial index
+		// keeps the tiny running set seekable without indexing terminal history.
+		index("worker_jobs_running_lease_idx").on(table.leaseUntil).where(sql`${table.status} = 'running'`),
 		// cascadeCancel resolves dependents recursively by dependsOnJobId + status
 		index("worker_jobs_depends_idx").on(table.dependsOnJobId, table.status),
 		// Admin jobs list sorts newest-first across all statuses — without a bare

@@ -19,6 +19,9 @@ export const watchedHistory = sqliteTable(
 	},
 	(t) => [
 		index("history_profile_watched_idx").on(t.profileId, t.watchedAt),
+		// `sortBy=createdAt` on the watched-history page needs the id tiebreaker;
+		// only watchedAt was covered.
+		index("history_profile_created_idx").on(t.profileId, t.createdAt, t.id),
 		index("history_profile_media_idx").on(t.profileId, t.mediaFileId),
 		index("history_media_file_idx").on(t.mediaFileId),
 		// global analytics filter only by watchedAt

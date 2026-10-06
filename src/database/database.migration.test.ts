@@ -56,12 +56,17 @@ describe("database migrations", () => {
 	// separators executed only its first statement under the bun-sqlite
 	// migrator, silently leaving both path indexes uncreated.
 	test("creates both media-file path unique indexes from the multi-episode migration", () => {
-		const indexes = factory.sqlite
-			.query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'media_files'")
-			.all() as Array<{ name: string }>;
+		const rows = factory.sqlite
+			.query("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'media_files'")
+			.all() as Array<{ name: string; sql: string | null }>;
+		const byName = new Map(rows.map((row) => [row.name, row.sql ?? ""]));
 
-		expect(indexes.map((row) => row.name)).toContain("media_files_path_unique");
-		expect(indexes.map((row) => row.name)).toContain("media_files_path_episode_unique");
+		// The legacy unconditional index is dropped in favour of the partial one —
+		// real databases carried the unconditional version since the init migration.
+		expect(byName.has("media_files_path_unique")).toBe(false);
+		expect(byName.get("media_files_path_unlinked_unique")).toContain("WHERE");
+		expect(byName.get("media_files_path_unlinked_unique")).toContain('"episode_id" IS NULL');
+		expect(byName.has("media_files_path_episode_unique")).toBe(true);
 	});
 
 	test("applies the latest HDR columns", () => {
@@ -108,6 +113,26 @@ describe("database migrations", () => {
 		expect(indexes.has("plugin_repositories_url_unique")).toBe(true);
 	});
 
+	test("adds the index-hardening lookups and partial indexes", () => {
+		const rows = factory.sqlite.query("SELECT name, sql FROM sqlite_master WHERE type = 'index'").all() as Array<{
+			name: string;
+			sql: string | null;
+		}>;
+		const byName = new Map(rows.map((row) => [row.name, row.sql ?? ""]));
+
+		expect(byName.has("media_files_library_id_idx")).toBe(true);
+		expect(byName.has("downloads_media_file_created_idx")).toBe(true);
+		expect(byName.has("metadata_type_sort_title_nocase_id_idx")).toBe(true);
+		expect(byName.has("history_profile_created_idx")).toBe(true);
+		expect(byName.has("subtitles_media_file_created_idx")).toBe(true);
+		expect(byName.has("media_artifacts_plugin_created_idx")).toBe(true);
+		expect(byName.has("worker_operations_created_idx")).toBe(true);
+		expect(byName.has("worker_jobs_worker_status_created_idx")).toBe(true);
+		expect(byName.has("worker_jobs_operation_created_idx")).toBe(true);
+		expect(byName.has("worker_jobs_status_created_idx")).toBe(true);
+		expect(byName.get("worker_jobs_running_lease_idx")).toContain("\"status\" = 'running'");
+	});
+
 	test("keeps the FTS index in sync through the rowid triggers", () => {
 		factory.sqlite.run(
 			"INSERT INTO metadata (id, stable_key, title, original_title, type, release_date, popularity, has_missing_translation, created_at, updated_at) VALUES ('m1', 'm1', 'Alpha', 'Alpha', 'movie', '2024-01-01', 0, 0, 0, 0)",
@@ -151,6 +176,13 @@ describe("database migrations", () => {
 
 			expect(tableNames(legacy).has("metadata_fts")).toBe(true);
 			expect(tableNames(legacy).has("people_fts")).toBe(true);
+
+			// The index-hardening migration replaces the legacy unconditional path
+			// unique with the partial one on databases that shipped the old index.
+			const pathIndex = legacy.sqlite
+				.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'media_files_path_unlinked_unique'")
+				.get() as { sql: string | null } | null;
+			expect(pathIndex?.sql).toContain('"episode_id" IS NULL');
 		} finally {
 			legacy.shutdown();
 		}

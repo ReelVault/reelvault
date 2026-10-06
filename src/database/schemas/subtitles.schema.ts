@@ -28,6 +28,8 @@ export const subtitles = sqliteTable(
 		uniqueIndex("subtitles_external_unique").on(t.mediaFileId, t.language, t.type).where(sql`${t.type} = 'external'`),
 		uniqueIndex("subtitles_embedded_unique").on(t.mediaFileId, t.streamIndex).where(sql`${t.type} = 'embedded'`),
 		index("subtitles_media_file_idx").on(t.mediaFileId),
+		// Default subtitle list sorts by createdAt within a media file.
+		index("subtitles_media_file_created_idx").on(t.mediaFileId, t.createdAt),
 		check("subtitles_type_check", sql`${t.type} IN ('external', 'embedded')`),
 		check(
 			"subtitles_source_check",

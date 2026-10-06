@@ -25,6 +25,9 @@ export const downloads = sqliteTable(
 	(t) => [
 		index("downloads_profile_status_idx").on(t.profileId, t.status),
 		index("downloads_profile_created_idx").on(t.profileId, t.createdAt),
+		// The only FK without an index: every media-file delete cascaded through a
+		// full downloads scan. created_at second serves the per-file list sort.
+		index("downloads_media_file_created_idx").on(t.mediaFileId, t.createdAt),
 		// Global retention sweep (`findExpired`) filters status + updatedAt without a profile.
 		index("downloads_status_updated_idx").on(t.status, t.updatedAt),
 		check("downloads_progress_check", sql`${t.progressPercent} >= 0 AND ${t.progressPercent} <= 100`),

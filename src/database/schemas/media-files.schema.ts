@@ -37,12 +37,15 @@ export const mediaFiles = sqliteTable(
 		// A multi-episode file (S01E01-E02) owns one row per covered episode, so
 		// path uniqueness splits: plain paths stay unique for movies/unlinked rows,
 		// episode rows are unique per (path, episode) pair.
-		uniqueIndex("media_files_path_unique").on(t.filePath).where(sql`${t.episodeId} IS NULL`),
+		uniqueIndex("media_files_path_unlinked_unique").on(t.filePath).where(sql`${t.episodeId} IS NULL`),
 		uniqueIndex("media_files_path_episode_unique").on(t.filePath, t.episodeId).where(sql`${t.episodeId} IS NOT NULL`),
 		uniqueIndex("media_files_movie_default_unique").on(t.movieId).where(sql`${t.movieId} IS NOT NULL AND ${t.isDefault} = 1`),
 		uniqueIndex("media_files_episode_default_unique").on(t.episodeId).where(sql`${t.episodeId} IS NOT NULL AND ${t.isDefault} = 1`),
 		index("media_files_library_idx").on(t.libraryId),
 		index("media_files_library_created_idx").on(t.libraryId, t.createdAt),
+		// Scanner keyset (`WHERE library_id = ? AND id > ? ORDER BY id`) walks this
+		// range instead of sorting a library page per poll.
+		index("media_files_library_id_idx").on(t.libraryId, t.id),
 		// (metadata_id, created_at) serves both plain metadata_id lookups and the
 		// max(created_at) GROUP BY metadata_id scan in findRecentlyAdded.
 		index("media_files_metadata_created_idx").on(t.metadataId, t.createdAt),

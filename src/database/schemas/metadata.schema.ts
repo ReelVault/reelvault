@@ -50,6 +50,9 @@ export const metadata = sqliteTable(
 		index("metadata_popularity_created_idx").on(t.popularity, t.createdAt),
 		index("metadata_type_popularity_created_idx").on(t.type, t.popularity, t.createdAt),
 		index("metadata_type_title_idx").on(t.type, t.title),
+		// Typed browse with sortBy=sortTitle previously had no matching index at all
+		// (the unfiltered expression index cannot serve a `type` filter).
+		index("metadata_type_sort_title_nocase_id_idx").on(t.type, sql`COALESCE(${t.sortTitle}, ${t.title}) COLLATE NOCASE`, t.id),
 		index("metadata_type_release_date_idx").on(t.type, t.releaseDate),
 		index("metadata_title_idx").on(t.title),
 		// Browse-by-letter and sortTitle ordering use COALESCE(sort_title, title)

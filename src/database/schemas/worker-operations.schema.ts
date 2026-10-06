@@ -28,6 +28,8 @@ export const workerOperations = sqliteTable(
 	(table) => [
 		index("worker_operations_status_idx").on(table.status),
 		index("worker_operations_status_created_idx").on(table.status, table.createdAt),
+		// Unfiltered operations list sorts by created_at with no status predicate.
+		index("worker_operations_created_idx").on(table.createdAt),
 		index("worker_operations_type_status_idx").on(table.type, table.status),
 		index("worker_operations_reference_idx").on(table.referenceType, table.referenceId),
 		index("worker_operations_retention_idx").on(table.retentionUntil),
