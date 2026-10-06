@@ -1,4 +1,7 @@
-import { bench, fixture, group, main, measure, printMicroResults, suiteArgs, task } from "benchkit";
+import { bench, fixture, group, main, measure, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
+import { asc, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { schema } from "@/database/schema";
 import { isRecord } from "@/utils/type.utils";
 import { benchDb } from "./lib/db-fixture";
 import { seedCatalog } from "./lib/seed";
@@ -100,9 +103,9 @@ if (!args.help) {
 	// reflect production; this pair documents the difference.
 	task("database: ANALYZE planner statistics", async () => {
 		const { db, titlePaginationQuery, filteredPaginationQuery } = await database();
-		const planOf = (sql: string): string =>
+		const planOf = (querySql: string): string =>
 			db
-				.query(`EXPLAIN QUERY PLAN ${sql}`)
+				.query(`EXPLAIN QUERY PLAN ${querySql}`)
 				.all()
 				.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
 				.join(" | ");
@@ -273,6 +276,65 @@ if (!args.help) {
 		const segmentsAfter = segmentCount();
 		printMicroResults([before, after]);
 		console.log(`  metadata_fts_data rows: ${segmentsBefore} -> ${segmentsAfter} (${churnRows} title updates)`);
+	});
+
+	// ─── A/B: prepared statements & JIT mappers (informs Faza 3 adoption) ──
+	task("database: prepared statements & JIT mappers", async () => {
+		const { factory } = await database();
+		const client = factory.sqlite;
+		const dbRegular = drizzle({ client });
+		const dbJit = drizzle({ client, jit: true });
+		const pageOrder = [asc(schema.metadata.title), asc(schema.metadata.id)];
+		const regularPage = dbRegular
+			.select()
+			.from(schema.metadata)
+			.where(eq(schema.metadata.type, "movie"))
+			.orderBy(...pageOrder)
+			.limit(24);
+		const jitPage = dbJit
+			.select()
+			.from(schema.metadata)
+			.where(eq(schema.metadata.type, "movie"))
+			.orderBy(...pageOrder)
+			.limit(24);
+		const preparedPage = dbRegular
+			.select()
+			.from(schema.metadata)
+			.where(eq(schema.metadata.type, sql.placeholder("type")))
+			.orderBy(...pageOrder)
+			.limit(24)
+			.prepare();
+		const preparedPageJit = dbJit
+			.select()
+			.from(schema.metadata)
+			.where(eq(schema.metadata.type, sql.placeholder("type")))
+			.orderBy(...pageOrder)
+			.limit(24)
+			.prepare();
+		const regularById = dbRegular.select().from(schema.metadata).where(eq(schema.metadata.id, "meta-0000001")).limit(1);
+		const preparedById = dbRegular
+			.select()
+			.from(schema.metadata)
+			.where(eq(schema.metadata.id, sql.placeholder("id")))
+			.limit(1)
+			.prepare();
+		const preparedByIdJit = dbJit
+			.select()
+			.from(schema.metadata)
+			.where(eq(schema.metadata.id, sql.placeholder("id")))
+			.limit(1)
+			.prepare();
+
+		const results = [
+			await measureAsync("page 24: drizzle regular", () => Promise.resolve(regularPage.all()), { iterations: 500 }),
+			await measureAsync("page 24: jit:true regular", () => Promise.resolve(jitPage.all()), { iterations: 500 }),
+			await measureAsync("page 24: prepared (jit off)", async () => await preparedPage.execute({ type: "movie" }), { iterations: 500 }),
+			await measureAsync("page 24: prepared + jit", async () => await preparedPageJit.execute({ type: "movie" }), { iterations: 500 }),
+			await measureAsync("by id: drizzle regular", () => Promise.resolve(regularById.all()), { iterations: 500 }),
+			await measureAsync("by id: prepared (jit off)", async () => await preparedById.execute({ id: "meta-0000001" }), { iterations: 500 }),
+			await measureAsync("by id: prepared + jit", async () => await preparedByIdJit.execute({ id: "meta-0000001" }), { iterations: 500 }),
+		];
+		printMicroResults(results);
 	});
 }
 
