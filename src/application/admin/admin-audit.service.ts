@@ -1,7 +1,7 @@
 import type { AdminAuditEntry, AdminAuditPage, FieldsQuery, Logger } from "@reelvault/sdk/common";
 import {
-	type AdminAuditAction,
 	type AdminAuditContext,
+	type AdminAuditQuery,
 	type AdminAuditRecord,
 	adminAuditRepository,
 } from "@/database/repositories/admin-audit.repository";
@@ -20,17 +20,7 @@ class AdminAuditService extends BaseService {
 		await adminAuditRepository.insert(record);
 	}
 
-	async getAll(query: {
-		page?: number | undefined;
-		limit?: number | undefined;
-		action?: AdminAuditAction | undefined;
-		resourceType?: string | undefined;
-		actorUserId?: string | undefined;
-		ipAddress?: string | undefined;
-		requestId?: string | undefined;
-		from?: string | undefined;
-		to?: string | undefined;
-	}): Promise<AdminAuditPage> {
+	async getAll(query: AdminAuditQuery): Promise<AdminAuditPage> {
 		return await this.safeExecute("getAll", async () => {
 			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 50 });
 			const result = await adminAuditRepository.findMany({ ...query, page: pagination.page, limit: pagination.limit });

@@ -16,6 +16,7 @@ import { setWorkerRuntime } from "./core/worker-runtime";
 import { type WorkerSchedulerService, workerSchedulerService } from "./core/worker-scheduler.service";
 import { WorkerWatchdogService } from "./core/worker-watchdog.service";
 import { toJobContract } from "./utils/worker-stats.mapper";
+import type { WorkerOperationJobsQuery } from "./worker.types";
 
 class WorkerService extends BaseService {
 	readonly registry: WorkerRegistryService;
@@ -239,15 +240,7 @@ class WorkerService extends BaseService {
 		return this.operations.list(options);
 	}
 
-	getOperationItems(
-		id: string,
-		options: {
-			status?: "pending" | "running" | "completed" | "failed" | "cancelled" | undefined;
-			search?: string | undefined;
-			page?: number | undefined;
-			limit?: number | undefined;
-		} = {},
-	) {
+	getOperationItems(id: string, options: WorkerOperationJobsQuery = {}) {
 		return this.operations.getOperationJobs(id, options);
 	}
 

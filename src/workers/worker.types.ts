@@ -2,6 +2,14 @@ import type { AddWorkerItemOptions, WorkerCategory, WorkerDefinition, WorkerHand
 
 export type WorkerEnqueueOptions = Pick<AddWorkerItemOptions, "operationId" | "dependsOnTaskIds" | "dependsOnJobId">;
 
+/** Filters accepted by the operation-job listings exposed through the worker service. */
+export interface WorkerOperationJobsQuery {
+	status?: "pending" | "running" | "completed" | "failed" | "cancelled" | undefined;
+	search?: string | undefined;
+	page?: number | undefined;
+	limit?: number | undefined;
+}
+
 export interface BackoffConfig {
 	readonly type: "fixed" | "exponential";
 	readonly delayMs: number;

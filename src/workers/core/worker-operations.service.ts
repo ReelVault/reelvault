@@ -13,6 +13,7 @@ import { ValidationError } from "@/utils/errors";
 import { safeParseJson } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { toJobContract, toOperationContract } from "../utils/worker-stats.mapper";
+import type { WorkerOperationJobsQuery } from "../worker.types";
 import { getWorkerRuntime } from "./worker-runtime";
 
 export class WorkerOperationsService extends BaseService {
@@ -53,15 +54,7 @@ export class WorkerOperationsService extends BaseService {
 		});
 	}
 
-	async getOperationJobs(
-		id: string,
-		options: {
-			status?: "pending" | "running" | "completed" | "failed" | "cancelled" | undefined;
-			search?: string | undefined;
-			page?: number | undefined;
-			limit?: number | undefined;
-		} = {},
-	) {
+	async getOperationJobs(id: string, options: WorkerOperationJobsQuery = {}) {
 		const pagination = QueryPagination.resolvePageParams(options, { defaultLimit: 50 });
 		const [summary, { items, total }] = await Promise.all([
 			workerOperationRepository.getOperationItemsSummary(id),
