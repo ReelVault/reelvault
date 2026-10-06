@@ -11,6 +11,8 @@ import {
 	ProjectedResponseSchema,
 	SessionResponseSchema,
 	SmartPlayResponseSchema,
+	StreamPrefsSchema,
+	UpdatePlaybackProgressSchema,
 	UserRatingFiltersSchema,
 	UserRatingSchema,
 	UserRatingSortingSchema,
@@ -19,6 +21,7 @@ import {
 	WatchlistFiltersSchema,
 	WatchlistSchema,
 	WatchlistSortingSchema,
+	WatchlistStatusesResponseSchema,
 	WrappedInsightsSchema,
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
@@ -56,10 +59,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		"me.watchlist.toggle.body": CreateWatchlistSchema,
 		"me.watchlist.toggle.response": t.Object({ added: t.Boolean() }),
 		"me.watchlist.status.response": t.Object({ inWatchlist: t.Boolean() }),
-		// TODO: Unify
-		"me.watchlist.statuses.response": t.Object({
-			statuses: t.Array(t.Object({ metadataId: t.String(), inWatchlist: t.Boolean() })),
-		}),
+		"me.watchlist.statuses.response": WatchlistStatusesResponseSchema,
 
 		"me.watchedHistory.schema": WatchedHistoryWithRelationsSchema,
 		"me.watchedHistory.paginated.schema": PaginatedResponseSchema(WatchedHistoryWithRelationsSchema),
@@ -109,16 +109,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		},
 		{
 			params: MediaFileIdParams,
-			body: t.Object({
-				// Server normalizes missing/null/non-finite positions to 0 and clamps to
-				// the file duration — clients send the raw playback position.
-				position: t.Optional(t.Nullable(t.Number({ minimum: 0 }))),
-				audioStreamIndex: t.Optional(t.Nullable(t.Integer({ minimum: 0 }))),
-				subtitleId: t.Optional(t.Nullable(t.String())),
-				// Language-level choices carried over to the whole title/series.
-				audioLanguage: t.Optional(t.Nullable(t.String())),
-				subtitleLanguage: t.Optional(t.Nullable(t.String())),
-			}),
+			body: UpdatePlaybackProgressSchema,
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
 			detail: { description: "Update playback progress position for a media file." },
 		},
@@ -132,10 +123,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		},
 		{
 			params: MediaFileIdParams,
-			response: {
-				...ROUTE_ERRORS.NOT_FOUND,
-				200: t.Object({ audioLanguage: t.Nullable(t.String()), subtitleLanguage: t.Nullable(t.String()) }),
-			},
+			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: StreamPrefsSchema },
 			detail: {
 				description:
 					"Audio/subtitle languages the user picked for this title or series — clients apply them when starting the next episode.",

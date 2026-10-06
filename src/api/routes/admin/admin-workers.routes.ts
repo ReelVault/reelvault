@@ -8,8 +8,10 @@ import {
 	WorkerCategoryRunResponseSchema,
 	WorkerCategorySchema,
 	WorkerJobSchema,
+	WorkerJobStateSchema,
 	WorkerOperationJobsResponseSchema,
 	WorkerOperationSchema,
+	WorkerStatusFilterSchema,
 	WorkerSummarySchema,
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
@@ -168,21 +170,7 @@ export const adminWorkersRoutes = adminShell()
 
 	.get("/workers/operations", async ({ query }) => await adminWorkerOperationsService.getOperations(query), {
 		rateLimit: { name: "admin-workers-operations-list", max: 120, windowMs: MINUTE },
-		query: t.Composite([
-			PaginationSchema,
-			t.Object({
-				status: t.Optional(
-					t.Union([
-						t.Literal("pending"),
-						t.Literal("running"),
-						t.Literal("completed"),
-						t.Literal("failed"),
-						t.Literal("cancelled"),
-						t.Literal("active"),
-					]),
-				),
-			}),
-		]),
+		query: t.Composite([PaginationSchema, t.Object({ status: t.Optional(WorkerStatusFilterSchema) })]),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.workerOperations" },
 		detail: { description: "List worker operations with progress percent and status." },
 	})
@@ -225,9 +213,7 @@ export const adminWorkersRoutes = adminShell()
 			query: t.Composite([
 				PaginationSchema,
 				t.Object({
-					status: t.Optional(
-						t.Union([t.Literal("pending"), t.Literal("running"), t.Literal("completed"), t.Literal("failed"), t.Literal("cancelled")]),
-					),
+					status: t.Optional(WorkerJobStateSchema),
 					search: t.Optional(t.String()),
 				}),
 			]),
