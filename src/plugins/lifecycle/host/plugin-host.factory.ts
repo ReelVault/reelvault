@@ -1,4 +1,4 @@
-import type { PluginHost } from "@reelvault/sdk/plugin";
+import type { PluginCapabilityName, PluginHost } from "@reelvault/sdk/plugin";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { pickDefined } from "@/utils/type.utils";
@@ -13,358 +13,217 @@ import { pluginStorageService } from "../../capabilities/plugin.storage";
 import { providerService } from "../../capabilities/provider.service";
 import type { PluginScopeApi } from "./plugin.scope";
 
+/** Declares the capability, then runs the host action — the single gate every host method goes through. */
+const withCapability = <T>(scope: PluginScopeApi, capability: PluginCapabilityName, run: () => T): T => {
+	scope.useCapability(capability);
+
+	return run();
+};
+
 function buildMediaCapability(scope: PluginScopeApi): PluginHost["media"] {
 	return {
-		get: async (mediaFileId) => {
-			scope.useCapability("mediaRead");
+		get: async (mediaFileId) => withCapability(scope, "mediaRead", () => pluginMediaService.get(mediaFileId)),
+		getRevision: async (mediaFileId) => withCapability(scope, "mediaRead", () => pluginMediaService.getRevision(mediaFileId)),
+		listEpisodeFilesBySeason: async () => withCapability(scope, "mediaRead", () => pluginMediaService.listEpisodeFilesBySeason()),
+		listAllMediaFiles: async (options) => withCapability(scope, "mediaRead", () => pluginMediaService.listAllMediaFiles(options)),
+		registerAnalyzer: (analyzer) =>
+			withCapability(scope, "mediaAnalyzer", () => {
+				scope.addAnalyzer(analyzer);
 
-			return await pluginMediaService.get(mediaFileId);
-		},
-		getRevision: async (mediaFileId) => {
-			scope.useCapability("mediaRead");
-
-			return await pluginMediaService.getRevision(mediaFileId);
-		},
-		listEpisodeFilesBySeason: async () => {
-			scope.useCapability("mediaRead");
-
-			return await pluginMediaService.listEpisodeFilesBySeason();
-		},
-		listAllMediaFiles: async (options) => {
-			scope.useCapability("mediaRead");
-
-			return await pluginMediaService.listAllMediaFiles(options);
-		},
-		registerAnalyzer: (analyzer) => {
-			scope.useCapability("mediaAnalyzer");
-			scope.addAnalyzer(analyzer);
-
-			return Promise.resolve();
-		},
+				return Promise.resolve();
+			}),
 	};
 }
 
 function buildMetadataCapability(scope: PluginScopeApi): PluginHost["metadata"] {
 	return {
-		get: async (metadataId) => {
-			scope.useCapability("metadataRead");
-
-			return await pluginMetadataService.get(metadataId);
-		},
-		findByExternalId: async (providerId, externalId, type) => {
-			scope.useCapability("metadataRead");
-
-			return await pluginMetadataService.findByExternalId(providerId, externalId, type);
-		},
-		findManyByExternalIds: async (providerId, externalIds, type) => {
-			scope.useCapability("metadataRead");
-
-			return await pluginMetadataService.findManyByExternalIds(providerId, externalIds, type);
-		},
+		get: async (metadataId) => withCapability(scope, "metadataRead", () => pluginMetadataService.get(metadataId)),
+		findByExternalId: async (providerId, externalId, type) =>
+			withCapability(scope, "metadataRead", () => pluginMetadataService.findByExternalId(providerId, externalId, type)),
+		findManyByExternalIds: async (providerId, externalIds, type) =>
+			withCapability(scope, "metadataRead", () => pluginMetadataService.findManyByExternalIds(providerId, externalIds, type)),
 	};
 }
 
 function buildArtifactsCapability(pluginId: string, scope: PluginScopeApi): PluginHost["artifacts"] {
 	return {
-		list: async (mediaFileId) => {
-			scope.useCapability("artifactsRead");
-
-			return await pluginArtifactsService.list(mediaFileId);
-		},
-		write: async (artifact) => {
-			scope.useCapability("artifactsWrite");
-
-			return await pluginArtifactsService.write(pluginId, artifact);
-		},
-		deleteByKind: async (mediaFileId, kind) => {
-			scope.useCapability("artifactsWrite");
-
-			return await pluginArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, kind, pluginId);
-		},
+		list: async (mediaFileId) => withCapability(scope, "artifactsRead", () => pluginArtifactsService.list(mediaFileId)),
+		write: async (artifact) => withCapability(scope, "artifactsWrite", () => pluginArtifactsService.write(pluginId, artifact)),
+		deleteByKind: async (mediaFileId, kind) =>
+			withCapability(scope, "artifactsWrite", () => pluginArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, kind, pluginId)),
 	};
 }
 
 function buildFfmpegCapability(scope: PluginScopeApi): PluginHost["ffmpeg"] {
 	return {
-		runAnalyse: async (args, options) => {
-			scope.useCapability("ffmpegRun");
-
-			return await pluginFfmpegService.runAnalyse(args, options);
-		},
-		extractFrame: async (request) => {
-			scope.useCapability("ffmpegRun");
-
-			return await pluginFfmpegService.extractFrame(request);
-		},
-		extractSprite: async (request) => {
-			scope.useCapability("ffmpegRun");
-
-			return await pluginFfmpegService.extractSprite(request);
-		},
+		runAnalyse: async (args, options) => withCapability(scope, "ffmpegRun", () => pluginFfmpegService.runAnalyse(args, options)),
+		extractFrame: async (request) => withCapability(scope, "ffmpegRun", () => pluginFfmpegService.extractFrame(request)),
+		extractSprite: async (request) => withCapability(scope, "ffmpegRun", () => pluginFfmpegService.extractSprite(request)),
 	};
 }
 
 function buildProvidersCapability(scope: PluginScopeApi): PluginHost["providers"] {
-	const assertReadAccess = (): void => {
-		scope.useCapability("providerAccess");
-	};
-
 	return {
-		register: (provider) => {
-			scope.useCapability("metadataProvider");
-			scope.addProvider(provider);
+		register: (provider) =>
+			withCapability(scope, "metadataProvider", () => {
+				scope.addProvider(provider);
 
-			return Promise.resolve();
-		},
-		list: () => {
-			assertReadAccess();
-
-			return Promise.resolve(providerService.getAll());
-		},
-		search: async (request) => {
-			assertReadAccess();
-
-			return await providerService.searchProviders(request);
-		},
-		getDetails: async (providerId, type, externalId) => {
-			assertReadAccess();
-
-			return (await providerService.fetchDetailsByProvider(providerId, type, externalId)) ?? null;
-		},
-		getSeasonDetails: async (providerId, externalId, seasonNumber) => {
-			assertReadAccess();
-
-			return await providerService.fetchSeasonByProvider(providerId, externalId, seasonNumber);
-		},
-		resolveDetails: async (type, title, year) => {
-			assertReadAccess();
-
-			return await providerService.resolveDetails(type, title, year);
-		},
-		discover: async (request) => {
-			assertReadAccess();
-
-			return await providerService.discover(request);
-		},
-		getGenres: async (type, providerId) => {
-			assertReadAccess();
-
-			return await providerService.getGenres(type, providerId);
-		},
+				return Promise.resolve();
+			}),
+		list: () => withCapability(scope, "providerAccess", () => Promise.resolve(providerService.getAll())),
+		search: async (request) => withCapability(scope, "providerAccess", () => providerService.searchProviders(request)),
+		getDetails: async (providerId, type, externalId) =>
+			withCapability(
+				scope,
+				"providerAccess",
+				async () => (await providerService.fetchDetailsByProvider(providerId, type, externalId)) ?? null,
+			),
+		getSeasonDetails: async (providerId, externalId, seasonNumber) =>
+			withCapability(scope, "providerAccess", () => providerService.fetchSeasonByProvider(providerId, externalId, seasonNumber)),
+		resolveDetails: async (type, title, year) =>
+			withCapability(scope, "providerAccess", () => providerService.resolveDetails(type, title, year)),
+		discover: async (request) => withCapability(scope, "providerAccess", () => providerService.discover(request)),
+		getGenres: async (type, providerId) => withCapability(scope, "providerAccess", () => providerService.getGenres(type, providerId)),
 	};
 }
 
 function buildSubtitlesCapability(scope: PluginScopeApi): PluginHost["subtitles"] {
 	return {
-		register: (provider) => {
-			scope.useCapability("subtitleProvider");
-			scope.addSubtitleProvider(provider);
+		register: (provider) =>
+			withCapability(scope, "subtitleProvider", () => {
+				scope.addSubtitleProvider(provider);
 
-			return Promise.resolve();
-		},
+				return Promise.resolve();
+			}),
 	};
 }
 
 function buildJobsCapability(pluginId: string, scope: PluginScopeApi): PluginHost["jobs"] {
 	return {
-		register: (definition) => {
-			scope.useCapability("jobs");
-			scope.addJob(definition);
+		register: (definition) =>
+			withCapability(scope, "jobs", () => {
+				scope.addJob(definition);
 
-			return Promise.resolve();
-		},
-		enqueue: async (name, data, options) => {
-			scope.useCapability("jobs");
-
-			return await scope.enqueueJob(pluginId, name, data, options);
-		},
-		enqueueMany: async (name, items, commonOptions) => {
-			scope.useCapability("jobs");
-
-			return await scope.enqueueJobs(pluginId, name, items, commonOptions);
-		},
+				return Promise.resolve();
+			}),
+		enqueue: async (name, data, options) => withCapability(scope, "jobs", () => scope.enqueueJob(pluginId, name, data, options)),
+		enqueueMany: async (name, items, commonOptions) =>
+			withCapability(scope, "jobs", () => scope.enqueueJobs(pluginId, name, items, commonOptions)),
 	};
 }
 
 function buildTasksCapability(scope: PluginScopeApi): PluginHost["tasks"] {
 	return {
-		register: (task) => {
-			// Scheduled tasks execute arbitrary code on cron triggers — same trust level as job handlers.
-			scope.useCapability("jobs");
-			scope.addScheduledTask(task);
+		// Scheduled tasks execute arbitrary code on cron triggers — same trust level as job handlers.
+		register: (task) =>
+			withCapability(scope, "jobs", () => {
+				scope.addScheduledTask(task);
 
-			return Promise.resolve();
-		},
+				return Promise.resolve();
+			}),
 	};
 }
 
 function buildRoutesCapability(scope: PluginScopeApi): PluginHost["routes"] {
 	return {
-		register: (route) => {
-			scope.useCapability("httpRoute");
-			scope.addHttpRoute(route);
+		register: (route) =>
+			withCapability(scope, "httpRoute", () => {
+				scope.addHttpRoute(route);
 
-			return Promise.resolve();
-		},
+				return Promise.resolve();
+			}),
 	};
 }
 
 function buildStorageCapability(pluginId: string, scope: PluginScopeApi): PluginHost["storage"] {
 	return {
-		get: async (key) => {
-			scope.useCapability("storage");
-
-			return await pluginStorageService.get(pluginId, key);
-		},
-		set: async (key, value) => {
-			scope.useCapability("storage");
-			await pluginStorageService.set(pluginId, key, value);
-		},
-		update: async (key, updater) => {
-			scope.useCapability("storage");
-
-			return await pluginStorageService.update(pluginId, key, updater);
-		},
-		delete: async (key) => {
-			scope.useCapability("storage");
-			await pluginStorageService.delete(pluginId, key);
-		},
-		putBlob: async (key, content, options) => {
-			scope.useCapability("storage");
-
-			return await pluginBlobsService.put(pluginId, key, content, options);
-		},
-		getBlob: async (key) => {
-			scope.useCapability("storage");
-
-			return await pluginBlobsService.get(pluginId, key);
-		},
-		deleteBlob: async (key) => {
-			scope.useCapability("storage");
-			await pluginBlobsService.delete(pluginId, key);
-		},
-		list: async (prefix) => {
-			scope.useCapability("storage");
-
-			return await pluginStorageService.list(pluginId, prefix);
-		},
+		get: async (key) => withCapability(scope, "storage", () => pluginStorageService.get(pluginId, key)),
+		set: async (key, value) => withCapability(scope, "storage", () => pluginStorageService.set(pluginId, key, value)),
+		update: async (key, updater) => withCapability(scope, "storage", () => pluginStorageService.update(pluginId, key, updater)),
+		delete: async (key) => withCapability(scope, "storage", () => pluginStorageService.delete(pluginId, key)),
+		putBlob: async (key, content, options) =>
+			withCapability(scope, "storage", () => pluginBlobsService.put(pluginId, key, content, options)),
+		getBlob: async (key) => withCapability(scope, "storage", () => pluginBlobsService.get(pluginId, key)),
+		deleteBlob: async (key) => withCapability(scope, "storage", () => pluginBlobsService.delete(pluginId, key)),
+		list: async (prefix) => withCapability(scope, "storage", () => pluginStorageService.list(pluginId, prefix)),
 	};
 }
 
 function buildHttpCapability(scope: PluginScopeApi): PluginHost["http"] {
 	return {
-		fetch: async (input, init) => {
-			scope.useCapability("httpFetch");
-
-			return await guardedPluginFetch(input, init);
-		},
+		fetch: async (input, init) => withCapability(scope, "httpFetch", () => guardedPluginFetch(input, init)),
 	};
 }
 
 function buildMarkersCapability(pluginId: string, scope: PluginScopeApi): PluginHost["markers"] {
 	return {
-		list: async (mediaFileId) => {
-			scope.useCapability("markers");
-
-			return await pluginMarkersService.list(pluginId, mediaFileId);
-		},
-		set: async (mediaFileId, markers) => {
-			scope.useCapability("markers");
-
-			return await pluginMarkersService.setMarkers(pluginId, mediaFileId, markers);
-		},
-		clear: async (mediaFileId) => {
-			scope.useCapability("markers");
-			await pluginMarkersService.clearMarkers(pluginId, mediaFileId);
-		},
+		list: async (mediaFileId) => withCapability(scope, "markers", () => pluginMarkersService.list(pluginId, mediaFileId)),
+		set: async (mediaFileId, markers) =>
+			withCapability(scope, "markers", () => pluginMarkersService.setMarkers(pluginId, mediaFileId, markers)),
+		clear: async (mediaFileId) => withCapability(scope, "markers", () => pluginMarkersService.clearMarkers(pluginId, mediaFileId)),
 	};
 }
 
 function buildEventsCapability(pluginId: string, scope: PluginScopeApi): PluginHost["events"] {
 	return {
-		on: (event, handler) => {
-			scope.useCapability("eventHandler");
-			scope.subscribe(pluginId, event, handler);
-		},
+		on: (event, handler) => withCapability(scope, "eventHandler", () => scope.subscribe(pluginId, event, handler)),
 	};
 }
 
 function buildHooksCapability(pluginId: string, scope: PluginScopeApi): PluginHost["hooks"] {
 	return {
-		beforeArtifactCreate: (handler) => {
-			scope.useCapability("eventHandler");
-			scope.subscribeBeforeArtifactCreate(pluginId, handler);
-		},
-		beforeMediaRecognition: (handler) => {
-			scope.useCapability("eventHandler");
-			scope.subscribeBeforeMediaRecognition(pluginId, handler);
-		},
-		beforeMetadataSave: (handler) => {
-			scope.useCapability("eventHandler");
-			scope.subscribeBeforeMetadataSave(pluginId, handler);
-		},
+		beforeArtifactCreate: (handler) => withCapability(scope, "eventHandler", () => scope.subscribeBeforeArtifactCreate(pluginId, handler)),
+		beforeMediaRecognition: (handler) =>
+			withCapability(scope, "eventHandler", () => scope.subscribeBeforeMediaRecognition(pluginId, handler)),
+		beforeMetadataSave: (handler) => withCapability(scope, "eventHandler", () => scope.subscribeBeforeMetadataSave(pluginId, handler)),
 	};
 }
 
 function buildAccessCapability(pluginId: string, scope: PluginScopeApi): PluginHost["access"] {
 	return {
-		register: (policy) => {
-			scope.useCapability("accessPolicy");
-			scope.subscribeAccessPolicy(pluginId, policy);
-		},
+		register: (policy) => withCapability(scope, "accessPolicy", () => scope.subscribeAccessPolicy(pluginId, policy)),
 	};
 }
 
 function buildNotificationsCapability(pluginId: string, scope: PluginScopeApi): PluginHost["notifications"] {
 	return {
-		create: async (notification) => {
-			scope.useCapability("notification");
-			// Attribution + quota are host-enforced; the type stays plugin-authored for FE compatibility.
-			await notificationsService.create(
-				{
-					userId: notification.userId,
-					type: notification.type,
-					title: notification.title,
-					...pickDefined({
-						profileId: notification.profileId,
-						message: notification.message,
-						data: notification.data,
-						link: notification.link,
-					}),
-				},
-				{ sourcePluginId: pluginId },
-			);
-		},
+		create: async (notification) =>
+			withCapability(scope, "notification", async () => {
+				// Attribution + quota are host-enforced; the type stays plugin-authored for FE compatibility.
+				await notificationsService.create(
+					{
+						userId: notification.userId,
+						type: notification.type,
+						title: notification.title,
+						...pickDefined({
+							profileId: notification.profileId,
+							message: notification.message,
+							data: notification.data,
+							link: notification.link,
+						}),
+					},
+					{ sourcePluginId: pluginId },
+				);
+			}),
 	};
 }
 
 function buildNotificationChannelsCapability(scope: PluginScopeApi): PluginHost["notificationChannels"] {
 	return {
-		register: (channel) => {
-			scope.useCapability("notificationChannel");
-			scope.registerNotificationChannelScope(channel);
-		},
+		register: (channel) => withCapability(scope, "notificationChannel", () => scope.registerNotificationChannelScope(channel)),
 	};
 }
 
 function buildRealtimeCapability(pluginId: string, scope: PluginScopeApi): PluginHost["realtime"] {
 	return {
-		broadcast: (type, payload) => {
-			scope.useCapability("eventHandler");
-			realtimeService.broadcast(`plugin:${pluginId}:${type}`, payload);
-		},
-		sendToUser: (userId, type, payload) => {
-			scope.useCapability("eventHandler");
-			realtimeService.sendToUser(userId, `plugin:${pluginId}:${type}`, payload);
-		},
-		sendToProfile: (profileId, type, payload) => {
-			scope.useCapability("eventHandler");
-			realtimeService.sendToProfile(profileId, `plugin:${pluginId}:${type}`, payload);
-		},
-		sendToSession: (sessionId, type, payload) => {
-			scope.useCapability("eventHandler");
-			realtimeService.sendToSession(sessionId, `plugin:${pluginId}:${type}`, payload);
-		},
+		broadcast: (type, payload) =>
+			withCapability(scope, "eventHandler", () => realtimeService.broadcast(`plugin:${pluginId}:${type}`, payload)),
+		sendToUser: (userId, type, payload) =>
+			withCapability(scope, "eventHandler", () => realtimeService.sendToUser(userId, `plugin:${pluginId}:${type}`, payload)),
+		sendToProfile: (profileId, type, payload) =>
+			withCapability(scope, "eventHandler", () => realtimeService.sendToProfile(profileId, `plugin:${pluginId}:${type}`, payload)),
+		sendToSession: (sessionId, type, payload) =>
+			withCapability(scope, "eventHandler", () => realtimeService.sendToSession(sessionId, `plugin:${pluginId}:${type}`, payload)),
 	};
 }
 

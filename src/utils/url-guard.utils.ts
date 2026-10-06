@@ -2,6 +2,7 @@ import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { ValidationError } from "@/utils/errors";
+import type { MemoryCache } from "@/utils/memory-cache";
 
 const IPV4_MAPPED_IPV6_REGEX = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/;
 const IPV6_ZONE_ID_REGEX = /^%.*$/;
@@ -107,9 +108,10 @@ export function isPublicAddress(ip: string): boolean {
 
 /**
  * SSRF guard for outbound fetches driven by user/provider-supplied URLs.
- * A URL qualifies only when it is https AND every address the hostname
- * resolves to is globally routable — private ranges, loopback, link-local
- * and DNS-rebinding-style mappings are rejected before any request is made.
+ * A URL qualifies only when its scheme is allowed AND every address the
+ * hostname resolves to is globally routable — private ranges, loopback,
+ * link-local and DNS-rebinding-style mappings are rejected before any
+ * request is made.
  */
 function isPublicIp(address: string): boolean {
 	const ip = address.toLowerCase().replace(IPV6_ZONE_ID_REGEX, "");
@@ -123,12 +125,55 @@ interface ResolvedTarget {
 	address: string;
 }
 
+/** Bracketed IPv6 literals are valid URL hostnames but not valid lookup names. */
+const BRACKET_WRAP = /^\[|\]$/g;
+
+function normalizeHostname(hostname: string): string {
+	return hostname.toLowerCase().replace(BRACKET_WRAP, "");
+}
+
+export interface GuardedFetchOptions extends RequestInit {
+	/** Schemes allowed on every hop. Defaults to https only. */
+	allowedProtocols?: readonly string[] | undefined;
+	/** Redirect hops followed after re-validating each target. Defaults to 4. */
+	maxRedirects?: number | undefined;
+	/**
+	 * Extra per-host check (e.g. an allowlist) applied to the normalized
+	 * hostname before DNS resolution. Throw to reject the host.
+	 */
+	assertHostAllowed?: ((hostname: string) => void) | undefined;
+	/**
+	 * Optional shared resolved-address cache. Callers own its bounds/TTL; it
+	 * keeps repeat fetches from re-resolving while staying short enough to
+	 * defeat DNS rebinding.
+	 */
+	dnsCache?: MemoryCache<string[]> | undefined;
+}
+
+const DEFAULT_ALLOWED_PROTOCOLS = ["https:"] as const;
+const DEFAULT_MAX_REDIRECTS = 4;
+const TRAILING_COLON = /:$/;
+
+/** Fetch-spec redirect statuses — every hop is re-validated before it is followed. */
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+
+async function resolveHostAddresses(hostname: string, dnsCache: MemoryCache<string[]> | undefined): Promise<string[]> {
+	const cached = dnsCache?.get(hostname);
+	if (cached) return cached;
+
+	const results: LookupAddress[] = await lookup(hostname, { all: true, order: "ipv4first" });
+	const addresses = results.map((entry) => entry.address);
+	dnsCache?.set(hostname, addresses);
+
+	return addresses;
+}
+
 /**
  * Validates + resolves a URL to a single public address. Returning the address
  * lets callers PIN the connection to the vetted IP, closing the DNS-rebinding
  * TOCTOU window between validation and `fetch()`.
  */
-async function resolvePublicTarget(rawUrl: string): Promise<ResolvedTarget> {
+async function resolvePublicTarget(rawUrl: string, options: GuardedFetchOptions): Promise<ResolvedTarget> {
 	let parsed: URL;
 	try {
 		parsed = new URL(rawUrl);
@@ -136,31 +181,38 @@ async function resolvePublicTarget(rawUrl: string): Promise<ResolvedTarget> {
 		throw new ValidationError("Download URL is not a valid URL", { code: "download.invalid_url" });
 	}
 
-	if (parsed.protocol !== "https:") {
-		throw new ValidationError(`Only https downloads are allowed, got: ${parsed.protocol}`, { code: "download.unsupported_protocol" });
+	const allowedProtocols = options.allowedProtocols ?? DEFAULT_ALLOWED_PROTOCOLS;
+	if (!allowedProtocols.includes(parsed.protocol)) {
+		const display = allowedProtocols.map((protocol) => protocol.replace(TRAILING_COLON, "")).join(", ");
+		throw new ValidationError(`Only ${display} downloads are allowed, got: ${parsed.protocol}`, {
+			code: "download.unsupported_protocol",
+		});
 	}
 
 	if (parsed.username || parsed.password) {
 		throw new ValidationError("Download URL must not contain credentials", { code: "download.invalid_url" });
 	}
 
-	let addresses: LookupAddress[] = [];
+	const host = normalizeHostname(parsed.hostname);
+	options.assertHostAllowed?.(host);
+
+	let addresses: string[];
 	try {
-		addresses = await lookup(parsed.hostname, { all: true, order: "ipv4first" });
+		addresses = await resolveHostAddresses(host, options.dnsCache);
 	} catch {
 		throw new ValidationError(`Download host does not resolve: ${parsed.hostname}`, { code: "download.host_unresolved" });
 	}
 
-	if (addresses.length === 0 || addresses.some((entry) => !isPublicIp(entry.address))) {
+	if (addresses.length === 0 || addresses.some((address) => !isPublicIp(address))) {
 		throw new ValidationError("Download host resolves to a non-public address", { code: "download.host_blocked" });
 	}
 
-	const chosen = addresses.find((entry) => entry.family === 4) ?? addresses[0];
+	const chosen = addresses.find((address) => !address.includes(":")) ?? addresses[0];
 	if (!chosen) {
 		throw new ValidationError("Download host resolves to a non-public address", { code: "download.host_blocked" });
 	}
 
-	return { url: parsed, address: chosen.address };
+	return { url: parsed, address: chosen };
 }
 
 /** Rewrites a URL to connect to a specific (already-vetted) IP address. */
@@ -171,9 +223,6 @@ export function pinUrlToAddress(url: URL, address: string): string {
 	return `${url.protocol}//${host}${port}${url.pathname}${url.search}`;
 }
 
-/** Max redirects followed while each hop is re-validated. */
-const MAX_REDIRECTS = 4;
-
 /**
  * Fetch with the SSRF guard applied to every hop: manual redirect handling so
  * a public first hop cannot bounce fetch() into a private address. The
@@ -181,35 +230,43 @@ const MAX_REDIRECTS = 4;
  * credentials supplied via `headers` are dropped on cross-origin hops so a
  * redirect cannot exfiltrate a bearer token.
  */
-export async function guardedFetch(url: string, init?: { signal?: AbortSignal; headers?: HeadersInit }): Promise<Response> {
-	const initial = await resolvePublicTarget(url);
+export async function guardedFetch(url: string, options: GuardedFetchOptions = {}): Promise<Response> {
+	const { allowedProtocols, maxRedirects, assertHostAllowed, dnsCache, ...init } = options;
+	const guardOptions: GuardedFetchOptions = { allowedProtocols, maxRedirects, assertHostAllowed, dnsCache };
+	const redirectLimit = maxRedirects ?? DEFAULT_MAX_REDIRECTS;
+
+	const initial = await resolvePublicTarget(url, guardOptions);
 	let current = initial;
-	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+	let currentInit = init;
+	for (let hop = 0; ; hop++) {
 		const sameOrigin = current.url.origin === initial.url.origin;
-		const headers = headersForHop(init?.headers, sameOrigin);
+		const headers = headersForHop(currentInit.headers, sameOrigin);
 		// `Host` must match the real hostname while we dial the vetted IP; TLS SNI
 		// is set to the same name so certificate validation is unchanged.
 		const pinnedHeaders = new Headers(headers ?? undefined);
 		pinnedHeaders.set("Host", current.url.host);
 
 		const response = await fetch(pinUrlToAddress(current.url, current.address), {
-			...(init?.signal ? { signal: init.signal } : {}),
+			...currentInit,
 			headers: pinnedHeaders,
 			redirect: "manual",
 			tls: { serverName: current.url.hostname },
 		});
-		const location = response.headers.get("location");
-		if (response.status >= 300 && response.status < 400 && location) {
-			if (hop === MAX_REDIRECTS) throw new ValidationError("Too many download redirects", { code: "download.too_many_redirects" });
+		if (!REDIRECT_STATUS.has(response.status)) return response;
 
-			current = await resolvePublicTarget(new URL(location, current.url).href);
-			continue;
+		const location = response.headers.get("location");
+		if (!location) return response;
+
+		if (hop >= redirectLimit) throw new ValidationError("Too many download redirects", { code: "download.too_many_redirects" });
+
+		// Match the fetch spec: 303 (and 301/302 for non-GET/HEAD) downgrade to GET.
+		const method = (currentInit.method ?? "GET").toUpperCase();
+		if (response.status === 303 || ((response.status === 301 || response.status === 302) && method !== "GET" && method !== "HEAD")) {
+			currentInit = { ...currentInit, method: "GET", body: null };
 		}
 
-		return response;
+		current = await resolvePublicTarget(new URL(location, current.url).href, guardOptions);
 	}
-
-	throw new ValidationError("Too many download redirects", { code: "download.too_many_redirects" });
 }
 
 /** Headers that must never be replayed to a different origin on redirect. */

@@ -1,46 +1,33 @@
 import type { PluginMediaFile } from "@reelvault/sdk/common";
 import type { MediaAnalysis, MediaAnalyzer } from "@reelvault/sdk/plugin";
-import { ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
-
-interface AnalyzerEntry {
-	pluginId: string;
-	analyzer: MediaAnalyzer;
-}
+import { PluginEntityTable } from "./plugin-entity-table";
 
 /** Runs every registered analyzer against a media file, isolating per-analyzer failures. */
 export class MediaAnalysisFanout {
 	private readonly logger = createLogger("MediaAnalysisFanout");
-	private readonly analyzers = new Map<string, AnalyzerEntry>();
+	private readonly table = new PluginEntityTable<MediaAnalyzer>("Media analyzer");
 
 	assertRegisterable(analyzers: readonly MediaAnalyzer[]): void {
-		for (const analyzer of analyzers) {
-			if (this.analyzers.has(analyzer.id)) {
-				throw new ValidationError(
-					`Media analyzer "${analyzer.id}" is already registered by plugin "${this.analyzers.get(analyzer.id)?.pluginId ?? "unknown"}"`,
-				);
-			}
-		}
+		this.table.assertRegisterable(analyzers);
 	}
 
 	register(pluginId: string, analyzers: readonly MediaAnalyzer[]): void {
-		for (const analyzer of analyzers) this.analyzers.set(analyzer.id, { pluginId, analyzer });
+		this.table.register(pluginId, analyzers);
 	}
 
 	removeForPlugin(pluginId: string): void {
-		for (const [key, entry] of this.analyzers) {
-			if (entry.pluginId === pluginId) this.analyzers.delete(key);
-		}
+		this.table.removeForPlugin(pluginId);
 	}
 
 	clear(): void {
-		this.analyzers.clear();
+		this.table.clear();
 	}
 
 	async analyze(media: PluginMediaFile): Promise<MediaAnalysis> {
 		const result: MediaAnalysis = {};
 
-		for (const { analyzer } of this.analyzers.values()) {
+		for (const analyzer of this.table.getAll()) {
 			try {
 				const analysis = normalizeMediaAnalysis(await analyzer.analyze({ media, logger: createLogger(`MediaAnalyzer:${analyzer.id}`) }));
 				Object.assign(result, analysis);

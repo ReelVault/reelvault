@@ -20,8 +20,9 @@ import type {
 import { PLUGIN_SLOT_NAMES, PLUGIN_TAB_HOST_NAMES } from "@reelvault/sdk/plugin";
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
-import { pickDefined } from "@/utils/type.utils";
+import { createPluginStatus } from "./plugin.status";
 import { MediaAnalysisFanout } from "./registry/media-analysis.fanout";
+import { PluginEntityTable } from "./registry/plugin-entity-table";
 import { ProviderLookupCache } from "./registry/provider-lookup.cache";
 
 interface FailedPlugin {
@@ -51,7 +52,7 @@ const ADVANCE_TRANSITIONS: Record<PluginRuntime["state"], "validated" | "resolve
 export class PluginRegistry {
 	private readonly logger: Logger = createLogger("PluginRegistry");
 	private readonly plugins = new Map<string, PluginRuntime>();
-	private readonly subtitleProviders = new Map<string, { pluginId: string; provider: SubtitleProvider }>();
+	private readonly subtitleProviders = new PluginEntityTable<SubtitleProvider>("Subtitle provider");
 	private readonly providerLookup = new ProviderLookupCache();
 	private readonly mediaAnalysis = new MediaAnalysisFanout();
 	private readonly failures = new Map<string, FailedPlugin>();
@@ -102,14 +103,7 @@ export class PluginRegistry {
 
 		this.providerLookup.assertRegisterable(providers);
 		this.mediaAnalysis.assertRegisterable(analyzers);
-
-		for (const provider of subtitleProviders) {
-			if (this.subtitleProviders.has(provider.id)) {
-				throw new ValidationError(
-					`Subtitle provider "${provider.id}" is already registered by plugin "${this.subtitleProviders.get(provider.id)?.pluginId ?? "unknown"}"`,
-				);
-			}
-		}
+		this.subtitleProviders.assertRegisterable(subtitleProviders);
 
 		runtime.state = "initialized";
 		runtime.error = undefined;
@@ -119,8 +113,7 @@ export class PluginRegistry {
 		this.generation += 1;
 		this.providerLookup.register(pluginId, providers);
 		this.mediaAnalysis.register(pluginId, analyzers);
-
-		for (const provider of subtitleProviders) this.subtitleProviders.set(provider.id, { pluginId, provider });
+		this.subtitleProviders.register(pluginId, subtitleProviders);
 	}
 
 	enable(pluginId: string): void {
@@ -170,7 +163,7 @@ export class PluginRegistry {
 		this.uiManifests.delete(pluginId);
 		this.providerLookup.removeForPlugin(pluginId);
 		this.mediaAnalysis.removeForPlugin(pluginId);
-		this.removeSubtitleProvidersForPlugin(pluginId);
+		this.subtitleProviders.removeForPlugin(pluginId);
 		this.logger.info("Plugin unregistered", { pluginId });
 
 		return true;
@@ -198,37 +191,34 @@ export class PluginRegistry {
 	}
 
 	getStatuses(): PluginStatus[] {
-		return this.getAll().map((runtime) => ({
-			id: runtime.manifest.id,
-			name: runtime.manifest.name,
-			version: runtime.manifest.version,
-			state: runtime.state,
-			providers: runtime.providerIds.length,
-			subtitleProviders: runtime.subtitleProviderIds.length,
-			jobs: runtime.jobNames.length,
-			...pickDefined({
+		return this.getAll().map((runtime) =>
+			createPluginStatus({
+				id: runtime.manifest.id,
+				name: runtime.manifest.name,
+				version: runtime.manifest.version,
+				state: runtime.state,
+				providers: runtime.providerIds.length,
+				subtitleProviders: runtime.subtitleProviderIds.length,
+				jobs: runtime.jobNames.length,
 				description: runtime.manifest.description,
 				error: runtime.error,
 				failurePhase: runtime.failurePhase,
 			}),
-		}));
+		);
 	}
 
 	getFailedStatuses(): PluginStatus[] {
-		return [...this.failures.values()].map((failure) => ({
-			id: failure.id,
-			name: failure.name,
-			version: failure.version,
-			state: "failed",
-			providers: 0,
-			subtitleProviders: 0,
-			jobs: 0,
-			error: failure.error,
-			...pickDefined({
+		return [...this.failures.values()].map((failure) =>
+			createPluginStatus({
+				id: failure.id,
+				name: failure.name,
+				version: failure.version,
+				state: "failed",
+				error: failure.error,
 				description: failure.description,
 				failurePhase: failure.failurePhase,
 			}),
-		}));
+		);
 	}
 
 	getProvider(providerId: string): MetadataProvider | undefined {
@@ -244,20 +234,15 @@ export class PluginRegistry {
 	}
 
 	getSubtitleProvider(providerId: string): SubtitleProvider | undefined {
-		return this.subtitleProviders.get(providerId)?.provider;
+		return this.subtitleProviders.get(providerId);
 	}
 
 	getSubtitleProviders(): SubtitleProvider[] {
-		return [...this.subtitleProviders.values()].map((entry) => entry.provider);
+		return this.subtitleProviders.getAll();
 	}
 
 	getSubtitleProviderStatus(): SubtitleProviderStatus[] {
-		return [...this.subtitleProviders.values()].map(({ pluginId, provider }) => ({
-			id: provider.id,
-			name: provider.name,
-			version: provider.version,
-			pluginId,
-		}));
+		return this.subtitleProviders.getStatuses();
 	}
 
 	async analyzeMedia(media: PluginMediaFile): Promise<MediaAnalysis> {
@@ -325,12 +310,6 @@ export class PluginRegistry {
 		if (!runtime) throw new ValidationError(`Plugin ${pluginId} is not registered`);
 
 		return runtime;
-	}
-
-	private removeSubtitleProvidersForPlugin(pluginId: string): void {
-		for (const [key, entry] of this.subtitleProviders) {
-			if (entry.pluginId === pluginId) this.subtitleProviders.delete(key);
-		}
 	}
 }
 

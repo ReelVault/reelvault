@@ -4,12 +4,12 @@ import { serverConfig } from "@/server.config";
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { Mutex } from "@/utils/mutex";
-import { pickDefined } from "@/utils/type.utils";
 import { PluginConfig } from "../plugin.config";
 import { type InstalledPlugin, type InstalledPluginRecord, PluginInstaller } from "../plugin.installer";
 import { PluginLoader } from "../plugin.loader";
 import { loadPluginManifest } from "../plugin.manifest";
 import { type PluginRegistry, pluginRegistry } from "../plugin.registry";
+import { createPluginStatus } from "../plugin.status";
 
 const CAPITALIZE_FIRST_REGEX = /^./;
 const CAMEL_CASE_SPLIT_REGEX = /([A-Z])/g;
@@ -23,19 +23,6 @@ function pluginConfigField(error: unknown): string | undefined {
 
 function byStatusName(a: PluginStatus, b: PluginStatus): number {
 	return a.name.localeCompare(b.name);
-}
-
-function disabledStatus(id: string, name: string, version: string, description?: string): PluginStatus {
-	return {
-		id,
-		name,
-		version,
-		state: "disabled",
-		providers: 0,
-		subtitleProviders: 0,
-		jobs: 0,
-		...pickDefined({ description }),
-	};
 }
 
 export class PluginManager {
@@ -102,12 +89,20 @@ export class PluginManager {
 	private async disabledStatusFromRecord(pluginId: string, record: InstalledPluginRecord): Promise<PluginStatus> {
 		try {
 			const manifest = await loadPluginManifest(this.config.resolvePluginDirectory(record.directory));
-			if (manifest.id === pluginId) return disabledStatus(manifest.id, manifest.name, manifest.version, manifest.description);
+			if (manifest.id === pluginId) {
+				return createPluginStatus({
+					id: manifest.id,
+					name: manifest.name,
+					version: manifest.version,
+					state: "disabled",
+					description: manifest.description,
+				});
+			}
 		} catch {
 			// A missing or broken manifest falls back to the lockfile identity below.
 		}
 
-		return disabledStatus(pluginId, pluginId, record.version);
+		return createPluginStatus({ id: pluginId, name: pluginId, version: record.version, state: "disabled" });
 	}
 
 	/**
@@ -153,7 +148,13 @@ export class PluginManager {
 		const runtime = this.registry.get(pluginId);
 
 		return runtime
-			? disabledStatus(runtime.manifest.id, runtime.manifest.name, runtime.manifest.version, runtime.manifest.description)
+			? createPluginStatus({
+					id: runtime.manifest.id,
+					name: runtime.manifest.name,
+					version: runtime.manifest.version,
+					state: "disabled",
+					description: runtime.manifest.description,
+				})
 			: undefined;
 	}
 
@@ -163,7 +164,13 @@ export class PluginManager {
 			const manifest = await loadPluginManifest(this.config.resolvePluginDirectory(dirName));
 			if (manifest.id !== pluginId) return undefined;
 
-			return disabledStatus(manifest.id, manifest.name, manifest.version, manifest.description);
+			return createPluginStatus({
+				id: manifest.id,
+				name: manifest.name,
+				version: manifest.version,
+				state: "disabled",
+				description: manifest.description,
+			});
 		} catch {
 			return undefined;
 		}

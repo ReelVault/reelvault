@@ -37,6 +37,7 @@ import { pluginHookBus } from "../../runtime/plugin.hooks";
 import { pluginRoutesRegistry } from "../../runtime/plugin.routes";
 import { assertDeclaredPluginCapabilities } from "../plugin.manifest";
 import { removePluginRuntime } from "../plugin-runtime-copy";
+import { PluginEntityTable } from "../registry/plugin-entity-table";
 
 export interface PluginScopeApi {
 	useCapability(name: PluginCapabilityName): void;
@@ -61,12 +62,9 @@ export type PluginEventHandlerErased = (payload: never) => void | Promise<void>;
 
 export class PluginScope {
 	private readonly logger = createLogger("PluginScope");
-	private readonly providers: MetadataProvider[] = [];
-	private readonly providerIds = new Set<string>();
-	private readonly subtitleProviders: SubtitleProvider[] = [];
-	private readonly subtitleProviderIds = new Set<string>();
-	private readonly analyzers: MediaAnalyzer[] = [];
-	private readonly analyzerIds = new Set<string>();
+	private readonly providers = new PluginEntityTable<MetadataProvider>("provider");
+	private readonly subtitleProviders = new PluginEntityTable<SubtitleProvider>("subtitle provider");
+	private readonly analyzers = new PluginEntityTable<MediaAnalyzer>("media analyzer");
 	private readonly jobs: PluginJobDefinition[] = [];
 	private readonly httpRoutes: PluginHttpRoute[] = [];
 	private readonly jobNames = new Set<string>();
@@ -104,15 +102,15 @@ export class PluginScope {
 	}
 
 	addProvider(provider: MetadataProvider): void {
-		registerEntity(this.providers, provider, "provider", this.providerIds);
+		this.providers.register(undefined, [provider]);
 	}
 
 	addSubtitleProvider(provider: SubtitleProvider): void {
-		registerEntity(this.subtitleProviders, provider, "subtitle provider", this.subtitleProviderIds);
+		this.subtitleProviders.register(undefined, [provider]);
 	}
 
 	addAnalyzer(analyzer: MediaAnalyzer): void {
-		registerEntity(this.analyzers, analyzer, "media analyzer", this.analyzerIds);
+		this.analyzers.register(undefined, [analyzer]);
 	}
 
 	private readonly scheduledTasks: PluginScheduledTaskDefinition[] = [];
@@ -158,8 +156,8 @@ export class PluginScope {
 			});
 		};
 		const concurrency = serverConfig.plugins.lifecycle.loadConcurrency;
-		await PromiseUtils.mapConcurrent(this.providers, concurrency, initialize);
-		await PromiseUtils.mapConcurrent(this.subtitleProviders, concurrency, initialize);
+		await PromiseUtils.mapConcurrent(this.providers.getAll(), concurrency, initialize);
+		await PromiseUtils.mapConcurrent(this.subtitleProviders.getAll(), concurrency, initialize);
 	}
 
 	async registerJobs(pluginId: string): Promise<void> {
@@ -214,27 +212,27 @@ export class PluginScope {
 	}
 
 	getProviders(): readonly MetadataProvider[] {
-		return this.providers;
+		return this.providers.getAll();
 	}
 
 	getAnalyzers(): readonly MediaAnalyzer[] {
-		return this.analyzers;
+		return this.analyzers.getAll();
 	}
 
 	getSubtitleProviders(): readonly SubtitleProvider[] {
-		return this.subtitleProviders;
+		return this.subtitleProviders.getAll();
 	}
 
 	getProviderIds(): string[] {
-		return this.providers.map((provider) => provider.id);
+		return this.providers.getAll().map((provider) => provider.id);
 	}
 
 	getAnalyzerIds(): string[] {
-		return this.analyzers.map((analyzer) => analyzer.id);
+		return this.analyzers.getAll().map((analyzer) => analyzer.id);
 	}
 
 	getSubtitleProviderIds(): string[] {
-		return this.subtitleProviders.map((provider) => provider.id);
+		return this.subtitleProviders.getAll().map((provider) => provider.id);
 	}
 
 	getJobNames(): string[] {
@@ -291,7 +289,7 @@ export class PluginScope {
 		}
 
 		await PromiseUtils.mapConcurrent(
-			[...this.providers, ...this.subtitleProviders, ...this.analyzers].toReversed(),
+			[...this.providers.getAll(), ...this.subtitleProviders.getAll(), ...this.analyzers.getAll()].toReversed(),
 			serverConfig.plugins.lifecycle.disposeConcurrency,
 			async (entity) => {
 				try {
@@ -302,22 +300,4 @@ export class PluginScope {
 			},
 		);
 	}
-}
-
-function registerEntity<T extends { id: string; name: string; version: string }>(
-	collection: T[],
-	entity: T,
-	label: string,
-	knownIds: Set<string>,
-): void {
-	if (!(entity.id && entity.name && entity.version)) {
-		throw new ValidationError(`Plugin ${label} must have id, name and version`);
-	}
-
-	if (knownIds.has(entity.id)) {
-		throw new ValidationError(`Plugin ${label} ${entity.id} is registered more than once`);
-	}
-
-	knownIds.add(entity.id);
-	collection.push(entity);
 }
