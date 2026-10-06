@@ -26,6 +26,7 @@ import { seedCatalog } from "./lib/seed";
 process.env.APP_SLOW_QUERY_LOG = "true";
 const { databaseFactory } = await import("@/database/database");
 const { librariesRepository } = await import("@/database/repositories/libraries.repository");
+const { collectionRepository } = await import("@/database/repositories/collections.repository");
 const { mediaRepository } = await import("@/database/repositories/media-files.repository");
 const { metadataRepository } = await import("@/database/repositories/metadata.repository");
 const { playbackRepository } = await import("@/database/repositories/playback.repository");
@@ -46,6 +47,8 @@ interface OperationCase {
 	name: string;
 	/** Post-optimization statement budget; null = audit only, no gate. */
 	target: number | null;
+	/** Runs before the counter reset (e.g. to warm a cache) — not measured. */
+	warmup?: (() => Promise<unknown>) | undefined;
 	run: () => Promise<unknown>;
 }
 
@@ -101,6 +104,17 @@ if (!args.help) {
 				run: () => librariesRepository.findByIdForRead(LIBRARY_ID, { fields: "id,type" }),
 			},
 			{
+				name: "collectionRepository.findPage (24, cold count)",
+				target: null,
+				run: () => collectionRepository.findPage({ limit: 24 }),
+			},
+			{
+				name: "collectionRepository.findPage (24, warm count cache)",
+				target: 5,
+				warmup: () => collectionRepository.findPage({ limit: 24 }),
+				run: () => collectionRepository.findPage({ limit: 24 }),
+			},
+			{
 				name: "mediaRepository.findPage (24)",
 				target: null,
 				run: () => mediaRepository.findPage({ limit: 24 }),
@@ -143,6 +157,8 @@ if (!args.help) {
 
 		const results: Array<{ name: string; statements: number; target: number | null; ms: number; ok: boolean }> = [];
 		for (const operationCase of cases) {
+			if (operationCase.warmup) await operationCase.warmup();
+
 			databaseFactory.resetQueryStats();
 			const start = performance.now();
 			await operationCase.run();

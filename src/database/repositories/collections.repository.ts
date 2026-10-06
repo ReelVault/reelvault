@@ -16,7 +16,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
-import { defineTableAccess, parseFieldsForRead } from "@/database/table-access";
+import { cachedCount, defineTableAccess, filterSignature, parseFieldsForRead } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
@@ -91,8 +91,13 @@ class CollectionsRepository {
 		// Page ids come back already ordered/limited from SQL — the previous version
 		// loaded EVERY qualifying collection id and passed them all into an `inArray`.
 		// Count and page ids share the same grouped subquery and are independent.
+		// The count is cached per (filters, minItems) for 10 s — the same staleness
+		// contract as every other paginated list — because metadata writes flush the
+		// response-body cache and every page would otherwise re-run the group-by.
 		const [total, pageIds] = await Promise.all([
-			this.countWithMinimumMetadata({ where, minItems }),
+			cachedCount("collections", { filters: filterSignature(filters, collectionQueryMap.filters), minItems }, () =>
+				this.countWithMinimumMetadata({ where, minItems }),
+			),
 			this.findPageIdsWithMinimumMetadata({
 				where,
 				minItems,
