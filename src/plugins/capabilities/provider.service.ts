@@ -73,6 +73,12 @@ interface ProviderLink {
 	externalId: string;
 }
 
+/** Minimal cache surface used by first-provider lookups — only positive results are ever stored. */
+interface ProviderResultCache<TResult> {
+	get(key: string): TResult | null;
+	set(key: string, value: TResult): void;
+}
+
 /** Thrown inside getOrSet loaders to signal "no match" without caching the null result. */
 class NoMatchError extends Error {
 	constructor() {
@@ -136,8 +142,7 @@ class ProviderService extends BaseService {
 		if (!query) return [];
 
 		this.publishSearchRequested(request.type, query, request.year);
-		const allProviders = await metadataProviderSettingsService.getOrderedProviders();
-		const providers = request.providerId ? allProviders.filter((provider) => provider.id === request.providerId) : allProviders;
+		const providers = await this.resolveProviders(request.providerId);
 
 		const results = await PromiseUtils.mapConcurrent(
 			providers,
@@ -323,6 +328,47 @@ class ProviderService extends BaseService {
 		return details[0]?.metadata ?? null;
 	}
 
+	/** Ordered enabled providers, optionally narrowed to one provider id. */
+	private async resolveProviders(providerId?: string): Promise<MetadataProvider[]> {
+		const allProviders = await metadataProviderSettingsService.getOrderedProviders();
+
+		return providerId ? allProviders.filter((provider) => provider.id === providerId) : allProviders;
+	}
+
+	/**
+	 * Walks providers in priority order and returns the first result `isPositive`
+	 * accepts, caching it under `cacheKey`. A provider without the capability
+	 * (fetchOne resolves to undefined) is skipped; a provider that throws is
+	 * reported through `onError` and skipped. Negative results are never cached,
+	 * so a temporarily down provider recovers on the next call.
+	 */
+	private async firstProviderResult<TResult>(
+		providerId: string | undefined,
+		cacheKey: string,
+		cache: ProviderResultCache<TResult>,
+		fetchOne: (provider: MetadataProvider) => Promise<TResult | undefined>,
+		isPositive: (result: TResult) => boolean,
+		onError: (provider: MetadataProvider, error: unknown) => void,
+	): Promise<TResult | null> {
+		const cached = cache.get(cacheKey);
+		if (cached) return cached;
+
+		for (const provider of await this.resolveProviders(providerId)) {
+			try {
+				const result = await fetchOne(provider);
+				if (result !== undefined && isPositive(result)) {
+					cache.set(cacheKey, result);
+
+					return result;
+				}
+			} catch (error) {
+				onError(provider, error);
+			}
+		}
+
+		return null;
+	}
+
 	/**
 	 * Curated discovery feed (trending/popular/upcoming/…). Resolves through the
 	 * enabled providers in priority order and returns the first provider that
@@ -331,64 +377,44 @@ class ProviderService extends BaseService {
 	 */
 	async discover(request: ProviderDiscoveryRequest): Promise<ProviderDiscoveryResult | null> {
 		const cacheKey = discoveryCacheKey(request);
-		const cached = this.caches.discovery.get(cacheKey);
-		if (cached) return cached;
 
-		const allProviders = await metadataProviderSettingsService.getOrderedProviders();
-		const providers = request.providerId ? allProviders.filter((provider) => provider.id === request.providerId) : allProviders;
+		return await this.firstProviderResult(
+			request.providerId,
+			cacheKey,
+			this.caches.discovery,
+			async (provider) => {
+				const page = await provider.discover?.(request);
 
-		for (const provider of providers) {
-			if (typeof provider.discover !== "function") continue;
-
-			try {
-				const page = await provider.discover(request);
-				if (page.items.length > 0) {
-					const result: ProviderDiscoveryResult = { providerId: provider.id, ...page };
-					this.caches.discovery.set(cacheKey, result);
-
-					return result;
-				}
-			} catch (error) {
+				return page ? { providerId: provider.id, ...page } : undefined;
+			},
+			(result) => result.items.length > 0,
+			(provider, error) =>
 				this.logger.warn("Metadata provider discovery failed, trying next provider", {
 					providerId: provider.id,
 					category: request.category,
 					error: errorMessage(error),
-				});
-			}
-		}
-
-		return null;
+				}),
+		);
 	}
 
 	/** Genre catalogue from the first enabled provider that exposes it. */
 	async getGenres(type: ProviderMediaType, providerId?: string): Promise<ProviderResultGenre[]> {
 		const cacheKey = `genres:${providerId ?? "*"}:${type}`;
-		const cached = this.caches.genres.get(cacheKey);
-		if (cached) return cached;
-
-		const allProviders = await metadataProviderSettingsService.getOrderedProviders();
-		const providers = providerId ? allProviders.filter((provider) => provider.id === providerId) : allProviders;
-
-		for (const provider of providers) {
-			if (typeof provider.getGenres !== "function") continue;
-
-			try {
-				const genres = await provider.getGenres(type);
-				if (genres.length > 0) {
-					this.caches.genres.set(cacheKey, genres);
-
-					return genres;
-				}
-			} catch (error) {
+		const genres = await this.firstProviderResult(
+			providerId,
+			cacheKey,
+			this.caches.genres,
+			(provider) => Promise.resolve(provider.getGenres?.(type)),
+			(result) => result.length > 0,
+			(provider, error) =>
 				this.logger.warn("Metadata provider genre lookup failed, trying next provider", {
 					providerId: provider.id,
 					type,
 					error: errorMessage(error),
-				});
-			}
-		}
+				}),
+		);
 
-		return [];
+		return genres ?? [];
 	}
 
 	async fetchDetailsByLocalIdentifiers(type: ProviderMediaType, identifiers: ExternalIdentifiers): Promise<ProviderDetails[]> {

@@ -3,11 +3,12 @@ import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { detach, PromiseUtils } from "@/utils/promise.utils";
+import { PluginHandlerTable } from "./plugin-handler-table";
 
 type ErasedPluginHandler = (payload: never) => void | Promise<void>;
 
 export class PluginEventBus extends BaseService {
-	private readonly handlersByEvent = new Map<PluginEventName, Map<string, Set<ErasedPluginHandler>>>();
+	private readonly handlersByEvent = new Map<PluginEventName, PluginHandlerTable<ErasedPluginHandler>>();
 	private readonly timeoutMs: number;
 
 	constructor(timeoutMs = serverConfig.plugins.runtime.hookTimeoutMs) {
@@ -18,11 +19,12 @@ export class PluginEventBus extends BaseService {
 	on<TEvent extends PluginEventName>(pluginId: string, event: TEvent, handler: PluginEventHandler<TEvent>): () => void;
 	on(pluginId: string, event: PluginEventName, handler: ErasedPluginHandler): () => void;
 	on(pluginId: string, event: PluginEventName, handler: PluginEventHandler<PluginEventName> | ErasedPluginHandler): () => void {
-		const byPlugin = this.handlersByEvent.get(event) ?? new Map<string, Set<ErasedPluginHandler>>();
-		const handlers = byPlugin.get(pluginId) ?? new Set<ErasedPluginHandler>();
-		handlers.add(handler);
-		byPlugin.set(pluginId, handlers);
-		this.handlersByEvent.set(event, byPlugin);
+		let handlers = this.handlersByEvent.get(event);
+		if (!handlers) {
+			handlers = new PluginHandlerTable<ErasedPluginHandler>();
+			this.handlersByEvent.set(event, handlers);
+		}
+		handlers.register(pluginId, handler);
 
 		return () => this.off(pluginId, event, handler);
 	}
@@ -30,20 +32,17 @@ export class PluginEventBus extends BaseService {
 	off<TEvent extends PluginEventName>(pluginId: string, event: TEvent, handler: PluginEventHandler<TEvent>): void;
 	off(pluginId: string, event: PluginEventName, handler: ErasedPluginHandler): void;
 	off(pluginId: string, event: PluginEventName, handler: PluginEventHandler<PluginEventName> | ErasedPluginHandler): void {
-		const byPlugin = this.handlersByEvent.get(event);
-		const handlers = byPlugin?.get(pluginId);
-		if (!(byPlugin && handlers)) return;
+		const handlers = this.handlersByEvent.get(event);
+		if (!handlers) return;
 
-		handlers.delete(handler);
-		if (handlers.size === 0) byPlugin.delete(pluginId);
-
-		if (byPlugin.size === 0) this.handlersByEvent.delete(event);
+		handlers.remove(pluginId, handler);
+		if (handlers.size === 0) this.handlersByEvent.delete(event);
 	}
 
 	offPlugin(pluginId: string): void {
-		for (const [event, byPlugin] of this.handlersByEvent) {
-			byPlugin.delete(pluginId);
-			if (byPlugin.size === 0) this.handlersByEvent.delete(event);
+		for (const [event, handlers] of this.handlersByEvent) {
+			handlers.offPlugin(pluginId);
+			if (handlers.size === 0) this.handlersByEvent.delete(event);
 		}
 	}
 
@@ -62,7 +61,7 @@ export class PluginEventBus extends BaseService {
 
 	async emit<TEvent extends PluginEventName>(event: TEvent, input: PluginEventInput<TEvent>): Promise<void> {
 		const payload = createPluginEventPayload(input);
-		const handlers: ErasedPluginHandler[] = [...(this.handlersByEvent.get(event)?.values() ?? [])].flatMap((set) => [...set]);
+		const handlers = this.handlersByEvent.get(event)?.all() ?? [];
 		// Time-box each handler: a hung plugin must not stall core event emission.
 		const results = await PromiseUtils.mapConcurrent(handlers, systemResourcesService.getIoConcurrency(), async (handler) => {
 			try {

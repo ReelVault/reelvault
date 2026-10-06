@@ -161,3 +161,100 @@ test("fetchSeasonByProvider caches misses without re-hitting the provider", asyn
 	expect(cached).toBeNull();
 	expect(calls).toEqual(["a-ext:7"]);
 });
+
+test("discover returns the first provider with items and caches only positive results", async () => {
+	const calls: string[] = [];
+	registerProviders([
+		createProvider("a-provider", {
+			discover: () => {
+				calls.push("a");
+
+				return Promise.resolve({ items: [], page: 1, totalPages: 0, totalResults: 0 });
+			},
+		}),
+		createProvider("b-provider", {
+			discover: () => {
+				calls.push("b");
+
+				return Promise.resolve({
+					items: [{ externalId: "b-1", title: "B title", releaseDate: "2024-01-01" }],
+					page: 1,
+					totalPages: 1,
+					totalResults: 1,
+				});
+			},
+		}),
+	]);
+
+	const first = await providerService.discover({ type: "movie", category: "trending" });
+	expect(first).toMatchObject({ providerId: "b-provider", items: [{ externalId: "b-1" }] });
+
+	// Positive result cached — no provider is asked again.
+	await expect(providerService.discover({ type: "movie", category: "trending" })).resolves.toEqual(first);
+	expect(calls).toEqual(["a", "b"]);
+
+	// providerId narrows the walk; the miss is not cached.
+	await expect(providerService.discover({ type: "movie", category: "trending", providerId: "a-provider" })).resolves.toBeNull();
+	expect(calls).toEqual(["a", "b", "a"]);
+});
+
+test("discover logs a failed provider and falls through to the next one", async () => {
+	const calls: string[] = [];
+	registerProviders([
+		createProvider("a-provider", {
+			discover: () => {
+				calls.push("a");
+
+				return Promise.reject(new Error("provider down"));
+			},
+		}),
+		createProvider("b-provider", {
+			discover: () => {
+				calls.push("b");
+
+				return Promise.resolve({
+					items: [{ externalId: "b-1", title: "B title", releaseDate: "2024-01-01" }],
+					page: 1,
+					totalPages: 1,
+					totalResults: 1,
+				});
+			},
+		}),
+	]);
+
+	await expect(providerService.discover({ type: "movie", category: "popular" })).resolves.toMatchObject({ providerId: "b-provider" });
+	expect(calls).toEqual(["a", "b"]);
+});
+
+test("getGenres skips providers without the capability and caches the first non-empty catalogue", async () => {
+	const calls: string[] = [];
+	registerProviders([
+		createProvider("a-provider"),
+		createProvider("b-provider", {
+			getGenres: () => {
+				calls.push("b");
+
+				return Promise.resolve([]);
+			},
+		}),
+		createProvider("c-provider", {
+			getGenres: () => {
+				calls.push("c");
+
+				return Promise.resolve([{ id: "28", name: "Action" }]);
+			},
+		}),
+	]);
+
+	const genres = await providerService.getGenres("movie");
+	expect(genres).toEqual([{ id: "28", name: "Action" }]);
+
+	// The empty catalogue was not cached; the positive one was.
+	await expect(providerService.getGenres("movie")).resolves.toEqual(genres);
+	expect(calls).toEqual(["b", "c"]);
+
+	// providerId narrows to the empty provider; that miss is retried, not cached.
+	await expect(providerService.getGenres("movie", "b-provider")).resolves.toEqual([]);
+	await expect(providerService.getGenres("movie", "b-provider")).resolves.toEqual([]);
+	expect(calls).toEqual(["b", "c", "b", "b"]);
+});

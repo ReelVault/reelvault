@@ -36,4 +36,30 @@ describe("plugin event bus", () => {
 		await bus.emit("media.file.ready", { libraryId: "library", mediaFileId: "next", metadataId: "metadata" });
 		expect(received).toHaveLength(1);
 	});
+
+	it("invokes handlers in registration order and times out a hung handler without blocking the rest", async () => {
+		const bus = new PluginEventBus(5);
+		const started: string[] = [];
+		bus.on("first", "media.file.ready", () => {
+			started.push("first");
+		});
+		bus.on("second", "media.file.ready", () => {
+			started.push("second");
+		});
+		bus.on(
+			"hung",
+			"media.file.ready",
+			() =>
+				new Promise<never>(() => {
+					// Never settles — the handler is expected to time out.
+				}),
+		);
+		bus.on("third", "media.file.ready", () => {
+			started.push("third");
+		});
+
+		await bus.emit("media.file.ready", { libraryId: "library", mediaFileId: "file", metadataId: "metadata" });
+
+		expect(started).toEqual(["first", "second", "third"]);
+	});
 });

@@ -13,44 +13,16 @@ import { ValidationError } from "@/utils/errors";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 import { deepFreeze } from "../shared/plugin.object.utils";
+import { PluginHandlerTable } from "./plugin-handler-table";
 
 const PLAYBACK_ARTIFACT_KINDS_SET = new Set(playbackArtifactKinds);
-
-/** A named group of per-plugin handlers of one hook type (e.g. all `beforeArtifactCreate` handlers). */
-class HookCollection<THandler> {
-	private readonly handlersByPlugin = new Map<string, Set<THandler>>();
-
-	register(pluginId: string, handler: THandler): () => void {
-		const handlers = this.handlersByPlugin.get(pluginId) ?? new Set<THandler>();
-		handlers.add(handler);
-		this.handlersByPlugin.set(pluginId, handlers);
-
-		return () => this.remove(pluginId, handler);
-	}
-
-	remove(pluginId: string, handler: THandler): void {
-		const handlers = this.handlersByPlugin.get(pluginId);
-		if (!handlers) return;
-
-		handlers.delete(handler);
-		if (handlers.size === 0) this.handlersByPlugin.delete(pluginId);
-	}
-
-	offPlugin(pluginId: string): void {
-		this.handlersByPlugin.delete(pluginId);
-	}
-
-	all(): THandler[] {
-		return [...this.handlersByPlugin.values()].flatMap((set) => [...set]);
-	}
-}
 
 type CandidateHook<TCandidate> = (input: { candidate: Readonly<TCandidate> }) => Promise<TCandidate | undefined> | TCandidate | undefined;
 
 export class PluginHookBus extends BaseService {
-	private readonly beforeArtifactCreateHooks = new HookCollection<BeforeArtifactCreateHook>();
-	private readonly beforeMediaRecognitionHooks = new HookCollection<BeforeMediaRecognitionHook>();
-	private readonly beforeMetadataSaveHooks = new HookCollection<BeforeMetadataSaveHook>();
+	private readonly beforeArtifactCreateHooks = new PluginHandlerTable<BeforeArtifactCreateHook>();
+	private readonly beforeMediaRecognitionHooks = new PluginHandlerTable<BeforeMediaRecognitionHook>();
+	private readonly beforeMetadataSaveHooks = new PluginHandlerTable<BeforeMetadataSaveHook>();
 	private readonly timeoutMs: number;
 
 	constructor(timeoutMs = serverConfig.plugins.runtime.hookTimeoutMs) {
