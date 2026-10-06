@@ -24,6 +24,8 @@ interface ScenarioContext {
 	noCache: boolean;
 	/** nextCursor from the watched-history first page (empty before cursor support exists). */
 	watchedHistoryCursor: string;
+	/** Card-grid metadata ids for the batch playback-suggestions endpoint. */
+	batchSuggestionIds: string;
 }
 
 type RequestBuilder = (context: ScenarioContext, workerIndex: number, requestIndex: number) => Request;
@@ -87,6 +89,19 @@ const continueWatching: RequestBuilder = (context, workerIndex, requestIndex) =>
 
 const playbackView: RequestBuilder = (context, workerIndex, requestIndex) =>
 	new Request(`${context.baseUrl}/v1/playback-sessions/view/${context.mediaFileId}`, authHeaders(context, workerIndex, requestIndex, true));
+
+// Card-grid batch endpoint: 12 ids exercises the per-id fan-out the batch path
+// must collapse (previously ~3-5 statements per id).
+const batchSuggestions: RequestBuilder = (context, workerIndex, requestIndex) =>
+	new Request(
+		`${context.baseUrl}/v1/me/playback-suggestions?metadataIds=${context.batchSuggestionIds}`,
+		authHeaders(context, workerIndex, requestIndex, true),
+	);
+
+// Episode playback view: exercises the next-episode resolution, which scanned
+// one paginated season query per later season before the single-query rewrite.
+const playbackViewEpisode: RequestBuilder = (context, workerIndex, requestIndex) =>
+	new Request(`${context.baseUrl}/v1/playback-sessions/view/mf-ep-0-0-0`, authHeaders(context, workerIndex, requestIndex, true));
 
 const watchedHistory: RequestBuilder = (context, workerIndex, requestIndex) =>
 	new Request(`${context.baseUrl}/v1/me/watched-history?limit=50`, authHeaders(context, workerIndex, requestIndex, true));
@@ -298,6 +313,8 @@ const SCENARIOS: readonly ScenarioDefinition[] = [
 	{ name: "GET /v1/metadata/:id/similar", builder: similarTitles },
 	{ name: "GET /v1/me/continue-watching", builder: continueWatching },
 	{ name: "GET /v1/playback-sessions/view/:mediaFileId", builder: playbackView },
+	{ name: "GET /v1/playback-sessions/view/:mediaFileId (episode → next)", builder: playbackViewEpisode },
+	{ name: "GET /v1/me/playback-suggestions?metadataIds (batch)", builder: batchSuggestions },
 	{ name: "GET /v1/me/watched-history?limit=50", builder: watchedHistory },
 	{ name: "GET /v1/me/watched-history?page=4 (deep offset)", builder: watchedHistoryDeepPage },
 	{ name: "GET /v1/me/watched-history (cursor page)", builder: watchedHistoryCursorPage },
@@ -414,6 +431,20 @@ if (!args.help) {
 			seededRows,
 			noCache: args.noCache,
 			watchedHistoryCursor,
+			batchSuggestionIds: [
+				"meta-0000001",
+				"meta-0000000",
+				"meta-0000010",
+				"meta-0000020",
+				"meta-0000030",
+				"meta-0000040",
+				"meta-0000050",
+				"meta-0000060",
+				"meta-0000070",
+				"meta-0000080",
+				"meta-0000090",
+				"meta-0000100",
+			].join(","),
 		};
 		const scenarios = args.scenario ? SCENARIOS.filter((scenario) => scenario.name.includes(args.scenario ?? "")) : SCENARIOS;
 		const results = await runScenarioMatrix({
