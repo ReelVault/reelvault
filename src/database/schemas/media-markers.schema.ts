@@ -20,7 +20,7 @@ export const mediaMarkers = sqliteTable(
 		...DatabaseHelper.timestamps,
 	},
 	(t) => [
-		index("media_markers_media_file_idx").on(t.mediaFileId),
+		// media_file_id-only lookups are served by the two composites below.
 		index("media_markers_media_file_type_idx").on(t.mediaFileId, t.type),
 		index("media_markers_file_start_idx").on(t.mediaFileId, t.startSeconds),
 		check("media_markers_range_check", sql`${t.startSeconds} >= 0 AND ${t.endSeconds} >= ${t.startSeconds}`),

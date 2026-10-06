@@ -106,7 +106,7 @@ describe("database migrations", () => {
 				(index) => index.name,
 			),
 		);
-		expect(indexes.has("metadata_updated_at_idx")).toBe(true);
+		expect(indexes.has("metadata_updated_at_id_idx")).toBe(true);
 		expect(indexes.has("media_files_updated_at_idx")).toBe(true);
 		expect(indexes.has("admin_audit_action_created_idx")).toBe(true);
 		expect(indexes.has("worker_operations_status_created_idx")).toBe(true);
@@ -131,6 +131,27 @@ describe("database migrations", () => {
 		expect(byName.has("worker_jobs_operation_created_idx")).toBe(true);
 		expect(byName.has("worker_jobs_status_created_idx")).toBe(true);
 		expect(byName.get("worker_jobs_running_lease_idx")).toContain("\"status\" = 'running'");
+	});
+
+	test("drops the redundant single-column prefix indexes", () => {
+		const names = new Set(
+			(factory.sqlite.query("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map((row) => row.name),
+		);
+		const dropped = [
+			"session_user_idx",
+			"media_files_library_idx",
+			"media_markers_media_file_idx",
+			"metadata_external_ids_metadata_idx",
+			"metadata_updated_at_idx",
+			"metadata_title_idx",
+			"metadata_sort_title_nocase_idx",
+			"metadata_match_score_idx",
+			"metadata_collections_collection_idx",
+			"worker_operations_status_idx",
+		];
+		for (const indexName of dropped) {
+			expect(names.has(indexName)).toBe(false);
+		}
 	});
 
 	test("keeps the FTS index in sync through the rowid triggers", () => {

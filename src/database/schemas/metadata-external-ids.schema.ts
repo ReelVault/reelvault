@@ -10,11 +10,11 @@ export const metadataExternalIds = sqliteTable(
 		identifier: text("identifier").notNull(),
 	},
 	(table) => [
-		// PK already enforces one identifier per (metadata, type); the value lookup
-		// must NOT be globally unique — the same external id can be shared by
-		// several local rows (duplicates/rematches).
+		// PK already enforces one identifier per (metadata, type) and covers
+		// metadata_id lookups as its leftmost column. The value lookup must NOT be
+		// globally unique — the same external id can be shared by several local
+		// rows (duplicates/rematches).
 		primaryKey({ columns: [table.metadataId, table.identifierType] }),
 		index("metadata_external_ids_type_value_idx").on(table.identifierType, table.identifier),
-		index("metadata_external_ids_metadata_idx").on(table.metadataId),
 	],
 );

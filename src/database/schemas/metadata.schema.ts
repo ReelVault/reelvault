@@ -46,7 +46,6 @@ export const metadata = sqliteTable(
 		index("metadata_type_created_idx").on(t.type, t.createdAt),
 		uniqueIndex("metadata_stable_key_idx").on(t.stableKey),
 		index("metadata_created_id_idx").on(t.createdAt, t.id),
-		index("metadata_updated_at_idx").on(t.updatedAt),
 		index("metadata_popularity_created_idx").on(t.popularity, t.createdAt),
 		index("metadata_type_popularity_created_idx").on(t.type, t.popularity, t.createdAt),
 		index("metadata_type_title_idx").on(t.type, t.title),
@@ -54,11 +53,6 @@ export const metadata = sqliteTable(
 		// (the unfiltered expression index cannot serve a `type` filter).
 		index("metadata_type_sort_title_nocase_id_idx").on(t.type, sql`COALESCE(${t.sortTitle}, ${t.title}) COLLATE NOCASE`, t.id),
 		index("metadata_type_release_date_idx").on(t.type, t.releaseDate),
-		index("metadata_title_idx").on(t.title),
-		// Browse-by-letter and sortTitle ordering use COALESCE(sort_title, title)
-		// COLLATE NOCASE — only an expression index can serve those scans/sorts.
-		index("metadata_sort_title_nocase_idx").on(sql`COALESCE(${t.sortTitle}, ${t.title}) COLLATE NOCASE`),
-		index("metadata_match_score_idx").on(t.matchScore),
 		index("metadata_missing_translation_idx").on(t.hasMissingTranslation),
 		// `findPage` always appends the primary key as an ORDER BY tiebreaker
 		// (`ORDER BY <sortKey>, id`). Single-column indexes cannot satisfy the
@@ -67,6 +61,9 @@ export const metadata = sqliteTable(
 		// grew with catalog size and offset. These composites let the index cover
 		// the full ORDER BY, so LIMIT/OFFSET walks the index directly.
 		index("metadata_title_id_idx").on(t.title, t.id),
+		// Browse-by-letter and sortTitle ordering use COALESCE(sort_title, title)
+		// COLLATE NOCASE — this composite covers both the expression sort and the
+		// unfiltered variant (the single-column twin was dropped).
 		index("metadata_sort_title_nocase_id_idx").on(sql`COALESCE(${t.sortTitle}, ${t.title}) COLLATE NOCASE`, t.id),
 		index("metadata_release_date_id_idx").on(t.releaseDate, t.id),
 		index("metadata_popularity_id_idx").on(t.popularity, t.id),
@@ -92,7 +89,8 @@ export const metadataCollections = sqliteTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.metadataId, t.collectionId] }),
-		index("metadata_collections_collection_idx").on(t.collectionId),
+		// collection_id-only lookups (and the FK cascade) are served by the
+		// (collection_id, sort_order) composite.
 		index("metadata_collections_collection_sort_idx").on(t.collectionId, t.sortOrder),
 	],
 );

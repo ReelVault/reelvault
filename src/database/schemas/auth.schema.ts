@@ -40,7 +40,7 @@ export const sessions = sqliteTable(
 		...DatabaseHelper.timestamps,
 	},
 	(table) => [
-		index("session_user_idx").on(table.userId),
+		// userId-only lookups are served by the (userId, expiresAt) composite.
 		index("session_expires_idx").on(table.expiresAt),
 		index("session_user_expires_idx").on(table.userId, table.expiresAt),
 		// Live-activity view filters by updatedAt and orders by it (no userId scope).

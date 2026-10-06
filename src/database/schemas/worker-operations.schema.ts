@@ -26,7 +26,7 @@ export const workerOperations = sqliteTable(
 		...DatabaseHelper.timestamps,
 	},
 	(table) => [
-		index("worker_operations_status_idx").on(table.status),
+		// status-only lookups are served by the (status, createdAt) composite.
 		index("worker_operations_status_created_idx").on(table.status, table.createdAt),
 		// Unfiltered operations list sorts by created_at with no status predicate.
 		index("worker_operations_created_idx").on(table.createdAt),

@@ -41,7 +41,7 @@ export const mediaFiles = sqliteTable(
 		uniqueIndex("media_files_path_episode_unique").on(t.filePath, t.episodeId).where(sql`${t.episodeId} IS NOT NULL`),
 		uniqueIndex("media_files_movie_default_unique").on(t.movieId).where(sql`${t.movieId} IS NOT NULL AND ${t.isDefault} = 1`),
 		uniqueIndex("media_files_episode_default_unique").on(t.episodeId).where(sql`${t.episodeId} IS NOT NULL AND ${t.isDefault} = 1`),
-		index("media_files_library_idx").on(t.libraryId),
+		// library_id-only lookups are served by the two composites below.
 		index("media_files_library_created_idx").on(t.libraryId, t.createdAt),
 		// Scanner keyset (`WHERE library_id = ? AND id > ? ORDER BY id`) walks this
 		// range instead of sorting a library page per poll.
