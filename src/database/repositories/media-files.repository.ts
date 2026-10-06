@@ -249,7 +249,8 @@ class MediaRepository {
 
 	/** Lightweight connectivity probe for the health endpoint. */
 	async ping(): Promise<void> {
-		await this.selectFirst();
+		// Liveness probe: one narrow indexed row instead of a full SELECT * LIMIT 1.
+		await databaseFactory.getClient().select({ id: this.primaryKeyColumn }).from(this.table).limit(1);
 	}
 
 	async findForTechnicalRefresh(mediaFileId: string) {

@@ -88,11 +88,12 @@ const overrides = {
 		];
 		const [result] = await databaseFactory
 			.getClient()
-			.select({ count: count() })
+			.select({ exists: sql`1` })
 			.from(notifications.table)
-			.where(and(...conditions));
+			.where(and(...conditions))
+			.limit(1);
 
-		return (result?.count ?? 0) > 0;
+		return result !== undefined;
 	},
 
 	async markRead(id: string, where: SQL | undefined): Promise<boolean> {
