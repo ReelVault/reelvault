@@ -28,6 +28,7 @@ export const cleanupDatabaseWorker = createWorkerDefinition(
 		// worker-claim queries pick a type index + TEMP B-TREE sort instead of the
 		// composite indexes, degrading with catalog/backlog size.
 		databaseFactory.analyze();
+		databaseFactory.optimizeFts();
 
 		return { deletedOperationsCount: deletedCount, prunedHistoryCount };
 	},

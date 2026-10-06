@@ -77,6 +77,9 @@ export class DatabaseFactory {
 
 		runMigrations(this.db, { migrationsFolder });
 		this.analyzeIfStatisticsMissing();
+		// Cheap stats refresh after schema/index changes; a no-op when the planner
+		// already has what it needs.
+		this.sqlite.run("PRAGMA optimize");
 
 		return { applied: this.countAppliedMigrations() };
 	}
@@ -100,6 +103,16 @@ export class DatabaseFactory {
 	analyze(): void {
 		this.sqlite.run("ANALYZE");
 		this.txSqlite?.run("ANALYZE");
+	}
+
+	/**
+	 * FTS5 `optimize` merges the segment b-trees accumulated by title updates and
+	 * deletes, so bm25 search does not walk an ever-growing segment list. Run by
+	 * the daily cleanup worker — not on shutdown, where the cost is unbounded.
+	 */
+	optimizeFts(): void {
+		this.sqlite.run("INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')");
+		this.sqlite.run("INSERT INTO people_fts(people_fts) VALUES('optimize')");
 	}
 
 	private analyzeIfStatisticsMissing(): void {
