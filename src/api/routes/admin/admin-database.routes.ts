@@ -1,22 +1,17 @@
 import { AdminDatabaseBackupListSchema, AdminDatabaseBackupSchema, AdminDatabaseRestoreResponseSchema } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { databaseBackupService } from "@/application/admin/database-backup.service";
 import { databaseRestoreService } from "@/application/admin/database-restore.service";
 import { env } from "@/env";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
 import { createLogger } from "@/utils/logger";
+import { adminShell } from "./admin-shell";
 
 const databaseRestoreLogger = createLogger("AdminDatabaseRestore");
 
-export const adminDatabaseRoutes = new Elysia({ tags: ["Admin"] })
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
-	.guard({ adminOnly: true })
+export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 	.get("/database/backups", async () => await databaseBackupService.listBackups(), {
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminDatabaseBackupListSchema },
 		detail: {

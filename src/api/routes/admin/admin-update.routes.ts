@@ -1,13 +1,12 @@
 import { AdminUpdateInstallResponseSchema, AdminUpdateStatusSchema } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { updateCheckService } from "@/application/updates/update-check.service";
 import { updateInstallService } from "@/application/updates/update-install.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
 import { SERVER_VERSION } from "@/version";
 import { resolveWebVersion } from "@/web/web-dist";
+import { adminShell } from "./admin-shell";
 
 const TargetBody = t.Object({ target: t.Union([t.Literal("server"), t.Literal("web")]) });
 
@@ -29,15 +28,11 @@ async function buildUpdateStatus(forceCheck: boolean) {
 	};
 }
 
-export const adminUpdateRoutes = new Elysia({ prefix: "/update" })
-	.use(commonModel)
-	.use(authMiddleware)
+export const adminUpdateRoutes = adminShell({ prefix: "/update" })
 	.model({
 		"admin.updateStatus": AdminUpdateStatusSchema,
 		"admin.updateInstall": AdminUpdateInstallResponseSchema,
 	})
-	.guard({ adminOnly: true })
-	.use(rateLimitMiddleware)
 	.get("/status", async () => await buildUpdateStatus(false), {
 		rateLimit: { name: "admin-update-status", max: 120, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateStatus" },

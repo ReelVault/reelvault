@@ -9,18 +9,14 @@ import {
 	SuccessResponseSchema,
 	UpdateProfilePreferencesSchema,
 } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ClampedNumeric, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { UserIdParams, UserProfileIdParams } from "@/api/schemas/route-params";
 import { adminUsersService } from "@/application/admin/admin-users.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminUsersRoutes = new Elysia()
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
+export const adminUsersRoutes = adminShell()
 	.model({
 		"admin.user": AdminUserSchema,
 		"admin.userProfile": AdminUserProfileSchema,
@@ -31,7 +27,6 @@ export const adminUsersRoutes = new Elysia()
 		"admin.userProfilePreferences": ProfilePreferencesSchema,
 		"admin.userProfilePreferencesUpdate": UpdateProfilePreferencesSchema,
 	})
-	.guard({ adminOnly: true })
 	.get("/users", async ({ query }) => await adminUsersService.getAll(query), {
 		rateLimit: { name: "admin-users-list", max: 120, windowMs: MINUTE },
 		query: t.Object({

@@ -11,24 +11,21 @@ import {
 	PluginRuntimeStatusSchema,
 	SystemSettingsGroupedSchema,
 } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ClampedNumeric, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminService } from "@/application/admin/admin.service";
 import { adminAuditService } from "@/application/admin/admin-audit.service";
 import { adminFfmpegCapabilitiesService } from "@/application/admin/admin-ffmpeg-capabilities.service";
 import { adminResourcesService } from "@/application/admin/admin-resources.service";
 import { metadataService } from "@/application/catalog/metadata/metadata.service";
 import { metadataRefreshQueueService } from "@/application/catalog/metadata/metadata-refresh-queue.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { cached } from "@/middleware/response-cache.middleware";
 import { MINUTE } from "@/server.constants";
 import { InternalError } from "@/utils/errors";
 import { RefreshMetadataSchema } from "./admin.schema";
+import { adminShell } from "./admin-shell";
 
-export const adminSystemRoutes = new Elysia()
-	.use(commonModel)
-	.use(authMiddleware)
+export const adminSystemRoutes = adminShell()
 	.model({
 		"admin.refreshMetadata": RefreshMetadataSchema,
 		"admin.stats": AdminStatsSchema,
@@ -36,8 +33,6 @@ export const adminSystemRoutes = new Elysia()
 		"admin.audit": AdminAuditPageSchema,
 		"admin.filesystemBrowse": AdminFilesystemBrowseSchema,
 	})
-	.guard({ adminOnly: true })
-	.use(rateLimitMiddleware)
 	.get("/filesystem/browse", async ({ query }) => await adminService.browseFilesystem(query.path), {
 		query: t.Object({
 			path: t.Optional(t.String()),

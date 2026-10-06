@@ -12,23 +12,19 @@ import {
 	WorkerOperationSchema,
 	WorkerSummarySchema,
 } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { ClampedNumeric, commonModel, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ClampedNumeric, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { OperationIdParams, WorkerIdParams } from "@/api/schemas/route-params";
 import { adminWorkerOperationsService } from "@/application/admin/admin-worker-operations.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
 /** Shared body for the three cancel endpoints. */
 function toCancelPendingResponse(count: number) {
 	return { success: true as const, cancelledCount: count };
 }
 
-export const adminWorkersRoutes = new Elysia()
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
+export const adminWorkersRoutes = adminShell()
 	.model({
 		"admin.workerSummaries": t.Array(WorkerSummarySchema),
 		"admin.workerJobs": t.Array(WorkerJobSchema),
@@ -49,7 +45,6 @@ export const adminWorkersRoutes = new Elysia()
 		}),
 		"admin.purgeHistoryResponse": PurgeWorkerHistoryResponseSchema,
 	})
-	.guard({ adminOnly: true })
 
 	.get("/workers", async () => await adminWorkerOperationsService.getWorkerSummaries(), {
 		rateLimit: { name: "admin-workers-list", max: 120, windowMs: MINUTE },

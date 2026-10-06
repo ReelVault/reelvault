@@ -1,42 +1,24 @@
-import {
-	CollectionFiltersSchema,
-	CollectionSortingSchema,
-	CollectionWithRelationsSchema,
-	ProjectedResponseSchema,
-} from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { CollectionFiltersSchema, CollectionSortingSchema, CollectionWithRelationsSchema } from "@reelvault/sdk/common";
+import { t } from "elysia";
 import { collectionsService } from "@/application/catalog/collections.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { cached } from "@/middleware/response-cache.middleware";
+import { createCatalogResourceRoutes } from "./shared/create-catalog-resource-routes";
 
-export const collectionRoutes = new Elysia({
+export const collectionRoutes = createCatalogResourceRoutes({
 	prefix: "/collections",
-	tags: ["Collections"],
-})
-	.use(commonModel)
-	.use(authMiddleware)
-	.model({
-		"collection.schema": ProjectedResponseSchema(CollectionWithRelationsSchema),
-		"collections.paginated.schema": PaginatedResponseSchema(ProjectedResponseSchema(CollectionWithRelationsSchema)),
-	})
-	.guard({ auth: true })
-	.get("/", async ({ query }) => await collectionsService.getAll(query), {
-		query: t.Composite([PaginationSchema, FieldsSchema, CollectionFiltersSchema, CollectionSortingSchema]),
-		response: { ...ROUTE_ERRORS.AUTH, 200: "collections.paginated.schema" },
-		...cached({ maxAge: 120, private: true }),
-		detail: {
-			description: "Retrieve a paginated list of collections. By default, collections with fewer than two metadata items are excluded.",
-		},
-	})
-	.get("/:collectionId", async ({ params, query }) => await collectionsService.getById(params.collectionId, query), {
-		params: t.Object({
-			collectionId: t.String(),
-		}),
-		query: "fields.schema",
-		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "collection.schema" },
-		...cached({ maxAge: 120, private: true }),
-		detail: {
-			description: "Retrieve information about a specific collection by its ID.",
-		},
-	});
+	tag: "Collections",
+	name: "collection",
+	service: collectionsService,
+	entity: CollectionWithRelationsSchema,
+	filters: CollectionFiltersSchema,
+	sorting: CollectionSortingSchema,
+	// Kept inline (instead of the shared CollectionIdParams) to preserve the
+	// exact OpenAPI param schema this route has always emitted.
+	params: t.Object({
+		collectionId: t.String(),
+	}),
+	cacheMaxAge: { list: 120, detail: 120 },
+	descriptions: {
+		list: "Retrieve a paginated list of collections. By default, collections with fewer than two metadata items are excluded.",
+		detail: "Retrieve information about a specific collection by its ID.",
+	},
+});

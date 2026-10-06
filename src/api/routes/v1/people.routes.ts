@@ -1,40 +1,25 @@
-import { PersonFiltersSchema, PersonSortingSchema, PersonWithRelationsSchema, ProjectedResponseSchema } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { PersonFiltersSchema, PersonSortingSchema, PersonWithRelationsSchema } from "@reelvault/sdk/common";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { PersonIdParams } from "@/api/schemas/route-params";
 import { peopleService } from "@/application/catalog/people.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { cached } from "@/middleware/response-cache.middleware";
 import { MINUTE } from "@/server.constants";
+import { createCatalogResourceRoutes } from "./shared/create-catalog-resource-routes";
 
-export const peopleRoutes = new Elysia({
+export const peopleRoutes = createCatalogResourceRoutes({
 	prefix: "/people",
-	tags: ["People"],
+	tag: "People",
+	name: "person",
+	service: peopleService,
+	entity: PersonWithRelationsSchema,
+	filters: PersonFiltersSchema,
+	sorting: PersonSortingSchema,
+	params: PersonIdParams,
+	cacheMaxAge: { list: 60, detail: 120 },
+	descriptions: {
+		list: "Retrieve a paginated list of people (cast and crew members).",
+		detail: "Retrieve detailed information about a specific person by their ID.",
+	},
 })
-	.use(commonModel)
-	.use(authMiddleware)
-	.model({
-		"person.schema": ProjectedResponseSchema(PersonWithRelationsSchema),
-		"people.paginated.schema": PaginatedResponseSchema(ProjectedResponseSchema(PersonWithRelationsSchema)),
-	})
-	.guard({ auth: true })
-	.get("/", async ({ query }) => await peopleService.getAll(query), {
-		query: t.Composite([PaginationSchema, FieldsSchema, PersonFiltersSchema, PersonSortingSchema]),
-		response: { ...ROUTE_ERRORS.AUTH, 200: "people.paginated.schema" },
-		...cached({ maxAge: 60, private: true }),
-		detail: {
-			description: "Retrieve a paginated list of people (cast and crew members).",
-		},
-	})
-	.get("/:personId", async ({ params, query }) => await peopleService.getById(params.personId, query), {
-		params: PersonIdParams,
-		query: "fields.schema",
-		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "person.schema" },
-		...cached({ maxAge: 120, private: true }),
-		detail: {
-			description: "Retrieve detailed information about a specific person by their ID.",
-		},
-	})
 	.post("/:personId/refresh", async ({ params }) => await peopleService.refresh(params.personId), {
 		adminOnly: true,
 		rateLimit: {

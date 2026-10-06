@@ -1,16 +1,10 @@
-import { Elysia, t } from "elysia";
-import { commonModel } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
 import { JobIdParams } from "@/api/schemas/route-params";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { downloadsService } from "@/modules/downloads/downloads.service";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminDownloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Admin"] })
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
-	.guard({ adminOnly: true })
+export const adminDownloadsRoutes = adminShell({ prefix: "/downloads", tags: ["Admin"] })
 	.get("/jobs", async () => await downloadsService.listAll(), {
 		rateLimit: { name: "admin-downloads-jobs", max: 60, windowMs: MINUTE },
 		detail: { description: "List all users' download jobs (admin overview)." },

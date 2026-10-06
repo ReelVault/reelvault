@@ -1,21 +1,15 @@
 import { ResetSystemSettingsSchema, SystemSettingsGroupedSchema, UpdateSystemSettingsSchema } from "@reelvault/sdk/common";
-import { Elysia } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { systemSettingsService } from "@/application/admin/system-settings.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminSettingsRoutes = new Elysia()
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
+export const adminSettingsRoutes = adminShell()
 	.model({
 		"admin.systemSettings": SystemSettingsGroupedSchema,
 		"admin.updateSystemSettings": UpdateSystemSettingsSchema,
 		"admin.resetSystemSettings": ResetSystemSettingsSchema,
 	})
-	.guard({ adminOnly: true })
 	.get("/settings", async () => await systemSettingsService.getAll(), {
 		rateLimit: { name: "admin-settings-get", max: 60, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.systemSettings" },

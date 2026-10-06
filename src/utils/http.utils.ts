@@ -42,6 +42,20 @@ export function getResponseStatus(set: { status?: number | string }, fallback = 
 }
 
 /**
+ * RFC 9110 If-None-Match evaluation: a comma-separated list of validators
+ * matches when any candidate equals the ETag or its weak form `W/` + ETag.
+ */
+export function matchesIfNoneMatch(ifNoneMatch: string | null | undefined, etag: string): boolean {
+	if (!ifNoneMatch) return false;
+
+	return ifNoneMatch.split(",").some((candidate) => {
+		const value = candidate.trim();
+
+		return value === etag || value === `W/${etag}`;
+	});
+}
+
+/**
  * Extracts the pathname from a full URL string without constructing a URL
  * object — avoids allocations on the hot request path.
  *

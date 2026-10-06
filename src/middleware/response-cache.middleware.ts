@@ -1,7 +1,5 @@
-import { hash as bunHash } from "bun";
 import { Elysia } from "elysia";
-import { serverConfig } from "@/server.config";
-import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
+import { buildJsonResponse, jsonEtag } from "@/api/utils/etag.utils";
 import { getResponseStatus, pathWithQuery } from "@/utils/http.utils";
 import {
 	type CachedResponseBody,
@@ -70,36 +68,20 @@ function cacheKeyFor(request: Request, resolvedProfileId?: string): string {
 }
 
 /**
- * Materializes a cached JSON body into a Response, negotiating compression and
- * memoizing the compressed variant on the cache entry so repeat hits skip both
- * serialization and compression.
+ * Materializes a cached JSON body into a Response through the shared JSON
+ * response builder, memoizing the compressed variant on the cache entry so
+ * repeat hits skip both serialization and compression.
  */
 async function responseFromBody(request: Request, entry: CachedResponseBody, cacheControl: string, vary: string): Promise<Response> {
-	const headers = new Headers({
-		ETag: entry.etag,
-		Vary: vary,
-		"Cache-Control": cacheControl,
-		"Content-Type": "application/json; charset=utf-8",
+	return await buildJsonResponse({
+		body: entry.body,
+		etag: entry.etag,
+		cacheControl,
+		vary,
+		acceptEncoding: request.headers.get("accept-encoding") ?? "",
+		ifNoneMatch: request.headers.get("if-none-match"),
+		encoded: entry.encoded,
 	});
-
-	if (request.headers.get("if-none-match") === entry.etag) {
-		return new Response(null, { status: 304, headers });
-	}
-
-	const encoding = negotiateEncoding(request.headers.get("accept-encoding") ?? "");
-	if (encoding && entry.body.length >= serverConfig.compression.minSizeBytes) {
-		let compressed = entry.encoded.get(encoding);
-		if (!compressed) {
-			compressed = Uint8Array.from(await compressBuffer(Buffer.from(entry.body), encoding));
-			entry.encoded.set(encoding, compressed);
-		}
-
-		headers.set("Content-Encoding", encoding);
-
-		return new Response(compressed, { status: 200, headers });
-	}
-
-	return new Response(entry.body, { status: 200, headers });
 }
 
 /**
@@ -111,8 +93,8 @@ async function responseFromBody(request: Request, entry: CachedResponseBody, cac
  *
  * Opt-in per route. On a hit the handler is skipped entirely and the cached
  * body is served (no response-schema validation, no re-serialization). Write
- * paths invalidate via clearEtagBodyCache(). Skips binary/streaming Response
- * returns to avoid false 304s.
+ * paths invalidate via invalidateResponseBodies(). Skips binary/streaming
+ * Response returns to avoid false 304s.
  */
 export const responseCacheMiddleware = new Elysia({ name: "ResponseCache" })
 	.macro({
@@ -160,7 +142,7 @@ export const responseCacheMiddleware = new Elysia({ name: "ResponseCache" })
 					serializedBodyCache.set(context.responseValue, body);
 				}
 
-				const etag = `"${bunHash(body).toString(16)}"`;
+				const etag = jsonEtag(body);
 				set.headers.ETag = etag;
 
 				const entry: CachedResponseBody = {

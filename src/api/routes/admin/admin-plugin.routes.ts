@@ -11,19 +11,15 @@ import {
 	UpdatePluginConfigBodySchema,
 	UpdatePluginRepositoryBodySchema,
 } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { PluginIdParams, RepositoryIdParams } from "@/api/schemas/route-params";
 import { adminService } from "@/application/admin/admin.service";
 import { adminPluginCatalogService } from "@/application/admin/admin-plugin-catalog.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
+export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.plugins": t.Array(PluginRuntimeStatusSchema),
 		"admin.plugin": PluginRuntimeStatusSchema,
@@ -34,7 +30,6 @@ export const adminPluginRoutes = new Elysia({ tags: ["Admin"] })
 		"admin.updatePluginConfig": UpdatePluginConfigBodySchema,
 		"admin.metadataProviderConfigurations": t.Array(MetadataProviderConfigurationSchema),
 	})
-	.guard({ adminOnly: true })
 	.get("/plugins", async () => await adminService.plugins(), {
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.plugins" },
 		detail: {

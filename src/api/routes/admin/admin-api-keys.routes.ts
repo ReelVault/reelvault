@@ -1,16 +1,12 @@
 import { ApiKeyCreatedSchema, ApiKeyListSchema, CreateApiKeyRequestSchema } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { apiKeysService } from "@/application/admin/api-keys.service";
-import { authMiddleware, requireAdmin } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
+import { requireAdmin } from "@/middleware/auth.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminApiKeysRoutes = new Elysia({ tags: ["Admin"] })
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
-	.guard({ adminOnly: true })
+export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 	.get("/api-keys", async () => await apiKeysService.list(), {
 		rateLimit: { name: "admin-api-keys-list", max: 60, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: ApiKeyListSchema },

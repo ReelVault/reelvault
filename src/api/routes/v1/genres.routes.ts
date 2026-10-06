@@ -1,36 +1,20 @@
-import { GenreFiltersSchema, GenreSchema, GenreSortingSchema, ProjectedResponseSchema } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { GenreFiltersSchema, GenreSchema, GenreSortingSchema } from "@reelvault/sdk/common";
 import { GenreIdParams } from "@/api/schemas/route-params";
 import { genresService } from "@/application/catalog/genres.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { cached } from "@/middleware/response-cache.middleware";
+import { createCatalogResourceRoutes } from "./shared/create-catalog-resource-routes";
 
-export const genreRoutes = new Elysia({
+export const genreRoutes = createCatalogResourceRoutes({
 	prefix: "/genres",
-	tags: ["Genres"],
-})
-	.use(commonModel)
-	.use(authMiddleware)
-	.model({
-		"genre.schema": ProjectedResponseSchema(GenreSchema),
-		"genres.paginated.schema": PaginatedResponseSchema(ProjectedResponseSchema(GenreSchema)),
-	})
-	.guard({ auth: true })
-	.get("/", async ({ query }) => await genresService.getAll(query), {
-		query: t.Composite([PaginationSchema, FieldsSchema, GenreFiltersSchema, GenreSortingSchema]),
-		response: { ...ROUTE_ERRORS.AUTH, 200: "genres.paginated.schema" },
-		...cached({ maxAge: 120, private: true }),
-		detail: {
-			description: "Retrieve a paginated list of all movie and TV show genres.",
-		},
-	})
-	.get("/:genreId", async ({ params, query }) => await genresService.getById(params.genreId, query), {
-		params: GenreIdParams,
-		query: "fields.schema",
-		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "genre.schema" },
-		...cached({ maxAge: 120, private: true }),
-		detail: {
-			description: "Retrieve information about a specific genre by its ID.",
-		},
-	});
+	tag: "Genres",
+	name: "genre",
+	service: genresService,
+	entity: GenreSchema,
+	filters: GenreFiltersSchema,
+	sorting: GenreSortingSchema,
+	params: GenreIdParams,
+	cacheMaxAge: { list: 120, detail: 120 },
+	descriptions: {
+		list: "Retrieve a paginated list of all movie and TV show genres.",
+		detail: "Retrieve information about a specific genre by its ID.",
+	},
+});

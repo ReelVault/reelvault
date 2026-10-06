@@ -1,18 +1,13 @@
 import { AdminLogFileInfoSchema, AdminLogsPageSchema } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminLogsService } from "@/application/admin/admin-logs.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
 import { ValidationError } from "@/utils/errors";
 import { AdminLogsQuerySchema } from "./admin.schema";
+import { adminShell } from "./admin-shell";
 
-export const adminLogsRoutes = new Elysia({ tags: ["Admin"] })
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
-	.guard({ adminOnly: true })
+export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 	.get("/logs/files", async () => await adminLogsService.listLogFiles(), {
 		response: { ...ROUTE_ERRORS.ADMIN, 200: t.Array(AdminLogFileInfoSchema) },
 		detail: {

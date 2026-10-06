@@ -5,24 +5,18 @@ import {
 	UpdateCollectionOrderSchema,
 	UpdateCollectionSchema,
 } from "@reelvault/sdk/common";
-import { Elysia } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { CollectionIdParams } from "@/api/schemas/route-params";
 import { collectionsService } from "@/application/catalog/collections.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminCollectionsRoutes = new Elysia()
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
+export const adminCollectionsRoutes = adminShell()
 	.model({
 		"admin.collection": ProjectedResponseSchema(CollectionWithRelationsSchema),
 		"admin.updateCollection": UpdateCollectionSchema,
 		"admin.updateCollectionOrder": UpdateCollectionOrderSchema,
 	})
-	.guard({ adminOnly: true })
 	.patch(
 		"/collections/:collectionId",
 		async ({ params, body, query, user, request }) =>

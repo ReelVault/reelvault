@@ -1,17 +1,14 @@
 import { AdminAnalyticsSchema } from "@reelvault/sdk/common";
-import Elysia, { t } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminAnalyticsService } from "@/application/admin/admin-analytics.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminAnalyticsRoutes = new Elysia({ prefix: "/analytics", tags: ["Admin"] })
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
-	.guard({ adminOnly: true })
-	.get("", async ({ query }) => await adminAnalyticsService.getAnalytics(query.days), {
+export const adminAnalyticsRoutes = adminShell({ prefix: "/analytics", tags: ["Admin"] }).get(
+	"",
+	async ({ query }) => await adminAnalyticsService.getAnalytics(query.days),
+	{
 		rateLimit: { name: "admin-analytics", max: 60, windowMs: MINUTE },
 		query: t.Object({
 			days: t.Optional(t.Numeric({ minimum: 1, maximum: 365 })),
@@ -20,4 +17,5 @@ export const adminAnalyticsRoutes = new Elysia({ prefix: "/analytics", tags: ["A
 		detail: {
 			description: "Retrieve comprehensive server-wide streaming and watch statistics for administrators.",
 		},
-	});
+	},
+);

@@ -1,19 +1,13 @@
 import { AdminProcessesResponseSchema } from "@reelvault/sdk/common";
-import { Elysia } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminProcessesService } from "@/application/admin/admin-processes.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminProcessesRoutes = new Elysia()
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
+export const adminProcessesRoutes = adminShell()
 	.model({
 		"admin.processes": AdminProcessesResponseSchema,
 	})
-	.guard({ adminOnly: true })
 	.get("/processes", () => adminProcessesService.getProcesses(), {
 		rateLimit: { name: "admin-processes-list", max: 120, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.processes" },

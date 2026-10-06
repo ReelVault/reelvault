@@ -1,10 +1,6 @@
 import { systemResourcesService } from "@/system/system-resources.service";
 import { MemoryCache } from "@/utils/memory-cache";
 
-interface CachedEtagBody {
-	body: string;
-}
-
 /** Serialized JSON body plus per-encoding compressed variants, reused across requests. */
 export interface CachedResponseBody {
 	etag: string;
@@ -17,26 +13,21 @@ export interface CachedResponseBody {
 export const RESPONSE_BODY_CACHE_MAX_BYTES = 512 * 1024;
 /** Server-side TTL cap regardless of the route's client-facing max-age. */
 const RESPONSE_BODY_CACHE_MAX_TTL_MS = 5 * 60_000;
+/** TTL of the short-lived aggregation bodies stored by withEtagResponse(). */
+const ETAG_BODY_CACHE_TTL_MS = 10_000;
 
 /**
- * Cross-request body cache for JSON GET routes. Serving a repeat request skips
- * the handler, response validation and serialization entirely; compression is
- * memoized per encoding. The TTL follows the route's declared client max-age
- * (bounded by RESPONSE_BODY_CACHE_MAX_TTL_MS), so server-side staleness never
- * exceeds what the browser cache contract already promises. Write paths
- * invalidate through invalidateResponseBodies()/invalidateProfileResponseBodies().
+ * Cross-request body cache shared by the response-cache middleware (route-level
+ * `cache` macro) and withEtagResponse() aggregations. Serving a repeat request
+ * skips the handler, response validation and serialization entirely; the
+ * response-cache middleware also memoizes compression per encoding. The TTL
+ * follows the route's declared client max-age (bounded by
+ * RESPONSE_BODY_CACHE_MAX_TTL_MS) or ETAG_BODY_CACHE_TTL_MS for etag bodies.
+ * Write paths invalidate through invalidateResponseBodies()/
+ * invalidateProfileResponseBodies().
  */
 /** NUL never appears in URLs or HTTP headers, so it is safe as a key segment separator. */
 const KEY_SEGMENT_SEPARATOR = "\u0000";
-
-const responseBodyCache = new MemoryCache<CachedResponseBody>({
-	// TTL is enforced per entry (expiresAt) so each route keeps its own max-age.
-	ttlMs: -1,
-	maxSize: systemResourcesService.getRamScaledCacheEntries(64, 128, 512),
-	name: "api.responseBody",
-	// Keep the per-profile index honest across LRU evictions.
-	onEvict: (key) => removeFromProfileIndex(key),
-});
 
 /**
  * profileId → cached keys. invalidateProfileResponseBodies() runs on EVERY
@@ -44,6 +35,13 @@ const responseBodyCache = new MemoryCache<CachedResponseBody>({
  * Set lookup, not a full cache scan.
  */
 const profileKeyIndex = new Map<string, Set<string>>();
+
+/**
+ * Keys of withEtagResponse() entries. Their cache keys embed the profile id as
+ * the last colon-separated segment, so per-profile invalidation scans this
+ * short-lived subset instead of the whole cache.
+ */
+const etagBodyKeys = new Set<string>();
 
 function removeFromProfileIndex(key: string): void {
 	const profileId = key.split(KEY_SEGMENT_SEPARATOR)[2];
@@ -55,6 +53,18 @@ function removeFromProfileIndex(key: string): void {
 	keys.delete(key);
 	if (keys.size === 0) profileKeyIndex.delete(profileId);
 }
+
+const responseBodyCache = new MemoryCache<CachedResponseBody>({
+	// TTL is enforced per entry (expiresAt) so each route keeps its own max-age.
+	ttlMs: -1,
+	maxSize: systemResourcesService.getRamScaledCacheEntries(64, 128, 512),
+	name: "api.responseBody",
+	// Keep the per-profile and etag-key indexes honest across LRU evictions.
+	onEvict: (key) => {
+		removeFromProfileIndex(key);
+		etagBodyKeys.delete(key);
+	},
+});
 
 /**
  * Path+query+identity key. The cookie (session) and resolved profile id make
@@ -69,7 +79,7 @@ export function responseBodyCacheTtlMs(maxAgeSeconds: number): number {
 	return Math.min(maxAgeSeconds * 1000, RESPONSE_BODY_CACHE_MAX_TTL_MS);
 }
 
-export function getCachedResponseBody(key: string, now = Date.now()): CachedResponseBody | undefined {
+function liveEntry(key: string, now: number): CachedResponseBody | undefined {
 	const entry = responseBodyCache.get(key);
 	if (!entry) return undefined;
 
@@ -80,6 +90,10 @@ export function getCachedResponseBody(key: string, now = Date.now()): CachedResp
 	}
 
 	return entry;
+}
+
+export function getCachedResponseBody(key: string, now = Date.now()): CachedResponseBody | undefined {
+	return liveEntry(key, now);
 }
 
 export function setCachedResponseBody(key: string, entry: CachedResponseBody): void {
@@ -93,26 +107,36 @@ export function setCachedResponseBody(key: string, entry: CachedResponseBody): v
 	else profileKeyIndex.set(profileId, new Set([key]));
 }
 
-/**
- * Short-lived body+ETag cache for the heaviest aggregated endpoints. A 304
- * revalidation would otherwise re-run every aggregation query and re-serialize
- * the payload just to compute the hash. Staleness is bounded by the TTL
- * (user-state on detail pages may lag up to ttlMs; progress has its own
- * endpoint) and callers invalidate explicitly on writes.
- */
-const etagBodyCache = new MemoryCache<CachedEtagBody>({ ttlMs: 10_000, maxSize: 500, name: "api.etagBody" });
+/** Reads a withEtagResponse() aggregation body from the shared cache. */
+export function getCachedEtagEntry(key: string, now = Date.now()): CachedResponseBody | undefined {
+	return liveEntry(key, now);
+}
 
-/** Flushes both response body caches after any write that can stale arbitrary cached GETs. */
+/** Caches an uncompressed aggregation body unless it exceeds RESPONSE_BODY_CACHE_MAX_BYTES. */
+export function cacheEtagBody(key: string, body: string, etag: string): void {
+	if (body.length > RESPONSE_BODY_CACHE_MAX_BYTES) return;
+
+	responseBodyCache.set(key, {
+		etag,
+		body,
+		expiresAt: Date.now() + ETAG_BODY_CACHE_TTL_MS,
+		encoded: new Map(),
+	});
+	etagBodyKeys.add(key);
+}
+
+/** Flushes the response body cache after any write that can stale arbitrary cached GETs. */
 export function invalidateResponseBodies(): void {
-	etagBodyCache.clear();
 	responseBodyCache.clear();
 	profileKeyIndex.clear();
+	etagBodyKeys.clear();
 }
 
 /**
  * Drops cached bodies scoped to one profile without flushing the whole cache.
- * Response-cache keys index by profile id (O(1) per write); ETag-body cache
- * keys embed it after a colon and live only 10s, so that one stays a scan.
+ * Response-cache keys index by profile id (O(1) per write); etag-body keys
+ * embed it after a colon and live only 10s, so that one stays a scan over the
+ * etag-key subset.
  */
 export function invalidateProfileResponseBodies(profileId: string): void {
 	for (const key of profileKeyIndex.get(profileId) ?? []) {
@@ -120,18 +144,7 @@ export function invalidateProfileResponseBodies(profileId: string): void {
 	}
 	profileKeyIndex.delete(profileId);
 
-	for (const key of etagBodyCache.keys()) {
-		if (key.includes(profileId)) etagBodyCache.delete(key);
+	for (const key of etagBodyKeys) {
+		if (key.includes(profileId)) responseBodyCache.delete(key);
 	}
-}
-
-export function getCachedEtagBody(key: string): string | undefined {
-	return etagBodyCache.get(key)?.body;
-}
-
-/** Caches an uncompressed aggregation body unless it exceeds RESPONSE_BODY_CACHE_MAX_BYTES. */
-export function cacheEtagBody(key: string, body: string): void {
-	if (body.length > RESPONSE_BODY_CACHE_MAX_BYTES) return;
-
-	etagBodyCache.set(key, { body });
 }

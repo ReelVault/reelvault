@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { brotliDecompressSync } from "node:zlib";
-import { invalidateResponseBodies } from "@/utils/response-body-cache";
+import { invalidateProfileResponseBodies, invalidateResponseBodies } from "@/utils/response-body-cache";
 import { withEtagResponse } from "./etag.utils";
 
 const etagPattern = /^"[0-9a-f]+"$/;
@@ -18,8 +18,8 @@ describe("withEtagResponse", () => {
 		const response = await withEtagResponse(makeRequest(), set, () => Promise.resolve({ hello: "world" }));
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get("Content-Type")).toBe("application/json");
-		expect(response.headers.get("Vary")).toBe("Cookie, Accept-Encoding");
+		expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+		expect(response.headers.get("Vary")).toBe("Accept-Encoding, Cookie");
 		expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
 		expect(response.headers.get("ETag")).toMatch(etagPattern);
 		expect(set.headers.ETag).toBe(response.headers.get("ETag"));
@@ -36,6 +36,17 @@ describe("withEtagResponse", () => {
 
 		expect(second.status).toBe(304);
 		expect(second.headers.get("ETag")).toBe(etag);
+	});
+
+	test("accepts weak validators and comma-separated If-None-Match lists", async () => {
+		invalidateResponseBodies();
+		const first = await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ a: 1 }));
+		const etag = first.headers.get("ETag") as string;
+
+		for (const header of [`W/${etag}`, `"stale", ${etag}`, `W/${etag}, "other"`]) {
+			const response = await withEtagResponse(makeRequest({ "if-none-match": header }), setHeaders(), () => Promise.resolve({ a: 1 }));
+			expect(response.status).toBe(304);
+		}
 	});
 
 	test("different payloads produce different etags", async () => {
@@ -71,7 +82,7 @@ describe("withEtagResponse", () => {
 		const response = await withEtagResponse(makeRequest({ "accept-encoding": "br" }), setHeaders(), () => Promise.resolve(bigPayload));
 
 		expect(response.headers.get("Content-Encoding")).toBe("br");
-		expect(response.headers.get("Content-Type")).toBe("application/json");
+		expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
 	});
 
 	test("cache hit keeps serving the compressed encoding for repeat requests", async () => {
@@ -114,6 +125,24 @@ describe("withEtagResponse", () => {
 		expect(run).toBe(1);
 		expect(second.status).toBe(304);
 		expect(second.headers.get("ETag")).toBe(etag);
+	});
+
+	test("per-profile invalidation drops the cached aggregation for that profile only", async () => {
+		invalidateResponseBodies();
+		let run = 0;
+		const scoped = { cacheKey: "playback-view:mf-1:profile-1" };
+		const other = { cacheKey: "playback-view:mf-1:profile-2" };
+
+		await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), scoped);
+		await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), other);
+
+		invalidateProfileResponseBodies("profile-1");
+
+		const invalidated = await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), scoped);
+		const untouched = await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), other);
+
+		expect(JSON.parse(await invalidated.text())).toEqual({ run: 3 });
+		expect(JSON.parse(await untouched.text())).toEqual({ run: 2 });
 	});
 
 	test("oversized payloads are served but not cached", async () => {

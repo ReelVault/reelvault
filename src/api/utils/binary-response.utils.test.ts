@@ -36,6 +36,16 @@ describe("binaryFileResponse", () => {
 		expect(binaryFileResponse(file(1_234), "image/webp", CACHE_CONTROL, `W/${ETAG}, "other"`).status).toBe(304);
 	});
 
+	test("merges extra headers without letting them override the binary headers", () => {
+		const response = binaryFileResponse(file(1_234), "image/webp", CACHE_CONTROL, null, {
+			headers: { "access-control-allow-origin": "*", "cache-control": "public, max-age=1" },
+		});
+
+		expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+		expect(response.headers.get("Cache-Control")).toBe(CACHE_CONTROL);
+		expect(response.headers.get("ETag")).toBe(ETAG);
+	});
+
 	test("returns 200 when the validator does not match", () => {
 		expect(binaryFileResponse(file(1_234), "image/webp", CACHE_CONTROL, `"999-1"`).status).toBe(200);
 	});

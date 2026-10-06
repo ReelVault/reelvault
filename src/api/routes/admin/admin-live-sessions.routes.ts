@@ -1,17 +1,12 @@
 import { AdminLiveActivityResponseSchema } from "@reelvault/sdk/common";
-import Elysia, { t } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { SessionIdParams } from "@/api/schemas/route-params";
 import { adminLiveSessionsService } from "@/application/admin/admin-live-sessions.service";
-import { authMiddleware } from "@/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
+import { adminShell } from "./admin-shell";
 
-export const adminLiveSessionsRoutes = new Elysia({ prefix: "/live-activity", tags: ["Admin"] })
-	.use(commonModel)
-	.use(authMiddleware)
-	.use(rateLimitMiddleware)
-	.guard({ adminOnly: true })
+export const adminLiveSessionsRoutes = adminShell({ prefix: "/live-activity", tags: ["Admin"] })
 	.get(
 		"",
 		async () => {

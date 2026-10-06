@@ -1,5 +1,6 @@
 import { file } from "bun";
 import Elysia, { t } from "elysia";
+import { binaryFileResponse } from "@/api/utils/binary-response.utils";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
@@ -140,30 +141,20 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 			// CORS headers from the global cors middleware must be carried over exactly
 			// once (duplicate `Access-Control-Allow-Origin` is a CORS failure).
 			const pluginFile = file(assetPath);
-			const headers = new Headers();
+			const extraHeaders = new Headers();
 			for (const [key, value] of Object.entries(set.headers)) {
-				if (typeof value === "string") headers.set(key, value);
+				if (typeof value === "string") extraHeaders.set(key, value);
 			}
 
-			headers.set("content-type", getMimeType(assetPath));
-			if (!headers.has("access-control-allow-origin")) headers.set("access-control-allow-origin", "*");
+			if (!extraHeaders.has("access-control-allow-origin")) extraHeaders.set("access-control-allow-origin", "*");
 
-			// Plugins are replaced in place (same URL). `no-cache` + a cheap
-			// size/mtime ETag makes the browser revalidate every import, so a rebuilt
-			// bundle is picked up immediately instead of after a 1 h max-age.
-			const stats = await FileUtils.getStats(assetPath);
-			if (stats) {
-				const etag = `"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}"`;
-				headers.set("etag", etag);
-				headers.set("cache-control", "no-cache");
-				if (request.headers.get("if-none-match") === etag) {
-					return new Response(null, { status: 304, headers });
-				}
-			} else {
-				headers.set("cache-control", "no-cache");
-			}
-
-			return new Response(pluginFile, { headers });
+			// Plugins are replaced in place (same URL). `no-cache` + the cheap
+			// size/mtime ETag from binaryFileResponse makes the browser revalidate
+			// every import, so a rebuilt bundle is picked up immediately instead of
+			// after a 1 h max-age.
+			return binaryFileResponse(pluginFile, getMimeType(assetPath), "no-cache", request.headers.get("if-none-match"), {
+				headers: extraHeaders,
+			});
 		},
 		{
 			// No explicit params schema: TypeBox/Elysia cannot mirror a wildcard

@@ -1,16 +1,13 @@
 import { OperationQueuedResponseSchema } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
-import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { t } from "elysia";
+import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { MediaFileIdParams } from "@/api/schemas/route-params";
-import { authMiddleware } from "@/middleware/auth.middleware";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import { MINUTE } from "@/server.constants";
 import { enqueueTrickplayGeneration, enqueueTrickplayGenerationMany } from "@/workers/definitions/media/trickplay-generate.worker";
+import { adminShell } from "./admin-shell";
 
-export const adminTrickplayRoutes = new Elysia({ prefix: "/trickplay", tags: ["Admin"] })
-	.use(commonModel)
-	.use(authMiddleware)
-	.guard({ adminOnly: true })
+export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["Admin"] })
 	.get("/stats", async () => await trickplayService.stats(), {
 		detail: { description: "Counts of media files with and without built-in trickplay previews." },
 	})
