@@ -215,8 +215,39 @@ async function persistScanCursors(state: ScanEnqueueState, libraryId: string, de
 	}
 }
 
-/** Enqueues new-file ingest work in resumable batches (per-item fan-out only for
- * custom dependencies — unbounded concurrent inserts lock up single-writer SQLite). */
+/**
+ * Enqueues one workload's remaining items in resumable batches. The batched
+ * variant is used preferentially (per-item fan-out only for custom dependencies
+ * — unbounded concurrent inserts lock up single-writer SQLite); the cursor is
+ * persisted after each chunk and every finished chunk re-arms the stall guard.
+ */
+async function enqueueInChunks<T>(
+	items: readonly T[],
+	cursor: number,
+	setCursor: (cursor: number) => void,
+	batch: ((chunk: T[]) => Promise<unknown>) | undefined,
+	item: (entry: T) => Promise<unknown>,
+	persist: () => Promise<void>,
+	context: ApplicationContext,
+): Promise<void> {
+	if (batch) {
+		for (const { items: chunk, nextCursor } of batchChunks(items, ENQUEUE_BATCH_SIZE, cursor)) {
+			context.signal?.throwIfAborted();
+			await batch(chunk);
+			setCursor(nextCursor);
+			await persist();
+			context.extendTimeout?.(ENQUEUE_CHUNK_TIMEOUT_MS);
+		}
+
+		return;
+	}
+
+	await PromiseUtils.mapConcurrent(items.slice(cursor), systemResourcesService.getIngestConcurrency(), item, context.signal);
+	setCursor(items.length);
+	await persist();
+}
+
+/** Enqueues new-file ingest work in resumable batches. */
 async function enqueueIngestWork(
 	state: ScanEnqueueState,
 	data: LibraryScanData,
@@ -225,29 +256,24 @@ async function enqueueIngestWork(
 	context: ApplicationContext,
 	dependencies: LibraryScanTaskDependencies,
 ): Promise<void> {
-	if (dependencies.enqueueMediaFileIngestBatch) {
-		for (const { items: filePathChunk, nextCursor } of batchChunks(state.newFilePaths, ENQUEUE_BATCH_SIZE, state.ingestCursor)) {
-			context.signal?.throwIfAborted();
-			await dependencies.enqueueMediaFileIngestBatch(
-				filePathChunk.map((filePath) => ({ libraryId: data.libraryId, libraryType, filePath })),
-				taskScheduling,
-			);
-			state.ingestCursor = nextCursor;
-			await persistScanCursors(state, data.libraryId, dependencies);
-			context.extendTimeout?.(ENQUEUE_CHUNK_TIMEOUT_MS);
-		}
-
-		return;
-	}
-
-	await PromiseUtils.mapConcurrent(
-		state.newFilePaths.slice(state.ingestCursor),
-		systemResourcesService.getIngestConcurrency(),
+	const enqueueBatch = dependencies.enqueueMediaFileIngestBatch?.bind(dependencies);
+	await enqueueInChunks(
+		state.newFilePaths,
+		state.ingestCursor,
+		(cursor) => {
+			state.ingestCursor = cursor;
+		},
+		enqueueBatch
+			? (chunk) =>
+					enqueueBatch(
+						chunk.map((filePath) => ({ libraryId: data.libraryId, libraryType, filePath })),
+						taskScheduling,
+					)
+			: undefined,
 		(filePath) => dependencies.enqueueMediaFileIngest({ libraryId: data.libraryId, libraryType, filePath }, taskScheduling),
-		context.signal,
+		() => persistScanCursors(state, data.libraryId, dependencies),
+		context,
 	);
-	state.ingestCursor = state.newFilePaths.length;
-	await persistScanCursors(state, data.libraryId, dependencies);
 }
 
 /** Enqueues technical-refresh work for changed files, mirroring the ingest batching. */
@@ -258,26 +284,18 @@ async function enqueueRefreshWork(
 	context: ApplicationContext,
 	dependencies: LibraryScanTaskDependencies,
 ): Promise<void> {
-	if (dependencies.enqueueMediaFileRefreshBatch) {
-		for (const { items: mediaFileIdChunk, nextCursor } of batchChunks(state.changedMediaFileIds, ENQUEUE_BATCH_SIZE, state.refreshCursor)) {
-			context.signal?.throwIfAborted();
-			await dependencies.enqueueMediaFileRefreshBatch(mediaFileIdChunk, taskScheduling, context.signal);
-			state.refreshCursor = nextCursor;
-			await persistScanCursors(state, data.libraryId, dependencies);
-			context.extendTimeout?.(ENQUEUE_CHUNK_TIMEOUT_MS);
-		}
-
-		return;
-	}
-
-	await PromiseUtils.mapConcurrent(
-		state.changedMediaFileIds.slice(state.refreshCursor),
-		systemResourcesService.getIngestConcurrency(),
+	const enqueueBatch = dependencies.enqueueMediaFileRefreshBatch?.bind(dependencies);
+	await enqueueInChunks(
+		state.changedMediaFileIds,
+		state.refreshCursor,
+		(cursor) => {
+			state.refreshCursor = cursor;
+		},
+		enqueueBatch ? (chunk) => enqueueBatch(chunk, taskScheduling, context.signal) : undefined,
 		(mediaFileId) => dependencies.enqueueMediaFileRefresh(mediaFileId, taskScheduling),
-		context.signal,
+		() => persistScanCursors(state, data.libraryId, dependencies),
+		context,
 	);
-	state.refreshCursor = state.changedMediaFileIds.length;
-	await persistScanCursors(state, data.libraryId, dependencies);
 }
 
 async function runScanLibraryTask(

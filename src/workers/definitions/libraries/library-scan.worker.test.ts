@@ -178,4 +178,54 @@ describe("library scan application task", () => {
 		expect(second.ingested).toEqual(["/movies/x"]);
 		expect(second.checkpoints.has("library-1")).toBe(false);
 	});
+
+	test("prefers the batched enqueue and persists the cursor after each chunk", async () => {
+		const { dependencies, events, checkpoints, ingested, refreshed } = createHarness({
+			scanResult: {
+				filePaths: ["/media/a", "/media/b", "/media/c"],
+				newFilePaths: ["/media/a", "/media/b", "/media/c"],
+				changedMediaFileIds: ["media-1", "media-2"],
+			},
+		});
+		const ingestBatches: string[][] = [];
+		const refreshBatches: string[][] = [];
+		dependencies.enqueueMediaFileIngestBatch = (entries) => {
+			ingestBatches.push(entries.map((entry) => entry.filePath));
+			for (const entry of entries) ingested.push(entry.filePath);
+
+			return Promise.resolve({ id: `ingest-batch-${ingestBatches.length}` });
+		};
+		dependencies.enqueueMediaFileRefreshBatch = (mediaFileIds) => {
+			refreshBatches.push([...mediaFileIds]);
+			for (const mediaFileId of mediaFileIds) refreshed.push(mediaFileId);
+
+			return Promise.resolve({ id: `refresh-batch-${refreshBatches.length}` });
+		};
+		dependencies.updateCheckpointCursors = (libraryId, cursors) => {
+			const existing = checkpoints.get(libraryId);
+			if (existing) checkpoints.set(libraryId, { ...existing, ...cursors });
+			events.push(`cursors:${cursors.ingestCursor}:${cursors.refreshCursor}`);
+
+			return Promise.resolve();
+		};
+
+		await scanLibraryTask({ libraryId: "library-1", paths: ["/media"] }, { correlationId: "scan-5" }, dependencies);
+
+		// The batch path handled every item; the per-item fallback stayed unused.
+		expect(ingestBatches).toEqual([["/media/a", "/media/b", "/media/c"]]);
+		expect(refreshBatches).toEqual([["media-1", "media-2"]]);
+		expect(ingested).toEqual(["/media/a", "/media/b", "/media/c"]);
+		expect(refreshed).toEqual(["media-1", "media-2"]);
+		expect(events).toEqual([
+			"started",
+			"scan:movie:/media",
+			"checkpoint",
+			"cursors:3:0",
+			"cursors:3:2",
+			"checkpoint-cleared",
+			"completed:errors=0",
+			"notified:library-1:Movies",
+		]);
+		expect(checkpoints.has("library-1")).toBe(false);
+	});
 });

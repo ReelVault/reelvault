@@ -127,14 +127,19 @@ export const mediaFileIngestWorker = createWorkerDefinition<MediaFileIngestData>
 
 // ─── Task Function ────────────────────────────────────────────────────────────
 
+/** Identity of one media-file row owned by the ingested file; a range file owns several. */
+interface IngestTarget {
+	mediaFileId: string;
+	metadataId: string;
+	movieId: string | null;
+	episodeId: string | null;
+}
+
 /** State needed to finish an ingest after the media-file row exists. */
 interface IngestCompletionInput {
 	data: MediaFileIngestData;
 	library: LibraryWithRelations;
-	createdMediaFile: { id: string };
-	metadataId: string;
-	movieId: string | null;
-	episodeId: string | null;
+	target: IngestTarget;
 	context: ApplicationContext;
 	orchestration: MediaFileIngestOrchestration;
 	taskScheduling: TaskSchedulingOptions;
@@ -169,29 +174,76 @@ async function recordIngestSkip(
 	};
 }
 
-function correlationIdFor(input: IngestCompletionInput, mediaFileId: string): string {
-	return input.context.correlationId ?? input.orchestration.operationId ?? mediaFileId;
+function correlationIdFor(input: IngestCompletionInput, target: IngestTarget): string {
+	return input.context.correlationId ?? input.orchestration.operationId ?? target.mediaFileId;
 }
 
-async function saveIngestSidecars(input: IngestCompletionInput, dependencies: MediaFileIngestTaskDependencies): Promise<void> {
+async function saveIngestSidecars(
+	target: IngestTarget,
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<void> {
 	await dependencies.saveSidecars(input.library, [
 		{
 			filePath: input.data.filePath,
-			metadataId: input.metadataId,
-			movieId: input.movieId,
-			episodeId: input.episodeId,
+			metadataId: target.metadataId,
+			movieId: target.movieId,
+			episodeId: target.episodeId,
 		},
 	]);
-	await dependencies.markSidecarWritten?.(input.createdMediaFile.id);
 }
 
-async function emitIngestDiscovered(input: IngestCompletionInput, dependencies: MediaFileIngestTaskDependencies): Promise<void> {
+async function emitIngestDiscovered(
+	target: IngestTarget,
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<void> {
 	await dependencies.emitMediaDiscovered({
 		libraryId: input.data.libraryId,
-		mediaFileId: input.createdMediaFile.id,
-		correlationId: correlationIdFor(input, input.createdMediaFile.id),
+		mediaFileId: target.mediaFileId,
+		correlationId: correlationIdFor(input, target),
 	});
-	await dependencies.markDiscoveredEmitted?.(input.createdMediaFile.id);
+}
+
+async function emitIngestIdentified(
+	target: IngestTarget,
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<void> {
+	await dependencies.emitMediaIdentified({
+		mediaFileId: target.mediaFileId,
+		metadataId: target.metadataId,
+		status: "matched",
+		correlationId: correlationIdFor(input, target),
+	});
+}
+
+/** Enqueues the follow-up analysis every completed ingest needs; returns its task id. */
+async function enqueueCompletionAnalysis(
+	target: IngestTarget,
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<string> {
+	const analysisTask = await dependencies.enqueueAnalysis(
+		{
+			libraryId: input.data.libraryId,
+			mediaFileId: target.mediaFileId,
+			metadataId: target.metadataId,
+		},
+		input.taskScheduling,
+	);
+
+	return analysisTask.id;
+}
+
+function ingestCompletionResult(input: IngestCompletionInput, created: boolean, analysisTaskId: string): MediaFileIngestResult {
+	return {
+		libraryId: input.data.libraryId,
+		filePath: input.data.filePath,
+		mediaFileId: input.target.mediaFileId,
+		created,
+		analysisTaskId,
+	};
 }
 
 /** Completes the idempotent side effects a crashed prior attempt may have left unfinished. */
@@ -199,27 +251,20 @@ async function completeRetryIngest(
 	input: IngestCompletionInput,
 	dependencies: MediaFileIngestTaskDependencies,
 ): Promise<MediaFileIngestResult> {
-	const progress = dependencies.readIngestProgress ? await dependencies.readIngestProgress(input.createdMediaFile.id) : undefined;
-	if (progress && !progress.sidecarWritten) await saveIngestSidecars(input, dependencies);
+	const progress = dependencies.readIngestProgress ? await dependencies.readIngestProgress(input.target.mediaFileId) : undefined;
+	if (progress && !progress.sidecarWritten) {
+		await saveIngestSidecars(input.target, input, dependencies);
+		await dependencies.markSidecarWritten?.(input.target.mediaFileId);
+	}
 
-	if (progress && !progress.discoveredEmitted) await emitIngestDiscovered(input, dependencies);
+	if (progress && !progress.discoveredEmitted) {
+		await emitIngestDiscovered(input.target, input, dependencies);
+		await dependencies.markDiscoveredEmitted?.(input.target.mediaFileId);
+	}
 
-	const retryAnalysis = await dependencies.enqueueAnalysis(
-		{
-			libraryId: input.data.libraryId,
-			mediaFileId: input.createdMediaFile.id,
-			metadataId: input.metadataId,
-		},
-		input.taskScheduling,
-	);
+	const analysisTaskId = await enqueueCompletionAnalysis(input.target, input, dependencies);
 
-	return {
-		libraryId: input.data.libraryId,
-		filePath: input.data.filePath,
-		mediaFileId: input.createdMediaFile.id,
-		created: false,
-		analysisTaskId: retryAnalysis.id,
-	};
+	return ingestCompletionResult(input, false, analysisTaskId);
 }
 
 /** First-attempt completion: persist sidecars, emit plugin events, enqueue analysis. */
@@ -227,33 +272,17 @@ async function completeFreshIngest(
 	input: IngestCompletionInput,
 	dependencies: MediaFileIngestTaskDependencies,
 ): Promise<MediaFileIngestResult> {
-	await saveIngestSidecars(input, dependencies);
-	await emitIngestDiscovered(input, dependencies);
-	await dependencies.emitMediaIdentified({
-		mediaFileId: input.createdMediaFile.id,
-		metadataId: input.metadataId,
-		status: "matched",
-		correlationId: correlationIdFor(input, input.createdMediaFile.id),
-	});
+	await saveIngestSidecars(input.target, input, dependencies);
+	await dependencies.markSidecarWritten?.(input.target.mediaFileId);
+	await emitIngestDiscovered(input.target, input, dependencies);
+	await dependencies.markDiscoveredEmitted?.(input.target.mediaFileId);
+	await emitIngestIdentified(input.target, input, dependencies);
 	// File counts/size in the library stats cache changed.
 	librariesRepository.clearStatsCache();
 
-	const analysisTask = await dependencies.enqueueAnalysis(
-		{
-			libraryId: input.data.libraryId,
-			mediaFileId: input.createdMediaFile.id,
-			metadataId: input.metadataId,
-		},
-		input.taskScheduling,
-	);
+	const analysisTaskId = await enqueueCompletionAnalysis(input.target, input, dependencies);
 
-	return {
-		libraryId: input.data.libraryId,
-		filePath: input.data.filePath,
-		mediaFileId: input.createdMediaFile.id,
-		created: true,
-		analysisTaskId: analysisTask.id,
-	};
+	return ingestCompletionResult(input, true, analysisTaskId);
 }
 
 export async function ingestMediaFileTask(
@@ -288,6 +317,20 @@ export async function ingestMediaFileTask(
 			...createData,
 		});
 
+		const input: IngestCompletionInput = {
+			data,
+			library,
+			target: {
+				mediaFileId: createdMediaFile.id,
+				metadataId: mediaFile.metadataId,
+				movieId: mediaFile.movieId ?? null,
+				episodeId: mediaFile.episodeId ?? null,
+			},
+			context,
+			orchestration,
+			taskScheduling,
+		};
+
 		// A multi-episode file (S01E01-E02) owns one row per covered episode; the
 		// main row above is the first episode, the rest are created here. Runs
 		// regardless of the main row's created flag so a backfill re-ingest of an
@@ -311,25 +354,16 @@ export async function ingestMediaFileTask(
 					await dependencies.enqueueTrickplayGeneration(episodeFile.id);
 				}
 
-				await dependencies.enqueueAnalysis(
-					{ libraryId: data.libraryId, mediaFileId: episodeFile.id, metadataId: target.metadataId },
-					taskScheduling,
-				);
-
-				await dependencies.saveSidecars(library, [
-					{ filePath: data.filePath, metadataId: target.metadataId, movieId: target.movieId, episodeId: target.episodeId },
-				]);
-				await dependencies.emitMediaDiscovered({
-					libraryId: data.libraryId,
-					mediaFileId: episodeFile.id,
-					correlationId: context.correlationId ?? orchestration.operationId ?? episodeFile.id,
-				});
-				await dependencies.emitMediaIdentified({
+				const episodeTarget: IngestTarget = {
 					mediaFileId: episodeFile.id,
 					metadataId: target.metadataId,
-					status: "matched",
-					correlationId: context.correlationId ?? orchestration.operationId ?? episodeFile.id,
-				});
+					movieId: target.movieId,
+					episodeId: target.episodeId,
+				};
+				await enqueueCompletionAnalysis(episodeTarget, input, dependencies);
+				await saveIngestSidecars(episodeTarget, input, dependencies);
+				await emitIngestDiscovered(episodeTarget, input, dependencies);
+				await emitIngestIdentified(episodeTarget, input, dependencies);
 			} catch (error) {
 				// The row count stays below the file's span, so the next scan
 				// re-ingests this file and retries the missing episode.
@@ -365,18 +399,6 @@ export async function ingestMediaFileTask(
 			await dependencies.enqueueTrickplayGeneration(createdMediaFile.id);
 		}
 
-		const input: IngestCompletionInput = {
-			data,
-			library,
-			createdMediaFile,
-			metadataId: mediaFile.metadataId,
-			movieId: mediaFile.movieId ?? null,
-			episodeId: mediaFile.episodeId ?? null,
-			context,
-			orchestration,
-			taskScheduling,
-		};
-
 		if (!created) {
 			// A retry can land here when the first attempt created the row but
 			// crashed before finishing its post-create side effects.
@@ -394,11 +416,14 @@ export async function ingestMediaFileTask(
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
 export function enqueueMediaFileIngest(data: MediaFileIngestData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(mediaFileIngestWorker.id, data, {
-		...options,
+	return workerService.addItem(mediaFileIngestWorker.id, data, { ...options, ...mediaFileIngestQueueOptions(data) });
+}
+
+function mediaFileIngestQueueOptions(data: MediaFileIngestData) {
+	return {
 		dedupeKey: `${data.libraryId}:${data.filePath}`,
 		reference: { type: "library", id: data.libraryId },
-	});
+	};
 }
 
 /** Batched variant of {@link enqueueMediaFileIngest} — one INSERT batch instead of one INSERT per file. */
@@ -407,11 +432,7 @@ export function enqueueManyMediaFileIngest(entries: readonly MediaFileIngestData
 		mediaFileIngestWorker.id,
 		entries.map((data) => ({
 			data,
-			options: {
-				...options,
-				dedupeKey: `${data.libraryId}:${data.filePath}`,
-				reference: { type: "library", id: data.libraryId },
-			},
+			options: { ...options, ...mediaFileIngestQueueOptions(data) },
 		})),
 	);
 }

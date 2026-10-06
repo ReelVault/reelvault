@@ -44,6 +44,81 @@ function createMockProcessedFile(overrides: Partial<ProcessedMediaFileWithMarker
 	};
 }
 
+interface MultiEpisodeHarness {
+	calls: string[];
+	discovered: Array<{ mediaFileId: string; correlationId: string | undefined }>;
+	identified: Array<{ mediaFileId: string; metadataId: string; correlationId: string | undefined }>;
+	dependencies: MediaFileIngestTaskDependencies;
+}
+
+function createMultiEpisodeHarness(failMetadataId?: string): MultiEpisodeHarness {
+	const calls: string[] = [];
+	const discovered: MultiEpisodeHarness["discovered"] = [];
+	const identified: MultiEpisodeHarness["identified"] = [];
+	const dependencies: MediaFileIngestTaskDependencies = {
+		findLibrary: () => Promise.resolve(createMockLibrary({ id: "library-1" })),
+		processFile: () =>
+			Promise.resolve(
+				createMockProcessedFile({
+					metadataId: "metadata-1",
+					movieId: null,
+					episodeId: "episode-1",
+					additionalTargets: [
+						{ metadataId: "metadata-2", movieId: null, episodeId: "episode-2" },
+						{ metadataId: "metadata-3", movieId: null, episodeId: "episode-3" },
+					],
+				}),
+			),
+		upsertScanFinding: () => Promise.resolve(),
+		deleteScanFinding: () => {
+			calls.push("clearFinding");
+
+			return Promise.resolve();
+		},
+		createMediaFile: (data) => {
+			calls.push(`persist:${data.metadataId}`);
+			if (data.metadataId === failMetadataId) return Promise.reject(new Error("episode row failed"));
+
+			return Promise.resolve({ mediaFile: { id: `media-${data.metadataId}` }, created: true });
+		},
+		importSidecarSubtitles: (mediaFileId) => {
+			calls.push(`subtitles:${mediaFileId}`);
+
+			return Promise.resolve(0);
+		},
+		findMediaByPaths: () => Promise.resolve([]),
+		saveSidecars: (_library, mediaFiles) => {
+			calls.push(`sidecars:${mediaFiles[0]?.metadataId}`);
+
+			return Promise.resolve();
+		},
+		emitMediaDiscovered: (payload) => {
+			calls.push(`discovered:${payload.mediaFileId}`);
+			discovered.push({ mediaFileId: payload.mediaFileId, correlationId: payload.correlationId });
+
+			return Promise.resolve();
+		},
+		emitMediaIdentified: (payload) => {
+			calls.push(`identified:${payload.mediaFileId}`);
+			identified.push({ mediaFileId: payload.mediaFileId, metadataId: payload.metadataId, correlationId: payload.correlationId });
+
+			return Promise.resolve();
+		},
+		enqueueAnalysis: (data) => {
+			calls.push(`analysis:${data.mediaFileId}`);
+
+			return Promise.resolve({ id: `analysis-${data.mediaFileId}` });
+		},
+		enqueueTrickplayGeneration: (mediaFileId) => {
+			calls.push(`trickplay:${mediaFileId}`);
+
+			return Promise.resolve({ id: `trickplay-${mediaFileId}` });
+		},
+	};
+
+	return { calls, discovered, identified, dependencies };
+}
+
 describe("media-file-ingest worker", () => {
 	test("persists one ingested file before scheduling its analysis", async () => {
 		const calls: string[] = [];
@@ -214,5 +289,77 @@ describe("media-file-ingest worker", () => {
 		).resolves.toMatchObject({ mediaFileId: "media-1", created: false, analysisTaskId: "analysis-1" });
 
 		expect(calls).toEqual(["clearFinding", "sidecars", "markSidecar", "discovered", "markDiscovered"]);
+	});
+
+	test("runs the completion sequence per additional episode target in order", async () => {
+		const { calls, discovered, identified, dependencies } = createMultiEpisodeHarness();
+
+		await expect(
+			ingestMediaFileTask({ libraryId: "library-1", libraryType: "tv_show", filePath: "/media/show.mkv" }, {}, dependencies),
+		).resolves.toMatchObject({ mediaFileId: "media-metadata-1", created: true, analysisTaskId: "analysis-media-metadata-1" });
+
+		expect(calls).toEqual([
+			"clearFinding",
+			"persist:metadata-1",
+			"persist:metadata-2",
+			"subtitles:media-metadata-2",
+			"trickplay:media-metadata-2",
+			"analysis:media-metadata-2",
+			"sidecars:metadata-2",
+			"discovered:media-metadata-2",
+			"identified:media-metadata-2",
+			"persist:metadata-3",
+			"subtitles:media-metadata-3",
+			"trickplay:media-metadata-3",
+			"analysis:media-metadata-3",
+			"sidecars:metadata-3",
+			"discovered:media-metadata-3",
+			"identified:media-metadata-3",
+			"subtitles:media-metadata-1",
+			"trickplay:media-metadata-1",
+			"sidecars:metadata-1",
+			"discovered:media-metadata-1",
+			"identified:media-metadata-1",
+			"analysis:media-metadata-1",
+		]);
+
+		// No correlation id in context — every emission falls back to its own row id.
+		expect(discovered.map((event) => [event.mediaFileId, event.correlationId])).toEqual([
+			["media-metadata-2", "media-metadata-2"],
+			["media-metadata-3", "media-metadata-3"],
+			["media-metadata-1", "media-metadata-1"],
+		]);
+		expect(identified.map((event) => [event.mediaFileId, event.metadataId, event.correlationId])).toEqual([
+			["media-metadata-2", "metadata-2", "media-metadata-2"],
+			["media-metadata-3", "metadata-3", "media-metadata-3"],
+			["media-metadata-1", "metadata-1", "media-metadata-1"],
+		]);
+	});
+
+	test("isolates a failed additional episode target and still completes the main row", async () => {
+		const { calls, dependencies } = createMultiEpisodeHarness("metadata-3");
+
+		await expect(
+			ingestMediaFileTask({ libraryId: "library-1", libraryType: "tv_show", filePath: "/media/show.mkv" }, {}, dependencies),
+		).resolves.toMatchObject({ mediaFileId: "media-metadata-1", created: true, analysisTaskId: "analysis-media-metadata-1" });
+
+		expect(calls).toEqual([
+			"clearFinding",
+			"persist:metadata-1",
+			"persist:metadata-2",
+			"subtitles:media-metadata-2",
+			"trickplay:media-metadata-2",
+			"analysis:media-metadata-2",
+			"sidecars:metadata-2",
+			"discovered:media-metadata-2",
+			"identified:media-metadata-2",
+			"persist:metadata-3",
+			"subtitles:media-metadata-1",
+			"trickplay:media-metadata-1",
+			"sidecars:metadata-1",
+			"discovered:media-metadata-1",
+			"identified:media-metadata-1",
+			"analysis:media-metadata-1",
+		]);
 	});
 });
