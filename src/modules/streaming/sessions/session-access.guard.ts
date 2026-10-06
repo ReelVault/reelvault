@@ -1,5 +1,5 @@
 import type { SessionAccessInfo } from "../runtime/session-state/session-store";
-import { playbackStreamingService } from "../streaming.service";
+import { sessionLifecycleService } from "./session-lifecycle.service";
 import { assertActiveStreamAccess, assertSessionOwnership, resolveSessionAccess } from "./stream-access";
 
 /**
@@ -9,8 +9,8 @@ import { assertActiveStreamAccess, assertSessionOwnership, resolveSessionAccess 
 export function assertSessionOwnershipById(sessionId: string, profileId?: string): SessionAccessInfo {
 	const session = resolveSessionAccess(
 		sessionId,
-		(id) => playbackStreamingService.getSessionAccess(id),
-		(id) => playbackStreamingService.getTerminatedSession(id),
+		(id) => sessionLifecycleService.getSessionAccess(id),
+		(id) => sessionLifecycleService.getTerminatedSession(id),
 	);
 	assertSessionOwnership(session, profileId);
 

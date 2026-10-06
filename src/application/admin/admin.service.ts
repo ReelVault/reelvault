@@ -15,7 +15,7 @@ import { updateCheckService } from "@/application/updates/update-check.service";
 import { updateInstallService } from "@/application/updates/update-install.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { adminStatsRepository } from "@/database/repositories/admin-stats.repository";
-import { playbackStreamingService } from "@/modules/streaming/streaming.service";
+import { sessionLifecycleService } from "@/modules/streaming/sessions/session-lifecycle.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { serverConfig } from "@/server.config";
@@ -59,7 +59,7 @@ class AdminService extends BaseService {
 	}
 
 	private async computeStats(): Promise<AdminStats> {
-		const activeSessions = playbackStreamingService.getActiveSessions();
+		const activeSessions = sessionLifecycleService.getActiveSessions();
 		const [workerStatsList, mediaRow, metadataRow, markersRow] = await Promise.all([
 			workerService.getStats().catch(() => []),
 			adminStatsRepository.getMediaStats(),
