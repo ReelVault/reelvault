@@ -1,10 +1,17 @@
 import { bench, main, suiteArgs } from "benchkit";
 import { databaseFactory } from "@/database/database";
+import { episodesRepository } from "@/database/repositories/episodes.repository";
+import { librariesRepository } from "@/database/repositories/libraries.repository";
+import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
+import { moviesRepository } from "@/database/repositories/movies.repository";
+import { peopleRepository } from "@/database/repositories/people.repository";
 import { watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { seedCatalog } from "./lib/seed";
 
-export const meta = { description: "Repository read paths on an isolated DB (metadata list/detail/similar, watched-history)" };
+export const meta = {
+	description: "Repository read paths on an isolated DB (metadata list/detail/similar, watched-history, projected lists)",
+};
 
 const PROFILE_ID = "profile-bench";
 const MOVIE_ID = "meta-0000001";
@@ -20,6 +27,7 @@ if (!args.help) {
 		repositoryExtras: true,
 		people: 200,
 		history: { profileId: PROFILE_ID, everyNth: 3, duration: 6000 },
+		series: { shows: 2, seasons: 2, episodesPerSeason: 10 },
 		analyze: true,
 	});
 
@@ -45,6 +53,28 @@ if (!args.help) {
 		warmup: 5,
 		iterations: args.iterations,
 	});
+	bench("peopleRepository.findPage (projected, 24)", async () => await peopleRepository.findPage({ limit: 24, fields: "id,name" }), {
+		warmup: 5,
+		iterations: args.iterations,
+	});
+	bench("moviesRepository.findPage (projected, 24)", async () => await moviesRepository.findPage({ limit: 24, fields: "id,metadataId" }), {
+		warmup: 5,
+		iterations: args.iterations,
+	});
+	bench(
+		"episodesRepository.findPage (projected, 24)",
+		async () => await episodesRepository.findPage({ limit: 24, fields: "id,title,seasonId" }),
+		{ warmup: 5, iterations: args.iterations },
+	);
+	bench("librariesRepository.findPage (projected, 24)", async () => await librariesRepository.findPage({ limit: 24, fields: "id,name" }), {
+		warmup: 5,
+		iterations: args.iterations,
+	});
+	bench(
+		"mediaRepository.findPage (projected subtitles, 24)",
+		async () => await mediaRepository.findPage({ limit: 24, fields: "id,fileName,subtitles.id,subtitles.language" }),
+		{ warmup: 5, iterations: args.iterations },
+	);
 }
 
 await main(import.meta);
