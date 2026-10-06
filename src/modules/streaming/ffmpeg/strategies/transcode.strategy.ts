@@ -25,9 +25,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 		decision: PlaybackDecision,
 		startTime = 0,
 	): Promise<Subprocess> {
-		await this.assertInputExists(inputPath);
-
-		const { segmentPattern, startNumber } = this.resolveSegmentOutput(outputDir, startTime);
+		const { segmentPattern, startNumber } = await this.prepareSession(inputPath, outputDir, startTime);
 
 		if (decision.audioTranscode) this.logger.debug("Transcoding audio", { sessionId });
 

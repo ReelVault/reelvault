@@ -49,6 +49,17 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 		};
 	}
 
+	/** Session prelude shared by every strategy: refuse a vanished input, then resolve the segment output. */
+	protected async prepareSession(
+		inputPath: string,
+		outputDir: string,
+		startTime: number,
+	): Promise<{ segmentPattern: string; startNumber: number }> {
+		await this.assertInputExists(inputPath);
+
+		return this.resolveSegmentOutput(outputDir, startTime);
+	}
+
 	/** `-analyzeduration`/`-probesize` input flags sized by container format. */
 	protected buildProbeInputArgs(formatName: string | null | undefined): string[] {
 		const probeBudget = probeBudgetForFormat(formatName);

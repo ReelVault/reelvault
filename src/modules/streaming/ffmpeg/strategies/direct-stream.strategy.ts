@@ -21,9 +21,7 @@ export class DirectStreamStrategy extends BaseStreamingStrategy {
 		decision: PlaybackDecision,
 		startTime = 0,
 	): Promise<Subprocess> {
-		await this.assertInputExists(inputPath);
-
-		const { segmentPattern, startNumber } = this.resolveSegmentOutput(outputDir, startTime);
+		const { segmentPattern, startNumber } = await this.prepareSession(inputPath, outputDir, startTime);
 
 		this.logger.debug(`Starting direct-stream at ${startTime}s (seg ${startNumber})`, { sessionId, startTime, startNumber });
 
