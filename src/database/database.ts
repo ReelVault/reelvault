@@ -15,12 +15,14 @@ import type { DatabaseTransaction, DatabaseType } from "./types";
 /** Migration folders ship next to this module (`src/database/migrations`). */
 export const MIGRATIONS_DIR = PathUtils.join(import.meta.dir, "migrations");
 
-const queryLogger = new DatabaseQueryLogger({
-	// Dev always logs; production opts in via APP_SLOW_QUERY_LOG=true while
-	// diagnosing storage slowness (warn level, ≥100 ms statements only).
-	enabled: env.NODE_ENV === "development" || env.APP_SLOW_QUERY_LOG === "true",
-	slowThresholdMs: 100,
-});
+export interface DatabaseFactoryOptions {
+	/**
+	 * Counts executed statements so benchmarks/tests can assert query counts.
+	 * Off by default; dev mode and `APP_SLOW_QUERY_LOG=true` keep the previous
+	 * diagnostic behavior. Never enabled on the production path.
+	 */
+	queryStats?: boolean | undefined;
+}
 
 interface TransactionContext {
 	depth: number;
@@ -37,20 +39,27 @@ export class DatabaseFactory {
 	 * main connection keep reading while a transaction holds the write lock.
 	 */
 	private readonly path: string;
+	private readonly queryLogger: DatabaseQueryLogger;
 	private txSqlite: Database | null = null;
 	private txDb: DatabaseType | null = null;
 	private readonly als = new AsyncLocalStorage<TransactionContext>();
 	private transactionLock: Promise<void> = Promise.resolve();
 
-	constructor(path = PathUtils.join(env.ROOT_DIR, env.DB_FILE_NAME)) {
+	constructor(path = PathUtils.join(env.ROOT_DIR, env.DB_FILE_NAME), options: DatabaseFactoryOptions = {}) {
 		this.path = path;
+		this.queryLogger = new DatabaseQueryLogger({
+			// Dev always logs; production opts in via APP_SLOW_QUERY_LOG=true while
+			// diagnosing storage slowness (warn level, ≥100 ms statements only).
+			enabled: options.queryStats === true || env.NODE_ENV === "development" || env.APP_SLOW_QUERY_LOG === "true",
+			slowThresholdMs: 100,
+		});
 		// With secrets provided via env, nothing else creates ROOT_DIR before this
 		// constructor runs at import time — a missing directory would surface as a
 		// raw SQLITE_CANTOPEN crash instead of a boot-time recovery.
 		mkdirSync(PathUtils.getDirName(path), { recursive: true });
 		this.sqlite = new Database(path);
 		this.configureConnection(this.sqlite);
-		this.db = drizzle({ client: instrumentSqliteClient(this.sqlite, queryLogger), relations, logger: queryLogger });
+		this.db = drizzle({ client: instrumentSqliteClient(this.sqlite, this.queryLogger), relations, logger: this.queryLogger });
 	}
 
 	/**
@@ -127,9 +136,18 @@ export class DatabaseFactory {
 
 	private getTransactionDrizzle(): DatabaseType {
 		const client = this.getTransactionClient();
-		this.txDb ??= drizzle({ client: instrumentSqliteClient(client, queryLogger), relations, logger: queryLogger });
+		this.txDb ??= drizzle({ client: instrumentSqliteClient(client, this.queryLogger), relations, logger: this.queryLogger });
 
 		return this.txDb;
+	}
+
+	/** Statements executed since the last reset (benchmarks/audits only). */
+	getQueryStats(): { queryCount: number; slowQueryCount: number } {
+		return this.queryLogger.getStats();
+	}
+
+	resetQueryStats(): void {
+		this.queryLogger.resetStats();
 	}
 
 	async transaction<T>(callback: (tx: DatabaseTransaction) => Promise<T>, options: { immediate?: boolean } = {}): Promise<T> {

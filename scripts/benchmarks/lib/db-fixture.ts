@@ -19,13 +19,15 @@ export interface BenchDbOptions {
 	seed: (db: Database) => number;
 	/** Run ANALYZE right after seeding (planner statistics). */
 	analyze: boolean;
+	/** Count executed statements via `factory.getQueryStats()` (query-count audit). */
+	queryStats?: boolean | undefined;
 }
 
 /** Isolated migrated+seeded database in a temp dir; shutdown and rm happen in cleanup. */
 export function benchDb(options: BenchDbOptions): Fixture<BenchDb> {
 	return fixture("bench-db", async ({ onCleanup }) => {
 		const rootDir = await mkdtemp(join(tmpdir(), `reelvault-benchmark-${options.label}-`));
-		const factory = new DatabaseFactory(join(rootDir, "reelvault.sqlite"));
+		const factory = new DatabaseFactory(join(rootDir, "reelvault.sqlite"), { queryStats: options.queryStats });
 		onCleanup(async () => {
 			factory.shutdown();
 			await rm(rootDir, { recursive: true, force: true });
