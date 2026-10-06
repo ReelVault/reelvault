@@ -52,27 +52,27 @@ export function buildMediaFileProjection(relationFields: string[] | undefined, r
 	return buildRelationProjection(relationFields, mediaFileColumns, ["id", relation]);
 }
 
-/**
- * Loads and attaches the `mediaFiles` relation for rows of one parent table
- * (movies by `movieId`, episodes by `episodeId`). Shared by the catalog
- * repositories' findMany/findFirst so the projection + groupBy dance lives here.
- */
-export async function attachMediaFiles<F extends string, TRow extends { id: string }>(
-	rows: TRow[],
-	options: {
-		fields?: FieldsConfig<F> | undefined;
-		/** Parent FK column on `media_files` (`movieId` / `episodeId`). */
-		relation: MediaFileRelation;
-		tx?: DatabaseTransaction | undefined;
-	},
-): Promise<Array<TRow & { mediaFiles: Array<typeof schema.mediaFiles.$inferSelect> }>> {
-	if (rows.length === 0) return [];
+interface WithMediaFiles {
+	mediaFiles: Array<typeof schema.mediaFiles.$inferSelect>;
+}
 
-	// Chunk on chunk boundaries to keep the parent-id `inArray` bounded; each
-	// row's media files are attached independently, so concatenation preserves order.
-	if (rows.length > serverConstants.database.queryChunkSize) {
-		return await mapChunked(rows, (rowChunk) => attachMediaFiles(rowChunk, options));
-	}
+interface MediaFileAttachmentOptions<F extends string> {
+	fields?: FieldsConfig<F> | undefined;
+	/** Parent FK column on `media_files` (`movieId` / `episodeId`). */
+	relation: MediaFileRelation;
+	tx?: DatabaseTransaction | undefined;
+}
+
+/**
+ * Loads and attaches the `mediaFiles` relation for one bounded batch of parent
+ * rows (movies by `movieId`, episodes by `episodeId`) — the single primitive
+ * behind {@link findManyWithMediaFiles} and {@link findFirstWithMediaFiles}.
+ */
+async function attachMediaFiles<F extends string, TRow extends { id: string }>(
+	rows: TRow[],
+	options: MediaFileAttachmentOptions<F>,
+): Promise<Array<TRow & WithMediaFiles>> {
+	if (rows.length === 0) return [];
 
 	const client = databaseFactory.getClient({ tx: options.tx });
 	const projection = options.fields?.relations.mediaFiles?.length
@@ -102,10 +102,6 @@ export async function attachMediaFiles<F extends string, TRow extends { id: stri
 	return rows.map((row) => ({ ...row, mediaFiles: mediaFilesByParentId.get(row.id) ?? [] }));
 }
 
-interface WithMediaFiles {
-	mediaFiles: Array<typeof schema.mediaFiles.$inferSelect>;
-}
-
 /**
  * Shared catalog read: attaches the `mediaFiles` relation to parent rows.
  * When `fields` excludes `mediaFiles` the relation is attached as an empty
@@ -114,14 +110,16 @@ interface WithMediaFiles {
  */
 export async function findManyWithMediaFiles<F extends string, TRow extends { id: string }>(
 	rows: TRow[],
-	options: {
-		fields?: FieldsConfig<F> | undefined;
-		relation: MediaFileRelation;
-		tx?: DatabaseTransaction | undefined;
-	},
+	options: MediaFileAttachmentOptions<F>,
 ): Promise<Array<TRow & WithMediaFiles>> {
 	if (!QueryFields.includes(options.fields, "mediaFiles")) {
 		return rows.map((row) => ({ ...row, mediaFiles: [] }));
+	}
+
+	// Chunk on chunk boundaries to keep the parent-id `inArray` bounded; each
+	// row's media files are attached independently, so concatenation preserves order.
+	if (rows.length > serverConstants.database.queryChunkSize) {
+		return await mapChunked(rows, (rowChunk) => attachMediaFiles(rowChunk, options));
 	}
 
 	return await attachMediaFiles(rows, options);
@@ -130,11 +128,7 @@ export async function findManyWithMediaFiles<F extends string, TRow extends { id
 /** Single-row variant of {@link findManyWithMediaFiles}. */
 export async function findFirstWithMediaFiles<F extends string, TRow extends { id: string }>(
 	row: TRow,
-	options: {
-		fields?: FieldsConfig<F> | undefined;
-		relation: MediaFileRelation;
-		tx?: DatabaseTransaction | undefined;
-	},
+	options: MediaFileAttachmentOptions<F>,
 ): Promise<(TRow & WithMediaFiles) | undefined> {
 	const rows = await findManyWithMediaFiles([row], options);
 

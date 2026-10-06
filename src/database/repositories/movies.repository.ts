@@ -43,7 +43,12 @@ class MoviesRepository {
 	readonly isExists = movies.isExists;
 
 	async findPage<F extends string>(query?: PaginationQuery & FieldsQuery<F> & MovieFilters & MovieSorting) {
-		return await findPageWithQueryMap(movies, movieQueryMap, query, (params) => this.findMany(params));
+		return await findPageWithQueryMap({
+			access: movies,
+			queryMap: movieQueryMap,
+			query,
+			findMany: (params) => this.findMany(params),
+		});
 	}
 
 	async findOrCreateByMetadataId({

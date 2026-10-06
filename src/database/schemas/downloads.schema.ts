@@ -7,9 +7,7 @@ import { profiles } from "./profiles.schema";
 export const downloads = sqliteTable(
 	"downloads",
 	{
-		id: DatabaseHelper.id,
-		profileId: DatabaseHelper.tableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		...DatabaseHelper.profileMediaFileRefs({ profileId: () => profiles.id, mediaFileId: () => mediaFiles.id }),
 
 		quality: text("quality", { enum: ["original", "1080p-high", "720p-mobile", "480p-low"] as const })
 			.notNull()

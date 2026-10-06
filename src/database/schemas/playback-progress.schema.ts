@@ -7,9 +7,7 @@ import { profiles } from "./profiles.schema";
 export const playbackProgress = sqliteTable(
 	"playback_progress",
 	{
-		id: DatabaseHelper.id,
-		profileId: DatabaseHelper.tableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		...DatabaseHelper.profileMediaFileRefs({ profileId: () => profiles.id, mediaFileId: () => mediaFiles.id }),
 
 		position: integer("position").notNull().default(0),
 		duration: integer("duration").notNull().default(0),

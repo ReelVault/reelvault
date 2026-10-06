@@ -25,6 +25,19 @@ export interface AdminAuditRecord {
 	context?: AdminAuditContext | undefined;
 }
 
+/** Audit list filters shared by the service API and the repository query. */
+export interface AdminAuditQuery {
+	page?: number | undefined;
+	limit?: number | undefined;
+	action?: AdminAuditAction | undefined;
+	resourceType?: string | undefined;
+	actorUserId?: string | undefined;
+	ipAddress?: string | undefined;
+	requestId?: string | undefined;
+	from?: string | undefined;
+	to?: string | undefined;
+}
+
 export class AdminAuditRepository {
 	readonly table = schema.adminAuditLogs;
 	private readonly database: Pick<DatabaseFactory, "getClient">;
@@ -63,17 +76,7 @@ export class AdminAuditRepository {
 		requestId,
 		from,
 		to,
-	}: {
-		page: number;
-		limit: number;
-		action?: AdminAuditAction | undefined;
-		resourceType?: string | undefined;
-		actorUserId?: string | undefined;
-		ipAddress?: string | undefined;
-		requestId?: string | undefined;
-		from?: string | undefined;
-		to?: string | undefined;
-	}) {
+	}: AdminAuditQuery & { page: number; limit: number }) {
 		const where: SQL[] = [];
 		if (action) where.push(eq(this.table.action, action));
 

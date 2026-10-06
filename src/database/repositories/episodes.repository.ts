@@ -72,7 +72,12 @@ class EpisodesRepository {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & EpisodeFilters & EpisodeSorting,
 	): Promise<PaginatedResponse<SelectFields<EpisodeWithRelations, F>>> {
-		return await findPageWithQueryMap(episodes, episodeQueryMap, query, (params) => this.findMany(params));
+		return await findPageWithQueryMap({
+			access: episodes,
+			queryMap: episodeQueryMap,
+			query,
+			findMany: (params) => this.findMany(params),
+		});
 	}
 
 	async findByIdForRead<F extends string>(episodeId: string, query?: FieldsQuery<F>) {

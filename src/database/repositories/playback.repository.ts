@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
+import { metadataImageOn } from "@/database/utils/join-conditions";
 import { metadataRepository } from "./metadata.repository";
 
 class PlaybackRepository {
@@ -322,7 +323,7 @@ class PlaybackRepository {
 					imageUpdatedAt: schema.images.updatedAt,
 				})
 				.from(schema.metadataImages)
-				.innerJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+				.innerJoin(schema.images, metadataImageOn)
 				.where(and(inArray(schema.metadataImages.metadataId, metadataIds), eq(schema.metadataImages.imageType, "backdrop"))),
 		]);
 

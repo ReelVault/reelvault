@@ -57,7 +57,12 @@ const overrides = {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & UserRatingFilters & UserRatingSorting,
 	): Promise<PaginatedResponse<SelectFields<UserRating, F>>> {
-		return await findPageWithQueryMap(userRatings, userRatingQueryMap, query);
+		return await findPageWithQueryMap({
+			access: userRatings,
+			queryMap: userRatingQueryMap,
+			query,
+			findMany: (params) => userRatings.findMany<F>(params),
+		});
 	},
 
 	async deleteForProfileMetadata({ profileId, metadataId, tx }: { profileId: string; metadataId: string; tx?: DatabaseTransaction }) {

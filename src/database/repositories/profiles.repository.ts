@@ -12,16 +12,11 @@ import type {
 import { and, desc, eq, ne } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import {
-	defineRepository,
-	defineTableAccess,
-	findPageWithQueryMap,
-	parseFieldsForRead,
-	selectFirstWithFields,
-} from "@/database/table-access";
+import { defineRepository, defineTableAccess, findPageWithQueryMap, parseFieldsForRead } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
+import { type PrimaryIdReadParams, selectByIdWithFields } from "@/database/utils/primary-id-read";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
 import { serverConstants } from "@/server.constants";
 import { MemoryCache } from "@/utils/memory-cache";
@@ -80,20 +75,8 @@ const overrides = {
 		profileCache.delete(profileId);
 	},
 
-	async findByPrimaryId<F extends string>({
-		primaryId,
-		fields,
-		tx,
-	}: {
-		primaryId: string;
-		fields?: FieldsConfig<F> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<Profile, F> | undefined> {
-		const profile = await selectFirstWithFields(profiles, { where: eq(profiles.primaryKeyColumn, primaryId), tx, fields });
-
-		if (!profile) return undefined;
-
-		return QueryFields.apply(profile, fields);
+	async findByPrimaryId<F extends string>(params: PrimaryIdReadParams<F>): Promise<SelectFields<Profile, F> | undefined> {
+		return await selectByIdWithFields(profiles, params);
 	},
 
 	async create<F extends string>({
@@ -150,7 +133,12 @@ const overrides = {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & ProfileFilters & ProfileSorting,
 	): Promise<PaginatedResponse<SelectFields<Profile, F>>> {
-		return await findPageWithQueryMap(profiles, profileQueryMap, query);
+		return await findPageWithQueryMap({
+			access: profiles,
+			queryMap: profileQueryMap,
+			query,
+			findMany: (params) => profiles.findMany<F>(params),
+		});
 	},
 
 	async createAndRead<F extends string>(

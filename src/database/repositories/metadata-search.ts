@@ -2,6 +2,7 @@ import type { GlobalSearchResponse } from "@reelvault/sdk/common";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { metadataImageOn, posterImagesOn } from "@/database/utils/join-conditions";
 import { toMap, trimAndFilter } from "@/utils/array.utils";
 import { fuzzyTitleDistance } from "@/utils/media-match.utils";
 import { titleMatchFilter } from "./metadata-filters";
@@ -117,7 +118,7 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 						imageUpdatedAt: schema.images.updatedAt,
 					})
 					.from(schema.metadataImages)
-					.innerJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+					.innerJoin(schema.images, metadataImageOn)
 					.where(
 						and(
 							inArray(
@@ -136,11 +137,8 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 						imageUpdatedAt: schema.images.updatedAt,
 					})
 					.from(schema.metadataCollections)
-					.innerJoin(
-						schema.metadataImages,
-						and(eq(schema.metadataImages.metadataId, schema.metadataCollections.metadataId), eq(schema.metadataImages.imageType, "poster")),
-					)
-					.innerJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+					.innerJoin(schema.metadataImages, posterImagesOn(schema.metadataCollections.metadataId))
+					.innerJoin(schema.images, metadataImageOn)
 					.where(
 						inArray(
 							schema.metadataCollections.collectionId,

@@ -122,7 +122,12 @@ class LibrariesRepository {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & LibrarySorting & LibraryFilters,
 	): Promise<PaginatedResponse<SelectFields<LibraryWithRelations, F>>> {
-		return await findPageWithQueryMap(libraries, libraryQueryMap, query, (params) => this.findMany(params));
+		return await findPageWithQueryMap({
+			access: libraries,
+			queryMap: libraryQueryMap,
+			query,
+			findMany: (params) => this.findMany(params),
+		});
 	}
 
 	/**

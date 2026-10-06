@@ -1,6 +1,5 @@
 import type {
 	CreateSubtitleRequest,
-	FieldsConfig,
 	PaginatedResponse,
 	PaginationQuery,
 	SelectFields,
@@ -16,6 +15,7 @@ import { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess, findPageWithQueryMap, selectFirstWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFiltering } from "@/database/utils/filtering";
+import { type FindFirstReadParams, type PrimaryIdReadParams, selectByPrimaryId } from "@/database/utils/primary-id-read";
 import type { QueryMap } from "@/database/utils/query-parser";
 
 const subtitles = defineTableAccess("subtitles", {
@@ -49,7 +49,12 @@ const subtitleQueryMap: QueryMap<SubtitleFilters, SubtitleSorting> = {
 
 const overrides = {
 	async findPage(query?: PaginationQuery & SubtitleFilters & SubtitleSorting): Promise<PaginatedResponse<SubtitleEntity>> {
-		return await findPageWithQueryMap(subtitles, subtitleQueryMap, query);
+		return await findPageWithQueryMap({
+			access: subtitles,
+			queryMap: subtitleQueryMap,
+			query,
+			findMany: (params) => subtitles.findMany(params),
+		});
 	},
 
 	async findByMediaFileId(mediaFileId: string, tx?: DatabaseTransaction) {
@@ -86,28 +91,12 @@ const overrides = {
 		return await subtitles.deleteAndReturn({ primaryId: id });
 	},
 
-	async findFirst<F extends string>({
-		where,
-		fields,
-		tx,
-	}: {
-		where?: SQL | undefined;
-		fields?: FieldsConfig<F> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<SubtitleEntity, F> | undefined> {
-		return await selectFirstWithFields(subtitles, { where, tx, fields });
+	async findFirst<F extends string>(params: FindFirstReadParams<F>): Promise<SelectFields<SubtitleEntity, F> | undefined> {
+		return await selectFirstWithFields(subtitles, params);
 	},
 
-	async findByPrimaryId<F extends string>({
-		primaryId,
-		fields,
-		tx,
-	}: {
-		primaryId: string;
-		fields?: FieldsConfig<F> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<SubtitleEntity, F> | undefined> {
-		return await getSubtitlesRepository().findFirst({ where: eq(subtitles.primaryKeyColumn, primaryId), fields, tx });
+	async findByPrimaryId<F extends string>(params: PrimaryIdReadParams<F>): Promise<SelectFields<SubtitleEntity, F> | undefined> {
+		return await selectByPrimaryId(subtitles, (readParams) => getSubtitlesRepository().findFirst(readParams), params);
 	},
 
 	async findOrCreateForMediaFile({

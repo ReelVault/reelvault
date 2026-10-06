@@ -1,5 +1,4 @@
 import type {
-	FieldsConfig,
 	FieldsQuery,
 	PaginatedResponse,
 	PaginationQuery,
@@ -8,7 +7,7 @@ import type {
 	SeasonSorting,
 	SelectFields,
 } from "@reelvault/sdk/common";
-import { and, eq, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, ne, or, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import {
@@ -20,6 +19,7 @@ import {
 } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFiltering } from "@/database/utils/filtering";
+import { type FindFirstReadParams, type PrimaryIdReadParams, selectByPrimaryId } from "@/database/utils/primary-id-read";
 import type { QueryMap } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { findOrCreateWithIdentityRecovery } from "@/database/utils/upsert-by-identity";
@@ -51,7 +51,12 @@ const overrides = {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & SeasonFilters & SeasonSorting,
 	): Promise<PaginatedResponse<SelectFields<Season, F>>> {
-		return await findPageWithQueryMap(seasons, seasonQueryMap, query);
+		return await findPageWithQueryMap({
+			access: seasons,
+			queryMap: seasonQueryMap,
+			query,
+			findMany: (params) => seasons.findMany<F>(params),
+		});
 	},
 
 	async findByIdForRead<F extends string>(seasonId: string, query?: FieldsQuery<F>) {
@@ -134,28 +139,12 @@ const overrides = {
 		});
 	},
 
-	async findByPrimaryId<F extends string>({
-		primaryId,
-		fields,
-		tx,
-	}: {
-		primaryId: string;
-		fields?: FieldsConfig<F> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<Season, F> | undefined> {
-		return await getSeasonsRepository().findFirst({ where: eq(seasons.primaryKeyColumn, primaryId), fields, tx });
+	async findByPrimaryId<F extends string>(params: PrimaryIdReadParams<F>): Promise<SelectFields<Season, F> | undefined> {
+		return await selectByPrimaryId(seasons, (readParams) => getSeasonsRepository().findFirst(readParams), params);
 	},
 
-	async findFirst<F extends string>({
-		where,
-		fields,
-		tx,
-	}: {
-		where?: SQL | undefined;
-		fields?: FieldsConfig<F> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<Season, F> | undefined> {
-		return await selectFirstWithFields(seasons, { where, tx, fields });
+	async findFirst<F extends string>(params: FindFirstReadParams<F>): Promise<SelectFields<Season, F> | undefined> {
+		return await selectFirstWithFields(seasons, params);
 	},
 };
 

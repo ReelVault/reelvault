@@ -10,6 +10,7 @@ import { schema } from "@/database/schema";
 import { defineTableAccess } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
+import { metadataImageOn } from "@/database/utils/join-conditions";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { MINUTE, serverConstants } from "@/server.constants";
@@ -213,24 +214,46 @@ class ImageRepository {
 		return { ownerStableKey: metadata.stableKey, currentLocalPath };
 	}
 
-	async replaceMetadataImage(metadataId: string, type: ImageProcess["type"], image: PersistedImageInput) {
+	/**
+	 * Shared image replacement for an owner row: load the owner (its specific
+	 * not-found/ownership error stays in the loader), upsert the image, let the
+	 * owner-specific writer persist the new id, then purge stale image rows that
+	 * nothing references anymore.
+	 */
+	private async replaceOwnerImage<TOwner>(
+		image: PersistedImageInput,
+		loadOwner: (tx: DatabaseTransaction) => Promise<TOwner>,
+		applyImage: (owner: TOwner, persisted: typeof schema.images.$inferSelect, tx: DatabaseTransaction) => Promise<string[]>,
+	): Promise<void> {
 		await databaseFactory.transaction(async (tx) => {
-			await this.findMetadataForImage(metadataId, tx);
-			const previous = await databaseFactory
-				.getClient({ tx })
-				.select({ imageId: schema.metadataImages.imageId })
-				.from(schema.metadataImages)
-				.where(and(eq(schema.metadataImages.metadataId, metadataId), eq(schema.metadataImages.imageType, type)));
+			const owner = await loadOwner(tx);
 			const persisted = await this.upsertImage(image, tx);
-			await metadataRepository.deleteImages({
-				where: and(eq(schema.metadataImages.metadataId, metadataId), eq(schema.metadataImages.imageType, type)),
-				tx,
-			});
-			await metadataRepository.insertImages({ values: { metadataId, imageId: persisted.id, imageType: type }, tx });
-			for (const row of previous) {
-				if (row.imageId !== persisted.id) await this.deleteImageIfUnreferenced(row.imageId, tx);
+			const staleImageIds = await applyImage(owner, persisted, tx);
+			for (const staleImageId of staleImageIds) {
+				if (staleImageId !== persisted.id) await this.deleteImageIfUnreferenced(staleImageId, tx);
 			}
 		});
+	}
+
+	async replaceMetadataImage(metadataId: string, type: ImageProcess["type"], image: PersistedImageInput) {
+		await this.replaceOwnerImage(
+			image,
+			async (tx) => await this.findMetadataForImage(metadataId, tx),
+			async (_metadata, persisted, tx) => {
+				const previous = await databaseFactory
+					.getClient({ tx })
+					.select({ imageId: schema.metadataImages.imageId })
+					.from(schema.metadataImages)
+					.where(and(eq(schema.metadataImages.metadataId, metadataId), eq(schema.metadataImages.imageType, type)));
+				await metadataRepository.deleteImages({
+					where: and(eq(schema.metadataImages.metadataId, metadataId), eq(schema.metadataImages.imageType, type)),
+					tx,
+				});
+				await metadataRepository.insertImages({ values: { metadataId, imageId: persisted.id, imageType: type }, tx });
+
+				return previous.map((row) => row.imageId);
+			},
+		);
 	}
 
 	/**
@@ -283,13 +306,15 @@ class ImageRepository {
 	}
 
 	async replaceSeasonImage(metadataId: string, seasonId: string, image: PersistedImageInput) {
-		await databaseFactory.transaction(async (tx) => {
-			const season = await this.findSeasonOwnedBy(metadataId, seasonId, tx);
+		await this.replaceOwnerImage(
+			image,
+			async (tx) => await this.findSeasonOwnedBy(metadataId, seasonId, tx),
+			async (season, persisted, tx) => {
+				await seasonsRepository.update({ primaryId: seasonId, values: { imageId: persisted.id }, tx });
 
-			const persisted = await this.upsertImage(image, tx);
-			await seasonsRepository.update({ primaryId: seasonId, values: { imageId: persisted.id }, tx });
-			if (season.imageId && season.imageId !== persisted.id) await this.deleteImageIfUnreferenced(season.imageId, tx);
-		});
+				return season.imageId ? [season.imageId] : [];
+			},
+		);
 	}
 
 	private async findEpisodeOwnedBy(metadataId: string, episodeId: string, tx?: DatabaseTransaction) {
@@ -316,13 +341,15 @@ class ImageRepository {
 	}
 
 	async replaceEpisodeImage(metadataId: string, episodeId: string, image: PersistedImageInput) {
-		await databaseFactory.transaction(async (tx) => {
-			const row = await this.findEpisodeOwnedBy(metadataId, episodeId, tx);
+		await this.replaceOwnerImage(
+			image,
+			async (tx) => await this.findEpisodeOwnedBy(metadataId, episodeId, tx),
+			async (row, persisted, tx) => {
+				await episodesRepository.update({ primaryId: episodeId, values: { imageId: persisted.id }, tx });
 
-			const persisted = await this.upsertImage(image, tx);
-			await episodesRepository.update({ primaryId: episodeId, values: { imageId: persisted.id }, tx });
-			if (row.imageId && row.imageId !== persisted.id) await this.deleteImageIfUnreferenced(row.imageId, tx);
-		});
+				return row.imageId ? [row.imageId] : [];
+			},
+		);
 	}
 
 	private async findPersonForImage(personId: string, tx?: DatabaseTransaction) {
@@ -346,13 +373,15 @@ class ImageRepository {
 	}
 
 	async replacePersonImage(personId: string, image: PersistedImageInput) {
-		await databaseFactory.transaction(async (tx) => {
-			const person = await this.findPersonForImage(personId, tx);
+		await this.replaceOwnerImage(
+			image,
+			async (tx) => await this.findPersonForImage(personId, tx),
+			async (person, persisted, tx) => {
+				await peopleRepository.update({ primaryId: personId, values: { imageId: persisted.id }, tx });
 
-			const persisted = await this.upsertImage(image, tx);
-			await peopleRepository.update({ primaryId: personId, values: { imageId: persisted.id }, tx });
-			if (person.imageId && person.imageId !== persisted.id) await this.deleteImageIfUnreferenced(person.imageId, tx);
-		});
+				return person.imageId ? [person.imageId] : [];
+			},
+		);
 	}
 
 	async getProfileAvatarTarget(profileId: string): Promise<ImageOwnerTarget> {
@@ -385,7 +414,7 @@ class ImageRepository {
 			.getClient({ tx })
 			.select({ localPath: schema.images.localPath })
 			.from(schema.metadataImages)
-			.innerJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+			.innerJoin(schema.images, metadataImageOn)
 			.where(and(eq(schema.metadataImages.metadataId, metadataId), eq(schema.metadataImages.imageType, imageType)))
 			.limit(1);
 

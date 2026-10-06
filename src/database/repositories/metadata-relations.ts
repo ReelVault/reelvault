@@ -7,6 +7,7 @@ import { schema } from "@/database/schema";
 import { pickColumns } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
+import { metadataImageOn } from "@/database/utils/join-conditions";
 import { serverConstants } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
 import { calculateAverageScore } from "./metadata-recommendations";
@@ -161,7 +162,7 @@ export async function loadRelations<F extends string>(
 					data: selectColumns(nestedRelationFields(relationFields(fields, "images"), "data"), imageColumns),
 				})
 				.from(schema.metadataImages)
-				.innerJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+				.innerJoin(schema.images, metadataImageOn)
 				.where(inArray(schema.metadataImages.metadataId, metadataIds)),
 		),
 		loadIf(includes("rating"), async () =>

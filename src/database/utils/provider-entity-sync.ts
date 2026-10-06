@@ -147,6 +147,7 @@ export async function processNamedEntities<T extends NamedProviderEntity>({
 	entityType,
 	entityLabel,
 	tx,
+	context,
 	insertEntities,
 	selectEntities,
 	persistAssociations,
@@ -156,10 +157,12 @@ export async function processNamedEntities<T extends NamedProviderEntity>({
 	entityType: ProviderEntityType;
 	entityLabel: string;
 	tx?: DatabaseTransaction | undefined;
+	/** Extra fields attached to the guard/error logs (e.g. `metadataId`). */
+	context?: Record<string, unknown> | undefined;
 } & ProviderEntitySyncHandlers<T>): Promise<void> {
 	const logger = createLogger("processNamedEntities");
 	if (!items?.length) {
-		logger.debug(`No ${entityLabel} to process`);
+		logger.debug(`No ${entityLabel} to process`, context);
 
 		return;
 	}
@@ -175,7 +178,7 @@ export async function processNamedEntities<T extends NamedProviderEntity>({
 			persistAssociations,
 		});
 	} catch (error) {
-		logger.error(`Failed to process ${entityLabel}`, error);
+		logger.error(`Failed to process ${entityLabel}`, error, context);
 		throw error;
 	}
 }

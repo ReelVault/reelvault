@@ -172,7 +172,12 @@ class MediaRepository {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & MediaFileFilters & MediaFileSorting,
 	): Promise<PaginatedResponse<SelectFields<MediaFileWithRelation, F>>> {
-		return await findPageWithQueryMap(mediaFiles, mediaFileQueryMap, query, (params) => this.findMany(params));
+		return await findPageWithQueryMap({
+			access: mediaFiles,
+			queryMap: mediaFileQueryMap,
+			query,
+			findMany: (params) => this.findMany(params),
+		});
 	}
 
 	async findByIdForRead<F extends string>(mediaFileId: string, query?: FieldsQuery<F>) {

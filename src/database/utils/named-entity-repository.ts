@@ -89,7 +89,8 @@ export function defineNamedEntityRepository<
 
 		findPage: async <F extends string>(
 			query?: PaginationQuery & FieldsQuery<F> & TFilters & TSorting,
-		): Promise<PaginatedResponse<SelectFields<EntityRow, F>>> => await findPageWithQueryMap(entity, config.queryMap, query),
+		): Promise<PaginatedResponse<SelectFields<EntityRow, F>>> =>
+			await findPageWithQueryMap({ access: entity, queryMap: config.queryMap, query, findMany: (params) => entity.findMany<F>(params) }),
 
 		findByIdForRead: async <F extends string>(entityId: string, query?: FieldsQuery<F>) =>
 			await entity.findById({ primaryId: entityId, fields: parseFieldsForRead(query) }),

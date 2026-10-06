@@ -319,47 +319,32 @@ type FindManyPageFn<F extends string, TRow> = (params: {
 	tx?: DatabaseTransaction | undefined;
 }) => Promise<TRow[]>;
 
-export async function findPageWithQueryMap<
-	TTable extends DatabaseTables,
-	TFilters extends object,
-	TSorting extends SortQuery,
-	F extends string,
->(
-	access: TableAccess<TTable>,
-	queryMap: QueryMap<TFilters, TSorting>,
-	query?: PaginationQuery & FieldsQuery<F> & TFilters & TSorting,
-): Promise<PaginatedResponse<SelectFields<TableSelect<TTable>, F>>>;
-
-export async function findPageWithQueryMap<
-	TTable extends DatabaseTables,
-	TFilters extends object,
-	TSorting extends SortQuery,
-	F extends string,
-	TRow,
->(
-	access: TableAccess<TTable>,
-	queryMap: QueryMap<TFilters, TSorting>,
-	query: (PaginationQuery & FieldsQuery<F> & TFilters & TSorting) | undefined,
-	/**
-	 * Repositories whose `findMany` loads relations (or applies other row
-	 * enrichment) pass it here so pagination shares one implementation; when
-	 * omitted the table-access `findMany` is used directly.
-	 */
-	findMany: FindManyPageFn<F, TRow>,
-): Promise<PaginatedResponse<TRow>>;
-
+/**
+ * Paginated list over a table access with a caller-supplied page loader.
+ * Repositories whose `findMany` loads relations (or applies other row
+ * enrichment) pass it here so pagination shares one implementation; plain
+ * reads pass the table-access `findMany` itself. `findMany` is required so the
+ * page row type is inferred from the loader — the previous overload pair
+ * duplicated the generic list and could not express the relation-loading
+ * variant in one signature.
+ */
 export async function findPageWithQueryMap<
 	TTable extends DatabaseTables,
 	TFilters extends object,
 	TSorting extends SortQuery,
 	F extends string,
 	TRow,
->(
-	access: TableAccess<TTable>,
-	queryMap: QueryMap<TFilters, TSorting>,
-	query: (PaginationQuery & FieldsQuery<F> & TFilters & TSorting) | undefined,
-	findMany?: FindManyPageFn<F, TRow>,
-): Promise<PaginatedResponse<TRow> | PaginatedResponse<SelectFields<TableSelect<TTable>, F>>> {
+>({
+	access,
+	queryMap,
+	query,
+	findMany,
+}: {
+	access: TableAccess<TTable>;
+	queryMap: QueryMap<TFilters, TSorting>;
+	query?: (PaginationQuery & FieldsQuery<F> & TFilters & TSorting) | undefined;
+	findMany: FindManyPageFn<F, TRow>;
+}): Promise<PaginatedResponse<TRow>> {
 	const { pagination, fields, sorting, filters } = QueryUtils.parseWithFilters<F, TFilters, TSorting>(query);
 	const where = QueryUtils.buildWhereConditions(filters, queryMap.filters);
 	const baseOrderBy = QueryUtils.buildOrderBy(sorting, queryMap.orderBy, queryMap.defaults);
@@ -369,14 +354,7 @@ export async function findPageWithQueryMap<
 	const orderBy = baseOrderBy ? sql`${baseOrderBy}, ${access.primaryKeyColumn}` : undefined;
 	const pageParams = { where, orderBy, fields, limit: pagination.limit, offset: pagination.offset };
 	const countPromise = cachedCount(access.tableName, filterSignature(filters, queryMap.filters), () => access.count({ where }));
-
-	if (findMany) {
-		const [total, data] = await Promise.all([countPromise, findMany(pageParams)]);
-
-		return QueryPagination.createResponse({ total, pagination, data });
-	}
-
-	const [total, data] = await Promise.all([countPromise, access.findMany<F>(pageParams)]);
+	const [total, data] = await Promise.all([countPromise, findMany(pageParams)]);
 
 	return QueryPagination.createResponse({ total, pagination, data });
 }

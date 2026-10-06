@@ -432,32 +432,28 @@ class WorkerJobRepository {
 	async complete(id: string, runnerId: string, result: string, claimToken?: string): Promise<boolean> {
 		const now = new Date();
 
-		return await databaseFactory.transaction(async (tx) => {
-			const updated = await tx
-				.update(items)
-				.set({
-					status: "completed",
-					result,
-					error: null,
-					...RELEASE_CLAIM,
-					progressPercent: 100,
-					completedAt: now,
-					updatedAt: now,
-				})
-				.where(runningJobWhere(id, runnerId, claimToken))
-				.returning({ id: items.id, operationId: items.operationId });
-
-			const updatedJob = updated[0];
-			if (updatedJob) {
-				if (updatedJob.operationId) {
-					await workerOperationRepository.markJobFinished(updatedJob.operationId, "completed", now, tx);
-				}
-
-				return true;
-			}
-
-			return false;
-		});
+		return await databaseFactory.transaction(
+			async (tx) =>
+				await this.terminalizeRunning(tx, {
+					id,
+					runnerId,
+					claimToken,
+					values: {
+						status: "completed",
+						result,
+						error: null,
+						...RELEASE_CLAIM,
+						progressPercent: 100,
+						completedAt: now,
+						updatedAt: now,
+					},
+					afterUpdated: async (updatedJob) => {
+						if (updatedJob.operationId) {
+							await workerOperationRepository.markJobFinished(updatedJob.operationId, "completed", now, tx);
+						}
+					},
+				}),
+		);
 	}
 
 	async retry(id: string, runnerId: string, runAt: Date, error: string, claimToken?: string): Promise<boolean> {
@@ -486,32 +482,28 @@ class WorkerJobRepository {
 	async fail(id: string, runnerId: string, error: string, claimToken?: string): Promise<boolean> {
 		const now = new Date();
 
-		return await databaseFactory.transaction(async (tx) => {
-			const updated = await tx
-				.update(items)
-				.set({
-					status: "failed",
-					error,
-					...RELEASE_CLAIM,
-					completedAt: now,
-					updatedAt: now,
-				})
-				.where(runningJobWhere(id, runnerId, claimToken))
-				.returning({ id: items.id, operationId: items.operationId });
+		return await databaseFactory.transaction(
+			async (tx) =>
+				await this.terminalizeRunning(tx, {
+					id,
+					runnerId,
+					claimToken,
+					values: {
+						status: "failed",
+						error,
+						...RELEASE_CLAIM,
+						completedAt: now,
+						updatedAt: now,
+					},
+					afterUpdated: async (updatedJob) => {
+						if (updatedJob.operationId) {
+							await workerOperationRepository.markJobFinished(updatedJob.operationId, "failed", now, tx);
+						}
 
-			const updatedJob = updated[0];
-			if (updatedJob) {
-				if (updatedJob.operationId) {
-					await workerOperationRepository.markJobFinished(updatedJob.operationId, "failed", now, tx);
-				}
-
-				await this.cascadeCancel(tx, [id], now);
-
-				return true;
-			}
-
-			return false;
-		});
+						await this.cascadeCancel(tx, [id], now);
+					},
+				}),
+		);
 	}
 
 	async cancelPending(id: string, tx?: DatabaseTransaction): Promise<boolean> {
@@ -814,13 +806,7 @@ class WorkerJobRepository {
 		rows: Array<{ id: string; operationId: string | null }>,
 		now: Date,
 	): Promise<number> {
-		if (rows.length === 0) return 0;
-
-		const updated = await this.updateRunningRowsChunked(
-			tx,
-			rows.map((row) => row.id),
-			{ status: "pending", ...RELEASE_CLAIM, updatedAt: now },
-		);
+		const updated = await this.recoverRows(tx, rows, { status: "pending", ...RELEASE_CLAIM, updatedAt: now });
 
 		const recovered = rows.filter((row) => updated.has(row.id));
 		await applyOperationCounts(toOperationCounts(recovered), (operationId, amount) =>
@@ -836,19 +822,13 @@ class WorkerJobRepository {
 		rows: Array<{ id: string; operationId: string | null }>,
 		now: Date,
 	): Promise<number> {
-		if (rows.length === 0) return 0;
-
-		const updated = await this.updateRunningRowsChunked(
-			tx,
-			rows.map((row) => row.id),
-			{
-				status: "failed",
-				...RELEASE_CLAIM,
-				error: "Lease expired after maximum attempts",
-				completedAt: now,
-				updatedAt: now,
-			},
-		);
+		const updated = await this.recoverRows(tx, rows, {
+			status: "failed",
+			...RELEASE_CLAIM,
+			error: "Lease expired after maximum attempts",
+			completedAt: now,
+			updatedAt: now,
+		});
 
 		const failedRows = rows.filter((row) => updated.has(row.id));
 		await applyOperationCounts(toOperationCounts(failedRows), (operationId, amount) =>
@@ -862,6 +842,56 @@ class WorkerJobRepository {
 		);
 
 		return updated.size;
+	}
+
+	/** Shared prefix of the orphan-recovery transitions: guarded chunked UPDATE over the still-`running` rows. */
+	private async recoverRows(
+		tx: DatabaseTransaction,
+		rows: Array<{ id: string; operationId: string | null }>,
+		values: SQLiteUpdateSetSource<typeof items>,
+	): Promise<Set<string>> {
+		if (rows.length === 0) return new Set();
+
+		return await this.updateRunningRowsChunked(
+			tx,
+			rows.map((row) => row.id),
+			values,
+		);
+	}
+
+	/**
+	 * Shared guarded terminal transition for one running job. The caller owns the
+	 * status-specific values and after-hook (operation counters / dependent
+	 * cascade); the `updatedJob ? … : false` result contract lives here.
+	 */
+	private async terminalizeRunning(
+		tx: DatabaseTransaction,
+		{
+			id,
+			runnerId,
+			claimToken,
+			values,
+			afterUpdated,
+		}: {
+			id: string;
+			runnerId: string;
+			claimToken?: string | undefined;
+			values: SQLiteUpdateSetSource<typeof items>;
+			afterUpdated: (updatedJob: { operationId: string | null }) => Promise<void>;
+		},
+	): Promise<boolean> {
+		const updated = await tx
+			.update(items)
+			.set(values)
+			.where(runningJobWhere(id, runnerId, claimToken))
+			.returning({ id: items.id, operationId: items.operationId });
+
+		const updatedJob = updated[0];
+		if (!updatedJob) return false;
+
+		await afterUpdated(updatedJob);
+
+		return true;
 	}
 
 	/** Guarded UPDATE per id chunk (`status = 'running'`), returning the ids actually transitioned. */

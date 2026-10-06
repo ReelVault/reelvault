@@ -10,6 +10,7 @@ import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount, defineTableAccess, filterSignature, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
+import { metadataImageOn, metadataOn, posterImagesOn } from "@/database/utils/join-conditions";
 import { type CreatedAtCursor, decodeCursorFor, KeysetCursor, keysetWhere } from "@/database/utils/keyset-cursor";
 import { QueryPagination } from "@/database/utils/pagination";
 import { QueryUtils } from "@/database/utils/query-parser";
@@ -94,7 +95,7 @@ class WatchedHistoryRepository {
 			})
 			.from(schema.watchedHistory)
 			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.watchedHistory.mediaFileId))
-			.innerJoin(schema.metadata, eq(schema.metadata.id, schema.mediaFiles.metadataId))
+			.innerJoin(schema.metadata, metadataOn(schema.mediaFiles.metadataId))
 			.leftJoin(schema.episodes, eq(schema.episodes.id, schema.mediaFiles.episodeId))
 			.leftJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
 			.where(where)
@@ -111,7 +112,7 @@ class WatchedHistoryRepository {
 			const backdrops = await client
 				.select({ metadataId: schema.metadataImages.metadataId, image: schema.images })
 				.from(schema.metadataImages)
-				.innerJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+				.innerJoin(schema.images, metadataImageOn)
 				.where(and(inArray(schema.metadataImages.metadataId, metadataIds), eq(schema.metadataImages.imageType, "backdrop")));
 			for (const backdrop of backdrops) {
 				if (!backdropByMetadataId.has(backdrop.metadataId)) backdropByMetadataId.set(backdrop.metadataId, backdrop.image);
@@ -272,7 +273,7 @@ class WatchedHistoryRepository {
 		// The type filter must shrink the grouped set before the limit, so the
 		// metadata join is pulled inside only when a mediaType is requested.
 		if (options.mediaType) {
-			totalsQuery = totalsQuery.innerJoin(schema.metadata, eq(schema.metadata.id, schema.mediaFiles.metadataId));
+			totalsQuery = totalsQuery.innerJoin(schema.metadata, metadataOn(schema.mediaFiles.metadataId));
 		}
 
 		const totals = totalsQuery
@@ -295,12 +296,9 @@ class WatchedHistoryRepository {
 				isCompleted: sql<boolean>`${totals.isCompleted}`.mapWith(Boolean),
 			})
 			.from(totals)
-			.innerJoin(schema.metadata, eq(schema.metadata.id, totals.metadataId))
-			.leftJoin(
-				schema.metadataImages,
-				and(eq(schema.metadataImages.metadataId, schema.metadata.id), eq(schema.metadataImages.imageType, "poster")),
-			)
-			.leftJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+			.innerJoin(schema.metadata, metadataOn(totals.metadataId))
+			.leftJoin(schema.metadataImages, posterImagesOn(schema.metadata.id))
+			.leftJoin(schema.images, metadataImageOn)
 			.orderBy(desc(totals.totalDurationWatched));
 	}
 
@@ -392,11 +390,8 @@ class WatchedHistoryRepository {
 			.innerJoin(schema.profiles, eq(schema.profiles.id, schema.watchedHistory.profileId))
 			.innerJoin(schema.users, eq(schema.users.id, schema.profiles.userId))
 			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.watchedHistory.mediaFileId))
-			.innerJoin(schema.metadata, eq(schema.metadata.id, schema.mediaFiles.metadataId))
-			.leftJoin(
-				schema.metadataImages,
-				and(eq(schema.metadataImages.metadataId, schema.metadata.id), eq(schema.metadataImages.imageType, "poster")),
-			)
+			.innerJoin(schema.metadata, metadataOn(schema.mediaFiles.metadataId))
+			.leftJoin(schema.metadataImages, posterImagesOn(schema.metadata.id))
 			.where(whereClause)
 			.orderBy(desc(schema.watchedHistory.watchedAt))
 			.limit(15);

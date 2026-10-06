@@ -20,14 +20,14 @@ import { defineTableAccess, parseFieldsForRead } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
+import { metadataImageOn, posterImagesOn } from "@/database/utils/join-conditions";
 import { QueryPagination } from "@/database/utils/pagination";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { runInTransaction } from "@/database/utils/transaction";
 import { serverConstants } from "@/server.constants";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
-import { createLogger } from "@/utils/logger";
-import { syncNamedProviderEntities, upsertNamedEntities } from "../utils/provider-entity-sync";
+import { processNamedEntities, upsertNamedEntities } from "../utils/provider-entity-sync";
 import { metadataRepository } from "./metadata.repository";
 
 const collections = defineTableAccess("collections", {
@@ -58,7 +58,6 @@ interface PosterImage {
 }
 
 class CollectionsRepository {
-	private readonly logger = createLogger(this.constructor.name);
 	readonly table = schema.collections;
 	readonly primaryKeyColumn = collections.primaryKeyColumn;
 	readonly query = collections.query;
@@ -335,43 +334,34 @@ class CollectionsRepository {
 		collections?: ProviderResultCollection[] | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}) {
-		if (!providerCollections?.length) {
-			this.logger.debug("No collections to process", { metadataId });
-
-			return;
-		}
-
-		try {
-			await syncNamedProviderEntities({
-				items: providerCollections,
-				providerName,
-				entityType: "collection",
-				tx,
-				insertEntities: async (items) => await upsertNamedEntities(this.table, items, tx),
-				selectEntities: async (names) => await this.findByColumnIn(this.table.name, names, { tx }),
-				persistAssociations: async (associations) => {
-					const uniqueEntityIds = unique(associations, ({ entityId }) => entityId);
-					const nextSortOrders = await this.nextManualSortOrders(uniqueEntityIds, tx);
-					await Promise.all([
-						this.insertProviders({
-							values: associations.flatMap(({ entityId, providerId }) => (providerId ? [{ collectionId: entityId, providerId }] : [])),
-							tx,
-						}),
-						metadataRepository.insertCollections({
-							values: uniqueEntityIds.map((entityId) => ({
-								metadataId,
-								collectionId: entityId,
-								sortOrder: nextSortOrders.get(entityId) ?? 0,
-							})),
-							tx,
-						}),
-					]);
-				},
-			});
-		} catch (error) {
-			this.logger.error("Failed to process collection", error, { metadataId });
-			throw error;
-		}
+		await processNamedEntities({
+			items: providerCollections,
+			providerName,
+			entityType: "collection",
+			entityLabel: "collections",
+			tx,
+			context: { metadataId },
+			insertEntities: async (items) => await upsertNamedEntities(this.table, items, tx),
+			selectEntities: async (names) => await this.findByColumnIn(this.table.name, names, { tx }),
+			persistAssociations: async (associations) => {
+				const uniqueEntityIds = unique(associations, ({ entityId }) => entityId);
+				const nextSortOrders = await this.nextManualSortOrders(uniqueEntityIds, tx);
+				await Promise.all([
+					this.insertProviders({
+						values: associations.flatMap(({ entityId, providerId }) => (providerId ? [{ collectionId: entityId, providerId }] : [])),
+						tx,
+					}),
+					metadataRepository.insertCollections({
+						values: uniqueEntityIds.map((entityId) => ({
+							metadataId,
+							collectionId: entityId,
+							sortOrder: nextSortOrders.get(entityId) ?? 0,
+						})),
+						tx,
+					}),
+				]);
+			},
+		});
 	}
 
 	private async nextManualSortOrders(collectionIds: string[], tx?: DatabaseTransaction): Promise<Map<string, number>> {
@@ -436,11 +426,8 @@ class CollectionsRepository {
 				),
 			})
 			.from(schema.metadataCollections)
-			.innerJoin(
-				schema.metadataImages,
-				and(eq(schema.metadataImages.metadataId, schema.metadataCollections.metadataId), eq(schema.metadataImages.imageType, "poster")),
-			)
-			.innerJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+			.innerJoin(schema.metadataImages, posterImagesOn(schema.metadataCollections.metadataId))
+			.innerJoin(schema.images, metadataImageOn)
 			.where(inArray(schema.metadataCollections.collectionId, collectionIds))
 			.groupBy(schema.metadataCollections.collectionId, schema.metadataImages.imageId)
 			.as("ranked_posters");

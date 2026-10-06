@@ -71,7 +71,12 @@ class PeopleRepository {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & PersonFilters & PersonSorting,
 	): Promise<PaginatedResponse<SelectFields<PersonWithRelations, F>>> {
-		return await findPageWithQueryMap(people, personQueryMap, query, (params) => this.findMany(params));
+		return await findPageWithQueryMap({
+			access: people,
+			queryMap: personQueryMap,
+			query,
+			findMany: (params) => this.findMany(params),
+		});
 	}
 
 	async findByIdForRead<F extends string>(personId: string, query?: FieldsQuery<F>) {

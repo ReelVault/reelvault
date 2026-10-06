@@ -1,6 +1,7 @@
 import { and, desc, eq, gt, inArray, max } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { metadataImageOn, metadataOn, posterImagesOn } from "@/database/utils/join-conditions";
 
 /**
  * Composite reads backing the admin "live activity" view. Kept out of the
@@ -27,12 +28,9 @@ class LiveSessionsRepository {
 				seasonNumber: schema.seasons.seasonNumber,
 			})
 			.from(schema.mediaFiles)
-			.innerJoin(schema.metadata, eq(schema.metadata.id, schema.mediaFiles.metadataId))
-			.leftJoin(
-				schema.metadataImages,
-				and(eq(schema.metadataImages.metadataId, schema.metadata.id), eq(schema.metadataImages.imageType, "poster")),
-			)
-			.leftJoin(schema.images, eq(schema.images.id, schema.metadataImages.imageId))
+			.innerJoin(schema.metadata, metadataOn(schema.mediaFiles.metadataId))
+			.leftJoin(schema.metadataImages, posterImagesOn(schema.metadata.id))
+			.leftJoin(schema.images, metadataImageOn)
 			.leftJoin(schema.episodes, eq(schema.episodes.id, schema.mediaFiles.episodeId))
 			.leftJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
 			.where(inArray(schema.mediaFiles.id, [...mediaFileIds]));

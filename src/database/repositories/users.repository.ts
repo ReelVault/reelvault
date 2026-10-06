@@ -1,7 +1,7 @@
-import type { FieldsConfig, SelectFields, User } from "@reelvault/sdk/common";
-import { and, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
+import type { SelectFields, User } from "@reelvault/sdk/common";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { defineRepository, defineTableAccess, selectFirstWithFields } from "@/database/table-access";
-import type { DatabaseTransaction } from "@/database/types";
+import type { FindFirstReadParams } from "@/database/utils/primary-id-read";
 
 const users = defineTableAccess("users", {
 	primaryKeyColumn: "id",
@@ -52,16 +52,8 @@ const overrides = {
 	/**
 	 * Get a single user by a custom WHERE clause, with optional field projection.
 	 */
-	async findFirst<F extends string>({
-		fields,
-		where,
-		tx,
-	}: {
-		fields?: FieldsConfig<F> | undefined;
-		where?: SQL | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<User, F> | undefined> {
-		return await selectFirstWithFields(users, { where, tx, fields });
+	async findFirst<F extends string>(params: FindFirstReadParams<F>): Promise<SelectFields<User, F> | undefined> {
+		return await selectFirstWithFields(users, params);
 	},
 };
 

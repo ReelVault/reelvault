@@ -90,7 +90,12 @@ const overrides = {
 	async findPage<F extends string>(
 		query: PaginationQuery & FieldsQuery<F> & WatchlistFilters & WatchlistSorting,
 	): Promise<PaginatedResponse<SelectFields<Watchlist, F>>> {
-		return await findPageWithQueryMap(watchlist, watchlistQueryMap, query);
+		return await findPageWithQueryMap({
+			access: watchlist,
+			queryMap: watchlistQueryMap,
+			query,
+			findMany: (params) => watchlist.findMany<F>(params),
+		});
 	},
 };
 
