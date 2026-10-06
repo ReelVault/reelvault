@@ -10,7 +10,7 @@ import type {
 	SelectFields,
 	UpdateMediaFile,
 } from "@reelvault/sdk/common";
-import { and, asc, eq, getTableColumns, gt, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gt, inArray, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
@@ -518,13 +518,15 @@ class MediaRepository {
 	}
 
 	async setDefault(mediaFileId: string, isDefault: boolean, tx: DatabaseTransaction): Promise<void> {
-		const mediaFile = await this.selectFirst({
-			where: eq(this.primaryKeyColumn, mediaFileId),
-			tx,
-		});
+		const client = databaseFactory.getClient({ tx });
+		const mediaFile = await client
+			.select({ movieId: this.table.movieId, episodeId: this.table.episodeId })
+			.from(this.table)
+			.where(eq(this.primaryKeyColumn, mediaFileId))
+			.limit(1)
+			.then((rows) => rows[0]);
 		if (!mediaFile) return;
 
-		const client = databaseFactory.getClient({ tx });
 		let target: SQL | undefined;
 		if (mediaFile.movieId) {
 			target = eq(this.table.movieId, mediaFile.movieId);
@@ -534,14 +536,21 @@ class MediaRepository {
 
 		if (!target) throw new Error(`Media file ${mediaFileId} has no movie or episode target`);
 
-		if (isDefault) {
-			await client
-				.update(this.table)
-				.set({ isDefault: false })
-				.where(and(target, eq(this.table.isDefault, true)));
+		if (!isDefault) {
+			await client.update(this.table).set({ isDefault: false }).where(eq(this.primaryKeyColumn, mediaFileId));
+
+			return;
 		}
 
-		await client.update(this.table).set({ isDefault }).where(eq(this.primaryKeyColumn, mediaFileId));
+		// One statement: the target row gets the flag, any other row of the same
+		// movie/episode currently flagged default is cleared (the partial unique
+		// index guarantees at most one such row).
+		await client
+			.update(this.table)
+			.set({
+				isDefault: sql`CASE WHEN ${this.primaryKeyColumn} = ${mediaFileId} THEN 1 ELSE 0 END`,
+			})
+			.where(and(target, or(eq(this.table.isDefault, true), eq(this.primaryKeyColumn, mediaFileId))));
 	}
 
 	/**
