@@ -88,3 +88,118 @@ test("sanitizeLogValue redacts credentials and filesystem locations", () => {
 		nested: { accessToken: "[REDACTED]", status: "failed" },
 	});
 });
+
+test("sanitizeLogValue returns clean payloads by reference without cloning benign keyword strings", () => {
+	const payload = {
+		keys: ["keyboard", "keyup", "Enter"],
+		note: "token refresh scheduled",
+		nested: { hint: "the key to success" },
+	};
+
+	expect(sanitizeLogValue(payload)).toBe(payload);
+});
+
+test("sanitizeLogValue does not treat a bare 'key' field as sensitive", () => {
+	const payload = { key: "x" };
+
+	expect(sanitizeLogValue(payload)).toBe(payload);
+});
+
+test("sanitizeLogValue redacts Bearer and kw= forms in nested values", () => {
+	const safe = sanitizeLogValue({
+		context: "request failed",
+		detail: "Authorization: Bearer abc.def",
+		query: "password=hunter2&user=ada",
+	}) as Record<string, unknown>;
+
+	expect(safe).toEqual({
+		context: "request failed",
+		detail: "Authorization: Bearer [REDACTED]",
+		query: "password=[REDACTED]&user=ada",
+	});
+});
+
+test("sanitizeLogValue redacts case variants of credential assignments", () => {
+	const safe = sanitizeLogValue({
+		query: "PASSWORD=hunter2&user=ada",
+		header: "BEARER abc.def",
+		benign: "Keyboard shortcuts",
+	}) as Record<string, unknown>;
+
+	expect(safe).toEqual({
+		query: "PASSWORD=[REDACTED]&user=ada",
+		header: "BEARER [REDACTED]",
+		benign: "Keyboard shortcuts",
+	});
+});
+
+test("sanitizeLogValue leaves benign keyword strings untouched inside a redacted payload", () => {
+	const safe = sanitizeLogValue({
+		authorization: "Bearer secret",
+		note: "keyboard",
+		tag: "token refresh scheduled",
+	}) as Record<string, unknown>;
+
+	expect(safe).toEqual({
+		authorization: "[REDACTED]",
+		note: "keyboard",
+		tag: "token refresh scheduled",
+	});
+});
+
+test("sanitizeLogValue redacts an Error cause chain", () => {
+	const inner = new Error("connect failed password=hunter2");
+	const outer = new Error("outer failed", { cause: inner });
+	const safe = sanitizeLogValue(outer);
+
+	expect(safe).toMatchObject({
+		name: "Error",
+		message: "outer failed",
+		cause: {
+			name: "Error",
+			message: "connect failed password=[REDACTED]",
+		},
+	});
+	expect(typeof safe.stack).toBe("string");
+});
+
+test("sanitizeLogValue marks cycles when redacting", () => {
+	const node: Record<string, unknown> = { name: "root", detail: "Bearer cyc" };
+	node.self = node;
+	const safe = sanitizeLogValue(node);
+
+	expect(safe).toEqual({
+		name: "root",
+		detail: "Bearer [REDACTED]",
+		self: "[Circular]",
+	});
+});
+
+test("sanitizeLogValue returns a clean cyclic payload by reference", () => {
+	const node: Record<string, unknown> = { name: "root", count: 2 };
+	node.self = node;
+
+	expect(sanitizeLogValue(node)).toBe(node);
+});
+
+test("sanitizeLogValue replaces subtrees past the max depth when redaction runs", () => {
+	const payload: Record<string, unknown> = { auth: "Bearer abc" };
+	let cursor = payload;
+	for (let i = 0; i < 9; i += 1) {
+		const child: Record<string, unknown> = {};
+		cursor.deep = child;
+		cursor = child;
+	}
+
+	cursor.leaf = "value";
+
+	const safe = sanitizeLogValue(payload);
+	expect(safe.auth).toBe("Bearer [REDACTED]");
+
+	let walked: unknown = safe;
+	for (let i = 0; i < 8; i += 1) {
+		walked = (walked as Record<string, unknown>).deep;
+	}
+
+	expect(walked).toBe("[MaxDepth]");
+});
