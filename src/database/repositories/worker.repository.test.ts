@@ -112,3 +112,17 @@ describe("workerJobRepository.cancelPending", () => {
 		]);
 	});
 });
+
+describe("workerJobRepository.findActiveOperations", () => {
+	test("returns only operation ids with pending or running jobs", async () => {
+		insertJob("a-1", "w-1", 1, { status: "pending", operationId: "op-1" });
+		insertJob("a-2", "w-1", 2, { status: "completed", operationId: "op-1" });
+		insertJob("a-3", "w-1", 3, { status: "running", operationId: "op-2" });
+		insertJob("a-4", "w-1", 4, { status: "failed", operationId: "op-3" });
+
+		const active = await workerJobRepository.findActiveOperations(["op-1", "op-2", "op-3", "op-missing"]);
+
+		expect([...active].toSorted()).toEqual(["op-1", "op-2"]);
+		expect(await workerJobRepository.findActiveOperations([])).toEqual(new Set());
+	});
+});

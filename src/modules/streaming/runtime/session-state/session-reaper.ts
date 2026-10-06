@@ -108,13 +108,15 @@ export class SessionReaper {
 						try {
 							// A queued stream-init job (heavy-subprocess concurrency is 1-2) can
 							// outlive the deadline under load — releasing then makes startSession 404.
-							const staleIds: string[] = [];
-							for (const id of candidates) {
+							const operationIds = candidates
+								.map((id) => this.store.get(id)?.operationId)
+								.filter((operationId): operationId is string => operationId !== undefined);
+							const activeOperations = await workerJobRepository.findActiveOperations(operationIds);
+							const staleIds = candidates.filter((id) => {
 								const operationId = this.store.get(id)?.operationId;
-								if (operationId && (await workerJobRepository.hasActiveJobForOperation(operationId))) continue;
 
-								staleIds.push(id);
-							}
+								return !(operationId && activeOperations.has(operationId));
+							});
 
 							if (staleIds.length === 0) return;
 

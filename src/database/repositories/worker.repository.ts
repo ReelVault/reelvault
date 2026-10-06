@@ -649,15 +649,20 @@ class WorkerJobRepository {
 	}
 
 	/** True while the operation still has a pending/running job (e.g. a queued stream-init). */
-	async hasActiveJobForOperation(operationId: string, tx?: DatabaseTransaction): Promise<boolean> {
-		const [row] = await databaseFactory
-			.getClient({ tx })
-			.select({ id: items.id })
-			.from(items)
-			.where(and(eq(items.operationId, operationId), inArray(items.status, ["pending", "running"])))
-			.limit(1);
+	/** Active (pending/running) operation ids among the given set — batch probe for the session reaper. */
+	async findActiveOperations(operationIds: readonly string[], tx?: DatabaseTransaction): Promise<Set<string>> {
+		const ids = unique(operationIds.filter(Boolean));
+		if (ids.length === 0) return new Set();
 
-		return row !== undefined;
+		const rows = await mapChunked(ids, (chunkIds) =>
+			databaseFactory
+				.getClient({ tx })
+				.selectDistinct({ operationId: items.operationId })
+				.from(items)
+				.where(and(inArray(items.operationId, chunkIds), inArray(items.status, ["pending", "running"]))),
+		);
+
+		return new Set(rows.map((row) => row.operationId).filter((operationId): operationId is string => operationId !== null));
 	}
 
 	/** Cancelled jobs of an operation — the re-enqueue source for admin "resume". */
