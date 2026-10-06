@@ -102,36 +102,23 @@ function nextMessage(connection: WsConnection, timeoutMs: number): Promise<WsMes
 	});
 }
 
-async function pingPongPhase(server: ManagedServer, profileId: string, connectionCount: number, durationMs: number): Promise<void> {
+/**
+ * Opens `count` sockets one at a time, hands them to `body`, and always closes
+ * them again. Opening sequentially surfaces a failed connection before the
+ * phase starts measuring.
+ */
+async function withConnections<T>(
+	count: number,
+	open: (index: number) => Promise<WsConnection>,
+	body: (connections: WsConnection[]) => Promise<T>,
+): Promise<T> {
 	const connections: WsConnection[] = [];
 	try {
-		for (let index = 0; index < connectionCount; index++) {
-			connections.push(await connect(server, profileId));
+		for (let index = 0; index < count; index++) {
+			connections.push(await open(index));
 		}
 
-		const rtts: number[] = [];
-		const deadline = performance.now() + Math.min(durationMs, 8000);
-		await Promise.all(
-			connections.map((connection) =>
-				(async () => {
-					while (performance.now() < deadline) {
-						const startedAt = performance.now();
-						connection.socket.send("ping");
-						const reply = await nextMessage(connection, 5000);
-						if (reply.type === "pong") rtts.push(performance.now() - startedAt);
-
-						await sleep(PING_PACE_MS);
-					}
-				})(),
-			),
-		);
-
-		const stats = summarizeLatencies(rtts.length > 0 ? rtts : [0]);
-		printTable(
-			`WS ping/pong RTT, ${connectionCount} connections`,
-			["samples", "p50", "p95", "p99", "max"],
-			[[String(stats.count), fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.p99Ms), fmtMs(stats.maxMs)]],
-		);
+		return await body(connections);
 	} finally {
 		for (const connection of connections) {
 			connection.socket.close();
@@ -139,43 +126,70 @@ async function pingPongPhase(server: ManagedServer, profileId: string, connectio
 	}
 }
 
+async function pingPongPhase(server: ManagedServer, profileId: string, connectionCount: number, durationMs: number): Promise<void> {
+	await withConnections(
+		connectionCount,
+		() => connect(server, profileId),
+		async (connections) => {
+			const rtts: number[] = [];
+			const deadline = performance.now() + Math.min(durationMs, 8000);
+			await Promise.all(
+				connections.map((connection) =>
+					(async () => {
+						while (performance.now() < deadline) {
+							const startedAt = performance.now();
+							connection.socket.send("ping");
+							const reply = await nextMessage(connection, 5000);
+							if (reply.type === "pong") rtts.push(performance.now() - startedAt);
+
+							await sleep(PING_PACE_MS);
+						}
+					})(),
+				),
+			);
+
+			const stats = summarizeLatencies(rtts.length > 0 ? rtts : [0]);
+			printTable(
+				`WS ping/pong RTT, ${connectionCount} connections`,
+				["samples", "p50", "p95", "p99", "max"],
+				[[String(stats.count), fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.p99Ms), fmtMs(stats.maxMs)]],
+			);
+		},
+	);
+}
+
 async function fanOutPhase(server: ManagedServer, profileId: string, connectionCount: number): Promise<void> {
-	const connections: WsConnection[] = [];
-	try {
-		for (let index = 0; index < connectionCount; index++) {
-			connections.push(await connect(server, profileId));
-		}
+	await withConnections(
+		connectionCount,
+		() => connect(server, profileId),
+		async (connections) => {
+			// Drain startup noise so the event wait below only sees fresh messages.
+			await sleep(500);
 
-		// Drain startup noise so the event wait below only sees fresh messages.
-		await sleep(500);
+			// The session must belong to the SAME identity the sockets connected as —
+			// playback events fan out per profile, and cross-user profiles 403.
+			const headers = {
+				"content-type": "application/json",
+				cookie: server.workerCookies[0] ?? server.cookie,
+				"x-profile-id": profileId,
+				"idempotency-key": `benchmark-realtime-fanout-${Date.now()}`,
+				"x-forwarded-for": "10.86.0.1",
+			};
+			const sessionId = await createPlaybackSession(server, headers);
 
-		// The session must belong to the SAME identity the sockets connected as —
-		// playback events fan out per profile, and cross-user profiles 403.
-		const headers = {
-			"content-type": "application/json",
-			cookie: server.workerCookies[0] ?? server.cookie,
-			"x-profile-id": profileId,
-			"idempotency-key": `benchmark-realtime-fanout-${Date.now()}`,
-			"x-forwarded-for": "10.86.0.1",
-		};
-		const sessionId = await createPlaybackSession(server, headers);
+			const startedAt = performance.now();
+			await Promise.all(connections.map((connection) => nextMessage(connection, EVENT_TIMEOUT_MS)));
+			const fanOutMs = performance.now() - startedAt;
 
-		const startedAt = performance.now();
-		await Promise.all(connections.map((connection) => nextMessage(connection, EVENT_TIMEOUT_MS)));
-		const fanOutMs = performance.now() - startedAt;
+			await deletePlaybackSession(server, sessionId, headers);
 
-		await deletePlaybackSession(server, sessionId, headers);
-
-		printTable(
-			`WS fan-out (playback:session:started → ${connectionCount} sockets)`,
-			["trigger→last socket", "sockets"],
-			[[fmtMs(fanOutMs), String(connectionCount)]],
-		);
-	} finally {
-		for (const connection of connections) {
-			connection.socket.close();
-		}
-	}
+			printTable(
+				`WS fan-out (playback:session:started → ${connectionCount} sockets)`,
+				["trigger→last socket", "sockets"],
+				[[fmtMs(fanOutMs), String(connectionCount)]],
+			);
+		},
+	);
 }
 
 /**
@@ -185,94 +199,84 @@ async function fanOutPhase(server: ManagedServer, profileId: string, connectionC
  * path the downloads/streams dashboards actually ride on.
  */
 async function multiProfileFanOutPhase(server: ManagedServer, profileCount: number): Promise<void> {
-	const connections: WsConnection[] = [];
-	try {
-		// The session-creation guard enforces a 500ms per-profile cooldown, so each
-		// identity creates AT MOST ONE session in this phase.
-		const identities = Math.min(profileCount, server.workerCookies.length);
-		for (let index = 0; index < identities; index++) {
-			connections.push(await connect(server, server.profileIdFor(index), index));
-		}
-
-		await sleep(550);
-
-		const latencies: number[] = [];
-		for (let index = 0; index < identities; index++) {
-			const profileId = server.profileIdFor(index);
-			const headers = {
-				"content-type": "application/json",
-				cookie: server.workerCookies[index] ?? server.cookie,
-				"x-profile-id": profileId,
-				"idempotency-key": `benchmark-realtime-multi-${index}-${Date.now()}`,
-				"x-forwarded-for": "10.86.1.1",
-			};
-			const sessionId = await createPlaybackSession(server, headers);
-
-			const startedAt = performance.now();
-			const connection = connections[index];
-			if (connection) await nextMessage(connection, EVENT_TIMEOUT_MS);
-			latencies.push(performance.now() - startedAt);
-
-			await deletePlaybackSession(server, sessionId, headers);
+	// The session-creation guard enforces a 500ms per-profile cooldown, so each
+	// identity creates AT MOST ONE session in this phase.
+	const identities = Math.min(profileCount, server.workerCookies.length);
+	await withConnections(
+		identities,
+		(index) => connect(server, server.profileIdFor(index), index),
+		async (connections) => {
 			await sleep(550);
-		}
 
-		const stats = summarizeLatencies(latencies.length > 0 ? latencies : [0]);
-		printTable(
-			`WS multi-profile fan-out (${identities} profiles, trigger→receipt per event)`,
-			["samples", "p50", "p95", "max"],
-			[[String(stats.count), fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
-		);
-	} finally {
-		for (const connection of connections) {
-			connection.socket.close();
-		}
-	}
+			const latencies: number[] = [];
+			for (let index = 0; index < identities; index++) {
+				const profileId = server.profileIdFor(index);
+				const headers = {
+					"content-type": "application/json",
+					cookie: server.workerCookies[index] ?? server.cookie,
+					"x-profile-id": profileId,
+					"idempotency-key": `benchmark-realtime-multi-${index}-${Date.now()}`,
+					"x-forwarded-for": "10.86.1.1",
+				};
+				const sessionId = await createPlaybackSession(server, headers);
+
+				const startedAt = performance.now();
+				const connection = connections[index];
+				if (connection) await nextMessage(connection, EVENT_TIMEOUT_MS);
+				latencies.push(performance.now() - startedAt);
+
+				await deletePlaybackSession(server, sessionId, headers);
+				await sleep(550);
+			}
+
+			const stats = summarizeLatencies(latencies.length > 0 ? latencies : [0]);
+			printTable(
+				`WS multi-profile fan-out (${identities} profiles, trigger→receipt per event)`,
+				["samples", "p50", "p95", "max"],
+				[[String(stats.count), fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+			);
+		},
+	);
 }
 
 /** Event burst: one profile, K sockets, R rapid session create/delete cycles. */
 async function eventBurstPhase(server: ManagedServer, profileId: string, socketCount: number, cycles: number): Promise<void> {
-	const connections: WsConnection[] = [];
-	try {
-		for (let index = 0; index < socketCount; index++) {
-			connections.push(await connect(server, profileId));
-		}
+	await withConnections(
+		socketCount,
+		() => connect(server, profileId),
+		async (connections) => {
+			await sleep(500);
 
-		await sleep(500);
+			const headers = {
+				"content-type": "application/json",
+				cookie: server.workerCookies[0] ?? server.cookie,
+				"x-profile-id": profileId,
+				"idempotency-key": "benchmark-realtime-burst",
+				"x-forwarded-for": "10.86.2.1",
+			};
 
-		const headers = {
-			"content-type": "application/json",
-			cookie: server.workerCookies[0] ?? server.cookie,
-			"x-profile-id": profileId,
-			"idempotency-key": "benchmark-realtime-burst",
-			"x-forwarded-for": "10.86.2.1",
-		};
+			const startedAt = performance.now();
+			let delivered = 0;
+			for (let cycle = 0; cycle < cycles; cycle++) {
+				headers["idempotency-key"] = `benchmark-realtime-burst-${cycle}-${Date.now()}`;
+				const sessionId = await createPlaybackSession(server, headers);
 
-		const startedAt = performance.now();
-		let delivered = 0;
-		for (let cycle = 0; cycle < cycles; cycle++) {
-			headers["idempotency-key"] = `benchmark-realtime-burst-${cycle}-${Date.now()}`;
-			const sessionId = await createPlaybackSession(server, headers);
+				await Promise.all(connections.map((connection) => nextMessage(connection, EVENT_TIMEOUT_MS)));
+				delivered += connections.length;
 
-			await Promise.all(connections.map((connection) => nextMessage(connection, EVENT_TIMEOUT_MS)));
-			delivered += connections.length;
+				await deletePlaybackSession(server, sessionId, headers);
+				// Session-creation guard: 500ms per-profile cooldown between cycles.
+				await sleep(550);
+			}
 
-			await deletePlaybackSession(server, sessionId, headers);
-			// Session-creation guard: 500ms per-profile cooldown between cycles.
-			await sleep(550);
-		}
-
-		const wallMs = performance.now() - startedAt;
-		printTable(
-			`WS event burst (${cycles} cycles → ${socketCount} sockets)`,
-			["events delivered", "events/s", "wall"],
-			[[String(delivered), (delivered / (wallMs / 1000)).toFixed(0), fmtMs(wallMs)]],
-		);
-	} finally {
-		for (const connection of connections) {
-			connection.socket.close();
-		}
-	}
+			const wallMs = performance.now() - startedAt;
+			printTable(
+				`WS event burst (${cycles} cycles → ${socketCount} sockets)`,
+				["events delivered", "events/s", "wall"],
+				[[String(delivered), (delivered / (wallMs / 1000)).toFixed(0), fmtMs(wallMs)]],
+			);
+		},
+	);
 }
 
 export const meta = { description: "Realtime WS (ping/pong RTT, playback fan-out, multi-profile fan-out, event burst)" };
