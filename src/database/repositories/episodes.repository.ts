@@ -118,6 +118,32 @@ class EpisodesRepository {
 			.where(eq(schema.seasons.metadataId, metadataId));
 	}
 
+	/**
+	 * Every episode of a show with its media files (LEFT JOIN keeps file-less
+	 * episodes in the ordered list), ordered by season and episode number. Feeds
+	 * the playback-view next-episode resolution with one query instead of a
+	 * paginated service call per later season.
+	 */
+	async findEpisodesWithFilesByMetadataId(metadataId: string) {
+		const client = databaseFactory.getClient();
+
+		return await client
+			.select({
+				id: this.table.id,
+				seasonId: this.table.seasonId,
+				seasonNumber: schema.seasons.seasonNumber,
+				episodeNumber: this.table.episodeNumber,
+				mediaFileId: schema.mediaFiles.id,
+				mediaFileIsDefault: schema.mediaFiles.isDefault,
+				mediaFileUpdatedAt: schema.mediaFiles.updatedAt,
+			})
+			.from(this.table)
+			.innerJoin(schema.seasons, eq(schema.seasons.id, this.table.seasonId))
+			.leftJoin(schema.mediaFiles, eq(schema.mediaFiles.episodeId, this.table.id))
+			.where(eq(schema.seasons.metadataId, metadataId))
+			.orderBy(schema.seasons.seasonNumber, this.table.episodeNumber, this.table.id);
+	}
+
 	async findOrCreateByIdentity({
 		seasonId,
 		episodeNumber,

@@ -1,14 +1,12 @@
 import type { PlaybackViewResponse } from "@reelvault/sdk/common";
+import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
-import { selectNextEpisodeFile, selectPreferredMediaFile } from "@/modules/streaming/progress/smart-play";
 import { toPublicSubtitle } from "@/modules/subtitles/subtitle.mapper";
 import { BaseService } from "@/utils/base-service";
 import { episodesService } from "../catalog/episodes.service";
 import { metadataService } from "../catalog/metadata/metadata.service";
-import { seasonsService } from "../catalog/seasons.service";
 import { mediaService } from "./media-files/media-files.service";
-
-const EPISODE_FILES_FIELDS = "id,episodeNumber,mediaFiles.id,mediaFiles.isDefault,mediaFiles.updatedAt";
+import { resolveNextEpisodeFileId } from "./playback-view.utils";
 
 class PlaybackViewService extends BaseService {
 	constructor() {
@@ -55,41 +53,14 @@ class PlaybackViewService extends BaseService {
 
 	private async findNextEpisodeFileId(episode: { id: string; seasonId: string }, metadataId: string): Promise<string | null> {
 		try {
-			// Queries below are ordered (episodeNumber/seasonNumber asc), so no
-			// re-sorting is needed. The shared helper keeps the "next episode,
-			// preferred file" contract aligned with smart play; the later-season
-			// fallback stays here because smart play already lists every season.
-			const seasonEpisodes = await episodesService.getAll({
-				seasonId: episode.seasonId,
-				sortBy: "episodeNumber",
-				sortOrder: "asc",
-				fields: EPISODE_FILES_FIELDS,
-				limit: 100,
-			});
-			const nextFile = selectNextEpisodeFile(seasonEpisodes.data, episode.id, (next) => next.mediaFiles);
-			if (nextFile) return nextFile.id;
+			// One ordered query for the whole show replaces the previous scan
+			// (current-season page + season list + one paginated episode page per
+			// later season). The helper keeps the "next episode, preferred file"
+			// contract aligned with smart play; the later-season fallback stays
+			// because smart play already lists every season.
+			const rows = await episodesRepository.findEpisodesWithFilesByMetadataId(metadataId);
 
-			const seasons = await seasonsService.getAll({
-				metadataId,
-				fields: "id,seasonNumber",
-				sortBy: "seasonNumber",
-				sortOrder: "asc",
-				limit: 100,
-			});
-			const currentSeasonIndex = seasons.data.findIndex((season) => season.id === episode.seasonId);
-			for (const season of seasons.data.slice(currentSeasonIndex + 1)) {
-				const firstEpisodes = await episodesService.getAll({
-					seasonId: season.id,
-					sortBy: "episodeNumber",
-					sortOrder: "asc",
-					fields: EPISODE_FILES_FIELDS,
-					limit: 1,
-				});
-				const firstFile = selectPreferredMediaFile(firstEpisodes.data[0]?.mediaFiles ?? []);
-				if (firstFile) return firstFile.id;
-			}
-
-			return null;
+			return resolveNextEpisodeFileId(rows, episode);
 		} catch (error) {
 			this.logger.warn("Failed to resolve next episode for playback view", { mediaFileId: episode.id, error });
 			return null;
