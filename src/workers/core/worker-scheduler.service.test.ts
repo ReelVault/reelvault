@@ -97,7 +97,12 @@ beforeEach(async () => {
 	);
 
 	const workerRepo = await import("@/database/repositories/worker.repository");
-	activeStubs.push(stubMethod(workerRepo.workerJobRepository, "getStats", () => Promise.resolve([])));
+	activeStubs.push(
+		stubMethod(workerRepo.workerJobRepository, "getStats", () => Promise.resolve([])),
+		// enqueueWithOperation cancels partially inserted jobs when the enqueue
+		// throws — the scheduler's rejection test goes through that path.
+		stubMethod(workerRepo.workerJobRepository, "cancelPendingByOperation", () => Promise.resolve(0)),
+	);
 
 	const operations = await import("./worker-operations.service");
 	activeStubs.push(

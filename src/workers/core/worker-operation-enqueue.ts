@@ -1,3 +1,4 @@
+import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { workerOperationsService } from "./worker-operations.service";
 
 interface WorkerOperationInput {
@@ -15,8 +16,6 @@ interface EnqueueWithOperationOptions<T> {
 	 * zero items forever.
 	 */
 	isAttached?: ((result: T, operationId: string) => boolean) | undefined;
-	/** Extra best-effort cleanup (e.g. cancelling partially inserted jobs) before removing a created operation. */
-	onFailure?: ((operationId: string) => Promise<unknown>) | undefined;
 }
 
 /** Best-effort operation removal — cleanup failures never mask the original error. */
@@ -29,8 +28,9 @@ async function removeOperationBestEffort(operationId: string): Promise<void> {
 /**
  * Creates a worker operation when the caller does not supply one, runs the
  * enqueue with the effective operation id, and best-effort removes a freshly
- * created operation that ended up orphaned — either the enqueue failed or the
- * result deduped onto an existing row, so nothing references the new operation.
+ * created operation that ended up orphaned — either the enqueue failed (after
+ * cancelling any jobs it managed to insert) or the result deduped onto an
+ * existing row, so nothing references the new operation.
  *
  * Lives next to `worker-runtime` (not on `worker.service`) so the queue and
  * scheduler services can use it without importing `worker.service` back — that
@@ -54,12 +54,12 @@ export async function enqueueWithOperation<T>(
 		return { operationId, result };
 	} catch (error) {
 		if (created) {
-			if (options.onFailure) {
-				await options.onFailure(operationId).catch(() => {
-					// intentionally empty
-				});
-			}
-
+			// A batch enqueue that failed midway may have inserted jobs referencing
+			// the operation we are about to remove — cancel them so nothing is
+			// orphaned (pending forever against a missing operation).
+			await workerJobRepository.cancelPendingByOperation(operationId).catch(() => {
+				// intentionally empty
+			});
 			await removeOperationBestEffort(operationId);
 		}
 

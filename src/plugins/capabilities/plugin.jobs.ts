@@ -145,12 +145,7 @@ class PluginJobsService extends BaseService {
 						},
 					})),
 				),
-			{
-				operationId: commonOptions?.operationId,
-				// addItems is not atomic across the whole batch — cancel whatever was
-				// inserted under the operation before removing it, so nothing is orphaned.
-				onFailure: (opId) => workerService.cancelAllPending(opId),
-			},
+			{ operationId: commonOptions?.operationId },
 		);
 
 		return queuedItems.map((item) => ({ id: item.id, name, operationId }));
