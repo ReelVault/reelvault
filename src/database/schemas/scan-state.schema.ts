@@ -2,11 +2,12 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { DatabaseHelper } from "../utils/database-helper";
 
 /**
- * Resume checkpoint for interrupted library scans. One row per library holding
- * the diff that still needs enqueueing (new files → ingest, changed files →
- * refresh) plus cursors into both lists. A scan cancelled mid-enqueue leaves
- * its checkpoint behind; the next scan of that library resumes from the cursor
- * instead of silently dropping the remainder.
+ * Checkpoint for an interrupted library scan. One row per library holding the
+ * diff the interrupted run was still enqueueing (new files → ingest, changed
+ * files → refresh) plus cursors into both lists. It is used to DETECT the
+ * interruption on the next scan — that scan recomputes the workload from disk
+ * instead of resuming this list, because the list is stale by definition
+ * (files added after the interruption are missing, ingested ones remain).
  */
 export const scanState = sqliteTable(
 	"scan_state",

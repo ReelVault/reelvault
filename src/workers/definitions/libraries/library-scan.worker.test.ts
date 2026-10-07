@@ -107,12 +107,18 @@ describe("library scan application task", () => {
 		]);
 	});
 
-	test("resumes an interrupted scan from its checkpoint without re-walking", async () => {
-		const { dependencies, events, checkpoints, ingested } = createHarness();
+	test("recomputes an interrupted scan from disk instead of resuming the stale list", async () => {
+		const { dependencies, events, checkpoints, ingested } = createHarness({
+			scanResult: {
+				filePaths: ["/media/a.mkv", "/media/b.mkv", "/media/c.mkv"],
+				newFilePaths: ["/media/a.mkv", "/media/b.mkv", "/media/c.mkv"],
+				changedMediaFileIds: [],
+			},
+		});
 		checkpoints.set("library-1", {
 			pathsSignature: "/media",
-			scannedFiles: 3,
-			newFilePaths: ["/media/a.mkv", "/media/b.mkv", "/media/c.mkv"],
+			scannedFiles: 2,
+			newFilePaths: ["/media/a.mkv", "/media/b.mkv"],
 			changedMediaFileIds: [],
 			ingestCursor: 1,
 			refreshCursor: 0,
@@ -129,10 +135,14 @@ describe("library scan application task", () => {
 			analyzedFiles: 0,
 		});
 
-		// No "scan:" event — the interrupted enqueue phase finishes from the checkpoint.
-		expect(ingested).toEqual(["/media/b.mkv", "/media/c.mkv"]);
+		// The stale checkpoint is discarded and the fresh disk diff drives the
+		// enqueue — a file added after the interruption is included.
+		expect(ingested).toEqual(["/media/a.mkv", "/media/b.mkv", "/media/c.mkv"]);
 		expect(events).toEqual([
 			"started",
+			"checkpoint-cleared",
+			"scan:movie:/media",
+			"checkpoint",
 			"checkpoint",
 			"checkpoint",
 			"checkpoint-cleared",
@@ -141,7 +151,7 @@ describe("library scan application task", () => {
 		]);
 	});
 
-	test("an abort mid-enqueue keeps the checkpoint; the next scan resumes it", async () => {
+	test("an abort mid-enqueue keeps the checkpoint for interruption detection", async () => {
 		const first = createHarness({
 			scanResult: {
 				filePaths: ["/media/a", "/media/b", "/media/c"],
@@ -155,14 +165,15 @@ describe("library scan application task", () => {
 			scanLibraryTask({ libraryId: "library-1", paths: ["/media"] }, { correlationId: "scan-3" }, first.dependencies),
 		).rejects.toThrow("aborted mid-enqueue");
 		expect(first.events).toContain("completed:errors=1");
-		// Checkpoint survived the abort — the interrupted enqueue phase is resumable.
+		// The checkpoint survives the abort and signals the interruption to the
+		// next scan, which recomputes the workload from disk.
 		// (The per-item path checkpoints after the whole list, so the cursor is the
 		// initial one; the batch path advances it per 500-file chunk.)
 		const survived = first.checkpoints.get("library-1");
 		expect(survived?.pathsSignature).toBe("/media");
 		expect(survived?.newFilePaths).toEqual(["/media/a", "/media/b", "/media/c"]);
 
-		// A stale checkpoint for different paths is dropped, not resumed.
+		// Any leftover checkpoint is dropped and the fresh diff is enqueued.
 		const second = createHarness({
 			scanResult: { filePaths: ["/movies/x"], newFilePaths: ["/movies/x"], changedMediaFileIds: [] },
 		});

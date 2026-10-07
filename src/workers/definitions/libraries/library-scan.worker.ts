@@ -61,7 +61,12 @@ export interface LibraryScanTaskDependencies {
 	emitScanCompleted(input: { libraryId: string; scanId: string; errors: number; correlationId: string }): Promise<void>;
 	/** Pushes `library:scan:completed` to connected realtime clients (web/mobile UIs invalidate their catalog caches). */
 	notifyScanCompleted(input: { libraryId: string; libraryTitle?: string }): void;
-	/** Resume checkpoint (W6): survives a cancelled scan so its enqueue phase can be finished later. */
+	/**
+	 * Interrupted-scan checkpoint: written during the enqueue phase and read on
+	 * the next scan only to detect the interruption (and surface the pending
+	 * counts) — the workload is always recomputed from disk, never resumed from
+	 * the stale list.
+	 */
 	loadCheckpoint(libraryId: string): Promise<ScanCheckpoint | undefined>;
 	saveCheckpoint(libraryId: string, checkpoint: ScanCheckpoint): Promise<void>;
 	updateCheckpointCursors?(libraryId: string, cursors: { ingestCursor: number; refreshCursor: number }): Promise<void>;
@@ -153,35 +158,24 @@ async function resolveScanWorkload(
 	dependencies: LibraryScanTaskDependencies,
 ): Promise<ScanEnqueueState> {
 	const checkpoint = await dependencies.loadCheckpoint(data.libraryId);
-	const resumable =
-		checkpoint?.pathsSignature === pathsSignature &&
-		(checkpoint.ingestCursor < checkpoint.newFilePaths.length || checkpoint.refreshCursor < checkpoint.changedMediaFileIds.length);
-
-	if (checkpoint && !resumable) await dependencies.deleteCheckpoint(data.libraryId);
-
-	if (checkpoint && resumable) {
-		// A previous scan of the same paths was interrupted mid-enqueue — finish
-		// its remainder instead of silently dropping it.
-		context.logger?.info("Resuming interrupted library scan", {
+	if (checkpoint) {
+		// An interrupted scan left a checkpoint. Its file list is stale by
+		// definition — files added since the interruption are missing, and files the
+		// interrupted run already enqueued are still listed — so recompute the
+		// workload from disk instead of resuming the old list. The disk diff is
+		// cheap and always current; ingest dedupe covers already-enqueued files.
+		context.logger?.info("Interrupted library scan detected — recomputing the workload from disk", {
 			libraryId: data.libraryId,
-			ingestRemaining: checkpoint.newFilePaths.length - checkpoint.ingestCursor,
-			refreshRemaining: checkpoint.changedMediaFileIds.length - checkpoint.refreshCursor,
+			pendingIngest: checkpoint.newFilePaths.length - checkpoint.ingestCursor,
+			pendingRefresh: checkpoint.changedMediaFileIds.length - checkpoint.refreshCursor,
 		});
-
-		return {
-			pathsSignature,
-			scannedFiles: checkpoint.scannedFiles,
-			newFilePaths: checkpoint.newFilePaths,
-			changedMediaFileIds: checkpoint.changedMediaFileIds,
-			ingestCursor: checkpoint.ingestCursor,
-			refreshCursor: checkpoint.refreshCursor,
-		};
+		await dependencies.deleteCheckpoint(data.libraryId);
 	}
 
 	const scanResult = await dependencies.scanPaths(data.libraryId, libraryType, pathsToScan, context.signal);
 	context.signal?.throwIfAborted();
 	await dependencies.pruneScanFindings?.(data.libraryId, scanResult.filePaths, pathsToScan);
-	// Checkpoint before the first enqueue — an abort from here on is resumable.
+	// Checkpoint before the first enqueue — a later interruption is detectable.
 	await dependencies.saveCheckpoint(data.libraryId, {
 		pathsSignature,
 		scannedFiles: scanResult.filePaths.length,
