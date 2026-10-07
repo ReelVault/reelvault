@@ -16,6 +16,9 @@ import { toJobContract, toOperationContract } from "../utils/worker-stats.mapper
 import type { WorkerOperationJobsQuery } from "../worker.types";
 import { getWorkerRuntime } from "./worker-runtime";
 
+/** Cancelled jobs re-read per page during resume — bounded memory for huge operations. */
+const RESUME_PAGE_SIZE = 5000;
+
 export class WorkerOperationsService extends BaseService {
 	constructor() {
 		super("WorkerOperationsService");
@@ -97,8 +100,9 @@ export class WorkerOperationsService extends BaseService {
 
 	/**
 	 * Re-enqueues the cancelled jobs of a stopped operation (admin "resume").
-	 * The queue's insert path increments the operation counters, and
-	 * markResumed clears the cancel request so progress tracking resumes.
+	 * `markResumed` pre-sets the operation total to the full cancelled count so a
+	 * page-by-page re-enqueue cannot terminalize the operation after its first
+	 * chunk completes; the queue inserts then skip counter increments.
 	 */
 	async resume(id: string): Promise<{ resumed: number }> {
 		const operation = await workerOperationRepository.findById(id);
@@ -108,47 +112,59 @@ export class WorkerOperationsService extends BaseService {
 			throw new ValidationError(`Only cancelled operations can be resumed (status: ${operation.status})`);
 		}
 
-		const cancelledItems = await workerJobRepository.findCancelledByOperation(id);
-		if (cancelledItems.length === 0) {
+		const total = await workerJobRepository.countCancelledByOperation(id);
+		if (total === 0) {
 			throw new ValidationError("The operation has no cancelled tasks to resume");
 		}
 
-		const byWorker = new Map<string, WorkerItem[]>();
-		for (const item of cancelledItems) {
-			const group = byWorker.get(item.workerId) ?? [];
-			group.push(item);
-			byWorker.set(item.workerId, group);
-		}
+		// Clear the cancel request BEFORE re-enqueueing: `enqueueMany` validates the
+		// operation and rejects any with `cancelRequested=true`.
+		await workerOperationRepository.markResumed(id, total);
 
 		let resumed = 0;
-		// Clear the cancel request BEFORE re-enqueueing: `enqueueMany` validates the
-		// operation and rejects any with `cancelRequested=true`, so resuming after
-		// `markResumed` (the old order) always threw a 409 and never re-enqueued.
-		await workerOperationRepository.markResumed(id);
+		let cursor: string | undefined;
 		try {
-			for (const [workerId, items] of byWorker) {
-				const definition = getWorkerRuntime().registry.get(workerId);
-				if (!definition) {
-					this.logger.warn("Skipping resume group — worker is no longer registered", { workerId, operationId: id, items: items.length });
-					continue;
+			for (;;) {
+				const items = await workerJobRepository.findCancelledByOperation(id, RESUME_PAGE_SIZE, cursor);
+				if (items.length === 0) break;
+
+				cursor = items.at(-1)?.id;
+				const byWorker = new Map<string, WorkerItem[]>();
+				for (const item of items) {
+					const group = byWorker.get(item.workerId) ?? [];
+					group.push(item);
+					byWorker.set(item.workerId, group);
 				}
 
-				await getWorkerRuntime().queue.enqueueMany(
-					workerId,
-					items.map((item) => ({
-						data: safeParseJson(item.data) ?? item.data,
-						options: {
-							operationId: id,
-							// Preserve scheduling metadata; attempts reset to a fresh budget.
-							priority: item.priority,
-							attempts: item.maxAttempts,
-							backoff: { type: item.backoffType, delayMs: item.backoffDelayMs },
-							...(item.dedupeKey ? { dedupeKey: item.dedupeKey } : {}),
-							...(item.referenceType && item.referenceId ? { reference: { type: item.referenceType, id: item.referenceId } } : {}),
-						},
-					})),
-				);
-				resumed += items.length;
+				for (const [workerId, group] of byWorker) {
+					const definition = getWorkerRuntime().registry.get(workerId);
+					if (!definition) {
+						this.logger.warn("Skipping resume group — worker is no longer registered", { workerId, operationId: id, items: group.length });
+						continue;
+					}
+
+					await getWorkerRuntime().queue.enqueueMany(
+						workerId,
+						group.map((item) => ({
+							data: safeParseJson(item.data) ?? item.data,
+							options: {
+								operationId: id,
+								// Preserve scheduling metadata; attempts reset to a fresh budget.
+								priority: item.priority,
+								attempts: item.maxAttempts,
+								backoff: { type: item.backoffType, delayMs: item.backoffDelayMs },
+								...(item.dedupeKey ? { dedupeKey: item.dedupeKey } : {}),
+								...(item.referenceType && item.referenceId ? { reference: { type: item.referenceType, id: item.referenceId } } : {}),
+							},
+						})),
+						// The operation total was pre-set above — per-insert increments
+						// would double it and skew completion.
+						{ countOperationTotals: false },
+					);
+					resumed += group.length;
+				}
+
+				if (items.length < RESUME_PAGE_SIZE) break;
 			}
 		} catch (error) {
 			// Re-enqueue failed part-way — put the operation back into the cancelled

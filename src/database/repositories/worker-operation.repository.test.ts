@@ -144,6 +144,82 @@ describe("workerOperationRepository streaming slots", () => {
 	});
 });
 
+describe("workerOperationRepository resume accounting", () => {
+	test("counts and pages cancelled jobs and pre-sets the resumed total", async () => {
+		const { factory, db } = createFactory();
+		try {
+			const now = Math.floor(Date.now() / 1000);
+			db.run(
+				"INSERT INTO worker_operations (id, type, status, cancel_requested, total_items, pending_items, running_items, completed_items, failed_items, cancelled_items, created_at, updated_at) VALUES ('op-1','test','cancelled',1,3,0,0,0,0,3,?,?)",
+				[now, now],
+			);
+			for (const id of ["c1", "c2", "c3"]) {
+				db.run(
+					"INSERT INTO worker_jobs (id, worker_id, operation_id, data, status, run_at, created_at, updated_at) VALUES (?, 'w-1', 'op-1', '{}', 'cancelled', ?, ?, ?)",
+					[id, now, now, now],
+				);
+			}
+			db.run(
+				"INSERT INTO worker_jobs (id, worker_id, operation_id, data, status, run_at, created_at, updated_at) VALUES ('p1', 'w-1', 'op-1', '{}', 'pending', ?, ?, ?)",
+				[now, now, now],
+			);
+
+			expect(await workerJobRepository.countCancelledByOperation("op-1")).toBe(3);
+
+			const firstPage = await workerJobRepository.findCancelledByOperation("op-1", 2);
+			expect(firstPage.map((item) => item.id)).toEqual(["c1", "c2"]);
+			const secondPage = await workerJobRepository.findCancelledByOperation("op-1", 2, firstPage.at(-1)?.id);
+			expect(secondPage.map((item) => item.id)).toEqual(["c3"]);
+
+			await workerOperationRepository.markResumed("op-1", 3);
+
+			const resumedRow = db
+				.query(
+					"SELECT status, total_items AS total, cancelled_items AS cancelled, retention_until AS retention FROM worker_operations WHERE id = 'op-1'",
+				)
+				.get() as { status: string; total: number; cancelled: number; retention: number | null };
+			expect(resumedRow).toEqual({ status: "pending", total: 3, cancelled: 0, retention: null });
+
+			// Resume re-inserts with `countOperationTotals: false` — the pre-set total stays.
+			await workerJobRepository.enqueueMany(
+				[
+					{
+						id: "n1",
+						workerId: "w-1",
+						operationId: "op-1",
+						data: "{}",
+						priority: 0,
+						maxAttempts: 3,
+						backoffType: "exponential",
+						backoffDelayMs: 1000,
+						runAt: new Date(),
+					},
+				],
+				{ countOperationTotals: false },
+			);
+			expect((db.query("SELECT total_items AS total FROM worker_operations WHERE id = 'op-1'").get() as { total: number }).total).toBe(3);
+
+			// The default still increments the operation total.
+			await workerJobRepository.enqueueMany([
+				{
+					id: "n2",
+					workerId: "w-1",
+					operationId: "op-1",
+					data: "{}",
+					priority: 0,
+					maxAttempts: 3,
+					backoffType: "exponential",
+					backoffDelayMs: 1000,
+					runAt: new Date(),
+				},
+			]);
+			expect((db.query("SELECT total_items AS total FROM worker_operations WHERE id = 'op-1'").get() as { total: number }).total).toBe(4);
+		} finally {
+			factory.shutdown();
+		}
+	});
+});
+
 describe("workerOperationRepository retention", () => {
 	test("expired retention never removes pending or running operations", async () => {
 		const { factory, db } = createFactory();

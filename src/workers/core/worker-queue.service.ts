@@ -44,7 +44,11 @@ export class WorkerQueueService extends BaseService {
 		return result;
 	}
 
-	async enqueueMany(workerId: string, entries: Array<{ data: unknown; options?: AddWorkerItemOptions }>): Promise<WorkerItem[]> {
+	async enqueueMany(
+		workerId: string,
+		entries: Array<{ data: unknown; options?: AddWorkerItemOptions }>,
+		enqueueOptions: { countOperationTotals?: boolean } = {},
+	): Promise<WorkerItem[]> {
 		if (entries.length === 0) return [];
 
 		const definition = getWorkerRuntime().registry.get(workerId);
@@ -59,12 +63,12 @@ export class WorkerQueueService extends BaseService {
 		if (entries.some((entry) => !entry.options?.operationId)) {
 			({ result: items } = await enqueueWithOperation(
 				{ type: workerId, reference: { type: "worker", id: workerId } },
-				(operationId) => workerJobRepository.enqueueMany(buildInputs(operationId)),
+				(operationId) => workerJobRepository.enqueueMany(buildInputs(operationId), enqueueOptions),
 				// Every entry losing the dedupe race leaves the shared operation with no items.
 				{ isAttached: (batch, operationId) => batch.some((item) => item.operationId === operationId) },
 			));
 		} else {
-			items = await workerJobRepository.enqueueMany(buildInputs());
+			items = await workerJobRepository.enqueueMany(buildInputs(), enqueueOptions);
 		}
 
 		this.onEnqueueCallback?.();

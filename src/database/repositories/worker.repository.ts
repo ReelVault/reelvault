@@ -1,5 +1,5 @@
 import type { WorkerBackoffType } from "@reelvault/sdk/common";
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, type SQL, sql } from "drizzle-orm";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
@@ -100,7 +100,7 @@ class WorkerJobRepository {
 		return item;
 	}
 
-	async enqueueMany(inputs: EnqueueWorkerItemInput[]): Promise<WorkerItem[]> {
+	async enqueueMany(inputs: EnqueueWorkerItemInput[], options: { countOperationTotals?: boolean } = {}): Promise<WorkerItem[]> {
 		if (inputs.length === 0) return [];
 
 		return await databaseFactory.transaction(
@@ -130,13 +130,16 @@ class WorkerJobRepository {
 				}
 
 				// Only actually-inserted rows count toward the operation total —
-				// dedupe fetch-backs were already counted at first enqueue.
-				const insertedPerOperation = toOperationCounts(insertedItems);
+				// dedupe fetch-backs were already counted at first enqueue. Resume
+				// pre-sets the total and passes `countOperationTotals: false`.
+				const insertedPerOperation = options.countOperationTotals === false ? null : toOperationCounts(insertedItems);
 				await this.fetchDedupedExisting(inputs, insertedItems, tx);
 
-				await applyOperationCounts(insertedPerOperation, (operationId, amount) =>
-					workerOperationRepository.incrementTotalItems(operationId, amount, tx),
-				);
+				if (insertedPerOperation) {
+					await applyOperationCounts(insertedPerOperation, (operationId, amount) =>
+						workerOperationRepository.incrementTotalItems(operationId, amount, tx),
+					);
+				}
 
 				return insertedItems;
 			},
@@ -684,14 +687,28 @@ class WorkerJobRepository {
 	}
 
 	/** Cancelled jobs of an operation — the re-enqueue source for admin "resume". */
-	async findCancelledByOperation(operationId: string, limit = 5000): Promise<WorkerItem[]> {
+	async findCancelledByOperation(operationId: string, limit = 5000, afterId?: string): Promise<WorkerItem[]> {
+		const conditions = [eq(items.operationId, operationId), eq(items.status, "cancelled")];
+		if (afterId) conditions.push(gt(items.id, afterId));
+
 		return await databaseFactory
 			.getClient()
 			.select()
 			.from(items)
-			.where(and(eq(items.operationId, operationId), eq(items.status, "cancelled")))
+			.where(and(...conditions))
 			.orderBy(asc(items.id))
 			.limit(limit);
+	}
+
+	/** Cancelled-job count for an operation — pre-set as the resume total. */
+	async countCancelledByOperation(operationId: string): Promise<number> {
+		const [row] = await databaseFactory
+			.getClient()
+			.select({ count: count() })
+			.from(items)
+			.where(and(eq(items.operationId, operationId), eq(items.status, "cancelled")));
+
+		return row?.count ?? 0;
 	}
 
 	async cancelAllPending(workerId?: string): Promise<number> {

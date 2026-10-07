@@ -289,7 +289,7 @@ class WorkerOperationRepository {
 	}
 
 	/** Admin resume: clear the cancel request and re-arm the operation for its re-enqueued jobs. */
-	async markResumed(id: string): Promise<void> {
+	async markResumed(id: string, totalItems = 0): Promise<void> {
 		const now = new Date();
 		await databaseFactory
 			.getClient()
@@ -302,8 +302,10 @@ class WorkerOperationRepository {
 				// the daily cleanup would delete it (and its jobs) mid-run.
 				retentionUntil: null,
 				// Reset counters so the re-enqueue's increments produce correct totals
-				// instead of double-counting against the cancelled run.
-				totalItems: 0,
+				// instead of double-counting against the cancelled run. `totalItems` is
+				// pre-set to the re-enqueue size so the operation cannot terminalize
+				// after the first chunk completes.
+				totalItems,
 				pendingItems: 0,
 				runningItems: 0,
 				completedItems: 0,

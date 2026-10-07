@@ -19,7 +19,11 @@ export interface WorkerRuntimePool {
 
 export interface WorkerRuntimeQueue {
 	enqueue(workerId: string, data: unknown, options?: AddWorkerItemOptions): Promise<WorkerItem>;
-	enqueueMany(workerId: string, entries: Array<{ data: unknown; options?: AddWorkerItemOptions }>): Promise<WorkerItem[]>;
+	enqueueMany(
+		workerId: string,
+		entries: Array<{ data: unknown; options?: AddWorkerItemOptions }>,
+		options?: { countOperationTotals?: boolean },
+	): Promise<WorkerItem[]>;
 	findActive(workerId: string, dedupeKey: string): Promise<ActiveWorkerItem | undefined>;
 	cancelAllPending(workerId: string): Promise<number>;
 }
