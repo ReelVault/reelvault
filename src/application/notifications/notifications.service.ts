@@ -11,7 +11,7 @@ import { BaseService } from "@/utils/base-service";
 import { ForbiddenError, ValidationError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { detach } from "@/utils/promise.utils";
-import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
+import { invalidateProfileResponseBodies, invalidateResponseBodies } from "@/utils/response-body-cache";
 
 // Clients poll unread-count on an interval; a short TTL absorbs the poll storm
 // and every mutation below invalidates eagerly, so badge updates stay immediate.
@@ -116,19 +116,20 @@ class NotificationsService extends BaseService {
 		});
 	}
 
-	async markRead(id: string, userId?: string, profileId?: string): Promise<{ success: true }> {
+	async markRead(id: string, userId?: string, profileId?: string, read = true): Promise<{ success: true }> {
 		return await this.safeExecute("markRead", async () => {
 			this.assertUserId(userId);
-			const marked = await notificationsRepository.markReadForRecipient(id, userId, profileId);
-			if (!marked) {
+			const updated = read
+				? await notificationsRepository.markReadForRecipient(id, userId, profileId)
+				: await notificationsRepository.markUnreadForRecipient(id, userId, profileId);
+			if (!updated) {
 				throw new ForbiddenError("Notification is not available to this account or profile", {
 					code: "notification.access_denied",
 					params: { notificationId: id },
 				});
 			}
 
-			unreadCountCache.delete(unreadCountKey(userId, profileId));
-			if (profileId) invalidateProfileResponseBodies(profileId);
+			this.invalidateFor(userId, profileId);
 
 			return { success: true };
 		});
@@ -138,13 +139,17 @@ class NotificationsService extends BaseService {
 		return await this.safeExecute("markAllRead", async () => {
 			this.assertUserId(userId);
 			await notificationsRepository.markAllReadForRecipient(userId, profileId);
-			unreadCountCache.delete(unreadCountKey(userId, profileId));
-			if (profileId) invalidateProfileResponseBodies(profileId);
+			this.invalidateFor(userId, profileId);
 
 			return { success: true };
 		});
 	}
 
+	/**
+	 * Batch status change. `read` selects the direction (defaults to read) and
+	 * applies to both `all` and `ids` — previously the flag was ignored, so a
+	 * client asking to mark notifications unread marked them read instead.
+	 */
 	async updateStatus(
 		params: { ids?: string[]; all?: boolean; read?: boolean },
 		userId?: string,
@@ -152,22 +157,31 @@ class NotificationsService extends BaseService {
 	): Promise<{ success: true }> {
 		return await this.safeExecute("updateStatus", async () => {
 			this.assertUserId(userId);
+			const read = params.read ?? true;
+
 			if (params.all) {
-				await notificationsRepository.markAllReadForRecipient(userId, profileId);
-				unreadCountCache.delete(unreadCountKey(userId, profileId));
-				if (profileId) invalidateProfileResponseBodies(profileId);
-
-				return { success: true as const };
+				await (read
+					? notificationsRepository.markAllReadForRecipient(userId, profileId)
+					: notificationsRepository.markAllUnreadForRecipient(userId, profileId));
+			} else if (params.ids && params.ids.length > 0) {
+				await (read
+					? notificationsRepository.markReadBatch(params.ids, userId, profileId)
+					: notificationsRepository.markUnreadBatch(params.ids, userId, profileId));
 			}
 
-			if (params.ids && params.ids.length > 0) {
-				await notificationsRepository.markReadBatch(params.ids, userId, profileId);
-				unreadCountCache.delete(unreadCountKey(userId, profileId));
-				if (profileId) invalidateProfileResponseBodies(profileId);
-			}
+			this.invalidateFor(userId, profileId);
 
 			return { success: true as const };
 		});
+	}
+
+	/** Drops the unread-count entry and any cached notification bodies for the recipient. */
+	private invalidateFor(userId: string, profileId?: string): void {
+		unreadCountCache.delete(unreadCountKey(userId, profileId));
+		// Account-scoped notifications also have a cached GET /notifications body; a
+		// profile-scoped invalidation cannot reach it (its key carries no profile).
+		if (profileId) invalidateProfileResponseBodies(profileId);
+		else invalidateResponseBodies();
 	}
 
 	async notifyNewEpisode(input: {

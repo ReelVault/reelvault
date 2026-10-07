@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess, forEachChunked } from "@/database/table-access";
@@ -20,12 +20,30 @@ function recipientWhere(userId: string, profileId?: string): SQL | undefined {
 	return and(eq(schema.notifications.userId, userId), isNull(schema.notifications.profileId));
 }
 
-const markAllRead = async (where: SQL | undefined): Promise<void> => {
+/** Flips every matching notification to read (or unread), one state only. */
+const setAllRead = async (where: SQL | undefined, read: boolean): Promise<void> => {
+	const now = new Date();
+	const stateFilter = read ? isNull(schema.notifications.readAt) : isNotNull(schema.notifications.readAt);
 	await databaseFactory
 		.getClient()
 		.update(schema.notifications)
-		.set({ readAt: new Date(), updatedAt: new Date() })
-		.where(and(where, isNull(schema.notifications.readAt)));
+		.set({ readAt: read ? now : null, updatedAt: now })
+		.where(and(where, stateFilter));
+};
+
+const setBatchReadState = async (ids: string[], where: SQL | undefined, read: boolean): Promise<void> => {
+	if (ids.length === 0) return;
+
+	const now = new Date();
+	const readAt = read ? now : null;
+	const stateFilter = read ? isNull(schema.notifications.readAt) : isNotNull(schema.notifications.readAt);
+	await forEachChunked(ids, (idChunk) =>
+		databaseFactory
+			.getClient()
+			.update(schema.notifications)
+			.set({ readAt, updatedAt: now })
+			.where(and(inArray(schema.notifications.id, idChunk), where, stateFilter)),
+	);
 };
 
 const overrides = {
@@ -96,37 +114,40 @@ const overrides = {
 		return result !== undefined;
 	},
 
-	async markRead(id: string, where: SQL | undefined): Promise<boolean> {
+	async setRead(id: string, where: SQL | undefined, read: boolean): Promise<boolean> {
+		const now = new Date();
 		const result = await databaseFactory
 			.getClient()
 			.update(notifications.table)
-			.set({ readAt: new Date(), updatedAt: new Date() })
-			.where(and(eq(notifications.table.id, id), where, isNull(notifications.table.readAt)))
+			.set({ readAt: read ? now : null, updatedAt: now })
+			.where(and(eq(notifications.table.id, id), where))
 			.returning({ id: notifications.table.id });
 
 		return result.length > 0;
 	},
 
 	async markReadForRecipient(id: string, userId: string, profileId?: string): Promise<boolean> {
-		return await getNotificationsRepository().markRead(id, recipientWhere(userId, profileId));
+		return await getNotificationsRepository().setRead(id, recipientWhere(userId, profileId), true);
+	},
+
+	async markUnreadForRecipient(id: string, userId: string, profileId?: string): Promise<boolean> {
+		return await getNotificationsRepository().setRead(id, recipientWhere(userId, profileId), false);
 	},
 
 	async markReadBatch(ids: string[], userId: string, profileId?: string): Promise<void> {
-		if (ids.length === 0) return;
+		await setBatchReadState(ids, recipientWhere(userId, profileId), true);
+	},
 
-		const recipient = recipientWhere(userId, profileId);
-		const now = new Date();
-		await forEachChunked(ids, (idChunk) =>
-			databaseFactory
-				.getClient()
-				.update(notifications.table)
-				.set({ readAt: now, updatedAt: now })
-				.where(and(inArray(notifications.table.id, idChunk), recipient, isNull(notifications.table.readAt))),
-		);
+	async markUnreadBatch(ids: string[], userId: string, profileId?: string): Promise<void> {
+		await setBatchReadState(ids, recipientWhere(userId, profileId), false);
 	},
 
 	async markAllReadForRecipient(userId: string, profileId?: string): Promise<void> {
-		await markAllRead(recipientWhere(userId, profileId));
+		await setAllRead(recipientWhere(userId, profileId), true);
+	},
+
+	async markAllUnreadForRecipient(userId: string, profileId?: string): Promise<void> {
+		await setAllRead(recipientWhere(userId, profileId), false);
 	},
 };
 

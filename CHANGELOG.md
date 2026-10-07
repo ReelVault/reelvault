@@ -69,6 +69,7 @@
 - **Worker scheduler rewrote null deadlines every minute** — trigger-less workers no longer receive a no-op `UPDATE` that only changes `updated_at`. Deadlines are now written only when they are armed or cleared.
 - **Private responses leaked between machine API keys** — the response cache and request-dedup identity omitted `x-api-key`, so two integration keys of different accounts could receive each other's body (for example `/v1/notifications`). Both keys now include the API key, and dedup keeps GET and HEAD apart as well.
 - **Access-controlled artifacts were publicly cacheable** — playback artifacts served behind the stream-access policy sent `Cache-Control: public, max-age=86400`, letting shared proxies replay them after an access change; they are now `private`.
+- **Notification updates ignored `read:false`** — both `PATCH /v1/notifications` and `PATCH /v1/notifications/:id` always marked notifications read. They now honour the flag, and re-marking an already-read notification succeeds instead of returning 403.
 
 ### Performance
 

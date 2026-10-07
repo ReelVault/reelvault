@@ -36,9 +36,13 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications", tags: 
 		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
 		detail: { description: "Batch update notification read status." },
 	})
-	.patch("/:id", async ({ params, user, profile }) => await notificationsService.markRead(params.id, user?.id, profile?.id), {
-		params: IdParams,
-		body: t.Optional(t.Object({ read: t.Optional(t.Boolean()) })),
-		response: { ...ROUTE_ERRORS.AUTH, 403: "error.response", 200: "success.response" },
-		detail: { description: "Mark a notification as read." },
-	});
+	.patch(
+		"/:id",
+		async ({ params, body, user, profile }) => await notificationsService.markRead(params.id, user?.id, profile?.id, body?.read ?? true),
+		{
+			params: IdParams,
+			body: t.Optional(t.Object({ read: t.Optional(t.Boolean()) })),
+			response: { ...ROUTE_ERRORS.AUTH, 403: "error.response", 200: "success.response" },
+			detail: { description: "Set a notification's read state (defaults to read)." },
+		},
+	);
