@@ -102,7 +102,11 @@ class TrickplayService extends BaseService {
 		);
 
 		const tempDir = PathUtils.join(serverConfig.paths.transcodeTmp, `trickplay_${mediaFileId}_${crypto.randomUUID()}`);
-		await DirUtils.create(tempDir);
+		if (!(await DirUtils.create(tempDir))) {
+			// create() logs the underlying fs error and returns false — fail with the
+			// actual cause instead of later reporting an empty sprite.
+			throw new InternalError("Trickplay temp directory could not be created", { code: "trickplay_temp_dir_failed" });
+		}
 
 		try {
 			const chunks = chunk(timestampsMs, tilesPerSprite);

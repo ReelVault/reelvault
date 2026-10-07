@@ -51,7 +51,7 @@ describe("trickplayService.generateForMediaFile — storage budget", () => {
 			stubMethod(mediaArtifactsService, "getStoredBytes", () => Promise.resolve(Number.MAX_SAFE_INTEGER)),
 			stubMethod(mediaArtifactsService, "getMediaFileStoredBytes", () => Promise.resolve(Number.MAX_SAFE_INTEGER - 1)),
 			stubMethod(mediaArtifactsService, "deleteByMediaFileIdAndKind", () => Promise.resolve(0)),
-			stubMethod(DirUtils, "create", () => Promise.resolve()),
+			stubMethod(DirUtils, "create", () => Promise.resolve(true)),
 			stubMethod(DirUtils, "delete", () => Promise.resolve()),
 			stubMethod(ffMpegService, "runToCompletion", () => Promise.resolve({ exitCode: 1, stderr: "stub failure" })),
 		);

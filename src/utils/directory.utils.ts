@@ -1,6 +1,7 @@
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { Glob } from "bun";
 import { systemResourcesService } from "@/system/system-resources.service";
+import { isMissingFile } from "./errors";
 import { createLogger } from "./logger";
 import { MemoryCache } from "./memory-cache";
 import { PathUtils } from "./path.utils";
@@ -49,6 +50,10 @@ export const DirUtils = {
 
 			return true;
 		} catch (error) {
+			// A missing directory is already deleted — deleting is idempotent, so a
+			// cleanup of an already-removed temp dir must not log an error.
+			if (isMissingFile(error)) return true;
+
 			logger.error("Delete directory error", error, { directoryPath: path });
 
 			return false;
