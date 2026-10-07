@@ -23,6 +23,11 @@ bun run test
 - `bun run format` does NOT sort imports. If lint complains about import order: `bunx biome check --write <files>`.
 - Run `bun test` from the repo ROOT only (`bunfig.toml` preload doesn't apply in subdirectories).
 
+## Changelog (MANDATORY)
+- Update `CHANGELOG.md` in the same task as any behavior change, under the current unreleased version heading (`# vX.Y.Z`): user-visible changes in `### Features` / `### Fixes`, perf changes in `### Performance`, refactors/tooling in `### Internal`.
+- Write entries in English, without commit hashes.
+- Performance changes go into a table with separate `Before`, `After` and `Δ` columns — one measurement per row, no bundled values — carrying measured A/B numbers from `bun run benchmark` / benchkit; never a bare "improved performance", and include regressions.
+
 ## Forbidden: silencing tools
 Never suppress a problem instead of fixing it. No linter blocks these, so YOU must:
 - Suppression comments: `// biome-ignore`, `// oxlint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`.
