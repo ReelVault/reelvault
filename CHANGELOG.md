@@ -97,6 +97,9 @@
 - **The on-disk optimized-image cache never worked on Windows** — its keys embedded the source stamp `size:mtime`, and `:` is not a legal NTFS filename character, so every request re-ran sharp. The stamp is now sanitized.
 - **`If-None-Match: *` was treated as a literal** — `*` and some multi-value validators received a full body instead of a 304, and the SPA entry's 304 dropped its `ETag`/`Cache-Control`/`Content-Type` headers. Conditional requests now use the shared RFC-style matcher and 304s repeat the validating headers.
 - **Compression ignored explicit `q=0` refusals** — `Accept-Encoding: br;q=0, gzip` still selected brotli (and a `x-gzip` token matched gzip). Encoding negotiation now parses quality values and matches exact tokens.
+- **Changing a library's metadata language kept the old language for 30 seconds** — the per-library override cache was not invalidated by the edit; the library update path now drops the entry.
+- **A refresh could silently clear the missing-translation flag** — providers that omit `hasMissingTranslation` reset it to `false`, so the admin translation filter lost titles whose provider does not report the field. An omitted flag now leaves the existing state untouched.
+- **A subtitle deleted mid-scan could be imported as a dangling row** — the sidecar directory listing is cached for a few seconds; candidates are now existence-checked before import.
 
 ### Performance
 

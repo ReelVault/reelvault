@@ -252,8 +252,10 @@ function toRefreshedMetadataValues(metadata: ProviderMetadataResult, lockedSet: 
 
 	values.popularity = metadata.popularity;
 	// Re-evaluated on every refresh so a fixed/changed provider translation
-	// state clears (or sets) the flag — not just on create/rematch.
-	values.hasMissingTranslation = metadata.hasMissingTranslation ?? false;
+	// state clears (or sets) the flag — not just on create/rematch. A provider
+	// that omits the field entirely must not clear an existing flag (the admin
+	// translation filter would silently lose the title).
+	if (metadata.hasMissingTranslation !== undefined) values.hasMissingTranslation = metadata.hasMissingTranslation;
 
 	return values;
 }

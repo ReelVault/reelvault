@@ -43,6 +43,11 @@ const enqueueImagesInBackground = (data: ImageProcessingData, options: TaskSched
  */
 const libraryLanguageCache = new MemoryCache<string>({ ttlMs: 30_000, maxSize: 64, name: "metadata.libraryLanguage" });
 
+/** Drops the cached metadata-language override after an admin edits the library. */
+export function invalidateLibraryLanguageCache(libraryId: string): void {
+	libraryLanguageCache.delete(libraryId);
+}
+
 export class MetadataProcess extends BaseService {
 	private readonly baseMetadataProcesses = new InFlightMap<CreatedProviderMetadata>();
 	private readonly imageEnqueueProcesses = new InFlightMap<void>();

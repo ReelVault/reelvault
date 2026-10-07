@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
+import { FileUtils } from "@/utils/file.utils";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
@@ -107,7 +108,15 @@ export async function findSidecarSubtitles(videoFilePath: string): Promise<Sidec
 		});
 	}
 
-	return candidates.toSorted((a, b) => a.filePath.localeCompare(b.filePath));
+	const existing = await Promise.all(
+		candidates.map(async (candidate) => ((await FileUtils.exists(candidate.filePath)) ? candidate : null)),
+	);
+
+	// The directory listing is cached for a short TTL — a subtitle deleted within
+	// that window must not be imported as a dangling row.
+	return existing
+		.filter((candidate): candidate is SidecarSubtitleCandidate => candidate !== null)
+		.toSorted((a, b) => a.filePath.localeCompare(b.filePath));
 }
 
 /**
