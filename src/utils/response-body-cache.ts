@@ -141,6 +141,21 @@ export function invalidateResponseBodies(): void {
 }
 
 /**
+ * Drops cached bodies whose request path matches one of `pathPrefixes`
+ * (e.g. `/v1/metadata`). Used by writes that only stale a known set of list
+ * endpoints — a full flush per ingested file would thrash every cache.
+ * `onEvict` keeps the profile/etag indexes in sync.
+ */
+export function invalidateResponseBodiesForPathPrefixes(pathPrefixes: readonly string[]): void {
+	if (pathPrefixes.length === 0) return;
+
+	for (const key of responseBodyCache.keys()) {
+		const path = key.split(KEY_SEGMENT_SEPARATOR)[0] ?? "";
+		if (pathPrefixes.some((prefix) => path.startsWith(prefix))) responseBodyCache.delete(key);
+	}
+}
+
+/**
  * Drops cached bodies scoped to one profile without flushing the whole cache.
  * Response-cache keys index by profile id (O(1) per write); etag-body keys
  * embed it after a colon and live only 10s, so that one stays a scan over the

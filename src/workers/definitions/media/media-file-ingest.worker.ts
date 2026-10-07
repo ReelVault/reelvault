@@ -14,11 +14,15 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { assertFound } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
+import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
 import { enqueueTrickplayGenerationForLibrary } from "@/workers/definitions/media/trickplay-generate.worker";
 import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 import { enqueueMediaFileAnalysis, type MediaFileAnalysisData } from "./media-file-analysis.worker";
+
+/** List endpoints that hide a freshly ingested title until their TTL expires. */
+const CATALOG_LIST_PATH_PREFIXES = ["/v1/metadata", "/v1/libraries"] as const;
 
 export interface MediaFileIngestData {
 	libraryId: string;
@@ -365,6 +369,12 @@ export async function ingestMediaFileTask(
 			libraryId: data.libraryId,
 			...createData,
 		});
+
+		if (created) {
+			// A new title must not stay hidden behind a cached catalog list until its
+			// TTL expires (metadata lists are cached for up to a minute).
+			invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
+		}
 
 		const input: IngestCompletionInput = {
 			data,
