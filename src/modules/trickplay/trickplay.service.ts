@@ -185,12 +185,15 @@ class TrickplayService extends BaseService {
 }
 
 function vttTimestamp(seconds: number): string {
-	const clamped = Math.max(0, seconds);
-	const hours = Math.floor(clamped / 3600);
-	const minutes = Math.floor((clamped % 3600) / 60);
-	const secs = clamped % 60;
+	// Round to whole milliseconds first, then split — `secs.toFixed(3)` alone
+	// could emit `00:00:60.000` for values within half a millisecond of a minute.
+	const totalMs = Math.max(0, Math.round(seconds * 1000));
+	const hours = Math.floor(totalMs / 3_600_000);
+	const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+	const secs = Math.floor((totalMs % 60_000) / 1000);
+	const millis = totalMs % 1000;
 
-	return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${secs.toFixed(3).padStart(6, "0")}`;
+	return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 }
 
 /** WebVTT with `#xywh=` sprite payloads — the exact format `use-player-trickplay` parses. */

@@ -103,6 +103,9 @@
 - **Streaming ffmpeg logs could not be correlated with the panel operation** — the operation log was filed under the playback session id instead of the session's worker `operationId`, so neither id led to the other. The log now carries the operation id (falling back to the session id only when there is none).
 - **A paused client scrubbing could be reaped mid-seek** — an unbuffered seek restarts ffmpeg but never refreshed the session's activity clock, unlike the buffered path. Seeks now keep the session alive.
 - **A stuck ffmpeg could wedge session release and shutdown** — after SIGKILL the code waited for `process.exited` without a bound, so an uninterruptible process (for example a stalled network mount) blocked teardown forever. The wait is now bounded.
+- **An aborted keyframe probe disabled keyframe seeking for that bucket** — a cancelled probe was cached as "no keyframe" for the whole TTL. Aborted probes are no longer cached.
+- **Trickplay previews could emit an invalid `00:00:60.000` timestamp** — the formatter rounded seconds without carrying into minutes, which strict WebVTT parsers reject. Timestamps are now built from whole milliseconds.
+- **`/me/playback-suggestions` did not enforce its documented 50-id cap** — the batch now trims the id list before the lookup.
 
 ### Performance
 

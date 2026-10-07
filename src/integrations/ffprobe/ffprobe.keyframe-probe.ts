@@ -48,7 +48,12 @@ export async function findKeyframeBefore(filePath: string, target: number, signa
 			const keyframe = pickLastKeyframePackets(probe.packets ?? [], target);
 
 			return keyframe ?? 0;
-		} catch {
+		} catch (error) {
+			// An aborted probe is not a result: `getOrSet` only caches successes, so
+			// rethrowing keeps the bucket probeable instead of pinning "no keyframe"
+			// for the whole TTL (which would silently disable keyframe seeks).
+			if (signal?.aborted) throw error;
+
 			return 0;
 		}
 	});

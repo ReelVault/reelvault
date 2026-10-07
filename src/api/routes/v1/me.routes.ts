@@ -147,7 +147,8 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.get(
 		"/playback-suggestions",
 		async ({ query, profile }) => {
-			const ids = trimAndFilter(query.metadataIds.split(","));
+			// The detail promises up to 50 ids; trim before the batch lookup.
+			const ids = trimAndFilter(query.metadataIds.split(",")).slice(0, 50);
 
 			return await playbackProgressService.getSmartPlayBatch(ids, profile?.id);
 		},
