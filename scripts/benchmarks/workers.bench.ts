@@ -13,6 +13,7 @@ import {
 import { sleep } from "bun";
 import { databaseFactory } from "@/database/database";
 import { workerJobRepository } from "@/database/repositories/worker.repository";
+import { workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";
 
 export const meta = { description: "Worker job queue engine (bulk enqueue, dedupe, claimNextBatch transaction)" };
 
@@ -109,6 +110,17 @@ if (!args.help) {
 	databaseFactory.analyze();
 
 	console.log(`[workers] running worker repository benchmarks (${args.iterations} iterations)...`);
+
+	// The scheduler used to rewrite a null deadline for every trigger-less
+	// worker on every tick. This measures the write that is no longer issued.
+	const scheduleWorkerIds = Array.from({ length: 12 }, (_, index) => `bench-sched-${index}`);
+	bench(
+		"Scheduler null-deadline write (12 trigger-less workers)",
+		async () => {
+			await workerSchedulesRepository.setNextRunAtMany(scheduleWorkerIds.map((workerId) => ({ workerId, nextRunAt: null })));
+		},
+		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+	);
 
 	bench(
 		"Worker bulk enqueue (50 jobs/batch)",

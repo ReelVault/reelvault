@@ -160,6 +160,17 @@ describe("WorkerSchedulerService.evaluateTriggers", () => {
 		expect(advanced?.nextRunAt?.getTime()).toBeGreaterThan(ANCHOR.getTime());
 	});
 
+	test("does not rewrite null deadlines for trigger-less workers every tick", async () => {
+		defs = [def("w-plain")];
+
+		const scheduler = new WorkerSchedulerService();
+		await scheduler.evaluateTriggers(ANCHOR);
+		await scheduler.evaluateTriggers(new Date((ANCHOR_MINUTE + 1) * MINUTE));
+
+		// Nothing to arm and nothing to clear — a null write would only bump updatedAt.
+		expect(nextRunAtCalls).toEqual([]);
+	});
+
 	test("fires the due minute once and not twice within it", async () => {
 		defs = [def("w-interval", { defaultTriggers: [{ id: "t4", type: "interval", intervalMinutes: 30 }] })];
 

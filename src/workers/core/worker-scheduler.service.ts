@@ -132,7 +132,11 @@ export class WorkerSchedulerService extends BaseService {
 			const due = row?.nextRunAt ?? null;
 			if (due === null) {
 				// First pass for this worker — arm the deadline without firing.
-				deadlineUpdates.push({ workerId: def.id, nextRunAt: computeNextRunAt(triggers, cron, now) });
+				// Trigger-less workers compute null every tick; writing that null
+				// back would bump updatedAt forever for no state change.
+				const nextRunAt = computeNextRunAt(triggers, cron, now);
+				if (nextRunAt !== null) deadlineUpdates.push({ workerId: def.id, nextRunAt });
+
 				continue;
 			}
 
