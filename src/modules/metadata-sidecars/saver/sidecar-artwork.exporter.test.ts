@@ -83,6 +83,84 @@ describe("SidecarArtworkExporter", () => {
 		}
 	});
 
+	test("skips the re-encode when neither the source nor the target changed", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-artwork-"));
+		try {
+			const sourcePath = await writeStoreImage(directory);
+			activeStubs.push(stubMethod(imageRepository, "findMetadataImagePath", () => Promise.resolve(sourcePath)));
+			let reencodes = 0;
+			const exporter = new SidecarArtworkExporter({
+				reencodeImage: () => {
+					reencodes++;
+
+					return Promise.resolve(Buffer.from(`jpeg-${reencodes}`));
+				},
+			});
+
+			const first = await exporter.saveTitleArtwork({ metadataId: "metadata-1", directory });
+			expect(first).toHaveLength(2);
+			expect(reencodes).toBe(2);
+
+			const second = await exporter.saveTitleArtwork({ metadataId: "metadata-1", directory });
+			expect(second).toEqual([]);
+			expect(reencodes).toBe(2);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("re-exports after the source changes", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-artwork-"));
+		try {
+			const sourcePath = await writeStoreImage(directory);
+			activeStubs.push(stubMethod(imageRepository, "findMetadataImagePath", () => Promise.resolve(sourcePath)));
+			let reencodes = 0;
+			const exporter = new SidecarArtworkExporter({
+				reencodeImage: () => {
+					reencodes++;
+
+					return Promise.resolve(Buffer.from(`jpeg-${reencodes}`));
+				},
+			});
+
+			await exporter.saveTitleArtwork({ metadataId: "metadata-1", directory });
+			await Bun.write(sourcePath, Buffer.from("a different, longer source payload"));
+
+			const second = await exporter.saveTitleArtwork({ metadataId: "metadata-1", directory });
+
+			expect(second).toHaveLength(2);
+			expect(reencodes).toBe(4);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("re-exports a target replaced outside the exporter", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-artwork-"));
+		try {
+			const sourcePath = await writeStoreImage(directory);
+			activeStubs.push(stubMethod(imageRepository, "findMetadataImagePath", () => Promise.resolve(sourcePath)));
+			let reencodes = 0;
+			const exporter = new SidecarArtworkExporter({
+				reencodeImage: () => {
+					reencodes++;
+
+					return Promise.resolve(Buffer.from(`jpeg-${reencodes}`));
+				},
+			});
+
+			await exporter.saveTitleArtwork({ metadataId: "metadata-1", directory });
+			await Bun.write(join(directory, "poster.jpg"), Buffer.from("externally edited poster"));
+
+			const second = await exporter.saveTitleArtwork({ metadataId: "metadata-1", directory });
+
+			expect(second).toEqual([join(directory, "poster.jpg")]);
+			expect(reencodes).toBe(3);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
 	test("skips exports without a persisted image", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-artwork-"));
 		try {

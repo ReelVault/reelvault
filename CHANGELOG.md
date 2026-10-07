@@ -123,6 +123,7 @@ Structural wins and ranged measurements that have no single numeric pair are lis
 | Sidecars | Episode/season lookups when saving 20 episode files | ~44 stmts | 2 stmts | -95% |
 | Sidecars | Episode NFO read — worst-case root dispatch | 0.13 ms | 0.07 ms | -44% |
 | Sidecars | Subtitle import for three sidecars | 6-9 stmts | 2 stmts | -67%…-78% |
+| Sidecars | Artwork export, unchanged source+target (2 files) | 18.95 ms | 0.02 ms | ≈-100% |
 | Scanner | `scanPaths` classification, 5,000 files | 0.99 ms | 0.71 ms | -29% |
 | Scanner | Sidecar subtitles for 24 episodes in one directory | 1.58 ms | 0.76 ms | -52% |
 | Scanner | `matchesIgnorePattern`, 500 paths × 3 patterns | 0.86 ms | 0.21 ms | -76% |

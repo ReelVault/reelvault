@@ -1,10 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bench, fixture, group, main, printTable, suiteArgs, task } from "benchkit";
+import { bench, fixture, fmtMs, group, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
+import sharp from "sharp";
+import { imageRepository } from "@/database/repositories/images.repository";
 import { JellyfinFormatAdapter } from "@/modules/metadata-sidecars/formats/jellyfin/jellyfin-format.adapter";
 import { ReelVaultFormatAdapter } from "@/modules/metadata-sidecars/formats/reelvault/reelvault-format.adapter";
 import { SqliteOfflineCatalogRebuildService } from "@/modules/metadata-sidecars/offline-catalog-rebuild";
+import { SidecarArtworkExporter } from "@/modules/metadata-sidecars/saver/sidecar-artwork.exporter";
 import type { SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
 import { readXmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
 import { writeXmlDocument } from "@/modules/metadata-sidecars/xml/xml-writer";
@@ -105,6 +108,48 @@ if (!args.help) {
 		);
 
 		return { ok: true, data: { movieCount, ...report } };
+	});
+
+	// ─── 1b. Artwork export on an unchanged source/target ───
+	task("sidecars: artwork export skip", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "rv-artwork-export-"));
+		try {
+			const sourcePath = join(directory, "stored.webp");
+			writeFileSync(
+				sourcePath,
+				await sharp({ create: { width: 1920, height: 1080, channels: 3, background: { r: 30, g: 90, b: 160 } } })
+					.webp()
+					.toBuffer(),
+			);
+
+			const originalFindMetadataImagePath = imageRepository.findMetadataImagePath.bind(imageRepository);
+			imageRepository.findMetadataImagePath = () => Promise.resolve(sourcePath);
+			try {
+				const exporter = new SidecarArtworkExporter();
+				// First save writes both files; the measured saves must skip.
+				await exporter.saveTitleArtwork({ metadataId: "meta-bench", directory });
+
+				const samples: number[] = [];
+				for (let run = 0; run < 10; run++) {
+					const startedAt = performance.now();
+					await exporter.saveTitleArtwork({ metadataId: "meta-bench", directory });
+					samples.push(performance.now() - startedAt);
+				}
+
+				const stats = summarizeLatencies(samples);
+				printTable(
+					"Artwork export, unchanged source+target (2 files)",
+					["p50", "p95", "max"],
+					[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+				);
+			} finally {
+				imageRepository.findMetadataImagePath = originalFindMetadataImagePath;
+			}
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+
+		return { ok: true };
 	});
 
 	// ─── 2. Pure XML round-trip + adapter file write/read ───
