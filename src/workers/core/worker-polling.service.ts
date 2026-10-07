@@ -171,6 +171,11 @@ export class WorkerPollingService extends BaseService {
 
 			this.emptyPolls = 0;
 
+			// Snapshot once per poll: rebuilding the set per worker is O(workers x
+			// running), and jobs started below are already claimed (status running),
+			// so they cannot be recovered again within this tick.
+			const activeJobIds = runtime.pool.getActiveJobIds();
+
 			for (const workerId of pendingWorkerIds) {
 				if (runtime.pool.totalRunningCount >= maxGlobalPool) break;
 
@@ -200,7 +205,7 @@ export class WorkerPollingService extends BaseService {
 						now,
 						// Jobs whose handlers are still hanging in memory must not be
 						// recovered and re-claimed by a parallel poll (double execution).
-						excludeActiveIds: runtime.pool.getActiveJobIds(),
+						excludeActiveIds: activeJobIds,
 					},
 					freeSlots,
 				);

@@ -14,23 +14,38 @@ const definition: WorkerDefinition = {
 	timeoutMs: 60_000,
 };
 
+const secondDefinition: WorkerDefinition = {
+	...definition,
+	id: "w-poll-2",
+};
+
 const started: string[] = [];
 const runningCounts = new Map<string, number>();
 let totalRunning = 0;
 let activeJobIds: string[] = [];
+let activeJobIdReads = 0;
 
 function installRuntime(): void {
 	setWorkerRuntime(
 		createMockWorkerRuntime({
 			registry: {
-				get: (id: string) => (id === "w-poll" ? definition : undefined),
+				get: (id: string) => {
+					if (id === "w-poll") return definition;
+					if (id === "w-poll-2") return secondDefinition;
+
+					return undefined;
+				},
 			},
 			pool: {
 				get totalRunningCount() {
 					return totalRunning;
 				},
 				runningCountFor: (workerId: string) => runningCounts.get(workerId) ?? 0,
-				getActiveJobIds: () => [...activeJobIds],
+				getActiveJobIds: () => {
+					activeJobIdReads++;
+
+					return [...activeJobIds];
+				},
 				start: (_definition, item) => {
 					started.push(item.id);
 				},
@@ -51,6 +66,7 @@ beforeEach(async () => {
 	runningCounts.clear();
 	totalRunning = 0;
 	activeJobIds = [];
+	activeJobIdReads = 0;
 
 	const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
 	activeStubs.push(
@@ -137,6 +153,19 @@ describe("WorkerPollingService.poll", () => {
 
 		expect(claim).toHaveLength(0);
 		expect(started).toEqual([]);
+	});
+
+	test("reads the active-job set once per poll, not once per worker", async () => {
+		const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
+		stubMethod(repo, "findPendingWorkerIds", () => Promise.resolve(["w-poll", "w-poll-2"]));
+		const claim = await withClaimStub(() => Promise.resolve([]));
+
+		const polling = new WorkerPollingService();
+		Reflect.set(polling, "isRunning", true);
+		await polling.poll();
+
+		expect(claim).toHaveLength(2);
+		expect(activeJobIdReads).toBe(1);
 	});
 
 	test("a second claim is skipped once the global pool filled up mid-poll", async () => {
