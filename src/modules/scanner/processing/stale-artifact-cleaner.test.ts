@@ -6,6 +6,7 @@ interface Harness {
 	deletedPaths: string[];
 	artifactRemovals: string[][];
 	statsCleared: boolean;
+	artifactTotalsInvalidated: boolean;
 	unavailableEvents: Array<{ libraryId: string; mediaFileId: string }>;
 }
 
@@ -15,6 +16,7 @@ function createHarness(): Harness {
 		deletedPaths: [],
 		artifactRemovals: [],
 		statsCleared: false,
+		artifactTotalsInvalidated: false,
 		unavailableEvents: [],
 	};
 	harness.cleaner = new StaleArtifactCleaner({
@@ -32,6 +34,9 @@ function createHarness(): Harness {
 			harness.artifactRemovals.push(keys);
 
 			return Promise.resolve();
+		},
+		invalidateArtifactByteTotals: () => {
+			harness.artifactTotalsInvalidated = true;
 		},
 		deleteFile: (path) => {
 			harness.deletedPaths.push(path);
@@ -66,6 +71,7 @@ describe("StaleArtifactCleaner", () => {
 		expect(harness.artifactRemovals).toEqual([["artifact-key-1"]]);
 		expect(harness.deletedPaths).toEqual(["/data/subtitles/kept.vtt", "/data/subtitles/sub-1.vtt"]);
 		expect(harness.statsCleared).toBeTrue();
+		expect(harness.artifactTotalsInvalidated).toBeTrue();
 	});
 
 	test("never deletes subtitle files from outside the subtitles root", async () => {
@@ -99,6 +105,7 @@ describe("StaleArtifactCleaner", () => {
 					],
 				}),
 			removeArtifactStorageFiles: () => Promise.resolve(),
+			invalidateArtifactByteTotals: () => undefined,
 			deleteFile: () => Promise.resolve(true),
 			getIoConcurrency: () => 4,
 			subtitlesPath: () => "/data/subtitles",

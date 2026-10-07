@@ -15,6 +15,7 @@ import { DirUtils } from "@/utils/directory.utils";
 import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory-cache";
+import { KeyedMutex } from "@/utils/mutex";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
@@ -30,6 +31,8 @@ class PluginArtifactsService extends BaseService {
 	 * Invalidated on every delete path (the only way stored bytes shrink).
 	 */
 	private readonly pluginByteTotals = new MemoryCache<number>({ ttlMs: -1, maxSize: 64, name: "plugin-artifact-totals" });
+	/** Per-plugin write serialisation for the quota check-then-write window. */
+	private readonly writeLocks = new KeyedMutex();
 
 	constructor() {
 		super("PluginArtifactsService");
@@ -42,6 +45,13 @@ class PluginArtifactsService extends BaseService {
 	}
 
 	async write(pluginId: string, artifact: PlaybackArtifactWrite): Promise<PlaybackArtifact> {
+		// The quota check reads-then-writes the cached byte total; serialise writes
+		// per plugin so two concurrent artifacts cannot both pass against the same
+		// base and overshoot the cap (or poison the cached total).
+		return await this.writeLocks.runExclusive(pluginId, async () => await this.writeUnlocked(pluginId, artifact));
+	}
+
+	private async writeUnlocked(pluginId: string, artifact: PlaybackArtifactWrite): Promise<PlaybackArtifact> {
 		if (typeof artifact !== "object") {
 			throw new ValidationError(`Plugin '${pluginId}' artifact write failed: artifact must be an object.`, {
 				code: "plugin.artifact.invalid_request",
@@ -173,6 +183,22 @@ class PluginArtifactsService extends BaseService {
 		await PromiseUtils.mapConcurrent(storageKeys, serverConfig.plugins.artifacts.cleanupConcurrency, (storageKey) =>
 			FileUtils.delete(this.storagePath(storageKey)),
 		);
+	}
+
+	/**
+	 * Drops cached per-plugin byte totals after files were removed outside this
+	 * service (scanner stale-artifact cleanup, media/metadata/library delete).
+	 * Without it the cache keeps counting deleted bytes and later writes are
+	 * rejected with `plugin.artifact.quota_exceeded` while the plugin is under quota.
+	 */
+	invalidateByteTotals(pluginIds?: readonly string[]): void {
+		if (!pluginIds) {
+			this.pluginByteTotals.clear();
+
+			return;
+		}
+
+		for (const pluginId of pluginIds) this.pluginByteTotals.delete(pluginId);
 	}
 
 	private toPublicArtifact(artifact: MediaArtifactRow): PlaybackArtifact {

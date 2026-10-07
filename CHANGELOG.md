@@ -83,6 +83,7 @@
 - **Silent (video-only) files were unplayable and undownloadable** — every stream and download mapped audio as a hard `0:a:0`, so ffmpeg aborted with "matches no streams" on sources without an audio track. The audio maps are now optional (`0:a:0?`).
 - **A remembered audio track with an unsupported codec broke playback** — the playback decision was computed from the smart-selected track's codec while the stream map used the remembered track's index, so an E-AC-3/TrueHD resume could be copied into a client that only decodes AAC. The decision now describes the track that is actually mapped.
 - **Editing a subtitle kept serving the old cues** — the extracted WebVTT cache was only removed on delete, so changing the stream index or source in `PATCH /v1/subtitles/:id` served the previous track indefinitely (and a replaced external file leaked on disk). Updates now drop the cached VTT — plus the previous external file when the source changed — and subtitle writes invalidate the cached list/detail responses.
+- **Deleting media could permanently exhaust a plugin's artifact quota** — the cached per-plugin byte total survived files removed by scanner/media cleanup, so a plugin could hit `plugin.artifact.quota_exceeded` while well under quota. External cleanup paths now invalidate the cached totals, and concurrent writes within one plugin are serialised so the check-then-write quota window cannot be raced.
 
 ### Performance
 

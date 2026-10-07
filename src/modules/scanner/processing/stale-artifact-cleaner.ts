@@ -14,6 +14,7 @@ import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 interface ServiceDependencies {
 	deleteByLibraryAndPaths: typeof mediaRepository.deleteByLibraryAndPathsAndGetCleanup;
 	removeArtifactStorageFiles: (keys: string[]) => Promise<unknown>;
+	invalidateArtifactByteTotals: () => void;
 	deleteFile: (path: string) => Promise<boolean>;
 	getIoConcurrency: () => number;
 	subtitlesPath: () => string;
@@ -24,6 +25,7 @@ interface ServiceDependencies {
 const defaultDependencies: ServiceDependencies = {
 	deleteByLibraryAndPaths: (libraryId, paths) => mediaRepository.deleteByLibraryAndPathsAndGetCleanup(libraryId, paths),
 	removeArtifactStorageFiles: (keys) => pluginArtifactsService.removeStorageFiles(keys),
+	invalidateArtifactByteTotals: () => pluginArtifactsService.invalidateByteTotals(),
 	deleteFile: (path) => FileUtils.delete(path),
 	getIoConcurrency: () => systemResourcesService.getIoConcurrency(),
 	subtitlesPath: () => serverConfig.paths.subtitles,
@@ -51,6 +53,7 @@ export class StaleArtifactCleaner extends BaseService {
 		const {
 			deleteByLibraryAndPaths,
 			removeArtifactStorageFiles,
+			invalidateArtifactByteTotals,
 			deleteFile,
 			getIoConcurrency,
 			subtitlesPath,
@@ -80,6 +83,7 @@ export class StaleArtifactCleaner extends BaseService {
 		}
 
 		await PromiseUtils.mapConcurrent(removals, getIoConcurrency(), (removal) => removal(), signal);
+		invalidateArtifactByteTotals();
 		clearLibraryStatsCache();
 		this.logger.info("Removed stale media records", { libraryId, count: removedFiles.length });
 	}
