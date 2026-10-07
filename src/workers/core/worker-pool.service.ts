@@ -163,7 +163,7 @@ export class WorkerExecutionPoolService extends BaseService {
 				]);
 				// Same 1s throttle as the DB write — a small WS frame instead of the
 				// client polling operations every few seconds.
-				realtimeService.broadcast("worker:progress", {
+				realtimeService.broadcastToAdmins("worker:progress", {
 					jobId: item.id,
 					operationId: item.operationId ?? undefined,
 					workerId: item.workerId,
@@ -190,7 +190,7 @@ export class WorkerExecutionPoolService extends BaseService {
 			completedAt: new Date(),
 			durationMs,
 		});
-		realtimeService.broadcast("worker:job:completed", {
+		realtimeService.broadcastToAdmins("worker:job:completed", {
 			jobId: item.id,
 			workerId: item.workerId,
 			type: item.workerId,

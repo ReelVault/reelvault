@@ -97,7 +97,10 @@ export const wsProtocol = {
 		}
 	},
 
-	onOpen(ws: ProtocolSocket, input: { userId: string; profileId: string | null; sessionId: string | null }): void {
+	onOpen(
+		ws: ProtocolSocket,
+		input: { userId: string; profileId: string | null; sessionId: string | null; isAdmin?: boolean | undefined },
+	): void {
 		const connectionId = crypto.randomUUID();
 
 		clientStates.set(ws.raw, { connectionId, profileId: input.profileId });
@@ -109,6 +112,7 @@ export const wsProtocol = {
 			// The auth session ID is stored here for reference but playback commands
 			// are delivered via the HLS session ID registered through subscribe_session.
 			sessionId: input.sessionId,
+			isAdmin: input.isAdmin,
 			socket: ws.raw,
 		});
 	},

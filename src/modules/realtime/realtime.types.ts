@@ -10,6 +10,8 @@ export interface ClientConnectionInput {
 	readonly userId: string;
 	readonly profileId?: string | null | undefined;
 	readonly sessionId?: string | null | undefined;
+	/** Resolved at the handshake so admin-only broadcasts need no per-event DB lookup. */
+	readonly isAdmin?: boolean | undefined;
 	readonly socket: RealtimeSocket;
 }
 

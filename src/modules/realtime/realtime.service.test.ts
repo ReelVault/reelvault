@@ -138,4 +138,25 @@ describe("RealtimeService", () => {
 
 		service.shutdown();
 	});
+
+	it("broadcasts worker progress only to admin connections", () => {
+		const service = new RealtimeService();
+		const sendAdmin = mock();
+		const sendViewer = mock();
+
+		service.register({ connectionId: "conn-admin", userId: "user-admin", isAdmin: true, socket: { send: sendAdmin } });
+		service.register({ connectionId: "conn-viewer", userId: "user-viewer", socket: { send: sendViewer } });
+
+		service.broadcastToAdmins("worker:progress", { jobId: "job-1", workerId: "library-scan", percent: 42 });
+
+		expect(sendAdmin).toHaveBeenCalledTimes(1);
+		expect(sendViewer).toHaveBeenCalledTimes(0);
+
+		// A regular broadcast still reaches everyone.
+		service.broadcast("system:ping", {});
+		expect(sendAdmin).toHaveBeenCalledTimes(2);
+		expect(sendViewer).toHaveBeenCalledTimes(1);
+
+		service.shutdown();
+	});
 });

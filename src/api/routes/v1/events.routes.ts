@@ -59,6 +59,7 @@ export const eventsRoutes = new Elysia({ prefix: "/events" })
 				userId: user.id,
 				profileId: profile?.id ?? query.profileId ?? null,
 				sessionId: session?.id ?? null,
+				isAdmin: user.role === "admin",
 			});
 		},
 		async message(ws, message) {

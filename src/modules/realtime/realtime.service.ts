@@ -127,6 +127,19 @@ export class RealtimeService extends BaseService {
 		this.sendToConnections([...this.registry.getAll()], type, payload);
 	}
 
+	/**
+	 * Admin-only fan-out without the DB round-trip `sendToAdmins` needs: the admin
+	 * flag is resolved at the handshake. Used for high-frequency worker progress
+	 * and completion frames, which non-admin phones/TVs have no use for; a role
+	 * change takes effect on the next reconnect.
+	 */
+	broadcastToAdmins<E extends RealtimeEventName>(type: E, payload: RealtimePayload<E>): void {
+		if (this.registry.count() === 0) return;
+
+		const adminConnections = [...this.registry.getAll()].filter((connection) => connection.isAdmin);
+		this.sendToConnections(adminConnections, type, payload);
+	}
+
 	sendPlaybackCommand(targetSessionId: string, command: PlaybackCommand, senderProfileId?: string): boolean {
 		const connections = this.registry.findConnectionsBySession(targetSessionId);
 		if (connections.length === 0) return false;

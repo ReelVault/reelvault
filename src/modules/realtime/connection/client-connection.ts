@@ -14,6 +14,8 @@ export class ClientConnection {
 	readonly userId: string;
 	profileId: string | null;
 	readonly sessionId: string | null;
+	/** True when the handshake user had the admin role; set once, re-resolved on reconnect. */
+	readonly isAdmin: boolean;
 	private readonly socket: RealtimeSocket;
 	private consecutiveDrops = 0;
 	lastActiveAt: number;
@@ -23,6 +25,7 @@ export class ClientConnection {
 		this.userId = input.userId;
 		this.profileId = input.profileId ?? null;
 		this.sessionId = input.sessionId ?? null;
+		this.isAdmin = input.isAdmin === true;
 		this.socket = input.socket;
 		this.lastActiveAt = Date.now();
 	}
