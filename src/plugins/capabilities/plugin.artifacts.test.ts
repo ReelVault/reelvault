@@ -171,6 +171,73 @@ describe("pluginArtifactsService.write — happy path", () => {
 	});
 });
 
+describe("pluginArtifactsService quota total cache", () => {
+	test("stats stored artifacts once across sequential writes and recomputes after a delete", async () => {
+		const pluginId = "org.reelvault.quota-cache";
+		let findByPluginIdCalls = 0;
+		let statsCalls = 0;
+		let insertIndex = 0;
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByPluginId", () => {
+				findByPluginIdCalls++;
+
+				return Promise.resolve([{ storageKey: "mf-1/a" }]);
+			}),
+			stubMethod(FileUtils, "getStats", () => {
+				statsCalls++;
+
+				return Promise.resolve({ size: 10, mtimeMs: 0 });
+			}),
+			stubMethod(pluginHookBus, "runBeforeArtifactCreate", (candidate: unknown) => Promise.resolve(candidate)),
+			stubMethod(mediaRepository, "isExists", () => Promise.resolve(true)),
+			stubMethod(pluginEventBus, "publish", () => undefined),
+			stubMethod(databaseFactory, "getClient", () => ({
+				insert: () => ({
+					values: () => ({
+						returning: () => {
+							insertIndex++;
+
+							return Promise.resolve([
+								{
+									id: `art-${insertIndex}`,
+									mediaFileId: "mf-1",
+									pluginId,
+									stableKey: `sk-${insertIndex}`,
+									kind: "trickplay",
+									contentType: "image/webp",
+									storageKey: `mf-1/art-${insertIndex}`,
+									createdAt: new Date("2020-01-01T00:00:00Z"),
+								},
+							]);
+						},
+					}),
+				}),
+			})),
+		);
+
+		const artifact = { mediaFileId: "mf-1", kind: "trickplay", contentType: "image/webp", content: bytes("sprite") } as const;
+		await pluginArtifactsService.write(pluginId, artifact);
+		await pluginArtifactsService.write(pluginId, artifact);
+
+		expect(findByPluginIdCalls).toBe(1);
+		expect(statsCalls).toBe(1);
+
+		// A delete shrinks stored bytes — the next write recomputes the total.
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByMediaFileId", () =>
+				Promise.resolve([{ id: "art-1", kind: "trickplay", pluginId, storageKey: "mf-1/art-1" }]),
+			),
+			stubMethod(mediaArtifactsRepository, "delete", () => Promise.resolve()),
+			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
+		);
+		await pluginArtifactsService.deleteByMediaFileIdAndKind("mf-1", "trickplay", pluginId);
+
+		await pluginArtifactsService.write(pluginId, artifact);
+		expect(findByPluginIdCalls).toBe(2);
+		expect(statsCalls).toBe(2);
+	});
+});
+
 describe("pluginArtifactsService.list", () => {
 	test("maps stored rows to public artifact urls", async () => {
 		activeStubs.push(

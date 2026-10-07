@@ -11,7 +11,6 @@ import { chunk } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
 import { InternalError, NotFoundError } from "@/utils/errors";
-import { FileUtils } from "@/utils/file.utils";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -124,17 +123,16 @@ class TrickplayService extends BaseService {
 					}
 
 					const spriteFile = file(spritePath);
-					const size = spriteFile.size;
-					if (size === 0) throw new InternalError("Trickplay sprite is empty", { code: "trickplay_empty_sprite" });
+					if (spriteFile.size === 0) throw new InternalError("Trickplay sprite is empty", { code: "trickplay_empty_sprite" });
 
-					const content = new Uint8Array(await spriteFile.arrayBuffer());
-					await FileUtils.delete(spritePath);
-
+					// The artifact write streams the BunFile straight to its storage
+					// path (no full buffer through JS) and deletes the temp source
+					// afterwards — writeFileWithRollback owns that cleanup.
 					const written = await pluginArtifactsService.write(CORE_TRICKPLAY_PLUGIN_ID, {
 						mediaFileId,
 						kind: "trickplay",
 						contentType: CONTENT_TYPE_WEBP,
-						content,
+						content: spriteFile,
 					});
 					sprites.push({ url: written.url, tileCount: chunkTimeMs.length });
 				}

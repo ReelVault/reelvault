@@ -14,6 +14,7 @@ import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
 import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
@@ -22,6 +23,14 @@ type MediaArtifactRow = InferTable<"mediaArtifacts">;
 const VALID_ARTIFACT_KINDS = new Set(["trickplay", "chapters", "preview", "waveform"]);
 
 class PluginArtifactsService extends BaseService {
+	/**
+	 * Per-plugin stored bytes. The artifacts table has no size column, so the
+	 * total comes from stat'ing every stored file; trickplay writes dozens of
+	 * sprites per title, and recomputing per write made that O(writes x files).
+	 * Invalidated on every delete path (the only way stored bytes shrink).
+	 */
+	private readonly pluginByteTotals = new MemoryCache<number>({ ttlMs: -1, maxSize: 64, name: "plugin-artifact-totals" });
+
 	constructor() {
 		super("PluginArtifactsService");
 	}
@@ -55,7 +64,7 @@ class PluginArtifactsService extends BaseService {
 		this.assertAllowedContentType(artifact.contentType, pluginId);
 
 		this.assertArtifactSize(artifact.content, pluginId);
-		await this.assertWithinPluginQuota(pluginId, contentByteSize(artifact.content));
+		const totalBytesAfterWrite = await this.assertWithinPluginQuota(pluginId, contentByteSize(artifact.content));
 
 		const candidate = await pluginHookBus.runBeforeArtifactCreate({
 			mediaFileId: artifact.mediaFileId,
@@ -99,6 +108,10 @@ class PluginArtifactsService extends BaseService {
 				code: "plugin.artifact.save_failed",
 			});
 
+		// Only now are the bytes actually stored — a rejected or rolled-back write
+		// must not poison the cached total.
+		this.pluginByteTotals.set(pluginId, totalBytesAfterWrite);
+
 		const publicArtifact = this.toPublicArtifact(storedArtifact);
 		pluginEventBus.publish("artifact.created", {
 			mediaFileId: normalizedArtifact.mediaFileId,
@@ -122,6 +135,9 @@ class PluginArtifactsService extends BaseService {
 			},
 		);
 		await this.removeStorageFiles(matching.map((a) => a.storageKey));
+
+		// Stored bytes shrank — the cached totals are stale.
+		for (const artifact of matching) this.pluginByteTotals.delete(artifact.pluginId);
 
 		return matching.length;
 	}
@@ -148,6 +164,7 @@ class PluginArtifactsService extends BaseService {
 			},
 		);
 		await this.removeStorageFiles(artifacts.map((artifact) => artifact.storageKey));
+		this.pluginByteTotals.delete(pluginId);
 
 		return artifacts.length;
 	}
@@ -196,17 +213,13 @@ class PluginArtifactsService extends BaseService {
 	}
 
 	/**
-	 * Caps the sum of one plugin's stored artifacts. Existing sizes come from
-	 * stat'ing the stored files (the artifacts table has no size column), so the
-	 * check runs per write — artifact writes are rare enough for that.
+	 * Caps the sum of one plugin's stored artifacts and returns the resulting
+	 * total so the caller can seed the cache after the write lands. A miss
+	 * stats every stored file (bounded parallel); hits are O(1).
 	 */
-	private async assertWithinPluginQuota(pluginId: string, incomingBytes: number): Promise<void> {
-		const existing = await mediaArtifactsRepository.findByPluginId(pluginId);
-		let totalBytes = incomingBytes;
-		for (const artifact of existing) {
-			const stats = await FileUtils.getStats(this.storagePath(artifact.storageKey));
-			totalBytes += stats?.size ?? 0;
-		}
+	private async assertWithinPluginQuota(pluginId: string, incomingBytes: number): Promise<number> {
+		const cachedBytes = this.pluginByteTotals.get(pluginId);
+		const totalBytes = (cachedBytes ?? (await this.computePluginByteTotal(pluginId))) + incomingBytes;
 
 		if (totalBytes > serverConfig.plugins.artifacts.maxTotalBytesPerPlugin) {
 			throw new ValidationError(
@@ -214,6 +227,17 @@ class PluginArtifactsService extends BaseService {
 				{ code: "plugin.artifact.quota_exceeded" },
 			);
 		}
+
+		return totalBytes;
+	}
+
+	private async computePluginByteTotal(pluginId: string): Promise<number> {
+		const existing = await mediaArtifactsRepository.findByPluginId(pluginId);
+		const sizes = await PromiseUtils.mapConcurrent(existing, serverConfig.plugins.artifacts.cleanupConcurrency, (artifact) =>
+			FileUtils.getStats(this.storagePath(artifact.storageKey)),
+		);
+
+		return sizes.reduce((total, stats) => total + (stats?.size ?? 0), 0);
 	}
 }
 

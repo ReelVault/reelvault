@@ -1,7 +1,24 @@
 import { readdirSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bench, fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
+import {
+	bench,
+	benchmarkAsync,
+	fmtMs,
+	main,
+	printHttpResults,
+	printMicroResults,
+	printTable,
+	runScenarioMatrix,
+	suiteArgs,
+	summarizeLatencies,
+	task,
+} from "benchkit";
 import { PluginEventBus } from "@/plugins/runtime/plugin.events";
+import { serverConfig } from "@/server.config";
+import { FileUtils } from "@/utils/file.utils";
+import { PromiseUtils } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import { contextHeaders, rotatingIdentity, workerCookie } from "./lib/identity";
 import { type NamedScenario, toScenarioEntries } from "./lib/scenarios";
@@ -260,6 +277,44 @@ if (!args.help) {
 		},
 		{ warmup: 3, iterations: 20 },
 	);
+
+	// The artifact quota total has no size column to read: it stats every stored
+	// file. Characterise the miss path (sequential per-write recompute vs the
+	// bounded-parallel recompute used once per invalidation).
+	task("plugins: artifact quota total cost", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "rv-artifact-quota-"));
+		try {
+			const filePaths = Array.from({ length: 1000 }, (_, index) => join(dir, `sprite-${index}.webp`));
+			await Promise.all(filePaths.map((path) => writeFile(path, new Uint8Array(64))));
+
+			const sequential = await benchmarkAsync(
+				"quota total: sequential stats (1000 files)",
+				async () => {
+					let total = 0;
+					for (const path of filePaths) total += (await FileUtils.getStats(path))?.size ?? 0;
+
+					return total;
+				},
+				{ warmup: 1, iterations: 5 },
+			);
+			const parallel = await benchmarkAsync(
+				"quota total: parallel stats (1000 files, cleanup concurrency)",
+				async () => {
+					const sizes = await PromiseUtils.mapConcurrent(filePaths, serverConfig.plugins.artifacts.cleanupConcurrency, (path) =>
+						FileUtils.getStats(path),
+					);
+
+					return sizes.reduce((total, stats) => total + (stats?.size ?? 0), 0);
+				},
+				{ warmup: 1, iterations: 5 },
+			);
+			printMicroResults([sequential, parallel]);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+
+		return { ok: true };
+	});
 
 	const zipPath = resolvePluginZip();
 	if (!zipPath) {
