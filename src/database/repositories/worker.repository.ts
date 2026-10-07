@@ -685,6 +685,7 @@ class WorkerJobRepository {
 			.select()
 			.from(items)
 			.where(and(eq(items.operationId, operationId), eq(items.status, "cancelled")))
+			.orderBy(asc(items.id))
 			.limit(limit);
 	}
 

@@ -1,4 +1,4 @@
-import { and, countDistinct, eq, gt, isNotNull, notExists, sql } from "drizzle-orm";
+import { and, asc, countDistinct, eq, gt, isNotNull, notExists, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 
@@ -29,6 +29,7 @@ class TrickplayRepository {
 					),
 				),
 			)
+			.orderBy(asc(schema.mediaFiles.id))
 			.limit(limit);
 
 		return rows.map((row) => row.id);

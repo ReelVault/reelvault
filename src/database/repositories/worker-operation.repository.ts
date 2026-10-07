@@ -77,7 +77,9 @@ class WorkerOperationRepository {
 				.select()
 				.from(operations)
 				.where(whereClause)
-				.orderBy(desc(operations.createdAt))
+				// created_at has second resolution — the id tiebreaker keeps offset
+				// pagination stable across same-second operations.
+				.orderBy(desc(operations.createdAt), desc(operations.id))
 				.limit(options.limit ?? 50)
 				.offset(options.offset ?? 0),
 		]);
@@ -348,7 +350,7 @@ class WorkerOperationRepository {
 				.select(workerJobSummaryColumns)
 				.from(jobs)
 				.where(where)
-				.orderBy(desc(jobs.createdAt))
+				.orderBy(desc(jobs.createdAt), desc(jobs.id))
 				.limit(options.limit ?? 50)
 				.offset(options.offset ?? 0),
 		]);

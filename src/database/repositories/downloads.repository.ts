@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import type { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess } from "@/database/table-access";
@@ -65,6 +65,7 @@ const overrides = {
 			.select()
 			.from(downloads.table)
 			.where(and(inArray(downloads.table.status, ["completed", "failed", "cancelled"]), lt(downloads.table.updatedAt, new Date(cutoff))))
+			.orderBy(asc(downloads.table.updatedAt))
 			.limit(limit);
 	},
 

@@ -89,6 +89,7 @@
 - **A plugin reload could cancel its own fresh jobs** — unregistering the old worker cancelled its pending jobs from a detached task that could land after the reloaded plugin had already enqueued new ones. Worker unregistration now awaits the cancellation before the reload continues.
 - **Purging worker history could delete an active operation's early jobs** — the manual/weekly purge removed operation-linked terminal jobs that still belong to a running operation (its own purge owns them), leaving operation counters without matching rows. The job purge now skips operation-grouped rows, matching the retention trim.
 - **Retried jobs showed stale progress** — a retried row kept the failed attempt's progress percent, start time and result while waiting for its backoff window. Retries now reset that state.
+- **Paginated admin lists could repeat or skip rows** — operations and jobs were ordered only by second-resolution `created_at`, so same-second rows could shuffle between pages. Both lists now tiebreak on the row id, and the `LIMIT`-based sweeps (downloads retention, missing-trickplay scan, resume source) pick a deterministic order too.
 
 ### Performance
 
