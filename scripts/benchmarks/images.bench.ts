@@ -65,6 +65,46 @@ if (!args.help) {
 		return { ok: true };
 	});
 
+	task("images: cache eviction sweep (steady state must not stat)", async () => {
+		const { ImageCacheEviction } = await import("@/modules/images/cache/image-cache.eviction");
+		const cacheDir = "/images/.cache";
+		const maxEntries = 5_000;
+		const entries = new Map<string, { mtimeMs: number }>();
+		let statCalls = 0;
+		const eviction = new ImageCacheEviction({
+			listDirectory: () => Promise.resolve([...entries.keys()].map((path) => path.slice(cacheDir.length + 1))),
+			getStats: (path) => {
+				statCalls++;
+				return Promise.resolve(entries.get(path) ?? null);
+			},
+			deleteFile: (path) => {
+				entries.delete(path);
+				return Promise.resolve(true);
+			},
+			getIoConcurrency: () => 4,
+		});
+
+		for (let i = 0; i < maxEntries + 1_000; i++) entries.set(`${cacheDir}/entry-${i}.webp`, { mtimeMs: i + 1 });
+		// First sweep reconciles pre-existing files.
+		for (let writes = 0; writes < 500; writes++) await eviction.evictIfDue(cacheDir);
+		const reconcileStats = statCalls;
+
+		statCalls = 0;
+		for (let writes = 0; writes < 500; writes++) {
+			eviction.recordWrite(cacheDir, `new-${writes}.webp`);
+			entries.set(`${cacheDir}/new-${writes}.webp`, { mtimeMs: 1_000_000 + writes });
+			await eviction.evictIfDue(cacheDir);
+		}
+
+		printTable(
+			"Image cache eviction sweep",
+			["cache entries", "reconcile getStats", "steady getStats"],
+			[[String(maxEntries), String(reconcileStats), String(statCalls)]],
+		);
+
+		return { ok: statCalls === 0 && entries.size === maxEntries };
+	});
+
 	task("images: pipeline", async () => {
 		const managed = await serverFixture();
 		const imageUrl = (width: number): string => `${managed.baseUrl}/v1/images/${managed.benchmarkImageId}?w=${width}`;

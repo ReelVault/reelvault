@@ -65,6 +65,7 @@ class ImageOptimizationService extends BaseService {
 		try {
 			await DirUtils.create(cacheDir);
 			await FileUtils.writeAtomic(cachePath, optimized);
+			imageCacheEviction.recordWrite(cacheDir, PathUtils.getFileName(cachePath));
 			// Fire-and-forget must not become an unhandled rejection on fs errors.
 			detach(
 				(async () => {

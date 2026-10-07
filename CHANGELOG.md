@@ -166,6 +166,7 @@ The performance work focuses primarily on reducing unnecessary database work, el
 - **Safer temporary-file ownership** — temporary trickplay source cleanup is now handled by `writeFileWithRollback`.
 - **Faster scanner matching** — optimized ignore-pattern matching and video-file detection to reduce repeated path and extension work.
 - **Scan-root reuse in ignore matching** — the scan-relative root is normalized once per distinct root (memoized) and the ignore-pattern list is read once per root instead of once per file; `matchesIgnorePattern` over 500 paths × 3 patterns dropped 0.26 ms → 0.20 ms p50 (**−23%**).
+- **Image-cache eviction without stat sweeps** — the optimized-image cache now tracks write order per directory, so recurring eviction deletes the oldest entries directly instead of `readdir`-ing and stat'ing the whole cache every 500 writes. On a 5 000-entry cache each steady sweep went from 5 500 `stat` calls + 1 `readdir` to **0**, with one reconcile per process on the first sweep; the cache stays bounded at the cap.
 
 #### Plugins & artifacts
 

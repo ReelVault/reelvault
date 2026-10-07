@@ -102,4 +102,38 @@ describe("ImageCacheEviction", () => {
 		await harness.eviction.evictIfDue(CACHE_DIR);
 		expect(harness.deleted).toHaveLength(1);
 	});
+
+	test("steady-state sweeps evict by tracked write order without filesystem stats", async () => {
+		let statCalls = 0;
+		const entries = new Map<string, { mtimeMs: number }>();
+		const eviction = new ImageCacheEviction({
+			listDirectory: () => Promise.resolve([...entries.keys()].map((path) => PathUtils.getFileName(path))),
+			getStats: (path) => {
+				statCalls++;
+				return Promise.resolve(entries.get(path) ?? null);
+			},
+			deleteFile: (path) => {
+				entries.delete(path);
+
+				return Promise.resolve(true);
+			},
+			getIoConcurrency: () => 4,
+		});
+
+		fillEntries({ eviction, entries, deleted: [] }, 5_001, 1);
+		// First sweep reconciles pre-existing files (stats expected).
+		for (let writes = 0; writes < 500; writes++) await eviction.evictIfDue(CACHE_DIR);
+		expect(statCalls).toBeGreaterThan(0);
+		expect(entries.size).toBe(5_000);
+
+		statCalls = 0;
+		for (let writes = 0; writes < 500; writes++) {
+			eviction.recordWrite(CACHE_DIR, `new-${writes}.webp`);
+			entries.set(`${CACHE_DIR}/new-${writes}.webp`, { mtimeMs: 1_000_000 + writes });
+			await eviction.evictIfDue(CACHE_DIR);
+		}
+
+		expect(statCalls).toBe(0);
+		expect(entries.size).toBe(5_000);
+	});
 });
