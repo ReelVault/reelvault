@@ -1,9 +1,8 @@
 import { and, asc, countDistinct, eq, gt, isNotNull, notExists, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { CORE_ARTIFACTS_OWNER } from "@/modules/artifacts/artifacts.constants";
 import { MemoryCache } from "@/utils/memory-cache";
-
-const CORE_TRICKPLAY_PLUGIN_ID = "core";
 
 interface TrickplayStats {
 	total: number;
@@ -34,7 +33,7 @@ class TrickplayRepository {
 								and(
 									eq(schema.mediaArtifacts.mediaFileId, schema.mediaFiles.id),
 									eq(schema.mediaArtifacts.kind, "trickplay"),
-									eq(schema.mediaArtifacts.pluginId, CORE_TRICKPLAY_PLUGIN_ID),
+									eq(schema.mediaArtifacts.pluginId, CORE_ARTIFACTS_OWNER),
 								),
 							),
 					),
@@ -63,7 +62,7 @@ class TrickplayRepository {
 					and(
 						eq(schema.mediaArtifacts.mediaFileId, schema.mediaFiles.id),
 						eq(schema.mediaArtifacts.kind, "trickplay"),
-						eq(schema.mediaArtifacts.pluginId, CORE_TRICKPLAY_PLUGIN_ID),
+						eq(schema.mediaArtifacts.pluginId, CORE_ARTIFACTS_OWNER),
 					),
 				)
 				.where(and(isNotNull(schema.mediaFiles.duration), gt(schema.mediaFiles.duration, 0)));

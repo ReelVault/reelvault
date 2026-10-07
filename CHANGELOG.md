@@ -291,3 +291,10 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - HKDF secret-key derivation memoization: **-99.4%**
 - Trusted-origin pattern cache with dynamic origins: **≈-100%**
 - Trickplay end-to-end generation: **≈0%**, confirming that enqueueing improvements did not artificially improve the actual generation workload.
+
+
+# v1.2.1
+
+### Fixes
+
+- **Built-in trickplay no longer fails against the plugin artifact quota** — trickplay registered its sprites and VTT in the shared artifacts store as `pluginId: "core"`, so the 512 MB per-plugin cap rejected generation once the library filled it and `trickplay-generate` jobs failed permanently. The plugin quota is now enforced only at the `host.artifacts` boundary, while built-in generators use a configurable core budget — `system.artifacts.coreMaxStorageGb` (`0` = automatic: 5% of the artifacts volume clamped to 5–100 GB, plus a 1 GB minimum free-space floor). Exceeding the budget skips the file with a warning instead of failing, so it is generated again once space is freed. Storage-level artifact errors now carry `artifact.*` codes; the plugin quota keeps `plugin.artifact.quota_exceeded`.

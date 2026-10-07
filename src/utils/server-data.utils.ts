@@ -147,9 +147,9 @@ export async function runMediaCleanup(plan: MediaCleanupPlan): Promise<void> {
 	await PromiseUtils.mapConcurrent(tasks, serverConfig.application.cleanupConcurrency, async (task) => task());
 
 	if (plan.artifactStorageKeys.length > 0) {
-		// The artifact service caches per-plugin byte totals for quota checks; files
-		// deleted straight off disk would otherwise keep counting against the quota.
-		const { pluginArtifactsService } = await import("@/plugins/capabilities/plugin.artifacts");
-		pluginArtifactsService.invalidateByteTotals();
+		// The media-artifacts service caches per-owner byte totals for quota/budget
+		// checks; files deleted straight off disk would otherwise keep counting.
+		const { mediaArtifactsService } = await import("@/modules/artifacts/media-artifacts.service");
+		mediaArtifactsService.invalidateByteTotals();
 	}
 }

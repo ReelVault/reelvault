@@ -15,7 +15,9 @@ export const trickplayGenerateWorker = createWorkerDefinition<{ mediaFileId: str
 		withDomainError(`Trickplay generation failed: ${data.mediaFileId}`, async () => {
 			throwIfAborted(signal);
 			const result = await trickplayService.generateForMediaFile(data.mediaFileId);
-			if (result.skipped) {
+			if (result.skipped === "storage-budget") {
+				logger.warn("Trickplay generation skipped: artifact storage budget exhausted", { mediaFileId: data.mediaFileId });
+			} else if (result.skipped) {
 				logger.info("Trickplay generation skipped", { mediaFileId: data.mediaFileId, reason: result.skipped });
 			} else {
 				logger.info("Trickplay generation finished", { ...result });

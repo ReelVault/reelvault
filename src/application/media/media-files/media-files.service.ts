@@ -32,9 +32,9 @@ import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { toPublicMarker } from "@/database/utils/media-marker.mapper";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
+import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
-import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { systemResourcesService } from "@/system/system-resources.service";
@@ -99,13 +99,13 @@ class MediaService extends BaseService {
 		return await this.safeExecute("listArtifacts", async () => {
 			if (!options?.skipExistsCheck) await this.assertMediaFileExists(mediaFileId);
 
-			return await pluginArtifactsService.list(mediaFileId);
+			return await mediaArtifactsService.list(mediaFileId);
 		});
 	}
 
 	async getArtifact(mediaFileId: string, artifactId: string): Promise<{ artifact: PlaybackArtifact; file: Blob }> {
 		return await this.safeExecute("getArtifact", async () => {
-			const artifact = await pluginArtifactsService.findFile(mediaFileId, artifactId);
+			const artifact = await mediaArtifactsService.findFile(mediaFileId, artifactId);
 			this.assertExists(artifact, "PlaybackArtifact", artifactId);
 
 			return artifact;

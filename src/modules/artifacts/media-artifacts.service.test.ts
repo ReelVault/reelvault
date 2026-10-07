@@ -1,0 +1,401 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { databaseFactory } from "@/database/database";
+import { mediaArtifactsRepository } from "@/database/repositories/media-artifacts.repository";
+import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
+import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
+import { FileUtils } from "@/utils/file.utils";
+import { PathUtils } from "@/utils/path.utils";
+import { stubMethod } from "../../../tests/helpers/method-stub";
+import { mediaArtifactsService } from "./media-artifacts.service";
+
+const activeStubs: Array<{ restore(): void }> = [];
+
+beforeEach(() => {
+	activeStubs.length = 0;
+	// The service is a module singleton — byte totals cached by earlier tests
+	// would otherwise short-circuit `findByPluginId` stubs here.
+	mediaArtifactsService.invalidateByteTotals();
+});
+
+afterEach(() => {
+	for (const stub of activeStubs.toReversed()) stub.restore();
+});
+
+function bytes(text: string): Uint8Array {
+	return new TextEncoder().encode(text);
+}
+
+/** Negative-path payloads are intentionally malformed; JSON.parse hands them to
+ * write() without fighting the PlaybackArtifactWrite type (or banned casts). */
+function malformed(json: string): Parameters<typeof mediaArtifactsService.write>[1] {
+	return JSON.parse(json);
+}
+
+describe("mediaArtifactsService.write — validation order", () => {
+	test("rejects a non-object artifact payload", async () => {
+		await expect(mediaArtifactsService.write("core", malformed('"nope"'))).rejects.toMatchObject({
+			code: "artifact.invalid_request",
+		});
+	});
+
+	test("rejects a missing mediaFileId", async () => {
+		await expect(
+			mediaArtifactsService.write("core", {
+				mediaFileId: "",
+				kind: "chapters",
+				contentType: "text/vtt",
+				content: bytes("WEBVTT"),
+			}),
+		).rejects.toMatchObject({ code: "artifact.invalid_request" });
+	});
+
+	test("rejects an unsupported kind", async () => {
+		await expect(
+			mediaArtifactsService.write("core", malformed('{"mediaFileId":"mf-1","kind":"evil","contentType":"text/vtt","content":"V0VCVlRU"}')),
+		).rejects.toMatchObject({ code: "artifact.invalid_request" });
+	});
+
+	test("rejects a disallowed content type", async () => {
+		await expect(
+			mediaArtifactsService.write("core", {
+				mediaFileId: "mf-1",
+				kind: "chapters",
+				contentType: "text/html",
+				content: bytes("WEBVTT"),
+			}),
+		).rejects.toMatchObject({ code: "artifact.invalid_content_type" });
+	});
+
+	test("rejects content above the per-artifact size limit", async () => {
+		const oversized = new Uint8Array(100 * 1024 * 1024 + 1);
+
+		await expect(
+			mediaArtifactsService.write("core", {
+				mediaFileId: "mf-1",
+				kind: "chapters",
+				contentType: "text/vtt",
+				content: oversized,
+			}),
+		).rejects.toMatchObject({ code: "artifact.too_large" });
+	});
+
+	test("rejects writes for a missing media file", async () => {
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByPluginId", () => Promise.resolve([])),
+			stubMethod(pluginHookBus, "runBeforeArtifactCreate", (candidate: unknown) => Promise.resolve(candidate)),
+			stubMethod(mediaRepository, "isExists", () => Promise.resolve(false)),
+		);
+
+		await expect(
+			mediaArtifactsService.write("core", {
+				mediaFileId: "mf-missing",
+				kind: "chapters",
+				contentType: "text/vtt",
+				content: bytes("WEBVTT"),
+			}),
+		).rejects.toMatchObject({ code: "artifact.not_found" });
+	});
+});
+
+describe("mediaArtifactsService.write — write gate", () => {
+	test("passes the owner, post-write total and incoming bytes to the gate before side effects", async () => {
+		const gateCalls: Array<[string, number, number]> = [];
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByPluginId", () => Promise.resolve([{ storageKey: "mf-1/a" }])),
+			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 100, mtimeMs: 0 })),
+		);
+
+		await expect(
+			mediaArtifactsService.write(
+				"core",
+				{ mediaFileId: "mf-1", kind: "chapters", contentType: "text/vtt", content: bytes("12345") },
+				{
+					assertWithinQuota: (ownerId, bytesAfterWrite, incomingBytes) => {
+						gateCalls.push([ownerId, bytesAfterWrite, incomingBytes]);
+						throw new Error("gate rejected");
+					},
+				},
+			),
+		).rejects.toThrow("gate rejected");
+
+		expect(gateCalls).toEqual([["core", 105, 5]]);
+	});
+
+	test("writes without a gate regardless of how many bytes the owner already stores", async () => {
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByPluginId", () =>
+				Promise.resolve([{ storageKey: "mf-1/existing" }, { storageKey: "mf-1/older" }]),
+			),
+			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 300 * 1024 * 1024, mtimeMs: 0 })),
+			stubMethod(pluginHookBus, "runBeforeArtifactCreate", (candidate: unknown) => Promise.resolve(candidate)),
+			stubMethod(mediaRepository, "isExists", () => Promise.resolve(true)),
+			stubMethod(databaseFactory, "getClient", () => ({
+				insert: () => ({
+					values: () => ({
+						returning: () =>
+							Promise.resolve([
+								{
+									id: "art-1",
+									mediaFileId: "mf-1",
+									pluginId: "core",
+									stableKey: "sk-1",
+									kind: "chapters",
+									contentType: "text/vtt",
+									storageKey: "mf-1/art-1",
+									createdAt: new Date("2020-01-01T00:00:00Z"),
+								},
+							]),
+					}),
+				}),
+			})),
+			stubMethod(pluginEventBus, "publish", () => undefined),
+		);
+
+		const result = await mediaArtifactsService.write("core", {
+			mediaFileId: "mf-1",
+			kind: "chapters",
+			contentType: "text/vtt",
+			content: bytes("WEBVTT"),
+		});
+
+		expect(result).toMatchObject({ id: "art-1", pluginId: "core" });
+	});
+});
+
+describe("mediaArtifactsService.write — happy path", () => {
+	test("persists the file, returns the public artifact and publishes the event", async () => {
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByPluginId", () => Promise.resolve([])),
+			stubMethod(pluginHookBus, "runBeforeArtifactCreate", (candidate: unknown) => Promise.resolve(candidate)),
+			stubMethod(mediaRepository, "isExists", () => Promise.resolve(true)),
+			stubMethod(databaseFactory, "getClient", () => ({
+				insert: () => ({
+					values: () => ({
+						returning: () =>
+							Promise.resolve([
+								{
+									id: "art-1",
+									mediaFileId: "mf-1",
+									pluginId: "org.reelvault.test",
+									stableKey: "sk-1",
+									kind: "trickplay",
+									contentType: "text/vtt",
+									storageKey: "mf-1/art-1",
+									createdAt: new Date("2020-01-01T00:00:00Z"),
+								},
+							]),
+					}),
+				}),
+			})),
+		);
+		const published: Array<{ event: string; payload: unknown }> = [];
+		activeStubs.push(
+			stubMethod(pluginEventBus, "publish", (event: string, payload: unknown) => {
+				published.push({ event, payload });
+			}),
+		);
+
+		const result = await mediaArtifactsService.write("org.reelvault.test", {
+			mediaFileId: "mf-1",
+			kind: "trickplay",
+			contentType: "text/vtt",
+			content: bytes("WEBVTT\n"),
+		});
+
+		expect(result).toMatchObject({
+			id: "art-1",
+			mediaFileId: "mf-1",
+			pluginId: "org.reelvault.test",
+			kind: "trickplay",
+			contentType: "text/vtt",
+			url: "/v1/media-files/mf-1/artifacts/art-1",
+			createdAt: "2020-01-01T00:00:00.000Z",
+		});
+		expect(published).toEqual([
+			{ event: "artifact.created", payload: { mediaFileId: "mf-1", artifactId: "art-1", artifactType: "trickplay" } },
+		]);
+	});
+});
+
+describe("mediaArtifactsService byte total cache", () => {
+	test("stats stored artifacts once across sequential writes and recomputes after a delete", async () => {
+		const ownerId = "org.reelvault.quota-cache";
+		let findByPluginIdCalls = 0;
+		let statsCalls = 0;
+		let insertIndex = 0;
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByPluginId", () => {
+				findByPluginIdCalls++;
+
+				return Promise.resolve([{ storageKey: "mf-1/a" }]);
+			}),
+			stubMethod(FileUtils, "getStats", () => {
+				statsCalls++;
+
+				return Promise.resolve({ size: 10, mtimeMs: 0 });
+			}),
+			stubMethod(pluginHookBus, "runBeforeArtifactCreate", (candidate: unknown) => Promise.resolve(candidate)),
+			stubMethod(mediaRepository, "isExists", () => Promise.resolve(true)),
+			stubMethod(pluginEventBus, "publish", () => undefined),
+			stubMethod(databaseFactory, "getClient", () => ({
+				insert: () => ({
+					values: () => ({
+						returning: () => {
+							insertIndex++;
+
+							return Promise.resolve([
+								{
+									id: `art-${insertIndex}`,
+									mediaFileId: "mf-1",
+									pluginId: ownerId,
+									stableKey: `sk-${insertIndex}`,
+									kind: "trickplay",
+									contentType: "image/webp",
+									storageKey: `mf-1/art-${insertIndex}`,
+									createdAt: new Date("2020-01-01T00:00:00Z"),
+								},
+							]);
+						},
+					}),
+				}),
+			})),
+		);
+
+		const artifact = { mediaFileId: "mf-1", kind: "trickplay", contentType: "image/webp", content: bytes("sprite") } as const;
+		await mediaArtifactsService.write(ownerId, artifact);
+		await mediaArtifactsService.write(ownerId, artifact);
+
+		expect(findByPluginIdCalls).toBe(1);
+		expect(statsCalls).toBe(1);
+
+		// A delete shrinks stored bytes — the next write recomputes the total.
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByMediaFileId", () =>
+				Promise.resolve([{ id: "art-1", kind: "trickplay", pluginId: ownerId, storageKey: "mf-1/art-1" }]),
+			),
+			stubMethod(mediaArtifactsRepository, "delete", () => Promise.resolve()),
+			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
+		);
+		await mediaArtifactsService.deleteByMediaFileIdAndKind("mf-1", "trickplay", ownerId);
+
+		await mediaArtifactsService.write(ownerId, artifact);
+		expect(findByPluginIdCalls).toBe(2);
+		expect(statsCalls).toBe(2);
+	});
+});
+
+describe("mediaArtifactsService.getMediaFileStoredBytes", () => {
+	test("sums only the requested owner's files for that media file", async () => {
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByMediaFileId", () =>
+				Promise.resolve([
+					{ id: "a-1", pluginId: "core", storageKey: "mf-1/a-1" },
+					{ id: "a-2", pluginId: "org.reelvault.test", storageKey: "mf-1/a-2" },
+					{ id: "a-3", pluginId: "core", storageKey: "mf-1/a-3" },
+				]),
+			),
+			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 100, mtimeMs: 0 })),
+		);
+
+		expect(await mediaArtifactsService.getMediaFileStoredBytes("mf-1", "core")).toBe(200);
+	});
+});
+
+describe("mediaArtifactsService.list", () => {
+	test("maps stored rows to public artifact urls", async () => {
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByMediaFileId", () =>
+				Promise.resolve([
+					{
+						id: "a-1",
+						mediaFileId: "mf-1",
+						pluginId: "org.reelvault.test",
+						kind: "chapters",
+						contentType: "application/json",
+						storageKey: "mf-1/a-1",
+						createdAt: new Date("2021-06-01T12:00:00Z"),
+					},
+				]),
+			),
+		);
+
+		const artifacts = await mediaArtifactsService.list("mf-1");
+
+		expect(artifacts).toEqual([
+			expect.objectContaining({
+				id: "a-1",
+				kind: "chapters",
+				contentType: "application/json",
+				url: "/v1/media-files/mf-1/artifacts/a-1",
+				createdAt: "2021-06-01T12:00:00.000Z",
+			}),
+		]);
+	});
+});
+
+describe("mediaArtifactsService.removeStorageFiles", () => {
+	test("deletes each storage key under the artifacts root", async () => {
+		const deleted: string[] = [];
+		activeStubs.push(
+			stubMethod(FileUtils, "delete", (path: string) => {
+				deleted.push(path);
+
+				return Promise.resolve(true);
+			}),
+		);
+
+		await mediaArtifactsService.removeStorageFiles(["mf-1/a", "mf-1/b"]);
+
+		expect(deleted).toHaveLength(2);
+		expect(deleted[0]?.endsWith(PathUtils.join("mf-1", "a"))).toBe(true);
+		expect(deleted[1]?.endsWith(PathUtils.join("mf-1", "b"))).toBe(true);
+	});
+});
+
+describe("mediaArtifactsService bulk cleanup", () => {
+	test("deleteByMediaFileIdAndKind removes matching rows in one delete statement", async () => {
+		const deleteCalls: Array<{ ids?: string[] }> = [];
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByMediaFileId", () =>
+				Promise.resolve([
+					{ id: "a-1", kind: "chapters", pluginId: "org.reelvault.test", storageKey: "mf-1/a-1" },
+					{ id: "a-2", kind: "chapters", pluginId: "org.reelvault.test", storageKey: "mf-1/a-2" },
+					{ id: "a-3", kind: "trickplay", pluginId: "org.reelvault.test", storageKey: "mf-1/a-3" },
+				]),
+			),
+			stubMethod(mediaArtifactsRepository, "delete", (params: { ids?: string[] }) => {
+				deleteCalls.push(params);
+
+				return Promise.resolve();
+			}),
+			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
+		);
+
+		const removed = await mediaArtifactsService.deleteByMediaFileIdAndKind("mf-1", "chapters", "org.reelvault.test");
+
+		expect(removed).toBe(2);
+		expect(deleteCalls).toEqual([{ ids: ["a-1", "a-2"] }]);
+	});
+
+	test("removeForOwner removes every artifact of the owner in one delete statement", async () => {
+		const deleteCalls: Array<{ ids?: string[] }> = [];
+		activeStubs.push(
+			stubMethod(mediaArtifactsRepository, "findByPluginId", () =>
+				Promise.resolve([
+					{ id: "a-1", storageKey: "mf-1/a-1" },
+					{ id: "a-2", storageKey: "mf-1/a-2" },
+				]),
+			),
+			stubMethod(mediaArtifactsRepository, "delete", (params: { ids?: string[] }) => {
+				deleteCalls.push(params);
+
+				return Promise.resolve();
+			}),
+			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
+		);
+
+		expect(await mediaArtifactsService.removeForOwner("org.reelvault.test")).toBe(2);
+		expect(deleteCalls).toEqual([{ ids: ["a-1", "a-2"] }]);
+	});
+});

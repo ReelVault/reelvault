@@ -1,7 +1,7 @@
 import type { PluginEventInput } from "@reelvault/sdk/plugin";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
+import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
@@ -24,8 +24,8 @@ interface ServiceDependencies {
 
 const defaultDependencies: ServiceDependencies = {
 	deleteByLibraryAndPaths: (libraryId, paths) => mediaRepository.deleteByLibraryAndPathsAndGetCleanup(libraryId, paths),
-	removeArtifactStorageFiles: (keys) => pluginArtifactsService.removeStorageFiles(keys),
-	invalidateArtifactByteTotals: () => pluginArtifactsService.invalidateByteTotals(),
+	removeArtifactStorageFiles: (keys) => mediaArtifactsService.removeStorageFiles(keys),
+	invalidateArtifactByteTotals: () => mediaArtifactsService.invalidateByteTotals(),
 	deleteFile: (path) => FileUtils.delete(path),
 	getIoConcurrency: () => systemResourcesService.getIoConcurrency(),
 	subtitlesPath: () => serverConfig.paths.subtitles,

@@ -214,6 +214,13 @@ export const serverConfig = {
 		},
 	},
 
+	/** Core-generated playback artifacts (trickplay, future kinds) */
+	artifacts: {
+		get coreMaxStorageGb() {
+			return systemSettingsStore.get("system.artifacts.coreMaxStorageGb");
+		},
+	},
+
 	/** FFmpeg Transcoder & Hardware Acceleration */
 	ffmpeg: {
 		...serverConstants.ffmpeg,

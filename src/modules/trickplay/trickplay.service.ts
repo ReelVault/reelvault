@@ -4,7 +4,9 @@ import { trickplayRepository } from "@/database/repositories/trickplay.repositor
 import { QueryFields } from "@/database/utils/fields";
 import { buildSpriteExtractionCommand } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
+import { CORE_ARTIFACTS_OWNER } from "@/modules/artifacts/artifacts.constants";
+import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes, writeCoreArtifact } from "@/modules/artifacts/artifacts-budget.utils";
+import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { serverConfig } from "@/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
@@ -17,7 +19,6 @@ import { PathUtils } from "@/utils/path.utils";
 /** Hard cap on extracted frames per file — a 3 h movie at a 10 s interval still fits (1080). */
 const MAX_FRAMES_PER_FILE = 1200;
 
-const CORE_TRICKPLAY_PLUGIN_ID = "core";
 const CONTENT_TYPE_WEBP = "image/webp";
 const CONTENT_TYPE_VTT = "text/vtt";
 
@@ -38,15 +39,17 @@ export interface TrickplayGenerationResult {
 	mediaFileId: string;
 	frames: number;
 	sprites: number;
-	skipped?: "disabled" | "no-duration";
+	skipped?: "disabled" | "no-duration" | "storage-budget";
 }
 
 /**
  * Built-in trickplay generator: extracts preview frames, tiles them into sprite
  * sheets and registers sprite + WebVTT artifacts (`kind: "trickplay"`,
- * `pluginId: "core"`). The artifact shape is exactly what the player's
- * trickplay hook parses (WebVTT cues with `<sprite url>#xywh=x,y,w,h` payloads),
- * which makes the external plugin `org.reelvault.trickplay` unnecessary.
+ * `pluginId: "core"`) in the shared media-artifacts store. The artifact shape is
+ * exactly what the player's trickplay hook parses (WebVTT cues with
+ * `<sprite url>#xywh=x,y,w,h` payloads), which makes the external plugin
+ * `org.reelvault.trickplay` unnecessary. Core writes bypass the per-plugin
+ * artifact quota and use the configurable core budget instead.
  */
 class TrickplayService extends BaseService {
 	constructor() {
@@ -68,6 +71,22 @@ class TrickplayService extends BaseService {
 
 		const durationSeconds = mediaFile.duration ?? 0;
 		if (durationSeconds <= 0) return { mediaFileId, frames: 0, sprites: 0, skipped: "no-duration" };
+
+		// Stop before touching the previous generation when even dropping this
+		// file's own artifacts would not bring core storage back under budget.
+		const budgetBytes = await resolveCoreArtifactsBudgetBytes();
+		const storedBytes = await mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER);
+		const existingBytes = await mediaArtifactsService.getMediaFileStoredBytes(mediaFileId, CORE_ARTIFACTS_OWNER);
+		if (storedBytes - existingBytes >= budgetBytes) {
+			this.logger.warn("Trickplay generation skipped: artifact storage budget exhausted", {
+				mediaFileId,
+				storedBytes,
+				existingBytes,
+				budgetBytes,
+			});
+
+			return { mediaFileId, frames: 0, sprites: 0, skipped: "storage-budget" };
+		}
 
 		const intervalSeconds = Math.max(1, serverConfig.trickplay.intervalSeconds);
 		const tileWidth = serverConfig.trickplay.tileWidth;
@@ -101,7 +120,7 @@ class TrickplayService extends BaseService {
 			// Idempotent regeneration: remove the PREVIOUS generation before writing
 			// the new sprites. Deleting after the loop (as before) removed the
 			// sprites we just wrote, leaving the VTT pointing at missing artifacts.
-			await pluginArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_TRICKPLAY_PLUGIN_ID);
+			await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER);
 
 			try {
 				for (const [spriteIndex, chunkTimeMs] of chunks.entries()) {
@@ -128,7 +147,7 @@ class TrickplayService extends BaseService {
 					// The artifact write streams the BunFile straight to its storage
 					// path (no full buffer through JS) and deletes the temp source
 					// afterwards — writeFileWithRollback owns that cleanup.
-					const written = await pluginArtifactsService.write(CORE_TRICKPLAY_PLUGIN_ID, {
+					const written = await writeCoreArtifact({
 						mediaFileId,
 						kind: "trickplay",
 						contentType: CONTENT_TYPE_WEBP,
@@ -136,35 +155,44 @@ class TrickplayService extends BaseService {
 					});
 					sprites.push({ url: written.url, tileCount: chunkTimeMs.length });
 				}
+
+				// Cue timeline spans the whole duration; each cue points at its tile.
+				const cues: TrickplayCue[] = [];
+				for (let index = 0; index < frameCount; index++) {
+					const spriteIndex = Math.floor(index / tilesPerSprite);
+					const positionInSprite = index % tilesPerSprite;
+					cues.push({
+						startSeconds: index * effectiveInterval,
+						endSeconds: Math.min((index + 1) * effectiveInterval, durationSeconds),
+						x: (positionInSprite % columns) * tileWidth,
+						y: Math.floor(positionInSprite / columns) * tileHeight,
+						spriteUrl: sprites[spriteIndex]?.url ?? sprites[0]?.url ?? "",
+					});
+				}
+
+				await writeCoreArtifact({
+					mediaFileId,
+					kind: "trickplay",
+					contentType: CONTENT_TYPE_VTT,
+					content: new TextEncoder().encode(buildTrickplayVtt(cues, tileWidth, tileHeight)),
+				});
 			} catch (error) {
 				// Remove partial sprites so a failed generation leaves no artifact
 				// rows/files without their VTT behind.
-				await pluginArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_TRICKPLAY_PLUGIN_ID).catch(() => {
+				await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER).catch(() => {
 					// best-effort cleanup
 				});
+
+				if (isStorageBudgetError(error)) {
+					// Running out of budget is a storage condition, not a generation
+					// failure — skip so the file is retried once space is freed.
+					this.logger.warn("Trickplay generation stopped: artifact storage budget reached", { mediaFileId });
+
+					return { mediaFileId, frames: 0, sprites: 0, skipped: "storage-budget" };
+				}
+
 				throw error;
 			}
-
-			// Cue timeline spans the whole duration; each cue points at its tile.
-			const cues: TrickplayCue[] = [];
-			for (let index = 0; index < frameCount; index++) {
-				const spriteIndex = Math.floor(index / tilesPerSprite);
-				const positionInSprite = index % tilesPerSprite;
-				cues.push({
-					startSeconds: index * effectiveInterval,
-					endSeconds: Math.min((index + 1) * effectiveInterval, durationSeconds),
-					x: (positionInSprite % columns) * tileWidth,
-					y: Math.floor(positionInSprite / columns) * tileHeight,
-					spriteUrl: sprites[spriteIndex]?.url ?? sprites[0]?.url ?? "",
-				});
-			}
-
-			await pluginArtifactsService.write(CORE_TRICKPLAY_PLUGIN_ID, {
-				mediaFileId,
-				kind: "trickplay",
-				contentType: CONTENT_TYPE_VTT,
-				content: new TextEncoder().encode(buildTrickplayVtt(cues, tileWidth, tileHeight)),
-			});
 
 			this.logger.info("Trickplay generated", { mediaFileId, frames: frameCount, sprites: sprites.length });
 
