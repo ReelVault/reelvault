@@ -143,20 +143,28 @@ export class WorkerSchedulerService extends BaseService {
 			if (due.getTime() > now.getTime()) continue;
 
 			this.logger.debug("Triggering scheduled worker", { workerId: def.id, dueAt: due.toISOString() });
-			await this.enqueueScheduled(def.id, `schedule:${def.id}:${due.getTime()}`, def.schedule?.data, def.schedule?.operationId);
-			deadlineUpdates.push({ workerId: def.id, nextRunAt: computeNextRunAt(triggers, cron, now) });
+			const queued = await this.enqueueScheduled(
+				def.id,
+				`schedule:${def.id}:${due.getTime()}`,
+				def.schedule?.data,
+				def.schedule?.operationId,
+			);
+			// Keep the deadline due when the enqueue failed: advancing it would
+			// silently skip the whole period with only a warning in the log.
+			if (queued) deadlineUpdates.push({ workerId: def.id, nextRunAt: computeNextRunAt(triggers, cron, now) });
 		}
 
 		await workerSchedulesRepository.setNextRunAtMany(deadlineUpdates);
 	}
 
-	private async enqueueScheduled(workerId: string, dedupeKey: string, data: unknown = {}, operationId?: string): Promise<void> {
+	/** Returns true when the trigger is handled (enqueued or already active) and false on failure. */
+	private async enqueueScheduled(workerId: string, dedupeKey: string, data: unknown = {}, operationId?: string): Promise<boolean> {
 		try {
 			// A dedupe hit inserts nothing; creating the operation first would leave a
 			// phantom "pending" operation with zero jobs. Pre-check the active job.
 			if (!operationId) {
 				const existing = await getWorkerRuntime().queue.findActive(workerId, dedupeKey);
-				if (existing) return;
+				if (existing) return true;
 			}
 
 			await enqueueWithOperation(
@@ -164,8 +172,12 @@ export class WorkerSchedulerService extends BaseService {
 				(opId) => getWorkerRuntime().queue.enqueue(workerId, data, { dedupeKey, operationId: opId }),
 				{ operationId },
 			);
+
+			return true;
 		} catch (error) {
-			this.logger.warn("Could not enqueue scheduled worker task", { workerId, dedupeKey, error });
+			this.logger.warn("Could not enqueue scheduled worker task — the deadline stays due for a retry", { workerId, dedupeKey, error });
+
+			return false;
 		}
 	}
 

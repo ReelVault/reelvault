@@ -160,6 +160,20 @@ describe("WorkerSchedulerService.evaluateTriggers", () => {
 		expect(advanced?.nextRunAt?.getTime()).toBeGreaterThan(ANCHOR.getTime());
 	});
 
+	test("a failed scheduled enqueue keeps the deadline due for the next tick", async () => {
+		defs = [def("w-interval", { defaultTriggers: [{ id: "t3b", type: "interval", intervalMinutes: 30 }] })];
+		const overdue = new Date((ANCHOR_MINUTE - 60) * MINUTE);
+		scheduleRows.set("w-interval", { workerId: "w-interval", triggers: [], isEnabled: true, nextRunAt: overdue });
+		enqueueError = new Error("queue down");
+
+		const scheduler = new WorkerSchedulerService();
+		await scheduler.evaluateTriggers(ANCHOR);
+
+		// Nothing was enqueued and the deadline was not advanced, so the next tick retries.
+		expect(enqueued).toEqual([]);
+		expect(nextRunAtCalls).toEqual([]);
+	});
+
 	test("does not rewrite null deadlines for trigger-less workers every tick", async () => {
 		defs = [def("w-plain")];
 

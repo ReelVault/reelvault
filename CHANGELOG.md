@@ -79,6 +79,7 @@
 - **Cancelling running jobs could corrupt operation counters** — the bulk cancel counted running jobs before the update and applied those counts outside a transaction, so a job that finished mid-cancel was counted as cancelled as well (`completed + cancelled > total`). The row transition and its counter update now share one transaction.
 - **Cancelled streaming sessions could come back to life** — a late ffmpeg attach unconditionally reset the operation to `running`, and a natural EOF on a cancelled stream flipped it to `completed`. Both lifecycle events now respect a cancellation, so a killed session stays terminal.
 - **Deduplicated enqueues left phantom operations behind** — when two triggers (double-clicked scan, watcher + manual scan, two "refresh all" requests, repeated plugin job) raced, the loser's operation stayed `pending` with zero jobs forever, and the metadata refresh-all path could even return an operation that owned nothing. Orphaned operations are now removed, and a fully deduplicated refresh answers `409 admin.metadata.refresh_in_progress`.
+- **A failed scheduled enqueue silently skipped the whole period** — the scheduler logged a warning and advanced the deadline anyway, so a transient failure made a daily/weekly job (backup, cleanup, update check) miss its run until the next period. The deadline now stays due and the next tick retries.
 
 ### Performance
 
