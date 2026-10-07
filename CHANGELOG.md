@@ -47,41 +47,25 @@
 ### Features
 
 - **Watchlist hydration** — `GET /me/watchlist?hydrate=true` can now embed the full metadata card for each item, replacing the previous list → metadata request waterfall with a single request.
-
 - **Batch playback suggestions** — `GET /me/playback-suggestions?metadataIds=` returns smart-play suggestions and watchlist state for up to 50 metadata IDs in one request, improving card grids and collection drawers.
-
 - **Admin dashboard composite endpoint** — added `GET /admin/dashboard-view`, combining dashboard stats, libraries, worker operations, audit feed, error logs and update status into a single admin-only request. The response uses the same short-lived body caching strategy as `/admin/dashboard`.
-
 - **Stable remote-access check codes** — remote-access checks now return structured `{ id, ok, code, params }` results instead of server-generated title/detail strings, allowing the web client to handle translations consistently.
-
 - **Audit-log retention** — added `system.database.auditRetentionDays` (default: `180`; `0` = keep forever). A daily indexed cleanup now removes expired entries from `admin_audit_logs`.
-
 - **Worker progress over WebSocket** — worker progress is now broadcast through throttled `worker:progress` WebSocket events, allowing clients to receive live progress without polling operations.
 
 ### Fixes
 
 - **Multi-episode files hit a stray unique index** — replaced the unconditional `media_files_path_unique` index caused by migration drift with the partial `media_files_path_unlinked_unique` index, unblocking range-based media files. The legacy-upgrade test now verifies the index predicate.
-
 - **Over-long episode ranges were rescanned indefinitely** — the scanner calculated the full episode range while the processor capped it at 12 episodes. A file such as `S01E01-E99` could therefore be ingested successfully but re-added to `newFilePaths` on every scan. Scanner and processor now share `episodeRangeSpan` / `episodeRangeTargets`.
-
 - **Playback progress without a profile returned 404** — all eight affected call sites now use the shared profile guard and consistently return `401 auth.profile_required`.
-
 - **Playlist generation timeouts returned generic 500 errors** — `waitForFile` now rejects with a typed domain error, which the waiter maps to `playlist_generation_timeout`.
-
 - **Admin-killed sessions could be recreated** — session creation and access checks now share the same admin-session matching helper, preventing sessions such as `admin-stop` from being recreated after termination.
-
 - **Playback diagnostics lost tone-mapping state** — restored `tonemapped` and `toneMapMethod` to the session projection. Fixtures use non-default values so missing fields are now caught by tests.
-
 - **Media audit used a different match-score threshold** — removed the hardcoded `0.65` threshold and aligned audit behaviour with `metadata.minMatchScore`, matching admin statistics and browse filters.
-
 - **Reoptimized images could serve stale data** — in-place image rewrites now invalidate the source-version cache immediately instead of potentially serving the previous `(size, mtime)` entry for up to five minutes.
-
 - **`ffprobe` abort listeners accumulated on reused signals** — listeners are now removed in `finally`, with settle, abort and pre-aborted paths covered by tests.
-
 - **Failed plugin enqueues left orphaned jobs** — rollback previously passed an operation ID to a worker-ID filter and cancelled nothing. `enqueueWithOperation` now removes pending jobs by operation ID before deleting the operation.
-
 - **Log-tail cache could remain stale after rotation or truncation** — cache entries are now invalidated before rebuilding the window, preventing stale data from being served for the remainder of the TTL.
-
 - **Worker scheduler rewrote null deadlines every minute** — trigger-less workers no longer receive a no-op `UPDATE` that only changes `updated_at`. Deadlines are now written only when they are armed or cleared.
 
 ### Performance
@@ -91,83 +75,54 @@ The performance work focuses primarily on reducing unnecessary database work, el
 #### Database & query efficiency
 
 - **Selective projections** — `?fields=` queries now select only the requested root columns instead of issuing `SELECT *`.
-
 - **Cheaper existence checks** — `ping` reads only the required indexed column, while `existsForVersion` uses `EXISTS ... LIMIT 1` instead of `COUNT(*)`.
-
 - **Reduced index overhead** — removed redundant prefix indexes, eliminating unnecessary B-tree maintenance during writes.
-
 - **Better covering indexes** — added indexes for scanner keyset pagination, downloads, `sortTitle`, worker listing/recovery and relevant `created_at` queries.
-
 - **Batched scheduler writes** — worker deadlines are now written using one multi-row upsert per scheduler pass instead of one UPSERT per worker.
-
 - **Aggregated worker counters** — claim counters are aggregated per operation instead of issuing one `UPDATE` per claimed job.
-
 - **Batched cleanup** — weekly retention, stale findings and plugin-artifact cleanup now use batched/chunked deletes instead of repeated per-row or per-worker statements.
-
 - **Reduced session-reaper queries** — active-job checks are performed with one chunked query per sweep instead of one query per stale candidate.
-
 - **Fewer relation queries** — next-episode resolution now uses one ordered query, while stream preferences are resolved through a single `LEFT JOIN` instead of separate file → metadata → preferences queries.
-
 - **Cached aggregate counts** — frequently requested admin and collection counts now use short-lived caches.
-
 - **Catalog refresh batching** — changed seasons and episodes can now be refreshed in a single batched operation instead of issuing one statement per affected record.
-
 - **FTS maintenance** — reduced FTS5 segment growth after repeated title updates.
 
 #### HTTP & middleware
 
 - **Pathname reuse** — middleware route classifiers now reuse the pathname already extracted by the request pipeline instead of repeatedly parsing the URL.
-
 - **Reduced filesystem checks** — the security-header hook checks API/plugin prefixes before touching the web distribution, reducing unnecessary `stat` operations on health requests.
-
 - **Batch APIs** — watchlist hydration and playback suggestions remove large client-side request waterfalls by resolving related data server-side.
-
 - **Composite admin view** — the dashboard can fetch its complete view through one request instead of six independent requests.
 
 #### Scanner & media processing
 
 - **Provider-independent scan paths** — internal `scan`, `scanPath` and `getScanFindings` operations no longer load provider-priority overrides when they are not needed.
-
 - **Removal-guard deduplication** — candidate paths are now checked once even when multiple database rows reference the same range file.
-
 - **Season/episode parsing memoization** — repeated `extractSeasonEpisode` calls on series paths are memoized, reducing execution time by roughly **28–45%**.
-
 - **Streaming trickplay writes** — trickplay sprites are streamed directly from `BunFile` into artifact storage instead of creating a full-size in-memory buffer.
-
 - **Safer temporary-file ownership** — temporary trickplay source cleanup is now handled by `writeFileWithRollback`.
-
 - **Faster scanner matching** — optimized ignore-pattern matching and video-file detection to reduce repeated path and extension work.
 
 #### Plugins & artifacts
 
 - **Faster plugin catalog loading** — repository loading is now performed concurrently instead of serially.
-
 - **Cheaper SDK shim initialization** — warm plugin loads avoid repeated shim setup.
-
 - **Faster runtime mirroring** — reduced filesystem overhead when mirroring large plugin trees.
-
 - **Faster artifact quota calculation** — quota totals are aggregated without repeatedly walking individual files.
-
 - **Cheaper event emission** — `emit` calls without subscribers now return significantly earlier.
-
 - **Faster trickplay enqueueing** — generate-all enqueue overhead was substantially reduced without changing the actual generation pipeline.
 
 #### Logging & caching
 
 - **Logger sanitizer fast path** — benign keyword strings skip the expensive deep-clone path, making those sanitization operations roughly **2.2× faster**. Credential-bearing records still use the safe clone path.
-
 - **Artwork cache invalidation** — in-place artwork changes now invalidate cached source versions immediately.
-
 - **Log-tail cache invalidation** — rotation, truncation and size-cap changes invalidate the cached window before rebuilding it.
-
 - **Cached audit parsing** — repeated audit status polls reuse the parsed/validated result instead of processing the same report on every request.
 
 #### Worker & streaming updates
 
 - **WebSocket progress delivery** — replaced client-side worker progress polling with one throttled WebSocket broadcast per progress tick. Database write frequency is unchanged.
-
 - **Worker deadline writes** — trigger-less workers no longer generate periodic no-op updates.
-
 - **Playlist cushion polling** — reduced the cost of the temporary-filesystem cushion check used during streaming.
 
 ### Performance benchmarks
