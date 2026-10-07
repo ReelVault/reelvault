@@ -24,9 +24,16 @@ bun run test
 - Run `bun test` from the repo ROOT only (`bunfig.toml` preload doesn't apply in subdirectories).
 
 ## Changelog (MANDATORY)
-- Update `CHANGELOG.md` in the same task as any behavior change, under the current unreleased version heading (`# vX.Y.Z`): user-visible changes in `### Features` / `### Fixes`, perf changes in `### Performance`, refactors/tooling in `### Internal`.
+- Update `CHANGELOG.md` in the same task as any behavior change, under the current unreleased version heading (`# vX.Y.Z`).
+- Sections and their intent:
+  - `### Features` — user-facing functionality and API changes.
+  - `### Fixes` — concrete bugs and their causes.
+  - `### Performance` — what was optimized, as prose/bullets. Keep smaller measurements and statement counts inline in the change description; do not turn every change into a table row.
+  - `### Performance benchmarks` — a short table of only the most important, actually measurable A/B results (`Before` / `After` / `Change`), with the measurement context.
+  - `### Additional measurements` — optional compact bullet list of smaller results that do not warrant a table row.
+- No `### Internal` section — refactors/tooling without user-visible or measurable impact are not logged.
 - Write entries in English, without commit hashes.
-- Performance changes go into a table with separate `Before`, `After` and `Δ` columns — one measurement per row, no bundled values — carrying measured A/B numbers from `bun run benchmark` / benchkit; never a bare "improved performance", and include regressions.
+- Never a bare "improved performance": every claimed change carries measured before/after numbers from `bun run benchmark` / benchkit; include regressions.
 
 ## Forbidden: silencing tools
 Never suppress a problem instead of fixing it. No linter blocks these, so YOU must:
