@@ -1,6 +1,10 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { bench, fixture, group, main, measure, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
 import { asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { DatabaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { isRecord } from "@/utils/type.utils";
 import { benchDb } from "./lib/db-fixture";
@@ -9,6 +13,12 @@ import { seedCatalog } from "./lib/seed";
 export const meta = { description: "Database & FTS5 query engine (real migrations, FTS5 search, pagination, joins)" };
 
 const args = suiteArgs();
+
+function statRowCount(factory: DatabaseFactory): number {
+	const row = factory.sqlite.query("SELECT count(*) AS n FROM sqlite_stat1").get();
+
+	return isRecord(row) && typeof row.n === "number" ? row.n : -1;
+}
 
 if (!args.help) {
 	const factoryFixture = benchDb({
@@ -335,6 +345,56 @@ if (!args.help) {
 			await measureAsync("by id: prepared + jit", async () => await preparedByIdJit.execute({ id: "meta-0000001" }), { iterations: 500 }),
 		];
 		printMicroResults(results);
+	});
+
+	// ─── A/B: post-bulk-write statistics refresh ──────────────────────────
+	// A library scan refreshes planner statistics afterwards. `PRAGMA optimize`
+	// only re-analyses tables that changed enough; a full `ANALYZE` scans every
+	// table and index synchronously (blocking the event loop). Both must leave the
+	// paginated browse on its composite index.
+	task("database: post-scan statistics refresh (PRAGMA optimize vs ANALYZE)", async () => {
+		const rows = Math.min(args.rows, 20_000);
+		const planSql =
+			"SELECT id FROM metadata WHERE EXISTS (SELECT 1 FROM media_files WHERE media_files.metadata_id = metadata.id) ORDER BY title, id LIMIT 24";
+		const planOf = (factory: DatabaseFactory): string =>
+			factory.sqlite
+				.query(`EXPLAIN QUERY PLAN ${planSql}`)
+				.all()
+				.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
+				.join(" | ");
+		const build = async (): Promise<{ factory: DatabaseFactory; dir: string }> => {
+			const dir = await mkdtemp(join(tmpdir(), "reelvault-benchmark-stats-"));
+			const factory = new DatabaseFactory(join(dir, "reelvault.sqlite"));
+			factory.migrate();
+			seedCatalog(factory.sqlite, { rows, staggeredTimestamps: true });
+
+			return { factory, dir };
+		};
+
+		const optimizeDb = await build();
+		const optimizeStart = performance.now();
+		optimizeDb.factory.optimize();
+		const optimizeMs = performance.now() - optimizeStart;
+		const optimizePlan = planOf(optimizeDb.factory);
+		const optimizeStats = statRowCount(optimizeDb.factory);
+
+		const analyzeDb = await build();
+		const analyzeStart = performance.now();
+		analyzeDb.factory.sqlite.run("ANALYZE");
+		const analyzeMs = performance.now() - analyzeStart;
+		const analyzePlan = planOf(analyzeDb.factory);
+		const analyzeStats = statRowCount(analyzeDb.factory);
+
+		console.log(`\n[database] statistics refresh @ ${rows} rows:`);
+		console.log(`  PRAGMA optimize: ${optimizeMs.toFixed(1)}ms, sqlite_stat1 rows ${optimizeStats}`);
+		console.log(`  ANALYZE:         ${analyzeMs.toFixed(1)}ms, sqlite_stat1 rows ${analyzeStats}`);
+		console.log(`  browse plan (optimize): ${optimizePlan}`);
+
+		optimizeDb.factory.shutdown();
+		analyzeDb.factory.shutdown();
+		await Promise.all([rm(optimizeDb.dir, { recursive: true, force: true }), rm(analyzeDb.dir, { recursive: true, force: true })]);
+
+		return { ok: optimizePlan === analyzePlan };
 	});
 }
 

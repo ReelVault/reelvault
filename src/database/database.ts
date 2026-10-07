@@ -94,6 +94,21 @@ export class DatabaseFactory {
 	 * that write bulk data. `PRAGMA optimize` on shutdown keeps them fresh.
 	 */
 	/**
+	 * Incremental planner-statistics refresh after a bulk write (e.g. a finished
+	 * library scan). `PRAGMA optimize` re-analyses only the tables whose contents
+	 * changed enough to matter and is a fast no-op otherwise — a full `ANALYZE`
+	 * scans every table and index synchronously and blocks the event loop for
+	 * seconds on a large catalog. Both connections are refreshed: bun:sqlite
+	 * caches prepared statements per connection, and the transaction connection
+	 * would otherwise keep a stale plan (observed as worker-claim cost growing
+	 * with backlog).
+	 */
+	optimize(): void {
+		this.sqlite.run("PRAGMA optimize");
+		this.txSqlite?.run("PRAGMA optimize");
+	}
+
+	/**
 	 * Refreshes planner statistics after a bulk write (e.g. a finished library
 	 * scan). Both connections are analyzed: bun:sqlite caches prepared statements
 	 * per connection, and ANALYZE on one connection does not make the other

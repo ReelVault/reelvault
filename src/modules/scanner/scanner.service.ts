@@ -188,8 +188,9 @@ export class ScannerService extends BaseService {
 				});
 
 				// A scan can add/remove many rows; refresh planner statistics so the
-				// paginated browse path keeps using the composite indexes.
-				databaseFactory.analyze();
+				// paginated browse path keeps using the composite indexes. `optimize`
+				// re-analyses only the changed tables instead of the whole schema.
+				databaseFactory.optimize();
 
 				return { filePaths: filesOnDisk, newFilePaths: newFiles, changedMediaFileIds: changedFiles };
 			},
