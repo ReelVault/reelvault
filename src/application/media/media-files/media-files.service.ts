@@ -41,6 +41,7 @@ import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { errorMessage, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import { mapLibraryType } from "@/utils/type.utils";
@@ -67,6 +68,13 @@ interface MediaFileScanResult {
 }
 
 class MediaService extends BaseService {
+	/**
+	 * Validated audit reports by operation id. A completed operation's result is
+	 * immutable, but the client polls it repeatedly; without this, every poll
+	 * re-parsed and re-validated the whole report against the TypeBox schema.
+	 */
+	private readonly auditResultCache = new MemoryCache<MediaFileAuditResponse>({ ttlMs: -1, maxSize: 8, name: "media-file-audit-results" });
+
 	constructor() {
 		super("MediaService");
 	}
@@ -586,10 +594,18 @@ class MediaService extends BaseService {
 
 			let result: MediaFileAuditResponse | null = null;
 			if (operation.status === "completed") {
-				const [job] = await workerJobRepository.findByOperation(operationId, 1);
-				if (job?.result) {
-					const parsed: unknown = JSON.parse(job.result);
-					if (Value.Check(MediaFileAuditResponseSchema, parsed)) result = parsed;
+				const cached = this.auditResultCache.get(operationId);
+				if (cached) {
+					result = cached;
+				} else {
+					const [job] = await workerJobRepository.findByOperation(operationId, 1);
+					if (job?.result) {
+						const parsed: unknown = JSON.parse(job.result);
+						if (Value.Check(MediaFileAuditResponseSchema, parsed)) {
+							result = parsed;
+							this.auditResultCache.set(operationId, parsed);
+						}
+					}
 				}
 			}
 

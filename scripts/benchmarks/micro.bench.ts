@@ -7,6 +7,8 @@
  */
 
 import { brotliCompress, constants } from "node:zlib";
+import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
+import { Value } from "@sinclair/typebox/value";
 import { bench, compare, group, main, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
 import { hash as bunHash, CryptoHasher } from "bun";
 import { parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
@@ -166,6 +168,33 @@ if (!args.help) {
 		"Stranger Things 4: The整 Season",
 		"Amélie Poulain: Édition Spéciale",
 	];
+
+	// A completed audit report is polled by the client; this is the per-poll
+	// parse + schema validation the result cache now skips.
+	const auditReportJson = JSON.stringify({
+		totalFilesChecked: 20_000,
+		suspectCount: 500,
+		suspects: Array.from({ length: 500 }, (_, index) => ({
+			mediaFileId: `mf-${index}`,
+			fileName: `Some.Movie.${index}.2020.1080p.mkv`,
+			filePath: `/media/movies/Some Movie ${index}/Some.Movie.${index}.2020.1080p.mkv`,
+			libraryId: "lib-1",
+			libraryName: "Movies",
+			mediaType: "movie",
+			currentMetadata: { id: `meta-${index}`, title: `Some Movie ${index}`, releaseDate: "2020-05-15", matchScore: 0.7 },
+			recognized: { title: `Some Movie ${index}`, year: 2021 },
+			reasons: [{ code: "year_mismatch", severity: "medium", params: { expected: 2020, found: 2021 } }],
+			similarityScore: 0.82,
+		})),
+	});
+	bench(
+		"audit report parse + schema validate (500 suspects)",
+		() => {
+			const parsed: unknown = JSON.parse(auditReportJson);
+			if (!Value.Check(MediaFileAuditResponseSchema, parsed)) throw new Error("invalid report");
+		},
+		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+	);
 
 	compare("Cache key: bunHash(str).toString(16) vs raw string key (dedup, filterSignature)", {
 		variants: [
