@@ -1,6 +1,7 @@
 import { imageRepository } from "@/database/repositories/images.repository";
 import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
+import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
 import { BaseService } from "@/utils/base-service";
@@ -157,6 +158,9 @@ class ImageMaintenanceService extends BaseService {
 
 		try {
 			await FileUtils.writeAtomic(image.localPath, data);
+			// The source changed in place under the same path — drop its version
+			// stamp or the optimized-variant cache keeps serving pre-optimization bytes.
+			sourceVersionCache.invalidate(image.localPath);
 		} catch {
 			throw new InternalError(`Cannot write optimized image: ${image.localPath}`, { code: "image.write_failed" });
 		}

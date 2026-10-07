@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import sharp from "sharp";
 import { imageRepository } from "@/database/repositories/images.repository";
+import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
 import { imageMaintenanceService } from "@/modules/images/image-maintenance.service";
 import { serverConfig } from "@/server.config";
 import { DirUtils } from "@/utils/directory.utils";
@@ -52,6 +54,41 @@ describe("ImageMaintenanceService", () => {
 			expect(await FileUtils.exists(oldTmpPath)).toBe(false);
 		} finally {
 			imageRepository.findAllImageStorageIdentifiers = originalFindAll;
+		}
+	});
+
+	test("reoptimizing a source in place invalidates its cached version stamp", async () => {
+		const sourcePath = PathUtils.join(testImagesDir, "posters", "reoptimize.png");
+		// Noise + compressionLevel 0 keeps the PNG far larger than the WebP the
+		// service produces, so the in-place rewrite path actually runs.
+		const noise = Buffer.alloc(256 * 256 * 3);
+		for (let index = 0; index < noise.length; index++) noise[index] = Math.floor(Math.random() * 256);
+		const png = await sharp(noise, { raw: { width: 256, height: 256, channels: 3 } })
+			.png({ compressionLevel: 0 })
+			.toBuffer();
+		await FileUtils.write(sourcePath, png);
+
+		const originalFindCandidate = imageRepository.findImageOptimizationCandidate;
+		const originalMarkVersion = imageRepository.markImageOptimizationVersion;
+		imageRepository.findImageOptimizationCandidate = async () => ({
+			id: "img-1",
+			localPath: sourcePath,
+			width: 256,
+			height: 256,
+			fileSize: null,
+		});
+		imageRepository.markImageOptimizationVersion = async () => undefined;
+
+		try {
+			const versionBefore = await sourceVersionCache.read(sourcePath);
+
+			const outcome = await imageMaintenanceService.optimizeImageById("img-1");
+			expect(outcome).toBe("reoptimized");
+
+			expect(await sourceVersionCache.read(sourcePath)).not.toBe(versionBefore);
+		} finally {
+			imageRepository.findImageOptimizationCandidate = originalFindCandidate;
+			imageRepository.markImageOptimizationVersion = originalMarkVersion;
 		}
 	});
 });

@@ -29,6 +29,11 @@ export class SourceVersionCache {
 			return stats ? fileStatSignature(stats) : "0";
 		});
 	}
+
+	/** Drops the stamp of a source rewritten in place, so the next read re-stats it. */
+	invalidate(sourcePath: string): void {
+		this.versions.delete(sourcePath);
+	}
 }
 
 export const sourceVersionCache = new SourceVersionCache();
