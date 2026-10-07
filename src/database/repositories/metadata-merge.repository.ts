@@ -18,12 +18,23 @@ interface TvShowMergePlan {
 	movesByTargetSeason: Map<string, string[]>;
 }
 
+interface MergeEpisode {
+	id: string;
+	episodeType: string | null;
+	episodeNumber: number;
+}
+
+/** Episodes are unique per (season, type, number) — a special E1 and a regular E1 both exist. */
+function episodeIdentity(episode: { episodeType: string | null; episodeNumber: number }): string {
+	return `${episode.episodeType ?? ""}:${episode.episodeNumber}`;
+}
+
 /** Pure merge planning — no I/O. */
-function planTvShowMerge(
+export function planTvShowMerge(
 	sourceSeasons: Array<{ id: string; seasonNumber: number }>,
 	targetSeasons: Array<{ id: string; seasonNumber: number }>,
-	srcEpsBySeason: Map<string, Array<{ id: string; episodeNumber: number }>>,
-	tgtEpsBySeason: Map<string, Array<{ id: string; episodeNumber: number }>>,
+	srcEpsBySeason: Map<string, MergeEpisode[]>,
+	tgtEpsBySeason: Map<string, MergeEpisode[]>,
 ): TvShowMergePlan {
 	const plan: TvShowMergePlan = {
 		deleteSeasonIds: [],
@@ -34,11 +45,11 @@ function planTvShowMerge(
 	};
 
 	const tgtSeasonsByNumber = toMap(targetSeasons, (s) => s.seasonNumber);
-	const tgtEpisodesByNumber = new Map<string, Map<number, { id: string; episodeNumber: number }>>();
+	const tgtEpisodesByNumber = new Map<string, Map<string, MergeEpisode>>();
 	for (const [seasonId, episodes] of tgtEpsBySeason) {
 		tgtEpisodesByNumber.set(
 			seasonId,
-			toMap(episodes, (e) => e.episodeNumber),
+			toMap(episodes, (e) => episodeIdentity(e)),
 		);
 	}
 
@@ -52,7 +63,7 @@ function planTvShowMerge(
 		plan.deleteSeasonIds.push(srcSeason.id);
 		const targetEps = tgtEpisodesByNumber.get(match.id);
 		for (const srcEp of srcEpsBySeason.get(srcSeason.id) ?? []) {
-			const matchEp = targetEps?.get(srcEp.episodeNumber);
+			const matchEp = targetEps?.get(episodeIdentity(srcEp));
 			if (matchEp) {
 				const repoints = plan.mediaFileRepoints.get(matchEp.id);
 				if (repoints) repoints.push(srcEp.id);
