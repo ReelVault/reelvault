@@ -1,2 +1,0 @@
-DROP INDEX IF EXISTS `worker_jobs_worker_completed_idx`;--> statement-breakpoint
-CREATE INDEX `worker_jobs_worker_completed_created_idx` ON `worker_jobs` (`worker_id`,`status`,`completed_at`,`created_at`);
