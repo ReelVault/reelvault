@@ -1,5 +1,7 @@
 import { copyFile, link, mkdir, readdir, realpath, rm, stat } from "node:fs/promises";
+import { serverConfig } from "@/server.config";
 import { PathUtils } from "@/utils/path.utils";
+import { PromiseUtils } from "@/utils/promise.utils";
 
 /**
  * Bun's ESM loader caches modules by resolved path (query strings are ignored)
@@ -15,6 +17,11 @@ import { PathUtils } from "@/utils/path.utils";
 const RUNTIME_DIRECTORY_NAME = ".runtime";
 const SKIPPED_DIRECTORY_NAMES = new Set([".git"]);
 
+interface MirrorPlan {
+	directories: string[];
+	files: Array<{ from: string; to: string }>;
+}
+
 export function pluginRuntimeRoot(pluginsDirectory: string): string {
 	return PathUtils.join(pluginsDirectory, RUNTIME_DIRECTORY_NAME);
 }
@@ -27,7 +34,14 @@ export async function clearPluginRuntimes(runtimeRoot: string): Promise<void> {
 /** Creates a unique path that imports a fresh module graph for `pluginDir`. */
 export async function materializePluginRuntime(pluginDir: string, runtimeRoot: string): Promise<string> {
 	const runtimeDir = PathUtils.join(runtimeRoot, crypto.randomUUID());
-	await mirrorDirectory(pluginDir, runtimeDir, new Set());
+	const plan: MirrorPlan = { directories: [], files: [] };
+	await collectMirrorPlan(pluginDir, runtimeDir, new Set(), plan);
+
+	// Two phases so the (potentially thousands of) filesystem mutations run
+	// bounded-parallel instead of one await per file.
+	const concurrency = serverConfig.plugins.lifecycle.loadConcurrency;
+	await PromiseUtils.mapConcurrent(plan.directories, concurrency, (directory) => mkdir(directory, { recursive: true }));
+	await PromiseUtils.mapConcurrent(plan.files, concurrency, ({ from, to }) => linkOrCopy(from, to));
 
 	return runtimeDir;
 }
@@ -39,8 +53,8 @@ export async function removePluginRuntime(runtimeDir: string | undefined): Promi
 	await rm(runtimeDir, { recursive: true, force: true });
 }
 
-async function mirrorDirectory(source: string, destination: string, visitedRealPaths: Set<string>): Promise<void> {
-	await mkdir(destination, { recursive: true });
+async function collectMirrorPlan(source: string, destination: string, visitedRealPaths: Set<string>, plan: MirrorPlan): Promise<void> {
+	plan.directories.push(destination);
 	const entries = await readdir(source, { withFileTypes: true });
 
 	for (const entry of entries) {
@@ -50,12 +64,12 @@ async function mirrorDirectory(source: string, destination: string, visitedRealP
 		const to = PathUtils.join(destination, entry.name);
 
 		if (entry.isDirectory()) {
-			await mirrorDirectory(from, to, visitedRealPaths);
+			await collectMirrorPlan(from, to, visitedRealPaths, plan);
 			continue;
 		}
 
 		if (entry.isFile()) {
-			await linkOrCopy(from, to);
+			plan.files.push({ from, to });
 			continue;
 		}
 
@@ -69,11 +83,11 @@ async function mirrorDirectory(source: string, destination: string, visitedRealP
 		const info = await stat(real).catch(() => null);
 		if (info?.isDirectory()) {
 			visitedRealPaths.add(real);
-			await mirrorDirectory(real, to, visitedRealPaths);
+			await collectMirrorPlan(real, to, visitedRealPaths, plan);
 			continue;
 		}
 
-		if (info?.isFile()) await linkOrCopy(real, to);
+		if (info?.isFile()) plan.files.push({ from: real, to });
 	}
 }
 

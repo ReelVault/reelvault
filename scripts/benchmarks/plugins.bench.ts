@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,6 +15,7 @@ import {
 	summarizeLatencies,
 	task,
 } from "benchkit";
+import { materializePluginRuntime, pluginRuntimeRoot } from "@/plugins/lifecycle/plugin-runtime-copy";
 import { PluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { FileUtils } from "@/utils/file.utils";
@@ -277,6 +278,42 @@ if (!args.help) {
 		},
 		{ warmup: 3, iterations: 20 },
 	);
+
+	// Every plugin load hard-links its package into a unique runtime mirror.
+	// Measure a realistic tree (2000 files / 50 directories).
+	task("plugins: runtime mirror", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "rv-plugin-mirror-"));
+		try {
+			const source = join(directory, "pkg");
+			for (let directoryIndex = 0; directoryIndex < 50; directoryIndex++) {
+				const subdirectory = join(source, `lib${directoryIndex}`);
+				await mkdir(subdirectory, { recursive: true });
+				await Promise.all(
+					Array.from({ length: 40 }, (_, fileIndex) => writeFile(join(subdirectory, `file${fileIndex}.mjs`), "export {};\n")),
+				);
+			}
+
+			const runtimeRoot = pluginRuntimeRoot(join(directory, "plugins"));
+			await materializePluginRuntime(source, runtimeRoot); // warm-up
+			const samples: number[] = [];
+			for (let run = 0; run < 5; run++) {
+				const startedAt = performance.now();
+				await materializePluginRuntime(source, runtimeRoot);
+				samples.push(performance.now() - startedAt);
+			}
+
+			const stats = summarizeLatencies(samples);
+			printTable(
+				"Plugin runtime mirror (2000 files, 50 dirs)",
+				["p50", "p95", "max"],
+				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+			);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+
+		return { ok: true };
+	});
 
 	// The artifact quota total has no size column to read: it stats every stored
 	// file. Characterise the miss path (sequential per-write recompute vs the
