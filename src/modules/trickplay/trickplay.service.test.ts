@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { trickplayRepository } from "@/database/repositories/trickplay.repository";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { DirUtils } from "@/utils/directory.utils";
@@ -59,5 +60,19 @@ describe("trickplayService.generateForMediaFile — storage budget", () => {
 		await expect(trickplayService.generateForMediaFile("mf-1")).rejects.toMatchObject({
 			code: "trickplay_extraction_failed",
 		});
+	});
+});
+
+describe("trickplayService.stats", () => {
+	test("returns coverage counts plus core storage usage and budget", async () => {
+		activeStubs.push(
+			stubMethod(trickplayRepository, "stats", () => Promise.resolve({ total: 10, withTrickplay: 7, missingTrickplay: 3 })),
+			stubMethod(mediaArtifactsService, "getStoredBytes", () => Promise.resolve(1234)),
+		);
+
+		const stats = await trickplayService.stats();
+
+		expect(stats).toMatchObject({ total: 10, withTrickplay: 7, missingTrickplay: 3, storageBytes: 1234 });
+		expect(stats.storageBudgetBytes).toBeGreaterThan(0);
 	});
 });

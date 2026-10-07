@@ -1,3 +1,4 @@
+import type { TrickplayStats } from "@reelvault/sdk/common";
 import { file } from "bun";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { trickplayRepository } from "@/database/repositories/trickplay.repository";
@@ -211,8 +212,15 @@ class TrickplayService extends BaseService {
 		return trickplayRepository.findMediaFileIdsMissingTrickplay(limit);
 	}
 
-	stats(): Promise<{ total: number; withTrickplay: number; missingTrickplay: number }> {
-		return trickplayRepository.stats();
+	/** Coverage counts plus the core artifact storage usage/budget for the admin page. */
+	async stats(): Promise<TrickplayStats> {
+		const [counts, storageBytes, storageBudgetBytes] = await Promise.all([
+			trickplayRepository.stats(),
+			mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER),
+			resolveCoreArtifactsBudgetBytes(),
+		]);
+
+		return { ...counts, storageBytes, storageBudgetBytes };
 	}
 }
 

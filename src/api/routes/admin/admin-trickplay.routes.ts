@@ -1,4 +1,4 @@
-import { OperationQueuedResponseSchema } from "@reelvault/sdk/common";
+import { OperationQueuedResponseSchema, TrickplayStatsSchema } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { MediaFileIdParams } from "@/api/schemas/route-params";
@@ -9,7 +9,8 @@ import { adminShell } from "./admin-shell";
 
 export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["Admin"] })
 	.get("/stats", async () => await trickplayService.stats(), {
-		detail: { description: "Counts of media files with and without built-in trickplay previews." },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: TrickplayStatsSchema },
+		detail: { description: "Counts of media files with and without built-in trickplay previews, plus core artifact storage usage." },
 	})
 	.post(
 		"/generate/:mediaFileId",
