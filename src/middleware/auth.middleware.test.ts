@@ -211,6 +211,46 @@ test("profileRequired macro rejects signed-in users without an active profile", 
 	expect(await response.json()).toMatchObject({ code: "auth.profile_required" });
 });
 
+test("API keys cannot select a PIN-protected profile without an unlock token", async () => {
+	const [{ apiKeysService }, { usersRepository }, { signProfileUnlock, profilePinFingerprint, PROFILE_UNLOCK_COOKIE }, { env }] =
+		await Promise.all([
+			import("@/application/admin/api-keys.service"),
+			import("@/database/repositories/users.repository"),
+			import("@/utils/profile-unlock.utils"),
+			import("@/env"),
+		]);
+
+	const authSpy = spyOn(apiKeysService, "authenticate").mockResolvedValue({
+		id: "key-1",
+		scope: "read_only",
+		user: { id: "user-1", name: "User", email: "user@example.com", role: "user" },
+	});
+	const userSpy = spyOn(usersRepository, "findById").mockResolvedValue(
+		SESSION_USER as unknown as Awaited<ReturnType<typeof usersRepository.findById>>,
+	);
+	const profile = createMockProfile({ pin: "hashed-pin" });
+	const profileSpy = spyOnFindCached(profile);
+
+	try {
+		const apiKeyHeaders = { "x-api-key": "rv_test", "x-profile-id": profile.id };
+
+		const locked = await probeApp().handle(new Request("http://localhost/probe", { headers: apiKeyHeaders }));
+		expect((await locked.json()).profileId).toBe(null);
+
+		const unlock = signProfileUnlock(profile.id, env.BETTER_AUTH_SECRET, profilePinFingerprint(profile.pin));
+		const unlocked = await probeApp().handle(
+			new Request("http://localhost/probe", {
+				headers: { ...apiKeyHeaders, cookie: `${PROFILE_UNLOCK_COOKIE}=${unlock}` },
+			}),
+		);
+		expect((await unlocked.json()).profileId).toBe(profile.id);
+	} finally {
+		authSpy.mockRestore();
+		userSpy.mockRestore();
+		profileSpy.mockRestore();
+	}
+});
+
 function spyOnFindCached(value: Profile | null | undefined) {
 	return spyOn(profilesRepository, "findByPrimaryIdCached").mockResolvedValue(value ?? undefined);
 }

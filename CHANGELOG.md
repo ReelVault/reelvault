@@ -71,6 +71,7 @@
 - **Access-controlled artifacts were publicly cacheable** — playback artifacts served behind the stream-access policy sent `Cache-Control: public, max-age=86400`, letting shared proxies replay them after an access change; they are now `private`.
 - **Notification updates ignored `read:false`** — both `PATCH /v1/notifications` and `PATCH /v1/notifications/:id` always marked notifications read. They now honour the flag, and re-marking an already-read notification succeeds instead of returning 403.
 - **Quick-connect paired PIN-protected profiles locked** — the session cookies carried an empty PIN fingerprint, so a paired device could never activate a PIN-protected profile and silently fell back to "no active profile". Quick-connect now copies the authorizing profile's stored PIN fingerprint into the issued unlock cookie (both the device-pairing and voucher flows).
+- **API keys bypassed the profile PIN lock** — a machine key could resolve a PIN-protected profile via `x-profile-id`/`current_profile_id` without an unlock token. All credential types now pass through the same PIN check, so a locked profile stays locked for API keys too.
 
 ### Performance
 

@@ -47,6 +47,18 @@ function isPublicGet(request: Request): boolean {
 	return isPluginUiPath(path) && path !== PLUGIN_UI_MANIFEST_PATH;
 }
 
+/**
+ * Applies the profile-PIN lock uniformly across credential types: a
+ * PIN-protected profile resolves to null unless the request carries a valid
+ * signed unlock token. API keys are account-level credentials and can never
+ * present a PIN, so they must not select a locked profile either.
+ */
+function resolveUnlockedProfile(ownedProfile: Profile | null, unlockToken: string | undefined): Profile | null {
+	if (ownedProfile?.pin && !isProfileUnlocked(ownedProfile, unlockToken, env.BETTER_AUTH_SECRET)) return null;
+
+	return ownedProfile;
+}
+
 export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 	.derive(
 		{ as: "global" },
@@ -77,7 +89,8 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 
 				const profileId = current_profile_id?.value ?? request.headers.get("x-profile-id");
 				const rawProfile = typeof profileId === "string" ? ((await profilesRepository.findByPrimaryIdCached(profileId)) ?? null) : null;
-				const profile = rawProfile && rawProfile.userId === principal.user.id ? rawProfile : null;
+				const unlockToken = typeof profile_unlock?.value === "string" ? profile_unlock.value : undefined;
+				const profile = resolveUnlockedProfile(rawProfile && rawProfile.userId === principal.user.id ? rawProfile : null, unlockToken);
 
 				// Full owner record — guards and audit consumers read role/ban state.
 				const user = await usersRepository.findById(principal.user.id);
@@ -119,13 +132,10 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 			// A PIN-protected profile is locked within the account: selecting it via
 			// `x-profile-id` or `current_profile_id` without a signed unlock token
 			// yields no active profile (the client must switch in and enter the PIN).
-			let currentProfile = ownedProfile;
-			if (ownedProfile?.pin) {
-				const unlockToken = typeof profile_unlock?.value === "string" ? profile_unlock.value : undefined;
-				// The fingerprint binds the token to the current PIN hash: adding or
-				// changing the PIN invalidates any token issued before the change.
-				if (!isProfileUnlocked(ownedProfile, unlockToken, env.BETTER_AUTH_SECRET)) currentProfile = null;
-			}
+			const currentProfile = resolveUnlockedProfile(
+				ownedProfile,
+				typeof profile_unlock?.value === "string" ? profile_unlock.value : undefined,
+			);
 
 			return {
 				user,
