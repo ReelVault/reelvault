@@ -1,9 +1,14 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+	benchmarkAsync,
 	fmtMb,
 	fmtMs,
 	type HttpScenarioResult,
 	main,
 	printHttpResults,
+	printMicroResults,
 	printTable,
 	readProcessRssBytes,
 	runLoadWindow,
@@ -12,6 +17,9 @@ import {
 	task,
 } from "benchkit";
 import { sleep } from "bun";
+import { parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer";
+import { playlistFileCache } from "@/modules/streaming/playlist/playlist.cache";
+import { FileUtils } from "@/utils/file.utils";
 import { authHeaders, subnetIp } from "./lib/identity";
 import { createPlaybackSession, deletePlaybackSession, parseSegmentNames } from "./lib/playback";
 import { toScenarioResult } from "./lib/scenario-result";
@@ -291,6 +299,36 @@ const args = suiteArgs();
 
 if (!args.help) {
 	const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
+
+	// Playback start polls the growing playlist every 20 ms until the cushion
+	// exists. This characterises one poll tick on an unchanged playlist: raw
+	// read+parse (the pre-cache waiter) vs the shared cache hit.
+	task("streaming: playlist waiter poll cost", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "reelvault-playlist-poll-"));
+		try {
+			const playlistPath = join(dir, "playlist.m3u8");
+			const lines = ["#EXTM3U", "#EXT-X-PLAYLIST-TYPE:EVENT"];
+			for (let index = 0; index < 20; index++) lines.push("#EXTINF:4.0,", `seg_${index}.m4s`);
+			await writeFile(playlistPath, lines.join("\n"));
+
+			const sessionId = `bench-waiter-${Date.now()}`;
+			await playlistFileCache.read(sessionId, playlistPath, 4);
+
+			const raw = await benchmarkAsync("raw read+parse per tick", async () => parseHlsBuffer(await FileUtils.get(playlistPath).text(), 4), {
+				warmup: 5,
+				iterations: 50,
+			});
+			const cached = await benchmarkAsync("cache hit per tick", async () => playlistFileCache.read(sessionId, playlistPath, 4), {
+				warmup: 5,
+				iterations: 50,
+			});
+			printMicroResults([raw, cached]);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+
+		return { ok: true };
+	});
 
 	task("streaming: phases", async () => {
 		if (args.baseUrl) {

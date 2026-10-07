@@ -3,10 +3,10 @@ import { systemResourcesService } from "@/system/system-resources.service";
 import { InternalError, RequestTimeoutError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { playlistFileCache } from "../playlist/playlist.cache";
 import type { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
 import type { SessionStore } from "../runtime/session-state/session-store";
 import { PLAYLIST_FILE_NAME } from "../utils/segment-name.utils";
-import { parseHlsBuffer } from "./hls-buffer";
 
 export class PlaylistWaiter {
 	private readonly cushionedSessions = new Set<string>();
@@ -96,9 +96,16 @@ export class PlaylistWaiter {
 			if (session.process?.exitCode != null) break;
 
 			try {
-				const text = await FileUtils.get(playlistPath).text();
-				const analysis = parseHlsBuffer(text, this.hlsSegmentDuration);
-				if (analysis.complete || analysis.bufferedSeconds >= targetBufferedSeconds || analysis.segments.length >= targetSegments) {
+				// The shared cache dedupes the stat+read+parse per (mtime, size), so an
+				// unchanged playlist between ticks costs one stat instead of a full
+				// read and parse — and the following playlist request reuses the views.
+				const result = await playlistFileCache.read(sessionId, playlistPath, this.hlsSegmentDuration);
+				if (
+					result.ok &&
+					(result.analysis.complete ||
+						result.analysis.bufferedSeconds >= targetBufferedSeconds ||
+						result.analysis.segments.length >= targetSegments)
+				) {
 					break;
 				}
 			} catch {
