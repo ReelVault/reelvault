@@ -38,7 +38,6 @@ async function createFixture(root: string): Promise<string[]> {
 const args = suiteArgs();
 
 if (!args.help) {
-	let scannedFiles: string[] = [];
 	const tree = fixture("scanner-tree", async ({ onCleanup }) => {
 		const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-scanner-"));
 		onCleanup(() => {
@@ -53,9 +52,8 @@ if (!args.help) {
 		`Filesystem walk (${DIRECTORY_COUNT * FILES_PER_DIR} files)`,
 		async () => {
 			const { scanPaths } = await tree();
-			scannedFiles = await fileScannerService.scan({ paths: scanPaths });
 
-			return scannedFiles;
+			return await fileScannerService.scan({ paths: scanPaths });
 		},
 		{ warmup: 2, iterations: 10 },
 	);
@@ -70,17 +68,6 @@ if (!args.help) {
 			return await fileScannerService.scanWithStats({ paths: scanPaths });
 		},
 		{ warmup: 2, iterations: 5 },
-	);
-
-	bench(
-		"Library file diff (new vs removed files)",
-		async () => {
-			const { root, scanPaths } = await tree();
-			const databasePaths = [...scannedFiles.slice(0, Math.floor(scannedFiles.length * 0.9)), join(root, "missing.mkv")];
-
-			return fileScannerService.diff(scannedFiles, databasePaths, scanPaths);
-		},
-		{ warmup: 5, iterations: args.iterations },
 	);
 
 	// Root filtering resolves every DB path and compares against every root —

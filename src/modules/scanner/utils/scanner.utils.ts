@@ -1,15 +1,4 @@
 import { PathUtils } from "@/utils/path.utils";
-import type { FilePathChanges } from "../scanner.types";
-
-export function compareFilePaths(filesOnDisk: string[], filesInDatabase: string[]): FilePathChanges {
-	const diskPaths = new Set(filesOnDisk);
-	const databasePaths = new Set(filesInDatabase);
-
-	return {
-		newFiles: filesOnDisk.filter((path) => !databasePaths.has(path)),
-		removedFiles: filesInDatabase.filter((path) => !diskPaths.has(path)),
-	};
-}
 
 export function filterPathsWithinRoots(filePaths: string[], roots: string[]): string[] {
 	if (filePaths.length === 0 || roots.length === 0) return [];

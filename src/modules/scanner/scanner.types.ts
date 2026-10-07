@@ -32,8 +32,3 @@ export interface LibraryScanResult {
 	newFilePaths: string[];
 	changedMediaFileIds: string[];
 }
-
-export interface FilePathChanges {
-	newFiles: string[];
-	removedFiles: string[];
-}

@@ -4,8 +4,6 @@ import { BaseService } from "@/utils/base-service";
 import { DirUtils, type ScannedFileEntry } from "@/utils/directory.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import type { FilePathChanges } from "../scanner.types";
-import { compareFilePaths, filterPathsWithinRoots } from "../utils/scanner.utils";
 
 interface ScanOptions {
 	paths: string[];
@@ -35,61 +33,51 @@ class FileScannerService extends BaseService {
 	}
 
 	async scan(options: ScanOptions): Promise<string[]> {
-		const { paths, extensions, maxDepth, signal } = resolveScanOptions(options);
-		const scannedPaths = await PromiseUtils.mapConcurrent(
-			paths,
-			systemResourcesService.getScannerConcurrency(),
-			async (path) => {
-				const entries = await DirUtils.scanFiles(path, extensions, maxDepth, signal);
-
-				return entries.filter((filePath) => !isIgnoredPath(filePath, path));
-			},
-			signal,
+		return await this.scanUnique(
+			options,
+			(path, extensions, maxDepth, signal) => DirUtils.scanFiles(path, extensions, maxDepth, signal),
+			(filePath) => filePath,
+			(_entry, resolvedPath) => resolvedPath,
 		);
-
-		const seen = new Set<string>();
-		for (const entries of scannedPaths) {
-			for (const filePath of entries) {
-				seen.add(PathUtils.resolve(filePath));
-			}
-		}
-
-		return [...seen];
 	}
 
 	async scanWithStats(options: ScanOptions): Promise<ScannedFileEntry[]> {
+		return await this.scanUnique(
+			options,
+			(path, extensions, maxDepth, signal) => DirUtils.scanFilesWithStats(path, extensions, maxDepth, signal),
+			(entry) => entry.filePath,
+			(entry, filePath) => ({ ...entry, filePath }),
+		);
+	}
+
+	/** Shared scan → ignore-filter → resolve/dedupe pass for both scan shapes. */
+	private async scanUnique<T>(
+		options: ScanOptions,
+		scanRoot: (path: string, extensions: readonly string[], maxDepth: number, signal: AbortSignal | undefined) => Promise<T[]>,
+		pathOf: (entry: T) => string,
+		withResolvedPath: (entry: T, filePath: string) => T,
+	): Promise<T[]> {
 		const { paths, extensions, maxDepth, signal } = resolveScanOptions(options);
-		const scannedEntries = await PromiseUtils.mapConcurrent(
+		const scanned = await PromiseUtils.mapConcurrent(
 			paths,
 			systemResourcesService.getScannerConcurrency(),
-			async (path) => {
-				const entries = await DirUtils.scanFilesWithStats(path, extensions, maxDepth, signal);
-
-				return entries.filter((entry) => !isIgnoredPath(entry.filePath, path));
-			},
+			async (path) => (await scanRoot(path, extensions, maxDepth, signal)).filter((entry) => !isIgnoredPath(pathOf(entry), path)),
 			signal,
 		);
 
 		const seen = new Set<string>();
-		const uniqueEntries: ScannedFileEntry[] = [];
-		for (const entries of scannedEntries) {
+		const unique: T[] = [];
+		for (const entries of scanned) {
 			for (const entry of entries) {
-				const resolvedPath = PathUtils.resolve(entry.filePath);
-				if (!seen.has(resolvedPath)) {
-					seen.add(resolvedPath);
-					uniqueEntries.push({
-						...entry,
-						filePath: resolvedPath,
-					});
-				}
+				const resolvedPath = PathUtils.resolve(pathOf(entry));
+				if (seen.has(resolvedPath)) continue;
+
+				seen.add(resolvedPath);
+				unique.push(withResolvedPath(entry, resolvedPath));
 			}
 		}
 
-		return uniqueEntries;
-	}
-
-	diff(filesOnDisk: string[], filesInDatabase: string[], scanRoots: string[]): FilePathChanges {
-		return compareFilePaths(filesOnDisk, filterPathsWithinRoots(filesInDatabase, scanRoots));
+		return unique;
 	}
 }
 

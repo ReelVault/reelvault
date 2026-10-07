@@ -1,21 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { fileScannerService } from "../disk/file-scanner";
-import { compareFilePaths, filterPathsWithinRoots, isMassRemoval } from "./scanner.utils";
-
-describe("compareFilePaths", () => {
-	it("compares discovered files with media-file rows rather than configured directory paths", () => {
-		const result = compareFilePaths(["/movies/existing.mkv", "/movies/new.mkv"], ["/movies/existing.mkv", "/movies/removed.mkv"]);
-
-		expect(result).toEqual({
-			newFiles: ["/movies/new.mkv"],
-			removedFiles: ["/movies/removed.mkv"],
-		});
-	});
-
-	it("marks all database files as removed when a library directory becomes empty", () => {
-		expect(compareFilePaths([], ["/movies/removed.mkv"]).removedFiles).toEqual(["/movies/removed.mkv"]);
-	});
-});
+import { filterPathsWithinRoots, isMassRemoval } from "./scanner.utils";
 
 describe("filterPathsWithinRoots", () => {
 	it("does not remove files from library roots that were not scanned", () => {
@@ -25,21 +9,6 @@ describe("filterPathsWithinRoots", () => {
 				["/library/movies"],
 			),
 		).toEqual(["/library/movies/one.mkv"]);
-	});
-});
-
-describe("FileScannerService.diff", () => {
-	it("keeps database comparison inside the scanner feature", () => {
-		expect(
-			fileScannerService.diff(
-				["/library/movies/new.mkv"],
-				["/library/movies/new.mkv", "/library/movies/removed.mkv", "/library/shows/untouched.mkv"],
-				["/library/movies"],
-			),
-		).toEqual({
-			newFiles: [],
-			removedFiles: ["/library/movies/removed.mkv"],
-		});
 	});
 });
 

@@ -59,21 +59,6 @@ describe("FileScannerService.scanWithStats", () => {
 	});
 });
 
-describe("FileScannerService.diff", () => {
-	test("splits new and removed files, ignoring database paths outside the roots", () => {
-		const changes = fileScannerService.diff([join(root, "movie.mkv")], [join(root, "movie.mkv"), "/elsewhere/old.mkv"], [root]);
-
-		expect(changes.newFiles).toEqual([]);
-		expect(changes.removedFiles).toEqual([]);
-	});
-
-	test("reports genuinely removed files", () => {
-		const changes = fileScannerService.diff([], [join(root, "gone.mkv")], [root]);
-
-		expect(changes.removedFiles).toEqual([join(root, "gone.mkv")]);
-	});
-});
-
 describe("matchesIgnorePattern", () => {
 	const root = "/media/library";
 
