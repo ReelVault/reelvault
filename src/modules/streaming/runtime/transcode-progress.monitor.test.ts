@@ -18,7 +18,7 @@ function dependencies(overrides: Partial<TranscodeProgressMonitorDependencies> =
 		attachStreamOperation: (operationId) => {
 			calls.attach.push(operationId);
 
-			return Promise.resolve();
+			return Promise.resolve(true);
 		},
 		updateOperationProgress: (operationId, percent) => {
 			calls.progress.push({ operationId, percent });
@@ -152,6 +152,25 @@ describe("TranscodeProgressMonitor", () => {
 		await monitor.onFfmpegExit("s1", 0, null);
 		await monitor.onProcessAttached("s1");
 		expect(deps.calls.attach).toEqual(["op-1", "op-1"]);
+	});
+
+	test("a rejected slot claim (cancelled operation) does not poison the session", async () => {
+		const store = createStore(600_000);
+		let attempts = 0;
+		const deps = dependencies({
+			attachStreamOperation: () => {
+				attempts++;
+
+				return Promise.resolve(attempts > 1);
+			},
+		});
+		const monitor = new TranscodeProgressMonitor(deps);
+		monitor.attachStore(store);
+
+		await monitor.onProcessAttached("s1");
+		await monitor.onProcessAttached("s1");
+
+		expect(attempts).toBe(2);
 	});
 
 	test("session release clears throttle state and releases the slot", async () => {

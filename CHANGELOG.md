@@ -77,6 +77,7 @@
 - **Rematching metadata deleted the files it had just repointed** — duplicate conflicts were dissolved by repointing `media_files.metadata_id` and deleting the duplicate row, but the files' `movie_id`/`episode_id` still referenced the duplicate's `movies`/`episodes` rows, which the FK cascade removed together with the files (and their progress, history and markers). Conflicts now resolve through the merge path, which repoints the movie/episode references first and creates the target's movie row when it does not exist yet.
 - **Resumed operations could be deleted with all their jobs** — the daily retention sweep selected expired operations without checking their status, and resuming an operation kept its terminal retention deadline. An operation resumed after the retention window was deleted (with its jobs) while still running. The sweep now only considers terminal operations, and resuming clears the deadline.
 - **Cancelling running jobs could corrupt operation counters** — the bulk cancel counted running jobs before the update and applied those counts outside a transaction, so a job that finished mid-cancel was counted as cancelled as well (`completed + cancelled > total`). The row transition and its counter update now share one transaction.
+- **Cancelled streaming sessions could come back to life** — a late ffmpeg attach unconditionally reset the operation to `running`, and a natural EOF on a cancelled stream flipped it to `completed`. Both lifecycle events now respect a cancellation, so a killed session stays terminal.
 
 ### Performance
 

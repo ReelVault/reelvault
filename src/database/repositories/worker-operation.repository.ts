@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, lt, ne, type SQL, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
@@ -136,10 +136,12 @@ class WorkerOperationRepository {
 	 * progress monitor (which guards against seek-restart double-counting), so it
 	 * always claims a slot here — including while the stream-init job is still
 	 * `running`, otherwise that job's completion would terminalize the operation.
+	 * Returns false when the operation was cancelled in the meantime — a late
+	 * attach must never resurrect a terminal operation.
 	 */
-	async markStreamAttached(operationId: string): Promise<void> {
+	async markStreamAttached(operationId: string): Promise<boolean> {
 		const now = new Date();
-		await databaseFactory
+		const updated = await databaseFactory
 			.getClient()
 			.update(operations)
 			.set({
@@ -148,7 +150,10 @@ class WorkerOperationRepository {
 				completedAt: null,
 				updatedAt: now,
 			})
-			.where(eq(operations.id, operationId));
+			.where(and(eq(operations.id, operationId), eq(operations.cancelRequested, false), ne(operations.status, "cancelled")))
+			.returning({ id: operations.id });
+
+		return updated.length > 0;
 	}
 
 	/** Releases the streaming slot counter — the reaper calls this on session teardown. */
@@ -173,7 +178,10 @@ class WorkerOperationRepository {
 		const now = new Date();
 		const newRunning = sql`MAX(${operations.runningItems} - 1, 0)`;
 		const newFinished = sql`(${operations.completedItems} + ${operations.failedItems} + ${operations.cancelledItems})`;
-		const isIdleAndDone = sql`(${newRunning} = 0 AND ${operations.totalItems} > 0 AND ${newFinished} >= ${operations.totalItems})`;
+		// Cancellation always wins: a natural EOF on a cancelled operation must not
+		// flip it back to `completed` (same rule as the job-level status SQL).
+		const isIdleAndDone = sql`(${newRunning} = 0 AND ${operations.totalItems} > 0 AND ${newFinished} >= ${operations.totalItems}
+			AND NOT ${operations.cancelRequested} AND ${operations.status} != 'cancelled')`;
 		await databaseFactory
 			.getClient()
 			.update(operations)

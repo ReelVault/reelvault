@@ -83,6 +83,67 @@ describe("workerJobRepository.cancelAllRunning", () => {
 	});
 });
 
+describe("workerOperationRepository streaming slots", () => {
+	function insertStreamOperation(
+		db: DatabaseFactory["sqlite"],
+		options: { status: string; cancelRequested: number; total: number; running: number; completed?: number; cancelled: number },
+	): void {
+		const now = Math.floor(Date.now() / 1000);
+		db.run(
+			"INSERT INTO worker_operations (id, type, status, cancel_requested, total_items, pending_items, running_items, completed_items, failed_items, cancelled_items, created_at, updated_at) VALUES ('op-stream','stream',?,?,?,0,?,?,0,?,?,?)",
+			[options.status, options.cancelRequested, options.total, options.running, options.completed ?? 0, options.cancelled, now, now],
+		);
+	}
+
+	test("a late attach does not resurrect a cancelled operation", async () => {
+		const { factory, db } = createFactory();
+		try {
+			insertStreamOperation(db, { status: "cancelled", cancelRequested: 1, total: 1, running: 1, cancelled: 0 });
+
+			expect(await workerOperationRepository.markStreamAttached("op-stream")).toBe(false);
+
+			const row = db.query("SELECT status, running_items AS running FROM worker_operations WHERE id = 'op-stream'").get() as {
+				status: string;
+				running: number;
+			};
+			expect(row).toEqual({ status: "cancelled", running: 1 });
+		} finally {
+			factory.shutdown();
+		}
+	});
+
+	test("a natural EOF keeps a cancelled operation cancelled", async () => {
+		const { factory, db } = createFactory();
+		try {
+			insertStreamOperation(db, { status: "cancelled", cancelRequested: 1, total: 1, running: 1, cancelled: 1 });
+
+			await workerOperationRepository.completeStreamSlot("op-stream");
+
+			const row = db.query("SELECT status, running_items AS running FROM worker_operations WHERE id = 'op-stream'").get() as {
+				status: string;
+				running: number;
+			};
+			expect(row).toEqual({ status: "cancelled", running: 0 });
+		} finally {
+			factory.shutdown();
+		}
+	});
+
+	test("an active operation with no remaining work completes on EOF", async () => {
+		const { factory, db } = createFactory();
+		try {
+			insertStreamOperation(db, { status: "running", cancelRequested: 0, total: 1, running: 1, completed: 1, cancelled: 0 });
+
+			await workerOperationRepository.completeStreamSlot("op-stream");
+
+			const row = db.query("SELECT status FROM worker_operations WHERE id = 'op-stream'").get() as { status: string };
+			expect(row.status).toBe("completed");
+		} finally {
+			factory.shutdown();
+		}
+	});
+});
+
 describe("workerOperationRepository retention", () => {
 	test("expired retention never removes pending or running operations", async () => {
 		const { factory, db } = createFactory();

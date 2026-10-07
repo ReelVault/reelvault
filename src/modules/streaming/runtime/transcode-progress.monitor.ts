@@ -12,7 +12,7 @@ const logger = createLogger("TranscodeProgressMonitor");
 const PROGRESS_WRITE_MIN_INTERVAL_MS = 1_000;
 
 export interface TranscodeProgressMonitorDependencies {
-	attachStreamOperation(operationId: string): Promise<void>;
+	attachStreamOperation(operationId: string): Promise<boolean>;
 	updateOperationProgress(operationId: string, percent: number): Promise<void>;
 	completeStreamOperation(operationId: string): Promise<void>;
 	releaseStreamOperation(operationId: string): Promise<void>;
@@ -62,7 +62,13 @@ export class TranscodeProgressMonitor {
 
 		this.attachedSessions.add(sessionId);
 		try {
-			await this.dependencies.attachStreamOperation(session.operationId);
+			const attached = await this.dependencies.attachStreamOperation(session.operationId);
+			if (!attached) {
+				// The operation was cancelled while the process was starting — a late
+				// attach must not resurrect it, and the in-memory slot claim has no
+				// release path once the session is gone.
+				this.attachedSessions.delete(sessionId);
+			}
 		} catch (error) {
 			this.attachedSessions.delete(sessionId);
 			logger.warn("Could not attach the streaming slot to its operation", { sessionId, operationId: session.operationId, error });
