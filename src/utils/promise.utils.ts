@@ -16,11 +16,6 @@ export function detach(_promise: Promise<unknown>): void {
 }
 
 export const PromiseUtils = {
-	sleep: (ms: number) =>
-		new Promise((resolve) => {
-			setTimeout(resolve, ms);
-		}),
-
 	async withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<Awaited<T>> {
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const timeout = new Promise<never>((_resolve, reject) => {

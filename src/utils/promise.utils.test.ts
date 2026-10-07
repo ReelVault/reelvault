@@ -12,7 +12,7 @@ describe("PromiseUtils.mapConcurrent", () => {
 		const result = await PromiseUtils.mapConcurrent([30, 10, 20, 5], 2, async (delay) => {
 			active++;
 			maxActive = Math.max(maxActive, active);
-			await PromiseUtils.sleep(delay);
+			await Bun.sleep(delay);
 			active--;
 
 			return delay;
@@ -46,7 +46,7 @@ describe("PromiseUtils.waitForFile", () => {
 		const tempPath = join(tmpdir(), `reelvault-test-waitforfile-async-${Date.now()}.txt`);
 		try {
 			const waitPromise = PromiseUtils.waitForFile(tempPath, 2000, 50);
-			await PromiseUtils.sleep(50);
+			await Bun.sleep(50);
 			await write(tempPath, "created");
 			await expect(waitPromise).resolves.toBeUndefined();
 		} finally {
@@ -79,7 +79,7 @@ describe("PromiseUtils.waitForFile abort support", () => {
 		const tempPath = join(tmpdir(), `reelvault-test-abort-midwait-${Date.now()}.txt`);
 
 		const waitPromise = PromiseUtils.waitForFile(tempPath, 10_000, 20, controller.signal);
-		await PromiseUtils.sleep(20);
+		await Bun.sleep(20);
 		controller.abort();
 
 		await expect(waitPromise).rejects.toThrow();
@@ -92,7 +92,7 @@ describe("PromiseUtils.waitForFile abort support", () => {
 		const tempPath = join(tmpdir(), `reelvault-test-abort-unaffected-${Date.now()}.txt`);
 		try {
 			const waitPromise = PromiseUtils.waitForFile(tempPath, 2000, 20);
-			await PromiseUtils.sleep(20);
+			await Bun.sleep(20);
 			await write(tempPath, "created");
 			await expect(waitPromise).resolves.toBeUndefined();
 		} finally {

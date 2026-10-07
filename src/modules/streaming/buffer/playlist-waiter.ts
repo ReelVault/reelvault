@@ -1,4 +1,5 @@
 import type { StreamingSession } from "@reelvault/sdk/common";
+import { sleep } from "bun";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { InternalError, RequestTimeoutError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
@@ -112,7 +113,7 @@ export class PlaylistWaiter {
 				// Playlist may be in the middle of being updated on disk
 			}
 
-			await PromiseUtils.sleep(20);
+			await sleep(20);
 		}
 
 		this.cushionedSessions.add(sessionId);
