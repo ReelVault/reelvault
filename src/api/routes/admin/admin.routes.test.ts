@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { AdminDashboardViewResponseSchema } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { adminService } from "@/application/admin/admin.service";
 import { adminWorkerOperationsService } from "@/application/admin/admin-worker-operations.service";
@@ -423,4 +424,15 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 		adminWorkerOperationsService.cancelOperation = originalCancelWorkerOperation;
 		adminWorkerOperationsService.cancelAllOperations = originalCancelAllOperations;
 	}
+});
+
+// Regression: the dashboard composite seeds the admin libraries cache, so its
+// contract must keep the relation fields the libraries page reads. The base
+// LibrarySchema stripped `paths`/stats during response validation and crashed
+// the page with "can't access property 'length', e.paths is undefined".
+test("dashboard-view contract keeps library relations (paths and stats)", () => {
+	const item = AdminDashboardViewResponseSchema.properties.libraries.items;
+
+	expect(item.properties.paths).toBeDefined();
+	expect(item.properties.totalMediaFiles).toBeDefined();
 });
