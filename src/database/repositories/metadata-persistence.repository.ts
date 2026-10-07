@@ -1,5 +1,5 @@
 import type { ExternalIdentifiers, ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
-import { and, eq, inArray, ne, or } from "drizzle-orm";
+import { and, eq, ne, or } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { collectionRepository } from "@/database/repositories/collections.repository";
 import { companiesRepository } from "@/database/repositories/companies.repository";
@@ -8,6 +8,7 @@ import { genreRepository } from "@/database/repositories/genres.repository";
 import { keywordsRepository } from "@/database/repositories/keywords.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { metadataExternalIdsRepository } from "@/database/repositories/metadata-external-ids.repository";
+import { metadataMergeRepository } from "@/database/repositories/metadata-merge.repository";
 import { peopleRepository } from "@/database/repositories/people.repository";
 import { providersRepository } from "@/database/repositories/providers.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
@@ -83,10 +84,13 @@ class MetadataPersistenceRepository {
 				);
 
 			if (conflicting.length > 0) {
-				const conflictingIds = conflicting.map((c) => c.id);
-				await tx.update(schema.mediaFiles).set({ metadataId }).where(inArray(schema.mediaFiles.metadataId, conflictingIds));
-
-				await tx.delete(schema.metadata).where(inArray(schema.metadata.id, conflictingIds));
+				// Route every conflict through the merge path: it repoints movie/
+				// episode ids BEFORE deleting the duplicate metadata, so the FK
+				// cascade cannot delete the just-repointed media files (and their
+				// progress/history/markers) along with the duplicate's movie row.
+				for (const conflict of conflicting) {
+					await metadataMergeRepository.merge(metadataId, conflict.id, type);
+				}
 			}
 
 			await metadataRepository.update({

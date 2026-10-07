@@ -74,6 +74,7 @@
 - **API keys bypassed the profile PIN lock** — a machine key could resolve a PIN-protected profile via `x-profile-id`/`current_profile_id` without an unlock token. All credential types now pass through the same PIN check, so a locked profile stays locked for API keys too.
 - **Invalid server settings silently reset configured values** — a malformed value (for example `"stream.maxSessions": "eight"`) was replaced with the definition default and answered `200`, overwriting the configured value. Updates now fail with `admin.settings.invalid_value`; stored/legacy values still decode leniently at boot.
 - **Second in-panel update always failed** — the swap moved the live files into a non-empty `.previous/` directory, which POSIX `rename` rejects with `ENOTEMPTY`; only the first update of each component could succeed. The latest update now replaces the rollback snapshot (matching the Windows swap script).
+- **Rematching metadata deleted the files it had just repointed** — duplicate conflicts were dissolved by repointing `media_files.metadata_id` and deleting the duplicate row, but the files' `movie_id`/`episode_id` still referenced the duplicate's `movies`/`episodes` rows, which the FK cascade removed together with the files (and their progress, history and markers). Conflicts now resolve through the merge path, which repoints the movie/episode references first and creates the target's movie row when it does not exist yet.
 
 ### Performance
 

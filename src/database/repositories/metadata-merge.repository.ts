@@ -8,6 +8,7 @@ import { schema } from "@/database/schema";
 import { forEachChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { groupBy, toMap } from "@/utils/array.utils";
+import { InternalError } from "@/utils/errors";
 
 interface TvShowMergePlan {
 	deleteSeasonIds: string[];
@@ -92,9 +93,16 @@ class MetadataMergeRepository {
 			moviesRepository.selectFirst({ where: eq(schema.movies.metadataId, targetId), tx }),
 			moviesRepository.selectFirst({ where: eq(schema.movies.metadataId, sourceId), tx }),
 		]);
+		// Movie rows are created lazily on first media ingest; when the target has
+		// none yet, create it before repointing — setting movieId to null would
+		// violate the media_files single-target check (and orphan the row).
+		const targetMovieId = targetMovie?.id ?? (await moviesRepository.findOrCreateByMetadataId({ metadataId: targetId, tx }))?.id;
+		if (!targetMovieId)
+			throw new InternalError(`Could not resolve the movie row for metadata ${targetId}`, { code: "metadata.merge_movie_missing" });
+
 		await client
 			.update(schema.mediaFiles)
-			.set({ metadataId: targetId, movieId: targetMovie?.id ?? null })
+			.set({ metadataId: targetId, movieId: targetMovieId })
 			.where(eq(schema.mediaFiles.metadataId, sourceId));
 		if (sourceMovie) await moviesRepository.delete({ primaryId: sourceMovie.id, tx });
 	}
