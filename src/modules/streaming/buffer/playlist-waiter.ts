@@ -113,7 +113,10 @@ export class PlaylistWaiter {
 				// Playlist may be in the middle of being updated on disk
 			}
 
-			await sleep(20);
+			// The playlist is written one segment at a time (seconds apart), so a
+			// 100 ms poll catches a new segment promptly while doing ~5× fewer stat
+			// calls than the previous 20 ms tick over the 2 s cushion window.
+			await sleep(100);
 		}
 
 		this.cushionedSessions.add(sessionId);

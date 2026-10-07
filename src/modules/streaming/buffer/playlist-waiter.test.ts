@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $, spawn } from "bun";
 import { RequestTimeoutError } from "@/utils/errors";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { playlistFileCache } from "../playlist/playlist.cache";
 import { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
 import { SessionStore } from "../runtime/session-state/session-store";
 import { createMockPlaybackDecision } from "../streaming.test-utils";
@@ -104,6 +106,25 @@ describe("playlist waiter", () => {
 		expect(error).toBeInstanceOf(RequestTimeoutError);
 		expect(error).toMatchObject({ category: "timeout", code: "playlist_generation_timeout" });
 		expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+	});
+
+	test("polls the playlist sparsely during the cushion wait", async () => {
+		const { waiter, dir } = createWaiter("sparse", { session: { exitCode: null } });
+		await mkdir(dir, { recursive: true });
+		// An incomplete playlist keeps the cushion loop running until its deadline.
+		await writeFile(join(dir, "playlist.m3u8"), "#EXTM3U\n#EXT-X-PLAYLIST-TYPE:EVENT\n");
+
+		const reads = stubMethod(playlistFileCache, "read", () => Promise.resolve({ ok: false }));
+		try {
+			await waiter.waitForPlaylist("s1", 5_000, () => Promise.resolve(false));
+		} finally {
+			reads.restore();
+		}
+
+		// The 100 ms cushion tick keeps a ~2 s window under ~40 reads; the previous
+		// 20 ms tick issued ~100.
+		expect(reads.calls.length).toBeGreaterThan(0);
+		expect(reads.calls.length).toBeLessThan(60);
 	});
 
 	test("invalidate clears the cushion memory so the next wait runs again", async () => {

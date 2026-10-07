@@ -198,6 +198,7 @@ The performance work focuses primarily on reducing unnecessary database work, el
 - **Worker deadline writes** — trigger-less workers no longer generate periodic no-op updates.
 - **Idle event-loop probe** — the loop-utilization monitor now samples every 1 s instead of 100 ms, cutting idle timer wakeups from 10/s to 1/s (measured idle CPU 3.40 ms → 2.18 ms per 2 s window).
 - **Playlist cushion polling** — reduced the cost of the temporary-filesystem cushion check used during streaming.
+- **Sparser start-cushion polling** — the 2 s playlist start-cushion wait now ticks every 100 ms instead of 20 ms, cutting the per-start playlist reads from ~100 to ~20 while still catching each new segment within 100 ms.
 - **Leaner ffmpeg operation logs** — streaming/transcode ffmpeg runs `-loglevel warning -stats` instead of `info`, keeping errors and the progress line while dropping the per-run info block. The operation log for a 120s 1080p transcode dropped 6 374 → 3 972 bytes (**−38%**).
 
 ### Performance benchmarks
