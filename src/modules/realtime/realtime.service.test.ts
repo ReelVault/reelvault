@@ -53,6 +53,58 @@ describe("RealtimeService", () => {
 		service.shutdown();
 	});
 
+	it("keeps slow clients registered on drops and closes them after repeated backpressure", () => {
+		const service = new RealtimeService();
+		const sendSocket = mock(() => -1);
+		const closeSocket = mock();
+
+		service.register({
+			connectionId: "conn-slow",
+			userId: "user-slow",
+			profileId: "profile-slow",
+			socket: { send: sendSocket, close: closeSocket },
+		});
+
+		// Four drops keep the connection registered — the buffer may still drain.
+		for (let attempt = 0; attempt < 4; attempt++) service.broadcast("system:ping", {});
+		expect(service.getConnectedCount()).toBe(1);
+		expect(closeSocket).toHaveBeenCalledTimes(0);
+
+		// The fifth consecutive drop closes it so the client reconnects and resyncs.
+		service.broadcast("system:ping", {});
+		expect(closeSocket).toHaveBeenCalledWith(1013, "Client too slow");
+		expect(service.getConnectedCount()).toBe(0);
+
+		// Dropped messages are never counted as delivered.
+		expect(service.getStats().totalMessagesSent).toBe(0);
+
+		service.shutdown();
+	});
+
+	it("resets the drop streak once a send succeeds", () => {
+		const service = new RealtimeService();
+		let sendResult: number | undefined = -1;
+		const closeSocket = mock();
+
+		service.register({
+			connectionId: "conn-flaky",
+			userId: "user-flaky",
+			socket: { send: () => sendResult, close: closeSocket },
+		});
+
+		for (let attempt = 0; attempt < 4; attempt++) service.broadcast("system:ping", {});
+		sendResult = 1; // buffer drained
+		service.broadcast("system:ping", {});
+		sendResult = -1;
+		for (let attempt = 0; attempt < 4; attempt++) service.broadcast("system:ping", {});
+
+		expect(closeSocket).toHaveBeenCalledTimes(0);
+		expect(service.getConnectedCount()).toBe(1);
+		expect(service.getStats().totalMessagesSent).toBe(1);
+
+		service.shutdown();
+	});
+
 	it("manages dynamic playback session subscriptions and commands", () => {
 		const service = new RealtimeService();
 		const sendSocket = mock();

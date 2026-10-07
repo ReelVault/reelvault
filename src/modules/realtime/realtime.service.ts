@@ -192,11 +192,17 @@ export class RealtimeService extends BaseService {
 	private dispatch(connections: Iterable<ClientConnection>, message: string): number {
 		let delivered = 0;
 		for (const conn of connections) {
-			if (conn.safeSend(message)) {
+			const outcome = conn.safeSend(message);
+			if (outcome === "delivered") {
 				delivered++;
 				this.totalMessagesSent++;
-			} else {
-				// Failed send indicates broken socket; unregister eagerly
+				continue;
+			}
+
+			// A dropped message stays registered: the buffer may drain. Only a closed
+			// socket (peer gone, send threw, or the drop threshold was hit) is removed.
+			if (outcome === "closed") {
+				this.logger.debug("Realtime connection closed during dispatch", { connectionId: conn.connectionId });
 				this.unregister(conn.connectionId);
 			}
 		}

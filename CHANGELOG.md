@@ -111,6 +111,7 @@
 - **Trickplay admin generation returned a misleading id** — the bulk route reported only a count and the single-file route could return a job id in place of an `operationId`, so progress/cancellation could not be tracked. Both routes now enqueue under a real worker operation and return it.
 - **Sidecar-first scans ignored the app's own `.reelvault.nfo` snapshots** — the NFO locator only knew the Kodi/Jellyfin file names, so libraries using the default `reelvault` sidecar flavor fell back to filename parsing whenever providers were unavailable. The locator now reads `.reelvault.nfo` movie/series/season/episode snapshots as a fallback (a standard `.nfo` still wins), and the Jellyfin reader no longer claims those files.
 - **Prerelease versions compared as their release** — `2.0.0-rc.1` ranked equal to `2.0.0` (and newer than `1.9.0`), so the updater could offer a release candidate as a stable upgrade, and `1.2.4-beta` was treated as equal to `1.2.4`. Version comparison now follows semver prerelease precedence.
+- **Slow realtime clients silently lost events** — `socket.send()` drops a message and returns `-1` when the buffer is full, but the value was ignored and the connection kept refreshing its activity clock. Drops are now detected (never counted as delivered, liveness not refreshed), and a connection that keeps dropping is closed so the client reconnects and resynchronizes.
 
 ### Performance
 

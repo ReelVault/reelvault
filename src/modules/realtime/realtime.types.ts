@@ -1,5 +1,6 @@
 export interface RealtimeSocket {
-	send(data: string): void;
+	/** Bun returns `-1` when the message is dropped because the socket buffer is full. */
+	send(data: string): number | undefined;
 	close?(code?: number, reason?: string): void;
 	readonly readyState?: number;
 }
