@@ -251,12 +251,15 @@ class MetadataPersistenceRepository {
 		metadataStableKey,
 		seasonInfo,
 		episodeInfo,
+		flagMissingTranslation,
 		tx: parentTx,
 	}: {
 		metadataId: string;
 		metadataStableKey?: string | null | undefined;
 		seasonInfo: ProviderSeasonResult;
 		episodeInfo?: ProviderEpisodeResult | undefined;
+		/** Series-level fallback-language flag — written in the same transaction (no standalone contended write). */
+		flagMissingTranslation?: boolean | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}) {
 		return await runInTransaction(parentTx, async (tx) => {
@@ -275,27 +278,28 @@ class MetadataPersistenceRepository {
 				tx,
 			});
 
-			return season
-				? {
-						season,
-						episode: episodeInfo
-							? await episodesRepository.findOrCreateByIdentity({
-									seasonId: season.id,
-									episodeNumber: Number(episodeInfo.episodeNumber),
-									seasonStableKey: season.stableKey,
-									values: {
-										seasonId: season.id,
-										episodeNumber: Number(episodeInfo.episodeNumber),
-										absoluteNumber: episodeInfo.absoluteNumber !== undefined ? Number(episodeInfo.absoluteNumber) : null,
-										title: episodeInfo.name,
-										overview: episodeInfo.overview,
-										airDate: episodeInfo.airDate,
-									},
-									tx,
-								})
-							: undefined,
-					}
-				: undefined;
+			if (!season) return null;
+
+			const episode = episodeInfo
+				? await episodesRepository.findOrCreateByIdentity({
+						seasonId: season.id,
+						episodeNumber: Number(episodeInfo.episodeNumber),
+						seasonStableKey: season.stableKey,
+						values: {
+							seasonId: season.id,
+							episodeNumber: Number(episodeInfo.episodeNumber),
+							absoluteNumber: episodeInfo.absoluteNumber !== undefined ? Number(episodeInfo.absoluteNumber) : null,
+							title: episodeInfo.name,
+							overview: episodeInfo.overview,
+							airDate: episodeInfo.airDate,
+						},
+						tx,
+					})
+				: null;
+
+			if (flagMissingTranslation) await metadataRepository.flagMissingTranslation(metadataId, tx);
+
+			return { season, ...(episode ? { episode } : {}) };
 		});
 	}
 

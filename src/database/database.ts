@@ -215,13 +215,7 @@ export class DatabaseFactory {
 			}
 		}
 
-		const previousLock = this.transactionLock;
-		let releaseLock!: () => void;
-		this.transactionLock = new Promise<void>((resolve) => {
-			releaseLock = resolve;
-		});
-
-		await previousLock;
+		const releaseLock = await this.acquireWriteLock();
 		const txClient = this.getTransactionClient();
 
 		try {
@@ -252,6 +246,38 @@ export class DatabaseFactory {
 		} finally {
 			releaseLock();
 		}
+	}
+
+	/**
+	 * Runs a standalone write under the same in-process lock as transactions.
+	 *
+	 * `bun:sqlite` is synchronous: a main-connection write that hits an open
+	 * transaction's write lock busy-waits ON the event loop (`busy_timeout`),
+	 * which also prevents that transaction's async callback from ever finishing —
+	 * a deadlock that froze the loop for seconds and tripped Server Rescue.
+	 * Queuing here instead makes the writer wait in JS, not in SQLite.
+	 */
+	async runWrite<T>(write: () => Promise<T>): Promise<T> {
+		const releaseLock = await this.acquireWriteLock();
+
+		try {
+			return await write();
+		} finally {
+			releaseLock();
+		}
+	}
+
+	/** Takes the next slot in the transaction/write chain. Callers MUST release. */
+	private async acquireWriteLock(): Promise<() => void> {
+		const previousLock = this.transactionLock;
+		let releaseLock!: () => void;
+		this.transactionLock = new Promise<void>((resolve) => {
+			releaseLock = resolve;
+		});
+
+		await previousLock;
+
+		return releaseLock;
 	}
 
 	/**

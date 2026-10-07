@@ -485,19 +485,16 @@ export class MetadataProcess extends BaseService {
 			};
 		}
 
-		// Season/episode data arrived with fallback-language content — raise the
-		// series-level flag so the admin missing-translation filter finds it.
-		if (seasonInfo.hasMissingTranslation === true || episodeInfo?.hasMissingTranslation === true) {
-			await metadataRepository.flagMissingTranslation(metadataId);
-		}
-
-		// Keep season and episode creation atomic. Provider calls happen before the
-		// transaction so a slow integration cannot hold SQLite write locks.
+		// Keep season, episode and the fallback-language flag atomic. Provider calls
+		// happen before the transaction so a slow integration cannot hold SQLite
+		// write locks; the flag rides the same transaction instead of being a
+		// standalone main-connection write that busy-waits on the tx lock.
 		const persisted = await metadataPersistenceRepository.createSeasonAndEpisode({
 			metadataId,
 			metadataStableKey,
 			seasonInfo,
 			episodeInfo,
+			flagMissingTranslation: seasonInfo.hasMissingTranslation === true || episodeInfo?.hasMissingTranslation === true,
 		});
 
 		if (!persisted) {

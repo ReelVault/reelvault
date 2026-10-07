@@ -452,7 +452,19 @@ class MetadataRepository {
 	 * a full metadata refresh (own metadata + all seasons) may clear it.
 	 */
 	async flagMissingTranslation(metadataId: string, tx?: DatabaseTransaction): Promise<void> {
-		await this.update({ primaryId: metadataId, values: { hasMissingTranslation: true }, tx });
+		const write = async (): Promise<void> => {
+			await this.update({ primaryId: metadataId, values: { hasMissingTranslation: true }, tx });
+		};
+
+		// Inside a caller's transaction the write already holds the lock; standalone
+		// callers queue on it instead of busy-waiting on an open transaction.
+		if (tx) {
+			await write();
+
+			return;
+		}
+
+		await databaseFactory.runWrite(write);
 	}
 
 	async getLockedFields(metadataId: string, tx?: DatabaseTransaction): Promise<string[]> {

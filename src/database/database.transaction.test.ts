@@ -48,4 +48,24 @@ describe("DatabaseFactory.transaction", () => {
 		// Once the transaction released the lock the concurrent writer succeeds.
 		concurrent.run("INSERT INTO transaction_lock_probe (value) VALUES ('after')");
 	});
+
+	test("runWrite queues behind an open transaction instead of busy-waiting", async () => {
+		const order: string[] = [];
+		const transaction = databaseFactory.transaction(async () => {
+			order.push("tx-start");
+			await new Promise((resolve) => {
+				setTimeout(resolve, 20);
+			});
+			order.push("tx-end");
+		});
+		const write = databaseFactory.runWrite(() => {
+			order.push("write");
+
+			return Promise.resolve();
+		});
+
+		await Promise.all([transaction, write]);
+
+		expect(order).toEqual(["tx-start", "tx-end", "write"]);
+	});
 });
