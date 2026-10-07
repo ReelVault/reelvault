@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bench, fixture, main, suiteArgs } from "benchkit";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
-import { fileScannerService } from "@/modules/scanner/disk/file-scanner";
+import { fileScannerService, matchesIgnorePattern } from "@/modules/scanner/disk/file-scanner";
 import { filterPathsWithinRoots } from "@/modules/scanner/utils/scanner.utils";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -104,6 +104,26 @@ if (!args.help) {
 			}
 
 			return hits;
+		},
+		{ warmup: 10, iterations: args.iterations },
+	);
+
+	// Ignore patterns are user config; the scan calls this once per file, so the
+	// wildcard-to-regex compilation must not run per file per pattern.
+	const ignorePatternPaths = Array.from(
+		{ length: 500 },
+		(_, index) => `/media/library-${index % 20}/Season ${index % 10}/Show.S${index % 5}E0${index % 9}.mkv`,
+	);
+	const ignorePatterns = ["*.sample.mkv", "Sample", "*.tmp"];
+	bench(
+		"matchesIgnorePattern (500 paths x 3 patterns)",
+		() => {
+			let ignored = 0;
+			for (const filePath of ignorePatternPaths) {
+				if (matchesIgnorePattern(filePath, "/media/library-0", ignorePatterns)) ignored++;
+			}
+
+			return ignored;
 		},
 		{ warmup: 10, iterations: args.iterations },
 	);

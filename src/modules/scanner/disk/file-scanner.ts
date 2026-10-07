@@ -100,31 +100,59 @@ class FileScannerService extends BaseService {
  */
 const TRAILING_SLASHES_REGEX = /\/+$/;
 
-export function matchesIgnorePattern(filePath: string, rootPath: string, patterns: readonly string[]): boolean {
-	if (patterns.length === 0) return false;
+interface CompiledIgnorePattern {
+	regex: RegExp;
+	/** Separator-bearing patterns anchor to the scan-relative path, others to a name. */
+	pathScoped: boolean;
+}
 
-	const normalized = filePath.replaceAll("\\", "/").toLowerCase();
-	const root = rootPath.replaceAll("\\", "/").replace(TRAILING_SLASHES_REGEX, "").toLowerCase();
-	const relative = normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized;
+// Patterns are settings-backed and stable across a scan; compile each raw
+// pattern once instead of once per file per pattern.
+const compiledIgnorePatterns = new Map<string, CompiledIgnorePattern | null>();
+const MAX_COMPILED_IGNORE_PATTERNS = 64;
 
-	return patterns.some((pattern) => {
-		const trimmed = pattern.trim().toLowerCase();
-		if (!trimmed) return false;
+function compileIgnorePattern(pattern: string): CompiledIgnorePattern | null {
+	const cached = compiledIgnorePatterns.get(pattern);
+	if (cached !== undefined) return cached;
 
+	const trimmed = pattern.trim().toLowerCase();
+	let compiled: CompiledIgnorePattern | null = null;
+	if (trimmed) {
 		const escaped = trimmed
 			.replaceAll(/[\\+(){}[\]$^|.]/g, "\\$&")
 			.replaceAll("*", "\u0000")
 			.replaceAll("?", "\u0001")
 			.replaceAll("\u0000", ".*")
 			.replaceAll("\u0001", ".");
-		const regex = new RegExp(`^${escaped}$`);
+		compiled = { regex: new RegExp(`^${escaped}$`), pathScoped: escaped.includes("/") };
+	}
+
+	if (compiledIgnorePatterns.size >= MAX_COMPILED_IGNORE_PATTERNS) compiledIgnorePatterns.clear();
+	compiledIgnorePatterns.set(pattern, compiled);
+
+	return compiled;
+}
+
+export function matchesIgnorePattern(filePath: string, rootPath: string, patterns: readonly string[]): boolean {
+	if (patterns.length === 0) return false;
+
+	const normalized = filePath.replaceAll("\\", "/").toLowerCase();
+	const root = rootPath.replaceAll("\\", "/").replace(TRAILING_SLASHES_REGEX, "").toLowerCase();
+	const relative = normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized;
+	let segments: string[] | undefined;
+
+	return patterns.some((pattern) => {
+		const compiled = compileIgnorePattern(pattern);
+		if (!compiled) return false;
 
 		// Name-only patterns match any path segment, so ignoring a folder name
 		// skips everything inside it; separator-bearing patterns match the
 		// scan-relative path.
-		if (escaped.includes("/")) return regex.test(relative);
+		if (compiled.pathScoped) return compiled.regex.test(relative);
 
-		return relative.split("/").some((segment) => regex.test(segment));
+		segments ??= relative.split("/");
+
+		return segments.some((segment) => compiled.regex.test(segment));
 	});
 }
 
