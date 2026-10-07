@@ -230,6 +230,9 @@ function formatDuration(ms: number, showMs = false): string {
 
 const isDev = env.NODE_ENV === "development";
 const isTest = env.NODE_ENV === "test";
+// The debug log file only carries unique records when the root level emits
+// debug/trace; at info+ it would just duplicate the operational file.
+const debugFileEnabled = env.LOG_LEVEL === "debug" || env.LOG_LEVEL === "trace";
 
 let cachedRootPino: PinoLogger | undefined;
 let fileStreamsReady = isTest;
@@ -243,15 +246,18 @@ function buildStreams(): pino.StreamEntry[] {
 	if (!isTest) {
 		try {
 			const operationalStream = new DailyRotatingStream(serverConstants.paths.logFile);
-			const debugStream = new DailyRotatingStream(serverConstants.paths.debugLogFile);
 			streams.push({
 				level: "info",
 				stream: operationalStream,
 			});
-			streams.push({
-				level: "debug",
-				stream: debugStream,
-			});
+			if (debugFileEnabled) {
+				const debugStream = new DailyRotatingStream(serverConstants.paths.debugLogFile);
+				streams.push({
+					level: "debug",
+					stream: debugStream,
+				});
+			}
+
 			fileStreamsReady = true;
 		} catch (error) {
 			console.error("[logger] file log streams unavailable — retrying a few times, then file logging stays off:", error);
@@ -282,7 +288,9 @@ function buildStreams(): pino.StreamEntry[] {
 }
 
 const rootLoggerOptions: LoggerOptions = {
-	level: isTest ? "silent" : "debug",
+	// Tests stay silent (preload); otherwise honor LOG_LEVEL, defaulting to info
+	// so production does not pay for per-service debug tracing by default.
+	level: isTest ? "silent" : env.LOG_LEVEL,
 	base: {
 		module: "Server",
 	},

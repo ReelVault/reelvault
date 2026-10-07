@@ -134,6 +134,10 @@ const envSchema = z.object({
 	// Production telemetry: logs every SQLite statement slower than 100 ms (warn).
 	// Off by default — enable while diagnosing storage slowness.
 	APP_SLOW_QUERY_LOG: z.enum(["true", "false"]).default("false"),
+	// Minimum level written to the log files and stdout. "info" keeps request
+	// access logs plus warnings/errors; "debug" adds per-service call tracing and
+	// watcher events (more CPU and disk I/O, noticeable on SD-card/NAS hosts).
+	LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
 	// Serves the interactive API reference (spec + UI) at /openapi.
 	OPENAPI_DOCS_ENABLED: z.enum(["true", "false"]).default("true"),
 

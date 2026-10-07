@@ -52,6 +52,7 @@
 - **Stable remote-access check codes** — remote-access checks now return structured `{ id, ok, code, params }` results instead of server-generated title/detail strings, allowing the web client to handle translations consistently.
 - **Audit-log retention** — added `system.database.auditRetentionDays` (default: `180`; `0` = keep forever). A daily indexed cleanup now removes expired entries from `admin_audit_logs`.
 - **Worker progress over WebSocket** — worker progress is now broadcast through throttled `worker:progress` WebSocket events, allowing clients to receive live progress without polling operations.
+- **`LOG_LEVEL` control** — the minimum log level is now configurable (`trace`…`fatal`, default `info`); the debug log file is only created when `debug`/`trace` is selected.
 
 ### Fixes
 
@@ -178,6 +179,7 @@ The performance work focuses primarily on reducing unnecessary database work, el
 - **Artwork cache invalidation** — in-place artwork changes now invalidate cached source versions immediately.
 - **Log-tail cache invalidation** — rotation, truncation and size-cap changes invalidate the cached window before rebuilding it.
 - **Cached audit parsing** — repeated audit status polls reuse the parsed/validated result instead of processing the same report on every request.
+- **Trimmed production log volume** — the root logger defaults to `info` (was `debug`) and the debug log file is only registered when `debug`/`trace` is selected, so at default level `info` records are no longer written to a duplicated file. A 3 000-request browse workload wrote 1.93 MB of logs before and 0.90 MB after (**−53%**); HTTP throughput was unchanged within noise.
 
 #### Worker & streaming updates
 
