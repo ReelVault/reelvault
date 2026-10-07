@@ -281,6 +281,15 @@ export class ImageProcessingService extends BaseService {
 		const target = await fetchTarget();
 		if (!force && target.currentLocalPath && (await this.dependencies.fileExists(target.currentLocalPath))) return;
 
+		// Sidecar artwork paths can go stale (source deleted after import) — skip
+		// instead of failing the job and retrying a missing source until the
+		// attempts are exhausted.
+		if (PathUtils.isAbsolute(url) && !(await this.dependencies.fileExists(url))) {
+			this.logger.warn("Local artwork source is missing — skipping image sync", { url });
+
+			return;
+		}
+
 		// Sidecar artwork arrives as local absolute paths; provider art as URLs.
 		const persisted = PathUtils.isAbsolute(url)
 			? await this.dependencies.prepareLocalArtwork(url, target, variant, imageType, signal)
