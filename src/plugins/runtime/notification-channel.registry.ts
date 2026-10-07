@@ -1,4 +1,5 @@
 import type { OutgoingNotification, PluginNotificationChannel } from "@reelvault/sdk/plugin";
+import { ConflictError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("NotificationChannels");
@@ -8,6 +9,13 @@ const channels = new Map<string, { pluginId: string; channel: PluginNotification
 /** Returns an unregister function — scopes push it onto their unsubscribe stack. */
 export function registerNotificationChannel(pluginId: string, channel: PluginNotificationChannel): () => void {
 	const key = `${pluginId}:${channel.id}`;
+	if (channels.has(key)) {
+		throw new ConflictError(`Notification channel '${channel.id}' is already registered`, {
+			code: "plugin.notification_channel.duplicate",
+			params: { pluginId, channelId: channel.id },
+		});
+	}
+
 	channels.set(key, { pluginId, channel });
 
 	return () => channels.delete(key);

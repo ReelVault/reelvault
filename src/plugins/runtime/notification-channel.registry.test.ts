@@ -59,4 +59,12 @@ describe("notification channel registry", () => {
 		expect(seen).toHaveLength(1);
 		unregisterPluginNotificationChannels("plugin-b");
 	});
+
+	test("rejects a duplicate channel id instead of silently overwriting it", () => {
+		const seen: OutgoingNotification[] = [];
+		const unregister = registerNotificationChannel("plugin-a", channel("c1", seen));
+
+		expect(() => registerNotificationChannel("plugin-a", channel("c1", seen))).toThrow("already registered");
+		unregister();
+	});
 });

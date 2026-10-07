@@ -159,6 +159,11 @@ export class PluginScope {
 		await PromiseUtils.mapConcurrent(this.subtitleProviders.getAll(), concurrency, initialize);
 	}
 
+	/** Binds the plugin id before setup() so host capabilities used there (e.g. notification channels) can namespace themselves. */
+	bindPluginId(pluginId: string): void {
+		this.pluginId = pluginId;
+	}
+
 	async registerJobs(pluginId: string): Promise<void> {
 		this.pluginId = pluginId;
 		if (this.jobs.length > 0) {
@@ -279,12 +284,12 @@ export class PluginScope {
 		this.runtimeDirectory = undefined;
 		if (this.pluginId) {
 			pluginRoutesRegistry.unregisterPlugin(this.pluginId);
-			scheduledTasksService.unregisterByPlugin(this.pluginId);
+			await scheduledTasksService.unregisterByPlugin(this.pluginId);
 			unregisterPluginNotificationChannels(this.pluginId);
 		}
 
 		if (this.jobNames.size > 0) {
-			pluginJobsService.unregister([...this.jobNames]);
+			await pluginJobsService.unregister([...this.jobNames]);
 		}
 
 		await PromiseUtils.mapConcurrent(

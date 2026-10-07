@@ -221,6 +221,9 @@ export class PluginLoader {
 
 			const pluginLogger = createLogger(`Plugin:${manifest.id}`);
 			scope.setDeclaredCapabilities(manifest.capabilities);
+			// Bind the id before setup(): host capabilities usable during setup
+			// (notification channels) need the namespace, not just lifecycle hooks.
+			scope.bindPluginId(manifest.id);
 
 			await plugin.setup(createPluginHost(manifest.id, pluginLogger, config, scope));
 			scope.assertDeclaredCapabilities(manifest.capabilities);

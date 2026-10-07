@@ -39,6 +39,20 @@ describe("PluginScope", () => {
 		expect(() => scope.useCapability("storage")).toThrow("missing from plugin.json");
 	});
 
+	test("notification channels bind once the plugin id is known", async () => {
+		const channel = { id: "webhook", deliver: async () => undefined };
+
+		expect(() => scope.registerNotificationChannelScope(channel)).toThrow("before plugin scope bind");
+
+		// The loader binds the id before setup(), so channels registered during
+		// setup() carry the plugin namespace.
+		scope.bindPluginId("org.example.plugin");
+		scope.setDeclaredCapabilities(["notificationChannel"]);
+		expect(() => scope.registerNotificationChannelScope(channel)).not.toThrow();
+
+		await scope.cleanup();
+	});
+
 	test("rejects entities without id, name, or version", () => {
 		const broken = { ...createProvider("broken"), name: "" };
 		expect(() => scope.addProvider(broken)).toThrow("must have id, name and version");

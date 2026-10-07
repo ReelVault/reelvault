@@ -85,6 +85,7 @@
 - **Editing a subtitle kept serving the old cues** — the extracted WebVTT cache was only removed on delete, so changing the stream index or source in `PATCH /v1/subtitles/:id` served the previous track indefinitely (and a replaced external file leaked on disk). Updates now drop the cached VTT — plus the previous external file when the source changed — and subtitle writes invalidate the cached list/detail responses.
 - **Deleting media could permanently exhaust a plugin's artifact quota** — the cached per-plugin byte total survived files removed by scanner/media cleanup, so a plugin could hit `plugin.artifact.quota_exceeded` while well under quota. External cleanup paths now invalidate the cached totals, and concurrent writes within one plugin are serialised so the check-then-write quota window cannot be raced.
 - **A partially unmounted library silently deleted records** — the removal guard only vetoed removals covering at least half of the library, so an unmounted share holding a smaller slice had all of its rows purged (cascading watched history, progress and markers). A library root that is no longer reachable now vetoes the entire removal phase.
+- **Notification channels registered from `setup()` could never load** — the plugin id was bound only after setup, so `host.notificationChannels.register()` threw and the whole plugin failed to load. The id is now bound before setup, and a duplicate channel id fails with a clear error instead of silently overwriting the previous registration.
 
 ### Performance
 
