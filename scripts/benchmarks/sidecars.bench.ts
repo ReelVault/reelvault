@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bench, fixture, group, main, printTable, suiteArgs, task } from "benchkit";
+import { JellyfinFormatAdapter } from "@/modules/metadata-sidecars/formats/jellyfin/jellyfin-format.adapter";
 import { ReelVaultFormatAdapter } from "@/modules/metadata-sidecars/formats/reelvault/reelvault-format.adapter";
 import { SqliteOfflineCatalogRebuildService } from "@/modules/metadata-sidecars/offline-catalog-rebuild";
 import type { SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
@@ -117,7 +118,23 @@ if (!args.help) {
 
 	const adapter = new ReelVaultFormatAdapter();
 
+	// An episode NFO is the worst case for the Jellyfin adapter's root dispatch:
+	// the document is only recognised after the movie/series/season roots miss.
+	const jellyfinRoot = await rootFixture();
+	mkdirSync(join(jellyfinRoot, "jellyfin"), { recursive: true });
+	const jellyfinEpisodePath = join(jellyfinRoot, "jellyfin", "Episode 01.nfo");
+	writeFileSync(
+		jellyfinEpisodePath,
+		"<episodedetails><title>Benchmark Episode</title><plot>Benchmark plot text long enough to resemble a real sidecar payload entry.</plot><aired>2024-06-15</aired><imdbid>tt1000000</imdbid></episodedetails>",
+	);
+	const jellyfinAdapter = new JellyfinFormatAdapter();
+
 	group("XML + adapter (per call)", () => {
+		bench("jellyfin adapter.read (episode NFO, worst-case root dispatch)", async () => {
+			const canonical = await jellyfinAdapter.read({ documentPath: jellyfinEpisodePath });
+			if (!canonical) throw new Error("jellyfin read failed");
+		});
+
 		bench("writeXmlDocument (snapshot → xml string)", () => {
 			const output = writeXmlDocument({
 				rootName: "reelvault",

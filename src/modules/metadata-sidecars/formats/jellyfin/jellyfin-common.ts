@@ -155,8 +155,10 @@ interface JellyfinTitleDocumentOptions {
 export async function readTitleDocument(
 	{ documentPath, content }: SidecarFormatInput,
 	{ root, mediaKind, releaseDateElement, withTagline = false }: JellyfinTitleDocumentOptions,
+	/** Parsed once by callers that try several roots (the format adapter). */
+	preloaded?: XmlDocument | null,
 ): Promise<CanonicalSidecarDocument | null> {
-	const document = await loadJellyfinDocument(documentPath, content);
+	const document = preloaded === undefined ? await loadJellyfinDocument(documentPath, content) : preloaded;
 	const node = document ? readXmlObject(document, root) : undefined;
 	if (!node) return null;
 

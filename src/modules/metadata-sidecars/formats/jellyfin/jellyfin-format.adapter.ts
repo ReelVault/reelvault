@@ -2,6 +2,7 @@ import { readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import type { SidecarFormatInput } from "../../sidecar.types";
 import type { SidecarFormatAdapter } from "../sidecar-format.adapter";
+import { loadJellyfinDocument } from "./jellyfin-common";
 import { readJellyfinEpisodeDocument } from "./jellyfin-episode-document.reader";
 import { readJellyfinMovieDocument } from "./jellyfin-movie-document.reader";
 import { readJellyfinSeasonDocument } from "./jellyfin-season-document.reader";
@@ -19,11 +20,16 @@ export class JellyfinFormatAdapter implements SidecarFormatAdapter {
 		const content = input.content ?? (await readFile(input.documentPath, "utf8").catch(() => null));
 		if (content === null) return null;
 
+		// Validate and parse once, then pick the root. Each candidate reader used
+		// to re-validate and re-parse the same document — 4x for an episode NFO.
+		const document = await loadJellyfinDocument(input.documentPath, content);
+		if (!document) return null;
+
 		return (
-			(await readJellyfinMovieDocument({ ...input, content })) ??
-			(await readJellyfinSeriesDocument({ ...input, content })) ??
-			(await readJellyfinSeasonDocument({ ...input, content })) ??
-			(await readJellyfinEpisodeDocument({ ...input, content }))
+			(await readJellyfinMovieDocument({ ...input, content }, document)) ??
+			(await readJellyfinSeriesDocument({ ...input, content }, document)) ??
+			(await readJellyfinSeasonDocument({ ...input, content }, document)) ??
+			(await readJellyfinEpisodeDocument({ ...input, content }, document))
 		);
 	}
 }
