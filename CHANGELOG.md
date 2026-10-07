@@ -70,7 +70,19 @@
 
 ### Performance
 
-Benchkit A/B measurements for this cycle. Timed values are p50 (unless noted); HTTP figures are medians of 3 alternating runs and statement counts come from the query-count audit (`--strict`). `Δ` is the relative change — `—` marks structural wins (fewer statements, better plans) that have no timed percentage.
+- Media-files page with `?fields=` selects only the requested root columns instead of `SELECT *`.
+- `ping` reads one indexed column instead of the full row; `existsForVersion` uses `EXISTS ... LIMIT 1` instead of `COUNT(*)`.
+- Worker retention trim is served by the index order (no TEMP B-TREE); covering indexes added for scanner keyset paging, downloads, `sortTitle`, worker list/recovery and `created_at` composites.
+- Scheduler deadlines are written in one multi-row upsert per pass instead of one UPSERT per worker; claim counters aggregate per operation instead of one UPDATE per claimed job; weekly retention runs one DELETE per status instead of up to two per registered worker; stale-findings and plugin-artifact cleanup use one chunked DELETE instead of per-row deletes.
+- Session-reaper active-job probe uses one chunked query per sweep instead of one SELECT per stale candidate.
+- Next-episode resolution uses one ordered query instead of three statements per later season; stream prefs resolve in one LEFT JOIN instead of separate file → metadata → prefs queries.
+- Internal scan paths (`scan`, `scanPath`, `getScanFindings`) read the library without loading provider-priority overrides.
+- Trickplay sprite writes stream the `BunFile` straight to artifact storage (no full-size buffer copy); temp-source cleanup is owned by `writeFileWithRollback`.
+- `extractSeasonEpisode` memoization on series paths: -28%…-45%.
+- Logger sanitizer skips the deep clone for benign keyword strings (~2.2× faster); credential-carrying records regress +5%…+18% on the clone path.
+- `worker:progress` client polling replaced by one WebSocket broadcast per progress tick (DB write rate unchanged).
+
+Benchkit A/B measurements for this cycle. Timed values are p50 (unless noted); HTTP figures are medians of 3 alternating runs and statement counts come from the query-count audit (`--strict`). Structural wins that have no single numeric pair are listed as bullets after the table.
 
 | Area | Change | Before | After | Δ |
 | --- | --- | --- | --- | --- |
@@ -97,28 +109,17 @@ Benchkit A/B measurements for this cycle. Timed values are p50 (unless noted); H
 | DB | Recently-added ranking, 20k titles | 19.2 ms | 8.6 ms | -55% |
 | DB | Projected people list (`?fields=`) | 0.10 ms | 0.05 ms | -50% |
 | DB | Projected episodes list (`?fields=`) | 0.08 ms | 0.05 ms | -38% |
-| DB | Media-files page with `?fields=` | `SELECT *` | requested root columns only | — |
 | DB | FTS5 search after 1,000 title updates | 0.76 ms | 0.72 ms | -5% |
 | DB | FTS5 segment table after 1,000 title updates | 44 rows | 34 rows | -23% |
 | DB | Catalog refresh — changed seasons + episodes | 48 stmts | 2 stmts | -96% |
 | DB | Media default flag swap | 3 stmts | 2 stmts | -33% |
-| DB | `ping` probe | full row | one indexed column | — |
-| DB | `existsForVersion` probe | `COUNT(*)` | `EXISTS ... LIMIT 1` | — |
 | DB | Redundant prefix indexes | 10 B-trees per write | 0 | -100% |
-| DB | Worker retention trim — sort | TEMP B-TREE | index-served order | — |
-| DB | Hot-path indexes (scanner keyset, downloads, `sortTitle`, worker list/recovery, created_at composites) | no covering index | covering indexes | — |
-| Workers | Scheduler deadline writes per pass | 1 UPSERT per worker | 1 multi-row upsert | — |
-| Workers | Trigger-less deadline rewrite | 1 no-op UPDATE/min | none | -100% |
-| Workers | Job claim counters | 1 UPDATE per claimed job | 1 UPDATE per operation | — |
+| Workers | Trigger-less deadline rewrite | 1 no-op UPDATE/min | 0 UPDATE/min | -100% |
 | Workers | Active-job snapshot with 2 pending workers | 2 reads | 1 read | -50% |
 | Workers | Cancelling a pending job | 2 stmts | 1 stmt | -50% |
-| Workers | Weekly retention trim | up to 2 DELETEs per registered worker | 1 DELETE per status | — |
-| Workers | Stale findings / plugin artifact cleanup | per-row DELETEs | one chunked DELETE | — |
 | Streaming | Playlist cushion poll (tmpfs) | 0.03 ms/tick | 0.01 ms/tick | -67% |
-| Streaming | Session-reaper active-job probe | 1 SELECT per stale candidate | 1 chunked query per sweep | — |
-| Playback | Next-episode resolution | 3 stmts per later season | 1 ordered query | — |
-| Playback | Stream prefs resolution | separate file → metadata → prefs queries | one LEFT JOIN | — |
 | Libraries | Narrow field reads (`{fields: id, type}`) | 2 stmts | 1 stmt | -50% |
+| Libraries | `getScanFindings` — provider-priority overrides read | 3 stmts | 2 stmts | -33% |
 | Sidecars | Episode/season lookups when saving 20 episode files | ~44 stmts | 2 stmts | -95% |
 | Sidecars | Episode NFO read — worst-case root dispatch | 0.13 ms | 0.07 ms | -44% |
 | Sidecars | Subtitle import for three sidecars | 6-9 stmts | 2 stmts | -67%…-78% |
@@ -134,10 +135,6 @@ Benchkit A/B measurements for this cycle. Timed values are p50 (unless noted); H
 | Images | Local artwork staging, 20 MB | 2.67 ms | 1.62 ms | -39% |
 | Media | Audit report parse+validate per status poll | 0.78 ms | ~0 ms (cached) | -100% |
 | Admin | Log tail poll after 3 s idle, 20k-line JSONL | 7.94 ms | 0.31 ms | -96% |
-| Recognition | `extractSeasonEpisode` — series paths | unmemoized | memoized | -28%…-45% |
-| Logger | Benign keyword strings — sanitizer | deep clone | no clone | ~2.2× faster |
-| Logger | Credential clone paths — rare regression | 1× | 1.05-1.18× | +5%…+18% |
-| Realtime | `worker:progress` client polling | poll every progress tick | one WS broadcast | polling removed, DB writes unchanged |
 
 ### Internal
 
@@ -147,6 +144,7 @@ Benchkit A/B measurements for this cycle. Timed values are p50 (unless noted); H
 - **Recognition/catalog** — one episode parser and release-tag vocabulary (golden corpus: 157 names + 64 paths byte-identical), shared metadata creation and person-image fan-out.
 - **Dead code and test-only seams removed** — unreachable repository read methods, worker-operation helpers, plugin manager accessors, request-timeout machinery, `DELETE /admin/workers/jobs/:id` alias, duplicate admin model registrations, duplicate refresh-all scheduling path.
 - **Smaller cleanups** — inlined pass-through user write wrappers, private session limit getters, unused recognition/realtime metadata, test-only plugin job namespace, stale plugin shims, hidden missing-provider-table catch, unused ffprobe availability helper, playback streaming facade removed, streaming lifecycle callbacks registered at boot, stale todos dropped.
+- **Audit cleanup batch** — never-read `RecognitionStrategy.name`, unreachable `parts.length` guard, season-folder regex triple collapsed into one, unreachable `allSettled` rejected branch in season sync, non-TV episodes guard in metadata details, unused `api.rateLimit.tiers`; API-key authentication hashes the presented key once; array spreads dropped before `toSorted` where the source is already an array.
 - **Migrations** — three index migrations squashed into `1.2_release` (same net DDL: 12 drops / 13 creates); migration and legacy-upgrade tests green.
-- **Benchkit** — shared helpers and a request-scenario runner, micro benches now measure production implementations; new suites: statement-count audit with query stats, cold-start, memory, write-admin, composite, plugins control-plane, playback-session control-plane, HTTP batch/episode scenarios, query-plan coverage.
+- **Benchkit** — shared helpers and a request-scenario runner, micro benches now measure production implementations; new suites: statement-count audit with query stats, cold-start, memory, write-admin, composite, plugins control-plane, playback-session control-plane, HTTP batch/episode scenarios, query-plan coverage. New units in existing suites: `isVideoFile` lookups, `matchesIgnorePattern`, `findSidecarSubtitles`, `PluginEventBus.emit` without subscribers, artifact-quota totals, plugin runtime mirroring, Jellyfin episode reads, audit report parse+validate, log-tail polls and local artwork staging.
 - **Tooling & dependencies** — ESLint removed (`typescript-eslint` has no TypeScript 7 support; `bun run format` is Biome-only), dependencies updated (better-auth 1.7.7, pino 10.4.0, lefthook 2.1.17, oxlint 1.87.0, …), SDK contract schemas consumed from `@reelvault/sdk` 1.2.0 with byte-identical OpenAPI output, version bumped to 1.2.0.
