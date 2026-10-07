@@ -37,6 +37,20 @@ const preparedFindProgressUpdateData = createPreparedQuery((client) =>
 		.prepare(),
 );
 
+const preparedFindMediaFileWithMetadata = createPreparedQuery((client) =>
+	client
+		.select({
+			id: schema.mediaFiles.id,
+			metadataId: schema.mediaFiles.metadataId,
+			movieId: schema.mediaFiles.movieId,
+			episodeId: schema.mediaFiles.episodeId,
+		})
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.id, sql.placeholder("fileId")))
+		.limit(1)
+		.prepare(),
+);
+
 function buildUpsertProgress(client: DatabaseTransaction, withAudio: boolean, withSubtitle: boolean) {
 	const updateSet = {
 		position: sql.placeholder("position"),
@@ -357,18 +371,9 @@ class PlaybackRepository {
 	}
 
 	async findMediaFileWithMetadata(fileId: string) {
-		return await databaseFactory
-			.getClient()
-			.select({
-				id: schema.mediaFiles.id,
-				metadataId: schema.mediaFiles.metadataId,
-				movieId: schema.mediaFiles.movieId,
-				episodeId: schema.mediaFiles.episodeId,
-			})
-			.from(schema.mediaFiles)
-			.where(eq(schema.mediaFiles.id, fileId))
-			.limit(1)
-			.then((rows) => rows[0]);
+		const [row] = await preparedFindMediaFileWithMetadata(databaseFactory.getClient()).execute({ fileId });
+
+		return row;
 	}
 
 	async deleteMetadataProgress(profileId: string, metadataId: string, tx?: DatabaseTransaction) {

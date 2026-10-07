@@ -155,6 +155,15 @@ const preparedFindRootsById = createPreparedQuery((client) =>
 		.prepare(),
 );
 
+const preparedFindNumberingModeById = createPreparedQuery((client) =>
+	client
+		.select({ numberingMode: schema.metadata.numberingMode })
+		.from(schema.metadata)
+		.where(eq(schema.metadata.id, sql.placeholder("id")))
+		.limit(1)
+		.prepare(),
+);
+
 /** Args shared by the private selectMetadata and the public findMany/findManyWithCursor. */
 interface MetadataSelectArgs<F extends string> {
 	fields?: FieldsConfig<F> | undefined;
@@ -358,7 +367,9 @@ class MetadataRepository {
 	}
 
 	async findNumberingModeById(metadataId: string) {
-		return await this.findById({ primaryId: metadataId, fields: QueryFields.parse({ fields: "numberingMode" }) });
+		const [row] = await preparedFindNumberingModeById(databaseFactory.getClient()).execute({ id: metadataId });
+
+		return row;
 	}
 
 	/**
