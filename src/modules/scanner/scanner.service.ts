@@ -18,23 +18,28 @@ import { filterPathsWithinRoots } from "./utils/scanner.utils";
 const SCAN_DB_PAGE_SIZE = 5000;
 
 /**
- * A range file imported before multi-episode support owns fewer rows than its
- * name spans — re-ingest it so the missing episodes get their rows (idempotent:
- * existing rows conflict-do-nothing). Uses the same capped span as the
- * processor, so an over-long "range" treated as scene noise is never re-read.
+ * One pass over the on-disk list: unknown paths are new, and a TV range file
+ * that owns fewer rows than its name spans is re-ingested so the missing
+ * episodes get their rows (idempotent: existing rows conflict-do-nothing). Uses
+ * the same capped span as the processor, so an over-long "range" treated as
+ * scene noise is never re-read.
  */
-function collectRangeBackfills(
-	filesOnDisk: readonly string[],
-	existingPaths: ReadonlySet<string>,
-	pathCounts: ReadonlyMap<string, number>,
-	newFiles: string[],
-): void {
+function collectNewFiles(filesOnDisk: readonly string[], type: LibraryType, pathCounts: ReadonlyMap<string, number>): string[] {
+	const newFiles: string[] = [];
 	for (const filePath of filesOnDisk) {
-		if (!existingPaths.has(filePath)) continue;
+		const rowCount = pathCounts.get(filePath);
+		if (rowCount === undefined) {
+			newFiles.push(filePath);
+			continue;
+		}
+
+		if (type !== "tv_show") continue;
 
 		const span = episodeRangeSpan(parseFileName(PathUtils.getFileName(filePath)));
-		if (span !== undefined && span > (pathCounts.get(filePath) ?? 0)) newFiles.push(filePath);
+		if (span !== undefined && span > rowCount) newFiles.push(filePath);
 	}
+
+	return newFiles;
 }
 
 interface ScanStatsRow {
@@ -82,13 +87,11 @@ export class ScannerService extends BaseService {
 		statsByPath: ReadonlyMap<string, { size: number; mtimeMs: number }>,
 		signal?: AbortSignal,
 	): Promise<{
-		existingPaths: Set<string>;
 		pathCounts: Map<string, number>;
 		removedAll: string[];
 		changedFiles: string[];
 		existingCount: number;
 	}> {
-		const existingPaths = new Set<string>();
 		const pathCounts = new Map<string, number>();
 		const removedAll: string[] = [];
 		const changedFiles: string[] = [];
@@ -100,7 +103,6 @@ export class ScannerService extends BaseService {
 			onPage: (rows) => {
 				for (const row of rows) {
 					existingCount++;
-					existingPaths.add(row.filePath);
 					pathCounts.set(row.filePath, (pathCounts.get(row.filePath) ?? 0) + 1);
 					const diskStat = statsByPath.get(row.filePath);
 					if (!diskStat) {
@@ -114,7 +116,7 @@ export class ScannerService extends BaseService {
 			betweenPages: () => sleep(0),
 		});
 
-		return { existingPaths, pathCounts, removedAll, changedFiles, existingCount };
+		return { pathCounts, removedAll, changedFiles, existingCount };
 	}
 
 	async scanPaths(libraryId: string, type: LibraryType, paths?: string[], signal?: AbortSignal): Promise<LibraryScanResult> {
@@ -133,14 +135,9 @@ export class ScannerService extends BaseService {
 				}
 
 				const { filesOnDisk, statsByPath } = await this.dependencies.discover(effectivePaths, signal);
-				const { existingPaths, pathCounts, removedAll, changedFiles, existingCount } = await this.collectDatabaseStats(
-					libraryId,
-					statsByPath,
-					signal,
-				);
+				const { pathCounts, removedAll, changedFiles, existingCount } = await this.collectDatabaseStats(libraryId, statsByPath, signal);
 
-				const newFiles = filesOnDisk.filter((filePath) => !existingPaths.has(filePath));
-				if (type === "tv_show") collectRangeBackfills(filesOnDisk, existingPaths, pathCounts, newFiles);
+				const newFiles = collectNewFiles(filesOnDisk, type, pathCounts);
 
 				const removedCandidates = filterPathsWithinRoots(removedAll, effectivePaths);
 				throwIfAborted(signal);
