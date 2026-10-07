@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { cachedCount } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { CLIENT_IP_HEADER } from "@/utils/client-ip.utils";
 
@@ -102,7 +103,11 @@ export class AdminAuditRepository {
 				.orderBy(desc(this.table.createdAt), desc(this.table.id))
 				.limit(limit)
 				.offset((page - 1) * limit),
-			client.$count(this.table, condition),
+			cachedCount(
+				"admin_audit_logs",
+				{ action, resourceType, actorUserId, ipAddress, requestId, from, to },
+				async () => await this.database.getClient().$count(this.table, condition),
+			),
 		]);
 
 		return { data, total };
