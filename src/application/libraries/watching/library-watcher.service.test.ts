@@ -5,7 +5,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { PathUtils } from "@/utils/path.utils";
-import { type LibraryWatcherClock, LibraryWatcherService } from "./library-watcher.service";
+import { type LibraryWatcherClock, LibraryWatcherService, type WatcherFailureInfo } from "./library-watcher.service";
 
 /** Virtual time: timers run in due order; `advance` awaits each callback
  * (fireScan) so the state machine settles deterministically. */
@@ -66,13 +66,21 @@ interface Harness {
 	service: LibraryWatcherService;
 	clock: ManualClock;
 	scanCalls: ScanCall[];
+	notifierCalls: WatcherFailureInfo[];
 	cleanup(): void;
 }
 
 /** State-machine harness: no real fs watchers — events are fed via handleFsEvent. */
-function createHarness(options: { cooldownSeconds?: number; rescue?: () => boolean } = {}): Harness {
+function createHarness(
+	options: { cooldownSeconds?: number; rescue?: () => boolean; notify?: (failure: WatcherFailureInfo) => Promise<void> } = {},
+): Harness {
 	const clock = new ManualClock();
-	const service = new LibraryWatcherService(clock);
+	const notifierCalls: WatcherFailureInfo[] = [];
+	const service = new LibraryWatcherService(clock, (failure) => {
+		notifierCalls.push(failure);
+
+		return options.notify ? options.notify(failure) : Promise.resolve();
+	});
 	const scanCalls: ScanCall[] = [];
 	service.registerScanner((libraryId, pathId) => {
 		scanCalls.push({ libraryId, pathId });
@@ -90,6 +98,7 @@ function createHarness(options: { cooldownSeconds?: number; rescue?: () => boole
 		service,
 		clock,
 		scanCalls,
+		notifierCalls,
 		cleanup() {
 			service.shutdown();
 			rescueSpy?.mockRestore();
@@ -232,6 +241,75 @@ describe("LibraryWatcherService", () => {
 			await clock.advance(5000);
 			expect(scanCalls.length).toBe(0);
 		} finally {
+			cleanup();
+		}
+	});
+
+	test("records an unwatchable path and notifies admins once per failure episode", async () => {
+		const { service, notifierCalls, cleanup } = createHarness();
+		const missingPath = PathUtils.resolve("/non/existent/rv-watcher-test");
+		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
+			{ id: "path-gone", libraryId: "lib-1", path: missingPath, isActive: true },
+		]);
+
+		try {
+			await service.syncWatchers();
+
+			expect(service.getUnwatchablePaths()).toMatchObject([
+				{ libraryId: "lib-1", pathId: "path-gone", path: missingPath, reason: "path_missing" },
+			]);
+			expect(notifierCalls).toHaveLength(1);
+			expect(notifierCalls[0]?.reason).toBe("path_missing");
+
+			// The reconcile tick retries the same failing path without re-notifying.
+			await service.syncWatchers();
+			expect(notifierCalls).toHaveLength(1);
+		} finally {
+			pathSpy.mockRestore();
+			cleanup();
+		}
+	});
+
+	test("clears the failure once the path becomes watchable again", async () => {
+		const tempDir = PathUtils.join(tmpdir(), `rv-test-watcher-recovery-${Date.now()}`);
+		mkdirSync(tempDir, { recursive: true });
+		const { service, cleanup } = createHarness();
+		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
+			{ id: "path-1", libraryId: "lib-1", path: "/non/existent/rv-recovery", isActive: true },
+		]);
+
+		try {
+			await service.syncWatchers();
+			expect(service.getUnwatchablePaths()).toHaveLength(1);
+
+			pathSpy.mockResolvedValue([{ id: "path-1", libraryId: "lib-1", path: tempDir, isActive: true }]);
+			await service.syncWatchers();
+
+			expect(service.getUnwatchablePaths()).toEqual([]);
+			expect(service.getActiveWatcherCount()).toBe(1);
+		} finally {
+			pathSpy.mockRestore();
+			rmSync(tempDir, { recursive: true, force: true });
+			cleanup();
+		}
+	});
+
+	test("drops the failure when the path is removed from the library", async () => {
+		const { service, cleanup } = createHarness();
+		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
+			{ id: "path-gone", libraryId: "lib-1", path: "/non/existent/rv-watcher-removed", isActive: true },
+		]);
+
+		try {
+			await service.syncWatchers();
+			expect(service.getUnwatchablePaths()).toHaveLength(1);
+
+			pathSpy.mockResolvedValue([]);
+			await service.syncWatchers();
+
+			expect(service.getUnwatchablePaths()).toEqual([]);
+		} finally {
+			pathSpy.mockRestore();
 			cleanup();
 		}
 	});

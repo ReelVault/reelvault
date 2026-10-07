@@ -6,6 +6,7 @@ import { serverRescueService } from "@/system/server-rescue.service";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
+import { errorMessage } from "@/utils/errors";
 import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 
@@ -18,6 +19,46 @@ interface WatchedPathEntry {
 
 interface PendingScanState {
 	timer: unknown;
+}
+
+/** A library path the filesystem watcher cannot cover; surfaced to admins once per episode. */
+export interface WatcherFailureInfo {
+	libraryId: string;
+	pathId: string;
+	path: string;
+	reason: string;
+	since: number;
+}
+
+interface WatcherFailureEntry extends WatcherFailureInfo {
+	notified: boolean;
+}
+
+const WATCHER_FAILURE_NOTIFICATION_TYPE = "library_watcher_unavailable";
+
+/**
+ * Best-effort admin notification for an unwatchable path. Dynamic imports keep
+ * the notifications/repository graph out of this service's module cycle.
+ */
+async function notifyAdminsOfWatcherFailure(failure: WatcherFailureInfo): Promise<void> {
+	const [{ notificationsService }, { usersRepository }] = await Promise.all([
+		import("@/application/notifications/notifications.service"),
+		import("@/database/repositories/users.repository"),
+	]);
+	const admins = await usersRepository.findAllAdministrators();
+	for (const admin of admins) {
+		await notificationsService.create(
+			{
+				userId: admin.id,
+				type: WATCHER_FAILURE_NOTIFICATION_TYPE,
+				title: `Real-time watching unavailable for ${failure.path}`,
+				message: `ReelVault could not watch this library path (${failure.reason}). New files may not appear until a scan runs.`,
+				data: { libraryId: failure.libraryId, pathId: failure.pathId, path: failure.path, reason: failure.reason },
+				link: "/admin/libraries",
+			},
+			{ skipOwnershipCheck: true },
+		);
+	}
 }
 
 /** Time source for the debounce/cooldown state machine. Tests inject a manual
@@ -48,8 +89,11 @@ export class LibraryWatcherService extends BaseService {
 	private readonly pendingScans = new Map<string, PendingScanState>();
 	/** `${libraryId}:${pathId}` → earliest moment the next watcher-triggered scan may fire. */
 	private readonly cooldowns = new Map<string, number>();
+	/** pathId → a path the filesystem watcher cannot cover. */
+	private readonly failures = new Map<string, WatcherFailureEntry>();
 
 	private readonly clock: LibraryWatcherClock;
+	private readonly notifyFailure: (failure: WatcherFailureInfo) => Promise<void>;
 	private isInitialized = false;
 	private isShuttingDown = false;
 	private isSyncing = false;
@@ -60,9 +104,13 @@ export class LibraryWatcherService extends BaseService {
 	 */
 	private scanPathFn?: ((libraryId: string, pathId: string) => Promise<unknown>) | undefined;
 
-	constructor(clock: LibraryWatcherClock = defaultClock) {
+	constructor(
+		clock: LibraryWatcherClock = defaultClock,
+		notifyFailure: (failure: WatcherFailureInfo) => Promise<void> = notifyAdminsOfWatcherFailure,
+	) {
 		super("LibraryWatcherService");
 		this.clock = clock;
+		this.notifyFailure = notifyFailure;
 	}
 
 	registerScanner(fn: (libraryId: string, pathId: string) => Promise<unknown>): void {
@@ -113,6 +161,15 @@ export class LibraryWatcherService extends BaseService {
 					}
 				}
 
+				// Failures of removed/repointed paths must not linger either.
+				for (const [pathId, failure] of this.failures.entries()) {
+					const current = activePathById.get(pathId);
+					const resolvedCurrent = current ? PathUtils.resolve(current.path) : null;
+					if (!activePathIds.has(pathId) || failure.path !== resolvedCurrent) {
+						this.clearFailure(pathId);
+					}
+				}
+
 				// Add watchers for newly active paths
 				for (const pathRecord of activePaths) {
 					if (!this.watchers.has(pathRecord.id)) {
@@ -120,7 +177,7 @@ export class LibraryWatcherService extends BaseService {
 					}
 				}
 
-				this.logger.debug("Library watchers synchronized", { activeWatchers: this.watchers.size });
+				this.logger.debug("Library watchers synchronized", { activeWatchers: this.watchers.size, unwatchablePaths: this.failures.size });
 			});
 		} catch {
 			// Failures in watcher synchronization are logged by safeExecute and non-fatal for caller
@@ -135,6 +192,7 @@ export class LibraryWatcherService extends BaseService {
 		try {
 			const exists = await DirUtils.exists(resolvedPath);
 			if (!exists) {
+				await this.recordFailure(libraryId, pathId, resolvedPath, "path_missing");
 				this.logger.debug("Library path does not exist on disk, skipping real-time watcher", {
 					libraryId,
 					pathId,
@@ -156,6 +214,7 @@ export class LibraryWatcherService extends BaseService {
 					error,
 				});
 				this.stopWatcher(pathId);
+				detach(this.recordFailure(libraryId, pathId, resolvedPath, `watcher_error: ${errorMessage(error)}`));
 			});
 
 			this.watchers.set(pathId, {
@@ -164,6 +223,7 @@ export class LibraryWatcherService extends BaseService {
 				path: resolvedPath,
 				watcher,
 			});
+			this.clearFailure(pathId);
 
 			this.logger.info("Started real-time file watcher for library path", {
 				libraryId,
@@ -171,6 +231,7 @@ export class LibraryWatcherService extends BaseService {
 				path: resolvedPath,
 			});
 		} catch (error) {
+			await this.recordFailure(libraryId, pathId, resolvedPath, `watch_failed: ${errorMessage(error)}`);
 			this.logger.warn("Could not start real-time watcher for library path", {
 				libraryId,
 				pathId,
@@ -178,6 +239,38 @@ export class LibraryWatcherService extends BaseService {
 				error,
 			});
 		}
+	}
+
+	/** Records a path the watcher cannot cover and notifies admins once per episode. */
+	private async recordFailure(libraryId: string, pathId: string, path: string, reason: string): Promise<void> {
+		const existing = this.failures.get(pathId);
+		if (existing) {
+			// Keep the latest reason but never re-notify within one failure episode.
+			existing.reason = reason;
+
+			return;
+		}
+
+		const entry: WatcherFailureEntry = { libraryId, pathId, path, reason, since: this.clock.now(), notified: false };
+		this.failures.set(pathId, entry);
+		this.logger.error("Real-time watching unavailable for library path", { libraryId, pathId, path, reason });
+
+		entry.notified = true;
+		try {
+			await this.notifyFailure({ libraryId, pathId, path, reason, since: entry.since });
+		} catch (error) {
+			this.logger.warn("Failed to notify administrators about an unwatchable library path", { libraryId, pathId, error });
+		}
+	}
+
+	/** Drops the failure state for a path (watcher recovered or path removed). */
+	private clearFailure(pathId: string): void {
+		this.failures.delete(pathId);
+	}
+
+	/** Paths the filesystem watcher currently cannot cover. */
+	getUnwatchablePaths(): WatcherFailureInfo[] {
+		return [...this.failures.values()].map(({ libraryId, pathId, path, reason, since }) => ({ libraryId, pathId, path, reason, since }));
 	}
 
 	/** Entry point for fs events; public so tests can drive the state machine
@@ -311,6 +404,8 @@ export class LibraryWatcherService extends BaseService {
 		for (const key of this.cooldowns.keys()) {
 			if (key.endsWith(`:${pathId}`)) this.cooldowns.delete(key);
 		}
+
+		this.clearFailure(pathId);
 	}
 
 	stopAllWatchers(): void {
@@ -330,6 +425,7 @@ export class LibraryWatcherService extends BaseService {
 
 		this.pendingScans.clear();
 		this.cooldowns.clear();
+		this.failures.clear();
 	}
 
 	shutdown(): void {
