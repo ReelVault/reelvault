@@ -117,10 +117,17 @@ class SystemSettingsService extends BaseService {
 		rawValue: unknown,
 	): { parsedValue: SystemSettingValue<K>; finalSerialized: string } {
 		const def = SYSTEM_SETTINGS[key];
-		const parsedValue = def.parse(serializeSettingValue(rawValue));
-		const finalSerialized = def.serialize(parsedValue);
+		// Strict validation: an invalid client value must fail the request instead
+		// of silently persisting the definition default over the configured value.
+		const parsedValue = def.validate(serializeSettingValue(rawValue));
+		if (parsedValue === null) {
+			throw new ValidationError(`Invalid value for setting "${key}"`, {
+				code: "admin.settings.invalid_value",
+				params: { key },
+			});
+		}
 
-		return { parsedValue, finalSerialized };
+		return { parsedValue, finalSerialized: def.serialize(parsedValue) };
 	}
 
 	async updateSettings(
@@ -136,17 +143,13 @@ class SystemSettingsService extends BaseService {
 		for (const [key, rawValue] of Object.entries(updates)) {
 			if (!isSystemSettingKey(key)) continue;
 
-			try {
-				const { parsedValue, finalSerialized } = this.parseAndSerialize(key, rawValue);
+			const { parsedValue, finalSerialized } = this.parseAndSerialize(key, rawValue);
 
-				// Record "before" only after successful parsing — the audit must contain real changes only.
-				beforeValues[key] = systemSettingsStore.getWithMeta(key).value;
+			// Record "before" only after successful parsing — the audit must contain real changes only.
+			beforeValues[key] = systemSettingsStore.getWithMeta(key).value;
 
-				dbEntries.push({ key, value: finalSerialized });
-				afterValues.set(key, parsedValue);
-			} catch (error) {
-				this.logger.warn("Invalid value for setting, skipping", { key, value: rawValue, error });
-			}
+			dbEntries.push({ key, value: finalSerialized });
+			afterValues.set(key, parsedValue);
 		}
 
 		// Cross-field rules are checked against the resulting effective config and

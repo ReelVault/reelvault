@@ -22,6 +22,7 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			type: "string",
 			default: defaultValue,
 			parse: (raw) => stringCodec.parse(raw) ?? defaultValue.trim(),
+			validate: (raw) => stringCodec.parse(raw),
 			serialize: (val) => stringCodec.serialize(String(val)),
 		}),
 		number: (key, min, max, defaultValue) => ({
@@ -30,6 +31,7 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			type: "number",
 			default: defaultValue,
 			parse: (raw) => codecs.number(min, max).parse(raw) ?? defaultValue,
+			validate: (raw) => codecs.number(min, max).parse(raw),
 			serialize: (val) => String(val),
 		}),
 		boolean: (key, defaultValue) => ({
@@ -38,6 +40,7 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			type: "boolean",
 			default: defaultValue,
 			parse: (raw) => booleanCodec.parse(raw) ?? defaultValue,
+			validate: (raw) => booleanCodec.parse(raw),
 			serialize: (val) => booleanCodec.serialize(Boolean(val)),
 		}),
 		stringArray: (key, defaultValue) => ({
@@ -46,6 +49,7 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			type: "string_array",
 			default: [...defaultValue],
 			parse: (raw) => stringArrayCodec.parse(raw) ?? [...defaultValue],
+			validate: (raw) => stringArrayCodec.parse(raw),
 			serialize: (val) => JSON.stringify(Array.isArray(val) ? val : []),
 		}),
 		enum: <T extends string>(key: string, options: T[], defaultValue: T) => ({
@@ -55,6 +59,7 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			options: [...options],
 			default: defaultValue,
 			parse: (raw) => codecs.enum(options).parse(raw) ?? defaultValue,
+			validate: (raw) => codecs.enum(options).parse(raw),
 			serialize: (val) => String(val),
 		}),
 	};
