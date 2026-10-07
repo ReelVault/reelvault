@@ -1,6 +1,6 @@
 import type { PlaybackDecision, StreamingSession, TranscodeConfig } from "@reelvault/sdk/common";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import { killFfmpegProcessGracefully } from "@/integrations/ffmpeg/ffmpeg.process";
+import { killFfmpegProcessGracefully, waitForExitWithTimeout } from "@/integrations/ffmpeg/ffmpeg.process";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { DirUtils } from "@/utils/directory.utils";
 import { TooManyRequestsError } from "@/utils/errors";
@@ -56,7 +56,7 @@ export class ProcessManager {
 			await killFfmpegProcessGracefully(process).catch((killError) => {
 				this.logger.warn("Failed to kill orphaned ffmpeg during session start rollback", { sessionId, error: killError });
 			});
-			await process.exited;
+			await waitForExitWithTimeout(process);
 			throw error;
 		}
 
@@ -74,7 +74,7 @@ export class ProcessManager {
 				// a temp dir that is about to be deleted — must be visible.
 				this.logger.warn("Failed to kill ffmpeg process gracefully", { sessionId, error: killError });
 			});
-			await process.exited;
+			await waitForExitWithTimeout(process);
 			ffmpegProcessTracker.forgetStderrTail(process);
 			this.store.detachProcess(sessionId, process);
 		}

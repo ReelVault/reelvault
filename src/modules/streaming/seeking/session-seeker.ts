@@ -42,6 +42,10 @@ export class SessionSeeker {
 		}
 
 		const alignedOffset = this.alignToSegment(clampedOffset, hlsSegmentDuration);
+		// An unbuffered seek restarts ffmpeg; it is client activity like any other
+		// and must refresh the inactivity clock — otherwise a paused client that
+		// scrubs can be reaped mid-seek.
+		keepAlive(sessionId);
 
 		return this.seekScheduler.schedule(sessionId, alignedOffset, decision);
 	}
