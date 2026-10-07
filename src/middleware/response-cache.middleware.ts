@@ -98,66 +98,68 @@ async function responseFromBody(request: Request, entry: CachedResponseBody, cac
  */
 export const responseCacheMiddleware = new Elysia({ name: "ResponseCache" })
 	.macro({
-		cache: (options: CacheOptions) => ({
-			async beforeHandle(context): Promise<Response | undefined> {
-				const { request, set } = context;
-				if (request.method !== "GET") return undefined;
+		cache: (options: CacheOptions) => {
+			// Route options are fixed at registration — build the header strings once.
+			const cacheControl = cacheControlFor(options);
+			const vary = varyFor(options);
 
-				// A session that resolved to no user (revoked/expired) must never be
-				// served a cached private body — read through to the auth-guarded
-				// handler, which rejects it.
-				if ("user" in context && context.user === null) return undefined;
+			return {
+				async beforeHandle(context): Promise<Response | undefined> {
+					const { request, set } = context;
+					if (request.method !== "GET") return undefined;
 
-				// Standard HTTP revalidation request: read through to the handler
-				// (the fresh body may still yield a 304 via its freshly computed ETag).
-				if (request.headers.get("cache-control")?.includes("no-cache")) return undefined;
+					// A session that resolved to no user (revoked/expired) must never be
+					// served a cached private body — read through to the auth-guarded
+					// handler, which rejects it.
+					if ("user" in context && context.user === null) return undefined;
 
-				const entry = getCachedResponseBody(cacheKeyFor(request, resolveProfileId(context)));
-				if (!entry) return undefined;
+					// Standard HTTP revalidation request: read through to the handler
+					// (the fresh body may still yield a 304 via its freshly computed ETag).
+					if (request.headers.get("cache-control")?.includes("no-cache")) return undefined;
 
-				const cacheControl = cacheControlFor(options);
-				const vary = varyFor(options);
-				set.headers["Cache-Control"] = cacheControl;
-				set.headers.Vary = vary;
-				set.headers.ETag = entry.etag;
+					const entry = getCachedResponseBody(cacheKeyFor(request, resolveProfileId(context)));
+					if (!entry) return undefined;
 
-				return await responseFromBody(request, entry, cacheControl, vary);
-			},
-			async afterHandle(context): Promise<Response | undefined> {
-				const { set, request } = context;
-				const status = getResponseStatus(set);
-				if (status !== 200) return undefined;
+					set.headers["Cache-Control"] = cacheControl;
+					set.headers.Vary = vary;
+					set.headers.ETag = entry.etag;
 
-				if (request.method !== "GET") return undefined;
+					return await responseFromBody(request, entry, cacheControl, vary);
+				},
+				async afterHandle(context): Promise<Response | undefined> {
+					const { set, request } = context;
+					const status = getResponseStatus(set);
+					if (status !== 200) return undefined;
 
-				const cacheControl = cacheControlFor(options);
-				const vary = varyFor(options);
-				set.headers["Cache-Control"] = cacheControl;
-				set.headers.Vary = vary;
+					if (request.method !== "GET") return undefined;
 
-				if (context.responseValue instanceof Response) return undefined;
+					set.headers["Cache-Control"] = cacheControl;
+					set.headers.Vary = vary;
 
-				const body = typeof context.responseValue === "string" ? context.responseValue : JSON.stringify(context.responseValue);
-				if (isRecord(context.responseValue)) {
-					serializedBodyCache.set(context.responseValue, body);
-				}
+					if (context.responseValue instanceof Response) return undefined;
 
-				const etag = jsonEtag(body);
-				set.headers.ETag = etag;
+					const body = typeof context.responseValue === "string" ? context.responseValue : JSON.stringify(context.responseValue);
+					if (isRecord(context.responseValue)) {
+						serializedBodyCache.set(context.responseValue, body);
+					}
 
-				const entry: CachedResponseBody = {
-					etag,
-					body,
-					expiresAt: Date.now() + responseBodyCacheTtlMs(options.maxAge),
-					encoded: new Map(),
-				};
+					const etag = jsonEtag(body);
+					set.headers.ETag = etag;
 
-				if (body.length <= RESPONSE_BODY_CACHE_MAX_BYTES) {
-					setCachedResponseBody(cacheKeyFor(request, resolveProfileId(context)), entry);
-				}
+					const entry: CachedResponseBody = {
+						etag,
+						body,
+						expiresAt: Date.now() + responseBodyCacheTtlMs(options.maxAge),
+						encoded: new Map(),
+					};
 
-				return await responseFromBody(request, entry, cacheControl, vary);
-			},
-		}),
+					if (body.length <= RESPONSE_BODY_CACHE_MAX_BYTES) {
+						setCachedResponseBody(cacheKeyFor(request, resolveProfileId(context)), entry);
+					}
+
+					return await responseFromBody(request, entry, cacheControl, vary);
+				},
+			};
+		},
 	})
 	.as("global");

@@ -11,6 +11,7 @@ import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { bench, compare, group, main, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
 import { hash as bunHash, CryptoHasher } from "bun";
+import { buildJsonResponse } from "@/api/utils/etag.utils";
 import { parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
 import { compressBuffer } from "@/utils/compression.utils";
 import { getPathname } from "@/utils/http.utils";
@@ -168,6 +169,31 @@ if (!args.help) {
 		"Stranger Things 4: The整 Season",
 		"Amélie Poulain: Édition Spéciale",
 	];
+
+	// Every compressed JSON response goes through this builder; it must not
+	// copy the body into a Buffer before zlib or copy the compressed result.
+	const benchJsonBody = JSON.stringify({
+		items: Array.from({ length: 100 }, (_, index) => ({
+			id: `meta-${index}`,
+			title: `Some Movie ${index}`,
+			overview: "Benchmark overview text long enough to resemble a real response payload entry.".repeat(2),
+		})),
+	});
+	bench(
+		"buildJsonResponse (100-item JSON, br)",
+		async () => {
+			const response = await buildJsonResponse({
+				body: benchJsonBody,
+				etag: '"bench"',
+				cacheControl: "public, max-age=60",
+				vary: "Accept-Encoding",
+				acceptEncoding: "br",
+				ifNoneMatch: null,
+			});
+			if (response.headers.get("content-encoding") !== "br") throw new Error("not compressed");
+		},
+		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+	);
 
 	// A completed audit report is polled by the client; this is the per-poll
 	// parse + schema validation the result cache now skips.

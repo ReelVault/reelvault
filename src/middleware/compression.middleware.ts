@@ -17,7 +17,8 @@ const excludedTypes = new Set(serverConfig.compression.excludeTypes);
 function shouldCompress(contentType: string, size: number): boolean {
 	if (size < serverConfig.compression.minSizeBytes) return false;
 
-	const mimeType = normalizeLower(contentType.split(";")[0] ?? "");
+	const separator = contentType.indexOf(";");
+	const mimeType = normalizeLower(separator === -1 ? contentType : contentType.slice(0, separator));
 	for (const t of excludedTypes) {
 		if (matchesType(mimeType, t)) return false;
 	}
