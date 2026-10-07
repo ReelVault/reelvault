@@ -5,7 +5,7 @@ import { Elysia } from "elysia";
 import { NotFoundError } from "elysia/error";
 import { apiRouter } from "@/api/routes";
 import { isWebApiPath } from "@/api/utils/route-classification.utils";
-import { getPathname } from "@/utils/http.utils";
+import { getPathname, matchesIfNoneMatch } from "@/utils/http.utils";
 import { byteRangeResponse } from "@/utils/http-range.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { resolveWebDistRoot } from "./web-dist";
@@ -143,13 +143,17 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 	}
 
 	const etag = `W/"${Math.floor(entryStat.mtimeMs)}-${entryStat.size}"`;
-	if (request.headers.get("if-none-match") === etag) {
+	const cacheControl = cacheControlFor(isHtmlEntry, relativePath);
+
+	if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
 		set.status = 304;
+		// A 304 must repeat the validating headers (and keep the HTML entry's type).
+		set.headers["Cache-Control"] = cacheControl;
+		set.headers.ETag = etag;
+		if (isHtmlEntry) set.headers["Content-Type"] = HTML_CONTENT_TYPE;
 
 		return "";
 	}
-
-	const cacheControl = cacheControlFor(isHtmlEntry, relativePath);
 
 	// The HTML entry stays an in-memory buffer: it is meta-tag-transformed and
 	// hot. Real files stream through Bun's minimal-copy file handle instead of

@@ -52,7 +52,8 @@ export function matchesIfNoneMatch(ifNoneMatch: string | null | undefined, etag:
 	return ifNoneMatch.split(",").some((candidate) => {
 		const value = candidate.trim();
 
-		return value === etag || value === `W/${etag}`;
+		// RFC 9110: `*` matches any existing representation.
+		return value === "*" || value === etag || value === `W/${etag}`;
 	});
 }
 

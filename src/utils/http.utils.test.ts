@@ -5,6 +5,7 @@ import {
 	getTrustedOriginPatterns,
 	isLocalNetworkHost,
 	isOriginAllowed,
+	matchesIfNoneMatch,
 	parseAllowedOrigins,
 	wildcardPatternToRegex,
 } from "./http.utils";
@@ -133,5 +134,16 @@ describe("http.utils", () => {
 			expect(isOriginAllowed(null)).toBe(false);
 			expect(isOriginAllowed("")).toBe(false);
 		});
+	});
+});
+
+describe("matchesIfNoneMatch", () => {
+	it("matches the exact, weak and wildcard validators", () => {
+		expect(matchesIfNoneMatch('"abc"', '"abc"')).toBe(true);
+		expect(matchesIfNoneMatch('W/"abc"', '"abc"')).toBe(true);
+		expect(matchesIfNoneMatch('"stale", "abc"', '"abc"')).toBe(true);
+		expect(matchesIfNoneMatch("*", '"abc"')).toBe(true);
+		expect(matchesIfNoneMatch(null, '"abc"')).toBe(false);
+		expect(matchesIfNoneMatch('"other"', '"abc"')).toBe(false);
 	});
 });

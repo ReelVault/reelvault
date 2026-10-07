@@ -19,6 +19,13 @@ describe("negotiateEncoding", () => {
 		expect(negotiateEncoding("")).toBe(null);
 		expect(negotiateEncoding("identity")).toBe(null);
 	});
+
+	test("honours q=0 refusals and only matches exact tokens", () => {
+		expect(negotiateEncoding("br;q=0, gzip")).toBe("gzip");
+		expect(negotiateEncoding("gzip;q=0")).toBe(null);
+		expect(negotiateEncoding("br; q=0, gzip; q=0.5")).toBe("gzip");
+		expect(negotiateEncoding("x-gzip")).toBe(null);
+	});
 });
 
 describe("compressBuffer", () => {

@@ -95,6 +95,8 @@
 - **Interrupted downloads could block a profile forever** — a crash or restart left rows in `pending`/`processing` with no live ffmpeg, and a download whose media file had disappeared stayed queued indefinitely, pinning the profile's single active-download slot until it was manually cancelled. Startup now reconciles stale rows (re-enqueueing them, or failing those whose source is gone), a missing source fails immediately, and the worker marks the row failed once its retry budget is exhausted.
 - **Replacing a profile avatar leaked the previous image forever** — unlike every other image owner, the avatar swap neither collected the old image nor counted profiles in the "still referenced?" probe, so each avatar change left an orphan row and file behind. The previous avatar is now deleted when unreferenced and the probe checks `profiles.avatar_url`.
 - **The on-disk optimized-image cache never worked on Windows** — its keys embedded the source stamp `size:mtime`, and `:` is not a legal NTFS filename character, so every request re-ran sharp. The stamp is now sanitized.
+- **`If-None-Match: *` was treated as a literal** — `*` and some multi-value validators received a full body instead of a 304, and the SPA entry's 304 dropped its `ETag`/`Cache-Control`/`Content-Type` headers. Conditional requests now use the shared RFC-style matcher and 304s repeat the validating headers.
+- **Compression ignored explicit `q=0` refusals** — `Accept-Encoding: br;q=0, gzip` still selected brotli (and a `x-gzip` token matched gzip). Encoding negotiation now parses quality values and matches exact tokens.
 
 ### Performance
 

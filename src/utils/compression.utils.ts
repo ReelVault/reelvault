@@ -4,11 +4,26 @@ import { serverConfig } from "@/server.config";
 type CompressionEncoding = "br" | "gzip" | "deflate";
 
 export function negotiateEncoding(acceptEncoding: string): CompressionEncoding | null {
-	if (acceptEncoding.includes("br")) return "br";
+	if (!acceptEncoding) return null;
 
-	if (acceptEncoding.includes("gzip")) return "gzip";
+	// Tokens with `q=0` are explicitly refused — substring matching used to pick
+	// an encoding the client had disabled (and would match `x-gzip` too).
+	const accepted = new Set<string>();
+	for (const part of acceptEncoding.split(",")) {
+		const [tokenPart, ...params] = part.trim().toLowerCase().split(";");
+		const token = tokenPart?.trim() ?? "";
+		if (!token) continue;
 
-	if (acceptEncoding.includes("deflate")) return "deflate";
+		const qParam = params.find((param) => param.trim().startsWith("q="));
+		const quality = qParam ? Number.parseFloat(qParam.slice(qParam.indexOf("=") + 1)) : 1;
+		if (Number.isFinite(quality) && quality > 0) accepted.add(token);
+	}
+
+	if (accepted.has("br")) return "br";
+
+	if (accepted.has("gzip")) return "gzip";
+
+	if (accepted.has("deflate")) return "deflate";
 
 	return null;
 }
