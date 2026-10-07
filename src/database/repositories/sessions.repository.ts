@@ -2,6 +2,7 @@ import type { PaginationQuery } from "@reelvault/sdk/common";
 import { and, desc, eq, gt, ne } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { cachedCount } from "@/database/table-access";
 import { QueryPagination } from "@/database/utils/pagination";
 
 class SessionsRepository {
@@ -9,8 +10,10 @@ class SessionsRepository {
 
 	async findActivePageByUserId(userId: string, query?: PaginationQuery) {
 		const pagination = QueryPagination.parse(query ?? {});
+		// The count only depends on userId (expiry is a rolling window) — the 10 s
+		// cache matches every other paginated list; sessions expire at minute scale.
 		const [total, data] = await Promise.all([
-			this.countActiveByUserId(userId),
+			cachedCount("sessions_active", { userId }, () => this.countActiveByUserId(userId)),
 			this.findActivePublicByUserId(userId, pagination.limit, pagination.offset),
 		]);
 

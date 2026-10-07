@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, lt, ty
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
+import { cachedCount } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { DAY, serverConstants } from "@/server.constants";
@@ -67,7 +68,11 @@ class WorkerOperationRepository {
 		}
 
 		const [countRows, rows] = await Promise.all([
-			client.select({ count: count() }).from(operations).where(whereClause),
+			cachedCount("worker_operations", { status: options.status ?? null }, async () => {
+				const [countRow] = await client.select({ count: count() }).from(operations).where(whereClause);
+
+				return countRow?.count ?? 0;
+			}),
 			client
 				.select()
 				.from(operations)
@@ -79,7 +84,7 @@ class WorkerOperationRepository {
 
 		return {
 			data: rows.map((r) => this.withEta(r)),
-			total: countRows[0]?.count ?? 0,
+			total: countRows,
 		};
 	}
 
