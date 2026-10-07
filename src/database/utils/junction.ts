@@ -49,8 +49,9 @@ export function createProviderJunction(tableName: string, entityIdColumn: string
 		// Composite PK only. A provider row is shared per (name, external id,
 		// entity type) and may legitimately link to several local rows (duplicates,
 		// localized renames) — a unique index on `provider_id` silently dropped
-		// every link after the first.
-		return [primaryKey({ columns: [entityColumn, t.providerId] })];
+		// every link after the first. The non-unique index still lets lookups and
+		// FK cascades driven by `provider_id` use a seek instead of a table scan.
+		return [primaryKey({ columns: [entityColumn, t.providerId] }), index(`${tableName}_provider_idx`).on(t.providerId)];
 	});
 }
 

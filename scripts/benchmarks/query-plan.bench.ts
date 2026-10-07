@@ -102,6 +102,10 @@ function buildCases(rows: number, now: number): QueryCase[] {
 			sql: `SELECT ${metadataColumns} FROM metadata WHERE type = 'movie' AND ${hasMedia} ORDER BY COALESCE(sort_title, title) COLLATE NOCASE, id LIMIT 24`,
 		},
 		{
+			name: "provider junction lookup by provider_id (index-hardening)",
+			sql: "SELECT metadataId FROM metadata_providers WHERE provider_id = 'provider-1'",
+		},
+		{
 			name: "media-files scanner keyset by library (index-hardening)",
 			sql: "SELECT id, file_path FROM media_files WHERE library_id = 'lib-bench' AND id > 'mf-meta-0000100' ORDER BY id LIMIT 500",
 		},

@@ -134,6 +134,7 @@ The performance work focuses primarily on reducing unnecessary database work, el
 - **Cheaper existence checks** — `ping` reads only the required indexed column, while `existsForVersion` uses `EXISTS ... LIMIT 1` instead of `COUNT(*)`.
 - **Reduced index overhead** — removed redundant prefix indexes, eliminating unnecessary B-tree maintenance during writes.
 - **Better covering indexes** — added indexes for scanner keyset pagination, downloads, `sortTitle`, worker listing/recovery and relevant `created_at` queries.
+- **Provider-junction `provider_id` indexes** — restored the non-unique `provider_id` index on all eight provider junctions (it was dropped together with the buggy unique index). A lookup by `provider_id` now uses an index seek instead of a table scan: at 200k junction rows, 200 lookups took 956 ms before and 2 ms after (**~447×**); `query-plan` reports `full-scan` → `SEARCH ... USING INDEX`.
 - **Batched scheduler writes** — worker deadlines are now written using one multi-row upsert per scheduler pass instead of one UPSERT per worker.
 - **Aggregated worker counters** — claim counters are aggregated per operation instead of issuing one `UPDATE` per claimed job.
 - **Batched cleanup** — weekly retention, stale findings and plugin-artifact cleanup now use batched/chunked deletes instead of repeated per-row or per-worker statements.
