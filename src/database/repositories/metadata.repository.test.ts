@@ -40,6 +40,48 @@ describe("metadata rating projections", () => {
 		expect(count).toBe(0);
 	});
 
+	test("deleteOrphansByIds skips rows that gained a media file and reports actual changes", async () => {
+		const { mkdtempSync, rmSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const { DatabaseFactory } = await import("@/database/database");
+
+		const tempDir = mkdtempSync(join(tmpdir(), "reelvault-orphans-test-"));
+		const factory = new DatabaseFactory(join(tempDir, "test.sqlite"));
+		try {
+			factory.migrate();
+			const db = factory.sqlite;
+			const now = Math.floor(Date.now() / 1000);
+			db.run(
+				"INSERT INTO libraries (id, name, type, metadata_storage_mode, sidecar_flavor, metadata_language, created_at, updated_at) VALUES ('lib-1','Movies','movies','database','reelvault',NULL,?,?)",
+				[now, now],
+			);
+			const insertMetadata = db.prepare(
+				"INSERT INTO metadata (id, stable_key, title, original_title, type, status, release_date, popularity, created_at, updated_at) VALUES (?,?,?,?,?,'released','2020-01-01',0,?,?)",
+			);
+			insertMetadata.run("m-orphan", "m-orphan", "Orphan", "Orphan", "movie", now, now);
+			insertMetadata.run("m-attached", "m-attached", "Attached", "Attached", "movie", now, now);
+			db.run("INSERT INTO movies (id, stable_key, metadata_id, created_at, updated_at) VALUES ('movie-1','movie-1','m-attached',?,?)", [
+				now,
+				now,
+			]);
+			db.run(
+				"INSERT INTO media_files (id, library_id, metadata_id, movie_id, episode_id, file_path, file_name, is_default, is_enabled, created_at, updated_at) VALUES ('f1','lib-1','m-attached','movie-1',NULL,'/media/a.mkv','a.mkv',0,1,?,?)",
+				[now, now],
+			);
+
+			const deleted = await metadataRepository.deleteOrphansByIds(["m-orphan", "m-attached"], factory.db);
+
+			expect(deleted).toBe(1);
+			expect(db.query("SELECT id FROM metadata ORDER BY id").all()).toEqual([{ id: "m-attached" }]);
+			// The keyset page never returns the attached row.
+			expect(await metadataRepository.findOrphanIds(10, undefined, factory.db)).toEqual([]);
+		} finally {
+			factory.shutdown();
+			rmSync(tempDir, { recursive: true, force: true });
+		}
+	});
+
 	test("getMoreLikeThis executes valid SQL without parameterizing table names", async () => {
 		const { mkdtempSync, rmSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");

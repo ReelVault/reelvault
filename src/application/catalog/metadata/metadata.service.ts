@@ -484,13 +484,15 @@ class MetadataService extends BaseService {
 			// the audit row forever).
 			const pageSize = serverConfig.database.queryChunkSize;
 			const sample: string[] = [];
-			const count = await collectKeysetPages({
+			let deleted = 0;
+			const seen = await collectKeysetPages({
 				pageSize,
-				// Each page deletes its own rows, so the query naturally advances to
-				// the next orphan set — the cursor is unused.
-				fetchPage: () => metadataRepository.findOrphanIds(pageSize),
+				// Keyset by id: pages fetched after a delete cannot re-fetch the same
+				// rows, and a row that stopped being an orphan (a media file attached
+				// concurrently) is simply skipped instead of aborting the purge.
+				fetchPage: (cursor) => metadataRepository.findOrphanIds(pageSize, cursor),
 				onPage: async (orphanIds) => {
-					await metadataRepository.deleteOrphansByIds(orphanIds);
+					deleted += await metadataRepository.deleteOrphansByIds(orphanIds);
 					if (sample.length < MAX_ORPHAN_AUDIT_IDS) {
 						sample.push(...orphanIds.slice(0, MAX_ORPHAN_AUDIT_IDS - sample.length));
 					}
@@ -501,13 +503,13 @@ class MetadataService extends BaseService {
 				{
 					action: "delete",
 					resourceType: "metadata_orphans",
-					after: { count, deletedIds: sample, truncated: count > sample.length },
+					after: { count: deleted, deletedIds: sample, truncated: seen > sample.length },
 					context,
 				},
 				this.logger,
 			);
 
-			return { count };
+			return { count: deleted };
 		});
 	}
 

@@ -659,13 +659,17 @@ class MetadataRepository {
 		return rows.map((item) => withRelations(item, relations.get(item.id)));
 	}
 
-	/** Orphan metadata ids (no linked media files). Pass `limit` to page instead of loading every id. */
-	async findOrphanIds(limit?: number): Promise<string[]> {
-		const client = databaseFactory.getClient();
+	/** Orphan metadata ids (no linked media files), ascending by id, keyset-paged via `afterId`. */
+	async findOrphanIds(limit?: number, afterId?: string, tx?: DatabaseTransaction): Promise<string[]> {
+		const client = databaseFactory.getClient({ tx });
+		const conditions = [
+			notExists(client.select({ one: sql`1` }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, this.table.id))),
+			...(afterId ? [gt(this.table.id, afterId)] : []),
+		];
 		const query = client
 			.select({ id: this.table.id })
 			.from(this.table)
-			.where(notExists(client.select({ one: sql`1` }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, this.table.id))))
+			.where(and(...conditions))
 			.orderBy(asc(this.table.id));
 		const rows = limit === undefined ? await query : await query.limit(limit);
 
@@ -679,8 +683,20 @@ class MetadataRepository {
 			const client = databaseFactory.getClient({ tx: targetTx });
 			let deletedCount = 0;
 			await forEachChunked(orphanIds, async (idChunk) => {
-				await client.delete(this.table).where(inArray(this.table.id, idChunk));
-				deletedCount += idChunk.length;
+				// Re-check orphan status at delete time: a media file attached since
+				// the page was fetched would make the FK abort the whole purge.
+				// `.returning()` counts actual deletions — `changes` also counts
+				// FTS trigger rows on this table.
+				const deletedRows = await client
+					.delete(this.table)
+					.where(
+						and(
+							inArray(this.table.id, idChunk),
+							notExists(client.select({ one: sql`1` }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, this.table.id))),
+						),
+					)
+					.returning({ id: this.table.id });
+				deletedCount += deletedRows.length;
 			});
 
 			return deletedCount;
