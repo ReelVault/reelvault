@@ -1,15 +1,40 @@
 import { serverConfig } from "@/server.config";
+import { MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils, type ScannedFileEntry } from "@/utils/directory.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { detach, PromiseUtils } from "@/utils/promise.utils";
 
 interface ScanOptions {
 	paths: string[];
 	extensions?: readonly string[] | undefined;
 	maxDepth?: number | undefined;
 	signal?: AbortSignal | undefined;
+}
+
+/**
+ * A path whose glob walk exceeds this is skipped for the current run: a dead
+ * NFS/CIFS mount can hang `readdir` indefinitely, which would hold the scan
+ * task (and its worker dedupe key) for the full 2 h worker timeout.
+ */
+const DEFAULT_PATH_SCAN_TIMEOUT_MS = 2 * MINUTE;
+
+class PathScanTimeoutError extends Error {}
+
+/** Races `promise` against a hard deadline so an unresponsive scan can't hang the caller. */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(() => reject(new PathScanTimeoutError(`Path scan exceeded ${timeoutMs} ms`)), timeoutMs);
+		timer.unref();
+	});
+
+	try {
+		return await Promise.race([promise, timeout]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** Applies the defaults shared by `scan` and `scanWithStats`. */
@@ -27,9 +52,12 @@ function resolveScanOptions(options: ScanOptions): {
 	};
 }
 
-class FileScannerService extends BaseService {
-	constructor() {
+export class FileScannerService extends BaseService {
+	private readonly pathScanTimeoutMs: number;
+
+	constructor(pathScanTimeoutMs: number = DEFAULT_PATH_SCAN_TIMEOUT_MS) {
 		super("FileScannerService");
+		this.pathScanTimeoutMs = pathScanTimeoutMs;
 	}
 
 	async scan(options: ScanOptions): Promise<string[]> {
@@ -65,8 +93,29 @@ class FileScannerService extends BaseService {
 				// Patterns are cloned on every serverConfig read — resolve once per
 				// root instead of once per file.
 				const patterns = serverConfig.media.ignorePatterns;
+				// The timeout signal stops the real glob; the race below guarantees the
+				// scan moves on even if the filesystem call ignores the abort.
+				const timeoutSignal = AbortSignal.timeout(this.pathScanTimeoutMs);
+				const scanSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+				const scanPromise = scanRoot(path, extensions, maxDepth, scanSignal);
 
-				return (await scanRoot(path, extensions, maxDepth, signal)).filter((entry) => !isIgnoredPath(pathOf(entry), path, patterns));
+				try {
+					return (await withTimeout(scanPromise, this.pathScanTimeoutMs)).filter((entry) => !isIgnoredPath(pathOf(entry), path, patterns));
+				} catch (error) {
+					// The caller's abort must propagate; a per-path timeout only skips
+					// this path (the scan itself is expected to wind down via scanSignal).
+					if (error instanceof PathScanTimeoutError && !signal?.aborted) {
+						detach(scanPromise.catch(() => null));
+						this.logger.error("Library path scan timed out — skipping the path for this run", {
+							path,
+							timeoutMs: this.pathScanTimeoutMs,
+						});
+
+						return [];
+					}
+
+					throw error;
+				}
 			},
 			signal,
 		);

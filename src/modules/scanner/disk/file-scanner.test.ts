@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileScannerService, matchesIgnorePattern } from "./file-scanner";
+import { DirUtils } from "@/utils/directory.utils";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { FileScannerService, fileScannerService, matchesIgnorePattern } from "./file-scanner";
 
 let root: string;
 
@@ -80,5 +82,26 @@ describe("matchesIgnorePattern", () => {
 	test("matching is case-insensitive and pattern-less lists disable filtering", () => {
 		expect(matchesIgnorePattern("/media/library/TEMP.mkv", root, ["temp*"])).toBe(true);
 		expect(matchesIgnorePattern("/media/library/movie.mkv", root, [])).toBe(false);
+	});
+});
+
+describe("FileScannerService path timeout", () => {
+	test("skips a path whose scan exceeds the deadline instead of hanging", async () => {
+		const scanner = new FileScannerService(20);
+		const stub = stubMethod(
+			DirUtils,
+			"scanFilesWithStats",
+			() =>
+				new Promise<never>(() => {
+					// Never settles — the per-path timeout is what ends the scan.
+				}),
+		);
+		try {
+			const entries = await scanner.scanWithStats({ paths: [root], extensions: [".mkv"] });
+
+			expect(entries).toEqual([]);
+		} finally {
+			stub.restore();
+		}
 	});
 });
