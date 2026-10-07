@@ -21,6 +21,7 @@ import { pluginEventBus } from "../runtime/plugin.events";
 import { PluginScope } from "./host/plugin.scope";
 import { isPluginDirectoryName, PluginDirectoryIndex } from "./host/plugin-directory.index";
 import { createPluginHost } from "./host/plugin-host.factory";
+import { PluginLockfileStore } from "./installer/lockfile.store";
 import type { PluginConfig } from "./plugin.config";
 import { PluginInstaller } from "./plugin.installer";
 import {
@@ -55,8 +56,20 @@ export class PluginLoader {
 		return this.pluginScopes.get(pluginId)?.getRuntimeDirectory();
 	}
 
-	/** Resolves a plugin id to its directory name via the id→directory index, refreshing it when the entry is missing or stale. */
+	/** Resolves a plugin id to its directory name via the lockfile record, then the id→directory index. */
 	async findDirectoryNameForPluginId(pluginId: string): Promise<string | undefined> {
+		// The lockfile records where the installer actually put the plugin; a
+		// manifest scan can also see stale duplicate directories with the same id.
+		const lockfile = await new PluginLockfileStore(this.pluginsDirectory).read();
+		const record = lockfile.plugins[pluginId];
+		if (record && isPluginDirectoryName(record.directory) && PathUtils.getFileName(record.directory) === record.directory) {
+			if (await DirUtils.exists(PathUtils.join(this.pluginsDirectory, record.directory))) {
+				this.directoryIndex.set(pluginId, record.directory);
+
+				return record.directory;
+			}
+		}
+
 		return await this.directoryIndex.resolve(pluginId, this.pluginsDirectory);
 	}
 

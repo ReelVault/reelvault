@@ -226,6 +226,72 @@ describe("plugin installer", () => {
 		expect(lockfile.plugins["org.reelvault.rollback"]).toMatchObject({ version: initialLockfile.record.version });
 		expect(await file(join(pluginsDirectory, "org.reelvault.rollback", "plugin.json")).json()).toMatchObject({ version: "1.0.0" });
 	});
+	test("upgrades a manually named directory in place instead of creating a second one", async () => {
+		const root = await createRoot();
+		const source = join(root, "source");
+		const pluginsDirectory = join(root, "plugins");
+		await writePlugin(source, "org.reelvault.manual");
+
+		// Manually dropped package: directory name differs from the manifest id.
+		const manualDirectory = join(pluginsDirectory, "manual-name");
+		await mkdir(manualDirectory, { recursive: true });
+		await write(
+			join(manualDirectory, "plugin.json"),
+			JSON.stringify({
+				id: "org.reelvault.manual",
+				name: "Manual",
+				version: "0.9.0",
+				entry: "./index.mjs",
+				capabilities: ["eventHandler"],
+			}),
+		);
+		await write(join(manualDirectory, "index.mjs"), "export default { setup() {} };\n");
+
+		const installer = new PluginInstaller(pluginsDirectory);
+		const installed = await installer.install(source, { upgrade: true });
+
+		expect(installed.directory).toBe(manualDirectory);
+		expect(await file(join(manualDirectory, "plugin.json")).json()).toMatchObject({ version: "1.0.0" });
+		// No second directory for the same id.
+		expect(await file(join(pluginsDirectory, "org.reelvault.manual")).exists()).toBeFalse();
+		expect(await file(join(pluginsDirectory, "plugins.lock.json")).json()).toMatchObject({
+			plugins: { "org.reelvault.manual": { directory: "manual-name", version: "1.0.0" } },
+		});
+		// The differently-named record still verifies and uninstalls.
+		await expect(installer.verify()).resolves.toHaveLength(1);
+		await installer.uninstall("org.reelvault.manual");
+		expect(await file(manualDirectory).exists()).toBeFalse();
+	});
+
+	test("refuses a non-upgrade install when the id lives in a differently named directory", async () => {
+		const root = await createRoot();
+		const source = join(root, "source");
+		const pluginsDirectory = join(root, "plugins");
+		await writePlugin(source, "org.reelvault.manual-guard");
+		const manualDirectory = join(pluginsDirectory, "manual-guard");
+		await writePlugin(manualDirectory, "org.reelvault.manual-guard");
+
+		await expect(new PluginInstaller(pluginsDirectory).install(source)).rejects.toThrow("already installed");
+		expect(await file(join(manualDirectory, "plugin.json")).exists()).toBeTrue();
+		expect(await file(join(pluginsDirectory, "org.reelvault.manual-guard")).exists()).toBeFalse();
+	});
+
+	test("removes a stale duplicate directory carrying the same plugin id", async () => {
+		const root = await createRoot();
+		const source = join(root, "source");
+		const pluginsDirectory = join(root, "plugins");
+		await writePlugin(source, "org.reelvault.dedupe");
+		const installer = new PluginInstaller(pluginsDirectory);
+		await installer.install(source);
+
+		const duplicate = join(pluginsDirectory, "stale-duplicate");
+		await writePlugin(duplicate, "org.reelvault.dedupe");
+
+		await installer.install(source, { upgrade: true });
+
+		expect(await file(duplicate).exists()).toBeFalse();
+		expect(await file(join(pluginsDirectory, "org.reelvault.dedupe", "plugin.json")).exists()).toBeTrue();
+	});
 });
 
 async function createRoot(): Promise<string> {

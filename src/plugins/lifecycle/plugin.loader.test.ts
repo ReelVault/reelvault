@@ -475,3 +475,39 @@ export default {
   onUnload() { events.push("unload"); }
 };`;
 }
+
+describe("plugin loader directory resolution", () => {
+	test("prefers the lockfile-recorded directory when duplicates exist", async () => {
+		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
+		temporaryDirectories.push(pluginsDirectory);
+		for (const name of ["stale-name", "recorded-name"]) {
+			const directory = join(pluginsDirectory, name);
+			await mkdir(directory, { recursive: true });
+			await write(
+				join(directory, "plugin.json"),
+				JSON.stringify({ id: "org.reelvault.dupe", name, version: "1.0.0", entry: "./index.mjs", capabilities: ["eventHandler"] }),
+			);
+			await write(join(directory, "index.mjs"), "export default { setup() {} };\n");
+		}
+		await write(
+			join(pluginsDirectory, "plugins.lock.json"),
+			JSON.stringify({
+				version: 1,
+				plugins: {
+					"org.reelvault.dupe": {
+						directory: "recorded-name",
+						integrity: "sha256-x",
+						installedAt: "2026-09-20T00:00:00.000Z",
+						source: "test",
+						version: "1.0.0",
+					},
+				},
+			}),
+		);
+
+		const config: Pick<PluginConfig, "load"> = { load: async () => ({}) };
+		const loader = new PluginLoader(config as PluginConfig, new PluginRegistry(), pluginsDirectory);
+
+		expect(await loader.findDirectoryNameForPluginId("org.reelvault.dupe")).toBe("recorded-name");
+	});
+});

@@ -58,7 +58,10 @@ export class PluginLockfileStore {
 	}
 
 	resolveInstalledDirectory(pluginId: string, record: InstalledPluginRecord): string {
-		if (PathUtils.getFileName(pluginId) !== pluginId || record.directory !== pluginId) {
+		// The directory name may differ from the plugin id (manually dropped
+		// packages), so validate it as a plain basename and keep the resolved
+		// path inside the plugins root.
+		if (PathUtils.getFileName(pluginId) !== pluginId || PathUtils.getFileName(record.directory) !== record.directory) {
 			throw new ValidationError(`Plugin ${pluginId} has an unsafe ${LOCKFILE_NAME} directory entry`);
 		}
 

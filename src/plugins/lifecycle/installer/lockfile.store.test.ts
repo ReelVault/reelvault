@@ -63,16 +63,21 @@ describe("PluginLockfileStore", () => {
 		await expect(store.read()).rejects.toThrow("Invalid plugins.lock.json");
 	});
 
-	test("resolveInstalledDirectory rejects a directory entry that does not equal the plugin id", () => {
+	test("resolveInstalledDirectory rejects unsafe directory entries but allows a manual directory name", () => {
 		expect(() => store.resolveInstalledDirectory("../escape", createRecord("../escape"))).toThrow(
-			"unsafe plugins.lock.json directory entry",
-		);
-		expect(() => store.resolveInstalledDirectory("org.reelvault.a", createRecord("other-dir"))).toThrow(
 			"unsafe plugins.lock.json directory entry",
 		);
 		expect(() => store.resolveInstalledDirectory("nested/path", createRecord("nested/path"))).toThrow(
 			"unsafe plugins.lock.json directory entry",
 		);
+		expect(() => store.resolveInstalledDirectory("org.reelvault.a", createRecord("../escape"))).toThrow(
+			"unsafe plugins.lock.json directory entry",
+		);
+		expect(() => store.resolveInstalledDirectory("org.reelvault.a", createRecord(".."))).toThrow("escapes the plugins directory");
+
+		// A manually dropped package may live in a directory named differently from
+		// the plugin id — that is valid as long as it stays a plain basename.
+		expect(store.resolveInstalledDirectory("org.reelvault.a", createRecord("manual-name"))).toBe(join(pluginsDirectory, "manual-name"));
 	});
 
 	test("resolveInstalledDirectory returns the absolute package path for a valid record", () => {

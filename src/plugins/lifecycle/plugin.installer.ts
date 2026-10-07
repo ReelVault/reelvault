@@ -3,11 +3,13 @@ import { file, write } from "bun";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { DirUtils } from "@/utils/directory.utils";
 import { ValidationError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
 import { SERVER_VERSION } from "@/version";
+import { isPluginDirectoryName } from "./host/plugin-directory.index";
 import { calculateDirectoryIntegrity, MUTABLE_CONFIG_FILENAME } from "./installer/directory-hash";
 import { type InstalledPluginRecord, LOCKFILE_NAME, type PluginLockfile, PluginLockfileStore } from "./installer/lockfile.store";
 import { assertNoSymbolicLinks } from "./installer/symlink-guard";
@@ -15,6 +17,8 @@ import { loadPluginManifest, resolvePluginEntry } from "./plugin.manifest";
 
 /** SHA-256 over large blobs — CPU+disk bound, so concurrency scales with measured capacity. */
 const VERIFICATION_CONCURRENCY = () => clamp(Math.ceil(systemResourcesService.getMetrics().capacity / 2), 1, 8);
+
+const logger = createLogger("PluginInstaller");
 
 export type { InstalledPluginRecord } from "./installer/lockfile.store";
 
@@ -61,7 +65,8 @@ export class PluginInstaller {
 		}
 		await assertFile(resolvePluginEntry(source, manifest), "Plugin entrypoint");
 
-		const targetDirectory = PathUtils.join(pluginsDirectory, manifest.id);
+		const targetName = await this.resolveInstalledDirectoryName(manifest.id);
+		const targetDirectory = PathUtils.join(pluginsDirectory, targetName);
 		const targetExists = await DirUtils.exists(targetDirectory);
 		if (targetExists && !options.upgrade) {
 			throw new ValidationError(`Plugin ${manifest.id} is already installed in ${targetDirectory}`);
@@ -125,10 +130,63 @@ export class PluginInstaller {
 				await rm(backupDirectory, { recursive: true, force: true });
 			}
 
+			await this.removeDuplicateDirectories(manifest.id, targetName);
+
 			return { id: manifest.id, directory: targetDirectory, record };
 		} catch (error) {
 			await rm(stagingDirectory, { recursive: true, force: true });
 			throw error;
+		}
+	}
+
+	/**
+	 * Directory an id already lives in: the lockfile record wins, then a manifest
+	 * scan. Falls back to the manifest id for a fresh install. Upgrading into the
+	 * existing directory avoids a second directory for the same id, which would
+	 * otherwise race at boot and make reloads pick an arbitrary build.
+	 */
+	private async resolveInstalledDirectoryName(pluginId: string): Promise<string> {
+		const lockfile = await this.lockfileStore.read();
+		const record = lockfile.plugins[pluginId];
+		if (record && isPluginDirectoryName(record.directory) && PathUtils.getFileName(record.directory) === record.directory) {
+			if (await DirUtils.exists(PathUtils.join(this.pluginsDirectory, record.directory))) return record.directory;
+		}
+
+		for (const dirName of await DirUtils.listDirs(this.pluginsDirectory)) {
+			if (!isPluginDirectoryName(dirName)) continue;
+
+			try {
+				const manifest = await loadPluginManifest(PathUtils.join(this.pluginsDirectory, dirName));
+				if (manifest.id === pluginId) return dirName;
+			} catch {
+				// Not a loadable plugin directory — ignore.
+			}
+		}
+
+		return pluginId;
+	}
+
+	/** Best-effort removal of other directories carrying the same plugin id. */
+	private async removeDuplicateDirectories(pluginId: string, targetName: string): Promise<void> {
+		for (const dirName of await DirUtils.listDirs(this.pluginsDirectory)) {
+			if (!isPluginDirectoryName(dirName) || dirName === targetName) continue;
+
+			const directory = PathUtils.join(this.pluginsDirectory, dirName);
+			let manifestId: string;
+			try {
+				manifestId = (await loadPluginManifest(directory)).id;
+			} catch {
+				continue;
+			}
+
+			if (manifestId !== pluginId) continue;
+
+			try {
+				await rm(directory, { recursive: true, force: true });
+				logger.warn("Removed a duplicate plugin directory for the same plugin id", { pluginId, directory: dirName });
+			} catch (error) {
+				logger.warn("Could not remove a duplicate plugin directory", { pluginId, directory: dirName, error });
+			}
 		}
 	}
 
