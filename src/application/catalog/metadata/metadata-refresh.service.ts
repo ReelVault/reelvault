@@ -172,7 +172,7 @@ export class MetadataRefreshService extends BaseService {
 		metadata: RefreshableMetadata,
 		prefetchedProviders?: Readonly<Record<string, ProviderMetadataResult>>,
 	): Promise<{ providerId: string; metadata: ProviderMetadataResult } | null> {
-		const providers = [...metadata.providers].toSorted((left, right) => {
+		const providers = metadata.providers.toSorted((left, right) => {
 			if (left.name === metadata.primaryProviderId) return -1;
 
 			if (right.name === metadata.primaryProviderId) return 1;

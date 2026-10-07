@@ -2,8 +2,6 @@ import type { PathContext, RecognitionResult, RecognitionStrategy } from "../rec
 import { parseFileName } from "../utils/recognition.utils";
 
 export class MoviesBasicStrategy implements RecognitionStrategy {
-	readonly name = "movies-basic";
-
 	recognize(ctx: PathContext): RecognitionResult | null {
 		const { fileName } = ctx;
 		if (!fileName) return null;

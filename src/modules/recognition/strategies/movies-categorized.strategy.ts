@@ -4,11 +4,9 @@ import { YEAR_FOLDER_PATTERN } from "../utils/recognition.constants";
 import { parseFileName } from "../utils/recognition.utils";
 
 export class MoviesCategorizedStrategy implements RecognitionStrategy {
-	readonly name = "movies-categorized";
-
 	recognize(ctx: PathContext): RecognitionResult | null {
-		const { parentFolder, fileName, parts } = ctx;
-		if (!(parentFolder && fileName) || parts.length < 2) return null;
+		const { parentFolder, fileName } = ctx;
+		if (!(parentFolder && fileName)) return null;
 
 		// If parent folder is generic (e.g. /movies/ or /filmy/), let MoviesBasicStrategy parse the filename
 		if (GENERIC_FOLDER_NAMES.test(parentFolder.trim())) {

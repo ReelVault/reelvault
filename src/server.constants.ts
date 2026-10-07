@@ -267,11 +267,6 @@ export const serverConstants = {
 			globalMax: env.REELVAULT_RATE_LIMIT_GLOBAL_MAX ?? 1000,
 			globalWindowMs: MINUTE,
 			routeMultiplier: env.REELVAULT_RATE_LIMIT_ROUTE_MULTIPLIER ?? 1,
-			tiers: {
-				anonymous: { max: 1000, windowMs: MINUTE },
-				authenticated: { max: 5000, windowMs: MINUTE },
-				admin: { max: 10_000, windowMs: MINUTE },
-			},
 		},
 		openapi: {
 			enabled: env.OPENAPI_DOCS_ENABLED === "true",

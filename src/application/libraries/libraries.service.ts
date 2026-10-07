@@ -223,10 +223,20 @@ class LibrariesService extends BaseService {
 		});
 	}
 
+	/**
+	 * Existence-checked read for internal scan paths. `getById` also loads the
+	 * provider-priority overrides, which none of these callers use.
+	 */
+	private async getLibraryForScan<F extends string>(libraryId: string, query: FieldsQuery<F>) {
+		const library = await librariesRepository.findByIdForRead(libraryId, query);
+		this.assertExists(library, "Library", libraryId);
+
+		return library;
+	}
+
 	async scan(libraryId: string, context?: AdminAuditContext) {
 		return await this.safeExecute("scan", async () => {
-			const library = await this.getById(libraryId, { fields: "id,paths.path" });
-			this.assertExists(library, "Library", libraryId);
+			const library = await this.getLibraryForScan(libraryId, { fields: "id,paths.path" });
 
 			const data = {
 				libraryId: library.id,
@@ -251,8 +261,7 @@ class LibrariesService extends BaseService {
 
 	async scanPath(libraryId: string, pathId: string, context?: AdminAuditContext) {
 		return await this.safeExecute("scanPath", async () => {
-			const library = await this.getById(libraryId, { fields: "id,paths.id,paths.path,paths.isActive" });
-			this.assertExists(library, "Library", libraryId);
+			const library = await this.getLibraryForScan(libraryId, { fields: "id,paths.id,paths.path,paths.isActive" });
 
 			const path = library.paths.find((item) => item.id === pathId && item.isActive);
 			this.assertExists(path, "Library path", pathId);
@@ -279,8 +288,7 @@ class LibrariesService extends BaseService {
 
 	async getScanFindings(libraryId: string): Promise<ScanFindingItem[]> {
 		return await this.safeExecute("getScanFindings", async () => {
-			const library = await this.getById(libraryId, { fields: "id" });
-			this.assertExists(library, "Library", libraryId);
+			await this.getLibraryForScan(libraryId, { fields: "id" });
 
 			return await scanFindingsRepository.list(libraryId);
 		});
@@ -292,10 +300,11 @@ class LibrariesService extends BaseService {
 			if (normalizedPaths.length === 0) throw new ValidationError("At least one library path is required");
 
 			const data: LibraryErrorsCheckData = { libraryPaths: normalizedPaths };
+			const dedupeKey = createLibraryErrorsCheckDedupeKey(normalizedPaths);
 			const enqueued = await enqueueDeduped({
-				targets: [{ workerId: "library-errors-check", dedupeKey: createLibraryErrorsCheckDedupeKey(normalizedPaths) }],
+				targets: [{ workerId: "library-errors-check", dedupeKey }],
 				type: "library-errors-check",
-				reference: { type: "library-errors", id: createLibraryErrorsCheckDedupeKey(normalizedPaths) },
+				reference: { type: "library-errors", id: dedupeKey },
 				label: "library error check",
 				enqueue: (operationId) => enqueueLibraryErrorsCheck(data, { operationId }),
 			});

@@ -188,6 +188,8 @@ class AdminService extends BaseService {
 				adminLogsService.getLogs({ level: "warn,error,fatal", limit: 6 }),
 			]);
 
+			const installType = updateInstallService.getInstallType();
+
 			return {
 				stats,
 				libraries: libraries.data,
@@ -198,8 +200,8 @@ class AdminService extends BaseService {
 					serverVersion: SERVER_VERSION,
 					webVersion: resolveWebVersion(),
 					...updateState,
-					installType: updateInstallService.getInstallType(),
-					flavor: updateInstallService.getInstallType() === "archive" ? updateInstallService.getFlavor() : null,
+					installType,
+					flavor: installType === "archive" ? updateInstallService.getFlavor() : null,
 					serverRollbackAvailable: updateInstallService.isRollbackAvailable("server"),
 					webRollbackAvailable: updateInstallService.isRollbackAvailable("web"),
 					serverLastError: updateInstallService.getLastError("server") ?? updateState.serverLastError,

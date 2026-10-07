@@ -254,8 +254,8 @@ class MetadataService extends BaseService {
 				mediaFiles: mediaFilesByEpisodeId.get(ep.id) ?? [],
 			}));
 
-			const episodesForGrouping: typeof enrichedEpisodes = isTv ? enrichedEpisodes : [];
-			const episodesBySeason = groupBy(episodesForGrouping, (ep) => ep.seasonId);
+			// `episodesResult` is empty for non-TV metadata, so no extra guard here.
+			const episodesBySeason = groupBy(enrichedEpisodes, (ep) => ep.seasonId);
 			const seasonsWithEpisodes: SeasonWithEpisodes[] = seasonsResult.map((season) => ({
 				...season,
 				episodes: episodesBySeason.get(season.id) ?? [],

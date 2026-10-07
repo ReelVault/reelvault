@@ -15,6 +15,5 @@ export interface RecognitionResult {
 }
 
 export interface RecognitionStrategy {
-	readonly name: string;
 	recognize(context: PathContext): RecognitionResult | null;
 }

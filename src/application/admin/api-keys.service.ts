@@ -121,8 +121,9 @@ class ApiKeysService extends BaseService {
 
 	/** Resolves the owner of a presented key, or undefined when unknown or expired. */
 	async authenticate(rawKey: string): Promise<AuthenticatedApiKey | undefined> {
-		const cacheKey = hashKey(rawKey);
-		const cached = authenticateCache.get(cacheKey);
+		// One hash serves both the cache key and the stored-hash lookup.
+		const keyHash = hashKey(rawKey);
+		const cached = authenticateCache.get(keyHash);
 		if (cached) return cached;
 
 		const rows = await databaseFactory
@@ -137,7 +138,7 @@ class ApiKeysService extends BaseService {
 			})
 			.from(apiKeys)
 			.innerJoin(users, eq(users.id, apiKeys.createdBy))
-			.where(and(eq(apiKeys.keyHash, hashKey(rawKey)), or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date()))))
+			.where(and(eq(apiKeys.keyHash, keyHash), or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date()))))
 			.limit(1);
 
 		const row = rows[0];
@@ -150,7 +151,7 @@ class ApiKeysService extends BaseService {
 			scope: toScope(row.scope),
 			user: { id: row.userId, name: row.userName, email: row.userEmail, role: row.userRole },
 		};
-		authenticateCache.set(cacheKey, authenticated);
+		authenticateCache.set(keyHash, authenticated);
 
 		return authenticated;
 	}

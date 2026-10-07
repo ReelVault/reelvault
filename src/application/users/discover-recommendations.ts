@@ -231,7 +231,7 @@ export async function buildTrending(
 
 	if (validActivity.length === 0) {
 		// Cold start: no server-wide activity yet — popularity-sorted recentlyAdded.
-		return [...recentlyAdded].toSorted((a, b) => b.popularity - a.popularity).slice(0, limit);
+		return recentlyAdded.toSorted((a, b) => b.popularity - a.popularity).slice(0, limit);
 	}
 
 	// Find max values for normalisation (avoid division by zero).

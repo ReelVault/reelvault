@@ -48,7 +48,8 @@ async function fetchMissingEpisodeMap(
 	const fetchedEpisodes = new Map<number, ProviderEpisodeResult[]>();
 	if (!fetchMissingEpisodes || seasonsNeedingFetch.length === 0) return fetchedEpisodes;
 
-	const results = await Promise.allSettled(
+	// The mapper swallows provider failures per season, so `all` cannot reject.
+	const results = await Promise.all(
 		seasonsNeedingFetch.map(async (s) => {
 			try {
 				const eps = await fetchMissingEpisodes(s.seasonNumber);
@@ -63,15 +64,8 @@ async function fetchMissingEpisodeMap(
 			}
 		}),
 	);
-	for (const r of results) {
-		if (r.status === "rejected") {
-			logger.warn("Provider episode fetch rejected — season left as-is", { error: errorMessage(r.reason) });
-			continue;
-		}
-
-		if (r.value.eps) {
-			fetchedEpisodes.set(r.value.seasonNumber, r.value.eps);
-		}
+	for (const result of results) {
+		if (result.eps) fetchedEpisodes.set(result.seasonNumber, result.eps);
 	}
 
 	return fetchedEpisodes;

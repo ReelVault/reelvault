@@ -2,8 +2,6 @@ import type { PathContext, RecognitionResult, RecognitionStrategy } from "../rec
 import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "../utils/recognition.utils";
 
 export class SeriesBasicStrategy implements RecognitionStrategy {
-	readonly name = "series-basic";
-
 	recognize(ctx: PathContext): RecognitionResult | null {
 		const { parentFolder, fileName } = ctx;
 		if (!(parentFolder && fileName)) return null;
