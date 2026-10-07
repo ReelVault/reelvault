@@ -28,6 +28,23 @@ describe("plugin sdk shim", () => {
 		}
 	});
 
+	test("memoises a successful materialisation per plugins directory", async () => {
+		const pluginsDirectory = await mkdtemp(join(tmpdir(), `reelvault-plugin-shim-memo-${process.pid}-`));
+		try {
+			await ensurePluginSdkShim(pluginsDirectory);
+			const shimManifest = join(pluginsDirectory, "node_modules", "@reelvault", "sdk", "package.json");
+			expect(await Bun.file(shimManifest).exists()).toBeTrue();
+
+			// The second call is memoised: it must not re-materialise a removed file
+			// (the shim is recreated on the next boot, not on every load).
+			await rm(shimManifest);
+			await ensurePluginSdkShim(pluginsDirectory);
+			expect(await Bun.file(shimManifest).exists()).toBeFalse();
+		} finally {
+			await rm(pluginsDirectory, { recursive: true, force: true });
+		}
+	});
+
 	test("exposes the ui/schema subpath through the shim", async () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), `reelvault-plugin-shim-schema-${process.pid}-`));
 		try {

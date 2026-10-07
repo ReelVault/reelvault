@@ -20,6 +20,7 @@ import { pluginRepositoriesRepository } from "@/database/repositories/plugin-rep
 import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { materializePluginRuntime, pluginRuntimeRoot } from "@/plugins/lifecycle/plugin-runtime-copy";
+import { ensurePluginSdkShim } from "@/plugins/lifecycle/plugin-sdk-alias";
 import { PluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { FileUtils } from "@/utils/file.utils";
@@ -340,6 +341,32 @@ if (!args.help) {
 			for (const [target, byMethod] of originals) {
 				for (const [method, value] of byMethod) Reflect.set(target, method, value);
 			}
+		}
+
+		return { ok: true };
+	});
+
+	// Every plugin load calls the SDK shim ensurer; after the first pass it must
+	// not re-walk the server root and re-read every shim file.
+	task("plugins: sdk shim ensure", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "rv-sdk-shim-"));
+		try {
+			await ensurePluginSdkShim(directory); // cold materialisation
+			const samples: number[] = [];
+			for (let run = 0; run < 20; run++) {
+				const startedAt = performance.now();
+				await ensurePluginSdkShim(directory);
+				samples.push(performance.now() - startedAt);
+			}
+
+			const stats = summarizeLatencies(samples);
+			printTable(
+				"SDK shim ensure, warm (per plugin load)",
+				["p50", "p95", "max"],
+				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+			);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
 		}
 
 		return { ok: true };

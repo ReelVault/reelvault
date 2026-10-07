@@ -130,6 +130,7 @@ Structural wins and ranged measurements that have no single numeric pair are lis
 | Scanner | `matchesIgnorePattern`, 500 paths × 3 patterns | 0.86 ms | 0.21 ms | -76% |
 | Scanner | `isVideoFile`, 1,000 lookups | 0.65 ms | 0.10 ms | -85% |
 | Plugins | Catalog cold load, 3 repositories × 100 ms round-trip | 300.8 ms | 100.3 ms | -67% |
+| Plugins | SDK shim ensure, warm (per plugin load) | 0.12 ms | <0.01 ms | ≈-100% |
 | Plugins | Runtime mirroring, 2,000 files / 50 dirs | 28.05 ms | 6.2 ms | -78% |
 | Plugins | Artifact quota totals, 1,000 files | 10.10 ms | 1.13 ms | -89% |
 | Plugins | Trickplay e2e — regression check | 524.0 ms | 523.6 ms | ≈0% |

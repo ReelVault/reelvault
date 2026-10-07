@@ -35,13 +35,34 @@ const SDK_SHIM_ENTRIES = [
  * re-exports the server's own installed SDK files, so every plugin shares one
  * SDK identity (important for `instanceof PluginHookRejection`).
  */
+/**
+ * Successful materialisations per plugins directory, memoised for the process:
+ * every plugin load/enable/reload calls the ensurer, but the shim only changes
+ * with the server install (restart) or external deletion (recreated on boot).
+ * Failed attempts are dropped so the next load retries.
+ */
+const shimAttempts = new Map<string, Promise<boolean>>();
+
 export async function ensurePluginSdkShim(pluginsDirectory: string): Promise<void> {
+	const attempt = shimAttempts.get(pluginsDirectory);
+	if (attempt) {
+		await attempt;
+
+		return;
+	}
+
+	const pending = materializePluginSdkShim(pluginsDirectory);
+	shimAttempts.set(pluginsDirectory, pending);
+	if (!(await pending)) shimAttempts.delete(pluginsDirectory);
+}
+
+async function materializePluginSdkShim(pluginsDirectory: string): Promise<boolean> {
 	const logger = createLogger("PluginSdkAlias");
 	const serverRoot = findServerRoot();
 	if (!serverRoot) {
 		logger.warn("Could not locate the server package root — plugins importing the SDK by name may fail to load");
 
-		return;
+		return false;
 	}
 
 	const sdkRoot = join(serverRoot, "node_modules", "@reelvault", "sdk");
@@ -61,7 +82,7 @@ export async function ensurePluginSdkShim(pluginsDirectory: string): Promise<voi
 	if (files.length === 0) {
 		logger.warn("No SDK build found — plugins importing the SDK by name may fail to load", { sdkRoot });
 
-		return;
+		return false;
 	}
 
 	const manifest = { name: "@reelvault/sdk", version: "1.0.0", type: "module", exports: exportsMap };
@@ -75,11 +96,15 @@ export async function ensurePluginSdkShim(pluginsDirectory: string): Promise<voi
 		}
 
 		logger.info("Plugin SDK runtime shim ready", { shimDir });
+
+		return true;
 	} catch (error) {
 		logger.warn("Could not create the plugin SDK shim — plugins importing the SDK by name may fail to load", {
 			shimDir,
 			error: error instanceof Error ? error.message : String(error),
 		});
+
+		return false;
 	}
 }
 
