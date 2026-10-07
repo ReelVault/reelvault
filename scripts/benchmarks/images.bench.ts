@@ -1,8 +1,13 @@
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+	benchmarkAsync,
 	fmtMs,
 	type HttpScenarioResult,
 	main,
 	printHttpResults,
+	printMicroResults,
 	printTable,
 	runRequestScenario,
 	suiteArgs,
@@ -27,6 +32,38 @@ const args = suiteArgs();
 
 if (!args.help) {
 	const serverFixture = suiteServerFixture(args);
+
+	// Local sidecar artwork is copied to a temp source before Sharp reads it.
+	// Characterise routing the bytes through JS versus a kernel copy.
+	task("images: local artwork copy", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-image-copy-"));
+		try {
+			const source = join(directory, "source.jpg");
+			await writeFile(source, Buffer.alloc(20 * 1024 * 1024, 1));
+
+			const results = [
+				await benchmarkAsync(
+					"readFile + writeFile (20 MB)",
+					async () => {
+						await writeFile(join(directory, "via-buffer.jpg"), await readFile(source));
+					},
+					{ warmup: 2, iterations: 10 },
+				),
+				await benchmarkAsync(
+					"copyFile (20 MB)",
+					async () => {
+						await copyFile(source, join(directory, "via-copy.jpg"));
+					},
+					{ warmup: 2, iterations: 10 },
+				),
+			];
+			printMicroResults(results, "Local artwork staging (20 MB file)");
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+
+		return { ok: true };
+	});
 
 	task("images: pipeline", async () => {
 		const managed = await serverFixture();

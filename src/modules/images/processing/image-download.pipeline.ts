@@ -1,4 +1,4 @@
-import { readFile, rename } from "node:fs/promises";
+import { copyFile, rename } from "node:fs/promises";
 import type { ImageOwnerTarget, PersistedImageInput } from "@/database/repositories/images.repository";
 import { getImageMetadata, type OptimizedImageResult, optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
@@ -15,7 +15,7 @@ import { getContentType } from "./content-types";
 
 interface ServiceDependencies {
 	download: typeof FileUtils.download;
-	readLocalFile: (path: string) => Promise<Buffer>;
+	copyLocalFile: (from: string, to: string) => Promise<void>;
 	getImageMetadata: (filePath: string) => Promise<{ format: string }>;
 	optimizeImageWithInfo: (input: string, options: SharpImageOptions, signal?: AbortSignal) => Promise<OptimizedImageResult>;
 	writeFile: (path: string, content: Buffer) => Promise<boolean>;
@@ -30,7 +30,7 @@ interface ServiceDependencies {
 
 const defaultDependencies: ServiceDependencies = {
 	download: (url, destination, options) => FileUtils.download(url, destination, options),
-	readLocalFile: (path) => readFile(path),
+	copyLocalFile: (from, to) => copyFile(from, to),
 	getImageMetadata: (filePath) => getImageMetadata(filePath),
 	optimizeImageWithInfo: (input, options, signal) => optimizeImageWithInfo(input, options, signal),
 	writeFile: (path, content) => FileUtils.write(path, content),
@@ -128,9 +128,9 @@ export class ImageDownloadPipeline extends BaseService {
 		return { ...source, ...placed };
 	}
 
-	/** Copies a local artwork file to the temp source path. */
+	/** Copies a local artwork file to the temp source path (kernel copy, no JS buffer). */
 	private async copySource(sourceFilePath: string, sourcePath: string): Promise<void> {
-		await this.dependencies.writeFile(sourcePath, await this.dependencies.readLocalFile(sourceFilePath));
+		await this.dependencies.copyLocalFile(sourceFilePath, sourcePath);
 		await this.assertRecognizedImage(sourcePath, `Local file has no recognized image format: ${sourceFilePath}`);
 	}
 

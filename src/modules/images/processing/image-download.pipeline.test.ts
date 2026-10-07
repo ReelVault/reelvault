@@ -23,7 +23,7 @@ interface PipelineSpies {
 	renamed: Array<[string, string]>;
 	createdDirectories: string[];
 	existingPaths: Set<string>;
-	localReads: string[];
+	localCopies: Array<{ from: string; to: string }>;
 }
 
 function createPipeline(config: PipelineConfig = {}): { pipeline: ImageDownloadPipeline; spies: PipelineSpies } {
@@ -33,7 +33,7 @@ function createPipeline(config: PipelineConfig = {}): { pipeline: ImageDownloadP
 		renamed: [],
 		createdDirectories: [],
 		existingPaths: new Set(),
-		localReads: [],
+		localCopies: [],
 	};
 	const pipeline = new ImageDownloadPipeline({
 		download: async (url, destination, downloadOptions) => {
@@ -50,10 +50,10 @@ function createPipeline(config: PipelineConfig = {}): { pipeline: ImageDownloadP
 				return false;
 			}
 		},
-		readLocalFile: (path: string) => {
-			spies.localReads.push(path);
+		copyLocalFile: (from: string, to: string) => {
+			spies.localCopies.push({ from, to });
 
-			return Promise.resolve(DATA);
+			return Promise.resolve();
 		},
 		getImageMetadata: async () => ({ format: config.metadataFormat ?? "png" }),
 		optimizeImageWithInfo: async () => ({ data: DATA, info: { format: "webp", width: 320, height: 240, size: DATA.byteLength } }),
@@ -155,7 +155,7 @@ describe("ImageDownloadPipeline", () => {
 		const result = await pipeline.prepareLocalArtwork("/media/Movie/folder.jpg", TARGET, "poster", "poster");
 
 		expect(spies.downloads).toEqual([]);
-		expect(spies.localReads).toEqual(["/media/Movie/folder.jpg"]);
+		expect(spies.localCopies).toEqual([{ from: "/media/Movie/folder.jpg", to: expect.any(String) }]);
 		expect(result).toEqual({
 			contentType: "image/webp",
 			width: 320,
