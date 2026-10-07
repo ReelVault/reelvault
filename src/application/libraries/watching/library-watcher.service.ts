@@ -32,6 +32,7 @@ export interface WatcherFailureInfo {
 
 interface WatcherFailureEntry extends WatcherFailureInfo {
 	notified: boolean;
+	fallbackTimer: unknown;
 }
 
 const WATCHER_FAILURE_NOTIFICATION_TYPE = "library_watcher_unavailable";
@@ -46,13 +47,18 @@ async function notifyAdminsOfWatcherFailure(failure: WatcherFailureInfo): Promis
 		import("@/database/repositories/users.repository"),
 	]);
 	const admins = await usersRepository.findAllAdministrators();
+	const fallbackMinutes = serverConfig.scanning.watcherFallbackIntervalMinutes;
+	const message =
+		fallbackMinutes > 0
+			? `ReelVault could not watch this library path (${failure.reason}). It will be rescanned automatically every ${fallbackMinutes} minutes until it recovers.`
+			: `ReelVault could not watch this library path (${failure.reason}). New files may not appear until a scan runs.`;
 	for (const admin of admins) {
 		await notificationsService.create(
 			{
 				userId: admin.id,
 				type: WATCHER_FAILURE_NOTIFICATION_TYPE,
 				title: `Real-time watching unavailable for ${failure.path}`,
-				message: `ReelVault could not watch this library path (${failure.reason}). New files may not appear until a scan runs.`,
+				message,
 				data: { libraryId: failure.libraryId, pathId: failure.pathId, path: failure.path, reason: failure.reason },
 				link: "/admin/libraries",
 			},
@@ -251,9 +257,18 @@ export class LibraryWatcherService extends BaseService {
 			return;
 		}
 
-		const entry: WatcherFailureEntry = { libraryId, pathId, path, reason, since: this.clock.now(), notified: false };
+		const entry: WatcherFailureEntry = {
+			libraryId,
+			pathId,
+			path,
+			reason,
+			since: this.clock.now(),
+			notified: false,
+			fallbackTimer: null,
+		};
 		this.failures.set(pathId, entry);
 		this.logger.error("Real-time watching unavailable for library path", { libraryId, pathId, path, reason });
+		this.armFallback(entry);
 
 		entry.notified = true;
 		try {
@@ -263,8 +278,59 @@ export class LibraryWatcherService extends BaseService {
 		}
 	}
 
+	/** Schedules the next periodic fallback scan for an unwatchable path (0 = disabled). */
+	private armFallback(entry: WatcherFailureEntry): void {
+		const intervalMinutes = serverConfig.scanning.watcherFallbackIntervalMinutes;
+		if (intervalMinutes <= 0) return;
+
+		entry.fallbackTimer = this.clock.setTimeout(() => this.runFallback(entry.pathId), intervalMinutes * 60_000);
+		this.clock.unrefTimer?.(entry.fallbackTimer);
+	}
+
+	/**
+	 * Rescans a path whose watcher is unavailable, then re-arms. Never throws:
+	 * the timer callback owns the promise, and a failing scan must not kill the
+	 * schedule (the reconcile loop clears the failure on recovery).
+	 */
+	private async runFallback(pathId: string): Promise<void> {
+		try {
+			const entry = this.failures.get(pathId);
+			if (!entry) return;
+
+			if (this.isShuttingDown || !serverConfig.scanning.autoWatcherEnabled) return;
+
+			// Server rescue pauses background work — re-check soon instead of scanning.
+			if (serverRescueService.isThrottling()) {
+				entry.fallbackTimer = this.clock.setTimeout(() => this.runFallback(pathId), RESCUE_RECHECK_MS);
+				this.clock.unrefTimer?.(entry.fallbackTimer);
+
+				return;
+			}
+
+			this.logger.info("Running fallback scan for a path without a real-time watcher", {
+				libraryId: entry.libraryId,
+				pathId,
+				path: entry.path,
+			});
+
+			try {
+				await this.scanPathFn?.(entry.libraryId, pathId);
+			} catch (error) {
+				this.logger.error("Fallback scan for an unwatchable library path failed", error, { libraryId: entry.libraryId, pathId });
+			}
+
+			this.armFallback(entry);
+		} catch (error) {
+			this.logger.error("Fallback scan scheduling failed", error, { pathId });
+		}
+	}
+
 	/** Drops the failure state for a path (watcher recovered or path removed). */
 	private clearFailure(pathId: string): void {
+		const entry = this.failures.get(pathId);
+		if (!entry) return;
+
+		if (entry.fallbackTimer !== null) this.clock.clearTimeout(entry.fallbackTimer);
 		this.failures.delete(pathId);
 	}
 
@@ -425,6 +491,11 @@ export class LibraryWatcherService extends BaseService {
 
 		this.pendingScans.clear();
 		this.cooldowns.clear();
+
+		for (const entry of this.failures.values()) {
+			if (entry.fallbackTimer !== null) this.clock.clearTimeout(entry.fallbackTimer);
+		}
+
 		this.failures.clear();
 	}
 

@@ -6,6 +6,9 @@ export const SCANNING_SETTINGS_DEFINITIONS = {
 	"scanning.autoWatcherEnabled": creator.boolean("scanning.autoWatcherEnabled", true),
 	"scanning.autoWatcherDelaySeconds": creator.number("scanning.autoWatcherDelaySeconds", 2, 600, 30),
 	"scanning.autoWatcherCooldownSeconds": creator.number("scanning.autoWatcherCooldownSeconds", 0, 3600, 120),
+	// NAS/NFS paths and inotify-exhausted hosts can fail to watch; those paths are
+	// rescanned on this interval so new files still appear. 0 disables the fallback.
+	"scanning.watcherFallbackIntervalMinutes": creator.number("scanning.watcherFallbackIntervalMinutes", 0, 1440, 30),
 
 	// 0 = auto: derived from measured CPU capacity (see system-resources.service).
 	// A static default here would bypass the hardware-adaptive sizing entirely.

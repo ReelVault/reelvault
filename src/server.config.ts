@@ -157,6 +157,10 @@ export const serverConfig = {
 		get autoWatcherCooldownSeconds() {
 			return systemSettingsStore.get("scanning.autoWatcherCooldownSeconds");
 		},
+
+		get watcherFallbackIntervalMinutes() {
+			return systemSettingsStore.get("scanning.watcherFallbackIntervalMinutes");
+		},
 		get concurrency() {
 			return systemSettingsStore.get("scanning.concurrency");
 		},

@@ -273,7 +273,8 @@ describe("LibraryWatcherService", () => {
 	test("clears the failure once the path becomes watchable again", async () => {
 		const tempDir = PathUtils.join(tmpdir(), `rv-test-watcher-recovery-${Date.now()}`);
 		mkdirSync(tempDir, { recursive: true });
-		const { service, cleanup } = createHarness();
+		const { service, clock, scanCalls, cleanup } = createHarness();
+		systemSettingsStore.setRuntimeValue("scanning.watcherFallbackIntervalMinutes", 10);
 		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
 			{ id: "path-1", libraryId: "lib-1", path: "/non/existent/rv-recovery", isActive: true },
 		]);
@@ -281,12 +282,18 @@ describe("LibraryWatcherService", () => {
 		try {
 			await service.syncWatchers();
 			expect(service.getUnwatchablePaths()).toHaveLength(1);
+			expect(clock.scheduledCount).toBe(1);
 
 			pathSpy.mockResolvedValue([{ id: "path-1", libraryId: "lib-1", path: tempDir, isActive: true }]);
 			await service.syncWatchers();
 
 			expect(service.getUnwatchablePaths()).toEqual([]);
 			expect(service.getActiveWatcherCount()).toBe(1);
+			// Recovery cancels the fallback schedule.
+			expect(clock.scheduledCount).toBe(0);
+
+			await clock.advance(60 * 60_000);
+			expect(scanCalls).toEqual([]);
 		} finally {
 			pathSpy.mockRestore();
 			rmSync(tempDir, { recursive: true, force: true });
@@ -308,6 +315,93 @@ describe("LibraryWatcherService", () => {
 			await service.syncWatchers();
 
 			expect(service.getUnwatchablePaths()).toEqual([]);
+		} finally {
+			pathSpy.mockRestore();
+			cleanup();
+		}
+	});
+
+	test("periodically rescans a path without a real-time watcher", async () => {
+		const { service, clock, scanCalls, cleanup } = createHarness();
+		systemSettingsStore.setRuntimeValue("scanning.watcherFallbackIntervalMinutes", 10);
+		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
+			{ id: "path-gone", libraryId: "lib-1", path: "/non/existent/rv-fallback", isActive: true },
+		]);
+
+		try {
+			await service.syncWatchers();
+			expect(scanCalls).toEqual([]);
+
+			await clock.advance(10 * 60_000);
+			expect(scanCalls).toEqual([{ libraryId: "lib-1", pathId: "path-gone" }]);
+
+			// The schedule re-arms after every fallback scan.
+			await clock.advance(10 * 60_000);
+			expect(scanCalls).toHaveLength(2);
+		} finally {
+			pathSpy.mockRestore();
+			cleanup();
+		}
+	});
+
+	test("fallback scans wait out server rescue throttling", async () => {
+		let throttling = true;
+		const { service, clock, scanCalls, cleanup } = createHarness({ rescue: () => throttling });
+		systemSettingsStore.setRuntimeValue("scanning.watcherFallbackIntervalMinutes", 10);
+		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
+			{ id: "path-gone", libraryId: "lib-1", path: "/non/existent/rv-fallback-rescue", isActive: true },
+		]);
+
+		try {
+			await service.syncWatchers();
+
+			await clock.advance(10 * 60_000);
+			expect(scanCalls).toEqual([]);
+
+			throttling = false;
+			await clock.advance(5_000);
+			expect(scanCalls).toHaveLength(1);
+		} finally {
+			pathSpy.mockRestore();
+			cleanup();
+		}
+	});
+
+	test("no fallback scans when the interval is disabled", async () => {
+		const { service, clock, scanCalls, cleanup } = createHarness();
+		systemSettingsStore.setRuntimeValue("scanning.watcherFallbackIntervalMinutes", 0);
+		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
+			{ id: "path-gone", libraryId: "lib-1", path: "/non/existent/rv-fallback-off", isActive: true },
+		]);
+
+		try {
+			await service.syncWatchers();
+			expect(clock.scheduledCount).toBe(0);
+
+			await clock.advance(60 * 60_000);
+			expect(scanCalls).toEqual([]);
+		} finally {
+			pathSpy.mockRestore();
+			cleanup();
+		}
+	});
+
+	test("shutdown cancels the fallback schedule", async () => {
+		const { service, clock, scanCalls, cleanup } = createHarness();
+		systemSettingsStore.setRuntimeValue("scanning.watcherFallbackIntervalMinutes", 10);
+		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
+			{ id: "path-gone", libraryId: "lib-1", path: "/non/existent/rv-fallback-shutdown", isActive: true },
+		]);
+
+		try {
+			await service.syncWatchers();
+			expect(clock.scheduledCount).toBe(1);
+
+			service.shutdown();
+			expect(clock.scheduledCount).toBe(0);
+
+			await clock.advance(60 * 60_000);
+			expect(scanCalls).toEqual([]);
 		} finally {
 			pathSpy.mockRestore();
 			cleanup();
