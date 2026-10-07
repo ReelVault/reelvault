@@ -3,7 +3,7 @@ import type { AdminAuditContext } from "@/database/repositories/admin-audit.repo
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { trimAndFilter, unique } from "@/utils/array.utils";
-import { ValidationError } from "@/utils/errors";
+import { ConflictError, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { enqueueManyMetadataRefresh, enqueueMetadataRefresh } from "@/workers/definitions/metadata/metadata-refresh.worker";
 import { batchChunks } from "@/workers/utils/batch-chunker";
@@ -58,19 +58,31 @@ class MetadataRefreshQueueService {
 		const { operationId, result: count } = await workerService.enqueueUnderOperation(
 			{ type: "metadata-refresh-all", reference: { type: "metadata-all", id: "all" } },
 			async (opId) => {
+				// A concurrent "refresh all" dedupes every item onto its operation;
+				// without this flag the fresh operation would linger empty and the
+				// client would poll an operation that never receives jobs. A boxed
+				// flag keeps the assignment inside the page callback visible.
+				const attachment = { attached: false };
 				const enqueued = await collectKeysetPages({
 					pageSize: METADATA_REFRESH_ENQUEUE_PAGE_SIZE,
 					fetchPage: (cursor) => metadataRepository.findIdsPage(cursor, METADATA_REFRESH_ENQUEUE_PAGE_SIZE),
 					onPage: async (rows) => {
-						await enqueueManyMetadataRefresh(
+						const stored = await enqueueManyMetadataRefresh(
 							rows.map(({ id }) => ({ metadataId: id })),
 							{ operationId: opId },
 						);
+						if (stored.some((item) => item.operationId === opId)) attachment.attached = true;
 					},
 				});
 
 				if (enqueued === 0) {
 					throw new ValidationError("No metadata to refresh", { code: "admin.metadata.refresh_empty" });
+				}
+
+				if (!attachment.attached) {
+					throw new ConflictError("A metadata refresh is already in progress", {
+						code: "admin.metadata.refresh_in_progress",
+					});
 				}
 
 				return enqueued;
@@ -108,12 +120,20 @@ class MetadataRefreshQueueService {
 			{ type: "metadata-refresh-all", reference: { type: "metadata-all", id: "batch" } },
 			async (opId) => {
 				let enqueued = 0;
+				let attached = false;
 				for (const { items: page } of batchChunks(ids, METADATA_REFRESH_ENQUEUE_PAGE_SIZE)) {
-					await enqueueManyMetadataRefresh(
+					const stored = await enqueueManyMetadataRefresh(
 						page.map((metadataId) => ({ metadataId })),
 						{ operationId: opId },
 					);
+					attached ||= stored.some((item) => item.operationId === opId);
 					enqueued += page.length;
+				}
+
+				if (!attached) {
+					throw new ConflictError("The requested metadata refresh is already in progress", {
+						code: "admin.metadata.refresh_in_progress",
+					});
 				}
 
 				return enqueued;

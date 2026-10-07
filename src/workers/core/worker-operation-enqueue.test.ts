@@ -82,4 +82,22 @@ describe("enqueueWithOperation failure cleanup", () => {
 		expect(cancelledOperations).toEqual([]);
 		expect(removedOperations).toEqual([]);
 	});
+
+	test("removes a fresh operation whose enqueue deduped onto another one", async () => {
+		const result = await enqueueWithOperation({ type: "test-worker" }, () => Promise.resolve("winner-op"), {
+			isAttached: (enqueuedOperationId, operationId) => enqueuedOperationId === operationId,
+		});
+
+		expect(result).toEqual({ operationId: "op-1", result: "winner-op" });
+		expect(removedOperations).toEqual(["op-1"]);
+		expect(cancelledOperations).toEqual([]);
+	});
+
+	test("keeps the fresh operation when the enqueue attached to it", async () => {
+		await enqueueWithOperation({ type: "test-worker" }, (operationId) => Promise.resolve(operationId), {
+			isAttached: (enqueuedOperationId, operationId) => enqueuedOperationId === operationId,
+		});
+
+		expect(removedOperations).toEqual([]);
+	});
 });

@@ -113,7 +113,12 @@ class PluginJobsService extends BaseService {
 		const { operationId, result: queuedItem } = await enqueueWithOperation(
 			{ type: namespacedName, reference: options?.reference ?? { type: "plugin", id: pluginId } },
 			(opId) => workerService.addItem(namespacedName, data, { ...options, operationId: opId }),
-			{ operationId: options?.operationId },
+			{
+				operationId: options?.operationId,
+				// A dedupe hit keeps the existing row (and its operation) — drop the
+				// fresh operation instead of leaving an empty `pending` one behind.
+				isAttached: (item, opId) => item.operationId === opId,
+			},
 		);
 
 		return { id: queuedItem.id, name, operationId };
@@ -145,7 +150,11 @@ class PluginJobsService extends BaseService {
 						},
 					})),
 				),
-			{ operationId: commonOptions?.operationId },
+			{
+				operationId: commonOptions?.operationId,
+				// Only drop the fresh operation when every item deduped onto others.
+				isAttached: (queued, opId) => queued.some((item) => item.operationId === opId),
+			},
 		);
 
 		return queuedItems.map((item) => ({ id: item.id, name, operationId }));

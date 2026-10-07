@@ -222,8 +222,10 @@ class WorkerService extends BaseService {
 	async enqueueUnderOperation<T>(
 		input: { type: string; reference?: { type: string; id: string } },
 		enqueue: (operationId: string) => Promise<T>,
+		/** `isAttached` lets the helper drop a fresh operation whose enqueue deduped onto another one. */
+		options: { isAttached?: ((result: T, operationId: string) => boolean) | undefined } = {},
 	): Promise<{ operationId: string; result: T }> {
-		return await enqueueWithOperation(input, enqueue);
+		return await enqueueWithOperation(input, enqueue, options);
 	}
 
 	getOperation(id: string) {

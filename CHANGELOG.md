@@ -78,6 +78,7 @@
 - **Resumed operations could be deleted with all their jobs** — the daily retention sweep selected expired operations without checking their status, and resuming an operation kept its terminal retention deadline. An operation resumed after the retention window was deleted (with its jobs) while still running. The sweep now only considers terminal operations, and resuming clears the deadline.
 - **Cancelling running jobs could corrupt operation counters** — the bulk cancel counted running jobs before the update and applied those counts outside a transaction, so a job that finished mid-cancel was counted as cancelled as well (`completed + cancelled > total`). The row transition and its counter update now share one transaction.
 - **Cancelled streaming sessions could come back to life** — a late ffmpeg attach unconditionally reset the operation to `running`, and a natural EOF on a cancelled stream flipped it to `completed`. Both lifecycle events now respect a cancellation, so a killed session stays terminal.
+- **Deduplicated enqueues left phantom operations behind** — when two triggers (double-clicked scan, watcher + manual scan, two "refresh all" requests, repeated plugin job) raced, the loser's operation stayed `pending` with zero jobs forever, and the metadata refresh-all path could even return an operation that owned nothing. Orphaned operations are now removed, and a fully deduplicated refresh answers `409 admin.metadata.refresh_in_progress`.
 
 ### Performance
 

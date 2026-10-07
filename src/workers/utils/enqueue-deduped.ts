@@ -57,6 +57,9 @@ export async function enqueueDeduped(options: {
 
 				return enqueued.operationId;
 			},
+			// A dedupe hit attaches to the winning operation; the fresh operation
+			// this helper created owns no jobs and must not linger `pending`.
+			{ isAttached: (enqueuedOperationId, attachedOperationId) => enqueuedOperationId === attachedOperationId },
 		);
 
 		return { success: true, operationId, status: "pending" };
