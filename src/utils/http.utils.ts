@@ -49,6 +49,12 @@ export function getResponseStatus(set: { status?: number | string }, fallback = 
 export function matchesIfNoneMatch(ifNoneMatch: string | null | undefined, etag: string): boolean {
 	if (!ifNoneMatch) return false;
 
+	// Fast path: a single, whitespace-free strong validator (the common case)
+	// needs no split. Lists and weak validators use the matcher below.
+	if (!(ifNoneMatch.includes(",") || ifNoneMatch.startsWith("W/")) && ifNoneMatch === ifNoneMatch.trim()) {
+		return ifNoneMatch === "*" || ifNoneMatch === etag;
+	}
+
 	return ifNoneMatch.split(",").some((candidate) => {
 		const value = candidate.trim();
 

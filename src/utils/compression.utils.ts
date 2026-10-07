@@ -6,6 +6,17 @@ type CompressionEncoding = "br" | "gzip" | "deflate";
 export function negotiateEncoding(acceptEncoding: string): CompressionEncoding | null {
 	if (!acceptEncoding) return null;
 
+	// Fast path for the common single-token header (no list, no q-values) —
+	// avoids the Set + split allocation. Anything with `,`/`;` uses the parser.
+	if (!(acceptEncoding.includes(",") || acceptEncoding.includes(";"))) {
+		const token = acceptEncoding.trim().toLowerCase();
+		if (token === "br") return "br";
+		if (token === "gzip") return "gzip";
+		if (token === "deflate") return "deflate";
+
+		return null;
+	}
+
 	// Tokens with `q=0` are explicitly refused — substring matching used to pick
 	// an encoding the client had disabled (and would match `x-gzip` too).
 	const accepted = new Set<string>();

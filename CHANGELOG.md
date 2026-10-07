@@ -149,6 +149,8 @@ The performance work focuses primarily on reducing unnecessary database work, el
 - **Reduced filesystem checks** — the security-header hook checks API/plugin prefixes before touching the web distribution, reducing unnecessary `stat` operations on health requests.
 - **Batch APIs** — watchlist hydration and playback suggestions remove large client-side request waterfalls by resolving related data server-side.
 - **Composite admin view** — the dashboard can fetch its complete view through one request instead of six independent requests.
+- **Compression middleware guard order** — the cheap `Content-Encoding`/`Response` guards now run before the `Accept-Encoding` negotiation, so image, HLS and pre-serialized cached responses skip the parse entirely (micro-bench: 6.6 µs → 46 ns per 64 Response-path decisions).
+- **Faster encoding/etag negotiation** — `negotiateEncoding` fast-paths a single plain token (1 172 → 564 ns per 9-header batch, ≈130 → 63 ns/header) and `matchesIfNoneMatch` fast-paths a single strong validator (257 → 163 ns per 6-header batch); multi-token, q-value and weak-validator headers keep the full parser.
 
 #### Scanner & media processing
 

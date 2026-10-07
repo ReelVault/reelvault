@@ -89,10 +89,13 @@ export const compressionMiddleware = new Elysia({ name: "Compression" })
 	.mapResponse(async ({ request, responseValue, set }): Promise<Response | undefined> => {
 		if (!serverConfig.compression.enabled) return undefined;
 
+		// Cheap guards first: every image, HLS segment and pre-serialized cached
+		// JSON response is already a Response (or already encoded), so skip the
+		// Accept-Encoding parse entirely for them.
+		if (set.headers["content-encoding"] || responseValue instanceof Response) return undefined;
+
 		const encoding = negotiateEncoding(request.headers.get("accept-encoding") ?? "");
 		if (!encoding) return undefined;
-
-		if (set.headers["content-encoding"] || responseValue instanceof Response) return undefined;
 
 		const minSize = serverConfig.compression.minSizeBytes;
 		const setContentType = set.headers["content-type"];

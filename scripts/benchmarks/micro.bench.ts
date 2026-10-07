@@ -14,8 +14,8 @@ import { hash as bunHash, CryptoHasher } from "bun";
 import { buildJsonResponse } from "@/api/utils/etag.utils";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
-import { compressBuffer } from "@/utils/compression.utils";
-import { getPathname, getTrustedOriginPatterns } from "@/utils/http.utils";
+import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
+import { getPathname, getTrustedOriginPatterns, matchesIfNoneMatch } from "@/utils/http.utils";
 import { boundedLevenshtein, splitToSet, stripDiacritics, writeBigramCodes } from "@/utils/media-match.utils";
 import { profilePinFingerprint } from "@/utils/profile-unlock.utils";
 import { deriveSecretKey } from "@/utils/secret-crypto.utils";
@@ -118,6 +118,39 @@ async function compressBrotliQuality2(input: Buffer): Promise<Buffer> {
 				resolve(result);
 			}
 		});
+	});
+}
+
+/** Pre-change negotiateEncoding: Set + split for every header, single token included. */
+function negotiateEncodingOld(acceptEncoding: string): ReturnType<typeof negotiateEncoding> {
+	if (!acceptEncoding) return null;
+
+	const accepted = new Set<string>();
+	for (const part of acceptEncoding.split(",")) {
+		const [tokenPart, ...params] = part.trim().toLowerCase().split(";");
+		const token = tokenPart?.trim() ?? "";
+		if (!token) continue;
+
+		const qParam = params.find((param) => param.trim().startsWith("q="));
+		const quality = qParam ? Number.parseFloat(qParam.slice(qParam.indexOf("=") + 1)) : 1;
+		if (Number.isFinite(quality) && quality > 0) accepted.add(token);
+	}
+
+	if (accepted.has("br")) return "br";
+	if (accepted.has("gzip")) return "gzip";
+	if (accepted.has("deflate")) return "deflate";
+
+	return null;
+}
+
+/** Pre-change matchesIfNoneMatch: split every header, single validator included. */
+function matchesIfNoneMatchOld(ifNoneMatch: string | null | undefined, etag: string): boolean {
+	if (!ifNoneMatch) return false;
+
+	return ifNoneMatch.split(",").some((candidate) => {
+		const value = candidate.trim();
+
+		return value === "*" || value === etag || value === `W/${etag}`;
 	});
 }
 
@@ -680,6 +713,97 @@ if (!args.help) {
 			},
 		],
 		batch: 8,
+		equal: (a, b) => a === b,
+	});
+
+	// Every image, HLS segment and cached-JSON response is a Response, so the
+	// compression middleware's cheap guards must run BEFORE the Accept-Encoding
+	// parse — otherwise the parse is paid for a body that is never compressed.
+	const guardCases: Array<{ header: string; isResponse: boolean }> = [
+		{ header: "br", isResponse: true },
+		{ header: "gzip, deflate, br", isResponse: true },
+		{ header: "br;q=0, gzip", isResponse: true },
+		{ header: "", isResponse: true },
+	];
+	compare("compression guard: parse-then-skip vs skip-then-parse (Response path)", {
+		variants: [
+			{
+				name: "parse then skip",
+				fn: () => {
+					let sink = 0;
+					for (const bodyCase of guardCases) {
+						const encoding = negotiateEncoding(bodyCase.header);
+						if (!encoding) {
+							sink++;
+							continue;
+						}
+
+						if (bodyCase.isResponse) sink++;
+					}
+
+					return sink;
+				},
+			},
+			{
+				name: "skip then parse",
+				fn: () => {
+					let sink = 0;
+					for (const bodyCase of guardCases) {
+						if (bodyCase.isResponse) {
+							sink++;
+							continue;
+						}
+
+						if (!negotiateEncoding(bodyCase.header)) sink++;
+					}
+
+					return sink;
+				},
+			},
+		],
+		batch: 32,
+		equal: (a, b) => a === b,
+	});
+
+	const encodingHeaders = ["br", "gzip", "gzip, deflate, br", "br;q=0, gzip", "*", "identity", "x-gzip", "BR", ""];
+	compare("negotiateEncoding: full parser vs single-token fast path", {
+		variants: [
+			{
+				name: "full parser",
+				fn: () => encodingHeaders.map((header) => negotiateEncodingOld(header) ?? "-").join(","),
+			},
+			{
+				name: "single-token fast path",
+				fn: () => encodingHeaders.map((header) => negotiateEncoding(header) ?? "-").join(","),
+			},
+		],
+		batch: 16,
+		equal: (a, b) => a === b,
+	});
+
+	const conditionalHeaders = ['"abc"', 'W/"abc"', "*", '"abc", "def"', null, '"other"'];
+	compare("matchesIfNoneMatch: split list vs single-validator fast path", {
+		variants: [
+			{
+				name: "split list",
+				fn: () => {
+					let sink = 0;
+					for (const header of conditionalHeaders) if (matchesIfNoneMatchOld(header, '"abc"')) sink++;
+
+					return sink;
+				},
+			},
+			{
+				name: "fast path",
+				fn: () => {
+					let sink = 0;
+					for (const header of conditionalHeaders) if (matchesIfNoneMatch(header, '"abc"')) sink++;
+
+					return sink;
+				},
+			},
+		],
+		batch: 32,
 		equal: (a, b) => a === b,
 	});
 
