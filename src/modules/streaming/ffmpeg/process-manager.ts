@@ -47,7 +47,7 @@ export class ProcessManager {
 		await this.ensureTempDirectory(session.tempDir);
 
 		const strategy = this.strategies[decision.mode];
-		const process = await strategy.startSession(sessionId, inputPath, session.tempDir, decision, startTime);
+		const process = await strategy.startSession(sessionId, inputPath, session.tempDir, decision, startTime, session.operationId);
 		try {
 			// Atomic: refuses a session whose release was claimed while ffmpeg spawned.
 			this.store.attachProcess(sessionId, process, timelineStart);

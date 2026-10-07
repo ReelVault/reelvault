@@ -24,6 +24,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 		outputDir: string,
 		decision: PlaybackDecision,
 		startTime = 0,
+		operationId?: string,
 	): Promise<Subprocess> {
 		const { segmentPattern, startNumber } = await this.prepareSession(inputPath, outputDir, startTime);
 
@@ -78,6 +79,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 				inputArgs,
 				outputArgs,
 				errorLogMessage: "FFmpeg stderr",
+				operationId,
 			});
 		} finally {
 			releaseStreamingSlot();

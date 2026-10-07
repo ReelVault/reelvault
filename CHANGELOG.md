@@ -100,6 +100,7 @@
 - **Changing a library's metadata language kept the old language for 30 seconds** — the per-library override cache was not invalidated by the edit; the library update path now drops the entry.
 - **A refresh could silently clear the missing-translation flag** — providers that omit `hasMissingTranslation` reset it to `false`, so the admin translation filter lost titles whose provider does not report the field. An omitted flag now leaves the existing state untouched.
 - **A subtitle deleted mid-scan could be imported as a dangling row** — the sidecar directory listing is cached for a few seconds; candidates are now existence-checked before import.
+- **Streaming ffmpeg logs could not be correlated with the panel operation** — the operation log was filed under the playback session id instead of the session's worker `operationId`, so neither id led to the other. The log now carries the operation id (falling back to the session id only when there is none).
 
 ### Performance
 

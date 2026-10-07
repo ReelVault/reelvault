@@ -182,5 +182,6 @@ export interface StreamingStrategy {
 		outputDir: string,
 		decision: PlaybackDecision,
 		startTime?: number,
+		operationId?: string,
 	): Promise<Subprocess>;
 }
