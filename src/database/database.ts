@@ -22,7 +22,16 @@ export interface DatabaseFactoryOptions {
 	 * diagnostic behavior. Never enabled on the production path.
 	 */
 	queryStats?: boolean | undefined;
+	/** Test seam: override detected total RAM (KiB) for pragma sizing. */
+	totalMemoryKiB?: number | undefined;
 }
+
+/**
+ * Below this much installed RAM, temp B-trees spill to disk and `mmap_size` is
+ * capped. A fixed `temp_store = MEMORY` measured +61 MB RSS for a 2M-row
+ * GROUP BY (vs +3 MB with FILE) — an OOM risk on a 1-2 GB NAS/Raspberry Pi.
+ */
+const LOW_MEMORY_KIB = 2 * 1024 * 1024;
 
 interface TransactionContext {
 	depth: number;
@@ -40,6 +49,7 @@ export class DatabaseFactory {
 	 */
 	private readonly path: string;
 	private readonly queryLogger: DatabaseQueryLogger;
+	private readonly memoryOverrideKiB: number | undefined;
 	private txSqlite: Database | null = null;
 	private txDb: DatabaseType | null = null;
 	private readonly als = new AsyncLocalStorage<TransactionContext>();
@@ -47,6 +57,7 @@ export class DatabaseFactory {
 
 	constructor(path = PathUtils.join(env.ROOT_DIR, env.DB_FILE_NAME), options: DatabaseFactoryOptions = {}) {
 		this.path = path;
+		this.memoryOverrideKiB = options.totalMemoryKiB;
 		this.queryLogger = new DatabaseQueryLogger({
 			// Dev always logs; production opts in via APP_SLOW_QUERY_LOG=true while
 			// diagnosing storage slowness (warn level, ≥100 ms statements only).
@@ -293,22 +304,41 @@ export class DatabaseFactory {
 		// Page cache scales with the machine: ~1.25% of RAM, 16-128 MiB per
 		// connection (2 MiB read of /proc/meminfo is not needed — MemTotal only).
 		connection.run(`PRAGMA cache_size = -${this.resolvePageCacheKiB()}`);
-		connection.run("PRAGMA mmap_size = 268435456");
-		connection.run("PRAGMA temp_store = MEMORY");
+		connection.run(`PRAGMA mmap_size = ${this.resolveMmapSizeBytes()}`);
+		connection.run(`PRAGMA temp_store = ${this.resolveTempStore()}`);
 		connection.run("PRAGMA wal_autocheckpoint = 1000");
 		// Bound the -wal file after checkpoints during long write bursts
 		// (e.g. thousand-file library ingests).
 		connection.run("PRAGMA journal_size_limit = 67108864");
 	}
 
+	/** Total RAM in KiB, with the test override applied. */
+	private totalMemoryKiB(): number | undefined {
+		return this.memoryOverrideKiB ?? getTotalMemoryKiB();
+	}
+
 	/** 1.25% of total RAM in KiB, clamped to 16-128 MiB (per connection). */
 	private resolvePageCacheKiB(): number {
 		const minKiB = 16 * 1024;
 		const maxKiB = 128 * 1024;
-		const totalKiB = getTotalMemoryKiB();
+		const totalKiB = this.totalMemoryKiB();
 		if (!totalKiB) return maxKiB;
 
 		return clamp(Math.floor(totalKiB * 0.0125), minKiB, maxKiB);
+	}
+
+	/** Temp B-trees spill to disk on low-RAM hosts so a big sort cannot OOM them. */
+	private resolveTempStore(): "MEMORY" | "FILE" {
+		const totalKiB = this.totalMemoryKiB();
+
+		return totalKiB !== undefined && totalKiB > LOW_MEMORY_KIB ? "MEMORY" : "FILE";
+	}
+
+	/** 256 MiB of address space when RAM is plentiful, 64 MiB on small hosts. */
+	private resolveMmapSizeBytes(): number {
+		const totalKiB = this.totalMemoryKiB();
+
+		return totalKiB !== undefined && totalKiB > LOW_MEMORY_KIB ? 268_435_456 : 67_108_864;
 	}
 }
 
