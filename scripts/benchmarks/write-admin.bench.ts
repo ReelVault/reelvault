@@ -1,4 +1,9 @@
+import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, task } from "benchkit";
+import { adminLogsService } from "@/application/admin/admin-logs.service";
+import { serverConfig } from "@/server.config";
 import { isRecord } from "@/utils/type.utils";
 import { subnetIp, workerCookie } from "./lib/identity";
 import { preloadUnreadNotificationIds } from "./lib/notifications";
@@ -180,8 +185,54 @@ export const meta = { description: "Admin/account write endpoints (scan, bulk ma
 
 const args = suiteArgs();
 
+async function measureLogPoll(): Promise<number> {
+	const startedAt = performance.now();
+	await adminLogsService.getLogs({ fileId: "reelvault.log", limit: 100 });
+
+	return performance.now() - startedAt;
+}
+
 if (!args.help) {
 	const serverFixture = suiteServerFixture(args);
+
+	// The log viewer polls while the logger appends. Characterise a poll that
+	// arrives 3 s after the previous one: with a 2 s tail-cache TTL it rebuilt
+	// from the 2 MiB window; the incremental append path must take over instead.
+	task("write-admin: log tail cache poll", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-log-tail-"));
+		try {
+			const filePath = join(directory, "reelvault.log");
+			const line = JSON.stringify({ level: 30, time: Date.now(), msg: "benchmark log line", module: "Bench" });
+			const lineCount = 20_000;
+			await writeFile(filePath, `${Array.from({ length: lineCount }, () => line).join("\n")}\n`);
+
+			// Point the service at the temp logs root for this task.
+			const originalLogs = serverConfig.paths.logs;
+			serverConfig.paths.logs = directory;
+			try {
+				const coldMs = await measureLogPoll();
+				const warmMs = await measureLogPoll();
+
+				await new Promise((resolve) => {
+					setTimeout(resolve, 3_000);
+				});
+				await appendFile(filePath, `${line}\n`);
+				const afterIdleMs = await measureLogPoll();
+
+				printTable(
+					"Admin log tail (20k-line JSONL, page of 100)",
+					["cold rebuild", "warm poll", "poll after 3 s idle"],
+					[[fmtMs(coldMs), fmtMs(warmMs), fmtMs(afterIdleMs)]],
+				);
+			} finally {
+				serverConfig.paths.logs = originalLogs;
+			}
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+
+		return { ok: true };
+	});
 
 	task("write-admin: endpoints", async () => {
 		const server = await serverFixture();

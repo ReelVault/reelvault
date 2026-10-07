@@ -247,10 +247,13 @@ class AdminLogsService extends BaseService {
 	 * to the same file, so a stat-keyed cache invalidates on every request.
 	 * The tail is therefore tracked incrementally: only bytes appended since the
 	 * last read are parsed, and the entry rebuilds from the 2 MiB window when it
-	 * expires (2 s), rotates (file shrank) or grows past the line cap.
+	 * expires, rotates (file shrank) or grows past the line cap. The TTL only
+	 * bounds memory staleness — new bytes are always read incrementally — so it
+	 * is sized to cover a viewer that polls slower than its refresh interval
+	 * without forcing a full 2 MiB re-parse (30 s).
 	 */
 	private readonly logTailCache = new MemoryCache<LogTailEntry>({
-		ttlMs: 2_000,
+		ttlMs: 30_000,
 		maxSize: 4,
 		name: "admin.logTail",
 	});
@@ -271,6 +274,11 @@ class AdminLogsService extends BaseService {
 
 				return cached;
 			}
+
+			// The size/cap check above established the cached entry is unusable
+			// (rotated, truncated or past the line cap). Drop it so getOrSet
+			// rebuilds instead of returning the stale entry for the rest of its TTL.
+			this.logTailCache.delete(filePath);
 
 			return await this.logTailCache.getOrSet(filePath, () => this.readLogTailWindow(fileId));
 		} catch (error) {
