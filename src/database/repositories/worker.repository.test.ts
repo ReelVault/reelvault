@@ -126,3 +126,15 @@ describe("workerJobRepository.findActiveOperations", () => {
 		expect(await workerJobRepository.findActiveOperations([])).toEqual(new Set());
 	});
 });
+
+describe("workerJobRepository.purgeTerminalJobs", () => {
+	test("purges standalone terminal jobs but leaves operation-grouped history to the operation purge", async () => {
+		insertJob("standalone", "w-1", 1);
+		insertJob("grouped", "w-1", 2, { operationId: "op-1" });
+
+		const deleted = await workerJobRepository.purgeTerminalJobs({ status: "all_terminal" });
+
+		expect(deleted).toBe(1);
+		expect(remainingIds()).toEqual(["grouped"]);
+	});
+});

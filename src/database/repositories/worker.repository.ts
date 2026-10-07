@@ -471,6 +471,11 @@ class WorkerJobRepository {
 					status: "pending",
 					runAt,
 					error,
+					// A retry starts fresh: stale progress/start/result from the failed
+					// attempt must not show up in the admin UI while the job waits.
+					progressPercent: null,
+					startedAt: null,
+					result: null,
 					...RELEASE_CLAIM,
 					updatedAt: new Date(),
 				})
@@ -1005,7 +1010,7 @@ class WorkerJobRepository {
 				? inArray(items.status, ["completed", "failed", "cancelled"])
 				: eq(items.status, options.status);
 
-		const conditions = [statusFilter];
+		const conditions = [statusFilter, isNull(items.operationId)];
 		if (options.cutoffDate) {
 			conditions.push(lt(items.createdAt, options.cutoffDate));
 		}

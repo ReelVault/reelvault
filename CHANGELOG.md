@@ -87,6 +87,8 @@
 - **A partially unmounted library silently deleted records** — the removal guard only vetoed removals covering at least half of the library, so an unmounted share holding a smaller slice had all of its rows purged (cascading watched history, progress and markers). A library root that is no longer reachable now vetoes the entire removal phase.
 - **Notification channels registered from `setup()` could never load** — the plugin id was bound only after setup, so `host.notificationChannels.register()` threw and the whole plugin failed to load. The id is now bound before setup, and a duplicate channel id fails with a clear error instead of silently overwriting the previous registration.
 - **A plugin reload could cancel its own fresh jobs** — unregistering the old worker cancelled its pending jobs from a detached task that could land after the reloaded plugin had already enqueued new ones. Worker unregistration now awaits the cancellation before the reload continues.
+- **Purging worker history could delete an active operation's early jobs** — the manual/weekly purge removed operation-linked terminal jobs that still belong to a running operation (its own purge owns them), leaving operation counters without matching rows. The job purge now skips operation-grouped rows, matching the retention trim.
+- **Retried jobs showed stale progress** — a retried row kept the failed attempt's progress percent, start time and result while waiting for its backoff window. Retries now reset that state.
 
 ### Performance
 
