@@ -82,7 +82,7 @@
 - Logger sanitizer skips the deep clone for benign keyword strings (~2.2× faster); credential-carrying records regress +5%…+18% on the clone path.
 - `worker:progress` client polling replaced by one WebSocket broadcast per progress tick (DB write rate unchanged).
 
-Benchkit A/B measurements for this cycle. Timed values are p50 (unless noted); HTTP figures are medians of 3 alternating runs and statement counts come from the query-count audit (`--strict`). Structural wins that have no single numeric pair are listed as bullets after the table.
+Structural wins and ranged measurements that have no single numeric pair are listed as bullets above; the table below carries one numeric A/B measurement per row. Timed values are p50 (unless noted); HTTP figures are medians of 3 alternating runs and statement counts come from the query-count audit (`--strict`).
 
 | Area | Change | Before | After | Δ |
 | --- | --- | --- | --- | --- |
