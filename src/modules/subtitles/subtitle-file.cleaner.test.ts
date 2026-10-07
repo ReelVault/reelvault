@@ -55,4 +55,12 @@ describe("SubtitleFileCleaner", () => {
 
 		expect(deletedPaths).toEqual(["/data/subtitles/sub-5.vtt"]);
 	});
+
+	test("deleteExtractedVtt removes the cache file and nothing else", async () => {
+		const { cleaner, deletedPaths } = createCleaner();
+
+		await cleaner.deleteExtractedVtt("sub-6");
+
+		expect(deletedPaths).toEqual(["/data/subtitles/sub-6.vtt"]);
+	});
 });

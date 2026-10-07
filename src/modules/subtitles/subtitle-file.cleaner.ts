@@ -27,6 +27,11 @@ export class SubtitleFileCleaner extends BaseService {
 		this.dependencies = dependencies;
 	}
 
+	/** Drops only the extracted WebVTT cache for a subtitle — used when a row update invalidates its content. */
+	async deleteExtractedVtt(subtitleId: string): Promise<void> {
+		await this.dependencies.deleteFile(subtitleVttPath(this.dependencies.subtitlesPath(), subtitleId));
+	}
+
 	async deleteArtifacts(subtitleId: string, subtitle: SubtitleRowReference): Promise<void> {
 		const subtitlesPath = this.dependencies.subtitlesPath();
 		const deletions: Array<Promise<boolean>> = [this.dependencies.deleteFile(subtitleVttPath(subtitlesPath, subtitleId))];

@@ -24,6 +24,7 @@ interface HarnessOverrides {
 	rows?: Array<Partial<SubtitleEntity> & Pick<SubtitleEntity, "id" | "mediaFileId">>;
 	resolveContent?: SubtitleContent;
 	downloadedId?: string;
+	updatedRow?: Partial<SubtitleEntity>;
 }
 
 function createService(overrides: HarnessOverrides = {}) {
@@ -47,7 +48,7 @@ function createService(overrides: HarnessOverrides = {}) {
 		updateRow: (id) => {
 			events.push(`update:${id}`);
 
-			return Promise.resolve({ ...ROW, id });
+			return Promise.resolve({ ...ROW, id, ...overrides.updatedRow });
 		},
 		deleteRow: (id) => {
 			events.push(`deleteRow:${id}`);
@@ -89,6 +90,11 @@ function createService(overrides: HarnessOverrides = {}) {
 		fileCleaner: {
 			deleteArtifacts: (id, subtitle) => {
 				events.push(`clean:${id}:${subtitle.type}`);
+
+				return Promise.resolve();
+			},
+			deleteExtractedVtt: (id) => {
+				events.push(`cleanVtt:${id}`);
 
 				return Promise.resolve();
 			},
@@ -157,7 +163,15 @@ describe("SubtitlesService", () => {
 		const result = await service.update("sub-1", { language: "en" });
 
 		expect(result.id).toBe("sub-1");
-		expect(events).toEqual(["cacheInvalidate:sub-1", "update:sub-1"]);
+		expect(events).toEqual(["cacheInvalidate:sub-1", "update:sub-1", "cleanVtt:sub-1"]);
+	});
+
+	test("update that replaces the source also drops the previous external file", async () => {
+		const { service, events } = createService({ updatedRow: { filePath: "/data/subtitles/movie.en.vtt" } });
+
+		await service.update("sub-1", { sourcePath: "/data/subtitles/movie.en.vtt" });
+
+		expect(events).toEqual(["cacheInvalidate:sub-1", "update:sub-1", "clean:sub-1:external"]);
 	});
 
 	test("getContent resolves through the info cache and the content resolver", async () => {

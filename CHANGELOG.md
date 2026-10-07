@@ -82,6 +82,7 @@
 - **A failed scheduled enqueue silently skipped the whole period** — the scheduler logged a warning and advanced the deadline anyway, so a transient failure made a daily/weekly job (backup, cleanup, update check) miss its run until the next period. The deadline now stays due and the next tick retries.
 - **Silent (video-only) files were unplayable and undownloadable** — every stream and download mapped audio as a hard `0:a:0`, so ffmpeg aborted with "matches no streams" on sources without an audio track. The audio maps are now optional (`0:a:0?`).
 - **A remembered audio track with an unsupported codec broke playback** — the playback decision was computed from the smart-selected track's codec while the stream map used the remembered track's index, so an E-AC-3/TrueHD resume could be copied into a client that only decodes AAC. The decision now describes the track that is actually mapped.
+- **Editing a subtitle kept serving the old cues** — the extracted WebVTT cache was only removed on delete, so changing the stream index or source in `PATCH /v1/subtitles/:id` served the previous track indefinitely (and a replaced external file leaked on disk). Updates now drop the cached VTT — plus the previous external file when the source changed — and subtitle writes invalidate the cached list/detail responses.
 
 ### Performance
 

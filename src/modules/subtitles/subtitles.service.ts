@@ -17,6 +17,7 @@ import { subtitlesRepository } from "@/database/repositories/subtitles.repositor
 import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { BaseService } from "@/utils/base-service";
+import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
 import { type SubtitleContent, type SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
@@ -35,7 +36,7 @@ interface ServiceDependencies {
 	downloadSubtitle: (providerId: string, body: SubtitleProviderDownloadRequest) => Promise<string>;
 	infoCache: Pick<SubtitleInfoCache, "getOrSet" | "invalidate">;
 	contentResolver: Pick<SubtitleContentResolver, "resolve">;
-	fileCleaner: Pick<SubtitleFileCleaner, "deleteArtifacts">;
+	fileCleaner: Pick<SubtitleFileCleaner, "deleteArtifacts" | "deleteExtractedVtt">;
 	waitForInFlightExtraction: (subtitleId: string) => Promise<void>;
 }
 
@@ -94,8 +95,10 @@ export class SubtitlesService extends BaseService {
 	async downloadFromProvider(providerId: string, body: SubtitleProviderDownloadRequest): Promise<Subtitle> {
 		return await this.safeExecute("downloadFromProvider", async () => {
 			const subtitleId = await this.dependencies.downloadSubtitle(providerId, body);
+			const downloaded = await this.loadSubtitle(subtitleId, () => this.dependencies.findById(subtitleId));
+			invalidateResponseBodies();
 
-			return await this.loadSubtitle(subtitleId, () => this.dependencies.findById(subtitleId));
+			return downloaded;
 		});
 	}
 
@@ -110,16 +113,35 @@ export class SubtitlesService extends BaseService {
 	async create(body: CreateSubtitleRequest): Promise<Subtitle> {
 		return await this.safeExecute("create", async () => {
 			const type = resolveSubtitleType(body);
+			const created = await this.loadSubtitle(body.mediaFileId, () => this.dependencies.createRow(body, type));
+			invalidateResponseBodies();
 
-			return await this.loadSubtitle(body.mediaFileId, () => this.dependencies.createRow(body, type));
+			return created;
 		});
 	}
 
 	async update(id: string, body: UpdateSubtitleRequest): Promise<Subtitle> {
 		return await this.safeExecute("update", async () => {
+			const previous = await this.dependencies.findById(id);
 			this.dependencies.infoCache.invalidate(id);
 
-			return await this.loadSubtitle(id, () => this.dependencies.updateRow(id, body));
+			const updatedEntity = await this.dependencies.updateRow(id, body);
+			this.assertExists(updatedEntity, "Subtitle", id);
+
+			// The extracted VTT is keyed only by the subtitle id, but its content
+			// depends on the stream/source/media file — drop it so the next content
+			// request re-extracts from the updated row instead of serving stale cues.
+			if (previous && (previous.filePath !== updatedEntity.filePath || previous.type !== updatedEntity.type)) {
+				// A replaced external file would otherwise leak on disk.
+				await this.dependencies.fileCleaner.deleteArtifacts(id, previous);
+			} else {
+				await this.dependencies.fileCleaner.deleteExtractedVtt(id);
+			}
+
+			// Cached subtitle lists/detail (60-300 s) must not outlive the write.
+			invalidateResponseBodies();
+
+			return toPublicSubtitle(updatedEntity);
 		});
 	}
 
@@ -132,6 +154,7 @@ export class SubtitlesService extends BaseService {
 			const subtitle = await this.dependencies.deleteRow(id);
 			this.assertExists(subtitle, "Subtitle", id);
 			await this.dependencies.fileCleaner.deleteArtifacts(id, subtitle);
+			invalidateResponseBodies();
 
 			return { success: true };
 		});
