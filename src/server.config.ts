@@ -394,6 +394,9 @@ export const serverConfig = {
 		get watchedHistoryRetentionDays() {
 			return systemSettingsStore.get("system.database.watchedHistoryRetentionDays");
 		},
+		get auditRetentionDays() {
+			return systemSettingsStore.get("system.database.auditRetentionDays");
+		},
 		get backupRetentionCount() {
 			return systemSettingsStore.get("system.database.backupRetentionCount");
 		},

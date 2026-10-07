@@ -1,4 +1,5 @@
 import { databaseFactory } from "@/database/database";
+import { adminAuditRepository } from "@/database/repositories/admin-audit.repository";
 import { watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { serverConfig } from "@/server.config";
 import { daysAgo, MINUTE } from "@/server.constants";
@@ -24,13 +25,21 @@ export const cleanupDatabaseWorker = createWorkerDefinition(
 			prunedHistoryCount = await watchedHistoryRepository.pruneOlderThan(daysAgo(historyRetentionDays));
 		}
 
+		// Audit rows carry JSON snapshots and previously grew unbounded; default
+		// retention is 180 days, 0 keeps everything.
+		let prunedAuditCount = 0;
+		const auditRetentionDays = serverConfig.database.auditRetentionDays;
+		if (auditRetentionDays > 0) {
+			prunedAuditCount = await adminAuditRepository.pruneOlderThan(daysAgo(auditRetentionDays));
+		}
+
 		// Keep planner statistics fresh: stale stats made the paginated browse and
 		// worker-claim queries pick a type index + TEMP B-TREE sort instead of the
 		// composite indexes, degrading with catalog/backlog size.
 		databaseFactory.analyze();
 		databaseFactory.optimizeFts();
 
-		return { deletedOperationsCount: deletedCount, prunedHistoryCount };
+		return { deletedOperationsCount: deletedCount, prunedHistoryCount, prunedAuditCount };
 	},
 );
 

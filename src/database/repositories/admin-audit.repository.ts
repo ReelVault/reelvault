@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
@@ -106,6 +106,13 @@ export class AdminAuditRepository {
 		]);
 
 		return { data, total };
+	}
+
+	/** Deletes audit rows older than `cutoff` (daily retention sweep). */
+	async pruneOlderThan(cutoff: Date): Promise<number> {
+		const result = await this.database.getClient().delete(this.table).where(lt(this.table.createdAt, cutoff));
+
+		return result.changes;
 	}
 }
 

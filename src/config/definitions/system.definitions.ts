@@ -28,6 +28,9 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 	// 0 keeps the full play history; a positive value prunes older rows in the
 	// daily database cleanup (history feeds analytics, insights and wrapped).
 	"system.database.watchedHistoryRetentionDays": creator.number("system.database.watchedHistoryRetentionDays", 0, 3650, 0),
+	// Audit rows carry JSON snapshots and previously grew unbounded; the daily
+	// cleanup prunes rows older than this. 0 = keep everything.
+	"system.database.auditRetentionDays": creator.number("system.database.auditRetentionDays", 0, 3650, 180),
 	"system.database.backupRetentionCount": creator.number("system.database.backupRetentionCount", 1, 100, 7),
 
 	// Default look-back for the admin analytics dashboard when no explicit range

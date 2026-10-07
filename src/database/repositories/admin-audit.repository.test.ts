@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { unlink } from "node:fs/promises";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { DatabaseFactory } from "@/database/database";
+import { schema } from "@/database/schema";
 import { AdminAuditRepository, getClientIp, redactAuditValue, serializeAuditValue } from "./admin-audit.repository";
 
 const databasePaths: string[] = [];
@@ -202,6 +203,53 @@ describe("admin audit redaction", () => {
 		const byReq = await repository.findMany({ page: 1, limit: 10, requestId: "req-abc" });
 		expect(byReq.data).toHaveLength(1);
 		expect(byReq.data[0]?.requestId).toBe("req-abc");
+		factory.shutdown();
+	});
+
+	test("prunes audit rows older than the cutoff", async () => {
+		const path = `/tmp/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
+		const factory = new DatabaseFactory(path);
+		factory.getClient().run(
+			sql.raw(`
+				CREATE TABLE admin_audit_logs (
+					id TEXT PRIMARY KEY,
+					actor_user_id TEXT,
+					action TEXT NOT NULL,
+					resource_type TEXT NOT NULL,
+					resource_id TEXT,
+					resource_name TEXT,
+					summary TEXT,
+					before_json TEXT,
+					after_json TEXT,
+					request_id TEXT,
+					ip_address TEXT,
+					user_agent TEXT,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				)
+			`),
+		);
+		const repository = new AdminAuditRepository(factory);
+
+		await repository.insert({ action: "create", resourceType: "library" });
+		await repository.insert({ action: "update", resourceType: "user" });
+
+		const now = Date.now();
+		const client = factory.getClient();
+		await client
+			.update(schema.adminAuditLogs)
+			.set({ createdAt: new Date(now - 10 * 86_400_000) })
+			.where(eq(schema.adminAuditLogs.resourceType, "library"));
+		await client
+			.update(schema.adminAuditLogs)
+			.set({ createdAt: new Date(now) })
+			.where(eq(schema.adminAuditLogs.resourceType, "user"));
+
+		expect(await repository.pruneOlderThan(new Date(now - 86_400_000))).toBe(1);
+
+		const remaining = await client.select({ resourceType: schema.adminAuditLogs.resourceType }).from(schema.adminAuditLogs);
+		expect(remaining).toEqual([{ resourceType: "user" }]);
 		factory.shutdown();
 	});
 });
