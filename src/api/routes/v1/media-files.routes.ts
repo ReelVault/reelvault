@@ -129,7 +129,9 @@ export const mediaFilesRoutes = new Elysia({
 			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: params.mediaFileId });
 			const { artifact, file } = await mediaService.getArtifact(params.mediaFileId, params.artifactId);
 			set.headers["Content-Type"] = artifact.contentType;
-			set.headers["Cache-Control"] = "public, max-age=86400, immutable";
+			// Access-checked content: a shared cache must never replay it to another
+			// viewer after a policy change, so keep it browser-private.
+			set.headers["Cache-Control"] = "private, max-age=86400, immutable";
 
 			return file;
 		},
