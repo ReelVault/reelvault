@@ -1,9 +1,10 @@
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, lt, ne, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, type SQL, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
+import { QueryFiltering } from "@/database/utils/filtering";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { DAY, serverConstants } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
@@ -341,7 +342,7 @@ class WorkerOperationRepository {
 		const conditions = [eq(jobs.operationId, operationId)];
 		if (options.status) conditions.push(eq(jobs.status, options.status));
 
-		if (options.search) conditions.push(like(jobs.data, `%${options.search}%`));
+		if (options.search) conditions.push(QueryFiltering.like(jobs.data, options.search));
 
 		const where = and(...conditions);
 		const [countRows, rows] = await Promise.all([

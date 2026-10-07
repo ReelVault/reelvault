@@ -1,6 +1,7 @@
 import type { SelectFields, User } from "@reelvault/sdk/common";
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { defineRepository, defineTableAccess, selectFirstWithFields } from "@/database/table-access";
+import { QueryFiltering } from "@/database/utils/filtering";
 import type { FindFirstReadParams } from "@/database/utils/primary-id-read";
 
 const users = defineTableAccess("users", {
@@ -17,7 +18,7 @@ const overrides = {
 	},
 
 	async findForAdministration({ search, limit, offset }: { search?: string | undefined; limit: number; offset: number }) {
-		const where = search ? or(like(users.table.name, `%${search}%`), like(users.table.email, `%${search}%`)) : undefined;
+		const where = search ? or(QueryFiltering.like(users.table.name, search), QueryFiltering.like(users.table.email, search)) : undefined;
 		const [total, data] = await Promise.all([
 			getUsersRepository().count({ where }),
 			getUsersRepository().selectMany({ where, orderBy: desc(users.table.createdAt), limit, offset }),

@@ -1,6 +1,6 @@
 import type { MetadataFilters, MetadataSorting } from "@reelvault/sdk/common";
 import type { SQL } from "drizzle-orm";
-import { and, asc, desc, eq, exists, gt, gte, inArray, isNull, like, lt, lte, notExists, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, gte, inArray, isNull, lt, lte, notExists, or, sql } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
@@ -25,11 +25,15 @@ export function titleMatchFilter(term: string, mode: "contains" | "exact" | "con
 
 	if (mode === "exact") return or(eq(title, term), eq(originalTitle, term)) ?? sql`1 = 0`;
 
+	// Shared LIKE escaping: `%`/`_` in a search term match literally.
 	if (mode === "contains-or-id") {
-		return or(like(title, `%${term}%`), like(originalTitle, `%${term}%`), like(schema.metadata.id, `%${term}%`)) ?? sql`1 = 0`;
+		return (
+			or(QueryFiltering.like(title, term), QueryFiltering.like(originalTitle, term), QueryFiltering.like(schema.metadata.id, term)) ??
+			sql`1 = 0`
+		);
 	}
 
-	return or(like(title, `%${term}%`), like(originalTitle, `%${term}%`)) ?? sql`1 = 0`;
+	return or(QueryFiltering.like(title, term), QueryFiltering.like(originalTitle, term)) ?? sql`1 = 0`;
 }
 
 function buildTitleSearchFilter(term: string): SQL {
