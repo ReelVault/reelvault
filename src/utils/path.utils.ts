@@ -1,8 +1,11 @@
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { serverConfig } from "@/server.config";
 
-const extensionSetCache: { extensionsArray: readonly string[] | undefined; extensions: Set<string> } = {
-	extensionsArray: undefined,
+// The settings store clones array values on every read, so the extension list
+// identity never matches. Key the Set off the store revision instead.
+const extensionSetCache: { revision: number; extensions: Set<string> } = {
+	revision: -1,
 	extensions: new Set<string>(),
 };
 const BACKSLASH_REGEX = /\\+/g;
@@ -41,10 +44,10 @@ export const PathUtils = {
 	},
 
 	isVideoFile(path: string): boolean {
-		const extensions = serverConfig.media.supportedVideoExtensions;
-		if (extensions !== extensionSetCache.extensionsArray) {
-			extensionSetCache.extensionsArray = extensions;
-			extensionSetCache.extensions = new Set(extensions);
+		const revision = systemSettingsStore.revision;
+		if (revision !== extensionSetCache.revision) {
+			extensionSetCache.extensions = new Set(serverConfig.media.supportedVideoExtensions);
+			extensionSetCache.revision = revision;
 		}
 
 		return extensionSetCache.extensions.has(PathUtils.getExtension(path));

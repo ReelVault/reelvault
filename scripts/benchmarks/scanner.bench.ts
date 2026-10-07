@@ -5,6 +5,7 @@ import { bench, fixture, main, suiteArgs } from "benchkit";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { fileScannerService } from "@/modules/scanner/disk/file-scanner";
 import { filterPathsWithinRoots } from "@/modules/scanner/utils/scanner.utils";
+import { PathUtils } from "@/utils/path.utils";
 
 export const meta = { description: "File scanner & recognition (directory walk, diff, parseFileName caching)" };
 
@@ -89,6 +90,23 @@ if (!args.help) {
 		warmup: 5,
 		iterations: args.iterations,
 	});
+
+	// The watcher's library detection calls isVideoFile once per directory entry.
+	// The extension list is a cloned array on every serverConfig read, so the
+	// lookup must not rebuild its Set per call.
+	const videoLookupPaths = Array.from({ length: 1000 }, (_, index) => `/media/library-${index % 20}/movie-${index}.mkv`);
+	bench(
+		"isVideoFile (1000 lookups, extension-set cache)",
+		() => {
+			let hits = 0;
+			for (const filePath of videoLookupPaths) {
+				if (PathUtils.isVideoFile(filePath)) hits++;
+			}
+
+			return hits;
+		},
+		{ warmup: 10, iterations: args.iterations },
+	);
 
 	const sampleTitles = [
 		"Inception.2010.1080p.BluRay.x264.DTS.mkv",

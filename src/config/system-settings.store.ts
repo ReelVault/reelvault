@@ -40,6 +40,16 @@ class SystemSettingsStore {
 	// A plain Map (instead of MemoryCache) keeps lookups allocation-free on the hottest path:
 	// every serverConfig getter goes through get().
 	private readonly runtime = new Map<SystemSettingKey, unknown>();
+	private revisionValue = 0;
+
+	/**
+	 * Bumped on every write. `get()` clones array/object values, so identity
+	 * comparison cannot detect changes — consumers that derive a view from a
+	 * setting (e.g. a Set) can memoize against this counter instead.
+	 */
+	get revision(): number {
+		return this.revisionValue;
+	}
 
 	private definition<K extends SystemSettingKey = SystemSettingKey>(key: string): SettingDefinition<SystemSettingValue<K>> {
 		if (!isSystemSettingKey(key)) {
@@ -84,6 +94,7 @@ class SystemSettingsStore {
 		// Round-trip through the definition so the store can never hold an
 		// invalidated value, even if a caller bypasses updateSettings().
 		this.runtime.set(key, def.parse(serializeSettingValue(value)));
+		this.revisionValue++;
 	}
 
 	/**
@@ -93,6 +104,7 @@ class SystemSettingsStore {
 	 */
 	setParsedRuntimeValue<K extends SystemSettingKey>(key: K, value: SystemSettingValue<K>): void {
 		this.runtime.set(key, value);
+		this.revisionValue++;
 	}
 
 	setRuntimeValues(values: Partial<Record<SystemSettingKey, unknown>>): void {
@@ -108,10 +120,13 @@ class SystemSettingsStore {
 		for (const key of keys) {
 			this.runtime.delete(key);
 		}
+
+		if (keys.length > 0) this.revisionValue++;
 	}
 
 	clearRuntimeValues(): void {
 		this.runtime.clear();
+		this.revisionValue++;
 	}
 
 	hasCustom(key: SystemSettingKey): boolean {

@@ -1,5 +1,29 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { PathUtils } from "./path.utils";
+
+// The settings store is process-global — never leak overrides into other tests.
+afterEach(() => systemSettingsStore.clearRuntimeValues());
+
+describe("PathUtils.isVideoFile", () => {
+	test("classifies by the configured extension list", () => {
+		expect(PathUtils.isVideoFile("/media/movie.mkv")).toBe(true);
+		expect(PathUtils.isVideoFile("/media/movie.MP4")).toBe(true);
+		expect(PathUtils.isVideoFile("/media/notes.txt")).toBe(false);
+	});
+
+	test("picks up extension-list changes without a restart", () => {
+		expect(PathUtils.isVideoFile("/media/clip.custom")).toBe(false);
+
+		systemSettingsStore.setRuntimeValue("scanning.supportedVideoExtensions", [".custom"]);
+		expect(PathUtils.isVideoFile("/media/clip.custom")).toBe(true);
+		expect(PathUtils.isVideoFile("/media/movie.mkv")).toBe(false);
+
+		systemSettingsStore.clearRuntimeValues();
+		expect(PathUtils.isVideoFile("/media/movie.mkv")).toBe(true);
+		expect(PathUtils.isVideoFile("/media/clip.custom")).toBe(false);
+	});
+});
 
 describe("PathUtils.isSubpath", () => {
 	test("returns true for a direct child file", () => {

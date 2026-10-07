@@ -46,4 +46,18 @@ describe("SystemSettingsStore", () => {
 	test("reading an unknown key throws instead of returning undefined", () => {
 		expect(() => systemSettingsStore.get("system.resources.doesNotExist")).toThrow("Unknown system setting key");
 	});
+
+	test("revision bumps on every write so derived views can memoize", () => {
+		const before = systemSettingsStore.revision;
+
+		systemSettingsStore.setRuntimeValue("system.resources.cpuProfile", "performance");
+		const afterSet = systemSettingsStore.revision;
+		expect(afterSet).toBeGreaterThan(before);
+
+		systemSettingsStore.deleteRuntimeValues(["system.resources.cpuProfile"]);
+		expect(systemSettingsStore.revision).toBeGreaterThan(afterSet);
+
+		systemSettingsStore.clearRuntimeValues();
+		expect(systemSettingsStore.revision).toBeGreaterThan(afterSet);
+	});
 });
