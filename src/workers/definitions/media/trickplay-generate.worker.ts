@@ -1,4 +1,5 @@
 import { withDomainError } from "@/application/context";
+import type { WorkerItem } from "@/database/repositories/worker.repository";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import { serverConfig } from "@/server.config";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
@@ -24,10 +25,23 @@ export const trickplayGenerateWorker = createWorkerDefinition<{ mediaFileId: str
 		}),
 );
 
-// ─── Enqueue Function ─────────────────────────────────────────────────────────
+// ─── Enqueue Functions ────────────────────────────────────────────────────────
 
+/** A real worker operation, so the admin UI can poll exactly what the route returned. */
 export async function enqueueTrickplayGeneration(mediaFileId: string, options: WorkerEnqueueOptions = {}) {
-	return await workerService.addItem(trickplayGenerateWorker.id, { mediaFileId }, { ...options, ...trickplayQueueOptions(mediaFileId) });
+	const { result } = await workerService.enqueueUnderOperation(
+		{ type: trickplayGenerateWorker.id, reference: { type: "media-file", id: mediaFileId } },
+		(operationId) =>
+			workerService.addItem(
+				trickplayGenerateWorker.id,
+				{ mediaFileId },
+				{ ...options, ...trickplayQueueOptions(mediaFileId), operationId },
+			),
+		// A dedupe hit keeps the existing job (and its operation) — drop the fresh one.
+		{ isAttached: (item, operationId) => item.operationId === operationId },
+	);
+
+	return result;
 }
 
 function trickplayQueueOptions(mediaFileId: string) {
@@ -37,13 +51,24 @@ function trickplayQueueOptions(mediaFileId: string) {
 	};
 }
 
-/** One shared operation + one transaction for the whole catalog pass (generate-all). */
-export async function enqueueTrickplayGenerationMany(mediaFileIds: readonly string[]) {
-	return await workerService.addItems(
-		trickplayGenerateWorker.id,
-		mediaFileIds.map((mediaFileId) => ({
-			data: { mediaFileId },
-			options: trickplayQueueOptions(mediaFileId),
-		})),
+/** One shared operation for the whole catalog pass (generate-all). */
+export async function enqueueTrickplayGenerationMany(
+	mediaFileIds: readonly string[],
+): Promise<{ operationId: string | undefined; items: WorkerItem[] }> {
+	if (mediaFileIds.length === 0) return { operationId: undefined, items: [] };
+
+	const { operationId, result: items } = await workerService.enqueueUnderOperation(
+		{ type: trickplayGenerateWorker.id, reference: { type: "media-file", id: "all" } },
+		(opId) =>
+			workerService.addItems(
+				trickplayGenerateWorker.id,
+				mediaFileIds.map((mediaFileId) => ({
+					data: { mediaFileId },
+					options: { ...trickplayQueueOptions(mediaFileId), operationId: opId },
+				})),
+			),
+		{ isAttached: (queued, opId) => queued.some((item) => item.operationId === opId) },
 	);
+
+	return { operationId, items };
 }

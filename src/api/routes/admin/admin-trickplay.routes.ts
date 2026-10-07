@@ -33,15 +33,15 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 			const mediaFileIds = await trickplayService.findMediaFileIdsMissingTrickplay();
 			// One batched enqueue (shared operation, chunked inserts) instead of a
 			// per-file operation/transaction — thousands of files land in one pass.
-			const items = await enqueueTrickplayGenerationMany(mediaFileIds);
+			const { operationId, items } = await enqueueTrickplayGenerationMany(mediaFileIds);
 
-			return status(202, { enqueued: items.length });
+			return status(202, { enqueued: items.length, ...(operationId ? { operationId } : {}) });
 		},
 		{
 			rateLimit: { name: "admin-trickplay-generate-all", max: 5, windowMs: MINUTE },
 			response: {
 				...ROUTE_ERRORS.ADMIN,
-				202: t.Object({ enqueued: t.Number() }),
+				202: t.Object({ enqueued: t.Number(), operationId: t.Optional(t.String()) }),
 			},
 			detail: { description: "Enqueue trickplay generation for every media file that is missing it." },
 		},
