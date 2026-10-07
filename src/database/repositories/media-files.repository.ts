@@ -390,21 +390,17 @@ class MediaRepository {
 			.limit(AUDIT_ROW_PAGE_SIZE);
 	}
 
-	async findAllAuditRowIds() {
-		const allIds: string[] = [];
-		await collectKeysetPages({
+	/** Streams audit ids page-by-page to `onPage`, returning the total. Never materializes the whole catalog. */
+	async scanAuditRowIds(onPage: (ids: string[]) => Promise<void> | void): Promise<number> {
+		return await collectKeysetPages({
 			pageSize: AUDIT_ROW_PAGE_SIZE,
 			fetchPage: (cursor) =>
 				this.auditRows({ id: schema.mediaFiles.id })
 					.where(cursor ? gt(schema.mediaFiles.id, cursor) : undefined)
 					.orderBy(asc(schema.mediaFiles.id))
 					.limit(AUDIT_ROW_PAGE_SIZE),
-			onPage: (rows) => {
-				for (const row of rows) allIds.push(row.id);
-			},
+			onPage: (rows) => onPage(rows.map((row) => row.id)),
 		});
-
-		return allIds;
 	}
 
 	/**
@@ -591,30 +587,20 @@ class MediaRepository {
 		return await this.selectMany({ where: eq(this.table.metadataId, metadataId) });
 	}
 
-	async findAllIdentities(tx?: DatabaseTransaction): Promise<
-		Array<{
-			id: string;
-			metadataId: string;
-		}>
-	> {
-		// Keyset-paged accumulation — avoids one giant SELECT on large libraries.
-		const allRows: Array<{ id: string; metadataId: string }> = [];
-		await collectKeysetPages({
+	/** Streams media-file identities page-by-page to `onPage`, returning the total. */
+	async scanAllIdentities(onPage: (rows: Array<{ id: string; metadataId: string }>) => Promise<void> | void): Promise<number> {
+		return await collectKeysetPages({
 			pageSize: AUDIT_ROW_PAGE_SIZE,
 			fetchPage: (cursor) =>
 				databaseFactory
-					.getClient({ tx })
+					.getClient()
 					.select({ id: this.table.id, metadataId: this.table.metadataId })
 					.from(this.table)
 					.where(cursor ? gt(this.table.id, cursor) : undefined)
 					.orderBy(asc(this.table.id))
 					.limit(AUDIT_ROW_PAGE_SIZE),
-			onPage: (rows) => {
-				allRows.push(...rows);
-			},
+			onPage,
 		});
-
-		return allRows;
 	}
 
 	async findIdentity(id: string, tx?: DatabaseTransaction): Promise<{ id: string; metadataId: string } | undefined> {

@@ -76,7 +76,11 @@ describe("media file audit task", () => {
 	test("queues one task per audited file with parent operation", async () => {
 		const queued: Array<{ mediaFileId: string; operationId?: string | undefined; dependsOnTaskIds?: string[] | undefined }> = [];
 		activeStubs.push(
-			stubMethod(mediaRepository, "findAllAuditRowIds", () => Promise.resolve(["file-1", "file-2", "file-3"])),
+			stubMethod(mediaRepository, "scanAuditRowIds", async (onPage: (ids: string[]) => Promise<void> | void) => {
+				await onPage(["file-1", "file-2", "file-3"]);
+
+				return 3;
+			}),
 			stubMethod(
 				workerService,
 				"addItems",
@@ -108,7 +112,7 @@ describe("media file audit task", () => {
 	});
 
 	test("converts scan failures to domain errors", async () => {
-		activeStubs.push(stubMethod(mediaRepository, "findAllAuditRowIds", () => Promise.reject(new Error("database unavailable"))));
+		activeStubs.push(stubMethod(mediaRepository, "scanAuditRowIds", () => Promise.reject(new Error("database unavailable"))));
 
 		await expect(scanMediaMatchAuditTask({})).rejects.toMatchObject({ code: "internal" });
 	});

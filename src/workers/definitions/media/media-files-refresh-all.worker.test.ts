@@ -6,11 +6,15 @@ describe("media-files-refresh-all worker", () => {
 	test("queues technical and metadata refresh for all media files in batch", async () => {
 		const batches: Array<Array<{ id: string; metadataId: string }>> = [];
 		const dependencies: MediaFilesRefreshAllTaskDependencies = {
-			findAll: () =>
-				Promise.resolve([
+			scanAll: async (onPage) => {
+				const rows = [
 					{ id: "media-1", metadataId: "meta-1" },
 					{ id: "media-2", metadataId: "meta-2" },
-				]),
+				];
+				await onPage(rows);
+
+				return rows.length;
+			},
 			enqueueBatch: (targets) => {
 				batches.push([...targets]);
 

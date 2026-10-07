@@ -84,7 +84,7 @@ export function scanMediaMatchAuditTask(context: ApplicationContext = {}): Promi
 		scanAndEnqueueTask<string, MediaFileAuditData>({
 			context,
 			label: "Media match audit tasks queued",
-			findIds: () => mediaRepository.findAllAuditRowIds(),
+			scanPages: (onPage) => mediaRepository.scanAuditRowIds(onPage),
 			toData: (mediaFileId) => ({ mediaFileId }),
 			enqueueItem: (data, options) => enqueueMediaFileAudit(data, options),
 			enqueueMany: (items, options) => enqueueMediaFileAuditMany(items, options),

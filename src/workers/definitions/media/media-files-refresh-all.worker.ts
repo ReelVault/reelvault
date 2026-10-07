@@ -12,12 +12,12 @@ export interface MediaFilesRefreshAllResult {
 }
 
 export interface MediaFilesRefreshAllTaskDependencies {
-	findAll(): Promise<Array<{ id: string; metadataId: string }>>;
+	scanAll(onPage: (rows: Array<{ id: string; metadataId: string }>) => Promise<void> | void): Promise<number>;
 	enqueueBatch: typeof enqueueMediaFileRefreshBatch;
 }
 
 const defaultDependencies: MediaFilesRefreshAllTaskDependencies = {
-	findAll: () => mediaRepository.findAllIdentities(),
+	scanAll: (onPage) => mediaRepository.scanAllIdentities(onPage),
 	enqueueBatch: enqueueMediaFileRefreshBatch,
 };
 
@@ -41,7 +41,7 @@ export function refreshAllMediaFilesTask(
 		async () =>
 			await scanAndEnqueueTask<{ id: string; metadataId: string }, { id: string; metadataId: string }>({
 				context,
-				findIds: () => dependencies.findAll(),
+				scanPages: (onPage) => dependencies.scanAll(onPage),
 				toData: (item) => item,
 				enqueueItem: async (item, options) => {
 					await dependencies.enqueueBatch([item], options);

@@ -79,4 +79,27 @@ describe("scanAndEnqueueTask", () => {
 		expect(batches).toEqual([[{ imageId: "id-1" }, { imageId: "id-2" }, { imageId: "id-3" }]]);
 		expect(perItem).toEqual([]);
 	});
+
+	test("streams pages through the batched path without materializing every id", async () => {
+		const batches: TestItem[][] = [];
+		const pages: string[][] = [["id-1", "id-2"], ["id-3"]];
+		const result = await scanAndEnqueueTask(
+			baseInput({
+				findIds: undefined,
+				scanPages: async (onPage) => {
+					for (const page of pages) await onPage(page);
+
+					return 3;
+				},
+				enqueueMany: (items) => {
+					batches.push(items);
+
+					return Promise.resolve(undefined);
+				},
+			}),
+		);
+
+		expect(result).toEqual({ requested: 3, queued: 3 });
+		expect(batches).toEqual([[{ imageId: "id-1" }, { imageId: "id-2" }], [{ imageId: "id-3" }]]);
+	});
 });
