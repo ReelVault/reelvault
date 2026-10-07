@@ -14,7 +14,7 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { assertFound } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
-import { enqueueTrickplayGeneration } from "@/workers/definitions/media/trickplay-generate.worker";
+import { enqueueTrickplayGenerationForLibrary } from "@/workers/definitions/media/trickplay-generate.worker";
 import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
@@ -76,7 +76,7 @@ export interface MediaFileIngestTaskDependencies {
 	markSidecarWritten?(mediaFileId: string): Promise<void>;
 	markDiscoveredEmitted?(mediaFileId: string): Promise<void>;
 	enqueueAnalysis(data: MediaFileAnalysisData, options?: TaskSchedulingOptions): Promise<{ id: string }>;
-	enqueueTrickplayGeneration(mediaFileId: string, options?: WorkerEnqueueOptions): Promise<unknown>;
+	enqueueTrickplayGeneration(mediaFileId: string, libraryId: string): Promise<unknown>;
 }
 
 const defaultDependencies: MediaFileIngestTaskDependencies = {
@@ -102,7 +102,7 @@ const defaultDependencies: MediaFileIngestTaskDependencies = {
 	readIngestProgress: (mediaFileId) => mediaRepository.findIngestProgress(mediaFileId),
 	markSidecarWritten: (mediaFileId) => mediaRepository.markIngestSidecarWritten(mediaFileId),
 	markDiscoveredEmitted: (mediaFileId) => mediaRepository.markIngestDiscoveredEmitted(mediaFileId),
-	enqueueTrickplayGeneration: (mediaFileId, options) => enqueueTrickplayGeneration(mediaFileId, options ?? {}),
+	enqueueTrickplayGeneration: (mediaFileId, libraryId) => enqueueTrickplayGenerationForLibrary(mediaFileId, libraryId),
 	enqueueAnalysis: (data, options) => enqueueMediaFileAnalysis(data, options ?? {}),
 };
 
@@ -298,7 +298,7 @@ async function completeAdditionalTarget(
 	}
 
 	if (serverConfig.trickplay.enabled && serverConfig.trickplay.autoOnRefresh) {
-		await dependencies.enqueueTrickplayGeneration(target.mediaFileId);
+		await dependencies.enqueueTrickplayGeneration(target.mediaFileId, input.data.libraryId);
 	}
 
 	await enqueueCompletionAnalysis(target, input, dependencies);
@@ -441,7 +441,7 @@ export async function ingestMediaFileTask(
 
 		// Built-in trickplay: generate previews for freshly ingested files.
 		if (serverConfig.trickplay.enabled && serverConfig.trickplay.autoOnRefresh) {
-			await dependencies.enqueueTrickplayGeneration(createdMediaFile.id);
+			await dependencies.enqueueTrickplayGeneration(createdMediaFile.id, data.libraryId);
 		}
 
 		if (!created) {

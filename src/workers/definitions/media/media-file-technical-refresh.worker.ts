@@ -9,7 +9,7 @@ import { serverConfig } from "@/server.config";
 import { assertFound } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { enqueueTrickplayGeneration } from "@/workers/definitions/media/trickplay-generate.worker";
+import { enqueueTrickplayGenerationForLibrary } from "@/workers/definitions/media/trickplay-generate.worker";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -77,7 +77,7 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 
 		// Built-in trickplay: regenerate previews after the technical revision changed.
 		if (serverConfig.trickplay.enabled && serverConfig.trickplay.autoOnRefresh) {
-			await enqueueTrickplayGeneration(mediaFileId);
+			await enqueueTrickplayGenerationForLibrary(mediaFileId, mediaFile.libraryId);
 		}
 
 		// Plugins deriving data from the source file (analysis caches, thumbnails)

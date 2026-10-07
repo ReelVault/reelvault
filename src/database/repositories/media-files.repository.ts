@@ -256,7 +256,7 @@ class MediaRepository {
 	async findForTechnicalRefresh(mediaFileId: string) {
 		return await this.findByPrimaryId({
 			primaryId: mediaFileId,
-			fields: QueryFields.parse({ fields: "id,filePath,size,sourceMtimeMs,audioStreams" }),
+			fields: QueryFields.parse({ fields: "id,libraryId,filePath,size,sourceMtimeMs,audioStreams" }),
 		});
 	}
 

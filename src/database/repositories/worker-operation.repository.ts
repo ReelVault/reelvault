@@ -57,6 +57,27 @@ class WorkerOperationRepository {
 		return row ? this.withEta(row) : undefined;
 	}
 
+	/** Newest non-terminal operation of a type attached to a reference — used to join an in-flight batch. */
+	async findActiveByReference(type: string, referenceType: string, referenceId: string): Promise<WorkerOperationRecord | undefined> {
+		const [row] = await databaseFactory
+			.getClient()
+			.select()
+			.from(operations)
+			.where(
+				and(
+					eq(operations.type, type),
+					eq(operations.referenceType, referenceType),
+					eq(operations.referenceId, referenceId),
+					inArray(operations.status, ["pending", "running"]),
+					eq(operations.cancelRequested, false),
+				),
+			)
+			.orderBy(desc(operations.createdAt), desc(operations.id))
+			.limit(1);
+
+		return row;
+	}
+
 	async list(
 		options: { status?: WorkerOperationStatus | "active" | undefined; limit?: number | undefined; offset?: number | undefined } = {},
 	): Promise<{ data: WorkerOperation[]; total: number }> {
@@ -100,6 +121,10 @@ class WorkerOperationRepository {
 			.set({
 				totalItems: sql`${operations.totalItems} + ${amount}`,
 				pendingItems: sql`${operations.pendingItems} + ${amount}`,
+				// A late attach to a just-finished operation must reopen it: the new
+				// job runs while the operation would otherwise stay terminal at 100%.
+				status: sql`CASE WHEN ${operations.status} IN ('completed', 'failed') AND ${operations.cancelRequested} = false THEN 'pending' ELSE ${operations.status} END`,
+				completedAt: sql`CASE WHEN ${operations.status} IN ('completed', 'failed') AND ${operations.cancelRequested} = false THEN null ELSE ${operations.completedAt} END`,
 				updatedAt: new Date(),
 			})
 			.where(eq(operations.id, operationId));
