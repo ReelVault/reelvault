@@ -57,6 +57,19 @@ const overrides = {
 		return await databaseFactory.getClient().select().from(downloads.table).orderBy(desc(downloads.table.createdAt)).limit(limit);
 	},
 
+	/** Active (pending/processing) rows across profiles — the boot reconciliation source. */
+	async findByStatuses(statuses: readonly DownloadStatus[], limit = MAX_LIST_ROWS): Promise<DownloadRow[]> {
+		if (statuses.length === 0) return [];
+
+		return await databaseFactory
+			.getClient()
+			.select()
+			.from(downloads.table)
+			.where(inArray(downloads.table.status, [...statuses]))
+			.orderBy(asc(downloads.table.createdAt))
+			.limit(limit);
+	},
+
 	async findExpired(retentionDays: number, limit = 500): Promise<DownloadRow[]> {
 		const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
 

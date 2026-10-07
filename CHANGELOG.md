@@ -92,6 +92,7 @@
 - **Paginated admin lists could repeat or skip rows** — operations and jobs were ordered only by second-resolution `created_at`, so same-second rows could shuffle between pages. Both lists now tiebreak on the row id, and the `LIMIT`-based sweeps (downloads retention, missing-trickplay scan, resume source) pick a deterministic order too.
 - **Merging two shows could bind files to the wrong episode** — the merge matched episodes by number alone, ignoring `episodeType`, so a special E1 could absorb a regular E1's media files (the unique key is season + type + number). Episode matching now includes the type.
 - **Search terms containing `%` or `_` matched extra rows** — the global title search, the admin user list and the worker-job search bypassed the shared LIKE escaping, so wildcard characters acted as wildcards instead of literal text. Every search path now escapes consistently.
+- **Interrupted downloads could block a profile forever** — a crash or restart left rows in `pending`/`processing` with no live ffmpeg, and a download whose media file had disappeared stayed queued indefinitely, pinning the profile's single active-download slot until it was manually cancelled. Startup now reconciles stale rows (re-enqueueing them, or failing those whose source is gone), a missing source fails immediately, and the worker marks the row failed once its retry budget is exhausted.
 
 ### Performance
 

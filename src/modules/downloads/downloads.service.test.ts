@@ -76,6 +76,7 @@ const countActive = spyOn(downloadsRepository, "countActiveByProfile").mockResol
 const storageUsed = spyOn(downloadsRepository, "storageUsedByProfile").mockResolvedValue(0);
 const findExpired = spyOn(downloadsRepository, "findExpired").mockResolvedValue([]);
 const findByProfile = spyOn(downloadsRepository, "findByProfile").mockResolvedValue([]);
+const findByStatuses = spyOn(downloadsRepository, "findByStatuses").mockResolvedValue([]);
 const addItem = spyOn(workerService, "addItem").mockResolvedValue(createMockWorkerItem({ id: "job-1" }));
 
 beforeEach(() => {
@@ -88,6 +89,7 @@ beforeEach(() => {
 	storageUsed.mockClear().mockResolvedValue(0);
 	findExpired.mockClear().mockResolvedValue([]);
 	findByProfile.mockClear().mockResolvedValue([]);
+	findByStatuses.mockClear().mockResolvedValue([]);
 	addItem.mockClear().mockResolvedValue(createMockWorkerItem({ id: "job-1" }));
 	systemSettingsStore.clearRuntimeValues();
 });
@@ -305,10 +307,28 @@ describe("DownloadsService.process", () => {
 		expect(update).not.toHaveBeenCalled();
 	});
 
-	test("missing media file fails the job lookup", async () => {
+	test("missing media file fails the job instead of leaving it pending", async () => {
 		findById.mockResolvedValue(row());
 		findByPrimaryId.mockResolvedValue(undefined);
-		await expect(downloadsService.process("dl-1")).rejects.toThrow("Media file not found");
+
+		await downloadsService.process("dl-1");
+
+		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed", errorText: "Media file no longer exists" }));
+	});
+});
+
+describe("DownloadsService.reconcileOnStartup", () => {
+	test("re-enqueues stale rows and fails ones whose source is gone", async () => {
+		findByStatuses.mockResolvedValue([
+			row({ id: "dl-a", status: "processing" }),
+			row({ id: "dl-b", status: "pending", mediaFileId: "file-gone" }),
+		]);
+		findByPrimaryId.mockResolvedValueOnce(mediaFile).mockResolvedValueOnce(undefined);
+
+		expect(await downloadsService.reconcileOnStartup()).toBe(1);
+		expect(update).toHaveBeenCalledWith("dl-a", expect.objectContaining({ status: "pending" }));
+		expect(update).toHaveBeenCalledWith("dl-b", expect.objectContaining({ status: "failed" }));
+		expect(addItem).toHaveBeenCalledWith("downloads-process", { downloadId: "dl-a" }, expect.objectContaining({ dedupeKey: "dl-a" }));
 	});
 });
 

@@ -166,6 +166,43 @@ class DownloadsService extends BaseService {
 		return { fileName: row.fileName, blob: handle };
 	}
 
+	/**
+	 * Boot reconciliation: a download interrupted by a crash/restart is stuck in
+	 * `pending`/`processing` with no live ffmpeg, which blocks the profile's only
+	 * active slot. Re-check the source, fail it when the file is gone, otherwise
+	 * reset to `pending` and re-enqueue the processor (the worker dedupe key keeps
+	 * this single-shot even when the job row was already recovered).
+	 */
+	async reconcileOnStartup(): Promise<number> {
+		const stale = await downloadsRepository.findByStatuses(["pending", "processing"]);
+		let requeued = 0;
+		for (const row of stale) {
+			const mediaFile = await mediaRepository.findByPrimaryId({
+				primaryId: row.mediaFileId,
+				fields: QueryFields.parse({ fields: "id,filePath" }),
+			});
+			if (!mediaFile?.filePath) {
+				await downloadsRepository.update(row.id, { status: "failed", errorText: "Media file no longer exists" });
+				continue;
+			}
+
+			await downloadsRepository.update(row.id, { status: "pending", errorText: null });
+			await enqueueDownloadsProcess(row.id);
+			requeued++;
+		}
+
+		return requeued;
+	}
+
+	/** Marks a download failed unless it already finished or was cancelled. */
+	async markFailed(downloadId: string, message: string): Promise<void> {
+		const row = await downloadsRepository.findById(downloadId);
+		if (!row || row.status === "completed" || row.status === "cancelled") return;
+
+		this.killInFlight(downloadId);
+		await downloadsRepository.update(downloadId, { status: "failed", errorText: message });
+	}
+
 	private async requireDownload(downloadId: string): Promise<DownloadRow> {
 		const row = await downloadsRepository.findById(downloadId);
 		if (!row) throw new NotFoundError("Download not found", { code: "download_not_found" });
@@ -260,13 +297,13 @@ class DownloadsService extends BaseService {
 			primaryId: row.mediaFileId,
 			fields: QueryFields.parse({ fields: "id,filePath,duration,fileName" }),
 		});
-		this.assertExists(
-			mediaFile,
-			"MediaFile",
-			row.mediaFileId,
-			() => new NotFoundError(`Media file not found: ${row.mediaFileId}`, { code: "media_file_not_found" }),
-		);
-		if (!mediaFile.filePath) throw new NotFoundError(`Media file not found: ${row.mediaFileId}`, { code: "media_file_not_found" });
+		if (!mediaFile?.filePath) {
+			// Retrying cannot bring the file back, and leaving the row `pending`
+			// pinned the profile's single active-download slot forever.
+			await downloadsRepository.update(downloadId, { status: "failed", errorText: "Media file no longer exists" });
+
+			return null;
+		}
 
 		return { row, filePath: mediaFile.filePath, durationSeconds: mediaFile.duration ?? 0, sourceFileName: mediaFile.fileName };
 	}
