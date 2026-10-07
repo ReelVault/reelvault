@@ -74,3 +74,11 @@ test("Jellyfin adapter reads series and episode documents", async () => {
 		await rm(directory, { force: true, recursive: true });
 	}
 });
+
+test("Jellyfin adapter declines the app's own .reelvault.nfo snapshots", async () => {
+	const adapter = new JellyfinFormatAdapter();
+
+	expect(await adapter.canRead({ documentPath: "/media/movie.nfo" })).toBeTrue();
+	expect(await adapter.canRead({ documentPath: "/media/movie.reelvault.nfo" })).toBeFalse();
+	expect(await adapter.canRead({ documentPath: "/media/tvshow.reelvault.nfo" })).toBeFalse();
+});

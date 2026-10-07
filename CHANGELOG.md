@@ -109,6 +109,7 @@
 - **Read-then-write transactions could fail spuriously under load** — job claiming, metadata merge/rematch and image replacement started with a deferred `BEGIN`, so a write committed by the main connection inside the read window made SQLite fail the upgrade with `SQLITE_BUSY_SNAPSHOT`. These transactions now take the write lock up front (`BEGIN IMMEDIATE`).
 - **Provider links could be silently dropped** — the provider junctions carried a unique index on `provider_id`, so two local rows that legitimately share one provider row (duplicates, localized renames) could never both link to it: the second insert was discarded without an error. The index is removed by a generated migration; the composite primary key still prevents duplicate pairs.
 - **Trickplay admin generation returned a misleading id** — the bulk route reported only a count and the single-file route could return a job id in place of an `operationId`, so progress/cancellation could not be tracked. Both routes now enqueue under a real worker operation and return it.
+- **Sidecar-first scans ignored the app's own `.reelvault.nfo` snapshots** — the NFO locator only knew the Kodi/Jellyfin file names, so libraries using the default `reelvault` sidecar flavor fell back to filename parsing whenever providers were unavailable. The locator now reads `.reelvault.nfo` movie/series/season/episode snapshots as a fallback (a standard `.nfo` still wins), and the Jellyfin reader no longer claims those files.
 
 ### Performance
 

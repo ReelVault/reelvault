@@ -13,7 +13,11 @@ export class JellyfinFormatAdapter implements SidecarFormatAdapter {
 	readonly capabilities = ["read"] as const;
 
 	canRead({ documentPath }: SidecarFormatInput): Promise<boolean> {
-		return Promise.resolve(PathUtils.getFileName(documentPath).toLowerCase().endsWith(".nfo"));
+		const fileName = PathUtils.getFileName(documentPath).toLowerCase();
+
+		// The app's own snapshots also end in `.nfo` — they must never be claimed
+		// by the Jellyfin reader, or a registry-order change would break them.
+		return Promise.resolve(fileName.endsWith(".nfo") && !fileName.endsWith(".reelvault.nfo"));
 	}
 
 	async read(input: SidecarFormatInput) {
