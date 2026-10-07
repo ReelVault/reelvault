@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { Gunzip, Unzip, UnzipInflate } from "fflate";
+import { Gunzip, Unzip, type UnzipFileHandler, UnzipInflate } from "fflate";
 import { constantTimeEquals, createHash } from "@/utils/crypto.utils";
 import { ValidationError } from "@/utils/errors";
 import { guardedFetch } from "@/utils/url-guard.utils";
@@ -120,25 +120,94 @@ export function assertChecksumMatches(actual: string, expected: string): void {
 /**
  * Extracts a zip or (g)zip'd tar archive into `workRoot` (created by the
  * caller). Rejects entry paths that escape the root and refuses to create
- * symlinks/hardlinks. Shared by plugin packages and the self-update installer.
+ * symlinks/hardlinks. The archive is read and inflated as a stream, so peak
+ * memory stays at one chunk instead of the whole compressed archive plus the
+ * decompressed payload — shared by plugin packages and the self-update
+ * installer, both of which run on small NAS hosts.
  */
 export async function extractArchive(
 	archivePath: string,
 	workRoot: string,
 	maxUncompressedBytes = DEFAULT_MAX_UNCOMPRESSED_BYTES,
 ): Promise<void> {
-	const archive = new Uint8Array(await Bun.file(archivePath).arrayBuffer());
-	if (archive[0] === 0x52 && archive[1] === 0x61 && archive[2] === 0x72 && archive[3] === 0x21) {
+	const reader = Bun.file(archivePath).stream().getReader();
+	try {
+		const first = await reader.read();
+		if (first.done) return;
+
+		const sink = createArchiveSink(sniffArchiveType(first.value), workRoot, maxUncompressedBytes);
+		sink.dispatch(first.value, false);
+
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+
+			sink.dispatch(value, false);
+		}
+
+		sink.dispatch(new Uint8Array(0), true);
+		sink.finish();
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+function sniffArchiveType(chunk: Uint8Array): "zip" | "gzip" | "tar" {
+	if (chunk[0] === 0x52 && chunk[1] === 0x61 && chunk[2] === 0x72 && chunk[3] === 0x21) {
 		throw new ValidationError("RAR archives are not supported — repackage the plugin as .zip or .tar.gz");
 	}
 
-	if (archive[0] === 0x50 && archive[1] === 0x4b) {
-		extractZipEntries(archive, workRoot, maxUncompressedBytes);
-	} else if (archive[0] === 0x1f && archive[1] === 0x8b) {
-		extractTarEntries(gunzipWithinLimit(archive, maxUncompressedBytes), workRoot, maxUncompressedBytes);
-	} else {
-		extractTarEntries(archive, workRoot, maxUncompressedBytes);
+	if (chunk[0] === 0x50 && chunk[1] === 0x4b) return "zip";
+	if (chunk[0] === 0x1f && chunk[1] === 0x8b) return "gzip";
+
+	return "tar";
+}
+
+/** Wires the sniffed archive type to its streaming decoder; `finish` flushes and rethrows failures. */
+function createArchiveSink(
+	mode: "zip" | "gzip" | "tar",
+	workRoot: string,
+	maxUncompressedBytes: number,
+): { dispatch(chunk: Uint8Array, final: boolean): void; finish(): void } {
+	if (mode === "zip") {
+		let failure: Error | undefined;
+		const unzip = new Unzip();
+		unzip.register(UnzipInflate);
+		unzip.onfile = createZipEntryHandler(workRoot, maxUncompressedBytes, (error) => {
+			failure = error;
+		});
+
+		return {
+			dispatch(chunk, final) {
+				if (failure) return;
+
+				try {
+					unzip.push(chunk, final);
+				} catch (error) {
+					failure = error instanceof Error ? error : new Error(String(error));
+				}
+			},
+			finish() {
+				if (failure) throw failure;
+			},
+		};
 	}
+
+	const tar = createTarStreamExtractor(workRoot, maxUncompressedBytes);
+	if (mode === "gzip") {
+		const gunzip = new Gunzip();
+		gunzip.ondata = (data) => tar.push(data);
+
+		return {
+			dispatch: (chunk, final) => gunzip.push(chunk, final),
+			finish: () => tar.finish(),
+		};
+	}
+
+	return {
+		dispatch: (chunk) => tar.push(chunk),
+		finish: () => tar.finish(),
+	};
 }
 
 /**
@@ -178,25 +247,22 @@ function assertSafeDestination(workRoot: string, entryPath: string): string {
 	return target;
 }
 
-function extractZipEntries(archive: Uint8Array, workRoot: string, maxUncompressedBytes: number): void {
+/** fflate streams entry data in chunks; the shared counter bounds the whole archive. */
+function createZipEntryHandler(workRoot: string, maxUncompressedBytes: number, onFailure: (error: Error) => void): UnzipFileHandler {
 	let total = 0;
-	let failure: Error | undefined;
-	const unzipper = new Unzip();
-	unzipper.register(UnzipInflate);
-	unzipper.onfile = (file) => {
-		if (failure || file.name.endsWith("/")) return;
+
+	return (file) => {
+		if (file.name.endsWith("/")) return;
 
 		const target = assertSafeDestination(workRoot, file.name);
 		mkdirSync(dirname(target), { recursive: true });
 		writeFileSync(target, new Uint8Array(0));
 		file.ondata = (_error, chunk) => {
-			if (failure) return;
-
 			// Count the ACTUAL inflated bytes — the zip header's declared size is
 			// attacker-controlled and cannot bound a zip bomb.
 			total += chunk.byteLength;
 			if (total > maxUncompressedBytes) {
-				failure = new ValidationError("Plugin package exceeds the uncompressed size limit");
+				onFailure(new ValidationError("Plugin package exceeds the uncompressed size limit"));
 
 				return;
 			}
@@ -205,49 +271,19 @@ function extractZipEntries(archive: Uint8Array, workRoot: string, maxUncompresse
 		};
 		file.start();
 	};
-	unzipper.push(archive, true);
-	if (failure) throw failure;
 }
 
-/** Streaming gzip inflate with a hard cap on the actual decompressed bytes. */
-function gunzipWithinLimit(archive: Uint8Array, maxUncompressedBytes: number): Uint8Array {
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	let failure: Error | undefined;
-	const gunzip = new Gunzip();
-	gunzip.ondata = (chunk) => {
-		if (failure) return;
-
-		total += chunk.byteLength;
-		if (total > maxUncompressedBytes) {
-			failure = new ValidationError("Plugin package exceeds the uncompressed size limit");
-
-			return;
-		}
-
-		chunks.push(chunk);
-	};
-	gunzip.push(archive, true);
-	if (failure) throw failure;
-
-	const output = new Uint8Array(total);
-	let offset = 0;
-	for (const chunk of chunks) {
-		output.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-
-	return output;
+interface TarStreamExtractor {
+	push(chunk: Uint8Array): void;
+	/** Creates the deferred symlinks and rejects a stream that ended mid-entry. */
+	finish(): void;
 }
 
-function extractEntry(workRoot: string, entryPath: string, bytes: Uint8Array, mode?: number): void {
-	// Synchronous here is fine: zip entries land in memory anyway, and tar is
-	// parsed from an in-memory buffer. Package sizes are capped an order of
-	// magnitude below what would make this a user-facing stall.
-	mkdirSync(dirname(assertSafeDestination(workRoot, entryPath)), { recursive: true });
-	// Tar headers carry the permission bits — launchers (start.sh) and the
-	// bundled bun binary must stay executable after an update swap.
-	writeFileSync(assertSafeDestination(workRoot, entryPath), bytes, mode ? { mode: mode & 0o777 } : undefined);
+interface TarPayload {
+	kind: "file" | "long-name" | "discard";
+	target?: string;
+	remaining: number;
+	padding: number;
 }
 
 const TAR_TYPE_REGULAR = new Set(["0", "\0"]);
@@ -255,36 +291,83 @@ const TAR_TYPE_DIRECTORY = "5";
 const TAR_TYPE_SYMLINK = "2";
 const TAR_TYPE_LONG_NAME = "L";
 
-function extractTarEntries(archive: Uint8Array, workRoot: string, maxUncompressedBytes: number): void {
-	let offset = 0;
+/**
+ * Incremental ustar reader: headers and entry bytes may arrive across arbitrary
+ * chunk boundaries, files are written as their data streams in, and symlinks are
+ * created in `finish()` because their targets may appear later in the stream.
+ * Exported for the chunk-boundary tests.
+ */
+export function createTarStreamExtractor(workRoot: string, maxUncompressedBytes: number): TarStreamExtractor {
+	const header = new Uint8Array(TAR_BLOCK_SIZE);
+	let headerFilled = 0;
+	let payload: TarPayload | null = null;
+	let longNameParts: Uint8Array[] = [];
 	let pendingLongName: string | undefined;
-	let total = 0;
-	// Server release archives ship node_modules/.bin as relative symlinks whose
-	// targets may appear later in the stream — create them after the walk.
 	const symlinks: Array<{ linkPath: string; target: string }> = [];
-	while (offset + TAR_BLOCK_SIZE <= archive.length) {
-		const header = archive.subarray(offset, offset + TAR_BLOCK_SIZE);
-		if (header.every((byte) => byte === 0)) break;
+	let total = 0;
+	const state = { ended: false };
 
-		offset += TAR_BLOCK_SIZE;
+	/**
+	 * Consumes payload bytes (file data, long name or discard) plus padding.
+	 * Returns the new offset, or null when the payload needs more chunks.
+	 */
+	const consumePayload = (chunk: Uint8Array, startOffset: number): number | null => {
+		if (!payload) return startOffset;
 
-		const size = Number.parseInt(readTarString(header, 124, 12).replace(/[^0-7]/g, ""), 8) || 0;
-		const dataEnd = offset + Math.ceil(size / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+		const current = payload;
+		let offset = startOffset;
+		const take = Math.min(current.remaining, chunk.byteLength - offset);
+		if (take > 0) {
+			const data = chunk.subarray(offset, offset + take);
+			if (current.kind === "file" && current.target) appendFileSync(current.target, data);
+			else if (current.kind === "long-name") longNameParts.push(data);
+
+			current.remaining -= take;
+			offset += take;
+		}
+
+		if (current.remaining > 0) return null;
+
+		const skip = Math.min(current.padding, chunk.byteLength - offset);
+		current.padding -= skip;
+		offset += skip;
+		if (current.padding > 0) return null;
+
+		if (current.kind === "long-name") {
+			pendingLongName = decodeTarLongName(longNameParts);
+			longNameParts = [];
+		}
+
+		payload = null;
+
+		return offset;
+	};
+
+	/** Parses one complete header block; returns true for the end-of-archive marker. */
+	const consumeHeader = (): boolean => {
+		headerFilled = 0;
+		if (header.every((byte) => byte === 0)) return true;
+
+		const size = parseTarNumber(header, 124, 12);
+		const padding = (TAR_BLOCK_SIZE - (size % TAR_BLOCK_SIZE)) % TAR_BLOCK_SIZE;
 		const typeFlag = String.fromCharCode(header[156] ?? 0x30);
-		const data = archive.subarray(offset, offset + size);
-		offset = dataEnd;
 
 		if (typeFlag === TAR_TYPE_LONG_NAME) {
-			pendingLongName = readTarString(data, 0, size);
-			continue;
+			payload = { kind: "long-name", remaining: size, padding };
+
+			return false;
 		}
 
 		const name = pendingLongName ?? readTarName(header);
 		pendingLongName = undefined;
 
 		if (typeFlag === TAR_TYPE_DIRECTORY) {
-			assertSafeDestination(workRoot, name);
-			continue;
+			// Preserve declared directories (including empty ones) like a real
+			// tar reader; files inside would create their parents anyway.
+			mkdirSync(assertSafeDestination(workRoot, name), { recursive: true });
+			payload = { kind: "discard", remaining: size, padding };
+
+			return false;
 		}
 
 		if (typeFlag === TAR_TYPE_SYMLINK) {
@@ -299,7 +382,9 @@ function extractTarEntries(archive: Uint8Array, workRoot: string, maxUncompresse
 			}
 
 			symlinks.push({ linkPath, target });
-			continue;
+			payload = { kind: "discard", remaining: size, padding };
+
+			return false;
 		}
 
 		if (!TAR_TYPE_REGULAR.has(typeFlag)) {
@@ -307,15 +392,72 @@ function extractTarEntries(archive: Uint8Array, workRoot: string, maxUncompresse
 		}
 
 		total += size;
-		if (total > maxUncompressedBytes) throw new ValidationError(`Plugin package exceeds the uncompressed size limit`);
+		if (total > maxUncompressedBytes) throw new ValidationError("Plugin package exceeds the uncompressed size limit");
 
-		extractEntry(workRoot, name, data, Number.parseInt(readTarString(header, 100, 8).replace(/[^0-7]/g, ""), 8));
+		const target = assertSafeDestination(workRoot, name);
+		mkdirSync(dirname(target), { recursive: true });
+		const mode = parseTarNumber(header, 100, 8);
+		writeFileSync(target, new Uint8Array(0), mode ? { mode: mode & 0o777 } : undefined);
+		payload = { kind: "file", target, remaining: size, padding };
+
+		return false;
+	};
+
+	return {
+		push(chunk) {
+			if (state.ended) return;
+
+			let offset = 0;
+			while (offset < chunk.byteLength) {
+				if (payload) {
+					const nextOffset = consumePayload(chunk, offset);
+					// The payload is still incomplete — wait for the next chunk.
+					if (nextOffset === null) break;
+
+					offset = nextOffset;
+					continue;
+				}
+
+				const take = Math.min(TAR_BLOCK_SIZE - headerFilled, chunk.byteLength - offset);
+				header.set(chunk.subarray(offset, offset + take), headerFilled);
+				headerFilled += take;
+				offset += take;
+				if (headerFilled < TAR_BLOCK_SIZE) break;
+
+				if (consumeHeader()) {
+					state.ended = true;
+
+					break;
+				}
+			}
+		},
+		finish() {
+			if (!state.ended && (payload || headerFilled > 0)) {
+				throw new ValidationError("Plugin package contains a truncated tar archive");
+			}
+
+			for (const { linkPath, target } of symlinks) {
+				mkdirSync(dirname(linkPath), { recursive: true });
+				symlinkSync(target, linkPath);
+			}
+		},
+	};
+}
+
+function parseTarNumber(block: Uint8Array, offset: number, length: number): number {
+	return Number.parseInt(readTarString(block, offset, length).replace(/[^0-7]/g, ""), 8) || 0;
+}
+
+function decodeTarLongName(parts: Uint8Array[]): string {
+	const total = parts.reduce((sum, part) => sum + part.byteLength, 0);
+	const joined = new Uint8Array(total);
+	let offset = 0;
+	for (const part of parts) {
+		joined.set(part, offset);
+		offset += part.byteLength;
 	}
 
-	for (const { linkPath, target } of symlinks) {
-		mkdirSync(dirname(linkPath), { recursive: true });
-		symlinkSync(target, linkPath);
-	}
+	return readTarString(joined, 0, joined.byteLength);
 }
 
 function readTarString(block: Uint8Array, offset: number, length: number): string {

@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strToU8, zipSync } from "fflate";
-import { assertChecksumMatches, downloadArchive, extractPluginPackage } from "./plugin-package.utils";
+import { assertChecksumMatches, createTarStreamExtractor, downloadArchive, extractPluginPackage } from "./plugin-package.utils";
 
 const temporaryDirectories: string[] = [];
 const cleanups: Array<() => Promise<void>> = [];
@@ -158,6 +158,69 @@ describe("plugin package utils", () => {
 			await server.stop(true);
 		}
 	});
+
+	test("extracts a plain (uncompressed) tar archive", async () => {
+		const tar = buildTar([{ path: "org.example.plain/plugin.json", data: strToU8('{"id":"org.example.plain"}') }]);
+		const extracted = await extractPluginPackage(await writeArchive(tar));
+		deferCleanup(extracted.cleanup);
+
+		expect(extracted.pluginRoot.endsWith("org.example.plain")).toBe(true);
+	});
+
+	test("extracts a zip larger than one stream chunk", async () => {
+		// Incompressible payload — the compressed archive itself spans several reads.
+		const payload = crypto.getRandomValues(new Uint8Array(400 * 1024));
+		const archivePath = await writeArchive(
+			new Uint8Array(
+				zipSync({
+					"org.example.streamed/plugin.json": strToU8('{"id":"org.example.streamed"}'),
+					"org.example.streamed/data.bin": payload,
+				}),
+			),
+		);
+
+		const extracted = await extractPluginPackage(archivePath);
+		deferCleanup(extracted.cleanup);
+
+		expect(readFileSync(join(extracted.pluginRoot, "data.bin")).byteLength).toBe(payload.byteLength);
+	});
+
+	test("extracts a tar archive fed in arbitrary chunk sizes", async () => {
+		const payload = strToU8("A".repeat(1500));
+		const longDirectory = `${"chunked-directory-".repeat(6)}x`;
+		const tar = buildTar([
+			{ path: `${longDirectory}/plugin.json`, data: strToU8('{"id":"org.example.chunked"}'), longName: true },
+			{ path: `${longDirectory}/data.bin`, data: payload },
+			{ path: `${longDirectory}/sub`, directory: true },
+			{ path: `${longDirectory}/link.mjs`, linkTo: "data.bin" },
+		]);
+
+		for (const chunkSize of [1, 3, 7, 511, 512, 513, 1024, 4096]) {
+			const workRoot = await mkdtemp(join(tmpdir(), "reelvault-tar-chunks-"));
+			temporaryDirectories.push(workRoot);
+			const extractor = createTarStreamExtractor(workRoot, 1024 * 1024);
+			for (let offset = 0; offset < tar.byteLength; offset += chunkSize) {
+				extractor.push(tar.subarray(offset, Math.min(offset + chunkSize, tar.byteLength)));
+			}
+			extractor.finish();
+
+			expect(readFileSync(join(workRoot, longDirectory, "plugin.json"), "utf8")).toBe('{"id":"org.example.chunked"}');
+			expect(readFileSync(join(workRoot, longDirectory, "data.bin"))).toEqual(Buffer.from(payload));
+			expect(statSync(join(workRoot, longDirectory, "sub")).isDirectory()).toBe(true);
+			expect(lstatSync(join(workRoot, longDirectory, "link.mjs")).isSymbolicLink()).toBe(true);
+		}
+	});
+
+	test("rejects a tar stream that ends mid-entry", async () => {
+		const workRoot = await mkdtemp(join(tmpdir(), "reelvault-tar-truncated-"));
+		temporaryDirectories.push(workRoot);
+		const tar = buildTar([{ path: "plugin-dir/data.bin", data: strToU8("X".repeat(2048)) }]);
+		const extractor = createTarStreamExtractor(workRoot, 1024 * 1024);
+
+		extractor.push(tar.subarray(0, 512 + 700)); // header plus a partial data block
+
+		expect(() => extractor.finish()).toThrow("truncated tar archive");
+	});
 });
 
 async function writeArchive(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
@@ -178,35 +241,36 @@ interface TarEntry {
 	data?: Uint8Array;
 	linkTo?: string;
 	mode?: string;
+	/** Emit a GNU long-name (`L`) header so the reader must stitch the path across blocks. */
+	longName?: boolean;
+	/** Emit a directory (`5`) entry. */
+	directory?: boolean;
 }
 
 /** Minimal ustar writer — enough to exercise the reader, including long names via the prefix field. */
 function buildTar(entries: TarEntry[]): Uint8Array<ArrayBuffer> {
 	const blocks: Uint8Array[] = [];
 	for (const entry of entries) {
-		const { name, prefix } = splitTarPath(entry.path);
-		const header = new Uint8Array(512);
-		const encoder = new TextEncoder();
-		header.set(encoder.encode(name).subarray(0, 100), 0);
-		header.set(encoder.encode(entry.mode ?? "0000644"), 100);
-		header.set(encoder.encode("0000000"), 108);
-		header.set(encoder.encode("0000000"), 116);
-		const size = entry.data?.byteLength ?? 0;
-		header.set(encoder.encode(`${size.toString(8).padStart(11, "0")}\0`), 124);
-		header.set(encoder.encode("00000000000"), 136);
-		header.set(encoder.encode(entry.linkTo ? "2" : "0"), 156);
-		if (entry.linkTo) header.set(encoder.encode(entry.linkTo).subarray(0, 100), 157);
-		header.set(encoder.encode("ustar\0"), 257);
-		header.set(encoder.encode("00"), 263);
-		header.set(encoder.encode(prefix), 345);
-		header.set(encoder.encode("        "), 148);
-		let checksum = 0;
-		for (const byte of header) checksum += byte;
+		if (entry.longName) {
+			const nameBytes = new TextEncoder().encode(entry.path);
+			blocks.push(buildTarHeader({ name: "././@LongLink", size: nameBytes.byteLength, type: "L" }));
+			blocks.push(padToBlock(nameBytes));
+		}
 
-		header.set(encoder.encode(`${checksum.toString(8).padStart(6, "0")}\0 `), 148);
-
-		blocks.push(header);
-		if (entry.data) blocks.push(padToBlock(entry.data));
+		const { name, prefix } = splitTarPath(entry.longName ? "long-name-placeholder" : entry.path);
+		const data = entry.data;
+		const type = tarTypeForEntry(entry);
+		blocks.push(
+			buildTarHeader({
+				name,
+				prefix,
+				size: data?.byteLength ?? 0,
+				type,
+				...(entry.linkTo !== undefined ? { linkTo: entry.linkTo } : {}),
+				...(entry.mode !== undefined ? { mode: entry.mode } : {}),
+			}),
+		);
+		if (data) blocks.push(padToBlock(data));
 	}
 
 	blocks.push(new Uint8Array(1024));
@@ -219,6 +283,43 @@ function buildTar(entries: TarEntry[]): Uint8Array<ArrayBuffer> {
 	}
 
 	return tar;
+}
+
+function tarTypeForEntry(entry: TarEntry): "5" | "2" | "0" {
+	if (entry.directory) return "5";
+	if (entry.linkTo) return "2";
+
+	return "0";
+}
+
+function buildTarHeader(options: {
+	name: string;
+	prefix?: string;
+	size?: number;
+	type?: string;
+	linkTo?: string;
+	mode?: string;
+}): Uint8Array {
+	const header = new Uint8Array(512);
+	const encoder = new TextEncoder();
+	header.set(encoder.encode(options.name).subarray(0, 100), 0);
+	header.set(encoder.encode(options.mode ?? "0000644"), 100);
+	header.set(encoder.encode("0000000"), 108);
+	header.set(encoder.encode("0000000"), 116);
+	header.set(encoder.encode(`${(options.size ?? 0).toString(8).padStart(11, "0")}\0`), 124);
+	header.set(encoder.encode("00000000000"), 136);
+	header.set(encoder.encode(options.type ?? "0"), 156);
+	if (options.linkTo) header.set(encoder.encode(options.linkTo).subarray(0, 100), 157);
+	header.set(encoder.encode("ustar\0"), 257);
+	header.set(encoder.encode("00"), 263);
+	header.set(encoder.encode(options.prefix ?? ""), 345);
+	header.set(encoder.encode("        "), 148);
+	let checksum = 0;
+	for (const byte of header) checksum += byte;
+
+	header.set(encoder.encode(`${checksum.toString(8).padStart(6, "0")}\0 `), 148);
+
+	return header;
 }
 
 function splitTarPath(path: string): { name: string; prefix: string } {
