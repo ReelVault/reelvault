@@ -31,7 +31,8 @@ function createManagerFixture(activeStubs: Array<{ restore(): void }>) {
 		stubMethod(loader, "unloadPlugin", () => Promise.resolve()),
 		stubMethod(loader, "unloadAll", () => Promise.resolve()),
 		stubMethod(loader, "reloadPlugin", () => Promise.resolve()),
-		stubMethod(loader, "uninstallPlugin", () => Promise.resolve()),
+		stubMethod(loader, "prepareUninstall", () => Promise.resolve()),
+		stubMethod(loader, "removePluginData", () => Promise.resolve()),
 		stubMethod(loader, "findDirectoryNameForPluginId", (pluginId: string) =>
 			Promise.resolve(pluginId === "org.reelvault.m" ? "m-dir" : undefined),
 		),
@@ -348,11 +349,16 @@ describe("PluginManager lifecycle orchestration", () => {
 		await expect(manager.getPluginDirectoryName("org.reelvault.unknown")).resolves.toBeUndefined();
 	});
 
-	test("uninstall removes loaded data and tolerates a missing installer record", async () => {
+	test("uninstall removes the package before the plugin data and tolerates a missing installer record", async () => {
 		const { manager, loader, installer } = createManagerFixture(activeStubs);
 		const calls: string[] = [];
-		const loaderStub = stubMethod(loader, "uninstallPlugin", (pluginId: string) => {
-			calls.push(`loader:${pluginId}`);
+		const prepareStub = stubMethod(loader, "prepareUninstall", (pluginId: string) => {
+			calls.push(`prepare:${pluginId}`);
+
+			return Promise.resolve();
+		});
+		const removeDataStub = stubMethod(loader, "removePluginData", (pluginId: string) => {
+			calls.push(`removeData:${pluginId}`);
 
 			return Promise.resolve();
 		});
@@ -361,18 +367,21 @@ describe("PluginManager lifecycle orchestration", () => {
 
 			return Promise.reject(new ValidationError("not installed"));
 		});
-		activeStubs.push(loaderStub, installerStub);
+		activeStubs.push(prepareStub, removeDataStub, installerStub);
 
 		await manager.uninstall("org.reelvault.m");
-		expect(calls).toEqual(["loader:org.reelvault.m", "installer"]);
+		expect(calls).toEqual(["prepare:org.reelvault.m", "installer", "removeData:org.reelvault.m"]);
 	});
 
-	test("uninstall rethrows unexpected installer failures", async () => {
-		const { manager, installer } = createManagerFixture(activeStubs);
+	test("uninstall rethrows unexpected installer failures without touching plugin data", async () => {
+		const { manager, loader, installer } = createManagerFixture(activeStubs);
 		const failingStub = stubMethod(installer, "uninstall", () => Promise.reject(new Error("disk on fire")));
-		activeStubs.push(failingStub);
+		const removeDataStub = stubMethod(loader, "removePluginData", () => Promise.resolve());
+		activeStubs.push(failingStub, removeDataStub);
 
 		await expect(manager.uninstall("org.reelvault.m")).rejects.toThrow("disk on fire");
+		// The package is still installed, so its data must survive the failure.
+		expect(removeDataStub.calls).toEqual([]);
 	});
 
 	test("installFromDirectory upgrades and reloads an already-loaded plugin, swallowing reload failures", async () => {

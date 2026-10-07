@@ -394,7 +394,12 @@ export class PluginLoader {
 		});
 	}
 
-	async uninstallPlugin(pluginId: string): Promise<void> {
+	/**
+	 * Unloads a plugin and drains its workers ahead of an uninstall. Split from
+	 * `removePluginData` so the package directory can be removed first: if that
+	 * fails, the plugin is still installed and its data must survive.
+	 */
+	async prepareUninstall(pluginId: string): Promise<void> {
 		// Capture job ids before unloading so in-flight handlers can be drained first.
 		const jobNames = this.pluginScopes.get(pluginId)?.getJobNames() ?? [];
 		await this.unloadPlugin(pluginId);
@@ -406,6 +411,10 @@ export class PluginLoader {
 		}
 
 		this.directoryIndex.delete(pluginId);
+	}
+
+	/** Removes the plugin's stored data; called after its package directory is gone. */
+	async removePluginData(pluginId: string): Promise<void> {
 		await Promise.all([
 			pluginStorageService.removeForPlugin(pluginId),
 			pluginBlobsService.removeForPlugin(pluginId),

@@ -208,17 +208,21 @@ export class PluginManager {
 
 	async uninstall(pluginId: string): Promise<void> {
 		await this.lifecycleMutex.runExclusive(async () => {
-			await this.loader.uninstallPlugin(pluginId);
+			await this.loader.prepareUninstall(pluginId);
 			try {
-				// Removes the directory and the lockfile entry. Manually dropped
-				// plugins have no lockfile record — their data is already gone at
-				// this point, so a missing record only needs to be tolerated.
+				// Package first: if removing the directory/lockfile fails, the plugin
+				// is still installed and its data must survive. The reverse order
+				// wiped user data and then left a package that looked installed.
+				// Manually dropped plugins have no lockfile record — their data is
+				// removed below regardless.
 				await this.installer.uninstall(pluginId);
 			} catch (error) {
 				if (!(error instanceof ValidationError)) throw error;
 
 				this.logger.warn(`No installer record for ${pluginId} — removed loaded data only`);
 			}
+
+			await this.loader.removePluginData(pluginId);
 
 			// Cleared only after the installer succeeded — a failed uninstall leaves the plugin installed.
 			this.disabledStatuses.delete(pluginId);
