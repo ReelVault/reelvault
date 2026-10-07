@@ -15,7 +15,9 @@ export const securityHeadersMiddleware = new Elysia({ name: "SecurityHeaders" })
 	const isPluginUi = isPluginUiPath(request.url);
 	// The server-hosted SPA needs a policy that actually lets its own assets
 	// load; every non-web path keeps the locked-down default.
-	const isWebUi = resolveWebDistRoot() !== null && !isPluginUi && !isOpenApiUi && !isWebApiPath(request.url);
+	// Cheap path checks first: resolveWebDistRoot stats the disk, and API/plugin
+	// requests (every HLS segment included) must not pay for it.
+	const isWebUi = !(isPluginUi || isOpenApiUi || isWebApiPath(request.url)) && resolveWebDistRoot() !== null;
 
 	set.headers["X-Content-Type-Options"] = serverConfig.security.contentTypeOptions;
 	if (!isPluginUi) set.headers["X-Frame-Options"] = serverConfig.security.frameOptions;
