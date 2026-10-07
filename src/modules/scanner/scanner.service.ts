@@ -145,6 +145,7 @@ export class ScannerService extends BaseService {
 				const { removedFiles, storageUnavailable, massRemoval, skipRemovals } = await this.dependencies.guard.assess({
 					libraryId,
 					candidates: removedCandidates,
+					roots: effectivePaths,
 					existingCount,
 					filesOnDiskCount: filesOnDisk.length,
 					signal,

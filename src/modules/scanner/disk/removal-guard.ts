@@ -19,6 +19,8 @@ export interface RemovalAssessment {
 export interface RemovalAssessmentInput {
 	libraryId: string;
 	candidates: string[];
+	/** Configured library roots; a root that is no longer reachable vetoes every removal. */
+	roots?: readonly string[] | undefined;
 	existingCount: number;
 	filesOnDiskCount: number;
 	signal?: AbortSignal | undefined;
@@ -47,12 +49,38 @@ export class RemovalGuard extends BaseService {
 		this.dependencies = dependencies;
 	}
 
-	async assess({ libraryId, candidates, existingCount, filesOnDiskCount, signal }: RemovalAssessmentInput): Promise<RemovalAssessment> {
+	async assess({
+		libraryId,
+		candidates,
+		roots,
+		existingCount,
+		filesOnDiskCount,
+		signal,
+	}: RemovalAssessmentInput): Promise<RemovalAssessment> {
+		// An unmounted root makes every one of its files stat as ENOENT — exactly
+		// like a deletion. A root that is not reachable vetoes removals outright,
+		// regardless of how small a share of the library it holds.
+		const uniqueRoots = [...new Set(roots ?? [])];
+		let storageUnavailable = false;
+		if (uniqueRoots.length > 0) {
+			await PromiseUtils.mapConcurrent(
+				uniqueRoots,
+				this.dependencies.getIoConcurrency(),
+				async (root) => {
+					const state = await this.dependencies.existence(root);
+					if (state !== "exists") {
+						storageUnavailable = true;
+						this.logger.error("Library root is not reachable — refusing to remove records", { libraryId, root, state });
+					}
+				},
+				signal,
+			);
+		}
+
 		// A range file owns one row per episode, so the same path repeats in the
 		// candidate list — stat each path once.
 		const uniqueCandidates = [...new Set(candidates)];
 		const states = new Map<string, "exists" | "missing" | "unavailable">();
-		let storageUnavailable = false;
 		await PromiseUtils.mapConcurrent(
 			uniqueCandidates,
 			this.dependencies.getIoConcurrency(),

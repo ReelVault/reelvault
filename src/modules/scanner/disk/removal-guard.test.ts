@@ -99,6 +99,38 @@ describe("RemovalGuard", () => {
 		expect(assessment.skipRemovals).toBeTrue();
 	});
 
+	test("refuses removals when a library root is no longer reachable", async () => {
+		// The dead root's files look deleted, but they only stat as missing because
+		// the mount is gone — far below the mass-removal threshold.
+		const assessment = await guard.assess({
+			libraryId: "lib-1",
+			candidates: ["/media/movies/a.mkv"],
+			roots: ["/media/movies"],
+			existingCount: 2000,
+			filesOnDiskCount: 2000,
+		});
+
+		expect(assessment.removedFiles).toEqual(["/media/movies/a.mkv"]);
+		expect(assessment.massRemoval).toBeFalse();
+		expect(assessment.storageUnavailable).toBeTrue();
+		expect(assessment.skipRemovals).toBeTrue();
+	});
+
+	test("allows removals when every configured root is reachable", async () => {
+		existingPaths.add("/media/movies");
+
+		const assessment = await guard.assess({
+			libraryId: "lib-1",
+			candidates: ["/media/movies/a.mkv"],
+			roots: ["/media/movies"],
+			existingCount: 10,
+			filesOnDiskCount: 9,
+		});
+
+		expect(assessment.storageUnavailable).toBeFalse();
+		expect(assessment.skipRemovals).toBeFalse();
+	});
+
 	test("propagates abort", async () => {
 		const controller = new AbortController();
 		controller.abort();
