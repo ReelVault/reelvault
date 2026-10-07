@@ -60,8 +60,12 @@ export class PluginEventBus extends BaseService {
 	}
 
 	async emit<TEvent extends PluginEventName>(event: TEvent, input: PluginEventInput<TEvent>): Promise<void> {
+		const table = this.handlersByEvent.get(event);
+		// No subscriber (the common case) — do not build the envelope for nobody.
+		if (!table || table.size === 0) return;
+
 		const payload = createPluginEventPayload(input);
-		const handlers = this.handlersByEvent.get(event)?.all() ?? [];
+		const handlers = table.all();
 		// Time-box each handler: a hung plugin must not stall core event emission.
 		const results = await PromiseUtils.mapConcurrent(handlers, systemResourcesService.getIoConcurrency(), async (handler) => {
 			try {

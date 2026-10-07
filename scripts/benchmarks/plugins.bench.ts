@@ -1,6 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
+import { bench, fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
+import { PluginEventBus } from "@/plugins/runtime/plugin.events";
 import { isRecord } from "@/utils/type.utils";
 import { contextHeaders, rotatingIdentity, workerCookie } from "./lib/identity";
 import { type NamedScenario, toScenarioEntries } from "./lib/scenarios";
@@ -247,6 +248,19 @@ export const meta = { description: "Plugin runtime (install-upload, lifecycle, h
 const args = suiteArgs();
 
 if (!args.help) {
+	// Ingest and playback emit several events per file; with no plugin
+	// subscribed the bus must not build envelopes for nobody.
+	const emptyBus = new PluginEventBus();
+	bench(
+		"PluginEventBus.emit without handlers (500 emits)",
+		async () => {
+			for (let index = 0; index < 500; index++) {
+				await emptyBus.emit("media.file.ready", { libraryId: "lib", mediaFileId: `mf-${index}`, metadataId: "meta" });
+			}
+		},
+		{ warmup: 3, iterations: 20 },
+	);
+
 	const zipPath = resolvePluginZip();
 	if (!zipPath) {
 		console.log("[plugins] skipped — org.reelvault.requests zip not found under ../../plugins/dist/plugins (clone the plugins repo)");
