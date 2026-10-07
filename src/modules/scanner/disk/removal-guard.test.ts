@@ -70,6 +70,28 @@ describe("RemovalGuard", () => {
 		expect(assessment.removedFiles).toHaveLength(6);
 	});
 
+	test("stats a duplicated path once while keeping the row-weighted mass-removal count", async () => {
+		const statsPerPath = new Map<string, number>();
+		const countingGuard = createGuard((path) => {
+			statsPerPath.set(path, (statsPerPath.get(path) ?? 0) + 1);
+
+			return Promise.resolve("missing");
+		});
+
+		// A range file owns one database row per episode — the path repeats.
+		const assessment = await countingGuard.assess({
+			libraryId: "lib-1",
+			candidates: ["/media/range.mkv", "/media/range.mkv", "/media/range.mkv", "/media/range.mkv", "/media/range.mkv"],
+			existingCount: 10,
+			filesOnDiskCount: 5,
+		});
+
+		expect(statsPerPath.get("/media/range.mkv")).toBe(1);
+		expect(assessment.removedFiles).toEqual(["/media/range.mkv"]);
+		// Five missing ROWS still hit the mass-removal threshold (max(5, 10/2)).
+		expect(assessment.massRemoval).toBeTrue();
+	});
+
 	test("treats an empty disk listing as a mass removal", async () => {
 		const assessment = await guard.assess({ libraryId: "lib-1", candidates: ["/media/a.mkv"], existingCount: 10, filesOnDiskCount: 0 });
 

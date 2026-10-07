@@ -48,35 +48,46 @@ export class RemovalGuard extends BaseService {
 	}
 
 	async assess({ libraryId, candidates, existingCount, filesOnDiskCount, signal }: RemovalAssessmentInput): Promise<RemovalAssessment> {
-		const removedFiles: string[] = [];
+		// A range file owns one row per episode, so the same path repeats in the
+		// candidate list — stat each path once.
+		const uniqueCandidates = [...new Set(candidates)];
+		const states = new Map<string, "exists" | "missing" | "unavailable">();
 		let storageUnavailable = false;
 		await PromiseUtils.mapConcurrent(
-			candidates,
+			uniqueCandidates,
 			this.dependencies.getIoConcurrency(),
 			async (candidatePath) => {
 				const state = await this.dependencies.existence(candidatePath);
+				states.set(candidatePath, state);
 				if (state === "exists") {
 					this.logger.warn("Keeping media file — re-check found it on disk", { libraryId, path: candidatePath });
-
-					return;
 				}
 
 				// A stat that failed for any reason other than "not found" (ACL, busy,
 				// I/O, timeout) means the storage is unreliable, not that the file was
 				// deleted. Never purge records on that basis.
-				if (state === "unavailable") {
-					storageUnavailable = true;
-
-					return;
-				}
-
-				removedFiles.push(candidatePath);
+				if (state === "unavailable") storageUnavailable = true;
 			},
 			signal,
 		);
 		throwIfAborted(signal);
 
-		const massRemoval = isMassRemoval(existingCount, removedFiles.length, filesOnDiskCount);
+		const removedFiles: string[] = [];
+		const seenPaths = new Set<string>();
+		let confirmedRows = 0;
+		for (const candidatePath of candidates) {
+			if (states.get(candidatePath) !== "missing") continue;
+
+			// The mass-removal ratio is row-weighted (what the DB would purge);
+			// the returned list is path-unique.
+			confirmedRows++;
+			if (!seenPaths.has(candidatePath)) {
+				seenPaths.add(candidatePath);
+				removedFiles.push(candidatePath);
+			}
+		}
+
+		const massRemoval = isMassRemoval(existingCount, confirmedRows, filesOnDiskCount);
 
 		return { removedFiles, storageUnavailable, massRemoval, skipRemovals: massRemoval || storageUnavailable };
 	}

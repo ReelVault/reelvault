@@ -75,6 +75,7 @@
 - Worker retention trim is served by the index order (no TEMP B-TREE); covering indexes added for scanner keyset paging, downloads, `sortTitle`, worker list/recovery and `created_at` composites.
 - Scheduler deadlines are written in one multi-row upsert per pass instead of one UPSERT per worker; claim counters aggregate per operation instead of one UPDATE per claimed job; weekly retention runs one DELETE per status instead of up to two per registered worker; stale-findings and plugin-artifact cleanup use one chunked DELETE instead of per-row deletes.
 - Session-reaper active-job probe uses one chunked query per sweep instead of one SELECT per stale candidate.
+- Removal guard stats each candidate path once — a range file's repeated rows no longer multiply `existence` probes; the row-weighted mass-removal ratio is unchanged.
 - Next-episode resolution uses one ordered query instead of three statements per later season; stream prefs resolve in one LEFT JOIN instead of separate file → metadata → prefs queries.
 - Internal scan paths (`scan`, `scanPath`, `getScanFindings`) read the library without loading provider-priority overrides.
 - Trickplay sprite writes stream the `BunFile` straight to artifact storage (no full-size buffer copy); temp-source cleanup is owned by `writeFileWithRollback`.
