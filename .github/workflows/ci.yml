@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -18,29 +18,53 @@ env:
 
 jobs:
   quality:
-    name: Code quality and tests
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Type check
+            command: bun run check-types
+          - name: Lint
+            command: bun run lint:ci
+          - name: Dead code
+            command: bun run deadcode
+          - name: Tests
+            command: bun test --parallel
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
 
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check types
-        run: bun run check-types
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.command }}
 
-      - name: Lint
-        run: bun run lint:ci
-
-      - name: Dead code analysis
-        run: bun run deadcode
-
-      - name: Run tests
-        run: bun test
+  # Keeps the original required-check name green only when every parallel check
+  # passed, so branch protection rules referencing it keep working.
+  quality-gate:
+    name: Code quality and tests
+    needs: quality
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify all quality checks passed
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+        run: test "$QUALITY_RESULT" = "success"

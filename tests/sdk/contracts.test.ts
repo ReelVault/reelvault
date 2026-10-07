@@ -27,6 +27,11 @@ import {
 import { defineConfig, field } from "@reelvault/sdk/plugin";
 import { Value } from "@sinclair/typebox/value";
 
+// Elysia registers TypeBox's standard formats (`email`, `date-time`, ...) that
+// the SDK schemas rely on. Without it, isolated runs (`bun test --parallel`,
+// single-file runs) reject valid values with "Unknown format".
+await import("elysia");
+
 describe("public SDK contracts", () => {
 	it("derives a config parser from field specs", () => {
 		const config = defineConfig({
