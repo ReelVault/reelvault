@@ -40,7 +40,7 @@ class ImageOptimizationService extends BaseService {
 	async getOptimizedImage(sourcePath: string, request: ImageQuery, imageId?: string, signal?: AbortSignal): Promise<OptimizedImage> {
 		const options = parseImageRequest(request, serverConfig.images);
 		const cacheDir = PathUtils.join(serverConfig.paths.images, ".cache");
-		const sourceVersion = await sourceVersionCache.read(sourcePath);
+		const sourceVersion = (await sourceVersionCache.read(sourcePath)).replaceAll(":", "-");
 		const cacheKey = `${imageId ?? `src_${createHash("sha1").update(sourcePath).digest("hex").slice(0, 16)}`}_${options.width}_${options.height ?? 0}_${options.quality}_${sourceVersion}.webp`;
 		const cachePath = PathUtils.join(cacheDir, cacheKey);
 

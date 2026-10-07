@@ -93,6 +93,8 @@
 - **Merging two shows could bind files to the wrong episode** — the merge matched episodes by number alone, ignoring `episodeType`, so a special E1 could absorb a regular E1's media files (the unique key is season + type + number). Episode matching now includes the type.
 - **Search terms containing `%` or `_` matched extra rows** — the global title search, the admin user list and the worker-job search bypassed the shared LIKE escaping, so wildcard characters acted as wildcards instead of literal text. Every search path now escapes consistently.
 - **Interrupted downloads could block a profile forever** — a crash or restart left rows in `pending`/`processing` with no live ffmpeg, and a download whose media file had disappeared stayed queued indefinitely, pinning the profile's single active-download slot until it was manually cancelled. Startup now reconciles stale rows (re-enqueueing them, or failing those whose source is gone), a missing source fails immediately, and the worker marks the row failed once its retry budget is exhausted.
+- **Replacing a profile avatar leaked the previous image forever** — unlike every other image owner, the avatar swap neither collected the old image nor counted profiles in the "still referenced?" probe, so each avatar change left an orphan row and file behind. The previous avatar is now deleted when unreferenced and the probe checks `profiles.avatar_url`.
+- **The on-disk optimized-image cache never worked on Windows** — its keys embedded the source stamp `size:mtime`, and `:` is not a legal NTFS filename character, so every request re-ran sharp. The stamp is now sanitized.
 
 ### Performance
 
