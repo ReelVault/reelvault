@@ -13,9 +13,9 @@ const MAX_ADAPTIVE_THREADS = 8;
  *
  * `activeTranscodes` counts the streaming processes sharing the budget — the
  * transcode strategy reserves its slot before calling, so the value includes
- * the process being started. Direct-stream remuxing passes 0 deliberately:
- * `-c copy` is I/O-bound, so it keeps the full machine budget un-clamped
- * instead of splitting it.
+ * the process being started and the budget is split by exactly that count.
+ * Direct-stream remuxing passes 0 deliberately: `-c copy` is I/O-bound, so it
+ * keeps the full machine budget un-clamped instead of splitting it.
  */
 export function resolveStreamingThreads(configured: number, activeTranscodes: number): number {
 	if (configured > 0) return configured;
@@ -23,5 +23,5 @@ export function resolveStreamingThreads(configured: number, activeTranscodes: nu
 	const budget = systemResourcesService.getFfmpegThreads();
 	if (activeTranscodes <= 0) return budget;
 
-	return clamp(Math.floor(budget / (activeTranscodes + 1)), 1, MAX_ADAPTIVE_THREADS);
+	return clamp(Math.floor(budget / activeTranscodes), 1, MAX_ADAPTIVE_THREADS);
 }
