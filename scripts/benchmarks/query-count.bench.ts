@@ -37,6 +37,7 @@ const { adminAuditRepository } = await import("@/database/repositories/admin-aud
 const { playbackViewService } = await import("@/application/media/playback-view.service");
 const { SidecarMetadataStorageService } = await import("@/modules/metadata-sidecars/sidecar-metadata-storage.service");
 const { playbackProgressService } = await import("@/modules/streaming/progress/playback-progress.service");
+const { librariesService } = await import("@/application/libraries/libraries.service");
 
 export const meta = { description: "Statement-count audit (queries per operation, targets gate --strict)" };
 
@@ -105,6 +106,13 @@ if (!args.help) {
 				name: "librariesRepository.findByIdForRead (fields=id,type)",
 				target: 1,
 				run: () => librariesRepository.findByIdForRead(LIBRARY_ID, { fields: "id,type" }),
+			},
+			{
+				// Internal scan paths read the library without the provider-priority
+				// overrides getById loads; findings add one query.
+				name: "librariesService.getScanFindings (existence + findings)",
+				target: 2,
+				run: () => librariesService.getScanFindings(LIBRARY_ID),
 			},
 			{
 				name: "collectionRepository.findPage (24, cold count)",
