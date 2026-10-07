@@ -16,8 +16,18 @@ const ALGORITHM = "aes-256-gcm";
 const PAYLOAD_VERSION = "v1";
 const PAYLOAD_SEPARATOR = ".";
 
+let cachedMasterSecret: string | undefined;
+let cachedDerivedKey: Buffer | undefined;
+
+/** HKDF is a pure function of the master secret — memoise the derived key. */
 export function deriveSecretKey(masterSecret: string): Buffer {
-	return Buffer.from(hkdfSync("sha256", masterSecret, HKDF_SALT, HKDF_INFO, KEY_BYTES));
+	if (cachedMasterSecret === masterSecret && cachedDerivedKey) return cachedDerivedKey;
+
+	const key = Buffer.from(hkdfSync("sha256", masterSecret, HKDF_SALT, HKDF_INFO, KEY_BYTES));
+	cachedMasterSecret = masterSecret;
+	cachedDerivedKey = key;
+
+	return key;
 }
 
 export function encryptSecret(plaintext: string, masterSecret: string): string {

@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { MemoryCache } from "@/utils/memory-cache";
 
 /**
  * Stateless proof that a PIN-protected profile was unlocked by this client.
@@ -17,11 +18,23 @@ export const PROFILE_UNLOCK_COOKIE = "profile_unlock";
 const TOKEN_SEPARATOR = ".";
 const DEFAULT_TTL_SECONDS = 12 * 60 * 60;
 
+/**
+ * Fingerprints of stored PIN hashes. The hash only changes when the PIN does,
+ * so the digest is memoised (bounded); a changed PIN is a different cache key.
+ */
+const pinFingerprints = new MemoryCache<string>({ ttlMs: -1, maxSize: 64, name: "profile-pin-fingerprint" });
+
 /** Stable, non-reversible marker for a stored PIN hash. Empty when there is no PIN. */
 export function profilePinFingerprint(pin: string | null | undefined): string {
 	if (!pin) return "";
 
-	return createHash("sha256").update(pin).digest("base64url").slice(0, 16);
+	const cached = pinFingerprints.get(pin);
+	if (cached !== null) return cached;
+
+	const fingerprint = createHash("sha256").update(pin).digest("base64url").slice(0, 16);
+	pinFingerprints.set(pin, fingerprint);
+
+	return fingerprint;
 }
 
 function signatureFor(payload: string, secret: string): string {

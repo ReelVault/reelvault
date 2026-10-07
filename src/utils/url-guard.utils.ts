@@ -10,8 +10,9 @@ const IPV6_ZONE_ID_REGEX = /^%.*$/;
 // ─── CIDR-based IPv4 classification ──────────────────────────────────────────
 
 interface Ipv4Range {
-	base: number;
-	bits: number;
+	/** Precomputed network/mask pair — classification must not re-shift per call. */
+	network: number;
+	mask: number;
 }
 
 function ipv4ToInt(ip: string): number {
@@ -23,8 +24,11 @@ function ipv4ToInt(ip: string): number {
 
 function parseIpv4Range(cidr: string): Ipv4Range {
 	const [base, bitsText] = cidr.split("/");
+	const parsedBase = ipv4ToInt(base ?? "0.0.0.0");
+	const bits = Number.parseInt(bitsText ?? "32", 10);
+	const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
 
-	return { base: ipv4ToInt(base ?? "0.0.0.0"), bits: Number.parseInt(bitsText ?? "32", 10) };
+	return { network: (parsedBase & mask) >>> 0, mask };
 }
 
 // RFC1918 + loopback + link-local + CGNAT + documentation/benchmark/multicast/reserved.
@@ -49,8 +53,8 @@ const NON_PUBLIC_IPV4_RANGES = [
 function isPublicIpv4(ip: string): boolean {
 	const value = ipv4ToInt(ip);
 	for (const range of NON_PUBLIC_IPV4_RANGES) {
-		const mask = range.bits === 0 ? 0 : (0xffffffff << (32 - range.bits)) >>> 0;
-		if ((value & mask) === (range.base & mask)) return false;
+		// Both sides must be unsigned — the sign bit is set for 128.0.0.0+.
+		if ((value & range.mask) >>> 0 === range.network) return false;
 	}
 
 	return true;

@@ -1,5 +1,16 @@
-import { describe, expect, it } from "bun:test";
-import { escapeRegex, isLocalNetworkHost, isOriginAllowed, parseAllowedOrigins, wildcardPatternToRegex } from "./http.utils";
+import { afterEach, describe, expect, it } from "bun:test";
+import { systemSettingsStore } from "@/config/system-settings.store";
+import {
+	escapeRegex,
+	getTrustedOriginPatterns,
+	isLocalNetworkHost,
+	isOriginAllowed,
+	parseAllowedOrigins,
+	wildcardPatternToRegex,
+} from "./http.utils";
+
+// The settings store is process-global — never leak overrides into other tests.
+afterEach(() => systemSettingsStore.clearRuntimeValues());
 
 describe("http.utils", () => {
 	describe("escapeRegex", () => {
@@ -23,6 +34,18 @@ describe("http.utils", () => {
 			expect(parseAllowedOrigins(undefined)).toEqual([]);
 			expect(parseAllowedOrigins("")).toEqual([]);
 			expect(parseAllowedOrigins([])).toEqual([]);
+		});
+	});
+
+	describe("getTrustedOriginPatterns", () => {
+		it("picks up allowed-origin setting changes without a restart", () => {
+			expect(getTrustedOriginPatterns()).not.toContain("https://bench.example");
+
+			systemSettingsStore.setRuntimeValue("network.allowedOrigins", ["https://bench.example"]);
+			expect(getTrustedOriginPatterns()).toContain("https://bench.example");
+
+			systemSettingsStore.clearRuntimeValues();
+			expect(getTrustedOriginPatterns()).not.toContain("https://bench.example");
 		});
 	});
 

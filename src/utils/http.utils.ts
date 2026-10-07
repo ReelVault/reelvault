@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { env } from "@/env";
 import { serverConfig } from "@/server.config";
 import { trimAndFilter, unique } from "@/utils/array.utils";
@@ -368,8 +369,8 @@ export function isOriginAllowed(reqOrigin: string | null | undefined, explicitAl
 	}
 
 	// 3. Dynamic allowed origins from database / system settings store
-	const dynamicOrigins = serverConfig.network.allowedOrigins;
-	if (Array.isArray(dynamicOrigins) && dynamicOrigins.length > 0) {
+	const dynamicOrigins = dynamicAllowedOrigins();
+	if (dynamicOrigins.length > 0) {
 		if (matchesOriginRules(reqOrigin, dynamicOrigins)) {
 			return true;
 		}
@@ -430,13 +431,30 @@ const STATIC_TRUSTED_ORIGIN_PATTERNS: readonly string[] = [
 ];
 
 let staticTrustedOriginPatterns: string[] | undefined;
-let cachedDynamicKey: string | undefined;
-let cachedDynamicResult: string[] | undefined;
+let cachedDynamicOriginsRevision = -1;
+let cachedDynamicOrigins: readonly string[] = [];
+let cachedDynamicPatternsRevision = -1;
+let cachedDynamicPatterns: string[] | undefined;
+
+/**
+ * Dynamic allowed origins for the current settings revision. The store clones
+ * the array on every read, so cache the clone until the revision moves —
+ * this runs on every request carrying an `Origin` header.
+ */
+function dynamicAllowedOrigins(): readonly string[] {
+	const revision = systemSettingsStore.revision;
+	if (revision !== cachedDynamicOriginsRevision) {
+		cachedDynamicOrigins = serverConfig.network.allowedOrigins;
+		cachedDynamicOriginsRevision = revision;
+	}
+
+	return cachedDynamicOrigins;
+}
 
 /**
  * Builds standard wildcard patterns and configured origins for Better Auth and CORS fallback.
- * Static patterns/env origins are computed once; dynamic origins are merged per call
- * only when present.
+ * Static patterns/env origins are computed once; the merged dynamic list is
+ * cached per settings revision.
  */
 export function getTrustedOriginPatterns(): string[] {
 	if (!staticTrustedOriginPatterns) {
@@ -448,17 +466,13 @@ export function getTrustedOriginPatterns(): string[] {
 		staticTrustedOriginPatterns = unique(base);
 	}
 
-	const dynamicOrigins = serverConfig.network.allowedOrigins;
-	if (!Array.isArray(dynamicOrigins) || dynamicOrigins.length === 0) {
-		return staticTrustedOriginPatterns;
+	const revision = systemSettingsStore.revision;
+	if (revision !== cachedDynamicPatternsRevision || !cachedDynamicPatterns) {
+		const dynamicOrigins = dynamicAllowedOrigins();
+		cachedDynamicPatterns =
+			dynamicOrigins.length === 0 ? staticTrustedOriginPatterns : unique([...staticTrustedOriginPatterns, ...dynamicOrigins]);
+		cachedDynamicPatternsRevision = revision;
 	}
 
-	const dynamicKey = `${dynamicOrigins.length}:${dynamicOrigins.join(",")}`;
-	if (dynamicKey === cachedDynamicKey && cachedDynamicResult) return cachedDynamicResult;
-
-	const result = unique([...staticTrustedOriginPatterns, ...dynamicOrigins]);
-	cachedDynamicKey = dynamicKey;
-	cachedDynamicResult = result;
-
-	return result;
+	return cachedDynamicPatterns;
 }

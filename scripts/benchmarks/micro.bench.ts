@@ -9,13 +9,16 @@
 import { brotliCompress, constants } from "node:zlib";
 import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
-import { bench, compare, group, main, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
+import { bench, benchmarkAsync, compare, group, main, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
 import { hash as bunHash, CryptoHasher } from "bun";
 import { buildJsonResponse } from "@/api/utils/etag.utils";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
 import { compressBuffer } from "@/utils/compression.utils";
-import { getPathname } from "@/utils/http.utils";
+import { getPathname, getTrustedOriginPatterns } from "@/utils/http.utils";
 import { boundedLevenshtein, splitToSet, stripDiacritics, writeBigramCodes } from "@/utils/media-match.utils";
+import { profilePinFingerprint } from "@/utils/profile-unlock.utils";
+import { deriveSecretKey } from "@/utils/secret-crypto.utils";
 import { parseColonSeparatedSeconds } from "@/utils/time.utils";
 
 export const meta = {
@@ -169,6 +172,43 @@ if (!args.help) {
 		"Stranger Things 4: The整 Season",
 		"Amélie Poulain: Édition Spéciale",
 	];
+
+	// Per-request helpers for PIN-protected profiles, encrypted plugin secrets
+	// and CORS/auth origin lists — all pure functions of slow-changing inputs.
+	bench(
+		"profilePinFingerprint (1000 calls)",
+		() => {
+			for (let index = 0; index < 1000; index++) profilePinFingerprint(`pin-hash-${index % 8}`);
+		},
+		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+	);
+	bench(
+		"deriveSecretKey (1000 calls)",
+		() => {
+			// One process secret in production — the memo is a single slot.
+			for (let index = 0; index < 1000; index++) deriveSecretKey("master-secret");
+		},
+		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+	);
+	task("micro: trusted origin patterns with dynamic origins", async () => {
+		systemSettingsStore.setRuntimeValue("network.allowedOrigins", ["https://bench-one.example", "https://bench-two.example"]);
+		try {
+			const result = await benchmarkAsync(
+				"getTrustedOriginPatterns (1000 calls, dynamic origins set)",
+				() => {
+					for (let index = 0; index < 1000; index++) getTrustedOriginPatterns();
+
+					return Promise.resolve();
+				},
+				{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+			);
+			printMicroResults([result]);
+		} finally {
+			systemSettingsStore.clearRuntimeValues();
+		}
+
+		return { ok: true };
+	});
 
 	// Every compressed JSON response goes through this builder; it must not
 	// copy the body into a Buffer before zlib or copy the compressed result.
