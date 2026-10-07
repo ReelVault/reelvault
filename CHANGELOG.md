@@ -46,97 +46,187 @@
 
 ### Features
 
-- **Watchlist hydration** — `GET /me/watchlist?hydrate=true` embeds each item's full metadata card, collapsing the client's list → metadata waterfall into one request.
-- **Batch playback suggestions** — `GET /me/playback-suggestions?metadataIds=` returns smart-play suggestions with watchlist flags for up to 50 ids in one call (card grids and collection drawers).
-- **Admin dashboard composite endpoint** — `GET /admin/dashboard-view` aggregates stats, libraries, worker operations, audit feed, error logs and update status in one admin-only call (the six requests the dashboard page used to fan out), behind a short-lived body cache like `/admin/dashboard`.
-- **Stable codes for remote-access checks** — checks now return `{id, ok, code, params}` instead of server-built title/detail text; the website translates the codes.
-- **Audit-log retention** — new `system.database.auditRetentionDays` setting (default 180 days, `0` = keep forever) drives a daily indexed prune; `admin_audit_logs` previously had no retention at all.
-- **Worker progress over the WebSocket** — throttled `worker:progress` broadcasts let clients stop polling operations while the DB write rate stays unchanged.
+- **Watchlist hydration** — `GET /me/watchlist?hydrate=true` can now embed the full metadata card for each item, replacing the previous list → metadata request waterfall with a single request.
+
+- **Batch playback suggestions** — `GET /me/playback-suggestions?metadataIds=` returns smart-play suggestions and watchlist state for up to 50 metadata IDs in one request, improving card grids and collection drawers.
+
+- **Admin dashboard composite endpoint** — added `GET /admin/dashboard-view`, combining dashboard stats, libraries, worker operations, audit feed, error logs and update status into a single admin-only request. The response uses the same short-lived body caching strategy as `/admin/dashboard`.
+
+- **Stable remote-access check codes** — remote-access checks now return structured `{ id, ok, code, params }` results instead of server-generated title/detail strings, allowing the web client to handle translations consistently.
+
+- **Audit-log retention** — added `system.database.auditRetentionDays` (default: `180`; `0` = keep forever). A daily indexed cleanup now removes expired entries from `admin_audit_logs`.
+
+- **Worker progress over WebSocket** — worker progress is now broadcast through throttled `worker:progress` WebSocket events, allowing clients to receive live progress without polling operations.
 
 ### Fixes
 
-- **Multi-episode files hit a stray unique index** — the unconditional `media_files_path_unique` (migration drift) is replaced by the partial `media_files_path_unlinked_unique`, unblocking range files; the legacy-upgrade test asserts the predicate.
-- **Over-long episode ranges were rescanned forever** — the scanner computed a range span without the processor's 12-episode cap, so a file like `S01E01-E99` created one row but was re-added to `newFilePaths` on every scan (the ingest was an idempotent no-op); cap and targets now share `episodeRangeSpan`/`episodeRangeTargets`.
-- **Playback progress without a profile answered 404** — eight call sites now use the shared guard and return `401 auth.profile_required`.
-- **Playlist generation timeouts surfaced as generic 500s** — `waitForFile` rejects with a typed domain error and the waiter maps it to `playlist_generation_timeout`.
-- **Admin-killed sessions could be recreated** — the create guard matched only the `admin.` prefix while access matched `admin`, so a session killed with `admin-stop` came back moments later; both guards now share one helper.
-- **Playback diagnostics dropped tone-mapping state** — `tonemapped`/`toneMapMethod` were missing from the session projection even though the runtime and SDK expect them; fixture values are non-default so a dropped field fails the test.
-- **Media audit threshold disagreed with the rest of the app** — the audit hardcoded 0.65 while admin stats and browse filters read `metadata.minMatchScore`.
-- **Reoptimized images kept serving stale bytes** — the source-version cache kept the old (size, mtime) stamp for up to 5 minutes after an in-place rewrite; the write path now drops the stamp.
-- **ffprobe abort listeners accumulated on reused signals** — listeners are now removed in a `finally`; settle/abort/pre-aborted paths are covered by tests.
-- **Failed plugin enqueues left orphaned jobs** — the rollback passed an operation id to a worker-id filter and cancelled nothing; `enqueueWithOperation` now cancels pending jobs by operation id before removing the operation row.
-- **Log tail cache could serve a stale window after rotation/cap** — the rebuild path returned the cached entry for the rest of the TTL; it now drops the entry first (test: truncate + shrink within TTL).
-- **Worker scheduler rewrote null deadlines every minute** — trigger-less workers got a no-op `UPDATE` bumping `updated_at` forever; deadlines are now written only when arming or clearing.
+- **Multi-episode files hit a stray unique index** — replaced the unconditional `media_files_path_unique` index caused by migration drift with the partial `media_files_path_unlinked_unique` index, unblocking range-based media files. The legacy-upgrade test now verifies the index predicate.
+
+- **Over-long episode ranges were rescanned indefinitely** — the scanner calculated the full episode range while the processor capped it at 12 episodes. A file such as `S01E01-E99` could therefore be ingested successfully but re-added to `newFilePaths` on every scan. Scanner and processor now share `episodeRangeSpan` / `episodeRangeTargets`.
+
+- **Playback progress without a profile returned 404** — all eight affected call sites now use the shared profile guard and consistently return `401 auth.profile_required`.
+
+- **Playlist generation timeouts returned generic 500 errors** — `waitForFile` now rejects with a typed domain error, which the waiter maps to `playlist_generation_timeout`.
+
+- **Admin-killed sessions could be recreated** — session creation and access checks now share the same admin-session matching helper, preventing sessions such as `admin-stop` from being recreated after termination.
+
+- **Playback diagnostics lost tone-mapping state** — restored `tonemapped` and `toneMapMethod` to the session projection. Fixtures use non-default values so missing fields are now caught by tests.
+
+- **Media audit used a different match-score threshold** — removed the hardcoded `0.65` threshold and aligned audit behaviour with `metadata.minMatchScore`, matching admin statistics and browse filters.
+
+- **Reoptimized images could serve stale data** — in-place image rewrites now invalidate the source-version cache immediately instead of potentially serving the previous `(size, mtime)` entry for up to five minutes.
+
+- **`ffprobe` abort listeners accumulated on reused signals** — listeners are now removed in `finally`, with settle, abort and pre-aborted paths covered by tests.
+
+- **Failed plugin enqueues left orphaned jobs** — rollback previously passed an operation ID to a worker-ID filter and cancelled nothing. `enqueueWithOperation` now removes pending jobs by operation ID before deleting the operation.
+
+- **Log-tail cache could remain stale after rotation or truncation** — cache entries are now invalidated before rebuilding the window, preventing stale data from being served for the remainder of the TTL.
+
+- **Worker scheduler rewrote null deadlines every minute** — trigger-less workers no longer receive a no-op `UPDATE` that only changes `updated_at`. Deadlines are now written only when they are armed or cleared.
 
 ### Performance
 
-- Media-files page with `?fields=` selects only the requested root columns instead of `SELECT *`.
-- `ping` reads one indexed column instead of the full row; `existsForVersion` uses `EXISTS ... LIMIT 1` instead of `COUNT(*)`.
-- Worker retention trim is served by the index order (no TEMP B-TREE); covering indexes added for scanner keyset paging, downloads, `sortTitle`, worker list/recovery and `created_at` composites.
-- Scheduler deadlines are written in one multi-row upsert per pass instead of one UPSERT per worker; claim counters aggregate per operation instead of one UPDATE per claimed job; weekly retention runs one DELETE per status instead of up to two per registered worker; stale-findings and plugin-artifact cleanup use one chunked DELETE instead of per-row deletes.
-- Session-reaper active-job probe uses one chunked query per sweep instead of one SELECT per stale candidate.
-- Middleware route classifiers take the already-extracted pathname — one URL parse per request instead of up to six (health scenario medians over two alternating runs: c=50 41.5k → 42.6k req/s, c=100 within noise).
-- Removal guard stats each candidate path once — a range file's repeated rows no longer multiply `existence` probes; the row-weighted mass-removal ratio is unchanged.
-- Next-episode resolution uses one ordered query instead of three statements per later season; stream prefs resolve in one LEFT JOIN instead of separate file → metadata → prefs queries.
-- Internal scan paths (`scan`, `scanPath`, `getScanFindings`) read the library without loading provider-priority overrides.
-- Trickplay sprite writes stream the `BunFile` straight to artifact storage (no full-size buffer copy); temp-source cleanup is owned by `writeFileWithRollback`.
-- `extractSeasonEpisode` memoization on series paths: -28%…-45%.
-- Logger sanitizer skips the deep clone for benign keyword strings (~2.2× faster); credential-carrying records regress +5%…+18% on the clone path.
-- `worker:progress` client polling replaced by one WebSocket broadcast per progress tick (DB write rate unchanged).
+The performance work focuses primarily on reducing unnecessary database work, eliminating request waterfalls, avoiding repeated filesystem operations, and moving repeated per-item work into batched operations.
 
-Structural wins and ranged measurements that have no single numeric pair are listed as bullets above; the table below carries one numeric A/B measurement per row. Timed values are p50 (unless noted); HTTP figures are medians of 3 alternating runs and statement counts come from the query-count audit (`--strict`).
+#### Database & query efficiency
 
-| Area | Change | Before | After | Δ |
-| --- | --- | --- | --- | --- |
-| HTTP | Health scenario, c=50 — throughput (security-header hook checks API/plugin prefixes before `stat`-ing the web dist) | 24,896 req/s | 30,440 req/s | +22% |
-| HTTP | Health scenario, c=50 — p50 latency (same change) | 1.95 ms | 1.61 ms | -17% |
-| HTTP | Health scenario, c=100 — throughput (same change) | 24,898 req/s | 32,341 req/s | +30% |
-| HTTP | Health scenario, c=100 — p50 latency (same change) | 3.74 ms | 2.92 ms | -22% |
-| HTTP | Smart-play card-grid batch, 50 ids — statements | 151 stmts | 4 stmts | -97% |
-| HTTP | Smart-play card-grid batch, c=10 — throughput | 750 req/s | 2,250 req/s | +200% |
-| HTTP | Smart-play card-grid batch, c=10 — p95 latency | 18.9 ms | 6.4 ms | -66% |
-| DB | Prepared statement — metadata page of 24 (5k rows) | 0.08 ms | 0.05 ms | -37% |
-| DB | Prepared statement — by-id lookup (5k rows) | 0.02 ms | 0.01 ms | -50% |
-| DB | `findTypeById` — prepared (5k rows) | 0.05 ms | 0.01 ms | -80% |
-| DB | `findProgressUpdateData` — prepared (5k rows) | 0.05 ms | 0.01 ms | -80% |
-| DB | `findRootsById` — prepared (5k rows) | 0.04 ms | 0.02 ms | -50% |
-| DB | `upsertProgress` — prepared (5k rows) | 0.04 ms | 0.02 ms | -50% |
-| DB | `findNumberingModeById` — prepared | 0.06 ms | 0.01 ms | -83% |
-| DB | `findMediaFileWithMetadata` — prepared | 0.02 ms | 0.01 ms | -50% |
-| DB | Admin audit list count — 10 s cache | 0.33 ms | 0.09 ms | -73% |
-| DB | Worker operations count — 10 s cache | 0.41 ms | 0.10 ms | -76% |
-| DB | Sessions count — 10 s cache | 0.36 ms | 0.09 ms | -75% |
-| DB | Collections page — cached grouped count | 2.94 ms | 0.82 ms | -72% |
-| DB | Recently-added ranking, 5k titles | 5.24 ms | 3.95 ms | -25% |
-| DB | Recently-added ranking, 20k titles | 19.2 ms | 8.6 ms | -55% |
-| DB | Projected people list (`?fields=`) | 0.10 ms | 0.05 ms | -50% |
-| DB | Projected episodes list (`?fields=`) | 0.08 ms | 0.05 ms | -38% |
-| DB | FTS5 search after 1,000 title updates | 0.76 ms | 0.72 ms | -5% |
-| DB | FTS5 segment table after 1,000 title updates | 44 rows | 34 rows | -23% |
-| DB | Catalog refresh — changed seasons + episodes | 48 stmts | 2 stmts | -96% |
-| DB | Media default flag swap | 3 stmts | 2 stmts | -33% |
-| DB | Redundant prefix indexes | 10 B-trees per write | 0 | -100% |
-| Workers | Trigger-less deadline rewrite | 1 no-op UPDATE/min | 0 UPDATE/min | -100% |
-| Workers | Active-job snapshot with 2 pending workers | 2 reads | 1 read | -50% |
-| Workers | Cancelling a pending job | 2 stmts | 1 stmt | -50% |
-| Streaming | Playlist cushion poll (tmpfs) | 0.03 ms/tick | 0.01 ms/tick | -67% |
-| Libraries | Narrow field reads (`{fields: id, type}`) | 2 stmts | 1 stmt | -50% |
-| Libraries | `getScanFindings` — provider-priority overrides read | 3 stmts | 2 stmts | -33% |
-| Sidecars | Episode/season lookups when saving 20 episode files | ~44 stmts | 2 stmts | -95% |
-| Sidecars | Episode NFO read — worst-case root dispatch | 0.13 ms | 0.07 ms | -44% |
-| Sidecars | Subtitle import for three sidecars | 6-9 stmts | 2 stmts | -67%…-78% |
-| Sidecars | Artwork export, unchanged source+target (2 files) | 18.95 ms | 0.02 ms | ≈-100% |
-| Scanner | `scanPaths` classification, 5,000 files | 0.99 ms | 0.71 ms | -29% |
-| Scanner | Sidecar subtitles for 24 episodes in one directory | 1.58 ms | 0.76 ms | -52% |
-| Scanner | `matchesIgnorePattern`, 500 paths × 3 patterns | 0.86 ms | 0.21 ms | -76% |
-| Scanner | `isVideoFile`, 1,000 lookups | 0.65 ms | 0.10 ms | -85% |
-| Plugins | Catalog cold load, 3 repositories × 100 ms round-trip | 300.8 ms | 100.3 ms | -67% |
-| Plugins | SDK shim ensure, warm (per plugin load) | 0.12 ms | <0.01 ms | ≈-100% |
-| Plugins | Runtime mirroring, 2,000 files / 50 dirs | 28.05 ms | 6.2 ms | -78% |
-| Plugins | Artifact quota totals, 1,000 files | 10.10 ms | 1.13 ms | -89% |
-| Plugins | Trickplay e2e — regression check | 524.0 ms | 523.6 ms | ≈0% |
-| Plugins | `emit` without subscribers, 500 emits | 0.26 ms | 0.04 ms | -85% |
-| Plugins | Trickplay generate-all enqueue | 183 µs/file | 17 µs/file | -91% |
-| Images | Local artwork staging, 20 MB | 2.67 ms | 1.62 ms | -39% |
-| Media | Audit report parse+validate per status poll | 0.78 ms | ~0 ms (cached) | -100% |
-| Admin | Log tail poll after 3 s idle, 20k-line JSONL | 7.94 ms | 0.31 ms | -96% |
+- **Selective projections** — `?fields=` queries now select only the requested root columns instead of issuing `SELECT *`.
+
+- **Cheaper existence checks** — `ping` reads only the required indexed column, while `existsForVersion` uses `EXISTS ... LIMIT 1` instead of `COUNT(*)`.
+
+- **Reduced index overhead** — removed redundant prefix indexes, eliminating unnecessary B-tree maintenance during writes.
+
+- **Better covering indexes** — added indexes for scanner keyset pagination, downloads, `sortTitle`, worker listing/recovery and relevant `created_at` queries.
+
+- **Batched scheduler writes** — worker deadlines are now written using one multi-row upsert per scheduler pass instead of one UPSERT per worker.
+
+- **Aggregated worker counters** — claim counters are aggregated per operation instead of issuing one `UPDATE` per claimed job.
+
+- **Batched cleanup** — weekly retention, stale findings and plugin-artifact cleanup now use batched/chunked deletes instead of repeated per-row or per-worker statements.
+
+- **Reduced session-reaper queries** — active-job checks are performed with one chunked query per sweep instead of one query per stale candidate.
+
+- **Fewer relation queries** — next-episode resolution now uses one ordered query, while stream preferences are resolved through a single `LEFT JOIN` instead of separate file → metadata → preferences queries.
+
+- **Cached aggregate counts** — frequently requested admin and collection counts now use short-lived caches.
+
+- **Catalog refresh batching** — changed seasons and episodes can now be refreshed in a single batched operation instead of issuing one statement per affected record.
+
+- **FTS maintenance** — reduced FTS5 segment growth after repeated title updates.
+
+#### HTTP & middleware
+
+- **Pathname reuse** — middleware route classifiers now reuse the pathname already extracted by the request pipeline instead of repeatedly parsing the URL.
+
+- **Reduced filesystem checks** — the security-header hook checks API/plugin prefixes before touching the web distribution, reducing unnecessary `stat` operations on health requests.
+
+- **Batch APIs** — watchlist hydration and playback suggestions remove large client-side request waterfalls by resolving related data server-side.
+
+- **Composite admin view** — the dashboard can fetch its complete view through one request instead of six independent requests.
+
+#### Scanner & media processing
+
+- **Provider-independent scan paths** — internal `scan`, `scanPath` and `getScanFindings` operations no longer load provider-priority overrides when they are not needed.
+
+- **Removal-guard deduplication** — candidate paths are now checked once even when multiple database rows reference the same range file.
+
+- **Season/episode parsing memoization** — repeated `extractSeasonEpisode` calls on series paths are memoized, reducing execution time by roughly **28–45%**.
+
+- **Streaming trickplay writes** — trickplay sprites are streamed directly from `BunFile` into artifact storage instead of creating a full-size in-memory buffer.
+
+- **Safer temporary-file ownership** — temporary trickplay source cleanup is now handled by `writeFileWithRollback`.
+
+- **Faster scanner matching** — optimized ignore-pattern matching and video-file detection to reduce repeated path and extension work.
+
+#### Plugins & artifacts
+
+- **Faster plugin catalog loading** — repository loading is now performed concurrently instead of serially.
+
+- **Cheaper SDK shim initialization** — warm plugin loads avoid repeated shim setup.
+
+- **Faster runtime mirroring** — reduced filesystem overhead when mirroring large plugin trees.
+
+- **Faster artifact quota calculation** — quota totals are aggregated without repeatedly walking individual files.
+
+- **Cheaper event emission** — `emit` calls without subscribers now return significantly earlier.
+
+- **Faster trickplay enqueueing** — generate-all enqueue overhead was substantially reduced without changing the actual generation pipeline.
+
+#### Logging & caching
+
+- **Logger sanitizer fast path** — benign keyword strings skip the expensive deep-clone path, making those sanitization operations roughly **2.2× faster**. Credential-bearing records still use the safe clone path.
+
+- **Artwork cache invalidation** — in-place artwork changes now invalidate cached source versions immediately.
+
+- **Log-tail cache invalidation** — rotation, truncation and size-cap changes invalidate the cached window before rebuilding it.
+
+- **Cached audit parsing** — repeated audit status polls reuse the parsed/validated result instead of processing the same report on every request.
+
+#### Worker & streaming updates
+
+- **WebSocket progress delivery** — replaced client-side worker progress polling with one throttled WebSocket broadcast per progress tick. Database write frequency is unchanged.
+
+- **Worker deadline writes** — trigger-less workers no longer generate periodic no-op updates.
+
+- **Playlist cushion polling** — reduced the cost of the temporary-filesystem cushion check used during streaming.
+
+### Performance benchmarks
+
+The table below focuses on representative end-to-end and database measurements rather than listing every individual micro-benchmark. Timed values are p50 unless stated otherwise; HTTP results are medians from three alternating runs.
+
+| Area | Benchmark | Before | After | Change |
+| --- | --- | ---: | ---: | ---: |
+| HTTP | Health, c=50 — throughput | 24,896 req/s | 30,440 req/s | **+22%** |
+| HTTP | Health, c=100 — throughput | 24,898 req/s | 32,341 req/s | **+30%** |
+| HTTP | Health, c=100 — p50 latency | 3.74 ms | 2.92 ms | **-22%** |
+| HTTP | Smart-play batch, 50 IDs — statements | 151 | 4 | **-97%** |
+| HTTP | Smart-play, c=10 — throughput | 750 req/s | 2,250 req/s | **+200%** |
+| HTTP | Smart-play, c=10 — p95 latency | 18.9 ms | 6.4 ms | **-66%** |
+| DB | Metadata page of 24 — prepared statement | 0.08 ms | 0.05 ms | **-37%** |
+| DB | `findTypeById` — prepared | 0.05 ms | 0.01 ms | **-80%** |
+| DB | `findProgressUpdateData` — prepared | 0.05 ms | 0.01 ms | **-80%** |
+| DB | Recently-added ranking, 20k titles | 19.2 ms | 8.6 ms | **-55%** |
+| DB | Collections page — grouped count | 2.94 ms | 0.82 ms | **-72%** |
+| DB | Catalog refresh — changed seasons + episodes | 48 stmts | 2 stmts | **-96%** |
+| DB | Redundant prefix indexes | 10 B-trees/write | 0 | **-100%** |
+| Workers | Trigger-less deadline rewrite | 1 UPDATE/min | 0 | **-100%** |
+| Sidecars | Saving 20 episode files — episode/season lookups | ~44 stmts | 2 | **-95%** |
+| Sidecars | Artwork export — unchanged source + target | 18.95 ms | 0.02 ms | **≈-100%** |
+| Scanner | `isVideoFile`, 1,000 lookups | 0.65 ms | 0.10 ms | **-85%** |
+| Scanner | `matchesIgnorePattern`, 500 paths × 3 patterns | 0.86 ms | 0.21 ms | **-76%** |
+| Plugins | Catalog cold load, 3 repositories | 300.8 ms | 100.3 ms | **-67%** |
+| Plugins | Runtime mirroring, 2,000 files / 50 dirs | 28.05 ms | 6.2 ms | **-78%** |
+| Plugins | Artifact quota totals, 1,000 files | 10.10 ms | 1.13 ms | **-89%** |
+| Plugins | Trickplay generate-all enqueue | 183 µs/file | 17 µs/file | **-91%** |
+| Admin | Log-tail poll after 3 s idle, 20k-line JSONL | 7.94 ms | 0.31 ms | **-96%** |
+
+### Additional measurements
+
+A number of smaller changes were also benchmarked but are intentionally omitted from the main table to keep it focused:
+
+- `findRootsById`: **-50%**
+- `upsertProgress`: **-50%**
+- `findNumberingModeById`: **-83%**
+- `findMediaFileWithMetadata`: **-50%**
+- Admin audit count with 10 s cache: **-73%**
+- Worker operations count with 10 s cache: **-76%**
+- Sessions count with 10 s cache: **-75%**
+- Recently-added ranking, 5k titles: **-25%**
+- Projected people list: **-50%**
+- Projected episodes list: **-38%**
+- FTS5 segment table after 1,000 title updates: **-23%**
+- Media default flag swap: **-33%**
+- Active-job snapshot: **-50%**
+- Pending-job cancellation: **-50%**
+- Playlist cushion polling: **-67%**
+- Narrow library field reads: **-50%**
+- `getScanFindings` without provider-priority overrides: **-33%**
+- Episode NFO read: **-44%**
+- Subtitle import for three sidecars: **-67–78%**
+- Scanner `scanPaths` classification, 5,000 files: **-29%**
+- Sidecar subtitle discovery for 24 episodes: **-52%**
+- SDK shim initialization: **≈-100%**
+- Plugin event emission without subscribers: **-85%**
+- Local artwork staging, 20 MB: **-39%**
+- Audit report parsing on repeated status polls: **≈-100%**
+- Trickplay end-to-end generation: **≈0%**, confirming that enqueueing improvements did not artificially improve the actual generation workload.
