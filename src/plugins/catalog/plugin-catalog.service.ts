@@ -179,30 +179,38 @@ class PluginCatalogService {
 		const rows = (await pluginRepositoriesRepository.list()).filter((row) => row.enabled);
 		const installed = new Map((await pluginManager.getInstalledRecords()).map((record) => [record.id, record.record.version]));
 
-		const entries: PluginCatalogEntryView[] = [];
-		for (const row of rows) {
-			try {
-				const { manifest } = await this.fetchManifest(row, { force: false });
-				for (const plugin of manifest.plugins) {
-					const installedVersion = installed.get(plugin.id) ?? null;
-					entries.push({
-						...plugin,
-						...(plugin.versions ? { versions: plugin.versions.map(toVersionView) } : {}),
-						repositoryId: row.id,
-						repositoryName: row.name,
-						status: this.installStatus(plugin.version, installedVersion),
-						installedVersion,
-					});
-				}
-			} catch (error) {
-				this.logger.warn("Skipping unavailable plugin repository", {
-					reason: error instanceof Error ? error.message : String(error),
-					repositoryId: row.id,
-				});
-			}
-		}
+		// One unavailable repository must not sink the catalog, and the cold load
+		// must not serialize network round-trips — fetch concurrently, flatten in
+		// repository order.
+		const perRepository = await Promise.all(
+			rows.map(async (row): Promise<PluginCatalogEntryView[]> => {
+				try {
+					const { manifest } = await this.fetchManifest(row, { force: false });
 
-		return entries;
+					return manifest.plugins.map((plugin) => {
+						const installedVersion = installed.get(plugin.id) ?? null;
+
+						return {
+							...plugin,
+							...(plugin.versions ? { versions: plugin.versions.map(toVersionView) } : {}),
+							repositoryId: row.id,
+							repositoryName: row.name,
+							status: this.installStatus(plugin.version, installedVersion),
+							installedVersion,
+						};
+					});
+				} catch (error) {
+					this.logger.warn("Skipping unavailable plugin repository", {
+						reason: error instanceof Error ? error.message : String(error),
+						repositoryId: row.id,
+					});
+
+					return [];
+				}
+			}),
+		);
+
+		return perRepository.flat();
 	}
 
 	async installFromCatalog(input: InstallCatalogPluginInput): Promise<{ pluginId: string; version: string; upgraded: boolean }> {

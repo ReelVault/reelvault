@@ -66,3 +66,57 @@ describe("pluginCatalogService.installFromCatalog min-server-version gate", () =
 		expect(downloadCalled).toBe(false);
 	});
 });
+
+describe("pluginCatalogService.getCatalog", () => {
+	const activeStubs: MethodStub[] = [];
+
+	afterEach(() => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+		activeStubs.length = 0;
+	});
+
+	test("fetches enabled repository manifests concurrently and keeps repository order", async () => {
+		const rows = ["repo-a", "repo-b", "repo-c"].map((id, index) => ({
+			id,
+			name: `Repo ${index}`,
+			url: `https://example.com/${id}.json`,
+			enabled: true,
+			tokenEncrypted: null,
+			lastRefreshedAt: null,
+			lastError: null,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		}));
+		let inFlight = 0;
+		let maxInFlight = 0;
+
+		activeStubs.push(
+			stubMethod(pluginRepositoriesRepository, "count", () => Promise.resolve(rows.length)),
+			stubMethod(pluginRepositoriesRepository, "list", () => Promise.resolve(rows)),
+			stubMethod(pluginManager, "getInstalledRecords", () => Promise.resolve([])),
+			stubMethod(pluginCatalogService, "fetchManifest", async (row: { id: string }) => {
+				inFlight++;
+				maxInFlight = Math.max(maxInFlight, inFlight);
+				await new Promise((resolve) => {
+					setTimeout(resolve, 25);
+				});
+				inFlight--;
+
+				return {
+					manifest: {
+						apiVersion: 1,
+						name: row.id,
+						plugins: [{ id: `plugin-${row.id}`, name: "Plugin", version: "1.0.0", category: "other" }],
+					},
+					fetchedAt: Date.now(),
+				};
+			}),
+		);
+
+		const entries = await pluginCatalogService.getCatalog();
+
+		expect(entries.map((entry) => entry.id)).toEqual(["plugin-repo-a", "plugin-repo-b", "plugin-repo-c"]);
+		// Serial fetching would peak at one in-flight manifest.
+		expect(maxInFlight).toBe(3);
+	});
+});

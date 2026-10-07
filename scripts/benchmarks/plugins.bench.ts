@@ -15,6 +15,10 @@ import {
 	summarizeLatencies,
 	task,
 } from "benchkit";
+import { sleep } from "bun";
+import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
+import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
+import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { materializePluginRuntime, pluginRuntimeRoot } from "@/plugins/lifecycle/plugin-runtime-copy";
 import { PluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
@@ -278,6 +282,68 @@ if (!args.help) {
 		},
 		{ warmup: 3, iterations: 20 },
 	);
+
+	// The catalog cold load fetches every enabled repository manifest. With a
+	// simulated 100 ms round-trip per repository, serial fetching pays the sum.
+	task("plugins: catalog manifest fetch", async () => {
+		const rows = ["repo-a", "repo-b", "repo-c"].map((id, index) => ({
+			id,
+			name: `Repo ${index}`,
+			url: `https://example.com/${id}.json`,
+			enabled: true,
+			tokenEncrypted: null,
+			lastRefreshedAt: null,
+			lastError: null,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		}));
+		const originals = new Map<object, Map<string, unknown>>();
+		const patch = (target: object, method: string, impl: unknown): void => {
+			const byMethod = originals.get(target) ?? new Map<string, unknown>();
+			if (!byMethod.has(method)) byMethod.set(method, Reflect.get(target, method));
+			originals.set(target, byMethod);
+			Reflect.set(target, method, impl);
+		};
+
+		try {
+			patch(pluginRepositoriesRepository, "count", () => Promise.resolve(rows.length));
+			patch(pluginRepositoriesRepository, "list", () => Promise.resolve(rows));
+			patch(pluginManager, "getInstalledRecords", () => Promise.resolve([]));
+			patch(pluginCatalogService, "fetchManifest", async (row: { id: string }) => {
+				await sleep(100);
+
+				return {
+					manifest: {
+						apiVersion: 1,
+						name: row.id,
+						plugins: [{ id: `plugin-${row.id}`, name: "Plugin", version: "1.0.0", category: "other" }],
+					},
+					fetchedAt: Date.now(),
+				};
+			});
+
+			const samples: number[] = [];
+			for (let run = 0; run < 3; run++) {
+				const startedAt = performance.now();
+				const entries = await pluginCatalogService.getCatalog();
+				samples.push(performance.now() - startedAt);
+				if (entries.length !== rows.length) throw new Error("catalog entries missing");
+			}
+
+			const stats = summarizeLatencies(samples);
+			printTable(
+				"Plugin catalog load (3 repositories, 100 ms round-trip each)",
+				["p50", "p95", "max"],
+				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+			);
+		} finally {
+			for (const [target, byMethod] of originals) {
+				for (const [method, value] of byMethod) Reflect.set(target, method, value);
+			}
+		}
+
+		return { ok: true };
+	});
 
 	// Every plugin load hard-links its package into a unique runtime mirror.
 	// Measure a realistic tree (2000 files / 50 directories).
