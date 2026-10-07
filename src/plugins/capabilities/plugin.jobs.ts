@@ -48,7 +48,7 @@ class PluginJobsService extends BaseService {
 		if (job.schedule?.cron) assertCronExpression(job.schedule.cron);
 	}
 
-	register(pluginId: string, jobs: readonly PluginJobDefinition[]): Promise<string[]> {
+	async register(pluginId: string, jobs: readonly PluginJobDefinition[]): Promise<string[]> {
 		const names: string[] = [];
 		try {
 			for (const job of jobs) {
@@ -95,11 +95,11 @@ class PluginJobsService extends BaseService {
 				names.push(name);
 			}
 
-			return Promise.resolve(names);
+			return names;
 		} catch (error) {
 			// Roll back the jobs registered before the failure — otherwise they leak
 			// (the caller never receives the partial name list to clean up).
-			this.unregister(names);
+			await this.unregister(names);
 			throw error;
 		}
 	}
@@ -160,8 +160,8 @@ class PluginJobsService extends BaseService {
 		return queuedItems.map((item) => ({ id: item.id, name, operationId }));
 	}
 
-	unregister(names: readonly string[]): void {
-		for (const name of [...names].toReversed()) workerService.unregisterWorker(name);
+	async unregister(names: readonly string[]): Promise<void> {
+		for (const name of [...names].toReversed()) await workerService.unregisterWorker(name);
 	}
 }
 

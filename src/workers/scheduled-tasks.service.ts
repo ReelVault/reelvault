@@ -26,10 +26,10 @@ class ScheduledTasksAdapter {
 		return Promise.resolve();
 	}
 
-	unregisterByPlugin(pluginId: string): void {
+	async unregisterByPlugin(pluginId: string): Promise<void> {
 		for (const def of workerService.getDefinitions()) {
 			if (def.id.startsWith(`${pluginId}:`) || def.id === pluginId) {
-				workerService.unregisterWorker(def.id);
+				await workerService.unregisterWorker(def.id);
 			}
 		}
 	}

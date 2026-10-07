@@ -5,7 +5,6 @@ import type { WorkerOperationRecord, WorkerOperationStatus } from "@/database/re
 import { resourceAllocator } from "@/system/resource-allocator";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { BaseService } from "@/utils/base-service";
-import { detach } from "@/utils/promise.utils";
 import { enqueueWithOperation } from "./core/worker-operation-enqueue";
 import { type WorkerOperationsService, workerOperationsService } from "./core/worker-operations.service";
 import { WorkerPollingService } from "./core/worker-polling.service";
@@ -110,22 +109,20 @@ class WorkerService extends BaseService {
 		if (this.initialized) this.polling.triggerPoll();
 	}
 
-	unregisterWorker(workerId: string): boolean {
+	async unregisterWorker(workerId: string): Promise<boolean> {
 		const removed = this.registry.unregister(workerId);
 		if (!removed) return false;
 
 		// Polling skips unregistered worker ids, so queued tasks would linger forever
 		// until the plugin re-enables — cancel in-flight and pending tasks explicitly.
 		this.pool.cancelAllForWorker(workerId);
-		detach(
-			(async () => {
-				try {
-					await this.cancelAllPending(workerId);
-				} catch (error) {
-					this.logger.error("Failed to cancel pending jobs", error, { workerId });
-				}
-			})(),
-		);
+		// Await the pending-job cancellation: a plugin reload re-registers the same
+		// worker id immediately, and a late detached cancel would kill its fresh jobs.
+		try {
+			await this.cancelAllPending(workerId);
+		} catch (error) {
+			this.logger.error("Failed to cancel pending jobs", error, { workerId });
+		}
 
 		return true;
 	}
