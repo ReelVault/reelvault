@@ -7,9 +7,17 @@ DROP INDEX IF EXISTS `metadata_match_score_idx`;--> statement-breakpoint
 DROP INDEX IF EXISTS `worker_operations_status_idx`;--> statement-breakpoint
 DROP INDEX IF EXISTS `worker_jobs_worker_completed_idx`;--> statement-breakpoint
 DROP INDEX IF EXISTS `session_user_idx`;--> statement-breakpoint
+DROP INDEX IF EXISTS `collection_providers_provider_unique`;--> statement-breakpoint
+DROP INDEX IF EXISTS `company_providers_provider_unique`;--> statement-breakpoint
+DROP INDEX IF EXISTS `episode_providers_provider_unique`;--> statement-breakpoint
+DROP INDEX IF EXISTS `genre_providers_provider_unique`;--> statement-breakpoint
+DROP INDEX IF EXISTS `keyword_providers_provider_unique`;--> statement-breakpoint
 DROP INDEX IF EXISTS `media_markers_media_file_idx`;--> statement-breakpoint
 DROP INDEX IF EXISTS `metadata_external_ids_metadata_idx`;--> statement-breakpoint
 DROP INDEX IF EXISTS `metadata_collections_collection_idx`;--> statement-breakpoint
+DROP INDEX IF EXISTS `metadata_providers_provider_unique`;--> statement-breakpoint
+DROP INDEX IF EXISTS `person_providers_provider_unique`;--> statement-breakpoint
+DROP INDEX IF EXISTS `season_providers_provider_unique`;--> statement-breakpoint
 CREATE INDEX `downloads_media_file_created_idx` ON `downloads` (`media_file_id`,`created_at`);--> statement-breakpoint
 CREATE INDEX `media_artifacts_plugin_created_idx` ON `media_artifacts` (`plugin_id`,`created_at`);--> statement-breakpoint
 CREATE UNIQUE INDEX `media_files_path_unlinked_unique` ON `media_files` (`file_path`) WHERE "media_files"."episode_id" IS NULL;--> statement-breakpoint
