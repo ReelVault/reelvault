@@ -295,6 +295,17 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 # v1.2.1
 
+### Features
+
+- **Trickplay storage stats** — `GET /admin/trickplay/stats` now returns `storageBytes` and `storageBudgetBytes` (the effective core artifact budget) alongside the coverage counts, powering the admin usage card.
+
 ### Fixes
 
+- **Admin dashboard library relations** — `/admin/dashboard-view` declared its `libraries` as the base library schema, so response validation stripped `paths` and file/size stats. The website seeds the admin libraries cache from that response, which crashed the page with `can't access property "length", e.paths is undefined` and zeroed the dashboard storage breakdown; the contract now returns full `LibraryWithRelations`.
+- **Scan trickplay operations** — every ingested file created its own trickplay operation. Scan/refresh-triggered generation now joins one active operation per library (find-or-create, attach, dedupe-safe), so a scan produces a single operation containing all of its files; a late attach reopens a just-finished operation instead of leaving it terminal.
+- **SQLite write contention and Server Rescue** — standalone main-connection writes (missing-translation flag, scan-findings deletes) could busy-wait synchronously on an open transaction's lock, freezing the event loop (~10 s lag tripped Server Rescue) and failing with `database is locked`. Standalone writes now queue on the transaction lock in JS, and the missing-translation flag is written inside the season/episode transaction.
+- **Three-digit season recognition** — release spellings such as `Show.S012E03` (season 12) fell back to a movie and were skipped as a type mismatch on every scan; the season matcher now accepts three digits.
+- **Stale local artwork** — a sidecar image path whose file no longer exists now skips the image sync with a warning instead of retrying until the job permanently fails.
+- **Trickplay temp directories** — a failed temp-dir creation now reports the real cause instead of a later "sprite is empty" failure, and deleting an already-removed temp directory is no longer logged as an error.
+- **Cancelled downloads** — a download aborted by worker cancellation (rescue/shutdown) logs a warning instead of an error.
 - **Built-in trickplay no longer fails against the plugin artifact quota** — trickplay registered its sprites and VTT in the shared artifacts store as `pluginId: "core"`, so the 512 MB per-plugin cap rejected generation once the library filled it and `trickplay-generate` jobs failed permanently. The plugin quota is now enforced only at the `host.artifacts` boundary, while built-in generators use a configurable core budget — `system.artifacts.coreMaxStorageGb` (`0` = automatic: 5% of the artifacts volume clamped to 5–100 GB, plus a 1 GB minimum free-space floor). Exceeding the budget skips the file with a warning instead of failing, so it is generated again once space is freed. Storage-level artifact errors now carry `artifact.*` codes; the plugin quota keeps `plugin.artifact.quota_exceeded`.
