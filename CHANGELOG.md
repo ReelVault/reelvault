@@ -99,6 +99,8 @@ The performance work focuses primarily on reducing unnecessary database work, el
 
 - **Provider-independent scan paths** — internal `scan`, `scanPath` and `getScanFindings` operations no longer load provider-priority overrides when they are not needed.
 - **Removal-guard deduplication** — candidate paths are now checked once even when multiple database rows reference the same range file.
+- **Concurrent cleanup events** — stale-media cleanup emits `media.file.unavailable` concurrently instead of awaiting one plugin handler per removed file.
+- **Sidecar batch storage roots** — library roots are resolved once per sidecar batch instead of per media file and episode target.
 - **Season/episode parsing memoization** — repeated `extractSeasonEpisode` calls on series paths are memoized, reducing execution time by roughly **28–45%**.
 - **Streaming trickplay writes** — trickplay sprites are streamed directly from `BunFile` into artifact storage instead of creating a full-size in-memory buffer.
 - **Safer temporary-file ownership** — temporary trickplay source cleanup is now handled by `writeFileWithRollback`.

@@ -11,7 +11,7 @@ import { PromiseUtils } from "@/utils/promise.utils";
 import { type SidecarArtworkWriter, sidecarArtworkExporter } from "./saver/sidecar-artwork.exporter";
 import type { SidecarFlavor, SidecarMetadataWriter } from "./sidecar.types";
 import { type EpisodeRecord, episodeSnapshot, type SeasonRecord, seasonSnapshot } from "./sidecar-snapshot-resolver";
-import { resolveMetadataStorageMode, resolveSeriesDirectory, usesSidecars } from "./sidecar-storage.utils";
+import { prepareStorageRoots, resolveMetadataStorageMode, resolveSeriesDirectory, usesSidecars } from "./sidecar-storage.utils";
 
 export interface SidecarStorageLibrary {
 	metadataStorageMode: MetadataStorageMode;
@@ -61,7 +61,10 @@ export class SidecarMetadataStorageService extends BaseService {
 		const savedSeasons = new Set<string>();
 		const writes = new KeyedMutex();
 
-		const sidecarFiles = mediaFiles.filter((mediaFile) => usesSidecars(resolveMetadataStorageMode(library, mediaFile.filePath)));
+		const storageRoots = prepareStorageRoots(library);
+		const sidecarFiles = mediaFiles.filter((mediaFile) =>
+			usesSidecars(resolveMetadataStorageMode(library, mediaFile.filePath, storageRoots)),
+		);
 		if (sidecarFiles.length === 0) return;
 
 		// Batch-resolve episodes and seasons for the whole batch: previously one
@@ -143,7 +146,7 @@ export class SidecarMetadataStorageService extends BaseService {
 
 				const { episode, season } = target;
 				const episodeDirectory = PathUtils.getDirName(mediaFile.filePath);
-				const seriesDirectory = resolveSeriesDirectory(library.paths, episodeDirectory);
+				const seriesDirectory = resolveSeriesDirectory(storageRoots, episodeDirectory);
 				const seriesKey = `${mediaFile.metadataId}:${seriesDirectory}`;
 				if (!savedSeries.has(seriesKey)) {
 					savedSeries.add(seriesKey);
