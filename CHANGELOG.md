@@ -165,6 +165,7 @@ The performance work focuses primarily on reducing unnecessary database work, el
 - **Streaming trickplay writes** — trickplay sprites are streamed directly from `BunFile` into artifact storage instead of creating a full-size in-memory buffer.
 - **Safer temporary-file ownership** — temporary trickplay source cleanup is now handled by `writeFileWithRollback`.
 - **Faster scanner matching** — optimized ignore-pattern matching and video-file detection to reduce repeated path and extension work.
+- **Scan-root reuse in ignore matching** — the scan-relative root is normalized once per distinct root (memoized) and the ignore-pattern list is read once per root instead of once per file; `matchesIgnorePattern` over 500 paths × 3 patterns dropped 0.26 ms → 0.20 ms p50 (**−23%**).
 
 #### Plugins & artifacts
 

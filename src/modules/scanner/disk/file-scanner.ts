@@ -61,7 +61,13 @@ class FileScannerService extends BaseService {
 		const scanned = await PromiseUtils.mapConcurrent(
 			paths,
 			systemResourcesService.getScannerConcurrency(),
-			async (path) => (await scanRoot(path, extensions, maxDepth, signal)).filter((entry) => !isIgnoredPath(pathOf(entry), path)),
+			async (path) => {
+				// Patterns are cloned on every serverConfig read — resolve once per
+				// root instead of once per file.
+				const patterns = serverConfig.media.ignorePatterns;
+
+				return (await scanRoot(path, extensions, maxDepth, signal)).filter((entry) => !isIgnoredPath(pathOf(entry), path, patterns));
+			},
 			signal,
 		);
 
@@ -121,11 +127,29 @@ function compileIgnorePattern(pattern: string): CompiledIgnorePattern | null {
 	return compiled;
 }
 
+/**
+ * Roots repeat across every file of a scan; normalizing the same root per file
+ * is wasted string work. Bounded because roots come from config (a handful).
+ */
+const normalizedRootCache = new Map<string, string>();
+const MAX_NORMALIZED_ROOTS = 32;
+
+function normalizeIgnoreRoot(rootPath: string): string {
+	const cached = normalizedRootCache.get(rootPath);
+	if (cached !== undefined) return cached;
+
+	const normalized = rootPath.replaceAll("\\", "/").replace(TRAILING_SLASHES_REGEX, "").toLowerCase();
+	if (normalizedRootCache.size >= MAX_NORMALIZED_ROOTS) normalizedRootCache.clear();
+	normalizedRootCache.set(rootPath, normalized);
+
+	return normalized;
+}
+
 export function matchesIgnorePattern(filePath: string, rootPath: string, patterns: readonly string[]): boolean {
 	if (patterns.length === 0) return false;
 
 	const normalized = filePath.replaceAll("\\", "/").toLowerCase();
-	const root = rootPath.replaceAll("\\", "/").replace(TRAILING_SLASHES_REGEX, "").toLowerCase();
+	const root = normalizeIgnoreRoot(rootPath);
 	const relative = normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized;
 	let segments: string[] | undefined;
 
@@ -171,10 +195,10 @@ export function isIgnoredRelativePath(filePath: string): boolean {
 	return false;
 }
 
-function isIgnoredPath(filePath: string, rootPath: string): boolean {
+function isIgnoredPath(filePath: string, rootPath: string, patterns: readonly string[]): boolean {
 	if (EXTRA_FILE_NAME_PATTERN.test(PathUtils.getFileName(filePath))) return true;
 
-	return matchesIgnorePattern(filePath, rootPath, serverConfig.media.ignorePatterns);
+	return matchesIgnorePattern(filePath, rootPath, patterns);
 }
 
 export const fileScannerService = new FileScannerService();
