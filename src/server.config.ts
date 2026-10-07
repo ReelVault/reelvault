@@ -161,6 +161,9 @@ export const serverConfig = {
 		get watcherFallbackIntervalMinutes() {
 			return systemSettingsStore.get("scanning.watcherFallbackIntervalMinutes");
 		},
+		get scheduledScanIntervalHours() {
+			return systemSettingsStore.get("scanning.scheduledScanIntervalHours");
+		},
 		get concurrency() {
 			return systemSettingsStore.get("scanning.concurrency");
 		},

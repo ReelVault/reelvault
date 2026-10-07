@@ -2,6 +2,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { isIgnoredRelativePath } from "@/modules/scanner/disk/file-scanner";
 import { serverConfig } from "@/server.config";
+import { HOUR } from "@/server.constants";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
@@ -109,6 +110,10 @@ export class LibraryWatcherService extends BaseService {
 	 * direct import back into `libraries.service` (import cycle).
 	 */
 	private scanPathFn?: ((libraryId: string, pathId: string) => Promise<unknown>) | undefined;
+	/** Whole-library scan trigger used by the periodic rescan. */
+	private scanLibraryFn?: ((libraryId: string) => Promise<unknown>) | undefined;
+	/** When the last periodic rescan fired — in-memory, reset on restart. */
+	private lastScheduledScanAt: number;
 
 	constructor(
 		clock: LibraryWatcherClock = defaultClock,
@@ -117,10 +122,16 @@ export class LibraryWatcherService extends BaseService {
 		super("LibraryWatcherService");
 		this.clock = clock;
 		this.notifyFailure = notifyFailure;
+		this.lastScheduledScanAt = clock.now();
 	}
 
 	registerScanner(fn: (libraryId: string, pathId: string) => Promise<unknown>): void {
 		this.scanPathFn = fn;
+	}
+
+	/** Registers the whole-library scan used by `scanning.scheduledScanIntervalHours`. */
+	registerLibraryScanner(fn: (libraryId: string) => Promise<unknown>): void {
+		this.scanLibraryFn = fn;
 	}
 
 	async init(): Promise<void> {
@@ -130,12 +141,48 @@ export class LibraryWatcherService extends BaseService {
 		this.logger.info("Initializing library watcher service...");
 		await this.syncWatchers();
 		// Periodically reconcile so a watcher lost to a transient mount failure or
-		// an fs error is re-armed without waiting for an admin to edit the library.
+		// an fs error is re-armed without waiting for an admin to edit the library,
+		// and fire the periodic whole-library rescan when due.
 		if (!this.reconcileTimer) {
 			this.reconcileTimer = setInterval(() => {
 				detach(this.syncWatchers());
+				detach(this.runScheduledScanIfDue());
 			}, WATCHER_RECONCILE_INTERVAL_MS);
 			this.reconcileTimer.unref();
+		}
+	}
+
+	/**
+	 * Fires the periodic library rescan when `scanning.scheduledScanIntervalHours`
+	 * is due. Network mounts can miss filesystem events WITHOUT raising a watcher
+	 * error — the per-path fallback is never armed in that case, so this interval
+	 * is the belt-and-braces rescan. Public so tests can drive it with a manual clock.
+	 */
+	async runScheduledScanIfDue(): Promise<void> {
+		if (this.isShuttingDown) return;
+
+		const intervalHours = serverConfig.scanning.scheduledScanIntervalHours;
+		if (intervalHours <= 0) return;
+
+		if (this.clock.now() < this.lastScheduledScanAt + intervalHours * HOUR) return;
+
+		// Rescue pauses background work — keep the deadline due and retry next tick.
+		if (serverRescueService.isThrottling()) return;
+
+		this.lastScheduledScanAt = this.clock.now();
+
+		const activePaths = await librariesRepository.findActiveLibraryPaths();
+		const libraryIds = [...new Set(activePaths.map((entry) => entry.libraryId))];
+		if (libraryIds.length === 0) return;
+
+		this.logger.info("Running periodic library rescan", { libraries: libraryIds.length, intervalHours });
+
+		for (const libraryId of libraryIds) {
+			try {
+				await this.scanLibraryFn?.(libraryId);
+			} catch (error) {
+				this.logger.error("Periodic library rescan failed to enqueue", error, { libraryId });
+			}
 		}
 	}
 

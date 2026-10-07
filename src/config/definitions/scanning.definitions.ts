@@ -10,6 +10,11 @@ export const SCANNING_SETTINGS_DEFINITIONS = {
 	// rescanned on this interval so new files still appear. 0 disables the fallback.
 	"scanning.watcherFallbackIntervalMinutes": creator.number("scanning.watcherFallbackIntervalMinutes", 0, 1440, 30),
 
+	// Belt-and-braces for mounts where inotify never fires and no watcher error is
+	// raised (so the per-path fallback is never armed): rescans every library on
+	// this interval. 0 disables it.
+	"scanning.scheduledScanIntervalHours": creator.number("scanning.scheduledScanIntervalHours", 0, 168, 0),
+
 	// 0 = auto: derived from measured CPU capacity (see system-resources.service).
 	// A static default here would bypass the hardware-adaptive sizing entirely.
 	"scanning.concurrency": creator.number("scanning.concurrency", 0, 32, 0),
