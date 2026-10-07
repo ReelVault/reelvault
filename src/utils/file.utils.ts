@@ -238,7 +238,12 @@ export const FileUtils = {
 			return true;
 		} catch (error) {
 			options.onError?.(error);
-			logger.error("Download error", error, { filePath: destination });
+			// Caller cancellation (worker abort / rescue) is expected, not a failure.
+			if (options.signal?.aborted === true) {
+				logger.warn("Download cancelled", { filePath: destination });
+			} else {
+				logger.error("Download error", error, { filePath: destination });
+			}
 			await unlink(temporaryPath).catch(() => {
 				// Temporary file already removed — nothing to clean.
 			});
