@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { bench, fixture, main, suiteArgs } from "benchkit";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { fileScannerService, matchesIgnorePattern } from "@/modules/scanner/disk/file-scanner";
+import { findSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles";
 import { filterPathsWithinRoots } from "@/modules/scanner/utils/scanner.utils";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -106,6 +107,39 @@ if (!args.help) {
 			return hits;
 		},
 		{ warmup: 10, iterations: args.iterations },
+	);
+
+	// A season pack imports one subtitle set per episode from the same directory;
+	// the listing must not be re-read per episode.
+	const subtitlesTree = fixture("subtitles-tree", async ({ onCleanup }) => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-subs-"));
+		onCleanup(() => rm(root, { recursive: true, force: true }));
+		const directory = join(root, "Season 01");
+		await mkdir(directory, { recursive: true });
+
+		const paths: string[] = [];
+		for (let index = 0; index < 24; index++) {
+			const base = `Show.S01E${String(index + 1).padStart(2, "0")}`;
+			paths.push(join(directory, `${base}.mkv`));
+			for (const language of ["en", "pl", "de", "fr"]) {
+				await writeFile(join(directory, `${base}.${language}.srt`), "");
+			}
+		}
+
+		return paths;
+	});
+	bench(
+		"findSidecarSubtitles (24 episodes, one season directory)",
+		async () => {
+			const paths = await subtitlesTree();
+			let candidates = 0;
+			for (const path of paths) {
+				candidates += (await findSidecarSubtitles(path)).length;
+			}
+
+			return candidates;
+		},
+		{ warmup: 2, iterations: Math.min(args.iterations, 50) },
 	);
 
 	// Ignore patterns are user config; the scan calls this once per file, so the

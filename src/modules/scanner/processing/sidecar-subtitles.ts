@@ -1,9 +1,37 @@
 import { readdir } from "node:fs/promises";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
+import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 
 export const SIDECAR_SUBTITLE_EXTENSIONS = new Set(["srt", "ass", "ssa"]);
+
+/**
+ * Season packs import one subtitle set per episode from the same directory;
+ * re-reading the listing per episode is pure overhead. Short TTL: a subtitle
+ * dropped in mid-scan is picked up by the next scan/refresh (imports are
+ * idempotent).
+ */
+const DIRECTORY_LISTING_TTL_MS = 5_000;
+const directoryListingCache = new MemoryCache<string[]>({
+	ttlMs: DIRECTORY_LISTING_TTL_MS,
+	maxSize: 64,
+	name: "sidecar-subtitle-listings",
+});
+
+async function readDirectoryEntries(directory: string): Promise<string[]> {
+	const cached = directoryListingCache.get(directory);
+	if (cached) return cached;
+
+	try {
+		const entries = await readdir(directory);
+		directoryListingCache.set(directory, entries);
+
+		return entries;
+	} catch {
+		return [];
+	}
+}
 
 export interface SidecarSubtitleCandidate {
 	filePath: string;
@@ -30,11 +58,15 @@ export interface ParsedSubtitleTokens {
  * episode is never attached by mistake.
  */
 export function parseSidecarSubtitleName(videoBase: string, fileName: string): ParsedSubtitleTokens | null {
+	return parseSidecarSubtitleNameFromBase(videoBase.toLowerCase(), fileName);
+}
+
+/** Variant for directory walks that already lower-cased the video base once. */
+function parseSidecarSubtitleNameFromBase(base: string, fileName: string): ParsedSubtitleTokens | null {
 	const extension = PathUtils.getExtension(fileName).slice(1);
 	if (!SIDECAR_SUBTITLE_EXTENSIONS.has(extension)) return null;
 
 	const stem = PathUtils.getFileNameWithoutExt(fileName);
-	const base = videoBase.toLowerCase();
 	if (!stem.toLowerCase().startsWith(base)) return null;
 
 	const rest = stem.slice(base.length);
@@ -57,18 +89,12 @@ export function parseSidecarSubtitleName(videoBase: string, fileName: string): P
 
 export async function findSidecarSubtitles(videoFilePath: string): Promise<SidecarSubtitleCandidate[]> {
 	const directory = PathUtils.getDirName(videoFilePath);
-	const videoBase = PathUtils.getFileNameWithoutExt(videoFilePath);
-
-	let entries: string[];
-	try {
-		entries = await readdir(directory);
-	} catch {
-		return [];
-	}
+	const baseLower = PathUtils.getFileNameWithoutExt(videoFilePath).toLowerCase();
+	const entries = await readDirectoryEntries(directory);
 
 	const candidates: SidecarSubtitleCandidate[] = [];
 	for (const entry of entries) {
-		const parsed = parseSidecarSubtitleName(videoBase, entry);
+		const parsed = parseSidecarSubtitleNameFromBase(baseLower, entry);
 		if (!parsed) continue;
 
 		candidates.push({
