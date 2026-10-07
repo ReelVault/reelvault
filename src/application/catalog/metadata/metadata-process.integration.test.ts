@@ -1,4 +1,17 @@
-import { expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { collectionRepository } from "@/database/repositories/collections.repository";
+import { companiesRepository } from "@/database/repositories/companies.repository";
+import { episodesRepository } from "@/database/repositories/episodes.repository";
+import { genreRepository } from "@/database/repositories/genres.repository";
+import { keywordsRepository } from "@/database/repositories/keywords.repository";
+import { metadataRepository } from "@/database/repositories/metadata.repository";
+import { moviesRepository } from "@/database/repositories/movies.repository";
+import { peopleRepository } from "@/database/repositories/people.repository";
+import { seasonsRepository } from "@/database/repositories/seasons.repository";
+import { providerService } from "@/plugins/capabilities/provider.service";
+import { pluginEventBus } from "@/plugins/runtime/plugin.events";
+import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
 import { MetadataProcess } from "./metadata-process";
 
 const calls: string[] = [];
@@ -29,108 +42,66 @@ async function emitEvent(event: string, payload: { pluginId?: string }): Promise
 	for (const handler of eventHandlers.get(event) ?? []) await handler(payload);
 }
 
-// Bun's mock.module is process-global and cannot be un-mocked, so each mocked
-// singleton must stay a superset of the real one — otherwise every test file
-// loaded after this one sees a partial service (order-dependent CI).
-function supersetProxy(moduleSpecifier: string, exportName: string, stubs: Record<string, unknown>): Promise<void> {
-	return (async () => {
-		const real = (await import(moduleSpecifier)) as unknown as Record<string, object>;
-		const singleton = real[exportName];
-		if (!singleton) throw new Error(`Module ${moduleSpecifier} has no export ${exportName}`);
+const activeStubs: Array<{ restore(): void }> = [];
 
-		await mock.module(moduleSpecifier, () => ({
-			[exportName]: new Proxy(singleton, {
-				get(target, property, receiver) {
-					if (typeof property === "string" && Object.hasOwn(stubs, property)) return Reflect.get(stubs, property);
+beforeEach(() => {
+	activeStubs.push(
+		stubMethod(providerService, "fetchAggregatedDetails", async () => providerAggregated),
+		stubMethod(providerService, "fetchSeasonFromLinks", async () => []),
+		stubMethod(providerService, "fetchEpisodeFromLinks", async () => []),
+		stubMethod(pluginHookBus, "runBeforeMetadataSave", (candidate: { title: string }) => {
+			calls.push("hook");
 
-					return Reflect.get(target, property, receiver);
-				},
-			}),
-		}));
-	})();
-}
+			return Promise.resolve({ ...candidate, title: "Normalized title" });
+		}),
+		stubMethod(pluginEventBus, "publish", (event: string, payload: { metadataId?: string; pluginId?: string }) => {
+			if (event === "metadata.saved" && payload.metadataId) calls.push(`event:${payload.metadataId}`);
 
-const providerServiceStubs: Record<string, unknown> = {
-	fetchAggregatedDetails: async () => providerAggregated,
-	fetchSeasonFromLinks: async () => [],
-	fetchEpisodeFromLinks: async () => [],
-};
-const pluginHookBusStubs: Record<string, unknown> = {
-	runBeforeMetadataSave: (candidate: { title: string }) => {
-		calls.push("hook");
-
-		return Promise.resolve({ ...candidate, title: "Normalized title" });
-	},
-};
-const pluginEventBusStubs: Record<string, unknown> = {
-	publish: (event: string, payload: { metadataId?: string; pluginId?: string }) => {
-		if (event === "metadata.saved" && payload.metadataId) calls.push(`event:${payload.metadataId}`);
-
-		emitEvent(event, payload).catch(() => undefined);
-	},
-};
-await supersetProxy("@/plugins/capabilities/provider.service", "providerService", providerServiceStubs);
-await supersetProxy("@/plugins/runtime/plugin.hooks", "pluginHookBus", pluginHookBusStubs);
-await supersetProxy("@/plugins/runtime/plugin.events", "pluginEventBus", pluginEventBusStubs);
-await mock.module("@/database/repositories/metadata.repository", () => ({
-	metadataRepository: {
-		findOrCreateMetadata: ({ results }: { results: { title: string } }) => {
+			emitEvent(event, payload).catch(() => undefined);
+		}),
+		stubMethod(metadataRepository, "findOrCreateMetadata", ({ results }: { results: { title: string } }) => {
 			calls.push("persist");
 			persistedTitle = results.title;
 
 			return Promise.resolve({ created: true, metadata: { id: "metadata-1" } });
-		},
-		findByTitleAndType: async () => localMetadataRow,
-		findByProviderExternalIds: async () => identifierRows,
-		findFirstProviderLink: async () => providerLinkRow,
-		flagMissingTranslation: async () => undefined,
-		insertRatings: async () => undefined,
-	},
-}));
-await mock.module("@/database/repositories/collections.repository", () => ({ collectionRepository: { process: async () => undefined } }));
-await mock.module("@/database/repositories/companies.repository", () => ({ companiesRepository: { process: async () => undefined } }));
-await mock.module("@/database/repositories/genres.repository", () => ({ genreRepository: { process: async () => undefined } }));
-await mock.module("@/database/repositories/keywords.repository", () => ({ keywordsRepository: { process: async () => undefined } }));
-await mock.module("@/database/repositories/people.repository", () => ({
-	peopleRepository: {
-		processMetadataCredits: async () =>
+		}),
+		stubMethod(metadataRepository, "findByTitleAndType", async () => localMetadataRow),
+		stubMethod(metadataRepository, "findByProviderExternalIds", async () => identifierRows),
+		stubMethod(metadataRepository, "findFirstProviderLink", async () => providerLinkRow),
+		stubMethod(metadataRepository, "flagMissingTranslation", async () => undefined),
+		stubMethod(metadataRepository, "insertRatings", async () => undefined),
+		stubMethod(collectionRepository, "process", async () => undefined),
+		stubMethod(companiesRepository, "process", async () => undefined),
+		stubMethod(genreRepository, "process", async () => undefined),
+		stubMethod(keywordsRepository, "process", async () => undefined),
+		stubMethod(peopleRepository, "processMetadataCredits", async () =>
 			Array.from({ length: 30 }, (_, index) => ({ personId: `person-${index}`, url: `https://images.test/${index}.jpg` })),
-	},
-}));
-await mock.module("@/database/repositories/movies.repository", () => ({
-	moviesRepository: {
-		findOrCreateByMetadataId: () => {
+		),
+		stubMethod(moviesRepository, "findOrCreateByMetadataId", () => {
 			calls.push("movie");
 
 			return Promise.resolve({ id: "movie-1" });
-		},
-	},
-}));
-await mock.module("@/database/repositories/seasons.repository", () => ({
-	seasonsRepository: { findOrCreateByIdentity: async () => undefined },
-}));
-await mock.module("@/database/repositories/seasons.repository", () => ({
-	seasonsRepository: {
-		findByMetadataAndNumber: async () => seasonRow,
-		findOrCreateByIdentity: (input: { values?: Record<string, unknown> }) => {
+		}),
+		stubMethod(seasonsRepository, "findByMetadataAndNumber", async () => seasonRow),
+		stubMethod(seasonsRepository, "findOrCreateByIdentity", (input: { values?: Record<string, unknown> }) => {
 			calls.push("season");
 			seasonValues.push(input.values ?? {});
 
 			return Promise.resolve({ id: "season-1", stableKey: "season-stable" });
-		},
-	},
-}));
-await mock.module("@/database/repositories/episodes.repository", () => ({
-	episodesRepository: {
-		findBySeasonAndNumber: async () => episodeRow,
-		findOrCreateByIdentity: (input: { values?: Record<string, unknown> }) => {
+		}),
+		stubMethod(episodesRepository, "findBySeasonAndNumber", async () => episodeRow),
+		stubMethod(episodesRepository, "findOrCreateByIdentity", (input: { values?: Record<string, unknown> }) => {
 			calls.push("episode");
 			episodeValues.push(input.values ?? {});
 
 			return Promise.resolve({ id: "episode-1" });
-		},
-	},
-}));
+		}),
+	);
+});
+
+afterEach(() => {
+	for (const stub of activeStubs.splice(0)) stub.restore();
+});
 
 function resetSidecarState(): void {
 	calls.splice(0);

@@ -1,47 +1,42 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { stubMethod } from "../../../tests/helpers/method-stub";
+import { enqueueWithOperation } from "./worker-operation-enqueue";
+import { workerOperationsService } from "./worker-operations.service";
 
 const createdOperations: string[] = [];
 const removedOperations: string[] = [];
 const cancelledOperations: string[] = [];
 
-await mock.module("./worker-operations.service", () => ({
-	workerOperationsService: {
-		create: () => {
+const activeStubs: Array<{ restore(): void }> = [];
+
+beforeEach(async () => {
+	createdOperations.length = 0;
+	removedOperations.length = 0;
+	cancelledOperations.length = 0;
+
+	const { workerJobRepository } = await import("@/database/repositories/worker.repository");
+	activeStubs.push(
+		stubMethod(workerOperationsService, "create", () => {
 			const id = `op-${createdOperations.length + 1}`;
 			createdOperations.push(id);
 
 			return Promise.resolve({ id });
-		},
-		remove: (id: string) => {
+		}),
+		stubMethod(workerOperationsService, "remove", (id: string) => {
 			removedOperations.push(id);
 
 			return Promise.resolve();
-		},
-	},
-}));
-
-await mock.module("@/database/repositories/worker.repository", () => ({
-	workerJobRepository: {
-		cancelPendingByOperation: (operationId: string) => {
+		}),
+		stubMethod(workerJobRepository, "cancelPendingByOperation", (operationId: string) => {
 			cancelledOperations.push(operationId);
 
 			return Promise.resolve(0);
-		},
-	},
-}));
-
-const { enqueueWithOperation } = await import("./worker-operation-enqueue");
-
-// mock.module is process-global in Bun — drop the facades so later test files
-// see the real modules again.
-afterAll(() => {
-	mock.restore();
+		}),
+	);
 });
 
-beforeEach(() => {
-	createdOperations.length = 0;
-	removedOperations.length = 0;
-	cancelledOperations.length = 0;
+afterEach(() => {
+	for (const stub of activeStubs.splice(0)) stub.restore();
 });
 
 describe("enqueueWithOperation failure cleanup", () => {

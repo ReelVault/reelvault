@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { buildDirectStreamOutputArgs } from "@/integrations/ffmpeg/ffmpeg.direct-stream-args";
 import { buildAudioFilter, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
 import { getBufferedSeekStart, isPositionBuffered, parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer";
+import { systemResourcesService } from "@/system/system-resources.service";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
 
 const NO_TONEMAP = { method: "none" as const, algorithm: "bt2390" };
 
@@ -23,9 +25,19 @@ const decision: PlaybackDecision = {
 	reason: "Compatible streams",
 };
 
+const activeStubs: Array<{ restore(): void }> = [];
+
 describe("HLS buffering", () => {
 	beforeEach(() => {
 		systemSettingsStore.clearRuntimeValues();
+		// Pin the measured CPU speed: slow CI runners score below the 0.5
+		// threshold, which flips the software lookahead from 10 to 5 and makes
+		// the argument assertions machine-dependent.
+		activeStubs.push(stubMethod(systemResourcesService, "getSpeedFactor", () => 1));
+	});
+
+	afterEach(() => {
+		for (const stub of activeStubs.splice(0)) stub.restore();
 	});
 	it("reports completed segments and preserves gaps between buffered ranges", () => {
 		const analysis = parseHlsBuffer(

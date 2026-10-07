@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk";
 import type { WorkerItem } from "@/database/repositories/worker.repository";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { workerOperationsService } from "./worker-operations.service";
 import { setWorkerRuntime } from "./worker-runtime";
 import { createMockWorkerItem, createMockWorkerRuntime } from "./worker-runtime.test-utils";
@@ -16,45 +17,7 @@ const cancelledJobs: WorkerItem[] = [];
 const resumedCalls: Array<{ id: string; total: number }> = [];
 const enqueueCalls: Array<{ workerId: string; count: number; countOperationTotals: boolean | undefined }> = [];
 
-await mock.module("@/database/repositories/worker-operation.repository", () => ({
-	workerOperationRepository: {
-		list: (options: { status?: string; limit?: number }) => {
-			const ids = [...activeOperationIds].slice(0, options.limit ?? 50);
-
-			return Promise.resolve({ data: ids.map((id) => ({ id, status: "pending" })), total: activeOperationIds.size });
-		},
-		findById: (id: string) => {
-			if (resumableOperation?.id === id) return Promise.resolve(resumableOperation);
-			if (!activeOperationIds.has(id)) return Promise.resolve(undefined);
-
-			return Promise.resolve({ id, status: stuckIds.has(id) ? "completed" : "pending" });
-		},
-		markResumed: (id: string, total: number) => {
-			resumedCalls.push({ id, total });
-			resumableOperation = undefined;
-
-			return Promise.resolve();
-		},
-		requestCancel: (id: string) => {
-			cancelledIds.push(id);
-			activeOperationIds.delete(id);
-
-			return Promise.resolve();
-		},
-		remove: () => Promise.resolve(undefined),
-	},
-}));
-
-await mock.module("@/database/repositories/worker.repository", () => ({
-	workerJobRepository: {
-		findRunningByOperation: async () => [],
-		cancelRunning: async () => true,
-		cancelPendingByOperation: async () => 0,
-		countCancelledByOperation: () => Promise.resolve(cancelledJobs.length),
-		findCancelledByOperation: (_operationId: string, limit: number, afterId?: string) =>
-			Promise.resolve(cancelledJobs.filter((item) => !afterId || item.id > afterId).slice(0, limit)),
-	},
-}));
+const activeStubs: Array<{ restore(): void }> = [];
 
 const minimalDefinition = { id: "w-1" } as unknown as WorkerDefinition;
 
@@ -78,7 +41,7 @@ setWorkerRuntime(
 	}),
 );
 
-beforeEach(() => {
+beforeEach(async () => {
 	activeOperationIds.clear();
 	cancelledIds.length = 0;
 	stuckIds = new Set();
@@ -86,6 +49,46 @@ beforeEach(() => {
 	cancelledJobs.length = 0;
 	resumedCalls.length = 0;
 	enqueueCalls.length = 0;
+
+	const { workerOperationRepository } = await import("@/database/repositories/worker-operation.repository");
+	const { workerJobRepository } = await import("@/database/repositories/worker.repository");
+	activeStubs.push(
+		stubMethod(workerOperationRepository, "list", (options: { status?: string; limit?: number }) => {
+			const ids = [...activeOperationIds].slice(0, options.limit ?? 50);
+
+			return Promise.resolve({ data: ids.map((id) => ({ id, status: "pending" })), total: activeOperationIds.size });
+		}),
+		stubMethod(workerOperationRepository, "findById", (id: string) => {
+			if (resumableOperation?.id === id) return Promise.resolve(resumableOperation);
+			if (!activeOperationIds.has(id)) return Promise.resolve(undefined);
+
+			return Promise.resolve({ id, status: stuckIds.has(id) ? "completed" : "pending" });
+		}),
+		stubMethod(workerOperationRepository, "markResumed", (id: string, total: number) => {
+			resumedCalls.push({ id, total });
+			resumableOperation = undefined;
+
+			return Promise.resolve();
+		}),
+		stubMethod(workerOperationRepository, "requestCancel", (id: string) => {
+			cancelledIds.push(id);
+			activeOperationIds.delete(id);
+
+			return Promise.resolve();
+		}),
+		stubMethod(workerOperationRepository, "remove", () => Promise.resolve(undefined)),
+		stubMethod(workerJobRepository, "findRunningByOperation", async () => []),
+		stubMethod(workerJobRepository, "cancelRunning", async () => true),
+		stubMethod(workerJobRepository, "cancelPendingByOperation", async () => 0),
+		stubMethod(workerJobRepository, "countCancelledByOperation", () => Promise.resolve(cancelledJobs.length)),
+		stubMethod(workerJobRepository, "findCancelledByOperation", (_operationId: string, limit: number, afterId?: string) =>
+			Promise.resolve(cancelledJobs.filter((item) => !afterId || item.id > afterId).slice(0, limit)),
+		),
+	);
+});
+
+afterEach(() => {
+	for (const stub of activeStubs.splice(0)) stub.restore();
 });
 
 describe("worker operations cancelAll", () => {

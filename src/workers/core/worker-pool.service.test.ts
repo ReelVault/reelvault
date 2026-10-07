@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import type { WorkerItem } from "@/database/repositories/worker.repository";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { WorkerExecutionPoolService } from "./worker-pool.service";
 
 const completed: string[] = [];
@@ -9,34 +10,7 @@ const retried: string[] = [];
 const cancelled: string[] = [];
 const requeued: string[] = [];
 
-await mock.module("@/database/repositories/worker.repository", () => ({
-	workerJobRepository: {
-		updateProgress: () => undefined,
-		complete: (id: string) => {
-			completed.push(id);
-		},
-		fail: (id: string) => {
-			failed.push(id);
-		},
-		retry: (id: string) => {
-			retried.push(id);
-		},
-		cancelRunning: (id: string) => {
-			cancelled.push(id);
-		},
-		requeueRunning: (id: string) => {
-			requeued.push(id);
-		},
-	},
-}));
-
-await mock.module("@/database/repositories/worker-operation.repository", () => ({
-	workerOperationRepository: { updateProgress: () => undefined },
-}));
-
-await mock.module("@/database/repositories/worker-schedules.repository", () => ({
-	workerSchedulesRepository: { updateExecution: () => undefined },
-}));
+const activeStubs: Array<{ restore(): void }> = [];
 
 function makeItem(overrides: Partial<WorkerItem> = {}): WorkerItem {
 	return {
@@ -75,7 +49,7 @@ function makeDefinition(handler: WorkerDefinition["handler"], timeoutMs = 1000):
 
 let pool: WorkerExecutionPoolService;
 
-beforeEach(() => {
+beforeEach(async () => {
 	completed.length = 0;
 	failed.length = 0;
 	retried.length = 0;
@@ -83,10 +57,35 @@ beforeEach(() => {
 	requeued.length = 0;
 	pool = new WorkerExecutionPoolService();
 	pool.setRunnerId("test-runner");
+
+	const { workerJobRepository } = await import("@/database/repositories/worker.repository");
+	const { workerOperationRepository } = await import("@/database/repositories/worker-operation.repository");
+	const { workerSchedulesRepository } = await import("@/database/repositories/worker-schedules.repository");
+	activeStubs.push(
+		stubMethod(workerJobRepository, "updateProgress", () => undefined),
+		stubMethod(workerJobRepository, "complete", (id: string) => {
+			completed.push(id);
+		}),
+		stubMethod(workerJobRepository, "fail", (id: string) => {
+			failed.push(id);
+		}),
+		stubMethod(workerJobRepository, "retry", (id: string) => {
+			retried.push(id);
+		}),
+		stubMethod(workerJobRepository, "cancelRunning", (id: string) => {
+			cancelled.push(id);
+		}),
+		stubMethod(workerJobRepository, "requeueRunning", (id: string) => {
+			requeued.push(id);
+		}),
+		stubMethod(workerOperationRepository, "updateProgress", () => undefined),
+		stubMethod(workerSchedulesRepository, "updateExecution", () => undefined),
+	);
 });
 
 afterEach(async () => {
 	await pool.drain();
+	for (const stub of activeStubs.splice(0)) stub.restore();
 });
 
 describe("worker execution pool", () => {
