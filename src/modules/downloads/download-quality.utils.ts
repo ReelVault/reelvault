@@ -49,7 +49,8 @@ export function ffmpegTimeToSeconds(value: string): number {
 export function buildDownloadOutputArgs(quality: DownloadQuality, sourceDurationSeconds: number): string[] {
 	const spec = resolveDownloadQuality(quality);
 	if (quality === "original") {
-		return ["-map", "0:v:0", "-map", "0:a:0", "-c", "copy", "-movflags", "+faststart"];
+		// `?` keeps video-only sources downloadable — a hard `0:a:0` aborts ffmpeg.
+		return ["-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart"];
 	}
 
 	const durationGuard = sourceDurationSeconds > 0 ? ["-t", String(Math.ceil(sourceDurationSeconds))] : [];
@@ -58,7 +59,7 @@ export function buildDownloadOutputArgs(quality: DownloadQuality, sourceDuration
 		"-map",
 		"0:v:0",
 		"-map",
-		"0:a:0",
+		"0:a:0?",
 		"-vf",
 		`scale=${spec.width}:${spec.height}:force_original_aspect_ratio=decrease,pad=${spec.width}:${spec.height}:(ow-iw)/2:(oh-ih)/2:black`,
 		"-c:v",

@@ -6,7 +6,9 @@ import { PathUtils } from "@/utils/path.utils";
  * `-map` args selecting the video stream and the (possibly remapped) audio stream.
  */
 export function buildStreamMapArgs(decision: PlaybackDecision): string[] {
-	const audioSelector = decision.audioStreamIndex === undefined ? "0:a:0" : `0:${decision.audioStreamIndex}`;
+	// `0:a:0?` — the trailing `?` keeps silent files playable: a hard `0:a:0`
+	// makes ffmpeg abort with "matches no streams" for video-only sources.
+	const audioSelector = decision.audioStreamIndex === undefined ? "0:a:0?" : `0:${decision.audioStreamIndex}?`;
 
 	return ["-map", "0:v:0", "-map", audioSelector, "-map", "-0:s"];
 }
