@@ -11,7 +11,8 @@ import type {
 	SelectFields,
 	UpdateLibrary,
 } from "@reelvault/sdk/common";
-import { and, eq, inArray, ne, notExists, notInArray, sql } from "drizzle-orm";
+import { sleep } from "bun";
+import { and, asc, eq, gt, inArray, ne, notExists, notInArray, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import {
@@ -25,6 +26,7 @@ import {
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryFiltering } from "@/database/utils/filtering";
+import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { findMediaCleanupData, type MediaCleanupData } from "@/database/utils/media-cleanup";
 import { buildMediaFileProjection } from "@/database/utils/media-file-projection";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
@@ -42,6 +44,11 @@ const libraries = defineTableAccess("libraries", {
 const libraryPaths = defineTableAccess("libraryPaths", {
 	primaryKeyColumn: "id",
 });
+
+/** Rows per keyset page when aggregating per-path stats on a cold cache. */
+const PATH_STATS_PAGE_SIZE = 5_000;
+/** Pages between event-loop yields — bounded memory without a sleep per page. */
+const PATH_STATS_YIELD_EVERY = 4;
 
 interface LibraryStats {
 	totalMediaFiles: number;
@@ -532,23 +539,51 @@ class LibrariesRepository {
 			ownersByLibrary.set(libraryId, owners);
 		}
 
-		const fileRows = await client
-			.select({ libraryId: schema.mediaFiles.libraryId, filePath: schema.mediaFiles.filePath, size: schema.mediaFiles.size })
-			.from(schema.mediaFiles)
-			.where(inArray(schema.mediaFiles.libraryId, uncachedMultiPathLibraryIds));
-
 		const totals = new Map<string, { fileCount: number; totalSize: number }>();
-		for (const row of fileRows) {
+		const accumulate = (row: { libraryId: string; filePath: string; size: number | null }): void => {
 			const owners = ownersByLibrary.get(row.libraryId);
-			if (!owners) continue;
+			if (!owners) return;
 			const fileKey = normalizePathPrefix(row.filePath);
 			const owner = owners.find((candidate) => fileKey === candidate.normalized || fileKey.startsWith(`${candidate.normalized}/`));
-			if (!owner) continue;
+			if (!owner) return;
 			const entry = totals.get(owner.pathId) ?? { fileCount: 0, totalSize: 0 };
 			entry.fileCount += 1;
 			entry.totalSize += row.size ?? 0;
 			totals.set(owner.pathId, entry);
-		}
+		};
+
+		// Keyset-paginate the flat scan: a huge multi-path library is aggregated
+		// page by page (bounded peak memory) and the event loop gets a turn every
+		// few pages instead of one long synchronous SELECT materializing every file.
+		let pagesSinceYield = 0;
+		await collectKeysetPages({
+			pageSize: PATH_STATS_PAGE_SIZE,
+			fetchPage: (cursor) =>
+				client
+					.select({
+						id: schema.mediaFiles.id,
+						libraryId: schema.mediaFiles.libraryId,
+						filePath: schema.mediaFiles.filePath,
+						size: schema.mediaFiles.size,
+					})
+					.from(schema.mediaFiles)
+					.where(
+						and(inArray(schema.mediaFiles.libraryId, uncachedMultiPathLibraryIds), cursor ? gt(schema.mediaFiles.id, cursor) : undefined),
+					)
+					.orderBy(asc(schema.mediaFiles.id))
+					.limit(PATH_STATS_PAGE_SIZE),
+			onPage: (rows) => {
+				for (const row of rows) accumulate(row);
+			},
+			betweenPages: async () => {
+				pagesSinceYield += 1;
+				if (pagesSinceYield < PATH_STATS_YIELD_EVERY) return;
+
+				pagesSinceYield = 0;
+
+				await sleep(0);
+			},
+		});
 
 		for (const [pathId, entry] of totals) {
 			pathStatsByPathId.set(pathId, entry);
