@@ -395,9 +395,17 @@ class WorkerOperationRepository {
 		if (matching.length === 0) return 0;
 
 		const ids = matching.map((m) => m.id);
-		for (const chunkIds of chunk(ids, serverConstants.database.queryChunkSize)) {
-			await databaseFactory.getClient().update(operations).set({ retentionUntil, updatedAt: now }).where(inArray(operations.id, chunkIds));
-		}
+		// One transaction for all chunks: a failure midway must not stamp only part
+		// of the batch (the sweep would then re-stamp the rest next run anyway, but
+		// the read→write window also wants the immediate lock).
+		await databaseFactory.transaction(
+			async (tx) => {
+				for (const chunkIds of chunk(ids, serverConstants.database.queryChunkSize)) {
+					await tx.update(operations).set({ retentionUntil, updatedAt: now }).where(inArray(operations.id, chunkIds));
+				}
+			},
+			{ immediate: true },
+		);
 
 		return ids.length;
 	}

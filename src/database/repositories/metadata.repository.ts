@@ -642,7 +642,7 @@ class MetadataRepository {
 					exists(client.select({ one: sql`1` }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, this.table.id))),
 				),
 			)
-			.orderBy(desc(sql`latest_created_at`))
+			.orderBy(desc(sql`latest_created_at`), desc(this.table.id))
 			.limit(limit);
 		if (ranked.length === 0) return [];
 

@@ -37,13 +37,16 @@ const setBatchReadState = async (ids: string[], where: SQL | undefined, read: bo
 	const now = new Date();
 	const readAt = read ? now : null;
 	const stateFilter = read ? isNull(schema.notifications.readAt) : isNotNull(schema.notifications.readAt);
-	await forEachChunked(ids, (idChunk) =>
-		databaseFactory
-			.getClient()
-			.update(schema.notifications)
-			.set({ readAt, updatedAt: now })
-			.where(and(inArray(schema.notifications.id, idChunk), where, stateFilter)),
-	);
+	// One transaction for all chunks — a mid-way failure must not leave half the
+	// batch flipped.
+	await databaseFactory.transaction(async (tx) => {
+		await forEachChunked(ids, (idChunk) =>
+			tx
+				.update(schema.notifications)
+				.set({ readAt, updatedAt: now })
+				.where(and(inArray(schema.notifications.id, idChunk), where, stateFilter)),
+		);
+	});
 };
 
 const overrides = {
