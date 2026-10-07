@@ -107,8 +107,9 @@ export class QuickConnectService extends BaseService {
 	private async createSessionAndCookies(
 		userId: string,
 		profileId?: string | null,
+		knownUser?: User,
 	): Promise<{ signedToken: string; cookies: string[]; user: User }> {
-		const user = await usersRepository.findById(userId);
+		const user = knownUser ?? (await usersRepository.findById(userId));
 		if (!user) {
 			throw new NotFoundError("User not found", { code: "quick_connect.user_not_found" });
 		}
@@ -195,7 +196,8 @@ export class QuickConnectService extends BaseService {
 			entry.authorizing = true;
 
 			try {
-				const { signedToken, cookies } = await this.createSessionAndCookies(user.id, profile?.id);
+				// The caller already holds the user row — skip the second read.
+				const { signedToken, cookies } = await this.createSessionAndCookies(user.id, profile?.id, user);
 
 				entry.status = "authenticated";
 				entry.userId = user.id;

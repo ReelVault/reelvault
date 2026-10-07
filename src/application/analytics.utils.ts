@@ -4,6 +4,9 @@ import { DAY } from "@/server.constants";
 /** Daily buckets both insights views render — older activity is dropped. */
 const MAX_DAILY_BUCKETS = 30;
 
+/** `en-CA` renders ISO-like YYYY-MM-DD keys. */
+const DAY_KEY_FORMATTER = new Intl.DateTimeFormat("en-CA");
+
 /** 7×24 grid of watched minutes from per-(day, hour) rows. */
 export function buildHourlyHeatmap(rows: ReadonlyArray<{ dayOfWeek: number; hour: number; minutes: number }>): HourlyHeatmapPoint[] {
 	const grid: number[][] = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
@@ -25,8 +28,7 @@ export function buildHourlyHeatmap(rows: ReadonlyArray<{ dayOfWeek: number; hour
 
 /** `en-CA` (YYYY-MM-DD) keys for the most recent days, oldest first, capped at 30. */
 export function recentDayKeys(days: number, now: Date): string[] {
-	const formatter = new Intl.DateTimeFormat("en-CA");
 	const count = Math.min(days, MAX_DAILY_BUCKETS);
 
-	return Array.from({ length: count }, (_, index) => formatter.format(new Date(now.getTime() - (count - 1 - index) * DAY)));
+	return Array.from({ length: count }, (_, index) => DAY_KEY_FORMATTER.format(new Date(now.getTime() - (count - 1 - index) * DAY)));
 }
