@@ -9,12 +9,13 @@
 import { brotliCompress, constants } from "node:zlib";
 import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
-import { bench, benchmarkAsync, compare, group, main, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
+import { bench, benchmarkAsync, compare, group, main, measureAsync, printMicroResults, printTable, suiteArgs, task } from "benchkit";
 import { hash as bunHash, CryptoHasher } from "bun";
 import { buildJsonResponse } from "@/api/utils/etag.utils";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
+import { EventLoopMonitor } from "@/utils/event-loop-monitor.utils";
 import { getPathname, getTrustedOriginPatterns, matchesIfNoneMatch } from "@/utils/http.utils";
 import { boundedLevenshtein, splitToSet, stripDiacritics, writeBigramCodes } from "@/utils/media-match.utils";
 import { profilePinFingerprint } from "@/utils/profile-unlock.utils";
@@ -152,6 +153,18 @@ function matchesIfNoneMatchOld(ifNoneMatch: string | null | undefined, etag: str
 
 		return value === "*" || value === etag || value === `W/${etag}`;
 	});
+}
+
+function sleepMs(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
+
+function medianOf(values: readonly number[]): number {
+	const sorted = values.toSorted((a, b) => a - b);
+
+	return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
 /** One catalog item of the synthetic browse payload; key order is part of the JSON bytes. */
@@ -871,6 +884,41 @@ if (!args.help) {
 
 		printMicroResults(compressionResults, "Compression (async, per compress call)");
 		console.log("\n[micro] done — adopt a winner only with a full verify + HTTP before/after.");
+	});
+
+	// ─── Idle timer cost ─────────────────────────────────────────────────────
+	// SystemResourcesService's EventLoopMonitor ticks for the whole process
+	// lifetime, so its cadence sets a floor on idle timer wakeups. Measures CPU
+	// time spent in an otherwise-idle event loop per interval.
+	task("micro: event-loop monitor idle CPU (100ms vs 1000ms interval)", async () => {
+		const windowMs = 2000;
+		const rounds = 3;
+		const sample = async (intervalMs: number): Promise<number> => {
+			const monitor = new EventLoopMonitor(intervalMs);
+			const before = process.cpuUsage();
+			await sleepMs(windowMs);
+			const delta = process.cpuUsage(before);
+			monitor.stop();
+
+			return (delta.user + delta.system) / 1000;
+		};
+		const at100: number[] = [];
+		const at1000: number[] = [];
+		for (let round = 0; round < rounds; round++) {
+			at100.push(await sample(100));
+			at1000.push(await sample(1000));
+		}
+
+		printTable(
+			`Event-loop monitor idle CPU @ ${windowMs}ms window (median of ${rounds})`,
+			["interval", "wakeups/s", "CPU ms"],
+			[
+				["100ms", "10", medianOf(at100).toFixed(2)],
+				["1000ms", "1", medianOf(at1000).toFixed(2)],
+			],
+		);
+
+		return { ok: true };
 	});
 }
 

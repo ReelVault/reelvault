@@ -178,8 +178,10 @@ export class SystemResourcesService {
 	private cachedSpeedFactor?: number | undefined;
 	private cachedMetrics?: { metrics: CpuResourceMetrics; expiresAt: number } | undefined;
 	private readonly overrides: SystemResourcesOverrides;
-	/** Samples loop stalls so each metrics snapshot reports utilization over its window. */
-	private readonly eventLoopMonitor = new EventLoopMonitor(100);
+	/** Samples loop stalls so each metrics snapshot reports utilization over its window.
+	 * A 1 s cadence still catches stalls (lateness accumulates as `now - expected`)
+	 * while cutting idle timer wakeups 10× vs the previous 100 ms probe. */
+	private readonly eventLoopMonitor = new EventLoopMonitor(1000);
 
 	constructor(overrides: SystemResourcesOverrides = {}) {
 		this.overrides = overrides;

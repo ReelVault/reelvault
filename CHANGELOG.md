@@ -183,6 +183,7 @@ The performance work focuses primarily on reducing unnecessary database work, el
 
 - **WebSocket progress delivery** — replaced client-side worker progress polling with one throttled WebSocket broadcast per progress tick. Database write frequency is unchanged.
 - **Worker deadline writes** — trigger-less workers no longer generate periodic no-op updates.
+- **Idle event-loop probe** — the loop-utilization monitor now samples every 1 s instead of 100 ms, cutting idle timer wakeups from 10/s to 1/s (measured idle CPU 3.40 ms → 2.18 ms per 2 s window).
 - **Playlist cushion polling** — reduced the cost of the temporary-filesystem cushion check used during streaming.
 
 ### Performance benchmarks
