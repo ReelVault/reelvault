@@ -33,21 +33,24 @@ class MetadataPersistenceRepository {
 		metadata: ProviderMetadataResult;
 		matchScore?: number | undefined;
 	}) {
-		return await databaseFactory.transaction(async (tx) => {
-			const metadataResult = await metadataRepository.findOrCreateMetadata({
-				type,
-				results: metadata,
-				providerName,
-				providers: providers?.map((provider) => ({ name: provider.providerId, externalId: provider.externalId })),
-				matchScore,
-				tx,
-			});
-			const personImages = metadataResult.created
-				? await this.createMetadataRelations(metadataResult.metadata.id, providerName, metadata, tx)
-				: [];
+		return await databaseFactory.transaction(
+			async (tx) => {
+				const metadataResult = await metadataRepository.findOrCreateMetadata({
+					type,
+					results: metadata,
+					providerName,
+					providers: providers?.map((provider) => ({ name: provider.providerId, externalId: provider.externalId })),
+					matchScore,
+					tx,
+				});
+				const personImages = metadataResult.created
+					? await this.createMetadataRelations(metadataResult.metadata.id, providerName, metadata, tx)
+					: [];
 
-			return { ...metadataResult, personImages };
-		});
+				return { ...metadataResult, personImages };
+			},
+			{ immediate: true },
+		);
 	}
 
 	async rematchProviderMetadata({
@@ -63,74 +66,77 @@ class MetadataPersistenceRepository {
 		metadata: ProviderMetadataResult;
 		matchScore?: number | undefined;
 	}) {
-		return await databaseFactory.transaction(async (tx) => {
-			const stableKey = createProviderStableKey({ providerName, entityType: type, externalId: metadata.externalId });
+		return await databaseFactory.transaction(
+			async (tx) => {
+				const stableKey = createProviderStableKey({ providerName, entityType: type, externalId: metadata.externalId });
 
-			const conflicting = await tx
-				.select({ id: schema.metadata.id })
-				.from(schema.metadata)
-				.where(
-					and(
-						ne(schema.metadata.id, metadataId),
-						or(
-							and(
-								eq(schema.metadata.title, metadata.title),
-								eq(schema.metadata.type, type),
-								eq(schema.metadata.releaseDate, metadata.releaseDate),
+				const conflicting = await tx
+					.select({ id: schema.metadata.id })
+					.from(schema.metadata)
+					.where(
+						and(
+							ne(schema.metadata.id, metadataId),
+							or(
+								and(
+									eq(schema.metadata.title, metadata.title),
+									eq(schema.metadata.type, type),
+									eq(schema.metadata.releaseDate, metadata.releaseDate),
+								),
+								eq(schema.metadata.stableKey, stableKey),
 							),
-							eq(schema.metadata.stableKey, stableKey),
 						),
-					),
-				);
+					);
 
-			if (conflicting.length > 0) {
-				// Route every conflict through the merge path: it repoints movie/
-				// episode ids BEFORE deleting the duplicate metadata, so the FK
-				// cascade cannot delete the just-repointed media files (and their
-				// progress/history/markers) along with the duplicate's movie row.
-				for (const conflict of conflicting) {
-					await metadataMergeRepository.merge(metadataId, conflict.id, type);
+				if (conflicting.length > 0) {
+					// Route every conflict through the merge path: it repoints movie/
+					// episode ids BEFORE deleting the duplicate metadata, so the FK
+					// cascade cannot delete the just-repointed media files (and their
+					// progress/history/markers) along with the duplicate's movie row.
+					for (const conflict of conflicting) {
+						await metadataMergeRepository.merge(metadataId, conflict.id, type);
+					}
 				}
-			}
 
-			await metadataRepository.update({
-				where: eq(schema.metadata.id, metadataId),
-				values: {
-					stableKey,
-					...toMetadataValues(metadata, providerName, matchScore ?? 1.0),
-					popularity: metadata.popularity ?? 0,
-					updatedAt: new Date(),
-				},
-				tx,
-			});
+				await metadataRepository.update({
+					where: eq(schema.metadata.id, metadataId),
+					values: {
+						stableKey,
+						...toMetadataValues(metadata, providerName, matchScore ?? 1.0),
+						popularity: metadata.popularity ?? 0,
+						updatedAt: new Date(),
+					},
+					tx,
+				});
 
-			await metadataExternalIdsRepository.replace(metadataId, { [providerName]: metadata.externalId }, tx);
+				await metadataExternalIdsRepository.replace(metadataId, { [providerName]: metadata.externalId }, tx);
 
-			await metadataRepository.deleteProviders({ where: eq(schema.metadataProviders.metadataId, metadataId), tx });
-			const provider = await providersRepository.findOrCreateByIdentity({
-				name: providerName,
-				externalId: metadata.externalId,
-				entityType: type,
-				tx,
-			});
-			if (provider) {
-				await metadataRepository.insertProviders({ values: { metadataId, providerId: provider.id }, tx });
-			}
+				await metadataRepository.deleteProviders({ where: eq(schema.metadataProviders.metadataId, metadataId), tx });
+				const provider = await providersRepository.findOrCreateByIdentity({
+					name: providerName,
+					externalId: metadata.externalId,
+					entityType: type,
+					tx,
+				});
+				if (provider) {
+					await metadataRepository.insertProviders({ values: { metadataId, providerId: provider.id }, tx });
+				}
 
-			await Promise.all([
-				metadataRepository.deleteCast({ where: eq(schema.metadataCast.metadataId, metadataId), tx }),
-				metadataRepository.deleteCrew({ where: eq(schema.metadataCrew.metadataId, metadataId), tx }),
-				metadataRepository.deleteGenres({ where: eq(schema.metadataGenres.metadataId, metadataId), tx }),
-				metadataRepository.deleteKeywords({ where: eq(schema.metadataKeywords.metadataId, metadataId), tx }),
-				metadataRepository.deleteCompanies({ where: eq(schema.metadataCompanies.metadataId, metadataId), tx }),
-				metadataRepository.deleteCollections({ where: eq(schema.metadataCollections.metadataId, metadataId), tx }),
-				metadataRepository.deleteRatings({ where: eq(schema.metadataRatings.metadataId, metadataId), tx }),
-			]);
+				await Promise.all([
+					metadataRepository.deleteCast({ where: eq(schema.metadataCast.metadataId, metadataId), tx }),
+					metadataRepository.deleteCrew({ where: eq(schema.metadataCrew.metadataId, metadataId), tx }),
+					metadataRepository.deleteGenres({ where: eq(schema.metadataGenres.metadataId, metadataId), tx }),
+					metadataRepository.deleteKeywords({ where: eq(schema.metadataKeywords.metadataId, metadataId), tx }),
+					metadataRepository.deleteCompanies({ where: eq(schema.metadataCompanies.metadataId, metadataId), tx }),
+					metadataRepository.deleteCollections({ where: eq(schema.metadataCollections.metadataId, metadataId), tx }),
+					metadataRepository.deleteRatings({ where: eq(schema.metadataRatings.metadataId, metadataId), tx }),
+				]);
 
-			const personImages = await this.createMetadataRelations(metadataId, providerName, metadata, tx);
+				const personImages = await this.createMetadataRelations(metadataId, providerName, metadata, tx);
 
-			return { personImages };
-		});
+				return { personImages };
+			},
+			{ immediate: true },
+		);
 	}
 
 	async syncCredits(

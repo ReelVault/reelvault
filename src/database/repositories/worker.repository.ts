@@ -223,86 +223,91 @@ class WorkerJobRepository {
 
 		const startedByOperation = new Map<string, number>();
 
-		return await databaseFactory.transaction(async (tx) => {
-			await this.recoverExpired(workerId, now, tx, input.excludeActiveIds);
+		return await databaseFactory.transaction(
+			async (tx) => {
+				await this.recoverExpired(workerId, now, tx, input.excludeActiveIds);
 
-			// Claim decisions need only these columns — the arbitrary `data` JSON
-			// payload would be materialized per poll for candidates it discards
-			// (claimed rows return full data via the guarded UPDATE ... RETURNING).
-			const candidates = await tx
-				.select({
-					id: items.id,
-					workerId: items.workerId,
-					operationId: items.operationId,
-					dependsOnJobId: items.dependsOnJobId,
-					attempts: items.attempts,
-					maxAttempts: items.maxAttempts,
-					priority: items.priority,
-					runAt: items.runAt,
-				})
-				.from(items)
-				.where(and(eq(items.workerId, workerId), eq(items.status, "pending"), lte(items.runAt, now)))
-				.orderBy(asc(items.priority), asc(items.runAt), asc(items.createdAt))
-				.limit(Math.max(max, 20, concurrency * 2));
-
-			const [runningRow] = await tx
-				.select({ count: count() })
-				.from(items)
-				.where(and(eq(items.workerId, workerId), eq(items.status, "running")));
-			let runningCount = runningRow?.count ?? 0;
-
-			const parentStatuses = await this.loadParentStatuses(candidates, tx);
-
-			const claimedItems: WorkerItem[] = [];
-			for (const candidate of candidates) {
-				if (claimedItems.length >= max) break;
-
-				if (this.isBlockedByDependency(candidate, parentStatuses)) {
-					await this.cancelPending(candidate.id, tx);
-					continue;
-				}
-
-				if (candidate.dependsOnJobId) {
-					const parentStatus = parentStatuses.get(candidate.dependsOnJobId);
-					if (parentStatus === "pending" || parentStatus === "running") {
-						continue; // Prerequisite not finished yet (completed or gone → claimable)
-					}
-				}
-
-				if (runningCount >= concurrency) break;
-
-				const [claimed] = await tx
-					.update(items)
-					.set({
-						status: "running",
-						attempts: sql`${items.attempts} + 1`,
-						runnerId,
-						claimToken: crypto.randomUUID(),
-						leaseUntil: new Date(now.getTime() + timeoutMs),
-						startedAt: now,
-						updatedAt: now,
+				// Claim decisions need only these columns — the arbitrary `data` JSON
+				// payload would be materialized per poll for candidates it discards
+				// (claimed rows return full data via the guarded UPDATE ... RETURNING).
+				const candidates = await tx
+					.select({
+						id: items.id,
+						workerId: items.workerId,
+						operationId: items.operationId,
+						dependsOnJobId: items.dependsOnJobId,
+						attempts: items.attempts,
+						maxAttempts: items.maxAttempts,
+						priority: items.priority,
+						runAt: items.runAt,
 					})
-					.where(and(eq(items.id, candidate.id), eq(items.status, "pending")))
-					.returning();
+					.from(items)
+					.where(and(eq(items.workerId, workerId), eq(items.status, "pending"), lte(items.runAt, now)))
+					.orderBy(asc(items.priority), asc(items.runAt), asc(items.createdAt))
+					.limit(Math.max(max, 20, concurrency * 2));
 
-				if (claimed) {
-					// Subsequent claims in this transaction must see the new running row.
-					runningCount++;
-					if (claimed.operationId) {
-						startedByOperation.set(claimed.operationId, (startedByOperation.get(claimed.operationId) ?? 0) + 1);
+				const [runningRow] = await tx
+					.select({ count: count() })
+					.from(items)
+					.where(and(eq(items.workerId, workerId), eq(items.status, "running")));
+				let runningCount = runningRow?.count ?? 0;
+
+				const parentStatuses = await this.loadParentStatuses(candidates, tx);
+
+				const claimedItems: WorkerItem[] = [];
+				for (const candidate of candidates) {
+					if (claimedItems.length >= max) break;
+
+					if (this.isBlockedByDependency(candidate, parentStatuses)) {
+						await this.cancelPending(candidate.id, tx);
+						continue;
 					}
 
-					claimedItems.push(claimed);
+					if (candidate.dependsOnJobId) {
+						const parentStatus = parentStatuses.get(candidate.dependsOnJobId);
+						if (parentStatus === "pending" || parentStatus === "running") {
+							continue; // Prerequisite not finished yet (completed or gone → claimable)
+						}
+					}
+
+					if (runningCount >= concurrency) break;
+
+					const [claimed] = await tx
+						.update(items)
+						.set({
+							status: "running",
+							attempts: sql`${items.attempts} + 1`,
+							runnerId,
+							claimToken: crypto.randomUUID(),
+							leaseUntil: new Date(now.getTime() + timeoutMs),
+							startedAt: now,
+							updatedAt: now,
+						})
+						.where(and(eq(items.id, candidate.id), eq(items.status, "pending")))
+						.returning();
+
+					if (claimed) {
+						// Subsequent claims in this transaction must see the new running row.
+						runningCount++;
+						if (claimed.operationId) {
+							startedByOperation.set(claimed.operationId, (startedByOperation.get(claimed.operationId) ?? 0) + 1);
+						}
+
+						claimedItems.push(claimed);
+					}
 				}
-			}
 
-			// One counter update per operation instead of one per claimed job.
-			for (const [operationId, amount] of startedByOperation) {
-				await workerOperationRepository.markJobStarted(operationId, now, tx, amount);
-			}
+				// One counter update per operation instead of one per claimed job.
+				for (const [operationId, amount] of startedByOperation) {
+					await workerOperationRepository.markJobStarted(operationId, now, tx, amount);
+				}
 
-			return claimedItems;
-		});
+				return claimedItems;
+			},
+			// The claim reads candidates before it writes; a deferred BEGIN fails with
+			// SQLITE_BUSY_SNAPSHOT when the main connection commits in that window.
+			{ immediate: true },
+		);
 	}
 
 	/** Batched lookup of dependency-parent statuses for the candidate set. */

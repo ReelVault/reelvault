@@ -88,14 +88,17 @@ export function planTvShowMerge(
  */
 class MetadataMergeRepository {
 	async merge(targetId: string, sourceId: string, type: "movie" | "tv_show"): Promise<void> {
-		await databaseFactory.transaction(async (tx) => {
-			if (type === "movie") await this.mergeMovieMediaFiles(targetId, sourceId, tx);
-			else await this.mergeTvShowData(targetId, sourceId, tx);
+		await databaseFactory.transaction(
+			async (tx) => {
+				if (type === "movie") await this.mergeMovieMediaFiles(targetId, sourceId, tx);
+				else await this.mergeTvShowData(targetId, sourceId, tx);
 
-			await this.mergeJunctionTable(schema.watchlist, targetId, sourceId, tx);
-			await this.mergeJunctionTable(schema.userRatings, targetId, sourceId, tx);
-			await metadataRepository.delete({ primaryId: sourceId, tx });
-		});
+				await this.mergeJunctionTable(schema.watchlist, targetId, sourceId, tx);
+				await this.mergeJunctionTable(schema.userRatings, targetId, sourceId, tx);
+				await metadataRepository.delete({ primaryId: sourceId, tx });
+			},
+			{ immediate: true },
+		);
 	}
 
 	private async mergeMovieMediaFiles(targetId: string, sourceId: string, tx: DatabaseTransaction) {

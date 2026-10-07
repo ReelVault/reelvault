@@ -228,14 +228,17 @@ class ImageRepository {
 		loadOwner: (tx: DatabaseTransaction) => Promise<TOwner>,
 		applyImage: (owner: TOwner, persisted: typeof schema.images.$inferSelect, tx: DatabaseTransaction) => Promise<string[]>,
 	): Promise<void> {
-		await databaseFactory.transaction(async (tx) => {
-			const owner = await loadOwner(tx);
-			const persisted = await this.upsertImage(image, tx);
-			const staleImageIds = await applyImage(owner, persisted, tx);
-			for (const staleImageId of staleImageIds) {
-				if (staleImageId !== persisted.id) await this.deleteImageIfUnreferenced(staleImageId, tx);
-			}
-		});
+		await databaseFactory.transaction(
+			async (tx) => {
+				const owner = await loadOwner(tx);
+				const persisted = await this.upsertImage(image, tx);
+				const staleImageIds = await applyImage(owner, persisted, tx);
+				for (const staleImageId of staleImageIds) {
+					if (staleImageId !== persisted.id) await this.deleteImageIfUnreferenced(staleImageId, tx);
+				}
+			},
+			{ immediate: true },
+		);
 	}
 
 	async replaceMetadataImage(metadataId: string, type: ImageProcess["type"], image: PersistedImageInput) {
@@ -395,30 +398,33 @@ class ImageRepository {
 	}
 
 	async replaceProfileAvatar(profileId: string, image: PersistedImageInput): Promise<{ imageId: string; avatarUrl: string }> {
-		return await databaseFactory.transaction(async (tx) => {
-			const client = databaseFactory.getClient({ tx });
-			const [profile] = await client
-				.select({ id: schema.profiles.id, avatarUrl: schema.profiles.avatarUrl })
-				.from(schema.profiles)
-				.where(eq(schema.profiles.id, profileId))
-				.limit(1);
-			if (!profile) throw new NotFoundError(`Profile ${profileId} does not exist`);
+		return await databaseFactory.transaction(
+			async (tx) => {
+				const client = databaseFactory.getClient({ tx });
+				const [profile] = await client
+					.select({ id: schema.profiles.id, avatarUrl: schema.profiles.avatarUrl })
+					.from(schema.profiles)
+					.where(eq(schema.profiles.id, profileId))
+					.limit(1);
+				if (!profile) throw new NotFoundError(`Profile ${profileId} does not exist`);
 
-			const persisted = await this.upsertImage(image, tx);
-			const avatarUrl = `/v1/images/${persisted.id}`;
-			await profilesRepository.update({ primaryId: profileId, values: { avatarUrl }, tx });
+				const persisted = await this.upsertImage(image, tx);
+				const avatarUrl = `/v1/images/${persisted.id}`;
+				await profilesRepository.update({ primaryId: profileId, values: { avatarUrl }, tx });
 
-			// The replaced avatar row (and file) would otherwise leak forever —
-			// profiles are not part of the generic owner-collection path.
-			const previousImageId = profile.avatarUrl?.startsWith(AVATAR_URL_IMAGE_PREFIX)
-				? profile.avatarUrl.slice(AVATAR_URL_IMAGE_PREFIX.length)
-				: undefined;
-			if (previousImageId && previousImageId !== persisted.id) {
-				await this.deleteImageIfUnreferenced(previousImageId, tx);
-			}
+				// The replaced avatar row (and file) would otherwise leak forever —
+				// profiles are not part of the generic owner-collection path.
+				const previousImageId = profile.avatarUrl?.startsWith(AVATAR_URL_IMAGE_PREFIX)
+					? profile.avatarUrl.slice(AVATAR_URL_IMAGE_PREFIX.length)
+					: undefined;
+				if (previousImageId && previousImageId !== persisted.id) {
+					await this.deleteImageIfUnreferenced(previousImageId, tx);
+				}
 
-			return { imageId: persisted.id, avatarUrl };
-		});
+				return { imageId: persisted.id, avatarUrl };
+			},
+			{ immediate: true },
+		);
 	}
 
 	private async findImagePath(imageId: string | null | undefined, tx?: DatabaseTransaction): Promise<string | undefined> {

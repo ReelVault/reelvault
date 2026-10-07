@@ -106,6 +106,7 @@
 - **An aborted keyframe probe disabled keyframe seeking for that bucket** — a cancelled probe was cached as "no keyframe" for the whole TTL. Aborted probes are no longer cached.
 - **Trickplay previews could emit an invalid `00:00:60.000` timestamp** — the formatter rounded seconds without carrying into minutes, which strict WebVTT parsers reject. Timestamps are now built from whole milliseconds.
 - **`/me/playback-suggestions` did not enforce its documented 50-id cap** — the batch now trims the id list before the lookup.
+- **Read-then-write transactions could fail spuriously under load** — job claiming, metadata merge/rematch and image replacement started with a deferred `BEGIN`, so a write committed by the main connection inside the read window made SQLite fail the upgrade with `SQLITE_BUSY_SNAPSHOT`. These transactions now take the write lock up front (`BEGIN IMMEDIATE`).
 
 ### Performance
 
