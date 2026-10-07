@@ -38,14 +38,13 @@ const PLUGIN_UI_MANIFEST_PATH = `${serverConstants.security.pluginUiRoutePrefix}
 function isPublicGet(request: Request): boolean {
 	if (request.method !== "GET") return false;
 
-	if (isImageAssetPath(request.url)) return true;
+	const path = getPathname(request.url);
+	if (isImageAssetPath(path)) return true;
 
 	// Plugin UI assets are static bundle files (secret-free) imported cross-origin
 	// as ESM modules — browsers omit credentials on those requests. The manifest
 	// stays authenticated (it is role-filtered), as do plugin API routes.
-	const path = getPathname(request.url);
-
-	return isPluginUiPath(request.url) && path !== PLUGIN_UI_MANIFEST_PATH;
+	return isPluginUiPath(path) && path !== PLUGIN_UI_MANIFEST_PATH;
 }
 
 export const authMiddleware = new Elysia({ name: "AuthMiddleware" })

@@ -1,15 +1,17 @@
 import { serverConstants } from "@/server.constants";
-import { getPathname } from "@/utils/http.utils";
 
 /**
  * Single source of route-shape classification shared by auth, rate-limit and
  * security middleware — a new public prefix gets added here once, not once per
  * middleware (they must stay in sync; see AGENTS.md auth exemptions).
+ *
+ * All classifiers take the already-extracted pathname (`getPathname`), so a
+ * request parses its URL once instead of once per classifier.
  */
 
-export const isImageAssetPath = (url: string): boolean => getPathname(url).startsWith(serverConstants.security.imageRoutePrefix);
+export const isImageAssetPath = (pathname: string): boolean => pathname.startsWith(serverConstants.security.imageRoutePrefix);
 
-export const isPluginUiPath = (url: string): boolean => getPathname(url).startsWith(serverConstants.security.pluginUiRoutePrefix);
+export const isPluginUiPath = (pathname: string): boolean => pathname.startsWith(serverConstants.security.pluginUiRoutePrefix);
 
 /**
  * Prefixes owned by the API router and the API docs. The web static plugin
@@ -18,8 +20,5 @@ export const isPluginUiPath = (url: string): boolean => getPathname(url).startsW
  */
 const webApiPathPrefixes: readonly string[] = ["/v1", "/openapi"];
 
-export const isWebApiPath = (url: string): boolean => {
-	const pathname = getPathname(url);
-
-	return webApiPathPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-};
+export const isWebApiPath = (pathname: string): boolean =>
+	webApiPathPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

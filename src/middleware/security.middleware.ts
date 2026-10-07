@@ -12,12 +12,12 @@ export const securityHeadersMiddleware = new Elysia({ name: "SecurityHeaders" })
 	const isOpenApiUi = path === serverConfig.api.openapi.path;
 	// Plugin UI bundles are embedded cross-origin by the host website; the
 	// default `frame-ancestors 'none'` / `X-Frame-Options: DENY` would block them.
-	const isPluginUi = isPluginUiPath(request.url);
+	const isPluginUi = isPluginUiPath(path);
 	// The server-hosted SPA needs a policy that actually lets its own assets
 	// load; every non-web path keeps the locked-down default.
 	// Cheap path checks first: resolveWebDistRoot stats the disk, and API/plugin
 	// requests (every HLS segment included) must not pay for it.
-	const isWebUi = !(isPluginUi || isOpenApiUi || isWebApiPath(request.url)) && resolveWebDistRoot() !== null;
+	const isWebUi = !(isPluginUi || isOpenApiUi || isWebApiPath(path)) && resolveWebDistRoot() !== null;
 
 	set.headers["X-Content-Type-Options"] = serverConfig.security.contentTypeOptions;
 	if (!isPluginUi) set.headers["X-Frame-Options"] = serverConfig.security.frameOptions;
@@ -34,7 +34,7 @@ export const securityHeadersMiddleware = new Elysia({ name: "SecurityHeaders" })
 	if (request.url.startsWith("https:")) set.headers["Strict-Transport-Security"] = `max-age=${serverConfig.security.hstsMaxAgeSeconds}`;
 
 	const existingCacheControl = set.headers["Cache-Control"] ?? set.headers["cache-control"];
-	const isImageResponse = request.method === "GET" && isImageAssetPath(request.url);
+	const isImageResponse = request.method === "GET" && isImageAssetPath(path);
 	const statusCode = Number(set.status);
 	const isErrorResponse = isFiniteNumber(statusCode) && statusCode >= 400;
 

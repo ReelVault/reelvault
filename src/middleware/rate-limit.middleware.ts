@@ -45,10 +45,10 @@ export function isExemptFromGlobalLimit(request: Request): boolean {
 	const pathname = getPathname(request.url);
 	if (pathname === "/v1/health" || pathname.startsWith("/v1/health/")) return true;
 
-	if (isImageAssetPath(request.url)) return true;
+	if (isImageAssetPath(pathname)) return true;
 
 	// Plugin UI bundles are loaded as ESM modules; throttling them breaks the UI.
-	if (isPluginUiPath(request.url)) return true;
+	if (isPluginUiPath(pathname)) return true;
 
 	// Only the playback HLS segment route is exempt. A broad
 	// `pathname.includes("/segments/")` also exempted plugin-owned routes that

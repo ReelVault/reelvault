@@ -5,6 +5,7 @@ import { Elysia } from "elysia";
 import { NotFoundError } from "elysia/error";
 import { apiRouter } from "@/api/routes";
 import { isWebApiPath } from "@/api/utils/route-classification.utils";
+import { getPathname } from "@/utils/http.utils";
 import { byteRangeResponse } from "@/utils/http-range.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { resolveWebDistRoot } from "./web-dist";
@@ -95,7 +96,7 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 	// so unknown-looking /v1 paths would never reach their handlers. Re-run the
 	// API router for those paths; a real API response wins, a 404 keeps the JSON
 	// envelope this fallback exists to provide.
-	if (isWebApiPath(request.url)) {
+	if (isWebApiPath(getPathname(request.url))) {
 		const apiResponse = await apiRouter.handle(request);
 		if (apiResponse.status !== 404) return apiResponse;
 
