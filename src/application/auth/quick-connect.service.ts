@@ -26,6 +26,8 @@ export interface QuickConnectEntry {
 	authorizing?: boolean | undefined;
 	userId?: string | undefined;
 	profileId?: string | undefined;
+	/** Stored PIN hash of the authorized profile — copied so a redeemed voucher keeps the profile unlocked. */
+	profilePin?: string | undefined;
 	signedToken?: string | undefined;
 	cookies?: string[] | undefined;
 	createdAt: Date;
@@ -108,13 +110,18 @@ export class QuickConnectService extends BaseService {
 		userId: string,
 		profileId?: string | null,
 		knownUser?: User,
+		profilePin?: string | null,
 	): Promise<{ signedToken: string; cookies: string[]; user: User }> {
 		const user = knownUser ?? (await usersRepository.findById(userId));
 		if (!user) {
 			throw new NotFoundError("User not found", { code: "quick_connect.user_not_found" });
 		}
 
-		const { signedToken, cookies } = await this.sessionIssuer(userId, profileId);
+		// The active profile reached this point only through the PIN-checked auth
+		// middleware, so its stored PIN hash can safely seed the unlock cookie —
+		// without it the paired device would receive a token that never matches
+		// and silently fall back to "no profile".
+		const { signedToken, cookies } = await this.sessionIssuer(userId, profileId, profilePin);
 
 		return { signedToken, cookies, user };
 	}
@@ -197,7 +204,7 @@ export class QuickConnectService extends BaseService {
 
 			try {
 				// The caller already holds the user row — skip the second read.
-				const { signedToken, cookies } = await this.createSessionAndCookies(user.id, profile?.id, user);
+				const { signedToken, cookies } = await this.createSessionAndCookies(user.id, profile?.id, user, profile?.pin);
 
 				entry.status = "authenticated";
 				entry.userId = user.id;
@@ -218,7 +225,11 @@ export class QuickConnectService extends BaseService {
 	 */
 	generate(user: User, profile?: Profile | null): Promise<QuickConnectGenerateResponse> {
 		return this.safeExecute("generate", () => {
-			const { code } = this.createPendingEntry("voucher", { userId: user.id, profileId: profile?.id });
+			const { code } = this.createPendingEntry("voucher", {
+				userId: user.id,
+				profileId: profile?.id,
+				profilePin: profile?.pin ?? undefined,
+			});
 
 			return {
 				code,
@@ -230,7 +241,7 @@ export class QuickConnectService extends BaseService {
 	/** Registers a fresh pending entry — shared by the pairing and voucher flows. */
 	private createPendingEntry(
 		type: QuickConnectEntry["type"],
-		owner?: { userId: string; profileId?: string | undefined },
+		owner?: { userId: string; profileId?: string | undefined; profilePin?: string | undefined },
 	): { entry: QuickConnectEntry; code: string } {
 		this.cleanupExpired();
 		const code = this.generateCode();
@@ -245,6 +256,7 @@ export class QuickConnectService extends BaseService {
 			status: "pending",
 			...(owner?.userId ? { userId: owner.userId } : {}),
 			...(owner?.profileId ? { profileId: owner.profileId } : {}),
+			...(owner?.profilePin ? { profilePin: owner.profilePin } : {}),
 			createdAt: now,
 			expiresAt: new Date(now.getTime() + EXPIRATION_MS),
 		};
@@ -274,7 +286,7 @@ export class QuickConnectService extends BaseService {
 			// Invalidate voucher immediately so it's one-time use
 			this.removeEntry(entry.secret);
 
-			const { signedToken, cookies, user } = await this.createSessionAndCookies(entry.userId, entry.profileId);
+			const { signedToken, cookies, user } = await this.createSessionAndCookies(entry.userId, entry.profileId, undefined, entry.profilePin);
 
 			const responseData: LoginResponse = {
 				token: signedToken,

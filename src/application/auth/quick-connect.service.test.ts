@@ -134,4 +134,31 @@ describe("quickConnectService", () => {
 		await expect(service.redeem("000-000", req)).rejects.toThrow("Invalid or expired login code");
 		await expect(service.authorize("000-000", mockUser)).rejects.toThrow("Invalid or expired quick connect code");
 	});
+
+	test("forwards the stored profile PIN to the session issuer", async () => {
+		const origFindById = usersRepository.findById;
+		usersRepository.findById = async (id: string) => (id === mockUser.id ? mockUser : undefined);
+		const issued: Array<[string, string | null | undefined, string | null | undefined]> = [];
+		const issuer = (userId: string, profileId?: string | null, profilePin?: string | null) => {
+			issued.push([userId, profileId, profilePin]);
+
+			return Promise.resolve({ signedToken: "token.sig", cookies: [] as string[] });
+		};
+		const pinProfile: Profile = { ...mockProfile, pin: "hashed-pin" };
+		const service = new QuickConnectService(issuer);
+
+		try {
+			const pair = await service.initiate();
+			await service.authorize(pair.code, mockUser, pinProfile);
+			const voucher = await service.generate(mockUser, pinProfile);
+			await service.redeem(voucher.code, new Request("http://localhost/redeem"));
+
+			expect(issued).toEqual([
+				[mockUser.id, pinProfile.id, "hashed-pin"],
+				[mockUser.id, pinProfile.id, "hashed-pin"],
+			]);
+		} finally {
+			usersRepository.findById = origFindById;
+		}
+	});
 });
