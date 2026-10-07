@@ -46,7 +46,11 @@ export function createProviderJunction(tableName: string, entityIdColumn: string
 		const entityColumn = t[entityIdColumn];
 		if (!entityColumn) throw new Error(`${tableName}: entity column "${entityIdColumn}" is missing from the junction table`);
 
-		return [primaryKey({ columns: [entityColumn, t.providerId] }), uniqueIndex(`${tableName}_provider_unique`).on(t.providerId)];
+		// Composite PK only. A provider row is shared per (name, external id,
+		// entity type) and may legitimately link to several local rows (duplicates,
+		// localized renames) — a unique index on `provider_id` silently dropped
+		// every link after the first.
+		return [primaryKey({ columns: [entityColumn, t.providerId] })];
 	});
 }
 
