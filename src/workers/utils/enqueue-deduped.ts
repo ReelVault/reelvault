@@ -27,6 +27,8 @@ export async function enqueueDeduped(options: {
 	/** Human-readable trigger name for the inconsistency error, e.g. `"library scan"`. */
 	label: string;
 	enqueue: (operationId: string) => Promise<{ operationId?: string | null | undefined }>;
+	/** Called when an equivalent task is already active and this enqueue was skipped. */
+	onDeduped?: ((operationId: string) => Promise<void> | void) | undefined;
 }): Promise<DedupedEnqueue> {
 	// Lazy import: worker.service pulls the whole worker graph, and this helper
 	// is imported from application services that the worker graph also imports.
@@ -37,6 +39,8 @@ export async function enqueueDeduped(options: {
 			const existing = await workerService.findActiveItem(workerId, dedupeKey);
 			if (existing) {
 				if (!existing.operationId) throw new InternalError(`Active ${options.label} has no operation`);
+
+				await options.onDeduped?.(existing.operationId);
 
 				return { success: true, operationId: existing.operationId, status: "pending" };
 			}

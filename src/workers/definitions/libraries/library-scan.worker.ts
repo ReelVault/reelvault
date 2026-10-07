@@ -351,10 +351,15 @@ async function runScanLibraryTask(
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
-export async function enqueueLibraryScan(data: LibraryScanData, options: WorkerEnqueueOptions = {}): Promise<LibraryScanSchedule> {
+export async function enqueueLibraryScan(
+	data: LibraryScanData,
+	options: WorkerEnqueueOptions = {},
+	/** Override for catch-up scans that must not collide with the primary scan's key. */
+	dedupeKey?: string,
+): Promise<LibraryScanSchedule> {
 	const task = await workerService.addItem(libraryScanWorker.id, data, {
 		...options,
-		dedupeKey: `${data.libraryId}:${data.pathId ?? "all"}`,
+		dedupeKey: dedupeKey ?? `${data.libraryId}:${data.pathId ?? "all"}`,
 		reference: { type: "library", id: data.libraryId },
 	});
 

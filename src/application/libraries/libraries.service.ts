@@ -59,6 +59,7 @@ class LibrariesService extends BaseService {
 		super("LibrariesService");
 		// Break the libraries ↔ watcher import cycle: the watcher calls back here.
 		libraryWatcherService.registerScanner((libraryId, pathId) => this.scanPath(libraryId, pathId));
+		libraryWatcherService.registerLibraryScanner((libraryId) => this.scan(libraryId));
 	}
 
 	async getAll<F extends string>(
@@ -328,14 +329,43 @@ class LibrariesService extends BaseService {
 		});
 	}
 
-	private triggerLibraryScan(data: { libraryId: string; paths: string[]; pathId?: string }, dedupeKey: string) {
-		return enqueueDeduped({
+	private async triggerLibraryScan(data: { libraryId: string; paths: string[]; pathId?: string }, dedupeKey: string) {
+		return await enqueueDeduped({
 			targets: [{ workerId: "library-scan", dedupeKey }],
 			type: "library-scanning",
 			reference: { type: "library", id: data.libraryId },
 			label: "library scan",
 			enqueue: (operationId) => enqueueLibraryScan(data, { operationId }),
+			onDeduped: (operationId) => this.queueCatchUpScan(data, dedupeKey, operationId),
 		});
+	}
+
+	/**
+	 * A scan request that loses the dedupe race still needs a diff of the CURRENT
+	 * disk state — the running scan may have walked the disk before the new files
+	 * landed. Queue at most one catch-up scan under a separate dedupe key; the
+	 * per-library run lock makes it execute after the active scan. It attaches to
+	 * the same operation, so both passes show up together.
+	 */
+	private async queueCatchUpScan(
+		data: { libraryId: string; paths: string[]; pathId?: string },
+		dedupeKey: string,
+		operationId: string,
+	): Promise<void> {
+		try {
+			const { workerService } = await import("@/workers/worker.service");
+			const catchUpKey = `${dedupeKey}:catch-up`;
+			if (await workerService.findActiveItem("library-scan", catchUpKey)) return;
+
+			await enqueueLibraryScan(data, { operationId }, catchUpKey);
+			this.logger.info("Scan already running — queued a catch-up scan for the latest disk state", {
+				libraryId: data.libraryId,
+				dedupeKey,
+			});
+		} catch (error) {
+			// A failed catch-up must not fail the original scan request.
+			this.logger.warn("Could not queue a catch-up library scan", { libraryId: data.libraryId, error });
+		}
 	}
 }
 
