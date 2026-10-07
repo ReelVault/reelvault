@@ -31,6 +31,8 @@ const { mediaRepository } = await import("@/database/repositories/media-files.re
 const { metadataRepository } = await import("@/database/repositories/metadata.repository");
 const { playbackRepository } = await import("@/database/repositories/playback.repository");
 const { watchedHistoryRepository } = await import("@/database/repositories/watched-history.repository");
+const { workerOperationRepository } = await import("@/database/repositories/worker-operation.repository");
+const { sessionsRepository } = await import("@/database/repositories/sessions.repository");
 const { playbackViewService } = await import("@/application/media/playback-view.service");
 const { SidecarMetadataStorageService } = await import("@/modules/metadata-sidecars/sidecar-metadata-storage.service");
 const { playbackProgressService } = await import("@/modules/streaming/progress/playback-progress.service");
@@ -113,6 +115,28 @@ if (!args.help) {
 				target: 5,
 				warmup: () => collectionRepository.findPage({ limit: 24 }),
 				run: () => collectionRepository.findPage({ limit: 24 }),
+			},
+			{
+				name: "workerOperationRepository.list (24, cold count)",
+				target: null,
+				run: () => workerOperationRepository.list({ limit: 24 }),
+			},
+			{
+				name: "workerOperationRepository.list (24, warm count cache)",
+				target: 1,
+				warmup: () => workerOperationRepository.list({ limit: 24 }),
+				run: () => workerOperationRepository.list({ limit: 24 }),
+			},
+			{
+				name: "sessionsRepository.findActivePageByUserId (cold count)",
+				target: null,
+				run: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
+			},
+			{
+				name: "sessionsRepository.findActivePageByUserId (warm count cache)",
+				target: 1,
+				warmup: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
+				run: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
 			},
 			{
 				name: "mediaRepository.findPage (24)",
