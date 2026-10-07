@@ -35,6 +35,10 @@ export function swapIntoPlace(root: string, stagedDir: string, component: Update
 		if (!existsSync(source)) continue;
 		if (name === "bin" && !existsSync(join(stagedDir, name))) continue;
 
+		// A new update supersedes the previous rollback point: clear the destination
+		// first, otherwise POSIX rename fails with ENOTEMPTY once `.previous/<name>`
+		// exists from an earlier update (the Windows swap script clears it wholesale).
+		rmSync(join(previous, name), { recursive: true, force: true });
 		renameSync(source, join(previous, name));
 	}
 	writeFileSync(join(previous, componentMarkerName(component)), replacedVersion);
@@ -54,7 +58,11 @@ export function swapWebDirectory(root: string, extractedDir: string, replacedVer
 	mkdirSync(previous, { recursive: true });
 
 	const current = join(root, "web");
-	if (existsSync(current)) renameSync(current, join(previous, "web"));
+	if (existsSync(current)) {
+		// Same as the server swap: the latest update owns the rollback slot.
+		rmSync(join(previous, "web"), { recursive: true, force: true });
+		renameSync(current, join(previous, "web"));
+	}
 	writeFileSync(join(previous, componentMarkerName("web")), replacedVersion);
 
 	try {

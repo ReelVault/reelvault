@@ -132,3 +132,32 @@ describe("web component swap", () => {
 		expect(() => readPreviousVersion(root, "web")).toThrow();
 	});
 });
+
+describe("repeated updates", () => {
+	test("a second server update replaces the rollback snapshot instead of failing", () => {
+		const ownRoot = makeInstalledRoot("1.0.0", "0.1.0");
+		const first = mkdtempSync(join(tmpdir(), "rv-update-first-"));
+		tempDirs.push(first);
+		makeAppLayout(first, "1.1.0");
+		swapIntoPlace(ownRoot, join(first, "ReelVault"), "server", "1.0.0");
+
+		const second = mkdtempSync(join(tmpdir(), "rv-update-second-"));
+		tempDirs.push(second);
+		makeAppLayout(second, "1.2.0");
+
+		expect(() => swapIntoPlace(ownRoot, join(second, "ReelVault"), "server", "1.1.0")).not.toThrow();
+		expect(readFileSync(join(ownRoot, "server", "src", "index.ts"), "utf8")).toContain("1.2.0");
+		expect(readPreviousVersion(ownRoot, "server")).toBe("1.1.0");
+		expect(JSON.parse(readFileSync(join(ownRoot, ".previous", "server", "package.json"), "utf8")).version).toBe("1.1.0");
+	});
+
+	test("a second web update replaces the rollback snapshot instead of failing", () => {
+		const ownRoot = makeInstalledRoot("1.0.0", "0.1.0");
+		swapWebDirectory(ownRoot, makeWebZipLayout("0.2.0"), "0.1.0");
+
+		expect(() => swapWebDirectory(ownRoot, makeWebZipLayout("0.3.0"), "0.2.0")).not.toThrow();
+		expect(readFileSync(join(ownRoot, "web", "index.html"), "utf8")).toContain("web v0.3.0");
+		expect(readPreviousVersion(ownRoot, "web")).toBe("0.2.0");
+		expect(readFileSync(join(ownRoot, ".previous", "web", "index.html"), "utf8")).toContain("web v0.2.0");
+	});
+});

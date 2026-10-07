@@ -73,6 +73,7 @@
 - **Quick-connect paired PIN-protected profiles locked** — the session cookies carried an empty PIN fingerprint, so a paired device could never activate a PIN-protected profile and silently fell back to "no active profile". Quick-connect now copies the authorizing profile's stored PIN fingerprint into the issued unlock cookie (both the device-pairing and voucher flows).
 - **API keys bypassed the profile PIN lock** — a machine key could resolve a PIN-protected profile via `x-profile-id`/`current_profile_id` without an unlock token. All credential types now pass through the same PIN check, so a locked profile stays locked for API keys too.
 - **Invalid server settings silently reset configured values** — a malformed value (for example `"stream.maxSessions": "eight"`) was replaced with the definition default and answered `200`, overwriting the configured value. Updates now fail with `admin.settings.invalid_value`; stored/legacy values still decode leniently at boot.
+- **Second in-panel update always failed** — the swap moved the live files into a non-empty `.previous/` directory, which POSIX `rename` rejects with `ENOTEMPTY`; only the first update of each component could succeed. The latest update now replaces the rollback snapshot (matching the Windows swap script).
 
 ### Performance
 
