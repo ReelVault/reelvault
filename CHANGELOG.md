@@ -298,8 +298,14 @@ Smaller benchmarks are kept separately so the main table stays focused:
 ### Features
 
 - **Trickplay storage stats** — `GET /admin/trickplay/stats` now returns `storageBytes` and `storageBudgetBytes` (the effective core artifact budget) alongside the coverage counts, powering the admin usage card.
+- **Periodic library rescan** — `scanning.scheduledScanIntervalHours` (0 = off) rescans every library on a fixed interval, a safety net for network shares where filesystem events never arrive and no watcher error arms the per-path fallback.
 
 ### Fixes
+
+- **Interrupted scans missed new files** — a scan checkpoint from a cancelled/aborted run was resumed as-is, so files added after the interruption were invisible for that pass. The checkpoint now only signals the interruption; every scan recomputes its workload from disk.
+- **Scan requests could silently no-op** — clicking Scan while one was already running deduped onto it, and the running scan may have walked the disk before the new files landed. A deduped request now queues one catch-up scan that runs after the active one.
+- **Hung mounts blocked scans** — a path whose glob walk exceeded two minutes is skipped for the run instead of holding the scan task (and its dedupe key) for the 2 h worker timeout.
+- **New titles hid behind list caches** — ingesting a media file now invalidates the cached `/v1/metadata` and `/v1/libraries` responses, so a fresh title appears immediately instead of after the TTL.
 
 - **Admin dashboard library relations** — `/admin/dashboard-view` declared its `libraries` as the base library schema, so response validation stripped `paths` and file/size stats. The website seeds the admin libraries cache from that response, which crashed the page with `can't access property "length", e.paths is undefined` and zeroed the dashboard storage breakdown; the contract now returns full `LibraryWithRelations`.
 - **Scan trickplay operations** — every ingested file created its own trickplay operation. Scan/refresh-triggered generation now joins one active operation per library (find-or-create, attach, dedupe-safe), so a scan produces a single operation containing all of its files; a late attach reopens a just-finished operation instead of leaving it terminal.
