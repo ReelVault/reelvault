@@ -287,6 +287,9 @@ class WorkerOperationRepository {
 				cancelRequested: false,
 				status: "pending",
 				completedAt: null,
+				// A resumed operation must not keep the terminal retention deadline:
+				// the daily cleanup would delete it (and its jobs) mid-run.
+				retentionUntil: null,
 				// Reset counters so the re-enqueue's increments produce correct totals
 				// instead of double-counting against the cancelled run.
 				totalItems: 0,
@@ -396,7 +399,16 @@ class WorkerOperationRepository {
 			.getClient()
 			.select({ id: operations.id })
 			.from(operations)
-			.where(and(isNotNull(operations.retentionUntil), lt(operations.retentionUntil, now)));
+			// Only terminal operations age out: a resumed (or otherwise live)
+			// operation can carry a stale retention deadline and must never lose
+			// its row and jobs while pending/running.
+			.where(
+				and(
+					isNotNull(operations.retentionUntil),
+					lt(operations.retentionUntil, now),
+					inArray(operations.status, ["completed", "failed", "cancelled"]),
+				),
+			);
 
 		if (expired.length === 0) return 0;
 
