@@ -121,6 +121,20 @@ describe("session selection resolver", () => {
 		expect(selection.audioStream?.index).toBe(2);
 	});
 
+	test("the remembered track's codec drives the playback decision", () => {
+		const file = createInput().file;
+		for (const stream of file.audioStreams) {
+			if (stream.index === 2) stream.codecName = "eac3";
+		}
+
+		// Capabilities only list aac; the smart pick (aac) would direct-play, but
+		// the remembered E-AC-3 track must be transcoded.
+		const selection = resolveSessionSelection(createInput({ file, savedAudioStreamIndex: 2, hasActiveProgress: true }));
+
+		expect(selection.audioStream?.index).toBe(2);
+		expect(selection.decision.audioTranscode).toBe(true);
+	});
+
 	test("remembered audio track is ignored without active progress", () => {
 		const selection = resolveSessionSelection(
 			createInput({

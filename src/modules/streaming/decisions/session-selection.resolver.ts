@@ -101,8 +101,10 @@ export function resolveSessionSelection(input: SessionSelectionInput): PlaybackS
 
 	const decisionInfo: MediaFileInfo = {
 		videoCodec,
-		audioCodec: audioStream?.codecName ?? null,
-		audioChannels: audioStream?.channels,
+		// The decision must describe the track that will actually be mapped — a
+		// resumed/saved audio track can differ from the smart-selected one.
+		audioCodec: effectiveAudioStream?.codecName ?? null,
+		audioChannels: effectiveAudioStream?.channels,
 		bitRate: file.bitRate,
 		videoProfile: videoStream?.profile ?? null,
 		videoPixelFormat: videoStream?.pixelFormat ?? null,
