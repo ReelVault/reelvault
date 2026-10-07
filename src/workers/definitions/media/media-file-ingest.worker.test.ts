@@ -362,4 +362,88 @@ describe("media-file-ingest worker", () => {
 			"analysis:media-metadata-1",
 		]);
 	});
+
+	test("repairs post-create side effects for an existing additional target on retry", async () => {
+		const calls: string[] = [];
+		const dependencies: MediaFileIngestTaskDependencies = {
+			findLibrary: () => Promise.resolve(createMockLibrary({ id: "library-1" })),
+			processFile: () =>
+				Promise.resolve(
+					createMockProcessedFile({
+						metadataId: "metadata-1",
+						movieId: null,
+						episodeId: "episode-1",
+						additionalTargets: [{ metadataId: "metadata-2", movieId: null, episodeId: "episode-2" }],
+					}),
+				),
+			upsertScanFinding: () => Promise.resolve(),
+			deleteScanFinding: () => Promise.resolve(),
+			createMediaFile: (data) => {
+				calls.push(`persist:${data.metadataId}`);
+
+				// Both rows already exist — a crashed attempt created them.
+				return Promise.resolve({ mediaFile: { id: `media-${data.metadataId}` }, created: false });
+			},
+			findMediaByPaths: () => Promise.resolve([]),
+			saveSidecars: (_library, mediaFiles) => {
+				calls.push(`sidecars:${mediaFiles[0]?.metadataId}`);
+
+				return Promise.resolve();
+			},
+			emitMediaDiscovered: (payload) => {
+				calls.push(`discovered:${payload.mediaFileId}`);
+
+				return Promise.resolve();
+			},
+			emitMediaIdentified: (payload) => {
+				calls.push(`identified:${payload.mediaFileId}`);
+
+				return Promise.resolve();
+			},
+			readIngestProgress: (mediaFileId) => {
+				calls.push(`progress:${mediaFileId}`);
+
+				// Production returns this shape for a row that never got marked.
+				return Promise.resolve({ sidecarWritten: false, discoveredEmitted: false });
+			},
+			markSidecarWritten: (mediaFileId) => {
+				calls.push(`markSidecar:${mediaFileId}`);
+
+				return Promise.resolve();
+			},
+			markDiscoveredEmitted: (mediaFileId) => {
+				calls.push(`markDiscovered:${mediaFileId}`);
+
+				return Promise.resolve();
+			},
+			enqueueAnalysis: (data) => {
+				calls.push(`analysis:${data.mediaFileId}`);
+
+				return Promise.resolve({ id: `analysis-${data.mediaFileId}` });
+			},
+			enqueueTrickplayGeneration: () => Promise.resolve({ id: "trickplay-1" }),
+		};
+
+		await ingestMediaFileTask({ libraryId: "library-1", libraryType: "tv_show", filePath: "/media/show.mkv" }, {}, dependencies, {
+			attempt: 2,
+		});
+
+		expect(calls).toEqual([
+			"persist:metadata-1",
+			"persist:metadata-2",
+			// The additional target is repaired before the main row completes.
+			"progress:media-metadata-2",
+			"sidecars:metadata-2",
+			"markSidecar:media-metadata-2",
+			"discovered:media-metadata-2",
+			"markDiscovered:media-metadata-2",
+			"analysis:media-metadata-2",
+			"progress:media-metadata-1",
+			"sidecars:metadata-1",
+			"markSidecar:media-metadata-1",
+			"discovered:media-metadata-1",
+			"markDiscovered:media-metadata-1",
+			"analysis:media-metadata-1",
+		]);
+	});
 });

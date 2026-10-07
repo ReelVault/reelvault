@@ -252,12 +252,14 @@ async function completeRetryIngest(
 	dependencies: MediaFileIngestTaskDependencies,
 ): Promise<MediaFileIngestResult> {
 	const progress = dependencies.readIngestProgress ? await dependencies.readIngestProgress(input.target.mediaFileId) : undefined;
-	if (progress && !progress.sidecarWritten) {
+	// No progress row means the crashed attempt never reached the marking step —
+	// the side effects still need to run.
+	if (!progress?.sidecarWritten) {
 		await saveIngestSidecars(input.target, input, dependencies);
 		await dependencies.markSidecarWritten?.(input.target.mediaFileId);
 	}
 
-	if (progress && !progress.discoveredEmitted) {
+	if (!progress?.discoveredEmitted) {
 		await emitIngestDiscovered(input.target, input, dependencies);
 		await dependencies.markDiscoveredEmitted?.(input.target.mediaFileId);
 	}
@@ -283,6 +285,53 @@ async function completeFreshIngest(
 	const analysisTaskId = await enqueueCompletionAnalysis(input.target, input, dependencies);
 
 	return ingestCompletionResult(input, true, analysisTaskId);
+}
+
+/** Post-create side effects every additional target row needs on a first ingest. */
+async function completeAdditionalTarget(
+	target: IngestTarget,
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<void> {
+	if (dependencies.importSidecarSubtitles) {
+		await dependencies.importSidecarSubtitles(target.mediaFileId, input.data.filePath);
+	}
+
+	if (serverConfig.trickplay.enabled && serverConfig.trickplay.autoOnRefresh) {
+		await dependencies.enqueueTrickplayGeneration(target.mediaFileId);
+	}
+
+	await enqueueCompletionAnalysis(target, input, dependencies);
+	await saveIngestSidecars(target, input, dependencies);
+	await dependencies.markSidecarWritten?.(target.mediaFileId);
+	await emitIngestDiscovered(target, input, dependencies);
+	await dependencies.markDiscoveredEmitted?.(target.mediaFileId);
+	await emitIngestIdentified(target, input, dependencies);
+}
+
+/**
+ * Retry completion for an additional target whose row already exists: reruns only
+ * what a crashed prior attempt may have missed. Range files are re-ingested until
+ * their row span is filled, so skipping these would leave the gap permanent.
+ */
+async function completeAdditionalTargetOnRetry(
+	target: IngestTarget,
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<void> {
+	const progress = dependencies.readIngestProgress ? await dependencies.readIngestProgress(target.mediaFileId) : undefined;
+	if (!progress?.sidecarWritten) {
+		await saveIngestSidecars(target, input, dependencies);
+		await dependencies.markSidecarWritten?.(target.mediaFileId);
+	}
+
+	if (!progress?.discoveredEmitted) {
+		await emitIngestDiscovered(target, input, dependencies);
+		await dependencies.markDiscoveredEmitted?.(target.mediaFileId);
+	}
+
+	// Deduped by media file, so re-running after a crash is safe.
+	await enqueueCompletionAnalysis(target, input, dependencies);
 }
 
 export async function ingestMediaFileTask(
@@ -344,15 +393,6 @@ export async function ingestMediaFileTask(
 					movieId: target.movieId,
 					episodeId: target.episodeId,
 				});
-				if (!episodeCreated) continue;
-
-				if (dependencies.importSidecarSubtitles) {
-					await dependencies.importSidecarSubtitles(episodeFile.id, data.filePath);
-				}
-
-				if (serverConfig.trickplay.enabled && serverConfig.trickplay.autoOnRefresh) {
-					await dependencies.enqueueTrickplayGeneration(episodeFile.id);
-				}
 
 				const episodeTarget: IngestTarget = {
 					mediaFileId: episodeFile.id,
@@ -360,10 +400,15 @@ export async function ingestMediaFileTask(
 					movieId: target.movieId,
 					episodeId: target.episodeId,
 				};
-				await enqueueCompletionAnalysis(episodeTarget, input, dependencies);
-				await saveIngestSidecars(episodeTarget, input, dependencies);
-				await emitIngestDiscovered(episodeTarget, input, dependencies);
-				await emitIngestIdentified(episodeTarget, input, dependencies);
+
+				if (episodeCreated) {
+					await completeAdditionalTarget(episodeTarget, input, dependencies);
+				} else if ((orchestration.attempt ?? 1) > 1) {
+					// The row exists but a crashed prior attempt may not have finished
+					// its side effects — the scan re-ingests range files until the span
+					// is filled, so this repair must run instead of skipping forever.
+					await completeAdditionalTargetOnRetry(episodeTarget, input, dependencies);
+				}
 			} catch (error) {
 				// The row count stays below the file's span, so the next scan
 				// re-ingests this file and retries the missing episode.
