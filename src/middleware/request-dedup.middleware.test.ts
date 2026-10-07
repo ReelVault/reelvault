@@ -89,6 +89,26 @@ test("does not deduplicate different authorization tokens", async () => {
 	for (const r of results) expect(r.status).toBe(200);
 });
 
+test("does not deduplicate different API keys", async () => {
+	let calls = 0;
+	const app = createApp(async () => {
+		calls++;
+		await new Promise((resolve) => {
+			setTimeout(resolve, 20);
+		});
+
+		return "ok";
+	});
+
+	const results = await Promise.all([
+		app.handle(new Request("http://localhost/test", { headers: { "x-api-key": "rv_key-a" } })),
+		app.handle(new Request("http://localhost/test", { headers: { "x-api-key": "rv_key-b" } })),
+	]);
+
+	expect(calls).toBe(2);
+	for (const r of results) expect(r.status).toBe(200);
+});
+
 test("does not deduplicate POST requests", async () => {
 	let calls = 0;
 	const app = new Elysia().use(requestDedupMiddleware).post(

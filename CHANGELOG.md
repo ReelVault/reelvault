@@ -191,3 +191,10 @@ A number of smaller changes were also benchmarked but are intentionally omitted 
 - HKDF secret-key derivation memoization: **-99.4%**
 - Trusted-origin pattern cache with dynamic origins: **≈-100%**
 - Trickplay end-to-end generation: **≈0%**, confirming that enqueueing improvements did not artificially improve the actual generation workload.
+
+# v1.2.1
+
+### Fixes
+
+- **Private responses leaked between machine API keys** — the response cache and request-dedup identity omitted `x-api-key`, so two integration keys of different accounts could receive each other's body (for example `/v1/notifications`). Both keys now include the API key, and dedup keeps GET and HEAD apart as well.
+- **Access-controlled artifacts were publicly cacheable** — playback artifacts served behind the stream-access policy sent `Cache-Control: public, max-age=86400`, letting shared proxies replay them after an access change; they are now `private`.

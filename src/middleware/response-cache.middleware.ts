@@ -64,6 +64,9 @@ function cacheKeyFor(request: Request, resolvedProfileId?: string): string {
 		cookie: request.headers.get("cookie") ?? "",
 		profileId: resolvedProfileId ?? request.headers.get("x-profile-id") ?? "",
 		auth: request.headers.get("authorization") ?? "",
+		// Machine keys are a distinct credential — without the segment two API
+		// keys of different accounts would share the same cached private body.
+		apiKey: request.headers.get("x-api-key") ?? "",
 	});
 }
 

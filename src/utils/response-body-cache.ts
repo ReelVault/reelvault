@@ -67,12 +67,20 @@ const responseBodyCache = new MemoryCache<CachedResponseBody>({
 });
 
 /**
- * Path+query+identity key. The cookie (session) and resolved profile id make
- * the key per-identity, so per-profile payloads never leak between
- * users/profiles and per-profile writes can invalidate precisely.
+ * Path+query+identity key. The cookie (session), resolved profile id and
+ * `x-api-key` make the key per-identity, so per-user payloads never leak
+ * between sessions, profiles or machine API keys, and per-profile writes can
+ * invalidate precisely. The profile id stays the third segment — the profile
+ * index parses it by position.
  */
-export function responseCacheKey(parts: { pathWithQuery: string; cookie: string; profileId: string; auth: string }): string {
-	return [parts.pathWithQuery, parts.cookie, parts.profileId, parts.auth].join(KEY_SEGMENT_SEPARATOR);
+export function responseCacheKey(parts: {
+	pathWithQuery: string;
+	cookie: string;
+	profileId: string;
+	auth: string;
+	apiKey: string;
+}): string {
+	return [parts.pathWithQuery, parts.cookie, parts.profileId, parts.auth, parts.apiKey].join(KEY_SEGMENT_SEPARATOR);
 }
 
 export function responseBodyCacheTtlMs(maxAgeSeconds: number): number {

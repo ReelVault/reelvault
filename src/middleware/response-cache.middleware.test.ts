@@ -38,4 +38,16 @@ describe("responseCacheMiddleware", () => {
 			expect(response.status).toBe(304);
 		}
 	});
+
+	test("keeps different API keys apart in the shared body cache", async () => {
+		const app = new Elysia().use(responseCacheMiddleware).get("/identity", ({ request }) => ({ key: request.headers.get("x-api-key") }), {
+			cache: { maxAge: 60, private: true },
+		});
+
+		const first = await app.handle(new Request("http://localhost/identity", { headers: { "x-api-key": "rv_key-a" } }));
+		const second = await app.handle(new Request("http://localhost/identity", { headers: { "x-api-key": "rv_key-b" } }));
+
+		expect(await first.json()).toEqual({ key: "rv_key-a" });
+		expect(await second.json()).toEqual({ key: "rv_key-b" });
+	});
 });

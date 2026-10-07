@@ -71,7 +71,8 @@ function settleEntry(entry: InflightEntry): void {
  * Usage (macro, opt-in per route):
  *   .get("/catalog", handler, { deduplicate: {} })
  *
- * Key = pathname + search + authorization header.
+ * Key = method + pathname + search + credential (authorization header, session
+ * cookie, profile header, API key).
  * Only applies to GET/HEAD requests.
  * Followers clone a shared Response that is materialized lazily — a leader with
  * zero followers never stringifies the body a second time.
@@ -92,7 +93,11 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 				// — without it, two profiles of the same user would share deduplicated
 				// responses that contain per-profile state.
 				const profileId = context.request.headers.get("x-profile-id") ?? "";
-				const composed = `${pathWithQuery(context.request.url)}:${auth}:${cookie}:${profileId}`;
+				// Machine API keys are a distinct credential and carry no cookie: without
+				// the segment two keys would share one principal's response.
+				const apiKey = context.request.headers.get("x-api-key") ?? "";
+				// GET and HEAD share a route but not a response contract — keep them apart.
+				const composed = `${context.request.method}:${pathWithQuery(context.request.url)}:${auth}:${cookie}:${profileId}:${apiKey}`;
 				// Raw keys win the A/B benchmark at realistic lengths and make
 				// collisions impossible; oversized keys hash instead so a bounded
 				// in-flight map can't be amplified into a memory sink.
