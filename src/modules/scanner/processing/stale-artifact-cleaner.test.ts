@@ -82,4 +82,37 @@ describe("StaleArtifactCleaner", () => {
 			{ libraryId: "lib-1", mediaFileId: "media-2" },
 		]);
 	});
+
+	test("emits unavailable events concurrently instead of one await per file", async () => {
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const cleaner = new StaleArtifactCleaner({
+			deleteByLibraryAndPaths: () =>
+				Promise.resolve({
+					artifactStorageKeys: [],
+					subtitleFilePaths: [],
+					subtitleIds: [],
+					removedMediaFiles: [
+						{ id: "media-1", filePath: "/media/gone-1.mkv" },
+						{ id: "media-2", filePath: "/media/gone-2.mkv" },
+						{ id: "media-3", filePath: "/media/gone-3.mkv" },
+					],
+				}),
+			removeArtifactStorageFiles: () => Promise.resolve(),
+			deleteFile: () => Promise.resolve(true),
+			getIoConcurrency: () => 4,
+			subtitlesPath: () => "/data/subtitles",
+			clearLibraryStatsCache: () => undefined,
+			emitMediaUnavailable: async () => {
+				inFlight++;
+				maxInFlight = Math.max(maxInFlight, inFlight);
+				await Bun.sleep(10);
+				inFlight--;
+			},
+		});
+
+		await cleaner.cleanup("lib-1", ["/media/gone.mkv"]);
+
+		expect(maxInFlight).toBe(3);
+	});
 });

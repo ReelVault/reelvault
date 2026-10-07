@@ -90,7 +90,6 @@ The performance work focuses primarily on reducing unnecessary database work, el
 #### HTTP & middleware
 
 - **Pathname reuse** — middleware route classifiers now reuse the pathname already extracted by the request pipeline instead of repeatedly parsing the URL.
-
 - **Cached origin rules** — dynamic allowed origins and trusted origin patterns are cached per settings revision instead of being cloned and merged on every request. Profile PIN fingerprints and the HKDF-derived secret key are memoised, and non-public IPv4 range masks are precomputed at startup.
 - **Reduced filesystem checks** — the security-header hook checks API/plugin prefixes before touching the web distribution, reducing unnecessary `stat` operations on health requests.
 - **Batch APIs** — watchlist hydration and playback suggestions remove large client-side request waterfalls by resolving related data server-side.

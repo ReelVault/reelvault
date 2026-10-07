@@ -58,19 +58,25 @@ export class StaleArtifactCleaner extends BaseService {
 			emitMediaUnavailable,
 		} = this.dependencies;
 		const cleanup = await deleteByLibraryAndPaths(libraryId, removedFiles);
-		for (const removed of cleanup.removedMediaFiles) {
-			await emitMediaUnavailable({ libraryId, mediaFileId: removed.id });
-		}
+		// One event per removed file; awaiting each plugin handler in sequence
+		// multiplies hook timeouts across large removals.
+		await PromiseUtils.mapConcurrent(
+			cleanup.removedMediaFiles,
+			getIoConcurrency(),
+			(removed) => emitMediaUnavailable({ libraryId, mediaFileId: removed.id }),
+			signal,
+		);
 
+		const subtitlesRoot = subtitlesPath();
 		const removals: Array<() => Promise<unknown>> = [() => removeArtifactStorageFiles(cleanup.artifactStorageKeys)];
 		for (const filePath of cleanup.subtitleFilePaths) {
-			if (filePath && PathUtils.isSubpath(filePath, subtitlesPath())) {
+			if (filePath && PathUtils.isSubpath(filePath, subtitlesRoot)) {
 				removals.push(() => deleteFile(filePath));
 			}
 		}
 
 		for (const id of cleanup.subtitleIds) {
-			removals.push(() => deleteFile(PathUtils.join(subtitlesPath(), `${id}.vtt`)));
+			removals.push(() => deleteFile(PathUtils.join(subtitlesRoot, `${id}.vtt`)));
 		}
 
 		await PromiseUtils.mapConcurrent(removals, getIoConcurrency(), (removal) => removal(), signal);
