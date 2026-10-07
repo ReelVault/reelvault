@@ -590,19 +590,20 @@ class WorkerJobRepository {
 	async cancelRunning(id: string, claimToken?: string): Promise<boolean> {
 		const now = new Date();
 
-		const updated = await databaseFactory
-			.getClient()
-			.update(items)
-			.set({ status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now })
-			.where(runningJobWhere(id, undefined, claimToken))
-			.returning({ id: items.id, operationId: items.operationId });
+		return await databaseFactory.transaction(async (tx) => {
+			const updated = await tx
+				.update(items)
+				.set({ status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now })
+				.where(runningJobWhere(id, undefined, claimToken))
+				.returning({ id: items.id, operationId: items.operationId });
 
-		const updatedJob = updated[0];
-		if (updatedJob?.operationId) {
-			await workerOperationRepository.markJobFinished(updatedJob.operationId, "cancelled", now);
-		}
+			const updatedJob = updated[0];
+			if (updatedJob?.operationId) {
+				await workerOperationRepository.markJobFinished(updatedJob.operationId, "cancelled", now, tx);
+			}
 
-		return updatedJob !== undefined;
+			return updatedJob !== undefined;
+		});
 	}
 
 	/** Returns an aborted running task to the queue with its attempt counter preserved (server rescue). */
@@ -717,30 +718,29 @@ class WorkerJobRepository {
 		const conditions = [eq(items.status, "running")];
 		if (workerId) conditions.push(eq(items.workerId, workerId));
 
-		const runningByOperation = await databaseFactory
-			.getClient()
-			.select({ operationId: items.operationId, count: count() })
-			.from(items)
-			.where(and(...conditions))
-			.groupBy(items.operationId);
+		return await databaseFactory.transaction(async (tx) => {
+			// Counters come from the rows actually transitioned in the same
+			// transaction — a pre-read snapshot could include a job that completed
+			// between the SELECT and the UPDATE, skewing the operation counters.
+			const cancelled = await tx
+				.update(items)
+				.set({ status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now })
+				.where(and(...conditions))
+				.returning({ id: items.id, operationId: items.operationId });
 
-		if (runningByOperation.length === 0) return 0;
+			const cancelledByOperation = new Map<string, number>();
+			for (const row of cancelled) {
+				if (!row.operationId) continue;
 
-		const runningCount = runningByOperation.reduce((total, row) => total + row.count, 0);
-
-		await databaseFactory
-			.getClient()
-			.update(items)
-			.set({ status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now })
-			.where(and(...conditions));
-
-		for (const item of runningByOperation) {
-			if (item.operationId) {
-				await workerOperationRepository.markJobFinished(item.operationId, "cancelled", now, undefined, item.count);
+				cancelledByOperation.set(row.operationId, (cancelledByOperation.get(row.operationId) ?? 0) + 1);
 			}
-		}
 
-		return runningCount;
+			for (const [operationId, amount] of cancelledByOperation) {
+				await workerOperationRepository.markJobFinished(operationId, "cancelled", now, tx, amount);
+			}
+
+			return cancelled.length;
+		});
 	}
 
 	async getStats(): Promise<WorkerItemStats[]> {
