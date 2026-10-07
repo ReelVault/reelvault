@@ -5,8 +5,8 @@ import { pluginJobsService } from "./plugin.jobs";
 const MAX_PLUGIN_JOB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const registered: string[][] = [];
 
-afterEach(() => {
-	for (const names of registered.splice(0)) pluginJobsService.unregister(names);
+afterEach(async () => {
+	for (const names of registered.splice(0)) await pluginJobsService.unregister(names);
 });
 
 describe("plugin job clamps", () => {
