@@ -8,6 +8,7 @@ import type { DatabaseTransaction } from "@/database/types";
 import { MINUTE, serverConstants } from "@/server.constants";
 import { chunk, toMap, unique } from "@/utils/array.utils";
 import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
+import { MemoryCache } from "@/utils/memory-cache";
 import { workerJobSummaryColumns } from "./worker-job.projection";
 import { workerOperationRepository } from "./worker-operation.repository";
 
@@ -90,6 +91,17 @@ async function applyOperationCounts(
 }
 
 class WorkerJobRepository {
+	/**
+	 * Worker dashboards aggregate the whole jobs table and poll frequently; a short
+	 * cache avoids re-running the GROUP BY on every poll. Counts may lag by up to
+	 * the TTL, which is acceptable for a status view.
+	 */
+	private readonly statsCache = new MemoryCache<WorkerItemStats[]>({
+		ttlMs: 5_000,
+		maxSize: 1,
+		name: "worker-job-stats",
+	});
+
 	async enqueue(input: EnqueueWorkerItemInput): Promise<WorkerItem> {
 		const [item] = await this.enqueueMany([input]);
 		// Empty result means the dedupe fetch-back found no active row either —
@@ -772,21 +784,23 @@ class WorkerJobRepository {
 	}
 
 	async getStats(): Promise<WorkerItemStats[]> {
-		const rows = await databaseFactory
-			.getClient()
-			.select({
-				workerId: items.workerId,
-				status: items.status,
-				count: count(),
-			})
-			.from(items)
-			.groupBy(items.workerId, items.status);
+		return await this.statsCache.getOrSet("all", async () => {
+			const rows = await databaseFactory
+				.getClient()
+				.select({
+					workerId: items.workerId,
+					status: items.status,
+					count: count(),
+				})
+				.from(items)
+				.groupBy(items.workerId, items.status);
 
-		return rows.map((r) => ({
-			workerId: r.workerId,
-			status: r.status,
-			count: r.count,
-		}));
+			return rows.map((r) => ({
+				workerId: r.workerId,
+				status: r.status,
+				count: r.count,
+			}));
+		});
 	}
 
 	async recoverOrphanedRunning(options?: {

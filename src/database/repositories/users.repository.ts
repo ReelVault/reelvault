@@ -1,6 +1,6 @@
 import type { SelectFields, User } from "@reelvault/sdk/common";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
-import { defineRepository, defineTableAccess, selectFirstWithFields } from "@/database/table-access";
+import { defineRepository, defineTableAccess, mapChunked, selectFirstWithFields } from "@/database/table-access";
 import { QueryFiltering } from "@/database/utils/filtering";
 import type { FindFirstReadParams } from "@/database/utils/primary-id-read";
 
@@ -39,9 +39,15 @@ const overrides = {
 	async findAdminIdsByUserIds(userIds: readonly string[]): Promise<Set<string>> {
 		if (userIds.length === 0) return new Set();
 
-		const rows = await getUsersRepository().selectMany({
-			where: and(inArray(users.table.id, [...userIds]), eq(users.table.role, "admin")),
-		});
+		// Chunked: the realtime fan-out passes one id per open connection, which can
+		// exceed SQLite's per-statement variable limit on a busy instance.
+		const rows = await mapChunked(
+			[...userIds],
+			async (idChunk) =>
+				await getUsersRepository().selectMany({
+					where: and(inArray(users.table.id, idChunk), eq(users.table.role, "admin")),
+				}),
+		);
 
 		return new Set(rows.map((row) => row.id));
 	},
