@@ -26,17 +26,24 @@ export function clearFFProbeCache(): void {
  * The shared probe itself is not bound to any caller's signal — a follower's
  * abort must not kill a probe another caller is still awaiting.
  */
-async function raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+export async function raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 	if (!signal) return promise;
 
 	if (signal.aborted) throw signal.reason ?? new Error("FFprobe aborted");
 
+	let onAbort: (() => void) | undefined;
 	const abort = new Promise<never>((_resolve, reject) => {
-		const onAbort = () => reject(signal.reason ?? new Error("FFprobe aborted"));
+		onAbort = () => reject(signal.reason ?? new Error("FFprobe aborted"));
 		signal.addEventListener("abort", onAbort, { once: true });
 	});
 
-	return await Promise.race([promise, abort]);
+	try {
+		return await Promise.race([promise, abort]);
+	} finally {
+		// A completed probe must not leave its listener on a long-lived session
+		// signal — they would accumulate one per probe and slow abort dispatch.
+		if (onAbort) signal.removeEventListener("abort", onAbort);
+	}
 }
 
 export class FFProbeBuilder {
