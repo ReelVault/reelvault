@@ -7,7 +7,7 @@ const EXT_PATTERN = /\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|vob|ogv|divx|
 // `episodeMarker` captures the SxxExx / NxN marker with its optional range tail;
 // the numbers themselves are parsed by `extractSeasonEpisode`.
 const SERIES_PATTERN =
-	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?<episodeMarker>(?:s\d{1,2}e\d{1,2}|\d{1,2}x\d{1,2})(?:[-_. ]{1,2}e?\d{1,2}(?!\d))?)/i;
+	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?<episodeMarker>(?:s\d{1,3}e\d{1,2}|\d{1,2}x\d{1,2})(?:[-_. ]{1,2}e?\d{1,2}(?!\d))?)/i;
 const MOVIE_PATTERN = /^(?<title>.+?)(?:[\s._(]+)(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?/i;
 const DOT_UNDERSCORE_PATTERN = /[._]/g;
 

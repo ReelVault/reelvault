@@ -50,6 +50,15 @@ describe("parseFileName", () => {
 			year: 2011,
 		});
 	});
+
+	test("parses a three-digit season spelling (S012E03)", () => {
+		expect(parseFileName("Example.Show.S012E03.mkv")).toMatchObject({
+			title: "Example Show",
+			type: "episode",
+			season: 12,
+			episode: 3,
+		});
+	});
 });
 
 describe("multi-episode ranges and copy suffixes", () => {
