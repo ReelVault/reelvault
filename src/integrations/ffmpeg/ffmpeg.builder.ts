@@ -18,7 +18,10 @@ export interface FFmpegProgress {
 }
 
 export class FFmpegBuilder {
-	private readonly globalArgs: string[] = ["-hide_banner", "-loglevel", "info"];
+	// `warning` keeps errors/warnings visible while dropping ffmpeg's per-run info
+	// block; `-stats` still emits the progress line the monitor parses, so the
+	// operation log for a long playback is far smaller without losing progress.
+	private readonly globalArgs: string[] = ["-hide_banner", "-loglevel", "warning", "-stats"];
 	private readonly _inputArgs: string[] = [];
 	private inputPath?: string | undefined;
 	private readonly _outputArgs: string[] = [];
