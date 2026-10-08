@@ -292,13 +292,6 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - Trusted-origin pattern cache with dynamic origins: **≈-100%**
 - Trickplay end-to-end generation: **≈0%**, confirming that enqueueing improvements did not artificially improve the actual generation workload.
 
-
-# v1.2.2
-
-### Features
-
-- **Plugins can extend the web UI Content-Security-Policy** — `plugin.json` may declare `csp` sources for `img-src` / `media-src` / `connect-src` / `font-src` / `frame-src` (plain origins only; script and style directives are never extendable). The server validates them and appends them to the SPA policy, so plugin-provided artwork and embedded players load — TMDB/OMDb poster options and YouTube trailer embeds no longer get blocked by the built-in `img-src`/`frame-src`.
-
 # v1.2.1
 
 ### Features
@@ -344,3 +337,9 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Batch cache reads** — `mget`/`getOrSetMany` now return cached `null` values instead of treating them as cache misses.
 - **Profile cache invalidation** — profile-scoped ETag invalidation now matches the profile ID segment exactly instead of matching substrings.
 - **Admin dashboard library relations** — `/admin/dashboard-view` now returns the full `LibraryWithRelations` contract, including `paths` and file/size statistics. This fixes dashboard cache seeding failures and missing storage breakdown data.
+
+# v1.2.2
+
+### Features
+
+- **Plugins can extend the web UI Content-Security-Policy** — `plugin.json` may declare `csp` sources for `img-src` / `media-src` / `connect-src` / `font-src` / `frame-src` (plain origins only; script and style directives are never extendable). The server validates them and appends them to the SPA policy, so plugin-provided artwork and embedded players load — TMDB/OMDb poster options and YouTube trailer embeds no longer get blocked by the built-in `img-src`/`frame-src`.
