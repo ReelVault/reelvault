@@ -2,6 +2,7 @@ import type { PlaybackDecision, StreamingSession, TranscodeConfig } from "@reelv
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { killFfmpegProcessGracefully, waitForExitWithTimeout } from "@/integrations/ffmpeg/ffmpeg.process";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
+import { serverConstants } from "@/server.constants";
 import { DirUtils } from "@/utils/directory.utils";
 import { TooManyRequestsError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
@@ -37,7 +38,14 @@ export class ProcessManager {
 		// software fallback) re-enters through here and keeps its reserved slot.
 		const isRestart = session.generation > 0;
 		if (!isRestart && this.store.attachedCount() >= this.config.maxSessions) {
-			throw new TooManyRequestsError(`Concurrent stream limit reached (${this.config.maxSessions})`);
+			throw new TooManyRequestsError(`Concurrent stream limit reached (${this.config.maxSessions})`, {
+				code: "stream.limit_reached",
+				params: {
+					scope: "server",
+					limit: this.config.maxSessions,
+					retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds,
+				},
+			});
 		}
 
 		if (session.process) await this.stopRunningProcess(sessionId, session);

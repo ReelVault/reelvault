@@ -86,6 +86,10 @@ export const domainErrorsMiddleware = new Elysia({ name: "DomainErrors" }).onErr
 
 		if (error.details) response.details = error.details;
 
+		// Standard back-off hint: HTTP clients (and proxies) honour the header, not the JSON params.
+		const retryAfter = params?.retryAfterSeconds;
+		if (status === 429 && typeof retryAfter === "number" && retryAfter > 0) set.headers["retry-after"] = String(Math.ceil(retryAfter));
+
 		logRequestFailure(logContext, { status, code: error.code, error });
 
 		return response;

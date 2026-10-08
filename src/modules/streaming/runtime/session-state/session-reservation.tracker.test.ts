@@ -63,6 +63,17 @@ describe("session reservation tracker", () => {
 		expect(reservations.reserve("r3", "user-1")).toBe(true);
 	});
 
+	test("explains whether the user's own cap or the server cap rejected a reservation", () => {
+		const store = new SessionStore();
+		const reservations = new SessionReservationTracker(store, 10, () => 1);
+		reservations.forceReserve("r1", "user-1");
+
+		expect(reservations.reserve("r2", "user-1")).toBe(false);
+		expect(reservations.explainCapacityLimit("user-1")).toEqual({ scope: "user", limit: 1 });
+		expect(reservations.explainCapacityLimit("user-2")).toEqual({ scope: "server", limit: 10 });
+		expect(reservations.explainCapacityLimit()).toEqual({ scope: "server", limit: 10 });
+	});
+
 	test("re-reserving an already allocated session is a no-op that succeeds", () => {
 		const store = new SessionStore();
 		const reservations = new SessionReservationTracker(store, 1);

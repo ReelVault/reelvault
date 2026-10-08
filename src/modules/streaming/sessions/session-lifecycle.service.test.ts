@@ -77,6 +77,7 @@ function createService(
 		runtime: {
 			isProfileTerminatedRecently: () => (options.terminatedByAdmin ? { reason: "admin-stop" } : null),
 			reserveSession: () => !options.reserveFails,
+			explainCapacityLimit: () => ({ scope: "server" as const, limit: 2 }),
 			registerSession: (sessionId: string) => {
 				calls.registered.push(sessionId);
 			},
@@ -136,10 +137,14 @@ describe("session lifecycle service", () => {
 		expect(calls.discarded).toEqual(calls.releasedReservations);
 	});
 
-	test("conflicts when the concurrent session limit is reached", () => {
+	test("rejects with a stable 429 code when the concurrent session limit is reached", () => {
 		const { service, calls } = createService({ reserveFails: true });
 
-		expect(service.createPlaybackSession(body, "profile-1", "idem-3")).rejects.toThrow("Concurrent streaming session limit");
+		expect(service.createPlaybackSession(body, "profile-1", "idem-3")).rejects.toMatchObject({
+			code: "stream.limit_reached",
+			category: "too_many_requests",
+			params: { scope: "server", limit: 2 },
+		});
 
 		expect(calls.registered).toEqual([]);
 	});
@@ -159,7 +164,10 @@ describe("session lifecycle service", () => {
 	test("requires an active profile", () => {
 		const { service } = createService();
 
-		expect(service.createPlaybackSession(body, undefined, "idem-6")).rejects.toThrow("An active profile is required");
+		expect(service.createPlaybackSession(body, undefined, "idem-6")).rejects.toMatchObject({
+			code: "auth.profile_required",
+			category: "unauthorized",
+		});
 	});
 
 	test("resolves per-title stream prefs and merges them into the session selection", async () => {

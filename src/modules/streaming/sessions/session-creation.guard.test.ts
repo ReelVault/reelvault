@@ -46,4 +46,20 @@ describe("session creation guard", () => {
 		expect(() => guard.assertCooldown("profile-1")).not.toThrow();
 		expect(() => guard.assertCooldown("profile-2")).not.toThrow();
 	});
+
+	test("a rejected burst carries a stable code and a retry hint in whole seconds", () => {
+		const now = 1_000;
+		const guard = new SessionCreationGuard({ cooldownMs: 5_000, now: () => now });
+		guard.assertCooldown("profile-1");
+
+		let failure: { code?: string; params?: { retryAfterSeconds?: number } } | undefined;
+		try {
+			guard.assertCooldown("profile-1");
+		} catch (error) {
+			failure = error as typeof failure;
+		}
+
+		expect(failure?.code).toBe("stream.creation_throttled");
+		expect(failure?.params?.retryAfterSeconds).toBe(5);
+	});
 });

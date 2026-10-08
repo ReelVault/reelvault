@@ -124,6 +124,8 @@ export const serverConstants = {
 		relationQueryConcurrency: 4,
 	},
 	stream: {
+		/** Retry-After hint for a rejected session start: capacity frees up when another stream ends. */
+		sessionLimitRetryAfterSeconds: 15,
 		playlistTimeoutMs: 30_000,
 		initialSegmentTimeoutMs: 8_000,
 		seekSegmentTimeoutMs: 10_000,

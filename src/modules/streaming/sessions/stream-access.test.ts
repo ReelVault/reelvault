@@ -5,7 +5,10 @@ describe("stream access guard", () => {
 	test("requires a valid session and active profile before checking the media", async () => {
 		const check = async () => null;
 		await expect(assertActiveStreamAccess({ mediaFileId: "file", check })).rejects.toThrow("Session expired or invalid");
-		await expect(assertActiveStreamAccess({ userId: "user", mediaFileId: "file", check })).rejects.toThrow("An active profile is required");
+		await expect(assertActiveStreamAccess({ userId: "user", mediaFileId: "file", check })).rejects.toMatchObject({
+			code: "auth.profile_required",
+			category: "unauthorized",
+		});
 	});
 
 	test("passes the current user and profile to the access policy", async () => {

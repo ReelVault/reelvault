@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import Elysia, { t } from "elysia";
-import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
+import { ConflictError, NotFoundError, TooManyRequestsError, ValidationError } from "@/utils/errors";
 import { domainErrorsMiddleware } from "./domain-errors.middleware";
 
 test("domain error middleware maps categories to HTTP responses without user-facing text", async () => {
@@ -92,4 +92,27 @@ test("invalid query input stays a 400 even when the route also declares a respon
 
 	expect(res.status).toBe(400);
 	expect(((await res.json()) as { code: string }).code).toBe("validation.invalid_request");
+});
+
+test("a 429 with retryAfterSeconds also sends the Retry-After header", async () => {
+	const app = new Elysia().use(domainErrorsMiddleware).get("/slow-down", () => {
+		throw new TooManyRequestsError("Too many", { code: "rate_limit.exceeded", params: { retryAfterSeconds: 12.2 } });
+	});
+
+	const res = await app.handle(new Request("http://localhost/slow-down"));
+
+	expect(res.status).toBe(429);
+	expect(res.headers.get("retry-after")).toBe("13");
+	expect(((await res.json()) as { params: { retryAfterSeconds: number } }).params.retryAfterSeconds).toBe(12.2);
+});
+
+test("a 429 without a retry hint sends no Retry-After header", async () => {
+	const app = new Elysia().use(domainErrorsMiddleware).get("/busy", () => {
+		throw new TooManyRequestsError("Too many");
+	});
+
+	const res = await app.handle(new Request("http://localhost/busy"));
+
+	expect(res.status).toBe(429);
+	expect(res.headers.get("retry-after")).toBeNull();
 });

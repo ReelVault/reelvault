@@ -30,6 +30,10 @@ export class SessionCreationGuard {
 		if (lastTime !== undefined && now - lastTime < this.cooldownMs) {
 			throw new TooManyRequestsError(
 				`Playback session creation rate limit exceeded. Please wait ${this.cooldownMs}ms before creating a new session.`,
+				{
+					code: "stream.creation_throttled",
+					params: { retryAfterSeconds: Math.max(1, Math.ceil((this.cooldownMs - (now - lastTime)) / 1000)) },
+				},
 			);
 		}
 

@@ -35,7 +35,7 @@ export async function assertActiveStreamAccess({
 }): Promise<void> {
 	if (!userId) throw new UnauthorizedError("Session expired or invalid");
 
-	if (!profileId) throw new ForbiddenError("An active profile is required to stream media");
+	if (!profileId) throw new UnauthorizedError("An active profile is required to stream media", { code: "auth.profile_required" });
 
 	const decision = await check({ userId, profileId, mediaFileId });
 	if (decision) {

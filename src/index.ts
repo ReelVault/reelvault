@@ -133,7 +133,7 @@ const app = new Elysia({ name: "ReelVault", aot: true })
 				"x-client-shell",
 			],
 			// Browser clients need explicit access to these non-simple response headers.
-			exposeHeaders: ["ETag", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+			exposeHeaders: ["ETag", "Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 		}),
 	)
 	// Public API reference; OPENAPI_DOCS_ENABLED=false unregisters it entirely.

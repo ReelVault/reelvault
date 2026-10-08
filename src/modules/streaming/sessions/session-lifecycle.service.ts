@@ -5,8 +5,9 @@ import { playbackRepository } from "@/database/repositories/playback.repository"
 import { profilePreferencesRepository as defaultProfilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profileStreamPrefsRepository } from "@/database/repositories/profile-stream-prefs.repository";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
+import { serverConstants } from "@/server.constants";
 import { BaseService } from "@/utils/base-service";
-import { ConflictError, ForbiddenError, InternalError, ValidationError } from "@/utils/errors";
+import { ForbiddenError, InternalError, TooManyRequestsError, UnauthorizedError } from "@/utils/errors";
 import { detach } from "@/utils/promise.utils";
 import { enqueueStreamInit as defaultEnqueueStreamInit } from "@/workers/definitions/streaming/stream-initialization.worker";
 import { workerService as defaultWorkerService } from "@/workers/worker.service";
@@ -33,6 +34,7 @@ export interface SessionLifecycleRuntime {
 	releaseSession(sessionId: string, reason: string): Promise<SessionReleaseOutcome>;
 	getTerminatedSession(sessionId: string): TerminatedSessionEntry | undefined;
 	reserveSession(sessionId: string, userId?: string): boolean;
+	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number };
 	registerSession(
 		sessionId: string,
 		data: { mediaFileId: string; profileId: string; decision: PlaybackDecision; inputPath: string; durationMs?: number | null },
@@ -95,7 +97,8 @@ export class SessionLifecycleService extends BaseService {
 		idempotencyKey: string,
 		userId?: string,
 	): Promise<PlaybackSession> {
-		if (!profileId) throw new ValidationError("An active profile is required to create a streaming session");
+		if (!profileId)
+			throw new UnauthorizedError("An active profile is required to create a streaming session", { code: "auth.profile_required" });
 
 		const recentTermination = this.dependencies.runtime.isProfileTerminatedRecently(profileId, body.mediaFileId, 20_000);
 		if (recentTermination && isAdminTerminationReason(recentTermination.reason)) {
@@ -158,7 +161,8 @@ export class SessionLifecycleService extends BaseService {
 				this.dependencies;
 			this.dependencies.assertEnvironment();
 			assertSafeId(fileId);
-			if (!profileId) throw new ValidationError("An active profile is required to create a streaming session");
+			if (!profileId)
+				throw new UnauthorizedError("An active profile is required to create a streaming session", { code: "auth.profile_required" });
 
 			const [file, preferences, progressData] = await Promise.all([
 				mediaRepository.findForPlaybackSession(fileId),
@@ -212,7 +216,11 @@ export class SessionLifecycleService extends BaseService {
 
 			const sessionId = crypto.randomUUID();
 			if (!runtime.reserveSession(sessionId, userId)) {
-				throw new ConflictError("Concurrent streaming session limit reached. Try again when another stream ends.");
+				const { scope, limit } = runtime.explainCapacityLimit(userId);
+				throw new TooManyRequestsError("Concurrent streaming session limit reached. Try again when another stream ends.", {
+					code: "stream.limit_reached",
+					params: { scope, limit, retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds },
+				});
 			}
 
 			// One entity for the whole viewing: the decision/input are bound here and
