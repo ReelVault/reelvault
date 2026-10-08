@@ -398,7 +398,7 @@ class ImageRepository {
 	}
 
 	async replaceProfileAvatar(profileId: string, image: PersistedImageInput): Promise<{ imageId: string; avatarUrl: string }> {
-		return await databaseFactory.transaction(
+		const replaced = await databaseFactory.transaction(
 			async (tx) => {
 				const client = databaseFactory.getClient({ tx });
 				const [profile] = await client
@@ -425,6 +425,11 @@ class ImageRepository {
 			},
 			{ immediate: true },
 		);
+		// The auth hot path caches the profile for a few seconds; drop it only after the commit
+		// so a concurrent read cannot repopulate the cache with the old avatar.
+		profilesRepository.invalidateCached(profileId);
+
+		return replaced;
 	}
 
 	private async findImagePath(imageId: string | null | undefined, tx?: DatabaseTransaction): Promise<string | undefined> {
