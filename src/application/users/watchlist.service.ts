@@ -30,8 +30,15 @@ class WatchlistService extends BaseService {
 	): Promise<PaginatedResponse<SelectFields<Watchlist, F>> | PaginatedResponse<HydratedWatchlistItem>> {
 		return await this.safeExecute("getAll", async () => {
 			this.assertProfileId(profileId);
-			const { hydrate, ...pageQuery } = query ?? {};
-			const page = await watchlistRepository.findPage({ ...pageQuery, profileId });
+			const { hydrate, fields, ...pageQuery } = query ?? {};
+			// Hydration returns full watchlist rows plus their metadata cards; a field
+			// projection would drop `profileId`/`updatedAt`, which the hydrated
+			// response schema requires — so `fields` is ignored in that mode.
+			const page = await watchlistRepository.findPage({
+				...pageQuery,
+				...(hydrate || fields === undefined ? {} : { fields }),
+				profileId,
+			});
 			if (!hydrate || page.data.length === 0) return page;
 
 			// One batched card fetch replaces the client's second request (the old

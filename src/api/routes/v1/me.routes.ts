@@ -184,7 +184,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		...cached({ maxAge: 10, private: true }),
 		detail: {
 			description:
-				"Retrieve watchlist items for the active profile. With hydrate=true every item embeds its full metadata card (single-request hydration).",
+				"Retrieve watchlist items for the active profile. With hydrate=true every item embeds its full metadata card (single-request hydration); `fields` is ignored in that mode.",
 		},
 	})
 	.post("/watchlist", async ({ body, profile }) => await watchlistService.add(body.metadataId, profile?.id), {
