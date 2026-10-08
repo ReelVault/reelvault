@@ -268,18 +268,41 @@ describe("PluginManager lifecycle orchestration", () => {
 		expect(manager.getStatus()).toEqual([]);
 	});
 
-	test("installFromDirectory clears the disabled status of a reinstalled plugin", async () => {
-		const { manager, loader, installer, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		stubUnloadThroughRegistry(activeStubs, loader, registry);
-		await manager.setEnabled("org.reelvault.m", false);
-		const installStub = stubMethod(installer, "install", () =>
-			Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: {} }),
+	test("installFromDirectory keeps a disabled plugin disabled when it is upgraded", async () => {
+		const { manager, installer } = createManagerFixture(activeStubs);
+		await writeFixturePlugin();
+		const record: InstalledPluginRecord = {
+			directory: "m-dir",
+			integrity: "sha256-x",
+			installedAt: "2026-09-20T00:00:00.000Z",
+			source: "fixture",
+			version: "1.0.0",
+			disabled: true,
+		};
+		const setDisabled = stubMethod(installer, "setDisabled", () => Promise.resolve());
+		activeStubs.push(
+			stubMethod(installer, "list", () => Promise.resolve([{ id: "org.reelvault.m", record }])),
+			stubMethod(installer, "install", () => Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: {} })),
+			setDisabled,
 		);
-		activeStubs.push(installStub);
 
 		await manager.installFromDirectory("/sources/m", {});
 
+		expect(setDisabled.calls).toEqual([["org.reelvault.m", true]]);
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.m", state: "disabled" })]);
+	});
+
+	test("installFromDirectory leaves a previously enabled plugin enabled", async () => {
+		const { manager, installer } = createManagerFixture(activeStubs);
+		const setDisabled = stubMethod(installer, "setDisabled", () => Promise.resolve());
+		activeStubs.push(
+			stubMethod(installer, "install", () => Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: {} })),
+			setDisabled,
+		);
+
+		await manager.installFromDirectory("/sources/m", {});
+
+		expect(setDisabled.calls).toEqual([]);
 		expect(manager.getStatus()).toEqual([]);
 	});
 

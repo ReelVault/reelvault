@@ -234,12 +234,20 @@ export class PluginManager {
 	/** Installs (or upgrades) a plugin package from an unpacked directory on disk. */
 	async installFromDirectory(sourceDirectory: string, options: { source?: string }) {
 		return await this.lifecycleMutex.runExclusive(async () => {
+			const previous = await this.installer.list();
 			const result = await this.installer.install(sourceDirectory, {
 				upgrade: true,
 				...(options.source !== undefined ? { source: options.source } : {}),
 			});
-			// The fresh record carries no disabled flag — a reinstalled plugin is enabled-by-default again.
-			this.disabledStatuses.delete(result.id);
+			// The fresh record carries no disabled flag, so an upgrade would silently re-enable a plugin
+			// the administrator switched off — carry the flag over. A first install starts enabled.
+			if (previous.some(({ id, record }) => id === result.id && record.disabled === true)) {
+				await this.installer.setDisabled(result.id, true);
+				const upgraded = (await this.installer.list()).find(({ id }) => id === result.id);
+				if (upgraded) this.disabledStatuses.set(result.id, await this.disabledStatusFromRecord(result.id, upgraded.record));
+			} else {
+				this.disabledStatuses.delete(result.id);
+			}
 
 			// A plugin that is already loaded still runs the OLD build from memory and
 			// its on-disk directory was just swapped. Reload so the new code takes
