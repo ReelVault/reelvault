@@ -4,6 +4,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { env, generatedSecrets } from "@/env";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
+import { toAuthFailure } from "@/integrations/better-auth/better-auth.failures";
 import { BaseService } from "@/utils/base-service";
 import { ConflictError, ForbiddenError, InternalError } from "@/utils/errors";
 
@@ -82,7 +83,7 @@ class FirstRunSetupService extends BaseService {
 				password: input.password,
 			});
 
-			if (!response.ok) return response;
+			if (!response.ok) throw await toAuthFailure(response);
 
 			const user = await usersRepository.findByEmail(input.email);
 			if (!user) throw new InternalError("First-run administrator was created without a user record");

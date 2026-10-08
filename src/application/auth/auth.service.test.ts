@@ -98,7 +98,7 @@ describe("authService.changePassword", () => {
 		expect(await failureCode(Response.json({ code: "PASSWORD_TOO_LONG" }, { status: 400 }))).toBe("auth.weak_password");
 	});
 
-	test("falls back to a generic code for unknown failures", async () => {
-		expect(await failureCode(new Response("nope", { status: 500 }))).toBe("auth.change_password_failed");
+	test("a provider failure surfaces as an internal error", async () => {
+		expect(await failureCode(new Response("nope", { status: 500 }))).toBe("internal");
 	});
 });

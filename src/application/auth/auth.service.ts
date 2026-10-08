@@ -13,9 +13,10 @@ import type {
 import { firstRunSetupService } from "@/application/auth/setup/first-run-setup.service";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
+import { toAuthFailure } from "@/integrations/better-auth/better-auth.failures";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
-import { ForbiddenError, TooManyRequestsError, UnauthorizedError, ValidationError } from "@/utils/errors";
+import { ForbiddenError, TooManyRequestsError } from "@/utils/errors";
 import { rewriteCookieDomain } from "@/utils/http.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
 import { serializeDate } from "@/utils/time.utils";
@@ -40,6 +41,8 @@ class AuthService extends BaseService {
 				name: body.username,
 			});
 
+			if (!response.ok) throw await toAuthFailure(response);
+
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});
 	}
@@ -51,25 +54,10 @@ class AuthService extends BaseService {
 				newPassword: body.newPassword,
 				headers: request.headers,
 			});
-			if (!response.ok) throw await this.toChangePasswordError(response);
+			if (!response.ok) throw await toAuthFailure(response, "auth.invalid_current_password");
 
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});
-	}
-
-	/** better-auth reports a wrong current password as 400 INVALID_PASSWORD — a 401 would make clients drop the session. */
-	private async toChangePasswordError(response: Response): Promise<ValidationError> {
-		const body: unknown = await response.json().catch(() => null);
-		const reason = typeof body === "object" && body !== null && "code" in body ? String(body.code) : "";
-		if (reason === "INVALID_PASSWORD") {
-			return new ValidationError("Current password is incorrect", { code: "auth.invalid_current_password" });
-		}
-
-		if (reason === "PASSWORD_TOO_SHORT" || reason === "PASSWORD_TOO_LONG") {
-			return new ValidationError("New password does not meet the length requirements", { code: "auth.weak_password" });
-		}
-
-		return new ValidationError("Password change failed", { code: "auth.change_password_failed" });
 	}
 
 	async login(body: LoginRequest, request: Request): Promise<Response> {
@@ -98,11 +86,9 @@ class AuthService extends BaseService {
 				password: body.password,
 			});
 
-			// better-auth's 401 body carries no stable machine code — tag it here so
-			// the frontend can show "invalid credentials" instead of a generic 401.
-			if (response.status === 401) {
-				throw new UnauthorizedError("Invalid email or password", { code: "auth.invalid_credentials" });
-			}
+			// better-auth answers with English prose; translate every failure (wrong credentials,
+			// blocked account, ...) into a stable code the frontend can show.
+			if (!response.ok) throw await toAuthFailure(response);
 
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});

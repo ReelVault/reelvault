@@ -1,4 +1,5 @@
 import { auth } from "./better-auth.config";
+import { withAuthFailures } from "./better-auth.failures";
 import { invalidateSessionCache } from "./better-auth.session-cache";
 
 interface SignUpInput {
@@ -41,7 +42,7 @@ export const betterAuthApi = {
 	},
 
 	async revokeSession(input: { token: string; headers: Headers }): Promise<void> {
-		await auth.api.revokeSession({ body: { token: input.token }, headers: input.headers });
+		await withAuthFailures(async () => await auth.api.revokeSession({ body: { token: input.token }, headers: input.headers }));
 		invalidateSessionCache();
 	},
 
@@ -58,34 +59,44 @@ export const betterAuthApi = {
 	},
 
 	async createUser(input: CreateUserInput): Promise<{ user: { id: string } }> {
-		return await auth.api.createUser({
-			body: { name: input.name, email: input.email, password: input.password, role: input.role },
-			headers: input.headers,
-		});
+		return await withAuthFailures(
+			async () =>
+				await auth.api.createUser({
+					body: { name: input.name, email: input.email, password: input.password, role: input.role },
+					headers: input.headers,
+				}),
+		);
 	},
 
 	async setUserPassword(input: { userId: string; newPassword: string; headers: Headers }): Promise<void> {
-		await auth.api.setUserPassword({ body: { userId: input.userId, newPassword: input.newPassword }, headers: input.headers });
+		await withAuthFailures(
+			async () =>
+				await auth.api.setUserPassword({ body: { userId: input.userId, newPassword: input.newPassword }, headers: input.headers }),
+		);
 		invalidateSessionCache();
 	},
 
 	async setRole(input: { userId: string; role: "admin" | "user"; headers: Headers }): Promise<void> {
-		await auth.api.setRole({ body: { userId: input.userId, role: input.role }, headers: input.headers });
+		await withAuthFailures(
+			async () => await auth.api.setRole({ body: { userId: input.userId, role: input.role }, headers: input.headers }),
+		);
 		invalidateSessionCache();
 	},
 
 	async banUser(input: { userId: string; banReason?: string | undefined; headers: Headers }): Promise<void> {
-		await auth.api.banUser({ body: { userId: input.userId, banReason: input.banReason }, headers: input.headers });
+		await withAuthFailures(
+			async () => await auth.api.banUser({ body: { userId: input.userId, banReason: input.banReason }, headers: input.headers }),
+		);
 		invalidateSessionCache();
 	},
 
 	async unbanUser(input: { userId: string; headers: Headers }): Promise<void> {
-		await auth.api.unbanUser({ body: { userId: input.userId }, headers: input.headers });
+		await withAuthFailures(async () => await auth.api.unbanUser({ body: { userId: input.userId }, headers: input.headers }));
 		invalidateSessionCache();
 	},
 
 	async removeUser(input: { userId: string; headers: Headers }): Promise<void> {
-		await auth.api.removeUser({ body: { userId: input.userId }, headers: input.headers });
+		await withAuthFailures(async () => await auth.api.removeUser({ body: { userId: input.userId }, headers: input.headers }));
 		invalidateSessionCache();
 	},
 
