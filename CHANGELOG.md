@@ -297,31 +297,44 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Features
 
-- **Trickplay storage stats** — `GET /admin/trickplay/stats` now returns `storageBytes` and `storageBudgetBytes` (the effective core artifact budget) alongside the coverage counts, powering the admin usage card.
-- **Periodic library rescan** — `scanning.scheduledScanIntervalHours` (0 = off) rescans every library on a fixed interval, a safety net for network shares where filesystem events never arrive and no watcher error arms the per-path fallback.
+- **Trickplay storage stats** — `GET /admin/trickplay/stats` now returns `storageBytes` and `storageBudgetBytes` (the effective core artifact budget) alongside coverage counts, powering the admin usage card.
+- **Periodic library rescan** — added `scanning.scheduledScanIntervalHours` (`0` = disabled), which periodically rescans every library as a safety net for network shares where filesystem events never arrive and no watcher error triggers the per-path fallback.
 
 ### Fixes
 
-- **Episodes in a generic folder got the folder name as the show** — a basic-structure file such as `…/movies/Example.Show.S01E03.mkv` was recognized as a show named "movies" (or "downloads", "tv"), because only the categorized movie strategy skipped generic folder names; series recognition now falls back to the episode file's own title, and `tv`/`TV Shows`/`shows`/`series`/`seriale` joined the generic folder list.
-- **Sidecar rewrite storm** — sidecar documents were rewritten by an unbounded fire-and-forget task per refreshed title, so a catalog refresh launched one rewrite per title at once. Syncs now coalesce per title (one in-flight plus at most one re-run) and run under the io-concurrency semaphore.
-- **Periodic rescan tick guard** — a database failure while checking the scheduled-rescan deadline is logged instead of surfacing as an unhandled rejection from the detached timer.
-- **Deduplicated sweeps are observable** — refresh-all, media audit and library error checks now log when a request folds into an already-running sweep.
-- **Unplayable imports after a failed probe** — a failed ffprobe used to import the media row with no duration/streams, and because size/mtime were recorded the scanner never retried it. Such files are now skipped with a `probe_failed` finding (visible in "needs attention") and retried on the next scan.
-- **Hung mounts could wedge the watcher** — `stat` calls now carry a 15 s deadline, so a dead NFS/CIFS mount can no longer leave watcher reconciliation permanently disabled (its `isSyncing` flag never cleared) or block removal checks; timeouts read as unreliable storage, never as "missing".
-- **File refresh silently skipped its technical half** — when a metadata refresh was already running, "refresh file" reused that operation and never queued the probe/marker refresh. The technical task is now scheduled while the active metadata refresh is reused.
-- **Stale keyframes after a file replacement** — keyframe probe buckets are keyed by the file's size/mtime signature, so a replaced file no longer seeks against the previous content's keyframes (or a cached failure) for 30 minutes.
-- **Library and media mutations left stale caches** — library create/update/delete and media update/delete now invalidate the cached list bodies they can stale, and deleting a media file clears the library stats cache.
-- **Periodic rescan clock survived restarts** — due-ness is derived from persisted library-scan operations instead of an in-memory timer, and a recent scan counts per library rather than globally.
-- **Batch cache reads and profile invalidation** — `mget`/`getOrSetMany` now return a cached `null` instead of treating it as a miss, and profile-scoped etag invalidation matches the profile id segment exactly instead of a substring.
-- **Interrupted scans missed new files** — a scan checkpoint from a cancelled/aborted run was resumed as-is, so files added after the interruption were invisible for that pass. The checkpoint now only signals the interruption; every scan recomputes its workload from disk.
-- **Scan requests could silently no-op** — clicking Scan while one was already running deduped onto it, and the running scan may have walked the disk before the new files landed. A deduped request now queues one catch-up scan that runs after the active one.
-- **Hung mounts blocked scans** — a path whose glob walk exceeded two minutes is skipped for the run instead of holding the scan task (and its dedupe key) for the 2 h worker timeout.
-- **New titles hid behind list caches** — ingesting a media file now invalidates the cached `/v1/metadata` and `/v1/libraries` responses, so a fresh title appears immediately instead of after the TTL.
-- **Admin dashboard library relations** — `/admin/dashboard-view` declared its `libraries` as the base library schema, so response validation stripped `paths` and file/size stats. The website seeds the admin libraries cache from that response, which crashed the page with `can't access property "length", e.paths is undefined` and zeroed the dashboard storage breakdown; the contract now returns full `LibraryWithRelations`.
-- **Scan trickplay operations** — every ingested file created its own trickplay operation. Scan/refresh-triggered generation now joins one active operation per library (find-or-create, attach, dedupe-safe), so a scan produces a single operation containing all of its files; a late attach reopens a just-finished operation instead of leaving it terminal.
-- **SQLite write contention and Server Rescue** — standalone main-connection writes (missing-translation flag, scan-findings deletes) could busy-wait synchronously on an open transaction's lock, freezing the event loop (~10 s lag tripped Server Rescue) and failing with `database is locked`. Standalone writes now queue on the transaction lock in JS, and the missing-translation flag is written inside the season/episode transaction.
-- **Three-digit season recognition** — release spellings such as `Show.S012E03` (season 12) fell back to a movie and were skipped as a type mismatch on every scan; the season matcher now accepts three digits.
-- **Stale local artwork** — a sidecar image path whose file no longer exists now skips the image sync with a warning instead of retrying until the job permanently fails.
-- **Trickplay temp directories** — a failed temp-dir creation now reports the real cause instead of a later "sprite is empty" failure, and deleting an already-removed temp directory is no longer logged as an error.
-- **Cancelled downloads** — a download aborted by worker cancellation (rescue/shutdown) logs a warning instead of an error.
-- **Built-in trickplay no longer fails against the plugin artifact quota** — trickplay registered its sprites and VTT in the shared artifacts store as `pluginId: "core"`, so the 512 MB per-plugin cap rejected generation once the library filled it and `trickplay-generate` jobs failed permanently. The plugin quota is now enforced only at the `host.artifacts` boundary, while built-in generators use a configurable core budget — `system.artifacts.coreMaxStorageGb` (`0` = automatic: 5% of the artifacts volume clamped to 5–100 GB, plus a 1 GB minimum free-space floor). Exceeding the budget skips the file with a warning instead of failing, so it is generated again once space is freed. Storage-level artifact errors now carry `artifact.*` codes; the plugin quota keeps `plugin.artifact.quota_exceeded`.
+#### Scanning & libraries
+
+- **Generic folders used as show names** — episode files in folders such as `movies`, `downloads`, `tv`, `TV Shows`, `shows`, `series` and `seriale` could be recognized with the folder name as the show. Series recognition now falls back to the episode file's own title.
+- **Interrupted scans missed new files** — cancelled/aborted scan checkpoints no longer determine the next scan's workload; every scan recomputes its work from disk.
+- **Scan requests could silently no-op** — a scan requested while another was running now queues one catch-up scan after the active scan finishes.
+- **Hung mounts blocked scans** — paths whose glob walk exceeds two minutes are skipped for that run instead of holding the scan task and its deduplication key until the 2 h worker timeout.
+- **Hung mounts could wedge the watcher** — `stat` calls now have a 15 s deadline. Dead NFS/CIFS mounts are treated as unreliable storage rather than missing files, and watcher reconciliation can no longer remain permanently stuck.
+- **Periodic rescan after restart** — scheduled-scan due-ness now comes from persisted library-scan operations instead of an in-memory timer, and recent scans are tracked per library rather than globally.
+- **Periodic rescan timer errors** — database failures while checking the scheduled-rescan deadline are logged instead of becoming unhandled rejections from the detached timer.
+- **Three-digit seasons** — patterns such as `Show.S012E03` now correctly resolve to season 12 instead of falling back to a movie and being skipped on every scan.
+- **Unplayable imports after failed probes** — failed ffprobe results no longer create incomplete media rows that the scanner considers up to date. Such files are skipped with a `probe_failed` finding, shown under "needs attention", and retried on the next scan.
+- **New titles hidden by caches** — ingesting a media file now invalidates cached `/v1/metadata` and `/v1/libraries` responses so newly discovered titles appear immediately.
+- **Library/media cache invalidation** — library create/update/delete and media update/delete now invalidate affected cached list bodies; deleting a media file also clears the library stats cache.
+
+#### Trickplay & artifacts
+
+- **Scan trickplay operations** — scan/refresh-triggered trickplay generation now joins a single active operation per library instead of creating one operation per file. Late attaches can reopen a just-finished operation rather than leaving it terminal.
+- **Built-in trickplay artifact quota** — core trickplay generation is no longer restricted by the per-plugin artifact quota. Built-in generators now use `system.artifacts.coreMaxStorageGb` (`0` = automatic: 5% of the artifacts volume, clamped to 5–100 GB, with a 1 GB minimum free-space floor). Exceeding the budget skips the file with a warning so it can be generated again after space is freed.
+- **Artifact error codes** — storage-level artifact errors now use `artifact.*` codes, while plugin quota violations continue to use `plugin.artifact.quota_exceeded`.
+- **Trickplay temp directories** — failed temp-directory creation now reports the actual cause instead of a later "sprite is empty" error; deleting an already-removed temp directory is no longer logged as an error.
+- **Stale keyframes after file replacement** — keyframe probe buckets now include the file's size/mtime signature, preventing replaced files from using keyframes or cached failures from previous content for up to 30 minutes.
+- **Stale local artwork** — missing sidecar image files now skip image synchronization with a warning instead of retrying until the job permanently fails.
+
+#### Operations & concurrency
+
+- **Sidecar rewrite storm** — refreshed titles no longer launch an unbounded fire-and-forget rewrite each. Syncs are coalesced per title to one in-flight run plus at most one re-run and execute under the I/O concurrency semaphore.
+- **File refresh lost its technical task** — when a metadata refresh is already running, "refresh file" now reuses that operation while still scheduling the probe/marker refresh.
+- **Deduplicated sweeps are observable** — refresh-all, media-audit and library-error checks now log when a request joins an already-running sweep.
+- **SQLite write contention** — standalone writes no longer synchronously busy-wait on an open transaction lock. They queue on the transaction lock in JavaScript, while the missing-translation flag is written inside the season/episode transaction, preventing event-loop stalls and `database is locked` failures.
+- **Cancelled downloads** — worker-cancelled downloads during rescue/shutdown now log a warning instead of an error.
+
+#### Cache & API consistency
+
+- **Batch cache reads** — `mget`/`getOrSetMany` now return cached `null` values instead of treating them as cache misses.
+- **Profile cache invalidation** — profile-scoped ETag invalidation now matches the profile ID segment exactly instead of matching substrings.
+- **Admin dashboard library relations** — `/admin/dashboard-view` now returns the full `LibraryWithRelations` contract, including `paths` and file/size statistics. This fixes dashboard cache seeding failures and missing storage breakdown data.
