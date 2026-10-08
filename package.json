@@ -38,7 +38,7 @@
 		"@elysiajs/cors": "^1.4.2",
 		"@elysiajs/openapi": "^1.4.16",
 		"@elysiajs/server-timing": "^1.4.1",
-		"@reelvault/sdk": "^1.2.0",
+		"@reelvault/sdk": "^1.2.1",
 		"@sinclair/typebox": "^0.34.52",
 		"better-auth": "1.7.7",
 		"drizzle-orm": "^1.0.0-rc.5-ab785fc",
@@ -58,7 +58,7 @@
 		"drizzle-kit": "^1.0.0-rc.5-ab785fc",
 		"drizzle-typebox": "^0.3.3",
 		"knip": "^6.40.0",
-		"lefthook": "^2.1.17",
+		"lefthook": "^2.2.0",
 		"oxlint": "^1.87.0",
 		"oxlint-tsgolint": "^7.0.2003",
 		"typescript": "^7.0.2"
