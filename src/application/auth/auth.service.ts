@@ -2,6 +2,7 @@ import type {
 	AuthProfile,
 	AuthSession,
 	AuthUser,
+	ChangePasswordRequest,
 	LoginRequest,
 	Profile,
 	RegisterRequest,
@@ -14,7 +15,7 @@ import { usersRepository } from "@/database/repositories/users.repository";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
-import { ForbiddenError, TooManyRequestsError, UnauthorizedError } from "@/utils/errors";
+import { ForbiddenError, TooManyRequestsError, UnauthorizedError, ValidationError } from "@/utils/errors";
 import { rewriteCookieDomain } from "@/utils/http.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
 import { serializeDate } from "@/utils/time.utils";
@@ -41,6 +42,34 @@ class AuthService extends BaseService {
 
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});
+	}
+
+	async changePassword(body: ChangePasswordRequest, request: Request): Promise<Response> {
+		return await this.safeExecute("changePassword", async () => {
+			const response = await betterAuthApi.changePassword({
+				currentPassword: body.currentPassword,
+				newPassword: body.newPassword,
+				headers: request.headers,
+			});
+			if (!response.ok) throw await this.toChangePasswordError(response);
+
+			return rewriteCookieDomain(response, request.headers.get("origin"));
+		});
+	}
+
+	/** better-auth reports a wrong current password as 400 INVALID_PASSWORD — a 401 would make clients drop the session. */
+	private async toChangePasswordError(response: Response): Promise<ValidationError> {
+		const body: unknown = await response.json().catch(() => null);
+		const reason = typeof body === "object" && body !== null && "code" in body ? String(body.code) : "";
+		if (reason === "INVALID_PASSWORD") {
+			return new ValidationError("Current password is incorrect", { code: "auth.invalid_current_password" });
+		}
+
+		if (reason === "PASSWORD_TOO_SHORT" || reason === "PASSWORD_TOO_LONG") {
+			return new ValidationError("New password does not meet the length requirements", { code: "auth.weak_password" });
+		}
+
+		return new ValidationError("Password change failed", { code: "auth.change_password_failed" });
 	}
 
 	async login(body: LoginRequest, request: Request): Promise<Response> {

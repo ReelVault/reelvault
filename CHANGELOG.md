@@ -350,3 +350,9 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Direct `/index.html` requests missed the same-origin API marker** — only the SPA fallback injected `<meta name="reelvault-api-origin">`; a direct `/index.html` (what the PWA precache fetches) was served raw and cached for an hour, so the installed app shell fell back to the `api.*` subdomain heuristic and its API calls were blocked by `connect-src 'self'`. The HTML entry transformation now applies to direct requests too.
 - **Plugin schemas could reference undeclared dialogs** — a `button` or `onMount` `openDialog` action pointing at a dialog missing from `ui.json` produced a dead button (the host silently ignores unknown dialogs). Manifest validation now rejects unknown dialog references in inline schemas and `schemaRef` files.
 - **SQLite writes could freeze the server behind an open transaction** — a standalone write on the main connection busy-waited inside SQLite while a transaction held the write lock, blocking the event loop and failing with `database is locked` (observed on scan enqueues, worker cancellation and audit inserts). Every write through the main client now queues on the same in-process lock as transactions — reentrant, so nested writes and prepared statements are covered — and statements issued inside a transaction use the transaction connection instead of the main one.
+
+# v1.3.0
+
+### Features
+
+- **Change password** — `POST /v1/auth/change-password` lets a signed-in user change their password. A wrong current password returns `auth.invalid_current_password` (400, so clients do not treat it as an expired session), a too short or too long one `auth.weak_password`. All other sessions are revoked; the current session stays signed in.

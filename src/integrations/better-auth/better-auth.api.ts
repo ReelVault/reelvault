@@ -45,6 +45,18 @@ export const betterAuthApi = {
 		invalidateSessionCache();
 	},
 
+	async changePassword(input: { currentPassword: string; newPassword: string; headers: Headers }): Promise<Response> {
+		const response = await auth.api.changePassword({
+			// `revokeOtherSessions` is forced on by the before-hook in better-auth.config.
+			body: { currentPassword: input.currentPassword, newPassword: input.newPassword, revokeOtherSessions: true },
+			headers: input.headers,
+			asResponse: true,
+		});
+		invalidateSessionCache();
+
+		return response;
+	},
+
 	async createUser(input: CreateUserInput): Promise<{ user: { id: string } }> {
 		return await auth.api.createUser({
 			body: { name: input.name, email: input.email, password: input.password, role: input.role },

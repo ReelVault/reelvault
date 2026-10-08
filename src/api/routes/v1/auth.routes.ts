@@ -1,5 +1,7 @@
 import {
 	ActiveSessionsResponseSchema,
+	ChangePasswordRequestSchema,
+	ChangePasswordResponseSchema,
 	LoginRequestSchema,
 	LoginResponseSchema,
 	LogoutResponseSchema,
@@ -43,6 +45,8 @@ export const authRoutes = new Elysia({
 		"auth.register.response": RegisterResponseSchema,
 		"auth.login.body": LoginRequestSchema,
 		"auth.login.response": LoginResponseSchema,
+		"auth.change_password.body": ChangePasswordRequestSchema,
+		"auth.change_password.response": ChangePasswordResponseSchema,
 		"auth.logout.response": LogoutResponseSchema,
 		"auth.session.response": SessionResponseSchema,
 	})
@@ -98,6 +102,12 @@ export const authRoutes = new Elysia({
 			detail: { description: "List the authenticated user's active sessions without exposing session tokens." },
 		},
 	)
+	.post("/change-password", async ({ body, request }) => await authService.changePassword(body, request), {
+		body: "auth.change_password.body",
+		response: { ...ROUTE_ERRORS.AUTH, 200: "auth.change_password.response", 400: "error.response" },
+		rateLimit: { name: "auth-change-password", max: 5, windowMs: 15 * MINUTE },
+		detail: { description: "Change the signed-in user's password. Every other session is revoked; the current one stays signed in." },
+	})
 	.delete("/sessions", async ({ request, session, user }) => await sessionsService.revokeOthers(request.headers, session?.id, user?.id), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
 		rateLimit: { name: "auth-sessions-revoke-others", max: 30, windowMs: MINUTE },

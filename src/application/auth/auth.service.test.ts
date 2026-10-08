@@ -63,3 +63,42 @@ describe("authService.login enforceTwoFactor", () => {
 		expect(findByEmail.calls).toHaveLength(0);
 	});
 });
+
+describe("authService.changePassword", () => {
+	const body = { currentPassword: "old-password", newPassword: "new-password-1" };
+	const request = new Request("http://localhost:3030/v1/auth/change-password", { method: "POST" });
+
+	async function failureCode(response: Response): Promise<string | undefined> {
+		stubs.push(stubMethod(betterAuthApi, "changePassword", () => response));
+		try {
+			await authService.changePassword(body, request);
+		} catch (error) {
+			return (error as { code?: string }).code;
+		}
+
+		return undefined;
+	}
+
+	test("passes the better-auth response through on success", async () => {
+		stubs.push(stubMethod(betterAuthApi, "changePassword", () => Response.json({ token: "t", user: {} })));
+
+		const response = await authService.changePassword(body, request);
+
+		expect(response.status).toBe(200);
+	});
+
+	test("maps a wrong current password to a 400-class code, never a 401", async () => {
+		const code = await failureCode(Response.json({ code: "INVALID_PASSWORD" }, { status: 400 }));
+
+		expect(code).toBe("auth.invalid_current_password");
+	});
+
+	test("maps length violations to auth.weak_password", async () => {
+		expect(await failureCode(Response.json({ code: "PASSWORD_TOO_SHORT" }, { status: 400 }))).toBe("auth.weak_password");
+		expect(await failureCode(Response.json({ code: "PASSWORD_TOO_LONG" }, { status: 400 }))).toBe("auth.weak_password");
+	});
+
+	test("falls back to a generic code for unknown failures", async () => {
+		expect(await failureCode(new Response("nope", { status: 500 }))).toBe("auth.change_password_failed");
+	});
+});
