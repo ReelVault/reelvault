@@ -160,4 +160,32 @@ describe("DatabaseFactory.transaction", () => {
 			expect(rows).toHaveLength(1);
 		});
 	});
+
+	test("interleaved transactions and queued writes never hit the SQLite lock", async () => {
+		const rounds = 20;
+
+		await Promise.all(
+			Array.from({ length: rounds }, (_, round) =>
+				(async () => {
+					await databaseFactory.transaction(async (tx) => {
+						await tx.run(sql`INSERT INTO transaction_lock_probe (value) VALUES (${`tx-${round}`})`);
+						// In-transaction statements must join the transaction connection.
+						await databaseFactory
+							.getClient()
+							.insert(probe)
+							.values({ value: `inside-${round}` });
+					});
+					// Standalone writes queue behind whichever transaction is open.
+					await client.insert(probe).values({ value: `outside-${round}` });
+				})(),
+			),
+		);
+
+		const rows = await databaseFactory.getClient().select().from(probe);
+		for (let round = 0; round < rounds; round++) {
+			expect(rows.filter((row) => row.value === `tx-${round}`)).toHaveLength(1);
+			expect(rows.filter((row) => row.value === `inside-${round}`)).toHaveLength(1);
+			expect(rows.filter((row) => row.value === `outside-${round}`)).toHaveLength(1);
+		}
+	});
 });
