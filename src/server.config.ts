@@ -32,6 +32,13 @@ function resolveToolPath(key: "ffmpeg.path" | "ffprobe.path", envPath: string | 
  * 1. DYNAMIC RUNTIME CONFIGURATION (Values configurable by administrator via Admin Panel / system_settings)
  * 2. STATIC ARCHITECTURAL CONSTANTS (Fixed system invariants, path resolvers, protocol limits)
  */
+/**
+ * The HLS segment length is baked into every running transcode (segment names, playlists,
+ * buffer maths), so changing it live would corrupt open sessions. It is read once, when
+ * first needed after a server start, and a changed setting applies after a restart.
+ */
+let hlsSegmentDurationAtBoot: number | undefined;
+
 export const serverConfig = {
 	/** Smart CPU & Resource Allocation Engine */
 	resources: {
@@ -107,7 +114,9 @@ export const serverConfig = {
 			return systemSettingsStore.get("stream.maxPerStreamBandwidthKbps");
 		},
 		get hlsSegmentDurationSeconds() {
-			return systemSettingsStore.get("stream.hlsSegmentDurationSeconds");
+			hlsSegmentDurationAtBoot ??= systemSettingsStore.get("stream.hlsSegmentDurationSeconds");
+
+			return hlsSegmentDurationAtBoot;
 		},
 		get inactivityTimeoutMs() {
 			return systemSettingsStore.get("stream.inactivityTimeoutMs");

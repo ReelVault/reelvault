@@ -41,3 +41,14 @@ describe("serverConfig tool paths", () => {
 		expect(serverConfig.ffprobe.path).toBe("ffprobe");
 	});
 });
+
+describe("serverConfig HLS segment length", () => {
+	afterEach(() => systemSettingsStore.clearRuntimeValues());
+
+	test("is fixed for the lifetime of the process so running transcodes keep their segment grid", () => {
+		const atBoot = serverConfig.stream.hlsSegmentDurationSeconds;
+		systemSettingsStore.setRuntimeValue("stream.hlsSegmentDurationSeconds", atBoot + 4);
+
+		expect(serverConfig.stream.hlsSegmentDurationSeconds).toBe(atBoot);
+	});
+});
