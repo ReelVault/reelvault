@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PluginManifest } from "@reelvault/sdk/plugin";
 import { defineConfig, field } from "@reelvault/sdk/plugin";
 import {
 	assertDeclaredPluginCapabilities,
 	resolvePluginEntry,
+	resolvePluginUiSchemas,
 	validatePluginConfig,
 	validatePluginManifest,
 	validatePluginSchema,
@@ -159,6 +163,62 @@ describe("plugin ui manifest", () => {
 		expect(() =>
 			validatePluginUiManifest({ ...validUiManifest, tabs: { details: [{ id: "t", host: "details", label: "T", page: "nope" }] } }),
 		).toThrow("unknown page");
+	});
+
+	it("accepts a schema button that opens a declared dialog", () => {
+		expect(() =>
+			validatePluginUiManifest({
+				...validUiManifest,
+				dialogs: [...validUiManifest.dialogs, { id: "manage", title: "Manage", tag: "rv-example-manage" }],
+				pages: [
+					...validUiManifest.pages,
+					{
+						id: "manage-page",
+						path: "manage",
+						name: "Manage",
+						schema: { body: [{ type: "button", label: "Open", action: { type: "openDialog", dialog: "manage" } }] },
+					},
+				],
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects a schema button that opens an undeclared dialog", () => {
+		expect(() =>
+			validatePluginUiManifest({
+				...validUiManifest,
+				pages: [
+					...validUiManifest.pages,
+					{
+						id: "manage-page",
+						path: "manage",
+						name: "Manage",
+						schema: { body: [{ type: "button", label: "Open", action: { type: "openDialog", dialog: "missing" } }] },
+					},
+				],
+			}),
+		).toThrow("unknown dialog 'missing'");
+	});
+
+	it("validates schemaRef dialog references against the manifest", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "reelvault-plugin-"));
+		try {
+			await Bun.write(
+				join(directory, "schema.json"),
+				JSON.stringify({ body: [{ type: "button", label: "Open", action: { type: "openDialog", dialog: "missing" } }] }),
+			);
+			const manifest = {
+				name: "X",
+				version: "1.0.0",
+				entry: "./dist/ui/index.js",
+				dialogs: [{ id: "report", title: "Report", tag: "rv-x-report" }],
+				pages: [{ id: "admin", path: "admin", name: "Admin", schemaRef: "./schema.json" }],
+			};
+
+			await expect(resolvePluginUiSchemas(directory, manifest)).rejects.toThrow("unknown dialog 'missing'");
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("rejects duplicate page ids", () => {

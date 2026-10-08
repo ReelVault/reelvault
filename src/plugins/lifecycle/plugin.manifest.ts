@@ -144,8 +144,9 @@ export function validatePluginUiManifest(value: unknown): asserts value is Plugi
 	assertNonEmptyString(value.version, "ui.version");
 	if (value.defaultLocale !== undefined) assertNonEmptyString(value.defaultLocale, "ui.defaultLocale");
 
-	const pageIds = validateUiPages(value.pages);
-	const dialogIds = validateUiDialogs(value.dialogs);
+	const declaredDialogIds = collectDeclaredDialogIds(value.dialogs);
+	const pageIds = validateUiPages(value.pages, declaredDialogIds);
+	const dialogIds = validateUiDialogs(value.dialogs, declaredDialogIds);
 	if (value.tabs !== undefined) validateUiTabs(value.tabs, pageIds);
 
 	if (value.slots !== undefined) validateUiSlots(value.slots, pageIds, dialogIds);
@@ -180,7 +181,7 @@ function uiManifestUsesTag(value: Record<string, unknown>): boolean {
 	return false;
 }
 
-function validateUiPages(pages: unknown): Set<string> {
+function validateUiPages(pages: unknown, dialogIds: ReadonlySet<string>): Set<string> {
 	const ids = new Set<string>();
 	if (pages === undefined) return ids;
 
@@ -200,7 +201,7 @@ function validateUiPages(pages: unknown): Set<string> {
 		assertLocalizedText(page.name, `ui.pages.${page.id}.name`);
 		if (page.icon !== undefined) assertNonEmptyString(page.icon, `ui.pages.${page.id}.icon`);
 
-		validateSurfaceDefinition(page, `ui.pages.${page.id}`);
+		validateSurfaceDefinition(page, `ui.pages.${page.id}`, dialogIds);
 		if (page.adminOnly !== undefined && typeof page.adminOnly !== "boolean") {
 			throw new ValidationError(`Plugin ui.json page '${page.id}' adminOnly must be a boolean`);
 		}
@@ -217,7 +218,23 @@ function validateUiPages(pages: unknown): Set<string> {
 	return ids;
 }
 
-function validateUiDialogs(dialogs: unknown): Set<string> {
+/**
+ * Dialog ids collected before surface validation so a schema may reference any
+ * declared dialog — forward references included. Dialog shapes are validated
+ * separately; malformed entries are ignored here and rejected there.
+ */
+function collectDeclaredDialogIds(dialogs: unknown): Set<string> {
+	const ids = new Set<string>();
+	if (!Array.isArray(dialogs)) return ids;
+
+	for (const dialog of dialogs) {
+		if (isRecord(dialog) && isNonEmptyString(dialog.id)) ids.add(dialog.id);
+	}
+
+	return ids;
+}
+
+function validateUiDialogs(dialogs: unknown, dialogIds: ReadonlySet<string>): Set<string> {
 	const ids = new Set<string>();
 	if (dialogs === undefined) return ids;
 
@@ -237,7 +254,7 @@ function validateUiDialogs(dialogs: unknown): Set<string> {
 			throw new ValidationError(`Plugin ui.json dialog '${dialog.id}' has an unsupported size`);
 		}
 
-		validateSurfaceDefinition(dialog, `ui.dialogs.${dialog.id}`);
+		validateSurfaceDefinition(dialog, `ui.dialogs.${dialog.id}`, dialogIds);
 		if (dialog.adminOnly !== undefined && typeof dialog.adminOnly !== "boolean") {
 			throw new ValidationError(`Plugin ui.json dialog '${dialog.id}' adminOnly must be a boolean`);
 		}
@@ -396,7 +413,7 @@ function assertSurfaceTag(tag: unknown, field: string): asserts tag is string {
 }
 
 /** A page/dialog renders either a custom element (`tag`) or a schema exactly once. */
-function validateSurfaceDefinition(surface: Record<string, unknown>, field: string): void {
+function validateSurfaceDefinition(surface: Record<string, unknown>, field: string, dialogIds: ReadonlySet<string>): void {
 	const variants = [surface.tag !== undefined, surface.schema !== undefined, surface.schemaRef !== undefined].filter(Boolean).length;
 	if (variants !== 1) {
 		throw new ValidationError(`Plugin ui.json ${field} must declare exactly one of tag, schema or schemaRef`);
@@ -406,11 +423,15 @@ function validateSurfaceDefinition(surface: Record<string, unknown>, field: stri
 
 	if (surface.schemaRef !== undefined) assertRelativeString(surface.schemaRef, `${field}.schemaRef`);
 
-	if (surface.schema !== undefined) validatePluginSchema(surface.schema, `${field}.schema`);
+	if (surface.schema !== undefined) validatePluginSchema(surface.schema, `${field}.schema`, dialogIds);
 }
 
 /** Validates a declarative schema (used both for inline schemas and loaded schemaRef files). */
-export function validatePluginSchema(value: unknown, field: string): asserts value is PluginUiSchemaSurface {
+export function validatePluginSchema(
+	value: unknown,
+	field: string,
+	dialogIds?: ReadonlySet<string>,
+): asserts value is PluginUiSchemaSurface {
 	if (!isRecord(value)) throw new ValidationError(`Plugin ui.json ${field} must be an object`);
 
 	if (value.data !== undefined) {
@@ -429,11 +450,11 @@ export function validatePluginSchema(value: unknown, field: string): asserts val
 	if (value.onMount !== undefined) {
 		if (!Array.isArray(value.onMount)) throw new ValidationError(`Plugin ui.json ${field}.onMount must be an array`);
 
-		for (const [index, action] of value.onMount.entries()) validateSchemaAction(action, `${field}.onMount[${index}]`);
+		for (const [index, action] of value.onMount.entries()) validateSchemaAction(action, `${field}.onMount[${index}]`, dialogIds);
 	}
 
 	const counter = { count: 0, fields: 0 };
-	validateSchemaNodes(value.body, `${field}.body`, 0, counter);
+	validateSchemaNodes(value.body, `${field}.body`, 0, counter, dialogIds);
 }
 
 function validateSchemaField(entry: Record<string, unknown>, fieldName: string): void {
@@ -467,18 +488,25 @@ function validateSchemaField(entry: Record<string, unknown>, fieldName: string):
 	if (entry.hiddenIf !== undefined) validateSchemaCondition(entry.hiddenIf, `${fieldName}.hiddenIf`);
 }
 
-function validateSchemaNodes(nodes: unknown, field: string, depth: number, counter: { count: number; fields: number }): void {
+function validateSchemaNodes(
+	nodes: unknown,
+	field: string,
+	depth: number,
+	counter: { count: number; fields: number },
+	dialogIds: ReadonlySet<string> | undefined,
+): void {
 	if (depth > SCHEMA_MAX_DEPTH) throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum nesting depth`);
 
 	if (!Array.isArray(nodes)) throw new ValidationError(`Plugin ui.json ${field} must be an array`);
 
-	for (const node of nodes) validateSchemaNode(node, field, depth, counter);
+	for (const node of nodes) validateSchemaNode(node, field, depth, counter, dialogIds);
 }
 
 interface SchemaNodeContext {
 	field: string;
 	depth: number;
 	counter: { count: number; fields: number };
+	dialogIds: ReadonlySet<string> | undefined;
 }
 
 function validateFieldNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
@@ -496,7 +524,7 @@ function validateContainerNode(node: Record<string, unknown>, context: SchemaNod
 		if (node.description !== undefined) assertLocalizedText(node.description, `${field}.description`);
 	}
 
-	validateSchemaNodes(node.children, `${field}.children`, context.depth + 1, context.counter);
+	validateSchemaNodes(node.children, `${field}.children`, context.depth + 1, context.counter, context.dialogIds);
 }
 
 function validateTabsNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
@@ -507,7 +535,7 @@ function validateTabsNode(node: Record<string, unknown>, context: SchemaNodeCont
 		if (!isRecord(tab)) throw new ValidationError(`Plugin ui.json ${field}.tabs[${index}] must be an object`);
 
 		assertLocalizedText(tab.label, `${field}.tabs[${index}].label`);
-		validateSchemaNodes(tab.children, `${field}.tabs[${index}].children`, context.depth + 1, context.counter);
+		validateSchemaNodes(tab.children, `${field}.tabs[${index}].children`, context.depth + 1, context.counter, context.dialogIds);
 	}
 }
 
@@ -524,7 +552,7 @@ function validateAlertNode(node: Record<string, unknown>, context: SchemaNodeCon
 function validateButtonNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	const { field } = context;
 	assertLocalizedText(node.label, `${field}.label`);
-	validateSchemaAction(node.action, `${field}.action`);
+	validateSchemaAction(node.action, `${field}.action`, context.dialogIds);
 	if (node.disabledIf !== undefined) validateSchemaCondition(node.disabledIf, `${field}.disabledIf`);
 
 	if (node.hiddenIf !== undefined) validateSchemaCondition(node.hiddenIf, `${field}.hiddenIf`);
@@ -554,12 +582,13 @@ function validateTableNode(node: Record<string, unknown>, context: SchemaNodeCon
 		assertNonEmptyString(column.value, `${field}.columns[].value`);
 	}
 
-	if (node.rowActions !== undefined) validateSchemaNodes(node.rowActions, `${field}.rowActions`, context.depth + 1, context.counter);
+	if (node.rowActions !== undefined)
+		validateSchemaNodes(node.rowActions, `${field}.rowActions`, context.depth + 1, context.counter, context.dialogIds);
 }
 
 function validateListNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	assertNonEmptyString(node.source, `${context.field}.source`);
-	validateSchemaNodes(node.item, `${context.field}.item`, context.depth + 1, context.counter);
+	validateSchemaNodes(node.item, `${context.field}.item`, context.depth + 1, context.counter, context.dialogIds);
 }
 
 function validateEmbedNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
@@ -570,8 +599,9 @@ function validateEmbedNode(node: Record<string, unknown>, context: SchemaNodeCon
 function validateIfNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	const { field } = context;
 	validateSchemaCondition(node.condition, `${field}.condition`);
-	validateSchemaNodes(node.content, `${field}.content`, context.depth + 1, context.counter);
-	if (node.otherwise !== undefined) validateSchemaNodes(node.otherwise, `${field}.otherwise`, context.depth + 1, context.counter);
+	validateSchemaNodes(node.content, `${field}.content`, context.depth + 1, context.counter, context.dialogIds);
+	if (node.otherwise !== undefined)
+		validateSchemaNodes(node.otherwise, `${field}.otherwise`, context.depth + 1, context.counter, context.dialogIds);
 }
 
 function validateNoopNode(): void {
@@ -603,7 +633,13 @@ const schemaNodeValidators: Readonly<Record<string, SchemaNodeValidator>> = {
 	empty: validateNoopNode,
 };
 
-function validateSchemaNode(node: unknown, field: string, depth: number, counter: { count: number; fields: number }): void {
+function validateSchemaNode(
+	node: unknown,
+	field: string,
+	depth: number,
+	counter: { count: number; fields: number },
+	dialogIds: ReadonlySet<string> | undefined,
+): void {
 	counter.count += 1;
 	if (counter.count > SCHEMA_MAX_NODES) throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum node count`);
 
@@ -612,10 +648,10 @@ function validateSchemaNode(node: unknown, field: string, depth: number, counter
 	const validator = schemaNodeValidators[node.type];
 	if (!validator) throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`);
 
-	validator(node, { field: `${field}.${node.type}`, depth, counter });
+	validator(node, { field: `${field}.${node.type}`, depth, counter, dialogIds });
 }
 
-function validateSchemaAction(action: unknown, field: string): void {
+function validateSchemaAction(action: unknown, field: string, dialogIds?: ReadonlySet<string>): void {
 	if (!isRecord(action) || typeof action.type !== "string" || !SCHEMA_ACTION_TYPES.has(action.type)) {
 		throw new ValidationError(`Plugin ui.json ${field} has an unsupported action type`);
 	}
@@ -634,6 +670,9 @@ function validateSchemaAction(action: unknown, field: string): void {
 			return;
 		case "openDialog":
 			assertNonEmptyString(action.dialog, `${field}.dialog`);
+			if (dialogIds && !dialogIds.has(action.dialog)) {
+				throw new ValidationError(`Plugin ui.json ${field} references unknown dialog '${action.dialog}'`);
+			}
 
 			return;
 		case "close":
@@ -763,12 +802,17 @@ export function resolvePluginEntry(pluginDir: string, manifest: PluginManifest):
 }
 
 /** Loads a `schemaRef` file, validates it and returns the schema surface. */
-async function loadResolvedSchema(pluginDir: string, ref: string, field: string): Promise<PluginUiSchemaSurface> {
+async function loadResolvedSchema(
+	pluginDir: string,
+	ref: string,
+	field: string,
+	dialogIds: ReadonlySet<string>,
+): Promise<PluginUiSchemaSurface> {
 	const refPath = resolvePluginPath(pluginDir, ref, `${field}.schemaRef`);
 	const raw = await FileUtils.readJson<unknown>(refPath, { maxSize: SCHEMA_MAX_BYTES });
 	if (raw === null) throw new ValidationError(`Plugin ui.json ${field}.schemaRef is missing or unreadable: ${ref}`);
 
-	validatePluginSchema(raw, `${field}.schema`);
+	validatePluginSchema(raw, `${field}.schema`, dialogIds);
 
 	return raw;
 }
@@ -778,12 +822,13 @@ async function loadResolvedSchema(pluginDir: string, ref: string, field: string)
  * schemas in the aggregated UI manifest (no extra fetch, role filtering applies).
  */
 export async function resolvePluginUiSchemas(pluginDir: string, manifest: PluginUiManifest): Promise<PluginUiManifest> {
+	const dialogIds = new Set((manifest.dialogs ?? []).map((dialog) => dialog.id));
 	const pages = manifest.pages
 		? await Promise.all(
 				manifest.pages.map(async (page, index) => {
 					if (!page.schemaRef) return page;
 
-					const schema = await loadResolvedSchema(pluginDir, page.schemaRef, `ui.pages[${index}]`);
+					const schema = await loadResolvedSchema(pluginDir, page.schemaRef, `ui.pages[${index}]`, dialogIds);
 
 					return { ...page, schema, schemaRef: undefined };
 				}),
@@ -795,7 +840,7 @@ export async function resolvePluginUiSchemas(pluginDir: string, manifest: Plugin
 				manifest.dialogs.map(async (dialog, index) => {
 					if (!dialog.schemaRef) return dialog;
 
-					const schema = await loadResolvedSchema(pluginDir, dialog.schemaRef, `ui.dialogs[${index}]`);
+					const schema = await loadResolvedSchema(pluginDir, dialog.schemaRef, `ui.dialogs[${index}]`, dialogIds);
 
 					return { ...dialog, schema, schemaRef: undefined };
 				}),
