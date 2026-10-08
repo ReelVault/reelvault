@@ -258,3 +258,27 @@ test("getGenres skips providers without the capability and caches the first non-
 	await expect(providerService.getGenres("movie", "b-provider")).resolves.toEqual([]);
 	expect(calls).toEqual(["b", "c", "b", "b"]);
 });
+
+test("the aggregated lookup is cached per metadata language, so a language change yields fresh results", async () => {
+	const languages: Array<string | undefined> = [];
+	registerProviders([
+		createProvider("lang-provider", {
+			search: () =>
+				Promise.resolve([
+					{ externalId: "ext-1", title: "Cache Language Movie", releaseDate: "2001-01-01", popularity: 10, voteCount: 100 },
+				]),
+			getDetails: (_type, externalId, options) => {
+				languages.push(options?.language);
+
+				return Promise.resolve({ externalId, title: "Cache Language Movie", releaseDate: "2001-01-01" });
+			},
+		}),
+	]);
+	const identity = { title: "Cache Language Movie", type: "movie" as const, year: 2001 };
+
+	await providerService.fetchAggregatedDetails("movie", identity, { language: "pl" });
+	await providerService.fetchAggregatedDetails("movie", identity, { language: "pl" });
+	await providerService.fetchAggregatedDetails("movie", identity, { language: "en" });
+
+	expect(languages).toEqual(["pl", "en"]);
+});

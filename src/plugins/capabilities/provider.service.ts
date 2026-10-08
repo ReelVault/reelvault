@@ -100,8 +100,9 @@ class ProviderService extends BaseService {
 	 * reload/upgrade of a provider with the same id cannot serve stale results
 	 * under the previous implementation's key.
 	 */
-	private async getProviderKey(): Promise<string> {
-		const providers = await metadataProviderSettingsService.getOrderedProviders();
+	/** Cache-key prefix: the ordered provider ids (per-library overrides included when a library is given) + registry generation. */
+	private async getProviderKey(libraryId?: string): Promise<string> {
+		const providers = await metadataProviderSettingsService.getOrderedProviders(libraryId);
 
 		return `${providers.map((provider) => provider.id).join(",")}#${pluginRegistry.getGeneration()}`;
 	}
@@ -242,10 +243,11 @@ class ProviderService extends BaseService {
 		parsed: MediaIdentity,
 		options?: { libraryId?: string | undefined; language?: string | undefined },
 	): Promise<AggregatedMetadata | null> {
-		const providerKey = await this.getProviderKey();
+		// A library's own provider order and metadata language change the result, so both belong in the key.
+		const providerKey = await this.getProviderKey(options?.libraryId);
 		const libraryScope = options?.libraryId ? `:l:${options.libraryId}` : "";
-		const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}${libraryScope}`;
 		const language = options?.language;
+		const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}${libraryScope}:${language ?? ""}`;
 
 		try {
 			return await this.caches.aggregatedDetails.getOrSet(key, async () => {
