@@ -360,3 +360,9 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Remove from Continue Watching** — `DELETE /v1/me/continue-watching/:metadataId` hides a title from the row without discarding resume positions (unlike a progress reset). The title comes back as soon as it is played again. Stored as `playback_progress.dismissed_at` (new migration).
 - **Rewind on resume** — new profile preference `resumeRewindSeconds` (0–30 s, default `0`) with an admin default (`profiles.defaultPreferences.resumeRewindSeconds`).
 - **Plugin UI switches** — administrators can hide a plugin's whole UI or single pages, dialogs, tabs, slot entries, the search provider or the playback pre-roll without disabling the plugin: `GET/PUT/DELETE /v1/admin/plugins/:pluginId/ui`. Hiding a page also drops the tabs, buttons and search results that point at it; an unknown key is rejected with `plugin_ui.unknown_contribution`, changes are audited and the switches are removed when the plugin is uninstalled. Stored in the new `plugin_ui_overrides` table (only hidden items are kept).
+
+### Fixes
+
+- **Wrong year for titles containing a year** — "Blade Runner 2049 (2017).mkv" was recognised as "Blade Runner" (2049) because the first year-like number won. The last year before the release tags now wins, so the title keeps its own number.
+- **Year-first file names were not recognised** — `(1993) Jurassic Park` and `1993 - Jurassic Park` ended up with the year inside the title and no release year, which made provider matching fail.
+- **Provider id tags polluted titles** — `[tmdbid-…]`, `{imdb-…}` and `[tvdbid-…]` tags are now removed from names (previously only harmless when a year followed them), and "Uncut" is ignored when matching edition titles.

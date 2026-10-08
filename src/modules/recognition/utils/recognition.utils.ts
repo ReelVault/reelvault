@@ -1,15 +1,24 @@
 import type { MediaIdentity } from "@reelvault/sdk/common";
 import { MemoryCache } from "@/utils/memory-cache";
 import { SCENE_NOISE } from "@/utils/release-tags.constants";
-import { EPISODE_FILE_PATTERN, YEAR_FOLDER_PATTERN, YEAR_TITLE_PATTERN } from "./recognition.constants";
+import {
+	BRACKETED_YEAR_PATTERN,
+	EPISODE_FILE_PATTERN,
+	LEADING_YEAR_PATTERN,
+	PROVIDER_ID_TAG_PATTERN,
+	YEAR_FOLDER_PATTERN,
+	YEAR_TITLE_PATTERN,
+	YEAR_TOKEN_PATTERN,
+} from "./recognition.constants";
 
 const EXT_PATTERN = /\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|vob|ogv|divx|mpg|mpeg|iso|nfo|srt|sub|ass)$/i;
 // `episodeMarker` captures the SxxExx / NxN marker with its optional range tail;
 // the numbers themselves are parsed by `extractSeasonEpisode`.
 const SERIES_PATTERN =
 	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?<episodeMarker>(?:s\d{1,3}e\d{1,2}|\d{1,2}x\d{1,2})(?:[-_. ]{1,2}e?\d{1,2}(?!\d))?)/i;
-const MOVIE_PATTERN = /^(?<title>.+?)(?:[\s._(]+)(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?/i;
 const DOT_UNDERSCORE_PATTERN = /[._]/g;
+/** Separators and an opening bracket left dangling in front of the year that was cut off. */
+const TITLE_TAIL_PATTERN = /[\s._([-]+$/;
 
 function cleanTitle(str: string): string {
 	return str.replace(DOT_UNDERSCORE_PATTERN, " ").replace(/\s+/g, " ").trim();
@@ -36,7 +45,7 @@ export function parseFileName(fileName: string): MediaIdentity | null {
 }
 
 function parseFileNameUncached(fileName: string): MediaIdentity | null {
-	const nameWithoutExt = fileName.replace(EXT_PATTERN, "");
+	const nameWithoutExt = fileName.replace(EXT_PATTERN, "").replace(PROVIDER_ID_TAG_PATTERN, "");
 
 	// 1. Series marker (SxxExx / NxN): title/year come from the anchored
 	// pattern, the season/episode numbers from the shared extractor.
@@ -58,18 +67,8 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
 	}
 
 	// 2. If no season was found, look for a movie with a year
-	const movieMatch = nameWithoutExt.match(MOVIE_PATTERN);
-
-	if (movieMatch?.groups) {
-		const { title, year } = movieMatch.groups;
-		if (!title) return null;
-
-		return {
-			title: cleanTitle(title),
-			type: "movie",
-			year: year ? Number.parseInt(year, 10) : undefined,
-		};
-	}
+	const movie = parseMovieWithYear(nameWithoutExt);
+	if (movie) return movie;
 
 	// 3. Fallback — no year and no season pattern in the name: strip scene noise and treat the rest as the title
 	const stripped = nameWithoutExt.replace(SCENE_NOISE, "").trim();
@@ -81,6 +80,31 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
 		type: "movie",
 		year: undefined,
 	};
+}
+
+/**
+ * Movie names that carry a year: `Title (YYYY) ...` / `Title.YYYY.1080p...` (the LAST year before
+ * the scene noise wins, so "Blade Runner 2049 (2017)" is the 2017 film) and year-first names such as
+ * `(1993) Title` / `1993 - Title`.
+ */
+function parseMovieWithYear(name: string): MediaIdentity | null {
+	const leading = name.match(LEADING_YEAR_PATTERN)?.groups;
+	const leadingTitle = leading?.title?.replace(SCENE_NOISE, "");
+	if (leading && leadingTitle && !BRACKETED_YEAR_PATTERN.test(leadingTitle)) {
+		const title = cleanTitle(leadingTitle);
+		if (title) return { title, type: "movie", year: Number.parseInt(leading.parenYear ?? leading.dashYear ?? "", 10) };
+	}
+
+	const head = name.replace(SCENE_NOISE, "");
+	let lastYear: RegExpExecArray | undefined;
+	for (const match of head.matchAll(YEAR_TOKEN_PATTERN)) lastYear = match;
+
+	if (lastYear?.index === undefined || !lastYear.groups?.year) return null;
+
+	const title = cleanTitle(head.slice(0, lastYear.index).replace(TITLE_TAIL_PATTERN, ""));
+	if (!title) return null;
+
+	return { title, type: "movie", year: Number.parseInt(lastYear.groups.year, 10) };
 }
 
 /**

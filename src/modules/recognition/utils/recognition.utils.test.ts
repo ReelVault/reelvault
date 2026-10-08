@@ -14,6 +14,50 @@ function identity(title: string, year?: number): MediaIdentity {
 }
 
 describe("parseFileName", () => {
+	describe("movie names with a year", () => {
+		const cases: Array<[string, string, number | undefined]> = [
+			["Jurassic.Park.1993.Remastered.2160p.mkv", "Jurassic Park", 1993],
+			["Blade Runner 2049 (2017).mkv", "Blade Runner 2049", 2017],
+			["2001 A Space Odyssey (1968).mkv", "2001 A Space Odyssey", 1968],
+			["1917 (2019).mkv", "1917", 2019],
+			["1917.2019.1080p.mkv", "1917", 2019],
+			["Movie 2012 2017 1080p BluRay.mkv", "Movie 2012", 2017],
+			["Jurassic Park (1993) [tmdbid-329].mkv", "Jurassic Park", 1993],
+			["Jurassic Park (1993) {tmdb-329}.mkv", "Jurassic Park", 1993],
+		];
+		test.each(cases)("%s", (fileName, title, year) => {
+			expect(parseFileName(fileName)).toEqual({ title, type: "movie", year });
+		});
+	});
+
+	describe("year-first movie names", () => {
+		test.each([
+			["1993 - Jurassic Park.mkv", "Jurassic Park", 1993],
+			["(1993) Jurassic Park.mkv", "Jurassic Park", 1993],
+			["(2019) 1917.mkv", "1917", 2019],
+		])("%s", (fileName, title, year) => {
+			expect(parseFileName(fileName)).toEqual({ title, type: "movie", year });
+		});
+
+		test("a leading year that is part of the title is not taken as the release year", () => {
+			expect(parseFileName("2001 A Space Odyssey 1968.mkv")).toEqual({ title: "2001 A Space Odyssey", type: "movie", year: 1968 });
+			expect(parseFileName("2001 - A Space Odyssey (1968).mkv")).toEqual({ title: "2001 - A Space Odyssey", type: "movie", year: 1968 });
+		});
+	});
+
+	test("strips provider id tags even when the name has no year", () => {
+		expect(parseFileName("Jurassic Park [imdbid-tt0107290].mkv")).toEqual({ title: "Jurassic Park", type: "movie", year: undefined });
+	});
+
+	test("provider id tags do not leak into episode titles", () => {
+		expect(parseFileName("Breaking Bad (2008) [tvdbid-81189] - S01E02.mkv")).toMatchObject({
+			title: "Breaking Bad",
+			season: 1,
+			episode: 2,
+			year: 2008,
+		});
+	});
+
 	test('parses "Name (YYYY) - S01E01 - Title" with a dash separator', () => {
 		expect(parseFileName("Game of Thrones (2011) - S01E01 - Winter Is Coming.mkv")).toEqual({
 			title: "Game of Thrones",

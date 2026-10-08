@@ -64,7 +64,7 @@ export const RESOLUTION_BUCKETS: readonly ResolutionBucket[] = [
  * and drop "theatrical version"/"unrated cut", changing match scores.
  */
 export const EDITION_NOISE =
-	/\b(?:directors?\s+cut|extended(?:\s+cut|\s+edition)?|theatrical(?:\s+cut|\s+version)?|unrated(?:\s+cut|\s+version)?|remastered|imax(?:\s+edition)?|special\s+edition|final\s+cut|ultimate\s+cut)\b/gi;
+	/\b(?:directors?\s+cut|extended(?:\s+cut|\s+edition)?|theatrical(?:\s+cut|\s+version)?|unrated(?:\s+cut|\s+version)?|uncut|remastered|imax(?:\s+edition)?|special\s+edition|final\s+cut|ultimate\s+cut)\b/gi;
 
 /**
  * Scene-release suffix stripped by the recognition fallback: from the first
