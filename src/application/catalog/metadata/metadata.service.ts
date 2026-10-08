@@ -109,6 +109,7 @@ class MetadataService extends BaseService {
 			if (!isOffered) throw new ValidationError("Selected image is not offered by this provider", { code: "metadata.image_not_offered" });
 
 			await imageProcessingService.replaceMetadataImage(metadataId, selection.type, selection.url);
+			this.invalidateReadCaches();
 
 			recordAuditSafe(
 				{
@@ -132,6 +133,7 @@ class MetadataService extends BaseService {
 		return await this.safeExecute("uploadImage", async () => {
 			const uploaded = await imageUploadService.upload(file, { ownerType: "metadata", ownerId: metadataId, variant: type });
 			await imageProcessingService.replaceMetadataImageWithUpload(metadataId, type, uploaded);
+			this.invalidateReadCaches();
 
 			recordAuditSafe(
 				{
@@ -304,6 +306,7 @@ class MetadataService extends BaseService {
 			const result = await metadataRepository.createAndRead(body, query);
 			if (!result) throw new InternalError("Metadata creation failed");
 
+			this.invalidateReadCaches();
 			pluginEventBus.publish("metadata.saved", { metadataId: result.id });
 
 			recordAuditSafe(
@@ -461,6 +464,7 @@ class MetadataService extends BaseService {
 			this.assertExists(metadata, "Metadata", metadataId);
 			const cleanup = await metadataRepository.deleteAndGetCleanup(metadataId);
 			await runMediaCleanup(cleanup);
+			this.invalidateReadCaches();
 
 			recordAuditSafe(
 				{
@@ -499,6 +503,8 @@ class MetadataService extends BaseService {
 				},
 			});
 
+			if (deleted > 0) this.invalidateReadCaches();
+
 			recordAuditSafe(
 				{
 					action: "delete",
@@ -532,6 +538,7 @@ class MetadataService extends BaseService {
 				throw new ValidationError(`Cannot merge metadata of different types (${target.type} vs ${source.type})`);
 
 			await metadataMergeRepository.merge(targetId, sourceId, target.type);
+			this.invalidateReadCaches();
 			// Media files were repointed to the target — rewrite its sidecars.
 			sidecarSyncService.scheduleSync(targetId);
 
