@@ -273,16 +273,14 @@ class WorkerJobRepository {
 				for (const candidate of candidates) {
 					if (claimedItems.length >= max) break;
 
-					if (this.isBlockedByDependency(candidate, parentStatuses)) {
+					const parentStatus = candidate.dependsOnJobId ? parentStatuses.get(candidate.dependsOnJobId) : undefined;
+					if (parentStatus === "failed" || parentStatus === "cancelled") {
 						await this.cancelPending(candidate.id, tx);
 						continue;
 					}
 
-					if (candidate.dependsOnJobId) {
-						const parentStatus = parentStatuses.get(candidate.dependsOnJobId);
-						if (parentStatus === "pending" || parentStatus === "running") {
-							continue; // Prerequisite not finished yet (completed or gone → claimable)
-						}
+					if (parentStatus === "pending" || parentStatus === "running") {
+						continue; // Prerequisite not finished yet (completed or gone → claimable)
 					}
 
 					if (runningCount >= concurrency) break;
@@ -344,14 +342,6 @@ class WorkerJobRepository {
 		return parentStatuses;
 	}
 
-	/** A candidate whose parent already finished with a terminal failure must be cancelled instead of claimed. */
-	private isBlockedByDependency(candidate: { id: string; dependsOnJobId: string | null }, parentStatuses: Map<string, string>): boolean {
-		if (!candidate.dependsOnJobId) return false;
-
-		const parentStatus = parentStatuses.get(candidate.dependsOnJobId);
-
-		return parentStatus === "failed" || parentStatus === "cancelled";
-	}
 	/**
 	 * Validates every distinct operation referenced by the batch (mixed batches
 	 * would otherwise only validate the first one and desync the other counter)
@@ -484,31 +474,31 @@ class WorkerJobRepository {
 	}
 
 	async retry(id: string, runnerId: string, runAt: Date, error: string, claimToken?: string): Promise<boolean> {
-		return await databaseFactory.transaction(async (tx) => {
-			const updated = await tx
-				.update(items)
-				.set({
-					status: "pending",
-					runAt,
-					error,
-					// A retry starts fresh: stale progress/start/result from the failed
-					// attempt must not show up in the admin UI while the job waits.
-					progressPercent: null,
-					startedAt: null,
-					result: null,
-					...RELEASE_CLAIM,
-					updatedAt: new Date(),
-				})
-				.where(runningJobWhere(id, runnerId, claimToken))
-				.returning({ id: items.id, operationId: items.operationId });
+		const now = new Date();
 
-			const updatedJob = updated[0];
-			if (updatedJob?.operationId) {
-				await workerOperationRepository.markJobRetried(updatedJob.operationId, new Date(), tx);
-			}
-
-			return updatedJob !== undefined;
-		});
+		return await databaseFactory.transaction(
+			async (tx) =>
+				await this.terminalizeRunning(tx, {
+					id,
+					runnerId,
+					claimToken,
+					values: {
+						status: "pending",
+						runAt,
+						error,
+						// A retry starts fresh: stale progress/start/result from the failed
+						// attempt must not show up in the admin UI while the job waits.
+						progressPercent: null,
+						startedAt: null,
+						result: null,
+						...RELEASE_CLAIM,
+						updatedAt: now,
+					},
+					afterUpdated: async (updatedJob) => {
+						if (updatedJob.operationId) await workerOperationRepository.markJobRetried(updatedJob.operationId, now, tx);
+					},
+				}),
+		);
 	}
 
 	async fail(id: string, runnerId: string, error: string, claimToken?: string): Promise<boolean> {
@@ -615,20 +605,17 @@ class WorkerJobRepository {
 	async cancelRunning(id: string, claimToken?: string): Promise<boolean> {
 		const now = new Date();
 
-		return await databaseFactory.transaction(async (tx) => {
-			const updated = await tx
-				.update(items)
-				.set({ status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now })
-				.where(runningJobWhere(id, undefined, claimToken))
-				.returning({ id: items.id, operationId: items.operationId });
-
-			const updatedJob = updated[0];
-			if (updatedJob?.operationId) {
-				await workerOperationRepository.markJobFinished(updatedJob.operationId, "cancelled", now, tx);
-			}
-
-			return updatedJob !== undefined;
-		});
+		return await databaseFactory.transaction(
+			async (tx) =>
+				await this.terminalizeRunning(tx, {
+					id,
+					claimToken,
+					values: { status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now },
+					afterUpdated: async (updatedJob) => {
+						if (updatedJob.operationId) await workerOperationRepository.markJobFinished(updatedJob.operationId, "cancelled", now, tx);
+					},
+				}),
+		);
 	}
 
 	/** Returns an aborted running task to the queue with its attempt counter preserved (server rescue). */
@@ -681,7 +668,6 @@ class WorkerJobRepository {
 			.limit(limit);
 	}
 
-	/** True while the operation still has a pending/running job (e.g. a queued stream-init). */
 	/** Active (pending/running) operation ids among the given set — batch probe for the session reaper. */
 	async findActiveOperations(operationIds: readonly string[], tx?: DatabaseTransaction): Promise<Set<string>> {
 		const ids = unique(operationIds.filter(Boolean));
@@ -768,16 +754,9 @@ class WorkerJobRepository {
 				.where(and(...conditions))
 				.returning({ id: items.id, operationId: items.operationId });
 
-			const cancelledByOperation = new Map<string, number>();
-			for (const row of cancelled) {
-				if (!row.operationId) continue;
-
-				cancelledByOperation.set(row.operationId, (cancelledByOperation.get(row.operationId) ?? 0) + 1);
-			}
-
-			for (const [operationId, amount] of cancelledByOperation) {
-				await workerOperationRepository.markJobFinished(operationId, "cancelled", now, tx, amount);
-			}
+			await applyOperationCounts(toOperationCounts(cancelled), (operationId, amount) =>
+				workerOperationRepository.markJobFinished(operationId, "cancelled", now, tx, amount),
+			);
 
 			return cancelled.length;
 		});
@@ -785,7 +764,7 @@ class WorkerJobRepository {
 
 	async getStats(): Promise<WorkerItemStats[]> {
 		return await this.statsCache.getOrSet("all", async () => {
-			const rows = await databaseFactory
+			return await databaseFactory
 				.getClient()
 				.select({
 					workerId: items.workerId,
@@ -794,12 +773,6 @@ class WorkerJobRepository {
 				})
 				.from(items)
 				.groupBy(items.workerId, items.status);
-
-			return rows.map((r) => ({
-				workerId: r.workerId,
-				status: r.status,
-				count: r.count,
-			}));
 		});
 	}
 
@@ -842,13 +815,20 @@ class WorkerJobRepository {
 		if (expiredRows.length === 0) return 0;
 
 		return await databaseFactory.transaction(async (tx) => {
-			const retryable = expiredRows.filter((row) => row.attempts < row.maxAttempts);
-			const exhausted = expiredRows.filter((row) => row.attempts >= row.maxAttempts);
-			const retriedCount = await this.recoverRetryableRows(tx, retryable, now);
-			const failedCount = await this.recoverExhaustedRows(tx, exhausted, now);
-
-			return retriedCount + failedCount;
+			return await this.recoverExpiredRows(tx, expiredRows, now);
 		});
+	}
+
+	/** Requeues orphan rows with attempts left and fails the exhausted ones; returns how many rows were transitioned. */
+	private async recoverExpiredRows(
+		tx: DatabaseTransaction,
+		rows: Array<{ id: string; operationId: string | null; attempts: number; maxAttempts: number }>,
+		now: Date,
+	): Promise<number> {
+		const retryable = rows.filter((row) => row.attempts < row.maxAttempts);
+		const exhausted = rows.filter((row) => row.attempts >= row.maxAttempts);
+
+		return (await this.recoverRetryableRows(tx, retryable, now)) + (await this.recoverExhaustedRows(tx, exhausted, now));
 	}
 
 	/** Requeue selected orphan rows, re-checking `running` so a row that completed in the meantime cannot be resurrected. */
@@ -857,7 +837,11 @@ class WorkerJobRepository {
 		rows: Array<{ id: string; operationId: string | null }>,
 		now: Date,
 	): Promise<number> {
-		const updated = await this.recoverRows(tx, rows, { status: "pending", ...RELEASE_CLAIM, updatedAt: now });
+		const updated = await this.updateRunningRowsChunked(
+			tx,
+			rows.map((row) => row.id),
+			{ status: "pending", ...RELEASE_CLAIM, updatedAt: now },
+		);
 
 		const recovered = rows.filter((row) => updated.has(row.id));
 		await applyOperationCounts(toOperationCounts(recovered), (operationId, amount) =>
@@ -873,13 +857,11 @@ class WorkerJobRepository {
 		rows: Array<{ id: string; operationId: string | null }>,
 		now: Date,
 	): Promise<number> {
-		const updated = await this.recoverRows(tx, rows, {
-			status: "failed",
-			...RELEASE_CLAIM,
-			error: "Lease expired after maximum attempts",
-			completedAt: now,
-			updatedAt: now,
-		});
+		const updated = await this.updateRunningRowsChunked(
+			tx,
+			rows.map((row) => row.id),
+			{ status: "failed", ...RELEASE_CLAIM, error: "Lease expired after maximum attempts", completedAt: now, updatedAt: now },
+		);
 
 		const failedRows = rows.filter((row) => updated.has(row.id));
 		await applyOperationCounts(toOperationCounts(failedRows), (operationId, amount) =>
@@ -893,21 +875,6 @@ class WorkerJobRepository {
 		);
 
 		return updated.size;
-	}
-
-	/** Shared prefix of the orphan-recovery transitions: guarded chunked UPDATE over the still-`running` rows. */
-	private async recoverRows(
-		tx: DatabaseTransaction,
-		rows: Array<{ id: string; operationId: string | null }>,
-		values: SQLiteUpdateSetSource<typeof items>,
-	): Promise<Set<string>> {
-		if (rows.length === 0) return new Set();
-
-		return await this.updateRunningRowsChunked(
-			tx,
-			rows.map((row) => row.id),
-			values,
-		);
 	}
 
 	/**
@@ -925,7 +892,7 @@ class WorkerJobRepository {
 			afterUpdated,
 		}: {
 			id: string;
-			runnerId: string;
+			runnerId?: string | undefined;
 			claimToken?: string | undefined;
 			values: SQLiteUpdateSetSource<typeof items>;
 			afterUpdated: (updatedJob: { operationId: string | null }) => Promise<void>;
@@ -980,15 +947,7 @@ class WorkerJobRepository {
 
 		if (expiredRows.length === 0) return;
 
-		const retryable: typeof expiredRows = [];
-		const exhausted: typeof expiredRows = [];
-
-		for (const row of expiredRows) {
-			(row.attempts >= row.maxAttempts ? exhausted : retryable).push(row);
-		}
-
-		await this.recoverRetryableRows(tx, retryable, now);
-		await this.recoverExhaustedRows(tx, exhausted, now);
+		await this.recoverExpiredRows(tx, expiredRows, now);
 	}
 
 	async trim(workerId: string, status: WorkerItemStatus, keepCount: number): Promise<number> {
