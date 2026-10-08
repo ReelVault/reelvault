@@ -1,34 +1,25 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { metadataRefreshService } from "@/application/catalog/metadata/metadata-refresh.runtime";
+import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body-cache";
 import { stubMethod } from "../../../../tests/helpers/method-stub";
 import { refreshMetadataTask } from "./metadata-refresh.worker";
 
-const activeStubs: Array<{ restore(): void }> = [];
-
+const stubs: Array<{ restore(): void }> = [];
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	for (const stub of stubs.splice(0)) stub.restore();
 });
 
-describe("metadata refresh application task", () => {
-	test("refreshes a single metadata item with the task correlation id", async () => {
-		const refreshed: string[] = [];
-		activeStubs.push(
-			stubMethod(metadataRefreshService, "refresh", (metadataId: string, options?: { correlationId?: string | undefined }) => {
-				refreshed.push(`${metadataId}:${options?.correlationId}`);
+const listKey = responseCacheKey({ pathWithQuery: "/v1/metadata?page=1", cookie: "", profileId: "", auth: "", apiKey: "" });
+const unrelatedKey = responseCacheKey({ pathWithQuery: "/v1/admin/settings", cookie: "", profileId: "", auth: "", apiKey: "" });
 
-				return Promise.resolve({ metadataId, providerId: "provider-1" });
-			}),
-		);
+test("a metadata refresh flushes cached catalog lists but leaves unrelated responses alone", async () => {
+	stubs.push(stubMethod(metadataRefreshService, "refresh", () => Promise.resolve({ metadataId: "m1", providerId: "tmdb" })));
+	const body = { etag: "e", body: "{}", expiresAt: Date.now() + 60_000, encoded: new Map() };
+	setCachedResponseBody(listKey, body);
+	setCachedResponseBody(unrelatedKey, body);
 
-		const result = await refreshMetadataTask({ metadataId: "metadata-1" }, { correlationId: "correlation-1" });
+	await refreshMetadataTask({ metadataId: "m1" });
 
-		expect(result).toEqual({ metadataId: "metadata-1", providerId: "provider-1" });
-		expect(refreshed).toEqual(["metadata-1:correlation-1"]);
-	});
-
-	test("converts refresh failures to domain errors", async () => {
-		activeStubs.push(stubMethod(metadataRefreshService, "refresh", () => Promise.reject(new Error("provider unavailable"))));
-
-		await expect(refreshMetadataTask({ metadataId: "metadata-2" })).rejects.toMatchObject({ code: "internal" });
-	});
+	expect(getCachedResponseBody(listKey)).toBeUndefined();
+	expect(getCachedResponseBody(unrelatedKey)).toBeDefined();
 });

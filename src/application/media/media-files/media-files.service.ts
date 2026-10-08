@@ -43,7 +43,7 @@ import { errorMessage, InternalError, NotFoundError, ValidationError } from "@/u
 import { FileUtils } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
+import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import { mapLibraryType } from "@/utils/type.utils";
 import { enqueueMediaFileAuditReport } from "@/workers/definitions/media/media-file-audit.worker";
@@ -51,9 +51,6 @@ import { enqueueAllMediaFilesRefresh } from "@/workers/definitions/media/media-f
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped";
 import { workerService } from "@/workers/worker.service";
 import { mediaFileRefreshService } from "./refresh-media-file.operation";
-
-/** Cached list routes that can embed a media file's row or its library's stats. */
-const CATALOG_LIST_PATH_PREFIXES = ["/v1/metadata", "/v1/libraries"] as const;
 
 // Concurrency guard for on-demand ffmpeg/ffprobe integrity scans triggered from the API.
 // Each permit is an ffmpeg decode — derived from measured CPU capacity

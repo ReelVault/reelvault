@@ -138,6 +138,20 @@ export function invalidateResponseBodies(): void {
  * endpoints — a full flush per ingested file would thrash every cache.
  * `onEvict` keeps the profile/etag indexes in sync.
  */
+/**
+ * Cached catalog list routes that embed a title, its people/companies/genres or its library's stats —
+ * everything a scan, an ingest or a metadata refresh can make stale.
+ */
+export const CATALOG_LIST_PATH_PREFIXES = [
+	"/v1/metadata",
+	"/v1/libraries",
+	"/v1/people",
+	"/v1/companies",
+	"/v1/genres",
+	"/v1/keywords",
+	"/v1/collections",
+] as const;
+
 export function invalidateResponseBodiesForPathPrefixes(pathPrefixes: readonly string[]): void {
 	if (pathPrefixes.length === 0) return;
 
