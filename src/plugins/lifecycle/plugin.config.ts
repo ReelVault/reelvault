@@ -2,6 +2,7 @@ import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { serverConfig } from "@/server.config";
 import { ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { KeyedMutex } from "@/utils/mutex";
 import { PathUtils } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
@@ -11,6 +12,7 @@ const MAX_CONFIG_BYTES = 512 * 1024;
 const CONFIG_FILE_MODE = 0o600;
 
 export class PluginConfig {
+	private readonly logger = createLogger("PluginConfig");
 	private readonly pluginsDirectory: string;
 	/** Serialises read-merge-write per plugin so concurrent saves cannot drop fields. */
 	private readonly saveMutex = new KeyedMutex();
@@ -23,13 +25,18 @@ export class PluginConfig {
 	async load(pluginDir: string): Promise<Record<string, unknown>> {
 		const configPath = PathUtils.join(pluginDir, "config.json");
 		try {
-			const config = (await FileUtils.readJson<unknown>(configPath, { silent: true })) ?? {};
-			if (!isRecord(config)) return {};
+			if (!(await FileUtils.exists(configPath))) return {};
 
-			return config;
-		} catch {
-			return {};
+			const config = await FileUtils.readJson<unknown>(configPath, { silent: true });
+			if (isRecord(config)) return config;
+
+			// A config.json that exists but is unreadable would otherwise silently reset the plugin to its defaults.
+			this.logger.warn(`Plugin config is not a readable JSON object — using defaults: ${configPath}`);
+		} catch (error) {
+			this.logger.warn(`Plugin config could not be read — using defaults: ${configPath}`, { error });
 		}
+
+		return {};
 	}
 
 	async save(pluginName: string, updatedConfig: Record<string, unknown>, pruneTo?: ReadonlySet<string>): Promise<Record<string, unknown>> {

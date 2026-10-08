@@ -26,6 +26,20 @@ function byStatusName(a: PluginStatus, b: PluginStatus): number {
 	return a.name.localeCompare(b.name);
 }
 
+class ConfigRequiredError extends Error {
+	readonly field: string;
+
+	constructor(field: string) {
+		super(`Plugin configuration '${field}' is required`);
+		this.field = field;
+	}
+}
+
+/** Unset, null or whitespace-only — a required field holding any of these has not been filled in. */
+function isBlankConfigValue(value: unknown): boolean {
+	return value === undefined || value === null || (typeof value === "string" && value.trim() === "");
+}
+
 export class PluginManager {
 	private readonly logger = createLogger("PluginManager");
 	private readonly config: PluginConfig;
@@ -346,9 +360,15 @@ export class PluginManager {
 
 			const existing = await this.config.load(pluginDir);
 			try {
-				definition.parse({ ...existing, ...updatedConfig });
+				const parsed = definition.parse({ ...existing, ...updatedConfig });
+				// `required` is a UI/save-time contract: loading must still work for a plugin whose
+				// key has not been entered yet, but an admin cannot save a form that leaves it blank.
+				const blank = definition.descriptors.find(
+					(descriptor) => descriptor.required === true && isBlankConfigValue(parsed[descriptor.name]),
+				);
+				if (blank) throw new ConfigRequiredError(blank.name);
 			} catch (error) {
-				const field = pluginConfigField(error);
+				const field = error instanceof ConfigRequiredError ? error.field : pluginConfigField(error);
 
 				throw new ValidationError(errorMessage(error), {
 					code: "plugin.config_invalid",
@@ -360,8 +380,9 @@ export class PluginManager {
 		await this.config.save(dirName, updatedConfig, pruneTo);
 		try {
 			await this.reload(pluginId);
-		} catch {
-			// If plugin wasn't loaded or failed, continue
+		} catch (error) {
+			// The config is saved either way; surface why the plugin did not pick it up.
+			this.logger.warn(`Plugin ${pluginId} saved its configuration but failed to reload`, { error });
 		}
 
 		return await this.getPluginConfigDetails(pluginId);

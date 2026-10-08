@@ -539,4 +539,58 @@ describe("PluginManager config details", () => {
 		expect(error).toBeInstanceOf(ValidationError);
 		expect(error).toMatchObject({ code: "plugin.config_invalid", params: { field: "language" } });
 	});
+
+	function stubRequiredApiKey(registry: PluginRegistry) {
+		return stubMethod(registry, "getConfigDefinition", () => ({
+			fields: {},
+			descriptors: [{ name: "apiKey", type: "secret", label: "API key", required: true }],
+			parse: (value: Record<string, unknown>) => ({ apiKey: value.apiKey ?? "" }),
+		}));
+	}
+
+	test("savePluginConfig refuses to save a required field that is still blank", async () => {
+		const { manager, config, registry } = createManagerFixture(activeStubs);
+		await writeFixturePlugin();
+		activeStubs.push(
+			stubMethod(config, "load", () => Promise.resolve({})),
+			stubRequiredApiKey(registry),
+		);
+
+		const error = await manager.savePluginConfig("org.reelvault.m", { apiKey: "   " }).catch((reason: unknown) => reason);
+
+		expect(error).toBeInstanceOf(ValidationError);
+		expect(error).toMatchObject({ code: "plugin.config_invalid", params: { field: "apiKey" } });
+	});
+
+	test("savePluginConfig accepts the form once the required field is filled in", async () => {
+		const { manager, config, registry, loader } = createManagerFixture(activeStubs);
+		await writeFixturePlugin();
+		const save = stubMethod(config, "save", () => Promise.resolve({ apiKey: "key" }));
+		activeStubs.push(
+			stubMethod(config, "load", () => Promise.resolve({})),
+			stubMethod(loader, "reloadPlugin", () => Promise.resolve()),
+			save,
+			stubRequiredApiKey(registry),
+		);
+
+		await manager.savePluginConfig("org.reelvault.m", { apiKey: "key" });
+
+		expect(save.calls).toHaveLength(1);
+	});
+
+	test("a stored value satisfies the requirement when the patch leaves the secret out", async () => {
+		const { manager, config, registry, loader } = createManagerFixture(activeStubs);
+		await writeFixturePlugin();
+		const save = stubMethod(config, "save", () => Promise.resolve({}));
+		activeStubs.push(
+			stubMethod(config, "load", () => Promise.resolve({ apiKey: "stored" })),
+			stubMethod(loader, "reloadPlugin", () => Promise.resolve()),
+			save,
+			stubRequiredApiKey(registry),
+		);
+
+		await manager.savePluginConfig("org.reelvault.m", { theme: "light" });
+
+		expect(save.calls).toHaveLength(1);
+	});
 });
