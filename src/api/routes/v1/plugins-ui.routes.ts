@@ -111,6 +111,11 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 				throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
 			}
 
+			// A disabled (or failed) plugin must not keep serving its UI bundle.
+			if (pluginRegistry.get(pluginId)?.state !== "enabled") {
+				throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
+			}
+
 			const pluginDir = PathUtils.join(serverConfig.paths.plugins, directoryName);
 
 			const resolved = safePath(pluginDir, filePath);
