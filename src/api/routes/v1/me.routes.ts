@@ -4,7 +4,6 @@ import {
 	CreateUserRatingSchema,
 	CreateWatchedHistorySchema,
 	CreateWatchlistSchema,
-	HydratedWatchlistItemSchema,
 	InsightsRangeSchema,
 	MetadataPlaybackProgressSchema,
 	ProfileInsightsSchema,
@@ -35,6 +34,7 @@ import {
 	ROUTE_ERRORS,
 } from "@/api/schemas/common.schemas";
 import { MediaFileIdParams, MetadataIdParams } from "@/api/schemas/route-params";
+import { hydratedWatchlistPaginatedSchema, watchlistPaginatedSchema, watchlistResponseSchema } from "@/api/schemas/watchlist.schemas";
 import { authService } from "@/application/auth/auth.service";
 import { userRatingsService } from "@/application/users/user-ratings.service";
 import { watchedHistoryService } from "@/application/users/watched-history.service";
@@ -54,8 +54,8 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		"me.session.response": SessionResponseSchema,
 
 		"me.watchlist.schema": ProjectedResponseSchema(WatchlistSchema),
-		"me.watchlist.paginated.schema": PaginatedResponseSchema(ProjectedResponseSchema(WatchlistSchema)),
-		"me.watchlist.hydrated.paginated.schema": PaginatedResponseSchema(HydratedWatchlistItemSchema),
+		"me.watchlist.paginated.schema": watchlistPaginatedSchema,
+		"me.watchlist.hydrated.paginated.schema": hydratedWatchlistPaginatedSchema,
 		"me.playback-suggestions.batch.response": BatchSmartPlayResponseSchema,
 		"me.watchlist.toggle.body": CreateWatchlistSchema,
 		"me.watchlist.toggle.response": t.Object({ added: t.Boolean() }),
@@ -179,7 +179,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		]),
 		response: {
 			...ROUTE_ERRORS.AUTH,
-			200: t.Union([t.Ref("me.watchlist.paginated.schema"), t.Ref("me.watchlist.hydrated.paginated.schema")]),
+			200: watchlistResponseSchema,
 		},
 		...cached({ maxAge: 10, private: true }),
 		detail: {
