@@ -25,7 +25,7 @@ import { InternalError } from "@/utils/errors";
 import { RefreshMetadataSchema } from "./admin.schema";
 import { adminShell } from "./admin-shell";
 
-export const adminSystemRoutes = adminShell()
+export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.refreshMetadata": RefreshMetadataSchema,
 		"admin.stats": AdminStatsSchema,

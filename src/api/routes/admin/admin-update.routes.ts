@@ -28,7 +28,7 @@ async function buildUpdateStatus(forceCheck: boolean) {
 	};
 }
 
-export const adminUpdateRoutes = adminShell({ prefix: "/update" })
+export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"] })
 	.model({
 		"admin.updateStatus": AdminUpdateStatusSchema,
 		"admin.updateInstall": AdminUpdateInstallResponseSchema,

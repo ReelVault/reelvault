@@ -86,7 +86,7 @@ export const mediaFilesRoutes = new Elysia({
 				max: 1,
 				windowMs: 5 * MINUTE,
 			},
-			response: { ...ROUTE_ERRORS.AUTH, 202: OperationQueuedResponseSchema },
+			response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Queue a refresh of technical data and linked metadata for all media files.",
 			},
@@ -104,7 +104,7 @@ export const mediaFilesRoutes = new Elysia({
 			}),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Array(MediaMarkerSchema) },
 			detail: {
-				description: "List all timeline markers across all media files. Optional limit trims the result after fetching.",
+				description: "List timeline markers across all media files (admin). `limit` is applied in the database query.",
 			},
 		},
 	)
@@ -174,7 +174,7 @@ export const mediaFilesRoutes = new Elysia({
 			adminOnly: true,
 			params: MediaFileIdParams,
 			body: SetMediaMarkersSchema,
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: t.Array(MediaMarkerSchema) },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: t.Array(MediaMarkerSchema) },
 			detail: {
 				description: "Set or replace timeline markers for a media file.",
 			},
@@ -188,7 +188,7 @@ export const mediaFilesRoutes = new Elysia({
 		{
 			adminOnly: true,
 			params: MediaFileIdParams,
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
 			detail: {
 				description: "Delete all timeline markers for a media file.",
 			},
@@ -209,7 +209,7 @@ export const mediaFilesRoutes = new Elysia({
 		{
 			adminOnly: true,
 			params: MediaFileIdParams,
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 202: OperationQueuedResponseSchema },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Refresh technical stream data with ffprobe and metadata from the linked provider.",
 			},
@@ -244,7 +244,7 @@ export const mediaFilesRoutes = new Elysia({
 					decodeError: t.Nullable(t.String()),
 					isEnabled: t.Boolean(),
 				}),
-				...ROUTE_ERRORS.NOT_FOUND,
+				...ROUTE_ERRORS.ADMIN_NOT_FOUND,
 			},
 			detail: {
 				description: "Verify media file existence, readability, ffprobe compatibility, and run a quick decode integrity check.",
@@ -257,7 +257,7 @@ export const mediaFilesRoutes = new Elysia({
 		{
 			adminOnly: true,
 			params: MediaFileIdParams,
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
 			detail: {
 				description: "Remove a media file record from the database. This does not delete the physical file.",
 			},
@@ -272,7 +272,7 @@ export const mediaFilesRoutes = new Elysia({
 			params: MediaFileIdParams,
 			body: "media-files.update.body",
 			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "media-file.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "media-file.schema" },
 			detail: {
 				description: "Modify an existing media file record's metadata or associations.",
 			},
@@ -287,7 +287,7 @@ export const mediaFilesRoutes = new Elysia({
 			params: MediaFileIdParams,
 			body: "media-files.reassign.body",
 			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "media-file.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "media-file.schema" },
 			detail: {
 				description: "Reassign a media file to different metadata (either existing in library or newly imported from a provider).",
 			},

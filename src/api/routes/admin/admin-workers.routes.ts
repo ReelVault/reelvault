@@ -26,7 +26,7 @@ function toCancelPendingResponse(count: number) {
 	return { success: true as const, cancelledCount: count };
 }
 
-export const adminWorkersRoutes = adminShell()
+export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.workerSummaries": t.Array(WorkerSummarySchema),
 		"admin.workerJobs": t.Array(WorkerJobSchema),
@@ -109,7 +109,7 @@ export const adminWorkersRoutes = adminShell()
 			params: WorkerIdParams,
 			body: UpdateTaskTriggersRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerTriggers" },
-			detail: { description: "Update triggers and schedule for a worker (startup, daily, weekly, interval, cron)." },
+			detail: { description: "Update triggers and schedule for a worker (startup, daily, weekly, interval)." },
 		},
 	)
 	.post(

@@ -57,7 +57,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 			adminOnly: true,
 			params: ProviderIdParams,
 			body: SubtitleProviderDownloadRequestSchema,
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "subtitle.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "subtitle.schema" },
 			detail: {
 				description: "Download a subtitle through an installed provider into core-managed storage.",
 			},
@@ -74,7 +74,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 	.post("/", async ({ body }) => await subtitlesService.create(body), {
 		adminOnly: true,
 		body: "subtitle.create.body",
-		response: { ...ROUTE_ERRORS.VALIDATED, 201: "subtitle.schema" },
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "subtitle.schema" },
 		detail: {
 			description: "Create a new subtitle record.",
 		},
@@ -120,7 +120,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 		adminOnly: true,
 		params: IdParams,
 		body: "subtitle.update.body",
-		response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "subtitle.schema" },
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "subtitle.schema" },
 		detail: {
 			description: "Modify an existing subtitle record.",
 		},
@@ -128,7 +128,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 	.delete("/:id", async ({ params }) => await subtitlesService.delete(params.id), {
 		adminOnly: true,
 		params: IdParams,
-		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
+		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
 		detail: {
 			description: "Permanently remove a subtitle record.",
 		},

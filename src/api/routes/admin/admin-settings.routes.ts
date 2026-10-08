@@ -4,7 +4,7 @@ import { systemSettingsService } from "@/application/admin/system-settings.servi
 import { MINUTE } from "@/server.constants";
 import { adminShell } from "./admin-shell";
 
-export const adminSettingsRoutes = adminShell()
+export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.systemSettings": SystemSettingsGroupedSchema,
 		"admin.updateSystemSettings": UpdateSystemSettingsSchema,

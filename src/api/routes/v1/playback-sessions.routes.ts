@@ -174,6 +174,9 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 			params: SessionIdParams,
 			body: HeartbeatBodySchema,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: StreamHeartbeatResponseSchema },
+			detail: {
+				description: "Keep a playback session alive and report the current position; call it periodically while the player is open.",
+			},
 		},
 	)
 	.delete(

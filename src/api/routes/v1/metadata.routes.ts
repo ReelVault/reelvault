@@ -81,7 +81,7 @@ export const metadataRoutes = new Elysia({
 			adminOnly: true,
 			body: "metadata.create.body",
 			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED, 201: "metadata.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "metadata.schema" },
 			detail: {
 				description: "Add a new metadata entry to the system.",
 			},
@@ -101,7 +101,7 @@ export const metadataRoutes = new Elysia({
 			adminOnly: true,
 			params: MetadataIdParams,
 			body: SelectMetadataImageSchema,
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: SuccessResponseSchema },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
 			detail: { description: "Select and download a poster or backdrop candidate." },
 		},
 	)
@@ -119,7 +119,7 @@ export const metadataRoutes = new Elysia({
 				type: MetadataImageTypeSchema,
 				file: t.File({ type: "image/*", maxSize: "20m" }),
 			}),
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: SuccessResponseSchema },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
 			detail: { description: "Upload, optimize and activate a custom poster or backdrop." },
 		},
 	)
@@ -159,7 +159,7 @@ export const metadataRoutes = new Elysia({
 			params: MetadataIdParams,
 			body: "metadata.update.body",
 			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "metadata.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "metadata.schema" },
 			detail: {
 				description: "Modify an existing metadata entry's details.",
 			},
@@ -174,7 +174,7 @@ export const metadataRoutes = new Elysia({
 			params: MetadataIdParams,
 			body: LinkMetadataProviderSchema,
 			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "metadata.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "metadata.schema" },
 			detail: {
 				description: "Link an additional metadata provider and re-aggregate fields by priority.",
 			},
@@ -189,7 +189,7 @@ export const metadataRoutes = new Elysia({
 			params: MetadataIdParams,
 			body: RematchMetadataSchema,
 			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "metadata.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "metadata.schema" },
 			detail: {
 				description: "Rematch metadata entry with a specific provider search result.",
 			},
@@ -202,7 +202,7 @@ export const metadataRoutes = new Elysia({
 		{
 			adminOnly: true,
 			params: MetadataIdParams,
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
 			detail: {
 				description: "Permanently remove a metadata entry from the system.",
 			},
@@ -219,7 +219,7 @@ export const metadataRoutes = new Elysia({
 				sourceMetadataId: t.String(),
 			}),
 			response: {
-				...ROUTE_ERRORS.VALIDATED_NOT_FOUND,
+				...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND,
 				200: t.Object({
 					success: t.Literal(true),
 					targetId: t.String(),

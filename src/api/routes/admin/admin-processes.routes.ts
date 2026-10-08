@@ -4,7 +4,7 @@ import { adminProcessesService } from "@/application/admin/admin-processes.servi
 import { MINUTE } from "@/server.constants";
 import { adminShell } from "./admin-shell";
 
-export const adminProcessesRoutes = adminShell()
+export const adminProcessesRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.processes": AdminProcessesResponseSchema,
 	})

@@ -11,7 +11,7 @@ import { collectionsService } from "@/application/catalog/collections.service";
 import { MINUTE } from "@/server.constants";
 import { adminShell } from "./admin-shell";
 
-export const adminCollectionsRoutes = adminShell()
+export const adminCollectionsRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.collection": ProjectedResponseSchema(CollectionWithRelationsSchema),
 		"admin.updateCollection": UpdateCollectionSchema,

@@ -10,7 +10,7 @@ import { assertSessionAccess } from "@/modules/streaming/sessions/session-access
 import { MINUTE } from "@/server.constants";
 import { UnauthorizedError } from "@/utils/errors";
 
-export const eventsRoutes = new Elysia({ prefix: "/events" })
+export const eventsRoutes = new Elysia({ prefix: "/events", tags: ["Realtime"] })
 	.use(commonModel)
 	.use(authMiddleware)
 	.use(rateLimitMiddleware)

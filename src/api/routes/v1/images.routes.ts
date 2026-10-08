@@ -65,7 +65,7 @@ export const imagesRoutes = new Elysia({
 	.delete("/:imageId", async ({ params }) => await imagesService.delete(params.imageId), {
 		adminOnly: true,
 		params: ImageIdParams,
-		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
+		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
 		detail: {
 			description: "Permanently remove an image and optionally its physical file from storage.",
 		},

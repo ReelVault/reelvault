@@ -70,7 +70,7 @@ export const librariesRoutes = new Elysia({
 			adminOnly: true,
 			body: "libraries.create.body",
 			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED, 201: "library.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "library.schema" },
 			detail: {
 				description: "Add a new media library with specified paths and content type.",
 			},
@@ -123,7 +123,7 @@ export const librariesRoutes = new Elysia({
 			params: LibraryIdParams,
 			body: "libraries.update.body",
 			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "library.schema" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "library.schema" },
 			detail: {
 				description: "Modify an existing library's name or paths.",
 			},
@@ -136,7 +136,7 @@ export const librariesRoutes = new Elysia({
 		{
 			adminOnly: true,
 			params: LibraryIdParams,
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
 			detail: {
 				description: "Permanently remove a library and its configuration from the system.",
 			},
@@ -154,7 +154,7 @@ export const librariesRoutes = new Elysia({
 				windowMs: MINUTE,
 			},
 			params: LibraryIdParams,
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 202: OperationQueuedResponseSchema },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Manually trigger a scan of the library's paths to discover new media files.",
 			},
@@ -175,7 +175,7 @@ export const librariesRoutes = new Elysia({
 				libraryId: t.String(),
 				pathId: t.String(),
 			}),
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 202: OperationQueuedResponseSchema },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Manually trigger a scan of one configured library path.",
 			},

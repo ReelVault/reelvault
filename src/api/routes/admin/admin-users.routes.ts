@@ -16,7 +16,7 @@ import { adminUsersService } from "@/application/admin/admin-users.service";
 import { MINUTE } from "@/server.constants";
 import { adminShell } from "./admin-shell";
 
-export const adminUsersRoutes = adminShell()
+export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.user": AdminUserSchema,
 		"admin.userProfile": AdminUserProfileSchema,
