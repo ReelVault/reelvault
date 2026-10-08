@@ -1,5 +1,6 @@
 import type { FieldsQuery, PaginatedResponse, PaginationQuery, SelectFields } from "@reelvault/sdk/common";
 import { BaseService } from "@/utils/base-service";
+import { invalidateCatalogLists } from "./catalog.utils";
 
 interface DictionaryReadRepository<TEntity, TFilters, TSorting> {
 	findPage<F extends string>(
@@ -59,6 +60,7 @@ export abstract class DictionaryCrudService<
 		return await this.safeExecute("create", async () => {
 			const result = await this.repository.createAndRead(body, query);
 			this.assertExists(result, this.entityName, body.name);
+			invalidateCatalogLists();
 
 			return result;
 		});
@@ -68,6 +70,7 @@ export abstract class DictionaryCrudService<
 		return await this.safeExecute("update", async () => {
 			const result = await this.repository.updateAndRead(id, body, query);
 			this.assertExists(result, this.entityName, id);
+			invalidateCatalogLists();
 
 			return result;
 		});
@@ -77,6 +80,7 @@ export abstract class DictionaryCrudService<
 		return await this.safeExecute("delete", async () => {
 			await this.getById(id, { fields: "id" });
 			await this.repository.delete({ primaryId: id });
+			invalidateCatalogLists();
 
 			return { success: true };
 		});

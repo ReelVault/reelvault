@@ -1,5 +1,6 @@
 import type { ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import { providerService } from "@/plugins/capabilities/provider.service";
+import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
 
 /** Maps raw provider entries to the { providerId, externalId } shape used by fetcher APIs. */
 export function mapProviderLinks(providers: ReadonlyArray<{ name: string; externalId: string }>) {
@@ -41,4 +42,9 @@ export function fallbackSeasonExternalId(metadataId: string, seasonNumber: numbe
 /** Deterministic episode external id used when the provider has no episode entry. */
 export function fallbackEpisodeExternalId(metadataId: string, seasonNumber: number | string, episodeNumber: number | string): string {
 	return `${metadataId}-s${seasonNumber}-e${episodeNumber}`;
+}
+
+/** Flushes cached catalog list responses after a write that changes what they embed. */
+export function invalidateCatalogLists(): void {
+	invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
 }

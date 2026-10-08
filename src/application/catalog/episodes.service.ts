@@ -7,7 +7,7 @@ import { imageProcessingService } from "@/modules/images/image-processing.servic
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { NotFoundError } from "@/utils/errors";
-import { findFirstProviderResult, mapProviderLinks } from "./catalog.utils";
+import { findFirstProviderResult, invalidateCatalogLists, mapProviderLinks } from "./catalog.utils";
 import { DictionaryReadService } from "./dictionary-crud.service";
 
 class EpisodesService extends DictionaryReadService<EpisodeWithRelations, EpisodeFilters, EpisodeSorting, typeof episodesRepository> {
@@ -64,6 +64,8 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 					}
 				}
 			}
+
+			invalidateCatalogLists();
 
 			// Episode fields changed — rewrite the series/episode sidecar documents.
 			sidecarSyncService.scheduleSync(season.metadataId);

@@ -2,7 +2,7 @@ import type { CreatePerson, PersonFilters, PersonSorting, PersonWithRelations, U
 import { peopleRepository } from "@/database/repositories/people.repository";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { findFirstProviderResult } from "./catalog.utils";
+import { findFirstProviderResult, invalidateCatalogLists } from "./catalog.utils";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 
 class PeopleService extends DictionaryCrudService<
@@ -47,6 +47,8 @@ class PeopleService extends DictionaryCrudService<
 					}
 				}
 			}
+
+			invalidateCatalogLists();
 
 			return await this.getById(personId);
 		});

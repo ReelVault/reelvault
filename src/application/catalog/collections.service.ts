@@ -11,6 +11,7 @@ import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { collectionRepository } from "@/database/repositories/collections.repository";
 import { ConflictError, ValidationError } from "@/utils/errors";
+import { invalidateCatalogLists } from "./catalog.utils";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 
 class CollectionsService extends DictionaryCrudService<
@@ -34,6 +35,7 @@ class CollectionsService extends DictionaryCrudService<
 			await this.assertNameAvailable(body.name);
 			const result = await collectionRepository.createAndRead(body, query);
 			this.assertExists(result, "Collection", body.name);
+			invalidateCatalogLists();
 
 			recordAuditSafe(
 				{
@@ -80,6 +82,7 @@ class CollectionsService extends DictionaryCrudService<
 
 					return await collectionRepository.updateAndRead(collectionId, updatedBody, query);
 				},
+				afterUpdate: () => invalidateCatalogLists(),
 				context,
 			}),
 		);
@@ -93,6 +96,7 @@ class CollectionsService extends DictionaryCrudService<
 				throw new ValidationError("Manual order requires at least one metadata item", { code: "collections.items_required" });
 
 			await collectionRepository.updateManualOrder({ collectionId, metadataIds });
+			invalidateCatalogLists();
 
 			recordAuditSafe(
 				{
@@ -114,6 +118,7 @@ class CollectionsService extends DictionaryCrudService<
 			await this.getById(collectionId, { fields: "id" });
 
 			await collectionRepository.delete({ primaryId: collectionId });
+			invalidateCatalogLists();
 
 			recordAuditSafe(
 				{
