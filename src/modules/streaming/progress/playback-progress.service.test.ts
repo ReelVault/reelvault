@@ -17,7 +17,7 @@ interface TestHarness {
 	upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]>;
 	watchedSyncs: Array<Parameters<WatchedHistoryRepo["sync"]>[0]>;
 	published: PlaybackProgressUpdateEvent[];
-	resets: { file: string[]; metadata: string[] };
+	resets: { file: string[]; metadata: string[]; dismissed: string[] };
 	continueWatchingData: ContinueWatchingRepoData;
 	prefsUpserts: Array<Parameters<ProfileStreamPrefsRepo["upsert"]>[0]>;
 }
@@ -38,7 +38,7 @@ function createService(
 	const upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]> = [];
 	const watchedSyncs: Array<Parameters<WatchedHistoryRepo["sync"]>[0]> = [];
 	const published: PlaybackProgressUpdateEvent[] = [];
-	const resets = { file: [] as string[], metadata: [] as string[] };
+	const resets = { file: [] as string[], metadata: [] as string[], dismissed: [] as string[] };
 	const continueWatchingData: ContinueWatchingRepoData = options.continueWatchingData ?? {
 		progressRows: [],
 		metadataList: [],
@@ -84,6 +84,11 @@ function createService(
 		},
 		deleteMetadataProgress: (profileId: string, metadataId: string) => {
 			resets.metadata.push(`${profileId}:${metadataId}`);
+
+			return Promise.resolve();
+		},
+		dismissContinueWatching: (profileId: string, metadataId: string) => {
+			resets.dismissed.push(`${profileId}:${metadataId}`);
 
 			return Promise.resolve();
 		},
@@ -217,6 +222,7 @@ describe("playback progress service", () => {
 						audioStreamIndex: null,
 						subtitleId: null,
 						updatedAt: new Date("2026-01-02T00:00:00Z"),
+						dismissedAt: null,
 					},
 				],
 				metadataList: [{ id: "meta-1", title: "Movie", type: "movie" }],
@@ -232,6 +238,16 @@ describe("playback progress service", () => {
 		expect(items).toHaveLength(1);
 		expect(items[0]).toMatchObject({ mediaFileId: "file-1", metadata: { type: "movie" } });
 		expect(continueWatchingData).toBeDefined();
+	});
+
+	test("dismissing a title hides it without resetting progress", async () => {
+		const { service, resets } = createService();
+
+		await service.dismissContinueWatching("meta-1", "profile-1");
+
+		expect(resets.dismissed).toEqual(["profile-1:meta-1"]);
+		expect(resets.metadata).toEqual([]);
+		expect(resets.file).toEqual([]);
 	});
 
 	test("compute methods delegate to the aggregator", () => {

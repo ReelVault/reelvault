@@ -88,6 +88,17 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve items to continue watching for the active profile." },
 	})
+	.delete(
+		"/continue-watching/:metadataId",
+		async ({ params, profile }) => await playbackProgressService.dismissContinueWatching(params.metadataId, profile?.id),
+		{
+			params: MetadataIdParams,
+			response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
+			detail: {
+				description: "Remove a title from Continue Watching. Resume positions are kept; the title returns once it is played again.",
+			},
+		},
+	)
 	.get(
 		"/playback-progress/:metadataId",
 		async ({ params, profile }) => await playbackProgressService.getPlaybackProgress(params.metadataId, profile?.id),

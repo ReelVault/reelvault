@@ -1,0 +1,1 @@
+ALTER TABLE `playback_progress` ADD `dismissed_at` integer;

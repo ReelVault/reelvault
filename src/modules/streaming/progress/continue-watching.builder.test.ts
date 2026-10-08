@@ -280,4 +280,49 @@ describe("continue watching builder", () => {
 		expect(buildContinueWatching(data, 12, 120)).toEqual([]);
 		expect(buildContinueWatching(data, 12, 60)).toHaveLength(1);
 	});
+
+	describe("dismissal", () => {
+		const movieData = (updatedAt: string, dismissedAt: string | null) =>
+			createData({
+				progressRows: [
+					{
+						mediaFileId: "file-1",
+						metadataId: "meta-1",
+						movieId: "movie-1",
+						episodeId: null,
+						position: 600,
+						duration: 1200,
+						completed: false,
+						audioStreamIndex: null,
+						subtitleId: null,
+						updatedAt: new Date(updatedAt),
+						dismissedAt: dismissedAt ? new Date(dismissedAt) : null,
+					},
+				],
+				metadataList: [{ id: "meta-1", title: "Movie", type: "movie" }],
+				mediaFiles: [
+					{
+						id: "file-1",
+						metadataId: "meta-1",
+						movieId: "movie-1",
+						episodeId: null,
+						duration: 1200,
+						isDefault: true,
+						updatedAt: new Date("2026-01-01T00:00:00Z"),
+					},
+				],
+			});
+
+		test("hides a title dismissed after its last progress write", () => {
+			expect(buildContinueWatching(movieData("2026-01-02T00:00:00Z", "2026-01-03T00:00:00Z"), 12)).toEqual([]);
+		});
+
+		test("brings the title back once it is played after the dismissal", () => {
+			expect(buildContinueWatching(movieData("2026-01-04T00:00:00Z", "2026-01-03T00:00:00Z"), 12)).toHaveLength(1);
+		});
+
+		test("keeps titles that were never dismissed", () => {
+			expect(buildContinueWatching(movieData("2026-01-02T00:00:00Z", null), 12)).toHaveLength(1);
+		});
+	});
 });

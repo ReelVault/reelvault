@@ -376,6 +376,23 @@ class PlaybackRepository {
 		return row;
 	}
 
+	/** Hides a title from "Continue watching" without touching resume positions: it returns once any of its files is played again. */
+	async dismissContinueWatching(profileId: string, metadataId: string) {
+		const client = databaseFactory.getClient();
+		await client
+			.update(schema.playbackProgress)
+			.set({ dismissedAt: new Date() })
+			.where(
+				and(
+					eq(schema.playbackProgress.profileId, profileId),
+					inArray(
+						schema.playbackProgress.mediaFileId,
+						client.select({ id: schema.mediaFiles.id }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, metadataId)),
+					),
+				),
+			);
+	}
+
 	async deleteMetadataProgress(profileId: string, metadataId: string, tx?: DatabaseTransaction) {
 		const client = databaseFactory.getClient({ tx });
 		await client
@@ -405,6 +422,7 @@ class PlaybackRepository {
 				audioStreamIndex: schema.playbackProgress.audioStreamIndex,
 				subtitleId: schema.playbackProgress.subtitleId,
 				updatedAt: schema.playbackProgress.updatedAt,
+				dismissedAt: schema.playbackProgress.dismissedAt,
 				metadataId: schema.mediaFiles.metadataId,
 				movieId: schema.mediaFiles.movieId,
 				episodeId: schema.mediaFiles.episodeId,

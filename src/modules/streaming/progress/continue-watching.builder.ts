@@ -155,6 +155,25 @@ function buildTvCandidate(
 	return null;
 }
 
+/** Latest dismissal time per title (a dismissal stamps every progress row of the title). */
+function latestDismissals(progressRows: ContinueWatchingData["progressRows"]): Map<string, number> {
+	const latest = new Map<string, number>();
+	for (const row of progressRows) {
+		if (!row.dismissedAt) continue;
+
+		latest.set(row.metadataId, Math.max(latest.get(row.metadataId) ?? 0, row.dismissedAt.getTime()));
+	}
+
+	return latest;
+}
+
+/** A dismissed title stays hidden until progress is written after the dismissal. */
+function isDismissed(candidate: ContinueCandidate, dismissedAtByMetadataId: ReadonlyMap<string, number>): boolean {
+	const dismissedAt = dismissedAtByMetadataId.get(candidate.metadata.id);
+
+	return dismissedAt !== undefined && candidate.updatedAt.getTime() <= dismissedAt;
+}
+
 export function buildContinueWatching(data: ContinueWatchingData, limit: number, minPositionSeconds = 0): ContinueWatchingItem[] {
 	const { progressRows, metadataList, mediaFiles, seasons, episodes, backdrops } = data;
 
@@ -177,6 +196,7 @@ export function buildContinueWatching(data: ContinueWatchingData, limit: number,
 
 	const episodeProgressMap = latestProgressByEpisode(progressRows);
 
+	const dismissedAtByMetadataId = latestDismissals(progressRows);
 	const candidates: ContinueCandidate[] = [];
 
 	for (const [metadataId, mProgressRows] of progressByMetadataId) {
@@ -208,9 +228,10 @@ export function buildContinueWatching(data: ContinueWatchingData, limit: number,
 		if (tvCandidateResult) candidates.push(tvCandidateResult);
 	}
 
-	candidates.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+	const visible = candidates.filter((candidate) => !isDismissed(candidate, dismissedAtByMetadataId));
+	visible.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
 	const clampedLimit = clamp(limit, 1, 50);
 
-	return candidates.slice(0, clampedLimit).map(({ updatedAt: _, ...item }) => item);
+	return visible.slice(0, clampedLimit).map(({ updatedAt: _, ...item }) => item);
 }

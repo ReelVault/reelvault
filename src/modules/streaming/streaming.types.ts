@@ -106,6 +106,7 @@ export interface ContinueWatchingData {
 		audioStreamIndex: number | null;
 		subtitleId: string | null;
 		updatedAt: Date;
+		dismissedAt?: Date | null | undefined;
 	}>;
 	metadataList: Array<{ id: string; title: string; type: MetadataType }>;
 	mediaFiles: Array<{

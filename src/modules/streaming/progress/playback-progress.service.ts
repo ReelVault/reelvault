@@ -31,6 +31,7 @@ export type PlaybackProgressRepo = Pick<
 	| "findSmartPlayBatchData"
 	| "deleteProgress"
 	| "deleteMetadataProgress"
+	| "dismissContinueWatching"
 >;
 
 export type WatchedHistoryRepo = Pick<typeof defaultWatchedHistoryRepository, "sync">;
@@ -151,6 +152,16 @@ class PlaybackProgressService extends BaseService {
 			this.assertExists(resolved, "MediaFile", fileId);
 
 			return resolved.prefs;
+		});
+	}
+
+	async dismissContinueWatching(metadataId: string, profileId?: string): Promise<{ success: true }> {
+		return await this.safeExecute("dismissContinueWatching", async () => {
+			this.assertProfileId(profileId);
+			await this.dependencies.playbackRepository.dismissContinueWatching(profileId, metadataId);
+			invalidateProfileResponseBodies(profileId);
+
+			return { success: true };
 		});
 	}
 

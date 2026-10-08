@@ -14,6 +14,8 @@ export const playbackProgress = sqliteTable(
 		completed: integer("completed", { mode: "boolean" }).notNull().default(false),
 		audioStreamIndex: integer("audio_stream_index"),
 		subtitleId: text("subtitle_id"),
+		// Set when the title is removed from "Continue watching"; new playback (a later updatedAt) brings it back.
+		dismissedAt: integer("dismissed_at", { mode: "timestamp" }),
 
 		...DatabaseHelper.timestamps,
 	},
