@@ -302,6 +302,9 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **Sidecar rewrite storm** — sidecar documents were rewritten by an unbounded fire-and-forget task per refreshed title, so a catalog refresh launched one rewrite per title at once. Syncs now coalesce per title (one in-flight plus at most one re-run) and run under the io-concurrency semaphore.
+- **Periodic rescan tick guard** — a database failure while checking the scheduled-rescan deadline is logged instead of surfacing as an unhandled rejection from the detached timer.
+- **Deduplicated sweeps are observable** — refresh-all, media audit and library error checks now log when a request folds into an already-running sweep.
 - **Unplayable imports after a failed probe** — a failed ffprobe used to import the media row with no duration/streams, and because size/mtime were recorded the scanner never retried it. Such files are now skipped with a `probe_failed` finding (visible in "needs attention") and retried on the next scan.
 - **Hung mounts could wedge the watcher** — `stat` calls now carry a 15 s deadline, so a dead NFS/CIFS mount can no longer leave watcher reconciliation permanently disabled (its `isSyncing` flag never cleared) or block removal checks; timeouts read as unreliable storage, never as "missing".
 - **File refresh silently skipped its technical half** — when a metadata refresh was already running, "refresh file" reused that operation and never queued the probe/marker refresh. The technical task is now scheduled while the active metadata refresh is reused.
