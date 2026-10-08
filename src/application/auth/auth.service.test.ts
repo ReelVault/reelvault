@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { serverConfig } from "@/server.config";
@@ -100,5 +101,38 @@ describe("authService.changePassword", () => {
 
 	test("a provider failure surfaces as an internal error", async () => {
 		expect(await failureCode(new Response("nope", { status: 500 }))).toBe("internal");
+	});
+});
+
+describe("authService.login attempt throttle", () => {
+	test("a successful sign-in clears the failed attempts counted against the account", async () => {
+		const limit = serverConfig.auth.loginAccountMaxAttempts;
+		systemSettingsStore.setRuntimeValue("auth.rateLimit.loginAccountMaxAttempts", 3);
+		setEnforceTwoFactor(false);
+		let outcome: "wrong" | "right" = "wrong";
+		stubs.push(
+			stubMethod(betterAuthApi, "signInEmail", () =>
+				outcome === "wrong" ? Response.json({ code: "INVALID_EMAIL_OR_PASSWORD" }, { status: 401 }) : new Response("{}", { status: 200 }),
+			),
+		);
+		const attempt = async () => {
+			try {
+				return (await authService.login({ email: "typos@example.com", password: "pw" }, loginRequest())).status;
+			} catch (error) {
+				return (error as { code?: string }).code;
+			}
+		};
+
+		expect(await attempt()).toBe("auth.invalid_credentials");
+		expect(await attempt()).toBe("auth.invalid_credentials");
+		outcome = "right";
+		expect(await attempt()).toBe(200);
+		outcome = "wrong";
+		// Without the reset the account would already be at its 3-attempt ceiling here.
+		expect(await attempt()).toBe("auth.invalid_credentials");
+		expect(await attempt()).toBe("auth.invalid_credentials");
+
+		systemSettingsStore.clearRuntimeValues();
+		expect(serverConfig.auth.loginAccountMaxAttempts).toBe(limit);
 	});
 });

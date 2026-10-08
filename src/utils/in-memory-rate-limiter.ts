@@ -42,6 +42,11 @@ export class InMemoryRateLimiter {
 		return this.buckets.has(key);
 	}
 
+	/** Forgets one key, e.g. after a successful login so earlier typos do not count against the next sign-in. */
+	reset(key: string): void {
+		this.buckets.delete(key);
+	}
+
 	clear(): void {
 		this.buckets.clear();
 	}

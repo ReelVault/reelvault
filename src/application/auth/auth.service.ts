@@ -90,6 +90,9 @@ class AuthService extends BaseService {
 			// blocked account, ...) into a stable code the frontend can show.
 			if (!response.ok) throw await toAuthFailure(response);
 
+			// Typos before a correct password must not eat into the next sign-in's attempts.
+			loginAccountLimiter.reset(accountKey);
+
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});
 	}
