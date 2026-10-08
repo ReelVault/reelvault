@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { discoverService } from "@/application/users/discover.service";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
 import type { PlaybackProgressUpdateEvent } from "./playback-progress.publisher";
 import {
 	type PlaybackProgressPublisherDependency,
@@ -166,6 +168,18 @@ describe("playback progress service", () => {
 		expect(upserts[0]).toMatchObject({ profileId: "profile-1", fileId: "file-1", position: 1000, duration: 1000, completed: true });
 		expect(watchedSyncs).toHaveLength(1);
 		expect(published[0]).toMatchObject({ mediaFileId: "file-1", position: 1000, completed: true });
+	});
+
+	test("finishing a title clears the profile's discover/insight caches; plain progress does not", async () => {
+		const cleared = stubMethod(discoverService, "clearCache", () => undefined);
+		const { service } = createService();
+
+		await service.updatePlaybackProgress("file-1", { position: 100 }, "profile-1");
+		expect(cleared.calls).toHaveLength(0);
+
+		await service.updatePlaybackProgress("file-1", { position: 1000 }, "profile-1");
+		expect(cleared.calls).toEqual([["profile-1"]]);
+		cleared.restore();
 	});
 
 	test("keeps the previous stream selection when the request omits it", async () => {

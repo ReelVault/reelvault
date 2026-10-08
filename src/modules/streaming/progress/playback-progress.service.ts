@@ -6,6 +6,7 @@ import type {
 	StreamPrefs,
 	UpdatePlaybackProgress,
 } from "@reelvault/sdk/common";
+import { invalidateProfileCaches } from "@/application/users/cache-invalidation";
 import { playbackRepository as defaultPlaybackRepository } from "@/database/repositories/playback.repository";
 import { profilePreferencesRepository as defaultProfilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profileStreamPrefsRepository as defaultProfileStreamPrefsRepository } from "@/database/repositories/profile-stream-prefs.repository";
@@ -113,6 +114,8 @@ class PlaybackProgressService extends BaseService {
 					durationWatched: position,
 					isFullWatch: true,
 				});
+				// A finished title changes recommendations, insights and "wrapped" — their caches are per profile.
+				invalidateProfileCaches(profileId);
 			}
 
 			// Language-level choices carry over to the whole title/series (movies and
