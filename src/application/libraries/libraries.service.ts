@@ -21,6 +21,7 @@ import { BaseService } from "@/utils/base-service";
 import { ConflictError, ValidationError } from "@/utils/errors";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
 import { PathUtils } from "@/utils/path.utils";
+import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import {
 	createLibraryErrorsCheckDedupeKey,
@@ -32,6 +33,9 @@ import { enqueueLibraryScan } from "@/workers/definitions/libraries/library-scan
 import { ingestLibraryCache } from "@/workers/definitions/media/media-file-ingest.worker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped";
 import { libraryWatcherService } from "./watching/library-watcher.service";
+
+/** Routes whose cached bodies list libraries — invalidated on library mutations. */
+const LIBRARY_LIST_PATH_PREFIXES = ["/v1/libraries"] as const;
 
 /**
  * Server-owned normalization for the per-library metadata language override:
@@ -128,6 +132,7 @@ class LibrariesService extends BaseService {
 				this.logger,
 			);
 
+			invalidateResponseBodiesForPathPrefixes(LIBRARY_LIST_PATH_PREFIXES);
 			await libraryWatcherService.syncWatchers();
 
 			return library;
@@ -183,6 +188,7 @@ class LibrariesService extends BaseService {
 				this.logger,
 			);
 
+			invalidateResponseBodiesForPathPrefixes(LIBRARY_LIST_PATH_PREFIXES);
 			await libraryWatcherService.syncWatchers();
 
 			return result;
@@ -222,6 +228,7 @@ class LibrariesService extends BaseService {
 				this.logger,
 			);
 
+			invalidateResponseBodiesForPathPrefixes(LIBRARY_LIST_PATH_PREFIXES);
 			await libraryWatcherService.syncWatchers();
 
 			return { success: true };
