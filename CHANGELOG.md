@@ -343,3 +343,9 @@ Smaller benchmarks are kept separately so the main table stays focused:
 ### Features
 
 - **Plugins can extend the web UI Content-Security-Policy** — `plugin.json` may declare `csp` sources for `img-src` / `media-src` / `connect-src` / `font-src` / `frame-src` (plain origins only; script and style directives are never extendable). The server validates them and appends them to the SPA policy, so plugin-provided artwork and embedded players load — TMDB/OMDb poster options and YouTube trailer embeds no longer get blocked by the built-in `img-src`/`frame-src`.
+
+### Fixes
+
+- **Watchlist requests with `fields` + `hydrate` returned 400** — the field projection dropped `profileId`/`updatedAt` that the hydrated response contract requires, so the response matched neither branch of the watchlist union and the page failed with `validation.invalid_request`. `fields` is now ignored when `hydrate=true`.
+- **Direct `/index.html` requests missed the same-origin API marker** — only the SPA fallback injected `<meta name="reelvault-api-origin">`; a direct `/index.html` (what the PWA precache fetches) was served raw and cached for an hour, so the installed app shell fell back to the `api.*` subdomain heuristic and its API calls were blocked by `connect-src 'self'`. The HTML entry transformation now applies to direct requests too.
+- **Plugin schemas could reference undeclared dialogs** — a `button` or `onMount` `openDialog` action pointing at a dialog missing from `ui.json` produced a dead button (the host silently ignores unknown dialogs). Manifest validation now rejects unknown dialog references in inline schemas and `schemaRef` files.
