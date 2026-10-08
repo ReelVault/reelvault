@@ -21,6 +21,7 @@ import { PLUGIN_SLOT_NAMES, PLUGIN_TAB_HOST_NAMES } from "@reelvault/sdk/plugin"
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { createPluginStatus } from "./plugin.status";
+import { applyUiOverrides, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions";
 import { MediaAnalysisFanout } from "./registry/media-analysis.fanout";
 import { PluginEntityTable } from "./registry/plugin-entity-table";
 import { ProviderLookupCache } from "./registry/provider-lookup.cache";
@@ -311,17 +312,22 @@ export class PluginRegistry {
 	}
 
 	/**
-	 * UI manifests of enabled plugins, with admin-only surfaces removed for
-	 * non-admin callers. Tabs and slot actions that target a filtered surface
-	 * are dropped too, so the host never renders a dangling link.
+	 * UI manifests of enabled plugins, minus whatever an administrator switched
+	 * off (`hiddenByPlugin`), with admin-only surfaces removed for non-admin
+	 * callers. Tabs and slot actions that target a filtered surface are dropped
+	 * too, so the host never renders a dangling link.
 	 */
-	getUiManifestsForRole(isAdmin: boolean): Record<string, PluginUiManifest> {
+	getUiManifestsForRole(isAdmin: boolean, hiddenByPlugin?: ReadonlyMap<string, ReadonlySet<string>>): Record<string, PluginUiManifest> {
 		const result: Record<string, PluginUiManifest> = {};
 		for (const [pluginId, manifest] of this.uiManifests) {
 			// Disabled plugins disappear from the UI surface entirely.
 			if (this.plugins.get(pluginId)?.state !== "enabled") continue;
 
-			result[pluginId] = isAdmin ? manifest : filterUiManifestForRole(manifest);
+			const hidden = hiddenByPlugin?.get(pluginId);
+			if (hidden?.has(PLUGIN_UI_MASTER_KEY)) continue;
+
+			const visible = hidden ? applyUiOverrides(manifest, hidden) : manifest;
+			result[pluginId] = isAdmin ? visible : filterUiManifestForRole(visible);
 		}
 
 		return result;

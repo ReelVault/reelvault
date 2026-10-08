@@ -9,7 +9,8 @@ import { PluginManager } from "./manager/plugin-manager.service";
 import type { PluginConfig } from "./plugin.config";
 import type { InstalledPluginRecord, PluginInstaller } from "./plugin.installer";
 import type { PluginLoader } from "./plugin.loader";
-import type { PluginRegistry } from "./plugin.registry";
+import { type PluginRegistry, pluginRegistry } from "./plugin.registry";
+import { pluginUiSettingsService } from "./plugin-ui-settings.service";
 
 process.env.NODE_ENV ??= "test";
 process.env.APP_PORT ??= "3030";
@@ -33,6 +34,7 @@ function createManagerFixture(activeStubs: Array<{ restore(): void }>) {
 		stubMethod(loader, "reloadPlugin", () => Promise.resolve()),
 		stubMethod(loader, "prepareUninstall", () => Promise.resolve()),
 		stubMethod(loader, "removePluginData", () => Promise.resolve()),
+		stubMethod(pluginUiSettingsService, "reset", () => Promise.resolve()),
 		stubMethod(loader, "findDirectoryNameForPluginId", (pluginId: string) =>
 			Promise.resolve(pluginId === "org.reelvault.m" ? "m-dir" : undefined),
 		),
@@ -93,8 +95,7 @@ describe("PluginManager lifecycle orchestration", () => {
 		for (const stub of activeStubs.toReversed()) stub.restore();
 
 		activeStubs = [];
-		const { registry } = createManagerFixture([]);
-		registry.clear();
+		pluginRegistry.clear();
 		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
 	});
 
@@ -458,8 +459,7 @@ describe("PluginManager config details", () => {
 		for (const stub of activeStubs.toReversed()) stub.restore();
 
 		activeStubs = [];
-		const { registry } = createManagerFixture([]);
-		registry.clear();
+		pluginRegistry.clear();
 		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
 	});
 

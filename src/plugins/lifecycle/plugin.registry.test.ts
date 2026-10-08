@@ -302,6 +302,23 @@ describe("plugin registry ui manifests", () => {
 		expect(manifest?.slots?.["player-footer"]?.[0]?.label).toBe("Public");
 	});
 
+	it("applies administrator overrides before the role filter", () => {
+		registerEnabledUiPlugin();
+
+		const hidden = new Map([["org.example.ui", new Set(["page:public"])]]);
+		const manifest = registry.getUiManifestsForRole(true, hidden)["org.example.ui"];
+
+		expect(manifest?.pages?.map((page) => page.id)).toEqual(["admin"]);
+		expect(manifest?.tabs?.details?.map((tab) => tab.id)).toEqual(["admin-tab"]);
+		expect(registry.getUiManifestsForRole(false, hidden)["org.example.ui"]?.pages).toEqual([]);
+	});
+
+	it("omits a plugin whose master UI switch is off", () => {
+		registerEnabledUiPlugin();
+
+		expect(registry.getUiManifestsForRole(true, new Map([["org.example.ui", new Set(["*"])]]))).toEqual({});
+	});
+
 	it("drops the ui manifest when the plugin is unregistered", () => {
 		registerEnabledUiPlugin();
 

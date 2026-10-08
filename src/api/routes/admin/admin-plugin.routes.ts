@@ -7,9 +7,11 @@ import {
 	PluginConfigDetailsSchema,
 	PluginRepositorySchema,
 	PluginRuntimeStatusSchema,
+	PluginUiSettingsSchema,
 	ReorderMetadataProvidersSchema,
 	UpdatePluginConfigBodySchema,
 	UpdatePluginRepositoryBodySchema,
+	UpdatePluginUiSettingsBodySchema,
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
@@ -28,6 +30,8 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		"admin.pluginRepository": PluginRepositorySchema,
 		"admin.pluginCatalog": t.Array(PluginCatalogEntrySchema),
 		"admin.updatePluginConfig": UpdatePluginConfigBodySchema,
+		"admin.pluginUiSettings": PluginUiSettingsSchema,
+		"admin.updatePluginUiSettings": UpdatePluginUiSettingsBodySchema,
 		"admin.metadataProviderConfigurations": t.Array(MetadataProviderConfigurationSchema),
 	})
 	.get("/plugins", async () => await adminService.plugins(), {
@@ -63,6 +67,35 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 			detail: {
 				description: "Reloads a specific plugin by unregistering and re-executing its lifecycle.",
 			},
+		},
+	)
+	.get("/plugins/:pluginId/ui", async ({ params }) => await adminService.getPluginUiSettings(params.pluginId), {
+		params: PluginIdParams,
+		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.pluginUiSettings" },
+		detail: { description: "List the UI contributions of a plugin with their on/off state, plus the plugin-wide master switch." },
+	})
+	.put(
+		"/plugins/:pluginId/ui",
+		async ({ params, body, user, request }) =>
+			await adminService.updatePluginUiSettings(params.pluginId, body, { actorUserId: user?.id, headers: request.headers }),
+		{
+			params: PluginIdParams,
+			body: "admin.updatePluginUiSettings",
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.pluginUiSettings" },
+			detail: {
+				description:
+					"Hide parts of a plugin's UI (or all of it). Contributions not listed stay visible; an unknown key is rejected with plugin_ui.unknown_contribution.",
+			},
+		},
+	)
+	.delete(
+		"/plugins/:pluginId/ui",
+		async ({ params, user, request }) =>
+			await adminService.resetPluginUiSettings(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
+		{
+			params: PluginIdParams,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.pluginUiSettings" },
+			detail: { description: "Show every part of a plugin's UI again." },
 		},
 	)
 	.post(

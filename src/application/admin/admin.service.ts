@@ -8,6 +8,8 @@ import type {
 	MetadataProviderConfiguration,
 	PluginConfigDetails,
 	PluginRuntimeStatus,
+	PluginUiSettings,
+	UpdatePluginUiSettingsBody,
 } from "@reelvault/sdk/common";
 import { librariesService } from "@/application/libraries/libraries.service";
 import { pluginAdminService } from "@/application/plugin-admin.service";
@@ -18,6 +20,7 @@ import { adminStatsRepository } from "@/database/repositories/admin-stats.reposi
 import { sessionLifecycleService } from "@/modules/streaming/sessions/session-lifecycle.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
+import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
 import { resourceAllocator } from "@/system/resource-allocator";
@@ -41,6 +44,11 @@ import { systemSettingsService } from "./system-settings.service";
 // re-run the aggregate for nothing.
 const STATS_CACHE_TTL_MS = 30_000;
 const DISK_STATS_CACHE_TTL_MS = MINUTE;
+
+/** Compact audit view of a plugin's UI switches: master flag plus the hidden keys. */
+function summarizeUiSettings(settings: PluginUiSettings): { enabled: boolean; disabledKeys: string[] } {
+	return { enabled: settings.enabled, disabledKeys: settings.contributions.filter((item) => !item.enabled).map((item) => item.key) };
+}
 
 class AdminService extends BaseService {
 	private readonly statsCache = new MemoryCache<AdminStats>({ ttlMs: STATS_CACHE_TTL_MS, maxSize: 1, name: "admin-stats" });
@@ -291,6 +299,47 @@ class AdminService extends BaseService {
 		);
 
 		return plugin;
+	}
+
+	getPluginUiSettings(pluginId: string): Promise<PluginUiSettings> {
+		return pluginUiSettingsService.get(pluginId);
+	}
+
+	async updatePluginUiSettings(pluginId: string, body: UpdatePluginUiSettingsBody, context?: AdminAuditContext): Promise<PluginUiSettings> {
+		const before = await pluginUiSettingsService.get(pluginId);
+		const after = await pluginUiSettingsService.update(pluginId, body);
+		recordAuditSafe(
+			{
+				action: "update",
+				resourceType: "plugin_ui_settings",
+				resourceId: pluginId,
+				before: summarizeUiSettings(before),
+				after: summarizeUiSettings(after),
+				context,
+			},
+			this.logger,
+		);
+
+		return after;
+	}
+
+	async resetPluginUiSettings(pluginId: string, context?: AdminAuditContext): Promise<PluginUiSettings> {
+		const before = await pluginUiSettingsService.get(pluginId);
+		await pluginUiSettingsService.reset(pluginId);
+		const after = await pluginUiSettingsService.get(pluginId);
+		recordAuditSafe(
+			{
+				action: "update",
+				resourceType: "plugin_ui_settings",
+				resourceId: pluginId,
+				before: summarizeUiSettings(before),
+				after: summarizeUiSettings(after),
+				context,
+			},
+			this.logger,
+		);
+
+		return after;
 	}
 
 	enablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginRuntimeStatus> {

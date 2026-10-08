@@ -10,6 +10,7 @@ import { PluginLoader } from "../plugin.loader";
 import { loadPluginManifest } from "../plugin.manifest";
 import { type PluginRegistry, pluginRegistry } from "../plugin.registry";
 import { createPluginStatus } from "../plugin.status";
+import { pluginUiSettingsService } from "../plugin-ui-settings.service";
 
 const CAPITALIZE_FIRST_REGEX = /^./;
 const CAMEL_CASE_SPLIT_REGEX = /([A-Z])/g;
@@ -223,6 +224,7 @@ export class PluginManager {
 			}
 
 			await this.loader.removePluginData(pluginId);
+			await pluginUiSettingsService.reset(pluginId);
 
 			// Cleared only after the installer succeeded — a failed uninstall leaves the plugin installed.
 			this.disabledStatuses.delete(pluginId);

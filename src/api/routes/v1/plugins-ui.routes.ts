@@ -4,6 +4,7 @@ import { binaryFileResponse } from "@/api/utils/binary-response.utils";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
 import { serverConfig } from "@/server.config";
 import { ForbiddenError, NotFoundError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
@@ -75,10 +76,10 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 	.use(authMiddleware)
 	.get(
 		"/manifest",
-		({ user }) => {
+		async ({ user }) => {
 			// Admin-only surfaces are removed for regular users before the manifest
 			// ever reaches the browser — the host never has to gate visibility.
-			const manifests = pluginRegistry.getUiManifestsForRole(user?.role === "admin");
+			const manifests = pluginRegistry.getUiManifestsForRole(user?.role === "admin", await pluginUiSettingsService.getHiddenByPlugin());
 
 			return { plugins: manifests };
 		},

@@ -23,6 +23,7 @@ import * as people from "./schemas/people.schema";
 import * as playbackProgress from "./schemas/playback-progress.schema";
 import * as pluginRepositories from "./schemas/plugin-repositories.schema";
 import * as pluginStorage from "./schemas/plugin-storage.schema";
+import * as pluginUiOverrides from "./schemas/plugin-ui-overrides.schema";
 import * as profilePreferenceOverrides from "./schemas/profile-preferences.schema";
 import * as profileStreamPrefs from "./schemas/profile-stream-prefs.schema";
 import * as profiles from "./schemas/profiles.schema";
@@ -53,6 +54,7 @@ export const schema = {
 	...keywords,
 	...libraries,
 	...libraryProviderSettings,
+	...pluginUiOverrides,
 	...mediaArtifacts,
 	...mediaFileIngestState,
 	...mediaFiles,
