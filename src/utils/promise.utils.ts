@@ -6,6 +6,14 @@ import { RequestTimeoutError } from "./errors";
 
 const logger = createLogger("PromiseUtils");
 
+/** Thrown by `PromiseUtils.withTimeout` when the deadline elapses first. */
+export class PromiseTimeoutError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "PromiseTimeoutError";
+	}
+}
+
 /**
  * Fire-and-forget for promises that cannot reject: the task handles its own
  * errors. Must never be used with a promise that may reject (an unhandled
@@ -19,7 +27,7 @@ export const PromiseUtils = {
 	async withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<Awaited<T>> {
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const timeout = new Promise<never>((_resolve, reject) => {
-			timer = setTimeout(() => reject(new Error(label ? `${label} exceeded ${ms}ms timeout` : "Timeout")), ms);
+			timer = setTimeout(() => reject(new PromiseTimeoutError(label ? `${label} exceeded ${ms}ms timeout` : "Timeout")), ms);
 			timer.unref();
 		});
 

@@ -1,11 +1,12 @@
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { Glob } from "bun";
+import { FS_STAT_TIMEOUT_MS } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { isMissingFile } from "./errors";
 import { createLogger } from "./logger";
 import { MemoryCache } from "./memory-cache";
 import { PathUtils } from "./path.utils";
-import { PromiseUtils } from "./promise.utils";
+import { PromiseTimeoutError, PromiseUtils } from "./promise.utils";
 
 const logger = createLogger("DirUtils");
 
@@ -18,10 +19,16 @@ export interface ScannedFileEntry {
 export const DirUtils = {
 	async exists(path: string): Promise<boolean> {
 		try {
-			const stats = await stat(path);
+			const stats = await PromiseUtils.withTimeout(stat(path), FS_STAT_TIMEOUT_MS, `stat ${path}`);
 
 			return stats.isDirectory();
-		} catch {
+		} catch (error) {
+			// A hung stat must not wedge watcher reconciliation — report "not a
+			// directory" so the caller records a failure and arms its fallback.
+			if (error instanceof PromiseTimeoutError) {
+				logger.warn("Directory existence check timed out", { directoryPath: path });
+			}
+
 			return false;
 		}
 	},

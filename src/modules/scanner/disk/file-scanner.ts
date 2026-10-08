@@ -4,7 +4,7 @@ import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils, type ScannedFileEntry } from "@/utils/directory.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { detach, PromiseUtils } from "@/utils/promise.utils";
+import { PromiseTimeoutError, PromiseUtils } from "@/utils/promise.utils";
 
 interface ScanOptions {
 	paths: string[];
@@ -19,23 +19,6 @@ interface ScanOptions {
  * task (and its worker dedupe key) for the full 2 h worker timeout.
  */
 const DEFAULT_PATH_SCAN_TIMEOUT_MS = 2 * MINUTE;
-
-class PathScanTimeoutError extends Error {}
-
-/** Races `promise` against a hard deadline so an unresponsive scan can't hang the caller. */
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const timeout = new Promise<never>((_resolve, reject) => {
-		timer = setTimeout(() => reject(new PathScanTimeoutError(`Path scan exceeded ${timeoutMs} ms`)), timeoutMs);
-		timer.unref();
-	});
-
-	try {
-		return await Promise.race([promise, timeout]);
-	} finally {
-		clearTimeout(timer);
-	}
-}
 
 /** Applies the defaults shared by `scan` and `scanWithStats`. */
 function resolveScanOptions(options: ScanOptions): {
@@ -100,12 +83,13 @@ export class FileScannerService extends BaseService {
 				const scanPromise = scanRoot(path, extensions, maxDepth, scanSignal);
 
 				try {
-					return (await withTimeout(scanPromise, this.pathScanTimeoutMs)).filter((entry) => !isIgnoredPath(pathOf(entry), path, patterns));
+					return (await PromiseUtils.withTimeout(scanPromise, this.pathScanTimeoutMs, `Library path scan ${path}`)).filter(
+						(entry) => !isIgnoredPath(pathOf(entry), path, patterns),
+					);
 				} catch (error) {
 					// The caller's abort must propagate; a per-path timeout only skips
 					// this path (the scan itself is expected to wind down via scanSignal).
-					if (error instanceof PathScanTimeoutError && !signal?.aborted) {
-						detach(scanPromise.catch(() => null));
+					if (error instanceof PromiseTimeoutError && !signal?.aborted) {
 						this.logger.error("Library path scan timed out — skipping the path for this run", {
 							path,
 							timeoutMs: this.pathScanTimeoutMs,

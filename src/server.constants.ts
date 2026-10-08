@@ -12,6 +12,13 @@ export const DAY = 24 * HOUR;
 
 export const FFMPEG_TIMEOUT_MS = 10 * MINUTE;
 
+/**
+ * Hard deadline for a single filesystem stat. A dead NFS/CIFS mount can hang
+ * `stat` indefinitely, which would wedge watcher reconciliation and the removal
+ * guard; timing out lets callers treat the storage as unreliable instead.
+ */
+export const FS_STAT_TIMEOUT_MS = 15_000;
+
 export const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
 
 /**

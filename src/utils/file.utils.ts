@@ -1,8 +1,10 @@
 import { chmod, rename, stat, unlink } from "node:fs/promises";
 import { file as bunFile, write as bunWrite } from "bun";
+import { FS_STAT_TIMEOUT_MS } from "@/server.constants";
 import { InternalError, isMissingFile, ValidationError } from "./errors";
 import { createLogger } from "./logger";
 import { PathUtils } from "./path.utils";
+import { PromiseTimeoutError, PromiseUtils } from "./promise.utils";
 import { isFiniteNumber, normalizeLower } from "./type.utils";
 import { guardedFetch } from "./url-guard.utils";
 
@@ -124,10 +126,14 @@ export const FileUtils = {
 	 */
 	async existence(path: string): Promise<"exists" | "missing" | "unavailable"> {
 		try {
-			await stat(path);
+			await PromiseUtils.withTimeout(stat(path), FS_STAT_TIMEOUT_MS, `stat ${path}`);
 
 			return "exists";
 		} catch (error) {
+			// A hung stat (dead NFS/CIFS) must read as unreliable storage, never as
+			// "missing" — the removal guard purges records on that basis.
+			if (error instanceof PromiseTimeoutError) return "unavailable";
+
 			const code = errorCode(error);
 
 			return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unavailable";
