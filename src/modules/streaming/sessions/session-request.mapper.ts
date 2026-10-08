@@ -14,10 +14,6 @@ function parseList(val?: string): string[] {
 	return normalizeStringList(val.split(","));
 }
 
-function normalize<T>(value: T | null | undefined): T | undefined {
-	return value ?? undefined;
-}
-
 export function assertSafeId(id: string, label = "fileId"): void {
 	if (!SAFE_ID_PATTERN.test(id)) {
 		throw new ValidationError(`Invalid ${label}`);
@@ -46,14 +42,14 @@ export function parseCapabilities(query: {
 
 export function toPlaybackSessionInput(body: CreatePlaybackSession): PlaybackSessionInput {
 	return {
-		videoCodecs: normalize(body.videoCodecs)?.join(","),
-		audioCodecs: normalize(body.audioCodecs)?.join(","),
-		maxBitrate: normalize(body.maxBitrate),
-		hdrTransfers: normalize(body.hdrTransfers)?.join(","),
-		audioStreamIndex: normalize(body.audioStreamIndex),
-		audioLanguage: normalize(body.audioLanguage),
-		subtitleLanguage: normalize(body.subtitleLanguage),
-		subtitlesEnabled: normalize(body.subtitlesEnabled),
-		forcedSubtitlesOnly: normalize(body.forcedSubtitlesOnly),
+		videoCodecs: body.videoCodecs?.join(","),
+		audioCodecs: body.audioCodecs?.join(","),
+		maxBitrate: body.maxBitrate ?? undefined,
+		hdrTransfers: body.hdrTransfers?.join(","),
+		audioStreamIndex: body.audioStreamIndex ?? undefined,
+		audioLanguage: body.audioLanguage ?? undefined,
+		subtitleLanguage: body.subtitleLanguage ?? undefined,
+		subtitlesEnabled: body.subtitlesEnabled ?? undefined,
+		forcedSubtitlesOnly: body.forcedSubtitlesOnly ?? undefined,
 	};
 }
