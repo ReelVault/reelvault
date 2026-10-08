@@ -152,22 +152,41 @@ setActiveShutdown(shutdownHandler);
 shutdownHandler.init();
 
 // Start the server
-app.listen(
-	{
-		port: env.APP_PORT,
-		hostname: serverConfig.network.host,
-		maxRequestBodySize: 50 * 1024 * 1024,
-		// Bun's default (10s) kills idle sockets mid-request — the playlist endpoint
-		// legitimately blocks server-side for up to ~60s on slow storage while ffmpeg
-		// produces the first manifest, which the client saw as an empty failed response.
-		idleTimeout: 255, // seconds — Bun's maximum
-	},
-	() => {
-		logger.info(`🚀 Server started successfully`, {
+try {
+	app.listen(
+		{
 			port: env.APP_PORT,
-			host: serverConfig.network.host,
-			environment: env.NODE_ENV,
-			database: serverConfig.paths.sqlite,
-		});
-	},
-);
+			hostname: serverConfig.network.host,
+			maxRequestBodySize: 50 * 1024 * 1024,
+			// Bun's default (10s) kills idle sockets mid-request — the playlist endpoint
+			// legitimately blocks server-side for up to ~60s on slow storage while ffmpeg
+			// produces the first manifest, which the client saw as an empty failed response.
+			idleTimeout: 255, // seconds — Bun's maximum
+		},
+		() => {
+			logger.info(`🚀 Server started successfully`, {
+				port: env.APP_PORT,
+				host: serverConfig.network.host,
+				environment: env.NODE_ENV,
+				database: serverConfig.paths.sqlite,
+			});
+		},
+	);
+} catch (error) {
+	// A taken port is the most common first-run failure — say how to fix it instead of dumping a stack.
+	if (isAddressInUse(error)) {
+		logger.fatal(
+			`Port ${env.APP_PORT} is already in use on ${serverConfig.network.host}. Stop the other process or set APP_PORT to a free port.`,
+		);
+		process.exit(1);
+	}
+
+	throw error;
+}
+
+/** Bun reports a taken port as `EADDRINUSE` on the error or in its message. */
+function isAddressInUse(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+
+	return Reflect.get(error, "code") === "EADDRINUSE" || error.message.includes("EADDRINUSE") || error.message.includes("in use");
+}

@@ -177,4 +177,17 @@ const envSchema = z.object({
 	BETTER_AUTH_SECRET: z.string().min(16),
 });
 
-export const env = envSchema.parse(process.env);
+/** One line per invalid variable — a raw schema error dump is unreadable for someone editing a .env file. */
+export function describeEnvIssues(issues: ReadonlyArray<{ path: readonly PropertyKey[]; message: string }>): string {
+	const lines = issues.map((issue) => `  - ${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`);
+
+	return `Invalid server configuration:\n${lines.join("\n")}\nFix the values in your .env file or environment and start the server again.`;
+}
+
+const parsedEnv = envSchema.safeParse(process.env);
+if (!parsedEnv.success) {
+	console.error(describeEnvIssues(parsedEnv.error.issues));
+	process.exit(1);
+}
+
+export const env = parsedEnv.data;
