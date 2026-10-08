@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
+import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body-cache";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { notificationsService } from "./notifications.service";
 
@@ -66,5 +67,17 @@ describe("notificationsService read-state flips", () => {
 		stubs.push(stubMethod(notificationsRepository, "markReadForRecipient", () => Promise.resolve(true)));
 
 		await expect(notificationsService.markRead("n1", "u1")).resolves.toEqual({ success: true });
+	});
+});
+
+describe("notificationsService create", () => {
+	test("flushes the recipient's cached notification list, not just the unread badge", async () => {
+		stubs.push(stubMethod(notificationsRepository, "create", () => Promise.resolve("n1")));
+		const key = responseCacheKey({ pathWithQuery: "/v1/notifications", cookie: "c", profileId: "p1", auth: "", apiKey: "" });
+		setCachedResponseBody(key, { etag: "e", body: "[]", expiresAt: Date.now() + 60_000, encoded: new Map() });
+
+		await notificationsService.create({ userId: "u1", profileId: "p1", type: "system", title: "Hello" }, { skipOwnershipCheck: true });
+
+		expect(getCachedResponseBody(key)).toBeUndefined();
 	});
 });

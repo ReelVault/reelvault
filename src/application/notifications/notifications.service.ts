@@ -66,7 +66,7 @@ class NotificationsService extends BaseService {
 				link: notification.link ?? null,
 				sourcePluginId,
 			});
-			unreadCountCache.delete(unreadCountKey(notification.userId, notification.profileId ?? undefined));
+			this.invalidateFor(notification.userId, notification.profileId ?? undefined);
 			const outgoing = {
 				id,
 				userId: notification.userId,
@@ -228,7 +228,7 @@ class NotificationsService extends BaseService {
 				const recipientList = [...recipients.values()];
 				const ids = await notificationsRepository.createBatch(items);
 				for (const recipient of recipientList) {
-					unreadCountCache.delete(unreadCountKey(recipient.userId, recipient.profileId));
+					this.invalidateFor(recipient.userId, recipient.profileId);
 				}
 
 				for (let i = 0; i < ids.length; i++) {
