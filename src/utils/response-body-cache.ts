@@ -168,6 +168,8 @@ export function invalidateProfileResponseBodies(profileId: string): void {
 	profileKeyIndex.delete(profileId);
 
 	for (const key of etagBodyKeys) {
-		if (key.includes(profileId)) responseBodyCache.delete(key);
+		// Etag keys embed the profile id as the last colon-separated segment; a
+		// substring match could delete unrelated keys.
+		if (key.split(":").at(-1) === profileId) responseBodyCache.delete(key);
 	}
 }
