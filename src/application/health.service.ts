@@ -34,6 +34,21 @@ class HealthService extends BaseService {
 		return this.cache.getOrSet("health", () => this.safeExecute("check", () => this.buildHealthStatus()));
 	}
 
+	/** Readiness: only what the API cannot work without (the database). Cheap enough for frequent orchestrator probes. */
+	async checkReady(): Promise<HealthStatus> {
+		return await this.safeExecute("checkReady", async () => {
+			const database = await this.checkDatabase();
+
+			return {
+				status: database.status === "healthy" ? "ok" : "degraded",
+				timestamp: new Date().toISOString(),
+				uptime: process.uptime(),
+				environment: env.NODE_ENV,
+				subsystems: [database],
+			};
+		});
+	}
+
 	private async buildHealthStatus(): Promise<HealthStatus> {
 		// Only checkDatabase/checkDisk can await (I/O); the rest are synchronous local reads.
 		const [database, disk] = await Promise.all([this.checkDatabase(), this.checkDisk()]);
