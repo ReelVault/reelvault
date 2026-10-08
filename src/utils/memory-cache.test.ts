@@ -224,3 +224,26 @@ test("getOrRun propagates a failure to every waiter without poisoning the next r
 
 	expect(await cache.getOrRun("key-1", async () => "recovered")).toBe("recovered");
 });
+
+test("mget and getOrSetMany treat a cached null as a hit", async () => {
+	const cache = new MemoryCache<string | null>({ ttlMs: -1, maxSize: -1 });
+	cache.set("null-key", null);
+	cache.set("value-key", "value");
+
+	const batch = cache.mget(["null-key", "value-key", "missing"]);
+	expect(batch.has("null-key")).toBe(true);
+	expect(batch.get("null-key")).toBeNull();
+	expect(batch.get("value-key")).toBe("value");
+	expect(batch.has("missing")).toBe(false);
+
+	let loaderCalls = 0;
+	const loaded = await cache.getOrSetMany(["null-key", "missing"], (missing) => {
+		loaderCalls++;
+		expect(missing).toEqual(["missing"]);
+
+		return Promise.resolve(new Map<string, string | null>([["missing", "loaded"]]));
+	});
+	expect(loaderCalls).toBe(1);
+	expect(loaded.get("null-key")).toBeNull();
+	expect(loaded.get("missing")).toBe("loaded");
+});

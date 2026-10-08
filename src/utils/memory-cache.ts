@@ -222,14 +222,15 @@ export class MemoryCache<T, K extends string = string> {
 	/**
 	 * Reads multiple keys at once. Missing/expired keys are simply absent from
 	 * the returned Map (not set to null), so `result.has(key)` tells you what
-	 * was found. Each lookup goes through `get()`, so LRU order and hit/miss
-	 * stats update per key exactly as individual `get()` calls would.
+	 * was found. Uses `lookup` (not `get`) so a cached `null`/`undefined` value
+	 * is returned instead of being mistaken for a miss. Each lookup updates LRU
+	 * order and hit/miss stats exactly as individual `get()` calls would.
 	 */
 	mget(keys: readonly K[]): Map<K, T> {
 		const result = new Map<K, T>();
 		for (const key of keys) {
-			const value = this.get(key);
-			if (value !== null) result.set(key, value);
+			const entry = this.lookup(key);
+			if (entry.hit) result.set(key, entry.value);
 		}
 
 		return result;
