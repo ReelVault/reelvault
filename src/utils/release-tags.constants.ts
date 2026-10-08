@@ -76,9 +76,9 @@ export const EDITION_NOISE =
 export const SCENE_NOISE =
 	/\b(?:2160p|1080p|1080i|720p|480p|4k|uhd|bluray|bdrip|brrip|web[-_. ]?dl|webrip|hdrip|dvdrip|remux|h264|h265|x264|x265|hevc|avc|10bit|ddp[57]\.1|truehd|atmos|aac(?:\d\.\d)?|ac3|dts(?:-hd)?|flac|multi|dubbed|lektor|subbed|repack|proper|extended|unrated|directors\.cut)\b.*$/i;
 
-/** Folder names that carry no title information for the categorized movie strategy. */
+/** Folder names that carry no title information for the categorized movie and series-basic strategies. */
 export const GENERIC_FOLDER_NAMES =
-	/^(?:movies|filmy|film|cinema|kino|downloads|pobrane|video|wideo|media|temp|complete|4k|1080p|720p|bluray|uhd|remux)$/i;
+	/^(?:movies|filmy|film|cinema|kino|downloads|pobrane|video|wideo|media|tv|tv\s?shows|shows|series|seriale|temp|complete|4k|1080p|720p|bluray|uhd|remux)$/i;
 
 const NON_ALPHANUMERIC = /[^a-z0-9]+/g;
 

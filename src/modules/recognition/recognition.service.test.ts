@@ -196,4 +196,21 @@ describe("recognition service", () => {
 		expect(result?.identity.season).toBe(1);
 		expect(result?.identity.episode).toBe(2);
 	});
+
+	test("recognizes a basic-structure episode in a generic folder without taking the folder as the show title", () => {
+		const result = recognitionService.recognize("/mnt/storage/movies/Example.Show.2019.S01E03.mkv");
+
+		expect(result?.type).toBe("tv_show");
+		expect(result?.identity.title).toBe("Example Show");
+		expect(result?.identity.year).toBe(2019);
+		expect(result?.identity.season).toBe(1);
+		expect(result?.identity.episode).toBe(3);
+	});
+
+	test("recognizes a basic-structure episode in a TV root folder", () => {
+		const result = recognitionService.recognize("/media/TV Shows/Example.Show.S01E03.mkv");
+
+		expect(result?.type).toBe("tv_show");
+		expect(result?.identity.title).toBe("Example Show");
+	});
 });
