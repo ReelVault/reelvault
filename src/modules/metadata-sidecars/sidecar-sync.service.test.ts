@@ -84,4 +84,72 @@ describe("sidecarSyncService", () => {
 
 		expect(warnings).toEqual(["Sidecar sync failed"]);
 	});
+
+	test("coalesces repeated requests for the same title into one re-run", async () => {
+		const gates: Array<() => void> = [];
+		let calls = 0;
+		activeStubs.push(
+			stubMethod(sidecarSyncService, "syncForMetadata", () => {
+				calls++;
+
+				return new Promise<void>((resolve) => {
+					gates.push(resolve);
+				});
+			}),
+		);
+
+		sidecarSyncService.scheduleSync("metadata-coalesce");
+		sidecarSyncService.scheduleSync("metadata-coalesce");
+		sidecarSyncService.scheduleSync("metadata-coalesce");
+		await new Promise((resolve) => {
+			setTimeout(resolve, 0);
+		});
+
+		expect(calls).toBe(1);
+		gates[0]?.();
+		await new Promise((resolve) => {
+			setTimeout(resolve, 0);
+		});
+
+		// Exactly one re-run for the requests that arrived while the first ran.
+		expect(calls).toBe(2);
+		gates[1]?.();
+		await new Promise((resolve) => {
+			setTimeout(resolve, 0);
+		});
+		expect(calls).toBe(2);
+	});
+
+	test("bounds concurrent sidecar syncs by the io concurrency", async () => {
+		const { systemResourcesService } = await import("@/system/system-resources.service");
+		const started: string[] = [];
+		const gates = new Map<string, () => void>();
+		activeStubs.push(
+			stubMethod(systemResourcesService, "getIoConcurrency", () => 1),
+			stubMethod(sidecarSyncService, "syncForMetadata", (metadataId: string) => {
+				started.push(metadataId);
+
+				return new Promise<void>((resolve) => {
+					gates.set(metadataId, resolve);
+				});
+			}),
+		);
+
+		sidecarSyncService.scheduleSync("metadata-a");
+		sidecarSyncService.scheduleSync("metadata-b");
+		await new Promise((resolve) => {
+			setTimeout(resolve, 0);
+		});
+
+		expect(started).toEqual(["metadata-a"]);
+		gates.get("metadata-a")?.();
+		await new Promise((resolve) => {
+			setTimeout(resolve, 0);
+		});
+		expect(started).toEqual(["metadata-a", "metadata-b"]);
+		gates.get("metadata-b")?.();
+		await new Promise((resolve) => {
+			setTimeout(resolve, 0);
+		});
+	});
 });
