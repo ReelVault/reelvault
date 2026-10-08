@@ -4,7 +4,7 @@ import type { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import type { DownloadQuality, DownloadStatus } from "@/modules/downloads/download-quality.utils";
-import { ConflictError } from "@/utils/errors";
+import { InternalError } from "@/utils/errors";
 
 export type DownloadRow = typeof schema.downloads.$inferSelect;
 
@@ -32,7 +32,7 @@ const downloads = defineTableAccess("downloads", {
 const overrides = {
 	async insert(values: DownloadInsert, tx?: DatabaseTransaction): Promise<DownloadRow> {
 		const [row] = await downloads.insertReturning({ values, tx });
-		if (!row) throw new ConflictError("Failed to insert download");
+		if (!row) throw new InternalError("Failed to insert download");
 
 		return row;
 	},

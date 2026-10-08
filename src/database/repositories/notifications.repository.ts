@@ -3,7 +3,7 @@ import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess, forEachChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { ConflictError } from "@/utils/errors";
+import { InternalError } from "@/utils/errors";
 
 const notifications = defineTableAccess("notifications", {
 	primaryKeyColumn: "id",
@@ -52,7 +52,7 @@ const setBatchReadState = async (ids: string[], where: SQL | undefined, read: bo
 const overrides = {
 	async create(values: typeof schema.notifications.$inferInsert, tx?: DatabaseTransaction): Promise<string> {
 		const [notification] = await notifications.insertReturning({ values, tx });
-		if (!notification) throw new ConflictError("Notification was not created");
+		if (!notification) throw new InternalError("Notification was not created");
 
 		return notification.id;
 	},

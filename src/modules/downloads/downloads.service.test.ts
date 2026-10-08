@@ -103,7 +103,10 @@ afterEach(() => {
 describe("DownloadsService.prepare", () => {
 	test("rejects disabled servers, unknown files and duration-less transcoding", async () => {
 		systemSettingsStore.setRuntimeValue("downloads.enabled", false);
-		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toThrow("Downloads are disabled");
+		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
+			code: "downloads.disabled",
+			category: "forbidden",
+		});
 		systemSettingsStore.clearRuntimeValues();
 
 		await expect(downloadsService.prepare(undefined, "file-1")).rejects.toThrow("Active profile required");
@@ -120,12 +123,18 @@ describe("DownloadsService.prepare", () => {
 
 	test("enforces the per-profile active quota and storage quota", async () => {
 		countActive.mockResolvedValue(1);
-		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toThrow("already has a download in progress");
+		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
+			code: "downloads.in_progress",
+			category: "conflict",
+		});
 		countActive.mockResolvedValue(0);
 
 		storageUsed.mockResolvedValue(100);
 		systemSettingsStore.setRuntimeValue("downloads.maxStorageBytesPerProfile", 100);
-		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toThrow("Storage quota exceeded");
+		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
+			code: "downloads.quota_exceeded",
+			category: "conflict",
+		});
 		systemSettingsStore.clearRuntimeValues();
 	});
 

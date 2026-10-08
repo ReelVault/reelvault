@@ -37,7 +37,7 @@ import { QueryUtils } from "@/database/utils/query-parser";
 import { createLocalMetadataStableKey, createProviderStableKey } from "@/database/utils/stable-key";
 import { runInTransaction } from "@/database/utils/transaction";
 import { hasEntry, toMap } from "@/utils/array.utils";
-import { NotFoundError, ValidationError } from "@/utils/errors";
+import { InternalError, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { buildCollectionOrderBy, type MetadataRepositoryFilters, metadataQueryMap, titleMatchFilter } from "./metadata-filters";
 import type { MoreLikeThisSource } from "./metadata-recommendations";
@@ -807,7 +807,7 @@ class MetadataRepository {
 			metadata = await this.findOrCreate({ where: metadataWhere, values: metadataValues, tx });
 		}
 
-		if (!metadata) throw new NotFoundError("Error while creating metadata");
+		if (!metadata) throw new InternalError("Error while creating metadata");
 
 		const metadataWithStableKey = metadata.stableKey ? metadata : { ...metadata, stableKey };
 		const patch: { stableKey?: string; primaryProviderId?: string } = {};

@@ -14,7 +14,7 @@ import { metadataImageOn } from "@/database/utils/join-conditions";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { MINUTE, serverConstants } from "@/server.constants";
-import { ConflictError, NotFoundError } from "@/utils/errors";
+import { InternalError, NotFoundError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -481,7 +481,7 @@ class ImageRepository {
 			.insert(this.table)
 			.values({ ...values, optimizationVersion })
 			.returning();
-		if (!persisted) throw new ConflictError(`Failed to save image: ${image.localPath}`);
+		if (!persisted) throw new InternalError(`Failed to save image: ${image.localPath}`);
 
 		return persisted;
 	}

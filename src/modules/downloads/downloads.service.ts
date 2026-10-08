@@ -13,7 +13,7 @@ import {
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { errorMessage, NotFoundError, ValidationError } from "@/utils/errors";
+import { ConflictError, errorMessage, ForbiddenError, NotFoundError, ValidationError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
@@ -57,9 +57,10 @@ class DownloadsService extends BaseService {
 	async prepare(profileId: string | undefined, mediaFileId: string, quality: string = DEFAULT_DOWNLOAD_QUALITY): Promise<DownloadJobView> {
 		return await this.safeExecute("prepare", async () => {
 			this.assertProfileId(profileId);
-			if (!serverConfig.downloads.enabled) throw new ValidationError("Downloads are disabled on this server");
+			if (!serverConfig.downloads.enabled)
+				throw new ForbiddenError("Downloads are disabled on this server", { code: "downloads.disabled" });
 
-			if (!mediaFileId.trim()) throw new ValidationError("mediaFileId is required");
+			if (!mediaFileId.trim()) throw new ValidationError("mediaFileId is required", { code: "downloads.media_file_required" });
 
 			const mediaFile = await mediaRepository.findByPrimaryId({
 				primaryId: mediaFileId,
@@ -67,16 +68,19 @@ class DownloadsService extends BaseService {
 			});
 			this.assertExists(mediaFile, "MediaFile", mediaFileId);
 			if (quality !== "original" && !(mediaFile.duration && mediaFile.duration > 0)) {
-				throw new ValidationError("Transcoded download requires a known file duration");
+				throw new ValidationError("Transcoded download requires a known file duration", { code: "downloads.duration_unknown" });
 			}
 
 			if ((await downloadsRepository.countActiveByProfile(profileId)) >= MAX_ACTIVE_PER_PROFILE) {
-				throw new ValidationError("This profile already has a download in progress");
+				throw new ConflictError("This profile already has a download in progress", { code: "downloads.in_progress" });
 			}
 
 			const { maxBytes, usedBytes } = await this.getStorageQuota(profileId);
 			if (maxBytes > 0 && usedBytes >= maxBytes) {
-				throw new ValidationError("Storage quota exceeded — delete older downloads first");
+				throw new ConflictError("Storage quota exceeded — delete older downloads first", {
+					code: "downloads.quota_exceeded",
+					params: { maxBytes, usedBytes },
+				});
 			}
 
 			const row = await downloadsRepository.insert({

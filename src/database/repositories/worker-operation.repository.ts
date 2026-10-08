@@ -8,7 +8,7 @@ import { QueryFiltering } from "@/database/utils/filtering";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { DAY, serverConstants } from "@/server.constants";
 import { chunk, unique } from "@/utils/array.utils";
-import { ConflictError } from "@/utils/errors";
+import { InternalError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import type { WorkerItemSummary } from "./worker.repository";
 import { workerJobSummaryColumns } from "./worker-job.projection";
@@ -46,7 +46,7 @@ class WorkerOperationRepository {
 				status: input.error ? "failed" : "pending",
 			})
 			.returning();
-		if (!operation) throw new ConflictError("Failed to create worker operation");
+		if (!operation) throw new InternalError("Failed to create worker operation");
 
 		return operation;
 	}
