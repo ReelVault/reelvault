@@ -1,3 +1,4 @@
+import { FileUtils, fileStatSignature } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { ffProbeService } from "./ffprobe.service";
 import type { FFProbePacket } from "./ffprobe.types";
@@ -35,7 +36,11 @@ export function pickLastKeyframePackets(packets: FFProbePacket[], limit: number)
 export async function findKeyframeBefore(filePath: string, target: number, signal?: AbortSignal): Promise<number | null> {
 	if (target <= 0) return null;
 
-	const cacheKey = `${filePath}:${Math.floor(target / KEYFRAME_CACHE_BUCKET_SECONDS)}`;
+	// The file's (size, mtime) signature keeps a replaced file from serving the
+	// previous content's keyframe buckets for the whole TTL.
+	const stats = await FileUtils.getStats(filePath);
+	const signature = stats ? fileStatSignature(stats) : "0";
+	const cacheKey = `${filePath}:${signature}:${Math.floor(target / KEYFRAME_CACHE_BUCKET_SECONDS)}`;
 	const cached = await keyframeCache.getOrSet(cacheKey, async () => {
 		try {
 			const from = Math.max(0, target - PROBE_WINDOW_SECONDS);
