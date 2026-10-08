@@ -213,10 +213,10 @@ class MediaService extends BaseService {
 			this.assertExists(mediaFile, "MediaFile", mediaFileId);
 
 			const enqueued = await enqueueDeduped({
-				targets: [
-					{ workerId: "media-file-technical-refresh", dedupeKey: mediaFileId },
-					{ workerId: "metadata-refresh", dedupeKey: mediaFile.metadataId },
-				],
+				// Only the technical refresh gates the whole request: a metadata refresh
+				// already running must not swallow the probe/marker refresh — `queue`
+				// reuses the active metadata task and still schedules the technical one.
+				targets: [{ workerId: "media-file-technical-refresh", dedupeKey: mediaFileId }],
 				type: "media-file-refresh",
 				reference: { type: "media-file", id: mediaFileId },
 				label: "media file refresh",

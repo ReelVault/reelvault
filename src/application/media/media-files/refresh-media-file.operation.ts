@@ -49,8 +49,10 @@ export class MediaFileRefreshService extends BaseService {
 				assertOperationCompatibility(activeTechnical ? [activeTechnical] : [], options.operationId, "technical media refresh");
 				const technicalTask = activeTechnical ?? (await this.dependencies.scheduleTechnical(mediaFileId, options));
 
+				// A metadata refresh already running (under any operation) is reused:
+				// the caller's refresh still needs the technical part, but scheduling a
+				// duplicate metadata refresh would conflict with the active operation.
 				const activeMetadata = await this.dependencies.findActive("metadata-refresh", metadataId);
-				assertOperationCompatibility(activeMetadata ? [activeMetadata] : [], options.operationId, "metadata refresh");
 				const metadataTask =
 					activeMetadata ??
 					(await this.dependencies.scheduleMetadata(
