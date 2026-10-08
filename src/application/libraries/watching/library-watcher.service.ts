@@ -159,6 +159,16 @@ export class LibraryWatcherService extends BaseService {
 	 * a recent scan). Public so tests can drive it with a manual clock.
 	 */
 	async runScheduledScanIfDue(): Promise<void> {
+		try {
+			await this.runScheduledScan();
+		} catch (error) {
+			// Runs from a detached reconcile tick — a DB error must neither surface as
+			// an unhandled rejection nor kill the loop for later ticks.
+			this.logger.warn("Periodic library rescan check failed", { error });
+		}
+	}
+
+	private async runScheduledScan(): Promise<void> {
 		if (this.isShuttingDown) return;
 
 		const intervalHours = serverConfig.scanning.scheduledScanIntervalHours;

@@ -499,6 +499,21 @@ describe("periodic library rescan", () => {
 			cleanup();
 		}
 	});
+
+	test("a database failure does not surface from the detached reconcile tick", async () => {
+		const { service, cleanup } = createHarness();
+		const { pathSpy, scanTimeSpy } = createRescanHarness();
+		scanTimeSpy.mockRejectedValue(new Error("database is locked"));
+		systemSettingsStore.setRuntimeValue("scanning.scheduledScanIntervalHours", 1);
+
+		try {
+			await expect(service.runScheduledScanIfDue()).resolves.toBeUndefined();
+		} finally {
+			pathSpy.mockRestore();
+			scanTimeSpy.mockRestore();
+			cleanup();
+		}
+	});
 });
 
 // The settings store is process-global — never leak overrides into other test files.
