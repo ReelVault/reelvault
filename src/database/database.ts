@@ -11,6 +11,7 @@ import { isRecord } from "@/utils/type.utils";
 import { DatabaseQueryLogger, instrumentSqliteClient } from "./query-logger";
 import { relations } from "./relations";
 import type { DatabaseTransaction, DatabaseType } from "./types";
+import { createQueuedWriteClient } from "./write-queue";
 
 /** Migration folders ship next to this module (`src/database/migrations`). */
 export const MIGRATIONS_DIR = PathUtils.join(import.meta.dir, "migrations");
@@ -54,6 +55,14 @@ export class DatabaseFactory {
 	private txDb: DatabaseType | null = null;
 	private readonly als = new AsyncLocalStorage<TransactionContext>();
 	private transactionLock: Promise<void> = Promise.resolve();
+	/**
+	 * True while the current async context holds the write lock (a queued write
+	 * or a top-level transaction) — nested writes must run inline instead of
+	 * queueing on the lock they already own.
+	 */
+	private readonly writeLockStore = new AsyncLocalStorage<true>();
+	/** Main client with writes routed through `runWrite`; created lazily. */
+	private queuedClient: DatabaseType | null = null;
 
 	constructor(path = PathUtils.join(env.ROOT_DIR, env.DB_FILE_NAME), options: DatabaseFactoryOptions = {}) {
 		this.path = path;
@@ -161,7 +170,15 @@ export class DatabaseFactory {
 	}
 
 	getClient({ tx }: { tx?: DatabaseTransaction | undefined } = {}): DatabaseTransaction {
-		return tx ?? this.db;
+		if (tx) return tx;
+
+		// Inside a transaction every statement belongs to it: the transaction
+		// connection sees its own uncommitted writes and never waits on itself.
+		if (this.als.getStore()) return this.getTransactionDrizzle();
+
+		this.queuedClient ??= createQueuedWriteClient(this.db, (write) => this.runWrite(write));
+
+		return this.queuedClient;
 	}
 
 	private getTransactionClient(): Database {
@@ -215,22 +232,21 @@ export class DatabaseFactory {
 			}
 		}
 
-		const releaseLock = await this.acquireWriteLock();
+		const holdsWriteLock = this.writeLockStore.getStore() === true;
+		const releaseLock = holdsWriteLock ? undefined : await this.acquireWriteLock();
 		const txClient = this.getTransactionClient();
 
 		try {
 			// `immediate` takes the write lock up front so busy_timeout can wait for
-			// it. Use it for write-heavy transactions whose statements all pass the
-			// transaction client explicitly: a deferred BEGIN only locks on the
-			// first write, and SQLite refuses to upgrade a transaction that already
-			// read a snapshot once another connection wrote — failing immediately
-			// with SQLITE_BUSY_SNAPSHOT (this broke concurrent library scans).
-			// It is opt-in because some repositories still write through the main
-			// connection inside a transaction (getClient ignores the ALS store),
-			// and an immediate lock would make those writes wait on themselves.
+			// it. Use it for write-heavy transactions: a deferred BEGIN only locks on
+			// the first write, and SQLite refuses to upgrade a transaction that
+			// already read a snapshot once another connection wrote — failing
+			// immediately with SQLITE_BUSY_SNAPSHOT (this broke concurrent library
+			// scans). Queued writes share the same JS lock, so this is defense in
+			// depth rather than a requirement.
 			txClient.run(options.immediate ? "BEGIN IMMEDIATE" : "BEGIN");
 			try {
-				const result = await this.als.run({ depth: 1 }, () => callback(this.getTransactionDrizzle()));
+				const result = await this.writeLockStore.run(true, () => this.als.run({ depth: 1 }, () => callback(this.getTransactionDrizzle())));
 				txClient.run("COMMIT");
 
 				return result;
@@ -244,7 +260,7 @@ export class DatabaseFactory {
 				throw error;
 			}
 		} finally {
-			releaseLock();
+			releaseLock?.();
 		}
 	}
 
@@ -256,12 +272,17 @@ export class DatabaseFactory {
 	 * which also prevents that transaction's async callback from ever finishing —
 	 * a deadlock that froze the loop for seconds and tripped Server Rescue.
 	 * Queuing here instead makes the writer wait in JS, not in SQLite.
+	 *
+	 * Reentrant: a nested write (or a write inside a transaction) already owns
+	 * the lock and runs inline.
 	 */
 	async runWrite<T>(write: () => Promise<T>): Promise<T> {
+		if (this.writeLockStore.getStore()) return await write();
+
 		const releaseLock = await this.acquireWriteLock();
 
 		try {
-			return await write();
+			return await this.writeLockStore.run(true, write);
 		} finally {
 			releaseLock();
 		}
