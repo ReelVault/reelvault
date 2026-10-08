@@ -3,6 +3,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
+import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import { HOUR } from "@/server.constants";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { PathUtils } from "@/utils/path.utils";
@@ -411,35 +412,71 @@ describe("LibraryWatcherService", () => {
 });
 
 describe("periodic library rescan", () => {
+	function createRescanHarness(): { libraryScanCalls: string[]; pathSpy: ReturnType<typeof spyOn>; scanTimeSpy: ReturnType<typeof spyOn> } {
+		return {
+			libraryScanCalls: [],
+			pathSpy: spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
+				{ id: "path-1", libraryId: "lib-1", path: "/media/a", isActive: true },
+				{ id: "path-2", libraryId: "lib-1", path: "/media/b", isActive: true },
+				{ id: "path-3", libraryId: "lib-2", path: "/media/c", isActive: true },
+			]),
+			scanTimeSpy: spyOn(workerOperationRepository, "findLatestLibraryScanTimes").mockResolvedValue(new Map()),
+		};
+	}
+
 	test("fires one whole-library scan per library when the interval is due", async () => {
 		const { service, clock, cleanup } = createHarness();
-		const libraryScanCalls: string[] = [];
+		const { libraryScanCalls, pathSpy, scanTimeSpy } = createRescanHarness();
 		service.registerLibraryScanner((libraryId) => {
 			libraryScanCalls.push(libraryId);
 
 			return Promise.resolve();
 		});
-		const pathSpy = spyOn(librariesRepository, "findActiveLibraryPaths").mockResolvedValue([
-			{ id: "path-1", libraryId: "lib-1", path: "/media/a", isActive: true },
-			{ id: "path-2", libraryId: "lib-1", path: "/media/b", isActive: true },
-			{ id: "path-3", libraryId: "lib-2", path: "/media/c", isActive: true },
-		]);
 		systemSettingsStore.setRuntimeValue("scanning.scheduledScanIntervalHours", 1);
 
 		try {
-			// Not due right after construction.
-			await service.runScheduledScanIfDue();
-			expect(libraryScanCalls).toEqual([]);
-
-			await clock.advance(HOUR);
+			// No scan operations recorded yet — every library is due.
 			await service.runScheduledScanIfDue();
 			expect(libraryScanCalls).toEqual(["lib-1", "lib-2"]);
 
-			// A second call before the next interval is a no-op.
+			// A recent scan of every library postpones the next rescan.
+			scanTimeSpy.mockResolvedValue(
+				new Map([
+					["lib-1", new Date(clock.now())],
+					["lib-2", new Date(clock.now())],
+				]),
+			);
 			await service.runScheduledScanIfDue();
 			expect(libraryScanCalls).toEqual(["lib-1", "lib-2"]);
 		} finally {
 			pathSpy.mockRestore();
+			scanTimeSpy.mockRestore();
+			cleanup();
+		}
+	});
+
+	test("reschedules only libraries whose last scan is older than the interval", async () => {
+		const { service, clock, cleanup } = createHarness();
+		const { libraryScanCalls, pathSpy, scanTimeSpy } = createRescanHarness();
+		service.registerLibraryScanner((libraryId) => {
+			libraryScanCalls.push(libraryId);
+
+			return Promise.resolve();
+		});
+		scanTimeSpy.mockResolvedValue(
+			new Map([
+				["lib-1", new Date(clock.now() - 2 * HOUR)],
+				["lib-2", new Date(clock.now())],
+			]),
+		);
+		systemSettingsStore.setRuntimeValue("scanning.scheduledScanIntervalHours", 1);
+
+		try {
+			await service.runScheduledScanIfDue();
+			expect(libraryScanCalls).toEqual(["lib-1"]);
+		} finally {
+			pathSpy.mockRestore();
+			scanTimeSpy.mockRestore();
 			cleanup();
 		}
 	});

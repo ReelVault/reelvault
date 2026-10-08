@@ -2,12 +2,12 @@ import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, type
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { cachedCount } from "@/database/table-access";
+import { cachedCount, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFiltering } from "@/database/utils/filtering";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { DAY, serverConstants } from "@/server.constants";
-import { chunk } from "@/utils/array.utils";
+import { chunk, unique } from "@/utils/array.utils";
 import { ConflictError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import type { WorkerItemSummary } from "./worker.repository";
@@ -76,6 +76,32 @@ class WorkerOperationRepository {
 			.limit(1);
 
 		return row;
+	}
+
+	/**
+	 * Latest library-scan operation time per library. The periodic rescan reads
+	 * this as its "last scanned" clock: the timestamp survives restarts, and any
+	 * manual/watcher scan of a library counts as a recent scan for it.
+	 */
+	async findLatestLibraryScanTimes(libraryIds: readonly string[]): Promise<Map<string, Date>> {
+		if (libraryIds.length === 0) return new Map();
+
+		const rows = await mapChunked(unique(libraryIds), (chunkIds) =>
+			databaseFactory
+				.getClient()
+				.select({ referenceId: operations.referenceId, latest: sql<number>`max(${operations.createdAt})`.mapWith(Number) })
+				.from(operations)
+				.where(and(eq(operations.type, "library-scanning"), inArray(operations.referenceId, chunkIds)))
+				.groupBy(operations.referenceId),
+		);
+
+		const result = new Map<string, Date>();
+		for (const row of rows) {
+			// `mode: "timestamp"` columns store Unix seconds.
+			if (row.referenceId) result.set(row.referenceId, new Date(row.latest * 1000));
+		}
+
+		return result;
 	}
 
 	async list(

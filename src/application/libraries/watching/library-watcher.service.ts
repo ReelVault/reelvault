@@ -1,5 +1,6 @@
 import { type FSWatcher, watch } from "node:fs";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
+import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import { isIgnoredRelativePath } from "@/modules/scanner/disk/file-scanner";
 import { serverConfig } from "@/server.config";
 import { HOUR } from "@/server.constants";
@@ -112,8 +113,6 @@ export class LibraryWatcherService extends BaseService {
 	private scanPathFn?: ((libraryId: string, pathId: string) => Promise<unknown>) | undefined;
 	/** Whole-library scan trigger used by the periodic rescan. */
 	private scanLibraryFn?: ((libraryId: string) => Promise<unknown>) | undefined;
-	/** When the last periodic rescan fired — in-memory, reset on restart. */
-	private lastScheduledScanAt: number;
 
 	constructor(
 		clock: LibraryWatcherClock = defaultClock,
@@ -122,7 +121,6 @@ export class LibraryWatcherService extends BaseService {
 		super("LibraryWatcherService");
 		this.clock = clock;
 		this.notifyFailure = notifyFailure;
-		this.lastScheduledScanAt = clock.now();
 	}
 
 	registerScanner(fn: (libraryId: string, pathId: string) => Promise<unknown>): void {
@@ -156,7 +154,9 @@ export class LibraryWatcherService extends BaseService {
 	 * Fires the periodic library rescan when `scanning.scheduledScanIntervalHours`
 	 * is due. Network mounts can miss filesystem events WITHOUT raising a watcher
 	 * error — the per-path fallback is never armed in that case, so this interval
-	 * is the belt-and-braces rescan. Public so tests can drive it with a manual clock.
+	 * is the belt-and-braces rescan. Due-ness comes from the persisted
+	 * library-scan operations (survives restarts; a manual/watcher scan counts as
+	 * a recent scan). Public so tests can drive it with a manual clock.
 	 */
 	async runScheduledScanIfDue(): Promise<void> {
 		if (this.isShuttingDown) return;
@@ -164,20 +164,25 @@ export class LibraryWatcherService extends BaseService {
 		const intervalHours = serverConfig.scanning.scheduledScanIntervalHours;
 		if (intervalHours <= 0) return;
 
-		if (this.clock.now() < this.lastScheduledScanAt + intervalHours * HOUR) return;
-
 		// Rescue pauses background work — keep the deadline due and retry next tick.
 		if (serverRescueService.isThrottling()) return;
-
-		this.lastScheduledScanAt = this.clock.now();
 
 		const activePaths = await librariesRepository.findActiveLibraryPaths();
 		const libraryIds = [...new Set(activePaths.map((entry) => entry.libraryId))];
 		if (libraryIds.length === 0) return;
 
-		this.logger.info("Running periodic library rescan", { libraries: libraryIds.length, intervalHours });
+		const cutoff = new Date(this.clock.now() - intervalHours * HOUR);
+		const latestScanTimes = await workerOperationRepository.findLatestLibraryScanTimes(libraryIds);
+		const dueLibraryIds = libraryIds.filter((libraryId) => {
+			const lastScanAt = latestScanTimes.get(libraryId);
 
-		for (const libraryId of libraryIds) {
+			return !lastScanAt || lastScanAt.getTime() <= cutoff.getTime();
+		});
+		if (dueLibraryIds.length === 0) return;
+
+		this.logger.info("Running periodic library rescan", { libraries: dueLibraryIds.length, intervalHours });
+
+		for (const libraryId of dueLibraryIds) {
 			try {
 				await this.scanLibraryFn?.(libraryId);
 			} catch (error) {
