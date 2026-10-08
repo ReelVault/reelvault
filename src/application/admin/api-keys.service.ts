@@ -167,7 +167,8 @@ class ApiKeysService extends BaseService {
 				} catch (error) {
 					this.logger.warn("Failed to refresh API key last-used timestamp", { keyId, error });
 				} finally {
-					setTimeout(() => lastUsedWriteGates.delete(keyId), LAST_USED_UPDATE_THROTTLE_MS);
+					// unref: a pending throttle gate must never keep the process alive during shutdown.
+					setTimeout(() => lastUsedWriteGates.delete(keyId), LAST_USED_UPDATE_THROTTLE_MS).unref();
 				}
 			})(),
 		);

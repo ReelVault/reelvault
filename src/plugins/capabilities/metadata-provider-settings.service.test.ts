@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
 import { metadataProviderSettingsRepository } from "@/database/repositories/metadata-provider-settings.repository";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";
@@ -125,4 +126,18 @@ test("rejects reordering unknown providers", async () => {
 	registerProviders([createProvider("provider-a")]);
 
 	await expect(metadataProviderSettingsService.reorder(["provider-a", "ghost-provider"])).rejects.toThrow("Unknown metadata providers");
+});
+
+test("the per-library override cache stays bounded", async () => {
+	const original = libraryProviderSettingsRepository.listForLibrary;
+	libraryProviderSettingsRepository.listForLibrary = () => Promise.resolve([]);
+	try {
+		for (let index = 0; index < 500; index++) await metadataProviderSettingsService.getLibraryOverrides(`library-${index}`);
+
+		const cache: Map<string, unknown> = Reflect.get(metadataProviderSettingsService, "cachedLibraryOverrides");
+		expect(cache.size).toBeLessThanOrEqual(200);
+	} finally {
+		libraryProviderSettingsRepository.listForLibrary = original;
+		metadataProviderSettingsService.invalidateCache();
+	}
 });

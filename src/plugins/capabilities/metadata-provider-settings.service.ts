@@ -11,6 +11,9 @@ import { toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
 
+/** Upper bound on cached per-library override sets (oldest entry is dropped first). */
+const LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES = 200;
+
 class MetadataProviderSettingsService extends BaseService {
 	private cachedSettings?: { expiresAt: number; values: Map<string, MetadataProviderSetting> } | undefined;
 	private cachedOrdered?: { source: MetadataProvider[]; values: MetadataProvider[] } | undefined;
@@ -59,6 +62,11 @@ class MetadataProviderSettingsService extends BaseService {
 		const values = new Map<string, LibraryProviderPriority>(
 			rows.map((row) => [row.providerId, { providerId: row.providerId, priority: row.priority, enabled: row.enabled }]),
 		);
+		if (this.cachedLibraryOverrides.size >= LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES) {
+			const oldest = this.cachedLibraryOverrides.keys().next().value;
+			if (oldest !== undefined) this.cachedLibraryOverrides.delete(oldest);
+		}
+
 		this.cachedLibraryOverrides.set(libraryId, { expiresAt: Date.now() + serverConfig.plugins.providers.settingsCacheTtlMs, values });
 
 		return values;
