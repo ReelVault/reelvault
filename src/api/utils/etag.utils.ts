@@ -2,7 +2,7 @@ import { hash as bunHash } from "bun";
 import { serverConfig } from "@/server.config";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
 import { matchesIfNoneMatch } from "@/utils/http.utils";
-import { cacheEtagBody, getCachedEtagEntry } from "@/utils/response-body-cache";
+import { cacheEtagBody, getCachedResponseBody } from "@/utils/response-body-cache";
 
 /** Per-profile aggregation responses must be revalidated by the browser on every use. */
 const ETAG_CACHE_CONTROL = "private, no-cache";
@@ -110,7 +110,7 @@ export async function withEtagResponse<T>(
 	};
 
 	if (options?.cacheKey) {
-		const cached = getCachedEtagEntry(options.cacheKey);
+		const cached = getCachedResponseBody(options.cacheKey);
 		if (cached) return await respond(cached.body, cached.etag);
 	}
 

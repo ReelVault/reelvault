@@ -87,7 +87,8 @@ export function responseBodyCacheTtlMs(maxAgeSeconds: number): number {
 	return Math.min(maxAgeSeconds * 1000, RESPONSE_BODY_CACHE_MAX_TTL_MS);
 }
 
-function liveEntry(key: string, now: number): CachedResponseBody | undefined {
+/** Live (unexpired) body for a route-level or withEtagResponse() cache key. */
+export function getCachedResponseBody(key: string, now = Date.now()): CachedResponseBody | undefined {
 	const entry = responseBodyCache.get(key);
 	if (!entry) return undefined;
 
@@ -100,10 +101,6 @@ function liveEntry(key: string, now: number): CachedResponseBody | undefined {
 	return entry;
 }
 
-export function getCachedResponseBody(key: string, now = Date.now()): CachedResponseBody | undefined {
-	return liveEntry(key, now);
-}
-
 export function setCachedResponseBody(key: string, entry: CachedResponseBody): void {
 	responseBodyCache.set(key, entry);
 
@@ -113,11 +110,6 @@ export function setCachedResponseBody(key: string, entry: CachedResponseBody): v
 	const keys = profileKeyIndex.get(profileId);
 	if (keys) keys.add(key);
 	else profileKeyIndex.set(profileId, new Set([key]));
-}
-
-/** Reads a withEtagResponse() aggregation body from the shared cache. */
-export function getCachedEtagEntry(key: string, now = Date.now()): CachedResponseBody | undefined {
-	return liveEntry(key, now);
 }
 
 /** Caches an uncompressed aggregation body unless it exceeds RESPONSE_BODY_CACHE_MAX_BYTES. */
