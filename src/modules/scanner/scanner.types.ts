@@ -3,7 +3,7 @@ import type { ChapterMarkerDraft } from "./probe/chapters-to-markers.utils";
 
 export type LibraryType = "movie" | "tv_show";
 
-export type ScanFindingReason = "recognition_failed" | "type_mismatch" | "no_metadata_match";
+export type ScanFindingReason = "recognition_failed" | "type_mismatch" | "no_metadata_match" | "probe_failed";
 
 /** A file the scan could not turn into a media file — recorded for the admin "needs attention" view. */
 export interface SkippedMediaFile {

@@ -15,11 +15,14 @@ export const scanFindings = sqliteTable(
 		libraryId: DatabaseHelper.tableRef("library_id", () => libraries.id, { onDelete: "cascade" }),
 		filePath: text("file_path").notNull(),
 		fileName: text("file_name").notNull(),
-		reason: text("reason", { enum: ["recognition_failed", "type_mismatch", "no_metadata_match"] }).notNull(),
+		reason: text("reason", { enum: ["recognition_failed", "type_mismatch", "no_metadata_match", "probe_failed"] }).notNull(),
 		...DatabaseHelper.timestamps,
 	},
 	(table) => [
 		primaryKey({ columns: [table.libraryId, table.filePath] }),
-		check("scan_findings_reason_check", sql`${table.reason} IN ('recognition_failed', 'type_mismatch', 'no_metadata_match')`),
+		check(
+			"scan_findings_reason_check",
+			sql`${table.reason} IN ('recognition_failed', 'type_mismatch', 'no_metadata_match', 'probe_failed')`,
+		),
 	],
 );

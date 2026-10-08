@@ -191,6 +191,17 @@ class MediaFileProcessor extends BaseService {
 
 			if (probeResult.status === "rejected") throw probeResult.reason;
 
+			// `probeAndMap` never rejects — a failed probe or a vanished file resolves
+			// with no technical data. Importing that would leave a row with no
+			// duration/streams that the scanner never revisits (size/mtime match), so
+			// skip with a finding instead and retry on the next scan.
+			const probe = probeResult.value;
+			if (!(probe.tech && probe.stats)) {
+				this.logger.warn("Failed to probe video — recording a scan finding and retrying on the next scan", { filePath });
+
+				return { skipReason: "probe_failed", fileName };
+			}
+
 			if (metadataResult.status === "rejected") {
 				this.logger.warn("Failed to check metadata", { filePath, error: metadataResult.reason });
 			}
@@ -204,7 +215,7 @@ class MediaFileProcessor extends BaseService {
 				episodeId: meta.episodeId ?? null,
 				filePath,
 				fileName,
-				probe: probeResult.value,
+				probe,
 			});
 		} catch (error) {
 			// Cancellation happens whenever a newer scan supersedes the running one —
@@ -245,6 +256,14 @@ class MediaFileProcessor extends BaseService {
 		const sidecar = await this.readSidecarHint(filePath, recognition.type);
 		const probe = await this.probeAndMap(filePath, fileName, signal);
 		throwIfAborted(signal);
+
+		// Same probe guard as the single-episode path: never import a row without
+		// technical data (the scanner would not revisit it).
+		if (!(probe.tech && probe.stats)) {
+			this.logger.warn("Failed to probe video — recording a scan finding and retrying on the next scan", { filePath });
+
+			return { skipReason: "probe_failed", fileName };
+		}
 
 		const targets: AdditionalEpisodeTarget[] = [];
 		for (const episode of episodeTargets) {

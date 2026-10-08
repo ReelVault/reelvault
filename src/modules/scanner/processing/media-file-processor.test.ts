@@ -41,10 +41,13 @@ function stubRecognition(
 	);
 }
 
+const validProbe: FFProbeResult = { streams: [], format: { duration: "90.000" } };
+
 function stubHappyPaths() {
 	activeStubs.push(
 		stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)),
 		stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
+		stubMethod(videoParser, "probe", () => Promise.resolve(validProbe)),
 	);
 }
 
@@ -99,6 +102,17 @@ describe("mediaFileProcessor.process", () => {
 
 		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv")).resolves.toEqual({
 			skipReason: "no_metadata_match",
+			fileName: "movie.mkv",
+		});
+	});
+
+	test("reports probe_failed when the probe yields no technical data", async () => {
+		stubRecognition({ type: "movie", identity: { title: "Movie", year: 2020 } });
+		stubHappyPaths();
+		activeStubs.push(stubMethod(videoParser, "probe", () => Promise.resolve(null)));
+
+		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv")).resolves.toEqual({
+			skipReason: "probe_failed",
 			fileName: "movie.mkv",
 		});
 	});
@@ -190,7 +204,7 @@ describe("mediaFileProcessor multi-episode files", () => {
 		activeMultiStubs.push(
 			stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)),
 			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
-			stubMethod(videoParser, "probe", () => Promise.resolve(null)),
+			stubMethod(videoParser, "probe", () => Promise.resolve(validProbe)),
 		);
 		stubEpisodeMetadata();
 
@@ -210,7 +224,7 @@ describe("mediaFileProcessor multi-episode files", () => {
 		activeMultiStubs.push(
 			stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)),
 			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
-			stubMethod(videoParser, "probe", () => Promise.resolve(null)),
+			stubMethod(videoParser, "probe", () => Promise.resolve(validProbe)),
 		);
 		stubEpisodeMetadata();
 
