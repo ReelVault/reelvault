@@ -70,3 +70,26 @@ test("elysia request validation is mapped to the same envelope", async () => {
 	expect(payload.statusCode).toBe(400);
 	expect(payload.code).toBe("validation.invalid_request");
 });
+
+test("a response that violates its own schema is a server error, not a client validation error", async () => {
+	const app = new Elysia().use(domainErrorsMiddleware).get("/broken", () => ({ count: 1 }), {
+		response: t.Object({ count: t.Number({ minimum: 10 }) }),
+	});
+
+	const res = await app.handle(new Request("http://localhost/broken"));
+
+	expect(res.status).toBe(500);
+	expect(await res.json()).toEqual({ statusCode: 500, code: "internal" });
+});
+
+test("invalid query input stays a 400 even when the route also declares a response schema", async () => {
+	const app = new Elysia().use(domainErrorsMiddleware).get("/typed", ({ query }) => ({ page: query.page }), {
+		query: t.Object({ page: t.Numeric() }),
+		response: t.Object({ page: t.Number() }),
+	});
+
+	const res = await app.handle(new Request("http://localhost/typed?page=abc"));
+
+	expect(res.status).toBe(400);
+	expect(((await res.json()) as { code: string }).code).toBe("validation.invalid_request");
+});

@@ -39,6 +39,10 @@ function mapElysiaError(error: unknown): ElysiaMappedError | undefined {
 	const code = error.code;
 	if (typeof code !== "string") return undefined;
 
+	// A response that fails its own schema is a server bug, not bad client input —
+	// reporting it as 400 sends clients off to "fix" a request that was fine.
+	if (code === "VALIDATION" && error.type === "response") return { status: 500, code: "internal" };
+
 	const mapped = ELYSIA_ERROR_MAP[code];
 	if (!mapped) return undefined;
 
