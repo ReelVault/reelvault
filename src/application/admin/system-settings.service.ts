@@ -16,6 +16,7 @@ import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
 import { assertFFProbeAvailable } from "@/integrations/ffprobe/ffprobe.environment";
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
+import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { recordAuditSafe } from "./admin-audit.service";
 
 interface SystemSettingItemView {
@@ -236,11 +237,17 @@ class SystemSettingsService extends BaseService {
 	private async applySettingsSideEffects(keys: readonly string[]): Promise<void> {
 		let needsWatcherSync = false;
 		let needsFfmpegReload = false;
+		let changesProfileDefaults = false;
 		for (const key of keys) {
 			if (key.startsWith("scanning.autoWatcher")) needsWatcherSync = true;
 
+			if (key.startsWith("profiles.defaultPreferences.")) changesProfileDefaults = true;
+
 			if (key.startsWith("ffmpeg.") || key === "ffprobe.path") needsFfmpegReload = true;
 		}
+
+		// Profiles inherit these defaults; any cached response that embeds effective preferences is stale now.
+		if (changesProfileDefaults) invalidateResponseBodies();
 
 		if (needsWatcherSync) await libraryWatcherService.syncWatchers();
 
