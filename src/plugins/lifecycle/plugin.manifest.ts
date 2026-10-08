@@ -202,17 +202,13 @@ function validateUiPages(pages: unknown, dialogIds: ReadonlySet<string>): Set<st
 		if (page.icon !== undefined) assertNonEmptyString(page.icon, `ui.pages.${page.id}.icon`);
 
 		validateSurfaceDefinition(page, `ui.pages.${page.id}`, dialogIds);
-		if (page.adminOnly !== undefined && typeof page.adminOnly !== "boolean") {
-			throw new ValidationError(`Plugin ui.json page '${page.id}' adminOnly must be a boolean`);
-		}
+		assertOptionalType(page.adminOnly, "boolean", `page '${page.id}' adminOnly`);
 
 		if (page.nav !== undefined && page.nav !== false && page.nav !== "user" && page.nav !== "admin") {
 			throw new ValidationError(`Plugin ui.json page '${page.id}' nav must be 'user', 'admin' or false`);
 		}
 
-		if (page.priority !== undefined && typeof page.priority !== "number") {
-			throw new ValidationError(`Plugin ui.json page '${page.id}' priority must be a number`);
-		}
+		assertOptionalType(page.priority, "number", `page '${page.id}' priority`);
 	}
 
 	return ids;
@@ -255,9 +251,7 @@ function validateUiDialogs(dialogs: unknown, dialogIds: ReadonlySet<string>): Se
 		}
 
 		validateSurfaceDefinition(dialog, `ui.dialogs.${dialog.id}`, dialogIds);
-		if (dialog.adminOnly !== undefined && typeof dialog.adminOnly !== "boolean") {
-			throw new ValidationError(`Plugin ui.json dialog '${dialog.id}' adminOnly must be a boolean`);
-		}
+		assertOptionalType(dialog.adminOnly, "boolean", `dialog '${dialog.id}' adminOnly`);
 	}
 
 	return ids;
@@ -285,13 +279,9 @@ function validateUiTabs(tabs: unknown, pageIds: ReadonlySet<string>): void {
 			assertNonEmptyString(tab.page, `ui.tabs.${host}.${tab.id}.page`);
 			if (!pageIds.has(tab.page)) throw new ValidationError(`Plugin ui.json tab '${tab.id}' references unknown page '${tab.page}'`);
 
-			if (tab.adminOnly !== undefined && typeof tab.adminOnly !== "boolean") {
-				throw new ValidationError(`Plugin ui.json tab '${tab.id}' adminOnly must be a boolean`);
-			}
+			assertOptionalType(tab.adminOnly, "boolean", `tab '${tab.id}' adminOnly`);
 
-			if (tab.priority !== undefined && typeof tab.priority !== "number") {
-				throw new ValidationError(`Plugin ui.json tab '${tab.id}' priority must be a number`);
-			}
+			assertOptionalType(tab.priority, "number", `tab '${tab.id}' priority`);
 		}
 	}
 }
@@ -356,17 +346,11 @@ function validateUiSlotContribution(
 
 	if (hasElement) validateUiSurface(contribution.element, `ui.slots.${slot}.element`);
 
-	if (contribution.priority !== undefined && typeof contribution.priority !== "number") {
-		throw new ValidationError(`Plugin ui.json slot '${slot}' priority must be a number`);
-	}
+	assertOptionalType(contribution.priority, "number", `slot '${slot}' priority`);
 
-	if (contribution.adminOnly !== undefined && typeof contribution.adminOnly !== "boolean") {
-		throw new ValidationError(`Plugin ui.json slot '${slot}' adminOnly must be a boolean`);
-	}
+	assertOptionalType(contribution.adminOnly, "boolean", `slot '${slot}' adminOnly`);
 
-	if (contribution.iconOnly !== undefined && typeof contribution.iconOnly !== "boolean") {
-		throw new ValidationError(`Plugin ui.json slot '${slot}' iconOnly must be a boolean`);
-	}
+	assertOptionalType(contribution.iconOnly, "boolean", `slot '${slot}' iconOnly`);
 }
 
 function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet<string>, dialogIds: ReadonlySet<string>): void {
@@ -468,9 +452,7 @@ function validateSchemaField(entry: Record<string, unknown>, fieldName: string):
 
 	if (entry.placeholder !== undefined) assertLocalizedText(entry.placeholder, `${fieldName}.placeholder`);
 
-	if (entry.required !== undefined && typeof entry.required !== "boolean") {
-		throw new ValidationError(`Plugin ui.json ${fieldName}.required must be a boolean`);
-	}
+	assertOptionalType(entry.required, "boolean", `${fieldName}.required`);
 
 	if (entry.options !== undefined) {
 		if (!Array.isArray(entry.options)) throw new ValidationError(`Plugin ui.json ${fieldName}.options must be an array`);
@@ -701,6 +683,10 @@ function validateSchemaCondition(condition: unknown, field: string): void {
 	if (typeof condition.op !== "string" || !SCHEMA_CONDITION_OPS.has(condition.op)) {
 		throw new ValidationError(`Plugin ui.json ${field}.op is unsupported`);
 	}
+}
+
+function assertOptionalType(value: unknown, type: "boolean" | "number", subject: string): void {
+	if (value !== undefined && typeof value !== type) throw new ValidationError(`Plugin ui.json ${subject} must be a ${type}`);
 }
 
 function assertOptionalStringArray(value: unknown, field: string): void {
