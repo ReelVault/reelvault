@@ -130,7 +130,11 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 	// their SPA routes into 404s before the fallback could serve index.html.
 	const hasFileExtension = Object.hasOwn(CONTENT_TYPES, PathUtils.getExtension(relativePath).toLowerCase());
 	const filePath = join(root, ...segments);
-	let isHtmlEntry = false;
+	// A direct `/index.html` request (the PWA precache, curious users) must get the
+	// same transformed entry as the SPA fallback — without the injected API-origin
+	// marker the service worker would pin an app shell that targets the wrong API
+	// origin, and without no-cache browsers keep a stale shell for an hour.
+	let isHtmlEntry = relativePath === HTML_ENTRY;
 
 	let entryStat = await stat(filePath).catch(() => null);
 	if (!entryStat?.isFile()) {

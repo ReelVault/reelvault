@@ -73,6 +73,12 @@ describe("webStaticPlugin", () => {
 		const fallback = await get("/setup");
 		expect(await fallback.text()).toContain('meta name="reelvault-api-origin" content="same-origin"');
 
+		// The PWA precaches /index.html directly — it must carry the marker too.
+		const directEntry = await get("/index.html");
+		expect(await directEntry.text()).toContain('meta name="reelvault-api-origin" content="same-origin"');
+		expect(directEntry.headers.get("Cache-Control")).toBe("no-cache");
+		expect(directEntry.headers.get("Content-Type")).toContain("text/html");
+
 		const asset = await get("/assets/app-Q1W2E3.js");
 		expect(await asset.text()).toBe("console.log('app');");
 	});
