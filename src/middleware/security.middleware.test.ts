@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
+import { tmpdir } from "node:os";
 import Elysia from "elysia";
+import { env } from "@/env";
+import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { responseCacheMiddleware } from "./response-cache.middleware";
 import { securityHeadersMiddleware } from "./security.middleware";
 
@@ -55,4 +58,29 @@ test("securityHeadersMiddleware sets Cache-Control to no-store on error response
 
 	expect(res.status).toBe(500);
 	expect(res.headers.get("Cache-Control")).toBe("no-store");
+});
+
+test("securityHeadersMiddleware adds plugin-declared CSP sources to the web UI policy", async () => {
+	const app = new Elysia().use(securityHeadersMiddleware).get("/test", () => "hello");
+	const previousDist = env.APP_WEB_DIST;
+	env.APP_WEB_DIST = tmpdir();
+
+	try {
+		pluginRegistry.begin({
+			id: "org.example.csp",
+			name: "CSP plugin",
+			version: "1.0.0",
+			entry: "./dist/index.js",
+			capabilities: [],
+			csp: { "img-src": ["https://images.example.com"] },
+		});
+
+		const res = await app.handle(new Request("http://localhost/test"));
+
+		const csp = res.headers.get("Content-Security-Policy") ?? "";
+		expect(csp).toContain("img-src 'self' data: blob: https://api.dicebear.com https://images.example.com");
+	} finally {
+		pluginRegistry.unregister("org.example.csp");
+		env.APP_WEB_DIST = previousDist;
+	}
 });

@@ -203,6 +203,25 @@ describe("plugin registry", () => {
 		expect(registry.getGeneration()).toBeGreaterThan(afterRegister);
 	});
 
+	it("merges csp sources from loaded plugins and drops them on unregister", () => {
+		const first = createRuntime("org.example.first");
+		first.manifest.csp = { "img-src": ["https://b.example.com"], "frame-src": ["https://player.example.com"] };
+		const second = createRuntime("org.example.second");
+		second.manifest.csp = { "img-src": ["https://a.example.com", "https://b.example.com"] };
+
+		registry.register(first, []);
+		registry.register(second, []);
+
+		expect(registry.getCspDirectives()).toEqual({
+			"img-src": ["https://a.example.com", "https://b.example.com"],
+			"frame-src": ["https://player.example.com"],
+		});
+
+		registry.unregister("org.example.second");
+
+		expect(registry.getCspDirectives()).toEqual({ "img-src": ["https://b.example.com"], "frame-src": ["https://player.example.com"] });
+	});
+
 	it("runs media analyzers in order and isolates analyzer failures", async () => {
 		const first = createAnalyzer("first", () => ({ source: "WEB-DL" }));
 		const broken = createAnalyzer("broken", () => {

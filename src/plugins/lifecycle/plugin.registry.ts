@@ -59,6 +59,8 @@ export class PluginRegistry {
 	private readonly uiManifests = new Map<string, PluginUiManifest>();
 	/** Bumped on every register/unregister so provider-scoped caches keyed by ids are invalidated on reload. */
 	private generation = 0;
+	/** Merged plugin CSP sources, keyed by the generation they were computed for. */
+	private cspCache: { generation: number; directives: Record<string, string[]> } | null = null;
 
 	begin(manifest: PluginManifest): void {
 		if (this.plugins.has(manifest.id)) throw new ValidationError(`Plugin "${manifest.id}" is already registered`);
@@ -186,6 +188,32 @@ export class PluginRegistry {
 		return this.generation;
 	}
 
+	/**
+	 * CSP sources declared by loaded plugins, merged per directive and sorted for
+	 * stable headers. Cached per generation — a manifest never changes while its
+	 * plugin stays registered.
+	 */
+	getCspDirectives(): Record<string, string[]> {
+		if (this.cspCache?.generation === this.generation) return this.cspCache.directives;
+
+		const merged = new Map<string, Set<string>>();
+		for (const runtime of this.plugins.values()) {
+			const csp = runtime.manifest.csp;
+			if (!csp) continue;
+
+			for (const [directive, sources] of Object.entries(csp)) {
+				const values = merged.get(directive) ?? new Set<string>();
+				for (const source of sources) values.add(source);
+				merged.set(directive, values);
+			}
+		}
+
+		const directives = Object.fromEntries([...merged].map(([directive, sources]) => [directive, [...sources].toSorted()]));
+		this.cspCache = { generation: this.generation, directives };
+
+		return directives;
+	}
+
 	getAll(): PluginRuntime[] {
 		return [...this.plugins.values()];
 	}
@@ -256,6 +284,7 @@ export class PluginRegistry {
 		this.mediaAnalysis.clear();
 		this.failures.clear();
 		this.uiManifests.clear();
+		this.cspCache = null;
 	}
 
 	setUiManifest(pluginId: string, manifest: PluginUiManifest): void {

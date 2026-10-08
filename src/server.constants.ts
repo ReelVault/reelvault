@@ -64,6 +64,8 @@ export const serverConstants = {
 		 * 'unsafe-inline' styles cover runtime style attributes. api.dicebear.com
 		 * serves the profile avatar previews — the picked avatar is localized to
 		 * /v1/images at save time, but the picker grid renders the remote URLs.
+		 * Loaded plugins append their declared content sources (plugin.json `csp`);
+		 * script-src and style-src stay locked to self.
 		 */
 		webUiContentSecurityPolicy:
 			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.dicebear.com; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",

@@ -1,9 +1,11 @@
 import { Elysia } from "elysia";
 import { isImageAssetPath, isPluginUiPath, isWebApiPath } from "@/api/utils/route-classification.utils";
+import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { serverConfig } from "@/server.config";
 import { getPathname } from "@/utils/http.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import { resolveWebDistRoot } from "@/web/web-dist";
+import { appendCspSources } from "./csp.utils";
 
 export const securityHeadersMiddleware = new Elysia({ name: "SecurityHeaders" }).onAfterHandle({ as: "global" }, ({ request, set }) => {
 	if (request.method === "OPTIONS") return;
@@ -26,7 +28,10 @@ export const securityHeadersMiddleware = new Elysia({ name: "SecurityHeaders" })
 	let contentSecurityPolicy = serverConfig.security.defaultContentSecurityPolicy;
 	if (isPluginUi) contentSecurityPolicy = serverConfig.security.pluginUiContentSecurityPolicy;
 	else if (isOpenApiUi) contentSecurityPolicy = serverConfig.security.openApiContentSecurityPolicy;
-	else if (isWebUi) contentSecurityPolicy = serverConfig.security.webUiContentSecurityPolicy;
+	else if (isWebUi) {
+		// Loaded plugins may contribute content sources (artwork CDNs, players).
+		contentSecurityPolicy = appendCspSources(serverConfig.security.webUiContentSecurityPolicy, pluginRegistry.getCspDirectives());
+	}
 
 	set.headers["Content-Security-Policy"] = contentSecurityPolicy;
 	set.headers["Permissions-Policy"] = serverConfig.security.permissionsPolicy;

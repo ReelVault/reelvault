@@ -39,6 +39,35 @@ describe("plugin manifest", () => {
 		expect(() => validatePluginManifest({ ...validManifest, entry: "../index.js" })).toThrow("relative path");
 	});
 
+	it("accepts csp content sources, including wildcards and ports", () => {
+		expect(() =>
+			validatePluginManifest({
+				...validManifest,
+				csp: {
+					"img-src": ["https://images.example.com", "https://*.cdn.example.com"],
+					"frame-src": ["https://player.example.com", "http://192.168.1.10:8080"],
+				},
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects csp directives that could widen script or style execution", () => {
+		expect(() => validatePluginManifest({ ...validManifest, csp: { "script-src": ["https://evil.example.com"] } })).toThrow(
+			"unsupported directive",
+		);
+		expect(() => validatePluginManifest({ ...validManifest, csp: { "style-src": ["https://evil.example.com"] } })).toThrow(
+			"unsupported directive",
+		);
+	});
+
+	it("rejects csp sources that are not plain origins", () => {
+		for (const source of ["https://example.com/path", "https://example.com; script-src *", "*", "data:"]) {
+			expect(() => validatePluginManifest({ ...validManifest, csp: { "img-src": [source] } })).toThrow("invalid source");
+		}
+
+		expect(() => validatePluginManifest({ ...validManifest, csp: { "img-src": [] } })).toThrow("non-empty array");
+	});
+
 	it("rejects runtime capabilities that are not declared in the manifest", () => {
 		expect(() => assertDeclaredPluginCapabilities(["eventHandler"], ["eventHandler", "metadataProvider"])).toThrow("metadataProvider");
 		expect(() => assertDeclaredPluginCapabilities(["eventHandler"], ["eventHandler"])).not.toThrow();

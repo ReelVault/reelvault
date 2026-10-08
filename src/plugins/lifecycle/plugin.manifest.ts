@@ -8,6 +8,7 @@ import type {
 } from "@reelvault/sdk/plugin";
 import {
 	PLUGIN_CAPABILITY_SET,
+	PLUGIN_CSP_DIRECTIVE_SET,
 	PLUGIN_DIALOG_SIZES as PLUGIN_DIALOG_SIZE_VALUES,
 	PLUGIN_SCHEMA_ACTION_TYPES as PLUGIN_SCHEMA_ACTION_TYPE_VALUES,
 	PLUGIN_SCHEMA_CONDITION_OPS as PLUGIN_SCHEMA_CONDITION_OP_VALUES,
@@ -39,6 +40,12 @@ const PLUGIN_UI_PAGE_PATH_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 /** Custom element names must contain a hyphen and be lowercase (WHATWG custom elements spec). */
 const CUSTOM_ELEMENT_NAME_PATTERN = /^[a-z][a-z0-9._]*-[a-z0-9._-]*$/;
+
+/** A CSP source is a plain http(s) origin — optional `*.` subdomain wildcard and port, never a path. */
+const CSP_SOURCE_PATTERN = /^https?:\/\/(?:\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/i;
+
+/** Hard cap so a malformed manifest cannot bloat the CSP header on every response. */
+const CSP_MAX_SOURCES = 50;
 
 /** Matches an absolute URL scheme prefix (`javascript:`, `data:`, `https:` …). */
 const URL_SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:/i;
@@ -93,6 +100,40 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 		if (!isValidSemver(value.minServerVersion)) {
 			throw new ValidationError(`Plugin manifest minServerVersion must be a semantic version: ${value.minServerVersion}`);
 		}
+	}
+
+	if (value.csp !== undefined) validatePluginCsp(value.csp);
+}
+
+/**
+ * Plugin-declared CSP additions for the host web UI. Only content directives
+ * from the SDK allowlist are accepted, and every source must be a plain origin —
+ * a manifest can never inject extra directives or break the header format.
+ */
+function validatePluginCsp(value: unknown): void {
+	if (!isRecord(value)) throw new ValidationError("Plugin manifest csp must be an object");
+
+	let total = 0;
+	for (const [directive, sources] of Object.entries(value)) {
+		if (!PLUGIN_CSP_DIRECTIVE_SET.has(directive)) {
+			throw new ValidationError(`Plugin manifest csp has unsupported directive '${directive}'`);
+		}
+
+		if (!Array.isArray(sources) || sources.length === 0) {
+			throw new ValidationError(`Plugin manifest csp.${directive} must be a non-empty array of sources`);
+		}
+
+		for (const source of sources) {
+			if (!(isNonEmptyString(source) && CSP_SOURCE_PATTERN.test(source))) {
+				throw new ValidationError(`Plugin manifest csp.${directive} has an invalid source '${String(source)}'`);
+			}
+		}
+
+		total += sources.length;
+	}
+
+	if (total > CSP_MAX_SOURCES) {
+		throw new ValidationError(`Plugin manifest csp declares more than ${CSP_MAX_SOURCES} sources`);
 	}
 }
 
