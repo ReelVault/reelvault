@@ -356,3 +356,4 @@ Smaller benchmarks are kept separately so the main table stays focused:
 ### Features
 
 - **Change password** — `POST /v1/auth/change-password` lets a signed-in user change their password. A wrong current password returns `auth.invalid_current_password` (400, so clients do not treat it as an expired session), a too short or too long one `auth.weak_password`. All other sessions are revoked; the current session stays signed in.
+- **Subtitle language priority list** — profiles can set `subtitleFallbackLanguages` (e.g. `en,de`): when no subtitle exists in the preferred language, the next listed language is tried in order instead of playing without subtitles. A fallback equal to the audio language is skipped, and the admin default is configurable (`profiles.defaultPreferences.subtitleFallbackLanguages`).

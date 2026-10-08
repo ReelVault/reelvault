@@ -12,6 +12,7 @@ export function profileDefaultPreferences(): ProfilePreferenceDefaults {
 		autoSkipRecap: systemSettingsStore.get("profiles.defaultPreferences.autoSkipRecap"),
 		audioLanguage: systemSettingsStore.get("profiles.defaultPreferences.audioLanguage") || null,
 		subtitleLanguage: systemSettingsStore.get("profiles.defaultPreferences.subtitleLanguage") || null,
+		subtitleFallbackLanguages: systemSettingsStore.get("profiles.defaultPreferences.subtitleFallbackLanguages") || null,
 		subtitlesEnabled: systemSettingsStore.get("profiles.defaultPreferences.subtitlesEnabled"),
 		forcedSubtitlesOnly: systemSettingsStore.get("profiles.defaultPreferences.forcedSubtitlesOnly"),
 		autoForcedSubtitles: systemSettingsStore.get("profiles.defaultPreferences.autoForcedSubtitles"),

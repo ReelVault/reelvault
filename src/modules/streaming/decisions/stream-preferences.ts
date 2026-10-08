@@ -1,4 +1,5 @@
 import { serverConfig } from "@/server.config";
+import { unique } from "@/utils/array.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import type { AudioStream, PlaybackPreferenceOverrides, Subtitle } from "../streaming.types";
 import { toIso639_1 } from "./language-codes";
@@ -83,6 +84,7 @@ export function resolvePlaybackPreferences(
 		| {
 				audioLanguage: string | null;
 				subtitleLanguage: string | null;
+				subtitleFallbackLanguages?: string | null | undefined;
 				subtitlesEnabled: boolean;
 				forcedSubtitlesOnly: boolean;
 				autoForcedSubtitles?: boolean | undefined;
@@ -99,6 +101,7 @@ export function resolvePlaybackPreferences(
 		audioLanguage: overrides.audioLanguage ?? preferences?.audioLanguage ?? perTitle?.audioLanguage ?? defaults.audioLanguage,
 		subtitleLanguage:
 			overrides.subtitleLanguage ?? preferences?.subtitleLanguage ?? perTitle?.subtitleLanguage ?? defaults.subtitleLanguage,
+		subtitleFallbackLanguages: preferences?.subtitleFallbackLanguages ?? defaults.subtitleFallbackLanguages,
 		subtitlesEnabled: overrides.subtitlesEnabled ?? preferences?.subtitlesEnabled ?? defaults.subtitlesEnabled,
 		forcedSubtitlesOnly: overrides.forcedSubtitlesOnly ?? preferences?.forcedSubtitlesOnly ?? defaults.forcedSubtitlesOnly,
 		autoForcedSubtitles: preferences?.autoForcedSubtitles ?? defaults.autoForcedSubtitles,
@@ -113,6 +116,7 @@ export function selectPreferredSubtitle(
 		"subtitleLanguage" | "subtitlesEnabled" | "forcedSubtitlesOnly" | "autoForcedSubtitles" | "preferHearingImpaired"
 	> & {
 		audioLanguage?: string | null | undefined;
+		subtitleFallbackLanguages?: string | null | undefined;
 	},
 ): Subtitle | undefined {
 	if (!preferences.subtitlesEnabled) return undefined;
@@ -133,7 +137,26 @@ export function selectPreferredSubtitle(
 
 	if (preferredLanguage === undefined) return undefined;
 
-	const matchingLanguage = subtitles.filter((subtitle) => normalizedLangById.get(subtitle.id) === preferredLanguage);
+	// Priority list: the primary language first, then the profile's fallbacks. A fallback
+	// equal to the audio language is skipped — it would add subtitles nobody needs.
+	const languages = [preferredLanguage, ...parseLanguageList(preferences.subtitleFallbackLanguages)];
+	for (const language of unique(languages)) {
+		if (language === audioLanguage) continue;
+
+		const match = pickSubtitleInLanguage(subtitles, normalizedLangById, language, preferences);
+		if (match) return match;
+	}
+
+	return undefined;
+}
+
+function pickSubtitleInLanguage(
+	subtitles: readonly Subtitle[],
+	normalizedLangById: ReadonlyMap<string, string | undefined>,
+	language: string,
+	preferences: { forcedSubtitlesOnly: boolean; preferHearingImpaired: boolean },
+): Subtitle | undefined {
+	const matchingLanguage = subtitles.filter((subtitle) => normalizedLangById.get(subtitle.id) === language);
 	const fullSubtitles = matchingLanguage.filter((subtitle) => !subtitle.isForced);
 
 	if (preferences.forcedSubtitlesOnly) {
@@ -147,6 +170,16 @@ export function selectPreferredSubtitle(
 	}
 
 	return fullSubtitles[0] ?? matchingLanguage.find((subtitle) => subtitle.isForced);
+}
+
+/** "en, de" → ["en", "de"], normalized to ISO 639-1 with blanks dropped. */
+function parseLanguageList(value: string | null | undefined): string[] {
+	if (!value) return [];
+
+	return value
+		.split(",")
+		.map((entry) => normalizeLanguage(entry))
+		.filter((entry): entry is string => entry !== undefined);
 }
 
 function normalizeLanguage(language?: string | null): string | undefined {

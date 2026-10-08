@@ -112,6 +112,7 @@ describe("stream preferences", () => {
 			),
 		).toEqual({
 			audioLanguage: "pl",
+			subtitleFallbackLanguages: null,
 			subtitleLanguage: "en",
 			subtitlesEnabled: false,
 			forcedSubtitlesOnly: false,
@@ -297,5 +298,43 @@ describe("stream preferences", () => {
 				preferHearingImpaired: false,
 			})?.id,
 		).toBe("pl");
+	});
+});
+
+describe("subtitle language priority list", () => {
+	const base = {
+		audioLanguage: "ja",
+		subtitleLanguage: "pl",
+		subtitleFallbackLanguages: "en,de",
+		subtitlesEnabled: true,
+		forcedSubtitlesOnly: false,
+		autoForcedSubtitles: false,
+		preferHearingImpaired: false,
+	};
+	const deFull = subtitle("de", "de");
+
+	test("uses the primary language when it is available", () => {
+		expect(selectPreferredSubtitle([enFull, plFull], base)?.id).toBe("pl");
+	});
+
+	test("falls back through the list in order when the primary language is missing", () => {
+		expect(selectPreferredSubtitle([deFull, enFull], base)?.id).toBe("en");
+		expect(selectPreferredSubtitle([deFull], base)?.id).toBe("de");
+	});
+
+	test("returns nothing when no language of the list is available", () => {
+		expect(selectPreferredSubtitle([subtitle("fr", "fr")], base)).toBeUndefined();
+	});
+
+	test("normalizes three-letter codes and blank entries in the list", () => {
+		expect(selectPreferredSubtitle([subtitle("eng", "eng")], { ...base, subtitleFallbackLanguages: " , eng" })?.id).toBe("eng");
+	});
+
+	test("never falls back to subtitles in the audio language", () => {
+		expect(selectPreferredSubtitle([enFull], { ...base, audioLanguage: "en" })).toBeUndefined();
+	});
+
+	test("does not fall back when the primary language already matches the audio", () => {
+		expect(selectPreferredSubtitle([enFull, deFull], { ...base, audioLanguage: "pl" })).toBeUndefined();
 	});
 });

@@ -23,6 +23,7 @@ export const PROFILES_SETTINGS_DEFINITIONS = {
 	"profiles.defaultPreferences.autoSkipRecap": creator.boolean("profiles.defaultPreferences.autoSkipRecap", false),
 	"profiles.defaultPreferences.audioLanguage": creator.string("profiles.defaultPreferences.audioLanguage", ""),
 	"profiles.defaultPreferences.subtitleLanguage": creator.string("profiles.defaultPreferences.subtitleLanguage", ""),
+	"profiles.defaultPreferences.subtitleFallbackLanguages": creator.string("profiles.defaultPreferences.subtitleFallbackLanguages", ""),
 	"profiles.defaultPreferences.subtitlesEnabled": creator.boolean("profiles.defaultPreferences.subtitlesEnabled", true),
 	"profiles.defaultPreferences.forcedSubtitlesOnly": creator.boolean("profiles.defaultPreferences.forcedSubtitlesOnly", false),
 	"profiles.defaultPreferences.autoForcedSubtitles": creator.boolean("profiles.defaultPreferences.autoForcedSubtitles", true),

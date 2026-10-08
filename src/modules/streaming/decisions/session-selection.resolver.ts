@@ -30,6 +30,7 @@ export interface SessionSelectionInput {
 		| {
 				audioLanguage: string | null;
 				subtitleLanguage: string | null;
+				subtitleFallbackLanguages?: string | null | undefined;
 				subtitlesEnabled: boolean;
 				forcedSubtitlesOnly: boolean;
 				autoForcedSubtitles?: boolean | undefined;

@@ -18,8 +18,8 @@ const OVERRIDES_CACHE_MAX_ENTRIES = 500;
 
 export type ProfilePreferenceOverrideRows = Record<string, string>;
 
-/** Blank audio/subtitle language means "cleared" — stored as null and never persisted. */
-const NULLABLE_LANGUAGE_KEYS = new Set<string>(["audioLanguage", "subtitleLanguage"]);
+/** Blank audio/subtitle language (or fallback list) means "cleared" — stored as null and never persisted. */
+const NULLABLE_LANGUAGE_KEYS = new Set<string>(["audioLanguage", "subtitleLanguage", "subtitleFallbackLanguages"]);
 
 type PreferenceFieldValue = string | boolean | number | null | undefined;
 

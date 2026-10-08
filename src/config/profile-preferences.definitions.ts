@@ -22,6 +22,7 @@ export const PROFILE_PREFERENCE_DEFINITIONS = {
 	autoSkipRecap: booleanCodec,
 	audioLanguage: codecs.nullableString(),
 	subtitleLanguage: codecs.nullableString(),
+	subtitleFallbackLanguages: codecs.nullableString(),
 	subtitlesEnabled: booleanCodec,
 	forcedSubtitlesOnly: booleanCodec,
 	autoForcedSubtitles: booleanCodec,
