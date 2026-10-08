@@ -16,6 +16,7 @@
 		"benchmark": "bun run scripts/benchmark.ts",
 		"scenarios": "bun run scripts/scenarios.ts",
 		"check-memory": "bun run scripts/memory-check.ts",
+		"admin:reset-password": "bun run scripts/reset-password.ts",
 		"----DATABASE": "",
 		"db:generate": "bunx --bun drizzle-kit generate",
 		"db:migrate": "bunx --bun drizzle-kit migrate",

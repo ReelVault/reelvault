@@ -1,3 +1,4 @@
+import { hashPassword } from "better-auth/crypto";
 import { auth } from "./better-auth.config";
 import { withAuthFailures } from "./better-auth.failures";
 import { invalidateSessionCache } from "./better-auth.session-cache";
@@ -24,6 +25,11 @@ interface CreateUserInput {
 export const betterAuthApi = {
 	async getSession(input: { headers: Headers; query: { disableCookieCache: boolean } }) {
 		return await auth.api.getSession(input);
+	},
+
+	/** Hashes a password exactly the way better-auth stores and verifies it (account recovery writes it directly). */
+	async hashPassword(password: string): Promise<string> {
+		return await hashPassword(password);
 	},
 
 	async signUpEmail(input: SignUpInput): Promise<Response> {

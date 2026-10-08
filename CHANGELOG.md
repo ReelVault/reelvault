@@ -361,6 +361,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Rewind on resume** — new profile preference `resumeRewindSeconds` (0–30 s, default `0`) with an admin default (`profiles.defaultPreferences.resumeRewindSeconds`).
 - **Plugin UI switches** — administrators can hide a plugin's whole UI or single pages, dialogs, tabs, slot entries, the search provider or the playback pre-roll without disabling the plugin: `GET/PUT/DELETE /v1/admin/plugins/:pluginId/ui`. Hiding a page also drops the tabs, buttons and search results that point at it; an unknown key is rejected with `plugin_ui.unknown_contribution`, changes are audited and the switches are removed when the plugin is uninstalled. Stored in the new `plugin_ui_overrides` table (only hidden items are kept).
 - **Liveness and readiness probes** — `GET /v1/health/live` answers while the process runs and probes nothing; `GET /v1/health/ready` returns 200 only while the database responds (503 otherwise). Both are public and cheap, for container and orchestrator health checks; `GET /v1/health` keeps the full subsystem report.
+- **Offline password recovery** — `bun run admin:reset-password <email> [--password <value>] [--disable-2fa]` resets a password from the command line when nobody can sign in (the server has no mail transport). Without `--password` a random one is generated and printed once; `--disable-2fa` also removes a lost authenticator. All sessions of the user are revoked.
 
 ### Fixes
 
