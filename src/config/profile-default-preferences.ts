@@ -18,6 +18,7 @@ export function profileDefaultPreferences(): ProfilePreferenceDefaults {
 		autoForcedSubtitles: systemSettingsStore.get("profiles.defaultPreferences.autoForcedSubtitles"),
 		preferHearingImpaired: systemSettingsStore.get("profiles.defaultPreferences.preferHearingImpaired"),
 		continueWatchingMinutes: systemSettingsStore.get("profiles.defaultPreferences.continueWatchingMinutes"),
+		resumeRewindSeconds: systemSettingsStore.get("profiles.defaultPreferences.resumeRewindSeconds"),
 		subtitleSize: systemSettingsStore.get("profiles.defaultPreferences.subtitleSize"),
 		subtitlePosition: systemSettingsStore.get("profiles.defaultPreferences.subtitlePosition"),
 		subtitleColor: systemSettingsStore.get("profiles.defaultPreferences.subtitleColor"),
