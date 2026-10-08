@@ -1,6 +1,8 @@
 import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const testRoot = `/tmp/reelvault-tests-${process.pid}`;
+const testRoot = join(tmpdir(), `reelvault-tests-${process.pid}`);
 
 process.env.NODE_ENV = "test";
 process.env.APP_PORT = "3030";

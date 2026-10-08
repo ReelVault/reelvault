@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { eq, sql } from "drizzle-orm";
 import { DatabaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
@@ -44,7 +45,7 @@ describe("admin audit redaction", () => {
 	});
 
 	test("rolls back the audit entry with the surrounding transaction", async () => {
-		const path = `/tmp/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
 		const factory = new DatabaseFactory(path);
 		factory.getClient().run(
@@ -81,7 +82,7 @@ describe("admin audit redaction", () => {
 	});
 
 	test("inserts and retrieves resourceName and summary fields", async () => {
-		const path = `/tmp/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
 		const factory = new DatabaseFactory(path);
 		factory.getClient().run(
@@ -122,7 +123,7 @@ describe("admin audit redaction", () => {
 	});
 
 	test("filters by date range with from and to", async () => {
-		const path = `/tmp/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
 		const factory = new DatabaseFactory(path);
 		factory.getClient().run(
@@ -160,7 +161,7 @@ describe("admin audit redaction", () => {
 	});
 
 	test("filters by ipAddress and requestId", async () => {
-		const path = `/tmp/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
 		const factory = new DatabaseFactory(path);
 		factory.getClient().run(
@@ -207,7 +208,7 @@ describe("admin audit redaction", () => {
 	});
 
 	test("prunes audit rows older than the cutoff", async () => {
-		const path = `/tmp/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
 		const factory = new DatabaseFactory(path);
 		factory.getClient().run(

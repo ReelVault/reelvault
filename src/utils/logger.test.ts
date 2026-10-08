@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, test } from "bun:test";
 import { once } from "node:events";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { createLogger, DailyRotatingStream, sanitizeLogValue } from "./logger";
@@ -13,7 +14,7 @@ afterEach(async () => {
 
 describe("DailyRotatingStream", () => {
 	it("archives the active file when the date changes", async () => {
-		const directory = await mkdtemp(PathUtils.join("/tmp", "reelvault-log-"));
+		const directory = await mkdtemp(PathUtils.join(tmpdir(), "reelvault-log-"));
 		temporaryDirectories.push(directory);
 		const activePath = PathUtils.join(directory, "reelvault.log");
 		let date = "2026-08-01";
@@ -30,7 +31,7 @@ describe("DailyRotatingStream", () => {
 	});
 
 	it("archives a leftover file from a previous day before opening the active stream", async () => {
-		const directory = await mkdtemp(PathUtils.join("/tmp", "reelvault-log-"));
+		const directory = await mkdtemp(PathUtils.join(tmpdir(), "reelvault-log-"));
 		temporaryDirectories.push(directory);
 		const activePath = PathUtils.join(directory, "reelvault.log");
 		await writeFile(activePath, "stale\n");

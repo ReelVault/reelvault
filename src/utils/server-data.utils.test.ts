@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanupStartupDirectories, measureDirectory } from "./server-data.utils";
 
 test("cleanupStartupDirectories removes contents of target directories", async () => {
-	const testBase = "/tmp/reelvault-cleanup-test";
+	const testBase = `${tmpdir()}/reelvault-cleanup-test`;
 	const testTranscodes = join(testBase, "transcodes");
 	const testTmp = join(testBase, ".tmp");
 
@@ -27,7 +28,7 @@ test("cleanupStartupDirectories removes contents of target directories", async (
 });
 
 test("measureDirectory sums file sizes recursively", async () => {
-	const testBase = "/tmp/reelvault-measure-test";
+	const testBase = `${tmpdir()}/reelvault-measure-test`;
 	mkdirSync(join(testBase, "nested"), { recursive: true });
 	writeFileSync(join(testBase, "a.bin"), "12345"); // 5 bytes
 	writeFileSync(join(testBase, "nested", "b.bin"), "1234567890"); // 10 bytes

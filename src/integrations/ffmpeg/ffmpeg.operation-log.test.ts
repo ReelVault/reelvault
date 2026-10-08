@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { FfmpegOperationLog } from "@/integrations/ffmpeg/ffmpeg.operation-log";
 import { readFile } from "@/utils/file.utils";
 import { currentLogDate } from "@/utils/logger";
@@ -13,7 +14,7 @@ afterEach(async () => {
 
 describe("FfmpegOperationLog", () => {
 	it("stores the command, stderr, progress and exit details", async () => {
-		const directory = await mkdtemp(PathUtils.join("/tmp", "reelvault-ffmpeg-log-"));
+		const directory = await mkdtemp(PathUtils.join(tmpdir(), "reelvault-ffmpeg-log-"));
 		temporaryDirectories.push(directory);
 		const log = new FfmpegOperationLog({
 			operationId: "session/1",
