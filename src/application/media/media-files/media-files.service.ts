@@ -258,6 +258,7 @@ class MediaService extends BaseService {
 				reference: { type: "media-files", id: "all" },
 				label: "all media files refresh",
 				enqueue: (operationId) => enqueueAllMediaFilesRefresh({ operationId }),
+				onDeduped: () => this.logger.info("Media refresh-all is already running — the request was folded into the active sweep"),
 			});
 
 			recordAuditSafe(
@@ -575,6 +576,7 @@ class MediaService extends BaseService {
 				reference: { type: "media-files", id: "all" },
 				label: "media file audit",
 				enqueue: (operationId) => enqueueMediaFileAuditReport({ operationId }),
+				onDeduped: () => this.logger.info("Media audit is already running — the request was folded into the active sweep"),
 			});
 
 			recordAuditSafe(

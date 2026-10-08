@@ -319,6 +319,7 @@ class LibrariesService extends BaseService {
 				reference: { type: "library-errors", id: dedupeKey },
 				label: "library error check",
 				enqueue: (operationId) => enqueueLibraryErrorsCheck(data, { operationId }),
+				onDeduped: () => this.logger.info("Library error check is already running — the request was folded into it", { dedupeKey }),
 			});
 
 			recordAuditSafe(
