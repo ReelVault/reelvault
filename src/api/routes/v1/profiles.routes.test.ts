@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { Elysia } from "elysia";
+import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { domainErrorsMiddleware } from "@/middleware/domain-errors.middleware";
 
 process.env.BETTER_AUTH_SECRET ??= "test-secret-with-at-least-32-characters";
@@ -15,6 +16,8 @@ const originalUserHasPermission = auth.api.userHasPermission;
 const originalGetPreferences = profilesService.getPreferences;
 const originalUpdatePreferences = profilesService.updatePreferences;
 const originalSwitch = profilesService.switch;
+const originalDelete = profilesService.delete;
+const originalFindCached = profilesRepository.findByPrimaryIdCached;
 
 afterEach(() => {
 	auth.api.getSession = originalGetSession;
@@ -22,6 +25,8 @@ afterEach(() => {
 	profilesService.getPreferences = originalGetPreferences;
 	profilesService.updatePreferences = originalUpdatePreferences;
 	profilesService.switch = originalSwitch;
+	profilesService.delete = originalDelete;
+	profilesRepository.findByPrimaryIdCached = originalFindCached;
 });
 
 /** Wraps a fake better-auth session payload so the mock matches auth.api.getSession's shape. */
@@ -177,4 +182,66 @@ test("profile switch omits unlock token for browser clients", async () => {
 
 	expect(response.status).toBe(200);
 	expect(await response.json()).toEqual({ success: true });
+});
+
+const REMOVED_PROFILE_COOKIE = /current_profile_id=;.*(Max-Age=0|Expires=)/i;
+
+function signInAs(userId: string): void {
+	const now = new Date("2026-01-02T03:04:05.000Z");
+	auth.api.getSession = fakeGetSession({
+		user: {
+			id: userId,
+			name: "User",
+			email: "user@example.com",
+			emailVerified: true,
+			createdAt: now,
+			updatedAt: now,
+			role: "user",
+			banned: false,
+		},
+		session: { id: "session-1" },
+	});
+	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+}
+
+function stubActiveProfile(profileId: string): void {
+	profilesRepository.findByPrimaryIdCached = (async () => ({
+		id: profileId,
+		userId: "user-1",
+		name: "P",
+		pin: null,
+	})) as unknown as typeof profilesRepository.findByPrimaryIdCached;
+}
+
+async function deleteProfile(profileId: string): Promise<Response> {
+	return await app.handle(
+		new Request(`http://localhost/profiles/${profileId}`, {
+			method: "DELETE",
+			headers: { authorization: "Bearer test", cookie: "current_profile_id=profile-1; profile_unlock=proof" },
+		}),
+	);
+}
+
+test("deleting the profile the client is acting as clears its profile cookies", async () => {
+	signInAs("user-1");
+	stubActiveProfile("profile-1");
+	profilesService.delete = async () => ({ success: true });
+
+	const response = await deleteProfile("profile-1");
+
+	expect(response.status).toBe(200);
+	const cleared = response.headers.getSetCookie().join("\n");
+	expect(cleared).toContain("current_profile_id=");
+	expect(cleared).toMatch(REMOVED_PROFILE_COOKIE);
+});
+
+test("deleting a different profile keeps the active profile cookies", async () => {
+	signInAs("user-1");
+	stubActiveProfile("profile-1");
+	profilesService.delete = async () => ({ success: true });
+
+	const response = await deleteProfile("profile-2");
+
+	expect(response.status).toBe(200);
+	expect(response.headers.getSetCookie().join("\n")).not.toContain("current_profile_id=");
 });

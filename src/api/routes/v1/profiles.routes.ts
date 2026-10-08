@@ -69,13 +69,27 @@ export const profilesRoutes = new Elysia({
 			description: "Modify an existing profile's settings or information.",
 		},
 	})
-	.delete("/:id", async ({ params, user }) => await profilesService.delete(params.id, user?.id), {
-		params: IdParams,
-		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
-		detail: {
-			description: "Permanently remove a profile from the account.",
+	.delete(
+		"/:id",
+		async ({ params, user, profile, cookie: { current_profile_id, profile_unlock } }) => {
+			const result = await profilesService.delete(params.id, user?.id);
+			// Deleting the profile this client is acting as must not leave its id (and PIN unlock proof)
+			// in cookies — every later request would otherwise resolve a profile that no longer exists.
+			if (profile?.id === params.id) {
+				current_profile_id?.remove();
+				profile_unlock?.remove();
+			}
+
+			return result;
 		},
-	})
+		{
+			params: IdParams,
+			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
+			detail: {
+				description: "Permanently remove a profile from the account.",
+			},
+		},
+	)
 	.post(
 		"/switch",
 		async ({ body, cookie: { current_profile_id, profile_unlock }, request, user }) => {
