@@ -302,6 +302,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **Episodes in a generic folder got the folder name as the show** — a basic-structure file such as `…/movies/Example.Show.S01E03.mkv` was recognized as a show named "movies" (or "downloads", "tv"), because only the categorized movie strategy skipped generic folder names; series recognition now falls back to the episode file's own title, and `tv`/`TV Shows`/`shows`/`series`/`seriale` joined the generic folder list.
 - **Sidecar rewrite storm** — sidecar documents were rewritten by an unbounded fire-and-forget task per refreshed title, so a catalog refresh launched one rewrite per title at once. Syncs now coalesce per title (one in-flight plus at most one re-run) and run under the io-concurrency semaphore.
 - **Periodic rescan tick guard** — a database failure while checking the scheduled-rescan deadline is logged instead of surfacing as an unhandled rejection from the detached timer.
 - **Deduplicated sweeps are observable** — refresh-all, media audit and library error checks now log when a request folds into an already-running sweep.
@@ -316,7 +317,6 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Scan requests could silently no-op** — clicking Scan while one was already running deduped onto it, and the running scan may have walked the disk before the new files landed. A deduped request now queues one catch-up scan that runs after the active one.
 - **Hung mounts blocked scans** — a path whose glob walk exceeded two minutes is skipped for the run instead of holding the scan task (and its dedupe key) for the 2 h worker timeout.
 - **New titles hid behind list caches** — ingesting a media file now invalidates the cached `/v1/metadata` and `/v1/libraries` responses, so a fresh title appears immediately instead of after the TTL.
-
 - **Admin dashboard library relations** — `/admin/dashboard-view` declared its `libraries` as the base library schema, so response validation stripped `paths` and file/size stats. The website seeds the admin libraries cache from that response, which crashed the page with `can't access property "length", e.paths is undefined` and zeroed the dashboard storage breakdown; the contract now returns full `LibraryWithRelations`.
 - **Scan trickplay operations** — every ingested file created its own trickplay operation. Scan/refresh-triggered generation now joins one active operation per library (find-or-create, attach, dedupe-safe), so a scan produces a single operation containing all of its files; a late attach reopens a just-finished operation instead of leaving it terminal.
 - **SQLite write contention and Server Rescue** — standalone main-connection writes (missing-translation flag, scan-findings deletes) could busy-wait synchronously on an open transaction's lock, freezing the event loop (~10 s lag tripped Server Rescue) and failing with `database is locked`. Standalone writes now queue on the transaction lock in JS, and the missing-translation flag is written inside the season/episode transaction.
