@@ -302,6 +302,13 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **Unplayable imports after a failed probe** — a failed ffprobe used to import the media row with no duration/streams, and because size/mtime were recorded the scanner never retried it. Such files are now skipped with a `probe_failed` finding (visible in "needs attention") and retried on the next scan.
+- **Hung mounts could wedge the watcher** — `stat` calls now carry a 15 s deadline, so a dead NFS/CIFS mount can no longer leave watcher reconciliation permanently disabled (its `isSyncing` flag never cleared) or block removal checks; timeouts read as unreliable storage, never as "missing".
+- **File refresh silently skipped its technical half** — when a metadata refresh was already running, "refresh file" reused that operation and never queued the probe/marker refresh. The technical task is now scheduled while the active metadata refresh is reused.
+- **Stale keyframes after a file replacement** — keyframe probe buckets are keyed by the file's size/mtime signature, so a replaced file no longer seeks against the previous content's keyframes (or a cached failure) for 30 minutes.
+- **Library and media mutations left stale caches** — library create/update/delete and media update/delete now invalidate the cached list bodies they can stale, and deleting a media file clears the library stats cache.
+- **Periodic rescan clock survived restarts** — due-ness is derived from persisted library-scan operations instead of an in-memory timer, and a recent scan counts per library rather than globally.
+- **Batch cache reads and profile invalidation** — `mget`/`getOrSetMany` now return a cached `null` instead of treating it as a miss, and profile-scoped etag invalidation matches the profile id segment exactly instead of a substring.
 - **Interrupted scans missed new files** — a scan checkpoint from a cancelled/aborted run was resumed as-is, so files added after the interruption were invisible for that pass. The checkpoint now only signals the interruption; every scan recomputes its workload from disk.
 - **Scan requests could silently no-op** — clicking Scan while one was already running deduped onto it, and the running scan may have walked the disk before the new files landed. A deduped request now queues one catch-up scan that runs after the active one.
 - **Hung mounts blocked scans** — a path whose glob walk exceeded two minutes is skipped for the run instead of holding the scan task (and its dedupe key) for the 2 h worker timeout.
