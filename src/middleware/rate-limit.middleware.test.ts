@@ -192,3 +192,18 @@ test("InMemoryRateLimiter keeps buckets in LRU order and evicts the least recent
 	expect(limiter.has("k1")).toBe(true);
 	expect(limiter.has("k3")).toBe(true);
 });
+
+test("perParam gives each value of a route parameter its own bucket", async () => {
+	const app = new Elysia()
+		.use(domainErrorsMiddleware)
+		.use(rateLimitMiddleware)
+		.get("/plugins/:pluginId/run", () => "ok", { rateLimit: { name: "per-param-test", max: 1, windowMs: 60_000, perParam: "pluginId" } });
+
+	const chattyFirst = await app.handle(new Request("http://localhost/plugins/chatty/run"));
+	const chattySecond = await app.handle(new Request("http://localhost/plugins/chatty/run"));
+	const quiet = await app.handle(new Request("http://localhost/plugins/quiet/run"));
+
+	expect(chattyFirst.status).toBe(200);
+	expect(chattySecond.status).toBe(429);
+	expect(quiet.status).toBe(200);
+});

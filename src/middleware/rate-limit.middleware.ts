@@ -64,7 +64,7 @@ export function isExemptFromGlobalLimit(request: Request): boolean {
 
 export const rateLimitMiddleware = new Elysia({ name: "RateLimitMiddleware" })
 	.macro({
-		rateLimit: (options: { name: string; max: number; windowMs: number; adminBypass?: boolean }) => ({
+		rateLimit: (options: { name: string; max: number; windowMs: number; adminBypass?: boolean; perParam?: string }) => ({
 			beforeHandle(context) {
 				const user = "user" in context && isRecord(context.user) ? context.user : undefined;
 				const userId = user && typeof user.id === "string" ? user.id : undefined;
@@ -81,7 +81,11 @@ export const rateLimitMiddleware = new Elysia({ name: "RateLimitMiddleware" })
 				// Anonymous callers share one identity bucket per IP (never a global
 				// "anonymous" bucket — five bad logins must not lock out the world).
 				const identity = profileId ?? userId ?? `ip:${getClientIp(request, server)}`;
-				const key = `${options.name}:${identity}`;
+				// `perParam` gives every value of a route parameter (e.g. a plugin id) its own bucket,
+				// so one chatty plugin cannot exhaust the budget of all the others.
+				const params = "params" in context && isRecord(context.params) ? context.params : undefined;
+				const scoped = options.perParam ? params?.[options.perParam] : undefined;
+				const key = `${options.name}${typeof scoped === "string" ? `:${scoped}` : ""}:${identity}`;
 				const result = rateLimiter.consume(key, routeMax, options.windowMs);
 				if (!result.allowed) {
 					setRateLimitHeaders(set.headers, routeMax, result.remaining, result.resetMs);

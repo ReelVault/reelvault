@@ -62,7 +62,7 @@ export const pluginsRoutes = new Elysia({ prefix: "/plugins", tags: ["Plugins"] 
 			// Plugin-owned routes can do arbitrary work; bound them per profile so a
 			// single account cannot hammer any plugin endpoint. The global limiter
 			// only exempts playback segments, so this is additive.
-			rateLimit: { name: "plugin-route", max: 300, windowMs: MINUTE },
+			rateLimit: { name: "plugin-route", max: 300, windowMs: MINUTE, perParam: "pluginId" },
 			params: PluginIdParams,
 			// Plugin-owned payload: the plugin's declared response schema validates it.
 			response: t.Unknown(),
@@ -87,7 +87,7 @@ export const pluginsRoutes = new Elysia({ prefix: "/plugins", tags: ["Plugins"] 
 			});
 		},
 		{
-			rateLimit: { name: "plugin-route", max: 300, windowMs: MINUTE },
+			rateLimit: { name: "plugin-route", max: 300, windowMs: MINUTE, perParam: "pluginId" },
 			// No params schema here: Elysia's exactMirror cannot compile a TypeBox
 			// object that owns the "*" wildcard key, which silently kills this route.
 			// pluginId is re-validated inside the dispatch instead.
