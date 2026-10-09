@@ -19,7 +19,7 @@ import { authMiddleware } from "@/middleware/auth.middleware";
 import { cached } from "@/middleware/response-cache.middleware";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
 import { subtitlesService } from "@/modules/subtitles/subtitles.service";
-import { MINUTE } from "@/server.constants";
+import { MINUTE, SUBTITLE_UPLOAD_MAX_SIZE } from "@/server.constants";
 
 const SUBTITLE_CACHE_CONTROL = "private, max-age=300";
 
@@ -73,6 +73,35 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 			description: "Retrieve a paginated list of subtitles.",
 		},
 	})
+	.post(
+		"/upload",
+		async ({ body, status }) =>
+			status(
+				201,
+				await subtitlesService.upload(
+					{
+						mediaFileId: body.mediaFileId,
+						language: body.language,
+						...(body.label === undefined ? {} : { label: body.label }),
+					},
+					body.file,
+				),
+			),
+		{
+			adminOnly: true,
+			rateLimit: { name: "subtitle-upload", max: 30, windowMs: MINUTE },
+			body: t.Object({
+				mediaFileId: t.String({ minLength: 1 }),
+				language: t.String({ minLength: 2, maxLength: 16 }),
+				label: t.Optional(t.String({ maxLength: 100 })),
+				file: t.File({ maxSize: SUBTITLE_UPLOAD_MAX_SIZE }),
+			}),
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "subtitle.schema" },
+			detail: {
+				description: "Store an SRT, WebVTT or ASS file (up to 1 MB) as an external subtitle track of a media file.",
+			},
+		},
+	)
 	.post("/", async ({ body }) => await subtitlesService.create(body), {
 		adminOnly: true,
 		body: "subtitle.create.body",

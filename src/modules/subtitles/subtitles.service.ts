@@ -18,14 +18,20 @@ import type {
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
+import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
+import { DirUtils } from "@/utils/directory.utils";
 import { errorCodeOf } from "@/utils/error-codes.utils";
+import { ValidationError } from "@/utils/errors";
+import { FileUtils } from "@/utils/file.utils";
+import { PathUtils } from "@/utils/path.utils";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
 import { type SubtitleContent, type SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
 import { type SubtitleFileCleaner, subtitleFileCleaner } from "./subtitle-file.cleaner";
 import { type SubtitleInfoCache, subtitleInfoCache } from "./subtitle-info.cache";
+import { detectUploadedSubtitleFormat } from "./subtitle-upload.utils";
 
 interface ServiceDependencies {
 	findPage: (query?: PaginationQuery & SubtitleFilters & SubtitleSorting) => Promise<PaginatedResponse<SubtitleEntity>>;
@@ -120,6 +126,34 @@ export class SubtitlesService extends BaseService {
 			invalidateResponseBodies();
 
 			return created;
+		});
+	}
+
+	/** Stores an SRT, WebVTT or ASS file as an external subtitle track of the media file; the stored copy is removed if the track cannot be created. */
+	async upload(body: { mediaFileId: string; language: string; label?: string | undefined }, file: File): Promise<Subtitle> {
+		return await this.safeExecute("upload", async () => {
+			const text = await file.text();
+			const format = detectUploadedSubtitleFormat(file.name, text);
+			if (!format) {
+				throw new ValidationError("Uploaded file is not a readable SRT, WebVTT or ASS subtitle", { code: "subtitle.invalid_upload" });
+			}
+
+			await DirUtils.create(serverConfig.paths.subtitles);
+			const storedPath = PathUtils.join(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
+			await Bun.write(storedPath, text);
+
+			try {
+				return await this.create({
+					mediaFileId: body.mediaFileId,
+					language: body.language,
+					format,
+					sourcePath: storedPath,
+					...(body.label === undefined ? {} : { label: body.label }),
+				});
+			} catch (error) {
+				await FileUtils.delete(storedPath);
+				throw error;
+			}
 		});
 	}
 
