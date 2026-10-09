@@ -1,6 +1,6 @@
 import { withDomainError } from "@/application/context";
 import { serverConfig } from "@/server.config";
-import { errorMessage } from "@/utils/errors";
+import { errorCodeOf } from "@/utils/error-codes.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
@@ -28,7 +28,7 @@ export const downloadsProcessWorker = createWorkerDefinition<{ downloadId: strin
 				// (it would pin the profile's only active-download slot).
 				const maxAttempts = downloadsProcessWorker.attempts ?? 3;
 				if (attempt >= maxAttempts && !signal.aborted) {
-					await downloadsService.markFailed(data.downloadId, errorMessage(error));
+					await downloadsService.markFailed(data.downloadId, errorCodeOf(error, "download.failed"));
 				}
 
 				throw error;

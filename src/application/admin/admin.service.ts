@@ -218,8 +218,8 @@ class AdminService extends BaseService {
 					environment: describeUpdateEnvironment(),
 					serverRollbackAvailable: updateInstallService.isRollbackAvailable("server"),
 					webRollbackAvailable: updateInstallService.isRollbackAvailable("web"),
-					serverLastError: updateInstallService.getLastError("server") ?? updateState.serverLastError,
-					webLastError: updateInstallService.getLastError("web") ?? updateState.webLastError,
+					serverLastErrorCode: updateInstallService.getLastError("server") ?? updateState.serverLastError,
+					webLastErrorCode: updateInstallService.getLastError("web") ?? updateState.webLastError,
 					job: updateInstallService.getJob(),
 				},
 			};

@@ -31,8 +31,8 @@ async function buildUpdateStatus(forceCheck: boolean) {
 		environment: describeUpdateEnvironment(),
 		serverRollbackAvailable: updateInstallService.isRollbackAvailable("server"),
 		webRollbackAvailable: updateInstallService.isRollbackAvailable("web"),
-		serverLastError: updateInstallService.getLastError("server") ?? state.serverLastError,
-		webLastError: updateInstallService.getLastError("web") ?? state.webLastError,
+		serverLastErrorCode: updateInstallService.getLastError("server") ?? state.serverLastError,
+		webLastErrorCode: updateInstallService.getLastError("web") ?? state.webLastError,
 		job: updateInstallService.getJob(),
 	};
 }

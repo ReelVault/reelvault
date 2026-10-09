@@ -554,8 +554,8 @@ describe("PluginManager lifecycle orchestration", () => {
 		expect(manager.getStatus()).toEqual([
 			expect.objectContaining({ id: "org.reelvault.aaa", state: "enabled" }),
 			expect.objectContaining({ id: "org.reelvault.ok", state: "enabled" }),
-			expect.objectContaining({ id: "org.reelvault.worse", state: "failed", error: "boom" }),
-			expect.objectContaining({ id: "org.reelvault.bad", state: "failed", error: "boom" }),
+			expect.objectContaining({ id: "org.reelvault.worse", state: "failed" }),
+			expect.objectContaining({ id: "org.reelvault.bad", state: "failed" }),
 		]);
 	});
 

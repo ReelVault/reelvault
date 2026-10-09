@@ -9,6 +9,7 @@ import { streamingManager } from "@/modules/streaming/runtime/streaming.manager"
 import { type ArchiveFetcher, downloadArchive, extractArchive } from "@/plugins/catalog/plugin-package.utils";
 import { requestApplicationRestart } from "@/shutdown";
 import { BaseService } from "@/utils/base-service";
+import { errorCodeOf } from "@/utils/error-codes.utils";
 import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
 import { detach } from "@/utils/promise.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
@@ -373,14 +374,14 @@ export class UpdateInstallService extends BaseService {
 				return;
 			}
 
-			const message = error instanceof Error ? error.message : "unknown error";
-			this.setLastError(target, message);
+			const errorCode = errorCodeOf(error, "update.install_failed");
+			this.setLastError(target, errorCode);
 			this.job = null;
 			this.logger.error(`Update install for ${target} failed`, error);
 			// staging cleanup must never mask the original failure
 			this.removeScratchDirectories([STAGING_DIR, PENDING_DIR]);
 			adminFailureNotificationService.notifyUpdateFailed(target, release.version);
-			await updateHistoryService.fail(historyId, message);
+			await updateHistoryService.fail(historyId, errorCode);
 		}
 	}
 
@@ -459,13 +460,13 @@ export class UpdateInstallService extends BaseService {
 
 			return null;
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "unknown error";
-			this.setLastError(target, message);
+			const errorCode = errorCodeOf(error, "update.rollback_failed");
+			this.setLastError(target, errorCode);
 			this.job = null;
 			this.logger.error(`Rollback for ${target} failed`, error);
 			adminFailureNotificationService.notifyUpdateFailed(target, null);
 
-			return message;
+			return errorCode;
 		}
 	}
 

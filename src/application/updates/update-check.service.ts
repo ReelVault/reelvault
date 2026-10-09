@@ -1,5 +1,7 @@
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { BaseService } from "@/utils/base-service";
+import { errorCodeOf } from "@/utils/error-codes.utils";
+import { errorMessage } from "@/utils/errors";
 import { detach } from "@/utils/promise.utils";
 import { isNewerVersion, isValidSemver } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
@@ -158,16 +160,22 @@ export class UpdateCheckService extends BaseService {
 			this.cachedServer = serverResult.value;
 			this.serverLastError = null;
 		} else {
-			this.serverLastError = reasonOf(serverResult.reason);
-			this.logger.warn("Server release check failed — keeping previous state", { reason: this.serverLastError });
+			this.serverLastError = errorCodeOf(serverResult.reason, "update.check_failed");
+			this.logger.warn("Server release check failed — keeping previous state", {
+				reason: this.serverLastError,
+				error: errorMessage(serverResult.reason),
+			});
 		}
 
 		if (webResult.status === "fulfilled") {
 			this.cachedWeb = webResult.value;
 			this.webLastError = null;
 		} else {
-			this.webLastError = reasonOf(webResult.reason);
-			this.logger.warn("Web release check failed — keeping previous state", { reason: this.webLastError });
+			this.webLastError = errorCodeOf(webResult.reason, "update.check_failed");
+			this.logger.warn("Web release check failed — keeping previous state", {
+				reason: this.webLastError,
+				error: errorMessage(webResult.reason),
+			});
 		}
 
 		this.cachedAt = Date.now();
@@ -200,10 +208,6 @@ export class UpdateCheckService extends BaseService {
 
 		return release;
 	}
-}
-
-function reasonOf(reason: unknown): string {
-	return reason instanceof Error ? reason.message : "unknown error";
 }
 
 export const updateCheckService = new UpdateCheckService();

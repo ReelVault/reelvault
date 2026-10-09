@@ -222,7 +222,7 @@ describe("server update pipeline (local HTTP archive)", () => {
 		await service.startInstall("server");
 		await waitFor(() => service.getJob() === null);
 
-		expect(service.getLastError("server")).toContain("SHA256");
+		expect(service.getLastError("server")).toBe("update.checksum_mismatch");
 		expect(scheduler.calls).toEqual([]);
 		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(OLD_SERVER);
 		expect(existsSync(join(root, ".previous"))).toBe(false);
@@ -260,7 +260,7 @@ describe("server update database check", () => {
 		await service.startInstall("server");
 		await waitFor(() => service.getJob() === null);
 
-		expect(service.getLastError("server")).toContain("integrity check");
+		expect(service.getLastError("server")).toBe("update.database_integrity_failed");
 		expect(scheduler.calls).toEqual([]);
 		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(OLD_SERVER);
 		expect(existsSync(join(root, ".previous"))).toBe(false);

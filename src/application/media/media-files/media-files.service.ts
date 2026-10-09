@@ -42,7 +42,8 @@ import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
-import { errorMessage, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { errorCodeOf } from "@/utils/error-codes.utils";
+import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -66,9 +67,9 @@ interface MediaFileScanResult {
 	readable: boolean;
 	sizeBytes: number | null;
 	probeSuccess: boolean;
-	probeError: string | null;
+	probeErrorCode: string | null;
 	decodeSuccess: boolean;
-	decodeError: string | null;
+	decodeErrorCode: string | null;
 	isEnabled: boolean;
 }
 
@@ -351,27 +352,27 @@ class MediaService extends BaseService {
 						readable: false,
 						sizeBytes: null,
 						probeSuccess: false,
-						probeError: "File does not exist on disk",
+						probeErrorCode: "media.file_missing",
 						decodeSuccess: false,
-						decodeError: "File does not exist on disk",
+						decodeErrorCode: "media.file_missing",
 					};
 				}
 
 				let probeSuccess = false;
-				let probeError: string | null = null;
+				let probeErrorCode: string | null = null;
 				try {
 					const probe = await videoParser.probe(filePath);
 					if (probe) {
 						probeSuccess = true;
 					} else {
-						probeError = "ffprobe returned no data";
+						probeErrorCode = "media.probe_no_data";
 					}
 				} catch (err) {
-					probeError = errorMessage(err);
+					probeErrorCode = errorCodeOf(err, "media.probe_failed");
 				}
 
 				let decodeSuccess = false;
-				let decodeError: string | null = null;
+				let decodeErrorCode: string | null = null;
 				try {
 					const args = ["-v", "error"];
 					const scanDuration = options?.durationSeconds === undefined ? 60 : options.durationSeconds;
@@ -385,11 +386,10 @@ class MediaService extends BaseService {
 					if (ffmpegResult.exitCode === 0) {
 						decodeSuccess = true;
 					} else {
-						decodeError =
-							ffmpegResult.stderr === "" ? `ffmpeg exited with code ${ffmpegResult.exitCode ?? "unknown"}` : ffmpegResult.stderr;
+						decodeErrorCode = "media.decode_failed";
 					}
 				} catch (err) {
-					decodeError = errorMessage(err);
+					decodeErrorCode = errorCodeOf(err, "media.decode_failed");
 				}
 
 				// `exists` was already asserted by the early return above.
@@ -407,9 +407,9 @@ class MediaService extends BaseService {
 					readable,
 					sizeBytes,
 					probeSuccess,
-					probeError,
+					probeErrorCode,
 					decodeSuccess,
-					decodeError,
+					decodeErrorCode,
 					isEnabled,
 				};
 			});

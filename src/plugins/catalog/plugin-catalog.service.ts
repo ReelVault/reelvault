@@ -5,6 +5,7 @@ import type { InstallCatalogPluginResponse, PluginValidationResult } from "@reel
 import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
 import { env } from "@/env";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
+import { errorCodeOf, toErrorCode } from "@/utils/error-codes.utils";
 import { DomainError, NotFoundError, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
@@ -26,7 +27,6 @@ import { archiveValidationFailure, validatePluginPackage } from "./plugin-packag
 
 const CACHE_TTL_MS = 15 * 60_000;
 const MANIFEST_TIMEOUT_MS = 20_000;
-const MAX_LAST_ERROR_LENGTH = 500;
 /** The lockfile provenance format for catalog installs (vs. absolute paths for manual installs). */
 const catalogSource = (repositoryId: string, pluginId: string, version: string): string => `catalog:${repositoryId}:${pluginId}@${version}`;
 
@@ -44,7 +44,7 @@ export interface PluginRepositoryView {
 	enabled: boolean;
 	hasToken: boolean;
 	lastRefreshedAt: string | null;
-	lastError: string | null;
+	lastErrorCode: string | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -386,8 +386,7 @@ class PluginCatalogService {
 
 			return cachedManifest;
 		} catch (error) {
-			const message = error instanceof Error ? error.message.slice(0, MAX_LAST_ERROR_LENGTH) : "Unknown error";
-			await pluginRepositoriesRepository.update(row.id, { lastError: message });
+			await pluginRepositoriesRepository.update(row.id, { lastError: errorCodeOf(error, PLUGIN_REPOSITORY_UNAVAILABLE) });
 			// A previously-good cache keeps the catalog usable while the upstream is down.
 			if (cached) return cached;
 
@@ -409,7 +408,7 @@ class PluginCatalogService {
 			enabled: row.enabled,
 			hasToken: row.tokenEncrypted !== null && row.tokenEncrypted.length > 0,
 			lastRefreshedAt: row.lastRefreshedAt ? row.lastRefreshedAt.toISOString() : null,
-			lastError: row.lastError,
+			lastErrorCode: toErrorCode(row.lastError, PLUGIN_REPOSITORY_UNAVAILABLE),
 			createdAt: row.createdAt.toISOString(),
 			updatedAt: row.updatedAt.toISOString(),
 		};

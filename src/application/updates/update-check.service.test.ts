@@ -111,7 +111,7 @@ describe("UpdateCheckService (two sources)", () => {
 		const state = service.getState();
 
 		expect(state.serverLatest).toBeNull();
-		expect(state.serverLastError).toBe("HTTP 403");
+		expect(state.serverLastError).toBe("update.check_failed");
 		expect(state.webLatest?.version).toBe("0.2.0");
 		expect(state.webLastError).toBeNull();
 	});
@@ -130,7 +130,7 @@ describe("UpdateCheckService (two sources)", () => {
 		expect(state.serverLatest?.version).toBe("not-a-release");
 		expect(state.serverUpdateAvailable).toBe(false);
 		expect(state.webLatest).toBeNull();
-		expect(state.webLastError).toBe("HTTP 404");
+		expect(state.webLastError).toBe("update.check_failed");
 	});
 
 	test("serves the cached releases while the TTL is fresh", async () => {

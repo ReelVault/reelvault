@@ -11,7 +11,6 @@ export interface PluginStatusInput {
 	subtitleProviders?: number | undefined;
 	jobs?: number | undefined;
 	description?: string | undefined;
-	error?: string | undefined;
 	errorCode?: string | undefined;
 	failurePhase?: PluginLoadPhase | undefined;
 }
@@ -43,7 +42,6 @@ export function createPluginStatus(input: PluginStatusInput): PluginStatus {
 		jobs: input.jobs ?? 0,
 		...pickDefined({
 			description: input.description,
-			error: input.error,
 			errorCode: input.errorCode,
 			failurePhase: input.failurePhase,
 		}),

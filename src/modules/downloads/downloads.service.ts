@@ -15,6 +15,7 @@ import {
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
+import { toErrorCode } from "@/utils/error-codes.utils";
 import { ConflictError, errorMessage, ForbiddenError, isMissingFile, NotFoundError, ValidationError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -32,7 +33,7 @@ export interface DownloadJobView {
 	sizeBytes: number | null;
 	fileName: string | null;
 	downloadUrl: string | null;
-	errorText: string | null;
+	errorCode: string | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -231,7 +232,7 @@ class DownloadsService extends BaseService {
 				fields: QueryFields.parse({ fields: "id,filePath" }),
 			});
 			if (!mediaFile?.filePath) {
-				await downloadsRepository.update(row.id, { status: "failed", errorText: "Media file no longer exists" });
+				await downloadsRepository.update(row.id, { status: "failed", errorText: "download.media_missing" });
 				continue;
 			}
 
@@ -244,12 +245,12 @@ class DownloadsService extends BaseService {
 	}
 
 	/** Marks a download failed unless it already finished or was cancelled. */
-	async markFailed(downloadId: string, message: string): Promise<void> {
+	async markFailed(downloadId: string, errorCode: string): Promise<void> {
 		const row = await downloadsRepository.findById(downloadId);
 		if (!row || row.status === "completed" || row.status === "cancelled") return;
 
 		this.killInFlight(downloadId);
-		await downloadsRepository.update(downloadId, { status: "failed", errorText: message });
+		await downloadsRepository.update(downloadId, { status: "failed", errorText: errorCode });
 	}
 
 	private async requireDownload(downloadId: string): Promise<DownloadRow> {
@@ -358,7 +359,7 @@ class DownloadsService extends BaseService {
 		if (!mediaFile?.filePath) {
 			// Retrying cannot bring the file back, and leaving the row `pending`
 			// pinned the profile's single active-download slot forever.
-			await downloadsRepository.update(downloadId, { status: "failed", errorText: "Media file no longer exists" });
+			await downloadsRepository.update(downloadId, { status: "failed", errorText: "download.media_missing" });
 
 			return null;
 		}
@@ -474,10 +475,10 @@ class DownloadsService extends BaseService {
 			if (quality === "original") {
 				await downloadsRepository.update(downloadId, {
 					status: "failed",
-					errorText: "The source is not MP4-compatible — pick a quality to scale it down.",
+					errorText: "download.source_not_mp4",
 				});
 			} else {
-				await downloadsRepository.update(downloadId, { status: "failed", errorText: `FFmpeg exited with code ${exitCode ?? "unknown"}` });
+				await downloadsRepository.update(downloadId, { status: "failed", errorText: "download.ffmpeg_failed" });
 			}
 
 			return;
@@ -487,7 +488,7 @@ class DownloadsService extends BaseService {
 		const sizeBytes = output.size;
 		if (sizeBytes === 0) {
 			await this.deleteArtifact(outputPath);
-			await downloadsRepository.update(downloadId, { status: "failed", errorText: "FFmpeg produced an empty file" });
+			await downloadsRepository.update(downloadId, { status: "failed", errorText: "download.empty_output" });
 
 			return;
 		}
@@ -497,7 +498,7 @@ class DownloadsService extends BaseService {
 			await this.deleteArtifact(outputPath);
 			await downloadsRepository.update(downloadId, {
 				status: "failed",
-				errorText: "The file exceeded the profile's storage limit — remove older downloads.",
+				errorText: "download.storage_limit",
 			});
 
 			return;
@@ -611,7 +612,7 @@ class DownloadsService extends BaseService {
 			sizeBytes: row.sizeBytes,
 			fileName: row.fileName,
 			downloadUrl: row.status === "completed" ? `/v1/downloads/${row.id}/file` : null,
-			errorText: row.errorText,
+			errorCode: toErrorCode(row.errorText, "download.failed"),
 			createdAt: row.createdAt.toISOString(),
 			updatedAt: row.updatedAt.toISOString(),
 		};

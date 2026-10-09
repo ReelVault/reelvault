@@ -294,7 +294,7 @@ describe("DownloadsService.process", () => {
 
 		await downloadsService.process("dl-1");
 
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed", errorText: "FFmpeg produced an empty file" }));
+		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed", errorText: "download.empty_output" }));
 		fake.spy.mockRestore();
 	});
 
@@ -345,7 +345,7 @@ describe("DownloadsService.process", () => {
 
 		await downloadsService.process("dl-1");
 
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed", errorText: "Media file no longer exists" }));
+		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed", errorText: "download.media_missing" }));
 	});
 });
 

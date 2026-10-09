@@ -85,7 +85,7 @@ class AdminPluginCatalogService {
 				resourceType: "plugin_repository",
 				resourceId: id,
 				resourceName: repository.name,
-				after: { action: "refresh", lastRefreshedAt: repository.lastRefreshedAt, lastError: repository.lastError },
+				after: { action: "refresh", lastRefreshedAt: repository.lastRefreshedAt, lastErrorCode: repository.lastErrorCode },
 				context,
 			},
 			this.logger,
