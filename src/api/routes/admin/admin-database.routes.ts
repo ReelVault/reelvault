@@ -1,8 +1,10 @@
 import { AdminDatabaseBackupListSchema, AdminDatabaseBackupSchema, AdminDatabaseRestoreResponseSchema } from "@reelvault/sdk/common";
+import { file } from "bun";
 import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { databaseBackupService } from "@/application/admin/database-backup.service";
+import { databaseMaintenanceService } from "@/application/admin/database-maintenance.service";
 import { databaseRestoreService } from "@/application/admin/database-restore.service";
 import { env } from "@/env";
 import { MINUTE } from "@/server.constants";
@@ -18,11 +20,67 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			description: "List existing SQLite database backups.",
 		},
 	})
-	.post("/database/backups", async ({ status }) => status(201, await databaseBackupService.createBackup()), {
-		rateLimit: { name: "admin-db-backup", max: 5, windowMs: MINUTE },
-		response: { ...ROUTE_ERRORS.ADMIN, 201: AdminDatabaseBackupSchema },
+	.post(
+		"/database/backups",
+		async ({ status, user, request }) => {
+			const backup = await databaseBackupService.createBackup();
+			recordAuditSafe(
+				{
+					action: "create",
+					resourceType: "database_backup",
+					resourceId: backup.fileName,
+					summary: "origin: manual",
+					after: { sizeBytes: backup.sizeBytes },
+					context: { actorUserId: user?.id, headers: request.headers },
+				},
+				databaseRestoreLogger,
+			);
+
+			return status(201, backup);
+		},
+		{
+			rateLimit: { name: "admin-db-backup", max: 5, windowMs: MINUTE },
+			response: { ...ROUTE_ERRORS.ADMIN, 201: AdminDatabaseBackupSchema },
+			detail: {
+				description: "Create an online SQLite database backup immediately using VACUUM INTO.",
+			},
+		},
+	)
+	.get(
+		"/database/backups/:fileName/download",
+		async ({ params }) => {
+			const backup = await databaseBackupService.findBackupFile(params.fileName);
+
+			return new Response(file(backup.path), {
+				headers: {
+					"content-type": "application/vnd.sqlite3",
+					"content-length": String(backup.sizeBytes),
+					"content-disposition": `attachment; filename="${backup.fileName}"`,
+				},
+			});
+		},
+		{
+			rateLimit: { name: "admin-db-backup-download", max: 10, windowMs: MINUTE },
+			params: t.Object({ fileName: t.String({ minLength: 1 }) }),
+			// Attachment download: the handler returns a Response, not JSON.
+			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
+			detail: {
+				description: "Download an existing SQLite database backup as a file.",
+			},
+		},
+	)
+	.get("/database/integrity", async () => await databaseMaintenanceService.checkIntegrity(), {
+		rateLimit: { name: "admin-db-integrity", max: 10, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: t.Object({ ok: t.Boolean(), messages: t.Array(t.String()) }) },
 		detail: {
-			description: "Create an online SQLite database backup immediately using VACUUM INTO.",
+			description: "Run SQLite's quick consistency check on the live database.",
+		},
+	})
+	.post("/database/optimize", async () => await databaseMaintenanceService.optimize(), {
+		rateLimit: { name: "admin-db-optimize", max: 5, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: t.Object({ success: t.Literal(true) }) },
+		detail: {
+			description: "Refresh SQLite's planner statistics (PRAGMA optimize).",
 		},
 	})
 	.post(
@@ -54,8 +112,20 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.delete(
 		"/database/backups/:fileName",
-		async ({ params }) => {
+		async ({ params, user, request }) => {
 			const success = await databaseBackupService.deleteBackup(params.fileName);
+			if (success) {
+				recordAuditSafe(
+					{
+						action: "delete",
+						resourceType: "database_backup",
+						resourceId: params.fileName,
+						summary: "origin: manual",
+						context: { actorUserId: user?.id, headers: request.headers },
+					},
+					databaseRestoreLogger,
+				);
+			}
 
 			return { success };
 		},

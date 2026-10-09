@@ -1,11 +1,12 @@
 import { readdir, stat } from "node:fs/promises";
 import type { AdminDatabaseBackup } from "@reelvault/sdk/common";
+import { file } from "bun";
 import { databaseMaintenanceRepository } from "@/database/repositories/database-maintenance.repository";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { ValidationError } from "@/utils/errors";
+import { NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -66,6 +67,27 @@ class DatabaseBackupService extends BaseService {
 			});
 
 			return backups.toSorted((a, b) => b.mtimeMs - a.mtimeMs).map(({ mtimeMs: _mtimeMs, ...backup }) => backup);
+		});
+	}
+
+	/** The backup file behind a download link. Names that could leave the backups folder are refused. */
+	async findBackupFile(fileName: string): Promise<{ fileName: string; path: string; sizeBytes: number }> {
+		return await this.safeExecute("findBackupFile", async () => {
+			if (!fileName.endsWith(".sqlite") || fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
+				throw new ValidationError("Invalid backup file name", { code: "admin.invalid_backup_name" });
+			}
+
+			const fullPath = PathUtils.join(serverConfig.paths.backups, fileName);
+			if (!PathUtils.isSubpath(fullPath, serverConfig.paths.backups)) {
+				throw new ValidationError("Invalid backup file name", { code: "admin.invalid_backup_name" });
+			}
+
+			const handle = file(fullPath);
+			if (!(await handle.exists())) {
+				throw new NotFoundError("Backup not found", { code: "admin.backup_not_found", params: { fileName } });
+			}
+
+			return { fileName, path: fullPath, sizeBytes: handle.size };
 		});
 	}
 
