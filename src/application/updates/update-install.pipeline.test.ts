@@ -269,6 +269,28 @@ describe("server update database check", () => {
 	});
 });
 
+describe("server update disk check", () => {
+	test("an install the disk cannot hold is refused before anything is downloaded", async () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const service = new UpdateInstallService({
+			root,
+			installType: "archive",
+			restartScheduler: fakeScheduler(),
+			archiveFetcher: localFetcher,
+		});
+		const release = serverRelease();
+		stubs.push(
+			stubCheckState({ ...release, assets: release.assets.map((asset) => ({ ...asset, size: Number.MAX_SAFE_INTEGER / 2 })) }, null),
+		);
+
+		await expect(service.startInstall("server")).rejects.toHaveProperty("code", "update.insufficient_disk_space");
+		expect(service.getJob()).toBeNull();
+		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(OLD_SERVER);
+
+		rmSync(root, { recursive: true, force: true });
+	});
+});
+
 describe("web update pipeline (local HTTP zip, no restart)", () => {
 	test("swaps web/ in place, keeps the server running, no restart scheduled", async () => {
 		const root = makeRoot(OLD_SERVER, OLD_WEB);

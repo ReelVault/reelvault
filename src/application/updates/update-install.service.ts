@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { adminFailureNotificationService } from "@/application/admin/admin-failure-notification.service";
@@ -41,6 +42,11 @@ const MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
 /** A slow line downloading the archive needs far more than the plugin default. */
 const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
+/**
+ * The download, its unpacked copy and the swap sit side by side on the disk, and an archive expands
+ * about four times, so an install needs this many times its archive's size free.
+ */
+const DISK_HEADROOM_FACTOR = 5;
 
 export type UpdateJobState = "downloading" | "verifying" | "extracting" | "swapping" | "restarting";
 
@@ -125,6 +131,7 @@ export class UpdateInstallService extends BaseService {
 		actorUserId: string | null = null,
 	): Promise<{ started: boolean; target: UpdateComponent; version: string }> {
 		const release = await this.assertInstallPreconditions(target);
+		await this.assertDiskSpace(target, release);
 		if (this.job) throw new ConflictError("An update is already in progress", { code: "update.install_already_running" });
 
 		this.beginJob(target, "downloading", 5, release.version);
@@ -157,6 +164,26 @@ export class UpdateInstallService extends BaseService {
 		detach(this.recordRollback({ target, fromVersion, restoredVersion, actorUserId }, failure));
 
 		return { started: true, target, version: restoredVersion };
+	}
+
+	/** Refuses an install the disk cannot hold, before anything is downloaded. */
+	private async assertDiskSpace(target: UpdateComponent, release: AdminUpdateRelease): Promise<void> {
+		const assetName =
+			target === "server" ? serverAssetName(process.platform, process.arch, release.version) : webAssetName(release.version);
+		const asset = release.assets.find((item) => item.name === assetName);
+		if (!asset) return; // runInstall reports a missing archive with its own code
+
+		const stats = await statfs(this.root).catch(() => null);
+		if (!stats) return; // free space cannot be read here; a disk that fills up still fails the install loudly
+
+		const requiredBytes = asset.size * DISK_HEADROOM_FACTOR;
+		const freeBytes = stats.bavail * stats.bsize;
+		if (freeBytes < requiredBytes) {
+			throw new ValidationError("The disk does not have enough free space for this update", {
+				code: "update.insufficient_disk_space",
+				params: { requiredBytes, freeBytes },
+			});
+		}
 	}
 
 	private assertInstallPreconditions(target: UpdateComponent): Promise<AdminUpdateRelease> {
