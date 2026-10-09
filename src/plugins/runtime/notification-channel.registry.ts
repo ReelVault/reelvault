@@ -1,6 +1,8 @@
 import type { OutgoingNotification, PluginNotificationChannel } from "@reelvault/sdk/plugin";
+import { serverConfig } from "@/server.config";
 import { ConflictError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
+import { PromiseUtils } from "@/utils/promise.utils";
 
 const logger = createLogger("NotificationChannels");
 
@@ -35,11 +37,19 @@ export function unregisterPluginNotificationChannels(pluginId: string): void {
 export async function dispatchNotificationToChannels(notification: OutgoingNotification): Promise<void> {
 	if (channels.size === 0) return;
 
-	for (const [key, entry] of channels) {
-		try {
-			await entry.channel.deliver(structuredClone(notification));
-		} catch (error) {
-			logger.warn("Notification channel delivery failed", { channelKey: key, pluginId: entry.pluginId, error });
-		}
-	}
+	// Channels deliver in parallel, each under its own time limit: a slow endpoint neither
+	// holds up the channels after it nor keeps the dispatch open.
+	await Promise.all(
+		[...channels].map(async ([key, entry]) => {
+			try {
+				await PromiseUtils.withTimeout(
+					entry.channel.deliver(structuredClone(notification)),
+					serverConfig.plugins.notifications.channelDeliveryTimeoutMs,
+					`Notification channel ${key}`,
+				);
+			} catch (error) {
+				logger.warn("Notification channel delivery failed", { channelKey: key, pluginId: entry.pluginId, error });
+			}
+		}),
+	);
 }

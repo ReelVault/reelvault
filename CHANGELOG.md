@@ -387,6 +387,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Library scan and download time limits are settings** — `workers.definitions.libraryScan.timeoutMs` and `workers.definitions.downloadsProcess.timeoutMs` (1 minute to 1 day, default 2 hours) replace the fixed constants and apply to work started after the change.
 - **Per-path scan time limit is a setting** — `scanning.pathScanTimeoutMs` (10 s to 1 h, default 2 minutes) sets how long one library path may take to walk before the scan skips it. A dead network mount can no longer hold a scan; the new limit applies from the next scan.
 - **Profile PIN status for the owner** — `GET /profiles/:id/pin` returns `{ hasPin }` for a profile the user owns, so settings can offer to remove the PIN. The PIN itself is never returned.
+- **Notification channels deliver in parallel with a time limit** — a plugin's external notification channel that does not answer within 15 seconds is abandoned and logged, and a slow channel no longer holds up the channels after it.
 
 ### Fixes
 

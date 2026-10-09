@@ -242,6 +242,8 @@ export const serverConstants = {
 		// must not bury the user's notification feed (0 would disable creation).
 		notifications: {
 			maxPerDayPerPlugin: 100,
+			// Time limit for one external channel's delivery; a channel that does not answer in time is abandoned.
+			channelDeliveryTimeoutMs: 15_000,
 		},
 		// Per-plugin caps on what one plugin may register while it loads. A runaway plugin
 		// fails with a registration-limit code instead of growing the route table, job

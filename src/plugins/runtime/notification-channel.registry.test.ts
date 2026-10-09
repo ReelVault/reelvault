@@ -60,6 +60,33 @@ describe("notification channel registry", () => {
 		unregisterPluginNotificationChannels("plugin-b");
 	});
 
+	test("a slow channel does not hold up the channels after it", async () => {
+		const order: string[] = [];
+		const slow = {
+			id: "slow",
+			deliver: async () => {
+				await Bun.sleep(50);
+				order.push("slow");
+			},
+		};
+		const fast = {
+			id: "fast",
+			deliver: () => {
+				order.push("fast");
+
+				return Promise.resolve();
+			},
+		};
+		const unregisterSlow = registerNotificationChannel("plugin-slow", slow);
+		const unregisterFast = registerNotificationChannel("plugin-fast", fast);
+
+		await dispatchNotificationToChannels({ ...sample });
+
+		expect(order).toEqual(["fast", "slow"]);
+		unregisterSlow();
+		unregisterFast();
+	});
+
 	test("rejects a duplicate channel id instead of silently overwriting it", () => {
 		const seen: OutgoingNotification[] = [];
 		const unregister = registerNotificationChannel("plugin-a", channel("c1", seen));
