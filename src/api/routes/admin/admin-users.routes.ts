@@ -30,7 +30,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	.get("/users", async ({ query }) => await adminUsersService.getAll(query), {
 		rateLimit: { name: "admin-users-list", max: 120, windowMs: MINUTE },
 		query: t.Object({
-			search: t.Optional(t.String({ maxLength: 200 })),
+			q: t.Optional(t.String({ maxLength: 200 })),
 			role: t.Optional(t.Union([t.Literal("admin"), t.Literal("user")])),
 			status: t.Optional(t.Union([t.Literal("active"), t.Literal("blocked")])),
 			page: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxPage)),

@@ -44,16 +44,16 @@ export function registerStreamingLifecycle(): void {
 
 /** Active playback sessions owned by one profile, with media titles (remote-control page). */
 export async function listMinePlaybackSessions(profileId: string | undefined) {
-	if (!profileId) return { sessions: [] };
+	if (!profileId) return { data: [] };
 
 	const sessions = streamingManager.listSessionsForProfile(profileId);
-	if (sessions.length === 0) return { sessions: [] };
+	if (sessions.length === 0) return { data: [] };
 
 	const mediaSummaries = await liveSessionsRepository.findMediaSummaries(sessions.map((session) => session.mediaFileId));
 	const mediaMap = toMap(mediaSummaries, (media) => media.mediaFileId);
 
 	return {
-		sessions: sessions.map((session) => {
+		data: sessions.map((session) => {
 			const media = mediaMap.get(session.mediaFileId);
 
 			return {

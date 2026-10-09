@@ -20,7 +20,7 @@ describe("AdminUsersService.getAll filters", () => {
 	test("passes the role and maps the blocked status to banned accounts", async () => {
 		const findForAdministration = stubFindForAdministration();
 
-		await adminUsersService.getAll({ search: " ada ", role: "admin", status: "blocked" });
+		await adminUsersService.getAll({ q: " ada ", role: "admin", status: "blocked" });
 
 		expect(findForAdministration.calls).toEqual([[expect.objectContaining({ search: "ada", role: "admin", banned: true })]]);
 	});

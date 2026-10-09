@@ -5,7 +5,7 @@ export type WorkerEnqueueOptions = Pick<AddWorkerItemOptions, "operationId" | "d
 /** Filters accepted by the operation-job listings exposed through the worker service. */
 export interface WorkerOperationJobsQuery {
 	status?: "pending" | "running" | "completed" | "failed" | "cancelled" | undefined;
-	search?: string | undefined;
+	q?: string | undefined;
 	page?: number | undefined;
 	limit?: number | undefined;
 }

@@ -337,7 +337,7 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 	];
 	adminWorkerOperationsService.getOperation = async () => mockOp;
 	adminWorkerOperationsService.getOperationItems = async () => ({
-		items: [mockItem],
+		data: [mockItem],
 		summary: { total: 1, pending: 1, running: 0, completed: 0, failed: 0, cancelled: 0 },
 		page: 1,
 		limit: 50,

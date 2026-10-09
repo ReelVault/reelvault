@@ -101,12 +101,12 @@ class DownloadsService extends BaseService {
 		});
 	}
 
-	async list(profileId: string): Promise<{ jobs: DownloadJobView[]; quota: { usedBytes: number; maxBytes: number } }> {
+	async list(profileId: string): Promise<{ data: DownloadJobView[]; quota: { usedBytes: number; maxBytes: number } }> {
 		const [rows, quota] = await Promise.all([downloadsRepository.findByProfile(profileId), this.getStorageQuota(profileId)]);
 
 		const metadataIds = await this.metadataIdsOf(rows);
 
-		return { jobs: rows.map((row) => this.toView(row, metadataIds.get(row.mediaFileId) ?? null)), quota };
+		return { data: rows.map((row) => this.toView(row, metadataIds.get(row.mediaFileId) ?? null)), quota };
 	}
 
 	/** One page of every profile's downloads for the admin overview, with the counts per status for its counters. */

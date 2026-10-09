@@ -257,7 +257,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 				PaginationSchema,
 				t.Object({
 					status: t.Optional(WorkerJobStateSchema),
-					search: t.Optional(t.String()),
+					q: t.Optional(t.String()),
 				}),
 			]),
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerOperationJobsResponse" },

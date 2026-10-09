@@ -274,14 +274,14 @@ class PlaybackProgressService extends BaseService {
 		});
 	}
 
-	async getContinueWatching(profileId?: string, limit = 12): Promise<{ items: ContinueWatchingItem[] }> {
+	async getContinueWatching(profileId?: string, limit = 12): Promise<{ data: ContinueWatchingItem[] }> {
 		return await this.safeExecute("getContinueWatching", async () => {
 			const { playbackRepository } = this.dependencies;
 			this.assertProfileId(profileId);
 			const data = await playbackRepository.findContinueWatchingData(profileId, limit);
 			const preferences = await this.dependencies.profilePreferencesRepository.getEffective({ profileId });
 
-			return { items: buildContinueWatching(data, limit, preferences.continueWatchingMinutes * 60) };
+			return { data: buildContinueWatching(data, limit, preferences.continueWatchingMinutes * 60) };
 		});
 	}
 

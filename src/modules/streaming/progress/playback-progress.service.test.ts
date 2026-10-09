@@ -332,7 +332,7 @@ describe("playback progress service", () => {
 			},
 		});
 
-		const { items } = await service.getContinueWatching("profile-1", 12);
+		const { data: items } = await service.getContinueWatching("profile-1", 12);
 
 		expect(items).toHaveLength(1);
 		expect(items[0]).toMatchObject({ mediaFileId: "file-1", metadata: { type: "movie" } });

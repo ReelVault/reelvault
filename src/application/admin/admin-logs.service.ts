@@ -540,7 +540,7 @@ class AdminLogsService extends BaseService {
 	async getLogs(query?: {
 		fileId?: string;
 		level?: string;
-		search?: string;
+		q?: string;
 		module?: string;
 		exclude?: string;
 		from?: string;
@@ -552,7 +552,7 @@ class AdminLogsService extends BaseService {
 		const maxLines = Math.min(lines.length, LOG_MAX_PARSED_LINES);
 		const parsedEntries: AdminLogEntry[] = [];
 
-		const searchLower = query?.search ? normalizeLower(query.search) : undefined;
+		const searchLower = query?.q ? normalizeLower(query.q) : undefined;
 		const targetLevels = query?.level && query.level !== "all" ? new Set(query.level.split(",").map((l) => normalizeLower(l))) : undefined;
 		const hasErrorsFilter = targetLevels?.has("errors") ?? false;
 

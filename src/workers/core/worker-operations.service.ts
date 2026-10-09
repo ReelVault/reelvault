@@ -63,14 +63,14 @@ export class WorkerOperationsService extends BaseService {
 			workerOperationRepository.getOperationItemsSummary(id),
 			workerOperationRepository.listItems(id, {
 				status: options.status,
-				search: options.search,
+				search: options.q,
 				limit: pagination.limit,
 				offset: pagination.offset,
 			}),
 		]);
 
 		return {
-			items: items.map((item) => toJobContract(item, item.dependsOnJobId ? [item.dependsOnJobId] : [])),
+			data: items.map((item) => toJobContract(item, item.dependsOnJobId ? [item.dependsOnJobId] : [])),
 			summary,
 			...QueryPagination.buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),
 		};

@@ -177,7 +177,7 @@ describe("DownloadsService job views", () => {
 		findIdentities.mockResolvedValue([{ id: "file-1", metadataId: "meta-7" }]);
 
 		const listed = await downloadsService.list("profile-1");
-		expect(listed.jobs[0]).toMatchObject({ id: "dl-1", metadataId: "meta-7" });
+		expect(listed.data[0]).toMatchObject({ id: "dl-1", metadataId: "meta-7" });
 
 		findById.mockResolvedValue(row({ id: "dl-1", mediaFileId: "file-1" }));
 		expect(await downloadsService.getJobViewForProfile("dl-1", "profile-1")).toMatchObject({ metadataId: "meta-7" });
@@ -188,7 +188,7 @@ describe("DownloadsService job views", () => {
 
 		const listed = await downloadsService.list("profile-1");
 
-		expect(listed.jobs[0]?.metadataId).toBeNull();
+		expect(listed.data[0]?.metadataId).toBeNull();
 	});
 });
 

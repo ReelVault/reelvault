@@ -129,14 +129,14 @@ export const librariesRoutes = new Elysia({
 		},
 		detail: { description: "List ignored local sidecar assets inside configured library roots." },
 	})
-	.get("/:libraryId/scan-findings", async ({ params }) => ({ items: await librariesService.getScanFindings(params.libraryId) }), {
+	.get("/:libraryId/scan-findings", async ({ params }) => ({ data: await librariesService.getScanFindings(params.libraryId) }), {
 		adminOnly: true,
 		rateLimit: { name: "library-scan-findings", max: 30, windowMs: MINUTE },
 		params: LibraryIdParams,
 		response: {
 			...ROUTE_ERRORS.ADMIN_NOT_FOUND,
 			200: t.Object({
-				items: t.Array(t.Object({ filePath: t.String(), fileName: t.String(), reason: t.String() })),
+				data: t.Array(t.Object({ filePath: t.String(), fileName: t.String(), reason: t.String() })),
 			}),
 		},
 		detail: {

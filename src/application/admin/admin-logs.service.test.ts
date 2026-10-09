@@ -57,7 +57,7 @@ describe("AdminService getLogs tail cache", () => {
 		expect(errors.data).toHaveLength(1);
 		expect(errors.data[0]).toMatchObject({ msg: "boom", levelName: "error" });
 
-		const search = await adminLogsService.getLogs({ fileId: "reelvault.log", search: "boom", limit: 5 });
+		const search = await adminLogsService.getLogs({ fileId: "reelvault.log", q: "boom", limit: 5 });
 		expect(search.data).toHaveLength(1);
 	});
 

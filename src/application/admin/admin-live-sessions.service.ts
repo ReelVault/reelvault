@@ -106,7 +106,7 @@ class AdminLiveSessionsService extends BaseService {
 		const profileById = toMap(profileRows, (row) => row.profileId);
 
 		return {
-			sessions: ended.map((session) => ({
+			data: ended.map((session) => ({
 				sessionId: session.sessionId,
 				mediaFileId: session.mediaFileId,
 				title: mediaById.get(session.mediaFileId)?.title ?? null,
