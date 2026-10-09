@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { strToU8, zipSync } from "fflate";
+import { databaseBackupService } from "@/application/admin/database-backup.service";
+import { databaseMaintenanceService } from "@/application/admin/database-maintenance.service";
 import type { ArchiveFetcher } from "@/plugins/catalog/plugin-package.utils";
 import { detach } from "@/utils/promise.utils";
 import { SERVER_VERSION } from "@/version";
@@ -187,6 +189,7 @@ describe("server update pipeline (local HTTP archive)", () => {
 		const service = new UpdateInstallService({ root, installType: "archive", restartScheduler: scheduler, archiveFetcher: localFetcher });
 		stubs.push(stubCheckState(serverRelease(), null));
 
+		stubPreUpdateCheck();
 		const started = await service.startInstall("server");
 		expect(started).toEqual({ started: true, target: "server", version: NEW_SERVER });
 
@@ -194,6 +197,7 @@ describe("server update pipeline (local HTTP archive)", () => {
 		expect(service.getLastError("server")).toBeNull();
 		expect(service.getJob()?.target).toBe("server");
 		expect(service.getJob()?.state).toBe("restarting");
+		expect(service.getJob()?.message).toContain("reelvault_backup_test.sqlite");
 		expect(scheduler.calls).toEqual(["restart"]);
 
 		// New server is live, web was NOT touched
@@ -223,6 +227,43 @@ describe("server update pipeline (local HTTP archive)", () => {
 		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(OLD_SERVER);
 		expect(existsSync(join(root, ".previous"))).toBe(false);
 		expect(existsSync(join(root, ".update-staging"))).toBe(false);
+
+		rmSync(root, { recursive: true, force: true });
+	});
+});
+
+/** The two database steps of a server install, stubbed so the tests write no real backup. */
+function stubPreUpdateCheck(integrityOk = true): void {
+	stubs.push(
+		stubMethod(databaseBackupService, "createBackup", () =>
+			Promise.resolve({
+				fileName: "reelvault_backup_test.sqlite",
+				filePath: join(tmpdir(), "reelvault_backup_test.sqlite"),
+				sizeBytes: 2,
+				createdAt: new Date().toISOString(),
+			}),
+		),
+		stubMethod(databaseMaintenanceService, "checkIntegrity", () =>
+			Promise.resolve(integrityOk ? { ok: true, messages: ["ok"] } : { ok: false, messages: ["row 3 missing from index"] }),
+		),
+	);
+}
+
+describe("server update database check", () => {
+	test("a failed integrity check stops the update before any file is replaced", async () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const scheduler = fakeScheduler();
+		const service = new UpdateInstallService({ root, installType: "archive", restartScheduler: scheduler, archiveFetcher: localFetcher });
+		stubs.push(stubCheckState(serverRelease(), null));
+		stubPreUpdateCheck(false);
+
+		await service.startInstall("server");
+		await waitFor(() => service.getJob() === null);
+
+		expect(service.getLastError("server")).toContain("integrity check");
+		expect(scheduler.calls).toEqual([]);
+		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(OLD_SERVER);
+		expect(existsSync(join(root, ".previous"))).toBe(false);
 
 		rmSync(root, { recursive: true, force: true });
 	});

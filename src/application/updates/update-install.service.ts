@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { adminFailureNotificationService } from "@/application/admin/admin-failure-notification.service";
+import { databaseBackupService } from "@/application/admin/database-backup.service";
+import { databaseMaintenanceService } from "@/application/admin/database-maintenance.service";
 import { type ArchiveFetcher, downloadArchive, extractArchive } from "@/plugins/catalog/plugin-package.utils";
 import { requestApplicationRestart } from "@/shutdown";
 import { BaseService } from "@/utils/base-service";
@@ -256,7 +258,10 @@ export class UpdateInstallService extends BaseService {
 					await this.applyWebUpdate(download.filePath, release.version);
 					await updateHistoryService.succeed(historyId);
 				} else {
+					const note = await this.preUpdateCheck();
 					await this.applyServerUpdate(download.filePath, release.version);
+					// The swap has set the restart state; the note stays on the job until the restarted server takes over.
+					this.setJob("restarting", 97, note);
 				}
 			} finally {
 				await download.cleanup();
@@ -389,6 +394,25 @@ export class UpdateInstallService extends BaseService {
 		if (target === "server") return SERVER_VERSION;
 
 		return readInstalledWebVersion(this.root) ?? resolveWebVersion();
+	}
+
+	/**
+	 * Copies the database and runs SQLite's quick check on the copy before any file is replaced.
+	 * A failed check stops the update here, so a damaged database is never upgraded. The returned
+	 * note names the copy and stays on the job until the restarted server takes over.
+	 */
+	private async preUpdateCheck(): Promise<string> {
+		this.setJob("verifying", 70, "database backup");
+		const backup = await databaseBackupService.createBackup();
+		const integrity = await databaseMaintenanceService.checkIntegrity();
+		if (!integrity.ok) {
+			throw new ValidationError("The database failed its integrity check, so the update was not installed", {
+				code: "update.database_integrity_failed",
+				params: { backup: backup.fileName },
+			});
+		}
+
+		return `database backup ${backup.fileName}, integrity check passed`;
 	}
 
 	/** Server archives keep the classic `ReelVault/` layout minus `web/`. */
