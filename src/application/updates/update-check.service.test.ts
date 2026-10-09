@@ -2,13 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { UpdateCheckService } from "./update-check.service";
 
 const SERVER_PAYLOAD = {
-	tag_name: "v1.2.3",
-	name: "ReelVault Server v1.2.3",
-	html_url: "https://github.com/ReelVault/reelvault/releases/tag/v1.2.3",
+	tag_name: "v99.0.0",
+	name: "ReelVault Server v99.0.0",
+	html_url: "https://github.com/ReelVault/reelvault/releases/tag/v99.0.0",
 	published_at: "2026-09-25T00:00:00Z",
 	body: "## Changes\n- bug fixes",
 	assets: [
-		{ name: "ReelVault-Server-1.2.3-linux-x64.tar.gz", browser_download_url: "https://example.com/linux.tar.gz", size: 123 },
+		{ name: "ReelVault-Server-99.0.0-linux-x64.tar.gz", browser_download_url: "https://example.com/linux.tar.gz", size: 123 },
 		{ name: "SHA256SUMS.txt", browser_download_url: "https://example.com/SHA256SUMS.txt", size: 456 },
 		{ name: "garbage", size: "not-a-number" },
 	],
@@ -54,7 +54,7 @@ describe("UpdateCheckService (two sources)", () => {
 		await service.checkLatest(true);
 		const state = service.getState();
 
-		expect(state.serverLatest?.version).toBe("1.2.3");
+		expect(state.serverLatest?.version).toBe("99.0.0");
 		expect(state.webLatest?.version).toBe("0.2.0");
 		expect(state.serverUpdateAvailable).toBe(true);
 		expect(state.lastCheckedAt).not.toBeNull();
