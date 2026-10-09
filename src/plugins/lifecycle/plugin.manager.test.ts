@@ -628,6 +628,7 @@ describe("PluginManager config details", () => {
 			source: "upload",
 			integrityOk: true,
 			cspDisabled: false,
+			pinned: false,
 		});
 	});
 

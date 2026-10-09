@@ -16,6 +16,8 @@ export interface InstalledPluginRecord {
 	disabled?: boolean;
 	/** Admin choice: the CSP sources the manifest declares are refused. Persisted across restarts and upgrades. */
 	cspDisabled?: boolean;
+	/** Admin choice: the installed version is kept, so catalog updates are not offered. */
+	pinned?: boolean;
 	/** Set by an upgrade until the new version has loaded once; a failed load rolls back to it. */
 	previous?: PluginPreviousInstall;
 }
@@ -28,6 +30,7 @@ export interface PluginPreviousInstall {
 	source: string;
 	disabled?: boolean;
 	cspDisabled?: boolean;
+	pinned?: boolean;
 	/** Basename of the directory the previous package was moved to, inside the plugins root. */
 	backupDirectory: string;
 }
@@ -106,6 +109,7 @@ function isPluginLockfile(value: unknown): value is PluginLockfile {
 			isNonEmptyString(record.version) &&
 			(record.disabled === undefined || typeof record.disabled === "boolean") &&
 			(record.cspDisabled === undefined || typeof record.cspDisabled === "boolean") &&
+			(record.pinned === undefined || typeof record.pinned === "boolean") &&
 			(record.previous === undefined || isPreviousInstall(record.previous)),
 	);
 }
@@ -119,6 +123,7 @@ function isPreviousInstall(value: unknown): value is PluginPreviousInstall {
 		isNonEmptyString(value.source) &&
 		isNonEmptyString(value.backupDirectory) &&
 		(value.disabled === undefined || typeof value.disabled === "boolean") &&
-		(value.cspDisabled === undefined || typeof value.cspDisabled === "boolean")
+		(value.cspDisabled === undefined || typeof value.cspDisabled === "boolean") &&
+		(value.pinned === undefined || typeof value.pinned === "boolean")
 	);
 }

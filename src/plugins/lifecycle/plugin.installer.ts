@@ -127,6 +127,7 @@ export class PluginInstaller {
 				source: options.source ?? source,
 				// The admin's CSP choice follows the plugin across an upgrade.
 				...(previousRecord?.cspDisabled !== undefined ? { cspDisabled: previousRecord.cspDisabled } : {}),
+				...(previousRecord?.pinned !== undefined ? { pinned: previousRecord.pinned } : {}),
 				version: manifest.version,
 				...(previousRecord && backupDirectory ? { previous: toPreviousInstall(previousRecord, backupDirectory) } : {}),
 			};
@@ -278,6 +279,7 @@ export class PluginInstaller {
 			version: record.previous.version,
 			...(record.previous.disabled !== undefined ? { disabled: record.previous.disabled } : {}),
 			...(record.previous.cspDisabled !== undefined ? { cspDisabled: record.previous.cspDisabled } : {}),
+			...(record.previous.pinned !== undefined ? { pinned: record.previous.pinned } : {}),
 		};
 		lockfile.plugins[pluginId] = restored;
 		await this.lockfileStore.write(lockfile);
@@ -339,6 +341,17 @@ export class PluginInstaller {
 
 			return { plugin, integrity: await calculateDirectoryIntegrity(directory) };
 		});
+	}
+
+	/** Admin choice: keep the installed version, so the catalog offers no update for it. */
+	async setPinned(pluginId: string, pinned: boolean): Promise<void> {
+		const lockfile = await this.lockfileStore.read();
+		const record = lockfile.plugins[pluginId];
+		if (!record) throw new ValidationError(`Plugin ${pluginId} is not installed`);
+
+		if (record.pinned === pinned) return;
+
+		await this.lockfileStore.write({ ...lockfile, plugins: { ...lockfile.plugins, [pluginId]: { ...record, pinned } } });
 	}
 
 	/** Admin choice: whether the plugin's manifest may extend the content security policy. */
@@ -410,6 +423,7 @@ function toPreviousInstall(record: InstalledPluginRecord, backupDirectory: strin
 		source: record.source,
 		...(record.disabled !== undefined ? { disabled: record.disabled } : {}),
 		...(record.cspDisabled !== undefined ? { cspDisabled: record.cspDisabled } : {}),
+		...(record.pinned !== undefined ? { pinned: record.pinned } : {}),
 		backupDirectory: PathUtils.getFileName(backupDirectory),
 	};
 }

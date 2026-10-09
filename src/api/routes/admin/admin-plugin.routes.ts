@@ -4,10 +4,13 @@ import {
 	InstallCatalogPluginResponseSchema,
 	MetadataProviderConfigurationSchema,
 	PluginAdminStatusSchema,
+	PluginBulkStateBodySchema,
+	PluginBulkStateResultSchema,
 	PluginCatalogEntrySchema,
 	PluginConfigDetailsSchema,
 	PluginConfigExportSchema,
 	PluginCspUpdateBodySchema,
+	PluginPinUpdateBodySchema,
 	PluginRepositorySchema,
 	PluginUiSettingsSchema,
 	PluginValidationResultSchema,
@@ -37,6 +40,9 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		"admin.pluginConfigExport": PluginConfigExportSchema,
 		"admin.resetPluginConfig": ResetPluginConfigBodySchema,
 		"admin.pluginCsp": PluginCspUpdateBodySchema,
+		"admin.pluginBulkState": PluginBulkStateBodySchema,
+		"admin.pluginPin": PluginPinUpdateBodySchema,
+		"admin.pluginBulkStateResult": PluginBulkStateResultSchema,
 		"admin.pluginUiSettings": PluginUiSettingsSchema,
 		"admin.updatePluginUiSettings": UpdatePluginUiSettingsBodySchema,
 		"admin.metadataProviderConfigurations": t.Array(MetadataProviderConfigurationSchema),
@@ -188,6 +194,31 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 			detail: {
 				description:
 					"Restore the defaults for the listed configuration fields, or for every stored value when no keys are given. Reloads the plugin.",
+			},
+		},
+	)
+	.post(
+		"/plugins/bulk",
+		async ({ body, user, request }) => await adminService.setPluginsEnabled(body, { actorUserId: user?.id, headers: request.headers }),
+		{
+			body: "admin.pluginBulkState",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: "admin.pluginBulkStateResult" },
+			detail: {
+				description: "Enable or disable several plugins at once. Each plugin is attempted on its own and reported in the result.",
+			},
+		},
+	)
+	.put(
+		"/plugins/:pluginId/pin",
+		async ({ params, body, user, request }) =>
+			await adminService.setPluginPinned(params.pluginId, body.pinned, { actorUserId: user?.id, headers: request.headers }),
+		{
+			params: PluginIdParams,
+			body: "admin.pluginPin",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.plugin" },
+			detail: {
+				description:
+					"Keep the installed version of a plugin, so the catalog offers no update for it, or allow updates again. Installed plugins only.",
 			},
 		},
 	)

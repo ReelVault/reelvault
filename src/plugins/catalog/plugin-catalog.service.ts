@@ -190,7 +190,10 @@ class PluginCatalogService {
 	async getCatalog(): Promise<PluginCatalogEntryView[]> {
 		await this.ensureOfficialRepository();
 		const rows = (await pluginRepositoriesRepository.list()).filter((row) => row.enabled);
-		const installed = new Map((await pluginManager.getInstalledRecords()).map((record) => [record.id, record.record.version]));
+		const records = await pluginManager.getInstalledRecords();
+		const installed = new Map(records.map((record) => [record.id, record.record.version]));
+		// A pinned plugin keeps its installed version: the catalog reports it as installed, never as updatable.
+		const pinned = new Set(records.filter((record) => record.record.pinned === true).map((record) => record.id));
 
 		// One unavailable repository must not sink the catalog, and the cold load
 		// must not serialize network round-trips — fetch concurrently, flatten in
@@ -208,7 +211,7 @@ class PluginCatalogService {
 							...(plugin.versions ? { versions: plugin.versions.map(toVersionView) } : {}),
 							repositoryId: row.id,
 							repositoryName: row.name,
-							status: this.installStatus(plugin.version, installedVersion),
+							status: pinned.has(plugin.id) && installedVersion ? "installed" : this.installStatus(plugin.version, installedVersion),
 							installedVersion,
 						};
 					});

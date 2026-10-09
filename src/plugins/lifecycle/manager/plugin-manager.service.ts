@@ -34,6 +34,8 @@ export interface PluginPackageDetails {
 	integrityOk?: boolean;
 	/** Installer-managed plugins only: the admin refuses the CSP sources the manifest declares. */
 	cspDisabled?: boolean;
+	/** Installer-managed plugins only: the installed version is kept, so catalog updates are not offered. */
+	pinned?: boolean;
 }
 
 class ConfigRequiredError extends Error {
@@ -250,6 +252,7 @@ export class PluginManager {
 						source: installed.source,
 						integrityOk: !this.integrityIssues.has(pluginId),
 						cspDisabled: installed.cspDisabled === true,
+						pinned: installed.pinned === true,
 					}
 				: {}),
 		};
@@ -282,6 +285,11 @@ export class PluginManager {
 
 	async unload(pluginId: string): Promise<void> {
 		await this.lifecycleMutex.runExclusive(() => this.loader.unloadPlugin(pluginId));
+	}
+
+	/** Admin choice: keep the installed version or allow catalog updates again. Persisted. */
+	async setPluginPinned(pluginId: string, pinned: boolean): Promise<void> {
+		await this.installer.setPinned(pluginId, pinned);
 	}
 
 	/** Admin choice: refuse or allow the CSP sources the plugin declares. Persisted and applied at once. */

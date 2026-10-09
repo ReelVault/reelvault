@@ -392,6 +392,8 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Public server capabilities** — `GET /capabilities` returns whether trickplay and downloads are switched on, without a session, so a client can hide features that the server does not offer.
 - **Setting units and restart flags; monitoring applies at once** — settings report their unit and whether a change needs a restart (`auth.sessionLifetimeDays`, `stream.hlsSegmentDurationSeconds`). Changing the resource monitoring interval or enabling and disabling monitoring re-arms the sampler immediately instead of waiting for a restart.
 - **Refuse a plugin's CSP sources** — `PUT /admin/plugins/:id/csp` with `{ "enabled": false }` stops an installed plugin's manifest from adding sources to the page's content security policy. The choice is stored with the installed package, survives restarts and upgrades, and applies at once. A plugin without an installer record cannot be changed.
+- **Enable and disable plugins in bulk** — `POST /admin/plugins/bulk` with `{ enabled, pluginIds }` (up to 100 plugins) attempts each plugin on its own and reports an outcome per plugin, so one failure does not stop the others.
+- **Pin a plugin's version** — `PUT /admin/plugins/:id/pin` with `{ pinned: true }` keeps the installed version: the catalog reports it as installed and offers no update. The choice survives restarts and upgrades; installing a newer version explicitly stays possible.
 
 ### Fixes
 

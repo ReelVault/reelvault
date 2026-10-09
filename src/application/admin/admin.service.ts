@@ -7,6 +7,8 @@ import type {
 	AdminStats,
 	MetadataProviderConfiguration,
 	PluginAdminStatus,
+	PluginBulkStateBody,
+	PluginBulkStateResult,
 	PluginConfigDetails,
 	PluginConfigExport,
 	PluginUiSettings,
@@ -28,7 +30,7 @@ import { MINUTE } from "@/server.constants";
 import { resourceAllocator } from "@/system/resource-allocator";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
-import { NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError, errorMessage, NotFoundError, ValidationError } from "@/utils/errors";
 import { cacheRegistrySnapshot, MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -247,6 +249,66 @@ class AdminService extends BaseService {
 			);
 
 			return after;
+		});
+	}
+
+	/** Enables or disables several plugins. Each one is attempted on its own, so one failure does not stop the rest. */
+	async setPluginsEnabled(body: PluginBulkStateBody, context?: AdminAuditContext): Promise<PluginBulkStateResult> {
+		return await this.safeExecute("setPluginsEnabled", async () => {
+			const results: PluginBulkStateResult["results"] = [];
+			for (const pluginId of body.pluginIds) {
+				try {
+					await pluginManager.setEnabled(pluginId, body.enabled);
+					results.push({ pluginId, ok: true });
+				} catch (error) {
+					results.push({
+						pluginId,
+						ok: false,
+						error: errorMessage(error),
+						...(error instanceof DomainError ? { errorCode: error.code } : {}),
+					});
+				}
+			}
+
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "plugins",
+					after: {
+						action: body.enabled ? "bulk_enable" : "bulk_disable",
+						pluginIds: body.pluginIds,
+						failed: results.filter((result) => !result.ok).map((result) => result.pluginId),
+					},
+					context,
+				},
+				this.logger,
+			);
+
+			return { results };
+		});
+	}
+
+	/** Admin choice: keep the installed version (`pinned: true`) or allow catalog updates again. */
+	async setPluginPinned(pluginId: string, pinned: boolean, context?: AdminAuditContext): Promise<PluginAdminStatus> {
+		return await this.safeExecute("setPluginPinned", async () => {
+			const before = await pluginManager.getPackageDetails(pluginId);
+			await pluginManager.setPluginPinned(pluginId, pinned);
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "plugin",
+					resourceId: pluginId,
+					before: { pinned: before.pinned === true },
+					after: { pinned },
+					context,
+				},
+				this.logger,
+			);
+
+			const status = await pluginAdminService.get(pluginId);
+			if (!status) throw new NotFoundError(`Plugin not found: ${pluginId}`);
+
+			return status;
 		});
 	}
 
