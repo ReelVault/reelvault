@@ -107,6 +107,8 @@ class SystemSettingsService extends BaseService {
 				default: def.default,
 				isCustom,
 				...(def.options ? { options: def.options } : {}),
+				...(def.min !== undefined ? { min: def.min } : {}),
+				...(def.max !== undefined ? { max: def.max } : {}),
 			});
 		}
 
@@ -124,7 +126,7 @@ class SystemSettingsService extends BaseService {
 		if (parsedValue === null) {
 			throw new ValidationError(`Invalid value for setting "${key}"`, {
 				code: "admin.settings.invalid_value",
-				params: { key },
+				params: { key, ...(def.min !== undefined ? { min: def.min } : {}), ...(def.max !== undefined ? { max: def.max } : {}) },
 			});
 		}
 
@@ -142,7 +144,10 @@ class SystemSettingsService extends BaseService {
 		const afterValues = new Map<SystemSettingKey, SystemSettingValue<SystemSettingKey>>();
 
 		for (const [key, rawValue] of Object.entries(updates)) {
-			if (!isSystemSettingKey(key)) continue;
+			// A stale or misspelled key used to be dropped silently, so the admin saw "saved" for a setting that never changed.
+			if (!isSystemSettingKey(key)) {
+				throw new ValidationError(`Unknown setting "${key}"`, { code: "admin.settings.unknown_key", params: { key } });
+			}
 
 			const { parsedValue, finalSerialized } = this.parseAndSerialize(key, rawValue);
 

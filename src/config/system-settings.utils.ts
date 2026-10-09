@@ -30,6 +30,8 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			group,
 			type: "number",
 			default: defaultValue,
+			min,
+			max,
 			parse: (raw) => codecs.number(min, max).parse(raw) ?? defaultValue,
 			validate: (raw) => codecs.number(min, max).parse(raw),
 			serialize: (val) => String(val),

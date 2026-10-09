@@ -21,6 +21,9 @@ export interface SettingDefinition<T = unknown> {
 	type: SettingType;
 	default: T;
 	options?: string[]; // for enum
+	/** Inclusive bounds of a `number` setting (what `validate` accepts). */
+	min?: number;
+	max?: number;
 	/**
 	 * Lenient decode of a stored/legacy value — falls back to `default` so boot
 	 * never fails on a corrupt row. Update paths must use `validate` instead.

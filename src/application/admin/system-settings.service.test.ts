@@ -50,3 +50,35 @@ describe("systemSettingsService.updateSettings validation", () => {
 		expect(systemSettingsStore.get("stream.maxSessions")).toBe(8);
 	});
 });
+
+describe("systemSettingsService field-level feedback", () => {
+	test("an out-of-range number reports the allowed bounds", async () => {
+		stubSettingsPersistence();
+
+		await expect(systemSettingsService.updateSettings({ "stream.maxSessions": 999 })).rejects.toMatchObject({
+			code: "admin.settings.invalid_value",
+			params: { key: "stream.maxSessions", min: 1, max: 100 },
+		});
+	});
+
+	test("an unknown key is rejected instead of being silently dropped", async () => {
+		const setMany = stubSettingsPersistence();
+
+		await expect(systemSettingsService.updateSettings({ "stream.maxSessions": 4, "stream.doesNotExist": true })).rejects.toMatchObject({
+			code: "admin.settings.unknown_key",
+			params: { key: "stream.doesNotExist" },
+		});
+		expect(setMany.calls.length).toBe(0);
+	});
+
+	test("number settings are listed with their bounds", async () => {
+		stubSettingsPersistence();
+
+		const grouped = await systemSettingsService.getAll();
+		const item = Object.values(grouped)
+			.flat()
+			.find((entry) => entry.key === "stream.maxSessions");
+
+		expect(item).toMatchObject({ type: "number", min: 1, max: 100 });
+	});
+});
