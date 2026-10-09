@@ -33,6 +33,8 @@ jobs:
             command: bun run deadcode
           - name: Tests
             command: bun test --parallel
+          - name: Migration drift
+            command: bun run check:migrations
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

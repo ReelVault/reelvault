@@ -61,9 +61,18 @@ VERSION_NO_V="${VERSION#v}"
 [[ "$VERSION_NO_V" =~ $SEMVER_REGEX ]] || die "version must look like 1.2.3 or v1.2.3 (got '$VERSION')"
 [[ "$BUN_VERSION" =~ $BUN_VERSION_REGEX ]] || die "BUN_VERSION must look like 1.4.2 (got '$BUN_VERSION')"
 
-for tool in bun curl tar unzip sha256sum awk; do
+for tool in bun curl tar unzip awk; do
 	command -v "$tool" >/dev/null || die "missing required tool: $tool"
 done
+
+# macOS ships `shasum` instead of GNU `sha256sum`; both print "<hash>  <file>".
+if command -v sha256sum >/dev/null 2>&1; then
+	SHA256() { sha256sum "$@"; }
+elif command -v shasum >/dev/null 2>&1; then
+	SHA256() { shasum -a 256 "$@"; }
+else
+	die "missing required tool: sha256sum or shasum"
+fi
 
 # Dependencies are installed by the bun on PATH, but run by the bundled one.
 if [ "$(bun --version)" != "$BUN_VERSION" ]; then
@@ -127,7 +136,7 @@ for TARGET in "${TARGETS[@]}"; do
 
 	expected="$(awk -v f="$BUN_ASSET" '$2 == f || $2 == "*" f { print $1; exit }' "$WORK/bun-SHASUMS256.txt")"
 	[ -n "$expected" ] || die "no checksum for $BUN_ASSET in SHASUMS256.txt"
-	actual="$(sha256sum "$WORK/$NAME/bun.zip" | awk '{ print $1 }')"
+	actual="$(SHA256 "$WORK/$NAME/bun.zip" | awk '{ print $1 }')"
 	[ "$expected" = "$actual" ] || die "checksum mismatch for $BUN_ASSET (expected $expected, got $actual)"
 
 	unzip -q "$WORK/$NAME/bun.zip" -d "$WORK/$NAME/bun-extract"
@@ -159,7 +168,7 @@ done
 # Listing the archives explicitly also guarantees no stale file is included.
 echo "==> Checksums"
 [ "${#ARCHIVES[@]}" -eq "${#TARGETS[@]}" ] || die "expected ${#TARGETS[@]} archives, built ${#ARCHIVES[@]}"
-( cd "$OUT_DIR" && sha256sum "${ARCHIVES[@]}" >SHA256SUMS.txt )
+( cd "$OUT_DIR" && SHA256 "${ARCHIVES[@]}" >SHA256SUMS.txt )
 
 echo
 echo "Done. Server release assets are in ${OUT_DIR}:"

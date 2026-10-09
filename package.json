@@ -15,6 +15,7 @@
 		"----SCRIPTS": "",
 		"benchmark": "bun run scripts/benchmark.ts",
 		"scenarios": "bun run scripts/scenarios.ts",
+		"seed": "bun run scripts/seed.ts",
 		"check-memory": "bun run scripts/memory-check.ts",
 		"admin:reset-password": "bun run scripts/reset-password.ts",
 		"doctor": "bun run scripts/doctor.ts",
@@ -23,6 +24,7 @@
 		"db:migrate": "bunx --bun drizzle-kit migrate",
 		"db:migrate:runtime": "bun run scripts/migrate.ts",
 		"db:studio": "bunx --bun drizzle-kit studio",
+		"check:migrations": "sh scripts/check-migrations.sh",
 		"db:check": "bun run scripts/db-maintenance.ts check",
 		"db:vacuum": "bun run scripts/db-maintenance.ts vacuum",
 		"db:backup": "bun run scripts/db-maintenance.ts backup",
@@ -54,7 +56,8 @@
 		"fflate": "^0.8.3",
 		"pino": "^10.4.0",
 		"sharp": "^0.35.5",
-		"uuid": "^14.0.2"
+		"uuid": "^14.0.2",
+		"zod": "^4.6.5"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.15",
