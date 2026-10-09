@@ -179,6 +179,18 @@ interface MetadataSelectArgs<F extends string> {
 export type MetadataRootRow = typeof schema.metadata.$inferSelect;
 
 class MetadataRepository {
+	/** Distinct non-empty `status` values in the catalog, sorted, for the status filter. */
+	async findDistinctStatuses(): Promise<string[]> {
+		const rows = await databaseFactory
+			.getClient()
+			.selectDistinct({ status: schema.metadata.status })
+			.from(schema.metadata)
+			.where(sql`${schema.metadata.status} IS NOT NULL AND ${schema.metadata.status} <> ''`)
+			.orderBy(asc(schema.metadata.status));
+
+		return rows.flatMap((row) => (row.status ? [row.status] : []));
+	}
+
 	private readonly logger = createLogger(this.constructor.name);
 	readonly table = schema.metadata;
 	readonly primaryKeyColumn = metadataTable.primaryKeyColumn;

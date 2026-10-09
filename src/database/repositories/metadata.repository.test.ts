@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseFactory, databaseFactory } from "@/database/database";
 import { metadataRepository } from "./metadata.repository";
 import { calculateAverageScore } from "./metadata-recommendations";
 
@@ -33,6 +37,21 @@ describe("metadata rating projections", () => {
 		);
 
 		expect(simple).toBe(5.2);
+	});
+
+	test("findDistinctStatuses runs against the migrated schema and returns no statuses for an empty catalog", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "rv-metadata-statuses-"));
+		const factory = new DatabaseFactory(join(dir, "test.sqlite"));
+		factory.migrate();
+		const getClient = spyOn(databaseFactory, "getClient").mockImplementation((options) => factory.getClient(options));
+
+		try {
+			await expect(metadataRepository.findDistinctStatuses()).resolves.toEqual([]);
+		} finally {
+			getClient.mockRestore();
+			factory.shutdown();
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("deleteOrphansByIds returns 0 for empty array", async () => {

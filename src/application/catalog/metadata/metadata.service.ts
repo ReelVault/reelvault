@@ -154,6 +154,10 @@ class MetadataService extends BaseService {
 	/**
 	 * Search titles, people, collections and genres globally.
 	 */
+	async getStatuses(): Promise<{ statuses: string[] }> {
+		return { statuses: await metadataRepository.findDistinctStatuses() };
+	}
+
 	async searchGlobal(query: string, limit = 6) {
 		return await this.safeExecute("searchGlobal", async () => {
 			const term = query.trim();

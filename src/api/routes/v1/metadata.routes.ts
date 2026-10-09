@@ -7,6 +7,7 @@ import {
 	MetadataImageOptionSchema,
 	MetadataImageTypeSchema,
 	MetadataSortingSchema,
+	MetadataStatusesResponseSchema,
 	MetadataWithRelationSchema,
 	ProjectedResponseSchema,
 	RematchMetadataSchema,
@@ -50,6 +51,7 @@ export const metadataRoutes = new Elysia({
 		"metadata.details-view": MetadataDetailsViewResponseSchema,
 		"metadata.create.body": CreateMetadataSchema,
 		"metadata.update.body": UpdateMetadataSchema,
+		"metadata.statuses": MetadataStatusesResponseSchema,
 	})
 	.guard({ auth: true })
 	.get("/", async ({ query, profile }) => await metadataService.getAll(query, profile?.id), {
@@ -58,6 +60,13 @@ export const metadataRoutes = new Elysia({
 		...cached({ maxAge: 60, private: true }),
 		detail: {
 			description: "Retrieve a paginated list of metadata entries for movies and TV shows with advanced filtering.",
+		},
+	})
+	.get("/statuses", async () => await metadataService.getStatuses(), {
+		response: { ...ROUTE_ERRORS.AUTH, 200: "metadata.statuses" },
+		...cached({ maxAge: 300, private: true }),
+		detail: {
+			description: "Distinct status values of the catalog (for example Ended or Returning Series), for the status filter.",
 		},
 	})
 	.get("/search/global", async ({ query }) => await metadataService.searchGlobal(query.q, query.limit), {
