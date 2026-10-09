@@ -1,3 +1,4 @@
+import { systemSettingsStore } from "@/config/system-settings.store";
 import type { MatchCandidate } from "@/utils/media-match.utils";
 import { generateQueryVariants, pickBestMatch } from "@/utils/media-match.utils";
 
@@ -21,7 +22,7 @@ export async function searchWithVariants<T extends SearchCandidate>(
 		}
 
 		const candidates = [...merged.values()];
-		const best = pickBestMatch(candidates, title, year);
+		const best = pickBestMatch(candidates, title, year, systemSettingsStore.get("metadata.minMatchScore"));
 		if (best && best.score >= 0.88) break;
 	}
 

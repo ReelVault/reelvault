@@ -69,7 +69,7 @@ if (!args.help) {
 		warmup: 10,
 		iterations: args.iterations,
 	});
-	bench("pickBestMatch — repeated page", () => pickBestMatch(repeatedPage, query, 2015), {
+	bench("pickBestMatch — repeated page", () => pickBestMatch(repeatedPage, query, 2015, 0.45), {
 		warmup: 10,
 		iterations: args.iterations,
 	});
@@ -111,7 +111,7 @@ if (!args.help) {
 	for (const size of [10, 50, 200]) {
 		const window = pool.slice(0, size);
 		bench(`rankCandidates — window=${size}`, () => rankCandidates(window, query, 2015), { warmup: 10, iterations: args.iterations });
-		bench(`pickBestMatch — window=${size}`, () => pickBestMatch(window, query, 2015), { warmup: 10, iterations: args.iterations });
+		bench(`pickBestMatch — window=${size}`, () => pickBestMatch(window, query, 2015, 0.45), { warmup: 10, iterations: args.iterations });
 	}
 }
 

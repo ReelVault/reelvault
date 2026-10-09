@@ -38,12 +38,14 @@ describe("auditMediaFileRow", () => {
 		expect(auditMediaFileRow(createRow({ metadataMatchScore: 0.8 }))).toBeNull();
 	});
 
-	test("reads the threshold from system settings", () => {
+	test("the acceptance setting does not move the low confidence review level", () => {
 		systemSettingsStore.setRuntimeValue("metadata.minMatchScore", 0.45);
 		try {
-			expect(auditMediaFileRow(createRow({ metadataMatchScore: 0.6 }))).toBeNull();
+			expect(auditMediaFileRow(createRow({ metadataMatchScore: 0.7 }))?.reasons).toEqual([
+				{ code: "low_confidence", severity: "low", params: { percent: 70 } },
+			]);
 		} finally {
-			systemSettingsStore.setRuntimeValue("metadata.minMatchScore", 0.75);
+			systemSettingsStore.setRuntimeValue("metadata.minMatchScore", 0.45);
 		}
 	});
 

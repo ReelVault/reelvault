@@ -21,13 +21,14 @@ import type {
 	ProviderSearchResult,
 	ProviderSeasonResult,
 } from "@reelvault/sdk/plugin";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { hasEntry, isNotNullish } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
 import { errorMessage, ValidationError } from "@/utils/errors";
-import { CONFIDENT_MATCH_SCORE, MIN_MATCH_SCORE, MIN_SCORE_MARGIN, rankCandidates, type ScoredCandidate } from "@/utils/media-match.utils";
+import { isAcceptableMatch, rankCandidates, type ScoredCandidate } from "@/utils/media-match.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import { type AggregatedMetadata, mergeProviderMetadata, type ProviderContribution } from "./metadata-aggregator";
@@ -506,10 +507,7 @@ class ProviderService extends BaseService {
 
 				const best = ranked[0];
 				const runnerUp = ranked[1];
-				const acceptable =
-					best != null &&
-					(best.score >= CONFIDENT_MATCH_SCORE ||
-						(best.score >= MIN_MATCH_SCORE && (!runnerUp || best.score - runnerUp.score >= MIN_SCORE_MARGIN)));
+				const acceptable = best != null && isAcceptableMatch(best, runnerUp, systemSettingsStore.get("metadata.minMatchScore"));
 
 				if (!acceptable) {
 					this.logger.debug("No confident metadata match, skipping provider", {

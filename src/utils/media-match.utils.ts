@@ -123,8 +123,8 @@ export interface ScoredCandidate<T extends MatchCandidate> {
 	popularityScore: number;
 }
 
-/** Minimum combined score required to accept a search result as a confident match at all. Below this, treat it as "not found". */
-export const MIN_MATCH_SCORE = 0.45;
+/** Score a match is reviewed below in the admin lists (low confidence, title mismatch audit). Not an acceptance threshold. */
+export const REVIEW_MATCH_SCORE = 0.75;
 
 /** Score above which a candidate is accepted outright, even without a clear margin over the runner-up. */
 export const CONFIDENT_MATCH_SCORE = 0.7;
@@ -264,15 +264,25 @@ function compareScored<T extends MatchCandidate>(left: ScoredCandidate<T>, right
 }
 
 /**
- * Picks the best-scoring candidate. Accepted when either:
- * - its score clears CONFIDENT_MATCH_SCORE outright, or
- * - it clears MIN_MATCH_SCORE and leads the runner-up by at least MIN_SCORE_MARGIN.
- * Otherwise the match is too ambiguous to trust and undefined is returned.
+ * A best candidate is accepted when it reaches `minScore` (the `metadata.minMatchScore` setting) and either
+ * clears CONFIDENT_MATCH_SCORE outright or leads the runner-up by at least MIN_SCORE_MARGIN.
+ */
+export function isAcceptableMatch(best: { score: number }, runnerUp: { score: number } | undefined, minScore: number): boolean {
+	if (best.score < minScore) return false;
+	if (best.score >= CONFIDENT_MATCH_SCORE) return true;
+
+	return !runnerUp || best.score - runnerUp.score >= MIN_SCORE_MARGIN;
+}
+
+/**
+ * Picks the best-scoring candidate. Accepted when `isAcceptableMatch` says so. Otherwise the match is too
+ * ambiguous to trust and undefined is returned.
  */
 export function pickBestMatch<T extends MatchCandidate>(
 	candidates: readonly T[],
 	title: string,
 	year: number | undefined,
+	minScore: number,
 ): ScoredCandidate<T> | undefined {
 	const preparedTitle = prepareTitleCached(title);
 
@@ -292,11 +302,7 @@ export function pickBestMatch<T extends MatchCandidate>(
 
 	if (!best) return undefined;
 
-	if (best.score >= CONFIDENT_MATCH_SCORE) return best;
-
-	const hasClearMargin = !runnerUp || best.score - runnerUp.score >= MIN_SCORE_MARGIN;
-
-	return best.score >= MIN_MATCH_SCORE && hasClearMargin ? best : undefined;
+	return isAcceptableMatch(best, runnerUp, minScore) ? best : undefined;
 }
 
 /** The expected side of a title comparison, prepared once per candidate list. */

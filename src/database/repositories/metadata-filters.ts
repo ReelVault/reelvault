@@ -2,13 +2,13 @@ import type { MetadataFilters, MetadataSorting } from "@reelvault/sdk/common";
 import type { SQL } from "drizzle-orm";
 import { and, asc, desc, eq, exists, gt, gte, inArray, isNull, lt, lte, notExists, or, sql } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
-import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
 import { QueryFiltering } from "@/database/utils/filtering";
 import type { QueryMap } from "@/database/utils/query-parser";
 import { QuerySorting } from "@/database/utils/sorting";
+import { REVIEW_MATCH_SCORE } from "@/utils/media-match.utils";
 import { coerceBoolean, isFiniteNumber } from "@/utils/type.utils";
 
 type MetadataRelationFilter = "library" | "company" | "genre" | "keyword" | "collection" | "cast" | "crew" | "file";
@@ -246,7 +246,7 @@ function buildLowConfidenceFilter(lowConfidence: boolean | string): SQL | undefi
 	const enabled = coerceBoolean(lowConfidence);
 	if (!enabled) return undefined;
 
-	return or(lt(schema.metadata.matchScore, systemSettingsStore.get("metadata.minMatchScore")), isNull(schema.metadata.matchScore));
+	return or(lt(schema.metadata.matchScore, REVIEW_MATCH_SCORE), isNull(schema.metadata.matchScore));
 }
 
 /** Profile-scoped filter value — pairs the client-facing status with the

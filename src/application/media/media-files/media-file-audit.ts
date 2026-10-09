@@ -3,7 +3,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { type MediaFileAuditRow, mediaRepository } from "@/database/repositories/media-files.repository";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
-import { extractYear, isSequelMismatch, MIN_MATCH_SCORE, rankCandidates } from "@/utils/media-match.utils";
+import { extractYear, isSequelMismatch, REVIEW_MATCH_SCORE, rankCandidates } from "@/utils/media-match.utils";
 import { mapLibraryType } from "@/utils/type.utils";
 
 const SEVERITY_WEIGHTS: Record<string, number> = { high: 3, low: 1, medium: 2 };
@@ -78,7 +78,7 @@ export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | 
 	)[0];
 	const simScore = simTitle ? Number(simTitle.score.toFixed(3)) : 0;
 
-	if (simScore < MIN_MATCH_SCORE && !reasons.some((r) => r.code === "sequel_mismatch")) {
+	if (simScore < systemSettingsStore.get("metadata.minMatchScore") && !reasons.some((r) => r.code === "sequel_mismatch")) {
 		reasons.push({
 			code: "title_mismatch",
 			severity: "high",
@@ -104,11 +104,7 @@ export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | 
 		}
 	}
 
-	if (
-		row.metadataMatchScore !== null &&
-		row.metadataMatchScore < systemSettingsStore.get("metadata.minMatchScore") &&
-		reasons.length === 0
-	) {
+	if (row.metadataMatchScore !== null && row.metadataMatchScore < REVIEW_MATCH_SCORE && reasons.length === 0) {
 		reasons.push({
 			code: "low_confidence",
 			severity: "low",

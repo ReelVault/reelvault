@@ -20,7 +20,7 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 	"metadata.ratingAggregation": creator.enum("metadata.ratingAggregation", ["votes", "simple"], "votes"),
 
 	// Titles scoring below this threshold are listed as low-confidence matches.
-	"metadata.minMatchScore": creator.number("metadata.minMatchScore", 0.45, 1, 0.75),
+	"metadata.minMatchScore": creator.number("metadata.minMatchScore", 0.45, 1, 0.45),
 
 	"system.database.operationRetentionDays": creator.number("system.database.operationRetentionDays", 1, 365, 7),
 	"system.logs.retentionDays": creator.number("system.logs.retentionDays", 1, 365, 7),

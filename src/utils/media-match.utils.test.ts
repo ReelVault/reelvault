@@ -71,7 +71,7 @@ test("picks best match when filename is English and provider title is translated
 	expect(ranked[0]?.item.title).toBe("Skazani na Shawshank");
 	expect(ranked[0]?.score).toBeGreaterThan(0.9);
 
-	const bestMatch = pickBestMatch(candidates, "The Shawshank Redemption", 1994);
+	const bestMatch = pickBestMatch(candidates, "The Shawshank Redemption", 1994, 0.45);
 	expect(bestMatch).toBeDefined();
 	expect(bestMatch?.item.title).toBe("Skazani na Shawshank");
 });
@@ -94,7 +94,7 @@ test("matches English filename for Die Hard with Polish title Szklana pułapka",
 		},
 	];
 
-	const bestMatch = pickBestMatch(candidates, "Die Hard", 1988);
+	const bestMatch = pickBestMatch(candidates, "Die Hard", 1988, 0.45);
 	expect(bestMatch).toBeDefined();
 	expect(bestMatch?.item.title).toBe("Szklana pułapka");
 	expect(bestMatch?.score).toBeGreaterThan(0.9);
@@ -161,12 +161,12 @@ test("accurately picks Iron Man (2008) over Iron Man 2 and Iron Man 3 even witho
 	];
 
 	// Without year specified
-	const bestWithoutYear = pickBestMatch(candidates, "Iron Man", undefined);
+	const bestWithoutYear = pickBestMatch(candidates, "Iron Man", undefined, 0.45);
 	expect(bestWithoutYear).toBeDefined();
 	expect(bestWithoutYear?.item.title).toBe("Iron Man");
 
 	// With year 2008 specified
-	const bestWithYear = pickBestMatch(candidates, "Iron Man", 2008);
+	const bestWithYear = pickBestMatch(candidates, "Iron Man", 2008, 0.45);
 	expect(bestWithYear).toBeDefined();
 	expect(bestWithYear?.item.title).toBe("Iron Man");
 });
@@ -191,7 +191,7 @@ test("accurately picks Iron Man 3 when searching for Iron Man 3", () => {
 		},
 	];
 
-	const bestMatch = pickBestMatch(candidates, "Iron Man 3", 2013);
+	const bestMatch = pickBestMatch(candidates, "Iron Man 3", 2013, 0.45);
 	expect(bestMatch).toBeDefined();
 	expect(bestMatch?.item.title).toBe("Iron Man 3");
 });
@@ -216,7 +216,7 @@ test("picks Marvel's What If...? over obscure series with identical name", () =>
 		},
 	];
 
-	const bestMatch = pickBestMatch(candidates, "What If", undefined);
+	const bestMatch = pickBestMatch(candidates, "What If", undefined, 0.45);
 	expect(bestMatch).toBeDefined();
 	expect(bestMatch?.item.title).toBe("Was wäre wenn...?");
 });
@@ -241,7 +241,7 @@ test("distinguishes Dune from Dune Part Two", () => {
 		},
 	];
 
-	const bestMatch = pickBestMatch(candidates, "Dune", 2021);
+	const bestMatch = pickBestMatch(candidates, "Dune", 2021, 0.45);
 	expect(bestMatch).toBeDefined();
 	expect(bestMatch?.item.title).toBe("Der Wüstenplanet");
 });
