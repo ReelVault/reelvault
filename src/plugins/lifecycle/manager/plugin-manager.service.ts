@@ -345,7 +345,7 @@ export class PluginManager {
 			version: manifest.version,
 			...(manifest.description ? { description: manifest.description } : {}),
 			config: redactSecretValues(config, fields),
-			fields,
+			fields: markSecretPresence(fields, config),
 		};
 	}
 
@@ -394,6 +394,11 @@ export class PluginManager {
 
 		return await this.getPluginConfigDetails(pluginId);
 	}
+}
+
+/** A secret is never returned, so its field only says whether a non-blank value is stored. */
+function markSecretPresence(fields: readonly PluginConfigField[], config: Record<string, unknown>): PluginConfigField[] {
+	return fields.map((field) => (field.type === "secret" ? { ...field, hasValue: !isBlankConfigValue(config[field.name]) } : field));
 }
 
 /**

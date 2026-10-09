@@ -370,6 +370,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Stable plugin slot entry ids** — a `ui.json` slot entry may declare an optional `id` (unique within its slot). Interface switches keep pointing at that entry when other entries are added, removed or reordered; entries without an id keep the key derived from their action. A duplicate id is rejected when the manifest loads.
 - **Plugin failure codes** — a plugin that fails to load reports an `errorCode` next to its raw `error` message: a domain error keeps its own code (`plugin.already_installed` for an install that collides with an existing one), an invalid package reports `plugin.manifest_invalid` and any other load failure `plugin.load_failed`. Clients should translate the code, not the message.
 - **Unreadable plugin configuration is visible** — the admin plugin endpoints (`GET /admin/plugins`, `GET /admin/plugins/:pluginId`, the plugin enable/disable/reload responses and the dashboard) return `configReadError` (`plugin.config_unreadable`) when a plugin's `config.json` exists but cannot be read. Such a plugin used to run silently on its defaults.
+- **Secret presence in plugin configuration** — secret fields of `GET /admin/plugins/:pluginId/config` carry `hasValue`, so the admin panel can show whether a key is set and offer to replace it. The stored value is still never returned.
 
 ### Fixes
 

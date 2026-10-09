@@ -497,11 +497,22 @@ describe("PluginManager config details", () => {
 		expect(details).toMatchObject({ id: "org.reelvault.m", name: "Manager fixture", version: "3.1.0" });
 		expect(details.config).toEqual({ debug: true, retries: 2, theme: "dark" });
 		expect(details.fields).toEqual([
-			{ name: "apiKey", type: "secret", label: "Api Key" },
+			{ name: "apiKey", type: "secret", label: "Api Key", hasValue: true },
 			{ name: "debug", type: "boolean", label: "Debug", default: true },
 			{ name: "retries", type: "number", label: "Retries", default: 2 },
 			{ name: "theme", type: "string", label: "Theme", default: "dark" },
 		]);
+	});
+
+	test("getPluginConfigDetails reports an unset secret as having no value", async () => {
+		const { manager, config } = createManagerFixture(activeStubs);
+		await writeFixturePlugin();
+		const loadStub = stubMethod(config, "load", () => Promise.resolve({ apiKey: "   " }));
+		activeStubs.push(loadStub);
+
+		const details = await manager.getPluginConfigDetails("org.reelvault.m");
+
+		expect(details.fields).toContainEqual({ name: "apiKey", type: "secret", label: "Api Key", hasValue: false });
 	});
 
 	test("savePluginConfig persists the patch, reloads, and returns refreshed details", async () => {
