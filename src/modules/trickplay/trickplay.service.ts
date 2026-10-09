@@ -1,13 +1,14 @@
-import type { TrickplayStats } from "@reelvault/sdk/common";
+import type { TrickplayRegenerationReport, TrickplayStats } from "@reelvault/sdk/common";
 import { file } from "bun";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { trickplayRepository } from "@/database/repositories/trickplay.repository";
+import { type TrickplayRegenerationScope, trickplayRepository } from "@/database/repositories/trickplay.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { buildSpriteExtractionCommand } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { CORE_ARTIFACTS_OWNER } from "@/modules/artifacts/artifacts.constants";
 import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes, writeCoreArtifact } from "@/modules/artifacts/artifacts-budget.utils";
 import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
+import { summarizeRegenerationOutcomes } from "@/modules/trickplay/trickplay-regeneration.report";
 import { serverConfig } from "@/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
@@ -207,6 +208,20 @@ class TrickplayService extends BaseService {
 	/** Media files that have no core-generated trickplay artifacts yet. */
 	findMediaFileIdsMissingTrickplay(limit = 2000): Promise<string[]> {
 		return trickplayRepository.findMediaFileIdsMissingTrickplay(limit);
+	}
+
+	/** Media files of a regeneration scope, capped at `limit`; the caller reports how many matched beyond the cap. */
+	findMediaFileIdsForRegeneration(scope: TrickplayRegenerationScope, force: boolean, limit: number): Promise<string[]> {
+		return trickplayRepository.findMediaFileIdsForRegeneration(scope, force, limit);
+	}
+
+	countForRegeneration(scope: TrickplayRegenerationScope, force: boolean): Promise<number> {
+		return trickplayRepository.countForRegeneration(scope, force);
+	}
+
+	/** Outcome counts of one regeneration operation, with the jobs the storage budget skipped on their own line. */
+	async regenerationReport(operationId: string): Promise<TrickplayRegenerationReport> {
+		return summarizeRegenerationOutcomes(operationId, await trickplayRepository.countRegenerationOutcomes(operationId));
 	}
 
 	/** Coverage counts plus the core artifact storage usage/budget for the admin page. */

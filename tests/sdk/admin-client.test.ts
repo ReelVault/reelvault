@@ -62,6 +62,47 @@ test("admin client pauses and resumes schedules, retries failed jobs and reads t
 	]);
 });
 
+test("admin client queues a trickplay regeneration and reads its report", async () => {
+	const requests: Array<{ url: string; method: string; body?: string | undefined }> = [];
+	const client = createTestClient(
+		(url, init) => {
+			requests.push({ url, method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : undefined });
+			if (url.endsWith("/regenerate")) {
+				return jsonResponse({ operationId: "op-1", matching: 3, enqueued: 2, remaining: 1 });
+			}
+
+			return jsonResponse({
+				operationId: "op-1",
+				total: 2,
+				generated: 1,
+				skippedStorageBudget: 1,
+				skippedOther: 0,
+				failed: 0,
+				cancelled: 0,
+				unfinished: 0,
+			});
+		},
+		{ enableRetry: false },
+	);
+
+	expect(await client.admin.regenerateTrickplay({ scope: "library", id: "lib-movies", force: true })).toEqual({
+		operationId: "op-1",
+		matching: 3,
+		enqueued: 2,
+		remaining: 1,
+	});
+	expect((await client.admin.getTrickplayRegenerationReport("op-1")).skippedStorageBudget).toBe(1);
+
+	expect(requests).toEqual([
+		{
+			url: "https://reelvault.test/v1/admin/trickplay/regenerate",
+			method: "POST",
+			body: JSON.stringify({ scope: "library", id: "lib-movies", force: true }),
+		},
+		{ url: "https://reelvault.test/v1/admin/trickplay/operations/op-1/report", method: "GET" },
+	]);
+});
+
 test("admin client handles download jobs overview and deletion", async () => {
 	const requests: Array<{ url: string; method: string }> = [];
 	const client = createTestClient(

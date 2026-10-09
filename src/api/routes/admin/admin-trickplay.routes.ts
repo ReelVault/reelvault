@@ -1,16 +1,31 @@
-import { OperationQueuedResponseSchema, TrickplayDeleteResultSchema, TrickplayStatsSchema } from "@reelvault/sdk/common";
+import {
+	OperationQueuedResponseSchema,
+	TrickplayDeleteResultSchema,
+	TrickplayRegenerateRequestSchema,
+	TrickplayRegenerationQueuedSchema,
+	TrickplayRegenerationReportSchema,
+	TrickplayStatsSchema,
+} from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
-import { MediaFileIdParams } from "@/api/schemas/route-params";
+import { MediaFileIdParams, OperationIdParams } from "@/api/schemas/route-params";
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import { MINUTE } from "@/server.constants";
+import { NotFoundError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
-import { enqueueTrickplayGeneration, enqueueTrickplayGenerationMany } from "@/workers/definitions/media/trickplay-generate.worker";
+import {
+	enqueueTrickplayGeneration,
+	enqueueTrickplayGenerationMany,
+	trickplayGenerateWorker,
+} from "@/workers/definitions/media/trickplay-generate.worker";
+import { workerService } from "@/workers/worker.service";
 import { adminShell } from "./admin-shell";
 
 const trickplayAuditLogger = createLogger("AdminTrickplayRoutes");
+/** Most files one regeneration request queues; the rest are reported as remaining for a later request. */
+const REGENERATE_MAX_FILES = 2000;
 
 export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["Admin"] })
 	.get("/stats", async () => await trickplayService.stats(), {
@@ -106,5 +121,52 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 				202: t.Object({ enqueued: t.Number(), operationId: t.Optional(t.String()) }),
 			},
 			detail: { description: "Enqueue trickplay generation for every media file that is missing it." },
+		},
+	)
+	.post(
+		"/regenerate",
+		async ({ body, status }) => {
+			const scope = { kind: body.scope, id: body.id };
+			const force = body.force ?? false;
+			const [queued, matching] = await Promise.all([
+				trickplayService.findMediaFileIdsForRegeneration(scope, force, REGENERATE_MAX_FILES),
+				trickplayService.countForRegeneration(scope, force),
+			]);
+			const { operationId, items } = await enqueueTrickplayGenerationMany(queued);
+
+			return status(202, {
+				...(operationId ? { operationId } : {}),
+				matching,
+				enqueued: items.length,
+				remaining: Math.max(0, matching - queued.length),
+			});
+		},
+		{
+			rateLimit: { name: "admin-trickplay-regenerate", max: 5, windowMs: MINUTE },
+			body: TrickplayRegenerateRequestSchema,
+			response: { ...ROUTE_ERRORS.ADMIN, 202: TrickplayRegenerationQueuedSchema },
+			detail: {
+				description:
+					"Enqueue trickplay generation for one library, title or season. Without force only files with no previews are queued; with force existing previews are regenerated too.",
+			},
+		},
+	)
+	.get(
+		"/operations/:operationId/report",
+		async ({ params }) => {
+			const operation = await workerService.getOperation(params.operationId);
+			if (operation?.type !== trickplayGenerateWorker.id) {
+				throw new NotFoundError("Trickplay operation was not found", {
+					code: "trickplay.operation_not_found",
+					params: { operationId: params.operationId },
+				});
+			}
+
+			return await trickplayService.regenerationReport(params.operationId);
+		},
+		{
+			params: OperationIdParams,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: TrickplayRegenerationReportSchema },
+			detail: { description: "Outcome counts of a trickplay operation, including the jobs the storage budget skipped." },
 		},
 	);
