@@ -141,14 +141,56 @@ const overrides = {
 		return rows[0]?.used ?? 0;
 	},
 
-	async countActiveByProfile(profileId: string): Promise<number> {
+	/** Downloads of the profile that run right now: they hold its running slots. */
+	async countProcessingByProfile(profileId: string): Promise<number> {
 		const rows = await databaseFactory
 			.getClient()
 			.select({ count: count() })
 			.from(downloads.table)
-			.where(and(eq(downloads.table.profileId, profileId), inArray(downloads.table.status, ["pending", "processing"])));
+			.where(and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "processing")));
 
 		return rows[0]?.count ?? 0;
+	},
+
+	/** Downloads of the profile waiting for a running slot. */
+	async countPendingByProfile(profileId: string): Promise<number> {
+		const rows = await databaseFactory
+			.getClient()
+			.select({ count: count() })
+			.from(downloads.table)
+			.where(and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "pending")));
+
+		return rows[0]?.count ?? 0;
+	},
+
+	/** The profile's waiting downloads, oldest first: the next ones to start as running slots free up. */
+	async findPendingByProfile(profileId: string, limit: number): Promise<DownloadRow[]> {
+		return await databaseFactory
+			.getClient()
+			.select()
+			.from(downloads.table)
+			.where(and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "pending")))
+			.orderBy(asc(downloads.table.createdAt), asc(downloads.table.id))
+			.limit(limit);
+	},
+
+	/**
+	 * Moves a waiting download to `processing`, but only while its profile has a free running slot. The check and the
+	 * update are one statement, so two workers cannot both take the last slot. False means it did not start.
+	 */
+	async claimForProcessing(id: string, profileId: string, maxRunning: number): Promise<boolean> {
+		const runningInProfile = databaseFactory
+			.getClient()
+			.select({ count: count() })
+			.from(downloads.table)
+			.where(and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "processing")));
+		const result = await databaseFactory
+			.getClient()
+			.update(downloads.table)
+			.set({ status: "processing" })
+			.where(and(eq(downloads.table.id, id), eq(downloads.table.status, "pending"), sql`(${runningInProfile}) < ${maxRunning}`));
+
+		return result.changes > 0;
 	},
 
 	async update(id: string, values: DownloadUpdate): Promise<void> {

@@ -1,4 +1,10 @@
-import { DownloadJobSchema, MyDownloadsResponseSchema, PrepareDownloadSchema } from "@reelvault/sdk/common";
+import {
+	DownloadJobSchema,
+	DownloadSeasonQueueResultSchema,
+	MyDownloadsResponseSchema,
+	PrepareDownloadSchema,
+	QueueSeasonDownloadSchema,
+} from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { JobIdParams } from "@/api/schemas/route-params";
@@ -27,6 +33,22 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			body: PrepareDownloadSchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 429: "error.response", 200: DownloadJobSchema },
 			detail: { description: "Prepare an offline (MP4) download of a media file." },
+		},
+	)
+	.post(
+		"/seasons",
+		async ({ body, user, profile }) =>
+			await downloadsService.queueSeason(profile?.id, body, (mediaFileId) =>
+				assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId }),
+			),
+		{
+			rateLimit: { name: "downloads-queue-season", max: 10, windowMs: MINUTE },
+			body: QueueSeasonDownloadSchema,
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 429: "error.response", 200: DownloadSeasonQueueResultSchema },
+			detail: {
+				description:
+					"Queue every episode of a season for offline download. Each episode reports its own outcome. A season larger than the free storage is refused unless `force` is set.",
+			},
 		},
 	)
 	.get("/:jobId/status", async ({ params, profile }) => await downloadsService.getJobViewForProfile(params.jobId, profile?.id ?? ""), {

@@ -143,6 +143,7 @@ class EpisodesRepository {
 				episodeNumber: this.table.episodeNumber,
 				mediaFileId: schema.mediaFiles.id,
 				mediaFileIsDefault: schema.mediaFiles.isDefault,
+				mediaFileSize: schema.mediaFiles.size,
 				mediaFileUpdatedAt: schema.mediaFiles.updatedAt,
 			})
 			.from(this.table)

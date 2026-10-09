@@ -4,13 +4,17 @@ import type { MediaFileWithRelation } from "@reelvault/sdk/common";
 import { spawn } from "bun";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { type DownloadRow, downloadsRepository } from "@/database/repositories/downloads.repository";
+import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";
+import { ForbiddenError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createMockWorkerItem } from "@/workers/core/worker-runtime.test-utils";
 import { workerService } from "@/workers/worker.service";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { downloadsService } from "./downloads.service";
 
 function row(overrides: Partial<DownloadRow> = {}): DownloadRow {
@@ -72,7 +76,10 @@ const insert = spyOn(downloadsRepository, "insert").mockResolvedValue(row());
 const findById = spyOn(downloadsRepository, "findById").mockResolvedValue(undefined);
 const update = spyOn(downloadsRepository, "update").mockResolvedValue(undefined);
 const deleteRow = spyOn(downloadsRepository, "delete").mockResolvedValue(undefined);
-const countActive = spyOn(downloadsRepository, "countActiveByProfile").mockResolvedValue(0);
+const countProcessing = spyOn(downloadsRepository, "countProcessingByProfile").mockResolvedValue(0);
+const countPending = spyOn(downloadsRepository, "countPendingByProfile").mockResolvedValue(0);
+const findPending = spyOn(downloadsRepository, "findPendingByProfile").mockResolvedValue([row()]);
+const claim = spyOn(downloadsRepository, "claimForProcessing").mockResolvedValue(true);
 const storageUsed = spyOn(downloadsRepository, "storageUsedByProfile").mockResolvedValue(0);
 const findExpired = spyOn(downloadsRepository, "findExpired").mockResolvedValue([]);
 const findByProfile = spyOn(downloadsRepository, "findByProfile").mockResolvedValue([]);
@@ -86,7 +93,10 @@ beforeEach(() => {
 	findById.mockClear().mockResolvedValue(undefined);
 	update.mockClear();
 	deleteRow.mockClear();
-	countActive.mockClear().mockResolvedValue(0);
+	countProcessing.mockClear().mockResolvedValue(0);
+	countPending.mockClear().mockResolvedValue(0);
+	findPending.mockClear().mockResolvedValue([row()]);
+	claim.mockClear().mockResolvedValue(true);
 	storageUsed.mockClear().mockResolvedValue(0);
 	findExpired.mockClear().mockResolvedValue([]);
 	findByProfile.mockClear().mockResolvedValue([]);
@@ -123,14 +133,25 @@ describe("DownloadsService.prepare", () => {
 		expect(insert).toHaveBeenCalledWith(expect.objectContaining({ quality: "original" }));
 	});
 
-	test("enforces the per-profile active quota and storage quota", async () => {
-		countActive.mockResolvedValue(1);
+	test("queues a download beyond the running slots without starting it", async () => {
+		countProcessing.mockResolvedValue(1);
+		await downloadsService.prepare("profile-1", "file-1");
+
+		expect(insert).toHaveBeenCalled();
+		expect(addItem).not.toHaveBeenCalled();
+		countProcessing.mockResolvedValue(0);
+	});
+
+	test("refuses a download once the profile has too many waiting", async () => {
+		countPending.mockResolvedValue(200);
 		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
-			code: "downloads.in_progress",
+			code: "downloads.queue_full",
 			category: "conflict",
 		});
-		countActive.mockResolvedValue(0);
+		countPending.mockResolvedValue(0);
+	});
 
+	test("enforces the storage quota", async () => {
 		storageUsed.mockResolvedValue(100);
 		systemSettingsStore.setRuntimeValue("downloads.maxStorageBytesPerProfile", 100);
 		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
@@ -234,6 +255,11 @@ describe("DownloadsService.process", () => {
 	test("runs pending → processing → completed and records the artifact size", async () => {
 		findById.mockResolvedValueOnce(row()).mockResolvedValueOnce(row());
 		const statuses: string[] = [];
+		claim.mockImplementationOnce(() => {
+			statuses.push("processing");
+
+			return Promise.resolve(true);
+		});
 		update.mockImplementation((_id: string, values: { status?: string }) => {
 			if (values.status) statuses.push(values.status);
 
@@ -248,6 +274,7 @@ describe("DownloadsService.process", () => {
 
 		await downloadsService.process("dl-1");
 
+		expect(claim).toHaveBeenCalledWith("dl-1", "profile-1", 1);
 		expect(statuses).toEqual(["processing", "completed"]);
 		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "completed", progressPercent: 100, sizeBytes: 11 }));
 		expect(fake.outputPath).toContain("dl-1");
@@ -309,7 +336,7 @@ describe("DownloadsService.process", () => {
 		await downloadsService.process("dl-1");
 
 		// No completed/failed update after the cancellation was observed.
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "processing" }));
+		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ fileName: "My.Movie.720p-mobile.mp4" }));
 		expect(update).not.toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "completed" }));
 		expect(await FileUtils.exists(fake.outputPath)).toBe(false);
 		fake.spy.mockRestore();
@@ -339,6 +366,18 @@ describe("DownloadsService.process", () => {
 		expect(update).not.toHaveBeenCalled();
 	});
 
+	test("a download waiting for a running slot stays pending", async () => {
+		findById.mockResolvedValue(row());
+		claim.mockResolvedValueOnce(false);
+		const fake = fakeFfmpeg(0);
+
+		await downloadsService.process("dl-1");
+
+		expect(fake.spy).not.toHaveBeenCalled();
+		expect(update).not.toHaveBeenCalled();
+		fake.spy.mockRestore();
+	});
+
 	test("missing media file fails the job instead of leaving it pending", async () => {
 		findById.mockResolvedValue(row());
 		findByPrimaryId.mockResolvedValue(undefined);
@@ -346,6 +385,58 @@ describe("DownloadsService.process", () => {
 		await downloadsService.process("dl-1");
 
 		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed", errorText: "download.media_missing" }));
+	});
+});
+
+describe("DownloadsService.queueSeason", () => {
+	test("refuses a season larger than the free storage until it is forced, then queues each episode", async () => {
+		const restoreSeason = stubMethod(seasonsRepository, "findByPrimaryId", () => Promise.resolve({ id: "season-1", metadataId: "show-1" }));
+		const restoreEpisodes = stubMethod(episodesRepository, "findEpisodesWithFilesByMetadataId", () =>
+			Promise.resolve([
+				{ id: "ep-1", seasonId: "season-1", mediaFileId: "file-1", mediaFileIsDefault: true, mediaFileSize: 600 },
+				{ id: "ep-2", seasonId: "season-1", mediaFileId: null, mediaFileIsDefault: null, mediaFileSize: null },
+				{ id: "ep-3", seasonId: "season-2", mediaFileId: "file-9", mediaFileIsDefault: true, mediaFileSize: 900 },
+			]),
+		);
+		systemSettingsStore.setRuntimeValue("downloads.maxStorageBytesPerProfile", 500);
+		const assertAccess = () => Promise.resolve();
+		try {
+			await expect(downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, assertAccess)).rejects.toMatchObject({
+				code: "downloads.season_exceeds_quota",
+				params: { estimatedBytes: 600, freeBytes: 500 },
+			});
+
+			const outcome = await downloadsService.queueSeason("profile-1", { seasonId: "season-1", force: true }, assertAccess);
+
+			expect(outcome).toEqual({
+				results: [
+					{ id: "ep-1", ok: true },
+					{ id: "ep-2", ok: false, code: "downloads.no_media_file" },
+				],
+			});
+			expect(insert).toHaveBeenCalledWith(expect.objectContaining({ mediaFileId: "file-1" }));
+		} finally {
+			systemSettingsStore.clearRuntimeValues();
+			restoreSeason.restore();
+			restoreEpisodes.restore();
+		}
+	});
+
+	test("reports an episode whose media file the caller may not stream by its code", async () => {
+		const restoreSeason = stubMethod(seasonsRepository, "findByPrimaryId", () => Promise.resolve({ id: "season-1", metadataId: "show-1" }));
+		const restoreEpisodes = stubMethod(episodesRepository, "findEpisodesWithFilesByMetadataId", () =>
+			Promise.resolve([{ id: "ep-1", seasonId: "season-1", mediaFileId: "file-1", mediaFileIsDefault: true, mediaFileSize: 10 }]),
+		);
+		const assertAccess = () => Promise.reject(new ForbiddenError("No access to this file", { code: "stream.forbidden" }));
+		try {
+			expect(await downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, assertAccess)).toEqual({
+				results: [{ id: "ep-1", ok: false, code: "stream.forbidden" }],
+			});
+			expect(insert).not.toHaveBeenCalled();
+		} finally {
+			restoreSeason.restore();
+			restoreEpisodes.restore();
+		}
 	});
 });
 
@@ -390,6 +481,7 @@ describe("DownloadsService retry and quota", () => {
 	test("retrying a failed download queues a new job and drops the old row", async () => {
 		findById.mockResolvedValue(row({ status: "failed" }));
 		insert.mockResolvedValue(row({ id: "dl-2" }));
+		findPending.mockResolvedValueOnce([row({ id: "dl-2" })]);
 
 		const view = await downloadsService.retryForProfile("dl-1", "profile-1");
 

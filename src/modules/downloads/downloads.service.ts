@@ -1,7 +1,10 @@
 import { readdir, rm } from "node:fs/promises";
+import type { BulkRefreshItem } from "@reelvault/sdk/common";
 import { file, type Subprocess } from "bun";
 import { type DownloadRow, downloadsRepository } from "@/database/repositories/downloads.repository";
+import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { QueryPagination } from "@/database/utils/pagination";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
@@ -15,7 +18,7 @@ import {
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { toErrorCode } from "@/utils/error-codes.utils";
+import { errorCodeOf, toErrorCode } from "@/utils/error-codes.utils";
 import { ConflictError, errorMessage, ForbiddenError, isMissingFile, NotFoundError, ValidationError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -46,6 +49,22 @@ const ILLEGAL_FILENAME_CHARS_REGEX = /["\\/:*?<>|]+/g;
 /** Artifact directories are named after their download id, a UUID; anything else under the root is left alone. */
 const DOWNLOAD_ID_DIRECTORY_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ORPHAN_SWEEP_BATCH_SIZE = 500;
+/** Most downloads one profile may have waiting for a running slot; a request beyond it is refused. */
+const MAX_QUEUED_DOWNLOADS_PER_PROFILE = 200;
+
+interface SeasonFileCandidate {
+	mediaFileId: string;
+	isDefault: boolean;
+	sizeBytes: number;
+}
+
+/** The default file of an episode wins; otherwise the first file seen is kept. */
+function preferDefaultFile(current: SeasonFileCandidate | null, candidate: SeasonFileCandidate | null): SeasonFileCandidate | null {
+	if (!current) return candidate;
+	if (candidate?.isDefault && !current.isDefault) return candidate;
+
+	return current;
+}
 
 function mediaFileBaseName(sourceFileName: string): string {
 	return sourceFileName.replace(FILE_EXTENSION_REGEX, "").replace(ILLEGAL_FILENAME_CHARS_REGEX, "_").slice(0, 120) || "download";
@@ -78,8 +97,8 @@ class DownloadsService extends BaseService {
 				throw new ValidationError("Transcoded download requires a known file duration", { code: "downloads.duration_unknown" });
 			}
 
-			if ((await downloadsRepository.countActiveByProfile(profileId)) >= serverConfig.downloads.maxConcurrentPerProfile) {
-				throw new ConflictError("This profile already has a download in progress", { code: "downloads.in_progress" });
+			if ((await downloadsRepository.countPendingByProfile(profileId)) >= MAX_QUEUED_DOWNLOADS_PER_PROFILE) {
+				throw new ConflictError("This profile already has too many downloads waiting", { code: "downloads.queue_full" });
 			}
 
 			const { maxBytes, usedBytes } = await this.getStorageQuota(profileId);
@@ -95,9 +114,68 @@ class DownloadsService extends BaseService {
 				mediaFileId,
 				quality: isDownloadQuality(quality) ? quality : DEFAULT_DOWNLOAD_QUALITY,
 			});
-			await enqueueDownloadsProcess(row.id);
+			await this.promoteQueued(profileId);
 
 			return await this.viewOf(row);
+		});
+	}
+
+	/**
+	 * Queues every episode of a season with its default media file (or its first one). A season whose estimated size
+	 * does not fit the free storage is refused unless `force` is set. Each episode reports its own outcome.
+	 */
+	async queueSeason(
+		profileId: string | undefined,
+		body: { seasonId: string; quality?: string | undefined; force?: boolean | undefined },
+		assertAccess: (mediaFileId: string) => Promise<void>,
+	): Promise<{ results: BulkRefreshItem[] }> {
+		return await this.safeExecute("queueSeason", async () => {
+			this.assertProfileId(profileId);
+			if (!serverConfig.downloads.enabled)
+				throw new ForbiddenError("Downloads are disabled on this server", { code: "downloads.disabled" });
+
+			const season = await seasonsRepository.findByPrimaryId({
+				primaryId: body.seasonId,
+				fields: QueryFields.parse({ fields: "id,metadataId" }),
+			});
+			this.assertExists(season, "Season", body.seasonId);
+
+			const episodeFiles = new Map<string, SeasonFileCandidate | null>();
+			for (const row of await episodesRepository.findEpisodesWithFilesByMetadataId(season.metadataId)) {
+				if (row.seasonId !== season.id) continue;
+				const candidate = row.mediaFileId
+					? { mediaFileId: row.mediaFileId, isDefault: row.mediaFileIsDefault === true, sizeBytes: row.mediaFileSize ?? 0 }
+					: null;
+				episodeFiles.set(row.id, preferDefaultFile(episodeFiles.get(row.id) ?? null, candidate));
+			}
+
+			const estimatedBytes = [...episodeFiles.values()].reduce((sum, chosen) => sum + (chosen?.sizeBytes ?? 0), 0);
+			const { maxBytes, usedBytes } = await this.getStorageQuota(profileId);
+			const freeBytes = Math.max(0, maxBytes - usedBytes);
+			if (maxBytes > 0 && estimatedBytes > freeBytes && !body.force) {
+				throw new ConflictError("This season is larger than the free download space", {
+					code: "downloads.season_exceeds_quota",
+					params: { estimatedBytes, freeBytes },
+				});
+			}
+
+			const results: BulkRefreshItem[] = [];
+			for (const [episodeId, chosen] of episodeFiles) {
+				if (!chosen) {
+					results.push({ id: episodeId, ok: false, code: "downloads.no_media_file" });
+					continue;
+				}
+
+				try {
+					await assertAccess(chosen.mediaFileId);
+					await this.prepare(profileId, chosen.mediaFileId, body.quality);
+					results.push({ id: episodeId, ok: true });
+				} catch (error) {
+					results.push({ id: episodeId, ok: false, code: errorCodeOf(error, "downloads.queue_failed") });
+				}
+			}
+
+			return { results };
 		});
 	}
 
@@ -251,6 +329,7 @@ class DownloadsService extends BaseService {
 
 		this.killInFlight(downloadId);
 		await downloadsRepository.update(downloadId, { status: "failed", errorText: errorCode });
+		detach(this.promoteQueued(row.profileId));
 	}
 
 	private async requireDownload(downloadId: string): Promise<DownloadRow> {
@@ -262,6 +341,23 @@ class DownloadsService extends BaseService {
 
 	private killInFlight(downloadId: string): void {
 		this.abortHandles.get(downloadId)?.();
+	}
+
+	/**
+	 * Enqueues the profile's oldest waiting downloads, as many as it has free running slots. The worker claims a slot
+	 * when it runs, so a download that is enqueued twice is harmless. Never rejects: a failure is only logged.
+	 */
+	private async promoteQueued(profileId: string): Promise<void> {
+		try {
+			const freeSlots = serverConfig.downloads.maxConcurrentPerProfile - (await downloadsRepository.countProcessingByProfile(profileId));
+			if (freeSlots <= 0) return;
+
+			for (const row of await downloadsRepository.findPendingByProfile(profileId, freeSlots)) {
+				await enqueueDownloadsProcess(row.id);
+			}
+		} catch (error) {
+			this.logger.warn("Could not start the queued downloads", { profileId, error: errorMessage(error) });
+		}
 	}
 
 	private async getStorageQuota(profileId: string): Promise<{ maxBytes: number; usedBytes: number }> {
@@ -331,6 +427,9 @@ class DownloadsService extends BaseService {
 
 		const { row, filePath, durationSeconds } = context;
 
+		// Only a free running slot starts the download; otherwise it waits and is started when a slot frees up.
+		if (!(await downloadsRepository.claimForProcessing(downloadId, row.profileId, serverConfig.downloads.maxConcurrentPerProfile))) return;
+
 		const outputPath = await this.resolveOutputPath(downloadId, row.quality, context.sourceFileName);
 
 		try {
@@ -338,6 +437,7 @@ class DownloadsService extends BaseService {
 			await this.finalizeDownload({ downloadId, profileId: row.profileId, quality: row.quality, outputPath, exitCode });
 		} finally {
 			this.abortHandles.delete(downloadId);
+			detach(this.promoteQueued(row.profileId));
 		}
 	}
 
@@ -373,7 +473,7 @@ class DownloadsService extends BaseService {
 		const outputDir = PathUtils.join(serverConfig.paths.downloads, downloadId);
 		await DirUtils.create(outputDir);
 		const outputPath = PathUtils.join(outputDir, fileName);
-		await downloadsRepository.update(downloadId, { status: "processing", fileName });
+		await downloadsRepository.update(downloadId, { fileName });
 
 		return outputPath;
 	}
