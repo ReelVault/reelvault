@@ -1,9 +1,9 @@
-import type { SettingDefinition, SettingGroup } from "./system-settings.types";
+import type { SettingDefinition, SettingGroup, SettingMeta } from "./system-settings.types";
 import { createValueCodecs } from "./value-codecs";
 
 interface SettingBuilder {
 	string(key: string, defaultValue: string): SettingDefinition<string>;
-	number(key: string, min: number, max: number, defaultValue: number): SettingDefinition<number>;
+	number(key: string, min: number, max: number, defaultValue: number, meta?: SettingMeta): SettingDefinition<number>;
 	boolean(key: string, defaultValue: boolean): SettingDefinition<boolean>;
 	stringArray(key: string, defaultValue: readonly string[]): SettingDefinition<string[]>;
 	enum<T extends string>(key: string, options: T[], defaultValue: T): SettingDefinition<T>;
@@ -27,13 +27,14 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			validate: (raw) => stringCodec.parse(raw) ?? (defaultValue === "" ? "" : null),
 			serialize: (val) => stringCodec.serialize(String(val)),
 		}),
-		number: (key, min, max, defaultValue) => ({
+		number: (key, min, max, defaultValue, meta = {}) => ({
 			key,
 			group,
 			type: "number",
 			default: defaultValue,
 			min,
 			max,
+			...meta,
 			parse: (raw) => codecs.number(min, max).parse(raw) ?? defaultValue,
 			validate: (raw) => codecs.number(min, max).parse(raw),
 			serialize: (val) => String(val),

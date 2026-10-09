@@ -107,6 +107,23 @@ describe("systemSettingsService field-level feedback", () => {
 		expect(item).toMatchObject({ type: "number", min: 1, max: 100 });
 	});
 
+	test("settings carry their unit, and only the restart-only ones say so", async () => {
+		stubSettingsPersistence();
+
+		const grouped = await systemSettingsService.getAll();
+		const byKey = new Map(
+			Object.values(grouped)
+				.flat()
+				.map((entry) => [entry.key, entry]),
+		);
+
+		expect(byKey.get("auth.sessionLifetimeDays")).toMatchObject({ unit: "days", restartRequired: true });
+		expect(byKey.get("stream.hlsSegmentDurationSeconds")).toMatchObject({ unit: "s", restartRequired: true });
+		expect(byKey.get("system.resources.monitoringIntervalMs")).toMatchObject({ unit: "ms" });
+		expect(byKey.get("system.resources.monitoringIntervalMs")).not.toHaveProperty("restartRequired");
+		expect(byKey.get("stream.maxSessions")).not.toHaveProperty("restartRequired");
+	});
+
 	test("the limits added for QOL are listed with their bounds", async () => {
 		stubSettingsPersistence();
 

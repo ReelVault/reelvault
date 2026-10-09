@@ -29,7 +29,7 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 
 	// Require every account to have TOTP configured before sign-in is accepted.
 	"auth.enforceTwoFactor": creator.boolean("auth.enforceTwoFactor", false),
-	"auth.sessionLifetimeDays": creator.number("auth.sessionLifetimeDays", 1, 365, 7),
+	"auth.sessionLifetimeDays": creator.number("auth.sessionLifetimeDays", 1, 365, 7, { unit: "days", restartRequired: true }),
 	"auth.rateLimit.loginAccountMaxAttempts": creator.number("auth.rateLimit.loginAccountMaxAttempts", 3, 100, 10),
 
 	// 0 keeps the full play history; a positive value prunes older rows in the

@@ -16,6 +16,7 @@ import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
 import { assertFFProbeAvailable } from "@/integrations/ffprobe/ffprobe.environment";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { serverConfig } from "@/server.config";
+import { resourceAllocator } from "@/system/resource-allocator";
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
 import { setLogLevel } from "@/utils/logger";
@@ -112,6 +113,8 @@ class SystemSettingsService extends BaseService {
 				...(def.options ? { options: def.options } : {}),
 				...(def.min !== undefined ? { min: def.min } : {}),
 				...(def.max !== undefined ? { max: def.max } : {}),
+				...(def.unit !== undefined ? { unit: def.unit } : {}),
+				...(def.restartRequired ? { restartRequired: true } : {}),
 			});
 		}
 
@@ -262,6 +265,7 @@ class SystemSettingsService extends BaseService {
 		let changesProfileDefaults = false;
 		let changesLogLevel = false;
 		let changesProviderCacheTtl = false;
+		let changesMonitoring = false;
 		for (const key of keys) {
 			// The watcher reads its fallback interval when arming timers, so a change
 			// must re-arm them; the same applies to the periodic rescan deadline.
@@ -280,6 +284,8 @@ class SystemSettingsService extends BaseService {
 			if (key === "system.logs.level") changesLogLevel = true;
 
 			if (key === "plugins.providers.detailsCacheTtlMs") changesProviderCacheTtl = true;
+
+			if (key === "system.resources.monitoringIntervalMs" || key === "system.resources.monitoringEnabled") changesMonitoring = true;
 		}
 
 		// Profiles inherit these defaults; any cached response that embeds effective preferences is stale now.
@@ -289,6 +295,8 @@ class SystemSettingsService extends BaseService {
 		if (changesLogLevel) setLogLevel(serverConfig.logs.level);
 
 		if (changesProviderCacheTtl) providerService.resetCaches();
+
+		if (changesMonitoring) resourceAllocator.rescheduleMonitoring();
 
 		if (needsWatcherSync) await libraryWatcherService.syncWatchers();
 

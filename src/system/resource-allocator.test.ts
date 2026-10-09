@@ -235,3 +235,16 @@ describe("ResourceAllocator", () => {
 
 // The settings store is process-global — never leak overrides into other test files.
 afterEach(() => systemSettingsStore.clearRuntimeValues());
+
+describe("rescheduleMonitoring", () => {
+	test("arms the sampling timer only while monitoring is enabled", () => {
+		const allocator = new ResourceAllocator();
+		systemSettingsStore.setRuntimeValues({ "system.resources.monitoringEnabled": true });
+		allocator.rescheduleMonitoring();
+		expect(Reflect.get(allocator, "monitorInterval")).toBeDefined();
+
+		systemSettingsStore.setRuntimeValues({ "system.resources.monitoringEnabled": false });
+		allocator.rescheduleMonitoring();
+		expect(Reflect.get(allocator, "monitorInterval")).toBeUndefined();
+	});
+});

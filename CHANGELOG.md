@@ -390,6 +390,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Notification channels deliver in parallel with a time limit** — a plugin's external notification channel that does not answer within 15 seconds is abandoned and logged, and a slow channel no longer holds up the channels after it.
 - **Plugin configuration reset, export and import** — administrators restore defaults for one field or all fields (`POST /admin/plugins/:id/config/reset`), export the configuration without its secret fields (`GET /admin/plugins/:id/config/export`) and import it again (`POST /admin/plugins/:id/config/import`). An import never overwrites a secret. Uninstalling a plugin keeps a backup of its configuration, and installing the same plugin again restores it.
 - **Public server capabilities** — `GET /capabilities` returns whether trickplay and downloads are switched on, without a session, so a client can hide features that the server does not offer.
+- **Setting units and restart flags; monitoring applies at once** — settings report their unit and whether a change needs a restart (`auth.sessionLifetimeDays`, `stream.hlsSegmentDurationSeconds`). Changing the resource monitoring interval or enabling and disabling monitoring re-arms the sampler immediately instead of waiting for a restart.
 
 ### Fixes
 

@@ -14,7 +14,7 @@ export const RESOURCES_SETTINGS_DEFINITIONS = {
 	"system.resources.workerPoolMaxConcurrent": creator.number("system.resources.workerPoolMaxConcurrent", 0, 64, 0),
 
 	"system.resources.monitoringEnabled": creator.boolean("system.resources.monitoringEnabled", true),
-	"system.resources.monitoringIntervalMs": creator.number("system.resources.monitoringIntervalMs", 1000, 60_000, 5000),
+	"system.resources.monitoringIntervalMs": creator.number("system.resources.monitoringIntervalMs", 1000, 60_000, 5000, { unit: "ms" }),
 
 	"system.resources.memoryThresholdPercent": creator.number("system.resources.memoryThresholdPercent", 50, 99, 85),
 	"system.resources.memoryCriticalPercent": creator.number("system.resources.memoryCriticalPercent", 80, 99, 95),

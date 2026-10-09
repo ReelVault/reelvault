@@ -280,7 +280,26 @@ export class ResourceAllocator extends BaseService {
 		}
 
 		await this.collectSnapshot();
-		const intervalMs = serverConfig.resources.monitoringIntervalMs;
+		this.armMonitorInterval();
+		this.logger.info("Resource allocator initialized", { intervalMs: serverConfig.resources.monitoringIntervalMs });
+	}
+
+	/** Re-arms sampling after the interval or the enabled flag changed, so the change applies without a restart. */
+	rescheduleMonitoring(): void {
+		if (this.isShutdown) return;
+
+		this.disarmMonitorInterval();
+		if (!serverConfig.resources.monitoringEnabled) {
+			this.logger.info("Resource monitoring disabled");
+
+			return;
+		}
+
+		this.armMonitorInterval();
+		this.logger.info("Resource monitoring rescheduled", { intervalMs: serverConfig.resources.monitoringIntervalMs });
+	}
+
+	private armMonitorInterval(): void {
 		const collectSnapshotSafely = async (): Promise<void> => {
 			try {
 				await this.collectSnapshot();
@@ -290,17 +309,20 @@ export class ResourceAllocator extends BaseService {
 		};
 		this.monitorInterval = setInterval(() => {
 			detach(collectSnapshotSafely());
-		}, intervalMs);
+		}, serverConfig.resources.monitoringIntervalMs);
 		this.monitorInterval.unref();
-		this.logger.info("Resource allocator initialized", { intervalMs });
 	}
 
-	async shutdown(): Promise<void> {
-		this.isShutdown = true;
+	private disarmMonitorInterval(): void {
 		if (this.monitorInterval) {
 			clearInterval(this.monitorInterval);
 			this.monitorInterval = undefined;
 		}
+	}
+
+	async shutdown(): Promise<void> {
+		this.isShutdown = true;
+		this.disarmMonitorInterval();
 
 		await this.flushToDatabase(true);
 		this.logger.info("Resource allocator shut down");

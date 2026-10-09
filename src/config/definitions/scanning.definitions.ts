@@ -19,7 +19,7 @@ export const SCANNING_SETTINGS_DEFINITIONS = {
 	// A static default here would bypass the hardware-adaptive sizing entirely.
 	"scanning.concurrency": creator.number("scanning.concurrency", 0, 32, 0),
 	// Per library path, in milliseconds: a path whose walk takes longer is skipped for this scan.
-	"scanning.pathScanTimeoutMs": creator.number("scanning.pathScanTimeoutMs", 10_000, 3_600_000, 120_000),
+	"scanning.pathScanTimeoutMs": creator.number("scanning.pathScanTimeoutMs", 10_000, 3_600_000, 120_000, { unit: "ms" }),
 	"scanning.ffprobeConcurrency": creator.number("scanning.ffprobeConcurrency", 0, 16, 0),
 
 	"ffprobe.path": creator.string("ffprobe.path", "ffprobe"),
