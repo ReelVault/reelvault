@@ -22,6 +22,11 @@ const authenticateCache = new MemoryCache<AuthenticatedApiKey>({ ttlMs: 5_000, m
 
 export type ApiKeyScope = "read_only" | "full";
 
+export interface UpdateApiKeyInput {
+	name?: string | undefined;
+	expiresAtDays?: number | null | undefined;
+}
+
 export interface AuthenticatedApiKey {
 	id: string;
 	scope: ApiKeyScope;
@@ -48,9 +53,104 @@ class ApiKeysService extends BaseService {
 	}
 
 	async list(): Promise<ApiKey[]> {
-		const rows = await databaseFactory.getClient().select().from(apiKeys).orderBy(apiKeys.createdAt);
+		const rows = await databaseFactory
+			.getClient()
+			.select({ key: apiKeys, createdByName: users.name })
+			.from(apiKeys)
+			.leftJoin(users, eq(users.id, apiKeys.createdBy))
+			.orderBy(apiKeys.createdAt);
 
-		return rows.map((row) => this.serialize(row));
+		return rows.map((row) => this.serialize(row.key, row.createdByName));
+	}
+
+	/** Renames a key or changes its expiry (`expiresAtDays` null removes it). The secret does not change. */
+	async update(id: string, input: UpdateApiKeyInput, context?: AdminAuditContext): Promise<ApiKey> {
+		const before = await this.requireRow(id);
+		const changes: Partial<typeof apiKeys.$inferInsert> = { updatedAt: new Date() };
+
+		if (input.name !== undefined) {
+			const name = input.name.trim();
+			if (!name) throw new ValidationError("API key name is required", { code: "api_key.name_required" });
+
+			changes.name = name;
+		}
+
+		if (input.expiresAtDays !== undefined) {
+			if (input.expiresAtDays !== null && (input.expiresAtDays < 1 || input.expiresAtDays > 3650)) {
+				throw new ValidationError("Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
+			}
+
+			changes.expiresAt = input.expiresAtDays === null ? null : new Date(Date.now() + input.expiresAtDays * 86_400_000);
+		}
+
+		await databaseFactory.getClient().update(apiKeys).set(changes).where(eq(apiKeys.id, id));
+		authenticateCache.clear();
+
+		const after = await this.requireRow(id);
+		recordAuditSafe(
+			{
+				action: "update",
+				resourceType: "api_key",
+				resourceId: id,
+				before: { name: before.name, expiresAt: before.expiresAt?.toISOString() ?? null },
+				after: { name: after.name, expiresAt: after.expiresAt?.toISOString() ?? null },
+				context,
+			},
+			this.logger,
+		);
+
+		return this.serialize(after, await this.creatorName(after.createdBy));
+	}
+
+	/**
+	 * Replaces a key's secret. One UPDATE swaps the stored hash, so the old secret stops matching in the
+	 * same statement that stores the new one. The new secret is returned once; its last-used time resets.
+	 */
+	async rotate(id: string, context?: AdminAuditContext): Promise<ApiKeyCreated> {
+		const row = await this.requireRow(id);
+		const rawKey = this.newRawKey();
+		const keyPrefix = rawKey.slice(0, 12);
+
+		await databaseFactory
+			.getClient()
+			.update(apiKeys)
+			.set({ keyHash: hashKey(rawKey), keyPrefix, lastUsedAt: null, updatedAt: new Date() })
+			.where(eq(apiKeys.id, id));
+		authenticateCache.clear();
+
+		this.logger.info("API key rotated", { keyId: id });
+		recordAuditSafe(
+			{ action: "update", resourceType: "api_key", resourceId: id, summary: "rotated", after: { keyPrefix }, context },
+			this.logger,
+		);
+
+		return {
+			id,
+			name: row.name,
+			keyPrefix,
+			scope: toScope(row.scope),
+			expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+			lastUsedAt: null,
+			createdAt: row.createdAt.toISOString(),
+			key: rawKey,
+		};
+	}
+
+	private async requireRow(id: string): Promise<typeof apiKeys.$inferSelect> {
+		const [row] = await databaseFactory.getClient().select().from(apiKeys).where(eq(apiKeys.id, id)).limit(1);
+		if (!row) throw new NotFoundError("API key not found", { code: "api_key.not_found" });
+
+		return row;
+	}
+
+	private async creatorName(userId: string): Promise<string | null> {
+		const [creator] = await databaseFactory.getClient().select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+
+		return creator?.name ?? null;
+	}
+
+	private newRawKey(): string {
+		return `${KEY_TAG}${randomBytes(KEY_RANDOM_BYTES).toString("base64url")}`;
 	}
 
 	async create(
@@ -63,7 +163,7 @@ class ApiKeysService extends BaseService {
 			throw new ValidationError("Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
 		}
 
-		const rawKey = `${KEY_TAG}${randomBytes(KEY_RANDOM_BYTES).toString("base64url")}`;
+		const rawKey = this.newRawKey();
 		const keyPrefix = rawKey.slice(0, 12);
 		const now = new Date();
 		const expiresAt = input.expiresAtDays !== undefined ? new Date(now.getTime() + input.expiresAtDays * 86_400_000) : null;
@@ -174,7 +274,7 @@ class ApiKeysService extends BaseService {
 		);
 	}
 
-	private serialize(row: typeof apiKeys.$inferSelect): ApiKey {
+	private serialize(row: typeof apiKeys.$inferSelect, createdByName: string | null): ApiKey {
 		return {
 			id: row.id,
 			name: row.name,
@@ -183,6 +283,7 @@ class ApiKeysService extends BaseService {
 			expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
 			lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
 			createdAt: row.createdAt.toISOString(),
+			createdByName,
 		};
 	}
 }

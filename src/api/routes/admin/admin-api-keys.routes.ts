@@ -1,4 +1,10 @@
-import { ApiKeyCreatedSchema, ApiKeyListSchema, CreateApiKeyRequestSchema } from "@reelvault/sdk/common";
+import {
+	ApiKeyCreatedSchema,
+	ApiKeyListSchema,
+	ApiKeySchema,
+	CreateApiKeyRequestSchema,
+	UpdateApiKeyRequestSchema,
+} from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { apiKeysService } from "@/application/admin/api-keys.service";
@@ -38,6 +44,39 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 			response: { ...ROUTE_ERRORS.ADMIN, 201: ApiKeyCreatedSchema },
 			detail: {
 				description: "Create an API key. The raw secret is returned exactly once and never persisted in clear text.",
+			},
+		},
+	)
+	.patch(
+		"/api-keys/:id",
+		async ({ params, body, user, request }) => {
+			requireAdmin(user);
+
+			return await apiKeysService.update(params.id, body, { actorUserId: user.id, headers: request.headers });
+		},
+		{
+			rateLimit: { name: "admin-api-keys-update", max: 30, windowMs: MINUTE },
+			params: t.Object({ id: t.String({ minLength: 1 }) }),
+			body: UpdateApiKeyRequestSchema,
+			response: { ...ROUTE_ERRORS.ADMIN, 200: ApiKeySchema },
+			detail: {
+				description: "Rename an API key or change its expiry. The secret does not change; rotate the key for a new one.",
+			},
+		},
+	)
+	.post(
+		"/api-keys/:id/rotate",
+		async ({ params, user, request }) => {
+			requireAdmin(user);
+
+			return await apiKeysService.rotate(params.id, { actorUserId: user.id, headers: request.headers });
+		},
+		{
+			rateLimit: { name: "admin-api-keys-rotate", max: 10, windowMs: MINUTE },
+			params: t.Object({ id: t.String({ minLength: 1 }) }),
+			response: { ...ROUTE_ERRORS.ADMIN, 200: ApiKeyCreatedSchema },
+			detail: {
+				description: "Replace an API key's secret. The new secret is returned exactly once and the old one stops working at once.",
 			},
 		},
 	)

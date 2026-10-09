@@ -103,3 +103,51 @@ describe("apiKeysService", () => {
 		expect(await apiKeysService.authenticate(created.key)).toBeUndefined();
 	});
 });
+
+describe("apiKeysService rotation and update", () => {
+	test("rotation swaps the secret in one statement: the old key stops, the new one works, the rest of the key stays", async () => {
+		await seedUser("owner-4");
+		const created = await apiKeysService.create({ name: "Rotate me", scope: "full", expiresAtDays: 30, creatorUserId: "owner-4" });
+
+		const rotated = await apiKeysService.rotate(created.id);
+
+		expect(rotated.key).not.toBe(created.key);
+		expect(rotated).toMatchObject({ id: created.id, name: "Rotate me", scope: "full", lastUsedAt: null });
+		expect(rotated.keyPrefix).toBe(rotated.key.slice(0, 12));
+		expect(rotated.expiresAt).not.toBeNull();
+		expect(await apiKeysService.authenticate(created.key)).toBeUndefined();
+		expect((await apiKeysService.authenticate(rotated.key))?.user.id).toBe("owner-4");
+
+		const rows = await client.select({ keyHash: apiKeys.keyHash }).from(apiKeys);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.keyHash).not.toContain(rotated.key);
+	});
+
+	test("update renames a key and changes or removes its expiry, and the list names the creator", async () => {
+		await seedUser("owner-5");
+		const created = await apiKeysService.create({ name: "Old name", scope: "read_only", creatorUserId: "owner-5" });
+
+		const renamed = await apiKeysService.update(created.id, { name: "  New name  ", expiresAtDays: 7 });
+		expect(renamed).toMatchObject({ name: "New name", createdByName: "owner-owner-5" });
+		expect(renamed.expiresAt).not.toBeNull();
+
+		const cleared = await apiKeysService.update(created.id, { expiresAtDays: null });
+		expect(cleared).toMatchObject({ name: "New name", expiresAt: null });
+
+		const listed = await apiKeysService.list();
+		expect(listed.find((item) => item.id === created.id)?.createdByName).toBe("owner-owner-5");
+	});
+
+	test("update refuses an empty name and an out-of-range expiry", async () => {
+		await seedUser("owner-6");
+		const created = await apiKeysService.create({ name: "Guard", scope: "read_only", creatorUserId: "owner-6" });
+
+		await expect(apiKeysService.update(created.id, { name: "   " })).rejects.toMatchObject({ code: "api_key.name_required" });
+		await expect(apiKeysService.update(created.id, { expiresAtDays: 0 })).rejects.toMatchObject({ code: "api_key.expiry_invalid" });
+	});
+
+	test("rotating or updating an unknown key reports api_key.not_found", async () => {
+		await expect(apiKeysService.rotate("missing")).rejects.toMatchObject({ code: "api_key.not_found" });
+		await expect(apiKeysService.update("missing", { name: "x" })).rejects.toMatchObject({ code: "api_key.not_found" });
+	});
+});
