@@ -499,17 +499,7 @@ class WorkerOperationRepository {
 	async purgeTerminalOperations(
 		options: { status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined; cutoffDate?: Date | undefined } = {},
 	): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }> {
-		const statusFilter =
-			options.status === "all_terminal" || !options.status
-				? inArray(operations.status, ["completed", "failed", "cancelled"])
-				: eq(operations.status, options.status);
-
-		const conditions = [statusFilter];
-		if (options.cutoffDate) {
-			conditions.push(lt(operations.createdAt, options.cutoffDate));
-		}
-
-		const where = and(...conditions);
+		const where = terminalOperationsWhere(options);
 		const pageSize = serverConstants.database.queryChunkSize;
 		let deletedJobsCount = 0;
 
@@ -540,12 +530,46 @@ class WorkerOperationRepository {
 		return { deletedOperationsCount, deletedJobsCount };
 	}
 
+	/** What `purgeTerminalOperations` would delete with the same filters: the operations and the jobs grouped under them. */
+	async countTerminalOperations(
+		options: { status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined; cutoffDate?: Date | undefined } = {},
+	): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }> {
+		const where = terminalOperationsWhere(options);
+		const client = databaseFactory.getClient();
+		const [operationRows, jobRows] = await Promise.all([
+			client.select({ value: count() }).from(operations).where(where),
+			client
+				.select({ value: count() })
+				.from(jobs)
+				.where(inArray(jobs.operationId, client.select({ id: operations.id }).from(operations).where(where))),
+		]);
+
+		return { deletedOperationsCount: operationRows[0]?.value ?? 0, deletedJobsCount: jobRows[0]?.value ?? 0 };
+	}
+
 	private withEta(record: WorkerOperationRecord): WorkerOperation {
 		return {
 			...record,
 			etaMs: computeEtaMs(record.completedItems, record.pendingItems, record.startedAt),
 		};
 	}
+}
+
+function terminalOperationsWhere(options: {
+	status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
+	cutoffDate?: Date | undefined;
+}): SQL | undefined {
+	const statusFilter =
+		options.status === "all_terminal" || !options.status
+			? inArray(operations.status, ["completed", "failed", "cancelled"])
+			: eq(operations.status, options.status);
+
+	const conditions = [statusFilter];
+	if (options.cutoffDate) {
+		conditions.push(lt(operations.createdAt, options.cutoffDate));
+	}
+
+	return and(...conditions);
 }
 
 export const workerOperationRepository = new WorkerOperationRepository();

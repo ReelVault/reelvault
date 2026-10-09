@@ -127,6 +127,22 @@ describe("workerJobRepository.findActiveOperations", () => {
 	});
 });
 
+describe("workerJobRepository.countTerminalJobs", () => {
+	test("counts what a purge would delete, removes nothing, and the purge then deletes exactly that many", async () => {
+		insertJob("completed-standalone", "w-1", 1);
+		insertJob("failed-standalone", "w-1", 2, { status: "failed" });
+		insertJob("grouped", "w-1", 3, { operationId: "op-1" });
+		insertJob("still-running", "w-1", 4, { status: "running" });
+
+		expect(await workerJobRepository.countTerminalJobs({ status: "all_terminal" })).toBe(2);
+		expect(await workerJobRepository.countTerminalJobs({ status: "failed" })).toBe(1);
+		expect(remainingIds()).toEqual(["completed-standalone", "failed-standalone", "grouped", "still-running"]);
+
+		expect(await workerJobRepository.purgeTerminalJobs({ status: "all_terminal" })).toBe(2);
+		expect(remainingIds()).toEqual(["grouped", "still-running"]);
+	});
+});
+
 describe("workerJobRepository.purgeTerminalJobs", () => {
 	test("purges standalone terminal jobs but leaves operation-grouped history to the operation purge", async () => {
 		insertJob("standalone", "w-1", 1);

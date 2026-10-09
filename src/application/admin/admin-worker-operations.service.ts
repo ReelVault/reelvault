@@ -289,24 +289,29 @@ class AdminWorkerOperationsService extends BaseService {
 		options: {
 			status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
 			olderThanDays?: number | undefined;
+			dryRun?: boolean | undefined;
 		} = {},
 		context?: AdminAuditContext,
-	): Promise<{ success: true; deletedJobsCount: number; deletedOperationsCount: number }> {
+	): Promise<{ success: true; dryRun: boolean; deletedJobsCount: number; deletedOperationsCount: number }> {
 		const result = await workerService.purgeHistory(options);
 
-		recordAuditSafe(
-			{
-				action: "delete",
-				resourceType: "worker_history",
-				resourceId: options.status ?? "all_terminal",
-				after: { ...options, ...result },
-				context,
-			},
-			this.logger,
-		);
+		// A dry run removes nothing, so there is no change to record.
+		if (!options.dryRun) {
+			recordAuditSafe(
+				{
+					action: "delete",
+					resourceType: "worker_history",
+					resourceId: options.status ?? "all_terminal",
+					after: { ...options, ...result },
+					context,
+				},
+				this.logger,
+			);
+		}
 
 		return {
 			success: true,
+			dryRun: options.dryRun === true,
 			deletedJobsCount: result.deletedJobsCount,
 			deletedOperationsCount: result.deletedOperationsCount,
 		};

@@ -355,6 +355,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Features
 
+- **Preview a worker history purge** — `POST /admin/workers/purge-history` with `dryRun: true` counts the operations and jobs a purge would remove. It deletes nothing and leaves no audit entry.
 - **Cancel a running update** — `POST /admin/update/cancel` stops an install that is still downloading, verifying or extracting. The download aborts at once and the run is recorded as `cancelled`, not as a failure, with no failure notice. Once files are being replaced the install runs to completion and the request is refused with `update.not_cancellable`.
 - **Server updates wait for playback** — a server install or rollback restarts the process, which ends every stream, so `POST /admin/update/install` and `POST /admin/update/rollback` are refused with `update.blocked_active_streams` (409, with the active stream count) while streams play. Both accept `force: true` to restart anyway. Web UI updates are unaffected because they swap files without a restart.
 - **Change password** — `POST /v1/auth/change-password` lets a signed-in user change their password. A wrong current password returns `auth.invalid_current_password` (400, so clients do not treat it as an expired session), a too short or too long one `auth.weak_password`. All other sessions are revoked; the current session stays signed in.

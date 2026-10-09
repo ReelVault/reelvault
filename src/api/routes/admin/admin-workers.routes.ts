@@ -163,7 +163,10 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			rateLimit: { name: "admin-workers-purge-history", max: 10, windowMs: MINUTE },
 			body: t.Optional(PurgeWorkerHistoryOptionsSchema),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.purgeHistoryResponse" },
-			detail: { description: "Purge completed, failed, or cancelled historical worker jobs and operations." },
+			detail: {
+				description:
+					"Purge completed, failed, or cancelled historical worker jobs and operations. With `dryRun: true` nothing is deleted and the response counts what a purge would remove.",
+			},
 		},
 	)
 

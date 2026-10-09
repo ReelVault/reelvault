@@ -214,7 +214,11 @@ class WorkerService extends BaseService {
 	}
 
 	async purgeHistory(
-		options: { status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined; olderThanDays?: number | undefined } = {},
+		options: {
+			status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
+			olderThanDays?: number | undefined;
+			dryRun?: boolean | undefined;
+		} = {},
 	): Promise<{ deletedJobsCount: number; deletedOperationsCount: number }> {
 		// Operations and standalone jobs purge independently (no FK between the
 		// tables), so both DELETE scans can run concurrently.

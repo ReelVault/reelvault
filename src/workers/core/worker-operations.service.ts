@@ -199,15 +199,20 @@ export class WorkerOperationsService extends BaseService {
 		return cancelled;
 	}
 
+	/** With `dryRun` nothing is deleted: the result counts the operations and jobs a purge would remove. */
 	purgeHistory(
-		options: { status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined; olderThanDays?: number | undefined } = {},
+		options: {
+			status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
+			olderThanDays?: number | undefined;
+			dryRun?: boolean | undefined;
+		} = {},
 	): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }> {
 		const cutoffDate = options.olderThanDays && options.olderThanDays > 0 ? daysAgo(options.olderThanDays) : undefined;
+		const filter = { status: options.status, cutoffDate };
 
-		return workerOperationRepository.purgeTerminalOperations({
-			status: options.status,
-			cutoffDate,
-		});
+		return options.dryRun
+			? workerOperationRepository.countTerminalOperations(filter)
+			: workerOperationRepository.purgeTerminalOperations(filter);
 	}
 
 	cleanupExpired(): Promise<number> {

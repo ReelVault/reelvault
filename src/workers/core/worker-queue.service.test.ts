@@ -292,6 +292,25 @@ describe("WorkerQueueService cancellation", () => {
 });
 
 describe("WorkerQueueService.purgeHistory", () => {
+	test("with dryRun it counts the standalone jobs and deletes nothing", async () => {
+		const queue = new WorkerQueueService();
+		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
+		const count = stubMethod(workerJobRepository, "countTerminalJobs", (_opts?: { status?: string; cutoffDate?: Date }) =>
+			Promise.resolve(4),
+		);
+		const purge = stubMethod(workerJobRepository, "purgeTerminalJobs", (_opts?: { status?: string; cutoffDate?: Date }) =>
+			Promise.resolve(0),
+		);
+
+		const counted = await queue.purgeHistory({ status: "failed", dryRun: true });
+		count.restore();
+		purge.restore();
+
+		expect(counted).toBe(4);
+		expect(count.calls[0]?.[0]).toEqual({ status: "failed", cutoffDate: undefined });
+		expect(purge.calls).toEqual([]);
+	});
+
 	test("converts olderThanDays into a cutoff date and passes the status through", async () => {
 		const queue = new WorkerQueueService();
 		const { workerJobRepository } = await import("@/database/repositories/worker.repository");

@@ -1011,26 +1011,40 @@ class WorkerJobRepository {
 		return result.changes;
 	}
 
-	async purgeTerminalJobs(
-		options: { status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined; cutoffDate?: Date | undefined } = {},
-	): Promise<number> {
-		const statusFilter =
-			options.status === "all_terminal" || !options.status
-				? inArray(items.status, ["completed", "failed", "cancelled"])
-				: eq(items.status, options.status);
-
-		const conditions = [statusFilter, isNull(items.operationId)];
-		if (options.cutoffDate) {
-			conditions.push(lt(items.createdAt, options.cutoffDate));
-		}
-
-		const where = and(...conditions);
+	async purgeTerminalJobs(options: TerminalJobPurgeOptions = {}): Promise<number> {
 		// `changes` avoids materializing every deleted id (weekly purge can span
 		// hundreds of thousands of rows on a busy ingest box).
-		const result = await databaseFactory.getClient().delete(items).where(where);
+		const result = await databaseFactory.getClient().delete(items).where(terminalStandaloneJobsWhere(options));
 
 		return result.changes;
 	}
+
+	/** Rows `purgeTerminalJobs` would delete with the same filters; nothing is removed. */
+	async countTerminalJobs(options: TerminalJobPurgeOptions = {}): Promise<number> {
+		const [row] = await databaseFactory.getClient().select({ value: count() }).from(items).where(terminalStandaloneJobsWhere(options));
+
+		return row?.value ?? 0;
+	}
+}
+
+interface TerminalJobPurgeOptions {
+	status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
+	cutoffDate?: Date | undefined;
+}
+
+/** Operation-less jobs in a terminal state, optionally older than the cutoff. */
+function terminalStandaloneJobsWhere(options: TerminalJobPurgeOptions): SQL | undefined {
+	const statusFilter =
+		options.status === "all_terminal" || !options.status
+			? inArray(items.status, ["completed", "failed", "cancelled"])
+			: eq(items.status, options.status);
+
+	const conditions = [statusFilter, isNull(items.operationId)];
+	if (options.cutoffDate) {
+		conditions.push(lt(items.createdAt, options.cutoffDate));
+	}
+
+	return and(...conditions);
 }
 
 export const workerJobRepository = new WorkerJobRepository();

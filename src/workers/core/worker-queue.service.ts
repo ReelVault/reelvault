@@ -116,15 +116,18 @@ export class WorkerQueueService extends BaseService {
 		return count;
 	}
 
+	/** With `dryRun` nothing is deleted: the result counts the standalone jobs a purge would remove. */
 	purgeHistory(
-		options: { status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined; olderThanDays?: number | undefined } = {},
+		options: {
+			status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
+			olderThanDays?: number | undefined;
+			dryRun?: boolean | undefined;
+		} = {},
 	): Promise<number> {
 		const cutoffDate = options.olderThanDays && options.olderThanDays > 0 ? daysAgo(options.olderThanDays) : undefined;
+		const filter = { status: options.status, cutoffDate };
 
-		return workerJobRepository.purgeTerminalJobs({
-			status: options.status,
-			cutoffDate,
-		});
+		return options.dryRun ? workerJobRepository.countTerminalJobs(filter) : workerJobRepository.purgeTerminalJobs(filter);
 	}
 
 	private buildWorkerItemInput(

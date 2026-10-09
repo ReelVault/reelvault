@@ -220,6 +220,47 @@ describe("workerOperationRepository resume accounting", () => {
 	});
 });
 
+describe("workerOperationRepository purge counts", () => {
+	test("counts what a purge would delete, removes nothing, and the purge then deletes exactly that", async () => {
+		const { factory, db } = createFactory();
+		try {
+			const now = Math.floor(Date.now() / 1000);
+			insertOperation(db, "op-done", "completed", null, now);
+			insertOperation(db, "op-failed", "failed", null, now);
+			insertOperation(db, "op-running", "running", null, now);
+			const grouped: Array<{ id: string; operationId: string; status: string }> = [
+				{ id: "job-1", operationId: "op-done", status: "completed" },
+				{ id: "job-2", operationId: "op-done", status: "completed" },
+				{ id: "job-3", operationId: "op-failed", status: "failed" },
+			];
+			for (const job of grouped) {
+				db.run(
+					"INSERT INTO worker_jobs (id, worker_id, operation_id, data, status, run_at, created_at, updated_at) VALUES (?, 'w-1', ?, '{}', ?, ?, ?, ?)",
+					[job.id, job.operationId, job.status, now, now, now],
+				);
+			}
+
+			await expect(workerOperationRepository.countTerminalOperations({ status: "all_terminal" })).resolves.toEqual({
+				deletedOperationsCount: 2,
+				deletedJobsCount: 3,
+			});
+			await expect(workerOperationRepository.countTerminalOperations({ status: "failed" })).resolves.toEqual({
+				deletedOperationsCount: 1,
+				deletedJobsCount: 1,
+			});
+			expect(existingIds(db)).toEqual(["op-done", "op-failed", "op-running"]);
+
+			await expect(workerOperationRepository.purgeTerminalOperations({ status: "all_terminal" })).resolves.toEqual({
+				deletedOperationsCount: 2,
+				deletedJobsCount: 3,
+			});
+			expect(existingIds(db)).toEqual(["op-running"]);
+		} finally {
+			factory.shutdown();
+		}
+	});
+});
+
 describe("workerOperationRepository retention", () => {
 	test("expired retention never removes pending or running operations", async () => {
 		const { factory, db } = createFactory();
