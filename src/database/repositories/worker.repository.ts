@@ -191,19 +191,32 @@ class WorkerJobRepository {
 		);
 	}
 
-	async listItems(limit = 100, workerId?: string, status?: WorkerItemStatus): Promise<WorkerItemSummary[]> {
+	async listItems(options: {
+		limit: number;
+		offset: number;
+		workerId?: string | undefined;
+		status?: WorkerItemStatus | undefined;
+	}): Promise<{ items: WorkerItemSummary[]; total: number }> {
 		const conditions: SQL[] = [];
-		if (workerId) conditions.push(eq(items.workerId, workerId));
+		if (options.workerId) conditions.push(eq(items.workerId, options.workerId));
 
-		if (status) conditions.push(eq(items.status, status));
+		if (options.status) conditions.push(eq(items.status, options.status));
 
-		return await databaseFactory
-			.getClient()
-			.select(workerJobSummaryColumns)
-			.from(items)
-			.where(conditions.length > 0 ? and(...conditions) : undefined)
-			.orderBy(desc(items.createdAt))
-			.limit(limit);
+		const where = conditions.length > 0 ? and(...conditions) : undefined;
+		const client = databaseFactory.getClient();
+		const [countRows, rows] = await Promise.all([
+			client.select({ count: count() }).from(items).where(where),
+			client
+				.select(workerJobSummaryColumns)
+				.from(items)
+				.where(where)
+				// created_at has second resolution — the id tiebreaker keeps offset pagination stable.
+				.orderBy(desc(items.createdAt), desc(items.id))
+				.limit(options.limit)
+				.offset(options.offset),
+		]);
+
+		return { items: rows, total: countRows[0]?.count ?? 0 };
 	}
 
 	async findPendingWorkerIds(now: Date = new Date()): Promise<string[]> {

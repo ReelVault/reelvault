@@ -15,7 +15,7 @@ import {
 	WorkerSummarySchema,
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
-import { ClampedNumeric, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { OperationIdParams, WorkerIdParams } from "@/api/schemas/route-params";
 import { adminWorkerOperationsService } from "@/application/admin/admin-worker-operations.service";
 import { MINUTE } from "@/server.constants";
@@ -29,7 +29,7 @@ function toCancelPendingResponse(count: number) {
 export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.workerSummaries": t.Array(WorkerSummarySchema),
-		"admin.workerJobs": t.Array(WorkerJobSchema),
+		"admin.workerJobs": PaginatedResponseSchema(WorkerJobSchema),
 		"admin.workerJob": WorkerJobSchema,
 		"admin.workerOperation": WorkerOperationSchema,
 		"admin.workerOperations": PaginatedResponseSchema(WorkerOperationSchema),
@@ -141,14 +141,17 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		},
 	)
 
-	.get("/workers/jobs", async ({ query }) => await adminWorkerOperationsService.getItems(query.limit, query.workerId), {
+	.get("/workers/jobs", async ({ query }) => await adminWorkerOperationsService.getItems(query), {
 		rateLimit: { name: "admin-workers-jobs-list", max: 120, windowMs: MINUTE },
-		query: t.Object({
-			limit: t.Optional(ClampedNumeric(1, 100)),
-			workerId: t.Optional(t.String({ maxLength: 128 })),
-		}),
+		query: t.Composite([
+			PaginationSchema,
+			t.Object({
+				workerId: t.Optional(t.String({ maxLength: 128 })),
+				status: t.Optional(WorkerJobStateSchema),
+			}),
+		]),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.workerJobs" },
-		detail: { description: "List queued, running, and finished worker jobs." },
+		detail: { description: "List queued, running, and finished worker jobs, one page at a time, filtered by worker and status." },
 	})
 	.get("/workers/jobs/:jobId", async ({ params }) => await adminWorkerOperationsService.getItem(params.jobId), {
 		rateLimit: { name: "admin-workers-jobs-get", max: 120, windowMs: MINUTE },

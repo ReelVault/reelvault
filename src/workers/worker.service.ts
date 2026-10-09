@@ -153,10 +153,15 @@ class WorkerService extends BaseService {
 		return item ? toJobContract(item) : undefined;
 	}
 
-	async listItems(limit = 100, workerId?: string): Promise<WorkerItemContract[]> {
-		const items = await this.queue.listJobs(limit, workerId);
+	async listItems(options: {
+		limit: number;
+		offset: number;
+		workerId?: string | undefined;
+		status?: WorkerItem["status"] | undefined;
+	}): Promise<{ items: WorkerItemContract[]; total: number }> {
+		const { items, total } = await this.queue.listJobs(options);
 
-		return items.map((i) => toJobContract(i));
+		return { items: items.map((i) => toJobContract(i)), total };
 	}
 
 	async cancelItem(id: string): Promise<boolean> {

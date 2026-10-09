@@ -327,7 +327,7 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 	};
 
 	adminWorkerOperationsService.getWorkerSummaries = async () => [mockSummary];
-	adminWorkerOperationsService.getItems = async () => [mockItem];
+	adminWorkerOperationsService.getItems = async () => ({ page: 1, limit: 50, total: 1, totalPages: 1, data: [mockItem] });
 	adminWorkerOperationsService.getItem = async () => mockItem;
 	adminWorkerOperationsService.cancelItem = async () => ({ success: true });
 	adminWorkerOperationsService.cancelPendingItems = async (workerId?: string) => ({ count: workerId ? 5 : 12 });
@@ -349,7 +349,7 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 	try {
 		const itemsRes = await app.handle(new Request("http://localhost/admin/workers/jobs", { headers: { authorization: "Bearer admin" } }));
 		expect(itemsRes.status).toBe(200);
-		expect((await itemsRes.json()).length).toBe(1);
+		expect((await itemsRes.json()).data.length).toBe(1);
 
 		const itemRes = await app.handle(
 			new Request("http://localhost/admin/workers/jobs/item-1", { headers: { authorization: "Bearer admin" } }),

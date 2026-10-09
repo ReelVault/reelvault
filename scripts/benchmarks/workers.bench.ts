@@ -159,7 +159,7 @@ if (!args.help) {
 	bench(
 		"Worker list items (status + worker filter)",
 		async () => {
-			return await workerJobRepository.listItems(50, WORKER_ID, "running");
+			return await workerJobRepository.listItems({ limit: 50, offset: 0, workerId: WORKER_ID, status: "running" });
 		},
 		{ iterations: args.iterations },
 	);

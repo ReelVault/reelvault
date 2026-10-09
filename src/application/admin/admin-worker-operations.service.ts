@@ -1,6 +1,7 @@
 import type { TaskTrigger, WorkerCategory, WorkerCategoryRunResponse, WorkerSummary } from "@reelvault/sdk/common";
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
+import { QueryPagination } from "@/database/utils/pagination";
 import { BaseService } from "@/utils/base-service";
 import { ConflictError } from "@/utils/errors";
 import { workerService } from "../../workers/worker.service";
@@ -62,8 +63,23 @@ class AdminWorkerOperationsService extends BaseService {
 		return result;
 	}
 
-	getItems(limit?: number, workerId?: string) {
-		return workerService.listItems(limit, workerId);
+	async getItems(
+		query: {
+			page?: number | undefined;
+			limit?: number | undefined;
+			workerId?: string | undefined;
+			status?: "pending" | "running" | "completed" | "failed" | "cancelled" | undefined;
+		} = {},
+	) {
+		const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 50 });
+		const result = await workerService.listItems({
+			workerId: query.workerId,
+			status: query.status,
+			limit: pagination.limit,
+			offset: pagination.offset,
+		});
+
+		return QueryPagination.createResponse({ total: result.total, pagination, data: result.items });
 	}
 
 	async getItem(id: string) {

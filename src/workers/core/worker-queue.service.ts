@@ -4,7 +4,6 @@ import {
 	type ActiveWorkerItem,
 	type EnqueueWorkerItemInput,
 	type WorkerItem,
-	type WorkerItemSummary,
 	workerJobRepository,
 } from "@/database/repositories/worker.repository";
 import { serverConfig } from "@/server.config";
@@ -88,8 +87,8 @@ export class WorkerQueueService extends BaseService {
 		return workerJobRepository.findItem(id);
 	}
 
-	listJobs(limit = 100, workerId?: string, status?: WorkerItem["status"]): Promise<WorkerItemSummary[]> {
-		return workerJobRepository.listItems(limit, workerId, status);
+	listJobs(options: { limit: number; offset: number; workerId?: string | undefined; status?: WorkerItem["status"] | undefined }) {
+		return workerJobRepository.listItems(options);
 	}
 
 	async cancelJob(id: string): Promise<boolean> {
