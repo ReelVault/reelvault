@@ -21,8 +21,10 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			group,
 			type: "string",
 			default: defaultValue,
-			parse: (raw) => stringCodec.parse(raw) ?? defaultValue.trim(),
-			validate: (raw) => stringCodec.parse(raw),
+			parse: (raw) => stringCodec.parse(raw) ?? (defaultValue === "" ? "" : defaultValue.trim()),
+			// A setting whose default is empty must accept "" as a real value (e.g. hwaccelDevice);
+			// every other string setting still rejects an empty input.
+			validate: (raw) => stringCodec.parse(raw) ?? (defaultValue === "" ? "" : null),
 			serialize: (val) => stringCodec.serialize(String(val)),
 		}),
 		number: (key, min, max, defaultValue) => ({

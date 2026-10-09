@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { libraryWatcherService } from "@/application/libraries/watching/library-watcher.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { systemSettingsRepository } from "@/database/repositories/system-settings.repository";
 import { stubMethod } from "../../../tests/helpers/method-stub";
@@ -80,5 +81,48 @@ describe("systemSettingsService field-level feedback", () => {
 			.find((entry) => entry.key === "stream.maxSessions");
 
 		expect(item).toMatchObject({ type: "number", min: 1, max: 100 });
+	});
+});
+
+describe("systemSettingsService default pruning", () => {
+	test("saving the definition default drops the override instead of persisting it", async () => {
+		const setMany = stubSettingsPersistence();
+		const deleteMany = stubMethod(systemSettingsRepository, "deleteMany", () => Promise.resolve());
+		stubs.push(deleteMany);
+
+		await systemSettingsService.updateSettings({ "stream.maxSessions": 5 });
+
+		expect(setMany.calls.length).toBe(0);
+		expect(deleteMany.calls[0]?.[0]).toEqual(["stream.maxSessions"]);
+		expect(systemSettingsStore.getWithMeta("stream.maxSessions").isCustom).toBe(false);
+	});
+
+	test("an empty string is accepted for a setting whose default is empty", async () => {
+		stubSettingsPersistence();
+		stubs.push(stubMethod(systemSettingsRepository, "deleteMany", () => Promise.resolve()));
+
+		await systemSettingsService.updateSettings({ "plugins.http.allowedDomains": "" });
+
+		expect(systemSettingsStore.get("plugins.http.allowedDomains")).toBe("");
+	});
+
+	test("an empty string is still rejected for a setting with a non-empty default", async () => {
+		stubSettingsPersistence();
+
+		await expect(systemSettingsService.updateSettings({ "ffprobe.path": "" })).rejects.toMatchObject({
+			code: "admin.settings.invalid_value",
+		});
+	});
+});
+
+describe("systemSettingsService watcher side effects", () => {
+	test("re-syncs watchers when the fallback interval changes", async () => {
+		stubSettingsPersistence();
+		const syncWatchers = stubMethod(libraryWatcherService, "syncWatchers", () => Promise.resolve());
+		stubs.push(syncWatchers);
+
+		await systemSettingsService.updateSettings({ "scanning.watcherFallbackIntervalMinutes": 45 });
+
+		expect(syncWatchers.calls.length).toBe(1);
 	});
 });

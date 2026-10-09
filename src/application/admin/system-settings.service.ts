@@ -140,6 +140,7 @@ class SystemSettingsService extends BaseService {
 		await this.ensureInitialized();
 
 		const dbEntries: Array<{ key: string; value: string }> = [];
+		const prunedKeys: SystemSettingKey[] = [];
 		const beforeValues: Record<string, unknown> = {};
 		const afterValues = new Map<SystemSettingKey, SystemSettingValue<SystemSettingKey>>();
 
@@ -153,22 +154,34 @@ class SystemSettingsService extends BaseService {
 
 			// Record "before" only after successful parsing — the audit must contain real changes only.
 			beforeValues[key] = systemSettingsStore.getWithMeta(key).value;
+			afterValues.set(key, parsedValue);
+
+			// Saving the definition default drops the override instead of persisting it:
+			// a stored default shadows env-based fallbacks (APP_FFMPEG_PATH) and survives resets.
+			if (isDefaultSettingValue(SYSTEM_SETTINGS[key].default, parsedValue)) {
+				prunedKeys.push(key);
+				continue;
+			}
 
 			dbEntries.push({ key, value: finalSerialized });
-			afterValues.set(key, parsedValue);
 		}
 
 		// Cross-field rules are checked against the resulting effective config and
 		// reject the whole batch before anything is persisted or mutated.
 		assertCrossFieldSettings(updates, afterValues);
 
-		if (dbEntries.length > 0) {
+		if (dbEntries.length > 0 || prunedKeys.length > 0) {
 			// Persist first: a failed write must not leave the runtime overrides
 			// diverged from what is actually stored.
-			await systemSettingsRepository.setMany(dbEntries);
+			if (dbEntries.length > 0) await systemSettingsRepository.setMany(dbEntries);
+			if (prunedKeys.length > 0) await systemSettingsRepository.deleteMany(prunedKeys);
 			for (const [key, value] of afterValues.entries()) {
+				if (prunedKeys.includes(key)) continue;
+
 				systemSettingsStore.setParsedRuntimeValue(key, value);
 			}
+
+			if (prunedKeys.length > 0) systemSettingsStore.deleteRuntimeValues(prunedKeys);
 
 			recordAuditSafe(
 				{
@@ -244,7 +257,15 @@ class SystemSettingsService extends BaseService {
 		let needsFfmpegReload = false;
 		let changesProfileDefaults = false;
 		for (const key of keys) {
-			if (key.startsWith("scanning.autoWatcher")) needsWatcherSync = true;
+			// The watcher reads its fallback interval when arming timers, so a change
+			// must re-arm them; the same applies to the periodic rescan deadline.
+			if (
+				key.startsWith("scanning.autoWatcher") ||
+				key === "scanning.watcherFallbackIntervalMinutes" ||
+				key === "scanning.scheduledScanIntervalHours"
+			) {
+				needsWatcherSync = true;
+			}
 
 			if (key.startsWith("profiles.defaultPreferences.")) changesProfileDefaults = true;
 
@@ -316,4 +337,18 @@ function assertCrossFieldSettings(updates: Record<string, unknown>, afterValues:
 			});
 		}
 	}
+}
+
+/** Deep equality for the primitive and string-array values settings use. */
+function isDefaultSettingValue(defaultValue: unknown, value: unknown): boolean {
+	if (Array.isArray(defaultValue) || Array.isArray(value)) {
+		return (
+			Array.isArray(defaultValue) &&
+			Array.isArray(value) &&
+			defaultValue.length === value.length &&
+			defaultValue.every((item, index) => item === value[index])
+		);
+	}
+
+	return defaultValue === value;
 }
