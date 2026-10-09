@@ -4,8 +4,11 @@ import {
 	AdminSetUserPasswordSchema,
 	AdminUserProfileSchema,
 	AdminUserSchema,
+	AdminUserSessionsPageSchema,
 	AdminUsersPageSchema,
 	ProfilePreferencesSchema,
+	RevokeUsersSessionsResultSchema,
+	RevokeUsersSessionsSchema,
 	SuccessResponseSchema,
 	UpdateProfilePreferencesSchema,
 } from "@reelvault/sdk/common";
@@ -65,6 +68,52 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 		},
 		detail: { description: "Retrieve user account and profiles in one call." },
 	})
+	.get("/users/:userId/sessions", async ({ params, query }) => await adminUsersService.getSessions(params.userId, query), {
+		params: UserIdParams,
+		query: t.Optional(
+			t.Object({
+				page: t.Optional(ClampedNumeric(1, 1000, { default: 1 })),
+				limit: t.Optional(ClampedNumeric(1, 100, { default: 25 })),
+			}),
+		),
+		rateLimit: { name: "admin-user-sessions", max: 60, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: AdminUserSessionsPageSchema },
+		detail: {
+			description: "List a user's sessions that have not expired: device, address and times. Tokens are never included.",
+		},
+	})
+	.delete(
+		"/users/:userId/sessions/:sessionId",
+		async ({ params, user, request }) => {
+			await adminUsersService.revokeSession(params.userId, params.sessionId, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			});
+
+			return { success: true };
+		},
+		{
+			params: t.Object({ userId: t.String({ minLength: 1 }), sessionId: t.String({ minLength: 1 }) }),
+			rateLimit: { name: "admin-user-session-revoke", max: 60, windowMs: MINUTE },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
+			detail: {
+				description: "End one of a user's sessions. The session is signed out on its next request.",
+			},
+		},
+	)
+	.post(
+		"/users/sessions/revoke",
+		async ({ body, user, request }) =>
+			await adminUsersService.revokeSessionsForUsers(body.userIds, { actorUserId: user?.id, headers: request.headers }),
+		{
+			body: RevokeUsersSessionsSchema,
+			rateLimit: { name: "admin-user-sessions-revoke", max: 10, windowMs: MINUTE },
+			response: { ...ROUTE_ERRORS.ADMIN, 200: RevokeUsersSessionsResultSchema },
+			detail: {
+				description: "End every session of several users at once (up to 100 users). The change is audited.",
+			},
+		},
+	)
 	.get("/users/:userId/profiles", async ({ params }) => await adminUsersService.getProfiles(params.userId), {
 		rateLimit: { name: "admin-users-profiles-list", max: 120, windowMs: MINUTE },
 		params: UserIdParams,

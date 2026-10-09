@@ -1,9 +1,15 @@
 import type { PaginationQuery } from "@reelvault/sdk/common";
-import { and, desc, eq, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount } from "@/database/table-access";
 import { QueryPagination } from "@/database/utils/pagination";
+
+/** How a user's sessions have been used: the latest use, and how many sessions are still valid. */
+export interface SessionActivity {
+	lastActiveAt: Date | null;
+	activeSessionCount: number;
+}
 
 class SessionsRepository {
 	readonly table = schema.sessions;
@@ -60,6 +66,57 @@ class SessionsRepository {
 			.getClient()
 			.delete(this.table)
 			.where(and(eq(this.table.userId, userId), ne(this.table.id, currentSessionId)));
+	}
+
+	/** Activity per user in one query; users without sessions are absent from the map. */
+	async findActivitySummaryByUserIds(userIds: readonly string[]): Promise<Map<string, SessionActivity>> {
+		const summary = new Map<string, SessionActivity>();
+		if (userIds.length === 0) return summary;
+
+		const nowSeconds = Math.floor(Date.now() / 1000);
+		const rows = await databaseFactory
+			.getClient()
+			.select({
+				userId: this.table.userId,
+				lastUsedSeconds: sql<number | null>`max(${this.table.updatedAt})`,
+				activeSessionCount: sql<number>`sum(case when ${this.table.expiresAt} > ${nowSeconds} then 1 else 0 end)`,
+			})
+			.from(this.table)
+			.where(inArray(this.table.userId, [...userIds]))
+			.groupBy(this.table.userId);
+
+		for (const row of rows) {
+			summary.set(row.userId, {
+				lastActiveAt: row.lastUsedSeconds === null ? null : new Date(row.lastUsedSeconds * 1000),
+				activeSessionCount: row.activeSessionCount,
+			});
+		}
+
+		return summary;
+	}
+
+	/** Ends one session of a user; false when the user has no such session. */
+	async deleteForUser({ userId, sessionId }: { userId: string; sessionId: string }): Promise<boolean> {
+		const deleted = await databaseFactory
+			.getClient()
+			.delete(this.table)
+			.where(and(eq(this.table.id, sessionId), eq(this.table.userId, userId)))
+			.returning({ id: this.table.id });
+
+		return deleted.length > 0;
+	}
+
+	/** Ends every session of the listed users; returns how many were ended. */
+	async deleteForUsers(userIds: readonly string[]): Promise<number> {
+		if (userIds.length === 0) return 0;
+
+		const deleted = await databaseFactory
+			.getClient()
+			.delete(this.table)
+			.where(inArray(this.table.userId, [...userIds]))
+			.returning({ id: this.table.id });
+
+		return deleted.length;
 	}
 
 	async deleteAllForUser(userId: string): Promise<void> {

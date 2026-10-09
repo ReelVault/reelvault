@@ -12,7 +12,7 @@ import type {
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
-import { sessionsRepository } from "@/database/repositories/sessions.repository";
+import { type SessionActivity, sessionsRepository } from "@/database/repositories/sessions.repository";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { QueryPagination } from "@/database/utils/pagination";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
@@ -59,8 +59,67 @@ class AdminUsersService extends BaseService {
 
 			return {
 				...QueryPagination.buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),
-				data: data.map((item) => toAdminUser(item)),
+				data: await this.toAdminUsers(data),
 			};
+		});
+	}
+
+	/** Per-user session activity for a page of users, in one query. */
+	private async toAdminUsers(users: AdminUserRow[]): Promise<AdminUser[]> {
+		const activity = await sessionsRepository.findActivitySummaryByUserIds(users.map((user) => user.id));
+
+		return users.map((user) => toAdminUser(user, activity.get(user.id)));
+	}
+
+	private async activityOf(userId: string): Promise<SessionActivity | undefined> {
+		return (await sessionsRepository.findActivitySummaryByUserIds([userId])).get(userId);
+	}
+
+	/** The user's sessions that have not expired, newest first. Tokens are never returned. */
+	async getSessions(userId: string, query: { page?: number; limit?: number }) {
+		return await this.safeExecute("getSessions", async () => {
+			const user = await usersRepository.findById(userId);
+			this.assertExists(user, "User", userId);
+
+			const page = await sessionsRepository.findActivePageByUserId(userId, query);
+
+			return {
+				...page,
+				data: page.data.map((session) => ({
+					id: session.id,
+					ipAddress: session.ipAddress,
+					userAgent: session.userAgent,
+					createdAt: session.createdAt.toISOString(),
+					updatedAt: session.updatedAt.toISOString(),
+					expiresAt: session.expiresAt.toISOString(),
+				})),
+			};
+		});
+	}
+
+	/** Ends one session of a user. */
+	async revokeSession(userId: string, sessionId: string, context?: AdminAuditContext) {
+		return await this.safeExecute("revokeSession", async () => {
+			const revoked = await sessionsRepository.deleteForUser({ userId, sessionId });
+			this.assertExists(revoked || undefined, "Session", sessionId);
+
+			recordAuditSafe({ action: "delete", resourceType: "user_session", resourceId: sessionId, after: { userId }, context }, this.logger);
+
+			return { success: true };
+		});
+	}
+
+	/** Ends every session of the listed users at once. */
+	async revokeSessionsForUsers(userIds: string[], context?: AdminAuditContext) {
+		return await this.safeExecute("revokeSessionsForUsers", async () => {
+			const revokedSessions = await sessionsRepository.deleteForUsers(userIds);
+
+			recordAuditSafe(
+				{ action: "delete", resourceType: "user_session", resourceId: "bulk", after: { userIds, revokedSessions }, context },
+				this.logger,
+			);
+
+			return { revokedSessions };
 		});
 	}
 
@@ -69,7 +128,7 @@ class AdminUsersService extends BaseService {
 			const user = await usersRepository.findById(userId);
 			this.assertExists(user, "User", userId);
 
-			return toAdminUser(user);
+			return toAdminUser(user, await this.activityOf(userId));
 		});
 	}
 
@@ -370,7 +429,9 @@ class AdminUsersService extends BaseService {
 	}
 }
 
-function toAdminUser(user: NonNullable<Awaited<ReturnType<typeof usersRepository.selectFirst>>>): AdminUser {
+type AdminUserRow = NonNullable<Awaited<ReturnType<typeof usersRepository.selectFirst>>>;
+
+function toAdminUser(user: AdminUserRow, activity?: SessionActivity): AdminUser {
 	return {
 		id: user.id,
 		name: user.name,
@@ -382,6 +443,8 @@ function toAdminUser(user: NonNullable<Awaited<ReturnType<typeof usersRepository
 		twoFactorEnabled: user.twoFactorEnabled,
 		createdAt: user.createdAt.toISOString(),
 		updatedAt: user.updatedAt.toISOString(),
+		lastActiveAt: activity?.lastActiveAt?.toISOString() ?? null,
+		activeSessionCount: activity?.activeSessionCount ?? 0,
 	};
 }
 
