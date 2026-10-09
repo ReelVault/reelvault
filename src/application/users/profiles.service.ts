@@ -98,9 +98,16 @@ class ProfilesService extends BaseService {
 			const isExists = await profilesRepository.isNameTaken({ userId, name: body.name });
 			if (isExists) throw new ConflictError("Profile with the same name already exists", { code: "profile.name_conflict" });
 
-			const payload = { ...body, pin: await hashProfilePin(body.pin) };
+			// The source profile is checked before anything is created; the copy itself runs after the profile exists.
+			const { copyPreferencesFromProfileId, ...profileBody } = body;
+			if (copyPreferencesFromProfileId) await this.assertOwnedProfile(copyPreferencesFromProfileId, userId);
+
+			const payload = { ...profileBody, pin: await hashProfilePin(profileBody.pin) };
 			const profile = await profilesRepository.createAndRead(userId, payload, query);
 			this.assertExists(profile, "Profile", "newly created");
+			if (copyPreferencesFromProfileId) {
+				await profilePreferencesRepository.copyFrom({ sourceProfileId: copyPreferencesFromProfileId, targetProfileId: profile.id });
+			}
 
 			return this.#stripPin(await this.localizeAndPersistAvatar(profile.id, profile));
 		});
@@ -225,6 +232,16 @@ class ProfilesService extends BaseService {
 			await this.assertOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.applyUpdate({ profileId, body });
+		});
+	}
+
+	/** Copies another profile's preference overrides onto this one; both profiles must belong to the same account. */
+	async copyPreferences(profileId: string, sourceProfileId: string, userId?: string): Promise<ProfilePreferences> {
+		return await this.safeExecute("copyPreferences", async () => {
+			await this.assertOwnedProfile(profileId, userId);
+			await this.assertOwnedProfile(sourceProfileId, userId);
+
+			return await profilePreferencesRepository.copyFrom({ sourceProfileId, targetProfileId: profileId });
 		});
 	}
 

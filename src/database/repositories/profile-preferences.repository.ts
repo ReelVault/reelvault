@@ -138,6 +138,23 @@ export class ProfilePreferencesRepository {
 		return await this.getEffective({ profileId, tx });
 	}
 
+	/** Replaces the target profile's overrides with a copy of the source profile's, in one transaction. */
+	async copyFrom({ sourceProfileId, targetProfileId }: { sourceProfileId: string; targetProfileId: string }): Promise<ProfilePreferences> {
+		const overrides = await this.listByProfileId({ profileId: sourceProfileId });
+
+		await databaseFactory.transaction(async (tx) => {
+			await this.database.getClient({ tx }).delete(this.table).where(eq(this.table.profileId, targetProfileId));
+			await this.setMany({
+				profileId: targetProfileId,
+				entries: Object.entries(overrides).map(([key, value]) => ({ key, value })),
+				tx,
+			});
+		});
+		this.cache.delete(targetProfileId);
+
+		return await this.getEffective({ profileId: targetProfileId });
+	}
+
 	private async setMany({
 		profileId,
 		entries,

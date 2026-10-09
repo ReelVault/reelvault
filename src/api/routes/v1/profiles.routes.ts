@@ -1,4 +1,5 @@
 import {
+	CopyProfilePreferencesSchema,
 	CreateProfileSchema,
 	ProfileFiltersSchema,
 	ProfilePreferenceDefaultsSchema,
@@ -173,6 +174,17 @@ export const profilesRoutes = new Elysia({
 		response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "profile.preferences" },
 		detail: { description: "Update preferences for an authenticated user's profile. Accepts a partial delta." },
 	})
+	.post(
+		"/:id/preferences/copy",
+		async ({ params, body, user }) => await profilesService.copyPreferences(params.id, body.sourceProfileId, user?.id),
+		{
+			body: CopyProfilePreferencesSchema,
+			response: { ...ROUTE_ERRORS.VALIDATED_NOT_FOUND, 200: "profile.preferences" },
+			detail: {
+				description: "Replace this profile's preference overrides with a copy of another profile's, both owned by the same account.",
+			},
+		},
+	)
 	.delete("/:id/preferences", async ({ params, user }) => await profilesService.resetPreferences(params.id, user?.id), {
 		params: IdParams,
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "profile.preferences" },
