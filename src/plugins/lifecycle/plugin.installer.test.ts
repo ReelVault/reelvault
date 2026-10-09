@@ -186,6 +186,24 @@ describe("plugin installer", () => {
 		expect(await backupDirectories(pluginsDirectory)).toHaveLength(1);
 	});
 
+	test("keeps the admin config.json on uninstall and restores it when the plugin is installed again", async () => {
+		const root = await createRoot();
+		const source = join(root, "source");
+		const pluginsDirectory = join(root, "plugins");
+		await writePlugin(source, "org.reelvault.reinstall");
+		const installer = new PluginInstaller(pluginsDirectory);
+		await installer.install(source);
+		await write(join(pluginsDirectory, "org.reelvault.reinstall", "config.json"), '{"apiKey":"secret"}\n');
+
+		await installer.uninstall("org.reelvault.reinstall");
+		expect(await file(join(pluginsDirectory, ".config-backups", "org.reelvault.reinstall.json")).json()).toEqual({ apiKey: "secret" });
+
+		await installer.install(source);
+
+		expect(await file(join(pluginsDirectory, "org.reelvault.reinstall", "config.json")).json()).toEqual({ apiKey: "secret" });
+		expect(await file(join(pluginsDirectory, ".config-backups", "org.reelvault.reinstall.json")).exists()).toBe(false);
+	});
+
 	test("preserves an admin config.json across a same-version upgrade", async () => {
 		const root = await createRoot();
 		const source = join(root, "source");

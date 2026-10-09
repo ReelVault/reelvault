@@ -8,7 +8,9 @@ import type {
 	MetadataProviderConfiguration,
 	PluginAdminStatus,
 	PluginConfigDetails,
+	PluginConfigExport,
 	PluginUiSettings,
+	ResetPluginConfigBody,
 	UpdatePluginUiSettingsBody,
 } from "@reelvault/sdk/common";
 import { librariesService } from "@/application/libraries/libraries.service";
@@ -26,7 +28,7 @@ import { MINUTE } from "@/server.constants";
 import { resourceAllocator } from "@/system/resource-allocator";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
-import { NotFoundError } from "@/utils/errors";
+import { NotFoundError, ValidationError } from "@/utils/errors";
 import { cacheRegistrySnapshot, MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -232,6 +234,65 @@ class AdminService extends BaseService {
 		return await this.safeExecute("updatePluginConfig", async () => {
 			const before = await pluginManager.getPluginConfigDetails(pluginId);
 			const after = await pluginManager.savePluginConfig(pluginId, updatedConfig);
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "plugin_config",
+					resourceId: pluginId,
+					before: before.config,
+					after: after.config,
+					context,
+				},
+				this.logger,
+			);
+
+			return after;
+		});
+	}
+
+	async resetPluginConfig(pluginId: string, body: ResetPluginConfigBody, context?: AdminAuditContext): Promise<PluginConfigDetails> {
+		return await this.safeExecute("resetPluginConfig", async () => {
+			const before = await pluginManager.getPluginConfigDetails(pluginId);
+			const after = await pluginManager.resetPluginConfig(pluginId, body.keys);
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "plugin_config",
+					resourceId: pluginId,
+					before: before.config,
+					after: after.config,
+					context,
+				},
+				this.logger,
+			);
+
+			return after;
+		});
+	}
+
+	/** The configuration an administrator can carry to another installation: every non-secret value. */
+	async exportPluginConfig(pluginId: string): Promise<PluginConfigExport> {
+		return await this.safeExecute("exportPluginConfig", async () => {
+			const details = await pluginManager.getPluginConfigDetails(pluginId);
+
+			return { format: "reelvault.plugin-config", formatVersion: 1, pluginId: details.id, values: details.config };
+		});
+	}
+
+	/**
+	 * Applies an exported configuration. Secret fields in the file are dropped, so an import can
+	 * never overwrite a stored credential; everything else goes through the normal config validation.
+	 */
+	async importPluginConfig(pluginId: string, body: PluginConfigExport, context?: AdminAuditContext): Promise<PluginConfigDetails> {
+		return await this.safeExecute("importPluginConfig", async () => {
+			if (body.pluginId !== pluginId) {
+				throw new ValidationError("The configuration file belongs to another plugin", { code: "plugin.config_import_mismatch" });
+			}
+
+			const before = await pluginManager.getPluginConfigDetails(pluginId);
+			const secretFields = new Set(before.fields.filter((field) => field.type === "secret").map((field) => field.name));
+			const values = Object.fromEntries(Object.entries(body.values).filter(([key]) => !secretFields.has(key)));
+			const after = await pluginManager.savePluginConfig(pluginId, values);
 			recordAuditSafe(
 				{
 					action: "update",

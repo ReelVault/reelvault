@@ -53,12 +53,21 @@ export class PluginConfig {
 		}
 	}
 
-	async save(pluginName: string, updatedConfig: Record<string, unknown>, pruneTo?: ReadonlySet<string>): Promise<Record<string, unknown>> {
+	/** Merges `updatedConfig` into the stored config; keys listed in `remove` are dropped first (a reset to the defaults). */
+	async save(
+		pluginName: string,
+		updatedConfig: Record<string, unknown>,
+		pruneTo?: ReadonlySet<string>,
+		remove: readonly string[] = [],
+	): Promise<Record<string, unknown>> {
 		const pluginDir = this.resolvePluginDirectory(pluginName);
 
 		return await this.saveMutex.runExclusive(pluginName, async () => {
 			const existingRaw = await this.load(pluginDir);
 			const mergedConfig: Record<string, unknown> = { ...existingRaw };
+			for (const key of remove) {
+				Reflect.deleteProperty(mergedConfig, key);
+			}
 
 			for (const [key, value] of Object.entries(updatedConfig)) {
 				mergedConfig[key] = value;

@@ -59,6 +59,17 @@ describe("plugin configuration", () => {
 		});
 	});
 
+	test("removes the listed keys before merging, so a reset leaves the other values in place", async () => {
+		const pluginsDirectory = await createPluginsDirectory();
+		await writeConfig(pluginsDirectory, "org.reelvault.reset", { titlePrefix: "Example", apiKey: "secret" });
+		const config = new PluginConfig(pluginsDirectory);
+
+		const saved = await config.save("org.reelvault.reset", { titlePrefix: "Updated" }, undefined, ["apiKey"]);
+
+		expect(saved).toEqual({ titlePrefix: "Updated" });
+		expect(await config.load(join(pluginsDirectory, "org.reelvault.reset"))).toEqual({ titlePrefix: "Updated" });
+	});
+
 	test("rejects unsafe directory names", async () => {
 		const pluginsDirectory = await createPluginsDirectory();
 		const config = new PluginConfig(pluginsDirectory);

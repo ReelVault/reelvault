@@ -6,10 +6,12 @@ import {
 	PluginAdminStatusSchema,
 	PluginCatalogEntrySchema,
 	PluginConfigDetailsSchema,
+	PluginConfigExportSchema,
 	PluginRepositorySchema,
 	PluginUiSettingsSchema,
 	PluginValidationResultSchema,
 	ReorderMetadataProvidersSchema,
+	ResetPluginConfigBodySchema,
 	UpdatePluginConfigBodySchema,
 	UpdatePluginRepositoryBodySchema,
 	UpdatePluginUiSettingsBodySchema,
@@ -31,6 +33,8 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		"admin.pluginRepository": PluginRepositorySchema,
 		"admin.pluginCatalog": t.Array(PluginCatalogEntrySchema),
 		"admin.updatePluginConfig": UpdatePluginConfigBodySchema,
+		"admin.pluginConfigExport": PluginConfigExportSchema,
+		"admin.resetPluginConfig": ResetPluginConfigBodySchema,
 		"admin.pluginUiSettings": PluginUiSettingsSchema,
 		"admin.updatePluginUiSettings": UpdatePluginUiSettingsBodySchema,
 		"admin.metadataProviderConfigurations": t.Array(MetadataProviderConfigurationSchema),
@@ -168,6 +172,39 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.pluginConfig" },
 			detail: {
 				description: "Update plugin configuration, store values, and hot reload the plugin.",
+			},
+		},
+	)
+	.post(
+		"/plugins/:pluginId/config/reset",
+		async ({ params, body, user, request }) =>
+			await adminService.resetPluginConfig(params.pluginId, body, { actorUserId: user?.id, headers: request.headers }),
+		{
+			params: PluginIdParams,
+			body: "admin.resetPluginConfig",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.pluginConfig" },
+			detail: {
+				description:
+					"Restore the defaults for the listed configuration fields, or for every stored value when no keys are given. Reloads the plugin.",
+			},
+		},
+	)
+	.get("/plugins/:pluginId/config/export", async ({ params }) => await adminService.exportPluginConfig(params.pluginId), {
+		params: PluginIdParams,
+		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.pluginConfigExport" },
+		detail: { description: "Export the plugin configuration without its secret fields." },
+	})
+	.post(
+		"/plugins/:pluginId/config/import",
+		async ({ params, body, user, request }) =>
+			await adminService.importPluginConfig(params.pluginId, body, { actorUserId: user?.id, headers: request.headers }),
+		{
+			params: PluginIdParams,
+			body: "admin.pluginConfigExport",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.pluginConfig" },
+			detail: {
+				description:
+					"Apply an exported plugin configuration. Secret fields in the file are ignored; everything else is validated and the plugin reloads.",
 			},
 		},
 	)

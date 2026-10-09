@@ -111,6 +111,11 @@ export class PluginInstaller {
 				await preserveMutableConfig(targetDirectory, stagingDirectory);
 			}
 
+			// A fresh install of a plugin that was uninstalled gets its configuration back from the backup taken then.
+			if (!isUpgrade) {
+				await restoreUninstalledConfig(pluginsDirectory, manifest.id, stagingDirectory);
+			}
+
 			const previousRecord = isUpgrade ? (await this.lockfileStore.read()).plugins[manifest.id] : undefined;
 			// An upgrade keeps the package it replaces as a rollback point (`previous`). Without a lockfile record there is nothing to roll back to.
 			const backupDirectory = isUpgrade ? PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`) : undefined;
@@ -153,6 +158,10 @@ export class PluginInstaller {
 			}
 			if (previousRecord?.previous) {
 				await rm(PathUtils.join(pluginsDirectory, previousRecord.previous.backupDirectory), { recursive: true, force: true });
+			}
+
+			if (!isUpgrade) {
+				await discardConfigBackup(pluginsDirectory, manifest.id);
 			}
 
 			await this.removeDuplicateDirectories(manifest.id, targetName);
@@ -364,6 +373,7 @@ export class PluginInstaller {
 		await this.lockfileStore.write(updatedLockfile);
 
 		try {
+			await backupMutableConfig(directory, this.pluginsDirectory, pluginId);
 			await rm(directory, { recursive: true, force: true });
 		} catch (error) {
 			await this.lockfileStore.write(lockfile);
@@ -410,6 +420,40 @@ async function preserveMutableConfig(fromDirectory: string, toDirectory: string)
 	await chmod(targetPath, 0o600).catch(() => {
 		// Non-POSIX filesystems may not support chmod — the copy still succeeded.
 	});
+}
+
+/** Uninstalled configurations wait here until the same plugin is installed again. Dot-directory, so it is never a plugin. */
+const CONFIG_BACKUP_DIRECTORY = ".config-backups";
+
+function configBackupPath(pluginsDirectory: string, pluginId: string): string {
+	return PathUtils.join(pluginsDirectory, CONFIG_BACKUP_DIRECTORY, `${pluginId}.json`);
+}
+
+async function backupMutableConfig(fromDirectory: string, pluginsDirectory: string, pluginId: string): Promise<void> {
+	const sourcePath = PathUtils.join(fromDirectory, MUTABLE_CONFIG_FILENAME);
+	if (!(await file(sourcePath).exists())) return;
+
+	const backupPath = configBackupPath(pluginsDirectory, pluginId);
+	await mkdir(PathUtils.join(pluginsDirectory, CONFIG_BACKUP_DIRECTORY), { recursive: true });
+	await write(backupPath, file(sourcePath));
+	await chmod(backupPath, 0o600).catch(() => {
+		// Non-POSIX filesystems may not support chmod — the copy still succeeded.
+	});
+}
+
+async function restoreUninstalledConfig(pluginsDirectory: string, pluginId: string, toDirectory: string): Promise<void> {
+	const backupPath = configBackupPath(pluginsDirectory, pluginId);
+	if (!(await file(backupPath).exists())) return;
+
+	const targetPath = PathUtils.join(toDirectory, MUTABLE_CONFIG_FILENAME);
+	await write(targetPath, file(backupPath));
+	await chmod(targetPath, 0o600).catch(() => {
+		// Non-POSIX filesystems may not support chmod — the copy still succeeded.
+	});
+}
+
+async function discardConfigBackup(pluginsDirectory: string, pluginId: string): Promise<void> {
+	await rm(configBackupPath(pluginsDirectory, pluginId), { force: true });
 }
 
 async function assertFile(path: string, name: string): Promise<void> {

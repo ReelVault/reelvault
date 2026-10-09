@@ -466,7 +466,24 @@ export class PluginManager {
 		};
 	}
 
-	async savePluginConfig(pluginId: string, updatedConfig: Record<string, unknown>): Promise<PluginConfigDetails> {
+	/**
+	 * Restores the defaults for `keys` (every stored value when omitted) by removing them from the
+	 * stored config. Goes through the same validation as a save, so a reset that would leave a
+	 * required field blank is refused.
+	 */
+	async resetPluginConfig(pluginId: string, keys?: readonly string[]): Promise<PluginConfigDetails> {
+		const dirName = await this.resolvePluginDirectoryName(pluginId);
+		const existing = await this.config.load(this.config.resolvePluginDirectory(dirName));
+
+		return await this.savePluginConfig(pluginId, {}, { remove: keys ?? Object.keys(existing) });
+	}
+
+	async savePluginConfig(
+		pluginId: string,
+		updatedConfig: Record<string, unknown>,
+		options: { remove?: readonly string[] } = {},
+	): Promise<PluginConfigDetails> {
+		const remove = options.remove ?? [];
 		const dirName = await this.resolvePluginDirectoryName(pluginId);
 		const pluginDir = this.config.resolvePluginDirectory(dirName);
 		// Validate the merged result (not the patch): a redacted secret omitted by
@@ -484,7 +501,7 @@ export class PluginManager {
 
 			const existing = await this.config.load(pluginDir);
 			try {
-				const parsed = definition.parse({ ...existing, ...updatedConfig });
+				const parsed = definition.parse({ ...withoutKeys(existing, remove), ...updatedConfig });
 				// `required` is a UI/save-time contract: loading must still work for a plugin whose
 				// key has not been entered yet, but an admin cannot save a form that leaves it blank.
 				const blank = definition.descriptors.find(
@@ -501,7 +518,7 @@ export class PluginManager {
 			}
 		}
 
-		await this.config.save(dirName, updatedConfig, pruneTo);
+		await this.config.save(dirName, updatedConfig, pruneTo, remove);
 		try {
 			await this.reload(pluginId);
 		} catch (error) {
@@ -511,6 +528,15 @@ export class PluginManager {
 
 		return await this.getPluginConfigDetails(pluginId);
 	}
+}
+
+function withoutKeys(config: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+	const copy = { ...config };
+	for (const key of keys) {
+		Reflect.deleteProperty(copy, key);
+	}
+
+	return copy;
 }
 
 /** A secret is never returned, so its field only says whether a non-blank value is stored. */

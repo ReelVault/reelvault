@@ -669,7 +669,7 @@ describe("PluginManager config details", () => {
 
 		const details = await manager.savePluginConfig("org.reelvault.m", { theme: "light" });
 
-		expect(saveStub.calls).toEqual([["m-dir", { theme: "light" }]]);
+		expect(saveStub.calls).toEqual([["m-dir", { theme: "light" }, undefined, []]]);
 		expect(details.config).toEqual({ theme: "dark" });
 		expect(reloadStub.calls).toEqual([["org.reelvault.m"]]);
 	});
