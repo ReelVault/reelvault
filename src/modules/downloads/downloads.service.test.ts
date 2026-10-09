@@ -394,3 +394,27 @@ describe("DownloadsService retry and quota", () => {
 		expect(listing.quota).toEqual({ usedBytes: 42, maxBytes: serverConfig.downloads.maxStorageBytesPerProfile });
 	});
 });
+
+describe("DownloadsService.listAllPage", () => {
+	test("pages every profile's downloads with the status filter and the counts per status", async () => {
+		const page = spyOn(downloadsRepository, "findPage").mockResolvedValue({ data: [row({ status: "failed" })], total: 7 });
+		const counts = spyOn(downloadsRepository, "countByStatus").mockResolvedValue({
+			pending: 1,
+			processing: 2,
+			completed: 3,
+			failed: 4,
+			cancelled: 5,
+		});
+
+		try {
+			const listing = await downloadsService.listAllPage({ page: 2, limit: 3, status: "failed" });
+
+			expect(page).toHaveBeenCalledWith({ status: "failed", limit: 3, offset: 3 });
+			expect(listing).toMatchObject({ page: 2, limit: 3, total: 7, totalPages: 3, counts: { failed: 4, cancelled: 5 } });
+			expect(listing.data[0]).toMatchObject({ id: "dl-1", profileId: "profile-1" });
+		} finally {
+			page.mockRestore();
+			counts.mockRestore();
+		}
+	});
+});

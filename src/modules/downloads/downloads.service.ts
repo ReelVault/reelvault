@@ -3,10 +3,12 @@ import { file, type Subprocess } from "bun";
 import { type DownloadRow, downloadsRepository } from "@/database/repositories/downloads.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { QueryFields } from "@/database/utils/fields";
+import { QueryPagination } from "@/database/utils/pagination";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import {
 	buildDownloadOutputArgs,
 	DEFAULT_DOWNLOAD_QUALITY,
+	type DownloadStatus,
 	ffmpegTimeToSeconds,
 	isDownloadQuality,
 } from "@/modules/downloads/download-quality.utils";
@@ -99,10 +101,22 @@ class DownloadsService extends BaseService {
 		return { ...this.toJobList(rows, (row) => this.toView(row)), quota };
 	}
 
-	async listAll(): Promise<{ jobs: Array<DownloadJobView & { profileId: string }> }> {
-		const rows = await downloadsRepository.findAll();
+	/** One page of every profile's downloads for the admin overview, with the counts per status for its counters. */
+	async listAllPage(query: { page?: number | undefined; limit?: number | undefined; status?: DownloadStatus | undefined }) {
+		const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 50 });
+		const [result, counts] = await Promise.all([
+			downloadsRepository.findPage({ status: query.status, limit: pagination.limit, offset: pagination.offset }),
+			downloadsRepository.countByStatus(),
+		]);
 
-		return this.toJobList(rows, (row) => ({ ...this.toView(row), profileId: row.profileId }));
+		return {
+			...QueryPagination.createResponse({
+				total: result.total,
+				pagination,
+				data: result.data.map((row) => ({ ...this.toView(row), profileId: row.profileId })),
+			}),
+			counts,
+		};
 	}
 
 	/** Ownership-checked variants — a profile only ever sees its own jobs. */

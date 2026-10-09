@@ -37,7 +37,12 @@ test("admin client handles download jobs overview and deletion", async () => {
 			}
 
 			return jsonResponse({
-				jobs: [
+				page: 1,
+				limit: 50,
+				total: 1,
+				totalPages: 1,
+				counts: { pending: 0, processing: 0, completed: 1, failed: 0, cancelled: 0 },
+				data: [
 					{
 						id: "job-1",
 						profileId: "profile-1",
@@ -58,16 +63,17 @@ test("admin client handles download jobs overview and deletion", async () => {
 		{ enableRetry: false },
 	);
 
-	const response = await client.admin.getDownloadJobs();
-	expect(response.jobs).toHaveLength(1);
-	expect(response.jobs[0]?.id).toBe("job-1");
-	expect(response.jobs[0]?.profileId).toBe("profile-1");
+	const response = await client.admin.getDownloadJobs({ page: 1, status: "completed" });
+	expect(response.data).toHaveLength(1);
+	expect(response.data[0]?.id).toBe("job-1");
+	expect(response.data[0]?.profileId).toBe("profile-1");
+	expect(response.counts.completed).toBe(1);
 
 	const deleteResult = await client.admin.deleteDownloadJob("job-1");
 	expect(deleteResult.success).toBe(true);
 
 	expect(requests).toEqual([
-		{ url: "https://reelvault.test/v1/admin/downloads/jobs", method: "GET" },
+		{ url: "https://reelvault.test/v1/admin/downloads/jobs?page=1&status=completed", method: "GET" },
 		{ url: "https://reelvault.test/v1/admin/downloads/jobs/job-1", method: "DELETE" },
 	]);
 });

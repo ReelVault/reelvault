@@ -53,8 +53,44 @@ const overrides = {
 			.limit(limit);
 	},
 
-	async findAll(limit = MAX_LIST_ROWS): Promise<DownloadRow[]> {
-		return await databaseFactory.getClient().select().from(downloads.table).orderBy(desc(downloads.table.createdAt)).limit(limit);
+	/** One page of every profile's downloads, newest first, narrowed to one status when asked; `total` counts the same filter. */
+	async findPage({
+		status,
+		limit,
+		offset,
+	}: {
+		status?: DownloadStatus | undefined;
+		limit: number;
+		offset: number;
+	}): Promise<{ data: DownloadRow[]; total: number }> {
+		const where = status ? eq(downloads.table.status, status) : undefined;
+		const client = databaseFactory.getClient();
+		const [countRows, rows] = await Promise.all([
+			client.select({ count: count() }).from(downloads.table).where(where),
+			client
+				.select()
+				.from(downloads.table)
+				.where(where)
+				// created_at has second resolution — the id tiebreaker keeps offset pagination stable.
+				.orderBy(desc(downloads.table.createdAt), desc(downloads.table.id))
+				.limit(limit)
+				.offset(offset),
+		]);
+
+		return { data: rows, total: countRows[0]?.count ?? 0 };
+	},
+
+	/** Downloads per status across every profile, for the admin overview's counters. */
+	async countByStatus(): Promise<Record<DownloadStatus, number>> {
+		const rows = await databaseFactory
+			.getClient()
+			.select({ status: downloads.table.status, count: count() })
+			.from(downloads.table)
+			.groupBy(downloads.table.status);
+		const counts: Record<DownloadStatus, number> = { pending: 0, processing: 0, completed: 0, failed: 0, cancelled: 0 };
+		for (const row of rows) counts[row.status] = row.count;
+
+		return counts;
 	},
 
 	/** Active (pending/processing) rows across profiles — the boot reconciliation source. */

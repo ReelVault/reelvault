@@ -1,16 +1,26 @@
 import { AdminDownloadsResponseSchema } from "@reelvault/sdk/common";
 import { t } from "elysia";
-import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { JobIdParams } from "@/api/schemas/route-params";
 import { downloadsService } from "@/modules/downloads/downloads.service";
 import { MINUTE } from "@/server.constants";
 import { adminShell } from "./admin-shell";
 
 export const adminDownloadsRoutes = adminShell({ prefix: "/downloads", tags: ["Admin"] })
-	.get("/jobs", async () => await downloadsService.listAll(), {
+	.get("/jobs", async ({ query }) => await downloadsService.listAllPage(query), {
 		rateLimit: { name: "admin-downloads-jobs", max: 60, windowMs: MINUTE },
+		query: t.Composite([
+			PaginationSchema,
+			t.Object({
+				status: t.Optional(
+					t.Union([t.Literal("pending"), t.Literal("processing"), t.Literal("completed"), t.Literal("failed"), t.Literal("cancelled")]),
+				),
+			}),
+		]),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminDownloadsResponseSchema },
-		detail: { description: "List all users' download jobs (admin overview)." },
+		detail: {
+			description: "Page through all users' download jobs (admin overview), optionally filtered by status, with the counts per status.",
+		},
 	})
 	.delete("/jobs/:jobId", async ({ params }) => await downloadsService.delete(params.jobId), {
 		rateLimit: { name: "admin-downloads-delete", max: 30, windowMs: MINUTE },
