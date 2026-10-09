@@ -17,6 +17,7 @@
 		"scenarios": "bun run scripts/scenarios.ts",
 		"check-memory": "bun run scripts/memory-check.ts",
 		"admin:reset-password": "bun run scripts/reset-password.ts",
+		"doctor": "bun run scripts/doctor.ts",
 		"----DATABASE": "",
 		"db:generate": "bunx --bun drizzle-kit generate",
 		"db:migrate": "bunx --bun drizzle-kit migrate",
