@@ -7,6 +7,7 @@ import {
 	PluginCatalogEntrySchema,
 	PluginConfigDetailsSchema,
 	PluginConfigExportSchema,
+	PluginCspUpdateBodySchema,
 	PluginRepositorySchema,
 	PluginUiSettingsSchema,
 	PluginValidationResultSchema,
@@ -35,6 +36,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		"admin.updatePluginConfig": UpdatePluginConfigBodySchema,
 		"admin.pluginConfigExport": PluginConfigExportSchema,
 		"admin.resetPluginConfig": ResetPluginConfigBodySchema,
+		"admin.pluginCsp": PluginCspUpdateBodySchema,
 		"admin.pluginUiSettings": PluginUiSettingsSchema,
 		"admin.updatePluginUiSettings": UpdatePluginUiSettingsBodySchema,
 		"admin.metadataProviderConfigurations": t.Array(MetadataProviderConfigurationSchema),
@@ -186,6 +188,19 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 			detail: {
 				description:
 					"Restore the defaults for the listed configuration fields, or for every stored value when no keys are given. Reloads the plugin.",
+			},
+		},
+	)
+	.put(
+		"/plugins/:pluginId/csp",
+		async ({ params, body, user, request }) =>
+			await adminService.setPluginCspEnabled(params.pluginId, body.enabled, { actorUserId: user?.id, headers: request.headers }),
+		{
+			params: PluginIdParams,
+			body: "admin.pluginCsp",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.plugin" },
+			detail: {
+				description: "Allow or refuse the content-security-policy sources the plugin declares. Installed plugins only; applies at once.",
 			},
 		},
 	)

@@ -224,6 +224,19 @@ describe("plugin registry", () => {
 		expect(registry.getCspDirectives()).toEqual({ "img-src": ["https://b.example.com"], "frame-src": ["https://player.example.com"] });
 	});
 
+	it("leaves a plugin's csp sources out while the admin refuses them, and brings them back when allowed", () => {
+		const plugin = createRuntime("org.example.refused");
+		plugin.manifest.csp = { "frame-src": ["https://embed.example.com"] };
+		registry.register(plugin, []);
+		expect(registry.getCspDirectives()).toEqual({ "frame-src": ["https://embed.example.com"] });
+
+		registry.setCspDisabled("org.example.refused", true);
+		expect(registry.getCspDirectives()).toEqual({});
+
+		registry.setCspDisabled("org.example.refused", false);
+		expect(registry.getCspDirectives()).toEqual({ "frame-src": ["https://embed.example.com"] });
+	});
+
 	it("runs media analyzers in order and isolates analyzer failures", async () => {
 		const first = createAnalyzer("first", () => ({ source: "WEB-DL" }));
 		const broken = createAnalyzer("broken", () => {

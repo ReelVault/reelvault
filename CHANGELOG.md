@@ -391,6 +391,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Plugin configuration reset, export and import** — administrators restore defaults for one field or all fields (`POST /admin/plugins/:id/config/reset`), export the configuration without its secret fields (`GET /admin/plugins/:id/config/export`) and import it again (`POST /admin/plugins/:id/config/import`). An import never overwrites a secret. Uninstalling a plugin keeps a backup of its configuration, and installing the same plugin again restores it.
 - **Public server capabilities** — `GET /capabilities` returns whether trickplay and downloads are switched on, without a session, so a client can hide features that the server does not offer.
 - **Setting units and restart flags; monitoring applies at once** — settings report their unit and whether a change needs a restart (`auth.sessionLifetimeDays`, `stream.hlsSegmentDurationSeconds`). Changing the resource monitoring interval or enabling and disabling monitoring re-arms the sampler immediately instead of waiting for a restart.
+- **Refuse a plugin's CSP sources** — `PUT /admin/plugins/:id/csp` with `{ "enabled": false }` stops an installed plugin's manifest from adding sources to the page's content security policy. The choice is stored with the installed package, survives restarts and upgrades, and applies at once. A plugin without an installer record cannot be changed.
 
 ### Fixes
 

@@ -627,6 +627,7 @@ describe("PluginManager config details", () => {
 			installedAt: "2026-10-09T10:00:00.000Z",
 			source: "upload",
 			integrityOk: true,
+			cspDisabled: false,
 		});
 	});
 

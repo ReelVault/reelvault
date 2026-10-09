@@ -250,6 +250,30 @@ class AdminService extends BaseService {
 		});
 	}
 
+	/** Admin choice: allow (`enabled: true`) or refuse the CSP sources the plugin's manifest declares. */
+	async setPluginCspEnabled(pluginId: string, enabled: boolean, context?: AdminAuditContext): Promise<PluginAdminStatus> {
+		return await this.safeExecute("setPluginCspEnabled", async () => {
+			const before = await pluginManager.getPackageDetails(pluginId);
+			await pluginManager.setPluginCspDisabled(pluginId, !enabled);
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "plugin",
+					resourceId: pluginId,
+					before: { cspDisabled: before.cspDisabled === true },
+					after: { cspDisabled: !enabled },
+					context,
+				},
+				this.logger,
+			);
+
+			const status = await pluginAdminService.get(pluginId);
+			if (!status) throw new NotFoundError(`Plugin not found: ${pluginId}`);
+
+			return status;
+		});
+	}
+
 	async resetPluginConfig(pluginId: string, body: ResetPluginConfigBody, context?: AdminAuditContext): Promise<PluginConfigDetails> {
 		return await this.safeExecute("resetPluginConfig", async () => {
 			const before = await pluginManager.getPluginConfigDetails(pluginId);

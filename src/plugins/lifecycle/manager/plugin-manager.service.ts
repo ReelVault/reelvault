@@ -32,6 +32,8 @@ export interface PluginPackageDetails {
 	installedAt?: string;
 	source?: string;
 	integrityOk?: boolean;
+	/** Installer-managed plugins only: the admin refuses the CSP sources the manifest declares. */
+	cspDisabled?: boolean;
 }
 
 class ConfigRequiredError extends Error {
@@ -107,6 +109,9 @@ export class PluginManager {
 		}
 
 		for (const { id, record } of installed) {
+			// The admin's CSP choice applies whether or not the plugin is enabled.
+			this.registry.setCspDisabled(id, record.cspDisabled === true);
+
 			if (record.disabled !== true) continue;
 
 			this.disabledStatuses.set(id, await this.disabledStatusFromRecord(id, record));
@@ -240,7 +245,12 @@ export class PluginManager {
 			capabilities: await this.declaredCapabilities(pluginId, directory),
 			...(configReadError ? { configReadError } : {}),
 			...(installed
-				? { installedAt: installed.installedAt, source: installed.source, integrityOk: !this.integrityIssues.has(pluginId) }
+				? {
+						installedAt: installed.installedAt,
+						source: installed.source,
+						integrityOk: !this.integrityIssues.has(pluginId),
+						cspDisabled: installed.cspDisabled === true,
+					}
 				: {}),
 		};
 	}
@@ -274,6 +284,12 @@ export class PluginManager {
 		await this.lifecycleMutex.runExclusive(() => this.loader.unloadPlugin(pluginId));
 	}
 
+	/** Admin choice: refuse or allow the CSP sources the plugin declares. Persisted and applied at once. */
+	async setPluginCspDisabled(pluginId: string, disabled: boolean): Promise<void> {
+		await this.installer.setCspDisabled(pluginId, disabled);
+		this.registry.setCspDisabled(pluginId, disabled);
+	}
+
 	async uninstall(pluginId: string): Promise<void> {
 		await this.lifecycleMutex.runExclusive(async () => {
 			await this.loader.prepareUninstall(pluginId);
@@ -295,6 +311,7 @@ export class PluginManager {
 
 			// Cleared only after the installer succeeded — a failed uninstall leaves the plugin installed.
 			this.disabledStatuses.delete(pluginId);
+			this.registry.setCspDisabled(pluginId, false);
 		});
 	}
 

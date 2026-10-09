@@ -14,6 +14,8 @@ export interface InstalledPluginRecord {
 	version: string;
 	/** Persisted across restarts — a disabled plugin stays unloaded until explicitly enabled. */
 	disabled?: boolean;
+	/** Admin choice: the CSP sources the manifest declares are refused. Persisted across restarts and upgrades. */
+	cspDisabled?: boolean;
 	/** Set by an upgrade until the new version has loaded once; a failed load rolls back to it. */
 	previous?: PluginPreviousInstall;
 }
@@ -25,6 +27,7 @@ export interface PluginPreviousInstall {
 	installedAt: string;
 	source: string;
 	disabled?: boolean;
+	cspDisabled?: boolean;
 	/** Basename of the directory the previous package was moved to, inside the plugins root. */
 	backupDirectory: string;
 }
@@ -102,6 +105,7 @@ function isPluginLockfile(value: unknown): value is PluginLockfile {
 			isNonEmptyString(record.source) &&
 			isNonEmptyString(record.version) &&
 			(record.disabled === undefined || typeof record.disabled === "boolean") &&
+			(record.cspDisabled === undefined || typeof record.cspDisabled === "boolean") &&
 			(record.previous === undefined || isPreviousInstall(record.previous)),
 	);
 }
@@ -114,6 +118,7 @@ function isPreviousInstall(value: unknown): value is PluginPreviousInstall {
 		isNonEmptyString(value.installedAt) &&
 		isNonEmptyString(value.source) &&
 		isNonEmptyString(value.backupDirectory) &&
-		(value.disabled === undefined || typeof value.disabled === "boolean")
+		(value.disabled === undefined || typeof value.disabled === "boolean") &&
+		(value.cspDisabled === undefined || typeof value.cspDisabled === "boolean")
 	);
 }

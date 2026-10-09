@@ -125,6 +125,8 @@ export class PluginInstaller {
 				integrity: await calculateDirectoryIntegrity(stagingDirectory),
 				installedAt: new Date().toISOString(),
 				source: options.source ?? source,
+				// The admin's CSP choice follows the plugin across an upgrade.
+				...(previousRecord?.cspDisabled !== undefined ? { cspDisabled: previousRecord.cspDisabled } : {}),
 				version: manifest.version,
 				...(previousRecord && backupDirectory ? { previous: toPreviousInstall(previousRecord, backupDirectory) } : {}),
 			};
@@ -275,6 +277,7 @@ export class PluginInstaller {
 			source: record.previous.source,
 			version: record.previous.version,
 			...(record.previous.disabled !== undefined ? { disabled: record.previous.disabled } : {}),
+			...(record.previous.cspDisabled !== undefined ? { cspDisabled: record.previous.cspDisabled } : {}),
 		};
 		lockfile.plugins[pluginId] = restored;
 		await this.lockfileStore.write(lockfile);
@@ -338,6 +341,17 @@ export class PluginInstaller {
 		});
 	}
 
+	/** Admin choice: whether the plugin's manifest may extend the content security policy. */
+	async setCspDisabled(pluginId: string, disabled: boolean): Promise<void> {
+		const lockfile = await this.lockfileStore.read();
+		const record = lockfile.plugins[pluginId];
+		if (!record) throw new ValidationError(`Plugin ${pluginId} is not installed`);
+
+		if (record.cspDisabled === disabled) return;
+
+		await this.lockfileStore.write({ ...lockfile, plugins: { ...lockfile.plugins, [pluginId]: { ...record, cspDisabled: disabled } } });
+	}
+
 	async setDisabled(pluginId: string, disabled: boolean): Promise<void> {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
@@ -395,6 +409,7 @@ function toPreviousInstall(record: InstalledPluginRecord, backupDirectory: strin
 		installedAt: record.installedAt,
 		source: record.source,
 		...(record.disabled !== undefined ? { disabled: record.disabled } : {}),
+		...(record.cspDisabled !== undefined ? { cspDisabled: record.cspDisabled } : {}),
 		backupDirectory: PathUtils.getFileName(backupDirectory),
 	};
 }

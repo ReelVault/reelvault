@@ -59,6 +59,8 @@ export class PluginRegistry {
 	private readonly mediaAnalysis = new MediaAnalysisFanout();
 	private readonly failures = new Map<string, FailedPlugin>();
 	private readonly uiManifests = new Map<string, PluginUiManifest>();
+	/** Admin choice per plugin id: its declared CSP sources are not applied. Survives reloads; uninstall clears it. */
+	private readonly cspDisabledPlugins = new Set<string>();
 	/** Bumped on every register/unregister so provider-scoped caches keyed by ids are invalidated on reload. */
 	private generation = 0;
 	/** Merged plugin CSP sources, keyed by the generation they were computed for. */
@@ -225,6 +227,8 @@ export class PluginRegistry {
 
 		const merged = new Map<string, Set<string>>();
 		for (const runtime of this.plugins.values()) {
+			if (this.cspDisabledPlugins.has(runtime.manifest.id)) continue;
+
 			const csp = runtime.manifest.csp;
 			if (!csp) continue;
 
@@ -239,6 +243,13 @@ export class PluginRegistry {
 		this.cspCache = { generation: this.generation, directives };
 
 		return directives;
+	}
+
+	/** Refuses or allows the CSP sources a plugin declares. Takes effect on the next response. */
+	setCspDisabled(pluginId: string, disabled: boolean): void {
+		if (disabled) this.cspDisabledPlugins.add(pluginId);
+		else this.cspDisabledPlugins.delete(pluginId);
+		this.cspCache = null;
 	}
 
 	getAll(): PluginRuntime[] {
