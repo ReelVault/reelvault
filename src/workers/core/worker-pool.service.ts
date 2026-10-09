@@ -1,4 +1,5 @@
 import type { WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk/common";
+import { adminFailureNotificationService } from "@/application/admin/admin-failure-notification.service";
 import { type WorkerItem, workerJobRepository } from "@/database/repositories/worker.repository";
 import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import { type WorkerExecutionRecord, workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";
@@ -239,6 +240,7 @@ export class WorkerExecutionPoolService extends BaseService {
 					error: errorMsg,
 				}),
 			]);
+			adminFailureNotificationService.notifyWorkerFailed(item.workerId, errorMsg);
 		}
 	}
 

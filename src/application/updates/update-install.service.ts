@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
+import { adminFailureNotificationService } from "@/application/admin/admin-failure-notification.service";
 import { type ArchiveFetcher, downloadArchive, extractArchive } from "@/plugins/catalog/plugin-package.utils";
 import { requestApplicationRestart } from "@/shutdown";
 import { BaseService } from "@/utils/base-service";
@@ -248,6 +249,7 @@ export class UpdateInstallService extends BaseService {
 			this.logger.error(`Update install for ${target} failed`, error);
 			// staging cleanup must never mask the original failure
 			this.removeScratchDirectories([STAGING_DIR, PENDING_DIR]);
+			adminFailureNotificationService.notifyUpdateFailed(target, release.version);
 		}
 	}
 
@@ -326,6 +328,7 @@ export class UpdateInstallService extends BaseService {
 			this.setLastError(target, error instanceof Error ? error.message : "unknown error");
 			this.job = null;
 			this.logger.error(`Rollback for ${target} failed`, error);
+			adminFailureNotificationService.notifyUpdateFailed(target, null);
 		}
 	}
 

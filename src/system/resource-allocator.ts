@@ -1,6 +1,7 @@
 import { statfs } from "node:fs/promises";
 import { freemem, loadavg, totalmem } from "node:os";
 import { file as bunFile } from "bun";
+import { adminFailureNotificationService } from "@/application/admin/admin-failure-notification.service";
 import { resourceMetricsRepository } from "@/database/repositories/resource-metrics.repository";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
@@ -515,6 +516,7 @@ export class ResourceAllocator extends BaseService {
 		}
 
 		// Resource alerts feed the admin dashboard — keep them off non-admin sockets.
+		adminFailureNotificationService.notifyResourceAlert(code, params ?? {});
 		detach(
 			(async () => {
 				try {
