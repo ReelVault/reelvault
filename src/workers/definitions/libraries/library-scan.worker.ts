@@ -35,6 +35,7 @@ export interface LibraryScanResults {
 	scannedFiles: number;
 	createdFiles: number;
 	existingFiles: number;
+	removedFiles: number;
 	failedFiles: number;
 	analyzedFiles: number;
 }
@@ -51,7 +52,7 @@ export interface LibraryScanTaskDependencies {
 		type: "movie" | "tv_show",
 		paths: string[],
 		signal?: AbortSignal,
-	): Promise<{ filePaths: string[]; newFilePaths: string[]; changedMediaFileIds: string[] }>;
+	): Promise<{ filePaths: string[]; newFilePaths: string[]; changedMediaFileIds: string[]; removedFilePaths: string[] }>;
 	enqueueMediaFileIngest(data: MediaFileIngestData, options?: TaskSchedulingOptions): Promise<{ id: string }>;
 	enqueueMediaFileRefresh(mediaFileId: string, options?: TaskSchedulingOptions): Promise<unknown>;
 	/** Optional batched variants — used preferentially to avoid one INSERT per file. */
@@ -144,6 +145,7 @@ interface ScanEnqueueState {
 	scannedFiles: number;
 	newFilePaths: string[];
 	changedMediaFileIds: string[];
+	removedFilePaths: string[];
 	ingestCursor: number;
 	refreshCursor: number;
 }
@@ -194,6 +196,7 @@ async function resolveScanWorkload(
 		scannedFiles: scanResult.filePaths.length,
 		newFilePaths: scanResult.newFilePaths,
 		changedMediaFileIds: scanResult.changedMediaFileIds,
+		removedFilePaths: scanResult.removedFilePaths,
 		ingestCursor: 0,
 		refreshCursor: 0,
 	};
@@ -324,6 +327,7 @@ async function runScanLibraryTask(
 			scannedFiles: state.scannedFiles,
 			createdFiles: state.newFilePaths.length,
 			existingFiles: state.scannedFiles - state.newFilePaths.length,
+			removedFiles: state.removedFilePaths.length,
 			failedFiles: 0,
 			analyzedFiles: 0,
 		};

@@ -12,7 +12,7 @@ interface TestHarness {
 }
 
 function createHarness(options?: {
-	scanResult?: { filePaths: string[]; newFilePaths: string[]; changedMediaFileIds: string[] };
+	scanResult?: { filePaths: string[]; newFilePaths: string[]; changedMediaFileIds: string[]; removedFilePaths: string[] };
 	failIngestAt?: number;
 }): TestHarness {
 	const events: string[] = [];
@@ -37,7 +37,7 @@ function createHarness(options?: {
 		scanPaths: (_libraryId, type, paths) => {
 			events.push(`scan:${type}:${paths.join(",")}`);
 
-			return Promise.resolve(options?.scanResult ?? { filePaths: [], newFilePaths: [], changedMediaFileIds: [] });
+			return Promise.resolve(options?.scanResult ?? { filePaths: [], newFilePaths: [], changedMediaFileIds: [], removedFilePaths: [] });
 		},
 		enqueueMediaFileIngest: (data) => {
 			ingestCalls += 1;
@@ -90,6 +90,7 @@ describe("library scan application task", () => {
 			scannedFiles: 0,
 			createdFiles: 0,
 			existingFiles: 0,
+			removedFiles: 0,
 			failedFiles: 0,
 			analyzedFiles: 0,
 		});
@@ -113,6 +114,7 @@ describe("library scan application task", () => {
 				filePaths: ["/media/a.mkv", "/media/b.mkv", "/media/c.mkv"],
 				newFilePaths: ["/media/a.mkv", "/media/b.mkv", "/media/c.mkv"],
 				changedMediaFileIds: [],
+				removedFilePaths: [],
 			},
 		});
 		checkpoints.set("library-1", {
@@ -131,6 +133,7 @@ describe("library scan application task", () => {
 			scannedFiles: 3,
 			createdFiles: 3,
 			existingFiles: 0,
+			removedFiles: 0,
 			failedFiles: 0,
 			analyzedFiles: 0,
 		});
@@ -151,12 +154,33 @@ describe("library scan application task", () => {
 		]);
 	});
 
+	test("reports the files the scan removed", async () => {
+		const { dependencies } = createHarness({
+			scanResult: {
+				filePaths: ["/media/a", "/media/b"],
+				newFilePaths: [],
+				changedMediaFileIds: [],
+				removedFilePaths: ["/media/old.mkv"],
+			},
+		});
+
+		await expect(
+			scanLibraryTask({ libraryId: "library-1", paths: ["/media"] }, { correlationId: "scan-removed" }, dependencies),
+		).resolves.toMatchObject({
+			scannedFiles: 2,
+			createdFiles: 0,
+			existingFiles: 2,
+			removedFiles: 1,
+		});
+	});
+
 	test("an abort mid-enqueue keeps the checkpoint for interruption detection", async () => {
 		const first = createHarness({
 			scanResult: {
 				filePaths: ["/media/a", "/media/b", "/media/c"],
 				newFilePaths: ["/media/a", "/media/b", "/media/c"],
 				changedMediaFileIds: [],
+				removedFilePaths: [],
 			},
 			failIngestAt: 1,
 		});
@@ -175,7 +199,7 @@ describe("library scan application task", () => {
 
 		// Any leftover checkpoint is dropped and the fresh diff is enqueued.
 		const second = createHarness({
-			scanResult: { filePaths: ["/movies/x"], newFilePaths: ["/movies/x"], changedMediaFileIds: [] },
+			scanResult: { filePaths: ["/movies/x"], newFilePaths: ["/movies/x"], changedMediaFileIds: [], removedFilePaths: [] },
 		});
 		second.checkpoints.set("library-1", {
 			pathsSignature: "/media",
@@ -196,6 +220,7 @@ describe("library scan application task", () => {
 				filePaths: ["/media/a", "/media/b", "/media/c"],
 				newFilePaths: ["/media/a", "/media/b", "/media/c"],
 				changedMediaFileIds: ["media-1", "media-2"],
+				removedFilePaths: [],
 			},
 		});
 		const ingestBatches: string[][] = [];

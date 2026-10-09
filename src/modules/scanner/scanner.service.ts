@@ -131,7 +131,7 @@ export class ScannerService extends BaseService {
 				if (effectivePaths.length === 0) {
 					this.logger.warn("No paths provided for scanning");
 
-					return { filePaths: [], newFilePaths: [], changedMediaFileIds: [] };
+					return { filePaths: [], newFilePaths: [], changedMediaFileIds: [], removedFilePaths: [] };
 				}
 
 				const { filesOnDisk, statsByPath } = await this.dependencies.discover(effectivePaths, signal);
@@ -179,11 +179,16 @@ export class ScannerService extends BaseService {
 					await this.dependencies.cleaner.cleanup(libraryId, removedFiles, signal);
 				}
 
+				// Only what was actually cleaned up counts as removed - a skipped removal
+				// (mass-removal guard / unavailable storage) removed nothing.
+				const removedFilePaths = skipRemovals ? [] : removedFiles;
+
 				this.logger.info("Library scan processing completed", {
 					libraryId,
 					discoveredFiles: filesOnDisk.length,
 					newFiles: newFiles.length,
 					changedFiles: changedFiles.length,
+					removedFiles: removedFilePaths.length,
 					durationMs: Math.round(performance.now() - scanStartedAt),
 				});
 
@@ -192,7 +197,7 @@ export class ScannerService extends BaseService {
 				// re-analyses only the changed tables instead of the whole schema.
 				databaseFactory.optimize();
 
-				return { filePaths: filesOnDisk, newFilePaths: newFiles, changedMediaFileIds: changedFiles };
+				return { filePaths: filesOnDisk, newFilePaths: newFiles, changedMediaFileIds: changedFiles, removedFilePaths };
 			},
 			{
 				customThrow: (error) => toDomainError(error, `Library scan failed: ${libraryId}`),

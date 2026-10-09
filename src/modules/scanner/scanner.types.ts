@@ -30,5 +30,8 @@ export interface ProcessedMediaFileWithMarkers extends ProcessedMediaFile {
 export interface LibraryScanResult {
 	filePaths: string[];
 	newFilePaths: string[];
+	/** Media-file ids whose file changed on disk (size/mtime) — re-probed during the scan. */
 	changedMediaFileIds: string[];
+	/** Files the scan actually removed from the library (empty when removals were skipped). */
+	removedFilePaths: string[];
 }

@@ -56,7 +56,7 @@ describe("ScannerService.scanPaths", () => {
 
 		const result = await service.scanPaths("lib-1", "movie", []);
 
-		expect(result).toEqual({ filePaths: [], newFilePaths: [], changedMediaFileIds: [] });
+		expect(result).toEqual({ filePaths: [], newFilePaths: [], changedMediaFileIds: [], removedFilePaths: [] });
 		expect(cleanupCalls).toEqual([]);
 	});
 
