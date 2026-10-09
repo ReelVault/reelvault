@@ -140,11 +140,14 @@ export const mediaFilesRoutes = new Elysia({
 		},
 		{
 			adminOnly: true,
-			query: t.Composite([t.Object({ limit: t.Optional(ClampedNumeric(1, 1000)) }), MediaMarkerFiltersSchema]),
-			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Array(MediaMarkerSchema) },
+			query: t.Composite([
+				t.Object({ page: t.Optional(t.Integer({ minimum: 1 })), limit: t.Optional(ClampedNumeric(1, 1000)) }),
+				MediaMarkerFiltersSchema,
+			]),
+			response: { ...ROUTE_ERRORS.ADMIN, 200: PaginatedResponseSchema(MediaMarkerSchema) },
 			detail: {
 				description:
-					"List timeline markers across all media files (admin). `type`, `source` and `q` filter and `limit` caps the result in the database query.",
+					"List timeline markers across all media files (admin). `type`, `source` and `q` filter and `limit` sets the page size and `page` picks the page; the filters run in the database query.",
 			},
 		},
 	)

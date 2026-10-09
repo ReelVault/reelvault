@@ -33,6 +33,7 @@ import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { QueryFields } from "@/database/utils/fields";
 import { toPublicMarker } from "@/database/utils/media-marker.mapper";
+import { QueryPagination } from "@/database/utils/pagination";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
@@ -126,13 +127,14 @@ class MediaService extends BaseService {
 		});
 	}
 
-	async listAllMarkers(query: MediaMarkerListQuery = {}): Promise<MediaMarker[]> {
+	async listAllMarkers(query: MediaMarkerListQuery & { page?: number } = {}) {
 		return await this.safeExecute("listAllMarkers", async () => {
 			// Filters and LIMIT run in SQL — fetching every marker row to filter or slice in JS
 			// would read the whole table on a user-triggerable route.
-			const markers = await mediaMarkersRepository.findAll(query);
+			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 100 });
+			const { rows, total } = await mediaMarkersRepository.findPage({ ...query, limit: pagination.limit, offset: pagination.offset });
 
-			return markers.map((item) => toPublicMarker(item));
+			return QueryPagination.createResponse({ total, pagination, data: rows.map((item) => toPublicMarker(item)) });
 		});
 	}
 

@@ -35,6 +35,19 @@ function markerListWhere(query: MediaMarkerListQuery): SQL | undefined {
 }
 
 const overrides = {
+	async findPage(query: MediaMarkerFilters & { limit: number; offset: number }) {
+		const where = markerListWhere(query);
+		const rows = await getMediaMarkersRepository().selectMany({
+			where,
+			orderBy: asc(mediaMarkers.table.createdAt),
+			limit: query.limit,
+			offset: query.offset,
+		});
+		const total = await getMediaMarkersRepository().count({ where });
+
+		return { rows, total };
+	},
+
 	async findAll(query: MediaMarkerListQuery = {}, tx?: DatabaseTransaction) {
 		// Hard cap so a marker listing without an explicit limit cannot materialize
 		// the whole table.
