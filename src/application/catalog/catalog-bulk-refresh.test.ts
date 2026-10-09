@@ -3,6 +3,7 @@ import { mediaService } from "@/application/media/media-files/media-files.servic
 import { NotFoundError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { episodesService } from "./episodes.service";
+import { metadataService } from "./metadata/metadata.service";
 import { peopleService } from "./people.service";
 
 const stubs: Array<{ restore(): void }> = [];
@@ -68,6 +69,26 @@ test("queues each media file once and reports a file that cannot be queued by it
 			{ id: "m1", ok: true },
 			{ id: "m2", ok: false, code: "catalog.not_found" },
 			{ id: "m3", ok: false, code: "media_file.refresh_failed" },
+		],
+	});
+});
+
+test("refreshes each title's artwork once and reports a failure by its code, never its message", async () => {
+	const refresh = stubMethod(metadataService, "refreshImages", refreshFailingFor("m2", "m3"));
+	stubs.push(refresh);
+
+	const outcome = await metadataService.refreshImagesMany(["m1", "m2", "m1", "m3"]);
+
+	expect(refresh.calls).toEqual([
+		["m1", { force: true }],
+		["m2", { force: true }],
+		["m3", { force: true }],
+	]);
+	expect(outcome).toEqual({
+		results: [
+			{ id: "m1", ok: true },
+			{ id: "m2", ok: false, code: "catalog.not_found" },
+			{ id: "m3", ok: false, code: "metadata.refresh_images_failed" },
 		],
 	});
 });

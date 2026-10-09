@@ -1,4 +1,6 @@
 import {
+	BulkRefreshBodySchema,
+	BulkRefreshResultSchema,
 	CreateMetadataSchema,
 	GlobalSearchResponseSchema,
 	LinkMetadataProviderSchema,
@@ -248,6 +250,20 @@ export const metadataRoutes = new Elysia({
 		cache: { maxAge: 60, private: true },
 		detail: {
 			description: "Retrieve a list of metadata entries similar to the specified one, based on various shared attributes.",
+		},
+	})
+	.post("/bulk-refresh-images", async ({ body }) => await metadataService.refreshImagesMany(body.ids), {
+		adminOnly: true,
+		rateLimit: {
+			name: "metadata-bulk-refresh-images",
+			max: 30,
+			windowMs: MINUTE,
+		},
+		body: BulkRefreshBodySchema,
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkRefreshResultSchema },
+		detail: {
+			description:
+				"Force-refresh the posters and backdrops of up to 50 titles in turn. Each id reports its own outcome, so one failure does not stop the others.",
 		},
 	})
 	.post(

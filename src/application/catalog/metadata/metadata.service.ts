@@ -1,4 +1,5 @@
 import type {
+	BulkRefreshItem,
 	CreateMetadata,
 	CursorPaginatedResponse,
 	CursorPaginationQuery,
@@ -48,7 +49,7 @@ import { clamp } from "@/utils/math.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { runMediaCleanup } from "@/utils/server-data.utils";
-import { fetchSeason, mapProviderLinks } from "../catalog.utils";
+import { fetchSeason, mapProviderLinks, refreshBulkItem } from "../catalog.utils";
 import { resolveMetadataLanguage } from "./library-metadata-language";
 import { metadataRefreshService } from "./metadata-refresh.runtime";
 import { syncSeasonsAndEpisodes } from "./season-sync.utils";
@@ -577,6 +578,20 @@ class MetadataService extends BaseService {
 		source?: SelectFields<MetadataWithRelation, string>,
 	): Promise<PaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
 		return await this.safeExecute("getSimilar", () => metadataRepository.findSimilarPage(metadataId, query, source));
+	}
+
+	/** Force-refreshes the artwork of the listed titles one after another; each id reports its own outcome. */
+	async refreshImagesMany(metadataIds: string[]) {
+		return await this.safeExecute("refreshImagesMany", async () => {
+			const results: BulkRefreshItem[] = [];
+			for (const metadataId of new Set(metadataIds)) {
+				results.push(
+					await refreshBulkItem(metadataId, () => this.refreshImages(metadataId, { force: true }), "metadata.refresh_images_failed"),
+				);
+			}
+
+			return { results };
+		});
 	}
 
 	async refreshImages(metadataId: string, options: { force?: boolean } = {}): Promise<{ success: boolean }> {

@@ -1,15 +1,19 @@
+import { readdir } from "node:fs/promises";
 import { imageRepository } from "@/database/repositories/images.repository";
 import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
+import { imageCacheEviction } from "@/modules/images/cache/image-cache.eviction";
 import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
+import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
 import { InternalError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { BatchGarbageCollector } from "@/utils/gc.utils";
 import { PathUtils } from "@/utils/path.utils";
+import { PromiseUtils } from "@/utils/promise.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 
 export type ImageOptimizationOutcome = "reoptimized" | "kept" | "missing" | "skipped";
@@ -17,6 +21,11 @@ export type ImageOptimizationOutcome = "reoptimized" | "kept" | "missing" | "ski
 export interface PurgeOrphanedImagesResult {
 	scannedCount: number;
 	deletedCount: number;
+	freedBytes: number;
+}
+
+export interface PurgeOptimizedCacheResult {
+	removedFiles: number;
 	freedBytes: number;
 }
 
@@ -32,6 +41,35 @@ class ImageMaintenanceService extends BaseService {
 
 	constructor() {
 		super("ImageMaintenanceService");
+	}
+
+	/**
+	 * Deletes the optimized copies under `images/.cache`. Originals stay, and a copy requested again is rebuilt from its
+	 * original, so a purge only costs the next requests a rebuild.
+	 */
+	async purgeOptimizedCache(): Promise<PurgeOptimizedCacheResult> {
+		return await this.safeExecute("purgeOptimizedCache", async () => {
+			const cacheDir = PathUtils.join(serverConfig.paths.images, ".cache");
+			const names = (await DirUtils.exists(cacheDir)) ? await readdir(cacheDir) : [];
+			const ioConcurrency = systemResourcesService.getIoConcurrency();
+			const files = (
+				await PromiseUtils.mapConcurrent(names, ioConcurrency, async (name) => {
+					const path = PathUtils.join(cacheDir, name);
+					const stats = await FileUtils.getStats(path);
+
+					return stats?.isFile() ? { path, size: stats.size } : null;
+				})
+			).filter((file): file is { path: string; size: number } => file !== null);
+
+			const removedSizes = await PromiseUtils.mapConcurrent(files, ioConcurrency, async (file) =>
+				(await FileUtils.delete(file.path)) ? file.size : null,
+			);
+			const removed = removedSizes.filter((size): size is number => size !== null);
+
+			imageCacheEviction.forget(cacheDir);
+
+			return { removedFiles: removed.length, freedBytes: removed.reduce((sum, size) => sum + size, 0) };
+		});
 	}
 
 	async purgeOrphanedImages(options: { minAgeMs?: number } = {}, signal?: AbortSignal): Promise<PurgeOrphanedImagesResult> {

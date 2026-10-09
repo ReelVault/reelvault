@@ -42,6 +42,12 @@ export class ImageCacheEviction extends BaseService {
 		this.dependencies = dependencies;
 	}
 
+	/** Drops the FIFO of a directory whose files were removed outside the sweep; the next sweep reconciles it again. */
+	forget(cacheDir: string): void {
+		this.tracked.delete(cacheDir);
+		this.reconciled.delete(cacheDir);
+	}
+
 	/** Records a cache write so FIFO eviction can order it without filesystem stats. */
 	recordWrite(cacheDir: string, fileName: string): void {
 		let names = this.tracked.get(cacheDir);

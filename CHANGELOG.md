@@ -459,6 +459,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Copy a profile's preferences** — `POST /profiles/:id/preferences/copy` with `{ sourceProfileId }` replaces the profile's preference overrides with a copy of another profile's; both profiles must belong to the same account. `POST /profiles` also accepts `copyPreferencesFromProfileId`, so a new profile can start from an existing one.
 - **Mute notification types per profile** — the profile preference `mutedNotificationTypes` (comma-separated) leaves the muted types out of the profile's notification list, page and unread count, and sends no live alert for them. It is one more profile preference, so no migration is needed.
 - **Hidden menu pages per profile** — the profile preference `hiddenPages` (comma-separated ids: `collections`, `discovery`, `insights`, `devices`, `remote`) is stored and returned with the other preferences; it is empty by default. It is one more profile preference, so no migration is needed.
+- **Bulk artwork refresh and image cache purge** — `POST /metadata/bulk-refresh-images` force-refreshes the posters and backdrops of up to 50 titles in turn, and each id reports its own outcome. `POST /admin/image-cache/purge` (admin) deletes the optimized image copies under the images cache and reports the files and bytes removed; originals are kept, and each copy is rebuilt when it is next requested.
 
 ### Fixes
 

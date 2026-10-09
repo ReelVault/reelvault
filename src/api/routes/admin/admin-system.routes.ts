@@ -8,6 +8,7 @@ import {
 	AdminFilesystemBrowseSchema,
 	AdminResourcesResponseSchema,
 	AdminStatsSchema,
+	ImageCachePurgeResultSchema,
 	MetadataProviderConfigurationSchema,
 	OperationQueuedResponseSchema,
 	PluginAdminStatusSchema,
@@ -68,6 +69,14 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		detail: {
 			description:
 				"Retrieve server cache statistics: disk usage of transcode, image, and subtitle caches plus in-memory cache entry counts and hit rates.",
+		},
+	})
+	.post("/image-cache/purge", async () => await adminService.purgeImageCache(), {
+		rateLimit: { name: "admin-image-cache-purge", max: 10, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: ImageCachePurgeResultSchema },
+		detail: {
+			description:
+				"Delete the optimized image copies. Originals are kept; each copy is rebuilt when it is requested again. Returns the files and bytes removed.",
 		},
 	})
 	.get("/dashboard", async () => await adminService.dashboard(), {

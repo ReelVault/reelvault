@@ -22,6 +22,7 @@ import { describeUpdateEnvironment } from "@/application/updates/update-environm
 import { updateInstallService } from "@/application/updates/update-install.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { adminStatsRepository } from "@/database/repositories/admin-stats.repository";
+import { imageMaintenanceService, type PurgeOptimizedCacheResult } from "@/modules/images/image-maintenance.service";
 import { sessionLifecycleService } from "@/modules/streaming/sessions/session-lifecycle.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
@@ -146,6 +147,16 @@ class AdminService extends BaseService {
 		});
 
 		return { timestamp: new Date().toISOString(), disk, memory: cacheRegistrySnapshot() };
+	}
+
+	/** Deletes the optimized image copies; the disk stats are measured again on the next read. */
+	async purgeImageCache(): Promise<PurgeOptimizedCacheResult> {
+		return await this.safeExecute("purgeImageCache", async () => {
+			const result = await imageMaintenanceService.purgeOptimizedCache();
+			this.diskStatsCache.clear();
+
+			return result;
+		});
 	}
 
 	async dashboard(): Promise<{
