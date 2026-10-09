@@ -167,6 +167,9 @@ export class PluginLoader {
 			throw new ValidationError("Invalid plugin directory", { code: "plugin.invalid_identifier" });
 		}
 
+		// A package whose manifest could not be read is listed under its directory name; a retry starts clean.
+		this.registry.clearFailure(pluginName);
+
 		const scope = new PluginScope();
 		let trackedPluginId: string | undefined;
 		let manifest: Awaited<ReturnType<typeof loadPluginManifest>> | undefined;
@@ -301,6 +304,9 @@ export class PluginLoader {
 				this.pluginScopes.delete(trackedPluginId);
 			} else if (manifest) {
 				this.registry.recordFailure(manifest, err, failurePhase, configDefinition);
+			} else {
+				// plugin.json missing or invalid: without this the admin saw nothing at all for a broken package.
+				this.registry.recordFailure({ id: pluginName, name: pluginName, version: "unknown" }, err, "manifest");
 			}
 
 			this.logger.error(`Failed to load plugin ${pluginName}`, err, { failurePhase });

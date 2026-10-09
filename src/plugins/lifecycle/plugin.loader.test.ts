@@ -374,6 +374,31 @@ export default {
 		await expect(loader.load("broken-config")).rejects.toThrow("Configuration is invalid");
 		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.broken-config", state: "failed", failurePhase: "config" }]);
 	});
+
+	test("a package with an invalid plugin.json is listed as a manifest failure under its directory name", async () => {
+		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
+		temporaryDirectories.push(pluginsDirectory);
+		await mkdir(join(pluginsDirectory, "no-manifest"), { recursive: true });
+		await write(join(pluginsDirectory, "no-manifest", "plugin.json"), JSON.stringify({ name: "Nameless", version: "1.0.0" }));
+		const registry = new PluginRegistry();
+		const config: Pick<PluginConfig, "load"> = { load: async () => ({}) };
+		const loader = new PluginLoader(config as PluginConfig, registry, pluginsDirectory);
+
+		await expect(loader.load("no-manifest")).rejects.toThrow();
+
+		expect(registry.getFailedStatuses()).toMatchObject([{ id: "no-manifest", state: "failed", failurePhase: "manifest" }]);
+		expect(registry.getFailedStatuses()[0]?.error).toBeTruthy();
+
+		// Fixing the package and retrying clears the stale entry.
+		await write(
+			join(pluginsDirectory, "no-manifest", "plugin.json"),
+			JSON.stringify({ id: "org.reelvault.fixed", name: "Fixed", version: "1.0.0", entry: "./index.mjs", capabilities: ["eventHandler"] }),
+		);
+		await write(join(pluginsDirectory, "no-manifest", "index.mjs"), "export default { setup: async () => undefined };\n");
+		await loader.load("no-manifest");
+
+		expect(registry.getFailedStatuses()).toEqual([]);
+	});
 });
 
 async function createLoaderFixture(): Promise<{ loader: PluginLoader; registry: PluginRegistry; pluginsDirectory: string }> {

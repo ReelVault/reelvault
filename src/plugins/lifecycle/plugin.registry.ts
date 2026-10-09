@@ -152,6 +152,11 @@ export class PluginRegistry {
 		});
 	}
 
+	/** Forgets a recorded load failure, e.g. before the plugin is retried or after it was fixed. */
+	clearFailure(pluginId: string): void {
+		this.failures.delete(pluginId);
+	}
+
 	unregister(pluginId: string, preserveFailure = false): boolean {
 		const runtime = this.plugins.get(pluginId);
 		if (!runtime) return false;
