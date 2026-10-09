@@ -1,5 +1,10 @@
 import type { PlaybackDecision, PlaybackMode, SessionLifecycleState, StreamingSession, TranscodeConfig } from "@reelvault/sdk/common";
-import { getEffectiveHwaccel, getToneMappingMethod } from "@/integrations/ffmpeg/ffmpeg.capabilities";
+import {
+	type DetectedHwaccel,
+	getEffectiveHwaccel,
+	getToneMappingMethod,
+	type ToneMappingMethod,
+} from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { serverConfig } from "@/server.config";
 import { NotFoundError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
@@ -33,6 +38,16 @@ const noOpLifecycleCallbacks: StreamingLifecycleCallbacks = {
 };
 
 /**
+ * FFmpeg environment a session was created with. Diagnostics must describe the
+ * process that is actually running: an admin flipping `ffmpeg.hwaccel` or the
+ * tone-mapping method mid-session must not rewrite what a stream reports.
+ */
+interface StreamEnvironment {
+	hwaccel: DetectedHwaccel;
+	toneMapMethod: ToneMappingMethod;
+}
+
+/**
  * Runtime facade over the streaming sub-services. Owns no playback state
  * itself — `SessionStore` is the single source of truth. A session is one
  * entity for the whole viewing: seek/quality changes restart the FFmpeg
@@ -49,6 +64,8 @@ class StreamingManager {
 	private readonly softwareFallbackSessions = new Set<string>();
 	/** In-flight segment requests per session — a long wait counts as activity. */
 	private readonly inflightSegments = new Map<string, number>();
+	/** Encoder environment captured at registration; WeakMap so released sessions are collected. */
+	private readonly streamEnvironments = new WeakMap<StreamingSession, StreamEnvironment>();
 
 	private readonly config: TranscodeConfig;
 	private lifecycleCallbacks = noOpLifecycleCallbacks;
@@ -228,7 +245,7 @@ class StreamingManager {
 		sessionId: string,
 		access: { mediaFileId: string; profileId: string; decision: PlaybackDecision; inputPath: string; durationMs?: number | null },
 	): void {
-		this.store.register({
+		const session = this.store.register({
 			id: sessionId,
 			mediaFileId: access.mediaFileId,
 			profileId: access.profileId,
@@ -237,6 +254,7 @@ class StreamingManager {
 			tempDir: PathUtils.join(this.config.tempRootDir, sessionId),
 			durationMs: access.durationMs ?? null,
 		});
+		this.streamEnvironments.set(session, { hwaccel: getEffectiveHwaccel(), toneMapMethod: getToneMappingMethod() });
 	}
 
 	getSessionAccess(sessionId: string): { mediaFileId: string; profileId: string } | undefined {
@@ -337,7 +355,8 @@ class StreamingManager {
 		const session = this.store.get(sessionId);
 		if (!session) return null;
 
-		const effectiveHw = getEffectiveHwaccel();
+		const environment = this.streamEnvironments.get(session);
+		const effectiveHw = environment?.hwaccel ?? getEffectiveHwaccel();
 		const { videoEncoder, audioEncoder } = resolveStreamEncoders(session.decision, effectiveHw);
 
 		return {
@@ -350,7 +369,7 @@ class StreamingManager {
 			targetVideoBitrateKbps: session.decision.videoBitrateKbps ?? null,
 			hwaccel: effectiveHw.type,
 			tonemapped: session.decision.tonemap ?? false,
-			toneMapMethod: getToneMappingMethod(),
+			toneMapMethod: environment?.toneMapMethod ?? getToneMappingMethod(),
 			reasons: session.decision.reasons ?? { video: { code: "unknown" }, audio: { code: "unknown" } },
 			audioStreamIndex: session.decision.audioStreamIndex,
 			startTime: session.startTime,

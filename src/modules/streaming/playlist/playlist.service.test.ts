@@ -39,7 +39,10 @@ describe("playlist service", () => {
 	test("wraps playlist wait failures in InternalError", async () => {
 		const { service } = createService({ waitForPlaylistError: new Error("timeout waiting for playlist") });
 
-		await expect(service.get("session-1")).rejects.toThrow("timeout waiting for playlist");
+		await expect(service.get("session-1")).rejects.toMatchObject({
+			code: "stream.playlist_unavailable",
+			message: "timeout waiting for playlist",
+		});
 	});
 
 	test("reads, rewrites and caches the playlist", async () => {
@@ -87,6 +90,6 @@ describe("playlist service", () => {
 	test("maps ENOENT to a retryable request timeout", async () => {
 		const { service } = createService({ enoent: true });
 
-		await expect(service.get("session-1")).rejects.toThrow("seek in progress");
+		await expect(service.get("session-1")).rejects.toMatchObject({ code: "stream.playlist_rebuilding" });
 	});
 });

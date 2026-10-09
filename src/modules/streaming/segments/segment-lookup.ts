@@ -62,11 +62,17 @@ export class SegmentLookup {
 			const seekFile = await this.waitThenRead(filePath, seekWaitMs, signal);
 			if (seekFile) return seekFile;
 
-			throw new NotFoundError(`Segment not found after ongoing seek: ${segment}`);
+			throw new NotFoundError(`Segment not found after ongoing seek: ${segment}`, {
+				code: "stream.segment_not_found",
+				params: { segment },
+			});
 		}
 
 		if (context.isNearActiveWindow) {
-			throw new NotFoundError(`Segment not yet generated: ${segment}`);
+			throw new NotFoundError(`Segment not yet generated: ${segment}`, {
+				code: "stream.segment_not_ready",
+				params: { segment },
+			});
 		}
 
 		return undefined;
@@ -77,7 +83,10 @@ export class SegmentLookup {
 		const seekFile = await this.waitThenRead(filePath, timeoutMs, signal);
 		if (seekFile) return seekFile;
 
-		throw new NotFoundError(`Segment not found after seek: ${segment}`);
+		throw new NotFoundError(`Segment not found after seek: ${segment}`, {
+			code: "stream.segment_not_found",
+			params: { segment },
+		});
 	}
 
 	/** Waits for the file and reads it; aborts rethrow, other wait failures return undefined for the caller to map. */

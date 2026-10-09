@@ -73,14 +73,20 @@ describe("segment lookup", () => {
 	test("keeps waiting while a seek is in progress, then gives up", async () => {
 		const { lookup, calls } = createHarness({ waitOutcome: "timeout" });
 
-		await expect(lookup.find(createContext({ isSeeking: () => true }))).rejects.toThrow("after ongoing seek");
+		await expect(lookup.find(createContext({ isSeeking: () => true }))).rejects.toMatchObject({
+			code: "stream.segment_not_found",
+			params: { segment: "seg_5.m4s" },
+		});
 		expect(calls.map((call) => call.timeoutMs)).toEqual([8_000, 10_000]);
 	});
 
 	test("rejects not-yet-generated segments near the active window", async () => {
 		const { lookup } = createHarness({ waitOutcome: "timeout" });
 
-		await expect(lookup.find(createContext({ isNearActiveWindow: true }))).rejects.toThrow("not yet generated");
+		await expect(lookup.find(createContext({ isNearActiveWindow: true }))).rejects.toMatchObject({
+			code: "stream.segment_not_ready",
+			params: { segment: "seg_5.m4s" },
+		});
 	});
 
 	test("signals an implicit seek for far-future segments", async () => {
@@ -103,7 +109,10 @@ describe("segment lookup", () => {
 	test("readAfterSeek fails with not found when the seek does not produce the segment", async () => {
 		const { lookup } = createHarness({ waitOutcome: "timeout" });
 
-		await expect(lookup.readAfterSeek(createContext(), 15_000)).rejects.toThrow("after seek");
+		await expect(lookup.readAfterSeek(createContext(), 15_000)).rejects.toMatchObject({
+			code: "stream.segment_not_found",
+			params: { segment: "seg_5.m4s" },
+		});
 	});
 
 	test("rethrows when the request is aborted during the wait", async () => {

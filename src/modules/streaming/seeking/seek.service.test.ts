@@ -62,9 +62,9 @@ describe("seek service", () => {
 		expect(seekCalls[0]?.position).toBe(-10);
 	});
 
-	test("fails when the session has no decision yet", () => {
+	test("fails when the session has no decision yet", async () => {
 		const { service } = createService({ hasDecision: false });
 
-		expect(service.seek("s1", 10)).rejects.toThrow("not ready yet");
+		await expect(service.seek("s1", 10)).rejects.toMatchObject({ code: "stream.not_ready" });
 	});
 });

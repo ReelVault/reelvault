@@ -41,7 +41,10 @@ export class SeekService extends BaseService {
 		// position back to the client (route contract: [0, duration - EOF guard]).
 		const position = clampSeekOffsetToDuration(rawPosition, duration);
 		const decision = getSessionDecision(sessionId);
-		if (!decision) throw new RequestTimeoutError("Streaming session is not ready yet. Try again in a moment.");
+		if (!decision)
+			throw new RequestTimeoutError("Streaming session is not ready yet. Try again in a moment.", {
+				code: "stream.not_ready",
+			});
 
 		const { startTime, reusedBuffer } = await seekTo(sessionId, rawPosition, decision);
 

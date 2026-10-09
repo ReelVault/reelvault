@@ -1,6 +1,6 @@
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
-import { errorMessage, InternalError, isMissingFile, RequestTimeoutError } from "@/utils/errors";
+import { DomainError, errorMessage, InternalError, isMissingFile, RequestTimeoutError } from "@/utils/errors";
 import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import { PLAYLIST_FILE_NAME } from "../utils/segment-name.utils";
 import { type PlaylistFileCache, playlistFileCache } from "./playlist.cache";
@@ -30,14 +30,18 @@ export class PlaylistService extends BaseService {
 		try {
 			await runtime.waitForPlaylist(sessionId, undefined, signal);
 		} catch (error) {
-			throw new InternalError(errorMessage(error));
+			if (error instanceof DomainError) throw error;
+
+			throw new InternalError(errorMessage(error), { code: "stream.playlist_unavailable" });
 		}
 
 		const playlistPath = runtime.getFilePath(sessionId, PLAYLIST_FILE_NAME);
 		const result = await fileCache.read(sessionId, playlistPath, serverConfig.stream.hlsSegmentDurationSeconds);
 		if (!result.ok) {
 			if (isMissingFile(result.error)) {
-				throw new RequestTimeoutError("Playlist is being rebuilt (seek in progress) — retry shortly");
+				throw new RequestTimeoutError("Playlist is being rebuilt (seek in progress) — retry shortly", {
+					code: "stream.playlist_rebuilding",
+				});
 			}
 
 			throw result.error;
