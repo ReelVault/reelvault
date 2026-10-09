@@ -2,7 +2,9 @@ import {
 	CreateLibrarySchema,
 	LibraryDetailSchema,
 	LibraryErrorsCheckRequestSchema,
+	LibraryErrorsCheckStatusSchema,
 	LibraryFiltersSchema,
+	LibraryHealthResponseSchema,
 	LibraryScanAllResponseSchema,
 	LibraryScanCancelResponseSchema,
 	LibrarySortingSchema,
@@ -13,7 +15,7 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
-import { LibraryIdParams } from "@/api/schemas/route-params";
+import { LibraryIdParams, OperationIdParams } from "@/api/schemas/route-params";
 import { librariesService } from "@/application/libraries/libraries.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
@@ -54,6 +56,24 @@ export const librariesRoutes = new Elysia({
 			},
 		},
 	)
+	.get("/health", async () => await librariesService.getHealth(), {
+		adminOnly: true,
+		rateLimit: { name: "library-health", max: 30, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: LibraryHealthResponseSchema },
+		detail: {
+			description:
+				"Each library's paths as they are now: whether the path exists on disk, whether the filesystem watcher covers it, and when the library was last scanned.",
+		},
+	})
+	.get("/check-errors/:operationId", async ({ params }) => await librariesService.getErrorsCheckStatus(params.operationId), {
+		adminOnly: true,
+		rateLimit: { name: "library-errors-check-status", max: 120, windowMs: MINUTE },
+		params: OperationIdParams,
+		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: LibraryErrorsCheckStatusSchema },
+		detail: {
+			description: "Status of a check queued by POST /libraries/check-errors. The result is set once the check has completed.",
+		},
+	})
 	.get("/", async ({ query }) => await librariesService.getAll(query), {
 		query: t.Composite([PaginationSchema, FieldsSchema, LibraryFiltersSchema, LibrarySortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "libraries.paginated.schema" },

@@ -1,9 +1,15 @@
 import { existsSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import type {
 	CreateLibrary,
 	CreateLibraryPath,
 	FieldsQuery,
+	LibraryErrorsCheckResult,
+	LibraryErrorsCheckStatus,
 	LibraryFilters,
+	LibraryHealth,
+	LibraryHealthResponse,
+	LibraryPathHealth,
 	LibrarySorting,
 	LibraryWithRelations,
 	PaginatedResponse,
@@ -11,14 +17,18 @@ import type {
 	SelectFields,
 	UpdateLibrary,
 } from "@reelvault/sdk/common";
+import { LibraryErrorsCheckResultSchema } from "@reelvault/sdk/common";
+import { Value } from "@sinclair/typebox/value";
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
 import { type ScanFindingItem, scanFindingsRepository } from "@/database/repositories/scan-findings.repository";
+import { workerJobRepository } from "@/database/repositories/worker.repository";
+import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { BaseService } from "@/utils/base-service";
-import { ConflictError, ValidationError } from "@/utils/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
@@ -33,6 +43,31 @@ import { enqueueLibraryScan } from "@/workers/definitions/libraries/library-scan
 import { ingestLibraryCache } from "@/workers/definitions/media/media-file-ingest.worker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped";
 import { libraryWatcherService } from "./watching/library-watcher.service";
+
+/** Most libraries one health report covers; the admin libraries page lists libraries on one page anyway. */
+const MAX_HEALTH_LIBRARIES = 200;
+
+type UnwatchableCode = "library.path_missing" | "library.watcher_error" | "library.watch_failed";
+
+/**
+ * The watcher's failure reason as a stable code. The reason keeps the exception text for the server log, so the text
+ * itself is never returned to a client.
+ */
+function unwatchableCodeOf(reason: string): UnwatchableCode {
+	if (reason === "path_missing") return "library.path_missing";
+	if (reason.startsWith("watcher_error")) return "library.watcher_error";
+
+	return "library.watch_failed";
+}
+
+/** Whether a configured path can be stat-ed right now (`exists` means the stat succeeded), and whether it is a directory. */
+async function describePath(path: string): Promise<{ exists: boolean; isDirectory: boolean }> {
+	try {
+		return { exists: true, isDirectory: (await stat(path)).isDirectory() };
+	} catch {
+		return { exists: false, isDirectory: false };
+	}
+}
 
 /** Routes whose cached bodies list libraries — invalidated on library mutations. */
 const LIBRARY_LIST_PATH_PREFIXES = ["/v1/libraries"] as const;
@@ -379,6 +414,60 @@ class LibrariesService extends BaseService {
 			);
 
 			return enqueued;
+		});
+	}
+
+	/** Status of a check queued by `checkErrors`; the result is read from the finished job once the check has completed. */
+	async getErrorsCheckStatus(operationId: string): Promise<LibraryErrorsCheckStatus> {
+		return await this.safeExecute("getErrorsCheckStatus", async () => {
+			const { workerService } = await import("@/workers/worker.service");
+			const operation = await workerService.getOperation(operationId);
+			if (operation?.type !== "library-errors-check") {
+				throw new NotFoundError("Error check operation not found", { code: "library.errors_check_not_found" });
+			}
+
+			let result: LibraryErrorsCheckResult | null = null;
+			if (operation.status === "completed") {
+				const [job] = await workerJobRepository.findByOperation(operationId, 1);
+				if (job?.result) {
+					const parsed: unknown = JSON.parse(job.result);
+					if (Value.Check(LibraryErrorsCheckResultSchema, parsed)) result = parsed;
+				}
+			}
+
+			return { status: operation.status, progressPercent: operation.progressPercent, result };
+		});
+	}
+
+	/** Every library's paths as they are now: whether each exists, whether the watcher covers it, and when the library was last scanned. */
+	async getHealth(): Promise<LibraryHealthResponse> {
+		return await this.safeExecute("getHealth", async () => {
+			const { data: libraries } = await librariesRepository.findPage({ limit: MAX_HEALTH_LIBRARIES });
+			const unwatchable = new Map(libraryWatcherService.getUnwatchablePaths().map((failure) => [failure.pathId, failure]));
+			const lastScans = await workerOperationRepository.findLatestLibraryScanTimes(libraries.map((library) => library.id));
+
+			const data: LibraryHealth[] = [];
+			for (const library of libraries) {
+				const paths: LibraryPathHealth[] = [];
+				for (const libraryPath of library.paths) {
+					const { exists, isDirectory } = await describePath(libraryPath.path);
+					const failure = unwatchable.get(libraryPath.id);
+					paths.push({
+						pathId: libraryPath.id,
+						path: libraryPath.path,
+						exists,
+						isDirectory,
+						watchStatus: failure ? "unwatchable" : "watching",
+						...(failure
+							? { unwatchableCode: unwatchableCodeOf(failure.reason), unwatchableSince: new Date(failure.since).toISOString() }
+							: {}),
+					});
+				}
+
+				data.push({ libraryId: library.id, lastScanAt: lastScans.get(library.id)?.toISOString() ?? null, paths });
+			}
+
+			return { data };
 		});
 	}
 
