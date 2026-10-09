@@ -9,7 +9,7 @@ import { realtimeService } from "@/modules/realtime/realtime.service";
 import { scannerService } from "@/modules/scanner/scanner.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
-import { MINUTE } from "@/server.constants";
+import { LIBRARY_SCAN_PRIORITY, MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { assertFound } from "@/utils/errors";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -359,6 +359,7 @@ export async function enqueueLibraryScan(
 ): Promise<LibraryScanSchedule> {
 	const task = await workerService.addItem(libraryScanWorker.id, data, {
 		...options,
+		priority: options.priority ?? LIBRARY_SCAN_PRIORITY,
 		dedupeKey: dedupeKey ?? `${data.libraryId}:${data.pathId ?? "all"}`,
 		reference: { type: "library", id: data.libraryId },
 	});

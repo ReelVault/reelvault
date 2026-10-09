@@ -30,7 +30,7 @@ import { metadataService } from "@/application/catalog/metadata/metadata.service
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { cached } from "@/middleware/response-cache.middleware";
-import { MINUTE } from "@/server.constants";
+import { IMAGE_UPLOAD_MAX_SIZE, MINUTE } from "@/server.constants";
 
 const GlobalSearchQuerySchema = t.Object({
 	q: t.String({ minLength: 2, maxLength: 200 }),
@@ -117,7 +117,9 @@ export const metadataRoutes = new Elysia({
 			params: MetadataIdParams,
 			body: t.Object({
 				type: MetadataImageTypeSchema,
-				file: t.File({ type: "image/*", maxSize: "20m" }),
+				// The real limit is the live `images.maxUploadBytes` setting (enforced
+				// in the service); this is only the protocol ceiling for the body.
+				file: t.File({ type: "image/*", maxSize: IMAGE_UPLOAD_MAX_SIZE }),
 			}),
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
 			detail: { description: "Upload, optimize and activate a custom poster or backdrop." },

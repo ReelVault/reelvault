@@ -64,6 +64,13 @@ const overrides = {
 		});
 	},
 
+	/** Ids of every subtitle row — the orphan FileUtils/worker sweep compares extracted VTT files against it. */
+	async findAllIds(): Promise<Set<string>> {
+		const rows = await databaseFactory.getClient().select({ id: schema.subtitles.id }).from(schema.subtitles);
+
+		return new Set(rows.map((row) => row.id));
+	},
+
 	async createAndRead(body: CreateSubtitleRequest, type: SubtitleType) {
 		const { sourcePath, ...values } = body;
 		const subtitle = await databaseFactory.transaction(

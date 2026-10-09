@@ -28,7 +28,10 @@ class ImageUploadService extends BaseService {
 
 	async upload(file: File, target: ImageUploadTarget): Promise<UploadedImage> {
 		if (file.size > serverConfig.images.maxUploadBytes) {
-			throw new ValidationError(`Image upload exceeds the ${serverConfig.images.maxUploadBytes / 1024 / 1024} MB limit`);
+			throw new ValidationError(`Image upload exceeds the ${serverConfig.images.maxUploadBytes / 1024 / 1024} MB limit`, {
+				code: "images.upload_too_large",
+				params: { maxBytes: serverConfig.images.maxUploadBytes, size: file.size },
+			});
 		}
 
 		// The declared MIME type is client-controlled — the payload itself must

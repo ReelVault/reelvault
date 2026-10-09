@@ -1,6 +1,6 @@
 import type { AddWorkerItemOptions, WorkerCategory, WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk";
 
-export type WorkerEnqueueOptions = Pick<AddWorkerItemOptions, "operationId" | "dependsOnTaskIds" | "dependsOnJobId">;
+export type WorkerEnqueueOptions = Pick<AddWorkerItemOptions, "operationId" | "dependsOnTaskIds" | "dependsOnJobId" | "priority">;
 
 /** Filters accepted by the operation-job listings exposed through the worker service. */
 export interface WorkerOperationJobsQuery {

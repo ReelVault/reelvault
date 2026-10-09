@@ -9,6 +9,7 @@ export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 		{ cleanupMetricsWorker },
 		{ cleanupOrphanImagesWorker },
 		{ cleanupOrphanMediaFilesWorker },
+		{ cleanupOrphanSubtitlesWorker },
 		{ cleanupPluginBlobsWorker },
 		{ cleanupTranscodesWorker },
 		{ cleanupWorkerHistoryWorker },
@@ -33,6 +34,7 @@ export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 		import("./definitions/system/cleanup-metrics.worker"),
 		import("./definitions/system/cleanup-orphan-images.worker"),
 		import("./definitions/system/cleanup-orphan-media-files.worker"),
+		import("./definitions/system/cleanup-orphan-subtitles.worker"),
 		import("./definitions/system/cleanup-plugin-blobs.worker"),
 		import("./definitions/system/cleanup-transcodes.worker"),
 		import("./definitions/system/cleanup-worker-history.worker"),
@@ -77,6 +79,7 @@ export async function loadBuiltInWorkers(): Promise<WorkerDefinition[]> {
 		cleanupMetricsWorker,
 		cleanupOrphanImagesWorker,
 		cleanupOrphanMediaFilesWorker,
+		cleanupOrphanSubtitlesWorker,
 		cleanupLogsWorker,
 	] satisfies WorkerDefinition[];
 }

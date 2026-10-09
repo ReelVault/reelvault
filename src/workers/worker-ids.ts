@@ -42,6 +42,7 @@ export const UNCATEGORIZED_WORKER_IDS: ReadonlySet<string> = new Set([
 	"clean-up-logs",
 	"clean-up-orphan-images",
 	"clean-up-orphan-media-files",
+	"clean-up-orphan-subtitles",
 	"clean-up-plugin-blobs",
 	"clean-up-resource-metrics",
 	"clean-up-transcodes",

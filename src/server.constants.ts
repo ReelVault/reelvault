@@ -15,6 +15,12 @@ export const FFMPEG_TIMEOUT_MS = 10 * MINUTE;
 /** Boot-time recommendation only — warn, never refuse to start, on older FFmpeg majors. */
 export const RECOMMENDED_FFMPEG_MAJOR = 6;
 
+/** Queue priority for library scans: interactive work runs before bulk jobs (lower runs first, default 0). */
+export const LIBRARY_SCAN_PRIORITY = -5;
+
+/** Hard body ceiling for image uploads; `images.maxUploadBytes` (a live setting) is enforced in the service. */
+export const IMAGE_UPLOAD_MAX_SIZE = "512m";
+
 /**
  * Hard deadline for a single filesystem stat. A dead NFS/CIFS mount can hang
  * `stat` indefinitely, which would wedge watcher reconciliation and the removal
