@@ -4,6 +4,7 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { toMap } from "@/utils/array.utils";
 import { workerService } from "@/workers/worker.service";
 import { playlistService } from "../playlist/playlist.service";
+import { endedSessionHistory } from "./ended-session-history";
 import { streamingManager } from "./streaming.manager";
 
 let lifecycleRegistered = false;
@@ -25,7 +26,8 @@ export function registerStreamingLifecycle(): void {
 			// not receive session ids or media ids.
 			realtimeService.sendToProfile(profileId, "playback:session:started", { sessionId, mediaFileId });
 		},
-		onSessionEnded: ({ sessionId, mediaFileId, profileId, reason }) => {
+		onSessionEnded: ({ sessionId, mediaFileId, profileId, reason, startedAt }) => {
+			endedSessionHistory.record({ sessionId, mediaFileId, profileId, reason, startedAt, endedAt: Date.now() });
 			pluginEventBus.publish("playback.session.ended", { sessionId, mediaFileId, reason });
 			pluginEventBus.publish("playback.lifecycle.stopped", {
 				sessionId,

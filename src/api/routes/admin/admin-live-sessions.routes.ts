@@ -1,10 +1,19 @@
-import { AdminLiveActivityResponseSchema, BulkTerminateSessionsResultSchema, BulkTerminateSessionsSchema } from "@reelvault/sdk/common";
+import {
+	AdminEndedLiveSessionsResponseSchema,
+	AdminLiveActivityResponseSchema,
+	BulkTerminateSessionsResultSchema,
+	BulkTerminateSessionsSchema,
+} from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { SessionIdParams } from "@/api/schemas/route-params";
 import { adminLiveSessionsService } from "@/application/admin/admin-live-sessions.service";
+import { ENDED_SESSION_HISTORY_LIMIT } from "@/modules/streaming/runtime/ended-session-history";
 import { MINUTE } from "@/server.constants";
 import { adminShell } from "./admin-shell";
+
+/** How many ended sessions the history returns when the request does not ask for a count. */
+const ENDED_SESSIONS_PAGE = 50;
 
 export const adminLiveSessionsRoutes = adminShell({ prefix: "/live-activity", tags: ["Admin"] })
 	.get(
@@ -20,6 +29,14 @@ export const adminLiveSessionsRoutes = adminShell({ prefix: "/live-activity", ta
 			},
 		},
 	)
+	.get("/history", async ({ query }) => await adminLiveSessionsService.getEndedSessions(query.limit ?? ENDED_SESSIONS_PAGE), {
+		rateLimit: { name: "admin-live-activity-history", max: 120, windowMs: MINUTE },
+		query: t.Optional(t.Object({ limit: t.Optional(t.Integer({ minimum: 1, maximum: ENDED_SESSION_HISTORY_LIMIT })) })),
+		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminEndedLiveSessionsResponseSchema },
+		detail: {
+			description: "List the most recently ended live playback sessions, newest first, with their reason and duration.",
+		},
+	})
 	.delete(
 		"/:sessionId",
 		async ({ params, query }) => {

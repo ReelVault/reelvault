@@ -1,5 +1,6 @@
 import type {
 	AdminActiveDeviceItem,
+	AdminEndedLiveSessionsResponse,
 	AdminLiveActivityResponse,
 	AdminLiveStreamItem,
 	BulkTerminateSessions,
@@ -10,6 +11,7 @@ import type { AdminAuditContext } from "@/database/repositories/admin-audit.repo
 import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { realtimeService } from "@/modules/realtime/realtime.service";
+import { endedSessionHistory } from "@/modules/streaming/runtime/ended-session-history";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { computeProgressPercent } from "@/modules/streaming/utils/playback-position.utils";
 import { serverConfig } from "@/server.config";
@@ -91,6 +93,31 @@ class AdminLiveSessionsService extends BaseService {
 		]);
 
 		return { mediaFilesData, profilesData, progressData, videoStreamsData, audioStreamsData, latestUserSessions, bufferAnalyses };
+	}
+
+	/** The most recently ended live sessions, newest first, with their titles and profile names. */
+	async getEndedSessions(limit: number): Promise<AdminEndedLiveSessionsResponse> {
+		const ended = endedSessionHistory.list(limit);
+		const [mediaRows, profileRows] = await Promise.all([
+			liveSessionsRepository.findMediaSummaries(unique(ended.map((session) => session.mediaFileId))),
+			liveSessionsRepository.findProfilesWithUsers(unique(ended.map((session) => session.profileId))),
+		]);
+		const mediaById = toMap(mediaRows, (row) => row.mediaFileId);
+		const profileById = toMap(profileRows, (row) => row.profileId);
+
+		return {
+			sessions: ended.map((session) => ({
+				sessionId: session.sessionId,
+				mediaFileId: session.mediaFileId,
+				title: mediaById.get(session.mediaFileId)?.title ?? null,
+				profileId: session.profileId,
+				profileName: profileById.get(session.profileId)?.profileName ?? null,
+				reason: session.reason,
+				startedAt: serializeDate(session.startedAt),
+				endedAt: serializeDate(session.endedAt),
+				durationSeconds: Math.max(0, Math.round((session.endedAt - session.startedAt) / 1000)),
+			})),
+		};
 	}
 
 	private hydrateActiveStreams(

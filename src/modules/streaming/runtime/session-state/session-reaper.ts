@@ -182,6 +182,7 @@ export class SessionReaper {
 				if (session.generation > 0) {
 					try {
 						lifecycleCallbacks.onSessionEnded({
+							startedAt: session.createdAt,
 							sessionId,
 							mediaFileId: session.mediaFileId,
 							profileId: session.profileId,

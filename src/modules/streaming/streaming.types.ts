@@ -133,7 +133,7 @@ export interface ContinueWatchingData {
 export interface StreamingLifecycleCallbacks {
 	cancelOperation(operationId: string): Promise<unknown>;
 	onSessionStarted(session: { sessionId: string; mediaFileId: string; profileId: string }): void;
-	onSessionEnded(session: { sessionId: string; mediaFileId: string; profileId: string; reason: string }): void;
+	onSessionEnded(session: { sessionId: string; mediaFileId: string; profileId: string; reason: string; startedAt: number }): void;
 }
 
 export interface TerminatedSessionEntry {

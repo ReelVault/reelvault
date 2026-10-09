@@ -448,6 +448,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Catalog says which repositories it could not read** — `GET /admin/plugins/catalog` returns the plugins and, separately, the repositories that could not be read, each with an error code, so a missing plugin is no longer silent.
 - **Named TMDB ids pick the title** — a `[tmdbid-…]` tag in a file or folder name, or an NFO's TMDB id, now fetches that exact title before any title search, so a same-named title no longer wins. An id the provider does not know falls back to the title search.
 - **Failures carry stable codes instead of raw text** — download, media-scan, plugin-repository, update-check and update-install failures report a code (`errorCode` on download jobs, `probeErrorCode` and `decodeErrorCode` on media scans, `lastErrorCode` on plugin repositories, `serverLastErrorCode` and `webLastErrorCode` on update status) instead of exception text, and the plugin status no longer carries its raw `error` (use `errorCode`). The admin and user screens translate the codes.
+- **Recently ended live sessions** — `GET /admin/live-activity/history` lists the latest ended playback sessions (up to 200, newest first) with their title, profile, reason, start, end and duration, so an administrator can see what just stopped. The history is kept in memory and starts empty after a restart.
 
 ### Fixes
 
