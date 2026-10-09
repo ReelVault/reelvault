@@ -83,6 +83,23 @@ describe("systemSettingsService field-level feedback", () => {
 
 		expect(item).toMatchObject({ type: "number", min: 1, max: 100 });
 	});
+
+	test("the limits added for QOL are listed with their bounds", async () => {
+		stubSettingsPersistence();
+
+		const grouped = await systemSettingsService.getAll();
+		const byKey = new Map(
+			Object.values(grouped)
+				.flat()
+				.map((entry) => [entry.key, entry]),
+		);
+
+		expect(byKey.get("stream.hlsMaxMuxingQueueSize")).toMatchObject({ min: 512, max: 8192, default: 2048 });
+		expect(byKey.get("downloads.maxConcurrentPerProfile")).toMatchObject({ min: 1, max: 5, default: 1 });
+		expect(byKey.get("trickplay.maxFramesPerFile")).toMatchObject({ min: 300, max: 5000, default: 1200 });
+		expect(byKey.get("plugins.blobs.retentionDays")).toMatchObject({ min: 1, max: 365, default: 30 });
+		expect(byKey.get("plugins.notifications.maxPerDayPerPlugin")).toMatchObject({ min: 0, max: 1000, default: 100 });
+	});
 });
 
 describe("systemSettingsService default pruning", () => {

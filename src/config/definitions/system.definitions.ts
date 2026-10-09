@@ -9,6 +9,10 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 
 	"plugins.providers.detailsCacheTtlMs": creator.number("plugins.providers.detailsCacheTtlMs", 10_000, Number.MAX_SAFE_INTEGER, 300_000),
 	"plugins.http.allowedDomains": creator.string("plugins.http.allowedDomains", ""),
+	// Maximum lifetime of a plugin blob in days — plugin-declared TTLs are capped by it.
+	"plugins.blobs.retentionDays": creator.number("plugins.blobs.retentionDays", 1, 365, 30),
+	// Per-plugin notifications per day; 0 blocks plugin notifications entirely.
+	"plugins.notifications.maxPerDayPerPlugin": creator.number("plugins.notifications.maxPerDayPerPlugin", 0, 1000, 100),
 
 	// Aggregation strategy for the metadata card rating. "votes" weights each source by its
 	// vote count (log-scaled), "simple" averages every source equally.

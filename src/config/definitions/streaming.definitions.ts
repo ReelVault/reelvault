@@ -49,4 +49,7 @@ export const STREAMING_SETTINGS_DEFINITIONS = {
 	"stream.inactivityTimeoutMs": creator.number("stream.inactivityTimeoutMs", 5000, Number.MAX_SAFE_INTEGER, 90_000),
 
 	"stream.smartAudioTrackSelection": creator.boolean("stream.smartAudioTrackSelection", true),
+	// ffmpeg's HLS muxer packet queue; slow storage can overflow the default and
+	// abort the stream ("max muxing queue size exceeded").
+	"stream.hlsMaxMuxingQueueSize": creator.number("stream.hlsMaxMuxingQueueSize", 512, 8192, 2048),
 } as const;

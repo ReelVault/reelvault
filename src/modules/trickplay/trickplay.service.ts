@@ -17,9 +17,6 @@ import { InternalError, NotFoundError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 
-/** Hard cap on extracted frames per file — a 3 h movie at a 10 s interval still fits (1080). */
-const MAX_FRAMES_PER_FILE = 1200;
-
 const CONTENT_TYPE_WEBP = "image/webp";
 const CONTENT_TYPE_VTT = "text/vtt";
 
@@ -95,7 +92,7 @@ class TrickplayService extends BaseService {
 		const tileHeight = Math.round((tileWidth * 9) / 16 / 2) * 2;
 		const tilesPerSprite = columns * columns;
 
-		const frameCount = clamp(Math.floor(durationSeconds / intervalSeconds), 1, MAX_FRAMES_PER_FILE);
+		const frameCount = clamp(Math.floor(durationSeconds / intervalSeconds), 1, serverConfig.trickplay.maxFramesPerFile);
 		const effectiveInterval = durationSeconds / frameCount;
 		// Sample the middle of each interval — avoids black frames at scene starts.
 		const timestampsMs = Array.from({ length: frameCount }, (_, index) =>

@@ -33,8 +33,7 @@ export interface DownloadJobView {
 	updatedAt: string;
 }
 
-/** Max simultaneously processing downloads per profile — one ffmpeg is plenty. */
-const MAX_ACTIVE_PER_PROFILE = 1;
+/** Retry sweep cadence — first pass shortly after boot, then daily. */
 const RETENTION_SWEEP_FIRST_DELAY_MS = 60_000;
 const RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const FILE_EXTENSION_REGEX = /\.[^.]+$/;
@@ -71,7 +70,7 @@ class DownloadsService extends BaseService {
 				throw new ValidationError("Transcoded download requires a known file duration", { code: "downloads.duration_unknown" });
 			}
 
-			if ((await downloadsRepository.countActiveByProfile(profileId)) >= MAX_ACTIVE_PER_PROFILE) {
+			if ((await downloadsRepository.countActiveByProfile(profileId)) >= serverConfig.downloads.maxConcurrentPerProfile) {
 				throw new ConflictError("This profile already has a download in progress", { code: "downloads.in_progress" });
 			}
 

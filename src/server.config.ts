@@ -113,6 +113,9 @@ export const serverConfig = {
 		get maxPerStreamBandwidthKbps() {
 			return systemSettingsStore.get("stream.maxPerStreamBandwidthKbps");
 		},
+		get hlsMaxMuxingQueueSize() {
+			return systemSettingsStore.get("stream.hlsMaxMuxingQueueSize");
+		},
 		get hlsSegmentDurationSeconds() {
 			hlsSegmentDurationAtBoot ??= systemSettingsStore.get("stream.hlsSegmentDurationSeconds");
 
@@ -205,6 +208,9 @@ export const serverConfig = {
 		get retentionDays() {
 			return systemSettingsStore.get("downloads.retentionDays");
 		},
+		get maxConcurrentPerProfile() {
+			return systemSettingsStore.get("downloads.maxConcurrentPerProfile");
+		},
 	},
 
 	/** Built-in trickplay (preview sprites) generation */
@@ -223,6 +229,9 @@ export const serverConfig = {
 		},
 		get columns() {
 			return systemSettingsStore.get("trickplay.columns");
+		},
+		get maxFramesPerFile() {
+			return systemSettingsStore.get("trickplay.maxFramesPerFile");
 		},
 	},
 
@@ -375,7 +384,14 @@ export const serverConfig = {
 		get blobs() {
 			return {
 				...serverConstants.plugins.blobs,
+				retentionMs: systemSettingsStore.get("plugins.blobs.retentionDays") * DAY,
 				cleanupConcurrency: systemResourcesService.getIoConcurrency(),
+			};
+		},
+		get notifications() {
+			return {
+				...serverConstants.plugins.notifications,
+				maxPerDayPerPlugin: systemSettingsStore.get("plugins.notifications.maxPerDayPerPlugin"),
 			};
 		},
 		get artifacts() {
