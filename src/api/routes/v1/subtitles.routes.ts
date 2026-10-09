@@ -1,4 +1,6 @@
 import {
+	BulkSubtitleDeleteResultSchema,
+	BulkSubtitleDeleteSchema,
 	CreateSubtitleRequestSchema,
 	SubtitleFiltersSchema,
 	SubtitleProviderDownloadRequestSchema,
@@ -123,6 +125,16 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "subtitle.schema" },
 		detail: {
 			description: "Modify an existing subtitle record.",
+		},
+	})
+	.post("/bulk-delete", async ({ body }) => await subtitlesService.bulkDelete(body.ids), {
+		adminOnly: true,
+		rateLimit: { name: "subtitles-bulk-delete", max: 30, windowMs: MINUTE },
+		body: BulkSubtitleDeleteSchema,
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkSubtitleDeleteResultSchema },
+		detail: {
+			description:
+				"Permanently remove up to 200 subtitle records. Each id reports its own outcome, so one failure does not stop the others.",
 		},
 	})
 	.delete("/:id", async ({ params }) => await subtitlesService.delete(params.id), {

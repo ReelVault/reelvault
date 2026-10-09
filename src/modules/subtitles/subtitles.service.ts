@@ -1,4 +1,6 @@
 import type {
+	BulkRefreshItem,
+	BulkSubtitleDeleteResult,
 	CreateSubtitleRequest,
 	PaginatedResponse,
 	PaginationQuery,
@@ -17,6 +19,7 @@ import { subtitlesRepository } from "@/database/repositories/subtitles.repositor
 import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { BaseService } from "@/utils/base-service";
+import { errorCodeOf } from "@/utils/error-codes.utils";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
 import { type SubtitleContent, type SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
@@ -142,6 +145,23 @@ export class SubtitlesService extends BaseService {
 			invalidateResponseBodies();
 
 			return toPublicSubtitle(updatedEntity);
+		});
+	}
+
+	/** Removes the listed subtitles one after another; a failing id reports its code and the rest still go through. */
+	async bulkDelete(ids: string[]): Promise<BulkSubtitleDeleteResult> {
+		return await this.safeExecute("bulkDelete", async () => {
+			const results: BulkRefreshItem[] = [];
+			for (const id of new Set(ids)) {
+				try {
+					await this.delete(id);
+					results.push({ id, ok: true });
+				} catch (error) {
+					results.push({ id, ok: false, code: errorCodeOf(error, "subtitle.delete_failed") });
+				}
+			}
+
+			return { results };
 		});
 	}
 
