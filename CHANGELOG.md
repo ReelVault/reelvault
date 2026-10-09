@@ -368,6 +368,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Log bundle download** — `GET /admin/logs/bundle` returns a zip with every log file (rotated and FFmpeg logs included) for a support request.
 - **Runtime log level** — new setting `system.logs.level` (defaults to `LOG_LEVEL`) changes log verbosity without a restart; the debug log file still requires a boot with debug/trace.
 - **Stable plugin slot entry ids** — a `ui.json` slot entry may declare an optional `id` (unique within its slot). Interface switches keep pointing at that entry when other entries are added, removed or reordered; entries without an id keep the key derived from their action. A duplicate id is rejected when the manifest loads.
+- **Plugin failure codes** — a plugin that fails to load reports an `errorCode` next to its raw `error` message: a domain error keeps its own code (`plugin.already_installed` for an install that collides with an existing one), an invalid package reports `plugin.manifest_invalid` and any other load failure `plugin.load_failed`. Clients should translate the code, not the message.
 
 ### Fixes
 

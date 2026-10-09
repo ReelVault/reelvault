@@ -20,7 +20,7 @@ import type {
 import { PLUGIN_SLOT_NAMES, PLUGIN_TAB_HOST_NAMES } from "@reelvault/sdk/plugin";
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
-import { createPluginStatus } from "./plugin.status";
+import { createPluginStatus, pluginErrorCode } from "./plugin.status";
 import { applyUiOverrides, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions";
 import { MediaAnalysisFanout } from "./registry/media-analysis.fanout";
 import { PluginEntityTable } from "./registry/plugin-entity-table";
@@ -32,6 +32,7 @@ interface FailedPlugin {
 	version: string;
 	description?: string | undefined;
 	error: string;
+	errorCode: string;
 	failurePhase?: PluginLoadPhase | undefined;
 	/** Kept so a plugin that fails to load can still be configured and reloaded. */
 	configDefinition?: ConfigDefinition | undefined;
@@ -110,6 +111,7 @@ export class PluginRegistry {
 
 		runtime.state = "initialized";
 		runtime.error = undefined;
+		runtime.errorCode = undefined;
 		runtime.failurePhase = "activation";
 		this.plugins.set(pluginId, runtime);
 		this.failures.delete(pluginId);
@@ -132,6 +134,7 @@ export class PluginRegistry {
 		runtime.state = "failed";
 		runtime.error = errorMessage(error);
 		runtime.failurePhase ??= "activation";
+		runtime.errorCode = pluginErrorCode(error, runtime.failurePhase);
 		if (configDefinition) runtime.configDefinition = configDefinition;
 	}
 
@@ -141,14 +144,27 @@ export class PluginRegistry {
 		failurePhase?: PluginLoadPhase,
 		configDefinition?: ConfigDefinition,
 	): void {
+		this.storeFailure(manifest, {
+			message: errorMessage(error),
+			code: pluginErrorCode(error, failurePhase),
+			failurePhase,
+			configDefinition,
+		});
+	}
+
+	private storeFailure(
+		manifest: Pick<PluginManifest, "id" | "name" | "version" | "description">,
+		failure: { message: string; code: string; failurePhase: PluginLoadPhase | undefined; configDefinition: ConfigDefinition | undefined },
+	): void {
 		this.failures.set(manifest.id, {
 			id: manifest.id,
 			name: manifest.name,
 			version: manifest.version,
 			description: manifest.description,
-			error: errorMessage(error),
-			failurePhase,
-			...(configDefinition ? { configDefinition } : {}),
+			error: failure.message,
+			errorCode: failure.code,
+			failurePhase: failure.failurePhase,
+			...(failure.configDefinition ? { configDefinition: failure.configDefinition } : {}),
 		});
 	}
 
@@ -162,7 +178,12 @@ export class PluginRegistry {
 		if (!runtime) return false;
 
 		if (preserveFailure && runtime.error) {
-			this.recordFailure(runtime.manifest, runtime.error, runtime.failurePhase, runtime.configDefinition);
+			this.storeFailure(runtime.manifest, {
+				message: runtime.error,
+				code: runtime.errorCode ?? pluginErrorCode(runtime.error, runtime.failurePhase),
+				failurePhase: runtime.failurePhase,
+				configDefinition: runtime.configDefinition,
+			});
 		}
 
 		runtime.state = "unloaded";
@@ -236,6 +257,7 @@ export class PluginRegistry {
 				jobs: runtime.jobNames.length,
 				description: runtime.manifest.description,
 				error: runtime.error,
+				errorCode: runtime.errorCode,
 				failurePhase: runtime.failurePhase,
 			}),
 		);
@@ -249,6 +271,7 @@ export class PluginRegistry {
 				version: failure.version,
 				state: "failed",
 				error: failure.error,
+				errorCode: failure.errorCode,
 				description: failure.description,
 				failurePhase: failure.failurePhase,
 			}),
@@ -342,6 +365,7 @@ export class PluginRegistry {
 		const runtime = this.requirePlugin(pluginId);
 		runtime.state = state;
 		runtime.error = undefined;
+		runtime.errorCode = undefined;
 		runtime.failurePhase = undefined;
 	}
 

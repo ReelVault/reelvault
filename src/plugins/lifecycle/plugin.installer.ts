@@ -69,7 +69,10 @@ export class PluginInstaller {
 		const targetDirectory = PathUtils.join(pluginsDirectory, targetName);
 		const targetExists = await DirUtils.exists(targetDirectory);
 		if (targetExists && !options.upgrade) {
-			throw new ValidationError(`Plugin ${manifest.id} is already installed in ${targetDirectory}`);
+			throw new ValidationError(`Plugin ${manifest.id} is already installed in ${targetDirectory}`, {
+				code: "plugin.already_installed",
+				params: { pluginId: manifest.id },
+			});
 		}
 
 		const isUpgrade = targetExists && options.upgrade === true;

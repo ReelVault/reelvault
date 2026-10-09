@@ -386,7 +386,9 @@ export default {
 
 		await expect(loader.load("no-manifest")).rejects.toThrow();
 
-		expect(registry.getFailedStatuses()).toMatchObject([{ id: "no-manifest", state: "failed", failurePhase: "manifest" }]);
+		expect(registry.getFailedStatuses()).toMatchObject([
+			{ id: "no-manifest", state: "failed", failurePhase: "manifest", errorCode: "plugin.manifest_invalid" },
+		]);
 		expect(registry.getFailedStatuses()[0]?.error).toBeTruthy();
 
 		// Fixing the package and retrying clears the stale entry.

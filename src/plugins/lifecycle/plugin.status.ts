@@ -1,4 +1,5 @@
 import type { PluginLifecycleState, PluginLoadPhase, PluginStatus } from "@reelvault/sdk/plugin";
+import { DomainError } from "@/utils/errors";
 import { pickDefined } from "@/utils/type.utils";
 
 export interface PluginStatusInput {
@@ -11,7 +12,19 @@ export interface PluginStatusInput {
 	jobs?: number | undefined;
 	description?: string | undefined;
 	error?: string | undefined;
+	errorCode?: string | undefined;
 	failurePhase?: PluginLoadPhase | undefined;
+}
+
+/**
+ * Stable code for a plugin load failure. A domain error keeps its own code;
+ * anything else is classified by the phase that failed, so an invalid manifest
+ * is never reported as a generic load failure.
+ */
+export function pluginErrorCode(error: unknown, failurePhase: PluginLoadPhase | undefined): string {
+	if (error instanceof DomainError && error.code !== error.category) return error.code;
+
+	return failurePhase === "manifest" ? "plugin.manifest_invalid" : "plugin.load_failed";
 }
 
 /**
@@ -31,6 +44,7 @@ export function createPluginStatus(input: PluginStatusInput): PluginStatus {
 		...pickDefined({
 			description: input.description,
 			error: input.error,
+			errorCode: input.errorCode,
 			failurePhase: input.failurePhase,
 		}),
 	};

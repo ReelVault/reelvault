@@ -130,6 +130,7 @@ describe("plugin registry", () => {
 				subtitleProviders: 0,
 				jobs: 0,
 				error: "Initialization failed",
+				errorCode: "plugin.load_failed",
 				failurePhase: "activation",
 			},
 		]);
@@ -170,6 +171,7 @@ describe("plugin registry", () => {
 				subtitleProviders: 0,
 				jobs: 0,
 				error: "Module could not be imported",
+				errorCode: "plugin.load_failed",
 				failurePhase: "import",
 			},
 		]);
