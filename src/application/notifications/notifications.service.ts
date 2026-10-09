@@ -1,6 +1,7 @@
 import type { CreateNotification, Notification, PaginatedResponse } from "@reelvault/sdk/common";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
 import { playbackRepository } from "@/database/repositories/playback.repository";
+import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { QueryPagination } from "@/database/utils/pagination";
@@ -13,6 +14,7 @@ import { ForbiddenError, ValidationError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { detach } from "@/utils/promise.utils";
 import { invalidateProfileResponseBodies, invalidateResponseBodies } from "@/utils/response-body-cache";
+import { parseMutedNotificationTypes } from "./notification-mute.utils";
 
 // Clients poll unread-count on an interval; a short TTL absorbs the poll storm
 // and every mutation below invalidates eagerly, so badge updates stay immediate.
@@ -89,7 +91,11 @@ class NotificationsService extends BaseService {
 				link: notification.link ?? null,
 			};
 			if (notification.profileId) {
-				realtimeService.sendToProfile(notification.profileId, "notification:created", realtimePayload);
+				// A muted type still exists for the profile's list and plugins; it just does not interrupt with a live event.
+				const muted = await this.mutedTypesFor(notification.profileId);
+				if (!muted.includes(notification.type)) {
+					realtimeService.sendToProfile(notification.profileId, "notification:created", realtimePayload);
+				}
 			} else {
 				realtimeService.sendToUser(notification.userId, "notification:created", realtimePayload);
 			}
@@ -98,12 +104,21 @@ class NotificationsService extends BaseService {
 		});
 	}
 
+	/** Notification types the profile has muted; none without a profile. */
+	private async mutedTypesFor(profileId?: string): Promise<string[]> {
+		if (!profileId) return [];
+
+		const preferences = await profilePreferencesRepository.getEffective({ profileId });
+
+		return parseMutedNotificationTypes(preferences.mutedNotificationTypes);
+	}
+
 	async getAll(userId?: string, profileId?: string, unreadOnly = false, limit?: number): Promise<Notification[]> {
 		return await this.safeExecute("getAll", async () => {
 			this.assertUserId(userId);
 
 			// `limit` is optional — when omitted the repository default applies (behavior unchanged).
-			return await notificationsRepository.findForRecipient(userId, profileId, unreadOnly, limit);
+			return await notificationsRepository.findForRecipient(userId, profileId, unreadOnly, limit, await this.mutedTypesFor(profileId));
 		});
 	}
 
@@ -121,6 +136,7 @@ class NotificationsService extends BaseService {
 				profileId,
 				unreadOnly: query.unreadOnly ?? false,
 				type: query.type,
+				excludedTypes: await this.mutedTypesFor(profileId),
 				limit: pagination.limit,
 				offset: pagination.offset,
 			});
@@ -133,7 +149,12 @@ class NotificationsService extends BaseService {
 		return await this.safeExecute("getUnreadCount", async () => {
 			this.assertUserId(userId);
 			const key = unreadCountKey(userId, profileId);
-			const count = await unreadCountCache.getOrSet(key, () => notificationsRepository.countUnread(userId, profileId));
+			const excludedTypes = await this.mutedTypesFor(profileId);
+			// The cache keys the recipient only, so a profile with muted types is counted live.
+			const count =
+				excludedTypes.length > 0
+					? await notificationsRepository.countUnread(userId, profileId, excludedTypes)
+					: await unreadCountCache.getOrSet(key, () => notificationsRepository.countUnread(userId, profileId));
 
 			return { count };
 		});

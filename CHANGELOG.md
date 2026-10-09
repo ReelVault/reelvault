@@ -457,6 +457,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Library path health and error-check results** — `GET /libraries/health` reports every library's paths as they are now: whether each exists on disk, whether the file watcher covers it (a path it cannot cover has a stable code such as `library.watch_failed`, never the exception text), and when the library was last scanned. `GET /libraries/check-errors/:operationId` returns the status of a queued FFmpeg error check and, once it has completed, its findings: the files scanned, the clean ones and each problematic file with FFmpeg's decode messages.
 - **Bulk subtitle delete** — `POST /subtitles/bulk-delete` removes up to 200 subtitles (admin). Each id reports its own outcome, so one failure does not stop the others.
 - **Copy a profile's preferences** — `POST /profiles/:id/preferences/copy` with `{ sourceProfileId }` replaces the profile's preference overrides with a copy of another profile's; both profiles must belong to the same account. `POST /profiles` also accepts `copyPreferencesFromProfileId`, so a new profile can start from an existing one.
+- **Mute notification types per profile** — the profile preference `mutedNotificationTypes` (comma-separated) leaves the muted types out of the profile's notification list, page and unread count, and sends no live alert for them. It is one more profile preference, so no migration is needed.
 
 ### Fixes
 

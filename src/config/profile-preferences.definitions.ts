@@ -23,6 +23,7 @@ export const PROFILE_PREFERENCE_DEFINITIONS = {
 	audioLanguage: codecs.nullableString(),
 	subtitleLanguage: codecs.nullableString(),
 	subtitleFallbackLanguages: codecs.nullableString(),
+	mutedNotificationTypes: codecs.string(),
 	subtitlesEnabled: booleanCodec,
 	forcedSubtitlesOnly: booleanCodec,
 	autoForcedSubtitles: booleanCodec,

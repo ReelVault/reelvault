@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
+import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body-cache";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { notificationsService } from "./notifications.service";
@@ -73,6 +74,7 @@ describe("notificationsService read-state flips", () => {
 describe("notificationsService create", () => {
 	test("flushes the recipient's cached notification list, not just the unread badge", async () => {
 		stubs.push(stubMethod(notificationsRepository, "create", () => Promise.resolve("n1")));
+		stubs.push(stubMethod(profilePreferencesRepository, "getEffective", () => Promise.resolve({ mutedNotificationTypes: "" })));
 		const key = responseCacheKey({ pathWithQuery: "/v1/notifications", cookie: "c", profileId: "p1", auth: "", apiKey: "" });
 		setCachedResponseBody(key, { etag: "e", body: "[]", expiresAt: Date.now() + 60_000, encoded: new Map() });
 
@@ -85,6 +87,7 @@ describe("notificationsService create", () => {
 describe("notificationsService.getPage", () => {
 	test("pages the recipient's notifications with the filters and the total of the same filter", async () => {
 		const page = stubMethod(notificationsRepository, "findPageForRecipient", () => Promise.resolve({ data: [], total: 42 }));
+		stubs.push(stubMethod(profilePreferencesRepository, "getEffective", () => Promise.resolve({ mutedNotificationTypes: "" })));
 		stubs.push(page);
 
 		const result = await notificationsService.getPage(
@@ -94,7 +97,7 @@ describe("notificationsService.getPage", () => {
 		);
 
 		expect(page.calls).toEqual([
-			[{ userId: "user-1", profileId: "profile-1", unreadOnly: true, type: "subtitle_ready", limit: 10, offset: 20 }],
+			[{ userId: "user-1", profileId: "profile-1", unreadOnly: true, type: "subtitle_ready", excludedTypes: [], limit: 10, offset: 20 }],
 		]);
 		expect(result).toMatchObject({ page: 3, limit: 10, total: 42, totalPages: 5, data: [] });
 	});
@@ -105,6 +108,32 @@ describe("notificationsService.getPage", () => {
 
 		await notificationsService.getPage({}, "user-1");
 
-		expect(page.calls).toEqual([[{ userId: "user-1", profileId: undefined, unreadOnly: false, type: undefined, limit: 25, offset: 0 }]]);
+		expect(page.calls).toEqual([
+			[{ userId: "user-1", profileId: undefined, unreadOnly: false, type: undefined, excludedTypes: [], limit: 25, offset: 0 }],
+		]);
+	});
+
+	test("leaves out the types the profile has muted", async () => {
+		stubs.push(
+			stubMethod(profilePreferencesRepository, "getEffective", () => Promise.resolve({ mutedNotificationTypes: "system, new_episode" })),
+		);
+		const page = stubMethod(notificationsRepository, "findPageForRecipient", () => Promise.resolve({ data: [], total: 0 }));
+		stubs.push(page);
+
+		await notificationsService.getPage({}, "user-1", "profile-1");
+
+		expect(page.calls).toEqual([
+			[
+				{
+					userId: "user-1",
+					profileId: "profile-1",
+					unreadOnly: false,
+					type: undefined,
+					excludedTypes: ["system", "new_episode"],
+					limit: 25,
+					offset: 0,
+				},
+			],
+		]);
 	});
 });

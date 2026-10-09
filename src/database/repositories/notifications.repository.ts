@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, isNotNull, isNull, or, type SQL, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, notInArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess, forEachChunked } from "@/database/table-access";
@@ -8,6 +8,11 @@ import { InternalError } from "@/utils/errors";
 const notifications = defineTableAccess("notifications", {
 	primaryKeyColumn: "id",
 });
+
+/** Leaves out the notification types a profile has muted; no muted types means no condition at all. */
+function excludedTypesWhere(excludedTypes: readonly string[]): SQL | undefined {
+	return excludedTypes.length > 0 ? notInArray(schema.notifications.type, [...excludedTypes]) : undefined;
+}
 
 function recipientWhere(userId: string, profileId?: string): SQL | undefined {
 	if (profileId) {
@@ -83,9 +88,9 @@ const overrides = {
 		return results.map((r) => r.id);
 	},
 
-	async findForRecipient(userId: string, profileId?: string, unreadOnly = false, limit = 50) {
+	async findForRecipient(userId: string, profileId?: string, unreadOnly = false, limit = 50, excludedTypes: readonly string[] = []) {
 		const recipient = recipientWhere(userId, profileId);
-		const where = unreadOnly ? and(recipient, isNull(notifications.table.readAt)) : recipient;
+		const where = and(recipient, unreadOnly ? isNull(notifications.table.readAt) : undefined, excludedTypesWhere(excludedTypes));
 
 		return await databaseFactory
 			.getClient()
@@ -102,6 +107,7 @@ const overrides = {
 		profileId,
 		unreadOnly,
 		type,
+		excludedTypes = [],
 		limit,
 		offset,
 	}: {
@@ -109,6 +115,7 @@ const overrides = {
 		profileId?: string | undefined;
 		unreadOnly: boolean;
 		type?: string | undefined;
+		excludedTypes?: readonly string[] | undefined;
 		limit: number;
 		offset: number;
 	}): Promise<{ data: Array<typeof schema.notifications.$inferSelect>; total: number }> {
@@ -116,6 +123,7 @@ const overrides = {
 		if (unreadOnly) conditions.push(isNull(schema.notifications.readAt));
 
 		if (type) conditions.push(eq(schema.notifications.type, type));
+		conditions.push(excludedTypesWhere(excludedTypes));
 
 		const where = and(...conditions);
 		const client = databaseFactory.getClient();
@@ -134,13 +142,13 @@ const overrides = {
 		return { data: rows, total: countRows[0]?.count ?? 0 };
 	},
 
-	async countUnread(userId: string, profileId?: string): Promise<number> {
+	async countUnread(userId: string, profileId?: string, excludedTypes: readonly string[] = []): Promise<number> {
 		const recipient = recipientWhere(userId, profileId);
 		const [result] = await databaseFactory
 			.getClient()
 			.select({ count: count() })
 			.from(notifications.table)
-			.where(and(recipient, isNull(notifications.table.readAt)));
+			.where(and(recipient, isNull(notifications.table.readAt), excludedTypesWhere(excludedTypes)));
 
 		return result?.count ?? 0;
 	},
