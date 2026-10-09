@@ -1,4 +1,10 @@
-import { PersonFiltersSchema, PersonSortingSchema, PersonWithRelationsSchema } from "@reelvault/sdk/common";
+import {
+	BulkRefreshBodySchema,
+	BulkRefreshResultSchema,
+	PersonFiltersSchema,
+	PersonSortingSchema,
+	PersonWithRelationsSchema,
+} from "@reelvault/sdk/common";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { PersonIdParams } from "@/api/schemas/route-params";
 import { peopleService } from "@/application/catalog/people.service";
@@ -44,5 +50,18 @@ export const peopleRoutes = createCatalogResourceRoutes({
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "person.schema" },
 		detail: {
 			description: "Force download and replace person profile image.",
+		},
+	})
+	.post("/bulk-refresh", async ({ body }) => await peopleService.refreshMany(body.ids), {
+		adminOnly: true,
+		rateLimit: {
+			name: "person-bulk-refresh",
+			max: 30,
+			windowMs: MINUTE,
+		},
+		body: BulkRefreshBodySchema,
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkRefreshResultSchema },
+		detail: {
+			description: "Refresh up to 50 people in turn. Each id reports its own outcome, so one failure does not stop the others.",
 		},
 	});

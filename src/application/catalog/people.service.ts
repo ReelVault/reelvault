@@ -1,8 +1,8 @@
-import type { CreatePerson, PersonFilters, PersonSorting, PersonWithRelations, UpdatePerson } from "@reelvault/sdk/common";
+import type { BulkRefreshItem, CreatePerson, PersonFilters, PersonSorting, PersonWithRelations, UpdatePerson } from "@reelvault/sdk/common";
 import { peopleRepository } from "@/database/repositories/people.repository";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { findFirstProviderResult, invalidateCatalogLists } from "./catalog.utils";
+import { findFirstProviderResult, invalidateCatalogLists, refreshBulkItem } from "./catalog.utils";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 
 class PeopleService extends DictionaryCrudService<
@@ -56,6 +56,18 @@ class PeopleService extends DictionaryCrudService<
 
 	async refreshImage(personId: string) {
 		return await this.refresh(personId, { forceImage: true });
+	}
+
+	/** Refreshes the listed people one after another, so provider calls stay sequential; each id reports its own outcome. */
+	async refreshMany(personIds: string[]) {
+		return await this.safeExecute("refreshMany", async () => {
+			const results: BulkRefreshItem[] = [];
+			for (const personId of new Set(personIds)) {
+				results.push(await refreshBulkItem(personId, () => this.refresh(personId), "person.refresh_failed"));
+			}
+
+			return { results };
+		});
 	}
 }
 

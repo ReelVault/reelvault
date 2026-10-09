@@ -1,5 +1,7 @@
+import type { BulkRefreshItem } from "@reelvault/sdk/common";
 import type { ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import { providerService } from "@/plugins/capabilities/provider.service";
+import { errorCodeOf } from "@/utils/error-codes.utils";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
 
 /** Maps raw provider entries to the { providerId, externalId } shape used by fetcher APIs. */
@@ -47,4 +49,18 @@ export function fallbackEpisodeExternalId(metadataId: string, seasonNumber: numb
 /** Flushes cached catalog list responses after a write that changes what they embed. */
 export function invalidateCatalogLists(): void {
 	invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
+}
+
+/**
+ * Runs one item of a bulk refresh. A failure becomes the item's code (a domain error keeps its own code), so one
+ * bad item never stops the rest of the selection, and no exception text is returned.
+ */
+export async function refreshBulkItem(id: string, refresh: () => Promise<unknown>, fallbackCode: string): Promise<BulkRefreshItem> {
+	try {
+		await refresh();
+
+		return { id, ok: true };
+	} catch (error) {
+		return { id, ok: false, code: errorCodeOf(error, fallbackCode) };
+	}
 }

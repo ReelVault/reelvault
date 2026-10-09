@@ -1,4 +1,5 @@
 import type {
+	BulkRefreshItem,
 	CreateMediaMarker,
 	FieldsQuery,
 	MediaFileAuditResponse,
@@ -18,7 +19,7 @@ import type {
 import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
-import { fallbackEpisodeExternalId, fallbackSeasonExternalId } from "@/application/catalog/catalog.utils";
+import { fallbackEpisodeExternalId, fallbackSeasonExternalId, refreshBulkItem } from "@/application/catalog/catalog.utils";
 import { resolveLibraryLanguage } from "@/application/catalog/metadata/library-metadata-language";
 import { createFromProvider, processPersonImages } from "@/application/catalog/metadata/metadata-create.utils";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
@@ -292,6 +293,18 @@ class MediaService extends BaseService {
 			);
 
 			return enqueued;
+		});
+	}
+
+	/** Queues a technical refresh for each listed media file; a file that cannot be queued reports its own code. */
+	async refreshMany(mediaFileIds: string[], context?: AdminAuditContext) {
+		return await this.safeExecute("refreshMany", async () => {
+			const results: BulkRefreshItem[] = [];
+			for (const mediaFileId of new Set(mediaFileIds)) {
+				results.push(await refreshBulkItem(mediaFileId, () => this.refresh(mediaFileId, context), "media_file.refresh_failed"));
+			}
+
+			return { results };
 		});
 	}
 

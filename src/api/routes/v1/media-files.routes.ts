@@ -1,4 +1,6 @@
 import {
+	BulkRefreshBodySchema,
+	BulkRefreshResultSchema,
 	CreateMediaFileSchema,
 	MarkerImportResultSchema,
 	MediaFileAuditStatusSchema,
@@ -91,6 +93,24 @@ export const mediaFilesRoutes = new Elysia({
 			response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Queue a refresh of technical data and linked metadata for all media files.",
+			},
+		},
+	)
+	.post(
+		"/bulk-refresh",
+		async ({ body, status, user, request }) =>
+			status(202, await mediaService.refreshMany(body.ids, { actorUserId: user?.id, headers: request.headers })),
+		{
+			adminOnly: true,
+			rateLimit: {
+				name: "media-files-bulk-refresh",
+				max: 30,
+				windowMs: MINUTE,
+			},
+			body: BulkRefreshBodySchema,
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 202: BulkRefreshResultSchema },
+			detail: {
+				description: "Queue a technical refresh for up to 50 media files in one request. Each id reports whether it was queued.",
 			},
 		},
 	)

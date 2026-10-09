@@ -1,4 +1,10 @@
-import { EpisodeFiltersSchema, EpisodeSortingSchema, EpisodeWithRelationsSchema } from "@reelvault/sdk/common";
+import {
+	BulkRefreshBodySchema,
+	BulkRefreshResultSchema,
+	EpisodeFiltersSchema,
+	EpisodeSortingSchema,
+	EpisodeWithRelationsSchema,
+} from "@reelvault/sdk/common";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { EpisodeIdParams } from "@/api/schemas/route-params";
 import { episodesService } from "@/application/catalog/episodes.service";
@@ -44,5 +50,18 @@ export const episodesRoutes = createCatalogResourceRoutes({
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "episode.schema" },
 		detail: {
 			description: "Force download and replace episode thumbnail.",
+		},
+	})
+	.post("/bulk-refresh", async ({ body }) => await episodesService.refreshMany(body.ids), {
+		adminOnly: true,
+		rateLimit: {
+			name: "episode-bulk-refresh",
+			max: 30,
+			windowMs: MINUTE,
+		},
+		body: BulkRefreshBodySchema,
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkRefreshResultSchema },
+		detail: {
+			description: "Refresh up to 50 episodes in turn. Each id reports its own outcome, so one failure does not stop the others.",
 		},
 	});
