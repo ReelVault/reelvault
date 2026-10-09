@@ -45,6 +45,21 @@ test("admin client lists the audit filter options", async () => {
 	expect(requestedUrls).toEqual(["https://reelvault.test/v1/admin/audit/options"]);
 });
 
+test("admin client pages the update history", async () => {
+	const requestedUrls: string[] = [];
+	const client = createTestClient(
+		(url) => {
+			requestedUrls.push(url);
+
+			return jsonResponse({ page: 2, limit: 5, total: 6, totalPages: 2, data: [] });
+		},
+		{ enableRetry: false },
+	);
+
+	await expect(client.admin.getUpdateHistory({ page: 2, limit: 5 })).resolves.toMatchObject({ page: 2, total: 6 });
+	expect(requestedUrls).toEqual(["https://reelvault.test/v1/admin/update/history?page=2&limit=5"]);
+});
+
 test("admin client pauses and resumes schedules, retries failed jobs and reads the watchdog", async () => {
 	const requests: Array<{ url: string; method: string; body?: string | undefined }> = [];
 	const client = createTestClient(

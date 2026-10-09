@@ -34,6 +34,7 @@ import * as scanState from "./schemas/scan-state.schema";
 import * as seasons from "./schemas/seasons.schema";
 import * as subtitles from "./schemas/subtitles.schema";
 import * as systemSettings from "./schemas/system-settings.schema";
+import * as updateHistory from "./schemas/update-history.schema";
 import * as userRatings from "./schemas/user-ratings.schema";
 import * as watchedHistory from "./schemas/watched-history.schema";
 import * as watchlist from "./schemas/watchlist.schema";
@@ -74,6 +75,7 @@ export const schema = {
 	...profileStreamPrefs,
 	...providers,
 	...systemSettings,
+	...updateHistory,
 	...worker,
 	...workerOperations,
 	...workerSchedules,

@@ -33,12 +33,51 @@ export function resolveInstallRoot(): string {
 	return resolve(import.meta.dir, "..", "..", "..", "..");
 }
 
-export function isDockerEnvironment(): boolean {
-	return existsSync("/.dockerenv");
+export type ContainerRuntime = "docker" | "podman";
+export type SystemdScope = "user" | "system";
+
+export interface UpdateEnvironment {
+	/** Container engine the server runs in; null on a bare host. */
+	container: ContainerRuntime | null;
+	/** Runs without root: a rootless Podman container, or a non-root process on the host. */
+	rootless: boolean;
+	/** Where the reelvault unit is registered: the user manager or the system manager. */
+	systemd: SystemdScope | null;
+}
+
+/** Podman writes this marker into every container it starts; Docker writes `/.dockerenv` instead. */
+const PODMAN_MARKER_FILE = "/run/.containerenv";
+const ROOTLESS_MARKER_REGEX = /^rootless=1$/m;
+
+export function detectContainerRuntime(exists: (path: string) => boolean = existsSync): ContainerRuntime | null {
+	if (exists("/.dockerenv")) return "docker";
+	if (exists(PODMAN_MARKER_FILE)) return "podman";
+
+	return null;
+}
+
+/** Podman records `rootless=1` in the marker for containers started without root on the host. */
+export function isRootlessMarker(markerContents: string): boolean {
+	return ROOTLESS_MARKER_REGEX.test(markerContents);
+}
+
+function readPodmanMarker(): string {
+	try {
+		return readFileSync(PODMAN_MARKER_FILE, "utf8");
+	} catch {
+		return "";
+	}
+}
+
+export function detectRootless(container: ContainerRuntime | null): boolean {
+	if (container === "podman") return isRootlessMarker(readPodmanMarker());
+
+	return typeof process.getuid === "function" && process.getuid() !== 0;
 }
 
 export function detectInstallType(root = resolveInstallRoot()): UpdateInstallType {
-	if (isDockerEnvironment()) return "docker";
+	// Container installs (Docker or Podman) ship as images: the panel cannot replace the files in place.
+	if (detectContainerRuntime()) return "docker";
 	if (existsSync(join(root, "bun")) && existsSync(join(root, "server", "package.json"))) return "archive";
 
 	return "dev";
@@ -84,4 +123,22 @@ export function systemdServiceFile(): string {
 
 export function systemdServiceRegistered(): boolean {
 	return existsSync(systemdServiceFile());
+}
+
+/** A system-wide install registers the unit with the system manager instead of the user manager. */
+export function systemdSystemServiceFile(): string {
+	return "/etc/systemd/system/reelvault.service";
+}
+
+export function detectSystemdScope(): SystemdScope | null {
+	if (systemdServiceRegistered()) return "user";
+	if (existsSync(systemdSystemServiceFile())) return "system";
+
+	return null;
+}
+
+export function describeUpdateEnvironment(): UpdateEnvironment {
+	const container = detectContainerRuntime();
+
+	return { container, rootless: detectRootless(container), systemd: detectSystemdScope() };
 }

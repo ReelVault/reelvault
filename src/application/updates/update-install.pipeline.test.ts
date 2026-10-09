@@ -8,7 +8,9 @@ import { strToU8, zipSync } from "fflate";
 import type { ArchiveFetcher } from "@/plugins/catalog/plugin-package.utils";
 import { detach } from "@/utils/promise.utils";
 import { SERVER_VERSION } from "@/version";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { type UpdateCheckState, updateCheckService } from "./update-check.service";
+import { updateHistoryService } from "./update-history.service";
 import { type RestartScheduler, UpdateInstallService } from "./update-install.service";
 
 const OLD_SERVER = "1.0.0";
@@ -255,6 +257,45 @@ describe("web update pipeline (local HTTP zip, no restart)", () => {
 		expect(service.getJob()).toBeNull();
 		expect(scheduler.calls).toEqual([]);
 		expect(readFileSync(join(root, "web", "index.html"), "utf8")).toContain(`v${OLD_WEB}`);
+
+		rmSync(root, { recursive: true, force: true });
+	});
+});
+
+describe("update run history for the web UI", () => {
+	test("opens and closes the install and the rollback with their outcomes", async () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const service = new UpdateInstallService({
+			root,
+			installType: "archive",
+			restartScheduler: fakeScheduler(),
+			archiveFetcher: localFetcher,
+		});
+		stubs.push(stubCheckState(null, webRelease()));
+		let opened = 0;
+		const begin = stubMethod(updateHistoryService, "begin", () => {
+			opened += 1;
+
+			return Promise.resolve(`run-${opened}`);
+		});
+		const succeed = stubMethod(updateHistoryService, "succeed", () => Promise.resolve());
+		const fail = stubMethod(updateHistoryService, "fail", () => Promise.resolve());
+		stubs.push(begin, succeed, fail);
+
+		await service.startInstall("web", "admin-1");
+		await waitFor(() => succeed.calls.length === 1);
+		expect(begin.calls[0]).toEqual([
+			expect.objectContaining({ action: "install", target: "web", fromVersion: OLD_WEB, toVersion: NEW_WEB, actorUserId: "admin-1" }),
+		]);
+		expect(succeed.calls).toEqual([["run-1"]]);
+
+		service.startRollback("web", "admin-1");
+		await waitFor(() => succeed.calls.length === 2);
+		expect(begin.calls[1]).toEqual([
+			expect.objectContaining({ action: "rollback", target: "web", fromVersion: NEW_WEB, toVersion: OLD_WEB, actorUserId: "admin-1" }),
+		]);
+		expect(succeed.calls[1]).toEqual(["run-2"]);
+		expect(fail.calls).toEqual([]);
 
 		rmSync(root, { recursive: true, force: true });
 	});

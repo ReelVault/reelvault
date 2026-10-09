@@ -6,6 +6,7 @@ import { systemSettingsService } from "./application/admin/system-settings.servi
 import { firstRunSetupService } from "./application/auth/setup/first-run-setup.service";
 import { libraryWatcherService } from "./application/libraries/watching/library-watcher.service";
 import { scheduleStartupUpdateCheck } from "./application/updates/update-check.service";
+import { updateHistoryService } from "./application/updates/update-history.service";
 import { updateInstallService } from "./application/updates/update-install.service";
 import { databaseFactory } from "./database/database";
 import { env } from "./env";
@@ -33,6 +34,7 @@ import { systemResourcesService } from "./system/system-resources.service";
 import { isOriginAllowed, isUsableOriginEntry } from "./utils/http.utils";
 import { logger, setLogLevel } from "./utils/logger";
 import { cleanupStartupDirectories, ensureDataDirectories } from "./utils/server-data.utils";
+import { SERVER_VERSION } from "./version";
 import { webStaticPlugin } from "./web/web-static.plugin";
 import { loadBuiltInWorkers } from "./workers/built-in-workers";
 import { scheduledTasksService } from "./workers/scheduled-tasks.service";
@@ -52,6 +54,8 @@ async function setupServer(): Promise<void> {
 		logger.info("Applying database migrations...");
 		const { applied } = databaseFactory.migrate();
 		logger.info("Database migrations applied", { appliedMigrations: applied });
+		// Runs left open by the previous process: a server run that restarted into its target version succeeded.
+		await updateHistoryService.settleRunsAfterStart(SERVER_VERSION);
 
 		logger.info("Loading system settings...");
 		await systemSettingsService.init();

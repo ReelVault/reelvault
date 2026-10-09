@@ -30,6 +30,7 @@ import {
 	type UpdateFlavor,
 	type UpdateInstallType,
 } from "./update-environment";
+import { updateHistoryService } from "./update-history.service";
 import { assertChecksumMatches, checksumForFile, serverAssetName, webAssetName } from "./update-release.utils";
 import { readPreviousVersion, swapBackFromPrevious, swapIntoPlace, swapWebDirectory } from "./update-swap.utils";
 
@@ -117,25 +118,41 @@ export class UpdateInstallService extends BaseService {
 		);
 	}
 
-	async startInstall(target: UpdateComponent): Promise<{ started: boolean; target: UpdateComponent; version: string }> {
+	async startInstall(
+		target: UpdateComponent,
+		actorUserId: string | null = null,
+	): Promise<{ started: boolean; target: UpdateComponent; version: string }> {
 		const release = await this.assertInstallPreconditions(target);
 		if (this.job) throw new ConflictError("An update is already in progress", { code: "update.install_already_running" });
 
 		this.beginJob(target, "downloading", 5, release.version);
 		this.setLastError(target, null);
+		// The run is on record before any restart it may trigger, so the row survives the restart.
+		const historyId = await updateHistoryService.begin({
+			action: "install",
+			target,
+			fromVersion: this.installedVersion(target),
+			toVersion: release.version,
+			actorUserId,
+		});
 
-		detach(this.runInstall(target, release));
+		detach(this.runInstall(target, release, historyId));
 
 		return { started: true, target, version: release.version };
 	}
 
-	startRollback(target: UpdateComponent): { started: boolean; target: UpdateComponent; version: string } {
+	startRollback(
+		target: UpdateComponent,
+		actorUserId: string | null = null,
+	): { started: boolean; target: UpdateComponent; version: string } {
 		this.assertRollbackPreconditions(target);
 		const restoredVersion = readPreviousVersion(this.root, target);
+		const fromVersion = this.installedVersion(target);
 
 		this.beginJob(target, "swapping", 90, restoredVersion);
 
-		this.runRollback(target);
+		const failure = this.runRollback(target);
+		detach(this.recordRollback({ target, fromVersion, restoredVersion, actorUserId }, failure));
 
 		return { started: true, target, version: restoredVersion };
 	}
@@ -201,7 +218,7 @@ export class UpdateInstallService extends BaseService {
 		return release;
 	}
 
-	private async runInstall(target: UpdateComponent, release: AdminUpdateRelease): Promise<void> {
+	private async runInstall(target: UpdateComponent, release: AdminUpdateRelease, historyId: string | null): Promise<void> {
 		try {
 			const assetName =
 				target === "server" ? serverAssetName(process.platform, process.arch, release.version) : webAssetName(release.version);
@@ -237,6 +254,7 @@ export class UpdateInstallService extends BaseService {
 
 				if (target === "web") {
 					await this.applyWebUpdate(download.filePath, release.version);
+					await updateHistoryService.succeed(historyId);
 				} else {
 					await this.applyServerUpdate(download.filePath, release.version);
 				}
@@ -244,12 +262,14 @@ export class UpdateInstallService extends BaseService {
 				await download.cleanup();
 			}
 		} catch (error) {
-			this.setLastError(target, error instanceof Error ? error.message : "unknown error");
+			const message = error instanceof Error ? error.message : "unknown error";
+			this.setLastError(target, message);
 			this.job = null;
 			this.logger.error(`Update install for ${target} failed`, error);
 			// staging cleanup must never mask the original failure
 			this.removeScratchDirectories([STAGING_DIR, PENDING_DIR]);
 			adminFailureNotificationService.notifyUpdateFailed(target, release.version);
+			await updateHistoryService.fail(historyId, message);
 		}
 	}
 
@@ -307,7 +327,7 @@ export class UpdateInstallService extends BaseService {
 		this.logger.info(`Server updated to ${version} — restarting`);
 	}
 
-	private runRollback(target: UpdateComponent): void {
+	private runRollback(target: UpdateComponent): string | null {
 		try {
 			if (target === "web") {
 				// Static files — the rollback swap is live immediately, no restart.
@@ -317,19 +337,58 @@ export class UpdateInstallService extends BaseService {
 			} else if (process.platform === "win32") {
 				// The swap of locked directories happens in the post-exit script.
 				this.setJob("restarting", 97, null);
-				this.restartScheduler.scheduleRestart(this.root);
 			} else {
 				const restoredVersion = swapBackFromPrevious(this.root, "server");
 				this.setJob("restarting", 97, null);
 				this.logger.info(`Rolling server back to ${restoredVersion} — restarting`, { runningVersion: SERVER_VERSION });
-				this.restartScheduler.scheduleRestart(this.root);
 			}
+
+			return null;
 		} catch (error) {
-			this.setLastError(target, error instanceof Error ? error.message : "unknown error");
+			const message = error instanceof Error ? error.message : "unknown error";
+			this.setLastError(target, message);
 			this.job = null;
 			this.logger.error(`Rollback for ${target} failed`, error);
 			adminFailureNotificationService.notifyUpdateFailed(target, null);
+
+			return message;
 		}
+	}
+
+	/**
+	 * Records a rollback run, then schedules the server restart when the swap went through.
+	 * The run is written before the restart, so the row survives the restart.
+	 */
+	private async recordRollback(
+		run: { target: UpdateComponent; fromVersion: string | null; restoredVersion: string; actorUserId: string | null },
+		failure: string | null,
+	): Promise<void> {
+		const historyId = await updateHistoryService.begin({
+			action: "rollback",
+			target: run.target,
+			fromVersion: run.fromVersion,
+			toVersion: run.restoredVersion,
+			actorUserId: run.actorUserId,
+		});
+		if (failure) {
+			await updateHistoryService.fail(historyId, failure);
+
+			return;
+		}
+		if (run.target === "web") {
+			await updateHistoryService.succeed(historyId);
+
+			return;
+		}
+
+		this.restartScheduler.scheduleRestart(this.root);
+	}
+
+	/** The version a run replaces: the running server, or the installed web UI. */
+	private installedVersion(target: UpdateComponent): string | null {
+		if (target === "server") return SERVER_VERSION;
+
+		return readInstalledWebVersion(this.root) ?? resolveWebVersion();
 	}
 
 	/** Server archives keep the classic `ReelVault/` layout minus `web/`. */

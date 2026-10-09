@@ -18,6 +18,7 @@ import type {
 import { librariesService } from "@/application/libraries/libraries.service";
 import { pluginAdminService } from "@/application/plugin-admin.service";
 import { updateCheckService } from "@/application/updates/update-check.service";
+import { describeUpdateEnvironment } from "@/application/updates/update-environment";
 import { updateInstallService } from "@/application/updates/update-install.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { adminStatsRepository } from "@/database/repositories/admin-stats.repository";
@@ -214,6 +215,7 @@ class AdminService extends BaseService {
 					...updateState,
 					installType,
 					flavor: installType === "archive" ? updateInstallService.getFlavor() : null,
+					environment: describeUpdateEnvironment(),
 					serverRollbackAvailable: updateInstallService.isRollbackAvailable("server"),
 					webRollbackAvailable: updateInstallService.isRollbackAvailable("web"),
 					serverLastError: updateInstallService.getLastError("server") ?? updateState.serverLastError,
