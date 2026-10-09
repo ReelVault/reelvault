@@ -394,6 +394,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Refuse a plugin's CSP sources** — `PUT /admin/plugins/:id/csp` with `{ "enabled": false }` stops an installed plugin's manifest from adding sources to the page's content security policy. The choice is stored with the installed package, survives restarts and upgrades, and applies at once. A plugin without an installer record cannot be changed.
 - **Enable and disable plugins in bulk** — `POST /admin/plugins/bulk` with `{ enabled, pluginIds }` (up to 100 plugins) attempts each plugin on its own and reports an outcome per plugin, so one failure does not stop the others.
 - **Pin a plugin's version** — `PUT /admin/plugins/:id/pin` with `{ pinned: true }` keeps the installed version: the catalog reports it as installed and offers no update. The choice survives restarts and upgrades; installing a newer version explicitly stays possible.
+- **Catalog says which repositories it could not read** — `GET /admin/plugins/catalog` returns the plugins and, separately, the repositories that could not be read, each with an error code, so a missing plugin is no longer silent.
 
 ### Fixes
 

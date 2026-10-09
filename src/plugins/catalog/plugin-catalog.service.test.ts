@@ -113,11 +113,49 @@ describe("pluginCatalogService.getCatalog", () => {
 			}),
 		);
 
-		const entries = await pluginCatalogService.getCatalog();
+		const { plugins } = await pluginCatalogService.getCatalog();
 
-		expect(entries.map((entry) => entry.id)).toEqual(["plugin-repo-a", "plugin-repo-b", "plugin-repo-c"]);
+		expect(plugins.map((entry) => entry.id)).toEqual(["plugin-repo-a", "plugin-repo-b", "plugin-repo-c"]);
 		// Serial fetching would peak at one in-flight manifest.
 		expect(maxInFlight).toBe(3);
+	});
+	test("reports a repository it cannot read by code, and keeps the others", async () => {
+		const rows = ["repo-ok", "repo-down"].map((id) => ({
+			id,
+			name: id,
+			url: `https://example.com/${id}.json`,
+			enabled: true,
+			tokenEncrypted: null,
+			lastRefreshedAt: null,
+			lastError: null,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		}));
+
+		activeStubs.push(
+			stubMethod(pluginRepositoriesRepository, "count", () => Promise.resolve(rows.length)),
+			stubMethod(pluginRepositoriesRepository, "list", () => Promise.resolve(rows)),
+			stubMethod(pluginManager, "getInstalledRecords", () => Promise.resolve([])),
+			stubMethod(pluginCatalogService, "fetchManifest", (row: { id: string }) =>
+				row.id === "repo-down"
+					? Promise.reject(new Error("connection refused"))
+					: Promise.resolve({
+							manifest: {
+								apiVersion: 1,
+								name: row.id,
+								plugins: [{ id: "plugin-ok", name: "Plugin", version: "1.0.0", category: "other" }],
+							},
+							fetchedAt: Date.now(),
+						}),
+			),
+		);
+
+		const catalog = await pluginCatalogService.getCatalog();
+
+		expect(catalog.plugins.map((entry) => entry.id)).toEqual(["plugin-ok"]);
+		expect(catalog.unavailableRepositories).toEqual([
+			{ repositoryId: "repo-down", repositoryName: "repo-down", errorCode: "plugin.repository_unavailable" },
+		]);
 	});
 });
 
@@ -132,11 +170,14 @@ describe("pluginCatalogService.updatablePluginIds", () => {
 	test("lists only the plugins that an enabled repository offers in a newer version", async () => {
 		activeStubs.push(
 			stubMethod(pluginCatalogService, "getCatalog", () =>
-				Promise.resolve([
-					{ id: "org.reelvault.newer", status: "update-available" },
-					{ id: "org.reelvault.current", status: "installed" },
-					{ id: "org.reelvault.fresh", status: "available" },
-				]),
+				Promise.resolve({
+					plugins: [
+						{ id: "org.reelvault.newer", status: "update-available" },
+						{ id: "org.reelvault.current", status: "installed" },
+						{ id: "org.reelvault.fresh", status: "available" },
+					],
+					unavailableRepositories: [],
+				}),
 			),
 		);
 

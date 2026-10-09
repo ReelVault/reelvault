@@ -326,9 +326,9 @@ if (!args.help) {
 			const samples: number[] = [];
 			for (let run = 0; run < 3; run++) {
 				const startedAt = performance.now();
-				const entries = await pluginCatalogService.getCatalog();
+				const { plugins } = await pluginCatalogService.getCatalog();
 				samples.push(performance.now() - startedAt);
-				if (entries.length !== rows.length) throw new Error("catalog entries missing");
+				if (plugins.length !== rows.length) throw new Error("catalog entries missing");
 			}
 
 			const stats = summarizeLatencies(samples);

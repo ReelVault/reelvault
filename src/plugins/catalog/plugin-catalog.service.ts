@@ -5,7 +5,7 @@ import type { InstallCatalogPluginResponse, PluginValidationResult } from "@reel
 import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
 import { env } from "@/env";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError, NotFoundError, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
@@ -57,6 +57,22 @@ export interface PluginCatalogVersionView {
 	date?: string;
 	changelog?: string;
 	minServerVersion?: string;
+}
+
+/** Code for a repository whose manifest could not be read; the message stays in the server log. */
+const PLUGIN_REPOSITORY_UNAVAILABLE = "plugin.repository_unavailable";
+
+/** A catalog repository that could not be read, so its plugins are missing from the catalog. */
+export interface PluginCatalogUnavailableRepository {
+	repositoryId: string;
+	repositoryName: string;
+	errorCode: string;
+}
+
+/** The aggregated catalog plus the repositories that did not contribute to it. */
+export interface PluginCatalogView {
+	plugins: PluginCatalogEntryView[];
+	unavailableRepositories: PluginCatalogUnavailableRepository[];
 }
 
 export interface PluginCatalogEntryView {
@@ -176,9 +192,9 @@ class PluginCatalogService {
 	/** Installed plugins that an enabled repository offers in a newer version. A failing catalog offers none. */
 	async updatablePluginIds(): Promise<Set<string>> {
 		try {
-			const entries = await this.getCatalog();
+			const { plugins } = await this.getCatalog();
 
-			return new Set(entries.filter((entry) => entry.status === "update-available").map((entry) => entry.id));
+			return new Set(plugins.filter((entry) => entry.status === "update-available").map((entry) => entry.id));
 		} catch (error) {
 			this.logger.warn("Plugin update check skipped", { reason: error instanceof Error ? error.message : String(error) });
 
@@ -187,7 +203,7 @@ class PluginCatalogService {
 	}
 
 	/** Aggregated catalog across all enabled repositories, annotated with install state. */
-	async getCatalog(): Promise<PluginCatalogEntryView[]> {
+	async getCatalog(): Promise<PluginCatalogView> {
 		await this.ensureOfficialRepository();
 		const rows = (await pluginRepositoriesRepository.list()).filter((row) => row.enabled);
 		const records = await pluginManager.getInstalledRecords();
@@ -199,11 +215,11 @@ class PluginCatalogService {
 		// must not serialize network round-trips — fetch concurrently, flatten in
 		// repository order.
 		const perRepository = await Promise.all(
-			rows.map(async (row): Promise<PluginCatalogEntryView[]> => {
+			rows.map(async (row) => {
 				try {
 					const { manifest } = await this.fetchManifest(row, { force: false });
 
-					return manifest.plugins.map((plugin) => {
+					const plugins = manifest.plugins.map((plugin): PluginCatalogEntryView => {
 						const installedVersion = installed.get(plugin.id) ?? null;
 
 						return {
@@ -215,18 +231,30 @@ class PluginCatalogService {
 							installedVersion,
 						};
 					});
+
+					return { plugins };
 				} catch (error) {
 					this.logger.warn("Skipping unavailable plugin repository", {
 						reason: error instanceof Error ? error.message : String(error),
 						repositoryId: row.id,
 					});
 
-					return [];
+					return {
+						plugins: [] as PluginCatalogEntryView[],
+						unavailable: {
+							repositoryId: row.id,
+							repositoryName: row.name,
+							errorCode: error instanceof DomainError ? error.code : PLUGIN_REPOSITORY_UNAVAILABLE,
+						},
+					};
 				}
 			}),
 		);
 
-		return perRepository.flat();
+		return {
+			plugins: perRepository.flatMap((outcome) => outcome.plugins),
+			unavailableRepositories: perRepository.flatMap((outcome) => (outcome.unavailable ? [outcome.unavailable] : [])),
+		};
 	}
 
 	async installFromCatalog(input: InstallCatalogPluginInput): Promise<InstallCatalogPluginResponse> {

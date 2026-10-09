@@ -1,11 +1,10 @@
 import type {
 	InstallCatalogPluginResponse,
-	PluginCatalogEntry,
 	PluginRepository,
 	PluginValidationResult,
 	UpdatePluginRepositoryBody,
 } from "@reelvault/sdk/common";
-import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
+import { type PluginCatalogView, pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
 import { NotFoundError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { recordAuditSafe } from "./admin-audit.service";
@@ -95,7 +94,7 @@ class AdminPluginCatalogService {
 		return repository;
 	}
 
-	async getCatalog(): Promise<PluginCatalogEntry[]> {
+	async getCatalog(): Promise<PluginCatalogView> {
 		return await pluginCatalogService.getCatalog();
 	}
 
