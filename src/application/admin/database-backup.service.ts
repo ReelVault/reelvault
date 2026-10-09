@@ -1,15 +1,26 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, rename, stat } from "node:fs/promises";
 import type { AdminDatabaseBackup } from "@reelvault/sdk/common";
 import { file } from "bun";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseMaintenanceRepository } from "@/database/repositories/database-maintenance.repository";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { NotFoundError, ValidationError } from "@/utils/errors";
+import { ForbiddenError, NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+
+/** The first 16 bytes of every SQLite 3 database file. */
+const SQLITE_HEADER = new TextEncoder().encode("SQLite format 3\0");
+
+function backupTimestamp(now: Date): string {
+	return now
+		.toISOString()
+		.replace(/[T:.]/g, (ch) => (ch === "T" ? "_" : "-"))
+		.replace("Z", "");
+}
 
 class DatabaseBackupService extends BaseService {
 	constructor() {
@@ -21,11 +32,7 @@ class DatabaseBackupService extends BaseService {
 			await DirUtils.create(serverConfig.paths.backups);
 
 			const now = new Date();
-			const timestamp = now
-				.toISOString()
-				.replace(/[T:.]/g, (ch) => (ch === "T" ? "_" : "-"))
-				.replace("Z", "");
-			const fileName = `reelvault_backup_${timestamp}.sqlite`;
+			const fileName = `reelvault_backup_${backupTimestamp(now)}.sqlite`;
 			const filePath = PathUtils.join(serverConfig.paths.backups, fileName);
 
 			this.logger.info("Starting SQLite database backup", { targetPath: filePath });
@@ -67,6 +74,44 @@ class DatabaseBackupService extends BaseService {
 			});
 
 			return backups.toSorted((a, b) => b.mtimeMs - a.mtimeMs).map(({ mtimeMs: _mtimeMs, ...backup }) => backup);
+		});
+	}
+
+	/**
+	 * Stores an uploaded SQLite backup after checking that it is a ReelVault database SQLite reads without errors. Refused
+	 * unless uploads are turned on. The file is staged under a dot name, so listings and rotation never see it before it passes.
+	 */
+	async uploadBackup(upload: File): Promise<AdminDatabaseBackup> {
+		return await this.safeExecute("uploadBackup", async () => {
+			if (!systemSettingsStore.get("system.database.backupUploadEnabled")) {
+				throw new ForbiddenError("Backup upload is turned off", { code: "database.backup_upload_disabled" });
+			}
+
+			const header = new Uint8Array(await upload.slice(0, SQLITE_HEADER.length).arrayBuffer());
+			if (header.length !== SQLITE_HEADER.length || !header.every((byte, index) => byte === SQLITE_HEADER[index])) {
+				throw new ValidationError("Uploaded file is not a SQLite database", { code: "database.backup_invalid" });
+			}
+
+			await DirUtils.create(serverConfig.paths.backups);
+			const stagingPath = PathUtils.join(serverConfig.paths.backups, `.upload-${crypto.randomUUID()}.tmp`);
+			try {
+				await Bun.write(stagingPath, upload);
+				if (!databaseMaintenanceRepository.verifyBackupFile(stagingPath)) {
+					throw new ValidationError("Uploaded database failed the SQLite check", { code: "database.backup_invalid" });
+				}
+
+				const now = new Date();
+				const fileName = `reelvault_backup_upload_${backupTimestamp(now)}.sqlite`;
+				const filePath = PathUtils.join(serverConfig.paths.backups, fileName);
+				await rename(stagingPath, filePath);
+				const stats = await stat(filePath);
+				this.logger.info("Database backup uploaded", { fileName, sizeBytes: stats.size });
+
+				return { fileName, filePath, sizeBytes: stats.size, createdAt: now.toISOString() };
+			} catch (error) {
+				await FileUtils.delete(stagingPath);
+				throw error;
+			}
 		});
 	}
 

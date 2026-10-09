@@ -39,6 +39,7 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 	// cleanup prunes rows older than this. 0 = keep everything.
 	"system.database.auditRetentionDays": creator.number("system.database.auditRetentionDays", 0, 3650, 180),
 	"system.database.backupRetentionCount": creator.number("system.database.backupRetentionCount", 1, 100, 7),
+	"system.database.backupUploadEnabled": creator.boolean("system.database.backupUploadEnabled", false),
 
 	// Default look-back for the admin analytics dashboard when no explicit range
 	// is requested (the "all" view).

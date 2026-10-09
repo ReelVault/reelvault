@@ -12,7 +12,7 @@ import { databaseBackupService } from "@/application/admin/database-backup.servi
 import { databaseMaintenanceService } from "@/application/admin/database-maintenance.service";
 import { databaseRestoreService } from "@/application/admin/database-restore.service";
 import { env } from "@/env";
-import { MINUTE } from "@/server.constants";
+import { DATABASE_BACKUP_UPLOAD_MAX_SIZE, MINUTE } from "@/server.constants";
 import { createLogger } from "@/utils/logger";
 import { adminShell } from "./admin-shell";
 
@@ -48,6 +48,33 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			response: { ...ROUTE_ERRORS.ADMIN, 201: AdminDatabaseBackupSchema },
 			detail: {
 				description: "Create an online SQLite database backup immediately using VACUUM INTO.",
+			},
+		},
+	)
+	.post(
+		"/database/backups/upload",
+		async ({ body, status, user, request }) => {
+			const backup = await databaseBackupService.uploadBackup(body.file);
+			recordAuditSafe(
+				{
+					action: "create",
+					resourceType: "database_backup",
+					resourceId: backup.fileName,
+					summary: "origin: upload",
+					after: { sizeBytes: backup.sizeBytes },
+					context: { actorUserId: user?.id, headers: request.headers },
+				},
+				databaseRestoreLogger,
+			);
+
+			return status(201, backup);
+		},
+		{
+			rateLimit: { name: "admin-db-backup-upload", max: 5, windowMs: MINUTE },
+			body: t.Object({ file: t.File({ maxSize: DATABASE_BACKUP_UPLOAD_MAX_SIZE }) }),
+			response: { ...ROUTE_ERRORS.ADMIN, 201: AdminDatabaseBackupSchema },
+			detail: {
+				description: "Store an uploaded SQLite backup after a SQLite check. Refused unless system.database.backupUploadEnabled is on.",
 			},
 		},
 	)

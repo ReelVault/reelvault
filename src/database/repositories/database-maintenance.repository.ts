@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { existsSync, readdirSync } from "node:fs";
 import { databaseFactory, MIGRATIONS_DIR } from "@/database/database";
 import { serverConstants } from "@/server.constants";
@@ -29,6 +30,28 @@ class DatabaseMaintenanceRepository {
 		const row = databaseFactory.sqlite.query<{ count: number }, []>("SELECT count(*) AS count FROM __drizzle_migrations").get();
 
 		return { tags, applied: row?.count ?? 0 };
+	}
+
+	/**
+	 * Checks an uploaded backup without touching the live database: it must open, pass SQLite's quick check and carry the
+	 * migration journal that every ReelVault database has.
+	 */
+	verifyBackupFile(path: string): boolean {
+		try {
+			const db = new Database(path, { readonly: true });
+			try {
+				const checks = db.query<{ quick_check: string }, []>("PRAGMA quick_check").all();
+				const journal = db
+					.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'")
+					.get();
+
+				return checks.length === 1 && checks[0]?.quick_check === "ok" && journal !== null;
+			} finally {
+				db.close();
+			}
+		} catch {
+			return false;
+		}
 	}
 
 	/** Lets SQLite refresh its planner statistics (`PRAGMA optimize`). */

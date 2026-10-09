@@ -21,6 +21,9 @@ export const LIBRARY_SCAN_PRIORITY = -5;
 /** Hard body ceiling for image uploads; `images.maxUploadBytes` (a live setting) is enforced in the service. */
 export const IMAGE_UPLOAD_MAX_SIZE = "512m";
 
+/** Largest SQLite backup an administrator can upload; the same cap as the largest image upload. */
+export const DATABASE_BACKUP_UPLOAD_MAX_SIZE = "512m";
+
 /**
  * Hard deadline for a single filesystem stat. A dead NFS/CIFS mount can hang
  * `stat` indefinitely, which would wedge watcher reconciliation and the removal
