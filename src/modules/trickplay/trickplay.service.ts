@@ -210,6 +210,26 @@ class TrickplayService extends BaseService {
 	}
 
 	/** Coverage counts plus the core artifact storage usage/budget for the admin page. */
+	/**
+	 * Removes the core trickplay previews of each media file. A file without previews, or an unknown id,
+	 * counts as nothing removed rather than an error, so a bulk request can name files it did not check.
+	 */
+	async deletePreviews(mediaFileIds: readonly string[]): Promise<{ mediaFiles: number; artifacts: number }> {
+		let mediaFiles = 0;
+		let artifacts = 0;
+		for (const mediaFileId of new Set(mediaFileIds)) {
+			const deleted = await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER);
+			if (deleted > 0) {
+				mediaFiles++;
+				artifacts += deleted;
+			}
+		}
+
+		trickplayRepository.clearStatsCache();
+
+		return { mediaFiles, artifacts };
+	}
+
 	async stats(): Promise<TrickplayStats> {
 		const [counts, storageBytes, storageBudgetBytes] = await Promise.all([
 			trickplayRepository.stats(),

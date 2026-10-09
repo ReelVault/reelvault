@@ -15,6 +15,11 @@ class TrickplayRepository {
 	 * avoids re-running the LEFT JOIN + DISTINCT count on every poll. */
 	private readonly statsCache = new MemoryCache<TrickplayStats>({ ttlMs: 5_000, maxSize: 1, name: "trickplay-stats" });
 
+	/** Drops the cached coverage counts, so the admin view reflects previews that were just removed. */
+	clearStatsCache(): void {
+		this.statsCache.clear();
+	}
+
 	/** Media files that have no core-generated trickplay artifacts yet. */
 	async findMediaFileIdsMissingTrickplay(limit = 2000): Promise<string[]> {
 		const client = databaseFactory.getClient();

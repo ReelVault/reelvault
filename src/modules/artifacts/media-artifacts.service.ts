@@ -152,6 +152,11 @@ class MediaArtifactsService extends BaseService {
 		return publicArtifact;
 	}
 
+	/** Artifact rows per owner and kind, for the admin overview. */
+	async countByOwnerAndKind(): Promise<Array<{ pluginId: string; kind: string; count: number }>> {
+		return await mediaArtifactsRepository.countByOwnerAndKind();
+	}
+
 	async deleteByMediaFileIdAndKind(mediaFileId: string, kind: string, ownerId?: string): Promise<number> {
 		const artifacts = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
 		// When scoped, an owner may only delete its own artifacts of that kind.
