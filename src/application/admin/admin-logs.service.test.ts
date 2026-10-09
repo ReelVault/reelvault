@@ -102,3 +102,44 @@ describe("AdminService log bundle", () => {
 		expect(Object.keys(unzipSync(data)).toSorted()).toEqual(["ffmpeg/transcode-1.log", "reelvault.log"]);
 	});
 });
+
+describe("AdminService getLogs module, exclude and time filters", () => {
+	let testLogsDir: string;
+	let originalLogsPath: string;
+
+	beforeEach(async () => {
+		originalLogsPath = serverConfig.paths.logs;
+		testLogsDir = await mkdtemp(join(tmpdir(), "reelvault-admin-logs-filters-"));
+		serverConfig.paths.logs = testLogsDir;
+		const entry = (time: string, module: string, msg: string) => JSON.stringify({ level: 30, time: Date.parse(time), module, msg });
+		const lines = [
+			entry("2026-10-01T10:00:00Z", "LibraryScanner", "scan started"),
+			entry("2026-10-02T10:00:00Z", "LibraryScanner", "scan finished"),
+			entry("2026-10-03T10:00:00Z", "DownloadWorker", "download failed"),
+			"plain ffmpeg output",
+		];
+		await writeFile(PathUtils.join(testLogsDir, "reelvault.log"), `${lines.join("\n")}\n`);
+	});
+
+	afterEach(async () => {
+		serverConfig.paths.logs = originalLogsPath;
+		await rm(testLogsDir, { recursive: true, force: true });
+	});
+
+	const messagesOf = async (query: Parameters<typeof adminLogsService.getLogs>[0]) =>
+		(await adminLogsService.getLogs({ fileId: "reelvault.log", ...query })).data.map((item) => item.msg);
+
+	test("module matches the logging module exactly and ignores case", async () => {
+		expect(await messagesOf({ module: "libraryscanner" })).toEqual(["scan finished", "scan started"]);
+	});
+
+	test("exclude drops entries whose text matches, ignoring case", async () => {
+		expect(await messagesOf({ exclude: "FINISHED" })).toEqual(["plain ffmpeg output", "download failed", "scan started"]);
+	});
+
+	test("from and to bound the entries by time and drop plain-text lines", async () => {
+		expect(await messagesOf({ from: "2026-10-02T00:00:00Z" })).toEqual(["download failed", "scan finished"]);
+		expect(await messagesOf({ to: "2026-10-01T23:59:59Z" })).toEqual(["scan started"]);
+		expect(await messagesOf({ from: "2026-10-02T00:00:00Z", to: "2026-10-02T23:59:59Z" })).toEqual(["scan finished"]);
+	});
+});

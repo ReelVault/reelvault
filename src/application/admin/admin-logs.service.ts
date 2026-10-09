@@ -66,9 +66,21 @@ interface LogWindowFilter {
 	targetLevels: Set<string> | undefined;
 	hasErrorsFilter: boolean;
 	searchLower: string | undefined;
+	excludeLower: string | undefined;
+	moduleLower: string | undefined;
+	fromMs: number | undefined;
+	toMs: number | undefined;
 	windowStart: number;
 	windowEnd: number;
 }
+
+/** Module and time of one entry. Plain-text lines carry neither, so a module or time filter drops them. */
+interface LogEntryScope {
+	moduleLower?: string | undefined;
+	timeMs?: number | undefined;
+}
+
+const PLAIN_LOG_SCOPE: LogEntryScope = {};
 
 function resolveJsonLogLevelName(obj: Record<string, unknown>): string {
 	const numericLevel = obj.level;
@@ -79,16 +91,33 @@ function resolveJsonLogLevelName(obj: Record<string, unknown>): string {
 	return "info";
 }
 
-function passesLogFilters(levelName: string, lineLower: string, filter: LogWindowFilter): boolean {
+function passesLogFilters(levelName: string, lineLower: string, filter: LogWindowFilter, scope: LogEntryScope): boolean {
 	if (!matchesLevelFilter(levelName, filter.targetLevels, filter.hasErrorsFilter)) return false;
 
 	if (filter.searchLower && !lineLower.includes(filter.searchLower)) return false;
 
+	if (filter.excludeLower && lineLower.includes(filter.excludeLower)) return false;
+
+	if (filter.moduleLower && scope.moduleLower !== filter.moduleLower) return false;
+
+	if (filter.fromMs !== undefined && (scope.timeMs === undefined || scope.timeMs < filter.fromMs)) return false;
+
+	if (filter.toMs !== undefined && (scope.timeMs === undefined || scope.timeMs > filter.toMs)) return false;
+
 	return true;
 }
 
+function jsonLogScope(obj: Record<string, unknown>): LogEntryScope {
+	const timeMs = typeof obj.time === "string" || typeof obj.time === "number" ? new Date(obj.time).getTime() : Number.NaN;
+
+	return {
+		moduleLower: typeof obj.module === "string" ? normalizeLower(obj.module) : undefined,
+		timeMs: Number.isNaN(timeMs) ? undefined : timeMs,
+	};
+}
+
 function jsonLogLineMatches(obj: Record<string, unknown>, lineLower: string, filter: LogWindowFilter): boolean {
-	return passesLogFilters(resolveJsonLogLevelName(obj), lineLower, filter);
+	return passesLogFilters(resolveJsonLogLevelName(obj), lineLower, filter, jsonLogScope(obj));
 }
 
 function buildJsonLogEntry(obj: Record<string, unknown>): AdminLogEntry {
@@ -113,7 +142,16 @@ function classifyPlainLogLevel(line: string, lineLower: string): "debug" | "erro
 }
 
 function plainLogLineMatches(line: string, lineLower: string, filter: LogWindowFilter): boolean {
-	return passesLogFilters(classifyPlainLogLevel(line, lineLower), lineLower, filter);
+	return passesLogFilters(classifyPlainLogLevel(line, lineLower), lineLower, filter, PLAIN_LOG_SCOPE);
+}
+
+/** Parses a `from`/`to` bound; an unparsable value leaves that side open. */
+function parseLogBound(value: string | undefined): number | undefined {
+	if (!value) return undefined;
+
+	const ms = Date.parse(value);
+
+	return Number.isNaN(ms) ? undefined : ms;
 }
 
 function buildPlainLogEntry(line: string, lineLower: string): AdminLogEntry {
@@ -495,7 +533,17 @@ class AdminLogsService extends BaseService {
 		}
 	}
 
-	async getLogs(query?: { fileId?: string; level?: string; search?: string; limit?: number; page?: number }): Promise<AdminLogsPage> {
+	async getLogs(query?: {
+		fileId?: string;
+		level?: string;
+		search?: string;
+		module?: string;
+		exclude?: string;
+		from?: string;
+		to?: string;
+		limit?: number;
+		page?: number;
+	}): Promise<AdminLogsPage> {
 		const { lines, parsed, lowerLines, readOffset } = await this.readLogTailLines(query?.fileId);
 		const maxLines = Math.min(lines.length, LOG_MAX_PARSED_LINES);
 		const parsedEntries: AdminLogEntry[] = [];
@@ -509,7 +557,17 @@ class AdminLogsService extends BaseService {
 		const windowEnd = windowStart + limit;
 		let totalMatching = 0;
 
-		const filter: LogWindowFilter = { targetLevels, hasErrorsFilter, searchLower, windowStart, windowEnd };
+		const filter: LogWindowFilter = {
+			targetLevels,
+			hasErrorsFilter,
+			searchLower,
+			excludeLower: query?.exclude ? normalizeLower(query.exclude) : undefined,
+			moduleLower: query?.module ? normalizeLower(query.module) : undefined,
+			fromMs: parseLogBound(query?.from),
+			toMs: parseLogBound(query?.to),
+			windowStart,
+			windowEnd,
+		};
 
 		for (let i = lines.length - 1; i >= 0 && lines.length - i <= maxLines; i--) {
 			const line = lines[i];
