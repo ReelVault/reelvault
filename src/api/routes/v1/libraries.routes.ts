@@ -3,6 +3,8 @@ import {
 	LibraryDetailSchema,
 	LibraryErrorsCheckRequestSchema,
 	LibraryFiltersSchema,
+	LibraryScanAllResponseSchema,
+	LibraryScanCancelResponseSchema,
 	LibrarySortingSchema,
 	LibraryWithRelationsSchema,
 	OperationQueuedResponseSchema,
@@ -86,6 +88,33 @@ export const librariesRoutes = new Elysia({
 			...cached({ maxAge: 15, private: true }),
 			detail: {
 				description: "Retrieve information about a specific library by its ID. Add ?siblings=true to include all libraries.",
+			},
+		},
+	)
+	.post(
+		"/scan",
+		async ({ status, user, request }) => status(202, await librariesService.scanAll({ actorUserId: user?.id, headers: request.headers })),
+		{
+			adminOnly: true,
+			rateLimit: { name: "library-scan-all", max: 10, windowMs: MINUTE },
+			response: { ...ROUTE_ERRORS.ADMIN, 202: LibraryScanAllResponseSchema },
+			detail: {
+				description: "Queue a scan of every library. The scans run one after another, in library order.",
+			},
+		},
+	)
+	.post(
+		"/:libraryId/scan/cancel",
+		async ({ params, user, request }) =>
+			await librariesService.cancelScans(params.libraryId, { actorUserId: user?.id, headers: request.headers }),
+		{
+			adminOnly: true,
+			rateLimit: { name: "library-scan-cancel", max: 30, windowMs: MINUTE },
+			params: LibraryIdParams,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: LibraryScanCancelResponseSchema },
+			detail: {
+				description:
+					"Cancel the queued and running scans of a library, including its path scans and catch-up passes. A later scan of the library picks up from the checkpoint this one left behind.",
 			},
 		},
 	)

@@ -271,6 +271,51 @@ class LibrariesService extends BaseService {
 		});
 	}
 
+	/** Queues a scan of every library in order. The library-scan worker runs one scan at a time, so they run one after another. */
+	async scanAll(context?: AdminAuditContext) {
+		return await this.safeExecute("scanAll", async () => {
+			const libraryIds = await librariesRepository.findAllIds();
+			const queued: Array<{ libraryId: string; operationId: string }> = [];
+			for (const libraryId of libraryIds) {
+				const result = await this.scan(libraryId, context);
+				queued.push({ libraryId, operationId: result.operationId });
+			}
+
+			return { queued };
+		});
+	}
+
+	/** Cancels the queued and running scans of a library: its whole-library scan, its path scans and their catch-up passes. */
+	async cancelScans(libraryId: string, context?: AdminAuditContext) {
+		return await this.safeExecute("cancelScans", async () => {
+			const library = await this.getLibraryForScan(libraryId, { fields: "id,paths.id" });
+			const { workerService } = await import("@/workers/worker.service");
+
+			const scanKeys = [`${library.id}:all`, ...library.paths.map((path) => `${library.id}:${path.id}`)];
+			const dedupeKeys = scanKeys.flatMap((key) => [key, `${key}:catch-up`]);
+			const active = await workerService.findActiveItems("library-scan", dedupeKeys);
+			const operationIds = [...new Set(active.map((item) => item.operationId).filter((id): id is string => typeof id === "string"))];
+
+			let cancelled = 0;
+			for (const operationId of operationIds) {
+				if (await workerService.cancelOperation(operationId)) cancelled++;
+			}
+
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "library_scan",
+					resourceId: library.id,
+					after: { cancelled, operationIds },
+					context,
+				},
+				this.logger,
+			);
+
+			return { cancelled };
+		});
+	}
+
 	async scanPath(libraryId: string, pathId: string, context?: AdminAuditContext) {
 		return await this.safeExecute("scanPath", async () => {
 			const library = await this.getLibraryForScan(libraryId, { fields: "id,paths.id,paths.path,paths.isActive" });

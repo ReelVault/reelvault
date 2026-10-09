@@ -123,6 +123,13 @@ class LibrariesRepository {
 			.where(eq(schema.libraryPaths.isActive, true));
 	}
 
+	/** Ids of every library, so scan-all can queue them. */
+	async findAllIds(): Promise<string[]> {
+		const rows = await databaseFactory.getClient().select({ id: schema.libraries.id }).from(schema.libraries);
+
+		return rows.map((row) => row.id);
+	}
+
 	async findWithPaths(libraryId: string, tx?: DatabaseTransaction): Promise<LibraryWithRelations | undefined> {
 		return await this.findById<never>({ primaryId: libraryId, tx });
 	}
