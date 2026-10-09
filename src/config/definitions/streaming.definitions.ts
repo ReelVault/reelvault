@@ -52,4 +52,6 @@ export const STREAMING_SETTINGS_DEFINITIONS = {
 	// ffmpeg's HLS muxer packet queue; slow storage can overflow the default and
 	// abort the stream ("max muxing queue size exceeded").
 	"stream.hlsMaxMuxingQueueSize": creator.number("stream.hlsMaxMuxingQueueSize", 512, 8192, 2048),
+	// Quiet period after the last seek before the stream jumps; 0 seeks on every request.
+	"stream.seekDebounceMs": creator.number("stream.seekDebounceMs", 0, 2000, 300),
 } as const;

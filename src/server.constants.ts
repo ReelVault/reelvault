@@ -139,7 +139,6 @@ export const serverConstants = {
 		initialSegmentTimeoutMs: 8_000,
 		seekSegmentTimeoutMs: 10_000,
 		recoverySegmentTimeoutMs: 15_000,
-		seekDebounceMs: 300,
 		cleanupIntervalMs: 10_000,
 		hlsMaxMuxingQueueSize: 2048,
 		framesPerHlsSegment: 24,

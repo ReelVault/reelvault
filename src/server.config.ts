@@ -116,6 +116,9 @@ export const serverConfig = {
 		get hlsMaxMuxingQueueSize() {
 			return systemSettingsStore.get("stream.hlsMaxMuxingQueueSize");
 		},
+		get seekDebounceMs() {
+			return systemSettingsStore.get("stream.seekDebounceMs");
+		},
 		get hlsSegmentDurationSeconds() {
 			hlsSegmentDurationAtBoot ??= systemSettingsStore.get("stream.hlsSegmentDurationSeconds");
 

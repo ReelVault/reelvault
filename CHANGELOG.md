@@ -378,6 +378,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Offline switch for enforced two-factor authentication** — `bun run admin:two-factor-enforcement <on|off>` changes `auth.enforceTwoFactor` in the database. With enforcement on, an account without an authenticator cannot sign in, so an administrator who has not enrolled yet could not switch it off in the panel; this command is the way out. Restart a running server afterwards.
 - **Plugin archive dry run** — `POST /admin/plugins/validate` checks an uploaded plugin archive without installing it: the manifest, the entry point, the interface manifest (a malformed one is a warning, as it is at load), the server version floor, and whether installing it would be an install, an upgrade, a downgrade or a reinstall. Nothing is installed, enabled or audited.
 - **Profile PIN and avatar can be removed** — updating a profile with `pin: null` removes its PIN and `avatarUrl: null` removes its avatar. Before, the PIN was silently kept, so the profile stayed locked. Omitted fields are left unchanged.
+- **Seek debounce is a setting** — `stream.seekDebounceMs` (0–2000 ms, default 300) sets how long the stream waits after the last seek before it jumps. It applies at runtime.
 
 
 ### Fixes
