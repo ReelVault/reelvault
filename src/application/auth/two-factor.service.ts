@@ -1,3 +1,5 @@
+import { twoFactorRepository } from "@/database/repositories/two-factor.repository";
+import { countEncryptedBackupCodes } from "@/integrations/better-auth/backup-codes";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { UnauthorizedError, ValidationError } from "@/utils/errors";
 
@@ -8,6 +10,17 @@ import { UnauthorizedError, ValidationError } from "@/utils/errors";
  * with a stable code instead of better-auth's own body shape.
  */
 class TwoFactorService {
+	/** Backup codes the signed-in account can still use (`null` when they cannot be read). The codes themselves are never returned. */
+	async countRemainingBackupCodes(headers: Headers): Promise<{ remaining: number | null }> {
+		const session = await betterAuthApi.getSession({ headers, query: { disableCookieCache: true } });
+		if (!session) throw new UnauthorizedError("Sign in to see your backup codes", { code: "auth.session_invalid" });
+
+		const encrypted = await twoFactorRepository.findEncryptedBackupCodes(session.user.id);
+		if (encrypted === null) return { remaining: 0 };
+
+		return { remaining: await countEncryptedBackupCodes(encrypted) };
+	}
+
 	enable(headers: Headers, password: string): Promise<Response> {
 		return this.withErrorMapping(betterAuthApi.enableTwoFactor({ password, headers }), "auth.two_factor.invalid_password");
 	}

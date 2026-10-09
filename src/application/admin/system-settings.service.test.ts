@@ -3,6 +3,7 @@ import { adminAuditService } from "@/application/admin/admin-audit.service";
 import { libraryWatcherService } from "@/application/libraries/watching/library-watcher.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { systemSettingsRepository } from "@/database/repositories/system-settings.repository";
+import { usersRepository } from "@/database/repositories/users.repository";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { stubMethod } from "../../../tests/helpers/method-stub";
@@ -24,6 +25,25 @@ afterEach(() => {
 });
 
 describe("systemSettingsService.updateSettings validation", () => {
+	test("refuses to enable two-factor enforcement while no administrator has two-factor enabled", async () => {
+		const setMany = stubSettingsPersistence();
+		stubs.push(stubMethod(usersRepository, "countAdministratorsWithTwoFactor", () => Promise.resolve(0)));
+
+		await expect(systemSettingsService.updateSettings({ "auth.enforceTwoFactor": true })).rejects.toMatchObject({
+			code: "auth.two_factor_requires_admin",
+		});
+		expect(setMany.calls).toEqual([]);
+	});
+
+	test("allows enabling two-factor enforcement once an administrator has two-factor enabled", async () => {
+		const setMany = stubSettingsPersistence();
+		stubs.push(stubMethod(usersRepository, "countAdministratorsWithTwoFactor", () => Promise.resolve(1)));
+
+		await systemSettingsService.updateSettings({ "auth.enforceTwoFactor": true });
+
+		expect(setMany.calls.length).toBe(1);
+	});
+
 	test("rejects an invalid value instead of persisting the default", async () => {
 		const setMany = stubSettingsPersistence();
 

@@ -1,4 +1,4 @@
-import { AuthUserSchema } from "@reelvault/sdk/common";
+import { AuthUserSchema, TwoFactorBackupCodesStatusSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { twoFactorService } from "@/application/auth/two-factor.service";
@@ -17,6 +17,13 @@ export const twoFactorRoutes = new Elysia({
 })
 	.use(commonModel)
 	.use(rateLimitMiddleware)
+	.get("/backup-codes", async ({ request }) => await twoFactorService.countRemainingBackupCodes(request.headers), {
+		rateLimit: { name: "auth-two-factor-backup-codes", max: 30, windowMs: MANAGEMENT_WINDOW_MS },
+		response: { 200: TwoFactorBackupCodesStatusSchema },
+		detail: {
+			description: "How many backup codes the signed-in account can still use. The codes themselves are never returned.",
+		},
+	})
 	.post("/enable", async ({ request, body }) => await twoFactorService.enable(request.headers, body.password), {
 		body: t.Object({ password: t.String({ minLength: 1 }) }),
 		response: { ...ROUTE_ERRORS.VALIDATED, 200: t.Object({ totpURI: t.String(), backupCodes: t.Array(t.String()) }) },

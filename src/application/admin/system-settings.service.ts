@@ -11,6 +11,7 @@ import { serializeSettingValue, systemSettingsStore } from "@/config/system-sett
 import type { SettingGroup } from "@/config/system-settings.types";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { type SystemSettingRow, systemSettingsRepository } from "@/database/repositories/system-settings.repository";
+import { usersRepository } from "@/database/repositories/users.repository";
 import { initializeFfmpegCapabilities } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
@@ -181,6 +182,13 @@ class SystemSettingsService extends BaseService {
 			}
 
 			const { parsedValue, finalSerialized } = this.parseAndSerialize(key, rawValue);
+
+			// Enforcement signs out accounts without an authenticator, so it stays off until an administrator has one.
+			if (key === "auth.enforceTwoFactor" && parsedValue === true && (await usersRepository.countAdministratorsWithTwoFactor()) === 0) {
+				throw new ValidationError("Two-factor enforcement needs at least one administrator with two-factor authentication enabled", {
+					code: "auth.two_factor_requires_admin",
+				});
+			}
 
 			// Record "before" only after successful parsing — the audit must contain real changes only.
 			beforeValues[key] = systemSettingsStore.getWithMeta(key).value;

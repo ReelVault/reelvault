@@ -43,6 +43,11 @@ const overrides = {
 		return { total, data };
 	},
 
+	/** Administrators with a second factor enrolled: the accounts that can still sign in while enforcement is on. */
+	async countAdministratorsWithTwoFactor(): Promise<number> {
+		return await getUsersRepository().count({ where: and(eq(users.table.role, "admin"), eq(users.table.twoFactorEnabled, true)) });
+	},
+
 	async countAdministrators(): Promise<number> {
 		return await getUsersRepository().count({ where: eq(users.table.role, "admin") });
 	},
