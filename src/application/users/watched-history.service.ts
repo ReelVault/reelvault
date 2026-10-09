@@ -11,6 +11,7 @@ import type {
 } from "@reelvault/sdk/common";
 import { buildHourlyHeatmap, recentDayKeys } from "@/application/analytics.utils";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { playbackRepository } from "@/database/repositories/playback.repository";
 import { toTopWatchedMedia, watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { DAY } from "@/server.constants";
 import { maxBy } from "@/utils/array.utils";
@@ -49,8 +50,20 @@ class WatchedHistoryService extends BaseService {
 			this.assertProfileId(profileId);
 
 			// A stale catalog id would otherwise surface as an FK violation (500).
-			const mediaFile = await mediaRepository.findByIdForRead(body.mediaFileId);
+			const mediaFile = await mediaRepository.findByIdForRead(body.mediaFileId, { fields: "id,duration" });
 			this.assertExists(mediaFile, "MediaFile", body.mediaFileId);
+
+			// Marking an episode watched must advance Continue Watching: the row
+			// builder only offers the next episode when the current one is completed.
+			if (body.isFullWatch === true) {
+				await playbackRepository.upsertProgress({
+					profileId,
+					fileId: body.mediaFileId,
+					position: mediaFile.duration ?? 0,
+					duration: mediaFile.duration ?? 0,
+					completed: true,
+				});
+			}
 
 			// Marking an already-finished file again must not add another row: watch
 			// counts and insights derive from these rows, and the playback completion
