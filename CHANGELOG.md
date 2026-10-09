@@ -389,6 +389,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Profile PIN status for the owner** — `GET /profiles/:id/pin` returns `{ hasPin }` for a profile the user owns, so settings can offer to remove the PIN. The PIN itself is never returned.
 - **Notification channels deliver in parallel with a time limit** — a plugin's external notification channel that does not answer within 15 seconds is abandoned and logged, and a slow channel no longer holds up the channels after it.
 - **Plugin configuration reset, export and import** — administrators restore defaults for one field or all fields (`POST /admin/plugins/:id/config/reset`), export the configuration without its secret fields (`GET /admin/plugins/:id/config/export`) and import it again (`POST /admin/plugins/:id/config/import`). An import never overwrites a secret. Uninstalling a plugin keeps a backup of its configuration, and installing the same plugin again restores it.
+- **Public server capabilities** — `GET /capabilities` returns whether trickplay and downloads are switched on, without a session, so a client can hide features that the server does not offer.
 
 ### Fixes
 

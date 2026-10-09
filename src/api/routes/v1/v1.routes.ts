@@ -1,5 +1,6 @@
 import Elysia from "elysia";
 import { authRoutes } from "./auth.routes";
+import { capabilitiesRoutes } from "./capabilities.routes";
 import { collectionRoutes } from "./collections.routes";
 import { companiesRoutes } from "./companies.routes";
 import { discoverRoutes } from "./discover.routes";
@@ -56,6 +57,7 @@ export const v1Routes = new Elysia()
 
 	// System
 	.use(healthRoutes)
+	.use(capabilitiesRoutes)
 	.use(eventsRoutes)
 
 	// Plugins
