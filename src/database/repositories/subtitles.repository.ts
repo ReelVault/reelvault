@@ -9,7 +9,7 @@ import type {
 	SubtitleType,
 	UpdateSubtitleRequest,
 } from "@reelvault/sdk/common";
-import { and, eq, isNull, type SQL } from "drizzle-orm";
+import { and, eq, isNull, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess, findPageWithQueryMap, selectFirstWithFields } from "@/database/table-access";
@@ -24,6 +24,13 @@ const subtitles = defineTableAccess("subtitles", {
 
 const subtitleQueryMap: QueryMap<SubtitleFilters, SubtitleSorting> = {
 	filters: {
+		// Text search: one term matched against the label, the language and the media file id.
+		q: (value: string) =>
+			or(
+				QueryFiltering.like(schema.subtitles.label, value),
+				QueryFiltering.like(schema.subtitles.language, value),
+				QueryFiltering.like(schema.subtitles.mediaFileId, value),
+			) ?? sql`1 = 0`,
 		mediaFileId: (value: string) => QueryFiltering.eq(schema.subtitles.mediaFileId, value),
 		language: (value: string) => QueryFiltering.like(schema.subtitles.language, value),
 		label: (value: string) => QueryFiltering.like(schema.subtitles.label, value),
