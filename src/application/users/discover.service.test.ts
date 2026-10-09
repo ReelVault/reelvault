@@ -100,6 +100,7 @@ describe("DiscoverService", () => {
 			catalog: [createMockCatalogItem({ id: "meta-rec-1", title: "Rec 1", popularity: 100 })],
 		});
 		spyOn(discoverRepository, "findPlaybackCompletionSignals").mockResolvedValue([]);
+		spyOn(discoverRepository, "findDislikedMetadataIds").mockResolvedValue([]);
 
 		const findManyByIdsWithRelationsSpy = spyOn(metadataRepository, "findManyByIdsWithRelations").mockImplementation(async (ids) =>
 			ids.map((id) => createMockMetadataWithRelation(id)),
@@ -112,5 +113,23 @@ describe("DiscoverService", () => {
 		expect(result.recommendations[0]?.images).toEqual([mockImage]);
 		expect(result.trending.length).toBe(1);
 		expect(result.trending[0]?.images).toEqual([mockImage]);
+	});
+
+	test("keeps disliked titles out of recommendations and trending", async () => {
+		spyOn(metadataRepository, "findRecentlyAddedByType").mockResolvedValue([]);
+		spyOn(discoverRepository, "findRecentlyWatchedByOthers").mockResolvedValue([{ metadataId: "meta-hated", playCount: 5 }]);
+		spyOn(discoverRepository, "findRecommendationCandidates").mockResolvedValue({
+			watched: [],
+			ratings: [{ metadataId: "meta-hated", rating: 0 }],
+			watchlist: [],
+			catalog: [createMockCatalogItem({ id: "meta-hated", title: "Hated", popularity: 100 })],
+		});
+		spyOn(discoverRepository, "findPlaybackCompletionSignals").mockResolvedValue([]);
+		spyOn(discoverRepository, "findDislikedMetadataIds").mockResolvedValue(["meta-hated"]);
+
+		const result = await discoverService.getDiscoverView({ limit: 10 }, "profile-1");
+
+		expect(result.recommendations).toEqual([]);
+		expect(result.trending).toEqual([]);
 	});
 });

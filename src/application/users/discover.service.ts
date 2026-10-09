@@ -95,6 +95,7 @@ class DiscoverService extends BaseService {
 	private async buildDiscoverView(profileId: string): Promise<DiscoverResponse> {
 		// Cache the maximum-size view once per profile; callers slice to their limit.
 		const limit = 50;
+		const dislikedIds = new Set(await discoverRepository.findDislikedMetadataIds(profileId));
 		const [recentlyAddedMovies, recentlyAddedShows, recommendationIds, trendingRaw] = await Promise.all([
 			metadataRepository.findRecentlyAddedByType("movie", limit),
 			metadataRepository.findRecentlyAddedByType("tv_show", limit),
@@ -103,7 +104,10 @@ class DiscoverService extends BaseService {
 
 				return [];
 			}),
-			discoverRepository.findRecentlyWatchedByOthers(TRENDING_DAYS, TRENDING_CANDIDATE_LIMIT).catch(() => []),
+			discoverRepository
+				.findRecentlyWatchedByOthers(TRENDING_DAYS, TRENDING_CANDIDATE_LIMIT)
+				.then((rows) => rows.filter((row) => !(row.metadataId && dislikedIds.has(row.metadataId))))
+				.catch(() => []),
 		]);
 
 		const recentlyAddedAll = [...recentlyAddedMovies, ...recentlyAddedShows];
@@ -145,11 +149,19 @@ class DiscoverService extends BaseService {
 
 			const watchedIds = toIdSet(watched, (item) => item.metadataId);
 			const watchlistIds = toIdSet(watchlist, (item) => item.metadataId);
+			// "Not interested" must stick: a disliked title never comes back through
+			// recommendations or trending.
+			const dislikedIds = toIdSet(
+				ratings.filter((item) => item.metadataId && item.rating === 0),
+				(item) => item.metadataId,
+			);
 			const progressMap = toMap(progressSignals, (p) => p.metadataId);
 
 			const seedWeights = buildSeedWeights(watched, watchlist, ratings, progressMap);
 
-			const unconsumedCandidates = catalog.filter((item) => item.id && !watchedIds.has(item.id) && !watchlistIds.has(item.id));
+			const unconsumedCandidates = catalog.filter(
+				(item) => item.id && !watchedIds.has(item.id) && !watchlistIds.has(item.id) && !dislikedIds.has(item.id),
+			);
 
 			if (unconsumedCandidates.length === 0) return [];
 

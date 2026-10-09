@@ -62,9 +62,19 @@ class DiscoverRepository {
 		return { watched, ratings, watchlist, catalog };
 	}
 
+	/** Metadata ids the profile rated as "not interested" (0 = dislike). Excluded from recommendations and trending. */
+	async findDislikedMetadataIds(profileId: string): Promise<string[]> {
+		const rows = await databaseFactory
+			.getClient()
+			.select({ metadataId: schema.userRatings.metadataId })
+			.from(schema.userRatings)
+			.where(and(eq(schema.userRatings.profileId, profileId), eq(schema.userRatings.rating, 0), isNotNull(schema.userRatings.metadataId)));
+
+		return rows.map((row) => row.metadataId).filter((id): id is string => Boolean(id));
+	}
+
 	/**
-	 * Fetches the best completion signal per metadata item for a profile.
-	 * Uses playback_progress (position/duration/completed) joined through media_files.
+	 * Fetches the best completion signal per metadata item for a profile.	 * Uses playback_progress (position/duration/completed) joined through media_files.
 	 * Returns one row per metadataId: the highest completion ratio seen across all media files
 	 * for that metadata, and whether any file was ever marked completed.
 	 * Also returns updatedAt as the proxy for "last engaged with this title".
