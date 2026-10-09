@@ -282,3 +282,21 @@ test("the aggregated lookup is cached per metadata language, so a language chang
 
 	expect(languages).toEqual(["pl", "en"]);
 });
+
+test("fetchDetailsByProvider passes the requested metadata language to the provider", async () => {
+	const hints: unknown[] = [];
+	registerProviders([
+		createProvider("lang-provider", {
+			getDetails: (_type, _externalId, requestHints) => {
+				hints.push(requestHints);
+
+				return Promise.resolve(null);
+			},
+		}),
+	]);
+
+	await providerService.fetchDetailsByProvider("lang-provider", "movie", "42", { language: "pl" });
+	await providerService.fetchDetailsByProvider("lang-provider", "movie", "42");
+
+	expect(hints).toEqual([{ language: "pl" }, undefined]);
+});

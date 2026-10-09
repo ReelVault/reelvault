@@ -39,6 +39,7 @@ export interface MetadataRefreshDependencies {
 		providerId: string,
 		type: RefreshableMetadata["type"],
 		externalId: string,
+		metadataId: string,
 	): Promise<ProviderMetadataResult | undefined>;
 	transformMetadata(candidate: MetadataCandidate): Promise<MetadataCandidate>;
 	updateMetadata(metadataId: string, values: Partial<RefreshedMetadataValues>): Promise<void>;
@@ -189,7 +190,7 @@ export class MetadataRefreshService extends BaseService {
 					const result =
 						prefetched && prefetched.externalId === provider.externalId
 							? prefetched
-							: await this.dependencies.fetchProviderDetails(provider.name, metadata.type, provider.externalId);
+							: await this.dependencies.fetchProviderDetails(provider.name, metadata.type, provider.externalId, metadata.id);
 					if (!result) return null;
 
 					if (result.externalId !== provider.externalId) {

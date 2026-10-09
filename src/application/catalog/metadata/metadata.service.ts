@@ -49,6 +49,7 @@ import { PromiseUtils } from "@/utils/promise.utils";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import { fetchSeason, mapProviderLinks } from "../catalog.utils";
+import { resolveMetadataLanguage } from "./library-metadata-language";
 import { metadataRefreshService } from "./metadata-refresh.runtime";
 import { syncSeasonsAndEpisodes } from "./season-sync.utils";
 
@@ -428,7 +429,9 @@ class MetadataService extends BaseService {
 			afterInvalidate?: () => void;
 		},
 	): Promise<SelectFields<MetadataWithRelation, F>> {
-		const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId);
+		const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId, {
+			language: await resolveMetadataLanguage(metadataId),
+		});
 		if (!providerMetadata) {
 			throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID", {
 				code: "metadata.provider_details_not_found",
@@ -591,6 +594,7 @@ class MetadataService extends BaseService {
 				primaryProvider.name,
 				metadata.type,
 				primaryProvider.externalId,
+				{ language: await resolveMetadataLanguage(metadataId) },
 			);
 			if (!providerMetadata) {
 				throw new NotFoundError("Could not fetch details from provider", {

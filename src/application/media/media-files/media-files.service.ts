@@ -18,6 +18,7 @@ import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { fallbackEpisodeExternalId, fallbackSeasonExternalId } from "@/application/catalog/catalog.utils";
+import { resolveLibraryLanguage } from "@/application/catalog/metadata/library-metadata-language";
 import { createFromProvider, processPersonImages } from "@/application/catalog/metadata/metadata-create.utils";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
@@ -382,8 +383,11 @@ class MediaService extends BaseService {
 		providerId: string,
 		externalId: string,
 		mediaType: "movie" | "tv_show",
+		libraryId: string,
 	): Promise<string> {
-		const providerMetadata = await providerService.fetchDetailsByProvider(providerId, mediaType, externalId);
+		const providerMetadata = await providerService.fetchDetailsByProvider(providerId, mediaType, externalId, {
+			language: await resolveLibraryLanguage(libraryId),
+		});
 		if (!providerMetadata) {
 			throw new NotFoundError("Provider details not found", {
 				code: "media_file.provider_details_not_found",
@@ -424,9 +428,9 @@ class MediaService extends BaseService {
 	}
 
 	/** Resolves the reassign target id from provider details or an existing metadata record. */
-	private async resolveReassignTarget(body: ReassignMediaFile, mediaType: "movie" | "tv_show"): Promise<string> {
+	private async resolveReassignTarget(body: ReassignMediaFile, mediaType: "movie" | "tv_show", libraryId: string): Promise<string> {
 		if (body.providerId && body.externalId) {
-			return await this.createReassignMetadataFromProvider(body.providerId, body.externalId, mediaType);
+			return await this.createReassignMetadataFromProvider(body.providerId, body.externalId, mediaType, libraryId);
 		}
 
 		if (body.targetMetadataId) return await this.assertReassignTargetMetadata(body.targetMetadataId, mediaType);
@@ -525,7 +529,7 @@ class MediaService extends BaseService {
 			}
 
 			const mediaType = mapLibraryType(library.type);
-			const targetMetadataId = await this.resolveReassignTarget(body, mediaType);
+			const targetMetadataId = await this.resolveReassignTarget(body, mediaType, mediaFile.libraryId);
 			const { movieId: targetMovieId, episodeId: targetEpisodeId } = await this.resolveReassignAnchor(mediaType, body, targetMetadataId);
 
 			// Ensure `isDefault` uniqueness atomically: a concurrent reassign to the

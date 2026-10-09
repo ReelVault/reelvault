@@ -302,18 +302,20 @@ class ProviderService extends BaseService {
 	 *
 	 * This is used when refreshing already imported metadata: the persisted
 	 * provider/external-ID pair is authoritative, while a new text search could
-	 * silently select a different title.
+	 * silently select a different title. The library's metadata language applies
+	 * here too, so a refresh returns the same language as the scan did.
 	 */
 	async fetchDetailsByProvider(
 		providerId: string,
 		type: "movie" | "tv_show",
 		externalId: string,
+		options: { language?: string | undefined } = {},
 	): Promise<ProviderMetadataResult | undefined> {
 		const provider = pluginRegistry.getProvider(providerId);
 		if (!provider) return undefined;
 
 		try {
-			const metadata = await provider.getDetails(type, externalId);
+			const metadata = await provider.getDetails(type, externalId, options.language ? { language: options.language } : undefined);
 
 			return metadata ? normalizeMetadataDetails(metadata) : undefined;
 		} catch (error) {

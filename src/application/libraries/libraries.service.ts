@@ -168,7 +168,7 @@ class LibrariesService extends BaseService {
 			ingestLibraryCache.delete(libraryId);
 			// Dynamic import keeps the catalog graph out of the library service's
 			// module-load cycle; this path runs once per admin edit.
-			const { invalidateLibraryLanguageCache } = await import("@/application/catalog/metadata/metadata-process");
+			const { invalidateLibraryLanguageCache } = await import("@/application/catalog/metadata/library-metadata-language");
 			invalidateLibraryLanguageCache(libraryId);
 
 			if (body.providerPriorities) {

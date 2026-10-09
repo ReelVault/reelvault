@@ -268,3 +268,53 @@ test("existing local tv show keeps the current file's sidecar episode title", as
 
 	expect(episodeValues[0]?.title).toBe("The Long Dark");
 });
+
+test("tv import fetches the single episode when the season payload lists it without an overview", async () => {
+	resetSidecarState();
+	providerAggregated = {
+		primaryProviderId: "test-provider",
+		metadata: { externalId: "show-1", title: "Show", releaseDate: "2025-01-01" },
+		providers: [{ providerId: "test-provider", externalId: "show-1" }],
+		matchScore: 1,
+	};
+	const episodeRequests: number[] = [];
+	activeStubs.push(
+		stubMethod(providerService, "fetchSeasonFromLinks", () =>
+			Promise.resolve([
+				{
+					providerId: "test-provider",
+					metadata: {
+						externalId: "season-1",
+						seasonNumber: 1,
+						name: "Season One",
+						episodes: [{ externalId: "episode-3", seasonNumber: 1, episodeNumber: 3, name: "Listed without overview" }],
+					},
+				},
+			]),
+		),
+		stubMethod(providerService, "fetchEpisodeFromLinks", (_links: unknown, _season: number, episodeNumber: number) => {
+			episodeRequests.push(episodeNumber);
+
+			return Promise.resolve([
+				{
+					providerId: "test-provider",
+					metadata: {
+						externalId: "episode-3",
+						seasonNumber: 1,
+						episodeNumber: 3,
+						name: "Listed without overview",
+						overview: "The full overview from the single-episode endpoint",
+					},
+				},
+			]);
+		}),
+	);
+
+	await new MetadataProcess(() => Promise.resolve()).checkMetadata({
+		type: "tv_show",
+		parsed: { type: "tv_show", title: "filename", season: 1, episode: 3 },
+	});
+
+	expect(episodeRequests).toEqual([3]);
+	expect(episodeValues[0]?.overview).toBe("The full overview from the single-episode endpoint");
+});

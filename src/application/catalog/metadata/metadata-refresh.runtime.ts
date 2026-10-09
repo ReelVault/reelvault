@@ -5,13 +5,15 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { enqueueImageProcessing } from "@/workers/definitions/images/image-processing.worker";
 import { fetchSeason, mapProviderLinks } from "../catalog.utils";
+import { resolveMetadataLanguage } from "./library-metadata-language";
 import { MetadataRefreshService } from "./metadata-refresh.service";
 import { syncSeasonsAndEpisodes } from "./season-sync.utils";
 
 export const metadataRefreshService = new MetadataRefreshService({
 	findMetadata: async (metadataId) => await metadataRepository.findProviderDetails(metadataId),
 	getLockedFields: async (metadataId) => await metadataRepository.getLockedFields(metadataId),
-	fetchProviderDetails: async (providerId, type, externalId) => await providerService.fetchDetailsByProvider(providerId, type, externalId),
+	fetchProviderDetails: async (providerId, type, externalId, metadataId) =>
+		await providerService.fetchDetailsByProvider(providerId, type, externalId, { language: await resolveMetadataLanguage(metadataId) }),
 	transformMetadata: async (candidate) => await pluginHookBus.runBeforeMetadataSave(candidate),
 	updateMetadata: async (metadataId, values) => await metadataRepository.update({ primaryId: metadataId, values }),
 	syncCredits: (metadataId, providerName, metadata, lockedFields) => {

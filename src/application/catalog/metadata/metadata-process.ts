@@ -3,7 +3,6 @@ import type { ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResul
 import type { TaskSchedulingOptions } from "@/application/context";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
-import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { metadataPersistenceRepository } from "@/database/repositories/metadata-persistence.repository";
 import { moviesRepository } from "@/database/repositories/movies.repository";
@@ -14,11 +13,11 @@ import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { BaseService } from "@/utils/base-service";
 import { InFlightMap } from "@/utils/in-flight-map";
-import { MemoryCache } from "@/utils/memory-cache";
 import { normalizeForMatching } from "@/utils/release-tags.constants";
 import { enqueueImageProcessing, type ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { fallbackEpisodeExternalId, fallbackSeasonExternalId, fetchSeason, firstWinsByNumber } from "../catalog.utils";
+import { resolveLibraryLanguage } from "./library-metadata-language";
 import { type CreatedProviderMetadata, createFromProvider, processPersonImages } from "./metadata-create.utils";
 
 type EnqueueImages = (data: ImageProcessingData, options?: TaskSchedulingOptions) => Promise<unknown>;
@@ -35,18 +34,6 @@ interface MetadataProcessResult {
 
 const enqueueImagesInBackground = (data: ImageProcessingData, options: TaskSchedulingOptions = {}): Promise<unknown> =>
 	enqueueImageProcessing(data, options);
-
-/**
- * Per-library metadata language overrides. A scan re-reads one library row per
- * file otherwise; the cache is short so a PATCH to the override lands quickly.
- * `""` encodes "no override" because `MemoryCache.get` uses null as a miss.
- */
-const libraryLanguageCache = new MemoryCache<string>({ ttlMs: 30_000, maxSize: 64, name: "metadata.libraryLanguage" });
-
-/** Drops the cached metadata-language override after an admin edits the library. */
-export function invalidateLibraryLanguageCache(libraryId: string): void {
-	libraryLanguageCache.delete(libraryId);
-}
 
 export class MetadataProcess extends BaseService {
 	private readonly baseMetadataProcesses = new InFlightMap<CreatedProviderMetadata>();
@@ -78,7 +65,7 @@ export class MetadataProcess extends BaseService {
 
 			// The per-library language override applies to every resolution path —
 			// series details, seasons and episodes alike — so it is resolved once here.
-			const language = await this.resolveLibraryLanguage(libraryId);
+			const language = await resolveLibraryLanguage(libraryId);
 
 			// 0. Sidecar-first: a local NFO carrying imdb/tmdb ids pins the title
 			// without any provider round-trip — works fully offline.
@@ -192,20 +179,6 @@ export class MetadataProcess extends BaseService {
 		if (result) await this.enqueueBaseMetadataImages(baseMetadata, scheduling);
 
 		return result;
-	}
-
-	/** The library's metadata-language override, if any (empty string cache value = none). */
-	private async resolveLibraryLanguage(libraryId: string | undefined): Promise<string | undefined> {
-		if (!libraryId) return undefined;
-
-		const cached = libraryLanguageCache.get(libraryId);
-		if (cached !== null) return cached || undefined;
-
-		const library = await librariesRepository.findByIdForRead(libraryId).catch(() => null);
-		const language = library?.metadataLanguage ?? "";
-		libraryLanguageCache.set(libraryId, language);
-
-		return language || undefined;
 	}
 
 	private async findExistingLocalMetadata(
@@ -468,10 +441,13 @@ export class MetadataProcess extends BaseService {
 			episodeInfo = episodesByNumber.get(parsed.episode);
 		}
 
-		if (parsed.episode !== undefined && !episodeInfo) {
-			episodeInfo = (
+		// A season payload can list the episode without its overview; the single-episode
+		// endpoint carries it. Responses are cached per episode, so this costs one call at most.
+		if (parsed.episode !== undefined && !episodeInfo?.overview) {
+			const fetchedEpisode = (
 				await providerService.fetchEpisodeFromLinks(providerLinks, Number(seasonInfo.seasonNumber), parsed.episode, language)
 			)[0]?.metadata;
+			if (fetchedEpisode && (!episodeInfo || fetchedEpisode.overview)) episodeInfo = fetchedEpisode;
 		}
 
 		if (parsed.episode !== undefined && !episodeInfo) {
