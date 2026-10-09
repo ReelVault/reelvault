@@ -6,6 +6,11 @@ import { PathUtils } from "@/utils/path.utils";
 
 const UNSAFE_ID_REGEX = /[^a-zA-Z0-9_-]/g;
 
+/** The operation id as it appears in a log file name: characters outside `[a-zA-Z0-9_-]` become `_`. */
+export function operationLogSegment(operationId: string): string {
+	return operationId.replaceAll(UNSAFE_ID_REGEX, "_");
+}
+
 export interface FfmpegOperationLogOptions {
 	operationId: string;
 	mode: "direct-stream" | "transcode";
@@ -33,7 +38,7 @@ export class FfmpegOperationLog {
 
 		const modePrefix = options.mode === "transcode" ? "FFmpeg.Transcode" : "FFmpeg.DirectStream";
 		const dateStr = new Date(this.startedAt).toISOString().replace("T", "_").replaceAll(":", "-").slice(0, 19);
-		const safeOperationId = options.operationId.replaceAll(UNSAFE_ID_REGEX, "_");
+		const safeOperationId = operationLogSegment(options.operationId);
 		this.filePath = PathUtils.join(dateDirectory, `${modePrefix}-${dateStr}_${safeOperationId}.log`);
 		this.stream = fs.createWriteStream(this.filePath, { flags: "a" });
 		this.stream.on("error", () => {

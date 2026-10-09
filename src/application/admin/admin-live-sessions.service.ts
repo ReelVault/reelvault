@@ -21,6 +21,7 @@ import { DomainError, NotFoundError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { serializeDate } from "@/utils/time.utils";
+import { buildSessionLogArchive, readSessionLogFiles, sessionLogArchiveName, sessionLogSegments } from "./live-session-log.utils";
 
 const LIVE_ACTIVITY_CACHE_TTL_MS = 2_000;
 
@@ -243,6 +244,28 @@ class AdminLiveSessionsService extends BaseService {
 		);
 
 		return { terminated, failed, results };
+	}
+
+	/** The FFmpeg logs of an active session as one zip, with a timeline of its runs. */
+	async getSessionLog(sessionId: string): Promise<{ data: Uint8Array<ArrayBuffer>; filename: string }> {
+		return await this.safeExecute("getSessionLog", async () => {
+			const session = streamingManager.getAllActiveSessions().find((item) => item.id === sessionId);
+			if (!session) {
+				throw new NotFoundError(`Active session not found: ${sessionId}`, {
+					code: "stream.session_not_found",
+					params: { sessionId },
+				});
+			}
+
+			const { files, truncated } = await readSessionLogFiles(sessionLogSegments(sessionId, session.operationId));
+			const zipped = buildSessionLogArchive(sessionId, files, truncated);
+
+			// A fresh buffer keeps the view narrow (`Uint8Array<ArrayBuffer>`), which the Response body type requires.
+			const data = new Uint8Array(zipped.byteLength);
+			data.set(zipped);
+
+			return { data, filename: sessionLogArchiveName(sessionId, new Date()) };
+		});
 	}
 
 	async terminateSession(sessionId: string, reason?: string): Promise<{ success: true }> {

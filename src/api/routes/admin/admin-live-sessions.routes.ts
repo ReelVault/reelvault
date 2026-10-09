@@ -35,6 +35,28 @@ export const adminLiveSessionsRoutes = adminShell({ prefix: "/live-activity", ta
 			},
 		},
 	)
+	.get(
+		"/:sessionId/log",
+		async ({ params }) => {
+			const archive = await adminLiveSessionsService.getSessionLog(params.sessionId);
+
+			return new Response(archive.data, {
+				headers: {
+					"content-type": "application/zip",
+					"content-disposition": `attachment; filename="${archive.filename}"`,
+				},
+			});
+		},
+		{
+			rateLimit: { name: "admin-live-session-log", max: 10, windowMs: MINUTE },
+			params: SessionIdParams,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: t.Any() },
+			detail: {
+				description:
+					"Download the FFmpeg logs of an active playback session as a zip: every operation log the session wrote, plus a timeline.json of its runs (start, end, exit code and error).",
+			},
+		},
+	)
 	.post(
 		"/terminate",
 		async ({ body, user, request }) =>
