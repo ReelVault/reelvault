@@ -287,6 +287,12 @@ export const serverConfig = {
 		},
 		definitions: {
 			...serverConstants.workers.fixedDefinitions,
+			libraryScan: {
+				...serverConstants.workers.fixedDefinitions.libraryScan,
+				get timeoutMs() {
+					return systemSettingsStore.get("workers.definitions.libraryScan.timeoutMs");
+				},
+			},
 			imageProcessing: {
 				get concurrency() {
 					return systemSettingsStore.get("workers.definitions.imageProcessing.concurrency");
@@ -347,7 +353,9 @@ export const serverConfig = {
 			},
 			downloadsProcess: {
 				concurrency: 1,
-				timeoutMs: 2 * HOUR,
+				get timeoutMs() {
+					return systemSettingsStore.get("workers.definitions.downloadsProcess.timeoutMs");
+				},
 				attempts: 1,
 				removeOnComplete: 100,
 				removeOnFail: 100,
