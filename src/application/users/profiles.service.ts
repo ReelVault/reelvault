@@ -24,8 +24,9 @@ import { imageUploadService } from "@/modules/images/image-upload.service";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { hashProfilePin, verifyProfilePin } from "@/utils/crypto.utils";
-import { ConflictError, ForbiddenError } from "@/utils/errors";
+import { ConflictError, ForbiddenError, TooManyRequestsError } from "@/utils/errors";
 import { profilePinFingerprint, signProfileUnlock } from "@/utils/profile-unlock.utils";
+import { clearWrongPins, pinAttemptStatus, recordWrongPin } from "./profile-pin-attempts";
 
 const EXTERNAL_AVATAR_URL_PATTERN = /^https?:\/\//i;
 
@@ -167,12 +168,30 @@ class ProfilesService extends BaseService {
 			const profile = await this.findOwnedProfile(body.profileId, userId);
 
 			if (profile.pin) {
+				// Wrong PINs are counted per user and profile; the reply tells the client how many remain.
+				// A missing PIN is not counted, so probing for the PIN prompt costs nothing.
+				const attemptKey = `${userId ?? "anonymous"}:${profile.id}`;
+				const status = pinAttemptStatus(attemptKey);
+				if (status.attemptsRemaining === 0) {
+					throw new TooManyRequestsError("Too many wrong PIN attempts", {
+						code: "profile.pin_locked",
+						params: { retryAfterSeconds: status.retryAfterSeconds },
+					});
+				}
+
 				// Granular code — the client translates by code instead of matching
 				// the (developer-facing) message string. A missing PIN answers with the
 				// same code so the client opens the PIN modal instead of a generic error.
 				if (!(body.pin && (await verifyProfilePin(profile.pin, body.pin)))) {
-					throw new ForbiddenError("Invalid PIN", { code: "profile.pin_invalid" });
+					if (body.pin) recordWrongPin(attemptKey);
+
+					throw new ForbiddenError("Invalid PIN", {
+						code: "profile.pin_invalid",
+						params: { attemptsRemaining: pinAttemptStatus(attemptKey).attemptsRemaining },
+					});
 				}
+
+				clearWrongPins(attemptKey);
 			}
 
 			// Proof (signed, HttpOnly) that this client passed the profile PIN, bound to
