@@ -12,6 +12,26 @@ afterEach(async () => {
 });
 
 describe("plugin configuration", () => {
+	test("reports an unreadable config.json without treating it as saved values", async () => {
+		const pluginsDirectory = await createPluginsDirectory();
+		const pluginDirectory = join(pluginsDirectory, "org.reelvault.broken");
+		await mkdir(pluginDirectory, { recursive: true });
+		await write(join(pluginDirectory, "config.json"), "{ not json");
+		const config = new PluginConfig(pluginsDirectory);
+
+		await expect(config.readError(pluginDirectory)).resolves.toBe("plugin.config_unreadable");
+		await expect(config.load(pluginDirectory)).resolves.toEqual({});
+	});
+
+	test("reports no read error when config.json is absent or valid", async () => {
+		const pluginsDirectory = await createPluginsDirectory();
+		await writeConfig(pluginsDirectory, "org.reelvault.valid", { titlePrefix: "Example" });
+		const config = new PluginConfig(pluginsDirectory);
+
+		await expect(config.readError(join(pluginsDirectory, "org.reelvault.valid"))).resolves.toBeUndefined();
+		await expect(config.readError(join(pluginsDirectory, "org.reelvault.absent"))).resolves.toBeUndefined();
+	});
+
 	test("loads and saves configuration values directly for administration", async () => {
 		const pluginsDirectory = await createPluginsDirectory();
 		await writeConfig(pluginsDirectory, "org.reelvault.config", {

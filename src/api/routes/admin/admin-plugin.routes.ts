@@ -3,10 +3,10 @@ import {
 	InstallCatalogPluginBodySchema,
 	InstallCatalogPluginResponseSchema,
 	MetadataProviderConfigurationSchema,
+	PluginAdminStatusSchema,
 	PluginCatalogEntrySchema,
 	PluginConfigDetailsSchema,
 	PluginRepositorySchema,
-	PluginRuntimeStatusSchema,
 	PluginUiSettingsSchema,
 	ReorderMetadataProvidersSchema,
 	UpdatePluginConfigBodySchema,
@@ -23,8 +23,8 @@ import { adminShell } from "./admin-shell";
 
 export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.model({
-		"admin.plugins": t.Array(PluginRuntimeStatusSchema),
-		"admin.plugin": PluginRuntimeStatusSchema,
+		"admin.plugins": t.Array(PluginAdminStatusSchema),
+		"admin.plugin": PluginAdminStatusSchema,
 		"admin.pluginConfig": PluginConfigDetailsSchema,
 		"admin.pluginRepositories": t.Array(PluginRepositorySchema),
 		"admin.pluginRepository": PluginRepositorySchema,

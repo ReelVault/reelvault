@@ -204,6 +204,13 @@ export class PluginManager {
 		return await this.loader.findDirectoryNameForPluginId(pluginId);
 	}
 
+	/** Whether the plugin's `config.json` exists but cannot be read, checked on disk so disabled plugins are covered too. */
+	async getConfigReadError(pluginId: string): Promise<string | undefined> {
+		const dirName = await this.resolvePluginDirectoryName(pluginId);
+
+		return await this.config.readError(this.config.resolvePluginDirectory(dirName));
+	}
+
 	async load(pluginName: string): Promise<void> {
 		await this.lifecycleMutex.runExclusive(() => this.loader.load(pluginName));
 	}

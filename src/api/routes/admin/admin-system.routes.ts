@@ -8,7 +8,7 @@ import {
 	AdminStatsSchema,
 	MetadataProviderConfigurationSchema,
 	OperationQueuedResponseSchema,
-	PluginRuntimeStatusSchema,
+	PluginAdminStatusSchema,
 	SystemSettingsGroupedSchema,
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
@@ -67,7 +67,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 					enableDynamicThrottling: t.Boolean(),
 				}),
 				providers: t.Array(MetadataProviderConfigurationSchema),
-				plugins: t.Array(PluginRuntimeStatusSchema),
+				plugins: t.Array(PluginAdminStatusSchema),
 				settings: SystemSettingsGroupedSchema,
 			}),
 			...ROUTE_ERRORS.ADMIN,

@@ -1,3 +1,4 @@
+import type { PluginAdminStatus } from "@reelvault/sdk/common";
 import type { PluginStatus } from "@reelvault/sdk/plugin";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 
@@ -6,38 +7,54 @@ import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
  * return the recorded post-action status: pluginManager persists the error
  * state on the plugin itself, which the admin UI renders.
  */
+async function withAdminDetails(status: PluginStatus): Promise<PluginAdminStatus> {
+	const configReadError = await pluginManager.getConfigReadError(status.id);
+
+	return { ...status, ...(configReadError ? { configReadError } : {}) };
+}
+
+async function findAdminStatus(pluginId: string): Promise<PluginAdminStatus | undefined> {
+	const status = pluginManager.getStatus().find((plugin) => plugin.id === pluginId);
+
+	return status ? await withAdminDetails(status) : undefined;
+}
+
 export const pluginAdminService = {
-	get(pluginId: string): PluginStatus | undefined {
-		return pluginManager.getStatus().find((plugin) => plugin.id === pluginId);
+	async list(): Promise<PluginAdminStatus[]> {
+		return await Promise.all(pluginManager.getStatus().map((status) => withAdminDetails(status)));
 	},
 
-	async reload(pluginId: string): Promise<PluginStatus | undefined> {
+	get(pluginId: string): Promise<PluginAdminStatus | undefined> {
+		return findAdminStatus(pluginId);
+	},
+
+	async reload(pluginId: string): Promise<PluginAdminStatus | undefined> {
 		try {
 			await pluginManager.reload(pluginId);
 		} catch {
 			// Reloading may fail again; the recorded state is returned below.
 		}
 
-		return pluginAdminService.get(pluginId);
+		return await findAdminStatus(pluginId);
 	},
 
-	async enable(pluginId: string): Promise<PluginStatus | undefined> {
+	async enable(pluginId: string): Promise<PluginAdminStatus | undefined> {
 		try {
 			await pluginManager.setEnabled(pluginId, true);
 		} catch {
 			// Enabling may fail; the recorded state is returned below.
 		}
 
-		return pluginAdminService.get(pluginId);
+		return await findAdminStatus(pluginId);
 	},
 
-	async disable(pluginId: string): Promise<PluginStatus | undefined> {
+	async disable(pluginId: string): Promise<PluginAdminStatus | undefined> {
 		try {
 			await pluginManager.setEnabled(pluginId, false);
 		} catch {
 			// Disabling may fail; the recorded state is returned below.
 		}
 
-		return pluginAdminService.get(pluginId);
+		return await findAdminStatus(pluginId);
 	},
 };

@@ -6,8 +6,8 @@ import type {
 	AdminFilesystemBrowse,
 	AdminStats,
 	MetadataProviderConfiguration,
+	PluginAdminStatus,
 	PluginConfigDetails,
-	PluginRuntimeStatus,
 	PluginUiSettings,
 	UpdatePluginUiSettingsBody,
 } from "@reelvault/sdk/common";
@@ -152,7 +152,7 @@ class AdminService extends BaseService {
 			enableDynamicThrottling: boolean;
 		};
 		providers: MetadataProviderConfiguration[];
-		plugins: PluginRuntimeStatus[];
+		plugins: PluginAdminStatus[];
 		settings: Awaited<ReturnType<typeof systemSettingsService.getAll>>;
 	}> {
 		return await this.safeExecute("dashboard", async () => {
@@ -248,12 +248,13 @@ class AdminService extends BaseService {
 		});
 	}
 
-	plugins(): Promise<PluginRuntimeStatus[]> {
-		return Promise.resolve(pluginManager.getStatus());
+	plugins(): Promise<PluginAdminStatus[]> {
+		return pluginAdminService.list();
 	}
 
-	async reloadPlugins(context?: AdminAuditContext): Promise<PluginRuntimeStatus[]> {
-		const result = await pluginManager.reloadAll().then(() => pluginManager.getStatus());
+	async reloadPlugins(context?: AdminAuditContext): Promise<PluginAdminStatus[]> {
+		await pluginManager.reloadAll();
+		const result = await pluginAdminService.list();
 		recordAuditSafe(
 			{
 				action: "update",
@@ -267,8 +268,8 @@ class AdminService extends BaseService {
 		return result;
 	}
 
-	getPlugin(pluginId: string): PluginRuntimeStatus {
-		const plugin = pluginAdminService.get(pluginId);
+	async getPlugin(pluginId: string): Promise<PluginAdminStatus> {
+		const plugin = await pluginAdminService.get(pluginId);
 		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`);
 
 		return plugin;
@@ -278,8 +279,8 @@ class AdminService extends BaseService {
 		action: "enable" | "disable" | "reload",
 		pluginId: string,
 		context?: AdminAuditContext,
-	): Promise<PluginRuntimeStatus> {
-		const operations: Record<"enable" | "disable" | "reload", (id: string) => Promise<PluginRuntimeStatus | undefined>> = {
+	): Promise<PluginAdminStatus> {
+		const operations: Record<"enable" | "disable" | "reload", (id: string) => Promise<PluginAdminStatus | undefined>> = {
 			enable: (id) => pluginAdminService.enable(id),
 			disable: (id) => pluginAdminService.disable(id),
 			reload: (id) => pluginAdminService.reload(id),
@@ -342,15 +343,15 @@ class AdminService extends BaseService {
 		return after;
 	}
 
-	enablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginRuntimeStatus> {
+	enablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginAdminStatus> {
 		return this.changePluginStatus("enable", pluginId, context);
 	}
 
-	disablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginRuntimeStatus> {
+	disablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginAdminStatus> {
 		return this.changePluginStatus("disable", pluginId, context);
 	}
 
-	reloadPlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginRuntimeStatus> {
+	reloadPlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginAdminStatus> {
 		return this.changePluginStatus("reload", pluginId, context);
 	}
 

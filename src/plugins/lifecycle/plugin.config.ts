@@ -7,7 +7,9 @@ import { KeyedMutex } from "@/utils/mutex";
 import { PathUtils } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
 
+const CONFIG_FILENAME = "config.json";
 const MAX_CONFIG_BYTES = 512 * 1024;
+export const PLUGIN_CONFIG_UNREADABLE = "plugin.config_unreadable";
 /** Config holds API keys/tokens — owner-only, never world-readable. */
 const CONFIG_FILE_MODE = 0o600;
 
@@ -23,20 +25,32 @@ export class PluginConfig {
 
 	/** Fully resolved config for a plugin directory, used at runtime. */
 	async load(pluginDir: string): Promise<Record<string, unknown>> {
-		const configPath = PathUtils.join(pluginDir, "config.json");
-		try {
-			if (!(await FileUtils.exists(configPath))) return {};
-
-			const config = await FileUtils.readJson<unknown>(configPath, { silent: true });
-			if (isRecord(config)) return config;
-
+		const { values, cause } = await this.read(pluginDir);
+		if (cause !== undefined) {
 			// A config.json that exists but is unreadable would otherwise silently reset the plugin to its defaults.
-			this.logger.warn(`Plugin config is not a readable JSON object — using defaults: ${configPath}`);
-		} catch (error) {
-			this.logger.warn(`Plugin config could not be read — using defaults: ${configPath}`, { error });
+			this.logger.warn(`Plugin config could not be read — using defaults: ${PathUtils.join(pluginDir, CONFIG_FILENAME)}`, { error: cause });
 		}
 
-		return {};
+		return values;
+	}
+
+	/** Stable code when `config.json` exists but is unreadable; undefined when it is absent or valid. */
+	async readError(pluginDir: string): Promise<string | undefined> {
+		return (await this.read(pluginDir)).code;
+	}
+
+	private async read(pluginDir: string): Promise<{ values: Record<string, unknown>; code?: string; cause?: unknown }> {
+		const configPath = PathUtils.join(pluginDir, CONFIG_FILENAME);
+		try {
+			if (!(await FileUtils.exists(configPath))) return { values: {} };
+
+			const config = await FileUtils.readJson<unknown>(configPath, { silent: true });
+			if (isRecord(config)) return { values: config };
+
+			return { values: {}, code: PLUGIN_CONFIG_UNREADABLE, cause: "not a JSON object" };
+		} catch (error) {
+			return { values: {}, code: PLUGIN_CONFIG_UNREADABLE, cause: error };
+		}
 	}
 
 	async save(pluginName: string, updatedConfig: Record<string, unknown>, pruneTo?: ReadonlySet<string>): Promise<Record<string, unknown>> {
@@ -58,7 +72,7 @@ export class PluginConfig {
 			}
 
 			// Atomic write: a crash mid-write must not corrupt the existing config.
-			const configPath = PathUtils.join(pluginDir, "config.json");
+			const configPath = PathUtils.join(pluginDir, CONFIG_FILENAME);
 			await FileUtils.writeAtomic(configPath, serialized, { chmod: CONFIG_FILE_MODE });
 
 			return persistedConfig;
