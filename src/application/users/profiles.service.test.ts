@@ -129,4 +129,30 @@ describe("profilesService.update", () => {
 		expect(result.name).toBe("New");
 		expect(activeStubs[1]?.calls[0]?.[0]).toEqual({ userId: "user-1", name: "New", excludeId: "profile-1" });
 	});
+
+	test("removes the PIN and the avatar when they are sent as null, and keeps them when omitted", async () => {
+		const updateStub = stubMethod(profilesRepository, "updateAndRead", async () => ({
+			id: "profile-1",
+			userId: "user-1",
+			name: "Alex",
+			pin: null,
+		}));
+		activeStubs.push(
+			stubMethod(profilesRepository, "findByPrimaryId", async () => ({
+				id: "profile-1",
+				userId: "user-1",
+				name: "Alex",
+				pin: "stored-hash",
+			})),
+			updateStub,
+		);
+
+		await profilesService.update("profile-1", { pin: null, avatarUrl: null }, undefined, "user-1");
+		await profilesService.update("profile-1", { name: "Alex" }, undefined, "user-1");
+
+		const [removal, untouched] = updateStub.calls.map((call) => call[1]);
+		expect(removal).toMatchObject({ pin: null, avatarUrl: null });
+		expect(untouched).not.toHaveProperty("pin", null);
+		expect(untouched).toMatchObject({ pin: undefined });
+	});
 });

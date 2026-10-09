@@ -141,7 +141,9 @@ class ProfilesService extends BaseService {
 				if (nameTaken) throw new ConflictError("Profile with the same name already exists", { code: "profile.name_conflict" });
 			}
 
-			const payload = { ...body, pin: await hashProfilePin(body.pin) };
+			// An omitted PIN leaves the stored one alone; an explicit null removes it. Dropping the null
+			// here (hashProfilePin returns undefined for it) made removal a silent no-op.
+			const payload = { ...body, pin: body.pin === null ? null : await hashProfilePin(body.pin) };
 			const result = await profilesRepository.updateAndRead(profileId, payload, query);
 			this.assertExists(result, "Profile", profileId);
 
