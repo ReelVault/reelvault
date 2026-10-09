@@ -1,4 +1,4 @@
-import { AdminLiveActivityResponseSchema } from "@reelvault/sdk/common";
+import { AdminLiveActivityResponseSchema, BulkTerminateSessionsResultSchema, BulkTerminateSessionsSchema } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { SessionIdParams } from "@/api/schemas/route-params";
@@ -28,10 +28,27 @@ export const adminLiveSessionsRoutes = adminShell({ prefix: "/live-activity", ta
 		{
 			rateLimit: { name: "admin-live-session-terminate", max: 30, windowMs: MINUTE },
 			params: SessionIdParams,
-			query: t.Optional(t.Object({ reason: t.Optional(t.String()) })),
+			query: t.Optional(t.Object({ reason: t.Optional(t.String({ maxLength: 200 })) })),
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
 			detail: {
 				description: "Terminate/kill an active video playback stream on the server.",
+			},
+		},
+	)
+	.post(
+		"/terminate",
+		async ({ body, user, request }) =>
+			await adminLiveSessionsService.terminateSessions(body, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			}),
+		{
+			rateLimit: { name: "admin-live-session-bulk-terminate", max: 10, windowMs: MINUTE },
+			body: BulkTerminateSessionsSchema,
+			response: { ...ROUTE_ERRORS.ADMIN, 200: BulkTerminateSessionsResultSchema },
+			detail: {
+				description:
+					"Terminate several playback streams at once. Each one is attempted on its own and reported, and the outcome is audited.",
 			},
 		},
 	);

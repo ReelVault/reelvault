@@ -1,4 +1,12 @@
-import type { AdminActiveDeviceItem, AdminLiveActivityResponse, AdminLiveStreamItem } from "@reelvault/sdk/common";
+import type {
+	AdminActiveDeviceItem,
+	AdminLiveActivityResponse,
+	AdminLiveStreamItem,
+	BulkTerminateSessions,
+	BulkTerminateSessionsResult,
+} from "@reelvault/sdk/common";
+import { recordAuditSafe } from "@/application/admin/admin-audit.service";
+import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { realtimeService } from "@/modules/realtime/realtime.service";
@@ -9,7 +17,7 @@ import { MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError, NotFoundError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { serializeDate } from "@/utils/time.utils";
@@ -205,6 +213,34 @@ class AdminLiveSessionsService extends BaseService {
 		}
 
 		return { canSafelyUpdate, warning };
+	}
+
+	/** Terminates each session on its own, so one failure does not stop the others; the outcome is audited with the reason. */
+	async terminateSessions(body: BulkTerminateSessions, context?: AdminAuditContext): Promise<BulkTerminateSessionsResult> {
+		const results: BulkTerminateSessionsResult["results"] = [];
+		for (const sessionId of unique(body.sessionIds)) {
+			try {
+				await this.terminateSession(sessionId, body.reason);
+				results.push({ sessionId, success: true });
+			} catch (error) {
+				results.push({ sessionId, success: false, errorCode: error instanceof DomainError ? error.code : "internal" });
+			}
+		}
+
+		const terminated = results.filter((result) => result.success).length;
+		const failed = results.length - terminated;
+		recordAuditSafe(
+			{
+				action: "delete",
+				resourceType: "stream_session",
+				summary: body.reason ?? "admin.terminated",
+				after: { sessionIds: body.sessionIds, reason: body.reason, terminated, failed },
+				context,
+			},
+			this.logger,
+		);
+
+		return { terminated, failed, results };
 	}
 
 	async terminateSession(sessionId: string, reason?: string): Promise<{ success: true }> {
