@@ -334,6 +334,32 @@ class ProviderService extends BaseService {
 		}
 	}
 
+	/**
+	 * The aggregated shape for one provider's exact title, for a title named by its id (a TMDB id in the file or
+	 * folder name). Cached per id, like title lookups. Absent when the provider does not know the id.
+	 */
+	async fetchAggregatedDetailsByProvider(
+		providerId: string,
+		type: "movie" | "tv_show",
+		externalId: string,
+		options: { language?: string | undefined } = {},
+	): Promise<AggregatedMetadata | null> {
+		const key = `by-id:${providerId}:${type}:${externalId}:${options.language ?? ""}`;
+
+		try {
+			return await this.caches.aggregatedDetails.getOrSet(key, async () => {
+				const metadata = await this.fetchDetailsByProvider(providerId, type, externalId, options);
+				if (!metadata) throw new NoMatchError();
+
+				return mergeProviderMetadata([{ providerId, externalId: metadata.externalId, matchScore: 1, metadata }]);
+			});
+		} catch (error) {
+			if (error instanceof NoMatchError) return null;
+
+			throw error;
+		}
+	}
+
 	/** Resolves a title to the best matching provider's full metadata (no aggregation). */
 	async resolveDetails(type: ProviderMediaType, title: string, year?: number): Promise<ProviderMetadataResult | null> {
 		const details = await this.fetchDetails(type, { title, type, year });

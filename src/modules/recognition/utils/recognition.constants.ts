@@ -5,6 +5,13 @@ export const YEAR_TITLE_PATTERN = /^(?:19|20)\d{2}$/;
 /** Provider id tags media managers append to names, e.g. `[tmdbid-329]`, `{imdb-tt0107290}`, `(tvdbid=121361)`. */
 export const PROVIDER_ID_TAG_PATTERN = /\s*[[{(]\s*(?:tmdb|tvdb|imdb|anidb)(?:id)?[\s:=-]*[a-z0-9]+\s*[\]})]/gi;
 
+/** The provider and id a tag carries: `[tmdbid-329]` → tmdb / 329, `{imdb-tt0107290}` → imdb / tt0107290. */
+export const PROVIDER_ID_TAG_CAPTURE_PATTERN = /[[{(]\s*(?<provider>tmdb|imdb)(?:id)?[\s:=-]*(?<id>[a-z0-9]+)\s*[\]})]/gi;
+
+export const TMDB_ID_PATTERN = /^\d+$/;
+
+export const IMDB_ID_PATTERN = /^tt\d+$/i;
+
 /** A standalone year token: not glued to other characters and not the tail of a `1999-2005` range. */
 export const YEAR_TOKEN_PATTERN = /(?<=^|[\s._([])(?<year>(?:19|20)\d{2})(?=$|[\s._)\]-])/g;
 

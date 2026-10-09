@@ -3,11 +3,26 @@ import type { MediaIdentity } from "@reelvault/sdk/common";
 import {
 	episodeRangeSpan,
 	episodeRangeTargets,
+	extractPathProviderIds,
 	extractSeasonEpisode,
 	parseFileName,
 	resolveEpisodeNumbers,
 	resolveShowTitle,
 } from "./recognition.utils";
+
+describe("extractPathProviderIds", () => {
+	test("takes the nearest valid id of each provider, so the file name beats its folders", () => {
+		expect(extractPathProviderIds(["Movie [tmdbid-1]", "Movie (1993) [tmdbid-329].mkv"])).toEqual({ tmdb: "329" });
+	});
+
+	test("reads braced and parenthesised tags, keeps IMDb ids lower-case and ignores invalid TMDB ids", () => {
+		expect(extractPathProviderIds(["Film {imdb-TT0107290} (tmdbid=abc)"])).toEqual({ imdb: "tt0107290" });
+	});
+
+	test("returns nothing when the path carries no provider tag", () => {
+		expect(extractPathProviderIds(["Movies", "Jurassic Park (1993).mkv"])).toEqual({});
+	});
+});
 
 function identity(title: string, year?: number): MediaIdentity {
 	return { title, type: "movie", year };

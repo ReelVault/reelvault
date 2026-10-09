@@ -4,8 +4,11 @@ import { SCENE_NOISE } from "@/utils/release-tags.constants";
 import {
 	BRACKETED_YEAR_PATTERN,
 	EPISODE_FILE_PATTERN,
+	IMDB_ID_PATTERN,
 	LEADING_YEAR_PATTERN,
+	PROVIDER_ID_TAG_CAPTURE_PATTERN,
 	PROVIDER_ID_TAG_PATTERN,
+	TMDB_ID_PATTERN,
 	YEAR_FOLDER_PATTERN,
 	YEAR_TITLE_PATTERN,
 	YEAR_TOKEN_PATTERN,
@@ -203,6 +206,24 @@ export function episodeRangeTargets(identity: MediaIdentity | null | undefined):
 	const start = identity.episode;
 
 	return Array.from({ length: span }, (_, index) => start + index);
+}
+
+/**
+ * The TMDB and IMDb ids a media manager named in the path (`[tmdbid-329]`, `{imdb-tt0107290}`). The parts are
+ * checked nearest first, so a file's own name beats its folders; the first valid id of each provider wins.
+ */
+export function extractPathProviderIds(parts: readonly string[]): Record<string, string> {
+	const ids: Record<string, string> = {};
+	for (const part of parts.toReversed()) {
+		for (const match of part.matchAll(PROVIDER_ID_TAG_CAPTURE_PATTERN)) {
+			const provider = match.groups?.provider?.toLowerCase();
+			const id = match.groups?.id ?? "";
+			if (provider === "tmdb" && ids.tmdb === undefined && TMDB_ID_PATTERN.test(id)) ids.tmdb = id;
+			if (provider === "imdb" && ids.imdb === undefined && IMDB_ID_PATTERN.test(id)) ids.imdb = id.toLowerCase();
+		}
+	}
+
+	return ids;
 }
 
 /** Shared title-resolution logic used by both series-basic and series-categorized strategies. */

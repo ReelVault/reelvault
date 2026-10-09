@@ -30,6 +30,9 @@ let providerAggregated: unknown = {
 	providers: [{ providerId: "test-provider", externalId: "external-1" }],
 	matchScore: 1,
 };
+let namedMatch: unknown;
+const namedLookups: string[] = [];
+const titleSearches: string[] = [];
 let identifierRows: Array<Record<string, unknown>> = [];
 let localMetadataRow: Record<string, unknown> | undefined;
 let providerLinkRow: Record<string, unknown> | undefined;
@@ -46,7 +49,16 @@ const activeStubs: Array<{ restore(): void }> = [];
 
 beforeEach(() => {
 	activeStubs.push(
-		stubMethod(providerService, "fetchAggregatedDetails", async () => providerAggregated),
+		stubMethod(providerService, "fetchAggregatedDetails", () => {
+			titleSearches.push("search");
+
+			return Promise.resolve(providerAggregated);
+		}),
+		stubMethod(providerService, "fetchAggregatedDetailsByProvider", (_providerId: string, _type: string, externalId: string) => {
+			namedLookups.push(externalId);
+
+			return Promise.resolve(namedMatch);
+		}),
 		stubMethod(providerService, "fetchSeasonFromLinks", async () => []),
 		stubMethod(providerService, "fetchEpisodeFromLinks", async () => []),
 		stubMethod(pluginHookBus, "runBeforeMetadataSave", (candidate: { title: string }) => {
@@ -121,11 +133,48 @@ function resetSidecarState(): void {
 		matchScore: 1,
 	};
 	identifierRows = [];
+	namedMatch = undefined;
+	namedLookups.splice(0);
+	titleSearches.splice(0);
 	localMetadataRow = undefined;
 	providerLinkRow = undefined;
 	seasonRow = undefined;
 	episodeRow = undefined;
 }
+
+test("a TMDB id named in the path fetches that title before any title search", async () => {
+	resetSidecarState();
+	namedMatch = {
+		primaryProviderId: "tmdb",
+		metadata: { externalId: "329", title: "Jurassic Park", releaseDate: "1993-06-11" },
+		providers: [{ providerId: "tmdb", externalId: "329" }],
+		matchScore: 1,
+	};
+
+	const result = await new MetadataProcess(() => Promise.resolve()).checkMetadata({
+		type: "movie",
+		parsed: { type: "movie", title: "Jurassic Park", year: 1993 },
+		sidecar: { identifiers: { tmdb: "329" } },
+	});
+
+	expect(result).toBeDefined();
+	expect(namedLookups).toEqual(["329"]);
+	expect(titleSearches).toEqual([]);
+});
+
+test("an id the provider does not know falls back to the title search", async () => {
+	resetSidecarState();
+
+	const result = await new MetadataProcess(() => Promise.resolve()).checkMetadata({
+		type: "movie",
+		parsed: { type: "movie", title: "Jurassic Park", year: 1993 },
+		sidecar: { identifiers: { tmdb: "999" } },
+	});
+
+	expect(result).toBeDefined();
+	expect(namedLookups).toEqual(["999"]);
+	expect(titleSearches).toEqual(["search"]);
+});
 
 test("imports provider metadata through the hook, persistence and post-save event boundary", async () => {
 	resetSidecarState();

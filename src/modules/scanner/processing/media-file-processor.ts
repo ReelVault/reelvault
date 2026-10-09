@@ -1,3 +1,4 @@
+import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import { MetadataProcess } from "@/application/catalog/metadata/metadata-process";
 import { type TaskSchedulingOptions, toDomainError } from "@/application/context";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
@@ -9,7 +10,7 @@ import { InFlightMap } from "@/utils/in-flight-map";
 import { PathUtils } from "@/utils/path.utils";
 import { throwIfAborted, WorkerCancellationError } from "@/workers/utils/worker-cancellation";
 import type { RecognitionResult } from "../../recognition/recognition.types";
-import { episodeRangeTargets } from "../../recognition/utils/recognition.utils";
+import { episodeRangeTargets, extractPathProviderIds } from "../../recognition/utils/recognition.utils";
 import { type ChapterMarkerDraft, mapChaptersToMarkers } from "../probe/chapters-to-markers.utils";
 import { mapMediaFileData } from "../probe/media-probe.mapper";
 import { videoParser } from "../probe/video-parser.service";
@@ -52,6 +53,13 @@ class MediaFileProcessor extends BaseService {
 	 * identity. Failure degrades to filename-parsed identity, never aborts.
 	 */
 	private async readSidecarHint(filePath: string, libraryType: LibraryType): Promise<SidecarMetadataHint | undefined> {
+		// A name is set on purpose, so the ids it names win over the NFO's.
+		const sidecar = await this.readNfoHint(filePath, libraryType);
+
+		return withPathIdentifiers(sidecar, extractPathProviderIds(titlePathParts(filePath, libraryType)));
+	}
+
+	private async readNfoHint(filePath: string, libraryType: LibraryType): Promise<SidecarMetadataHint | undefined> {
 		try {
 			return await readSidecarMetadataHint(filePath, libraryType);
 		} catch (error) {
@@ -306,6 +314,23 @@ type EmptyMediaFileData = Omit<
 	ProcessedMediaFile,
 	"metadataId" | "movieId" | "episodeId" | "filePath" | "fileName" | "isEnabled" | "size" | "sourceMtimeMs"
 >;
+
+/** The folders and file name that name the title: the file and its folder for a movie, the show folder too for an episode. */
+function titlePathParts(filePath: string, libraryType: LibraryType): readonly string[] {
+	const parts = PathUtils.normalize(filePath).split("/").filter(Boolean);
+
+	return parts.slice(libraryType === "movie" ? -2 : -3);
+}
+
+/** Adds the ids named in the path to the NFO hint, so both the local lookup and the provider lookup see them. */
+function withPathIdentifiers(
+	sidecar: SidecarMetadataHint | undefined,
+	pathIdentifiers: ExternalIdentifiers,
+): SidecarMetadataHint | undefined {
+	if (Object.keys(pathIdentifiers).length === 0) return sidecar;
+
+	return { ...sidecar, identifiers: { ...sidecar?.identifiers, ...pathIdentifiers } };
+}
 
 function createEmptyMediaFileData(): EmptyMediaFileData {
 	return {

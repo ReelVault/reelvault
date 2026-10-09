@@ -8,7 +8,7 @@ import { metadataPersistenceRepository } from "@/database/repositories/metadata-
 import { moviesRepository } from "@/database/repositories/movies.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import type { SidecarMetadataHint } from "@/modules/metadata-sidecars/files/local-sidecar-hint";
-import type { AggregatedProviderLink } from "@/plugins/capabilities/metadata-aggregator";
+import type { AggregatedMetadata, AggregatedProviderLink } from "@/plugins/capabilities/metadata-aggregator";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { BaseService } from "@/utils/base-service";
@@ -89,6 +89,13 @@ export class MetadataProcess extends BaseService {
 				if (tvShow) return tvShow;
 			}
 
+			// 0b. A TMDB id named in the file or folder name (or the NFO) names the exact title: fetch that entry
+			// instead of searching by title. An id the provider does not know falls through to the search below.
+			const namedTitle = sidecar?.identifiers.tmdb
+				? await providerService.fetchAggregatedDetailsByProvider("tmdb", type, sidecar.identifiers.tmdb, { language })
+				: null;
+			if (namedTitle) return await this.processAggregated(type, parsed, namedTitle, scheduling, language);
+
 			// 1. Check the local database first — the metadata may already exist.
 			// The NFO title/year (when present) beat the filename parse.
 			const enrichedParsed: MediaIdentity = { ...parsed, title: sidecar?.title ?? parsed.title, year: sidecar?.year ?? parsed.year };
@@ -137,36 +144,47 @@ export class MetadataProcess extends BaseService {
 				);
 			}
 
-			const baseMetadata = await this.ensureBaseMetadata(
-				type,
-				aggregated.primaryProviderId,
-				aggregated.metadata,
-				aggregated.matchScore,
-				aggregated.providers,
-			);
-
-			if (type === "movie") {
-				return await this.withFreshImageEnqueue(baseMetadata, scheduling, () =>
-					this.processMovieMetadata(baseMetadata.metadataId, baseMetadata.metadataStableKey),
-				);
-			}
-
-			return await this.withFreshImageEnqueue(baseMetadata, scheduling, () =>
-				this.processTVShowMetadata(
-					baseMetadata.metadataId,
-					parsed,
-					baseMetadata.metadata,
-					baseMetadata.metadataStableKey,
-					scheduling,
-					aggregated.providers,
-					undefined,
-					language,
-				),
-			);
+			return await this.processAggregated(type, parsed, aggregated, scheduling, language);
 		} catch (error) {
 			this.logger.error("Check metadata failed", error, { type, parsed });
 			throw error;
 		}
+	}
+
+	/** Turns an aggregated provider match into a metadata row and processes it. */
+	private async processAggregated(
+		type: "movie" | "tv_show",
+		parsed: MediaIdentity,
+		aggregated: AggregatedMetadata,
+		scheduling: TaskSchedulingOptions | undefined,
+		language: string | undefined,
+	): Promise<MetadataProcessResult | undefined> {
+		const baseMetadata = await this.ensureBaseMetadata(
+			type,
+			aggregated.primaryProviderId,
+			aggregated.metadata,
+			aggregated.matchScore,
+			aggregated.providers,
+		);
+
+		if (type === "movie") {
+			return await this.withFreshImageEnqueue(baseMetadata, scheduling, () =>
+				this.processMovieMetadata(baseMetadata.metadataId, baseMetadata.metadataStableKey),
+			);
+		}
+
+		return await this.withFreshImageEnqueue(baseMetadata, scheduling, () =>
+			this.processTVShowMetadata(
+				baseMetadata.metadataId,
+				parsed,
+				baseMetadata.metadata,
+				baseMetadata.metadataStableKey,
+				scheduling,
+				aggregated.providers,
+				undefined,
+				language,
+			),
+		);
 	}
 
 	/** Queues artwork for freshly created metadata rows after a successful match. */

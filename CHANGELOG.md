@@ -446,6 +446,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Enable and disable plugins in bulk** — `POST /admin/plugins/bulk` with `{ enabled, pluginIds }` (up to 100 plugins) attempts each plugin on its own and reports an outcome per plugin, so one failure does not stop the others.
 - **Pin a plugin's version** — `PUT /admin/plugins/:id/pin` with `{ pinned: true }` keeps the installed version: the catalog reports it as installed and offers no update. The choice survives restarts and upgrades; installing a newer version explicitly stays possible.
 - **Catalog says which repositories it could not read** — `GET /admin/plugins/catalog` returns the plugins and, separately, the repositories that could not be read, each with an error code, so a missing plugin is no longer silent.
+- **Named TMDB ids pick the title** — a `[tmdbid-…]` tag in a file or folder name, or an NFO's TMDB id, now fetches that exact title before any title search, so a same-named title no longer wins. An id the provider does not know falls back to the title search.
 
 ### Fixes
 
