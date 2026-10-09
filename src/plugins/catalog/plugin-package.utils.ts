@@ -33,6 +33,8 @@ export interface DownloadArchiveOptions {
 	token?: string | undefined;
 	timeoutMs?: number | undefined;
 	maxBytes?: number | undefined;
+	/** Aborts the download early (an administrator cancelling an update); combined with the timeout. */
+	signal?: AbortSignal | undefined;
 	/** Streaming download progress — `total` is 0 when the server sends no Content-Length. */
 	onProgress?: ((received: number, total: number) => void) | undefined;
 	/** Test seam — overrides the SSRF-guarded fetcher (production always guards). */
@@ -55,9 +57,10 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
 	try {
 		// A catalog manifest's downloadUrl is remote-controlled — every hop must be
 		// a public https address, not loopback/RFC1918/cloud-metadata.
+		const timeout = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 		response = await fetcher(url, {
 			...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
-			signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+			signal: options.signal ? AbortSignal.any([timeout, options.signal]) : timeout,
 		});
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : "unknown error";

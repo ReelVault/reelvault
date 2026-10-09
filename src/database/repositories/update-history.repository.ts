@@ -4,7 +4,7 @@ import { schema } from "@/database/schema";
 
 export type UpdateHistoryAction = "install" | "rollback";
 export type UpdateHistoryTarget = "server" | "web";
-export type UpdateHistoryStatus = "running" | "succeeded" | "failed";
+export type UpdateHistoryStatus = "running" | "succeeded" | "failed" | "cancelled";
 
 export interface UpdateHistoryStart {
 	action: UpdateHistoryAction;

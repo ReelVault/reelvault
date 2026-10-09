@@ -1,4 +1,9 @@
-import { AdminUpdateHistoryPageSchema, AdminUpdateInstallResponseSchema, AdminUpdateStatusSchema } from "@reelvault/sdk/common";
+import {
+	AdminUpdateCancelResponseSchema,
+	AdminUpdateHistoryPageSchema,
+	AdminUpdateInstallResponseSchema,
+	AdminUpdateStatusSchema,
+} from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { ClampedNumeric, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { updateCheckService } from "@/application/updates/update-check.service";
@@ -36,6 +41,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 	.model({
 		"admin.updateStatus": AdminUpdateStatusSchema,
 		"admin.updateInstall": AdminUpdateInstallResponseSchema,
+		"admin.updateCancel": AdminUpdateCancelResponseSchema,
 		"admin.updateHistory": AdminUpdateHistoryPageSchema,
 	})
 	.get("/status", async () => await buildUpdateStatus(false), {
@@ -73,6 +79,15 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		detail: {
 			description:
 				"Restore the chosen component from its previous-version backup (server rollback restarts, web rollback is live immediately). A server rollback is refused while streams play unless `force` is set, as for an install.",
+		},
+	})
+	.post("/cancel", ({ body }) => updateInstallService.cancelInstall(body.target), {
+		rateLimit: { name: "admin-update-cancel", max: 10, windowMs: MINUTE },
+		body: TargetBody,
+		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateCancel" },
+		detail: {
+			description:
+				"Cancel a running install of the chosen component while it is still downloading, verifying or extracting. The download stops at once and the run is recorded as cancelled, with no failure. Once files are being replaced the install runs to completion and the request is refused with `update.not_cancellable`.",
 		},
 	})
 	.get("/history", async ({ query }) => await updateHistoryService.list(query), {

@@ -55,6 +55,11 @@ export class UpdateHistoryService extends BaseService {
 		await this.finish(id, { status: "failed", errorMessage, finishedAt: new Date() });
 	}
 
+	/** An install stopped before it replaced any file. It is not a failure, so no failure is recorded. */
+	async cancel(id: string | null): Promise<void> {
+		await this.finish(id, { status: "cancelled", errorMessage: null, finishedAt: new Date() });
+	}
+
 	/**
 	 * Settles runs still marked as running when the server starts. A server run
 	 * succeeded when this process runs the version it installed; that can only be

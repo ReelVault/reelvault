@@ -9,7 +9,7 @@ import { streamingManager } from "@/modules/streaming/runtime/streaming.manager"
 import { type ArchiveFetcher, downloadArchive, extractArchive } from "@/plugins/catalog/plugin-package.utils";
 import { requestApplicationRestart } from "@/shutdown";
 import { BaseService } from "@/utils/base-service";
-import { ConflictError, ValidationError } from "@/utils/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
 import { detach } from "@/utils/promise.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
@@ -65,6 +65,9 @@ export interface UpdateJob {
 	targetVersion: string;
 }
 
+/** An install can be cancelled until its first file is replaced; the swap itself always completes. */
+const CANCELLABLE_STATES: ReadonlySet<UpdateJobState> = new Set(["downloading", "verifying", "extracting"]);
+
 /**
  * Restarts the server after the server component has been swapped. Windows
  * defers the swap itself to a post-exit script (running executables lock their
@@ -93,6 +96,7 @@ export class UpdateInstallService extends BaseService {
 	private readonly installType: UpdateInstallType;
 	private readonly flavor: UpdateFlavor;
 	private job: UpdateJob | null = null;
+	private cancelController: AbortController | null = null;
 	private lastServerError: string | null = null;
 	private lastWebError: string | null = null;
 
@@ -146,6 +150,7 @@ export class UpdateInstallService extends BaseService {
 		this.assertNoActiveStreams(target, options.force === true);
 		if (this.job) throw new ConflictError("An update is already in progress", { code: "update.install_already_running" });
 
+		this.cancelController = new AbortController();
 		this.beginJob(target, "downloading", 5, release.version);
 		this.setLastError(target, null);
 		// The run is on record before any restart it may trigger, so the row survives the restart.
@@ -178,6 +183,27 @@ export class UpdateInstallService extends BaseService {
 		detach(this.recordRollback({ target, fromVersion, restoredVersion, actorUserId }, failure));
 
 		return { started: true, target, version: restoredVersion };
+	}
+
+	/**
+	 * Stops an install that has not replaced any file yet. The download aborts at once; the
+	 * extraction and checksum stages stop at their next checkpoint. A swap in progress always completes.
+	 */
+	cancelInstall(target: UpdateComponent): { target: UpdateComponent } {
+		const job = this.job;
+		if (!job || job.target !== target) {
+			throw new NotFoundError(`No ${target} update is running`, { code: "update.not_running" });
+		}
+		if (!CANCELLABLE_STATES.has(job.state)) {
+			throw new ConflictError("The update is already replacing files and can no longer be cancelled", {
+				code: "update.not_cancellable",
+				params: { state: job.state },
+			});
+		}
+
+		this.cancelController?.abort();
+
+		return { target };
 	}
 
 	/** Refuses an install the disk cannot hold, before anything is downloaded. */
@@ -244,6 +270,21 @@ export class UpdateInstallService extends BaseService {
 		}
 	}
 
+	/** Checkpoint between stages: a cancelled install stops here, before anything is replaced. */
+	private assertNotCancelled(): void {
+		if (this.cancelController?.signal.aborted) {
+			throw new ConflictError("The update was cancelled", { code: "update.cancelled" });
+		}
+	}
+
+	/** A cancelled install leaves the running version alone, removes its scratch files and records no failure. */
+	private async finishCancelledInstall(target: UpdateComponent, historyId: string | null): Promise<void> {
+		this.logger.info(`Update install for ${target} cancelled`);
+		this.job = null;
+		this.removeScratchDirectories([STAGING_DIR, PENDING_DIR]);
+		await updateHistoryService.cancel(historyId);
+	}
+
 	private async assertNewerReleaseAvailable(target: UpdateComponent): Promise<AdminUpdateRelease> {
 		await updateCheckService.checkLatest(true);
 		const state = updateCheckService.getState();
@@ -296,6 +337,7 @@ export class UpdateInstallService extends BaseService {
 			const download = await downloadArchive(asset.url, {
 				maxBytes: MAX_ARCHIVE_BYTES,
 				timeoutMs: DOWNLOAD_TIMEOUT_MS,
+				signal: this.cancelController?.signal,
 				fetcher: this.archiveFetcher,
 				onProgress: (received, total) => {
 					const percent = total > 0 ? 5 + Math.min(55, Math.round((received / total) * 55)) : 10;
@@ -310,6 +352,7 @@ export class UpdateInstallService extends BaseService {
 					throw new ValidationError(`SHA256SUMS.txt has no entry for ${assetName}`, { code: "update.checksum_mismatch" });
 				}
 				assertChecksumMatches(download.checksum, expected);
+				this.assertNotCancelled();
 
 				if (target === "web") {
 					await this.applyWebUpdate(download.filePath, release.version);
@@ -324,6 +367,12 @@ export class UpdateInstallService extends BaseService {
 				await download.cleanup();
 			}
 		} catch (error) {
+			if (this.cancelController?.signal.aborted) {
+				await this.finishCancelledInstall(target, historyId);
+
+				return;
+			}
+
 			const message = error instanceof Error ? error.message : "unknown error";
 			this.setLastError(target, message);
 			this.job = null;
@@ -350,6 +399,7 @@ export class UpdateInstallService extends BaseService {
 			throw new ValidationError("The extracted web release has an unexpected layout", { code: "update.unexpected_layout" });
 		}
 
+		this.assertNotCancelled();
 		this.setJob("swapping", 90, null);
 		const replacedWebVersion = readInstalledWebVersion(this.root) ?? "";
 		swapWebDirectory(this.root, stagingRoot, replacedWebVersion);
@@ -362,6 +412,7 @@ export class UpdateInstallService extends BaseService {
 		if (process.platform === "win32") {
 			// Running executables lock their files: extract now, swap after exit.
 			const pendingRoot = join(this.root, PENDING_DIR);
+			this.assertNotCancelled();
 			this.setJob("swapping", 85, null);
 			this.resetDirectory(pendingRoot);
 			await extractArchive(archivePath, pendingRoot, MAX_UNCOMPRESSED_BYTES);
@@ -377,6 +428,7 @@ export class UpdateInstallService extends BaseService {
 			const stagedApp = join(stagingRoot, "ReelVault");
 			this.assertServerStagedLayout(stagedApp);
 
+			this.assertNotCancelled();
 			this.setJob("swapping", 90, null);
 			swapIntoPlace(this.root, stagedApp, "server", this.installedServerVersion());
 			// The staging root now holds only the emptied ReelVault directory.

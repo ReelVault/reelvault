@@ -11,7 +11,7 @@ export const updateHistory = sqliteTable(
 
 		action: text("action", { enum: ["install", "rollback"] }).notNull(),
 		target: text("target", { enum: ["server", "web"] }).notNull(),
-		status: text("status", { enum: ["running", "succeeded", "failed"] }).notNull(),
+		status: text("status", { enum: ["running", "succeeded", "failed", "cancelled"] }).notNull(),
 
 		fromVersion: text("from_version"),
 		toVersion: text("to_version").notNull(),

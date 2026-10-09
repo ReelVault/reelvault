@@ -381,6 +381,77 @@ describe("server update active streams guard", () => {
 	});
 });
 
+describe("server update cancel", () => {
+	test("cancelling a download stops it, keeps the running version and records a cancelled run, not a failure", async () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const scheduler = fakeScheduler();
+		const hangingFetcher: ArchiveFetcher = (_url, init) =>
+			new Promise<Response>((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+			});
+		const service = new UpdateInstallService({
+			root,
+			installType: "archive",
+			restartScheduler: scheduler,
+			archiveFetcher: hangingFetcher,
+		});
+		stubs.push(stubCheckState(serverRelease(), null));
+		const begin = stubMethod(updateHistoryService, "begin", () => Promise.resolve("run-1"));
+		const cancel = stubMethod(updateHistoryService, "cancel", () => Promise.resolve());
+		const fail = stubMethod(updateHistoryService, "fail", () => Promise.resolve());
+		stubs.push(begin, cancel, fail);
+
+		await service.startInstall("server");
+		expect(service.cancelInstall("server")).toEqual({ target: "server" });
+		await waitFor(() => cancel.calls.length === 1);
+
+		expect(cancel.calls).toEqual([["run-1"]]);
+		expect(fail.calls).toEqual([]);
+		expect(service.getJob()).toBeNull();
+		expect(service.getLastError("server")).toBeNull();
+		expect(scheduler.calls).toEqual([]);
+		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(OLD_SERVER);
+		expect(existsSync(join(root, ".update-staging"))).toBe(false);
+
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	test("a cancel is refused once the files are being replaced", () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const service = new UpdateInstallService({ root, installType: "archive", restartScheduler: fakeScheduler() });
+		Reflect.set(service, "job", {
+			target: "server",
+			state: "swapping",
+			progressPercent: 90,
+			message: null,
+			startedAt: new Date().toISOString(),
+			targetVersion: NEW_SERVER,
+		});
+
+		let thrown: unknown = null;
+		try {
+			service.cancelInstall("server");
+		} catch (error) {
+			thrown = error;
+		}
+		expect(thrown).toMatchObject({ code: "update.not_cancellable", params: { state: "swapping" } });
+
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	test("a cancel with no install of that component running is refused", () => {
+		const service = new UpdateInstallService({ installType: "archive", restartScheduler: fakeScheduler() });
+
+		let thrown: unknown = null;
+		try {
+			service.cancelInstall("web");
+		} catch (error) {
+			thrown = error;
+		}
+		expect(thrown).toMatchObject({ code: "update.not_running" });
+	});
+});
+
 describe("web update pipeline (local HTTP zip, no restart)", () => {
 	test("swaps web/ in place, keeps the server running, no restart scheduled", async () => {
 		const root = makeRoot(OLD_SERVER, OLD_WEB);
