@@ -282,7 +282,7 @@ class StreamingManager {
 		return this.reservations.reserve(sessionId, userId);
 	}
 
-	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number } {
+	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number; active: number } {
 		return this.reservations.explainCapacityLimit(userId);
 	}
 

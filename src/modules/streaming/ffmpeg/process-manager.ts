@@ -43,6 +43,7 @@ export class ProcessManager {
 				params: {
 					scope: "server",
 					limit: this.config.maxSessions,
+					active: this.store.attachedCount(),
 					retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds,
 				},
 			});

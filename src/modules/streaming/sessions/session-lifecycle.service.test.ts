@@ -77,7 +77,7 @@ function createService(
 		runtime: {
 			isProfileTerminatedRecently: () => (options.terminatedByAdmin ? { reason: "admin-stop" } : null),
 			reserveSession: () => !options.reserveFails,
-			explainCapacityLimit: () => ({ scope: "server" as const, limit: 2 }),
+			explainCapacityLimit: () => ({ scope: "server" as const, limit: 2, active: 2 }),
 			registerSession: (sessionId: string) => {
 				calls.registered.push(sessionId);
 			},

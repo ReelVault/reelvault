@@ -68,19 +68,22 @@ export class SessionReservationTracker {
 		return true;
 	}
 
-	/** Which limit turned a reservation away: the user's own cap (when set and reached) or the server-wide one. */
-	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number } {
+	/**
+	 * Which limit turned a reservation away: the user's own cap (when set and reached) or the
+	 * server-wide one, with how many sessions already hold a slot under that limit.
+	 */
+	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number; active: number } {
 		const perUserLimit = this.maxSessionsPerUser;
+		let userActive = 0;
 		if (userId && perUserLimit !== undefined) {
-			let used = 0;
 			for (const [id, uid] of this.sessionUsers.entries()) {
-				if (uid === userId && (this.store.isAttached(id) || this.reservedIds.has(id))) used++;
+				if (uid === userId && (this.store.isAttached(id) || this.reservedIds.has(id))) userActive++;
 			}
 
-			if (used >= perUserLimit) return { scope: "user", limit: perUserLimit };
+			if (userActive >= perUserLimit) return { scope: "user", limit: perUserLimit, active: userActive };
 		}
 
-		return { scope: "server", limit: this.maxSessions };
+		return { scope: "server", limit: this.maxSessions, active: this.reservedIds.size };
 	}
 
 	release(sessionId: string): void {

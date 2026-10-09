@@ -34,7 +34,7 @@ export interface SessionLifecycleRuntime {
 	releaseSession(sessionId: string, reason: string): Promise<SessionReleaseOutcome>;
 	getTerminatedSession(sessionId: string): TerminatedSessionEntry | undefined;
 	reserveSession(sessionId: string, userId?: string): boolean;
-	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number };
+	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number; active: number };
 	registerSession(
 		sessionId: string,
 		data: { mediaFileId: string; profileId: string; decision: PlaybackDecision; inputPath: string; durationMs?: number | null },
@@ -216,10 +216,10 @@ export class SessionLifecycleService extends BaseService {
 
 			const sessionId = crypto.randomUUID();
 			if (!runtime.reserveSession(sessionId, userId)) {
-				const { scope, limit } = runtime.explainCapacityLimit(userId);
+				const { scope, limit, active } = runtime.explainCapacityLimit(userId);
 				throw new TooManyRequestsError("Concurrent streaming session limit reached. Try again when another stream ends.", {
 					code: "stream.limit_reached",
-					params: { scope, limit, retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds },
+					params: { scope, limit, active, retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds },
 				});
 			}
 
