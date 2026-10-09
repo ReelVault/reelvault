@@ -379,6 +379,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Plugin archive dry run** — `POST /admin/plugins/validate` checks an uploaded plugin archive without installing it: the manifest, the entry point, the interface manifest (a malformed one is a warning, as it is at load), the server version floor, and whether installing it would be an install, an upgrade, a downgrade or a reinstall. Nothing is installed, enabled or audited.
 - **Profile PIN and avatar can be removed** — updating a profile with `pin: null` removes its PIN and `avatarUrl: null` removes its avatar. Before, the PIN was silently kept, so the profile stayed locked. Omitted fields are left unchanged.
 - **Seek debounce is a setting** — `stream.seekDebounceMs` (0–2000 ms, default 300) sets how long the stream waits after the last seek before it jumps. It applies at runtime.
+- **Filtered admin marker list** — `GET /media-files/markers` takes `type`, `source` and `q` (matched against the label, file id, plugin id and type) next to `limit`; the filters run in the database query, so the admin markers page no longer loads every marker to filter it in the browser.
 
 
 ### Fixes

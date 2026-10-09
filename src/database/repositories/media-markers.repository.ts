@@ -1,8 +1,9 @@
-import type { CreateMediaMarker } from "@reelvault/sdk/common";
-import { and, asc, eq, type SQL } from "drizzle-orm";
+import type { CreateMediaMarker, MediaMarkerFilters } from "@reelvault/sdk/common";
+import { and, asc, eq, or, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { defineRepository, defineTableAccess, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
+import { QueryFiltering } from "@/database/utils/filtering";
 import { runInTransaction } from "@/database/utils/transaction";
 
 const mediaMarkers = defineTableAccess("mediaMarkers", {
@@ -12,13 +13,35 @@ const mediaMarkers = defineTableAccess("mediaMarkers", {
 /** Default cap for marker listings when the caller passes no limit. */
 const MAX_MARKER_LIST_ROWS = 5000;
 
+/** Admin list filters plus the row cap. */
+export type MediaMarkerListQuery = MediaMarkerFilters & { limit?: number };
+
+/** Filters are ANDed. `q` matches as a substring of the label, file id, plugin id or type. */
+function markerListWhere(query: MediaMarkerListQuery): SQL | undefined {
+	const term = query.q?.trim();
+
+	return and(
+		query.type ? eq(mediaMarkers.table.type, query.type) : undefined,
+		query.source ? eq(mediaMarkers.table.source, query.source) : undefined,
+		term
+			? or(
+					QueryFiltering.like(mediaMarkers.table.label, term),
+					QueryFiltering.like(mediaMarkers.table.mediaFileId, term),
+					QueryFiltering.like(mediaMarkers.table.pluginId, term),
+					QueryFiltering.like(mediaMarkers.table.type, term),
+				)
+			: undefined,
+	);
+}
+
 const overrides = {
-	async findAll(limit?: number, tx?: DatabaseTransaction) {
+	async findAll(query: MediaMarkerListQuery = {}, tx?: DatabaseTransaction) {
 		// Hard cap so a marker listing without an explicit limit cannot materialize
 		// the whole table.
-		const effectiveLimit = limit && limit > 0 ? limit : MAX_MARKER_LIST_ROWS;
+		const effectiveLimit = query.limit && query.limit > 0 ? query.limit : MAX_MARKER_LIST_ROWS;
 
 		return await getMediaMarkersRepository().selectMany({
+			where: markerListWhere(query),
 			orderBy: asc(mediaMarkers.table.createdAt),
 			limit: effectiveLimit,
 			tx,

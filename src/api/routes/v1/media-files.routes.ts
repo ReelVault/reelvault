@@ -4,6 +4,7 @@ import {
 	MediaFileFiltersSchema,
 	MediaFileSortingSchema,
 	MediaFileWithRelationSchema,
+	MediaMarkerFiltersSchema,
 	MediaMarkerSchema,
 	OperationQueuedResponseSchema,
 	PlaybackArtifactSchema,
@@ -95,16 +96,15 @@ export const mediaFilesRoutes = new Elysia({
 	.get(
 		"/markers",
 		async ({ query }) => {
-			return await mediaService.listAllMarkers(query.limit);
+			return await mediaService.listAllMarkers(query);
 		},
 		{
 			adminOnly: true,
-			query: t.Object({
-				limit: t.Optional(ClampedNumeric(1, 1000)),
-			}),
+			query: t.Composite([t.Object({ limit: t.Optional(ClampedNumeric(1, 1000)) }), MediaMarkerFiltersSchema]),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Array(MediaMarkerSchema) },
 			detail: {
-				description: "List timeline markers across all media files (admin). `limit` is applied in the database query.",
+				description:
+					"List timeline markers across all media files (admin). `type`, `source` and `q` filter and `limit` caps the result in the database query.",
 			},
 		},
 	)

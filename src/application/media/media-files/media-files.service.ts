@@ -24,7 +24,7 @@ import type { AdminAuditContext } from "@/database/repositories/admin-audit.repo
 import { episodesRepository } from "@/database/repositories/episodes.repository";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
+import { type MediaMarkerListQuery, mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { metadataPersistenceRepository } from "@/database/repositories/metadata-persistence.repository";
 import { moviesRepository } from "@/database/repositories/movies.repository";
@@ -124,11 +124,11 @@ class MediaService extends BaseService {
 		});
 	}
 
-	async listAllMarkers(limit?: number): Promise<MediaMarker[]> {
+	async listAllMarkers(query: MediaMarkerListQuery = {}): Promise<MediaMarker[]> {
 		return await this.safeExecute("listAllMarkers", async () => {
-			// SQL-side LIMIT — fetching every marker row to slice in JS would read
-			// the whole table on a user-triggerable route.
-			const markers = await mediaMarkersRepository.findAll(limit && limit > 0 ? limit : undefined);
+			// Filters and LIMIT run in SQL — fetching every marker row to filter or slice in JS
+			// would read the whole table on a user-triggerable route.
+			const markers = await mediaMarkersRepository.findAll(query);
 
 			return markers.map((item) => toPublicMarker(item));
 		});
