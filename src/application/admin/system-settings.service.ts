@@ -1,3 +1,4 @@
+import type { ImportSystemSettings, SystemSettingsExport } from "@reelvault/sdk/common";
 import { libraryWatcherService } from "@/application/libraries/watching/library-watcher.service";
 import {
 	isSystemSettingKey,
@@ -119,6 +120,21 @@ class SystemSettingsService extends BaseService {
 		}
 
 		return grouped;
+	}
+
+	/** Every setting's current value, versioned so an import can refuse any other format. */
+	async exportSettings(): Promise<SystemSettingsExport> {
+		await this.ensureInitialized();
+
+		const settings: Record<string, unknown> = {};
+		for (const key of SETTING_KEYS) settings[key] = systemSettingsStore.get(key);
+
+		return { format: "reelvault.settings", formatVersion: 1, exportedAt: new Date().toISOString(), settings };
+	}
+
+	/** Goes through the same validation as a manual update, so one unknown key or invalid value refuses the whole file. */
+	async importSettings(body: ImportSystemSettings, context?: AdminAuditContext) {
+		return await this.updateSettings(body.settings, context);
 	}
 
 	private parseAndSerialize<K extends SystemSettingKey>(

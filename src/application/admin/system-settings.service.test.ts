@@ -205,3 +205,41 @@ describe("systemSettingsService audit trail", () => {
 		expect(recorded[0]).toMatchObject({ after: { "stream.maxSessions": 8 } });
 	});
 });
+
+describe("systemSettingsService export and import", () => {
+	test("export carries the format tag and the current value of each setting", async () => {
+		stubSettingsPersistence();
+
+		const exported = await systemSettingsService.exportSettings();
+
+		expect(exported).toMatchObject({ format: "reelvault.settings", formatVersion: 1 });
+		expect(exported.settings["stream.maxSessions"]).toBe(systemSettingsStore.get("stream.maxSessions"));
+	});
+
+	test("import applies the listed settings through the update validation", async () => {
+		const setMany = stubSettingsPersistence();
+
+		await systemSettingsService.importSettings({
+			format: "reelvault.settings",
+			formatVersion: 1,
+			settings: { "stream.maxSessions": 8 },
+		});
+
+		expect(setMany.calls).toHaveLength(1);
+		expect(systemSettingsStore.get("stream.maxSessions")).toBe(8);
+	});
+
+	test("import refuses the whole file when one key is unknown", async () => {
+		const setMany = stubSettingsPersistence();
+
+		await expect(
+			systemSettingsService.importSettings({
+				format: "reelvault.settings",
+				formatVersion: 1,
+				settings: { "stream.maxSessions": 8, "stream.doesNotExist": 1 },
+			}),
+		).rejects.toMatchObject({ code: "admin.settings.unknown_key" });
+
+		expect(setMany.calls).toHaveLength(0);
+	});
+});
