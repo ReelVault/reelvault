@@ -31,7 +31,7 @@ import { resourceAllocator } from "./system/resource-allocator";
 import { serverRescueService } from "./system/server-rescue.service";
 import { systemResourcesService } from "./system/system-resources.service";
 import { isOriginAllowed, isUsableOriginEntry } from "./utils/http.utils";
-import { logger } from "./utils/logger";
+import { logger, setLogLevel } from "./utils/logger";
 import { cleanupStartupDirectories, ensureDataDirectories } from "./utils/server-data.utils";
 import { webStaticPlugin } from "./web/web-static.plugin";
 import { loadBuiltInWorkers } from "./workers/built-in-workers";
@@ -55,6 +55,8 @@ async function setupServer(): Promise<void> {
 
 		logger.info("Loading system settings...");
 		await systemSettingsService.init();
+		// A stored override replaces the LOG_LEVEL this boot started with; the debug file still requires restart.
+		setLogLevel(serverConfig.logs.level);
 
 		// A typo in an allowed-origin entry would otherwise fail silently at CORS time.
 		const unusableOrigins = serverConfig.network.allowedOrigins.filter((origin) => !isUsableOriginEntry(origin));

@@ -365,6 +365,8 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Database maintenance commands** — `bun run db:check` (integrity check), `bun run db:vacuum` and `bun run db:backup [target.sqlite]` (integrity check first, then a consistent snapshot, by default into the backups folder). Stop the server before `db:vacuum`.
 - **`bun run doctor`** — checks the usual first-run problems in one go (Bun version, ffmpeg and ffprobe, a writable data directory, free disk space, database integrity and migrations, the bundled web UI), says how to fix each and exits non-zero when something is broken.
 - **New server settings** — `stream.hlsMaxMuxingQueueSize` (512–8192; raise it when slow storage aborts a stream with "max muxing queue size exceeded"), `downloads.maxConcurrentPerProfile` (1–5), `trickplay.maxFramesPerFile` (300–5000; a longer movie no longer silently loses its previews), `plugins.blobs.retentionDays` (1–365; caps a plugin's requested blob lifetime) and `plugins.notifications.maxPerDayPerPlugin` (0–1000, `0` blocks plugin notifications). All apply at runtime.
+- **Log bundle download** — `GET /admin/logs/bundle` returns a zip with every log file (rotated and FFmpeg logs included) for a support request.
+- **Runtime log level** — new setting `system.logs.level` (defaults to `LOG_LEVEL`) changes log verbosity without a restart; the debug log file still requires a boot with debug/trace.
 
 ### Fixes
 
@@ -410,3 +412,4 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Settings changes were audited with an empty “after”** — every update wrote `{}` instead of the saved values (a `Map` does not serialize), so the audit trail showed what changed but not to what; the recorded values are now real.
 - **Playback diagnostics could describe the wrong encoder** — after an admin changed `ffmpeg.hwaccel` or the tone-mapping method, a running session reported the new setting while its ffmpeg process used the old encoder. A session now captures its encoder environment when it is created.
 - **Opaque HLS errors** — a segment that never appeared, a playlist being rebuilt and a seek before the session was ready all returned code-less errors; they now carry `stream.segment_not_found` (with the segment name, incl. init segments), `stream.segment_not_ready`, `stream.playlist_rebuilding` and `stream.not_ready` so clients can translate and retry correctly.
+- **The log list ignored older entries silently** — when a log file exceeds the served 2 MiB window, search and pagination only see the tail. `GET /admin/logs` now reports `truncated` and `windowBytes` so the viewer can say so.

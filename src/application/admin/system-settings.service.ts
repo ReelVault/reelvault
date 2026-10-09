@@ -14,8 +14,10 @@ import { initializeFfmpegCapabilities } from "@/integrations/ffmpeg/ffmpeg.capab
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
 import { assertFFProbeAvailable } from "@/integrations/ffprobe/ffprobe.environment";
+import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
+import { setLogLevel } from "@/utils/logger";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { recordAuditSafe } from "./admin-audit.service";
 
@@ -250,13 +252,14 @@ class SystemSettingsService extends BaseService {
 
 	/**
 	 * Runtime side effects a settings write requires (watcher re-sync, FFmpeg
-	 * reload). Always runs after persistence, so a failed write never triggers
-	 * them; the same key rules apply to updates and resets.
+	 * reload, log level). Always runs after persistence, so a failed write never
+	 * triggers them; the same key rules apply to updates and resets.
 	 */
 	private async applySettingsSideEffects(keys: readonly string[]): Promise<void> {
 		let needsWatcherSync = false;
 		let needsFfmpegReload = false;
 		let changesProfileDefaults = false;
+		let changesLogLevel = false;
 		for (const key of keys) {
 			// The watcher reads its fallback interval when arming timers, so a change
 			// must re-arm them; the same applies to the periodic rescan deadline.
@@ -271,10 +274,15 @@ class SystemSettingsService extends BaseService {
 			if (key.startsWith("profiles.defaultPreferences.")) changesProfileDefaults = true;
 
 			if (key.startsWith("ffmpeg.") || key === "ffprobe.path") needsFfmpegReload = true;
+
+			if (key === "system.logs.level") changesLogLevel = true;
 		}
 
 		// Profiles inherit these defaults; any cached response that embeds effective preferences is stale now.
 		if (changesProfileDefaults) invalidateResponseBodies();
+
+		// The stored level overrides LOG_LEVEL from here on; the debug file still requires a restart.
+		if (changesLogLevel) setLogLevel(serverConfig.logs.level);
 
 		if (needsWatcherSync) await libraryWatcherService.syncWatchers();
 

@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { unzipSync } from "fflate";
 import { adminLogsService } from "@/application/admin/admin-logs.service";
 import { serverConfig } from "@/server.config";
+import { DirUtils } from "@/utils/directory.utils";
 import { PathUtils } from "@/utils/path.utils";
 
 function jsonLine(message: string): string {
@@ -57,5 +59,46 @@ describe("AdminService getLogs tail cache", () => {
 
 		const search = await adminLogsService.getLogs({ fileId: "reelvault.log", search: "boom", limit: 5 });
 		expect(search.data).toHaveLength(1);
+	});
+
+	test("reports the served window for a file larger than the tail window", async () => {
+		await writeFile(logPath, jsonLine("bulk").repeat(40_000));
+
+		const page = await adminLogsService.getLogs({ fileId: "reelvault.log", limit: 5 });
+
+		expect(page.truncated).toBe(true);
+		expect(page.windowBytes).toBeGreaterThan(0);
+	});
+
+	test("reports no window for a file that fits", async () => {
+		const page = await adminLogsService.getLogs({ fileId: "reelvault.log", limit: 5 });
+
+		expect(page.truncated).toBe(false);
+	});
+});
+
+describe("AdminService log bundle", () => {
+	let testLogsDir: string;
+	let originalLogsPath: string;
+
+	beforeEach(async () => {
+		originalLogsPath = serverConfig.paths.logs;
+		testLogsDir = await mkdtemp(join(tmpdir(), "reelvault-admin-logs-bundle-"));
+		serverConfig.paths.logs = testLogsDir;
+		await writeFile(PathUtils.join(testLogsDir, "reelvault.log"), jsonLine("main"));
+		await DirUtils.create(PathUtils.join(testLogsDir, "ffmpeg"));
+		await writeFile(PathUtils.join(testLogsDir, "ffmpeg", "transcode-1.log"), "transcode line\n");
+	});
+
+	afterEach(async () => {
+		serverConfig.paths.logs = originalLogsPath;
+		await rm(testLogsDir, { recursive: true, force: true });
+	});
+
+	test("packs every log file into a single zip", async () => {
+		const { data, filename } = await adminLogsService.getLogBundle();
+
+		expect(filename).toStartWith("reelvault-logs-");
+		expect(Object.keys(unzipSync(data)).toSorted()).toEqual(["ffmpeg/transcode-1.log", "reelvault.log"]);
 	});
 });

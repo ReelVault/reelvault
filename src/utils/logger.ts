@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import { Writable } from "node:stream";
 import type { Logger, LoggerConfig, LogMeta } from "@reelvault/sdk/common";
-import pino, { type LoggerOptions, type Logger as PinoLogger } from "pino";
+import pino, { type Level, type LoggerOptions, type Logger as PinoLogger } from "pino";
 import { env } from "@/env";
 import { serverConstants } from "@/server.constants";
 import { hasEntry } from "./array.utils";
@@ -304,6 +304,16 @@ function getRootPino(): PinoLogger {
 	cachedRootPino = pino(rootLoggerOptions, pino.multistream(buildStreams()));
 
 	return cachedRootPino;
+}
+
+/**
+ * Applies a runtime log level (settings side effect). The level gates every
+ * stream; the separate debug log file still only exists when the boot level
+ * was debug/trace.
+ */
+export function setLogLevel(level: Level): void {
+	rootLoggerOptions.level = level;
+	if (cachedRootPino) cachedRootPino.level = level;
 }
 
 const SENSITIVE_LOG_KEY = /(authorization|cookie|password|secret|token|api[-_]?key|access[-_]?token|refresh[-_]?token|storage[-_]?key)/i;

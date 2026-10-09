@@ -1,3 +1,4 @@
+import { env } from "@/env";
 import { SystemSettingsCreator } from "../system-settings.utils";
 
 const creator = SystemSettingsCreator("system");
@@ -23,6 +24,8 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 
 	"system.database.operationRetentionDays": creator.number("system.database.operationRetentionDays", 1, 365, 7),
 	"system.logs.retentionDays": creator.number("system.logs.retentionDays", 1, 365, 7),
+	// Runtime log level; the default follows LOG_LEVEL from the environment.
+	"system.logs.level": creator.enum("system.logs.level", ["trace", "debug", "info", "warn", "error", "fatal"], env.LOG_LEVEL),
 
 	// Require every account to have TOTP configured before sign-in is accepted.
 	"auth.enforceTwoFactor": creator.boolean("auth.enforceTwoFactor", false),

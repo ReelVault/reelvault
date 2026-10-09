@@ -22,6 +22,30 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 		},
 	})
 	.get(
+		"/logs/bundle",
+		async () => {
+			const { data, filename } = await adminLogsService.getLogBundle();
+
+			return new Response(new Blob([data]), {
+				headers: {
+					"content-type": "application/zip",
+					"content-disposition": `attachment; filename="${filename}"`,
+				},
+			});
+		},
+		{
+			rateLimit: { name: "admin-logs-bundle", max: 3, windowMs: MINUTE },
+			response: {
+				// Binary zip — handler returns a Response, not JSON.
+				...ROUTE_ERRORS.ADMIN,
+				200: t.Any(),
+			},
+			detail: {
+				description: "Download every log file (rotated and debug included) as a zip archive for a support request.",
+			},
+		},
+	)
+	.get(
 		"/logs/download",
 		async ({ query }) => {
 			const { file, filename } = await adminLogsService.getLogFileDownloadContent(query.fileId);

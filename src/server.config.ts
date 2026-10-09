@@ -422,6 +422,13 @@ export const serverConfig = {
 		},
 	},
 
+	/** Runtime logging (level applied live by the settings side effect). */
+	logs: {
+		get level() {
+			return systemSettingsStore.get("system.logs.level");
+		},
+	},
+
 	/** Database Runtime Retention */
 	database: {
 		...serverConstants.database,
