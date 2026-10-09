@@ -1,4 +1,9 @@
-import { AdminDatabaseBackupListSchema, AdminDatabaseBackupSchema, AdminDatabaseRestoreResponseSchema } from "@reelvault/sdk/common";
+import {
+	AdminDatabaseBackupListSchema,
+	AdminDatabaseBackupSchema,
+	AdminDatabaseRestoreResponseSchema,
+	DatabaseMigrationStatusSchema,
+} from "@reelvault/sdk/common";
 import { file } from "bun";
 import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
@@ -69,6 +74,11 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			},
 		},
 	)
+	.get("/database/migrations", async () => await databaseMaintenanceService.getMigrationStatus(), {
+		rateLimit: { name: "admin-db-migrations", max: 30, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: DatabaseMigrationStatusSchema },
+		detail: { description: "Migration folders shipped with this server, and how many the database has applied." },
+	})
 	.get("/database/integrity", async () => await databaseMaintenanceService.checkIntegrity(), {
 		rateLimit: { name: "admin-db-integrity", max: 10, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: t.Object({ ok: t.Boolean(), messages: t.Array(t.String()) }) },

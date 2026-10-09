@@ -15,6 +15,22 @@ class DatabaseMaintenanceService extends BaseService {
 		});
 	}
 
+	/** Migration folders shipped with this server and how many of them the database has applied. */
+	async getMigrationStatus() {
+		return await this.safeExecute("getMigrationStatus", () => {
+			const { tags, applied } = databaseMaintenanceRepository.getMigrationStatus();
+			const appliedCount = Math.min(applied, tags.length);
+
+			return {
+				total: tags.length,
+				applied: appliedCount,
+				pending: tags.length - appliedCount,
+				latest: appliedCount > 0 ? (tags[appliedCount - 1] ?? null) : null,
+				migrations: tags.map((tag, index) => ({ tag, applied: index < appliedCount })),
+			};
+		});
+	}
+
 	async optimize(): Promise<{ success: true }> {
 		return await this.safeExecute("optimize", () => {
 			databaseMaintenanceRepository.optimize();
