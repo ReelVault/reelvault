@@ -371,6 +371,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Plugin failure codes** — a plugin that fails to load reports an `errorCode` next to its raw `error` message: a domain error keeps its own code (`plugin.already_installed` for an install that collides with an existing one), an invalid package reports `plugin.manifest_invalid` and any other load failure `plugin.load_failed`. Clients should translate the code, not the message.
 - **Unreadable plugin configuration is visible** — the admin plugin endpoints (`GET /admin/plugins`, `GET /admin/plugins/:pluginId`, the plugin enable/disable/reload responses and the dashboard) return `configReadError` (`plugin.config_unreadable`) when a plugin's `config.json` exists but cannot be read. Such a plugin used to run silently on its defaults.
 - **Secret presence in plugin configuration** — secret fields of `GET /admin/plugins/:pluginId/config` carry `hasValue`, so the admin panel can show whether a key is set and offer to replace it. The stored value is still never returned.
+- **Plugin package details for administrators** — the admin plugin endpoints report each plugin's declared `capabilities`, `installedAt` and `source` (installer-managed plugins), `integrityOk` (the package matched its recorded integrity at the last check, at server start or on install) and `updateAvailable` (an enabled catalog offers a newer version).
 
 ### Fixes
 

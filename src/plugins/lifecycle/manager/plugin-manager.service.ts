@@ -26,6 +26,14 @@ function byStatusName(a: PluginStatus, b: PluginStatus): number {
 	return a.name.localeCompare(b.name);
 }
 
+export interface PluginPackageDetails {
+	capabilities: string[];
+	configReadError?: string;
+	installedAt?: string;
+	source?: string;
+	integrityOk?: boolean;
+}
+
 class ConfigRequiredError extends Error {
 	readonly field: string;
 
@@ -50,6 +58,8 @@ export class PluginManager {
 	private readonly lifecycleMutex = new Mutex();
 	/** Installed but unloaded plugins — the registry only tracks loaded ones, so the disabled state lives here. */
 	private readonly disabledStatuses = new Map<string, PluginStatus>();
+	/** Plugins whose package did not match its lockfile record at the last integrity check. */
+	private readonly integrityIssues = new Set<string>();
 
 	constructor() {
 		this.config = new PluginConfig();
@@ -74,6 +84,8 @@ export class PluginManager {
 	private async verifyInstalledPlugins(): Promise<void> {
 		try {
 			const refreshed = await this.installer.refreshIntegrity();
+			this.integrityIssues.clear();
+			for (const pluginId of refreshed) this.integrityIssues.add(pluginId);
 			if (refreshed.length > 0) {
 				this.logger.warn("Plugin integrity changed — lockfile records refreshed", { plugins: refreshed });
 			}
@@ -204,11 +216,35 @@ export class PluginManager {
 		return await this.loader.findDirectoryNameForPluginId(pluginId);
 	}
 
-	/** Whether the plugin's `config.json` exists but cannot be read, checked on disk so disabled plugins are covered too. */
-	async getConfigReadError(pluginId: string): Promise<string | undefined> {
+	/** What the admin view shows about a plugin's package, beyond its runtime status. */
+	async getPackageDetails(pluginId: string): Promise<PluginPackageDetails> {
 		const dirName = await this.resolvePluginDirectoryName(pluginId);
+		const directory = this.config.resolvePluginDirectory(dirName);
+		const configReadError = await this.config.readError(directory);
+		const installed = await this.installer
+			.list()
+			.then((records) => records.find((entry) => entry.id === pluginId)?.record)
+			.catch(() => null);
 
-		return await this.config.readError(this.config.resolvePluginDirectory(dirName));
+		return {
+			capabilities: await this.declaredCapabilities(pluginId, directory),
+			...(configReadError ? { configReadError } : {}),
+			...(installed
+				? { installedAt: installed.installedAt, source: installed.source, integrityOk: !this.integrityIssues.has(pluginId) }
+				: {}),
+		};
+	}
+
+	/** The loaded manifest when there is one; otherwise the one on disk, so a failed or disabled plugin still reports its capabilities. */
+	private async declaredCapabilities(pluginId: string, directory: string): Promise<string[]> {
+		const runtime = this.registry.get(pluginId);
+		if (runtime) return runtime.manifest.capabilities;
+
+		try {
+			return (await loadPluginManifest(directory)).capabilities;
+		} catch {
+			return [];
+		}
 	}
 
 	async load(pluginName: string): Promise<void> {
@@ -260,6 +296,7 @@ export class PluginManager {
 				upgrade: true,
 				...(options.source !== undefined ? { source: options.source } : {}),
 			});
+			this.integrityIssues.delete(result.id);
 			// The fresh record carries no disabled flag, so an upgrade would silently re-enable a plugin
 			// the administrator switched off — carry the flag over. A first install starts enabled.
 			if (previous.some(({ id, record }) => id === result.id && record.disabled === true)) {

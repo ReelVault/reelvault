@@ -1,7 +1,6 @@
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pluginAdminService } from "@/application/plugin-admin.service";
 import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
 import { env } from "@/env";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
@@ -173,6 +172,19 @@ class PluginCatalogService {
 		return this.toView(refreshed);
 	}
 
+	/** Installed plugins that an enabled repository offers in a newer version. A failing catalog offers none. */
+	async updatablePluginIds(): Promise<Set<string>> {
+		try {
+			const entries = await this.getCatalog();
+
+			return new Set(entries.filter((entry) => entry.status === "update-available").map((entry) => entry.id));
+		} catch (error) {
+			this.logger.warn("Plugin update check skipped", { reason: error instanceof Error ? error.message : String(error) });
+
+			return new Set();
+		}
+	}
+
 	/** Aggregated catalog across all enabled repositories, annotated with install state. */
 	async getCatalog(): Promise<PluginCatalogEntryView[]> {
 		await this.ensureOfficialRepository();
@@ -244,26 +256,11 @@ class PluginCatalogService {
 				source: catalogSource(row.id, candidate.id, candidate.version),
 			});
 			this.logger.info(`Installed plugin ${candidate.id}@${candidate.version} from repository ${row.name}`);
-			await this.enableAfterInstall(candidate.id);
 
 			return { pluginId: candidate.id, version: result.record.version, upgraded: installedBefore !== undefined };
 		} finally {
 			await extracted?.cleanup();
 			await download.cleanup();
-		}
-	}
-
-	/**
-	 * A freshly installed plugin is only staged on disk until enabled — without
-	 * this it would be invisible in the admin list until "Reload all". Load
-	 * failures surface through the plugin state (failed + error) instead of
-	 * failing the install request.
-	 */
-	private async enableAfterInstall(pluginId: string): Promise<void> {
-		try {
-			await pluginAdminService.enable(pluginId);
-		} catch (error) {
-			this.logger.warn(`Plugin ${pluginId} installed but failed to load: ${String(error)}`);
 		}
 	}
 
@@ -281,7 +278,6 @@ class PluginCatalogService {
 
 			const result = await pluginManager.installFromDirectory(extracted.pluginRoot, { source: options.source ?? "upload" });
 			this.logger.info(`Installed plugin ${manifest.id}@${result.record.version} from uploaded archive`);
-			await this.enableAfterInstall(manifest.id);
 
 			return { pluginId: manifest.id, version: result.record.version, upgraded: installedBefore };
 		} finally {

@@ -120,3 +120,32 @@ describe("pluginCatalogService.getCatalog", () => {
 		expect(maxInFlight).toBe(3);
 	});
 });
+
+describe("pluginCatalogService.updatablePluginIds", () => {
+	const activeStubs: MethodStub[] = [];
+
+	afterEach(() => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+		activeStubs.length = 0;
+	});
+
+	test("lists only the plugins that an enabled repository offers in a newer version", async () => {
+		activeStubs.push(
+			stubMethod(pluginCatalogService, "getCatalog", () =>
+				Promise.resolve([
+					{ id: "org.reelvault.newer", status: "update-available" },
+					{ id: "org.reelvault.current", status: "installed" },
+					{ id: "org.reelvault.fresh", status: "available" },
+				]),
+			),
+		);
+
+		await expect(pluginCatalogService.updatablePluginIds()).resolves.toEqual(new Set(["org.reelvault.newer"]));
+	});
+
+	test("offers no update when the catalog cannot be read", async () => {
+		activeStubs.push(stubMethod(pluginCatalogService, "getCatalog", () => Promise.reject(new Error("offline"))));
+
+		await expect(pluginCatalogService.updatablePluginIds()).resolves.toEqual(new Set());
+	});
+});

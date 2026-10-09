@@ -1,5 +1,6 @@
 import type { PluginAdminStatus } from "@reelvault/sdk/common";
 import type { PluginStatus } from "@reelvault/sdk/plugin";
+import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 
 /**
@@ -7,21 +8,24 @@ import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
  * return the recorded post-action status: pluginManager persists the error
  * state on the plugin itself, which the admin UI renders.
  */
-async function withAdminDetails(status: PluginStatus): Promise<PluginAdminStatus> {
-	const configReadError = await pluginManager.getConfigReadError(status.id);
+async function withAdminDetails(status: PluginStatus, updatable: ReadonlySet<string>): Promise<PluginAdminStatus> {
+	const details = await pluginManager.getPackageDetails(status.id);
 
-	return { ...status, ...(configReadError ? { configReadError } : {}) };
+	return { ...status, ...details, updateAvailable: updatable.has(status.id) };
 }
 
 async function findAdminStatus(pluginId: string): Promise<PluginAdminStatus | undefined> {
 	const status = pluginManager.getStatus().find((plugin) => plugin.id === pluginId);
+	if (!status) return undefined;
 
-	return status ? await withAdminDetails(status) : undefined;
+	return await withAdminDetails(status, await pluginCatalogService.updatablePluginIds());
 }
 
 export const pluginAdminService = {
 	async list(): Promise<PluginAdminStatus[]> {
-		return await Promise.all(pluginManager.getStatus().map((status) => withAdminDetails(status)));
+		const updatable = await pluginCatalogService.updatablePluginIds();
+
+		return await Promise.all(pluginManager.getStatus().map((status) => withAdminDetails(status, updatable)));
 	},
 
 	get(pluginId: string): Promise<PluginAdminStatus | undefined> {

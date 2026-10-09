@@ -504,6 +504,44 @@ describe("PluginManager config details", () => {
 		]);
 	});
 
+	test("getPackageDetails reports the installed record and the declared capabilities", async () => {
+		const { manager, installer } = createManagerFixture(activeStubs);
+		await writeFixturePlugin();
+		activeStubs.push(
+			stubMethod(installer, "list", () =>
+				Promise.resolve([
+					{
+						id: "org.reelvault.m",
+						record: { directory: "m-dir", integrity: "abc", installedAt: "2026-10-09T10:00:00.000Z", source: "upload", version: "3.1.0" },
+					},
+				]),
+			),
+		);
+
+		await expect(manager.getPackageDetails("org.reelvault.m")).resolves.toEqual({
+			capabilities: ["eventHandler"],
+			installedAt: "2026-10-09T10:00:00.000Z",
+			source: "upload",
+			integrityOk: true,
+		});
+	});
+
+	test("getPackageDetails reports a package that failed the integrity check as not ok", async () => {
+		const { manager, installer } = createManagerFixture(activeStubs);
+		await writeFixturePlugin();
+		activeStubs.push(
+			stubMethod(installer, "list", () =>
+				Promise.resolve([
+					{ id: "org.reelvault.m", record: { directory: "m-dir", integrity: "abc", installedAt: "x", source: "upload", version: "3.1.0" } },
+				]),
+			),
+		);
+		const integrityIssues: Set<string> = Reflect.get(manager, "integrityIssues");
+		integrityIssues.add("org.reelvault.m");
+
+		await expect(manager.getPackageDetails("org.reelvault.m")).resolves.toMatchObject({ integrityOk: false });
+	});
+
 	test("getPluginConfigDetails reports an unset secret as having no value", async () => {
 		const { manager, config } = createManagerFixture(activeStubs);
 		await writeFixturePlugin();
