@@ -367,6 +367,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **New server settings** — `stream.hlsMaxMuxingQueueSize` (512–8192; raise it when slow storage aborts a stream with "max muxing queue size exceeded"), `downloads.maxConcurrentPerProfile` (1–5), `trickplay.maxFramesPerFile` (300–5000; a longer movie no longer silently loses its previews), `plugins.blobs.retentionDays` (1–365; caps a plugin's requested blob lifetime) and `plugins.notifications.maxPerDayPerPlugin` (0–1000, `0` blocks plugin notifications). All apply at runtime.
 - **Log bundle download** — `GET /admin/logs/bundle` returns a zip with every log file (rotated and FFmpeg logs included) for a support request.
 - **Runtime log level** — new setting `system.logs.level` (defaults to `LOG_LEVEL`) changes log verbosity without a restart; the debug log file still requires a boot with debug/trace.
+- **Stable plugin slot entry ids** — a `ui.json` slot entry may declare an optional `id` (unique within its slot). Interface switches keep pointing at that entry when other entries are added, removed or reordered; entries without an id keep the key derived from their action. A duplicate id is rejected when the manifest loads.
 
 ### Fixes
 

@@ -296,7 +296,14 @@ function validateUiSlots(slots: unknown, pageIds: ReadonlySet<string>, dialogIds
 
 		if (!Array.isArray(contributions)) throw new ValidationError(`Plugin ui.json slot '${slot}' must be an array`);
 
-		for (const contribution of contributions) validateUiSlotContribution(slot, contribution, pageIds, dialogIds);
+		const ids = new Set<string>();
+		for (const contribution of contributions) {
+			const id = validateUiSlotContribution(slot, contribution, pageIds, dialogIds);
+			if (id === undefined) continue;
+
+			if (ids.has(id)) throw new ValidationError(`Plugin ui.json slot '${slot}' declares the id '${id}' twice`);
+			ids.add(id);
+		}
 	}
 }
 
@@ -325,14 +332,16 @@ function validateSearchProvider(
 	}
 }
 
+/** Validates one slot entry and returns its optional `id`, which the caller checks for uniqueness within the slot. */
 function validateUiSlotContribution(
 	slot: string,
 	contribution: unknown,
 	pageIds: ReadonlySet<string>,
 	dialogIds: ReadonlySet<string>,
-): void {
+): string | undefined {
 	if (!isRecord(contribution)) throw new ValidationError(`Plugin ui.json slot '${slot}' entries must be objects`);
 
+	const id = optionalUiId(contribution.id, `ui.slots.${slot}.id`);
 	assertLocalizedText(contribution.label, `ui.slots.${slot}.label`);
 	if (contribution.icon !== undefined) assertNonEmptyString(contribution.icon, `ui.slots.${slot}.icon`);
 
@@ -351,6 +360,8 @@ function validateUiSlotContribution(
 	assertOptionalType(contribution.adminOnly, "boolean", `slot '${slot}' adminOnly`);
 
 	assertOptionalType(contribution.iconOnly, "boolean", `slot '${slot}' iconOnly`);
+
+	return id;
 }
 
 function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet<string>, dialogIds: ReadonlySet<string>): void {
@@ -700,6 +711,14 @@ function assertOptionalStringArray(value: unknown, field: string): void {
 function assertUiId(value: unknown, field: string): asserts value is string {
 	assertNonEmptyString(value, field);
 	if (!PLUGIN_UI_ID_PATTERN.test(value)) throw new ValidationError(`Plugin ui.json ${field} has unsupported characters: ${value}`);
+}
+
+function optionalUiId(value: unknown, field: string): string | undefined {
+	if (value === undefined) return undefined;
+
+	assertUiId(value, field);
+
+	return value;
 }
 
 function assertLocalizedText(value: unknown, field: string): void {

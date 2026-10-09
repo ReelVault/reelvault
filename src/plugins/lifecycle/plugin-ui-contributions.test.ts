@@ -23,6 +23,29 @@ const manifest: PluginUiManifest = {
 };
 
 describe("listUiContributions", () => {
+	test("keys a slot entry with an explicit id independently of its position", () => {
+		const withIds: PluginUiManifest = {
+			...manifest,
+			slots: {
+				"navbar-profile-menu": [
+					{ id: "new-request", label: "New", action: { type: "dialog", dialog: "new" } },
+					{ id: "mine", label: "Mine", action: { type: "page", page: "mine" } },
+				],
+			},
+		};
+
+		expect(listUiContributions(withIds).map((item) => item.key)).toEqual([
+			"page:requests",
+			"page:mine",
+			"dialog:new",
+			"tab:admin-plugin:queue",
+			"slot:navbar-profile-menu:id:new-request",
+			"slot:navbar-profile-menu:id:mine",
+			"searchProvider",
+			"playbackPreRoll",
+		]);
+	});
+
 	test("gives every contribution a unique, stable key", () => {
 		const keys = listUiContributions(manifest).map((item) => item.key);
 

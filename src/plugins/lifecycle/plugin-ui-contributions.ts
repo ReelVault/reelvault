@@ -38,14 +38,14 @@ function slotDescriptor(contribution: PluginSlotContribution): string {
 
 /**
  * Stable key of every slot contribution of a manifest, in declaration order.
- * Slot entries have no id, so the key is derived from what they do; a second
- * entry that does the same thing gets a `#n` suffix.
+ * An entry with an `id` is keyed by it. Otherwise the key is derived from what
+ * the entry does, and a second entry that does the same thing gets a `#n` suffix.
  */
 function slotKeys(slot: PluginSlotName, contributions: readonly PluginSlotContribution[]): string[] {
 	const seen = new Map<string, number>();
 
 	return contributions.map((contribution) => {
-		const base = `slot:${slot}:${slotDescriptor(contribution)}`;
+		const base = contribution.id !== undefined ? `slot:${slot}:id:${contribution.id}` : `slot:${slot}:${slotDescriptor(contribution)}`;
 		const count = (seen.get(base) ?? 0) + 1;
 		seen.set(base, count);
 

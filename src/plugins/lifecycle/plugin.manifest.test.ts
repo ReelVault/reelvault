@@ -256,6 +256,17 @@ describe("plugin ui manifest", () => {
 			}),
 		).toThrow("protocol-relative");
 	});
+
+	it("accepts a slot entry id and rejects an invalid or duplicate one", () => {
+		const slot = (ids: string[]) => ({
+			...validUiManifest,
+			slots: { "player-footer": ids.map((id) => ({ id, label: "x", action: { type: "navigate", href: "/x" } })) },
+		});
+
+		expect(() => validatePluginUiManifest(slot(["first", "second"]))).not.toThrow();
+		expect(() => validatePluginUiManifest(slot(["bad id!"]))).toThrow("unsupported characters");
+		expect(() => validatePluginUiManifest(slot(["same", "same"]))).toThrow("declares the id 'same' twice");
+	});
 });
 
 describe("plugin declarative schema", () => {
