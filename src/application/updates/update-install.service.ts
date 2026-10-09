@@ -5,6 +5,7 @@ import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { adminFailureNotificationService } from "@/application/admin/admin-failure-notification.service";
 import { databaseBackupService } from "@/application/admin/database-backup.service";
 import { databaseMaintenanceService } from "@/application/admin/database-maintenance.service";
+import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { type ArchiveFetcher, downloadArchive, extractArchive } from "@/plugins/catalog/plugin-package.utils";
 import { requestApplicationRestart } from "@/shutdown";
 import { BaseService } from "@/utils/base-service";
@@ -48,6 +49,11 @@ const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
  */
 const DISK_HEADROOM_FACTOR = 5;
 
+/** Caller options for an install or rollback. `force` lets a server restart go ahead while streams play. */
+export interface UpdateActionOptions {
+	force?: boolean | undefined;
+}
+
 export type UpdateJobState = "downloading" | "verifying" | "extracting" | "swapping" | "restarting";
 
 export interface UpdateJob {
@@ -75,11 +81,14 @@ interface UpdateServiceOptions {
 	restartScheduler?: RestartScheduler | undefined;
 	/** Test seam — overrides the SSRF-guarded fetcher for archive downloads. */
 	archiveFetcher?: ArchiveFetcher | undefined;
+	/** Test seam — counts the streams a server restart would end; defaults to the live streaming manager. */
+	countActiveStreams?: (() => number) | undefined;
 }
 
 export class UpdateInstallService extends BaseService {
 	private readonly restartScheduler: RestartScheduler;
 	private readonly archiveFetcher: ArchiveFetcher | undefined;
+	private readonly countActiveStreams: () => number;
 	private readonly root: string;
 	private readonly installType: UpdateInstallType;
 	private readonly flavor: UpdateFlavor;
@@ -95,6 +104,7 @@ export class UpdateInstallService extends BaseService {
 		this.flavor = options.flavor ?? detectFlavor(root);
 		this.restartScheduler = options.restartScheduler ?? defaultRestartScheduler();
 		this.archiveFetcher = options.archiveFetcher;
+		this.countActiveStreams = options.countActiveStreams ?? (() => streamingManager.getAllActiveSessions().length);
 	}
 
 	getJob(): UpdateJob | null {
@@ -129,9 +139,11 @@ export class UpdateInstallService extends BaseService {
 	async startInstall(
 		target: UpdateComponent,
 		actorUserId: string | null = null,
+		options: UpdateActionOptions = {},
 	): Promise<{ started: boolean; target: UpdateComponent; version: string }> {
 		const release = await this.assertInstallPreconditions(target);
 		await this.assertDiskSpace(target, release);
+		this.assertNoActiveStreams(target, options.force === true);
 		if (this.job) throw new ConflictError("An update is already in progress", { code: "update.install_already_running" });
 
 		this.beginJob(target, "downloading", 5, release.version);
@@ -153,8 +165,10 @@ export class UpdateInstallService extends BaseService {
 	startRollback(
 		target: UpdateComponent,
 		actorUserId: string | null = null,
+		options: UpdateActionOptions = {},
 	): { started: boolean; target: UpdateComponent; version: string } {
 		this.assertRollbackPreconditions(target);
+		this.assertNoActiveStreams(target, options.force === true);
 		const restoredVersion = readPreviousVersion(this.root, target);
 		const fromVersion = this.installedVersion(target);
 
@@ -211,6 +225,22 @@ export class UpdateInstallService extends BaseService {
 		}
 		if (!isPreviousVersionPresent(target, this.root)) {
 			throw new ValidationError(`No previous ${target} version is available to roll back to`, { code: "update.no_previous_version" });
+		}
+	}
+
+	/**
+	 * A server restart ends every stream, so a server install or rollback waits until none play, unless the
+	 * caller forces it. A web swap is live without a restart and is never held back.
+	 */
+	private assertNoActiveStreams(target: UpdateComponent, force: boolean): void {
+		if (target !== "server" || force) return;
+
+		const activeStreams = this.countActiveStreams();
+		if (activeStreams > 0) {
+			throw new ConflictError("A server update is blocked while streams are active", {
+				code: "update.blocked_active_streams",
+				params: { activeStreams },
+			});
 		}
 	}
 

@@ -291,6 +291,96 @@ describe("server update disk check", () => {
 	});
 });
 
+describe("server update active streams guard", () => {
+	test("a server install is refused while streams play, before anything is downloaded", async () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const scheduler = fakeScheduler();
+		const service = new UpdateInstallService({
+			root,
+			installType: "archive",
+			restartScheduler: scheduler,
+			archiveFetcher: localFetcher,
+			countActiveStreams: () => 2,
+		});
+		stubs.push(stubCheckState(serverRelease(), null));
+
+		await expect(service.startInstall("server")).rejects.toMatchObject({
+			code: "update.blocked_active_streams",
+			params: { activeStreams: 2 },
+		});
+		expect(service.getJob()).toBeNull();
+		expect(scheduler.calls).toEqual([]);
+		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(OLD_SERVER);
+
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	test("force runs the server install while streams play", async () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const scheduler = fakeScheduler();
+		const service = new UpdateInstallService({
+			root,
+			installType: "archive",
+			restartScheduler: scheduler,
+			archiveFetcher: localFetcher,
+			countActiveStreams: () => 2,
+		});
+		stubs.push(stubCheckState(serverRelease(), null));
+		stubPreUpdateCheck();
+
+		await service.startInstall("server", null, { force: true });
+		await waitFor(() => scheduler.calls.length > 0);
+		expect(scheduler.calls).toEqual(["restart"]);
+		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(NEW_SERVER);
+
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	test("a server rollback is refused while streams play, before the previous version is read", () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		mkdirSync(join(root, ".previous"), { recursive: true });
+		writeFileSync(join(root, ".previous", "SERVER_VERSION"), OLD_SERVER);
+		const scheduler = fakeScheduler();
+		const service = new UpdateInstallService({
+			root,
+			installType: "archive",
+			restartScheduler: scheduler,
+			countActiveStreams: () => 1,
+		});
+
+		let thrown: unknown = null;
+		try {
+			service.startRollback("server");
+		} catch (error) {
+			thrown = error;
+		}
+		expect(thrown).toMatchObject({ code: "update.blocked_active_streams", params: { activeStreams: 1 } });
+		expect(scheduler.calls).toEqual([]);
+		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(OLD_SERVER);
+
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	test("a web install is never held back by streams", async () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const service = new UpdateInstallService({
+			root,
+			installType: "archive",
+			restartScheduler: fakeScheduler(),
+			archiveFetcher: localFetcher,
+			countActiveStreams: () => 2,
+		});
+		stubs.push(stubCheckState(null, webRelease()));
+
+		await expect(service.startInstall("web")).resolves.toEqual({ started: true, target: "web", version: NEW_WEB });
+		await waitFor(() => service.getJob() === null);
+		expect(service.getLastError("web")).toBeNull();
+		expect(readFileSync(join(root, "web", "index.html"), "utf8")).toContain(`web v${NEW_WEB}`);
+
+		rmSync(root, { recursive: true, force: true });
+	});
+});
+
 describe("web update pipeline (local HTTP zip, no restart)", () => {
 	test("swaps web/ in place, keeps the server running, no restart scheduled", async () => {
 		const root = makeRoot(OLD_SERVER, OLD_WEB);

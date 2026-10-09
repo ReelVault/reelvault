@@ -11,6 +11,7 @@ import { resolveWebVersion } from "@/web/web-dist";
 import { adminShell } from "./admin-shell";
 
 const TargetBody = t.Object({ target: t.Union([t.Literal("server"), t.Literal("web")]) });
+const ActionBody = t.Object({ ...TargetBody.properties, force: t.Optional(t.Boolean()) });
 
 async function buildUpdateStatus(forceCheck: boolean) {
 	await updateCheckService.checkLatest(forceCheck);
@@ -52,22 +53,26 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 			description: "Force a refresh of both GitHub release checks, bypassing the cache.",
 		},
 	})
-	.post("/install", async ({ body, user }) => await updateInstallService.startInstall(body.target, user?.id ?? null), {
-		rateLimit: { name: "admin-update-install", max: 3, windowMs: 10 * MINUTE },
-		body: TargetBody,
-		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateInstall" },
-		detail: {
-			description:
-				"Download, verify (SHA256) and install the latest release of the chosen component, then restart (server only — the web UI is live immediately). Only for archive installs — container installs (Docker or Podman) are updated by pulling a new image.",
+	.post(
+		"/install",
+		async ({ body, user }) => await updateInstallService.startInstall(body.target, user?.id ?? null, { force: body.force }),
+		{
+			rateLimit: { name: "admin-update-install", max: 3, windowMs: 10 * MINUTE },
+			body: ActionBody,
+			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateInstall" },
+			detail: {
+				description:
+					"Download, verify (SHA256) and install the latest release of the chosen component, then restart (server only — the web UI is live immediately). Only for archive installs — container installs (Docker or Podman) are updated by pulling a new image. A server install is refused with `update.blocked_active_streams` while streams play, because the restart ends them, unless `force` is set.",
+			},
 		},
-	})
-	.post("/rollback", ({ body, user }) => updateInstallService.startRollback(body.target, user?.id ?? null), {
+	)
+	.post("/rollback", ({ body, user }) => updateInstallService.startRollback(body.target, user?.id ?? null, { force: body.force }), {
 		rateLimit: { name: "admin-update-rollback", max: 3, windowMs: 10 * MINUTE },
-		body: TargetBody,
+		body: ActionBody,
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateInstall" },
 		detail: {
 			description:
-				"Restore the chosen component from its previous-version backup (server rollback restarts, web rollback is live immediately).",
+				"Restore the chosen component from its previous-version backup (server rollback restarts, web rollback is live immediately). A server rollback is refused while streams play unless `force` is set, as for an install.",
 		},
 	})
 	.get("/history", async ({ query }) => await updateHistoryService.list(query), {

@@ -355,6 +355,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Features
 
+- **Server updates wait for playback** — a server install or rollback restarts the process, which ends every stream, so `POST /admin/update/install` and `POST /admin/update/rollback` are refused with `update.blocked_active_streams` (409, with the active stream count) while streams play. Both accept `force: true` to restart anyway. Web UI updates are unaffected because they swap files without a restart.
 - **Change password** — `POST /v1/auth/change-password` lets a signed-in user change their password. A wrong current password returns `auth.invalid_current_password` (400, so clients do not treat it as an expired session), a too short or too long one `auth.weak_password`. All other sessions are revoked; the current session stays signed in.
 - **Subtitle language priority list** — profiles can set `subtitleFallbackLanguages` (e.g. `en,de`): when no subtitle exists in the preferred language, the next listed language is tried in order instead of playing without subtitles. A fallback equal to the audio language is skipped, and the admin default is configurable (`profiles.defaultPreferences.subtitleFallbackLanguages`).
 - **Remove from Continue Watching** — `DELETE /v1/me/continue-watching/:metadataId` hides a title from the row without discarding resume positions (unlike a progress reset). The title comes back as soon as it is played again. Stored as `playback_progress.dismissed_at` (new migration).
