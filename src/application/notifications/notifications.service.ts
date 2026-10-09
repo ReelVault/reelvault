@@ -198,6 +198,17 @@ class NotificationsService extends BaseService {
 		});
 	}
 
+	/** Removes notifications from the caller's own list; ids that belong to another recipient are ignored. */
+	async deleteNotifications(ids: string[], userId?: string, profileId?: string): Promise<{ deleted: number }> {
+		return await this.safeExecute("deleteNotifications", async () => {
+			this.assertUserId(userId);
+			const deleted = await notificationsRepository.deleteBatchForRecipient(ids, userId, profileId);
+			this.invalidateFor(userId, profileId);
+
+			return { deleted };
+		});
+	}
+
 	/** Drops the unread-count entry and any cached notification bodies for the recipient. */
 	private invalidateFor(userId: string, profileId?: string): void {
 		unreadCountCache.delete(unreadCountKey(userId, profileId));

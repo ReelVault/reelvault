@@ -31,6 +31,24 @@ const setAllRead = async (where: SQL | undefined, read: boolean): Promise<void> 
 		.where(and(where, stateFilter));
 };
 
+/** Deletes the listed rows that match the filter, in one transaction across chunks; returns how many were removed. */
+const deleteBatch = async (ids: string[], where: SQL | undefined): Promise<number> => {
+	if (ids.length === 0) return 0;
+
+	let deleted = 0;
+	await databaseFactory.transaction(async (tx) => {
+		await forEachChunked(ids, async (idChunk) => {
+			const rows = await tx
+				.delete(schema.notifications)
+				.where(and(inArray(schema.notifications.id, idChunk), where))
+				.returning({ id: schema.notifications.id });
+			deleted += rows.length;
+		});
+	});
+
+	return deleted;
+};
+
 const setBatchReadState = async (ids: string[], where: SQL | undefined, read: boolean): Promise<void> => {
 	if (ids.length === 0) return;
 
@@ -189,6 +207,11 @@ const overrides = {
 
 	async markAllUnreadForRecipient(userId: string, profileId?: string): Promise<void> {
 		await setAllRead(recipientWhere(userId, profileId), false);
+	},
+
+	/** Deletes the given notifications of one recipient; ids that belong to someone else are left alone. */
+	async deleteBatchForRecipient(ids: string[], userId: string, profileId?: string): Promise<number> {
+		return await deleteBatch(ids, recipientWhere(userId, profileId));
 	},
 };
 

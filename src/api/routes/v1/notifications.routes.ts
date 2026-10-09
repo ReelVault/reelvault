@@ -6,6 +6,8 @@ import { notificationsService } from "@/application/notifications/notifications.
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { cached } from "@/middleware/response-cache.middleware";
 
+const deletedCountResponse = t.Object({ deleted: t.Integer({ minimum: 0 }) });
+
 export const notificationsRoutes = new Elysia({ prefix: "/notifications", tags: ["Notifications"] })
 	.use(commonModel)
 	.use(authMiddleware)
@@ -56,4 +58,14 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications", tags: 
 			response: { ...ROUTE_ERRORS.AUTH, 403: "error.response", 200: "success.response" },
 			detail: { description: "Set a notification's read state (defaults to read)." },
 		},
-	);
+	)
+	.delete("/:id", async ({ params, user, profile }) => await notificationsService.deleteNotifications([params.id], user?.id, profile?.id), {
+		params: IdParams,
+		response: { ...ROUTE_ERRORS.AUTH, 200: deletedCountResponse },
+		detail: { description: "Remove one notification from the caller's list." },
+	})
+	.post("/delete", async ({ body, user, profile }) => await notificationsService.deleteNotifications(body.ids, user?.id, profile?.id), {
+		body: t.Object({ ids: t.Array(t.String({ minLength: 1, maxLength: 128 }), { minItems: 1, maxItems: 200 }) }),
+		response: { ...ROUTE_ERRORS.AUTH, 200: deletedCountResponse },
+		detail: { description: "Remove up to 200 notifications from the caller's list in one request." },
+	});
