@@ -117,6 +117,7 @@ const PUBLIC_ROW: Subtitle = {
 	format: "vtt",
 	type: "external",
 	streamIndex: null,
+	extractable: true,
 	isDefault: true,
 	isForced: false,
 	isHearingImpaired: false,

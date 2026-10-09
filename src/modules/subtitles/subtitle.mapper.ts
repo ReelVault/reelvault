@@ -1,6 +1,7 @@
 import type { CreateSubtitleRequest, Subtitle, SubtitleType } from "@reelvault/sdk/common";
 import { ValidationError } from "@/utils/errors";
 import { serializeDate } from "@/utils/time.utils";
+import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
 
 export function resolveSubtitleType(body: Pick<Partial<CreateSubtitleRequest>, "sourcePath" | "streamIndex" | "type">): SubtitleType {
 	const hasSourcePath = body.sourcePath !== undefined;
@@ -11,6 +12,11 @@ export function resolveSubtitleType(body: Pick<Partial<CreateSubtitleRequest>, "
 	if (body.type && body.type !== inferredType) throw new ValidationError(`Subtitle type ${body.type} does not match its source`);
 
 	return body.type ?? inferredType;
+}
+
+/** Embedded image-based tracks (PGS, VobSub) cannot be served as text, so clients must not offer them. */
+export function isTextExtractable(subtitle: { type: string; format: string }): boolean {
+	return subtitle.type !== "embedded" || !isBitmapSubtitleFormat(subtitle.format);
 }
 
 export function toPublicSubtitle(subtitle: {
@@ -35,6 +41,7 @@ export function toPublicSubtitle(subtitle: {
 		format: subtitle.format,
 		type: subtitle.type === "embedded" ? "embedded" : "external",
 		streamIndex: subtitle.streamIndex,
+		extractable: isTextExtractable(subtitle),
 		isDefault: subtitle.isDefault,
 		isForced: subtitle.isForced,
 		isHearingImpaired: subtitle.isHearingImpaired,

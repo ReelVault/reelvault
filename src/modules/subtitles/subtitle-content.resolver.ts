@@ -1,6 +1,7 @@
 import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
 import { BaseService } from "@/utils/base-service";
-import { NotFoundError } from "@/utils/errors";
+import { NotFoundError, ValidationError } from "@/utils/errors";
+import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
 import type { SubtitleContentInfo } from "./subtitle-info.cache";
 
@@ -40,6 +41,13 @@ export class SubtitleContentResolver extends BaseService {
 			this.assertExists(content, "Subtitle content", id);
 
 			return content;
+		}
+
+		if (info.type === "embedded" && isBitmapSubtitleFormat(info.format)) {
+			throw new ValidationError("Image-based subtitles cannot be served as text", {
+				code: "subtitle.bitmap_unsupported",
+				params: { subtitleId: id, format: info.format },
+			});
 		}
 
 		if (info.type === "embedded" && info.mediaFilePath) {
