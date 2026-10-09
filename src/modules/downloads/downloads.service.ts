@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { file, type Subprocess } from "bun";
 import { type DownloadRow, downloadsRepository } from "@/database/repositories/downloads.repository";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
@@ -15,7 +15,7 @@ import {
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { ConflictError, errorMessage, ForbiddenError, NotFoundError, ValidationError } from "@/utils/errors";
+import { ConflictError, errorMessage, ForbiddenError, isMissingFile, NotFoundError, ValidationError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
@@ -40,6 +40,9 @@ const RETENTION_SWEEP_FIRST_DELAY_MS = 60_000;
 const RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const FILE_EXTENSION_REGEX = /\.[^.]+$/;
 const ILLEGAL_FILENAME_CHARS_REGEX = /["\\/:*?<>|]+/g;
+/** Artifact directories are named after their download id, a UUID; anything else under the root is left alone. */
+const DOWNLOAD_ID_DIRECTORY_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ORPHAN_SWEEP_BATCH_SIZE = 500;
 
 function mediaFileBaseName(sourceFileName: string): string {
 	return sourceFileName.replace(FILE_EXTENSION_REGEX, "").replace(ILLEGAL_FILENAME_CHARS_REGEX, "_").slice(0, 120) || "download";
@@ -520,6 +523,46 @@ class DownloadsService extends BaseService {
 		return { removed };
 	}
 
+	/**
+	 * Removes artifact directories whose download row is gone. A row is written before
+	 * its directory exists, so a directory without a row belongs to a row deleted
+	 * without its file, typically after a crash between the two steps.
+	 */
+	async sweepOrphanArtifacts(): Promise<{ removed: number }> {
+		const root = serverConfig.paths.downloads;
+		let candidates: string[];
+		try {
+			const entries = await readdir(root, { withFileTypes: true });
+			candidates = entries
+				.filter((entry) => entry.isDirectory() && DOWNLOAD_ID_DIRECTORY_REGEX.test(entry.name))
+				.map((entry) => entry.name);
+		} catch (error) {
+			if (isMissingFile(error)) return { removed: 0 };
+
+			throw error;
+		}
+
+		let removed = 0;
+		for (let offset = 0; offset < candidates.length; offset += ORPHAN_SWEEP_BATCH_SIZE) {
+			const batch = candidates.slice(offset, offset + ORPHAN_SWEEP_BATCH_SIZE);
+			const known = await downloadsRepository.findExistingIds(batch);
+			for (const id of batch) {
+				if (known.has(id)) continue;
+
+				try {
+					await rm(PathUtils.join(root, id), { recursive: true, force: true });
+					removed++;
+				} catch (error) {
+					this.logger.warn("Could not remove the artifacts of a deleted download", { downloadId: id, error: errorMessage(error) });
+				}
+			}
+		}
+
+		if (removed > 0) this.logger.info("Removed artifacts of deleted downloads", { removed });
+
+		return { removed };
+	}
+
 	private scheduleRetentionSweep(): void {
 		if (this.retentionTimerStarted) return;
 
@@ -529,6 +572,7 @@ class DownloadsService extends BaseService {
 				(async () => {
 					try {
 						await this.sweepExpired();
+						await this.sweepOrphanArtifacts();
 					} catch (error) {
 						this.logger.warn("Retention sweep failed", { error });
 					}

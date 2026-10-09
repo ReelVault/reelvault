@@ -93,6 +93,19 @@ const overrides = {
 		return counts;
 	},
 
+	/** The ids among `ids` that still have a download row. */
+	async findExistingIds(ids: readonly string[]): Promise<Set<string>> {
+		if (ids.length === 0) return new Set();
+
+		const rows = await databaseFactory
+			.getClient()
+			.select({ id: downloads.table.id })
+			.from(downloads.table)
+			.where(inArray(downloads.table.id, [...ids]));
+
+		return new Set(rows.map((row) => row.id));
+	},
+
 	/** Active (pending/processing) rows across profiles — the boot reconciliation source. */
 	async findByStatuses(statuses: readonly DownloadStatus[], limit = MAX_LIST_ROWS): Promise<DownloadRow[]> {
 		if (statuses.length === 0) return [];
