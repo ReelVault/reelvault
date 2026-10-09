@@ -1,5 +1,4 @@
 import { serverConfig } from "@/server.config";
-import { MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils, type ScannedFileEntry } from "@/utils/directory.utils";
@@ -12,13 +11,6 @@ interface ScanOptions {
 	maxDepth?: number | undefined;
 	signal?: AbortSignal | undefined;
 }
-
-/**
- * A path whose glob walk exceeds this is skipped for the current run: a dead
- * NFS/CIFS mount can hang `readdir` indefinitely, which would hold the scan
- * task (and its worker dedupe key) for the full 2 h worker timeout.
- */
-const DEFAULT_PATH_SCAN_TIMEOUT_MS = 2 * MINUTE;
 
 /** Applies the defaults shared by `scan` and `scanWithStats`. */
 function resolveScanOptions(options: ScanOptions): {
@@ -36,11 +28,20 @@ function resolveScanOptions(options: ScanOptions): {
 }
 
 export class FileScannerService extends BaseService {
-	private readonly pathScanTimeoutMs: number;
+	/** An explicit timeout (tests) wins; otherwise the live `scanning.pathScanTimeoutMs` setting applies. */
+	private readonly pathScanTimeoutOverride: number | undefined;
 
-	constructor(pathScanTimeoutMs: number = DEFAULT_PATH_SCAN_TIMEOUT_MS) {
+	constructor(pathScanTimeoutOverride?: number) {
 		super("FileScannerService");
-		this.pathScanTimeoutMs = pathScanTimeoutMs;
+		this.pathScanTimeoutOverride = pathScanTimeoutOverride;
+	}
+
+	/**
+	 * A path whose glob walk exceeds this is skipped for the current run: a dead NFS/CIFS mount can
+	 * hang `readdir` indefinitely, which would hold the scan task for the full worker timeout.
+	 */
+	private get pathScanTimeoutMs(): number {
+		return this.pathScanTimeoutOverride ?? serverConfig.scanning.pathScanTimeoutMs;
 	}
 
 	async scan(options: ScanOptions): Promise<string[]> {

@@ -163,6 +163,9 @@ export const serverConfig = {
 
 	/** Library Scanner & FFprobe Concurrency */
 	scanning: {
+		get pathScanTimeoutMs() {
+			return systemSettingsStore.get("scanning.pathScanTimeoutMs");
+		},
 		get autoWatcherEnabled() {
 			return systemSettingsStore.get("scanning.autoWatcherEnabled");
 		},
