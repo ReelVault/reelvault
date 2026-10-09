@@ -78,6 +78,44 @@ const overrides = {
 			.limit(limit);
 	},
 
+	/** One page of the recipient's notifications, newest first, with the total of the same filter. */
+	async findPageForRecipient({
+		userId,
+		profileId,
+		unreadOnly,
+		type,
+		limit,
+		offset,
+	}: {
+		userId: string;
+		profileId?: string | undefined;
+		unreadOnly: boolean;
+		type?: string | undefined;
+		limit: number;
+		offset: number;
+	}): Promise<{ data: Array<typeof schema.notifications.$inferSelect>; total: number }> {
+		const conditions: Array<SQL | undefined> = [recipientWhere(userId, profileId)];
+		if (unreadOnly) conditions.push(isNull(schema.notifications.readAt));
+
+		if (type) conditions.push(eq(schema.notifications.type, type));
+
+		const where = and(...conditions);
+		const client = databaseFactory.getClient();
+		const [countRows, rows] = await Promise.all([
+			client.select({ count: count() }).from(schema.notifications).where(where),
+			client
+				.select()
+				.from(schema.notifications)
+				.where(where)
+				// created_at has second resolution — the id tiebreaker keeps offset pagination stable.
+				.orderBy(desc(schema.notifications.createdAt), desc(schema.notifications.id))
+				.limit(limit)
+				.offset(offset),
+		]);
+
+		return { data: rows, total: countRows[0]?.count ?? 0 };
+	},
+
 	async countUnread(userId: string, profileId?: string): Promise<number> {
 		const recipient = recipientWhere(userId, profileId);
 		const [result] = await databaseFactory

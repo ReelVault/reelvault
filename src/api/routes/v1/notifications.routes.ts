@@ -1,6 +1,6 @@
-import { NotificationSchema } from "@reelvault/sdk/common";
+import { NotificationSchema, PaginatedResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
-import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
+import { ClampedNumeric, commonModel, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { IdParams } from "@/api/schemas/route-params";
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
@@ -26,6 +26,17 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications", tags: 
 		response: { ...ROUTE_ERRORS.AUTH, 200: t.Array(NotificationSchema) },
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve notifications for authenticated account and profile. Optional limit trims the result." },
+	})
+	.get("/page", async ({ query, user, profile }) => await notificationsService.getPage(query, user?.id, profile?.id), {
+		query: t.Composite([
+			PaginationSchema,
+			t.Object({
+				unreadOnly: t.Optional(t.BooleanString()),
+				type: t.Optional(t.String({ maxLength: 64 })),
+			}),
+		]),
+		response: { ...ROUTE_ERRORS.AUTH, 200: PaginatedResponseSchema(NotificationSchema) },
+		detail: { description: "Retrieve one page of notifications for the account and profile, filtered by read state and type." },
 	})
 	.get("/unread-count", async ({ user, profile }) => await notificationsService.getUnreadCount(user?.id, profile?.id), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: "notifications.unread-count.response" },

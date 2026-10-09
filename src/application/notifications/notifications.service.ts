@@ -1,8 +1,9 @@
-import type { CreateNotification, Notification } from "@reelvault/sdk/common";
+import type { CreateNotification, Notification, PaginatedResponse } from "@reelvault/sdk/common";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
 import { playbackRepository } from "@/database/repositories/playback.repository";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
+import { QueryPagination } from "@/database/utils/pagination";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { dispatchNotificationToChannels } from "@/plugins/runtime/notification-channel.registry";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
@@ -103,6 +104,28 @@ class NotificationsService extends BaseService {
 
 			// `limit` is optional — when omitted the repository default applies (behavior unchanged).
 			return await notificationsRepository.findForRecipient(userId, profileId, unreadOnly, limit);
+		});
+	}
+
+	/** One page of notifications, filtered by read state and type; the total counts the same filter. */
+	async getPage(
+		query: { page?: number | undefined; limit?: number | undefined; unreadOnly?: boolean | undefined; type?: string | undefined },
+		userId?: string,
+		profileId?: string,
+	): Promise<PaginatedResponse<Notification>> {
+		return await this.safeExecute("getPage", async () => {
+			this.assertUserId(userId);
+			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 25, maxLimit: 100 });
+			const result = await notificationsRepository.findPageForRecipient({
+				userId,
+				profileId,
+				unreadOnly: query.unreadOnly ?? false,
+				type: query.type,
+				limit: pagination.limit,
+				offset: pagination.offset,
+			});
+
+			return QueryPagination.createResponse({ total: result.total, pagination, data: result.data });
 		});
 	}
 

@@ -81,3 +81,30 @@ describe("notificationsService create", () => {
 		expect(getCachedResponseBody(key)).toBeUndefined();
 	});
 });
+
+describe("notificationsService.getPage", () => {
+	test("pages the recipient's notifications with the filters and the total of the same filter", async () => {
+		const page = stubMethod(notificationsRepository, "findPageForRecipient", () => Promise.resolve({ data: [], total: 42 }));
+		stubs.push(page);
+
+		const result = await notificationsService.getPage(
+			{ page: 3, limit: 10, unreadOnly: true, type: "subtitle_ready" },
+			"user-1",
+			"profile-1",
+		);
+
+		expect(page.calls).toEqual([
+			[{ userId: "user-1", profileId: "profile-1", unreadOnly: true, type: "subtitle_ready", limit: 10, offset: 20 }],
+		]);
+		expect(result).toMatchObject({ page: 3, limit: 10, total: 42, totalPages: 5, data: [] });
+	});
+
+	test("defaults to the first page of 25 unfiltered notifications", async () => {
+		const page = stubMethod(notificationsRepository, "findPageForRecipient", () => Promise.resolve({ data: [], total: 0 }));
+		stubs.push(page);
+
+		await notificationsService.getPage({}, "user-1");
+
+		expect(page.calls).toEqual([[{ userId: "user-1", profileId: undefined, unreadOnly: false, type: undefined, limit: 25, offset: 0 }]]);
+	});
+});
