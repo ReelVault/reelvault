@@ -207,6 +207,48 @@ describe("admin audit redaction", () => {
 		factory.shutdown();
 	});
 
+	test("searches by resource id and summary, treating % as literal text", async () => {
+		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
+		const factory = new DatabaseFactory(path);
+		factory.getClient().run(
+			sql.raw(`
+				CREATE TABLE admin_audit_logs (
+					id TEXT PRIMARY KEY,
+					actor_user_id TEXT,
+					action TEXT NOT NULL,
+					resource_type TEXT NOT NULL,
+					resource_id TEXT,
+					resource_name TEXT,
+					summary TEXT,
+					before_json TEXT,
+					after_json TEXT,
+					request_id TEXT,
+					ip_address TEXT,
+					user_agent TEXT,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				)
+			`),
+		);
+		const repository = new AdminAuditRepository(factory);
+
+		await repository.insert({ action: "update", resourceType: "library", resourceId: "lib-kids", summary: "Renamed library" });
+		await repository.insert({ action: "delete", resourceType: "metadata", resourceId: "meta-42", summary: "Removed 100% of the cache" });
+		await repository.insert({ action: "create", resourceType: "user", resourceId: "user-7", summary: "Created account" });
+
+		const byResourceId = await repository.findMany({ page: 1, limit: 10, q: "LIB-KIDS" });
+		expect(byResourceId.data.map((entry) => entry.resourceId)).toEqual(["lib-kids"]);
+
+		const bySummary = await repository.findMany({ page: 1, limit: 10, q: "cache" });
+		expect(bySummary.total).toBe(1);
+
+		// A bare percent sign must not match every row.
+		const literalPercent = await repository.findMany({ page: 1, limit: 10, q: "%" });
+		expect(literalPercent.total).toBe(1);
+		factory.shutdown();
+	});
+
 	test("prunes audit rows older than the cutoff", async () => {
 		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);

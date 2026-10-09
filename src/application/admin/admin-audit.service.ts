@@ -3,13 +3,46 @@ import {
 	type AdminAuditContext,
 	type AdminAuditQuery,
 	type AdminAuditRecord,
+	type AdminAuditRepository,
 	adminAuditRepository,
 } from "@/database/repositories/admin-audit.repository";
 import { QueryPagination } from "@/database/utils/pagination";
 import { BaseService } from "@/utils/base-service";
-import { NotFoundError } from "@/utils/errors";
+import { toCsvLine } from "@/utils/csv.utils";
+import { NotFoundError, ValidationError } from "@/utils/errors";
 import { safeParseJson } from "@/utils/file.utils";
 import { detach } from "@/utils/promise.utils";
+
+/** Largest audit export; a wider one is refused, so an export never silently drops entries. */
+export const AUDIT_EXPORT_MAX_ENTRIES = 10_000;
+
+const AUDIT_CSV_HEADER =
+	"id,createdAt,actorUserId,action,resourceType,resourceId,resourceName,summary,requestId,ipAddress,userAgent,before,after";
+
+type AdminAuditRow = Awaited<ReturnType<AdminAuditRepository["findMany"]>>["data"][number];
+
+function toAuditEntry(entry: AdminAuditRow): AdminAuditEntry {
+	return {
+		id: entry.id,
+		actorUserId: entry.actorUserId,
+		action: entry.action,
+		resourceType: entry.resourceType,
+		resourceId: entry.resourceId,
+		resourceName: entry.resourceName,
+		summary: entry.summary,
+		before: safeParseJson(entry.beforeJson),
+		after: safeParseJson(entry.afterJson),
+		requestId: entry.requestId,
+		ipAddress: entry.ipAddress,
+		userAgent: entry.userAgent,
+		createdAt: entry.createdAt.toISOString(),
+	} satisfies AdminAuditEntry;
+}
+
+/** A snapshot cell: JSON text, or empty when the entry has none. */
+function jsonCell(value: unknown): string {
+	return value === undefined || value === null ? "" : JSON.stringify(value);
+}
 
 class AdminAuditService extends BaseService {
 	constructor() {
@@ -27,25 +60,54 @@ class AdminAuditService extends BaseService {
 
 			return {
 				...QueryPagination.buildAdminPagination({ total: result.total, page: pagination.page, limit: pagination.limit }),
-				data: result.data.map(
-					(entry) =>
-						({
-							id: entry.id,
-							actorUserId: entry.actorUserId,
-							action: entry.action,
-							resourceType: entry.resourceType,
-							resourceId: entry.resourceId,
-							resourceName: entry.resourceName,
-							summary: entry.summary,
-							before: safeParseJson(entry.beforeJson),
-							after: safeParseJson(entry.afterJson),
-							requestId: entry.requestId,
-							ipAddress: entry.ipAddress,
-							userAgent: entry.userAgent,
-							createdAt: entry.createdAt.toISOString(),
-						}) satisfies AdminAuditEntry,
-				),
+				data: result.data.map(toAuditEntry),
 			};
+		});
+	}
+
+	/** The entries matching the filters, as CSV or JSON Lines; an export past the cap is refused. */
+	exportEntries(query: AdminAuditQuery & { format?: "csv" | "jsonl" | undefined }) {
+		return this.safeExecute("exportEntries", async () => {
+			const { format = "csv", ...filters } = query;
+			const result = await adminAuditRepository.findMany({ ...filters, page: 1, limit: AUDIT_EXPORT_MAX_ENTRIES + 1 });
+			if (result.data.length > AUDIT_EXPORT_MAX_ENTRIES) {
+				throw new ValidationError(`The audit export holds at most ${AUDIT_EXPORT_MAX_ENTRIES} entries; narrow the filters`, {
+					code: "admin.audit.export_too_large",
+					params: { limit: AUDIT_EXPORT_MAX_ENTRIES },
+				});
+			}
+
+			const entries = result.data.map(toAuditEntry);
+			const filename = `audit-${new Date().toISOString().slice(0, 10)}.${format}`;
+			if (format === "jsonl") {
+				const lines = entries.map((entry) => JSON.stringify(entry));
+
+				return {
+					body: lines.length > 0 ? `${lines.join("\n")}\n` : "",
+					contentType: "application/x-ndjson; charset=utf-8",
+					filename,
+				};
+			}
+
+			const rows = entries.map((entry) =>
+				toCsvLine([
+					entry.id,
+					entry.createdAt,
+					entry.actorUserId,
+					entry.action,
+					entry.resourceType,
+					entry.resourceId,
+					entry.resourceName,
+					entry.summary,
+					entry.requestId,
+					entry.ipAddress,
+					entry.userAgent,
+					jsonCell(entry.before),
+					jsonCell(entry.after),
+				]),
+			);
+
+			return { body: `${[AUDIT_CSV_HEADER, ...rows].join("\n")}\n`, contentType: "text/csv; charset=utf-8", filename };
 		});
 	}
 }

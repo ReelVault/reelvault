@@ -25,6 +25,18 @@ import { InternalError } from "@/utils/errors";
 import { RefreshMetadataSchema } from "./admin.schema";
 import { adminShell } from "./admin-shell";
 
+/** Audit filters shared by the list and the export. */
+const AuditFilterFields = {
+	action: t.Optional(t.Union([t.Literal("create"), t.Literal("update"), t.Literal("delete")])),
+	resourceType: t.Optional(t.String({ maxLength: 100 })),
+	actorUserId: t.Optional(t.String({ maxLength: 128 })),
+	ipAddress: t.Optional(t.String({ maxLength: 45 })),
+	requestId: t.Optional(t.String({ maxLength: 128 })),
+	q: t.Optional(t.String({ maxLength: 200 })),
+	from: t.Optional(t.String({ format: "date-time" })),
+	to: t.Optional(t.String({ format: "date-time" })),
+};
+
 export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.refreshMetadata": RefreshMetadataSchema,
@@ -140,18 +152,37 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		query: t.Object({
 			page: t.Optional(t.Numeric({ minimum: 1 })),
 			limit: t.Optional(ClampedNumeric(1, 100)),
-			action: t.Optional(t.Union([t.Literal("create"), t.Literal("update"), t.Literal("delete")])),
-			resourceType: t.Optional(t.String({ maxLength: 100 })),
-			actorUserId: t.Optional(t.String({ maxLength: 128 })),
-			ipAddress: t.Optional(t.String({ maxLength: 45 })),
-			requestId: t.Optional(t.String({ maxLength: 128 })),
-			from: t.Optional(t.String({ format: "date-time" })),
-			to: t.Optional(t.String({ format: "date-time" })),
+			...AuditFilterFields,
 		}),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.audit" },
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve administrator audit events with pagination and resource filters." },
 	})
+	.get(
+		"/audit/export",
+		async ({ query }) => {
+			const exported = await adminAuditService.exportEntries(query);
+
+			return new Response(exported.body, {
+				headers: {
+					"content-type": exported.contentType,
+					"content-disposition": `attachment; filename="${exported.filename}"`,
+				},
+			});
+		},
+		{
+			rateLimit: { name: "admin-audit-export", max: 10, windowMs: MINUTE },
+			query: t.Object({
+				...AuditFilterFields,
+				format: t.Optional(t.Union([t.Literal("csv"), t.Literal("jsonl")])),
+			}),
+			// Attachment download: the handler returns a Response, not JSON.
+			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
+			detail: {
+				description: "Download the audit entries matching the filters as CSV or JSON Lines, up to 10 000 entries.",
+			},
+		},
+	)
 	.delete(
 		"/metadata/orphans",
 		async ({ user, request }) => {

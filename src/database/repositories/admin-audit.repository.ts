@@ -1,8 +1,9 @@
-import { and, desc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, or, type SQL, sql } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
+import { QueryFiltering } from "@/database/utils/filtering";
 import { CLIENT_IP_HEADER } from "@/utils/client-ip.utils";
 
 const sensitiveKeyRegex = /(password|pin|token|secret|refresh.?token|access.?token|id.?token)/i;
@@ -35,6 +36,8 @@ export interface AdminAuditQuery {
 	actorUserId?: string | undefined;
 	ipAddress?: string | undefined;
 	requestId?: string | undefined;
+	/** One term matched against the resource id and the summary. */
+	q?: string | undefined;
 	from?: string | undefined;
 	to?: string | undefined;
 }
@@ -75,6 +78,7 @@ export class AdminAuditRepository {
 		actorUserId,
 		ipAddress,
 		requestId,
+		q,
 		from,
 		to,
 	}: AdminAuditQuery & { page: number; limit: number }) {
@@ -88,6 +92,10 @@ export class AdminAuditRepository {
 		if (ipAddress) where.push(eq(this.table.ipAddress, ipAddress));
 
 		if (requestId) where.push(eq(this.table.requestId, requestId));
+
+		if (q) {
+			where.push(or(QueryFiltering.like(this.table.resourceId, q), QueryFiltering.like(this.table.summary, q)) ?? sql`1 = 0`);
+		}
 
 		if (from) where.push(gte(this.table.createdAt, new Date(from)));
 
@@ -105,7 +113,7 @@ export class AdminAuditRepository {
 				.offset((page - 1) * limit),
 			cachedCount(
 				"admin_audit_logs",
-				{ action, resourceType, actorUserId, ipAddress, requestId, from, to },
+				{ action, resourceType, actorUserId, ipAddress, requestId, q, from, to },
 				async () => await this.database.getClient().$count(this.table, condition),
 			),
 		]);

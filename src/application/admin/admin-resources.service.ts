@@ -5,6 +5,7 @@ import { resourceAllocator } from "@/system/resource-allocator";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
+import { toCsvLine } from "@/utils/csv.utils";
 import { serializeDate } from "@/utils/time.utils";
 
 const ALLOCATION_WORKER_IDS = [
@@ -21,15 +22,6 @@ export const RESOURCE_HISTORY_MAX_HOURS = 168;
 const DEFAULT_RESOURCE_HOURS = 24;
 
 const CSV_HEADER = "timestamp,cpuPercent,memoryPercent,diskPercent,pressure,activeWorkers";
-
-/** Quotes a CSV cell when it holds a separator, a quote or a line break. */
-const CSV_SPECIAL_CHARACTERS = /[",\n\r]/;
-
-function csvCell(value: string | number | boolean | null | undefined): string {
-	const text = String(value ?? "");
-
-	return CSV_SPECIAL_CHARACTERS.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
 
 class AdminResourcesService extends BaseService {
 	constructor() {
@@ -90,11 +82,7 @@ class AdminResourcesService extends BaseService {
 				return { body: JSON.stringify(rows, null, 2), contentType: "application/json", filename };
 			}
 
-			const lines = rows.map((row) =>
-				Object.values(row)
-					.map((cell) => csvCell(cell))
-					.join(","),
-			);
+			const lines = rows.map((row) => toCsvLine(Object.values(row)));
 
 			return { body: `${[CSV_HEADER, ...lines].join("\n")}\n`, contentType: "text/csv; charset=utf-8", filename };
 		});
