@@ -382,6 +382,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Filtered admin marker list** — `GET /media-files/markers` takes `type`, `source` and `q` (matched against the label, file id, plugin id and type) next to `limit`; the filters run in the database query, so the admin markers page no longer loads every marker to filter it in the browser.
 
 - **Plugin registration limits** — a plugin may register at most 64 HTTP routes, 32 jobs, 32 scheduled tasks and 128 metadata providers, subtitle providers or media analyzers. Past a cap the plugin's load fails with a `plugin.registration_limit.*` code instead of growing the route table or job queue without bound.
+- **Two-factor API responses are documented** — the disable, sign-in verification (authenticator and backup code) and backup-code endpoints document their success responses, including the session token and user returned on sign-in.
 
 ### Fixes
 
