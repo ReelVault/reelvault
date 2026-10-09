@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { adminAuditService } from "@/application/admin/admin-audit.service";
 import { libraryWatcherService } from "@/application/libraries/watching/library-watcher.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { systemSettingsRepository } from "@/database/repositories/system-settings.repository";
@@ -124,5 +125,26 @@ describe("systemSettingsService watcher side effects", () => {
 		await systemSettingsService.updateSettings({ "scanning.watcherFallbackIntervalMinutes": 45 });
 
 		expect(syncWatchers.calls.length).toBe(1);
+	});
+});
+
+describe("systemSettingsService audit trail", () => {
+	test("the update entry carries the resulting values, not an empty object", async () => {
+		stubSettingsPersistence();
+		const recorded: unknown[] = [];
+		stubs.push(
+			stubMethod(adminAuditService, "record", (entry: unknown) => {
+				recorded.push(entry);
+
+				return Promise.resolve();
+			}),
+		);
+
+		await systemSettingsService.updateSettings({ "stream.maxSessions": 8 });
+		// recordAuditSafe detaches its write — one macrotask flushes the microtask chain.
+		await Bun.sleep(0);
+
+		expect(recorded).toHaveLength(1);
+		expect(recorded[0]).toMatchObject({ after: { "stream.maxSessions": 8 } });
 	});
 });

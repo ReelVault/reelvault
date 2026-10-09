@@ -189,7 +189,8 @@ class SystemSettingsService extends BaseService {
 					resourceType: "system_settings",
 					resourceId: "system",
 					before: beforeValues,
-					after: afterValues,
+					// A Map serializes to `{}` — the audit trail must carry real values.
+					after: Object.fromEntries(afterValues),
 					context: {
 						actorUserId: context?.actorUserId,
 						headers: context?.headers,
