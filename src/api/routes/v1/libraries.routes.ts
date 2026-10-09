@@ -78,10 +78,10 @@ export const librariesRoutes = new Elysia({
 	)
 	.get(
 		"/:libraryId",
-		async ({ params, query }) => await librariesService.getById(params.libraryId, query, { siblings: query.siblings === "true" }),
+		async ({ params, query }) => await librariesService.getById(params.libraryId, query, { siblings: query.siblings === true }),
 		{
 			params: LibraryIdParams,
-			query: t.Composite([t.Object({ siblings: t.Optional(t.String()) }), t.Object({ fields: t.Optional(t.String()) })]),
+			query: t.Composite([t.Object({ siblings: t.Optional(t.BooleanString()) }), t.Object({ fields: t.Optional(t.String()) })]),
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "library.schema" },
 			...cached({ maxAge: 15, private: true }),
 			detail: {

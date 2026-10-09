@@ -45,6 +45,10 @@ import { cached } from "@/middleware/response-cache.middleware";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
 import { trimAndFilter } from "@/utils/array.utils";
+import { ValidationError } from "@/utils/errors";
+
+/** The website checks at most this many titles per batch; a longer list is refused rather than scanned. */
+const WATCHLIST_STATUS_MAX_IDS = 500;
 
 export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playback"] })
 	.use(commonModel)
@@ -215,11 +219,17 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		"/watchlist/statuses",
 		async ({ query, profile }) => {
 			const metadataIds = trimAndFilter(query.ids.split(","));
+			if (metadataIds.length > WATCHLIST_STATUS_MAX_IDS) {
+				throw new ValidationError("Too many titles in one status request", {
+					code: "watchlist.statuses_too_many",
+					params: { limit: WATCHLIST_STATUS_MAX_IDS },
+				});
+			}
 
 			return await watchlistService.getStatuses(metadataIds, profile?.id);
 		},
 		{
-			query: t.Object({ ids: t.String() }),
+			query: t.Object({ ids: t.String({ maxLength: WATCHLIST_STATUS_MAX_IDS * 80 }) }),
 			response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.statuses.response" },
 			...cached({ maxAge: 10, private: true }),
 			detail: { description: "Batch check which titles are in the watchlist for the active profile." },

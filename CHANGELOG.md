@@ -383,6 +383,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 - **Plugin registration limits** — a plugin may register at most 64 HTTP routes, 32 jobs, 32 scheduled tasks and 128 metadata providers, subtitle providers or media analyzers. Past a cap the plugin's load fails with a `plugin.registration_limit.*` code instead of growing the route table or job queue without bound.
 - **Two-factor API responses are documented** — the disable, sign-in verification (authenticator and backup code) and backup-code endpoints document their success responses, including the session token and user returned on sign-in.
+- **Bounded watchlist status requests and boolean library siblings** — `GET /me/watchlist/statuses` refuses more than 500 titles per request (`watchlist.statuses_too_many`) and caps the query length; `siblings` on the library endpoint is a boolean query value (`true` / `false`).
 
 ### Fixes
 
