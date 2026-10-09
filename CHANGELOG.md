@@ -381,6 +381,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Seek debounce is a setting** — `stream.seekDebounceMs` (0–2000 ms, default 300) sets how long the stream waits after the last seek before it jumps. It applies at runtime.
 - **Filtered admin marker list** — `GET /media-files/markers` takes `type`, `source` and `q` (matched against the label, file id, plugin id and type) next to `limit`; the filters run in the database query, so the admin markers page no longer loads every marker to filter it in the browser.
 
+- **Plugin registration limits** — a plugin may register at most 64 HTTP routes, 32 jobs, 32 scheduled tasks and 128 metadata providers, subtitle providers or media analyzers. Past a cap the plugin's load fails with a `plugin.registration_limit.*` code instead of growing the route table or job queue without bound.
 
 ### Fixes
 

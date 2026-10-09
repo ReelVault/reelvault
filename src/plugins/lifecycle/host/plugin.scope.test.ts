@@ -1,6 +1,19 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { MetadataProvider, SubtitleProvider } from "@reelvault/sdk/plugin";
+import { serverConfig } from "@/server.config";
+import { ValidationError } from "@/utils/errors";
 import { PluginScope } from "./plugin.scope";
+
+/** The registration-limit code thrown by `register`, or undefined when it succeeds. */
+function limitCodeOf(register: () => void): string | undefined {
+	try {
+		register();
+	} catch (error) {
+		return error instanceof ValidationError ? error.code : undefined;
+	}
+
+	return undefined;
+}
 
 function createProvider(id: string): MetadataProvider {
 	return {
@@ -88,6 +101,40 @@ describe("PluginScope", () => {
 		expect(() => scope.addHttpRoute({ method: "GET", path: "/items", handler: async () => ({ body: null }) })).toThrow(
 			"GET /items is registered more than once",
 		);
+	});
+
+	test("caps routes, jobs and scheduled tasks per plugin with a registration-limit code", () => {
+		const limits = serverConfig.plugins.registration;
+
+		for (let index = 0; index < limits.maxHttpRoutes; index++) {
+			scope.addHttpRoute({ method: "GET", path: `/items/${index}`, handler: async () => ({ body: null }) });
+		}
+		expect(limitCodeOf(() => scope.addHttpRoute({ method: "GET", path: "/one-too-many", handler: async () => ({ body: null }) }))).toBe(
+			"plugin.registration_limit.routes",
+		);
+
+		for (let index = 0; index < limits.maxJobs; index++) {
+			scope.addJob({ name: `job-${index}`, handler: () => undefined });
+		}
+		expect(limitCodeOf(() => scope.addJob({ name: "one-too-many", handler: () => undefined }))).toBe("plugin.registration_limit.jobs");
+
+		for (let index = 0; index < limits.maxScheduledTasks; index++) {
+			scope.addScheduledTask({ id: `task-${index}`, name: "x", description: "x", defaultTriggers: [], run: async () => undefined });
+		}
+		expect(
+			limitCodeOf(() =>
+				scope.addScheduledTask({ id: "one-too-many", name: "x", description: "x", defaultTriggers: [], run: async () => undefined }),
+			),
+		).toBe("plugin.registration_limit.scheduled_tasks");
+	});
+
+	test("caps metadata providers per plugin", () => {
+		const limits = serverConfig.plugins.registration;
+
+		for (let index = 0; index < limits.maxHandlers; index++) {
+			scope.addProvider(createProvider(`provider-${index}`));
+		}
+		expect(limitCodeOf(() => scope.addProvider(createProvider("one-too-many")))).toBe("plugin.registration_limit.providers");
 	});
 
 	test("enqueueJob rejects names that were never registered", async () => {

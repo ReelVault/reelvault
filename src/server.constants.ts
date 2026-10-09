@@ -243,6 +243,15 @@ export const serverConstants = {
 		notifications: {
 			maxPerDayPerPlugin: 100,
 		},
+		// Per-plugin caps on what one plugin may register while it loads. A runaway plugin
+		// fails with a registration-limit code instead of growing the route table, job
+		// queue or handler maps without bound.
+		registration: {
+			maxHttpRoutes: 64,
+			maxJobs: 32,
+			maxScheduledTasks: 32,
+			maxHandlers: 128,
+		},
 		lifecycle: {
 			loadTimeoutMs: MINUTE,
 			loadConcurrency: 4,

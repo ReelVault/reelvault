@@ -100,15 +100,37 @@ export class PluginScope {
 		assertDeclaredPluginCapabilities(declaredCapabilities, this.usedCapabilities);
 	}
 
+	/** Refuses one more registration once the plugin reaches its cap; the code names the kind of entry for the admin. */
+	private assertUnderLimit(code: string, registered: number, limit: number): void {
+		if (registered < limit) return;
+
+		throw new ValidationError(`Plugin registration limit of ${limit} reached (${code})`, { code, params: { limit } });
+	}
+
 	addProvider(provider: MetadataProvider): void {
+		this.assertUnderLimit(
+			"plugin.registration_limit.providers",
+			this.providers.getAll().length,
+			serverConfig.plugins.registration.maxHandlers,
+		);
 		this.providers.register(undefined, [provider]);
 	}
 
 	addSubtitleProvider(provider: SubtitleProvider): void {
+		this.assertUnderLimit(
+			"plugin.registration_limit.subtitle_providers",
+			this.subtitleProviders.getAll().length,
+			serverConfig.plugins.registration.maxHandlers,
+		);
 		this.subtitleProviders.register(undefined, [provider]);
 	}
 
 	addAnalyzer(analyzer: MediaAnalyzer): void {
+		this.assertUnderLimit(
+			"plugin.registration_limit.analyzers",
+			this.analyzers.getAll().length,
+			serverConfig.plugins.registration.maxHandlers,
+		);
 		this.analyzers.register(undefined, [analyzer]);
 	}
 
@@ -119,6 +141,11 @@ export class PluginScope {
 			throw new ValidationError("Plugin scheduled task must have id and name");
 		}
 
+		this.assertUnderLimit(
+			"plugin.registration_limit.scheduled_tasks",
+			this.scheduledTasks.length,
+			serverConfig.plugins.registration.maxScheduledTasks,
+		);
 		this.scheduledTasks.push(task);
 	}
 
@@ -132,6 +159,7 @@ export class PluginScope {
 			throw new ValidationError(`Plugin job ${job.name} is registered more than once`);
 		}
 
+		this.assertUnderLimit("plugin.registration_limit.jobs", this.jobs.length, serverConfig.plugins.registration.maxJobs);
 		this.jobs.push(job);
 		this.jobNames.add(job.name);
 	}
@@ -142,6 +170,7 @@ export class PluginScope {
 			throw new ValidationError(`Plugin HTTP route ${route.method} ${route.path} is registered more than once`);
 		}
 
+		this.assertUnderLimit("plugin.registration_limit.routes", this.httpRoutes.length, serverConfig.plugins.registration.maxHttpRoutes);
 		this.httpRoutes.push(route);
 		this.routeKeys.add(routeKey);
 	}
