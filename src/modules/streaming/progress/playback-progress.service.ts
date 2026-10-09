@@ -42,7 +42,7 @@ export type PlaybackProgressRepo = Pick<
 >;
 
 export type WatchedHistoryRepo = Pick<typeof defaultWatchedHistoryRepository, "sync">;
-export type WatchlistRepo = Pick<typeof defaultWatchlistRepository, "findWatchlistedIds">;
+export type WatchlistRepo = Pick<typeof defaultWatchlistRepository, "findWatchlistedIds" | "remove">;
 
 /** Hard cap for the batch smart-play endpoint (guards giant query strings). */
 const MAX_BATCH_IDS = 50;
@@ -50,7 +50,7 @@ const MAX_BATCH_IDS = 50;
 export type ProfileStreamPrefsRepo = Pick<typeof defaultProfileStreamPrefsRepository, "upsert" | "find" | "findByMediaFile">;
 
 export interface ProfilePreferencesRepo {
-	getEffective(input: { profileId: string }): Promise<{ continueWatchingMinutes: number }>;
+	getEffective(input: { profileId: string }): Promise<{ continueWatchingMinutes: number; watchlistAutoRemoveWatched: boolean }>;
 }
 
 export interface PlaybackProgressPublisherDependency {
@@ -120,6 +120,7 @@ class PlaybackProgressService extends BaseService {
 					durationWatched: position,
 					isFullWatch: true,
 				});
+				await this.removeWatchedTitleFromWatchlist(profileId, mediaFile.metadataId);
 				// A finished title changes recommendations, insights and "wrapped" — their caches are per profile.
 				invalidateProfileCaches(profileId);
 			}
@@ -162,6 +163,19 @@ class PlaybackProgressService extends BaseService {
 
 			return resolved.prefs;
 		});
+	}
+
+	/** Takes a title off the watchlist once it is watched, when the profile has asked for that. */
+	private async removeWatchedTitleFromWatchlist(profileId: string, metadataId: string): Promise<void> {
+		const { profilePreferencesRepository, watchlistRepository } = this.dependencies;
+		const preferences = await profilePreferencesRepository.getEffective({ profileId });
+		if (!preferences.watchlistAutoRemoveWatched) return;
+
+		const progress = await this.getPlaybackProgress(metadataId, profileId);
+		if (progress.status !== "watched") return;
+
+		await watchlistRepository.remove(profileId, metadataId);
+		invalidateProfileResponseBodies(profileId);
 	}
 
 	async dismissContinueWatching(metadataId: string, profileId?: string): Promise<{ success: true }> {

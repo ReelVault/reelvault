@@ -30,6 +30,10 @@ export const PROFILES_SETTINGS_DEFINITIONS = {
 	"profiles.defaultPreferences.preferHearingImpaired": creator.boolean("profiles.defaultPreferences.preferHearingImpaired", false),
 	"profiles.defaultPreferences.continueWatchingMinutes": creator.number("profiles.defaultPreferences.continueWatchingMinutes", 0, 240, 2),
 	"profiles.defaultPreferences.resumeRewindSeconds": creator.number("profiles.defaultPreferences.resumeRewindSeconds", 0, 30, 0),
+	"profiles.defaultPreferences.watchlistAutoRemoveWatched": creator.boolean(
+		"profiles.defaultPreferences.watchlistAutoRemoveWatched",
+		false,
+	),
 	"profiles.defaultPreferences.subtitleSize": creator.enum(
 		"profiles.defaultPreferences.subtitleSize",
 		[...SUBTITLE_SIZE_OPTIONS],

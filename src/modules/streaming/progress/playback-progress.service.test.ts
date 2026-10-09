@@ -15,6 +15,7 @@ type ContinueWatchingRepoData = Awaited<ReturnType<PlaybackProgressRepo["findCon
 type SmartPlayBatchEntries = Awaited<ReturnType<PlaybackProgressRepo["findSmartPlayBatchData"]>>;
 
 interface TestHarness {
+	watchlistRemovals: string[];
 	service: PlaybackProgressService;
 	upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]>;
 	watchedSyncs: Array<Parameters<WatchedHistoryRepo["sync"]>[0]>;
@@ -36,12 +37,14 @@ function createService(
 		smartPlayBatchData?: SmartPlayBatchEntries;
 		smartPlayBatchFails?: boolean;
 		unknownFileIds?: string[];
+		autoRemoveWatched?: boolean;
 	} = {},
 ): TestHarness {
 	const upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]> = [];
 	const watchedSyncs: Array<Parameters<WatchedHistoryRepo["sync"]>[0]> = [];
 	const published: PlaybackProgressUpdateEvent[] = [];
 	const resets = { file: [] as string[], metadata: [] as string[], dismissed: [] as string[], bulk: [] as string[] };
+	const watchlistRemovals: string[] = [];
 	const continueWatchingData: ContinueWatchingRepoData = options.continueWatchingData ?? {
 		progressRows: [],
 		metadataList: [],
@@ -152,6 +155,11 @@ function createService(
 	};
 	const watchlistRepository: WatchlistRepo = {
 		findWatchlistedIds: () => Promise.resolve(new Set(options.watchlistedIds ?? [])),
+		remove: (profileId: string, metadataId: string) => {
+			watchlistRemovals.push(`${profileId}:${metadataId}`);
+
+			return Promise.resolve();
+		},
 	};
 
 	const service = new PlaybackProgressService({
@@ -159,11 +167,13 @@ function createService(
 		playbackRepository,
 		watchedHistoryRepository,
 		profileStreamPrefsRepository,
-		profilePreferencesRepository: { getEffective: () => Promise.resolve({ continueWatchingMinutes: 2 }) },
+		profilePreferencesRepository: {
+			getEffective: () => Promise.resolve({ continueWatchingMinutes: 2, watchlistAutoRemoveWatched: options.autoRemoveWatched ?? false }),
+		},
 		publisher,
 	});
 
-	return { service, upserts, watchedSyncs, published, resets, continueWatchingData, prefsUpserts };
+	return { service, upserts, watchedSyncs, published, resets, continueWatchingData, prefsUpserts, watchlistRemovals };
 }
 
 describe("playback progress service", () => {
@@ -265,6 +275,33 @@ describe("playback progress service", () => {
 			"entity.not_found",
 		);
 		expect(resets.bulk).toEqual([]);
+	});
+
+	test("finishing a title takes it off the watchlist when the profile asked for that", async () => {
+		const { service, watchlistRemovals } = createService({ autoRemoveWatched: true });
+		stubMethod(service, "getPlaybackProgress", () => Promise.resolve({ status: "watched" }));
+
+		await service.updatePlaybackProgress("file-1", { position: 1000 }, "profile-1");
+
+		expect(watchlistRemovals).toEqual(["profile-1:meta-1"]);
+	});
+
+	test("keeps the watchlist when the profile has not asked for removal", async () => {
+		const { service, watchlistRemovals } = createService();
+		stubMethod(service, "getPlaybackProgress", () => Promise.resolve({ status: "watched" }));
+
+		await service.updatePlaybackProgress("file-1", { position: 1000 }, "profile-1");
+
+		expect(watchlistRemovals).toEqual([]);
+	});
+
+	test("keeps a title that is not watched yet, even with removal on", async () => {
+		const { service, watchlistRemovals } = createService({ autoRemoveWatched: true });
+		stubMethod(service, "getPlaybackProgress", () => Promise.resolve({ status: "in_progress" }));
+
+		await service.updatePlaybackProgress("file-1", { position: 1000 }, "profile-1");
+
+		expect(watchlistRemovals).toEqual([]);
 	});
 
 	test("getContinueWatching feeds repository data into the builder", async () => {
