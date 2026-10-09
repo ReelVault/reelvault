@@ -24,6 +24,7 @@ export const PROFILE_PREFERENCE_DEFINITIONS = {
 	subtitleLanguage: codecs.nullableString(),
 	subtitleFallbackLanguages: codecs.nullableString(),
 	mutedNotificationTypes: codecs.string(),
+	hiddenPages: codecs.string(),
 	subtitlesEnabled: booleanCodec,
 	forcedSubtitlesOnly: booleanCodec,
 	autoForcedSubtitles: booleanCodec,

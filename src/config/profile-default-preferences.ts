@@ -22,6 +22,7 @@ export function profileDefaultPreferences(): ProfilePreferenceDefaults {
 		watchlistAutoRemoveWatched: systemSettingsStore.get("profiles.defaultPreferences.watchlistAutoRemoveWatched"),
 		hideRatingOverlay: false,
 		mutedNotificationTypes: "",
+		hiddenPages: "",
 		subtitleSize: systemSettingsStore.get("profiles.defaultPreferences.subtitleSize"),
 		subtitlePosition: systemSettingsStore.get("profiles.defaultPreferences.subtitlePosition"),
 		subtitleColor: systemSettingsStore.get("profiles.defaultPreferences.subtitleColor"),

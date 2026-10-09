@@ -458,6 +458,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Bulk subtitle delete** — `POST /subtitles/bulk-delete` removes up to 200 subtitles (admin). Each id reports its own outcome, so one failure does not stop the others.
 - **Copy a profile's preferences** — `POST /profiles/:id/preferences/copy` with `{ sourceProfileId }` replaces the profile's preference overrides with a copy of another profile's; both profiles must belong to the same account. `POST /profiles` also accepts `copyPreferencesFromProfileId`, so a new profile can start from an existing one.
 - **Mute notification types per profile** — the profile preference `mutedNotificationTypes` (comma-separated) leaves the muted types out of the profile's notification list, page and unread count, and sends no live alert for them. It is one more profile preference, so no migration is needed.
+- **Hidden menu pages per profile** — the profile preference `hiddenPages` (comma-separated ids: `collections`, `discovery`, `insights`, `devices`, `remote`) is stored and returned with the other preferences; it is empty by default. It is one more profile preference, so no migration is needed.
 
 ### Fixes
 
