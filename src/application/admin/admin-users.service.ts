@@ -40,11 +40,19 @@ class AdminUsersService extends BaseService {
 		super("AdminUsersService");
 	}
 
-	async getAll(query: { search?: string; page?: number; limit?: number }): Promise<AdminUsersPage> {
+	async getAll(query: {
+		search?: string;
+		role?: "admin" | "user" | undefined;
+		status?: "active" | "blocked" | undefined;
+		page?: number;
+		limit?: number;
+	}): Promise<AdminUsersPage> {
 		return await this.safeExecute("getAll", async () => {
 			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 25 });
 			const { total, data } = await usersRepository.findForAdministration({
 				search: query.search?.trim(),
+				role: query.role,
+				banned: query.status === undefined ? undefined : query.status === "blocked",
 				limit: pagination.limit,
 				offset: pagination.offset,
 			});

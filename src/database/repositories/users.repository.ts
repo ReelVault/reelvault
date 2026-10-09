@@ -17,8 +17,24 @@ const overrides = {
 		return await getUsersRepository().selectFirst({ where: eq(users.table.id, userId) });
 	},
 
-	async findForAdministration({ search, limit, offset }: { search?: string | undefined; limit: number; offset: number }) {
-		const where = search ? or(QueryFiltering.like(users.table.name, search), QueryFiltering.like(users.table.email, search)) : undefined;
+	async findForAdministration({
+		search,
+		role,
+		banned,
+		limit,
+		offset,
+	}: {
+		search?: string | undefined;
+		role?: "admin" | "user" | undefined;
+		banned?: boolean | undefined;
+		limit: number;
+		offset: number;
+	}) {
+		const where = and(
+			search ? or(QueryFiltering.like(users.table.name, search), QueryFiltering.like(users.table.email, search)) : undefined,
+			role ? eq(users.table.role, role) : undefined,
+			banned === undefined ? undefined : eq(users.table.banned, banned),
+		);
 		const [total, data] = await Promise.all([
 			getUsersRepository().count({ where }),
 			getUsersRepository().selectMany({ where, orderBy: desc(users.table.createdAt), limit, offset }),
