@@ -20,6 +20,7 @@ export function profileDefaultPreferences(): ProfilePreferenceDefaults {
 		continueWatchingMinutes: systemSettingsStore.get("profiles.defaultPreferences.continueWatchingMinutes"),
 		resumeRewindSeconds: systemSettingsStore.get("profiles.defaultPreferences.resumeRewindSeconds"),
 		watchlistAutoRemoveWatched: systemSettingsStore.get("profiles.defaultPreferences.watchlistAutoRemoveWatched"),
+		hideRatingOverlay: false,
 		subtitleSize: systemSettingsStore.get("profiles.defaultPreferences.subtitleSize"),
 		subtitlePosition: systemSettingsStore.get("profiles.defaultPreferences.subtitlePosition"),
 		subtitleColor: systemSettingsStore.get("profiles.defaultPreferences.subtitleColor"),

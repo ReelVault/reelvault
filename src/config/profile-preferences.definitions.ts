@@ -30,6 +30,7 @@ export const PROFILE_PREFERENCE_DEFINITIONS = {
 	continueWatchingMinutes: codecs.number(0, 240),
 	resumeRewindSeconds: codecs.number(0, 30),
 	watchlistAutoRemoveWatched: booleanCodec,
+	hideRatingOverlay: booleanCodec,
 	subtitleSize: codecs.enum(SUBTITLE_SIZE_OPTIONS),
 	subtitlePosition: codecs.enum(SUBTITLE_POSITION_OPTIONS),
 	subtitleColor: codecs.enum(SUBTITLE_COLOR_OPTIONS),

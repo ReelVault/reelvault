@@ -355,6 +355,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Features
 
+- **Hide rating badges per profile** — `hideRatingOverlay` is a profile preference (in `ProfilePreferences` and `UpdateProfilePreferences`) that defaults to off. It is stored with the other profile preferences, so existing databases need no migration.
 - **Catalog status list** — `GET /metadata/statuses` returns the distinct, non-empty status values of the catalog (for example Ended or Returning Series), sorted, so a status filter can offer them instead of free text.
 - **Preview log cleanup and trickplay deletes** — `DELETE /admin/logs/cleanup?dryRun=true` and `POST /admin/trickplay/media/delete` with `dryRun: true` count the log files or trickplay previews they would remove, and remove nothing. A dry run records no audit entry. The single-file trickplay delete reports `dryRun: false`.
 - **Preview a worker history purge** — `POST /admin/workers/purge-history` with `dryRun: true` counts the operations and jobs a purge would remove. It deletes nothing and leaves no audit entry.
