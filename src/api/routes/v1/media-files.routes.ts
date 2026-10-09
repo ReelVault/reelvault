@@ -1,5 +1,6 @@
 import {
 	CreateMediaFileSchema,
+	MarkerImportResultSchema,
 	MediaFileAuditStatusSchema,
 	MediaFileFiltersSchema,
 	MediaFileSortingSchema,
@@ -90,6 +91,45 @@ export const mediaFilesRoutes = new Elysia({
 			response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Queue a refresh of technical data and linked metadata for all media files.",
+			},
+		},
+	)
+	.get(
+		"/markers/export",
+		async ({ query }) => {
+			const text = await mediaService.exportMarkers(query);
+
+			return new Response(text, {
+				headers: {
+					"content-type": "application/x-ndjson; charset=utf-8",
+					"content-disposition": 'attachment; filename="media-markers.ndjson"',
+				},
+			});
+		},
+		{
+			adminOnly: true,
+			query: MediaMarkerFiltersSchema,
+			// Attachment download: the handler returns a Response, not JSON.
+			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
+			detail: {
+				description:
+					"Download every timeline marker matching the filters as NDJSON, one marker per line, for backup or for moving them to another server.",
+			},
+		},
+	)
+	.post(
+		"/markers/import",
+		async ({ body, user, request }) => {
+			return await mediaService.importMarkers(body, { actorUserId: user?.id, headers: request.headers });
+		},
+		{
+			adminOnly: true,
+			// Sent as text/plain; a larger file than this is refused by the schema.
+			body: t.String({ maxLength: 10_000_000 }),
+			response: { ...ROUTE_ERRORS.ADMIN, 200: MarkerImportResultSchema },
+			detail: {
+				description:
+					"Replace the timeline markers of every media file named in an NDJSON body (text/plain). The whole file is checked before anything is written.",
 			},
 		},
 	)

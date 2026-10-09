@@ -7,6 +7,7 @@ import type {
 	MediaFileSorting,
 	MediaFileWithRelation,
 	MediaMarker,
+	MediaMarkerFilters,
 	PaginatedResponse,
 	PaginationQuery,
 	PlaybackArtifact,
@@ -51,6 +52,7 @@ import { enqueueMediaFileAuditReport } from "@/workers/definitions/media/media-f
 import { enqueueAllMediaFilesRefresh } from "@/workers/definitions/media/media-files-refresh-all.worker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped";
 import { workerService } from "@/workers/worker.service";
+import { groupMarkersByMediaFile, MARKER_TRANSFER_MAX_LINES, parseMarkersNdjson, serializeMarkersNdjson } from "./marker-transfer";
 import { mediaFileRefreshService } from "./refresh-media-file.operation";
 
 // Concurrency guard for on-demand ffmpeg/ffprobe integrity scans triggered from the API.
@@ -131,6 +133,48 @@ class MediaService extends BaseService {
 			const markers = await mediaMarkersRepository.findAll(query);
 
 			return markers.map((item) => toPublicMarker(item));
+		});
+	}
+
+	/** Every marker matching the filters as NDJSON; an export past the cap is refused rather than cut short. */
+	async exportMarkers(query: MediaMarkerFilters): Promise<string> {
+		return await this.safeExecute("exportMarkers", async () => {
+			const markers = await mediaMarkersRepository.findAll({ ...query, limit: MARKER_TRANSFER_MAX_LINES + 1 });
+			if (markers.length > MARKER_TRANSFER_MAX_LINES) {
+				throw new ValidationError(`The marker export holds at most ${MARKER_TRANSFER_MAX_LINES} markers; narrow the filters`, {
+					code: "media.markers_export_too_large",
+					params: { limit: MARKER_TRANSFER_MAX_LINES },
+				});
+			}
+
+			return serializeMarkersNdjson(markers.map((item) => toPublicMarker(item)));
+		});
+	}
+
+	/**
+	 * Replaces the markers of every media file the NDJSON names, one file at a time. Every file is checked
+	 * before the first marker is written, so an unknown file refuses the whole import.
+	 */
+	async importMarkers(text: string, context?: AdminAuditContext): Promise<{ mediaFiles: number; markers: number }> {
+		return await this.safeExecute("importMarkers", async () => {
+			const grouped = groupMarkersByMediaFile(parseMarkersNdjson(text));
+			const mediaFileIds = [...grouped.keys()];
+			const exists = await Promise.all(mediaFileIds.map((mediaFileId) => mediaRepository.isExists({ primaryId: mediaFileId })));
+			const missing = mediaFileIds.find((_, index) => !exists[index]);
+			if (missing !== undefined) {
+				throw new ValidationError(`The marker import names an unknown media file: ${missing}`, {
+					code: "media.markers_import_unknown_file",
+					params: { mediaFileId: missing },
+				});
+			}
+
+			let markers = 0;
+			for (const [mediaFileId, items] of grouped) {
+				await this.setMarkers(mediaFileId, items, undefined, context);
+				markers += items.length;
+			}
+
+			return { mediaFiles: grouped.size, markers };
 		});
 	}
 
