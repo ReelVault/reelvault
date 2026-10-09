@@ -62,6 +62,23 @@ class PluginUiSettingsService extends BaseService {
 		});
 	}
 
+	/**
+	 * Drops switches that point at contributions the plugin no longer declares, once an upgrade runs.
+	 * Skipped without an interface manifest: that may be a broken ui.json, and its switches are worth keeping.
+	 */
+	async pruneStale(pluginId: string): Promise<void> {
+		const manifest = pluginRegistry.getUiManifest(pluginId);
+		const hidden = (await this.getHiddenByPlugin()).get(pluginId);
+		if (!(manifest && hidden)) return;
+
+		const known = new Set(listUiContributions(manifest).map((item) => item.key));
+		const kept = [...hidden].filter((key) => key === PLUGIN_UI_MASTER_KEY || known.has(key));
+		if (kept.length === hidden.size) return;
+
+		await pluginUiOverridesRepository.replaceForPlugin(pluginId, kept);
+		this.hiddenByPlugin = undefined;
+	}
+
 	/** Shows the plugin's whole UI again. Also called when the plugin is uninstalled. */
 	async reset(pluginId: string): Promise<void> {
 		await pluginUiOverridesRepository.replaceForPlugin(pluginId, []);

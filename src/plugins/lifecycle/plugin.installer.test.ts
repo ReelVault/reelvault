@@ -179,8 +179,11 @@ describe("plugin installer", () => {
 		});
 		await expect(installer.verify()).resolves.toHaveLength(1);
 		expect(await file(join(pluginsDirectory, "org.reelvault.upgrade", "plugin.json")).json()).toMatchObject({ version: "2.0.0" });
-		const leftovers = await Array.fromAsync(new Bun.Glob(".upgrade-*").scan({ cwd: pluginsDirectory }));
-		expect(leftovers).toEqual([]);
+		// The replaced package is kept as the rollback point until the upgrade is confirmed.
+		expect(await file(join(pluginsDirectory, "plugins.lock.json")).json()).toMatchObject({
+			plugins: { "org.reelvault.upgrade": { previous: { version: "1.0.0" } } },
+		});
+		expect(await backupDirectories(pluginsDirectory)).toHaveLength(1);
 	});
 
 	test("preserves an admin config.json across a same-version upgrade", async () => {
@@ -314,4 +317,83 @@ async function writePlugin(directory: string, id: string, entry = "./index.mjs")
 		}),
 	);
 	await write(join(directory, "index.mjs"), "export default { setup() {} };\n");
+}
+
+describe("plugin installer rollback point", () => {
+	test("keeps the replaced package until the upgrade is confirmed, then removes it", async () => {
+		const root = await createRoot();
+		const source = join(root, "source");
+		const pluginsDirectory = join(root, "plugins");
+		const installer = new PluginInstaller(pluginsDirectory);
+		await writePlugin(source, "org.reelvault.confirm");
+		await installer.install(source);
+		await writeVersion(source, "org.reelvault.confirm", "2.0.0");
+		await installer.install(source, { upgrade: true });
+
+		expect(await backupDirectories(pluginsDirectory)).toHaveLength(1);
+		await expect(installer.confirmUpgrade("org.reelvault.confirm")).resolves.toBe(true);
+		expect(await backupDirectories(pluginsDirectory)).toEqual([]);
+		expect(await file(join(pluginsDirectory, "plugins.lock.json")).json()).toMatchObject({
+			plugins: { "org.reelvault.confirm": { version: "2.0.0" } },
+		});
+		await expect(installer.confirmUpgrade("org.reelvault.confirm")).resolves.toBe(false);
+	});
+
+	test("rolls back to the replaced package and keeps the configuration saved after the upgrade", async () => {
+		const root = await createRoot();
+		const source = join(root, "source");
+		const pluginsDirectory = join(root, "plugins");
+		const installer = new PluginInstaller(pluginsDirectory);
+		await writePlugin(source, "org.reelvault.rollback");
+		await installer.install(source);
+		await writeVersion(source, "org.reelvault.rollback", "2.0.0");
+		await installer.install(source, { upgrade: true });
+		await write(join(pluginsDirectory, "org.reelvault.rollback", "config.json"), JSON.stringify({ apiKey: "saved-after-upgrade" }));
+
+		const restored = await installer.rollbackUpgrade("org.reelvault.rollback");
+
+		expect(restored).toMatchObject({ version: "1.0.0", directory: "org.reelvault.rollback" });
+		expect(restored?.previous).toBeUndefined();
+		expect(await file(join(pluginsDirectory, "org.reelvault.rollback", "plugin.json")).json()).toMatchObject({ version: "1.0.0" });
+		expect(await file(join(pluginsDirectory, "org.reelvault.rollback", "config.json")).json()).toEqual({ apiKey: "saved-after-upgrade" });
+		expect(await backupDirectories(pluginsDirectory)).toEqual([]);
+		await expect(installer.verify()).resolves.toHaveLength(1);
+	});
+
+	test("reports no rollback point for a plugin that was never upgraded", async () => {
+		const root = await createRoot();
+		const source = join(root, "source");
+		const installer = new PluginInstaller(join(root, "plugins"));
+		await writePlugin(source, "org.reelvault.fresh");
+		await installer.install(source);
+
+		await expect(installer.rollbackUpgrade("org.reelvault.fresh")).resolves.toBeUndefined();
+		await expect(installer.confirmUpgrade("org.reelvault.fresh")).resolves.toBe(false);
+	});
+
+	test("uninstall removes the rollback point together with the package", async () => {
+		const root = await createRoot();
+		const source = join(root, "source");
+		const pluginsDirectory = join(root, "plugins");
+		const installer = new PluginInstaller(pluginsDirectory);
+		await writePlugin(source, "org.reelvault.gone");
+		await installer.install(source);
+		await writeVersion(source, "org.reelvault.gone", "2.0.0");
+		await installer.install(source, { upgrade: true });
+
+		await installer.uninstall("org.reelvault.gone");
+
+		expect(await backupDirectories(pluginsDirectory)).toEqual([]);
+	});
+});
+
+async function writeVersion(directory: string, id: string, version: string): Promise<void> {
+	await write(
+		join(directory, "plugin.json"),
+		JSON.stringify({ id, name: id, version, entry: "./index.mjs", capabilities: ["eventHandler"] }),
+	);
+}
+
+async function backupDirectories(pluginsDirectory: string): Promise<string[]> {
+	return await Array.fromAsync(new Bun.Glob(".upgrade-*").scan({ cwd: pluginsDirectory, dot: true, onlyFiles: false }));
 }

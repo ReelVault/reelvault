@@ -1,5 +1,4 @@
 import type { InstallCatalogPluginResponse, PluginCatalogEntry, PluginRepository, UpdatePluginRepositoryBody } from "@reelvault/sdk/common";
-import { pluginAdminService } from "@/application/plugin-admin.service";
 import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
 import { NotFoundError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
@@ -8,16 +7,6 @@ import { recordAuditSafe } from "./admin-audit.service";
 interface AuditContext {
 	actorUserId?: string | undefined;
 	headers?: Headers | undefined;
-}
-
-/**
- * A freshly installed plugin is only staged on disk until enabled — without
- * this it would be invisible in the admin list until "Reload all". Load
- * failures surface through the plugin state (failed + error) instead of
- * failing the install request.
- */
-async function enableAfterInstall(pluginId: string): Promise<void> {
-	await pluginAdminService.enable(pluginId);
 }
 
 class AdminPluginCatalogService {
@@ -109,7 +98,6 @@ class AdminPluginCatalogService {
 		context: AuditContext,
 	): Promise<InstallCatalogPluginResponse> {
 		const result = await pluginCatalogService.installFromCatalog(body);
-		await enableAfterInstall(result.pluginId);
 		recordAuditSafe(
 			{
 				action: "update",
@@ -132,7 +120,6 @@ class AdminPluginCatalogService {
 
 	async installUploadedArchive(file: File, context: AuditContext): Promise<InstallCatalogPluginResponse> {
 		const result = await pluginCatalogService.installFromArchive(file, { source: `upload:${file.name}` });
-		await enableAfterInstall(result.pluginId);
 		recordAuditSafe(
 			{
 				action: "update",

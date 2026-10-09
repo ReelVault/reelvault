@@ -21,7 +21,7 @@ export interface PluginStatusInput {
  * anything else is classified by the phase that failed, so an invalid manifest
  * is never reported as a generic load failure.
  */
-export function pluginErrorCode(error: unknown, failurePhase: PluginLoadPhase | undefined): string {
+export function pluginErrorCode(error: unknown, failurePhase?: PluginLoadPhase): string {
 	if (error instanceof DomainError && error.code !== error.category) return error.code;
 
 	return failurePhase === "manifest" ? "plugin.manifest_invalid" : "plugin.load_failed";

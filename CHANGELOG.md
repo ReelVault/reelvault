@@ -372,6 +372,9 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Unreadable plugin configuration is visible** — the admin plugin endpoints (`GET /admin/plugins`, `GET /admin/plugins/:pluginId`, the plugin enable/disable/reload responses and the dashboard) return `configReadError` (`plugin.config_unreadable`) when a plugin's `config.json` exists but cannot be read. Such a plugin used to run silently on its defaults.
 - **Secret presence in plugin configuration** — secret fields of `GET /admin/plugins/:pluginId/config` carry `hasValue`, so the admin panel can show whether a key is set and offer to replace it. The stored value is still never returned.
 - **Plugin package details for administrators** — the admin plugin endpoints report each plugin's declared `capabilities`, `installedAt` and `source` (installer-managed plugins), `integrityOk` (the package matched its recorded integrity at the last check, at server start or on install) and `updateAvailable` (an enabled catalog offers a newer version).
+- **Failed plugin upgrades roll back** — an upgrade keeps the package it replaces until the new version has loaded once. When the new version does not load, during the install or when the plugin is enabled, the previous package is restored with the configuration saved since the upgrade, and the plugin runs as before (`state: rolled_back`). Uninstalling removes the kept package too.
+- **Honest plugin install results** — catalog and upload installs report `previousVersion`, `direction`, `state` and, when the new version did not load, `error` and `errorCode`. Previously a plugin that failed to load right after installation still answered with success.
+- **Interface switches are cleaned up after upgrades** — once an upgraded plugin runs, switches that point at contributions it no longer declares are removed. A plugin without an interface manifest keeps its switches.
 
 ### Fixes
 

@@ -97,4 +97,26 @@ describe("pluginUiSettingsService", () => {
 		expect(settings.enabled).toBe(true);
 		expect(settings.contributions.every((item) => item.enabled)).toBe(true);
 	});
+
+	test("drops switches for contributions an upgraded plugin no longer declares", async () => {
+		const rows = stubOverrides();
+		await pluginUiSettingsService.update("requests", { enabled: true, disabledKeys: ["page:requests", "dialog:new"] });
+
+		stubs.push(
+			stubMethod(pluginRegistry, "getUiManifest", (id: string) => (id === "requests" ? { ...manifest, dialogs: undefined } : undefined)),
+		);
+		await pluginUiSettingsService.pruneStale("requests");
+
+		expect([...(rows.get("requests") ?? [])]).toEqual(["page:requests"]);
+	});
+
+	test("keeps every switch when the plugin has no interface manifest", async () => {
+		const rows = stubOverrides();
+		await pluginUiSettingsService.update("requests", { enabled: true, disabledKeys: ["page:requests"] });
+
+		stubs.push(stubMethod(pluginRegistry, "getUiManifest", () => undefined));
+		await pluginUiSettingsService.pruneStale("requests");
+
+		expect([...(rows.get("requests") ?? [])]).toEqual(["page:requests"]);
+	});
 });

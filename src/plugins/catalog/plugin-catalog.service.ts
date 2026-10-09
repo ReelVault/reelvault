@@ -1,10 +1,10 @@
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { InstallCatalogPluginResponse } from "@reelvault/sdk/common";
 import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
 import { env } from "@/env";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { loadPluginManifest } from "@/plugins/lifecycle/plugin.manifest";
 import { NotFoundError, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
@@ -225,7 +225,7 @@ class PluginCatalogService {
 		return perRepository.flat();
 	}
 
-	async installFromCatalog(input: InstallCatalogPluginInput): Promise<{ pluginId: string; version: string; upgraded: boolean }> {
+	async installFromCatalog(input: InstallCatalogPluginInput): Promise<InstallCatalogPluginResponse> {
 		const row = await pluginRepositoriesRepository.findById(input.repositoryId);
 		if (!row) throw new NotFoundError(`Plugin repository not found: ${input.repositoryId}`);
 
@@ -244,8 +244,6 @@ class PluginCatalogService {
 			);
 		}
 
-		const installedBefore = (await pluginManager.getInstalledRecords()).find((record) => record.id === candidate.id);
-
 		const token = this.tokenFor(row);
 		const download = await downloadArchive(candidate.downloadUrl, token ? { token } : {});
 		let extracted: Awaited<ReturnType<typeof extractPluginPackage>> | undefined;
@@ -255,31 +253,25 @@ class PluginCatalogService {
 			const result = await pluginManager.installFromDirectory(extracted.pluginRoot, {
 				source: catalogSource(row.id, candidate.id, candidate.version),
 			});
-			this.logger.info(`Installed plugin ${candidate.id}@${candidate.version} from repository ${row.name}`);
+			this.logger.info(`Installed plugin ${candidate.id}@${candidate.version} from repository ${row.name} (${result.state})`);
 
-			return { pluginId: candidate.id, version: result.record.version, upgraded: installedBefore !== undefined };
+			return result;
 		} finally {
 			await extracted?.cleanup();
 			await download.cleanup();
 		}
 	}
 
-	async installFromArchive(
-		archive: Blob,
-		options: { source?: string } = {},
-	): Promise<{ pluginId: string; version: string; upgraded: boolean }> {
+	async installFromArchive(archive: Blob, options: { source?: string } = {}): Promise<InstallCatalogPluginResponse> {
 		const temporaryPath = join(tmpdir(), `reelvault-plugin-upload-${crypto.randomUUID()}.bin`);
 		let extracted: Awaited<ReturnType<typeof extractPluginPackage>> | undefined;
 		try {
 			await Bun.write(temporaryPath, archive);
 			extracted = await extractPluginPackage(temporaryPath);
-			const manifest = await loadPluginManifest(extracted.pluginRoot);
-			const installedBefore = (await pluginManager.getInstalledRecords()).some((record) => record.id === manifest.id);
-
 			const result = await pluginManager.installFromDirectory(extracted.pluginRoot, { source: options.source ?? "upload" });
-			this.logger.info(`Installed plugin ${manifest.id}@${result.record.version} from uploaded archive`);
+			this.logger.info(`Installed plugin ${result.pluginId}@${result.version} from uploaded archive (${result.state})`);
 
-			return { pluginId: manifest.id, version: result.record.version, upgraded: installedBefore };
+			return result;
 		} finally {
 			await extracted?.cleanup();
 			await rm(temporaryPath, { force: true });

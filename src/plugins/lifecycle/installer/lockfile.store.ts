@@ -14,6 +14,19 @@ export interface InstalledPluginRecord {
 	version: string;
 	/** Persisted across restarts — a disabled plugin stays unloaded until explicitly enabled. */
 	disabled?: boolean;
+	/** Set by an upgrade until the new version has loaded once; a failed load rolls back to it. */
+	previous?: PluginPreviousInstall;
+}
+
+/** The package an upgrade replaced. It stays on disk until the new version has loaded, then it is removed. */
+export interface PluginPreviousInstall {
+	version: string;
+	integrity: string;
+	installedAt: string;
+	source: string;
+	disabled?: boolean;
+	/** Basename of the directory the previous package was moved to, inside the plugins root. */
+	backupDirectory: string;
 }
 
 export interface PluginLockfile {
@@ -88,6 +101,19 @@ function isPluginLockfile(value: unknown): value is PluginLockfile {
 			isNonEmptyString(record.installedAt) &&
 			isNonEmptyString(record.source) &&
 			isNonEmptyString(record.version) &&
-			(record.disabled === undefined || typeof record.disabled === "boolean"),
+			(record.disabled === undefined || typeof record.disabled === "boolean") &&
+			(record.previous === undefined || isPreviousInstall(record.previous)),
+	);
+}
+
+function isPreviousInstall(value: unknown): value is PluginPreviousInstall {
+	return (
+		isRecord(value) &&
+		isNonEmptyString(value.version) &&
+		isNonEmptyString(value.integrity) &&
+		isNonEmptyString(value.installedAt) &&
+		isNonEmptyString(value.source) &&
+		isNonEmptyString(value.backupDirectory) &&
+		(value.disabled === undefined || typeof value.disabled === "boolean")
 	);
 }

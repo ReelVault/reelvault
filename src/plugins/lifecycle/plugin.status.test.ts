@@ -13,6 +13,6 @@ describe("pluginErrorCode", () => {
 	});
 
 	it("falls back to a generic load failure without a phase", () => {
-		expect(pluginErrorCode("plain text", undefined)).toBe("plugin.load_failed");
+		expect(pluginErrorCode("plain text")).toBe("plugin.load_failed");
 	});
 });

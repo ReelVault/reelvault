@@ -11,7 +11,13 @@ import { isNewerVersion } from "@/utils/semver.utils";
 import { SERVER_VERSION } from "@/version";
 import { isPluginDirectoryName } from "./host/plugin-directory.index";
 import { calculateDirectoryIntegrity, MUTABLE_CONFIG_FILENAME } from "./installer/directory-hash";
-import { type InstalledPluginRecord, LOCKFILE_NAME, type PluginLockfile, PluginLockfileStore } from "./installer/lockfile.store";
+import {
+	type InstalledPluginRecord,
+	LOCKFILE_NAME,
+	type PluginLockfile,
+	PluginLockfileStore,
+	type PluginPreviousInstall,
+} from "./installer/lockfile.store";
 import { assertNoSymbolicLinks } from "./installer/symlink-guard";
 import { loadPluginManifest, resolvePluginEntry } from "./plugin.manifest";
 
@@ -79,7 +85,6 @@ export class PluginInstaller {
 
 		await mkdir(this.pluginsDirectory, { recursive: true });
 		const stagingDirectory = PathUtils.join(pluginsDirectory, `.install-${manifest.id}-${crypto.randomUUID()}`);
-		let backupDirectory: string | undefined;
 		try {
 			await cp(source, stagingDirectory, { recursive: true, verbatimSymlinks: true, errorOnExist: true });
 			await assertNoSymbolicLinks(stagingDirectory, VERIFICATION_CONCURRENCY());
@@ -97,18 +102,22 @@ export class PluginInstaller {
 				await preserveMutableConfig(targetDirectory, stagingDirectory);
 			}
 
+			const previousRecord = isUpgrade ? (await this.lockfileStore.read()).plugins[manifest.id] : undefined;
+			// An upgrade keeps the package it replaces as a rollback point (`previous`). Without a lockfile record there is nothing to roll back to.
+			const backupDirectory = isUpgrade ? PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`) : undefined;
+
 			const record: InstalledPluginRecord = {
 				directory: PathUtils.getFileName(targetDirectory),
 				integrity: await calculateDirectoryIntegrity(stagingDirectory),
 				installedAt: new Date().toISOString(),
 				source: options.source ?? source,
 				version: manifest.version,
+				...(previousRecord && backupDirectory ? { previous: toPreviousInstall(previousRecord, backupDirectory) } : {}),
 			};
 
-			if (isUpgrade) {
+			if (backupDirectory) {
 				// Move the old installation aside; both renames are same-directory
 				// so they are atomic on one filesystem. Restored on any failure below.
-				backupDirectory = PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`);
 				await rename(targetDirectory, backupDirectory);
 			}
 
@@ -129,8 +138,12 @@ export class PluginInstaller {
 				throw error;
 			}
 
-			if (backupDirectory) {
+			// The replaced package stays as the rollback point. Only the one it replaced is dropped: a second upgrade before the first is confirmed.
+			if (backupDirectory && !record.previous) {
 				await rm(backupDirectory, { recursive: true, force: true });
+			}
+			if (previousRecord?.previous) {
+				await rm(PathUtils.join(pluginsDirectory, previousRecord.previous.backupDirectory), { recursive: true, force: true });
 			}
 
 			await this.removeDuplicateDirectories(manifest.id, targetName);
@@ -191,6 +204,64 @@ export class PluginInstaller {
 				logger.warn("Could not remove a duplicate plugin directory", { pluginId, directory: dirName, error });
 			}
 		}
+	}
+
+	/**
+	 * Drops the rollback point of an upgrade once the new version has loaded.
+	 * Returns whether there was one to drop.
+	 */
+	async confirmUpgrade(pluginId: string): Promise<boolean> {
+		const lockfile = await this.lockfileStore.read();
+		const record = lockfile.plugins[pluginId];
+		if (!record?.previous) return false;
+
+		const confirmed: InstalledPluginRecord = { ...record };
+		Reflect.deleteProperty(confirmed, "previous");
+		lockfile.plugins[pluginId] = confirmed;
+		await this.lockfileStore.write(lockfile);
+		await rm(PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory), { recursive: true, force: true });
+
+		return true;
+	}
+
+	/**
+	 * Puts the package an unconfirmed upgrade replaced back in place and restores
+	 * its lockfile record. The configuration saved since the upgrade is carried
+	 * over. Returns the restored record, or undefined when there is no rollback point.
+	 */
+	async rollbackUpgrade(pluginId: string): Promise<InstalledPluginRecord | undefined> {
+		const lockfile = await this.lockfileStore.read();
+		const record = lockfile.plugins[pluginId];
+		if (!record?.previous) return undefined;
+
+		const current = this.lockfileStore.resolveInstalledDirectory(pluginId, record);
+		const backup = PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory);
+		const failed = PathUtils.join(this.pluginsDirectory, `.failed-${pluginId}-${crypto.randomUUID()}`);
+
+		// Same-directory renames, so the failed build is moved aside before the previous package takes its place.
+		await rename(current, failed);
+		try {
+			await rename(backup, current);
+		} catch (error) {
+			await rename(failed, current);
+
+			throw error;
+		}
+		await preserveMutableConfig(failed, current);
+		await rm(failed, { recursive: true, force: true });
+
+		const restored: InstalledPluginRecord = {
+			directory: record.directory,
+			integrity: record.previous.integrity,
+			installedAt: record.previous.installedAt,
+			source: record.previous.source,
+			version: record.previous.version,
+			...(record.previous.disabled !== undefined ? { disabled: record.previous.disabled } : {}),
+		};
+		lockfile.plugins[pluginId] = restored;
+		await this.lockfileStore.write(lockfile);
+
+		return restored;
 	}
 
 	async list(): Promise<InstalledPlugin[]> {
@@ -290,8 +361,23 @@ export class PluginInstaller {
 			throw error;
 		}
 
+		if (record.previous) {
+			await rm(PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory), { recursive: true, force: true });
+		}
+
 		return record;
 	}
+}
+
+function toPreviousInstall(record: InstalledPluginRecord, backupDirectory: string): PluginPreviousInstall {
+	return {
+		version: record.version,
+		integrity: record.integrity,
+		installedAt: record.installedAt,
+		source: record.source,
+		...(record.disabled !== undefined ? { disabled: record.disabled } : {}),
+		backupDirectory: PathUtils.getFileName(backupDirectory),
+	};
 }
 
 async function assertSourceDirectory(directory: string): Promise<void> {

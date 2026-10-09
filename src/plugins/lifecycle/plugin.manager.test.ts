@@ -27,6 +27,8 @@ function createManagerFixture(activeStubs: Array<{ restore(): void }>) {
 		stubMethod(installer, "setDisabled", () => Promise.resolve()),
 		stubMethod(installer, "uninstall", () => Promise.resolve({})),
 		stubMethod(installer, "list", () => Promise.resolve([])),
+		stubMethod(installer, "confirmUpgrade", () => Promise.resolve(false)),
+		stubMethod(installer, "rollbackUpgrade", () => Promise.resolve(undefined)),
 		stubMethod(loader, "loadAll", () => Promise.resolve()),
 		stubMethod(loader, "load", () => Promise.resolve()),
 		stubMethod(loader, "unloadPlugin", () => Promise.resolve()),
@@ -41,6 +43,20 @@ function createManagerFixture(activeStubs: Array<{ restore(): void }>) {
 	);
 
 	return { manager, loader, installer, config, registry };
+}
+
+/** A lockfile entry whose directory is the plugin id's last segment, mirroring the fixture plugin. */
+function installedRecord(id: string, version: string): { id: string; record: InstalledPluginRecord } {
+	return {
+		id,
+		record: {
+			directory: id.split(".").at(-1) ?? id,
+			integrity: "sha256-test",
+			installedAt: "2026-10-09T10:00:00.000Z",
+			source: "upload",
+			version,
+		},
+	};
 }
 
 function createLoadedRuntime(id: string): PluginRuntime {
@@ -282,7 +298,9 @@ describe("PluginManager lifecycle orchestration", () => {
 		const setDisabled = stubMethod(installer, "setDisabled", () => Promise.resolve());
 		activeStubs.push(
 			stubMethod(installer, "list", () => Promise.resolve([{ id: "org.reelvault.m", record }])),
-			stubMethod(installer, "install", () => Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: {} })),
+			stubMethod(installer, "install", () =>
+				Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: installedRecord("org.reelvault.m", "2.0.0").record }),
+			),
 			setDisabled,
 		);
 
@@ -408,33 +426,119 @@ describe("PluginManager lifecycle orchestration", () => {
 		expect(removeDataStub.calls).toEqual([]);
 	});
 
-	test("installFromDirectory upgrades and reloads an already-loaded plugin, swallowing reload failures", async () => {
+	test("installFromDirectory reports a reloaded upgrade that fails as failed when nothing can be rolled back", async () => {
 		const { manager, loader, installer, registry } = createManagerFixture(activeStubs);
 		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		const installStub = stubMethod(installer, "install", (source: string, options: Record<string, unknown>) =>
-			Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: {}, source, options }),
+		activeStubs.push(
+			stubMethod(installer, "list", () => Promise.resolve([installedRecord("org.reelvault.m", "1.0.0")])),
+			stubMethod(installer, "install", () =>
+				Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: installedRecord("org.reelvault.m", "2.0.0").record }),
+			),
+			stubMethod(loader, "reloadPlugin", () => Promise.reject(new Error("reload blew up"))),
 		);
-		const reloadStub = stubMethod(loader, "reloadPlugin", (_pluginId: string) => Promise.reject(new Error("reload blew up")));
-		activeStubs.push(installStub, reloadStub);
 
 		const result = await manager.installFromDirectory("/sources/m", { source: "catalog:repo:org.reelvault.m@2.0.0" });
 
-		expect(result.id).toBe("org.reelvault.m");
-		expect(reloadStub.calls).toEqual([["org.reelvault.m"]]);
+		expect(result).toMatchObject({
+			pluginId: "org.reelvault.m",
+			version: "2.0.0",
+			previousVersion: "1.0.0",
+			direction: "upgrade",
+			state: "failed",
+			error: "reload blew up",
+			errorCode: "plugin.load_failed",
+		});
 	});
 
-	test("installFromDirectory skips the reload for a not-yet-loaded plugin", async () => {
+	test("installFromDirectory rolls an upgrade back when the new version does not load", async () => {
 		const { manager, loader, installer, registry } = createManagerFixture(activeStubs);
-		const installStub = stubMethod(installer, "install", () =>
-			Promise.resolve({ id: "org.reelvault.fresh", directory: "/plugins/fresh", record: {} }),
+		registry.register(createLoadedRuntime("org.reelvault.m"), []);
+		const loadStub = stubMethod(loader, "load", () => Promise.resolve());
+		const rollbackStub = stubMethod(installer, "rollbackUpgrade", () =>
+			Promise.resolve(installedRecord("org.reelvault.m", "1.0.0").record),
 		);
-		const reloadStub = stubMethod(loader, "reloadPlugin", (_pluginId: string) => Promise.resolve());
-		activeStubs.push(installStub, reloadStub);
+		activeStubs.push(
+			stubMethod(installer, "list", () => Promise.resolve([installedRecord("org.reelvault.m", "1.0.0")])),
+			stubMethod(installer, "install", () =>
+				Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: installedRecord("org.reelvault.m", "2.0.0").record }),
+			),
+			stubMethod(loader, "reloadPlugin", () => Promise.reject(new Error("bad entry"))),
+			loadStub,
+			rollbackStub,
+		);
 
-		await manager.installFromDirectory("/sources/new", {});
+		const result = await manager.installFromDirectory("/sources/m", {});
 
+		expect(result).toMatchObject({
+			version: "1.0.0",
+			previousVersion: "1.0.0",
+			direction: "upgrade",
+			state: "rolled_back",
+			error: "bad entry",
+		});
+		expect(rollbackStub.calls).toEqual([["org.reelvault.m"]]);
+		expect(loadStub.calls).toEqual([["m"]]);
+	});
+
+	test("enabling an upgrade that does not load rolls back to the previous version", async () => {
+		const { manager, loader, installer } = createManagerFixture(activeStubs);
+		let attempts = 0;
+		const loadStub = stubMethod(loader, "load", () => {
+			attempts += 1;
+
+			return attempts === 1 ? Promise.reject(new Error("new build is broken")) : Promise.resolve();
+		});
+		const rollbackStub = stubMethod(installer, "rollbackUpgrade", () =>
+			Promise.resolve({
+				directory: "m-dir",
+				integrity: "sha256-old",
+				installedAt: "2026-09-20T00:00:00.000Z",
+				source: "upload",
+				version: "1.0.0",
+			}),
+		);
+		activeStubs.push(loadStub, rollbackStub);
+
+		await expect(manager.setEnabled("org.reelvault.m", true)).rejects.toMatchObject({
+			code: "plugin.upgrade_rolled_back",
+			params: { pluginId: "org.reelvault.m", version: "1.0.0" },
+		});
+		expect(rollbackStub.calls).toEqual([["org.reelvault.m"]]);
+		expect(loadStub.calls).toEqual([["m-dir"], ["m-dir"]]);
+	});
+
+	test("enabling a plugin without an upgrade to undo rethrows the load failure", async () => {
+		const { manager, loader } = createManagerFixture(activeStubs);
+		activeStubs.push(stubMethod(loader, "load", () => Promise.reject(new Error("broken"))));
+
+		await expect(manager.setEnabled("org.reelvault.m", true)).rejects.toThrow("broken");
+	});
+
+	test("installFromDirectory activates a fresh install", async () => {
+		const { manager, loader, installer, registry } = createManagerFixture(activeStubs);
+		const loadStub = stubMethod(loader, "load", () => Promise.resolve());
+		activeStubs.push(
+			stubMethod(installer, "install", () =>
+				Promise.resolve({
+					id: "org.reelvault.fresh",
+					directory: "/plugins/fresh",
+					record: installedRecord("org.reelvault.fresh", "1.0.0").record,
+				}),
+			),
+			loadStub,
+		);
+
+		const result = await manager.installFromDirectory("/sources/new", {});
+
+		expect(result).toMatchObject({
+			pluginId: "org.reelvault.fresh",
+			version: "1.0.0",
+			direction: "install",
+			state: "enabled",
+			upgraded: false,
+		});
+		expect(loadStub.calls).toEqual([["fresh"]]);
 		expect(registry.get("org.reelvault.fresh")).toBeUndefined();
-		expect(reloadStub.calls).toEqual([]);
 	});
 
 	test("getStatus merges live and failed plugin statuses", () => {
