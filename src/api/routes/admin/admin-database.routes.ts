@@ -96,7 +96,9 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/database/restore",
 		async ({ body, request, status }) => {
-			const result = await databaseRestoreService.restore(body.fileName, env.ROOT_DIR, env.DB_FILE_NAME, process.cwd());
+			const result = await databaseRestoreService.restore(body.fileName, env.ROOT_DIR, env.DB_FILE_NAME, process.cwd(), {
+				force: body.force,
+			});
 			recordAuditSafe(
 				{
 					action: "update",
@@ -112,11 +114,11 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 		},
 		{
 			rateLimit: { name: "admin-db-restore", max: 3, windowMs: 10 * MINUTE },
-			body: t.Object({ fileName: t.String({ minLength: 1 }) }),
+			body: t.Object({ fileName: t.String({ minLength: 1 }), force: t.Optional(t.Boolean()) }),
 			response: { ...ROUTE_ERRORS.ADMIN, 202: AdminDatabaseRestoreResponseSchema },
 			detail: {
 				description:
-					"Queue a database restore from an existing backup. The server shuts down, a detached helper swaps the database file and relaunches — expect a restart.",
+					"Queue a database restore from an existing backup. The current database is backed up first. The server shuts down, a detached helper swaps the database file and relaunches — expect a restart. Refused while streams are active unless `force` is set.",
 			},
 		},
 	)

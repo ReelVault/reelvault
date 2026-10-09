@@ -35,6 +35,8 @@ export function summarizeRegenerationOutcomes(operationId: string, rows: readonl
 			case "running":
 				report.unfinished += row.count;
 				break;
+			default:
+				break;
 		}
 	}
 
