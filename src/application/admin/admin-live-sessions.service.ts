@@ -44,11 +44,13 @@ class AdminLiveSessionsService extends BaseService {
 				const activeStreams = await this.resolveActiveStreams(activeStreamSessions, effectiveHw);
 				const activeDevices = await this.resolveActiveDevices();
 				const { canSafelyUpdate, warning } = this.computeMaintenanceStatus(activeStreams, activeDevices);
+				const { limit, active } = streamingManager.explainCapacityLimit();
 
 				return {
 					activeStreams,
 					activeDevices,
 					canSafelyUpdate,
+					capacity: { limit, active },
 					warning,
 				};
 			}),
