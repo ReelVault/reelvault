@@ -108,7 +108,15 @@ if (process.env.NODE_ENV === "test") {
 		if (!process.env[key]?.trim()) process.env[key] = generateSecret();
 	}
 } else {
-	bootstrapPersistedSecrets();
+	try {
+		bootstrapPersistedSecrets();
+	} catch (error) {
+		console.error(
+			`Cannot use the data directory (ROOT_DIR=${resolveRootDir()}): ${error instanceof Error ? error.message : String(error)}\n` +
+				"Point ROOT_DIR at a writable directory or fix its permissions, then start the server again.",
+		);
+		process.exit(1);
+	}
 }
 
 const envSchema = z.object({

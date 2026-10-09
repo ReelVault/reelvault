@@ -120,6 +120,24 @@ export function parseAllowedOrigins(value?: string | string[]): string[] {
 	return unique(origins);
 }
 
+/**
+ * True when the matcher can use an allowed-origin entry: a wildcard pattern or
+ * an http(s) URL/host. A typo (spaces, stray scheme) would otherwise silently
+ * never match — boot warns about every entry this rejects.
+ */
+export function isUsableOriginEntry(value: string): boolean {
+	const trimmed = value.trim();
+	if (trimmed.length === 0) return false;
+
+	if (trimmed.includes("*")) return true;
+
+	try {
+		return normalizeHttpUrl(trimmed).hostname.length > 0;
+	} catch {
+		return false;
+	}
+}
+
 const LOCAL_DOMAIN_SUFFIXES = [".lan", ".local", ".home", ".home.arpa", ".internal"];
 const COOKIE_DOMAIN_REGEX = /;\s*domain=/i;
 

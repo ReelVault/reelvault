@@ -5,6 +5,7 @@ import {
 	getTrustedOriginPatterns,
 	isLocalNetworkHost,
 	isOriginAllowed,
+	isUsableOriginEntry,
 	matchesIfNoneMatch,
 	parseAllowedOrigins,
 	wildcardPatternToRegex,
@@ -35,6 +36,22 @@ describe("http.utils", () => {
 			expect(parseAllowedOrigins(undefined)).toEqual([]);
 			expect(parseAllowedOrigins("")).toEqual([]);
 			expect(parseAllowedOrigins([])).toEqual([]);
+		});
+	});
+
+	describe("isUsableOriginEntry", () => {
+		it("accepts URLs, bare hosts and wildcard patterns", () => {
+			expect(isUsableOriginEntry("http://localhost:3000")).toBe(true);
+			expect(isUsableOriginEntry("https://example.com")).toBe(true);
+			expect(isUsableOriginEntry("example.com")).toBe(true);
+			expect(isUsableOriginEntry(" http://*.ts:* ")).toBe(true);
+		});
+
+		it("rejects empty and unparseable entries a typo would produce", () => {
+			expect(isUsableOriginEntry("")).toBe(false);
+			expect(isUsableOriginEntry("   ")).toBe(false);
+			expect(isUsableOriginEntry("http://")).toBe(false);
+			expect(isUsableOriginEntry("http://exa mple.com")).toBe(false);
 		});
 	});
 

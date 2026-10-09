@@ -25,11 +25,12 @@ import { downloadsService } from "./modules/downloads/downloads.service";
 import { registerStreamingLifecycle } from "./modules/streaming/runtime/streaming.runtime";
 import { pluginManager } from "./plugins/lifecycle/plugin.manager";
 import { serverConfig } from "./server.config";
+import { RECOMMENDED_FFMPEG_MAJOR } from "./server.constants";
 import { Shutdown, setActiveShutdown } from "./shutdown";
 import { resourceAllocator } from "./system/resource-allocator";
 import { serverRescueService } from "./system/server-rescue.service";
 import { systemResourcesService } from "./system/system-resources.service";
-import { isOriginAllowed } from "./utils/http.utils";
+import { isOriginAllowed, isUsableOriginEntry } from "./utils/http.utils";
 import { logger } from "./utils/logger";
 import { cleanupStartupDirectories, ensureDataDirectories } from "./utils/server-data.utils";
 import { webStaticPlugin } from "./web/web-static.plugin";
@@ -52,6 +53,10 @@ async function setupServer(): Promise<void> {
 		logger.info("Loading system settings...");
 		await systemSettingsService.init();
 
+		// A typo in an allowed-origin entry would otherwise fail silently at CORS time.
+		const unusableOrigins = serverConfig.network.allowedOrigins.filter((origin) => !isUsableOriginEntry(origin));
+		if (unusableOrigins.length > 0) logger.warn("Ignoring unusable allowed-origin entries", { entries: unusableOrigins });
+
 		logger.info("Checking FFmpeg and FFprobe dependencies...");
 		const ffMpegAvailable = assertFFMpegAvailable();
 		const ffMpegCapabilities = await initializeFfmpegCapabilities();
@@ -63,7 +68,19 @@ async function setupServer(): Promise<void> {
 			missingAudioFilters: missingAudioFilters(),
 		});
 
-		await firstRunSetupService.getStatus();
+		const ffMpegMajor = parseMajorVersion(ffMpegCapabilities.version);
+		if (ffMpegMajor !== null && ffMpegMajor < RECOMMENDED_FFMPEG_MAJOR) {
+			logger.warn(
+				`FFmpeg ${ffMpegCapabilities.version} is older than the recommended ${RECOMMENDED_FFMPEG_MAJOR}.x — HDR tone mapping and newer encoders may be unavailable`,
+			);
+		}
+
+		const setupStatus = await firstRunSetupService.getStatus();
+		if (setupStatus.required && !setupStatus.tokenRequired && isPublicBindHost(serverConfig.network.host)) {
+			logger.warn(
+				`First-run setup is still pending and the server is bound to ${serverConfig.network.host} without a setup token — anyone who can reach it can create the first administrator. Set SETUP_TOKEN_ENABLED=true before exposing it.`,
+			);
+		}
 
 		logger.info("Loading plugins...");
 		await pluginManager.loadPlugins();
@@ -189,4 +206,22 @@ function isAddressInUse(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
 
 	return Reflect.get(error, "code") === "EADDRINUSE" || error.message.includes("EADDRINUSE") || error.message.includes("in use");
+}
+
+/** Wildcard binds are reachable from any network the host is on. */
+const PUBLIC_BIND_HOSTS: ReadonlySet<string> = new Set(["0.0.0.0", "::", "*"]);
+
+function isPublicBindHost(host: string): boolean {
+	return PUBLIC_BIND_HOSTS.has(host);
+}
+
+/** Matches the leading major of FFmpeg versions like `7.0.2`, `6.1.1-3ubuntu5` or `n7.0`. */
+const FFMPEG_MAJOR_VERSION_REGEX = /^n?(\d+)/;
+
+/** Unknown version strings return null — a warning would be noise. */
+function parseMajorVersion(version: string): number | null {
+	const match = version.match(FFMPEG_MAJOR_VERSION_REGEX);
+	if (!match?.[1]) return null;
+
+	return Number.parseInt(match[1], 10);
 }

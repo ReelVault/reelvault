@@ -12,6 +12,9 @@ export const DAY = 24 * HOUR;
 
 export const FFMPEG_TIMEOUT_MS = 10 * MINUTE;
 
+/** Boot-time recommendation only — warn, never refuse to start, on older FFmpeg majors. */
+export const RECOMMENDED_FFMPEG_MAJOR = 6;
+
 /**
  * Hard deadline for a single filesystem stat. A dead NFS/CIFS mount can hang
  * `stat` indefinitely, which would wedge watcher reconciliation and the removal

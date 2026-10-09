@@ -10,7 +10,7 @@
 	},
 	"scripts": {
 		"----RUN": "",
-		"dev": "bun --watch src/index.ts",
+		"dev": "NODE_ENV=development bun --watch src/index.ts",
 		"start": "bun run src/index.ts",
 		"----SCRIPTS": "",
 		"benchmark": "bun run scripts/benchmark.ts",
