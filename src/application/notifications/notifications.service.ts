@@ -174,7 +174,7 @@ class NotificationsService extends BaseService {
 	 * client asking to mark notifications unread marked them read instead.
 	 */
 	async updateStatus(
-		params: { ids?: string[]; all?: boolean; read?: boolean },
+		params: { ids?: string[]; all?: boolean; read?: boolean; type?: string },
 		userId?: string,
 		profileId?: string,
 	): Promise<{ success: true }> {
@@ -184,8 +184,8 @@ class NotificationsService extends BaseService {
 
 			if (params.all) {
 				await (read
-					? notificationsRepository.markAllReadForRecipient(userId, profileId)
-					: notificationsRepository.markAllUnreadForRecipient(userId, profileId));
+					? notificationsRepository.markAllReadForRecipient(userId, profileId, params.type)
+					: notificationsRepository.markAllUnreadForRecipient(userId, profileId, params.type));
 			} else if (params.ids && params.ids.length > 0) {
 				await (read
 					? notificationsRepository.markReadBatch(params.ids, userId, profileId)

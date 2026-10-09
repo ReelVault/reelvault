@@ -201,12 +201,13 @@ const overrides = {
 		await setBatchReadState(ids, recipientWhere(userId, profileId), false);
 	},
 
-	async markAllReadForRecipient(userId: string, profileId?: string): Promise<void> {
-		await setAllRead(recipientWhere(userId, profileId), true);
+	/** Marks the recipient's notifications read; with `type`, only those of that type. */
+	async markAllReadForRecipient(userId: string, profileId?: string, type?: string): Promise<void> {
+		await setAllRead(and(recipientWhere(userId, profileId), type ? eq(schema.notifications.type, type) : undefined), true);
 	},
 
-	async markAllUnreadForRecipient(userId: string, profileId?: string): Promise<void> {
-		await setAllRead(recipientWhere(userId, profileId), false);
+	async markAllUnreadForRecipient(userId: string, profileId?: string, type?: string): Promise<void> {
+		await setAllRead(and(recipientWhere(userId, profileId), type ? eq(schema.notifications.type, type) : undefined), false);
 	},
 
 	/** Deletes the given notifications of one recipient; ids that belong to someone else are left alone. */

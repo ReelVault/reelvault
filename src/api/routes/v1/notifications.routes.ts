@@ -16,6 +16,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications", tags: 
 		"notifications.update-status.body": t.Object({
 			ids: t.Optional(t.Array(t.String(), { maxItems: 500 })),
 			all: t.Optional(t.Boolean()),
+			type: t.Optional(t.String({ maxLength: 64 })),
 			read: t.Optional(t.Boolean()),
 		}),
 	})

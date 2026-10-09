@@ -1,6 +1,26 @@
 import { expect, test } from "bun:test";
 import { createTestClient, jsonResponse } from "../helpers/sdk-client";
 
+test("notifications client marks all read, optionally only one type", async () => {
+	const requests: Array<{ url: string; method: string; body?: string | undefined }> = [];
+	const client = createTestClient(
+		(url, init) => {
+			requests.push({ url, method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : undefined });
+
+			return jsonResponse({ success: true });
+		},
+		{ enableRetry: false },
+	);
+
+	await client.notifications.markAllRead();
+	await client.notifications.markAllRead("new_episode");
+
+	expect(requests).toEqual([
+		{ url: "https://reelvault.test/v1/notifications", method: "PATCH", body: JSON.stringify({ all: true }) },
+		{ url: "https://reelvault.test/v1/notifications", method: "PATCH", body: JSON.stringify({ all: true, type: "new_episode" }) },
+	]);
+});
+
 test("notifications client removes one notification or a batch from the caller's list", async () => {
 	const requests: Array<{ url: string; method: string; body?: string | undefined }> = [];
 	const client = createTestClient(
