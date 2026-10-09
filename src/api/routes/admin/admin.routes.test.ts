@@ -324,6 +324,7 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 		timeoutMs: 30000,
 		stats: { workerId: "test-worker", concurrency: 2, timeoutMs: 30000, waiting: 1, active: 0, completed: 0, failed: 0 },
 		triggers: [],
+		scheduleEnabled: true,
 	};
 
 	adminWorkerOperationsService.getWorkerSummaries = async () => [mockSummary];
@@ -430,6 +431,69 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 // contract must keep the relation fields the libraries page reads. The base
 // LibrarySchema stripped `paths`/stats during response validation and crashed
 // the page with "can't access property 'length', e.paths is undefined".
+test("admin worker routes pause and resume a schedule, retry failed jobs and report the watchdog", async () => {
+	auth.api.getSession = fakeGetSession({
+		user: {
+			id: "admin-1",
+			name: "Admin",
+			email: "admin@example.com",
+			emailVerified: true,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			role: "admin",
+			banned: false,
+		},
+		session: { id: "session-1" },
+	});
+	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+
+	const originalSetScheduleEnabled = adminWorkerOperationsService.setScheduleEnabled;
+	const originalRetryItem = adminWorkerOperationsService.retryItem;
+	const originalGetWatchdogState = adminWorkerOperationsService.getWatchdogState;
+	adminWorkerOperationsService.setScheduleEnabled = async (workerId: string, enabled: boolean) => ({
+		workerId,
+		enabled,
+		nextRunAt: enabled ? "2026-10-09T10:00:00.000Z" : null,
+	});
+	adminWorkerOperationsService.retryItem = async () => ({ success: true, jobId: "item-2" });
+	adminWorkerOperationsService.getWatchdogState = () => ({
+		running: true,
+		consecutiveFailures: 0,
+		restarts: 0,
+		elapsedSinceLastPollMs: 120,
+		lastPollAt: "2026-10-09T10:00:00.000Z",
+		recoveredJobs: 2,
+	});
+
+	try {
+		const pauseRes = await app.handle(
+			new Request("http://localhost/admin/workers/library-scan/enabled", {
+				method: "PUT",
+				headers: { authorization: "Bearer admin", "content-type": "application/json" },
+				body: JSON.stringify({ enabled: false }),
+			}),
+		);
+		expect(pauseRes.status).toBe(200);
+		expect(await pauseRes.json()).toEqual({ workerId: "library-scan", enabled: false, nextRunAt: null });
+
+		const retryRes = await app.handle(
+			new Request("http://localhost/admin/workers/jobs/item-1/retry", { method: "POST", headers: { authorization: "Bearer admin" } }),
+		);
+		expect(retryRes.status).toBe(200);
+		expect(await retryRes.json()).toEqual({ success: true, jobId: "item-2" });
+
+		const watchdogRes = await app.handle(
+			new Request("http://localhost/admin/workers/watchdog", { headers: { authorization: "Bearer admin" } }),
+		);
+		expect(watchdogRes.status).toBe(200);
+		expect(await watchdogRes.json()).toMatchObject({ running: true, recoveredJobs: 2 });
+	} finally {
+		adminWorkerOperationsService.setScheduleEnabled = originalSetScheduleEnabled;
+		adminWorkerOperationsService.retryItem = originalRetryItem;
+		adminWorkerOperationsService.getWatchdogState = originalGetWatchdogState;
+	}
+});
+
 test("dashboard-view contract keeps library relations (paths and stats)", () => {
 	const item = AdminDashboardViewResponseSchema.properties.libraries.items;
 

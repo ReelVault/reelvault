@@ -27,6 +27,41 @@ test("admin client reads plugin diagnostics through the versioned API", async ()
 	expect(requestedUrls).toEqual(["https://reelvault.test/v1/admin/plugins"]);
 });
 
+test("admin client pauses and resumes schedules, retries failed jobs and reads the watchdog", async () => {
+	const requests: Array<{ url: string; method: string; body?: string | undefined }> = [];
+	const client = createTestClient(
+		(url, init) => {
+			requests.push({ url, method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : undefined });
+			if (url.endsWith("/enabled")) return jsonResponse({ workerId: "library-scan", enabled: false, nextRunAt: null });
+			if (url.endsWith("/retry")) return jsonResponse({ success: true, jobId: "job-2" });
+
+			return jsonResponse({
+				running: true,
+				consecutiveFailures: 0,
+				restarts: 0,
+				elapsedSinceLastPollMs: 120,
+				lastPollAt: "2026-10-09T10:00:00.000Z",
+				recoveredJobs: 2,
+			});
+		},
+		{ enableRetry: false },
+	);
+
+	expect(await client.admin.setWorkerScheduleEnabled("library-scan", false)).toEqual({
+		workerId: "library-scan",
+		enabled: false,
+		nextRunAt: null,
+	});
+	expect(await client.admin.retryWorkerJob("job-1")).toEqual({ success: true, jobId: "job-2" });
+	expect((await client.admin.getWorkerWatchdog()).recoveredJobs).toBe(2);
+
+	expect(requests).toEqual([
+		{ url: "https://reelvault.test/v1/admin/workers/library-scan/enabled", method: "PUT", body: JSON.stringify({ enabled: false }) },
+		{ url: "https://reelvault.test/v1/admin/workers/jobs/job-1/retry", method: "POST" },
+		{ url: "https://reelvault.test/v1/admin/workers/watchdog", method: "GET" },
+	]);
+});
+
 test("admin client handles download jobs overview and deletion", async () => {
 	const requests: Array<{ url: string; method: string }> = [];
 	const client = createTestClient(

@@ -72,6 +72,12 @@ beforeEach(async () => {
 	const schedulesRepo = schedules.workerSchedulesRepository;
 	activeStubs.push(
 		stubMethod(schedulesRepo, "getAllTriggers", () => Promise.resolve(new Map())),
+		stubMethod(schedulesRepo, "setEnabled", (workerId: string, enabled: boolean) => {
+			const row = scheduleRows.get(workerId) ?? { workerId, triggers: [], isEnabled: true };
+			scheduleRows.set(workerId, { ...row, isEnabled: enabled });
+
+			return Promise.resolve();
+		}),
 		stubMethod(schedulesRepo, "setTriggers", () => Promise.resolve()),
 		stubMethod(schedulesRepo, "getAllSchedules", () => Promise.resolve(new Map(scheduleRows))),
 		stubMethod(schedulesRepo, "setNextRunAt", (workerId: string, nextRunAt: Date | null) => {
@@ -196,6 +202,61 @@ describe("WorkerSchedulerService.evaluateTriggers", () => {
 		await scheduler.evaluateTriggers(new Date(ANCHOR.getTime() + 20_000)); // same minute, 20 s later
 
 		expect(enqueued).toEqual([{ workerId: "w-interval", dedupeKey: `schedule:w-interval:${ANCHOR_MINUTE * MINUTE}` }]);
+	});
+});
+
+describe("WorkerSchedulerService pause and resume", () => {
+	test("a paused worker fires neither its startup trigger nor an overdue deadline", async () => {
+		defs = [def("w-paused", { defaultTriggers: [{ id: "t4", type: "startup" }] })];
+		scheduleRows.set("w-paused", {
+			workerId: "w-paused",
+			triggers: [],
+			isEnabled: false,
+			nextRunAt: new Date((ANCHOR_MINUTE - 60) * MINUTE),
+		});
+
+		await new WorkerSchedulerService().evaluateTriggers(ANCHOR);
+
+		expect(enqueued).toHaveLength(0);
+	});
+
+	test("resuming re-arms the deadline from now instead of replaying the paused period", async () => {
+		defs = [def("w-resumed", { defaultTriggers: [{ id: "t5", type: "interval", intervalMinutes: 30 }] })];
+		scheduleRows.set("w-resumed", { workerId: "w-resumed", triggers: [], isEnabled: false, nextRunAt: new Date(0) });
+
+		const before = Date.now();
+		const state = await new WorkerSchedulerService().setScheduleEnabled("w-resumed", true);
+
+		expect(state.enabled).toBe(true);
+		expect(Date.parse(state.nextRunAt ?? "")).toBeGreaterThan(before);
+		expect(scheduleRows.get("w-resumed")?.isEnabled).toBe(true);
+		expect(enqueued).toHaveLength(0);
+	});
+
+	test("pausing stores the flag and reports no next run", async () => {
+		defs = [def("w-off")];
+
+		const state = await new WorkerSchedulerService().setScheduleEnabled("w-off", false);
+
+		expect(state).toEqual({ workerId: "w-off", enabled: false, nextRunAt: null });
+		expect(scheduleRows.get("w-off")?.isEnabled).toBe(false);
+	});
+
+	test("an unknown worker cannot be paused", async () => {
+		await expect(new WorkerSchedulerService().setScheduleEnabled("missing", false)).rejects.toThrow('Worker "missing" was not found');
+	});
+
+	test("paused workers summarise without a next run", async () => {
+		defs = [def("w-off-summary"), def("w-on-summary", { defaultTriggers: [{ id: "t6", type: "interval", intervalMinutes: 30 }] })];
+		scheduleRows.set("w-off-summary", { workerId: "w-off-summary", triggers: [], isEnabled: false, nextRunAt: ANCHOR });
+		scheduleRows.set("w-on-summary", { workerId: "w-on-summary", triggers: [], isEnabled: true, nextRunAt: ANCHOR });
+
+		const summaries = await new WorkerSchedulerService().listWorkerSummaries();
+		const byId = new Map(summaries.map((summary) => [summary.id, summary]));
+
+		expect(byId.get("w-off-summary")).toMatchObject({ scheduleEnabled: false });
+		expect(byId.get("w-off-summary")).not.toHaveProperty("nextRunAt");
+		expect(byId.get("w-on-summary")).toMatchObject({ scheduleEnabled: true, nextRunAt: ANCHOR.toISOString() });
 	});
 });
 

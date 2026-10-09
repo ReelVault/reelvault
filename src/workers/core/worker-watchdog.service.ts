@@ -86,6 +86,9 @@ export class WorkerWatchdogService extends BaseService {
 
 	private consecutiveFailures = 0;
 	private restarts = 0;
+	/** Orphaned running jobs requeued by this process since it started (the rows themselves only keep the attempt count). */
+	private recoveredJobs = 0;
+	private lastRecoveredAt: Date | undefined;
 
 	private checkHealth(): void {
 		const now = Date.now();
@@ -125,6 +128,8 @@ export class WorkerWatchdogService extends BaseService {
 				...(this.runnerId ? { currentRunnerId: this.runnerId } : {}),
 			});
 			if (count > 0) {
+				this.recoveredJobs += count;
+				this.lastRecoveredAt = new Date();
 				this.logger.warn("Recovered orphaned running worker jobs", { count });
 			}
 
@@ -145,6 +150,8 @@ export class WorkerWatchdogService extends BaseService {
 			lastPollAt: new Date(lastPollAt).toISOString(),
 			restarts: this.restarts,
 			running: Boolean(this.timer),
+			recoveredJobs: this.recoveredJobs,
+			...(this.lastRecoveredAt ? { lastRecoveredAt: this.lastRecoveredAt.toISOString() } : {}),
 		};
 	}
 }

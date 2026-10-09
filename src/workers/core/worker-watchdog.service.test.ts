@@ -134,6 +134,32 @@ describe("WorkerWatchdogService.checkHealth", () => {
 	});
 });
 
+describe("WorkerWatchdogService recovery visibility", () => {
+	test("getState counts the orphaned jobs requeued since start and dates the latest pass", async () => {
+		recoverResult = 3;
+		const watchdog = new WorkerWatchdogService();
+
+		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 0 });
+		expect(watchdog.getState().lastRecoveredAt).toBeUndefined();
+
+		await watchdog.recoverOrphaned();
+		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 3 });
+		expect(Date.parse(watchdog.getState().lastRecoveredAt ?? "")).not.toBeNaN();
+	});
+
+	test("an empty or failed pass leaves the counters untouched", async () => {
+		const watchdog = new WorkerWatchdogService();
+
+		recoverResult = 0;
+		await watchdog.recoverOrphaned();
+		recoverResult = new Error("db down");
+		await watchdog.recoverOrphaned();
+
+		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 0 });
+		expect(watchdog.getState().lastRecoveredAt).toBeUndefined();
+	});
+});
+
 describe("WorkerWatchdogService.recoverOrphaned", () => {
 	test("excludes jobs still claimed by the live pool", async () => {
 		activeJobIds.push("job-live-1", "job-live-2");

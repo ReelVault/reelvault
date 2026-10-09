@@ -15,6 +15,10 @@ class AdminWorkerOperationsService extends BaseService {
 		return workerService.scheduler.listWorkerSummaries();
 	}
 
+	getWatchdogState() {
+		return workerService.watchdog.getState();
+	}
+
 	async runWorker(workerId: string, data?: unknown, context?: AdminAuditContext) {
 		const result = await workerService.scheduler.runWorkerManually(workerId, data);
 		recordAuditSafe(
@@ -55,6 +59,23 @@ class AdminWorkerOperationsService extends BaseService {
 				resourceType: "worker_triggers",
 				resourceId: workerId,
 				after: { workerId, triggers },
+				context,
+			},
+			this.logger,
+		);
+
+		return result;
+	}
+
+	async setScheduleEnabled(workerId: string, enabled: boolean, context?: AdminAuditContext) {
+		const result = await workerService.scheduler.setScheduleEnabled(workerId, enabled);
+		recordAuditSafe(
+			{
+				action: "update",
+				resourceType: "worker_schedule",
+				resourceId: workerId,
+				summary: enabled ? "Scheduled runs resumed" : "Scheduled runs paused",
+				after: result,
 				context,
 			},
 			this.logger,
@@ -217,6 +238,35 @@ class AdminWorkerOperationsService extends BaseService {
 		);
 
 		return { success: true };
+	}
+
+	async retryItem(id: string, context?: AdminAuditContext): Promise<{ success: true; jobId: string }> {
+		const item = await workerService.getItem(id);
+		this.assertExists(item, "Worker item", id);
+		if (item.status !== "failed") {
+			throw new ConflictError("Only failed worker items can be retried", {
+				code: "worker.item_not_retryable",
+				params: { itemId: id, status: item.status },
+			});
+		}
+
+		const retried = await workerService.retryItem(id);
+		this.assertExists(retried, "Worker item", id);
+
+		recordAuditSafe(
+			{
+				action: "create",
+				resourceType: "worker_item",
+				resourceId: retried.id,
+				summary: `Retried failed worker item ${id}`,
+				before: item,
+				after: retried,
+				context,
+			},
+			this.logger,
+		);
+
+		return { success: true, jobId: retried.id };
 	}
 
 	async cancelPendingItems(workerId?: string, context?: AdminAuditContext): Promise<{ count: number }> {

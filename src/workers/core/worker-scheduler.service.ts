@@ -105,9 +105,14 @@ export class WorkerSchedulerService extends BaseService {
 		this.lastEvaluatedAt = now;
 
 		const definitions = getWorkerRuntime().registry.getAll();
+		// One snapshot per pass. A paused worker (isEnabled = false) fires nothing, startup included.
+		const scheduleRows = await workerSchedulesRepository.getAllSchedules();
+		const isPaused = (workerId: string) => scheduleRows.get(workerId)?.isEnabled === false;
 
 		if (isStartup) {
 			for (const def of definitions) {
+				if (isPaused(def.id)) continue;
+
 				const triggers = this.getTriggersForWorker(def.id);
 				if (triggers.some((t) => t.type === "startup")) {
 					this.logger.info("Triggering worker on startup", { workerId: def.id });
@@ -120,11 +125,11 @@ export class WorkerSchedulerService extends BaseService {
 		// A deadline missed during downtime fires exactly once here (no minute
 		// replay, no flood), then advances past `now`. Deadlines are armed and
 		// advanced in one batched write after the loop instead of one per worker.
-		const scheduleRows = await workerSchedulesRepository.getAllSchedules();
 		const deadlineUpdates: Array<{ workerId: string; nextRunAt: Date | null }> = [];
 		for (const def of definitions) {
+			if (isPaused(def.id)) continue;
+
 			const row = scheduleRows.get(def.id);
-			if (row && !row.isEnabled) continue;
 
 			const triggers = this.getTriggersForWorker(def.id);
 			const cron = def.schedule?.cron;
@@ -211,6 +216,24 @@ export class WorkerSchedulerService extends BaseService {
 		this.logger.info("Updated worker triggers", { workerId, triggerCount: triggers.length });
 
 		return triggers;
+	}
+
+	/**
+	 * Pauses or resumes the scheduled runs of one worker. A paused worker keeps its triggers and fires nothing
+	 * automatically. Resuming re-arms the deadline from now, so the paused period is not replayed as a backlog.
+	 */
+	async setScheduleEnabled(workerId: string, enabled: boolean): Promise<{ workerId: string; enabled: boolean; nextRunAt: string | null }> {
+		const def = getWorkerRuntime().registry.get(workerId);
+		if (!def) throw new NotFoundError(`Worker "${workerId}" was not found`);
+
+		await workerSchedulesRepository.setEnabled(workerId, enabled);
+		this.logger.info(enabled ? "Worker schedule resumed" : "Worker schedule paused", { workerId });
+		if (!enabled) return { workerId, enabled, nextRunAt: null };
+
+		const nextRunAt = computeNextRunAt(this.getTriggersForWorker(workerId), def.schedule?.cron, new Date());
+		await workerSchedulesRepository.setNextRunAt(workerId, nextRunAt);
+
+		return { workerId, enabled, nextRunAt: nextRunAt?.toISOString() ?? null };
 	}
 
 	async runWorkerManually(workerId: string, data: unknown = {}): Promise<{ success: true; jobId: string; operationId?: string }> {
@@ -323,7 +346,13 @@ export class WorkerSchedulerService extends BaseService {
 				timeoutMs: def.timeoutMs ?? MINUTE,
 				stats: statsMap.get(def.id) ?? emptyWorkerStats(def),
 				triggers,
-				...pickDefined({ description: def.description, lastExecution }),
+				scheduleEnabled: scheduleRow?.isEnabled ?? true,
+				...pickDefined({
+					description: def.description,
+					lastExecution,
+					// A paused schedule shows no next run: its stored deadline never fires.
+					nextRunAt: scheduleRow?.isEnabled === false ? undefined : scheduleRow?.nextRunAt?.toISOString(),
+				}),
 			});
 		}
 

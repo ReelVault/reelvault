@@ -72,6 +72,19 @@ class WorkerSchedulesRepository {
 			});
 	}
 
+	/** Pauses (`false`) or resumes (`true`) the scheduled runs of one worker; manual runs ignore this flag. */
+	async setEnabled(workerId: string, enabled: boolean): Promise<void> {
+		const now = new Date();
+		await databaseFactory
+			.getClient()
+			.insert(schedules)
+			.values({ id: uuidv7(), workerId, triggers: [], isEnabled: enabled })
+			.onConflictDoUpdate({
+				target: schedules.workerId,
+				set: { isEnabled: enabled, updatedAt: now },
+			});
+	}
+
 	/**
 	 * Batch variant of {@link setNextRunAt} for the scheduler pass: one multi-row
 	 * upsert for armed/advanced deadlines, one chunked UPDATE for cleared ones.

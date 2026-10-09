@@ -153,6 +153,21 @@ class WorkerService extends BaseService {
 		return item ? toJobContract(item) : undefined;
 	}
 
+	/** Re-enqueues a failed item as a standalone task with its stored payload; the failed row stays in history. */
+	async retryItem(id: string): Promise<WorkerItemContract | undefined> {
+		const item = await this.queue.getJob(id);
+		if (!item) return undefined;
+
+		const payload: unknown = JSON.parse(item.data);
+		const retried = await this.queue.enqueue(item.workerId, payload, {
+			dedupeKey: item.dedupeKey ?? undefined,
+			reference: item.referenceType && item.referenceId ? { type: item.referenceType, id: item.referenceId } : undefined,
+			priority: item.priority,
+		});
+
+		return toJobContract(retried);
+	}
+
 	async listItems(options: {
 		limit: number;
 		offset: number;

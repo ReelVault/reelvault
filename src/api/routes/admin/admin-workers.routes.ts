@@ -11,8 +11,12 @@ import {
 	WorkerJobStateSchema,
 	WorkerOperationJobsResponseSchema,
 	WorkerOperationSchema,
+	WorkerRetryResponseSchema,
+	WorkerScheduleEnabledRequestSchema,
+	WorkerScheduleStateSchema,
 	WorkerStatusFilterSchema,
 	WorkerSummarySchema,
+	WorkerWatchdogStateSchema,
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
@@ -52,6 +56,13 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		rateLimit: { name: "admin-workers-list", max: 120, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.workerSummaries" },
 		detail: { description: "List registered workers with queue statistics, schedules/triggers, and last execution state." },
+	})
+	.get("/workers/watchdog", () => adminWorkerOperationsService.getWatchdogState(), {
+		rateLimit: { name: "admin-workers-watchdog", max: 120, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: WorkerWatchdogStateSchema },
+		detail: {
+			description: "Polling stalls and orphaned-job recoveries of the worker watchdog, counted since this server process started.",
+		},
 	})
 	.post(
 		"/workers/:workerId/run",
@@ -110,6 +121,21 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			body: UpdateTaskTriggersRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerTriggers" },
 			detail: { description: "Update triggers and schedule for a worker (startup, daily, weekly, interval)." },
+		},
+	)
+	.put(
+		"/workers/:workerId/enabled",
+		async ({ params, body, user, request }) =>
+			await adminWorkerOperationsService.setScheduleEnabled(params.workerId, body.enabled, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			}),
+		{
+			rateLimit: { name: "admin-workers-enabled", max: 20, windowMs: MINUTE },
+			params: WorkerIdParams,
+			body: WorkerScheduleEnabledRequestSchema,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: WorkerScheduleStateSchema },
+			detail: { description: "Pause (enabled: false) or resume a worker's scheduled runs. Manual runs are not affected." },
 		},
 	)
 	.post(
@@ -171,6 +197,17 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		},
 	)
 
+	.post(
+		"/workers/jobs/:jobId/retry",
+		async ({ params, user, request }) =>
+			await adminWorkerOperationsService.retryItem(params.jobId, { actorUserId: user?.id, headers: request.headers }),
+		{
+			rateLimit: { name: "admin-workers-jobs-retry", max: 30, windowMs: MINUTE },
+			params: t.Object({ jobId: t.String({ minLength: 1 }) }),
+			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: WorkerRetryResponseSchema },
+			detail: { description: "Re-enqueue a failed worker job as a new task with the same payload; the failed job stays in its history." },
+		},
+	)
 	.get("/workers/operations", async ({ query }) => await adminWorkerOperationsService.getOperations(query), {
 		rateLimit: { name: "admin-workers-operations-list", max: 120, windowMs: MINUTE },
 		query: t.Composite([PaginationSchema, t.Object({ status: t.Optional(WorkerStatusFilterSchema) })]),
