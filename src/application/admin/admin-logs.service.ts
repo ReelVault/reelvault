@@ -418,6 +418,7 @@ class AdminLogsService extends BaseService {
 		retentionDays?: number,
 		context?: AdminAuditContext,
 		signal?: AbortSignal,
+		dryRun = false,
 	): Promise<{ scannedCount: number; deletedCount: number; freedBytes: number; retentionDays: number }> {
 		return await this.safeExecute(
 			"purgeOldLogs",
@@ -436,9 +437,9 @@ class AdminLogsService extends BaseService {
 				}
 
 				const mainLogPath = this.dependencies.logFilePath ? PathUtils.resolve(this.dependencies.logFilePath) : null;
-				const stats = await this.cleanLogDirectory(logsDir, logsDir, cutoffMs, mainLogPath, signal);
+				const stats = await this.cleanLogDirectory(logsDir, logsDir, cutoffMs, mainLogPath, signal, dryRun);
 
-				if (context?.actorUserId && stats.deletedCount > 0) {
+				if (!dryRun && context?.actorUserId && stats.deletedCount > 0) {
 					recordAuditSafe(
 						{
 							action: "delete",
@@ -468,6 +469,7 @@ class AdminLogsService extends BaseService {
 		cutoffMs: number,
 		mainLogPath: string | null,
 		signal?: AbortSignal,
+		dryRun = false,
 	): Promise<{ scannedCount: number; deletedCount: number; freedBytes: number }> {
 		let scannedCount = 0;
 		let deletedCount = 0;
@@ -480,13 +482,13 @@ class AdminLogsService extends BaseService {
 				const fullPath = PathUtils.join(currentDir, entry.name);
 
 				if (entry.isDirectory()) {
-					const subResult = await this.cleanLogDirectory(fullPath, logsDir, cutoffMs, mainLogPath, signal);
+					const subResult = await this.cleanLogDirectory(fullPath, logsDir, cutoffMs, mainLogPath, signal, dryRun);
 					scannedCount += subResult.scannedCount;
 					deletedCount += subResult.deletedCount;
 					freedBytes += subResult.freedBytes;
 
 					try {
-						if (fullPath !== logsDir) {
+						if (fullPath !== logsDir && !dryRun) {
 							const remaining = await readdir(fullPath);
 							if (remaining.length === 0) await rmdir(fullPath);
 						}
@@ -495,7 +497,7 @@ class AdminLogsService extends BaseService {
 					}
 				} else if (entry.isFile() && entry.name.endsWith(".log")) {
 					scannedCount++;
-					const result = await this.purgeSingleLogFile(fullPath, cutoffMs, mainLogPath);
+					const result = await this.purgeSingleLogFile(fullPath, cutoffMs, mainLogPath, dryRun);
 					if (result.deleted) {
 						deletedCount++;
 						freedBytes += result.bytes;
@@ -513,10 +515,12 @@ class AdminLogsService extends BaseService {
 		fullPath: string,
 		cutoffMs: number,
 		mainLogPath: string | null,
+		dryRun = false,
 	): Promise<{ deleted: boolean; bytes: number }> {
 		try {
 			const stats = await stat(fullPath);
 			if (stats.mtime.getTime() >= cutoffMs) return { deleted: false, bytes: 0 };
+			if (dryRun) return { deleted: true, bytes: stats.size };
 
 			const resolvedPath = PathUtils.resolve(fullPath);
 			if (mainLogPath && resolvedPath === mainLogPath) {

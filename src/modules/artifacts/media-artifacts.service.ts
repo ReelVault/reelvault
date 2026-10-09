@@ -157,6 +157,13 @@ class MediaArtifactsService extends BaseService {
 		return await mediaArtifactsRepository.countByOwnerAndKind();
 	}
 
+	/** Artifacts `deleteByMediaFileIdAndKind` would remove with the same filters; nothing is removed. */
+	async countByMediaFileIdAndKind(mediaFileId: string, kind: string, ownerId?: string): Promise<number> {
+		const artifacts = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
+
+		return artifacts.filter((a) => a.kind === kind && (ownerId === undefined || a.pluginId === ownerId)).length;
+	}
+
 	async deleteByMediaFileIdAndKind(mediaFileId: string, kind: string, ownerId?: string): Promise<number> {
 		const artifacts = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
 		// When scoped, an owner may only delete its own artifacts of that kind.

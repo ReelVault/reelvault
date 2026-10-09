@@ -229,18 +229,23 @@ class TrickplayService extends BaseService {
 	 * Removes the core trickplay previews of each media file. A file without previews, or an unknown id,
 	 * counts as nothing removed rather than an error, so a bulk request can name files it did not check.
 	 */
-	async deletePreviews(mediaFileIds: readonly string[]): Promise<{ mediaFiles: number; artifacts: number }> {
+	async deletePreviews(
+		mediaFileIds: readonly string[],
+		options: { dryRun?: boolean | undefined } = {},
+	): Promise<{ mediaFiles: number; artifacts: number }> {
 		let mediaFiles = 0;
 		let artifacts = 0;
 		for (const mediaFileId of new Set(mediaFileIds)) {
-			const deleted = await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER);
+			const deleted = options.dryRun
+				? await mediaArtifactsService.countByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER)
+				: await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER);
 			if (deleted > 0) {
 				mediaFiles++;
 				artifacts += deleted;
 			}
 		}
 
-		trickplayRepository.clearStatsCache();
+		if (!options.dryRun) trickplayRepository.clearStatsCache();
 
 		return { mediaFiles, artifacts };
 	}

@@ -95,13 +95,22 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 	.delete(
 		"/logs/cleanup",
 		async ({ query, user, request }) => {
-			return await adminLogsService.purgeOldLogs(query.retentionDays, { actorUserId: user?.id, headers: request.headers });
+			const dryRun = query.dryRun === true;
+			const result = await adminLogsService.purgeOldLogs(
+				query.retentionDays,
+				{ actorUserId: user?.id, headers: request.headers },
+				undefined,
+				dryRun,
+			);
+
+			return { ...result, dryRun };
 		},
 		{
 			query: t.Object({
 				retentionDays: t.Optional(
 					t.Numeric({ minimum: 1, maximum: 365, description: "Number of retention days (defaults to configured setting)." }),
 				),
+				dryRun: t.Optional(t.BooleanString({ description: "Count the log files that would be removed without removing them." })),
 			}),
 			response: {
 				200: t.Object({
@@ -109,6 +118,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 					deletedCount: t.Integer(),
 					freedBytes: t.Number(),
 					retentionDays: t.Integer(),
+					dryRun: t.Boolean(),
 				}),
 				...ROUTE_ERRORS.ADMIN,
 			},

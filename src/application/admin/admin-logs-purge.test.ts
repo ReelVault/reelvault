@@ -25,6 +25,19 @@ describe("AdminService purgeOldLogs", () => {
 		await rm(testLogsDir, { recursive: true, force: true });
 	});
 
+	test("a dry run counts the log files a purge would remove and removes none", async () => {
+		const oldLog = PathUtils.join(testLogsDir, "ffmpeg", "old.log");
+		await FileUtils.write(oldLog, "old logs");
+		const tenDaysAgo = daysAgo(10);
+		await utimes(oldLog, tenDaysAgo, tenDaysAgo);
+
+		const result = await adminLogsService.purgeOldLogs(7, undefined, undefined, true);
+
+		expect(result.deletedCount).toBe(1);
+		expect(result.freedBytes).toBe(Buffer.byteLength("old logs"));
+		expect(await FileUtils.exists(oldLog)).toBe(true);
+	});
+
 	test("purges log files older than specified retention days", async () => {
 		const recentLog = PathUtils.join(testLogsDir, "ffmpeg", "recent.log");
 		const oldLog = PathUtils.join(testLogsDir, "ffmpeg", "old.log");

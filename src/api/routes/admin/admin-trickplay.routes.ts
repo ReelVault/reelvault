@@ -44,7 +44,7 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 	.delete(
 		"/media/:mediaFileId",
 		async ({ params, user, request }) => {
-			const result = await trickplayService.deletePreviews([params.mediaFileId]);
+			const result = { ...(await trickplayService.deletePreviews([params.mediaFileId])), dryRun: false };
 			recordAuditSafe(
 				{
 					action: "delete",
@@ -67,23 +67,30 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 	.post(
 		"/media/delete",
 		async ({ body, user, request }) => {
-			const result = await trickplayService.deletePreviews(body.mediaFileIds);
-			recordAuditSafe(
-				{
-					action: "delete",
-					resourceType: "trickplay",
-					summary: `${result.artifacts} trickplay artifact(s) removed from ${result.mediaFiles} media file(s)`,
-					after: { mediaFileIds: body.mediaFileIds },
-					context: { actorUserId: user?.id, headers: request.headers },
-				},
-				trickplayAuditLogger,
-			);
+			const dryRun = body.dryRun === true;
+			const result = await trickplayService.deletePreviews(body.mediaFileIds, { dryRun });
+			// A dry run removes nothing, so there is no change to put on record.
+			if (!dryRun) {
+				recordAuditSafe(
+					{
+						action: "delete",
+						resourceType: "trickplay",
+						summary: `${result.artifacts} trickplay artifact(s) removed from ${result.mediaFiles} media file(s)`,
+						after: { mediaFileIds: body.mediaFileIds },
+						context: { actorUserId: user?.id, headers: request.headers },
+					},
+					trickplayAuditLogger,
+				);
+			}
 
-			return result;
+			return { ...result, dryRun };
 		},
 		{
 			rateLimit: { name: "admin-trickplay-delete-bulk", max: 10, windowMs: MINUTE },
-			body: t.Object({ mediaFileIds: t.Array(t.String({ minLength: 1, maxLength: 128 }), { minItems: 1, maxItems: 500 }) }),
+			body: t.Object({
+				mediaFileIds: t.Array(t.String({ minLength: 1, maxLength: 128 }), { minItems: 1, maxItems: 500 }),
+				dryRun: t.Optional(t.Boolean()),
+			}),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: TrickplayDeleteResultSchema },
 			detail: { description: "Remove the core trickplay previews of up to 500 media files at once." },
 		},
