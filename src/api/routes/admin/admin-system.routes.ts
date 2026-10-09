@@ -16,7 +16,7 @@ import { ClampedNumeric, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminService } from "@/application/admin/admin.service";
 import { adminAuditService } from "@/application/admin/admin-audit.service";
 import { adminFfmpegCapabilitiesService } from "@/application/admin/admin-ffmpeg-capabilities.service";
-import { adminResourcesService } from "@/application/admin/admin-resources.service";
+import { adminResourcesService, RESOURCE_HISTORY_MAX_HOURS } from "@/application/admin/admin-resources.service";
 import { metadataService } from "@/application/catalog/metadata/metadata.service";
 import { metadataRefreshQueueService } from "@/application/catalog/metadata/metadata-refresh-queue.service";
 import { cached } from "@/middleware/response-cache.middleware";
@@ -85,7 +85,8 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 				"Admin dashboard composite: stats, libraries, recent worker operations, audit feed, error logs and update status in one call.",
 		},
 	})
-	.get("/resources", async () => await adminResourcesService.getResourcesView(), {
+	.get("/resources", async ({ query }) => await adminResourcesService.getResourcesView(query.hours), {
+		query: t.Object({ hours: t.Optional(ClampedNumeric(1, RESOURCE_HISTORY_MAX_HOURS, { default: 24 })) }),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminResourcesResponseSchema },
 		// The monitoring page polls this continuously; a 2s body cache collapses
 		// bursts (compression memoized) without hiding live movement.
@@ -94,6 +95,31 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 			description: "Retrieve system resource metrics: CPU, memory, disk usage, alerts, and historical data for the last 24 hours.",
 		},
 	})
+	.get(
+		"/resources/export",
+		async ({ query }) => {
+			const exported = await adminResourcesService.exportHistory(query.hours, query.format);
+
+			return new Response(exported.body, {
+				headers: {
+					"content-type": exported.contentType,
+					"content-disposition": `attachment; filename="${exported.filename}"`,
+				},
+			});
+		},
+		{
+			rateLimit: { name: "admin-resources-export", max: 10, windowMs: MINUTE },
+			query: t.Object({
+				hours: t.Optional(ClampedNumeric(1, RESOURCE_HISTORY_MAX_HOURS, { default: 24 })),
+				format: t.Optional(t.Union([t.Literal("csv"), t.Literal("json")])),
+			}),
+			// Binary-style attachment: the handler returns a Response, not JSON.
+			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
+			detail: {
+				description: "Download every resource sample of the history window as CSV or JSON.",
+			},
+		},
+	)
 	.get("/ffmpeg-capabilities", () => adminFfmpegCapabilitiesService.getCapabilities(), {
 		rateLimit: { name: "admin-ffmpeg-capabilities", max: 30, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminFfmpegCapabilitiesSchema },
