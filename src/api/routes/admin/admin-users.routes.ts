@@ -13,7 +13,7 @@ import { t } from "elysia";
 import { ClampedNumeric, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { UserIdParams, UserProfileIdParams } from "@/api/schemas/route-params";
 import { adminUsersService } from "@/application/admin/admin-users.service";
-import { MINUTE } from "@/server.constants";
+import { MINUTE, serverConstants } from "@/server.constants";
 import { adminShell } from "./admin-shell";
 
 export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
@@ -31,7 +31,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 		rateLimit: { name: "admin-users-list", max: 120, windowMs: MINUTE },
 		query: t.Object({
 			search: t.Optional(t.String({ maxLength: 200 })),
-			page: t.Optional(t.Numeric({ minimum: 1 })),
+			page: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxPage)),
 			limit: t.Optional(ClampedNumeric(1, 100)),
 		}),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.usersPage" },
@@ -39,11 +39,12 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/users",
-		async ({ body, user, request }) => await adminUsersService.create(body, { actorUserId: user?.id, headers: request.headers }),
+		async ({ body, user, request, status }) =>
+			status(201, await adminUsersService.create(body, { actorUserId: user?.id, headers: request.headers })),
 		{
 			rateLimit: { name: "admin-users-create", max: 10, windowMs: MINUTE },
 			body: "admin.createUser",
-			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 409: "error.response", 200: "admin.user" },
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 409: "error.response", 201: "admin.user" },
 			detail: { description: "Create a new user account as an administrator." },
 		},
 	)
