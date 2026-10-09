@@ -53,6 +53,26 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			detail: { description: "Download the finished MP4 file (completed jobs only)." },
 		},
 	)
+	.post("/:jobId/cancel", async ({ params, profile }) => await downloadsService.cancelForProfile(params.jobId, profile?.id ?? ""), {
+		params: JobIdParams,
+		response: { 200: t.Object({ success: t.Literal(true) }), 404: "error.response", 409: "error.response" },
+		detail: { description: "Cancel a pending or running download; its partial file is removed." },
+	})
+	.post(
+		"/:jobId/retry",
+		async ({ params, user, profile }) => {
+			const mediaFileId = await downloadsService.mediaFileIdForProfile(params.jobId, profile?.id ?? "");
+			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId });
+
+			return await downloadsService.retryForProfile(params.jobId, profile?.id ?? "");
+		},
+		{
+			rateLimit: { name: "downloads-retry", max: 10, windowMs: MINUTE },
+			params: JobIdParams,
+			response: { 200: DownloadJobSchema, 404: "error.response", 409: "error.response" },
+			detail: { description: "Queue a new download of the same file and quality after a failed or cancelled one." },
+		},
+	)
 	.delete("/:jobId", async ({ params, profile }) => await downloadsService.deleteForProfile(params.jobId, profile?.id ?? ""), {
 		params: JobIdParams,
 		response: { 200: t.Object({ success: t.Boolean() }), 404: "error.response" },

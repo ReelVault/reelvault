@@ -362,3 +362,35 @@ describe("DownloadsService.sweepExpired", () => {
 
 // The settings store is process-global — never leak overrides into other test files.
 afterEach(() => systemSettingsStore.clearRuntimeValues());
+
+describe("DownloadsService retry and quota", () => {
+	test("retrying a failed download queues a new job and drops the old row", async () => {
+		findById.mockResolvedValue(row({ status: "failed" }));
+		insert.mockResolvedValue(row({ id: "dl-2" }));
+
+		const view = await downloadsService.retryForProfile("dl-1", "profile-1");
+
+		expect(view.id).toBe("dl-2");
+		expect(insert).toHaveBeenCalledWith(expect.objectContaining({ profileId: "profile-1", mediaFileId: "file-1", quality: "720p-mobile" }));
+		expect(addItem).toHaveBeenCalledWith("downloads-process", { downloadId: "dl-2" }, expect.objectContaining({ dedupeKey: "dl-2" }));
+		expect(deleteRow).toHaveBeenCalledWith("dl-1");
+	});
+
+	test("only failed or cancelled downloads can be retried", async () => {
+		findById.mockResolvedValue(row({ status: "completed" }));
+
+		await expect(downloadsService.retryForProfile("dl-1", "profile-1")).rejects.toMatchObject({
+			code: "downloads.not_retryable",
+			category: "conflict",
+		});
+		expect(insert).not.toHaveBeenCalled();
+	});
+
+	test("the list carries the storage quota next to the jobs", async () => {
+		storageUsed.mockResolvedValue(42);
+
+		const listing = await downloadsService.list("profile-1");
+
+		expect(listing.quota).toEqual({ usedBytes: 42, maxBytes: serverConfig.downloads.maxStorageBytesPerProfile });
+	});
+});

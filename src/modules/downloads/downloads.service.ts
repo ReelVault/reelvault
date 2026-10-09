@@ -93,10 +93,10 @@ class DownloadsService extends BaseService {
 		});
 	}
 
-	async list(profileId: string): Promise<{ jobs: DownloadJobView[] }> {
-		const rows = await downloadsRepository.findByProfile(profileId);
+	async list(profileId: string): Promise<{ jobs: DownloadJobView[]; quota: { usedBytes: number; maxBytes: number } }> {
+		const [rows, quota] = await Promise.all([downloadsRepository.findByProfile(profileId), this.getStorageQuota(profileId)]);
 
-		return this.toJobList(rows, (row) => this.toView(row));
+		return { ...this.toJobList(rows, (row) => this.toView(row)), quota };
 	}
 
 	async listAll(): Promise<{ jobs: Array<DownloadJobView & { profileId: string }> }> {
@@ -116,6 +116,27 @@ class DownloadsService extends BaseService {
 		await this.assertOwnedDownload(jobId, profileId);
 
 		return this.cancel(jobId);
+	}
+
+	/** Media file of an owned download; the route checks stream access against it before a retry. */
+	async mediaFileIdForProfile(jobId: string, profileId: string): Promise<string> {
+		return (await this.assertOwnedDownload(jobId, profileId)).mediaFileId;
+	}
+
+	/** Starts a failed or cancelled download again with the same file and quality. The old row is replaced once the new one is queued. */
+	async retryForProfile(jobId: string, profileId: string): Promise<DownloadJobView> {
+		const row = await this.assertOwnedDownload(jobId, profileId);
+		if (row.status !== "failed" && row.status !== "cancelled") {
+			throw new ConflictError("Only failed or cancelled downloads can be retried", {
+				code: "downloads.not_retryable",
+				params: { status: row.status },
+			});
+		}
+
+		const view = await this.prepare(profileId, row.mediaFileId, row.quality);
+		await this.delete(jobId);
+
+		return view;
 	}
 
 	async deleteForProfile(jobId: string, profileId: string): Promise<{ success: true }> {
