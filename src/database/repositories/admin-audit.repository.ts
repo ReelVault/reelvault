@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, lte, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, lt, lte, max, or, type SQL, sql } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount } from "@/database/table-access";
@@ -42,6 +42,9 @@ export interface AdminAuditQuery {
 	to?: string | undefined;
 }
 
+/** The audit filters without paging: what the list and the summary have in common. */
+export type AdminAuditFilters = Omit<AdminAuditQuery, "page" | "limit">;
+
 export class AdminAuditRepository {
 	readonly table = schema.adminAuditLogs;
 	private readonly database: Pick<DatabaseFactory, "getClient">;
@@ -70,18 +73,8 @@ export class AdminAuditRepository {
 			});
 	}
 
-	async findMany({
-		page,
-		limit,
-		action,
-		resourceType,
-		actorUserId,
-		ipAddress,
-		requestId,
-		q,
-		from,
-		to,
-	}: AdminAuditQuery & { page: number; limit: number }) {
+	/** The filters that narrow the list and the per-administrator summary alike. */
+	private conditionFor({ action, resourceType, actorUserId, ipAddress, requestId, q, from, to }: AdminAuditFilters): SQL | undefined {
 		const where: SQL[] = [];
 		if (action) where.push(eq(this.table.action, action));
 
@@ -101,7 +94,11 @@ export class AdminAuditRepository {
 
 		if (to) where.push(lte(this.table.createdAt, new Date(to)));
 
-		const condition = where.length > 0 ? and(...where) : undefined;
+		return where.length > 0 ? and(...where) : undefined;
+	}
+
+	async findMany({ page, limit, ...filters }: AdminAuditQuery & { page: number; limit: number }) {
+		const condition = this.conditionFor(filters);
 		const client = this.database.getClient();
 		const [data, total] = await Promise.all([
 			client
@@ -111,14 +108,41 @@ export class AdminAuditRepository {
 				.orderBy(desc(this.table.createdAt), desc(this.table.id))
 				.limit(limit)
 				.offset((page - 1) * limit),
-			cachedCount(
-				"admin_audit_logs",
-				{ action, resourceType, actorUserId, ipAddress, requestId, q, from, to },
-				async () => await this.database.getClient().$count(this.table, condition),
-			),
+			cachedCount("admin_audit_logs", filters, async () => await this.database.getClient().$count(this.table, condition)),
 		]);
 
 		return { data, total };
+	}
+
+	/**
+	 * Activity per administrator for the filters: totals per action and the latest entry, busiest
+	 * first. Entries without an actor group under a null actor.
+	 */
+	async summarizeByActor(filters: AdminAuditFilters, limit: number) {
+		const condition = this.conditionFor(filters);
+		const client = this.database.getClient();
+		const [[totalRow], actors] = await Promise.all([
+			client.select({ total: count() }).from(this.table).where(condition),
+			client
+				.select({
+					actorUserId: this.table.actorUserId,
+					name: schema.users.name,
+					total: count(),
+					creates: sql<number>`coalesce(sum(case when ${this.table.action} = 'create' then 1 else 0 end), 0)`.mapWith(Number),
+					updates: sql<number>`coalesce(sum(case when ${this.table.action} = 'update' then 1 else 0 end), 0)`.mapWith(Number),
+					deletes: sql<number>`coalesce(sum(case when ${this.table.action} = 'delete' then 1 else 0 end), 0)`.mapWith(Number),
+					lastAt: max(this.table.createdAt),
+				})
+				.from(this.table)
+				.leftJoin(schema.users, eq(schema.users.id, this.table.actorUserId))
+				.where(condition)
+				.groupBy(this.table.actorUserId, schema.users.name)
+				// Equal totals and timestamps (second resolution) fall back to the actor id, so the order is stable.
+				.orderBy(desc(count()), desc(max(this.table.createdAt)), asc(this.table.actorUserId))
+				.limit(limit),
+		]);
+
+		return { total: totalRow?.total ?? 0, actors };
 	}
 
 	/** Deletes audit rows older than `cutoff` (daily retention sweep). */

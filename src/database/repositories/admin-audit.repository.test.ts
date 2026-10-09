@@ -249,6 +249,58 @@ describe("admin audit redaction", () => {
 		factory.shutdown();
 	});
 
+	test("summarizes activity per administrator with names, filters and unattributed entries", async () => {
+		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
+		const factory = new DatabaseFactory(path);
+		factory.getClient().run(
+			sql.raw(`
+				CREATE TABLE admin_audit_logs (
+					id TEXT PRIMARY KEY,
+					actor_user_id TEXT,
+					action TEXT NOT NULL,
+					resource_type TEXT NOT NULL,
+					resource_id TEXT,
+					resource_name TEXT,
+					summary TEXT,
+					before_json TEXT,
+					after_json TEXT,
+					request_id TEXT,
+					ip_address TEXT,
+					user_agent TEXT,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				)
+			`),
+		);
+		factory.getClient().run(sql.raw("CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)"));
+		factory.getClient().run(sql.raw("INSERT INTO users (id, name) VALUES ('admin-1', 'Ada'), ('admin-2', 'Bob')"));
+		const repository = new AdminAuditRepository(factory);
+
+		await repository.insert({ action: "create", resourceType: "library", context: { actorUserId: "admin-1" } });
+		await repository.insert({ action: "update", resourceType: "library", context: { actorUserId: "admin-1" } });
+		await repository.insert({ action: "update", resourceType: "user", context: { actorUserId: "admin-1" } });
+		await repository.insert({ action: "delete", resourceType: "user", context: { actorUserId: "admin-2" } });
+		await repository.insert({ action: "update", resourceType: "user", context: { actorUserId: "admin-2" } });
+		await repository.insert({ action: "update", resourceType: "system" });
+
+		const summary = await repository.summarizeByActor({}, 10);
+		expect(summary.total).toBe(6);
+		expect(summary.actors.map((actor) => actor.actorUserId)).toEqual(["admin-1", "admin-2", null]);
+		expect(summary.actors[0]).toMatchObject({ name: "Ada", total: 3, creates: 1, updates: 2, deletes: 0 });
+		expect(summary.actors[1]).toMatchObject({ name: "Bob", total: 2, creates: 0, updates: 1, deletes: 1 });
+		expect(summary.actors[2]).toMatchObject({ name: null, total: 1, updates: 1 });
+
+		const updatesOnly = await repository.summarizeByActor({ action: "update" }, 10);
+		expect(updatesOnly.total).toBe(4);
+		expect(updatesOnly.actors.map((actor) => actor.actorUserId)).toEqual(["admin-1", null, "admin-2"]);
+
+		const capped = await repository.summarizeByActor({}, 1);
+		expect(capped.actors).toHaveLength(1);
+		expect(capped.total).toBe(6);
+		factory.shutdown();
+	});
+
 	test("prunes audit rows older than the cutoff", async () => {
 		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);

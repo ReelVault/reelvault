@@ -1,5 +1,6 @@
 import {
 	AdminAuditPageSchema,
+	AdminAuditSummarySchema,
 	AdminCacheStatsSchema,
 	AdminDashboardViewResponseSchema,
 	AdminFfmpegCapabilitiesSchema,
@@ -157,6 +158,12 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.audit" },
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve administrator audit events with pagination and resource filters." },
+	})
+	.get("/audit/summary", async ({ query }) => await adminAuditService.getSummary(query), {
+		rateLimit: { name: "admin-audit-summary", max: 60, windowMs: MINUTE },
+		query: t.Object({ ...AuditFilterFields, limit: t.Optional(ClampedNumeric(1, 50)) }),
+		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminAuditSummarySchema },
+		detail: { description: "Activity per administrator for the audit filters: totals per action and the latest entry." },
 	})
 	.get(
 		"/audit/export",

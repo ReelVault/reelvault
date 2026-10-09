@@ -1,6 +1,7 @@
-import type { AdminAuditEntry, AdminAuditPage, FieldsQuery, Logger } from "@reelvault/sdk/common";
+import type { AdminAuditEntry, AdminAuditPage, AdminAuditSummary, FieldsQuery, Logger } from "@reelvault/sdk/common";
 import {
 	type AdminAuditContext,
+	type AdminAuditFilters,
 	type AdminAuditQuery,
 	type AdminAuditRecord,
 	type AdminAuditRepository,
@@ -51,6 +52,28 @@ class AdminAuditService extends BaseService {
 
 	async record(record: AdminAuditRecord): Promise<void> {
 		await adminAuditRepository.insert(record);
+	}
+
+	/** Activity per administrator for the filters, busiest first; `limit` caps how many administrators are listed. */
+	async getSummary(query: AdminAuditFilters & { limit?: number | undefined }): Promise<AdminAuditSummary> {
+		return await this.safeExecute("getSummary", async () => {
+			const { limit, ...filters } = query;
+			const pagination = QueryPagination.resolvePageParams({ limit }, { defaultLimit: 20, maxLimit: 50 });
+			const result = await adminAuditRepository.summarizeByActor(filters, pagination.limit);
+
+			return {
+				total: result.total,
+				actors: result.actors.map((actor) => ({
+					actorUserId: actor.actorUserId,
+					name: actor.name,
+					total: actor.total,
+					creates: actor.creates,
+					updates: actor.updates,
+					deletes: actor.deletes,
+					lastAt: actor.lastAt ? new Date(actor.lastAt).toISOString() : null,
+				})),
+			};
+		});
 	}
 
 	async getAll(query: AdminAuditQuery): Promise<AdminAuditPage> {

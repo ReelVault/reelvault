@@ -70,3 +70,43 @@ describe("AdminAuditService.exportEntries", () => {
 		});
 	});
 });
+
+describe("AdminAuditService.getSummary", () => {
+	test("maps the aggregate to the API shape and caps how many administrators are listed", async () => {
+		const summarize = stubMethod(adminAuditRepository, "summarizeByActor", () =>
+			Promise.resolve({
+				total: 3,
+				actors: [
+					{
+						actorUserId: "admin-1",
+						name: "Ada",
+						total: 3,
+						creates: 1,
+						updates: 2,
+						deletes: 0,
+						lastAt: new Date("2026-10-09T10:00:00Z"),
+					},
+				],
+			}),
+		);
+		stubs.push(summarize);
+
+		const summary = await adminAuditService.getSummary({ action: "update", limit: 500 });
+
+		expect(summarize.calls).toEqual([[{ action: "update" }, 50]]);
+		expect(summary).toEqual({
+			total: 3,
+			actors: [
+				{
+					actorUserId: "admin-1",
+					name: "Ada",
+					total: 3,
+					creates: 1,
+					updates: 2,
+					deletes: 0,
+					lastAt: "2026-10-09T10:00:00.000Z",
+				},
+			],
+		});
+	});
+});
