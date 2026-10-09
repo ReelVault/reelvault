@@ -15,6 +15,7 @@ import { initializeFfmpegCapabilities } from "@/integrations/ffmpeg/ffmpeg.capab
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
 import { assertFFProbeAvailable } from "@/integrations/ffprobe/ffprobe.environment";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { serverConfig } from "@/server.config";
 import { resourceAllocator } from "@/system/resource-allocator";
@@ -32,6 +33,10 @@ interface SystemSettingItemView {
 	default: unknown;
 	options?: string[];
 	isCustom: boolean;
+	/** When a custom value was last saved; absent for defaults. */
+	updatedAt?: string;
+	/** The administrator who saved the custom value (null when none is known). */
+	lastModifiedBy?: string | null;
 }
 
 class SystemSettingsService extends BaseService {
@@ -85,6 +90,7 @@ class SystemSettingsService extends BaseService {
 
 	async getAll(): Promise<Record<SettingGroup, SystemSettingItemView[]>> {
 		await this.ensureInitialized();
+		const rowsByKey = new Map((await systemSettingsRepository.list()).map((row) => [row.key, row]));
 
 		const grouped: Record<SettingGroup, SystemSettingItemView[]> = {
 			resources: [],
@@ -104,11 +110,13 @@ class SystemSettingsService extends BaseService {
 			const def = SYSTEM_SETTINGS[key];
 			const { value, isCustom } = systemSettingsStore.getWithMeta(key);
 
+			const row = rowsByKey.get(key);
 			grouped[def.group].push({
 				key,
 				group: def.group,
 				type: def.type,
 				value,
+				...(row ? { updatedAt: new Date(row.updatedAt).toISOString(), lastModifiedBy: row.lastModifiedBy } : {}),
 				default: def.default,
 				isCustom,
 				...(def.options ? { options: def.options } : {}),
@@ -195,7 +203,8 @@ class SystemSettingsService extends BaseService {
 		if (dbEntries.length > 0 || prunedKeys.length > 0) {
 			// Persist first: a failed write must not leave the runtime overrides
 			// diverged from what is actually stored.
-			if (dbEntries.length > 0) await systemSettingsRepository.setMany(dbEntries);
+			if (dbEntries.length > 0)
+				await systemSettingsRepository.setMany(dbEntries.map((entry) => ({ ...entry, lastModifiedBy: context?.actorUserId ?? null })));
 			if (prunedKeys.length > 0) await systemSettingsRepository.deleteMany(prunedKeys);
 			for (const [key, value] of afterValues.entries()) {
 				if (prunedKeys.includes(key)) continue;
@@ -223,6 +232,7 @@ class SystemSettingsService extends BaseService {
 
 			const changedKeys = [...afterValues.keys()];
 			this.logger.info("Updated system settings", { keys: changedKeys });
+			this.broadcastChange(changedKeys, context?.actorUserId);
 
 			await this.applySettingsSideEffects(changedKeys);
 		}
@@ -263,6 +273,7 @@ class SystemSettingsService extends BaseService {
 			);
 
 			this.logger.info("Reset system settings to defaults", { keys: keysToReset });
+			this.broadcastChange(keysToReset, context?.actorUserId);
 
 			await this.applySettingsSideEffects(keysToReset);
 		}
@@ -275,6 +286,15 @@ class SystemSettingsService extends BaseService {
 	 * reload, log level). Always runs after persistence, so a failed write never
 	 * triggers them; the same key rules apply to updates and resets.
 	 */
+	/** Tells the other administrator sessions which settings changed, so their open pages reload them. */
+	private broadcastChange(keys: readonly string[], actorUserId: string | undefined): void {
+		realtimeService.broadcastToAdmins("settings:changed", {
+			keys: [...keys],
+			actorUserId,
+			updatedAt: new Date().toISOString(),
+		});
+	}
+
 	private async applySettingsSideEffects(keys: readonly string[]): Promise<void> {
 		let needsWatcherSync = false;
 		let needsFfmpegReload = false;

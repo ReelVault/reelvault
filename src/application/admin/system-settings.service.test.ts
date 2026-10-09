@@ -3,6 +3,7 @@ import { adminAuditService } from "@/application/admin/admin-audit.service";
 import { libraryWatcherService } from "@/application/libraries/watching/library-watcher.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { systemSettingsRepository } from "@/database/repositories/system-settings.repository";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { systemSettingsService } from "./system-settings.service";
@@ -241,5 +242,20 @@ describe("systemSettingsService export and import", () => {
 		).rejects.toMatchObject({ code: "admin.settings.unknown_key" });
 
 		expect(setMany.calls).toHaveLength(0);
+	});
+});
+
+describe("systemSettingsService change tracking", () => {
+	test("saving records the administrator on each value and tells the other admin sessions which keys changed", async () => {
+		const setMany = stubSettingsPersistence();
+		const broadcast = stubMethod(realtimeService, "broadcastToAdmins", () => undefined);
+		stubs.push(broadcast);
+
+		await systemSettingsService.updateSettings({ "stream.maxSessions": 8 }, { actorUserId: "admin-1" });
+
+		expect(setMany.calls[0]?.[0]).toEqual([expect.objectContaining({ key: "stream.maxSessions", lastModifiedBy: "admin-1" })]);
+		expect(broadcast.calls).toEqual([
+			["settings:changed", { keys: ["stream.maxSessions"], actorUserId: "admin-1", updatedAt: expect.any(String) }],
+		]);
 	});
 });

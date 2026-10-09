@@ -19,6 +19,7 @@ const [{ adminSettingsRoutes }, { auth }, { systemSettingsService }, { adminAudi
 databaseFactory.sqlite.run(`CREATE TABLE IF NOT EXISTS "system_settings" (
 	"key" text PRIMARY KEY NOT NULL,
 	"value" text NOT NULL,
+	"last_modified_by" text,
 	"created_at" integer NOT NULL,
 	"updated_at" integer NOT NULL
 )`);

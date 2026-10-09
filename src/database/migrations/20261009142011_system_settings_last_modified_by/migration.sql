@@ -1,0 +1,1 @@
+ALTER TABLE `system_settings` ADD `last_modified_by` text;
