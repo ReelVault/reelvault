@@ -88,10 +88,18 @@ class NoMatchError extends Error {
 }
 
 class ProviderService extends BaseService {
-	private readonly caches = new ProviderResultCaches();
+	private caches = new ProviderResultCaches();
 
 	constructor() {
 		super("ProviderService");
+	}
+
+	/**
+	 * Replaces the result caches. Their TTL is read when they are built, so a changed
+	 * `plugins.providers.detailsCacheTtlMs` takes effect only through fresh caches.
+	 */
+	resetCaches(): void {
+		this.caches = new ProviderResultCaches();
 	}
 
 	/**

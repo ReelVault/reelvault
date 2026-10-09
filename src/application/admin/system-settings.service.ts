@@ -14,6 +14,7 @@ import { initializeFfmpegCapabilities } from "@/integrations/ffmpeg/ffmpeg.capab
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
 import { assertFFProbeAvailable } from "@/integrations/ffprobe/ffprobe.environment";
+import { providerService } from "@/plugins/capabilities/provider.service";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { ValidationError } from "@/utils/errors";
@@ -260,6 +261,7 @@ class SystemSettingsService extends BaseService {
 		let needsFfmpegReload = false;
 		let changesProfileDefaults = false;
 		let changesLogLevel = false;
+		let changesProviderCacheTtl = false;
 		for (const key of keys) {
 			// The watcher reads its fallback interval when arming timers, so a change
 			// must re-arm them; the same applies to the periodic rescan deadline.
@@ -276,6 +278,8 @@ class SystemSettingsService extends BaseService {
 			if (key.startsWith("ffmpeg.") || key === "ffprobe.path") needsFfmpegReload = true;
 
 			if (key === "system.logs.level") changesLogLevel = true;
+
+			if (key === "plugins.providers.detailsCacheTtlMs") changesProviderCacheTtl = true;
 		}
 
 		// Profiles inherit these defaults; any cached response that embeds effective preferences is stale now.
@@ -283,6 +287,8 @@ class SystemSettingsService extends BaseService {
 
 		// The stored level overrides LOG_LEVEL from here on; the debug file still requires a restart.
 		if (changesLogLevel) setLogLevel(serverConfig.logs.level);
+
+		if (changesProviderCacheTtl) providerService.resetCaches();
 
 		if (needsWatcherSync) await libraryWatcherService.syncWatchers();
 

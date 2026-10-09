@@ -3,6 +3,7 @@ import { adminAuditService } from "@/application/admin/admin-audit.service";
 import { libraryWatcherService } from "@/application/libraries/watching/library-watcher.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { systemSettingsRepository } from "@/database/repositories/system-settings.repository";
+import { providerService } from "@/plugins/capabilities/provider.service";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { systemSettingsService } from "./system-settings.service";
 
@@ -50,6 +51,28 @@ describe("systemSettingsService.updateSettings validation", () => {
 
 		expect(setMany.calls.length).toBe(1);
 		expect(systemSettingsStore.get("stream.maxSessions")).toBe(8);
+	});
+});
+
+describe("systemSettingsService provider cache TTL", () => {
+	test("rebuilds the provider result caches when their TTL changes", async () => {
+		stubSettingsPersistence();
+		const reset = stubMethod(providerService, "resetCaches", () => undefined);
+		stubs.push(reset);
+
+		await systemSettingsService.updateSettings({ "plugins.providers.detailsCacheTtlMs": 60_000 });
+
+		expect(reset.calls.length).toBe(1);
+	});
+
+	test("leaves the provider caches alone when another setting changes", async () => {
+		stubSettingsPersistence();
+		const reset = stubMethod(providerService, "resetCaches", () => undefined);
+		stubs.push(reset);
+
+		await systemSettingsService.updateSettings({ "stream.maxSessions": 8 });
+
+		expect(reset.calls.length).toBe(0);
 	});
 });
 
