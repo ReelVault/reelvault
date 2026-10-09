@@ -375,6 +375,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Failed plugin upgrades roll back** — an upgrade keeps the package it replaces until the new version has loaded once. When the new version does not load, during the install or when the plugin is enabled, the previous package is restored with the configuration saved since the upgrade, and the plugin runs as before (`state: rolled_back`). Uninstalling removes the kept package too.
 - **Honest plugin install results** — catalog and upload installs report `previousVersion`, `direction`, `state` and, when the new version did not load, `error` and `errorCode`. Previously a plugin that failed to load right after installation still answered with success.
 - **Interface switches are cleaned up after upgrades** — once an upgraded plugin runs, switches that point at contributions it no longer declares are removed. A plugin without an interface manifest keeps its switches.
+- **Offline switch for enforced two-factor authentication** — `bun run admin:two-factor-enforcement <on|off>` changes `auth.enforceTwoFactor` in the database. With enforcement on, an account without an authenticator cannot sign in, so an administrator who has not enrolled yet could not switch it off in the panel; this command is the way out. Restart a running server afterwards.
 
 ### Fixes
 

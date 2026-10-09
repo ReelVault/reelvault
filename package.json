@@ -18,6 +18,7 @@
 		"seed": "bun run scripts/seed.ts",
 		"check-memory": "bun run scripts/memory-check.ts",
 		"admin:reset-password": "bun run scripts/reset-password.ts",
+		"admin:two-factor-enforcement": "bun run scripts/two-factor-enforcement.ts",
 		"doctor": "bun run scripts/doctor.ts",
 		"----DATABASE": "",
 		"db:generate": "bunx --bun drizzle-kit generate",
