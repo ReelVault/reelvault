@@ -24,6 +24,8 @@ import { enqueueDownloadsProcess } from "@/workers/definitions/downloads/downloa
 export interface DownloadJobView {
 	id: string;
 	mediaFileId: string;
+	/** Title the media file belongs to; null when it no longer has one. */
+	metadataId: string | null;
 	quality: string;
 	status: string;
 	progressPercent: number;
@@ -94,14 +96,16 @@ class DownloadsService extends BaseService {
 			});
 			await enqueueDownloadsProcess(row.id);
 
-			return this.toView(row);
+			return await this.viewOf(row);
 		});
 	}
 
 	async list(profileId: string): Promise<{ jobs: DownloadJobView[]; quota: { usedBytes: number; maxBytes: number } }> {
 		const [rows, quota] = await Promise.all([downloadsRepository.findByProfile(profileId), this.getStorageQuota(profileId)]);
 
-		return { ...this.toJobList(rows, (row) => this.toView(row)), quota };
+		const metadataIds = await this.metadataIdsOf(rows);
+
+		return { jobs: rows.map((row) => this.toView(row, metadataIds.get(row.mediaFileId) ?? null)), quota };
 	}
 
 	/** One page of every profile's downloads for the admin overview, with the counts per status for its counters. */
@@ -111,12 +115,16 @@ class DownloadsService extends BaseService {
 			downloadsRepository.findPage({ status: query.status, limit: pagination.limit, offset: pagination.offset }),
 			downloadsRepository.countByStatus(),
 		]);
+		const metadataIds = await this.metadataIdsOf(result.data);
 
 		return {
 			...QueryPagination.createResponse({
 				total: result.total,
 				pagination,
-				data: result.data.map((row) => ({ ...this.toView(row), profileId: row.profileId })),
+				data: result.data.map((row) => ({
+					...this.toView(row, metadataIds.get(row.mediaFileId) ?? null),
+					profileId: row.profileId,
+				})),
 			}),
 			counts,
 		};
@@ -126,7 +134,7 @@ class DownloadsService extends BaseService {
 	async getJobViewForProfile(jobId: string, profileId: string): Promise<DownloadJobView | null> {
 		const row = await this.getOwnedDownload(jobId, profileId);
 
-		return row ? this.toView(row) : null;
+		return row ? await this.viewOf(row) : null;
 	}
 
 	async cancelForProfile(jobId: string, profileId: string): Promise<{ success: true }> {
@@ -262,9 +270,18 @@ class DownloadsService extends BaseService {
 		};
 	}
 
-	/** Maps repository rows into the `{ jobs }` envelope shared by both list endpoints. */
-	private toJobList<T>(rows: DownloadRow[], map: (row: DownloadRow) => T): { jobs: T[] } {
-		return { jobs: rows.map((row) => map(row)) };
+	/** Media file id → title id for the rows' media files, in one batched lookup. */
+	private async metadataIdsOf(rows: readonly DownloadRow[]): Promise<Map<string, string>> {
+		const identities = await mediaRepository.findIdentitiesByIds([...new Set(rows.map((row) => row.mediaFileId))]);
+
+		return new Map(identities.map((identity): [string, string] => [identity.id, identity.metadataId]));
+	}
+
+	/** The view of one row, with the title its media file belongs to. */
+	private async viewOf(row: DownloadRow): Promise<DownloadJobView> {
+		const [identity] = await mediaRepository.findIdentitiesByIds([row.mediaFileId]);
+
+		return this.toView(row, identity?.metadataId ?? null);
 	}
 
 	private artifactPath(downloadId: string, fileName: string): string {
@@ -583,10 +600,11 @@ class DownloadsService extends BaseService {
 		setInterval(sweep, RETENTION_SWEEP_INTERVAL_MS).unref();
 	}
 
-	private toView(row: DownloadRow): DownloadJobView {
+	private toView(row: DownloadRow, metadataId: string | null): DownloadJobView {
 		return {
 			id: row.id,
 			mediaFileId: row.mediaFileId,
+			metadataId,
 			quality: row.quality,
 			status: row.status,
 			progressPercent: row.progressPercent,

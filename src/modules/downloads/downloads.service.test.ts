@@ -77,6 +77,7 @@ const storageUsed = spyOn(downloadsRepository, "storageUsedByProfile").mockResol
 const findExpired = spyOn(downloadsRepository, "findExpired").mockResolvedValue([]);
 const findByProfile = spyOn(downloadsRepository, "findByProfile").mockResolvedValue([]);
 const findByStatuses = spyOn(downloadsRepository, "findByStatuses").mockResolvedValue([]);
+const findIdentities = spyOn(mediaRepository, "findIdentitiesByIds").mockResolvedValue([]);
 const addItem = spyOn(workerService, "addItem").mockResolvedValue(createMockWorkerItem({ id: "job-1" }));
 
 beforeEach(() => {
@@ -90,6 +91,7 @@ beforeEach(() => {
 	findExpired.mockClear().mockResolvedValue([]);
 	findByProfile.mockClear().mockResolvedValue([]);
 	findByStatuses.mockClear().mockResolvedValue([]);
+	findIdentities.mockClear().mockResolvedValue([]);
 	addItem.mockClear().mockResolvedValue(createMockWorkerItem({ id: "job-1" }));
 	systemSettingsStore.clearRuntimeValues();
 });
@@ -166,6 +168,27 @@ describe("DownloadsService ownership-checked views", () => {
 	test("completed downloads cannot be cancelled", async () => {
 		findById.mockResolvedValue(row({ status: "completed" }));
 		await expect(downloadsService.cancelForProfile("dl-1", "profile-1")).rejects.toThrow("Completed download cannot be cancelled");
+	});
+});
+
+describe("DownloadsService job views", () => {
+	test("list and single views carry the title of the media file", async () => {
+		findByProfile.mockResolvedValue([row({ id: "dl-1", mediaFileId: "file-1" })]);
+		findIdentities.mockResolvedValue([{ id: "file-1", metadataId: "meta-7" }]);
+
+		const listed = await downloadsService.list("profile-1");
+		expect(listed.jobs[0]).toMatchObject({ id: "dl-1", metadataId: "meta-7" });
+
+		findById.mockResolvedValue(row({ id: "dl-1", mediaFileId: "file-1" }));
+		expect(await downloadsService.getJobViewForProfile("dl-1", "profile-1")).toMatchObject({ metadataId: "meta-7" });
+	});
+
+	test("a media file without a title gives a null title id", async () => {
+		findByProfile.mockResolvedValue([row({ id: "dl-1", mediaFileId: "file-1" })]);
+
+		const listed = await downloadsService.list("profile-1");
+
+		expect(listed.jobs[0]?.metadataId).toBeNull();
 	});
 });
 
