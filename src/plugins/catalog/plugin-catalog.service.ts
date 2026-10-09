@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InstallCatalogPluginResponse } from "@reelvault/sdk/common";
+import type { InstallCatalogPluginResponse, PluginValidationResult } from "@reelvault/sdk/common";
 import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
 import { env } from "@/env";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
@@ -22,6 +22,7 @@ import {
 	resolveCatalogCandidate,
 } from "./catalog-manifest";
 import { assertChecksumMatches, downloadArchive, extractPluginPackage } from "./plugin-package.utils";
+import { archiveValidationFailure, validatePluginPackage } from "./plugin-package-validation";
 
 const CACHE_TTL_MS = 15 * 60_000;
 const MANIFEST_TIMEOUT_MS = 20_000;
@@ -272,6 +273,27 @@ class PluginCatalogService {
 			this.logger.info(`Installed plugin ${result.pluginId}@${result.version} from uploaded archive (${result.state})`);
 
 			return result;
+		} finally {
+			await extracted?.cleanup();
+			await rm(temporaryPath, { force: true });
+		}
+	}
+
+	/** Dry run of an uploaded archive: reports what installing it would do and installs nothing. */
+	async validateArchive(archive: Blob): Promise<PluginValidationResult> {
+		const temporaryPath = join(tmpdir(), `reelvault-plugin-validate-${crypto.randomUUID()}.bin`);
+		let extracted: Awaited<ReturnType<typeof extractPluginPackage>> | undefined;
+		try {
+			await Bun.write(temporaryPath, archive);
+			try {
+				extracted = await extractPluginPackage(temporaryPath);
+			} catch (error) {
+				return archiveValidationFailure(error);
+			}
+
+			const installed = (await pluginManager.getInstalledRecords()).map(({ id, record }) => ({ id, version: record.version }));
+
+			return await validatePluginPackage(extracted.pluginRoot, installed);
 		} finally {
 			await extracted?.cleanup();
 			await rm(temporaryPath, { force: true });

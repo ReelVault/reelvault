@@ -8,6 +8,7 @@ import {
 	PluginConfigDetailsSchema,
 	PluginRepositorySchema,
 	PluginUiSettingsSchema,
+	PluginValidationResultSchema,
 	ReorderMetadataProvidersSchema,
 	UpdatePluginConfigBodySchema,
 	UpdatePluginRepositoryBodySchema,
@@ -249,6 +250,15 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 			},
 		},
 	)
+	.post("/plugins/validate", async ({ body }) => await adminPluginCatalogService.validateUploadedArchive(body.file), {
+		body: t.Object({ file: t.File({ maxSize: "200m" }) }),
+		rateLimit: { name: "admin-plugin-validate", max: 10, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: PluginValidationResultSchema },
+		detail: {
+			description:
+				"Check an uploaded .zip / .tar / .tar.gz plugin archive without installing it: manifest, entry point, interface manifest, server floor, and what installing it would change. Read-only.",
+		},
+	})
 	.post(
 		"/plugins/install-upload",
 		async ({ body, user, request }) =>

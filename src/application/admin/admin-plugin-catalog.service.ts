@@ -1,4 +1,10 @@
-import type { InstallCatalogPluginResponse, PluginCatalogEntry, PluginRepository, UpdatePluginRepositoryBody } from "@reelvault/sdk/common";
+import type {
+	InstallCatalogPluginResponse,
+	PluginCatalogEntry,
+	PluginRepository,
+	PluginValidationResult,
+	UpdatePluginRepositoryBody,
+} from "@reelvault/sdk/common";
 import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
 import { NotFoundError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
@@ -133,6 +139,11 @@ class AdminPluginCatalogService {
 		);
 
 		return result;
+	}
+
+	/** Dry run of an uploaded archive. Read-only, so nothing is audited. */
+	async validateUploadedArchive(file: File): Promise<PluginValidationResult> {
+		return await pluginCatalogService.validateArchive(file);
 	}
 
 	async uninstall(pluginId: string, context: AuditContext): Promise<{ success: boolean }> {

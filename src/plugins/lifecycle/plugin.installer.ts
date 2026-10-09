@@ -1,4 +1,5 @@
 import { chmod, cp, mkdir, rename, rm, stat } from "node:fs/promises";
+import type { PluginInstallDirection } from "@reelvault/sdk/common";
 import { file, write } from "bun";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { DirUtils } from "@/utils/directory.utils";
@@ -27,6 +28,14 @@ const VERIFICATION_CONCURRENCY = () => clamp(Math.ceil(systemResourcesService.ge
 const logger = createLogger("PluginInstaller");
 
 export type { InstalledPluginRecord } from "./installer/lockfile.store";
+
+/** Direction of an install relative to the version it replaces. An unordered pair is a plain replacement. */
+export function installDirection(previousVersion: string | undefined, version: string): PluginInstallDirection {
+	if (previousVersion === undefined) return "install";
+	if (previousVersion === version) return "reinstall";
+
+	return isNewerVersion(previousVersion, version) ? "downgrade" : "upgrade";
+}
 
 export interface InstalledPlugin {
 	id: string;

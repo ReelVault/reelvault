@@ -1,12 +1,11 @@
-import type { InstallCatalogPluginResponse, PluginConfigDetails, PluginInstallDirection } from "@reelvault/sdk/common";
+import type { InstallCatalogPluginResponse, PluginConfigDetails } from "@reelvault/sdk/common";
 import type { PluginConfigField, PluginRuntime, PluginStatus, SubtitleProvider, SubtitleProviderStatus } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { errorMessage, ValidationError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { Mutex } from "@/utils/mutex";
-import { isNewerVersion } from "@/utils/semver.utils";
 import { PluginConfig } from "../plugin.config";
-import { type InstalledPlugin, type InstalledPluginRecord, PluginInstaller } from "../plugin.installer";
+import { type InstalledPlugin, type InstalledPluginRecord, installDirection, PluginInstaller } from "../plugin.installer";
 import { PluginLoader } from "../plugin.loader";
 import { loadPluginManifest } from "../plugin.manifest";
 import { type PluginRegistry, pluginRegistry } from "../plugin.registry";
@@ -517,14 +516,6 @@ export class PluginManager {
 /** A secret is never returned, so its field only says whether a non-blank value is stored. */
 function markSecretPresence(fields: readonly PluginConfigField[], config: Record<string, unknown>): PluginConfigField[] {
 	return fields.map((field) => (field.type === "secret" ? { ...field, hasValue: !isBlankConfigValue(config[field.name]) } : field));
-}
-
-/** Direction of an install relative to the version it replaces. An unordered pair is a plain replacement. */
-function installDirection(previousVersion: string | undefined, version: string): PluginInstallDirection {
-	if (previousVersion === undefined) return "install";
-	if (previousVersion === version) return "reinstall";
-
-	return isNewerVersion(previousVersion, version) ? "downgrade" : "upgrade";
 }
 
 /**

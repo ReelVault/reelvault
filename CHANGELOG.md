@@ -376,6 +376,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Honest plugin install results** — catalog and upload installs report `previousVersion`, `direction`, `state` and, when the new version did not load, `error` and `errorCode`. Previously a plugin that failed to load right after installation still answered with success.
 - **Interface switches are cleaned up after upgrades** — once an upgraded plugin runs, switches that point at contributions it no longer declares are removed. A plugin without an interface manifest keeps its switches.
 - **Offline switch for enforced two-factor authentication** — `bun run admin:two-factor-enforcement <on|off>` changes `auth.enforceTwoFactor` in the database. With enforcement on, an account without an authenticator cannot sign in, so an administrator who has not enrolled yet could not switch it off in the panel; this command is the way out. Restart a running server afterwards.
+- **Plugin archive dry run** — `POST /admin/plugins/validate` checks an uploaded plugin archive without installing it: the manifest, the entry point, the interface manifest (a malformed one is a warning, as it is at load), the server version floor, and whether installing it would be an install, an upgrade, a downgrade or a reinstall. Nothing is installed, enabled or audited.
 
 ### Fixes
 
