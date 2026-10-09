@@ -96,3 +96,56 @@ describe("WatchlistService toggle", () => {
 		});
 	});
 });
+
+describe("WatchlistService bulk update and clear", () => {
+	test("adds and removes in one batch and reports both counts", async () => {
+		const inserted = stubMethod(watchlistRepository, "insertMany", () => Promise.resolve(2));
+		const removed = stubMethod(watchlistRepository, "removeMany", () => Promise.resolve(1));
+		activeStubs.push(
+			inserted,
+			removed,
+			stubMethod(metadataRepository, "findExistingIds", () => Promise.resolve(new Set(["metadata-1", "metadata-2"]))),
+		);
+
+		const result = await watchlistService.bulkUpdate(
+			{ add: ["metadata-1", "metadata-2", "metadata-1"], remove: ["metadata-3"] },
+			"profile-1",
+		);
+
+		expect(result).toEqual({ success: true, added: 2, removed: 1 });
+		expect(inserted.calls).toEqual([["profile-1", ["metadata-1", "metadata-2"]]]);
+		expect(removed.calls).toEqual([["profile-1", ["metadata-3"]]]);
+	});
+
+	test("refuses the whole batch when one title is missing from the catalog", async () => {
+		const inserted = stubMethod(watchlistRepository, "insertMany", () => Promise.resolve(0));
+		activeStubs.push(
+			inserted,
+			stubMethod(metadataRepository, "findExistingIds", () => Promise.resolve(new Set(["metadata-1"]))),
+		);
+
+		await expect(watchlistService.bulkUpdate({ add: ["metadata-1", "metadata-missing"] }, "profile-1")).rejects.toMatchObject({
+			code: "entity.not_found",
+			params: { entityType: "Metadata", entityId: "metadata-missing" },
+		});
+		expect(inserted.calls).toHaveLength(0);
+	});
+
+	test("rejects a title that is both added and removed", async () => {
+		const removed = stubMethod(watchlistRepository, "removeMany", () => Promise.resolve(0));
+		activeStubs.push(removed);
+
+		await expect(watchlistService.bulkUpdate({ add: ["metadata-1"], remove: ["metadata-1"] }, "profile-1")).rejects.toMatchObject({
+			code: "watchlist.bulk_conflict",
+		});
+		expect(removed.calls).toHaveLength(0);
+	});
+
+	test("clear empties the profile's watchlist and reports how many titles went", async () => {
+		const clear = stubMethod(watchlistRepository, "clear", () => Promise.resolve(4));
+		activeStubs.push(clear);
+
+		expect(await watchlistService.clear("profile-1")).toEqual({ success: true, removed: 4 });
+		expect(clear.calls).toEqual([["profile-1"]]);
+	});
+});

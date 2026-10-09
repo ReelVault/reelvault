@@ -384,6 +384,17 @@ class MetadataRepository {
 		return row;
 	}
 
+	/** Which of the given ids exist in the catalog; a lightweight check for batch writes. */
+	async findExistingIds(metadataIds: readonly string[]): Promise<Set<string>> {
+		if (metadataIds.length === 0) return new Set();
+
+		const rows = await mapChunked([...metadataIds], (idChunk) =>
+			databaseFactory.getClient().select({ id: schema.metadata.id }).from(schema.metadata).where(inArray(schema.metadata.id, idChunk)),
+		);
+
+		return new Set(rows.map((row) => row.id));
+	}
+
 	/** Full metadata rows with default relations (images, genres, rating) for a set of ids. */
 	async findManyByIdsWithRelations(metadataIds: readonly string[], tx?: DatabaseTransaction): Promise<MetadataWithRelation[]> {
 		if (metadataIds.length === 0) return [];

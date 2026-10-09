@@ -56,6 +56,46 @@ const overrides = {
 		});
 	},
 
+	/** Adds the titles that are not on the watchlist yet; returns how many were added. */
+	async insertMany(profileId: string, metadataIds: readonly string[]): Promise<number> {
+		if (metadataIds.length === 0) return 0;
+
+		const inserted = await databaseFactory
+			.getClient()
+			.insert(watchlist.table)
+			.values(metadataIds.map((metadataId) => ({ profileId, metadataId })))
+			.onConflictDoNothing()
+			.returning({ id: watchlist.table.id });
+
+		return inserted.length;
+	},
+
+	/** Removes the given titles from the watchlist; returns how many were removed. */
+	async removeMany(profileId: string, metadataIds: readonly string[]): Promise<number> {
+		if (metadataIds.length === 0) return 0;
+
+		const removed = await mapChunked([...metadataIds], (idChunk) =>
+			databaseFactory
+				.getClient()
+				.delete(watchlist.table)
+				.where(and(eq(watchlist.table.profileId, profileId), inArray(watchlist.table.metadataId, idChunk)))
+				.returning({ id: watchlist.table.id }),
+		);
+
+		return removed.length;
+	},
+
+	/** Empties the watchlist of one profile; returns how many titles were removed. */
+	async clear(profileId: string): Promise<number> {
+		const removed = await databaseFactory
+			.getClient()
+			.delete(watchlist.table)
+			.where(eq(watchlist.table.profileId, profileId))
+			.returning({ id: watchlist.table.id });
+
+		return removed.length;
+	},
+
 	async isWatchlisted(profileId: string, metadataId: string): Promise<boolean> {
 		return await getWatchlistRepository().isExists({
 			where: and(eq(watchlist.table.profileId, profileId), eq(watchlist.table.metadataId, metadataId)),

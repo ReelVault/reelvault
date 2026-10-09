@@ -6,6 +6,7 @@ import type {
 	PaginationQuery,
 	SelectFields,
 	Watchlist,
+	WatchlistBulkBody,
 	WatchlistFilters,
 	WatchlistSorting,
 } from "@reelvault/sdk/common";
@@ -13,6 +14,7 @@ import { metadataRepository } from "@/database/repositories/metadata.repository"
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { isNotNullish, toMap, unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
+import { ValidationError } from "@/utils/errors";
 
 import { invalidateProfileCaches } from "./cache-invalidation";
 
@@ -80,6 +82,44 @@ class WatchlistService extends BaseService {
 		});
 	}
 
+	/**
+	 * Adds and removes several titles in one request. A title missing from the catalog
+	 * refuses the whole batch, so a stale id cannot leave it half applied.
+	 */
+	async bulkUpdate(body: WatchlistBulkBody, profileId?: string) {
+		return await this.safeExecute("bulkUpdate", async () => {
+			this.assertProfileId(profileId);
+			const add = unique(body.add ?? []);
+			const remove = unique(body.remove ?? []);
+			const removing = new Set(remove);
+			const both = add.find((metadataId) => removing.has(metadataId));
+			if (both !== undefined) {
+				throw new ValidationError("A title cannot be added and removed in the same request", {
+					code: "watchlist.bulk_conflict",
+					params: { metadataId: both },
+				});
+			}
+
+			await this.assertMetadataExistAll(add);
+			const added = await watchlistRepository.insertMany(profileId, add);
+			const removed = await watchlistRepository.removeMany(profileId, remove);
+			invalidateProfileCaches(profileId);
+
+			return { success: true as const, added, removed };
+		});
+	}
+
+	async clear(profileId?: string) {
+		return await this.safeExecute("clear", async () => {
+			this.assertProfileId(profileId);
+
+			const removed = await watchlistRepository.clear(profileId);
+			invalidateProfileCaches(profileId);
+
+			return { success: true as const, removed };
+		});
+	}
+
 	async isWatchlisted(metadataId: string, profileId?: string): Promise<{ inWatchlist: boolean }> {
 		return await this.safeExecute("isWatchlisted", async () => {
 			if (!profileId) return { inWatchlist: false };
@@ -113,6 +153,13 @@ class WatchlistService extends BaseService {
 
 			return result;
 		});
+	}
+
+	/** Every id must exist in the catalog; the first missing one is reported. */
+	private async assertMetadataExistAll(metadataIds: readonly string[]): Promise<void> {
+		const existing = await metadataRepository.findExistingIds(metadataIds);
+		const missing = metadataIds.find((metadataId) => !existing.has(metadataId));
+		this.assertFound(missing === undefined, "Metadata", missing);
 	}
 
 	/** A stale catalog id must be a 404, not an FK violation surfacing as a 500. */

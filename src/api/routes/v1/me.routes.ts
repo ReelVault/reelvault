@@ -17,6 +17,9 @@ import {
 	UserRatingSortingSchema,
 	WatchedHistorySortingSchema,
 	WatchedHistoryWithRelationsSchema,
+	WatchlistBulkBodySchema,
+	WatchlistBulkResponseSchema,
+	WatchlistClearResponseSchema,
 	WatchlistFiltersSchema,
 	WatchlistSchema,
 	WatchlistSortingSchema,
@@ -63,6 +66,9 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		"me.playback-suggestions.batch.response": BatchSmartPlayResponseSchema,
 		"me.watchlist.toggle.body": CreateWatchlistSchema,
 		"me.watchlist.toggle.response": t.Object({ added: t.Boolean() }),
+		"me.watchlist.bulk.body": WatchlistBulkBodySchema,
+		"me.watchlist.bulk.response": WatchlistBulkResponseSchema,
+		"me.watchlist.clear.response": WatchlistClearResponseSchema,
 		"me.watchlist.status.response": t.Object({ inWatchlist: t.Boolean() }),
 		"me.watchlist.statuses.response": WatchlistStatusesResponseSchema,
 
@@ -209,6 +215,10 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
 		detail: { description: "Add a title to the watchlist." },
 	})
+	.delete("/watchlist", async ({ profile }) => await watchlistService.clear(profile?.id), {
+		response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.clear.response" },
+		detail: { description: "Remove every title from the watchlist of the active profile." },
+	})
 	.delete("/watchlist/:metadataId", async ({ params, profile }) => await watchlistService.remove(params.metadataId, profile?.id), {
 		params: MetadataIdParams,
 		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
@@ -239,6 +249,11 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		params: MetadataIdParams,
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.status.response" },
 		detail: { description: "Check if a title is in the watchlist." },
+	})
+	.post("/watchlist/bulk", async ({ body, profile }) => await watchlistService.bulkUpdate(body, profile?.id), {
+		body: "me.watchlist.bulk.body",
+		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "me.watchlist.bulk.response" },
+		detail: { description: "Add and remove several titles of the active profile in one request (up to 500 of each)." },
 	})
 	.post("/watchlist/toggle", async ({ body, profile }) => await watchlistService.toggle(body, profile?.id), {
 		body: "me.watchlist.toggle.body",
