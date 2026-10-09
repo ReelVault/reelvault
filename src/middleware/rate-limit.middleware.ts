@@ -6,6 +6,7 @@ import { TooManyRequestsError } from "@/utils/errors";
 import { getPathname } from "@/utils/http.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
 import { isRecord } from "@/utils/type.utils";
+import { tunedRouteMax } from "./rate-limit-overrides";
 
 const rateLimiter = new InMemoryRateLimiter();
 
@@ -77,7 +78,7 @@ export const rateLimitMiddleware = new Elysia({ name: "RateLimitMiddleware" })
 
 				if (options.adminBypass && userRole === "admin") return;
 
-				const routeMax = Math.round(options.max * serverConfig.api.rateLimit.routeMultiplier);
+				const routeMax = tunedRouteMax(options.name, options.max) ?? Math.round(options.max * serverConfig.api.rateLimit.routeMultiplier);
 				// Anonymous callers share one identity bucket per IP (never a global
 				// "anonymous" bucket — five bad logins must not lock out the world).
 				const identity = profileId ?? userId ?? `ip:${getClientIp(request, server)}`;
@@ -87,10 +88,9 @@ export const rateLimitMiddleware = new Elysia({ name: "RateLimitMiddleware" })
 				const scoped = options.perParam ? params?.[options.perParam] : undefined;
 				const key = `${options.name}${typeof scoped === "string" ? `:${scoped}` : ""}:${identity}`;
 				const result = rateLimiter.consume(key, routeMax, options.windowMs);
-				if (!result.allowed) {
-					setRateLimitHeaders(set.headers, routeMax, result.remaining, result.resetMs);
-					throwRateLimitExceeded(result.resetMs);
-				}
+				// The route's budget is reported on every answer, so clients can pace themselves before a 429.
+				setRateLimitHeaders(set.headers, routeMax, result.remaining, result.resetMs);
+				if (!result.allowed) throwRateLimitExceeded(result.resetMs);
 			},
 		}),
 	})

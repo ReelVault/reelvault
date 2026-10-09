@@ -16,6 +16,7 @@ import { initializeFfmpegCapabilities } from "@/integrations/ffmpeg/ffmpeg.capab
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
 import { assertFFProbeAvailable } from "@/integrations/ffprobe/ffprobe.environment";
+import { rateLimitOverrideIssues } from "@/middleware/rate-limit-overrides";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { serverConfig } from "@/server.config";
@@ -182,6 +183,17 @@ class SystemSettingsService extends BaseService {
 			}
 
 			const { parsedValue, finalSerialized } = this.parseAndSerialize(key, rawValue);
+
+			// A route budget override must name tunable buckets with whole numbers, or the limiter would ignore it silently.
+			if (key === "network.rateLimit.routeOverrides") {
+				const issues = rateLimitOverrideIssues(String(parsedValue));
+				if (issues.malformed.length > 0 || issues.untunable.length > 0) {
+					throw new ValidationError("Route budget overrides must be name=max pairs for tunable routes", {
+						code: "network.rate_limit_override_invalid",
+						params: { malformed: issues.malformed.join(", "), untunable: issues.untunable.join(", ") },
+					});
+				}
+			}
 
 			// Enforcement signs out accounts without an authenticator, so it stays off until an administrator has one.
 			if (key === "auth.enforceTwoFactor" && parsedValue === true && (await usersRepository.countAdministratorsWithTwoFactor()) === 0) {
