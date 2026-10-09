@@ -1,4 +1,4 @@
-import type { AdminAuditEntry, AdminAuditPage, AdminAuditSummary, FieldsQuery, Logger } from "@reelvault/sdk/common";
+import type { AdminAuditEntry, AdminAuditOptions, AdminAuditPage, AdminAuditSummary, FieldsQuery, Logger } from "@reelvault/sdk/common";
 import {
 	type AdminAuditContext,
 	type AdminAuditFilters,
@@ -16,6 +16,9 @@ import { detach } from "@/utils/promise.utils";
 
 /** Largest audit export; a wider one is refused, so an export never silently drops entries. */
 export const AUDIT_EXPORT_MAX_ENTRIES = 10_000;
+
+/** Most values each audit filter dropdown lists. */
+const AUDIT_FILTER_OPTIONS_LIMIT = 200;
 
 const AUDIT_CSV_HEADER =
 	"id,createdAt,actorUserId,action,resourceType,resourceId,resourceName,summary,requestId,ipAddress,userAgent,before,after";
@@ -86,6 +89,11 @@ class AdminAuditService extends BaseService {
 				data: result.data.map(toAuditEntry),
 			};
 		});
+	}
+
+	/** The resource types and administrators the audit filter dropdowns offer. */
+	async getFilterOptions(): Promise<AdminAuditOptions> {
+		return await this.safeExecute("getFilterOptions", async () => await adminAuditRepository.findFilterOptions(AUDIT_FILTER_OPTIONS_LIMIT));
 	}
 
 	/** The entries matching the filters, as CSV or JSON Lines; an export past the cap is refused. */

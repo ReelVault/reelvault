@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, lt, lte, max, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, max, or, type SQL, sql } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount } from "@/database/table-access";
@@ -143,6 +143,31 @@ export class AdminAuditRepository {
 		]);
 
 		return { total: totalRow?.total ?? 0, actors };
+	}
+
+	/**
+	 * The resource types in the log and the administrators who wrote entries, for the audit filter dropdowns.
+	 * Each list holds at most `limit` values; entries without an actor do not name an administrator.
+	 */
+	async findFilterOptions(limit: number) {
+		const client = this.database.getClient();
+		const [resourceRows, actorRows] = await Promise.all([
+			client.selectDistinct({ resourceType: this.table.resourceType }).from(this.table).orderBy(asc(this.table.resourceType)).limit(limit),
+			client
+				.select({ actorUserId: this.table.actorUserId, name: schema.users.name })
+				.from(this.table)
+				.leftJoin(schema.users, eq(schema.users.id, this.table.actorUserId))
+				.where(isNotNull(this.table.actorUserId))
+				.groupBy(this.table.actorUserId, schema.users.name)
+				// Named administrators come first, by name; accounts that no longer exist follow, by id.
+				.orderBy(sql`${schema.users.name} is null`, asc(schema.users.name), asc(this.table.actorUserId))
+				.limit(limit),
+		]);
+
+		return {
+			resourceTypes: resourceRows.map((row) => row.resourceType),
+			actors: actorRows.flatMap((row) => (row.actorUserId ? [{ actorUserId: row.actorUserId, name: row.name }] : [])),
+		};
 	}
 
 	/** Deletes audit rows older than `cutoff` (daily retention sweep). */

@@ -301,6 +301,51 @@ describe("admin audit redaction", () => {
 		factory.shutdown();
 	});
 
+	test("lists the resource types and administrators the filter dropdowns offer", async () => {
+		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
+		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
+		const factory = new DatabaseFactory(path);
+		factory.getClient().run(
+			sql.raw(`
+				CREATE TABLE admin_audit_logs (
+					id TEXT PRIMARY KEY,
+					actor_user_id TEXT,
+					action TEXT NOT NULL,
+					resource_type TEXT NOT NULL,
+					resource_id TEXT,
+					resource_name TEXT,
+					summary TEXT,
+					before_json TEXT,
+					after_json TEXT,
+					request_id TEXT,
+					ip_address TEXT,
+					user_agent TEXT,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				)
+			`),
+		);
+		factory.getClient().run(sql.raw("CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)"));
+		factory.getClient().run(sql.raw("INSERT INTO users (id, name) VALUES ('admin-1', 'Ada'), ('admin-2', 'Bob')"));
+		const repository = new AdminAuditRepository(factory);
+
+		await repository.insert({ action: "update", resourceType: "metadata", context: { actorUserId: "admin-2" } });
+		await repository.insert({ action: "create", resourceType: "library", context: { actorUserId: "admin-1" } });
+		await repository.insert({ action: "update", resourceType: "library", context: { actorUserId: "admin-1" } });
+		await repository.insert({ action: "delete", resourceType: "library", context: { actorUserId: "removed-admin" } });
+		await repository.insert({ action: "update", resourceType: "plugin" });
+
+		const options = await repository.findFilterOptions(10);
+		expect(options.resourceTypes).toEqual(["library", "metadata", "plugin"]);
+		expect(options.actors).toEqual([
+			{ actorUserId: "admin-1", name: "Ada" },
+			{ actorUserId: "admin-2", name: "Bob" },
+			{ actorUserId: "removed-admin", name: null },
+		]);
+		expect((await repository.findFilterOptions(2)).resourceTypes).toEqual(["library", "metadata"]);
+		factory.shutdown();
+	});
+
 	test("prunes audit rows older than the cutoff", async () => {
 		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);

@@ -1,4 +1,5 @@
 import {
+	AdminAuditOptionsSchema,
 	AdminAuditPageSchema,
 	AdminAuditSummarySchema,
 	AdminCacheStatsSchema,
@@ -158,6 +159,10 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.audit" },
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve administrator audit events with pagination and resource filters." },
+	})
+	.get("/audit/options", async () => await adminAuditService.getFilterOptions(), {
+		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminAuditOptionsSchema },
+		detail: { description: "Resource types and administrators in the audit log, for the audit filter dropdowns." },
 	})
 	.get("/audit/summary", async ({ query }) => await adminAuditService.getSummary(query), {
 		rateLimit: { name: "admin-audit-summary", max: 60, windowMs: MINUTE },

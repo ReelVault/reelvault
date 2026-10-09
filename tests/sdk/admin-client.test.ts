@@ -27,6 +27,24 @@ test("admin client reads plugin diagnostics through the versioned API", async ()
 	expect(requestedUrls).toEqual(["https://reelvault.test/v1/admin/plugins"]);
 });
 
+test("admin client lists the audit filter options", async () => {
+	const requestedUrls: string[] = [];
+	const client = createTestClient(
+		(url) => {
+			requestedUrls.push(url);
+
+			return jsonResponse({
+				resourceTypes: ["library", "metadata"],
+				actors: [{ actorUserId: "admin-1", name: "Ada" }],
+			});
+		},
+		{ enableRetry: false },
+	);
+
+	await expect(client.admin.getAuditOptions()).resolves.toMatchObject({ resourceTypes: ["library", "metadata"] });
+	expect(requestedUrls).toEqual(["https://reelvault.test/v1/admin/audit/options"]);
+});
+
 test("admin client pauses and resumes schedules, retries failed jobs and reads the watchdog", async () => {
 	const requests: Array<{ url: string; method: string; body?: string | undefined }> = [];
 	const client = createTestClient(
