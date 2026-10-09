@@ -60,6 +60,7 @@ class WatchlistService extends BaseService {
 	async add(metadataId: string, profileId?: string) {
 		return await this.safeExecute("add", async () => {
 			this.assertProfileId(profileId);
+			await this.assertMetadataExists(metadataId);
 
 			await watchlistRepository.insert({ values: { profileId, metadataId } });
 			invalidateProfileCaches(profileId);
@@ -105,12 +106,19 @@ class WatchlistService extends BaseService {
 	async toggle(body: CreateWatchlist, profileId?: string) {
 		return await this.safeExecute("toggle", async () => {
 			this.assertProfileId(profileId);
+			await this.assertMetadataExists(body.metadataId);
 
 			const result = await watchlistRepository.toggle({ metadataId: body.metadataId, profileId });
 			invalidateProfileCaches(profileId);
 
 			return result;
 		});
+	}
+
+	/** A stale catalog id must be a 404, not an FK violation surfacing as a 500. */
+	private async assertMetadataExists(metadataId: string): Promise<void> {
+		const metadata = await metadataRepository.findByIdForRead(metadataId);
+		this.assertExists(metadata, "Metadata", metadataId);
 	}
 }
 

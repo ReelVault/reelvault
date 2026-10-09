@@ -7,6 +7,7 @@ import type {
 	UserRatingFilters,
 	UserRatingSorting,
 } from "@reelvault/sdk/common";
+import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { userRatingsRepository } from "@/database/repositories/user-ratings.repository";
 import { BaseService } from "@/utils/base-service";
 
@@ -31,6 +32,11 @@ class UserRatingsService extends BaseService {
 	async rate(body: { metadataId: string; rating: number }, profileId?: string): Promise<UserRating> {
 		return await this.safeExecute("rate", async () => {
 			this.assertProfileId(profileId);
+
+			// A stale catalog id must be a 404, not an FK violation surfacing as a 500.
+			const metadata = await metadataRepository.findByIdForRead(body.metadataId);
+			this.assertExists(metadata, "Metadata", body.metadataId);
+
 			const result = await userRatingsRepository.upsert({ profileId, metadataId: body.metadataId, rating: body.rating });
 			this.assertExists(result, "UserRating", body.metadataId);
 			invalidateProfileCaches(profileId);

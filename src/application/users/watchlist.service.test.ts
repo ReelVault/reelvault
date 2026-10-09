@@ -85,3 +85,14 @@ describe("WatchlistService getAll", () => {
 		expect(Value.Check(PaginatedResponseSchema(HydratedWatchlistItemSchema), projected)).toBeFalse();
 	});
 });
+
+describe("WatchlistService toggle", () => {
+	test("an unknown title is a 404, not an FK violation", async () => {
+		activeStubs.push(stubMethod(metadataRepository, "findByIdForRead", () => Promise.resolve(undefined)));
+
+		await expect(watchlistService.toggle({ metadataId: "metadata-missing" }, "profile-1")).rejects.toMatchObject({
+			code: "entity.not_found",
+			params: { entityType: "Metadata", entityId: "metadata-missing" },
+		});
+	});
+});

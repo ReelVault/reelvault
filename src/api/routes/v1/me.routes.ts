@@ -71,15 +71,17 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		"me.userRatings.paginated.schema": PaginatedResponseSchema(ProjectedResponseSchema(UserRatingSchema)),
 		"me.userRating.create.body": CreateUserRatingSchema,
 	})
-	.guard({ auth: true, profileRequired: true })
-
-	// --- ACCOUNT & PROFILE ME ---
+	// The profile picker calls `GET /me` before a profile is selected, so this
+	// route requires a session but not a profile. Every route below the second
+	// guard does require one.
+	.guard({ auth: true })
 	.get("/", async ({ session, user, profile }) => await authService.getMe(session, user, profile), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.session.response" },
 		detail: {
-			description: "Returns information about current user, session, and active profile.",
+			description: "Returns information about current user, session, and active profile (null before a profile is selected).",
 		},
 	})
+	.guard({ auth: true, profileRequired: true })
 
 	// --- PLAYBACK & CONTINUE WATCHING ---
 	.get("/continue-watching", async ({ query, profile }) => await playbackProgressService.getContinueWatching(profile?.id, query.limit), {

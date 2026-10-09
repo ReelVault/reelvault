@@ -491,6 +491,13 @@ class WatchedHistoryRepository {
 		});
 	}
 
+	/** True when this profile already has a full-watch row for the file — manual "mark watched" is idempotent. */
+	async hasFullWatch(profileId: string, mediaFileId: string): Promise<boolean> {
+		return await this.isExists({
+			where: and(eq(this.table.profileId, profileId), eq(this.table.mediaFileId, mediaFileId), eq(this.table.isFullWatch, true)),
+		});
+	}
+
 	async clearForProfile(profileId: string, tx?: DatabaseTransaction) {
 		await this.delete({ where: eq(this.table.profileId, profileId), tx });
 	}

@@ -10,6 +10,7 @@ import type {
 	WrappedInsights,
 } from "@reelvault/sdk/common";
 import { buildHourlyHeatmap, recentDayKeys } from "@/application/analytics.utils";
+import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { toTopWatchedMedia, watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { DAY } from "@/server.constants";
 import { maxBy } from "@/utils/array.utils";
@@ -46,6 +47,18 @@ class WatchedHistoryService extends BaseService {
 	async sync(body: CreateWatchedHistory, profileId?: string): Promise<{ success: true }> {
 		return await this.safeExecute("sync", async () => {
 			this.assertProfileId(profileId);
+
+			// A stale catalog id would otherwise surface as an FK violation (500).
+			const mediaFile = await mediaRepository.findByIdForRead(body.mediaFileId);
+			this.assertExists(mediaFile, "MediaFile", body.mediaFileId);
+
+			// Marking an already-finished file again must not add another row: watch
+			// counts and insights derive from these rows, and the playback completion
+			// path also inserts at most once per file.
+			if (body.isFullWatch === true && (await watchedHistoryRepository.hasFullWatch(profileId, body.mediaFileId))) {
+				return { success: true };
+			}
+
 			await watchedHistoryRepository.sync({ ...body, profileId });
 			invalidateProfileCaches(profileId);
 
