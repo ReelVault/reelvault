@@ -386,6 +386,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Bounded watchlist status requests and boolean library siblings** — `GET /me/watchlist/statuses` refuses more than 500 titles per request (`watchlist.statuses_too_many`) and caps the query length; `siblings` on the library endpoint is a boolean query value (`true` / `false`).
 - **Library scan and download time limits are settings** — `workers.definitions.libraryScan.timeoutMs` and `workers.definitions.downloadsProcess.timeoutMs` (1 minute to 1 day, default 2 hours) replace the fixed constants and apply to work started after the change.
 - **Per-path scan time limit is a setting** — `scanning.pathScanTimeoutMs` (10 s to 1 h, default 2 minutes) sets how long one library path may take to walk before the scan skips it. A dead network mount can no longer hold a scan; the new limit applies from the next scan.
+- **Profile PIN status for the owner** — `GET /profiles/:id/pin` returns `{ hasPin }` for a profile the user owns, so settings can offer to remove the PIN. The PIN itself is never returned.
 
 ### Fixes
 

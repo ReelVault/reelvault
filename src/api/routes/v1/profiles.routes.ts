@@ -157,6 +157,11 @@ export const profilesRoutes = new Elysia({
 		response: { ...ROUTE_ERRORS.AUTH, 200: "profile.preferences.defaults" },
 		detail: { description: "Server defaults a profile falls back to when it has no stored preference overrides." },
 	})
+	.get("/:id/pin", async ({ params, user }) => await profilesService.hasPin(params.id, user?.id), {
+		params: IdParams,
+		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: t.Object({ hasPin: t.Boolean() }) },
+		detail: { description: "Whether the authenticated user's profile has a PIN set. The PIN itself is never returned." },
+	})
 	.get("/:id/preferences", async ({ params, user }) => await profilesService.getPreferences(params.id, user?.id), {
 		params: IdParams,
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "profile.preferences" },

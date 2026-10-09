@@ -192,6 +192,15 @@ class ProfilesService extends BaseService {
 		});
 	}
 
+	/** Whether a PIN is set. The PIN itself never leaves the server; the owner only needs this to offer removing it. */
+	async hasPin(profileId: string, userId?: string): Promise<{ hasPin: boolean }> {
+		return await this.safeExecute("hasPin", async () => {
+			const profile = await this.findOwnedProfile(profileId, userId);
+
+			return { hasPin: profile.pin !== null };
+		});
+	}
+
 	async updatePreferences(profileId: string, body: UpdateProfilePreferences, userId?: string): Promise<ProfilePreferences> {
 		return await this.safeExecute("updatePreferences", async () => {
 			await this.assertOwnedProfile(profileId, userId);
