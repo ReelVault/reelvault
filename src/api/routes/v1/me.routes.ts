@@ -24,6 +24,9 @@ import {
 	WatchlistSchema,
 	WatchlistSortingSchema,
 	WatchlistStatusesResponseSchema,
+	WatchStateBulkResultSchema,
+	WatchStateBulkSchema,
+	WatchStateScopeSchema,
 	WrappedInsightsSchema,
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
@@ -156,15 +159,19 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	)
 	.delete(
 		"/media-files/:mediaFileId/playback-progress",
-		async ({ params, user, profile }) => {
+		async ({ params, query, user, profile }) => {
 			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: params.mediaFileId });
 
-			return await playbackProgressService.resetPlaybackProgress(params.mediaFileId, profile?.id);
+			return await playbackProgressService.resetPlaybackProgress(params.mediaFileId, profile?.id, query.scope);
 		},
 		{
 			params: MediaFileIdParams,
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
-			detail: { description: "Reset playback progress for a media file." },
+			query: t.Object({ scope: t.Optional(WatchStateScopeSchema) }),
+			detail: {
+				description:
+					"Reset playback progress. `scope=file` clears only this media file; the default `title` clears every file of its title (all versions of a movie, all episodes of a series).",
+			},
 		},
 	)
 	.get(
@@ -260,6 +267,25 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "me.watchlist.toggle.response" },
 		detail: { description: "Toggle an item in the watchlist for the active profile." },
 	})
+
+	.post(
+		"/watch-state/bulk",
+		async ({ body, user, profile }) => {
+			for (const mediaFileId of new Set(body.mediaFileIds)) {
+				await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId });
+			}
+
+			return await playbackProgressService.setWatchStateBulk(body, profile?.id);
+		},
+		{
+			body: WatchStateBulkSchema,
+			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: WatchStateBulkResultSchema },
+			detail: {
+				description:
+					"Mark up to 500 media files of the active profile watched (finished, as a single update does) or unwatched (their progress is removed). Unknown ids reject the whole request.",
+			},
+		},
+	)
 
 	// --- WATCHED HISTORY ---
 	.get("/watched-history", async ({ query, profile }) => await watchedHistoryService.getAll(query, profile?.id), {

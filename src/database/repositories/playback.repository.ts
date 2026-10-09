@@ -370,6 +370,26 @@ class PlaybackRepository {
 			.where(and(eq(schema.playbackProgress.profileId, profileId), eq(schema.playbackProgress.mediaFileId, fileId)));
 	}
 
+	async deleteProgressForFiles(profileId: string, fileIds: readonly string[], tx?: DatabaseTransaction) {
+		await databaseFactory
+			.getClient({ tx })
+			.delete(schema.playbackProgress)
+			.where(and(eq(schema.playbackProgress.profileId, profileId), inArray(schema.playbackProgress.mediaFileId, [...fileIds])));
+	}
+
+	/** The ids among `fileIds` that exist as media files. */
+	async findExistingMediaFileIds(fileIds: readonly string[]): Promise<Set<string>> {
+		if (fileIds.length === 0) return new Set();
+
+		const rows = await databaseFactory
+			.getClient()
+			.select({ id: schema.mediaFiles.id })
+			.from(schema.mediaFiles)
+			.where(inArray(schema.mediaFiles.id, [...fileIds]));
+
+		return new Set(rows.map((row) => row.id));
+	}
+
 	async findMediaFileWithMetadata(fileId: string) {
 		const [row] = await preparedFindMediaFileWithMetadata(databaseFactory.getClient()).execute({ fileId });
 

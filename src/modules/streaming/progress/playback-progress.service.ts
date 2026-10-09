@@ -5,6 +5,9 @@ import type {
 	MetadataType,
 	StreamPrefs,
 	UpdatePlaybackProgress,
+	WatchStateBulk,
+	WatchStateBulkResult,
+	WatchStateScope,
 } from "@reelvault/sdk/common";
 import { invalidateProfileCaches } from "@/application/users/cache-invalidation";
 import { playbackRepository as defaultPlaybackRepository } from "@/database/repositories/playback.repository";
@@ -14,6 +17,7 @@ import { watchedHistoryRepository as defaultWatchedHistoryRepository } from "@/d
 import { watchlistRepository as defaultWatchlistRepository } from "@/database/repositories/watchlist.repository";
 import { trimAndFilter, unique } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
+import { NotFoundError } from "@/utils/errors";
 import { invalidateProfileResponseBodies } from "@/utils/response-body-cache";
 import type { PlaybackProgressComputeData, SmartPlay, SmartPlayComputeData } from "../streaming.types";
 import { isCompleted, normalizePlaybackPosition } from "../utils/playback-position.utils";
@@ -32,6 +36,8 @@ export type PlaybackProgressRepo = Pick<
 	| "findSmartPlayBatchData"
 	| "deleteProgress"
 	| "deleteMetadataProgress"
+	| "deleteProgressForFiles"
+	| "findExistingMediaFileIds"
 	| "dismissContinueWatching"
 >;
 
@@ -168,12 +174,46 @@ class PlaybackProgressService extends BaseService {
 		});
 	}
 
-	async resetPlaybackProgress(fileId: string, profileId?: string): Promise<{ success: true }> {
+	/**
+	 * Marks files watched (each goes through the single-update path, so completion and
+	 * watch history match) or unwatched (their progress rows are removed). Every id is
+	 * checked before anything is written, so an unknown id changes nothing.
+	 */
+	async setWatchStateBulk(body: WatchStateBulk, profileId?: string): Promise<WatchStateBulkResult> {
+		return await this.safeExecute("setWatchStateBulk", async () => {
+			const { playbackRepository } = this.dependencies;
+			this.assertProfileId(profileId);
+
+			const fileIds = unique(body.mediaFileIds);
+			const existing = await playbackRepository.findExistingMediaFileIds(fileIds);
+			const missing = fileIds.find((fileId) => !existing.has(fileId));
+			if (missing !== undefined) {
+				throw new NotFoundError(`MediaFile not found: ${missing}`, {
+					code: "entity.not_found",
+					params: { entityType: "MediaFile", entityId: missing },
+				});
+			}
+
+			if (body.watched) {
+				for (const fileId of fileIds) {
+					await this.updatePlaybackProgress(fileId, { position: Number.MAX_SAFE_INTEGER }, profileId);
+				}
+			} else {
+				await playbackRepository.deleteProgressForFiles(profileId, fileIds);
+			}
+			invalidateProfileResponseBodies(profileId);
+
+			return { updated: fileIds.length };
+		});
+	}
+
+	/** `scope: "file"` resets only this file; `"title"` resets every file of its title (all versions, all episodes of a series). */
+	async resetPlaybackProgress(fileId: string, profileId?: string, scope: WatchStateScope = "title"): Promise<{ success: true }> {
 		return await this.safeExecute("resetPlaybackProgress", async () => {
 			const { playbackRepository } = this.dependencies;
 			this.assertProfileId(profileId);
 			const mediaFile = await playbackRepository.findMediaFileWithMetadata(fileId);
-			if (mediaFile?.metadataId) {
+			if (scope === "title" && mediaFile?.metadataId) {
 				await playbackRepository.deleteMetadataProgress(profileId, mediaFile.metadataId);
 			} else {
 				await playbackRepository.deleteProgress(profileId, fileId);

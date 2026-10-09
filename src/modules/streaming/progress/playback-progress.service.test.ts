@@ -19,7 +19,7 @@ interface TestHarness {
 	upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]>;
 	watchedSyncs: Array<Parameters<WatchedHistoryRepo["sync"]>[0]>;
 	published: PlaybackProgressUpdateEvent[];
-	resets: { file: string[]; metadata: string[]; dismissed: string[] };
+	resets: { file: string[]; metadata: string[]; dismissed: string[]; bulk: string[] };
 	continueWatchingData: ContinueWatchingRepoData;
 	prefsUpserts: Array<Parameters<ProfileStreamPrefsRepo["upsert"]>[0]>;
 }
@@ -35,12 +35,13 @@ function createService(
 		fileMetadataId?: string | null | undefined;
 		smartPlayBatchData?: SmartPlayBatchEntries;
 		smartPlayBatchFails?: boolean;
+		unknownFileIds?: string[];
 	} = {},
 ): TestHarness {
 	const upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]> = [];
 	const watchedSyncs: Array<Parameters<WatchedHistoryRepo["sync"]>[0]> = [];
 	const published: PlaybackProgressUpdateEvent[] = [];
-	const resets = { file: [] as string[], metadata: [] as string[], dismissed: [] as string[] };
+	const resets = { file: [] as string[], metadata: [] as string[], dismissed: [] as string[], bulk: [] as string[] };
 	const continueWatchingData: ContinueWatchingRepoData = options.continueWatchingData ?? {
 		progressRows: [],
 		metadataList: [],
@@ -89,6 +90,13 @@ function createService(
 
 			return Promise.resolve();
 		},
+		deleteProgressForFiles: (profileId: string, fileIds: readonly string[]) => {
+			for (const fileId of fileIds) resets.bulk.push(`${profileId}:${fileId}`);
+
+			return Promise.resolve();
+		},
+		findExistingMediaFileIds: (fileIds: readonly string[]) =>
+			Promise.resolve(new Set(fileIds.filter((fileId) => !options.unknownFileIds?.includes(fileId)))),
 		dismissContinueWatching: (profileId: string, metadataId: string) => {
 			resets.dismissed.push(`${profileId}:${metadataId}`);
 
@@ -217,6 +225,46 @@ describe("playback progress service", () => {
 
 		expect(resets.file).toEqual(["profile-1:file-1"]);
 		expect(resets.metadata).toEqual([]);
+	});
+
+	test("reset with scope file clears only that file", async () => {
+		const { service, resets } = createService();
+
+		await service.resetPlaybackProgress("file-1", "profile-1", "file");
+
+		expect(resets.file).toEqual(["profile-1:file-1"]);
+		expect(resets.metadata).toEqual([]);
+	});
+
+	test("bulk unwatch removes the progress of each distinct file", async () => {
+		const { service, resets } = createService();
+
+		const result = await service.setWatchStateBulk({ mediaFileIds: ["file-1", "file-2", "file-1"], watched: false }, "profile-1");
+
+		expect(result).toEqual({ updated: 2 });
+		expect(resets.bulk).toEqual(["profile-1:file-1", "profile-1:file-2"]);
+	});
+
+	test("bulk watch marks each file through the single update path", async () => {
+		const { service } = createService();
+		const update = stubMethod(service, "updatePlaybackProgress", () => Promise.resolve({ success: true }));
+
+		await service.setWatchStateBulk({ mediaFileIds: ["file-1", "file-2"], watched: true }, "profile-1");
+
+		expect(update.calls).toEqual([
+			["file-1", { position: Number.MAX_SAFE_INTEGER }, "profile-1"],
+			["file-2", { position: Number.MAX_SAFE_INTEGER }, "profile-1"],
+		]);
+	});
+
+	test("bulk rejects the whole request when one file is unknown and writes nothing", async () => {
+		const { service, resets } = createService({ unknownFileIds: ["file-2"] });
+
+		await expect(service.setWatchStateBulk({ mediaFileIds: ["file-1", "file-2"], watched: false }, "profile-1")).rejects.toHaveProperty(
+			"code",
+			"entity.not_found",
+		);
+		expect(resets.bulk).toEqual([]);
 	});
 
 	test("getContinueWatching feeds repository data into the builder", async () => {
