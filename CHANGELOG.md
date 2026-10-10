@@ -355,6 +355,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Features
 
+- **Trickplay regeneration for several titles** — `POST /admin/trickplay/regenerate` takes `{ scope: "titles", ids, force }` for up to 50 titles at once. The titles are queued as one operation, so a whole selection fits in one request under the endpoint's rate limit.
 - **Library scan progress** — `GET /libraries/scan-progress` lists each library with a queued or running scan. A running scan's percent is the share of its enqueued work already handed to the ingest and refresh queues; it stays null while the scan is still discovering files.
 - **Ignore scan findings** — an admin can ignore a file the scan could not ingest. It leaves the "needs attention" list, stays ignored through later scans, and returns when restored from the Ignored tab. `GET /libraries/:libraryId/scan-findings` takes a `status` filter and returns counts for both statuses; `PATCH /libraries/:libraryId/scan-findings` ignores or restores a finding.
 - **Candidate matches for a scan finding** — for a file that failed to match, `GET /libraries/:libraryId/scan-findings/candidates?filePath=` searches the metadata providers for the title and year parsed from the file name and returns them with the searched values. The search runs only when requested, never during a scan, and only for `no_metadata_match` findings.

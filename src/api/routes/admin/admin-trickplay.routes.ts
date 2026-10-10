@@ -13,6 +13,7 @@ import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import { MINUTE } from "@/server.constants";
+import { unique } from "@/utils/array.utils";
 import { NotFoundError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import {
@@ -133,11 +134,12 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 	.post(
 		"/regenerate",
 		async ({ body, status }) => {
-			const scope = { kind: body.scope, id: body.id };
+			const scopes =
+				body.scope === "titles" ? unique(body.ids).map((id) => ({ kind: "title" as const, id })) : [{ kind: body.scope, id: body.id }];
 			const force = body.force ?? false;
 			const [queued, matching] = await Promise.all([
-				trickplayService.findMediaFileIdsForRegeneration(scope, force, REGENERATE_MAX_FILES),
-				trickplayService.countForRegeneration(scope, force),
+				trickplayService.findMediaFileIdsForRegenerations(scopes, force, REGENERATE_MAX_FILES),
+				trickplayService.countForRegenerations(scopes, force),
 			]);
 			const { operationId, items } = await enqueueTrickplayGenerationMany(queued);
 

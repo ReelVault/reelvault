@@ -219,6 +219,25 @@ class TrickplayService extends BaseService {
 		return trickplayRepository.countForRegeneration(scope, force);
 	}
 
+	/** Media files of several scopes, in scope order and capped at `limit` in total. */
+	async findMediaFileIdsForRegenerations(scopes: readonly TrickplayRegenerationScope[], force: boolean, limit: number): Promise<string[]> {
+		const ids: string[] = [];
+		for (const scope of scopes) {
+			if (ids.length >= limit) break;
+
+			ids.push(...(await trickplayRepository.findMediaFileIdsForRegeneration(scope, force, limit - ids.length)));
+		}
+
+		return ids;
+	}
+
+	/** How many media files the scopes match in total, before the cap. */
+	async countForRegenerations(scopes: readonly TrickplayRegenerationScope[], force: boolean): Promise<number> {
+		const counts = await Promise.all(scopes.map((scope) => trickplayRepository.countForRegeneration(scope, force)));
+
+		return counts.reduce((sum, count) => sum + count, 0);
+	}
+
 	/** Outcome counts of one regeneration operation, with the jobs the storage budget skipped on their own line. */
 	async regenerationReport(operationId: string): Promise<TrickplayRegenerationReport> {
 		return summarizeRegenerationOutcomes(operationId, await trickplayRepository.countRegenerationOutcomes(operationId));
