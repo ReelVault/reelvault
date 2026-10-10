@@ -68,11 +68,14 @@ const SCHEMA_CONDITION_OPS: ReadonlySet<string> = new Set(PLUGIN_SCHEMA_CONDITIO
 const SCHEMA_ACTION_TYPES: ReadonlySet<string> = new Set(PLUGIN_SCHEMA_ACTION_TYPE_VALUES);
 
 export function validatePluginManifest(value: unknown): asserts value is PluginManifest {
-	if (!isRecord(value)) throw new ValidationError("Plugin manifest must be an object");
+	if (!isRecord(value)) throw new ValidationError("Plugin manifest must be an object", { code: "plugin.manifest_not_object" });
 
 	assertNonEmptyString(value.id, "id");
 	if (!PLUGIN_IDENTIFIER_PATTERN.test(value.id)) {
-		throw new ValidationError(`Plugin manifest id contains unsupported characters: ${value.id}`);
+		throw new ValidationError(`Plugin manifest id contains unsupported characters: ${value.id}`, {
+			code: "plugin.id_invalid",
+			params: { id: value.id },
+		});
 	}
 
 	assertNonEmptyString(value.name, "name");
@@ -80,12 +83,16 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 	assertRelativeString(value.entry, "entry");
 
 	assertStringArray(value.capabilities, "capabilities");
-	if (value.capabilities.length === 0) throw new ValidationError("Plugin manifest capabilities must not be empty");
+	if (value.capabilities.length === 0)
+		throw new ValidationError("Plugin manifest capabilities must not be empty", { code: "plugin.capabilities_empty" });
 
 	assertUnique(value.capabilities, "capabilities");
 	for (const capability of value.capabilities) {
 		if (!CAPABILITY_NAMES.has(capability)) {
-			throw new ValidationError(`Plugin manifest has unsupported capability '${capability}'`);
+			throw new ValidationError(`Plugin manifest has unsupported capability '${capability}'`, {
+				code: "plugin.capability_unsupported",
+				params: { capability },
+			});
 		}
 	}
 
@@ -98,7 +105,10 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 	if (value.minServerVersion !== undefined) {
 		assertNonEmptyString(value.minServerVersion, "minServerVersion");
 		if (!isValidSemver(value.minServerVersion)) {
-			throw new ValidationError(`Plugin manifest minServerVersion must be a semantic version: ${value.minServerVersion}`);
+			throw new ValidationError(`Plugin manifest minServerVersion must be a semantic version: ${value.minServerVersion}`, {
+				code: "plugin.min_server_version_invalid",
+				params: { value: value.minServerVersion },
+			});
 		}
 	}
 
@@ -111,21 +121,31 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
  * a manifest can never inject extra directives or break the header format.
  */
 function validatePluginCsp(value: unknown): void {
-	if (!isRecord(value)) throw new ValidationError("Plugin manifest csp must be an object");
+	if (!isRecord(value))
+		throw new ValidationError("Plugin manifest csp must be an object", { code: "plugin.field_not_object", params: { field: "csp" } });
 
 	let total = 0;
 	for (const [directive, sources] of Object.entries(value)) {
 		if (!PLUGIN_CSP_DIRECTIVE_SET.has(directive)) {
-			throw new ValidationError(`Plugin manifest csp has unsupported directive '${directive}'`);
+			throw new ValidationError(`Plugin manifest csp has unsupported directive '${directive}'`, {
+				code: "plugin.csp_directive_unsupported",
+				params: { directive },
+			});
 		}
 
 		if (!Array.isArray(sources) || sources.length === 0) {
-			throw new ValidationError(`Plugin manifest csp.${directive} must be a non-empty array of sources`);
+			throw new ValidationError(`Plugin manifest csp.${directive} must be a non-empty array of sources`, {
+				code: "plugin.field_empty",
+				params: { field: `csp.${directive}` },
+			});
 		}
 
 		for (const source of sources) {
 			if (!(isNonEmptyString(source) && CSP_SOURCE_PATTERN.test(source))) {
-				throw new ValidationError(`Plugin manifest csp.${directive} has an invalid source '${String(source)}'`);
+				throw new ValidationError(`Plugin manifest csp.${directive} has an invalid source '${String(source)}'`, {
+					code: "plugin.csp_source_invalid",
+					params: { directive, source: String(source) },
+				});
 			}
 		}
 
@@ -133,12 +153,15 @@ function validatePluginCsp(value: unknown): void {
 	}
 
 	if (total > CSP_MAX_SOURCES) {
-		throw new ValidationError(`Plugin manifest csp declares more than ${CSP_MAX_SOURCES} sources`);
+		throw new ValidationError(`Plugin manifest csp declares more than ${CSP_MAX_SOURCES} sources`, {
+			code: "plugin.csp_too_many_sources",
+			params: { max: CSP_MAX_SOURCES },
+		});
 	}
 }
 
 export function validatePluginUiManifest(value: unknown): asserts value is PluginUiManifest {
-	if (!isRecord(value)) throw new ValidationError("Plugin ui.json must be an object");
+	if (!isRecord(value)) throw new ValidationError("Plugin ui.json must be an object", { code: "plugin.ui.manifest_not_object" });
 
 	assertNonEmptyString(value.name, "ui.name");
 	assertNonEmptyString(value.version, "ui.version");
@@ -185,17 +208,29 @@ function validateUiPages(pages: unknown, dialogIds: ReadonlySet<string>): Set<st
 	const ids = new Set<string>();
 	if (pages === undefined) return ids;
 
-	if (!Array.isArray(pages)) throw new ValidationError("Plugin ui.json pages must be an array");
+	if (!Array.isArray(pages))
+		throw new ValidationError("Plugin ui.json pages must be an array", { code: "plugin.ui.field_not_array", params: { field: "pages" } });
 
 	for (const page of pages) {
-		if (!isRecord(page)) throw new ValidationError("Plugin ui.json pages entries must be objects");
+		if (!isRecord(page))
+			throw new ValidationError("Plugin ui.json pages entries must be objects", {
+				code: "plugin.ui.entry_not_object",
+				params: { field: "pages" },
+			});
 
 		assertUiId(page.id, "ui.pages[].id");
-		if (ids.has(page.id)) throw new ValidationError(`Plugin ui.json has duplicate page id '${page.id}'`);
+		if (ids.has(page.id))
+			throw new ValidationError(`Plugin ui.json has duplicate page id '${page.id}'`, {
+				code: "plugin.ui.duplicate_id",
+				params: { field: "pages", id: page.id },
+			});
 
 		ids.add(page.id);
 		if (typeof page.path !== "string" || !PLUGIN_UI_PAGE_PATH_PATTERN.test(page.path)) {
-			throw new ValidationError(`Plugin ui.json page '${page.id}' has an invalid path`);
+			throw new ValidationError(`Plugin ui.json page '${page.id}' has an invalid path`, {
+				code: "plugin.ui.page_path_invalid",
+				params: { page: page.id },
+			});
 		}
 
 		assertLocalizedText(page.name, `ui.pages.${page.id}.name`);
@@ -205,7 +240,10 @@ function validateUiPages(pages: unknown, dialogIds: ReadonlySet<string>): Set<st
 		assertOptionalType(page.adminOnly, "boolean", `page '${page.id}' adminOnly`);
 
 		if (page.nav !== undefined && page.nav !== false && page.nav !== "user" && page.nav !== "admin") {
-			throw new ValidationError(`Plugin ui.json page '${page.id}' nav must be 'user', 'admin' or false`);
+			throw new ValidationError(`Plugin ui.json page '${page.id}' nav must be 'user', 'admin' or false`, {
+				code: "plugin.ui.page_nav_invalid",
+				params: { page: page.id },
+			});
 		}
 
 		assertOptionalType(page.priority, "number", `page '${page.id}' priority`);
@@ -234,20 +272,35 @@ function validateUiDialogs(dialogs: unknown, dialogIds: ReadonlySet<string>): Se
 	const ids = new Set<string>();
 	if (dialogs === undefined) return ids;
 
-	if (!Array.isArray(dialogs)) throw new ValidationError("Plugin ui.json dialogs must be an array");
+	if (!Array.isArray(dialogs))
+		throw new ValidationError("Plugin ui.json dialogs must be an array", {
+			code: "plugin.ui.field_not_array",
+			params: { field: "dialogs" },
+		});
 
 	for (const dialog of dialogs) {
-		if (!isRecord(dialog)) throw new ValidationError("Plugin ui.json dialogs entries must be objects");
+		if (!isRecord(dialog))
+			throw new ValidationError("Plugin ui.json dialogs entries must be objects", {
+				code: "plugin.ui.entry_not_object",
+				params: { field: "dialogs" },
+			});
 
 		assertUiId(dialog.id, "ui.dialogs[].id");
-		if (ids.has(dialog.id)) throw new ValidationError(`Plugin ui.json has duplicate dialog id '${dialog.id}'`);
+		if (ids.has(dialog.id))
+			throw new ValidationError(`Plugin ui.json has duplicate dialog id '${dialog.id}'`, {
+				code: "plugin.ui.duplicate_id",
+				params: { field: "dialogs", id: dialog.id },
+			});
 
 		ids.add(dialog.id);
 		assertLocalizedText(dialog.title, `ui.dialogs.${dialog.id}.title`);
 		if (dialog.icon !== undefined) assertNonEmptyString(dialog.icon, `ui.dialogs.${dialog.id}.icon`);
 
 		if (dialog.size !== undefined && (typeof dialog.size !== "string" || !PLUGIN_DIALOG_SIZES.has(dialog.size))) {
-			throw new ValidationError(`Plugin ui.json dialog '${dialog.id}' has an unsupported size`);
+			throw new ValidationError(`Plugin ui.json dialog '${dialog.id}' has an unsupported size`, {
+				code: "plugin.ui.dialog_size_invalid",
+				params: { dialog: dialog.id },
+			});
 		}
 
 		validateSurfaceDefinition(dialog, `ui.dialogs.${dialog.id}`, dialogIds);
@@ -258,26 +311,46 @@ function validateUiDialogs(dialogs: unknown, dialogIds: ReadonlySet<string>): Se
 }
 
 function validateUiTabs(tabs: unknown, pageIds: ReadonlySet<string>): void {
-	if (!isRecord(tabs)) throw new ValidationError("Plugin ui.json tabs must be an object");
+	if (!isRecord(tabs))
+		throw new ValidationError("Plugin ui.json tabs must be an object", { code: "plugin.ui.field_not_object", params: { field: "tabs" } });
 
 	for (const [host, contributions] of Object.entries(tabs)) {
 		if (!PLUGIN_TAB_HOST_NAMES.has(host)) {
-			throw new ValidationError(`Plugin ui.json has unsupported tab host '${host}'`);
+			throw new ValidationError(`Plugin ui.json has unsupported tab host '${host}'`, {
+				code: "plugin.ui.tab_host_unsupported",
+				params: { host },
+			});
 		}
 
-		if (!Array.isArray(contributions)) throw new ValidationError(`Plugin ui.json tab host '${host}' must be an array`);
+		if (!Array.isArray(contributions))
+			throw new ValidationError(`Plugin ui.json tab host '${host}' must be an array`, {
+				code: "plugin.ui.field_not_array",
+				params: { field: `tabs.${host}` },
+			});
 
 		for (const tab of contributions) {
-			if (!isRecord(tab)) throw new ValidationError(`Plugin ui.json tab host '${host}' entries must be objects`);
+			if (!isRecord(tab))
+				throw new ValidationError(`Plugin ui.json tab host '${host}' entries must be objects`, {
+					code: "plugin.ui.entry_not_object",
+					params: { field: `tabs.${host}` },
+				});
 
 			assertUiId(tab.id, `ui.tabs.${host}[].id`);
-			if (tab.host !== host) throw new ValidationError(`Plugin ui.json tab '${tab.id}' host must match its group '${host}'`);
+			if (tab.host !== host)
+				throw new ValidationError(`Plugin ui.json tab '${tab.id}' host must match its group '${host}'`, {
+					code: "plugin.ui.tab_host_mismatch",
+					params: { tab: tab.id, host },
+				});
 
 			assertLocalizedText(tab.label, `ui.tabs.${host}.${tab.id}.label`);
 			if (tab.icon !== undefined) assertNonEmptyString(tab.icon, `ui.tabs.${host}.${tab.id}.icon`);
 
 			assertNonEmptyString(tab.page, `ui.tabs.${host}.${tab.id}.page`);
-			if (!pageIds.has(tab.page)) throw new ValidationError(`Plugin ui.json tab '${tab.id}' references unknown page '${tab.page}'`);
+			if (!pageIds.has(tab.page))
+				throw new ValidationError(`Plugin ui.json tab '${tab.id}' references unknown page '${tab.page}'`, {
+					code: "plugin.ui.page_unknown",
+					params: { page: tab.page },
+				});
 
 			assertOptionalType(tab.adminOnly, "boolean", `tab '${tab.id}' adminOnly`);
 
@@ -287,21 +360,30 @@ function validateUiTabs(tabs: unknown, pageIds: ReadonlySet<string>): void {
 }
 
 function validateUiSlots(slots: unknown, pageIds: ReadonlySet<string>, dialogIds: ReadonlySet<string>): void {
-	if (!isRecord(slots)) throw new ValidationError("Plugin ui.json slots must be an object");
+	if (!isRecord(slots))
+		throw new ValidationError("Plugin ui.json slots must be an object", { code: "plugin.ui.field_not_object", params: { field: "slots" } });
 
 	for (const [slot, contributions] of Object.entries(slots)) {
 		if (!PLUGIN_SLOT_NAMES.has(slot)) {
-			throw new ValidationError(`Plugin ui.json has unsupported slot '${slot}'`);
+			throw new ValidationError(`Plugin ui.json has unsupported slot '${slot}'`, { code: "plugin.ui.slot_unsupported", params: { slot } });
 		}
 
-		if (!Array.isArray(contributions)) throw new ValidationError(`Plugin ui.json slot '${slot}' must be an array`);
+		if (!Array.isArray(contributions))
+			throw new ValidationError(`Plugin ui.json slot '${slot}' must be an array`, {
+				code: "plugin.ui.field_not_array",
+				params: { field: `slots.${slot}` },
+			});
 
 		const ids = new Set<string>();
 		for (const contribution of contributions) {
 			const id = validateUiSlotContribution(slot, contribution, pageIds, dialogIds);
 			if (id === undefined) continue;
 
-			if (ids.has(id)) throw new ValidationError(`Plugin ui.json slot '${slot}' declares the id '${id}' twice`);
+			if (ids.has(id))
+				throw new ValidationError(`Plugin ui.json slot '${slot}' declares the id '${id}' twice`, {
+					code: "plugin.ui.duplicate_id",
+					params: { field: `slots.${slot}`, id },
+				});
 			ids.add(id);
 		}
 	}
@@ -309,7 +391,11 @@ function validateUiSlots(slots: unknown, pageIds: ReadonlySet<string>, dialogIds
 
 /** The pre-play declaration only carries a relative plugin route path. */
 function validatePlaybackPreRoll(value: unknown): asserts value is { endpoint: string } {
-	if (!isRecord(value)) throw new ValidationError("Plugin ui.json playbackPreRoll must be an object");
+	if (!isRecord(value))
+		throw new ValidationError("Plugin ui.json playbackPreRoll must be an object", {
+			code: "plugin.ui.field_not_object",
+			params: { field: "playbackPreRoll" },
+		});
 
 	assertSafePluginSubPath(value.endpoint, "ui.playbackPreRoll.endpoint");
 }
@@ -319,7 +405,11 @@ function validateSearchProvider(
 	value: unknown,
 	pageIds: ReadonlySet<string>,
 ): asserts value is { endpoint: string; requestEndpoint?: string; itemPage?: string } {
-	if (!isRecord(value)) throw new ValidationError("Plugin ui.json searchProvider must be an object");
+	if (!isRecord(value))
+		throw new ValidationError("Plugin ui.json searchProvider must be an object", {
+			code: "plugin.ui.field_not_object",
+			params: { field: "searchProvider" },
+		});
 
 	assertSafePluginSubPath(value.endpoint, "ui.searchProvider.endpoint");
 	if (value.requestEndpoint !== undefined) assertSafePluginSubPath(value.requestEndpoint, "ui.searchProvider.requestEndpoint");
@@ -327,7 +417,10 @@ function validateSearchProvider(
 	if (value.itemPage !== undefined) {
 		assertUiId(value.itemPage, "ui.searchProvider.itemPage");
 		if (!pageIds.has(value.itemPage)) {
-			throw new ValidationError(`Plugin ui.json searchProvider.itemPage references unknown page '${value.itemPage}'`);
+			throw new ValidationError(`Plugin ui.json searchProvider.itemPage references unknown page '${value.itemPage}'`, {
+				code: "plugin.ui.page_unknown",
+				params: { page: value.itemPage },
+			});
 		}
 	}
 }
@@ -339,7 +432,11 @@ function validateUiSlotContribution(
 	pageIds: ReadonlySet<string>,
 	dialogIds: ReadonlySet<string>,
 ): string | undefined {
-	if (!isRecord(contribution)) throw new ValidationError(`Plugin ui.json slot '${slot}' entries must be objects`);
+	if (!isRecord(contribution))
+		throw new ValidationError(`Plugin ui.json slot '${slot}' entries must be objects`, {
+			code: "plugin.ui.entry_not_object",
+			params: { field: `slots.${slot}` },
+		});
 
 	const id = optionalUiId(contribution.id, `ui.slots.${slot}.id`);
 	assertLocalizedText(contribution.label, `ui.slots.${slot}.label`);
@@ -348,7 +445,10 @@ function validateUiSlotContribution(
 	const hasAction = contribution.action !== undefined;
 	const hasElement = contribution.element !== undefined;
 	if (hasAction === hasElement) {
-		throw new ValidationError(`Plugin ui.json slot '${slot}' entry must declare exactly one of action or element`);
+		throw new ValidationError(`Plugin ui.json slot '${slot}' entry must declare exactly one of action or element`, {
+			code: "plugin.ui.slot_entry_ambiguous",
+			params: { slot },
+		});
 	}
 
 	if (hasAction) validateSlotAction(contribution.action, `ui.slots.${slot}.action`, pageIds, dialogIds);
@@ -365,19 +465,28 @@ function validateUiSlotContribution(
 }
 
 function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet<string>, dialogIds: ReadonlySet<string>): void {
-	if (!isRecord(action) || typeof action.type !== "string") throw new ValidationError(`Plugin ui.json ${field} must declare a type`);
+	if (!isRecord(action) || typeof action.type !== "string")
+		throw new ValidationError(`Plugin ui.json ${field} must declare a type`, { code: "plugin.ui.action_type_missing", params: { field } });
 
 	switch (action.type) {
 		case "page":
 			assertNonEmptyString(action.page, `${field}.page`);
-			if (!pageIds.has(action.page)) throw new ValidationError(`Plugin ui.json ${field} references unknown page '${action.page}'`);
+			if (!pageIds.has(action.page))
+				throw new ValidationError(`Plugin ui.json ${field} references unknown page '${action.page}'`, {
+					code: "plugin.ui.page_unknown",
+					params: { page: action.page },
+				});
 
 			assertOptionalStringRecord(action.params, `${field}.params`);
 
 			return;
 		case "dialog":
 			assertNonEmptyString(action.dialog, `${field}.dialog`);
-			if (!dialogIds.has(action.dialog)) throw new ValidationError(`Plugin ui.json ${field} references unknown dialog '${action.dialog}'`);
+			if (!dialogIds.has(action.dialog))
+				throw new ValidationError(`Plugin ui.json ${field} references unknown dialog '${action.dialog}'`, {
+					code: "plugin.ui.dialog_unknown",
+					params: { dialog: action.dialog },
+				});
 
 			assertOptionalStringRecord(action.params, `${field}.params`);
 
@@ -391,19 +500,26 @@ function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet
 
 			return;
 		default:
-			throw new ValidationError(`Plugin ui.json ${field} has unsupported type '${action.type}'`);
+			throw new ValidationError(`Plugin ui.json ${field} has unsupported type '${action.type}'`, {
+				code: "plugin.ui.action_type_unsupported",
+				params: { field, type: action.type },
+			});
 	}
 }
 
 function validateUiSurface(surface: unknown, field: string): void {
-	if (!isRecord(surface)) throw new ValidationError(`Plugin ui.json ${field} must be an object`);
+	if (!isRecord(surface))
+		throw new ValidationError(`Plugin ui.json ${field} must be an object`, { code: "plugin.ui.field_not_object", params: { field } });
 
 	assertSurfaceTag(surface.tag, `${field}.tag`);
 }
 
 function assertSurfaceTag(tag: unknown, field: string): asserts tag is string {
 	if (typeof tag !== "string" || !CUSTOM_ELEMENT_NAME_PATTERN.test(tag)) {
-		throw new ValidationError(`Plugin ui.json ${field} must be a valid custom element tag (lowercase, hyphenated)`);
+		throw new ValidationError(`Plugin ui.json ${field} must be a valid custom element tag (lowercase, hyphenated)`, {
+			code: "plugin.ui.element_tag_invalid",
+			params: { field },
+		});
 	}
 }
 
@@ -411,7 +527,10 @@ function assertSurfaceTag(tag: unknown, field: string): asserts tag is string {
 function validateSurfaceDefinition(surface: Record<string, unknown>, field: string, dialogIds: ReadonlySet<string>): void {
 	const variants = [surface.tag !== undefined, surface.schema !== undefined, surface.schemaRef !== undefined].filter(Boolean).length;
 	if (variants !== 1) {
-		throw new ValidationError(`Plugin ui.json ${field} must declare exactly one of tag, schema or schemaRef`);
+		throw new ValidationError(`Plugin ui.json ${field} must declare exactly one of tag, schema or schemaRef`, {
+			code: "plugin.ui.element_source_invalid",
+			params: { field },
+		});
 	}
 
 	if (surface.tag !== undefined) assertSurfaceTag(surface.tag, `${field}.tag`);
@@ -427,23 +546,40 @@ export function validatePluginSchema(
 	field: string,
 	dialogIds?: ReadonlySet<string>,
 ): asserts value is PluginUiSchemaSurface {
-	if (!isRecord(value)) throw new ValidationError(`Plugin ui.json ${field} must be an object`);
+	if (!isRecord(value))
+		throw new ValidationError(`Plugin ui.json ${field} must be an object`, { code: "plugin.ui.field_not_object", params: { field } });
 
 	if (value.data !== undefined) {
-		if (!isRecord(value.data)) throw new ValidationError(`Plugin ui.json ${field}.data must be an object`);
+		if (!isRecord(value.data))
+			throw new ValidationError(`Plugin ui.json ${field}.data must be an object`, {
+				code: "plugin.ui.field_not_object",
+				params: { field: `${field}.data` },
+			});
 
 		const sources = Object.entries(value.data);
-		if (sources.length > SCHEMA_MAX_SOURCES) throw new ValidationError(`Plugin ui.json ${field}.data has too many sources`);
+		if (sources.length > SCHEMA_MAX_SOURCES)
+			throw new ValidationError(`Plugin ui.json ${field}.data has too many sources`, {
+				code: "plugin.ui.data_too_many_sources",
+				params: { field },
+			});
 
 		for (const [name, source] of sources) {
-			if (!isRecord(source)) throw new ValidationError(`Plugin ui.json ${field}.data.${name} must be an object`);
+			if (!isRecord(source))
+				throw new ValidationError(`Plugin ui.json ${field}.data.${name} must be an object`, {
+					code: "plugin.ui.field_not_object",
+					params: { field: `${field}.data.${name}` },
+				});
 
 			assertSafePluginSubPath(source.path, `${field}.data.${name}.path`);
 		}
 	}
 
 	if (value.onMount !== undefined) {
-		if (!Array.isArray(value.onMount)) throw new ValidationError(`Plugin ui.json ${field}.onMount must be an array`);
+		if (!Array.isArray(value.onMount))
+			throw new ValidationError(`Plugin ui.json ${field}.onMount must be an array`, {
+				code: "plugin.ui.field_not_array",
+				params: { field: `${field}.onMount` },
+			});
 
 		for (const [index, action] of value.onMount.entries()) validateSchemaAction(action, `${field}.onMount[${index}]`, dialogIds);
 	}
@@ -455,7 +591,10 @@ export function validatePluginSchema(
 function validateSchemaField(entry: Record<string, unknown>, fieldName: string): void {
 	assertNonEmptyString(entry.name, `${fieldName}.name`);
 	if (typeof entry.input !== "string" || !SCHEMA_FIELD_INPUTS.has(entry.input)) {
-		throw new ValidationError(`Plugin ui.json ${fieldName}.input is unsupported`);
+		throw new ValidationError(`Plugin ui.json ${fieldName}.input is unsupported`, {
+			code: "plugin.ui.field_unsupported",
+			params: { field: `${fieldName}.input` },
+		});
 	}
 
 	assertLocalizedText(entry.label, `${fieldName}.label`);
@@ -466,14 +605,25 @@ function validateSchemaField(entry: Record<string, unknown>, fieldName: string):
 	assertOptionalType(entry.required, "boolean", `${fieldName}.required`);
 
 	if (entry.options !== undefined) {
-		if (!Array.isArray(entry.options)) throw new ValidationError(`Plugin ui.json ${fieldName}.options must be an array`);
+		if (!Array.isArray(entry.options))
+			throw new ValidationError(`Plugin ui.json ${fieldName}.options must be an array`, {
+				code: "plugin.ui.field_not_array",
+				params: { field: `${fieldName}.options` },
+			});
 
 		for (const option of entry.options) {
-			if (!isRecord(option)) throw new ValidationError(`Plugin ui.json ${fieldName}.options entries must be objects`);
+			if (!isRecord(option))
+				throw new ValidationError(`Plugin ui.json ${fieldName}.options entries must be objects`, {
+					code: "plugin.ui.entry_not_object",
+					params: { field: `${fieldName}.options` },
+				});
 
 			assertLocalizedText(option.label, `${fieldName}.options[].label`);
 			if (typeof option.value !== "string" && typeof option.value !== "number") {
-				throw new ValidationError(`Plugin ui.json ${fieldName}.options[].value must be a string or number`);
+				throw new ValidationError(`Plugin ui.json ${fieldName}.options[].value must be a string or number`, {
+					code: "plugin.ui.option_value_invalid",
+					params: { field: `${fieldName}.options[].value` },
+				});
 			}
 		}
 	}
@@ -488,9 +638,14 @@ function validateSchemaNodes(
 	counter: { count: number; fields: number },
 	dialogIds: ReadonlySet<string> | undefined,
 ): void {
-	if (depth > SCHEMA_MAX_DEPTH) throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum nesting depth`);
+	if (depth > SCHEMA_MAX_DEPTH)
+		throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum nesting depth`, {
+			code: "plugin.ui.nesting_too_deep",
+			params: { field },
+		});
 
-	if (!Array.isArray(nodes)) throw new ValidationError(`Plugin ui.json ${field} must be an array`);
+	if (!Array.isArray(nodes))
+		throw new ValidationError(`Plugin ui.json ${field} must be an array`, { code: "plugin.ui.field_not_array", params: { field } });
 
 	for (const node of nodes) validateSchemaNode(node, field, depth, counter, dialogIds);
 }
@@ -504,7 +659,11 @@ interface SchemaNodeContext {
 
 function validateFieldNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	context.counter.fields += 1;
-	if (context.counter.fields > SCHEMA_MAX_FIELDS) throw new ValidationError(`Plugin ui.json ${context.field} has too many fields`);
+	if (context.counter.fields > SCHEMA_MAX_FIELDS)
+		throw new ValidationError(`Plugin ui.json ${context.field} has too many fields`, {
+			code: "plugin.ui.too_many_fields",
+			params: { field: context.field },
+		});
 
 	validateSchemaField(node, context.field);
 }
@@ -522,10 +681,18 @@ function validateContainerNode(node: Record<string, unknown>, context: SchemaNod
 
 function validateTabsNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	const { field } = context;
-	if (!Array.isArray(node.tabs)) throw new ValidationError(`Plugin ui.json ${field}.tabs must be an array`);
+	if (!Array.isArray(node.tabs))
+		throw new ValidationError(`Plugin ui.json ${field}.tabs must be an array`, {
+			code: "plugin.ui.field_not_array",
+			params: { field: `${field}.tabs` },
+		});
 
 	for (const [index, tab] of node.tabs.entries()) {
-		if (!isRecord(tab)) throw new ValidationError(`Plugin ui.json ${field}.tabs[${index}] must be an object`);
+		if (!isRecord(tab))
+			throw new ValidationError(`Plugin ui.json ${field}.tabs[${index}] must be an object`, {
+				code: "plugin.ui.field_not_object",
+				params: { field: `${field}.tabs[${index}]` },
+			});
 
 		assertLocalizedText(tab.label, `${field}.tabs[${index}].label`);
 		validateSchemaNodes(tab.children, `${field}.tabs[${index}].children`, context.depth + 1, context.counter, context.dialogIds);
@@ -553,10 +720,18 @@ function validateButtonNode(node: Record<string, unknown>, context: SchemaNodeCo
 
 function validateStatsNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	const { field } = context;
-	if (!Array.isArray(node.items)) throw new ValidationError(`Plugin ui.json ${field}.items must be an array`);
+	if (!Array.isArray(node.items))
+		throw new ValidationError(`Plugin ui.json ${field}.items must be an array`, {
+			code: "plugin.ui.field_not_array",
+			params: { field: `${field}.items` },
+		});
 
 	for (const item of node.items) {
-		if (!isRecord(item)) throw new ValidationError(`Plugin ui.json ${field}.items entries must be objects`);
+		if (!isRecord(item))
+			throw new ValidationError(`Plugin ui.json ${field}.items entries must be objects`, {
+				code: "plugin.ui.entry_not_object",
+				params: { field: `${field}.items` },
+			});
 
 		assertLocalizedText(item.label, `${field}.items[].label`);
 		assertNonEmptyString(item.value, `${field}.items[].value`);
@@ -566,10 +741,18 @@ function validateStatsNode(node: Record<string, unknown>, context: SchemaNodeCon
 function validateTableNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	const { field } = context;
 	assertNonEmptyString(node.source, `${field}.source`);
-	if (!Array.isArray(node.columns)) throw new ValidationError(`Plugin ui.json ${field}.columns must be an array`);
+	if (!Array.isArray(node.columns))
+		throw new ValidationError(`Plugin ui.json ${field}.columns must be an array`, {
+			code: "plugin.ui.field_not_array",
+			params: { field: `${field}.columns` },
+		});
 
 	for (const column of node.columns) {
-		if (!isRecord(column)) throw new ValidationError(`Plugin ui.json ${field}.columns entries must be objects`);
+		if (!isRecord(column))
+			throw new ValidationError(`Plugin ui.json ${field}.columns entries must be objects`, {
+				code: "plugin.ui.entry_not_object",
+				params: { field: `${field}.columns` },
+			});
 
 		assertLocalizedText(column.label, `${field}.columns[].label`);
 		assertNonEmptyString(column.value, `${field}.columns[].value`);
@@ -634,19 +817,34 @@ function validateSchemaNode(
 	dialogIds: ReadonlySet<string> | undefined,
 ): void {
 	counter.count += 1;
-	if (counter.count > SCHEMA_MAX_NODES) throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum node count`);
+	if (counter.count > SCHEMA_MAX_NODES)
+		throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum node count`, {
+			code: "plugin.ui.too_many_nodes",
+			params: { field },
+		});
 
-	if (!isRecord(node) || typeof node.type !== "string") throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`);
+	if (!isRecord(node) || typeof node.type !== "string")
+		throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`, {
+			code: "plugin.ui.field_unsupported",
+			params: { field },
+		});
 
 	const validator = schemaNodeValidators[node.type];
-	if (!validator) throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`);
+	if (!validator)
+		throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`, {
+			code: "plugin.ui.field_unsupported",
+			params: { field },
+		});
 
 	validator(node, { field: `${field}.${node.type}`, depth, counter, dialogIds });
 }
 
 function validateSchemaAction(action: unknown, field: string, dialogIds?: ReadonlySet<string>): void {
 	if (!isRecord(action) || typeof action.type !== "string" || !SCHEMA_ACTION_TYPES.has(action.type)) {
-		throw new ValidationError(`Plugin ui.json ${field} has an unsupported action type`);
+		throw new ValidationError(`Plugin ui.json ${field} has an unsupported action type`, {
+			code: "plugin.ui.field_unsupported",
+			params: { field },
+		});
 	}
 
 	switch (action.type) {
@@ -664,7 +862,10 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 		case "openDialog":
 			assertNonEmptyString(action.dialog, `${field}.dialog`);
 			if (dialogIds && !dialogIds.has(action.dialog)) {
-				throw new ValidationError(`Plugin ui.json ${field} references unknown dialog '${action.dialog}'`);
+				throw new ValidationError(`Plugin ui.json ${field} references unknown dialog '${action.dialog}'`, {
+					code: "plugin.ui.dialog_unknown",
+					params: { dialog: action.dialog },
+				});
 			}
 
 			return;
@@ -672,7 +873,10 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 			return;
 		case "toast":
 			if (action.level !== "success" && action.level !== "error" && action.level !== "info") {
-				throw new ValidationError(`Plugin ui.json ${field}.level must be success, error or info`);
+				throw new ValidationError(`Plugin ui.json ${field}.level must be success, error or info`, {
+					code: "plugin.ui.level_invalid",
+					params: { field: `${field}.level` },
+				});
 			}
 
 			assertLocalizedText(action.message, `${field}.message`);
@@ -683,34 +887,52 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 
 			return;
 		default:
-			throw new ValidationError(`Plugin ui.json ${field} has an unsupported action type`);
+			throw new ValidationError(`Plugin ui.json ${field} has an unsupported action type`, {
+				code: "plugin.ui.field_unsupported",
+				params: { field },
+			});
 	}
 }
 
 function validateSchemaCondition(condition: unknown, field: string): void {
-	if (!isRecord(condition)) throw new ValidationError(`Plugin ui.json ${field} must be an object`);
+	if (!isRecord(condition))
+		throw new ValidationError(`Plugin ui.json ${field} must be an object`, { code: "plugin.ui.field_not_object", params: { field } });
 
 	assertNonEmptyString(condition.left, `${field}.left`);
 	if (typeof condition.op !== "string" || !SCHEMA_CONDITION_OPS.has(condition.op)) {
-		throw new ValidationError(`Plugin ui.json ${field}.op is unsupported`);
+		throw new ValidationError(`Plugin ui.json ${field}.op is unsupported`, {
+			code: "plugin.ui.field_unsupported",
+			params: { field: `${field}.op` },
+		});
 	}
 }
 
 function assertOptionalType(value: unknown, type: "boolean" | "number", subject: string): void {
-	if (value !== undefined && typeof value !== type) throw new ValidationError(`Plugin ui.json ${subject} must be a ${type}`);
+	if (value !== undefined && typeof value !== type)
+		throw new ValidationError(`Plugin ui.json ${subject} must be a ${type}`, {
+			code: "plugin.ui.field_invalid",
+			params: { field: subject },
+		});
 }
 
 function assertOptionalStringArray(value: unknown, field: string): void {
 	if (value === undefined) return;
 
 	if (!Array.isArray(value) || value.some((item) => !isNonEmptyString(item))) {
-		throw new ValidationError(`Plugin ui.json ${field} must be an array of strings`);
+		throw new ValidationError(`Plugin ui.json ${field} must be an array of strings`, {
+			code: "plugin.ui.string_array_invalid",
+			params: { field },
+		});
 	}
 }
 
 function assertUiId(value: unknown, field: string): asserts value is string {
 	assertNonEmptyString(value, field);
-	if (!PLUGIN_UI_ID_PATTERN.test(value)) throw new ValidationError(`Plugin ui.json ${field} has unsupported characters: ${value}`);
+	if (!PLUGIN_UI_ID_PATTERN.test(value))
+		throw new ValidationError(`Plugin ui.json ${field} has unsupported characters: ${value}`, {
+			code: "plugin.ui.characters_unsupported",
+			params: { field, value },
+		});
 }
 
 function optionalUiId(value: unknown, field: string): string | undefined {
@@ -724,14 +946,22 @@ function optionalUiId(value: unknown, field: string): string | undefined {
 function assertLocalizedText(value: unknown, field: string): void {
 	if (isNonEmptyString(value)) return;
 
-	if (!isRecord(value)) throw new ValidationError(`Plugin ui.json ${field} must be a string or a locale map`);
+	if (!isRecord(value))
+		throw new ValidationError(`Plugin ui.json ${field} must be a string or a locale map`, {
+			code: "plugin.ui.locale_text_invalid",
+			params: { field },
+		});
 
 	const entries = Object.entries(value);
-	if (entries.length === 0) throw new ValidationError(`Plugin ui.json ${field} locale map must not be empty`);
+	if (entries.length === 0)
+		throw new ValidationError(`Plugin ui.json ${field} locale map must not be empty`, { code: "plugin.ui.field_empty", params: { field } });
 
 	for (const [locale, text] of entries) {
 		if (!(isNonEmptyString(locale) && isNonEmptyString(text))) {
-			throw new ValidationError(`Plugin ui.json ${field} locale map values must be non-empty strings`);
+			throw new ValidationError(`Plugin ui.json ${field} locale map values must be non-empty strings`, {
+				code: "plugin.ui.locale_text_invalid",
+				params: { field },
+			});
 		}
 	}
 }
@@ -740,7 +970,10 @@ function assertOptionalStringRecord(value: unknown, field: string): void {
 	if (value === undefined) return;
 
 	if (!isRecord(value) || Object.values(value).some((item) => !isNonEmptyString(item))) {
-		throw new ValidationError(`Plugin ui.json ${field} must be a map of non-empty strings`);
+		throw new ValidationError(`Plugin ui.json ${field} must be a map of non-empty strings`, {
+			code: "plugin.ui.field_invalid",
+			params: { field },
+		});
 	}
 }
 
@@ -754,7 +987,10 @@ const ALLOWED_HREF_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"])
 function assertSafeHref(value: unknown, field: string): asserts value is string {
 	assertNonEmptyString(value, field);
 	if (value.startsWith("//") || value.startsWith("\\")) {
-		throw new ValidationError(`Plugin ui.json ${field} must not be protocol-relative`);
+		throw new ValidationError(`Plugin ui.json ${field} must not be protocol-relative`, {
+			code: "plugin.ui.url_invalid",
+			params: { field },
+		});
 	}
 
 	if (value.startsWith("/")) return;
@@ -763,11 +999,17 @@ function assertSafeHref(value: unknown, field: string): asserts value is string 
 	try {
 		parsed = new URL(value);
 	} catch {
-		throw new ValidationError(`Plugin ui.json ${field} must be an absolute http(s) URL or a site-relative path`);
+		throw new ValidationError(`Plugin ui.json ${field} must be an absolute http(s) URL or a site-relative path`, {
+			code: "plugin.ui.url_invalid",
+			params: { field },
+		});
 	}
 
 	if (!ALLOWED_HREF_PROTOCOLS.has(parsed.protocol)) {
-		throw new ValidationError(`Plugin ui.json ${field} uses an unsupported URL scheme: ${parsed.protocol}`);
+		throw new ValidationError(`Plugin ui.json ${field} uses an unsupported URL scheme: ${parsed.protocol}`, {
+			code: "plugin.ui.url_invalid",
+			params: { field },
+		});
 	}
 }
 
@@ -788,14 +1030,17 @@ function assertSafePluginSubPath(value: unknown, field: string): asserts value i
 		value.includes("#") ||
 		URL_SCHEME_PREFIX.test(value)
 	) {
-		throw new ValidationError(`Plugin ui.json ${field} must be a relative plugin path without traversal or query`);
+		throw new ValidationError(`Plugin ui.json ${field} must be a relative plugin path without traversal or query`, {
+			code: "plugin.ui.path_invalid",
+			params: { field },
+		});
 	}
 }
 
 export async function loadPluginManifest(pluginDir: string): Promise<PluginManifest> {
 	const manifestPath = PathUtils.join(pluginDir, "plugin.json");
 	const manifest = await FileUtils.readJson<unknown>(manifestPath);
-	if (!manifest) throw new ValidationError(`Plugin is missing a valid plugin.json: ${manifestPath}`);
+	if (!manifest) throw new ValidationError(`Plugin is missing a valid plugin.json: ${manifestPath}`, { code: "plugin.manifest_missing" });
 
 	validatePluginManifest(manifest);
 
@@ -815,7 +1060,11 @@ async function loadResolvedSchema(
 ): Promise<PluginUiSchemaSurface> {
 	const refPath = resolvePluginPath(pluginDir, ref, `${field}.schemaRef`);
 	const raw = await FileUtils.readJson<unknown>(refPath, { maxSize: SCHEMA_MAX_BYTES });
-	if (raw === null) throw new ValidationError(`Plugin ui.json ${field}.schemaRef is missing or unreadable: ${ref}`);
+	if (raw === null)
+		throw new ValidationError(`Plugin ui.json ${field}.schemaRef is missing or unreadable: ${ref}`, {
+			code: "plugin.ui.schema_ref_missing",
+			params: { field: `${field}.schemaRef`, ref },
+		});
 
 	validatePluginSchema(raw, `${field}.schema`, dialogIds);
 
@@ -866,25 +1115,45 @@ export function assertDeclaredPluginCapabilities(
 	const declared = new Set(declaredCapabilities);
 	const missing = unique([...usedCapabilities]).filter((capability) => !declared.has(capability));
 	if (missing.length > 0) {
-		throw new ValidationError(`Plugin uses capabilities missing from plugin.json: ${missing.join(", ")}`);
+		throw new ValidationError(`Plugin uses capabilities missing from plugin.json: ${missing.join(", ")}`, {
+			code: "plugin.capability_undeclared",
+			params: { capability: missing.join(", ") },
+		});
 	}
 }
 
 export function validatePluginConfig(config: unknown, definition?: ConfigDefinition): PluginConfig {
 	const validated = definition ? definition.parse(config) : config;
-	if (!isRecord(validated)) throw new ValidationError("Plugin configuration must be an object");
+	if (!isRecord(validated)) throw new ValidationError("Plugin configuration must be an object", { code: "plugin.config_not_object" });
 
 	return validated;
 }
 
+/**
+ * A failure on one field. Interface fields (`ui.*`) are read from ui.json and get the `plugin.ui.*`
+ * codes; every other field is read from plugin.json.
+ */
+function fieldError(
+	field: string,
+	problem: "not_string" | "not_array" | "path_invalid" | "path_escapes" | "duplicates",
+	reason: string,
+): ValidationError {
+	const interfaceField = field.startsWith("ui.");
+
+	return new ValidationError(`Plugin ${interfaceField ? "ui.json" : "manifest"} ${field} ${reason}`, {
+		code: `plugin.${interfaceField ? "ui." : ""}field_${problem}`,
+		params: { field },
+	});
+}
+
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-	if (!isNonEmptyString(value)) throw new ValidationError(`Plugin manifest ${field} must be a non-empty string`);
+	if (!isNonEmptyString(value)) throw fieldError(field, "not_string", "must be a non-empty string");
 }
 
 function assertRelativeString(value: unknown, field: string): asserts value is string {
 	assertNonEmptyString(value, field);
 	if (PathUtils.isAbsolute(value) || !value.startsWith("./")) {
-		throw new ValidationError(`Plugin manifest ${field} must be a relative path starting with './'`);
+		throw fieldError(field, "path_invalid", "must be a relative path starting with './'");
 	}
 }
 
@@ -892,7 +1161,7 @@ function resolvePluginPath(pluginDir: string, path: string, field: string): stri
 	const root = PathUtils.resolve(pluginDir);
 	const resolvedPath = PathUtils.resolve(root, path);
 	if (!PathUtils.isSubpath(resolvedPath, root)) {
-		throw new ValidationError(`Plugin manifest ${field} escapes plugin directory: ${path}`);
+		throw fieldError(field, "path_escapes", `escapes plugin directory: ${path}`);
 	}
 
 	return resolvedPath;
@@ -900,10 +1169,10 @@ function resolvePluginPath(pluginDir: string, path: string, field: string): stri
 
 function assertStringArray(value: unknown, field: string): asserts value is string[] {
 	if (!Array.isArray(value) || value.some((item) => !isNonEmptyString(item))) {
-		throw new ValidationError(`Plugin manifest ${field} must be an array of non-empty strings`);
+		throw fieldError(field, "not_array", "must be an array of non-empty strings");
 	}
 }
 
 function assertUnique(values: string[], field: string): void {
-	if (new Set(values).size !== values.length) throw new ValidationError(`Plugin manifest ${field} must not contain duplicates`);
+	if (new Set(values).size !== values.length) throw fieldError(field, "duplicates", "must not contain duplicates");
 }

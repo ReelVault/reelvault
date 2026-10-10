@@ -15,7 +15,7 @@ export class WorkerRegistryService extends BaseService {
 
 	register<TData = unknown, TResult = unknown>(definition: WorkerDefinition<TData, TResult>): void {
 		if (this.definitions.has(definition.id)) {
-			throw new ConflictError(`Worker "${definition.id}" is already registered`);
+			throw new ConflictError(`Worker "${definition.id}" is already registered`, { code: "worker.already_registered" });
 		}
 
 		this.definitions.set(definition.id, this.normalizeDefinition(definition));

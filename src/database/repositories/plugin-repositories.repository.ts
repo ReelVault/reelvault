@@ -33,7 +33,7 @@ class PluginRepositoriesRepository {
 				enabled: values.enabled ?? true,
 			})
 			.returning();
-		if (!entry) throw new InternalError("Plugin repository insert returned no row");
+		if (!entry) throw new InternalError("Plugin repository insert returned no row", { code: "plugin.repository_save_failed" });
 
 		return entry;
 	}
@@ -69,7 +69,7 @@ class PluginRepositoriesRepository {
 			.set({ ...values, updatedAt: new Date() })
 			.where(eq(this.table.id, id))
 			.returning();
-		if (!entry) throw new NotFoundError(`Plugin repository not found: ${id}`);
+		if (!entry) throw new NotFoundError(`Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		return entry;
 	}

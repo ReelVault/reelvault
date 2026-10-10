@@ -77,7 +77,10 @@ export class PluginConfig {
 
 			const serialized = `${JSON.stringify(persistedConfig, null, 2)}\n`;
 			if (serialized.length > MAX_CONFIG_BYTES) {
-				throw new ValidationError(`Plugin configuration exceeds the ${MAX_CONFIG_BYTES} byte limit`);
+				throw new ValidationError(`Plugin configuration exceeds the ${MAX_CONFIG_BYTES} byte limit`, {
+					code: "plugin.config_too_large",
+					params: { maxBytes: MAX_CONFIG_BYTES },
+				});
 			}
 
 			// Atomic write: a crash mid-write must not corrupt the existing config.
@@ -90,7 +93,9 @@ export class PluginConfig {
 
 	resolvePluginDirectory(pluginName: string): string {
 		if (!PLUGIN_IDENTIFIER_PATTERN.test(pluginName)) {
-			throw new ValidationError("Plugin configuration requested with an invalid directory name");
+			throw new ValidationError("Plugin configuration requested with an invalid directory name", {
+				code: "plugin.config_directory_invalid",
+			});
 		}
 
 		return PathUtils.join(this.pluginsDirectory, pluginName);

@@ -48,14 +48,14 @@ class ImageUploadService extends BaseService {
 		try {
 			await FileUtils.writeAtomic(localPath, data);
 		} catch {
-			throw new InternalError("Cannot write optimized image");
+			throw new InternalError("Cannot write optimized image", { code: "image.write_failed" });
 		}
 
 		const optimizedData = data;
 		const optimizedInfo = info;
 
 		if (!(optimizedInfo.width && optimizedInfo.height)) {
-			throw new InternalError("Optimized image is invalid");
+			throw new InternalError("Optimized image is invalid", { code: "images.optimized_invalid" });
 		}
 
 		const sourceHash = createHash("sha256").update(optimizedData).digest("hex");

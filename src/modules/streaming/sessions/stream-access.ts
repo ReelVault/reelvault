@@ -33,7 +33,7 @@ export async function assertActiveStreamAccess({
 	mediaFileId: string;
 	check?: StreamAccessChecker | undefined;
 }): Promise<void> {
-	if (!userId) throw new UnauthorizedError("Session expired or invalid");
+	if (!userId) throw new UnauthorizedError("Session expired or invalid", { code: "stream.session_expired" });
 
 	if (!profileId) throw new UnauthorizedError("An active profile is required to stream media", { code: "auth.profile_required" });
 
@@ -71,12 +71,13 @@ export function resolveSessionAccess(
 		// A session released by inactivity or a client release must NOT look alive:
 		// returning its terminated access let heartbeat answer `state:"active"` for
 		// up to 5 minutes, defeating the client's recovery path. A 404 is correct.
-		throw new NotFoundError(`Playback session not found: ${sessionId}`);
+		throw new NotFoundError(`Playback session not found: ${sessionId}`, { code: "stream.session_not_found" });
 	}
 
 	return session;
 }
 
 export function assertSessionOwnership(session: SessionAccessInfo, profileId?: string): void {
-	if (session.profileId !== profileId) throw new ForbiddenError("Playback session belongs to another profile");
+	if (session.profileId !== profileId)
+		throw new ForbiddenError("Playback session belongs to another profile", { code: "stream.session_not_owned" });
 }

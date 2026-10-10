@@ -44,9 +44,9 @@ describe("toAuthFailure", () => {
 });
 
 describe("status fallbacks", () => {
-	test("403 and 404 keep their plain categories", async () => {
-		expect((await toAuthFailure(failure("YOU_ARE_NOT_ALLOWED", 403))).code).toBe("forbidden");
-		expect((await toAuthFailure(failure("USER_NOT_FOUND", 404))).code).toBe("not_found");
+	test("403 and 404 keep their categories and name the account failure", async () => {
+		expect(await toAuthFailure(failure("YOU_ARE_NOT_ALLOWED", 403))).toMatchObject({ category: "forbidden", code: "auth.not_allowed" });
+		expect(await toAuthFailure(failure("USER_NOT_FOUND", 404))).toMatchObject({ category: "not_found", code: "auth.not_found" });
 	});
 });
 

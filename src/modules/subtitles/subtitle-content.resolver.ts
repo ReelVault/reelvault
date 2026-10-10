@@ -57,7 +57,7 @@ export class SubtitleContentResolver extends BaseService {
 			return content;
 		}
 
-		throw new NotFoundError(`Subtitle content for ${id} was not found`);
+		throw new NotFoundError(`Subtitle content for ${id} was not found`, { code: "subtitle.not_found" });
 	}
 }
 

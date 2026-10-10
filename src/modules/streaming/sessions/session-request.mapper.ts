@@ -16,7 +16,7 @@ function parseList(val?: string): string[] {
 
 export function assertSafeId(id: string, label = "fileId"): void {
 	if (!SAFE_ID_PATTERN.test(id)) {
-		throw new ValidationError(`Invalid ${label}`);
+		throw new ValidationError(`Invalid ${label}`, { code: "stream.id_invalid" });
 	}
 }
 

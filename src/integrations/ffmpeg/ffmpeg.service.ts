@@ -109,7 +109,7 @@ class FFmpegService {
 			if (signal?.aborted) throw signal.reason ?? new Error("FFmpeg execution was cancelled");
 
 			if (timeoutState.timedOut && timeoutMs !== undefined) {
-				throw new RequestTimeoutError(`FFmpeg execution timed out after ${timeoutMs}ms`);
+				throw new RequestTimeoutError(`FFmpeg execution timed out after ${timeoutMs}ms`, { code: "ffmpeg.timeout" });
 			}
 
 			return { exitCode, stdout, stderr };

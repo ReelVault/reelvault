@@ -135,6 +135,18 @@ export function errorMessage(error: unknown): string {
 	return String(error);
 }
 
+/** Params with undefined values dropped, as the API envelope and the SDK types expect; undefined when none are left. */
+export function definedParams(params: DomainErrorParams | undefined): Record<string, string | number | boolean | null> | undefined {
+	if (!params) return undefined;
+
+	const defined: Record<string, string | number | boolean | null> = {};
+	for (const [key, value] of Object.entries(params)) {
+		if (value !== undefined) defined[key] = value;
+	}
+
+	return Object.keys(defined).length > 0 ? defined : undefined;
+}
+
 /** Canonical not-found error carrying the translatable code + params for an entity. */
 export function notFoundError(entityType: string, entityId?: string): NotFoundError {
 	const message = entityId !== undefined ? `${entityType} not found: ${entityId}` : `${entityType} not found`;

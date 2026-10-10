@@ -1,8 +1,7 @@
 import type { ApiErrorResponse } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { logRequestFailure } from "@/middleware/request-logger.middleware";
-import { hasEntry } from "@/utils/array.utils";
-import { DomainError, type DomainErrorCategory, type DomainErrorParams } from "@/utils/errors";
+import { DomainError, type DomainErrorCategory, definedParams } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";
 
 const statusByCategory: Record<DomainErrorCategory, number> = {
@@ -119,14 +118,3 @@ export const domainErrorsMiddleware = new Elysia({ name: "DomainErrors" }).onErr
 
 	return fallback;
 });
-
-function definedParams(params: DomainErrorParams | undefined): Record<string, string | number | boolean | null> | undefined {
-	if (!params) return undefined;
-
-	const defined: Record<string, string | number | boolean | null> = {};
-	for (const [key, value] of Object.entries(params)) {
-		if (value !== undefined) defined[key] = value;
-	}
-
-	return hasEntry(defined) ? defined : undefined;
-}

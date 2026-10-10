@@ -18,12 +18,16 @@ export interface PluginStatusInput {
 /**
  * Stable code for a plugin load failure. A domain error keeps its own code;
  * anything else is classified by the phase that failed, so an invalid manifest
- * is never reported as a generic load failure.
+ * is never reported as a generic load failure. A manifest failure always reports
+ * `plugin.manifest_invalid`: the card shows the code without its parameters, and
+ * the specific reason belongs to the archive check that reads the error itself.
  */
 export function pluginErrorCode(error: unknown, failurePhase?: PluginLoadPhase): string {
+	if (failurePhase === "manifest") return "plugin.manifest_invalid";
+
 	if (error instanceof DomainError && error.code !== error.category) return error.code;
 
-	return failurePhase === "manifest" ? "plugin.manifest_invalid" : "plugin.load_failed";
+	return "plugin.load_failed";
 }
 
 /**

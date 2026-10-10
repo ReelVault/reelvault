@@ -107,7 +107,7 @@ class WorkerJobRepository {
 		// Empty result means the dedupe fetch-back found no active row either —
 		// the previously-active job went terminal mid-race, so the trigger cannot
 		// be satisfied right now (client retries); never a raw 500.
-		if (!item) throw new ConflictError(`Failed to enqueue item for worker "${input.workerId}"`);
+		if (!item) throw new ConflictError(`Failed to enqueue item for worker "${input.workerId}"`, { code: "worker.enqueue_failed" });
 
 		return item;
 	}
@@ -377,9 +377,10 @@ class WorkerJobRepository {
 		const operationById = toMap(operationRows, (row) => row.id);
 		for (const operationId of operationIds) {
 			const operation = operationById.get(operationId);
-			if (!operation) throw new NotFoundError(`Worker operation not found: ${operationId}`);
+			if (!operation) throw new NotFoundError(`Worker operation not found: ${operationId}`, { code: "worker.operation_not_found" });
 
-			if (operation.cancelRequested) throw new ConflictError(`Worker operation has been cancelled: ${operationId}`);
+			if (operation.cancelRequested)
+				throw new ConflictError(`Worker operation has been cancelled: ${operationId}`, { code: "worker.operation_cancelled" });
 		}
 
 		const dependencyIds = new Set<string>();
@@ -399,20 +400,22 @@ class WorkerJobRepository {
 			if (!depId) continue;
 
 			if (!input.operationId) {
-				throw new ValidationError("Worker task dependencies require a non-empty operationId");
+				throw new ValidationError("Worker task dependencies require a non-empty operationId", { code: "worker.dependency_invalid" });
 			}
 
 			if (depId === input.id) {
-				throw new ConflictError("Worker task dependency cannot reference itself");
+				throw new ConflictError("Worker task dependency cannot reference itself", { code: "worker.dependency_self" });
 			}
 
 			const dep = dependencyById.get(depId);
 			if (!dep) {
-				throw new NotFoundError(`Worker dependency task not found: ${depId}`);
+				throw new NotFoundError(`Worker dependency task not found: ${depId}`, { code: "worker.dependency_not_found" });
 			}
 
 			if (dep.operationId !== input.operationId) {
-				throw new ValidationError("Worker task dependencies must belong to the same operation");
+				throw new ValidationError("Worker task dependencies must belong to the same operation", {
+					code: "worker.dependency_other_operation",
+				});
 			}
 		}
 	}

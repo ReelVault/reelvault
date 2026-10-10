@@ -37,7 +37,9 @@ export class PlaybackSessionIdempotencyRegistry<T = unknown> {
 		const existing = this.entries.get(key);
 		if (existing) {
 			if (existing.fingerprint !== fingerprint) {
-				throw new ConflictError("Idempotency-Key was already used with different playback session settings");
+				throw new ConflictError("Idempotency-Key was already used with different playback session settings", {
+					code: "stream.idempotency_conflict",
+				});
 			}
 
 			return existing.promise;

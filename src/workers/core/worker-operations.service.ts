@@ -109,12 +109,14 @@ export class WorkerOperationsService extends BaseService {
 		if (!operation) return { resumed: 0 };
 
 		if (operation.status !== "cancelled") {
-			throw new ValidationError(`Only cancelled operations can be resumed (status: ${operation.status})`);
+			throw new ValidationError(`Only cancelled operations can be resumed (status: ${operation.status})`, {
+				code: "worker.operation_not_cancelled",
+			});
 		}
 
 		const total = await workerJobRepository.countCancelledByOperation(id);
 		if (total === 0) {
-			throw new ValidationError("The operation has no cancelled tasks to resume");
+			throw new ValidationError("The operation has no cancelled tasks to resume", { code: "worker.nothing_to_resume" });
 		}
 
 		// Clear the cancel request BEFORE re-enqueueing: `enqueueMany` validates the

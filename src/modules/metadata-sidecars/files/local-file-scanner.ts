@@ -103,7 +103,9 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 	private assertWithinRoot(path: string): void {
 		if (!PathUtils.isSubpath(path, this.libraryRoot)) {
-			throw new ValidationError(`Sidecar path must be inside configured library root: ${PathUtils.resolve(path)}`);
+			throw new ValidationError(`Sidecar path must be inside configured library root: ${PathUtils.resolve(path)}`, {
+				code: "sidecar.path_outside_library",
+			});
 		}
 	}
 }

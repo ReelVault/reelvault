@@ -26,7 +26,7 @@ export class WorkerQueueService extends BaseService {
 
 	async enqueue(workerId: string, data: unknown, options: AddWorkerItemOptions = {}): Promise<WorkerItem> {
 		const definition = getWorkerRuntime().registry.get(workerId);
-		if (!definition) throw new NotFoundError(`Worker "${workerId}" is not registered`);
+		if (!definition) throw new NotFoundError(`Worker "${workerId}" is not registered`, { code: "worker.not_found" });
 
 		const { result } = await enqueueWithOperation(
 			{ type: workerId, reference: { type: "worker", id: workerId } },
@@ -51,7 +51,7 @@ export class WorkerQueueService extends BaseService {
 		if (entries.length === 0) return [];
 
 		const definition = getWorkerRuntime().registry.get(workerId);
-		if (!definition) throw new NotFoundError(`Worker "${workerId}" is not registered`);
+		if (!definition) throw new NotFoundError(`Worker "${workerId}" is not registered`, { code: "worker.not_found" });
 
 		const buildInputs = (operationId?: string) =>
 			entries.map(({ data, options = {} }) =>

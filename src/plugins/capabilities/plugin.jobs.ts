@@ -53,15 +53,23 @@ class PluginJobsService extends BaseService {
 		try {
 			for (const job of jobs) {
 				if (typeof job !== "object") {
-					throw new ValidationError(`Plugin '${pluginId}' job registration failed: job definition must be an object.`);
+					throw new ValidationError(`Plugin '${pluginId}' job registration failed: job definition must be an object.`, {
+						code: "plugin.job_invalid",
+						params: { plugin: pluginId },
+					});
 				}
 
 				if (!job.name || typeof job.name !== "string") {
-					throw new ValidationError(`Plugin '${pluginId}' job registration failed: 'name' is required.`);
+					throw new ValidationError(`Plugin '${pluginId}' job registration failed: 'name' is required.`, {
+						code: "plugin.job_name_required",
+					});
 				}
 
 				if (typeof job.handler !== "function") {
-					throw new ValidationError(`Plugin '${pluginId}' job '${job.name}' is missing a valid 'handler' function.`);
+					throw new ValidationError(`Plugin '${pluginId}' job '${job.name}' is missing a valid 'handler' function.`, {
+						code: "plugin.job_handler_missing",
+						params: { plugin: pluginId, job: job.name },
+					});
 				}
 
 				this.validateSchedule(job);
@@ -106,7 +114,9 @@ class PluginJobsService extends BaseService {
 
 	async enqueue(pluginId: string, name: string, data: unknown, options?: PluginEnqueueOptions): Promise<PluginJobHandle> {
 		if (!isNonEmptyString(name)) {
-			throw new ValidationError(`Plugin '${pluginId}' failed to enqueue job: 'name' must be a non-empty string.`);
+			throw new ValidationError(`Plugin '${pluginId}' failed to enqueue job: 'name' must be a non-empty string.`, {
+				code: "plugin.job_name_required",
+			});
 		}
 
 		const namespacedName = this.namespace(pluginId, name);
@@ -131,7 +141,9 @@ class PluginJobsService extends BaseService {
 		commonOptions?: PluginJobBatchOptions,
 	): Promise<PluginJobHandle[]> {
 		if (!isNonEmptyString(name)) {
-			throw new ValidationError(`Plugin '${pluginId}' failed to enqueue jobs: 'name' must be a non-empty string.`);
+			throw new ValidationError(`Plugin '${pluginId}' failed to enqueue jobs: 'name' must be a non-empty string.`, {
+				code: "plugin.job_name_required",
+			});
 		}
 
 		if (items.length === 0) return [];

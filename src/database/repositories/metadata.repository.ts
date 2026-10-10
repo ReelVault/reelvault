@@ -830,7 +830,7 @@ class MetadataRepository {
 			metadata = await this.findOrCreate({ where: metadataWhere, values: metadataValues, tx });
 		}
 
-		if (!metadata) throw new InternalError("Error while creating metadata");
+		if (!metadata) throw new InternalError("Error while creating metadata", { code: "metadata.create_failed" });
 
 		const metadataWithStableKey = metadata.stableKey ? metadata : { ...metadata, stableKey };
 		const patch: { stableKey?: string; primaryProviderId?: string } = {};

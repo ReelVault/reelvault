@@ -277,7 +277,7 @@ class AdminLogsService extends BaseService {
 
 			return { content, truncated: true };
 		} catch {
-			throw new NotFoundError(`Log file not found: ${fileId ?? filePath}`);
+			throw new NotFoundError(`Log file not found: ${fileId ?? filePath}`, { code: "logs.file_not_found" });
 		}
 	}
 
@@ -324,7 +324,7 @@ class AdminLogsService extends BaseService {
 			if (error instanceof NotFoundError) throw error;
 
 			this.logger.error("Failed to read log file tail", error, { fileId, filePath });
-			throw new InternalError(`Log file could not be read: ${fileId ?? filePath}`, { cause: error });
+			throw new InternalError(`Log file could not be read: ${fileId ?? filePath}`, { cause: error, code: "logs.read_failed" });
 		}
 	}
 
@@ -374,7 +374,7 @@ class AdminLogsService extends BaseService {
 
 			return { file, filename };
 		} catch {
-			throw new NotFoundError(`Log file not found: ${fileId ?? filename}`);
+			throw new NotFoundError(`Log file not found: ${fileId ?? filename}`, { code: "logs.file_not_found" });
 		}
 	}
 	async deleteLogFile(fileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
@@ -398,7 +398,7 @@ class AdminLogsService extends BaseService {
 			}
 		} catch (error) {
 			this.logger.error("Failed to delete log file", error, { fileId, filePath });
-			throw new InternalError(`Log file could not be deleted: ${fileId}`, { cause: error });
+			throw new InternalError(`Log file could not be deleted: ${fileId}`, { cause: error, code: "logs.delete_failed" });
 		}
 
 		recordAuditSafe(

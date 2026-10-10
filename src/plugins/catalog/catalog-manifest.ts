@@ -121,6 +121,27 @@ export function resolveCatalogCandidate(
 	return undefined;
 }
 
+/** Where a catalog validation error points: one field of a plugin entry (`index`), or a field of the catalog itself. */
+interface CatalogField {
+	index?: number | undefined;
+	field: string;
+}
+
+/** A validation error about one field; with an entry index the translated code names the entry and the field. */
+function fieldError(where: CatalogField, reason: string): ValidationError {
+	if (where.index === undefined) {
+		return new ValidationError(`Catalog field '${where.field}' ${reason}`, {
+			code: "plugin.catalog_field_invalid",
+			params: { field: where.field },
+		});
+	}
+
+	return new ValidationError(`Catalog plugin #${where.index}: '${where.field}' ${reason}`, {
+		code: "plugin.catalog_entry_invalid",
+		params: { index: where.index, field: where.field },
+	});
+}
+
 /**
  * Parses and validates a catalog manifest (`reelvault-catalog.json`).
  * Catalog entries are advisory until install time — the archive checksum is
@@ -132,16 +153,26 @@ export function parsePluginCatalogManifest(raw: string): PluginCatalogManifest {
 	try {
 		value = JSON.parse(raw);
 	} catch {
-		throw new ValidationError("Catalog manifest is not valid JSON");
+		throw new ValidationError("Catalog manifest is not valid JSON", { code: "plugin.catalog_not_json" });
 	}
 
-	if (!isRecord(value)) throw new ValidationError("Catalog manifest must be a JSON object");
+	if (!isRecord(value)) throw new ValidationError("Catalog manifest must be a JSON object", { code: "plugin.catalog_not_object" });
 
 	assertVersion(value.apiVersion);
-	const name = assertString(value.name, "name", 200);
-	if (!Array.isArray(value.plugins)) throw new ValidationError("Catalog manifest field 'plugins' must be an array");
+	const name = assertString(value.name, { field: "name" }, 200);
+	if (!Array.isArray(value.plugins)) {
+		throw new ValidationError("Catalog manifest field 'plugins' must be an array", {
+			code: "plugin.catalog_field_not_array",
+			params: { field: "plugins" },
+		});
+	}
 
-	if (value.plugins.length > MAX_PLUGINS) throw new ValidationError(`Catalog manifest lists more than ${MAX_PLUGINS} plugins`);
+	if (value.plugins.length > MAX_PLUGINS) {
+		throw new ValidationError(`Catalog manifest lists more than ${MAX_PLUGINS} plugins`, {
+			code: "plugin.catalog_too_many_plugins",
+			params: { max: MAX_PLUGINS },
+		});
+	}
 
 	const plugins = value.plugins.map((entry, index) => validateEntry(entry, index));
 
@@ -150,27 +181,40 @@ export function parsePluginCatalogManifest(raw: string): PluginCatalogManifest {
 
 function assertVersion(apiVersion: unknown): void {
 	if (apiVersion !== PLUGIN_CATALOG_API_VERSION) {
-		throw new ValidationError(`Unsupported catalog apiVersion: ${String(apiVersion)} (expected ${PLUGIN_CATALOG_API_VERSION})`);
+		throw new ValidationError(`Unsupported catalog apiVersion: ${String(apiVersion)} (expected ${PLUGIN_CATALOG_API_VERSION})`, {
+			code: "plugin.catalog_api_version_unsupported",
+			params: { version: String(apiVersion), expected: PLUGIN_CATALOG_API_VERSION },
+		});
 	}
 }
 
 function validateEntry(entry: unknown, index: number): PluginCatalogEntry {
-	if (!isRecord(entry)) throw new ValidationError(`Catalog plugin #${index} must be an object`);
+	if (!isRecord(entry)) {
+		throw new ValidationError(`Catalog plugin #${index} must be an object`, { code: "plugin.catalog_entry_not_object", params: { index } });
+	}
 
-	const failure = (name: string): string => `Catalog plugin #${index}: invalid '${name}'`;
+	const where = (field: string): CatalogField => ({ index, field });
 
-	const id = assertString(entry.id, failure("id"), 128);
-	if (!PLUGIN_IDENTIFIER_PATTERN.test(id)) throw new ValidationError(`${failure("id")} has an unsupported identifier format`);
+	const id = assertString(entry.id, where("id"), 128);
+	if (!PLUGIN_IDENTIFIER_PATTERN.test(id)) {
+		throw new ValidationError(`Catalog plugin #${index}: 'id' has an unsupported identifier format`, {
+			code: "plugin.catalog_id_invalid",
+			params: { index },
+		});
+	}
 
-	const name = assertString(entry.name, failure("name"), 200);
-	const { version, downloadUrl, checksum } = assertReleaseFields(failure, entry);
+	const name = assertString(entry.name, where("name"), 200);
+	const { version, downloadUrl, checksum } = assertReleaseFields(entry, where);
 
 	const categoryValue = entry.category === undefined ? "other" : entry.category;
 	if (typeof categoryValue !== "string" || !isPluginCatalogCategory(categoryValue)) {
-		throw new ValidationError(`${failure("category")} must be one of: ${PLUGIN_CATALOG_CATEGORIES.join(", ")}`);
+		throw new ValidationError(`Catalog plugin #${index}: 'category' must be one of: ${PLUGIN_CATALOG_CATEGORIES.join(", ")}`, {
+			code: "plugin.catalog_category_invalid",
+			params: { index, categories: PLUGIN_CATALOG_CATEGORIES.join(", ") },
+		});
 	}
 
-	const capabilities = assertOptionalStringArray(entry.capabilities, index);
+	const capabilities = assertOptionalStringArray(entry.capabilities, where("capabilities"));
 	const versions = validateVersions(entry.versions, version, index);
 
 	return {
@@ -180,12 +224,12 @@ function validateEntry(entry: unknown, index: number): PluginCatalogEntry {
 		category: categoryValue,
 		downloadUrl,
 		checksum,
-		...optionalString(entry.description, "description", 1000),
-		...optionalHttpsUrl(entry.homepage, "homepage"),
-		...optionalHttpsUrl(entry.iconUrl, "iconUrl"),
-		...optionalString(entry.changelog, "changelog", 4000),
-		...optionalIsoDate(entry.date, "date"),
-		...optionalMinServerVersion(entry.minServerVersion, failure("minServerVersion")),
+		...optionalString(entry.description, where("description"), 1000),
+		...optionalHttpsUrl(entry.homepage, where("homepage")),
+		...optionalHttpsUrl(entry.iconUrl, where("iconUrl")),
+		...optionalString(entry.changelog, where("changelog"), 4000),
+		...optionalIsoDate(entry.date, where("date")),
+		...optionalMinServerVersion(entry.minServerVersion, where("minServerVersion")),
 		...(capabilities ? { capabilities } : {}),
 		...(versions ? { versions } : {}),
 	};
@@ -200,22 +244,40 @@ function validateEntry(entry: unknown, index: number): PluginCatalogEntry {
 function validateVersions(value: unknown, latestVersion: string, index: number): PluginCatalogVersionEntry[] | undefined {
 	if (value === undefined || value === null) return undefined;
 
-	if (!Array.isArray(value)) throw new ValidationError(`Catalog plugin #${index}: invalid 'versions' array`);
+	if (!Array.isArray(value)) {
+		throw new ValidationError(`Catalog plugin #${index}: invalid 'versions' array`, {
+			code: "plugin.catalog_versions_not_array",
+			params: { index },
+		});
+	}
 
 	if (value.length > MAX_VERSIONS_PER_PLUGIN) {
-		throw new ValidationError(`Catalog plugin #${index}: 'versions' lists more than ${MAX_VERSIONS_PER_PLUGIN} entries`);
+		throw new ValidationError(`Catalog plugin #${index}: 'versions' lists more than ${MAX_VERSIONS_PER_PLUGIN} entries`, {
+			code: "plugin.catalog_versions_too_many",
+			params: { index, max: MAX_VERSIONS_PER_PLUGIN },
+		});
 	}
 
 	const seen = new Set([latestVersion]);
 	const versions: PluginCatalogVersionEntry[] = [];
 	for (const item of value) {
-		if (!isRecord(item)) throw new ValidationError(`Catalog plugin #${index}: invalid version entry`);
+		if (!isRecord(item)) {
+			throw new ValidationError(`Catalog plugin #${index}: invalid version entry`, {
+				code: "plugin.catalog_version_entry_invalid",
+				params: { index },
+			});
+		}
 
-		const failure = (name: string): string => `Catalog plugin #${index}: invalid version '${name}'`;
+		const where = (field: string): CatalogField => ({ index, field: `versions.${field}` });
 
-		const { version, downloadUrl, checksum } = assertReleaseFields(failure, item);
+		const { version, downloadUrl, checksum } = assertReleaseFields(item, where);
 
-		if (seen.has(version)) throw new ValidationError(`Catalog plugin #${index}: duplicate version '${version}'`);
+		if (seen.has(version)) {
+			throw new ValidationError(`Catalog plugin #${index}: duplicate version '${version}'`, {
+				code: "plugin.catalog_version_duplicate",
+				params: { index, version },
+			});
+		}
 
 		seen.add(version);
 
@@ -223,17 +285,17 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 			version,
 			downloadUrl,
 			checksum,
-			...optionalMinServerVersion(item.minServerVersion, failure("minServerVersion")),
+			...optionalMinServerVersion(item.minServerVersion, where("minServerVersion")),
 		};
 		if (item.date !== undefined && item.date !== null) {
-			const date = assertString(item.date, failure("date"), MAX_DATE_LENGTH);
-			if (Number.isNaN(Date.parse(date))) throw new ValidationError(`${failure("date")} must be an ISO date`);
+			const date = assertString(item.date, where("date"), MAX_DATE_LENGTH);
+			if (Number.isNaN(Date.parse(date))) throw fieldError(where("date"), "must be an ISO date");
 
 			parsed.date = date;
 		}
 
 		if (item.changelog !== undefined && item.changelog !== null) {
-			parsed.changelog = assertString(item.changelog, failure("changelog"), 4000);
+			parsed.changelog = assertString(item.changelog, where("changelog"), 4000);
 		}
 
 		versions.push(parsed);
@@ -244,56 +306,54 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 
 /** Version/downloadUrl/checksum invariants shared by the latest entry and every published version entry. */
 function assertReleaseFields(
-	failure: (name: string) => string,
 	fields: Record<string, unknown>,
+	where: (field: string) => CatalogField,
 ): { version: string; downloadUrl: string; checksum: string } {
-	const version = assertString(fields.version, failure("version"), 32);
-	if (!isValidSemver(version)) throw new ValidationError(`${failure("version")} must be semantic version`);
+	const version = assertString(fields.version, where("version"), 32);
+	if (!isValidSemver(version)) throw fieldError(where("version"), "must be semantic version");
 
-	const downloadUrl = assertString(fields.downloadUrl, failure("downloadUrl"), 2048);
-	if (!isHttpsUrl(downloadUrl)) throw new ValidationError(`${failure("downloadUrl")} must be an https URL`);
+	const downloadUrl = assertString(fields.downloadUrl, where("downloadUrl"), 2048);
+	if (!isHttpsUrl(downloadUrl)) throw fieldError(where("downloadUrl"), "must be an https URL");
 
-	const checksum = assertString(fields.checksum, failure("checksum"), 71);
-	if (!SHA256_PATTERN.test(checksum)) throw new ValidationError(`${failure("checksum")} must be 'sha256-' followed by 64 hex digits`);
+	const checksum = assertString(fields.checksum, where("checksum"), 71);
+	if (!SHA256_PATTERN.test(checksum)) throw fieldError(where("checksum"), "must be 'sha256-' followed by 64 hex digits");
 
 	return { version, downloadUrl, checksum };
 }
 
-function optionalIsoDate(value: unknown, key: string): Partial<Record<string, string>> {
+function optionalIsoDate(value: unknown, where: CatalogField): Partial<Record<string, string>> {
 	if (value === undefined || value === null) return {};
 
-	const date = assertString(value, key, MAX_DATE_LENGTH);
-	if (Number.isNaN(Date.parse(date))) throw new ValidationError(`Catalog plugin: '${key}' must be an ISO date`);
+	const date = assertString(value, where, MAX_DATE_LENGTH);
+	if (Number.isNaN(Date.parse(date))) throw fieldError(where, "must be an ISO date");
 
-	return { [key]: date };
+	return { [where.field]: date };
 }
 
 /** Optional semver floor for the server running the install — absent/null = no floor. */
-function optionalMinServerVersion(value: unknown, label: string): { minServerVersion: string } | Record<string, never> {
+function optionalMinServerVersion(value: unknown, where: CatalogField): { minServerVersion: string } | Record<string, never> {
 	if (value === undefined || value === null) return {};
 
-	const version = assertString(value, label, 32);
-	if (!isValidSemver(version)) throw new ValidationError(`${label} must be semantic version`);
+	const version = assertString(value, where, 32);
+	if (!isValidSemver(version)) throw fieldError(where, "must be semantic version");
 
 	return { minServerVersion: version };
 }
 
-function assertString(value: unknown, label: string, maxLength: number): string {
-	if (!isNonEmptyString(value)) throw new ValidationError(`${label} must be a non-empty string`);
+function assertString(value: unknown, where: CatalogField, maxLength: number): string {
+	if (!isNonEmptyString(value)) throw fieldError(where, "must be a non-empty string");
 
-	if (value.length > maxLength) throw new ValidationError(`${label} exceeds ${maxLength} characters`);
+	if (value.length > maxLength) throw fieldError(where, `exceeds ${maxLength} characters`);
 
 	return value;
 }
 
-function optionalString(value: unknown, key: string, maxLength: number): Partial<Record<string, string>> {
+function optionalString(value: unknown, where: CatalogField, maxLength: number): Partial<Record<string, string>> {
 	if (value === undefined || value === null) return {};
 
-	if (typeof value !== "string" || value.length > maxLength) {
-		throw new ValidationError(`Catalog plugin: invalid '${key}'`);
-	}
+	if (typeof value !== "string" || value.length > maxLength) throw fieldError(where, "is invalid");
 
-	return { [key]: value };
+	return { [where.field]: value };
 }
 
 /**
@@ -301,26 +361,22 @@ function optionalString(value: unknown, key: string, maxLength: number): Partial
  * A hostile catalog repository could otherwise inject `javascript:`/`data:`;
  * require the same https-only rule as `downloadUrl`.
  */
-function optionalHttpsUrl(value: unknown, key: string): Partial<Record<string, string>> {
-	const result = optionalString(value, key, 2048);
-	const url = result[key];
-	if (url !== undefined && !isHttpsUrl(url)) {
-		throw new ValidationError(`Catalog plugin: '${key}' must be an https URL`);
-	}
+function optionalHttpsUrl(value: unknown, where: CatalogField): Partial<Record<string, string>> {
+	const result = optionalString(value, where, 2048);
+	const url = result[where.field];
+	if (url !== undefined && !isHttpsUrl(url)) throw fieldError(where, "must be an https URL");
 
 	return result;
 }
 
-function assertOptionalStringArray(value: unknown, index: number): string[] | undefined {
+function assertOptionalStringArray(value: unknown, where: CatalogField): string[] | undefined {
 	if (value === undefined || value === null) return undefined;
 
-	if (!Array.isArray(value)) throw new ValidationError(`Catalog plugin #${index}: invalid string array`);
+	if (!Array.isArray(value)) throw fieldError(where, "must be an array of strings");
 
 	const items: string[] = [];
 	for (const item of value) {
-		if (!isNonEmptyString(item) || item.length > 128) {
-			throw new ValidationError(`Catalog plugin #${index}: invalid string array`);
-		}
+		if (!isNonEmptyString(item) || item.length > 128) throw fieldError(where, "must be an array of strings");
 
 		items.push(item);
 	}

@@ -192,7 +192,8 @@ class MediaService extends BaseService {
 		return await this.safeExecute("setMarkers", async () => {
 			// Server-owned semantic validation (moved out of the SDK client).
 			const invalid = markers.find((marker) => marker.endSeconds < marker.startSeconds);
-			if (invalid) throw new ValidationError(`Marker end must not precede its start (${invalid.type})`);
+			if (invalid)
+				throw new ValidationError(`Marker end must not precede its start (${invalid.type})`, { code: "media_file.marker_range_invalid" });
 
 			const [mediaFileExists, before] = await Promise.all([
 				mediaRepository.isExists({ primaryId: mediaFileId }),

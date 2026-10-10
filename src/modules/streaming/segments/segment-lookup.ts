@@ -107,7 +107,7 @@ export class SegmentLookup {
 			return this.dependencies.readFile(filePath);
 		} catch (error) {
 			if (isMissingFile(error)) {
-				throw new RequestTimeoutError("Segment was removed by a seek restart — retry shortly");
+				throw new RequestTimeoutError("Segment was removed by a seek restart — retry shortly", { code: "stream.segment_removed" });
 			}
 
 			throw error;

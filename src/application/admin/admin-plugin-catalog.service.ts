@@ -59,7 +59,7 @@ class AdminPluginCatalogService {
 
 	async deleteRepository(id: string, context: AuditContext): Promise<{ success: boolean }> {
 		const before = await pluginCatalogService.listRepositories().then((rows) => rows.find((row) => row.id === id));
-		if (!before) throw new NotFoundError(`Plugin repository not found: ${id}`);
+		if (!before) throw new NotFoundError(`Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		await pluginCatalogService.deleteRepository(id);
 		recordAuditSafe(

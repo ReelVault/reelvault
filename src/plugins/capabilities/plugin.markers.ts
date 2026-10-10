@@ -21,7 +21,7 @@ class PluginMarkersService extends BaseService {
 
 	async setMarkers(pluginId: string, mediaFileId: string, markers: readonly CreateMediaMarker[]): Promise<MediaMarker[]> {
 		const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
-		if (!mediaFileExists) throw new NotFoundError(`Media file ${mediaFileId} was not found`);
+		if (!mediaFileExists) throw new NotFoundError(`Media file ${mediaFileId} was not found`, { code: "media_file.not_found" });
 
 		const saved = await mediaMarkersRepository.replaceMarkersForMediaFile(mediaFileId, markers, {
 			pluginId,

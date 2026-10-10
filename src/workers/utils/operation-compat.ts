@@ -14,7 +14,7 @@ export function assertOperationCompatibility(
 
 	for (const task of tasks) {
 		if (task.operationId && task.operationId !== operationId) {
-			throw new ConflictError(`Active ${label} belongs to another operation`);
+			throw new ConflictError(`Active ${label} belongs to another operation`, { code: "worker.operation_conflict" });
 		}
 	}
 }

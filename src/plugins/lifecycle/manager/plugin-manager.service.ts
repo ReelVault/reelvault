@@ -175,7 +175,8 @@ export class PluginManager {
 				// this map is then the only place that still knows the plugin exists.
 				const status =
 					this.statusFromRegistry(pluginId) ?? this.disabledStatuses.get(pluginId) ?? (await this.statusFromManifest(pluginId));
-				if (!status) throw new ValidationError(`Plugin ${pluginId} is not installed`);
+				if (!status)
+					throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
 
 				try {
 					// unloadPlugin unregisters even when lifecycle hooks fail (it throws afterwards),

@@ -103,7 +103,7 @@ export class ImageDownloadPipeline extends BaseService {
 		try {
 			await this.dependencies.renameFile(localPath, stablePath);
 		} catch (error) {
-			throw new InternalError(`Cannot move image to stable path: ${stablePath}`, { cause: error });
+			throw new InternalError(`Cannot move image to stable path: ${stablePath}`, { cause: error, code: "images.save_failed" });
 		}
 
 		return stablePath;
@@ -147,13 +147,16 @@ export class ImageDownloadPipeline extends BaseService {
 				downloadError = errorMessage(error);
 			},
 		});
-		if (!downloaded) throw new ValidationError(`Cannot download a valid image from ${url}${downloadError ? `: ${downloadError}` : ""}`);
+		if (!downloaded)
+			throw new ValidationError(`Cannot download a valid image from ${url}${downloadError ? `: ${downloadError}` : ""}`, {
+				code: "images.download_failed",
+			});
 	}
 
 	/** Rejects an empty detected format, then checks the format against the content-type allowlist. */
 	private async assertRecognizedImage(imagePath: string, emptyFormatMessage: string): Promise<void> {
 		const metadata = await this.dependencies.getImageMetadata(imagePath);
-		if (metadata.format === "") throw new ValidationError(emptyFormatMessage);
+		if (metadata.format === "") throw new ValidationError(emptyFormatMessage, { code: "images.format_unrecognized" });
 
 		getContentType(metadata.format);
 	}
@@ -177,7 +180,8 @@ export class ImageDownloadPipeline extends BaseService {
 
 			throwIfAborted(signal);
 			const { data, info } = await this.dependencies.optimizeImageWithInfo(sourcePath, this.dependencies.resolveVariant(variant), signal);
-			if (!(await this.dependencies.writeFile(optimizedPath, data))) throw new InternalError(`Cannot write optimized image: ${localPath}`);
+			if (!(await this.dependencies.writeFile(optimizedPath, data)))
+				throw new InternalError(`Cannot write optimized image: ${localPath}`, { code: "image.write_failed" });
 
 			await this.dependencies.renameFile(optimizedPath, localPath);
 

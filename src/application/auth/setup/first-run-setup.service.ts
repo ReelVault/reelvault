@@ -86,7 +86,7 @@ class FirstRunSetupService extends BaseService {
 			if (!response.ok) throw await toAuthFailure(response);
 
 			const user = await usersRepository.findByEmail(input.email);
-			if (!user) throw new InternalError("First-run administrator was created without a user record");
+			if (!user) throw new InternalError("First-run administrator was created without a user record", { code: "auth.setup_user_missing" });
 
 			await usersRepository.promoteToAdmin(user.id);
 

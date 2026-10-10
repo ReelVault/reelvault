@@ -23,7 +23,7 @@ export class SessionSeeker {
 		keepAlive: (sessionId: string) => void,
 	): Promise<SeekResult> {
 		const session = this.store.get(sessionId);
-		if (!session) throw new NotFoundError(`Session not found: ${sessionId}`);
+		if (!session) throw new NotFoundError(`Session not found: ${sessionId}`, { code: "stream.session_not_found" });
 
 		// The single seek-offset clamp — both explicit API seeks and implicit
 		// segment seeks pass through here before the buffered check and alignment.

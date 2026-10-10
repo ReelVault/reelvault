@@ -52,7 +52,7 @@ export class PluginLockfileStore {
 		const lockfilePath = this.lockfilePath();
 		try {
 			const parsed: unknown = JSON.parse(await readFile(lockfilePath, "utf8"));
-			if (!isPluginLockfile(parsed)) throw new ValidationError(`Invalid ${LOCKFILE_NAME}`);
+			if (!isPluginLockfile(parsed)) throw new ValidationError(`Invalid ${LOCKFILE_NAME}`, { code: "plugin.lockfile_invalid" });
 
 			return parsed;
 		} catch (error) {
@@ -69,7 +69,10 @@ export class PluginLockfileStore {
 	async writeRecord(pluginId: string, record: InstalledPluginRecord, options: { replace: boolean }): Promise<void> {
 		const lockfile = await this.read();
 		if (lockfile.plugins[pluginId] && !options.replace) {
-			throw new ValidationError(`Plugin ${pluginId} already exists in ${LOCKFILE_NAME}`);
+			throw new ValidationError(`Plugin ${pluginId} already exists in ${LOCKFILE_NAME}`, {
+				code: "plugin.already_installed",
+				params: { plugin: pluginId },
+			});
 		}
 
 		lockfile.plugins[pluginId] = record;
@@ -81,12 +84,19 @@ export class PluginLockfileStore {
 		// packages), so validate it as a plain basename and keep the resolved
 		// path inside the plugins root.
 		if (PathUtils.getFileName(pluginId) !== pluginId || PathUtils.getFileName(record.directory) !== record.directory) {
-			throw new ValidationError(`Plugin ${pluginId} has an unsafe ${LOCKFILE_NAME} directory entry`);
+			throw new ValidationError(`Plugin ${pluginId} has an unsafe ${LOCKFILE_NAME} directory entry`, {
+				code: "plugin.lockfile_entry_unsafe",
+				params: { plugin: pluginId },
+			});
 		}
 
 		const pluginsDirectory = PathUtils.resolve(this.pluginsDirectory);
 		const directory = PathUtils.resolve(pluginsDirectory, record.directory);
-		if (PathUtils.getDirName(directory) !== pluginsDirectory) throw new ValidationError(`Plugin ${pluginId} escapes the plugins directory`);
+		if (PathUtils.getDirName(directory) !== pluginsDirectory)
+			throw new ValidationError(`Plugin ${pluginId} escapes the plugins directory`, {
+				code: "plugin.directory_escape",
+				params: { plugin: pluginId },
+			});
 
 		return directory;
 	}

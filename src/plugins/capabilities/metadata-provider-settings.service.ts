@@ -103,7 +103,11 @@ class MetadataProviderSettingsService extends BaseService {
 	async reorder(providerIds: readonly string[]): Promise<MetadataProviderConfiguration[]> {
 		const registered = new Set(pluginRegistry.getProviderStatus().map((provider) => provider.id));
 		const unknown = providerIds.filter((providerId) => !registered.has(providerId));
-		if (unknown.length > 0) throw new ValidationError(`Unknown metadata providers: ${unknown.join(", ")}`);
+		if (unknown.length > 0)
+			throw new ValidationError(`Unknown metadata providers: ${unknown.join(", ")}`, {
+				code: "metadata.providers_unknown",
+				params: { providers: unknown.join(", ") },
+			});
 
 		await metadataProviderSettingsRepository.reorder(providerIds);
 		this.invalidateCache();

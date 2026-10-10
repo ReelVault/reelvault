@@ -31,12 +31,16 @@ export function assertXmlDocumentSize(documentPath: string, sizeBytes: number | 
 
 	throw new ValidationError(
 		`Sidecar document exceeds the maximum supported size of ${MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB} MB: ${documentPath}`,
+		{ code: "sidecar.document_too_large", params: { maxMb: MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB } },
 	);
 }
 
 export function readXmlDocument(input: string): XmlDocument | null {
 	if (input.length > MAX_XML_DOCUMENT_BYTES) {
-		throw new ValidationError(`XML document exceeds the maximum supported size of ${MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB} MB`);
+		throw new ValidationError(`XML document exceeds the maximum supported size of ${MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB} MB`, {
+			code: "sidecar.document_too_large",
+			params: { maxMb: MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB },
+		});
 	}
 
 	if (DTD_OR_ENTITY_REGEX.test(input)) return null;

@@ -90,7 +90,10 @@ export class PluginScope {
 	useCapability(capability: PluginCapabilityName): void {
 		// Fail fast: a missing declaration must stop real side effects at registration time.
 		if (this.declaredCapabilities && !this.declaredCapabilities.has(capability)) {
-			throw new ValidationError(`Plugin uses capability '${capability}' that is missing from plugin.json`);
+			throw new ValidationError(`Plugin uses capability '${capability}' that is missing from plugin.json`, {
+				code: "plugin.capability_undeclared",
+				params: { capability },
+			});
 		}
 
 		this.usedCapabilities.add(capability);
@@ -138,7 +141,7 @@ export class PluginScope {
 
 	addScheduledTask(task: PluginScheduledTaskDefinition): void {
 		if (!(task.id && task.name)) {
-			throw new ValidationError("Plugin scheduled task must have id and name");
+			throw new ValidationError("Plugin scheduled task must have id and name", { code: "plugin.scheduled_task_invalid" });
 		}
 
 		this.assertUnderLimit(
@@ -151,12 +154,15 @@ export class PluginScope {
 
 	addJob(job: PluginJobDefinition): void {
 		if (!job.name) {
-			throw new ValidationError("Plugin job name must be non-empty");
+			throw new ValidationError("Plugin job name must be non-empty", { code: "plugin.job_name_required" });
 		}
 
 		pluginJobsService.validateSchedule(job);
 		if (this.jobNames.has(job.name)) {
-			throw new ValidationError(`Plugin job ${job.name} is registered more than once`);
+			throw new ValidationError(`Plugin job ${job.name} is registered more than once`, {
+				code: "plugin.job_duplicate",
+				params: { job: job.name },
+			});
 		}
 
 		this.assertUnderLimit("plugin.registration_limit.jobs", this.jobs.length, serverConfig.plugins.registration.maxJobs);
@@ -167,7 +173,10 @@ export class PluginScope {
 	addHttpRoute(route: PluginHttpRoute): void {
 		const routeKey = `${route.method}:${route.path}`;
 		if (this.routeKeys.has(routeKey)) {
-			throw new ValidationError(`Plugin HTTP route ${route.method} ${route.path} is registered more than once`);
+			throw new ValidationError(`Plugin HTTP route ${route.method} ${route.path} is registered more than once`, {
+				code: "plugin.route_duplicate",
+				params: { method: route.method, path: route.path },
+			});
 		}
 
 		this.assertUnderLimit("plugin.registration_limit.routes", this.httpRoutes.length, serverConfig.plugins.registration.maxHttpRoutes);
@@ -213,7 +222,10 @@ export class PluginScope {
 			} catch (error) {
 				const message = errorMessage(error);
 				this.logger.error(`Failed to register scheduled task '${task.id}' for plugin '${pluginId}': ${message}`);
-				throw new ValidationError(`Plugin '${pluginId}' scheduled task registration failed: ${message}`);
+				throw new ValidationError(`Plugin '${pluginId}' scheduled task registration failed: ${message}`, {
+					code: "plugin.scheduled_task_failed",
+					params: { plugin: pluginId },
+				});
 			}
 		}
 	}
@@ -225,7 +237,7 @@ export class PluginScope {
 
 	async enqueueJob(pluginId: string, name: string, data: unknown, options?: PluginEnqueueOptions): Promise<PluginJobHandle> {
 		if (!this.jobNames.has(name)) {
-			throw new ValidationError(`Plugin job ${name} is not registered`);
+			throw new ValidationError(`Plugin job ${name} is not registered`, { code: "plugin.job_not_registered", params: { job: name } });
 		}
 
 		return await pluginJobsService.enqueue(pluginId, name, data, options);
@@ -238,7 +250,7 @@ export class PluginScope {
 		commonOptions?: PluginJobBatchOptions,
 	): Promise<PluginJobHandle[]> {
 		if (!this.jobNames.has(name)) {
-			throw new ValidationError(`Plugin job ${name} is not registered`);
+			throw new ValidationError(`Plugin job ${name} is not registered`, { code: "plugin.job_not_registered", params: { job: name } });
 		}
 
 		return await pluginJobsService.enqueueMany(pluginId, name, items, commonOptions);
@@ -301,7 +313,8 @@ export class PluginScope {
 	}
 
 	registerNotificationChannelScope(channel: PluginNotificationChannel): void {
-		if (!this.pluginId) throw new ValidationError("Notification channel registered before plugin scope bind");
+		if (!this.pluginId)
+			throw new ValidationError("Notification channel registered before plugin scope bind", { code: "plugin.scope_not_bound" });
 
 		this.unsubscribers.push(registerNotificationChannel(this.pluginId, channel));
 	}

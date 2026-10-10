@@ -38,7 +38,8 @@ export class SessionStore {
 	// ─── Entities ───────────────────────────────────────────────────────────
 
 	register(registration: SessionRegistration): StreamingSession {
-		if (this.sessions.has(registration.id)) throw new ConflictError(`Session already registered: ${registration.id}`);
+		if (this.sessions.has(registration.id))
+			throw new ConflictError(`Session already registered: ${registration.id}`, { code: "stream.session_exists" });
 
 		const now = Date.now();
 		const session: StreamingSession = {
@@ -109,9 +110,10 @@ export class SessionStore {
 	 */
 	attachProcess(sessionId: string, process: Bun.Subprocess, startTime: number): void {
 		const session = this.sessions.get(sessionId);
-		if (!session) throw new NotFoundError(`Session was not registered: ${sessionId}`);
+		if (!session) throw new NotFoundError(`Session was not registered: ${sessionId}`, { code: "stream.session_not_found" });
 
-		if (session.state === "ending") throw new InternalError(`Session was released while starting its process: ${sessionId}`);
+		if (session.state === "ending")
+			throw new InternalError(`Session was released while starting its process: ${sessionId}`, { code: "stream.session_released" });
 
 		session.process = process;
 		session.generation += 1;
@@ -163,7 +165,7 @@ export class SessionStore {
 
 	setSessionOperation(sessionId: string, operationId: string): void {
 		const session = this.sessions.get(sessionId);
-		if (!session) throw new NotFoundError(`Session is not registered: ${sessionId}`);
+		if (!session) throw new NotFoundError(`Session is not registered: ${sessionId}`, { code: "stream.session_not_found" });
 
 		session.operationId = operationId;
 	}

@@ -64,15 +64,23 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
 		});
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : "unknown error";
-		throw new ValidationError(`Failed to download plugin package: ${reason}`);
+		throw new ValidationError(`Failed to download plugin package: ${reason}`, { code: "plugin.download_failed" });
 	}
 
-	if (!response.ok) throw new ValidationError(`Plugin package download failed with HTTP ${response.status}`);
+	if (!response.ok)
+		throw new ValidationError(`Plugin package download failed with HTTP ${response.status}`, {
+			code: "plugin.download_failed_http",
+			params: { status: response.status },
+		});
 
-	if (!response.body) throw new ValidationError("Plugin package download returned an empty body");
+	if (!response.body) throw new ValidationError("Plugin package download returned an empty body", { code: "plugin.download_empty" });
 
 	const declaredLength = Number(response.headers.get("content-length") ?? 0);
-	if (declaredLength > maxBytes) throw new ValidationError(`Plugin package exceeds the ${maxBytes} byte limit`);
+	if (declaredLength > maxBytes)
+		throw new ValidationError(`Plugin package exceeds the ${maxBytes} byte limit`, {
+			code: "plugin.package_too_large",
+			params: { maxBytes },
+		});
 
 	const directory = await mkdtemp(join(tmpdir(), "reelvault-plugin-pkg-"));
 	const filePath = join(directory, "package.bin");
@@ -82,7 +90,11 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
 	try {
 		for await (const chunk of response.body) {
 			received += chunk.byteLength;
-			if (received > maxBytes) throw new ValidationError(`Plugin package exceeds the ${maxBytes} byte limit`);
+			if (received > maxBytes)
+				throw new ValidationError(`Plugin package exceeds the ${maxBytes} byte limit`, {
+					code: "plugin.package_too_large",
+					params: { maxBytes },
+				});
 
 			hasher.update(chunk);
 			await writer.write(chunk);
@@ -116,7 +128,7 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
  */
 export function assertChecksumMatches(actual: string, expected: string): void {
 	if (!constantTimeEquals(actual, expected)) {
-		throw new ValidationError("Plugin package checksum does not match the catalog manifest");
+		throw new ValidationError("Plugin package checksum does not match the catalog manifest", { code: "plugin.checksum_mismatch" });
 	}
 }
 
@@ -157,7 +169,9 @@ export async function extractArchive(
 
 function sniffArchiveType(chunk: Uint8Array): "zip" | "gzip" | "tar" {
 	if (chunk[0] === 0x52 && chunk[1] === 0x61 && chunk[2] === 0x72 && chunk[3] === 0x21) {
-		throw new ValidationError("RAR archives are not supported — repackage the plugin as .zip or .tar.gz");
+		throw new ValidationError("RAR archives are not supported — repackage the plugin as .zip or .tar.gz", {
+			code: "plugin.archive_format_unsupported",
+		});
 	}
 
 	if (chunk[0] === 0x50 && chunk[1] === 0x4b) return "zip";
@@ -239,12 +253,18 @@ export async function extractPluginPackage(
 function assertSafeDestination(workRoot: string, entryPath: string): string {
 	const normalized = entryPath.replaceAll("\\", "/");
 	if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
-		throw new ValidationError(`Plugin package contains an unsafe entry path: ${entryPath}`);
+		throw new ValidationError(`Plugin package contains an unsafe entry path: ${entryPath}`, {
+			code: "plugin.package_path_unsafe",
+			params: { path: entryPath },
+		});
 	}
 
 	const target = resolve(workRoot, normalized);
 	if (target !== workRoot && !target.startsWith(`${workRoot}${sep}`)) {
-		throw new ValidationError(`Plugin package contains an unsafe entry path: ${entryPath}`);
+		throw new ValidationError(`Plugin package contains an unsafe entry path: ${entryPath}`, {
+			code: "plugin.package_path_unsafe",
+			params: { path: entryPath },
+		});
 	}
 
 	return target;
@@ -265,7 +285,7 @@ function createZipEntryHandler(workRoot: string, maxUncompressedBytes: number, o
 			// attacker-controlled and cannot bound a zip bomb.
 			total += chunk.byteLength;
 			if (total > maxUncompressedBytes) {
-				onFailure(new ValidationError("Plugin package exceeds the uncompressed size limit"));
+				onFailure(new ValidationError("Plugin package exceeds the uncompressed size limit", { code: "plugin.package_unpacked_too_large" }));
 
 				return;
 			}
@@ -376,12 +396,23 @@ export function createTarStreamExtractor(workRoot: string, maxUncompressedBytes:
 		if (typeFlag === TAR_TYPE_SYMLINK) {
 			const linkPath = assertSafeDestination(workRoot, name);
 			const target = readTarString(header, 157, 100);
-			if (target.length === 0) throw new ValidationError(`Plugin package contains a symlink without a target: ${name}`);
-			if (target.startsWith("/")) throw new ValidationError(`Plugin package contains an absolute symlink: ${name}`);
+			if (target.length === 0)
+				throw new ValidationError(`Plugin package contains a symlink without a target: ${name}`, {
+					code: "plugin.package_symlink_invalid",
+					params: { path: name },
+				});
+			if (target.startsWith("/"))
+				throw new ValidationError(`Plugin package contains an absolute symlink: ${name}`, {
+					code: "plugin.package_symlink_invalid",
+					params: { path: name },
+				});
 
 			const resolved = resolve(dirname(linkPath), target);
 			if (!resolved.startsWith(`${workRoot}${sep}`)) {
-				throw new ValidationError(`Plugin package contains an out-of-tree symlink: ${name}`);
+				throw new ValidationError(`Plugin package contains an out-of-tree symlink: ${name}`, {
+					code: "plugin.package_symlink_invalid",
+					params: { path: name },
+				});
 			}
 
 			symlinks.push({ linkPath, target });
@@ -391,11 +422,15 @@ export function createTarStreamExtractor(workRoot: string, maxUncompressedBytes:
 		}
 
 		if (!TAR_TYPE_REGULAR.has(typeFlag)) {
-			throw new ValidationError(`Plugin package contains an unsupported tar entry type '${typeFlag}': ${name}`);
+			throw new ValidationError(`Plugin package contains an unsupported tar entry type '${typeFlag}': ${name}`, {
+				code: "plugin.package_entry_unsupported",
+				params: { path: name },
+			});
 		}
 
 		total += size;
-		if (total > maxUncompressedBytes) throw new ValidationError("Plugin package exceeds the uncompressed size limit");
+		if (total > maxUncompressedBytes)
+			throw new ValidationError("Plugin package exceeds the uncompressed size limit", { code: "plugin.package_unpacked_too_large" });
 
 		const target = assertSafeDestination(workRoot, name);
 		mkdirSync(dirname(target), { recursive: true });
@@ -436,7 +471,7 @@ export function createTarStreamExtractor(workRoot: string, maxUncompressedBytes:
 		},
 		finish() {
 			if (!state.ended && (payload || headerFilled > 0)) {
-				throw new ValidationError("Plugin package contains a truncated tar archive");
+				throw new ValidationError("Plugin package contains a truncated tar archive", { code: "plugin.archive_truncated" });
 			}
 
 			for (const { linkPath, target } of symlinks) {
@@ -498,5 +533,5 @@ async function locatePluginDirectory(root: string): Promise<string> {
 		}
 	}
 
-	throw new ValidationError("Plugin package does not contain a plugin.json manifest");
+	throw new ValidationError("Plugin package does not contain a plugin.json manifest", { code: "plugin.manifest_missing" });
 }

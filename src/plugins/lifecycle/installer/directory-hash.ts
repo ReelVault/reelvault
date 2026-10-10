@@ -33,7 +33,11 @@ async function updateIntegrityHash(hash: ReturnType<typeof createHash>, root: st
 			continue;
 		}
 
-		if (!entry.isFile()) throw new ValidationError(`Plugin package contains an unsupported filesystem entry: ${path}`);
+		if (!entry.isFile())
+			throw new ValidationError(`Plugin package contains an unsupported filesystem entry: ${path}`, {
+				code: "plugin.package_entry_unsupported",
+				params: { path },
+			});
 
 		hash.update(`file:${relativePath}\0`);
 		const stream = file(path).stream();

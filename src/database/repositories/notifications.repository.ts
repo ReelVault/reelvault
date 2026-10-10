@@ -75,7 +75,7 @@ const setBatchReadState = async (ids: string[], where: SQL | undefined, read: bo
 const overrides = {
 	async create(values: typeof schema.notifications.$inferInsert, tx?: DatabaseTransaction): Promise<string> {
 		const [notification] = await notifications.insertReturning({ values, tx });
-		if (!notification) throw new InternalError("Notification was not created");
+		if (!notification) throw new InternalError("Notification was not created", { code: "notifications.create_failed" });
 
 		return notification.id;
 	},

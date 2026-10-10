@@ -144,7 +144,7 @@ class MediaFileProcessor extends BaseService {
 		try {
 			throwIfAborted(signal);
 			if (!filePath) {
-				throw new ValidationError("filePath is required");
+				throw new ValidationError("filePath is required", { code: "media_file.path_required" });
 			}
 
 			if (!skipExistingLookup) {

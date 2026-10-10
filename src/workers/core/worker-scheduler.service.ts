@@ -199,7 +199,7 @@ export class WorkerSchedulerService extends BaseService {
 
 	async updateWorkerTriggers(workerId: string, triggers: TaskTrigger[]): Promise<TaskTrigger[]> {
 		if (!getWorkerRuntime().registry.has(workerId)) {
-			throw new NotFoundError(`Worker "${workerId}" was not found`);
+			throw new NotFoundError(`Worker "${workerId}" was not found`, { code: "worker.not_found" });
 		}
 
 		for (let i = 0; i < triggers.length; i++) {
@@ -224,7 +224,7 @@ export class WorkerSchedulerService extends BaseService {
 	 */
 	async setScheduleEnabled(workerId: string, enabled: boolean): Promise<{ workerId: string; enabled: boolean; nextRunAt: string | null }> {
 		const def = getWorkerRuntime().registry.get(workerId);
-		if (!def) throw new NotFoundError(`Worker "${workerId}" was not found`);
+		if (!def) throw new NotFoundError(`Worker "${workerId}" was not found`, { code: "worker.not_found" });
 
 		await workerSchedulesRepository.setEnabled(workerId, enabled);
 		this.logger.info(enabled ? "Worker schedule resumed" : "Worker schedule paused", { workerId });
@@ -238,11 +238,11 @@ export class WorkerSchedulerService extends BaseService {
 
 	async runWorkerManually(workerId: string, data: unknown = {}): Promise<{ success: true; jobId: string; operationId?: string }> {
 		const def = getWorkerRuntime().registry.get(workerId);
-		if (!def) throw new NotFoundError(`Worker "${workerId}" was not found`);
+		if (!def) throw new NotFoundError(`Worker "${workerId}" was not found`, { code: "worker.not_found" });
 
 		const active = await getWorkerRuntime().queue.findActive(workerId, `manual:${workerId}`);
 		if (active) {
-			throw new ConflictError(`Worker "${workerId}" already has a pending or running manual task`);
+			throw new ConflictError(`Worker "${workerId}" already has a pending or running manual task`, { code: "worker.manual_task_active" });
 		}
 
 		// A failed enqueue must not leave a dangling operation behind.
@@ -294,7 +294,7 @@ export class WorkerSchedulerService extends BaseService {
 
 	async cancelWorker(workerId: string): Promise<{ success: true; cancelledCount: number }> {
 		if (!getWorkerRuntime().registry.has(workerId)) {
-			throw new NotFoundError(`Worker "${workerId}" was not found`);
+			throw new NotFoundError(`Worker "${workerId}" was not found`, { code: "worker.not_found" });
 		}
 
 		const abortedCount = getWorkerRuntime().pool.cancelAllForWorker(workerId);
@@ -362,19 +362,25 @@ export class WorkerSchedulerService extends BaseService {
 	private validateTrigger(trigger: TaskTrigger, workerId: string, index: number): void {
 		if (trigger.type === "daily" || trigger.type === "weekly") {
 			if (!(trigger.timeOfDay && TIME_OF_DAY_REGEX.test(trigger.timeOfDay))) {
-				throw new ValidationError(`Worker "${workerId}" trigger[${index}] (${trigger.type}) requires valid "timeOfDay" (HH:MM)`);
+				throw new ValidationError(`Worker "${workerId}" trigger[${index}] (${trigger.type}) requires valid "timeOfDay" (HH:MM)`, {
+					code: "worker.schedule_time_invalid",
+				});
 			}
 		}
 
 		if (trigger.type === "weekly") {
 			if (trigger.dayOfWeek === undefined || trigger.dayOfWeek < 0 || trigger.dayOfWeek > 6) {
-				throw new ValidationError(`Worker "${workerId}" trigger[${index}] (weekly) requires valid "dayOfWeek" (0-6)`);
+				throw new ValidationError(`Worker "${workerId}" trigger[${index}] (weekly) requires valid "dayOfWeek" (0-6)`, {
+					code: "worker.schedule_day_invalid",
+				});
 			}
 		}
 
 		if (trigger.type === "interval") {
 			if (!trigger.intervalMinutes || trigger.intervalMinutes < 1) {
-				throw new ValidationError(`Worker "${workerId}" trigger[${index}] (interval) requires "intervalMinutes" >= 1`);
+				throw new ValidationError(`Worker "${workerId}" trigger[${index}] (interval) requires "intervalMinutes" >= 1`, {
+					code: "worker.schedule_interval_invalid",
+				});
 			}
 		}
 	}

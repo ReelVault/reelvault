@@ -111,7 +111,7 @@ function validateArtifactCandidate(original: ArtifactCreationCandidate, candidat
 		!PLAYBACK_ARTIFACT_KINDS_SET.has(candidate.kind) ||
 		!isNonEmptyString(candidate.contentType)
 	) {
-		throw new ValidationError("beforeArtifactCreate returned an invalid artifact candidate");
+		throw new ValidationError("beforeArtifactCreate returned an invalid artifact candidate", { code: "plugin.artifact_candidate_invalid" });
 	}
 }
 

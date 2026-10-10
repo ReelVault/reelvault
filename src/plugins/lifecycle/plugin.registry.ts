@@ -67,7 +67,11 @@ export class PluginRegistry {
 	private cspCache: { generation: number; directives: Record<string, string[]> } | null = null;
 
 	begin(manifest: PluginManifest): void {
-		if (this.plugins.has(manifest.id)) throw new ValidationError(`Plugin "${manifest.id}" is already registered`);
+		if (this.plugins.has(manifest.id))
+			throw new ValidationError(`Plugin "${manifest.id}" is already registered`, {
+				code: "plugin.already_registered",
+				params: { plugin: manifest.id },
+			});
 
 		this.plugins.set(manifest.id, {
 			manifest,
@@ -84,7 +88,10 @@ export class PluginRegistry {
 	advance(pluginId: string, state: "validated" | "resolved" | "initialized", phase: PluginLoadPhase): void {
 		const runtime = this.requirePlugin(pluginId);
 		if (ADVANCE_TRANSITIONS[runtime.state] !== state) {
-			throw new ValidationError(`Plugin ${pluginId} cannot transition from ${runtime.state} to ${state}`);
+			throw new ValidationError(`Plugin ${pluginId} cannot transition from ${runtime.state} to ${state}`, {
+				code: "plugin.state_invalid",
+				params: { plugin: pluginId },
+			});
 		}
 
 		runtime.state = state;
@@ -104,7 +111,10 @@ export class PluginRegistry {
 		const pluginId = runtime.manifest.id;
 		const existing = this.plugins.get(pluginId);
 		if (existing && (existing.plugin || !PRE_ACTIVATION_STATES.has(existing.state))) {
-			throw new ValidationError(`Plugin "${pluginId}" is already registered`);
+			throw new ValidationError(`Plugin "${pluginId}" is already registered`, {
+				code: "plugin.already_registered",
+				params: { plugin: pluginId },
+			});
 		}
 
 		this.providerLookup.assertRegisterable(providers);
@@ -335,7 +345,10 @@ export class PluginRegistry {
 
 				for (const tag of collectUiManifestTags(otherManifest)) {
 					if (incomingTags.has(tag)) {
-						throw new ValidationError(`Plugin "${pluginId}" and plugin "${otherId}" both declare the custom element "${tag}"`);
+						throw new ValidationError(`Plugin "${pluginId}" and plugin "${otherId}" both declare the custom element "${tag}"`, {
+							code: "plugin.element_conflict",
+							params: { plugin: pluginId, otherPlugin: otherId, tag },
+						});
 					}
 				}
 			}
@@ -380,7 +393,8 @@ export class PluginRegistry {
 
 	private requirePlugin(pluginId: string): PluginRuntime {
 		const runtime = this.plugins.get(pluginId);
-		if (!runtime) throw new ValidationError(`Plugin ${pluginId} is not registered`);
+		if (!runtime)
+			throw new ValidationError(`Plugin ${pluginId} is not registered`, { code: "plugin.not_registered", params: { plugin: pluginId } });
 
 		return runtime;
 	}

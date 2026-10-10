@@ -319,7 +319,7 @@ class AdminService extends BaseService {
 			);
 
 			const status = await pluginAdminService.get(pluginId);
-			if (!status) throw new NotFoundError(`Plugin not found: ${pluginId}`);
+			if (!status) throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
 
 			return status;
 		});
@@ -343,7 +343,7 @@ class AdminService extends BaseService {
 			);
 
 			const status = await pluginAdminService.get(pluginId);
-			if (!status) throw new NotFoundError(`Plugin not found: ${pluginId}`);
+			if (!status) throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
 
 			return status;
 		});
@@ -430,7 +430,7 @@ class AdminService extends BaseService {
 
 	async getPlugin(pluginId: string): Promise<PluginAdminStatus> {
 		const plugin = await pluginAdminService.get(pluginId);
-		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`);
+		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
 
 		return plugin;
 	}
@@ -446,7 +446,7 @@ class AdminService extends BaseService {
 			reload: (id) => pluginAdminService.reload(id),
 		};
 		const plugin = await operations[action](pluginId);
-		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`);
+		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
 
 		recordAuditSafe(
 			{
@@ -525,7 +525,7 @@ class AdminService extends BaseService {
 		context?: AdminAuditContext,
 	): Promise<MetadataProviderConfiguration> {
 		const before = (await providerService.getConfigurations()).find((provider) => provider.id === providerId);
-		if (!before) throw new NotFoundError(`Metadata provider not found: ${providerId}`);
+		if (!before) throw new NotFoundError(`Metadata provider not found: ${providerId}`, { code: "metadata.provider_not_found" });
 
 		const after = await providerService.updateConfiguration(providerId, values);
 		recordAuditSafe(

@@ -32,7 +32,7 @@ const downloads = defineTableAccess("downloads", {
 const overrides = {
 	async insert(values: DownloadInsert, tx?: DatabaseTransaction): Promise<DownloadRow> {
 		const [row] = await downloads.insertReturning({ values, tx });
-		if (!row) throw new InternalError("Failed to insert download");
+		if (!row) throw new InternalError("Failed to insert download", { code: "downloads.create_failed" });
 
 		return row;
 	},

@@ -100,7 +100,7 @@ export class PluginInstaller {
 
 			const installedManifest = await loadPluginManifest(stagingDirectory);
 			if (installedManifest.id !== manifest.id || installedManifest.version !== manifest.version) {
-				throw new ValidationError("Plugin manifest changed while the package was being installed");
+				throw new ValidationError("Plugin manifest changed while the package was being installed", { code: "plugin.manifest_changed" });
 			}
 
 			// An upgrade replaces the whole package directory, but admin-entered
@@ -299,7 +299,10 @@ export class PluginInstaller {
 		const hashed = await this.hashInstalledPlugins();
 		for (const { plugin, integrity } of hashed) {
 			if (integrity !== plugin.record.integrity) {
-				throw new ValidationError(`Plugin ${plugin.id} integrity does not match ${LOCKFILE_NAME}`);
+				throw new ValidationError(`Plugin ${plugin.id} integrity does not match ${LOCKFILE_NAME}`, {
+					code: "plugin.integrity_mismatch",
+					params: { plugin: plugin.id },
+				});
 			}
 		}
 
@@ -347,7 +350,8 @@ export class PluginInstaller {
 	async setPinned(pluginId: string, pinned: boolean): Promise<void> {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
-		if (!record) throw new ValidationError(`Plugin ${pluginId} is not installed`);
+		if (!record)
+			throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
 
 		if (record.pinned === pinned) return;
 
@@ -358,7 +362,8 @@ export class PluginInstaller {
 	async setCspDisabled(pluginId: string, disabled: boolean): Promise<void> {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
-		if (!record) throw new ValidationError(`Plugin ${pluginId} is not installed`);
+		if (!record)
+			throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
 
 		if (record.cspDisabled === disabled) return;
 
@@ -368,7 +373,8 @@ export class PluginInstaller {
 	async setDisabled(pluginId: string, disabled: boolean): Promise<void> {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
-		if (!record) throw new ValidationError(`Plugin ${pluginId} is not installed`);
+		if (!record)
+			throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
 
 		if (record.disabled === disabled) return;
 
@@ -392,7 +398,8 @@ export class PluginInstaller {
 	async uninstall(pluginId: string): Promise<InstalledPluginRecord> {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
-		if (!record) throw new ValidationError(`Plugin ${pluginId} is not installed`);
+		if (!record)
+			throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
 
 		const directory = this.lockfileStore.resolveInstalledDirectory(pluginId, record);
 		const updatedLockfile: PluginLockfile = { ...lockfile, plugins: { ...lockfile.plugins } };
@@ -432,7 +439,8 @@ async function assertSourceDirectory(directory: string): Promise<void> {
 	const source = await stat(directory).catch(() => {
 		// intentionally empty
 	});
-	if (!source?.isDirectory()) throw new ValidationError(`Plugin source directory does not exist: ${directory}`);
+	if (!source?.isDirectory())
+		throw new ValidationError(`Plugin source directory does not exist: ${directory}`, { code: "plugin.source_missing" });
 }
 
 /**
@@ -489,12 +497,14 @@ async function assertFile(path: string, name: string): Promise<void> {
 	const metadata = await stat(path).catch(() => {
 		// intentionally empty
 	});
-	if (!metadata?.isFile()) throw new ValidationError(`${name} does not exist: ${path}`);
+	if (!metadata?.isFile()) throw new ValidationError(`${name} does not exist: ${path}`, { code: "plugin.entry_missing" });
 }
 
 function assertSeparateDirectories(source: string, pluginsDirectory: string): void {
 	if (isWithinDirectory(source, pluginsDirectory) || isWithinDirectory(pluginsDirectory, source)) {
-		throw new ValidationError("Plugin source directory must not overlap with the destination plugins directory");
+		throw new ValidationError("Plugin source directory must not overlap with the destination plugins directory", {
+			code: "plugin.source_overlaps_plugins_directory",
+		});
 	}
 }
 

@@ -42,7 +42,7 @@ export class MediaFileRefreshService extends BaseService {
 			async () => {
 				const metadataId = knownMetadataId ?? (await this.dependencies.findById(mediaFileId))?.metadataId;
 				if (!metadataId) {
-					throw new NotFoundError(`Media file not found: ${mediaFileId}`);
+					throw new NotFoundError(`Media file not found: ${mediaFileId}`, { code: "media_file.not_found" });
 				}
 
 				const activeTechnical = await this.dependencies.findActive("media-file-technical-refresh", mediaFileId);

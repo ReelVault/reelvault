@@ -46,7 +46,7 @@ class WorkerOperationRepository {
 				status: input.error ? "failed" : "pending",
 			})
 			.returning();
-		if (!operation) throw new InternalError("Failed to create worker operation");
+		if (!operation) throw new InternalError("Failed to create worker operation", { code: "worker.operation_create_failed" });
 
 		return operation;
 	}

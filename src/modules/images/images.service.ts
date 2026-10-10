@@ -37,7 +37,8 @@ export class ImagesService extends BaseService {
 			const image = await this.dependencies.findForFileRead(imageId);
 			this.assertExists(image, "Image", imageId);
 			const file = bunFile(image.localPath);
-			if (!(await this.dependencies.fileExists(image.localPath))) throw new NotFoundError(`Image file not found: ${imageId}`);
+			if (!(await this.dependencies.fileExists(image.localPath)))
+				throw new NotFoundError(`Image file not found: ${imageId}`, { code: "images.not_found" });
 
 			return { file, localPath: image.localPath, contentType: image.contentType };
 		});

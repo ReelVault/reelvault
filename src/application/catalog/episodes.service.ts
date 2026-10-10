@@ -34,7 +34,7 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 
 			const providerLinks = mapProviderLinks(metadata.providers);
 			if (providerLinks.length === 0) {
-				throw new NotFoundError("Metadata provider not found for series");
+				throw new NotFoundError("Metadata provider not found for series", { code: "metadata.provider_not_found" });
 			}
 
 			const seasonNum = season.seasonNumber;

@@ -219,7 +219,7 @@ export class SessionLifecycleService extends BaseService {
 			this.assertExists(file, "MediaFile", fileId);
 
 			if (!file.isEnabled) {
-				throw new ForbiddenError("This media file is disabled and cannot be played");
+				throw new ForbiddenError("This media file is disabled and cannot be played", { code: "media_file.disabled" });
 			}
 
 			const capabilities = parseCapabilities(capabilitiesQuery);
@@ -286,7 +286,7 @@ export class SessionLifecycleService extends BaseService {
 					{ sessionId, mediaFileId: file.id, filePath: file.filePath, decision },
 					{ operationId: operation.id },
 				);
-				if (!task.operationId) throw new InternalError("Streaming operation was not attached to its task");
+				if (!task.operationId) throw new InternalError("Streaming operation was not attached to its task", { code: "stream.start_failed" });
 
 				sessionOperationId = task.operationId;
 				runtime.setSessionOperation(sessionId, task.operationId);

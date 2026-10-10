@@ -121,13 +121,15 @@ class ProviderService extends BaseService {
 		const providerId = request.providerId?.trim();
 		const externalId = request.externalId?.trim();
 		if (providerId || externalId) {
-			if (!(providerId && externalId)) throw new ValidationError("Searching by id requires both providerId and externalId");
+			if (!(providerId && externalId))
+				throw new ValidationError("Searching by id requires both providerId and externalId", { code: "provider.search_id_incomplete" });
 
 			return await this.searchByProviderExternalId(type, providerId, externalId);
 		}
 
 		const query = title?.trim();
-		if (!query) throw new ValidationError("Provide a title or a providerId + externalId pair to search");
+		if (!query)
+			throw new ValidationError("Provide a title or a providerId + externalId pair to search", { code: "provider.search_query_missing" });
 
 		const grouped = await this.searchProviders({ type, query, year });
 
@@ -212,7 +214,10 @@ class ProviderService extends BaseService {
 		const enabled = await metadataProviderSettingsService.getOrderedProviders();
 		const enabledIds = new Set(enabled.map((p) => p.id));
 		if (!enabledIds.has(providerId)) {
-			throw new ValidationError(`Provider ${providerId} is not registered or is disabled`);
+			throw new ValidationError(`Provider ${providerId} is not registered or is disabled`, {
+				code: "provider.unavailable",
+				params: { provider: providerId },
+			});
 		}
 
 		const metadata = await this.fetchDetailsByProvider(providerId, type, externalId);

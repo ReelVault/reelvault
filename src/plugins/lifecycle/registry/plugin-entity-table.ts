@@ -34,7 +34,10 @@ export class PluginEntityTable<T extends { id: string; name: string; version: st
 		for (const entity of entities) {
 			const existing = this.entries.get(entity.id);
 			if (existing) {
-				throw new ValidationError(`${this.label} "${entity.id}" is already registered by plugin "${existing.pluginId ?? "unknown"}"`);
+				throw new ValidationError(`${this.label} "${entity.id}" is already registered by plugin "${existing.pluginId ?? "unknown"}"`, {
+					code: "plugin.entity_conflict",
+					params: { id: entity.id, plugin: existing.pluginId ?? "unknown" },
+				});
 			}
 		}
 	}
@@ -42,11 +45,14 @@ export class PluginEntityTable<T extends { id: string; name: string; version: st
 	register(pluginId: string | undefined, entities: readonly T[]): void {
 		for (const entity of entities) {
 			if (!(entity.id && entity.name && entity.version)) {
-				throw new ValidationError(`Plugin ${this.label} must have id, name and version`);
+				throw new ValidationError(`Plugin ${this.label} must have id, name and version`, { code: "plugin.entity_invalid" });
 			}
 
 			if (this.entries.has(entity.id)) {
-				throw new ValidationError(`Plugin ${this.label} ${entity.id} is registered more than once`);
+				throw new ValidationError(`Plugin ${this.label} ${entity.id} is registered more than once`, {
+					code: "plugin.entity_duplicate",
+					params: { id: entity.id },
+				});
 			}
 		}
 

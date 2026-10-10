@@ -130,11 +130,11 @@ async function handlePluginRouteDispatch({
 		body: parsedBody,
 		user: { id: user?.id ?? "", role: user?.role ?? "user", ...(profile ? { profileId: profile.id } : {}) },
 	});
-	if (result.type === "not_found") throw new NotFoundError("Plugin route not found");
+	if (result.type === "not_found") throw new NotFoundError("Plugin route not found", { code: "plugin.route_not_found" });
 
-	if (result.type === "forbidden") throw new ForbiddenError(result.message);
+	if (result.type === "forbidden") throw new ForbiddenError(result.message, { code: "plugin.route_forbidden" });
 
-	if (result.type === "invalid_request") throw new ValidationError(result.message);
+	if (result.type === "invalid_request") throw new ValidationError(result.message, { code: "plugin.route_request_invalid" });
 
 	if (result.headers) {
 		for (const [key, value] of Object.entries(result.headers)) {

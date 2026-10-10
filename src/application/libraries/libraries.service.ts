@@ -465,7 +465,8 @@ class LibrariesService extends BaseService {
 	async checkErrors(libraryPaths: string[], context?: AdminAuditContext) {
 		return await this.safeExecute("checkErrors", async () => {
 			const normalizedPaths = normalizeLibraryPaths(libraryPaths);
-			if (normalizedPaths.length === 0) throw new ValidationError("At least one library path is required");
+			if (normalizedPaths.length === 0)
+				throw new ValidationError("At least one library path is required", { code: "library.path_required" });
 
 			const data: LibraryErrorsCheckData = { libraryPaths: normalizedPaths };
 			const dedupeKey = createLibraryErrorsCheckDedupeKey(normalizedPaths);

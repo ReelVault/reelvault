@@ -12,10 +12,14 @@ class PluginAccessBus extends BaseService {
 	}
 
 	register(pluginId: string, policy: PluginAccessPolicy): () => void {
-		if (!policy.id.trim()) throw new ValidationError("Plugin access policy id is required");
+		if (!policy.id.trim()) throw new ValidationError("Plugin access policy id is required", { code: "plugin.access_policy_id_required" });
 
 		const policies = this.policiesByPlugin.get(pluginId) ?? new Map<string, PluginAccessPolicy>();
-		if (policies.has(policy.id)) throw new ConflictError(`Plugin access policy ${policy.id} is already registered`);
+		if (policies.has(policy.id))
+			throw new ConflictError(`Plugin access policy ${policy.id} is already registered`, {
+				code: "plugin.access_policy_duplicate",
+				params: { policy: policy.id },
+			});
 
 		policies.set(policy.id, policy);
 		this.policiesByPlugin.set(pluginId, policies);

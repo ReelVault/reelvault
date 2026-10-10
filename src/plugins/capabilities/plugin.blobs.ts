@@ -25,7 +25,10 @@ class PluginBlobsService extends BaseService {
 	/** Creates the blob storage directory once per process instead of on every put(). */
 	private readonly ensureStorageDirectory = createDirectoryOnce(
 		serverConfig.paths.pluginBlobs,
-		() => new ValidationError(`Failed to create plugin blob storage directory: ${serverConfig.paths.pluginBlobs}`),
+		() =>
+			new ValidationError(`Failed to create plugin blob storage directory: ${serverConfig.paths.pluginBlobs}`, {
+				code: "plugin.blobs_storage_failed",
+			}),
 	);
 
 	constructor() {
@@ -161,7 +164,10 @@ class PluginBlobsService extends BaseService {
 	): Promise<void> {
 		const totalSize = (await repositories.blobs.sumSizeByPlugin(pluginId, tx)) - (replacing?.size ?? 0) + newEntrySize;
 		if (totalSize > serverConfig.plugins.blobs.maxStorageBytes) {
-			throw new ValidationError(`Plugin blob storage must not exceed ${serverConfig.plugins.blobs.maxStorageBytes} bytes`);
+			throw new ValidationError(`Plugin blob storage must not exceed ${serverConfig.plugins.blobs.maxStorageBytes} bytes`, {
+				code: "plugin.blobs_quota_exceeded",
+				params: { maxBytes: serverConfig.plugins.blobs.maxStorageBytes },
+			});
 		}
 	}
 

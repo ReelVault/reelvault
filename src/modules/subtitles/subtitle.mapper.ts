@@ -6,10 +6,12 @@ import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
 export function resolveSubtitleType(body: Pick<Partial<CreateSubtitleRequest>, "sourcePath" | "streamIndex" | "type">): SubtitleType {
 	const hasSourcePath = body.sourcePath !== undefined;
 	const hasStreamIndex = body.streamIndex !== undefined;
-	if (hasSourcePath === hasStreamIndex) throw new ValidationError("Subtitle must have exactly one of sourcePath or streamIndex");
+	if (hasSourcePath === hasStreamIndex)
+		throw new ValidationError("Subtitle must have exactly one of sourcePath or streamIndex", { code: "subtitle.source_invalid" });
 
 	const inferredType: SubtitleType = hasSourcePath ? "external" : "embedded";
-	if (body.type && body.type !== inferredType) throw new ValidationError(`Subtitle type ${body.type} does not match its source`);
+	if (body.type && body.type !== inferredType)
+		throw new ValidationError(`Subtitle type ${body.type} does not match its source`, { code: "subtitle.type_mismatch" });
 
 	return body.type ?? inferredType;
 }

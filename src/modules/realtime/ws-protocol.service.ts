@@ -86,7 +86,7 @@ export const wsProtocol = {
 	async assertHandshakeProfile(userId: string, queryProfileId: string, unlockToken: string | undefined): Promise<void> {
 		const requested = await profilesRepository.findByPrimaryIdCached(queryProfileId);
 		if (!requested || requested.userId !== userId) {
-			throw new ForbiddenError("Profile does not belong to the current user");
+			throw new ForbiddenError("Profile does not belong to the current user", { code: "profile.not_owned" });
 		}
 
 		// A PIN-protected profile must not be reachable by passing profileId as a

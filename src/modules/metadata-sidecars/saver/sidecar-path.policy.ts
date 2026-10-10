@@ -7,7 +7,7 @@ const PATH_SEPARATOR_REGEX = /[/\\]/;
 /** Every write target must resolve inside the directory it is derived from. */
 function assertWithinDirectory(directory: string, documentPath: string): string {
 	if (!PathUtils.isSubpath(documentPath, directory)) {
-		throw new ValidationError(`Sidecar path escapes its media directory: ${documentPath}`);
+		throw new ValidationError(`Sidecar path escapes its media directory: ${documentPath}`, { code: "sidecar.path_invalid" });
 	}
 
 	return documentPath;
@@ -20,7 +20,7 @@ function episodeDocumentPath(directory: string, videoBaseName: string, suffix: s
 /** Episode-derived file names (sidecar documents and thumbnails) must stay flat. */
 export function assertEpisodeBaseName(videoBaseName: string): string {
 	if (!videoBaseName || PATH_SEPARATOR_REGEX.test(videoBaseName) || videoBaseName.includes("\0")) {
-		throw new ValidationError(`Invalid episode base name for sidecar: ${videoBaseName}`);
+		throw new ValidationError(`Invalid episode base name for sidecar: ${videoBaseName}`, { code: "sidecar.path_invalid" });
 	}
 
 	return videoBaseName;

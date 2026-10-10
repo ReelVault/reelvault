@@ -53,7 +53,7 @@ describe("validatePluginPackage", () => {
 		const result = await validatePluginPackage(root, []);
 
 		expect(result.valid).toBe(false);
-		expect(result.issues).toEqual([expect.objectContaining({ severity: "error", code: "plugin.manifest_invalid" })]);
+		expect(result.issues).toEqual([expect.objectContaining({ severity: "error", code: "plugin.manifest_missing" })]);
 	});
 
 	test("blocks a package whose entry point is missing", async () => {
@@ -90,6 +90,37 @@ describe("validatePluginPackage", () => {
 
 		expect(result).toMatchObject({ valid: true, installedVersion: "2.0.0", direction: "downgrade" });
 		expect(result.issues).toEqual([expect.objectContaining({ severity: "warning", code: "plugin.version_downgrade" })]);
+	});
+
+	test("keeps the specific code and parameters of a manifest error, so the report can name the field", async () => {
+		const root = await createPackage({ id: "bad id!" });
+
+		const result = await validatePluginPackage(root, []);
+
+		expect(result.valid).toBe(false);
+		expect(result.issues).toEqual([expect.objectContaining({ severity: "error", code: "plugin.id_invalid", params: { id: "bad id!" } })]);
+	});
+
+	test("keeps the field of an interface manifest error in the warning", async () => {
+		const uiManifest = { name: "UI", version: "1.0.0", pages: "home" };
+		const root = await createPackage({}, { "index.mjs": "export default {};", "ui.json": JSON.stringify(uiManifest) });
+
+		const result = await validatePluginPackage(root, []);
+
+		expect(result.valid).toBe(true);
+		expect(result.issues).toEqual([
+			expect.objectContaining({ severity: "warning", code: "plugin.ui.field_not_array", params: { field: "pages" } }),
+		]);
+	});
+
+	test("reports a missing interface field with the interface code, not the plugin.json one", async () => {
+		const root = await createPackage({}, { "index.mjs": "export default {};", "ui.json": JSON.stringify({ version: "1.0.0" }) });
+
+		const result = await validatePluginPackage(root, []);
+
+		expect(result.issues).toEqual([
+			expect.objectContaining({ severity: "warning", code: "plugin.ui.field_not_string", params: { field: "ui.name" } }),
+		]);
 	});
 });
 

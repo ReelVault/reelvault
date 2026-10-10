@@ -150,7 +150,7 @@ export const PromiseUtils = {
 			timeoutTimer = setTimeout(() => {
 				if (!resolved) {
 					cleanup();
-					reject(new RequestTimeoutError(`Timeout waiting for file: ${filePath}`));
+					reject(new RequestTimeoutError(`Timeout waiting for file: ${filePath}`, { code: "file.wait_timeout" }));
 				}
 			}, timeoutMs);
 			timeoutTimer.unref();

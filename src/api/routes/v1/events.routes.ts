@@ -41,7 +41,7 @@ export const eventsRoutes = new Elysia({ prefix: "/events", tags: ["Realtime"] }
 			profileId: t.Optional(t.String()),
 		}),
 		async beforeHandle({ query, profile, user, cookie }) {
-			if (!user) throw new UnauthorizedError("Authentication required to connect to websocket");
+			if (!user) throw new UnauthorizedError("Authentication required to connect to websocket", { code: "auth.required" });
 			if (profile || !query.profileId) return;
 
 			const unlockToken = typeof cookie.profile_unlock?.value === "string" ? cookie.profile_unlock.value : undefined;

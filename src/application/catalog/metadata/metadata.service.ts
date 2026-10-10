@@ -103,7 +103,8 @@ class MetadataService extends BaseService {
 			this.assertExists(metadata, "Metadata", metadataId);
 			const providerMap = toMap(metadata.providers, (p) => `${p.name}:${p.entityType}`);
 			const provider = providerMap.get(`${selection.providerId}:${metadata.type}`);
-			if (!provider) throw new ValidationError("Selected provider is not linked to this metadata");
+			if (!provider)
+				throw new ValidationError("Selected provider is not linked to this metadata", { code: "metadata.provider_not_linked" });
 
 			// The request body URL is never trusted: only artwork the provider
 			// actually offers (re-resolved now) may be downloaded.
@@ -311,7 +312,7 @@ class MetadataService extends BaseService {
 	): Promise<SelectFields<MetadataWithRelation, F>> {
 		return await this.safeExecute("create", async () => {
 			const result = await metadataRepository.createAndRead(body, query);
-			if (!result) throw new InternalError("Metadata creation failed");
+			if (!result) throw new InternalError("Metadata creation failed", { code: "metadata.create_failed" });
 
 			this.invalidateReadCaches();
 			pluginEventBus.publish("metadata.saved", { metadataId: result.id });
@@ -573,7 +574,9 @@ class MetadataService extends BaseService {
 			this.assertExists(target, "Metadata (target)", targetId);
 			this.assertExists(source, "Metadata (source)", sourceId);
 			if (target.type !== source.type)
-				throw new ValidationError(`Cannot merge metadata of different types (${target.type} vs ${source.type})`);
+				throw new ValidationError(`Cannot merge metadata of different types (${target.type} vs ${source.type})`, {
+					code: "metadata.merge_type_mismatch",
+				});
 
 			await metadataMergeRepository.merge(targetId, sourceId, target.type);
 			this.invalidateReadCaches();

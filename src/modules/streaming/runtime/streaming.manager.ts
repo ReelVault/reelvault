@@ -122,7 +122,7 @@ class StreamingManager {
 		timelineStart = startTime,
 	): Promise<void> {
 		const session = this.store.get(sessionId);
-		if (!session) throw new NotFoundError(`Session access was not registered: ${sessionId}`);
+		if (!session) throw new NotFoundError(`Session access was not registered: ${sessionId}`, { code: "stream.session_not_found" });
 
 		const generationBefore = session.generation;
 
@@ -430,7 +430,7 @@ class StreamingManager {
 	 */
 	private async doSeek(sessionId: string, offset: number, decision: PlaybackDecision): Promise<number | undefined> {
 		const session = this.store.get(sessionId);
-		if (session?.state !== "active") throw new NotFoundError(`Session not found: ${sessionId}`);
+		if (session?.state !== "active") throw new NotFoundError(`Session not found: ${sessionId}`, { code: "stream.session_not_found" });
 
 		this.logger.debug("Seeking session", { sessionId, offset, mode: decision.mode });
 		const generation = session.generation;
@@ -440,7 +440,7 @@ class StreamingManager {
 		// Release claimed while the old process was being stopped — do not restart.
 		const afterPrepare = this.store.get(sessionId);
 		if (afterPrepare?.state !== "active" || afterPrepare.generation !== generation) {
-			throw new NotFoundError(`Session released during seek: ${sessionId}`);
+			throw new NotFoundError(`Session released during seek: ${sessionId}`, { code: "stream.session_released" });
 		}
 
 		const timelineStart = await resolveSeekTimelineStart(decision.mode, session.inputPath, offset);
@@ -448,7 +448,7 @@ class StreamingManager {
 		// Same check after the keyframe probe await — the release can win there too.
 		const beforeStart = this.store.get(sessionId);
 		if (beforeStart?.state !== "active" || beforeStart.generation !== generation) {
-			throw new NotFoundError(`Session released during seek: ${sessionId}`);
+			throw new NotFoundError(`Session released during seek: ${sessionId}`, { code: "stream.session_released" });
 		}
 
 		await this.startSession(sessionId, session.inputPath, decision, offset, session.operationId, timelineStart);

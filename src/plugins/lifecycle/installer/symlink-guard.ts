@@ -9,7 +9,11 @@ export async function assertNoSymbolicLinks(directory: string, concurrency: numb
 	await PromiseUtils.mapConcurrent(entries, concurrency, async (entry) => {
 		const path = PathUtils.join(directory, entry.name);
 		const metadata = await lstat(path);
-		if (metadata.isSymbolicLink()) throw new ValidationError(`Plugin package must not contain symbolic links: ${path}`);
+		if (metadata.isSymbolicLink())
+			throw new ValidationError(`Plugin package must not contain symbolic links: ${path}`, {
+				code: "plugin.package_symlink_invalid",
+				params: { path },
+			});
 
 		if (metadata.isDirectory()) await assertNoSymbolicLinks(path, concurrency);
 	});

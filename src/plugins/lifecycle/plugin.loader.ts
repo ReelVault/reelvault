@@ -223,10 +223,17 @@ export class PluginLoader {
 			const module: unknown = await import(pathToFileURL(entryPath).href);
 			const defaultExport = isRecord(module) ? module.default : undefined;
 			if (!defaultExport) {
-				throw new ValidationError(`Plugin ${manifest.id} is missing a default export`);
+				throw new ValidationError(`Plugin ${manifest.id} is missing a default export`, {
+					code: "plugin.export_missing",
+					params: { plugin: manifest.id },
+				});
 			}
 
-			if (!isReelVaultPlugin(defaultExport)) throw new ValidationError(`Plugin ${manifest.id} has an invalid default export`);
+			if (!isReelVaultPlugin(defaultExport))
+				throw new ValidationError(`Plugin ${manifest.id} has an invalid default export`, {
+					code: "plugin.export_invalid",
+					params: { plugin: manifest.id },
+				});
 
 			plugin = defaultExport;
 

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { PluginValidationIssue, PluginValidationResult } from "@reelvault/sdk/common";
 import { installDirection } from "@/plugins/lifecycle/plugin.installer";
 import { loadPluginManifest, resolvePluginEntry, validatePluginUiManifest } from "@/plugins/lifecycle/plugin.manifest";
-import { errorMessage } from "@/utils/errors";
+import { DomainError, definedParams, errorMessage } from "@/utils/errors";
 import { isNewerVersion } from "@/utils/semver.utils";
 import { SERVER_VERSION } from "@/version";
 
@@ -12,13 +12,28 @@ export interface InstalledVersion {
 	version: string;
 }
 
-function issue(severity: PluginValidationIssue["severity"], code: string, message: string): PluginValidationIssue {
-	return { severity, code, message };
+function issue(
+	severity: PluginValidationIssue["severity"],
+	code: string,
+	message: string,
+	params?: PluginValidationIssue["params"],
+): PluginValidationIssue {
+	return { severity, code, message, ...(params ? { params } : {}) };
+}
+
+/**
+ * A domain error keeps its own code and params, so the report can be translated
+ * field by field; any other failure is reported under the fallback code.
+ */
+function issueFromError(severity: PluginValidationIssue["severity"], error: unknown, fallbackCode: string): PluginValidationIssue {
+	if (error instanceof DomainError) return issue(severity, error.code, error.message, definedParams(error.params));
+
+	return issue(severity, fallbackCode, errorMessage(error));
 }
 
 /** Result for an archive that could not be unpacked at all. */
 export function archiveValidationFailure(error: unknown): PluginValidationResult {
-	return { valid: false, issues: [issue("error", "plugin.archive_invalid", errorMessage(error))] };
+	return { valid: false, issues: [issueFromError("error", error, "plugin.archive_invalid")] };
 }
 
 async function isFile(path: string): Promise<boolean> {
@@ -38,7 +53,7 @@ export async function validatePluginPackage(pluginRoot: string, installed: reado
 	try {
 		manifest = await loadPluginManifest(pluginRoot);
 	} catch (error) {
-		return { valid: false, issues: [issue("error", "plugin.manifest_invalid", errorMessage(error))] };
+		return { valid: false, issues: [issueFromError("error", error, "plugin.manifest_invalid")] };
 	}
 
 	const issues: PluginValidationIssue[] = [];
@@ -58,7 +73,7 @@ export async function validatePluginPackage(pluginRoot: string, installed: reado
 		try {
 			validatePluginUiManifest(JSON.parse(await Bun.file(uiManifestPath).text()));
 		} catch (error) {
-			issues.push(issue("warning", "plugin.ui_manifest_invalid", errorMessage(error)));
+			issues.push(issueFromError("warning", error, "plugin.ui_manifest_invalid"));
 		}
 	}
 
@@ -70,6 +85,7 @@ export async function validatePluginPackage(pluginRoot: string, installed: reado
 				"warning",
 				"plugin.version_downgrade",
 				`version ${installedVersion ?? "unknown"} is installed; this package is ${manifest.version}`,
+				{ installed: installedVersion ?? "unknown", version: manifest.version },
 			),
 		);
 	}

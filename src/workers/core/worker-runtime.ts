@@ -50,7 +50,7 @@ export function setWorkerRuntime(next: WorkerRuntime): void {
 }
 
 export function getWorkerRuntime(): WorkerRuntime {
-	if (!runtime) throw new InternalError("Worker runtime is not initialized");
+	if (!runtime) throw new InternalError("Worker runtime is not initialized", { code: "worker.runtime_unavailable" });
 
 	return runtime;
 }

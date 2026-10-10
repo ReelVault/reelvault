@@ -22,7 +22,7 @@ const contentTypes: Record<string, string> = {
 
 export function getContentType(imageType: string): string {
 	const contentType = contentTypes[imageType.toLowerCase()];
-	if (!contentType) throw new ValidationError(`Unsupported image format: ${imageType}`);
+	if (!contentType) throw new ValidationError(`Unsupported image format: ${imageType}`, { code: "images.unsupported_format" });
 
 	return contentType;
 }

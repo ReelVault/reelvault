@@ -42,13 +42,13 @@ function mapFailure(status: number, code: string, invalidPasswordCode: string): 
 
 	if (status === 401) return new UnauthorizedError("Authentication failed", { code: DEFAULT_INVALID_PASSWORD_CODE });
 
-	if (status === 403) return new ForbiddenError("Not allowed");
+	if (status === 403) return new ForbiddenError("Not allowed", { code: "auth.not_allowed" });
 
-	if (status === 404) return new NotFoundError("Not found");
+	if (status === 404) return new NotFoundError("Not found", { code: "auth.not_found" });
 
 	if (status >= 400 && status < 500) return new ValidationError("Authentication request rejected", { code: "auth.request_rejected" });
 
-	return new InternalError("Authentication provider failed");
+	return new InternalError("Authentication provider failed", { code: "auth.provider_failed" });
 }
 
 /** Maps a non-OK better-auth `Response` (`{ code, message }` body) to a DomainError. */

@@ -38,7 +38,7 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 	/** Refuses to start when the input disappeared between selection and spawn. */
 	protected async assertInputExists(inputPath: string): Promise<void> {
 		if (!(await FileUtils.exists(inputPath))) {
-			throw new NotFoundError(`Input file does not exist: ${inputPath}`);
+			throw new NotFoundError(`Input file does not exist: ${inputPath}`, { code: "media_file.missing" });
 		}
 	}
 
