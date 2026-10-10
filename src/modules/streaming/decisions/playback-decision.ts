@@ -52,10 +52,19 @@ function bitrateSuffix(videoBitrateKbps: number | undefined, bandwidthCappedReas
 	return ` (${videoBitrateKbps}kbps${capNote})`;
 }
 
-function videoTranscodeReason(isHdr: boolean, displayVideoCodec: string, hdrLabel: string, depth: string, bitrate: string): string {
+function videoTranscodeReason(
+	isHdr: boolean,
+	displayVideoCodec: string,
+	hdrLabel: string,
+	depth: string,
+	bitrate: string,
+	toneMapAvailable: boolean,
+): string {
 	if (!isHdr) return `video:${displayVideoCodec}${depth} → H.264${bitrate}`;
 
-	return `video:${displayVideoCodec} ${hdrLabel}${depth} → H.264${bitrate}, tone-mapped to SDR`;
+	const toneMapNote = toneMapAvailable ? "tone-mapped to SDR" : "no tone-mapping available";
+
+	return `video:${displayVideoCodec} ${hdrLabel}${depth} → H.264${bitrate}, ${toneMapNote}`;
 }
 
 function videoReasonPart(
@@ -65,10 +74,16 @@ function videoReasonPart(
 	hdrLabel: string,
 	depth: string,
 	videoBitrateKbps: number | undefined,
+	toneMapAvailable: boolean,
 ): PlaybackReasonPart {
 	if (!videoTranscode) return { code: "video.copy", params: { codec: videoCodec } };
 
-	if (isHdr) return { code: "video.transcode_hdr", params: { codec: videoCodec, hdr: hdrLabel, bitrateKbps: videoBitrateKbps ?? null } };
+	if (isHdr) {
+		return {
+			code: "video.transcode_hdr",
+			params: { codec: videoCodec, hdr: hdrLabel, bitrateKbps: videoBitrateKbps ?? null, toneMapped: toneMapAvailable },
+		};
+	}
 
 	return { code: "video.transcode", params: { codec: videoCodec, bitDepth: depth.trim() || null, bitrateKbps: videoBitrateKbps ?? null } };
 }
@@ -100,7 +115,17 @@ function planBitrate(
 	return plan;
 }
 
-export function decidePlaybackMode(file: MediaFileInfo, capabilities: ClientCapabilities, audioStreamIndex?: number): PlaybackDecision {
+export interface PlaybackDecisionOptions {
+	/** False when no HDR→SDR tone-mapping filter is usable, so an HDR transcode cannot tone-map. */
+	toneMapAvailable?: boolean;
+}
+
+export function decidePlaybackMode(
+	file: MediaFileInfo,
+	capabilities: ClientCapabilities,
+	audioStreamIndex?: number,
+	{ toneMapAvailable = true }: PlaybackDecisionOptions = {},
+): PlaybackDecision {
 	const videoCodec = normalizeCodec(file.videoCodec, VIDEO_CODEC_MAP);
 	const audioCodec = normalizeCodec(file.audioCodec, AUDIO_CODEC_MAP);
 	const displayVideoCodec = videoCodec ?? "?";
@@ -179,11 +204,19 @@ export function decidePlaybackMode(file: MediaFileInfo, capabilities: ClientCapa
 	const depthSuffix = bitDepthSuffix(isHighTenH264, isTwelveBit, bitDepthUnsupported);
 	const rateSuffix = bitrateSuffix(videoBitrateKbps, bandwidthCappedReason);
 	const videoReason = videoTranscode
-		? videoTranscodeReason(isHdr, displayVideoCodec, hdrLabel, depthSuffix, rateSuffix)
+		? videoTranscodeReason(isHdr, displayVideoCodec, hdrLabel, depthSuffix, rateSuffix, toneMapAvailable)
 		: `video:${displayVideoCodec} copied`;
 	const audioReason = audioTranscode ? `audio:${displayAudioCodec} → AAC` : `audio:${displayAudioCodec} copied`;
 
-	const videoPart: PlaybackReasonPart = videoReasonPart(videoTranscode, isHdr, videoCodec, hdrLabel, depthSuffix, videoBitrateKbps);
+	const videoPart: PlaybackReasonPart = videoReasonPart(
+		videoTranscode,
+		isHdr,
+		videoCodec,
+		hdrLabel,
+		depthSuffix,
+		videoBitrateKbps,
+		toneMapAvailable,
+	);
 	const audioReasonPart: PlaybackReasonPart = audioTranscode
 		? { code: "audio.transcode", params: { codec: audioCodec } }
 		: { code: "audio.copy", params: { codec: audioCodec } };

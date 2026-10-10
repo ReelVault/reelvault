@@ -21,6 +21,7 @@ export function profileDefaultPreferences(): ProfilePreferenceDefaults {
 		resumeRewindSeconds: systemSettingsStore.get("profiles.defaultPreferences.resumeRewindSeconds"),
 		watchlistAutoRemoveWatched: systemSettingsStore.get("profiles.defaultPreferences.watchlistAutoRemoveWatched"),
 		hideRatingOverlay: false,
+		hdrMode: "auto",
 		mutedNotificationTypes: "",
 		hiddenPages: "",
 		subtitleSize: systemSettingsStore.get("profiles.defaultPreferences.subtitleSize"),

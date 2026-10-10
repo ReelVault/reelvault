@@ -217,4 +217,22 @@ describe("session selection resolver", () => {
 
 		expect(selection.videoCodec).toBe("hevc");
 	});
+	test("toneMapToSdr transcodes an HDR source the client could pass through", () => {
+		const hdrFile = {
+			...createInput().file,
+			videoStreams: [
+				{ index: 0, isDefault: true, codecName: "hevc", pixelFormat: "yuv420p10le", colorTransfer: "smpte2084", frameRate: "24000/1001" },
+			],
+		};
+		const capabilities = { videoCodecs: ["h265", "h265-10bit"], audioCodecs: ["aac"], hdrTransfers: ["smpte2084"] };
+		const preferences = { audioLanguage: null, subtitleLanguage: null, subtitlesEnabled: true, forcedSubtitlesOnly: false };
+
+		const passthrough = resolveSessionSelection(createInput({ file: hdrFile, capabilities, preferences }));
+		const toneMapped = resolveSessionSelection(
+			createInput({ file: hdrFile, capabilities, preferences: { ...preferences, hdrMode: "toneMapToSdr" } }),
+		);
+
+		expect(passthrough.decision).toMatchObject({ mode: "direct-stream", hdrPassthrough: true });
+		expect(toneMapped.decision).toMatchObject({ mode: "transcode", tonemap: true });
+	});
 });

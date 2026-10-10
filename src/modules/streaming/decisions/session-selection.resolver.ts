@@ -1,4 +1,5 @@
 import type { ClientCapabilities, PlaybackDecision } from "@reelvault/sdk/common";
+import { resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import type { AudioStream, MediaFileInfo, PlaybackSessionInput, Subtitle } from "../streaming.types";
 import { decidePlaybackMode } from "./playback-decision";
 import {
@@ -34,6 +35,7 @@ export interface SessionSelectionInput {
 				subtitlesEnabled: boolean;
 				forcedSubtitlesOnly: boolean;
 				autoForcedSubtitles?: boolean | undefined;
+				hdrMode?: "auto" | "toneMapToSdr" | undefined;
 				preferHearingImpaired?: boolean | undefined;
 				continueWatchingMinutes?: number;
 		  }
@@ -115,7 +117,11 @@ export function resolveSessionSelection(input: SessionSelectionInput): PlaybackS
 		durationSeconds: file.duration,
 		sourceFps: videoStream?.frameRate ? Number(videoStream.frameRate) : null,
 	};
-	const decision = decidePlaybackMode(decisionInfo, capabilities, effectiveAudioStream?.index);
+	// `toneMapToSdr` treats the client as unable to render HDR, so HDR sources transcode and tone-map instead of passing through.
+	const decisionCapabilities = preferences?.hdrMode === "toneMapToSdr" ? { ...capabilities, hdrTransfers: [] } : capabilities;
+	const decision = decidePlaybackMode(decisionInfo, decisionCapabilities, effectiveAudioStream?.index, {
+		toneMapAvailable: resolveToneMapConfig().method !== "none",
+	});
 
 	return { videoCodec, audioStream: effectiveAudioStream, subtitle, decision, playbackPreferences: effectivePreferences };
 }

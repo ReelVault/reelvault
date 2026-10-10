@@ -177,6 +177,18 @@ test("transcodes HDR10 (tonemap) when the client reports no HDR render path", ()
 	expect(decision.reasons?.video.code).toBe("video.transcode_hdr");
 });
 
+test("says so when no HDR tone-mapping filter is usable", () => {
+	const decision = decidePlaybackMode(
+		{ videoCodec: "hevc", audioCodec: "aac", videoPixelFormat: "yuv420p10le", videoColorTransfer: "smpte2084" },
+		{ videoCodecs: ["h265", "h265-10bit"], audioCodecs: ["aac"] },
+		undefined,
+		{ toneMapAvailable: false },
+	);
+	expect(decision).toMatchObject({ mode: "transcode", tonemap: true });
+	expect(decision.reason).toContain("no tone-mapping available");
+	expect(decision.reasons?.video.params).toMatchObject({ toneMapped: false });
+});
+
 test("passthrough HDR10 to a client that probes smpte2084", () => {
 	const decision = decidePlaybackMode(
 		{ videoCodec: "hevc", audioCodec: "aac", videoPixelFormat: "yuv420p10le", videoColorTransfer: "smpte2084" },

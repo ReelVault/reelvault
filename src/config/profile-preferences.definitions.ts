@@ -10,6 +10,8 @@ export const SUBTITLE_COLOR_OPTIONS = ["white", "yellow", "cyan", "green"] as co
 
 export const SUBTITLE_BACKGROUND_OPTIONS = ["none", "semi", "solid"] as const;
 
+export const HDR_MODE_OPTIONS = ["auto", "toneMapToSdr"] as const;
+
 const codecs = createValueCodecs();
 const booleanCodec = codecs.boolean();
 
@@ -33,6 +35,7 @@ export const PROFILE_PREFERENCE_DEFINITIONS = {
 	resumeRewindSeconds: codecs.number(0, 30),
 	watchlistAutoRemoveWatched: booleanCodec,
 	hideRatingOverlay: booleanCodec,
+	hdrMode: codecs.enum(HDR_MODE_OPTIONS),
 	subtitleSize: codecs.enum(SUBTITLE_SIZE_OPTIONS),
 	subtitlePosition: codecs.enum(SUBTITLE_POSITION_OPTIONS),
 	subtitleColor: codecs.enum(SUBTITLE_COLOR_OPTIONS),

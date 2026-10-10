@@ -355,6 +355,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Features
 
+- **HDR mode per profile** — profiles choose `hdrMode`: `auto` (default) keeps HDR passthrough where the client renders HDR, `toneMapToSdr` always converts HDR sources to SDR. It is stored with the other profile preferences, so existing databases need no migration.
 - **Backup codes left** — `GET /v1/auth/two-factor/backup-codes` returns how many backup codes the signed-in account can still use (`remaining`, or `null` when the record cannot be read). The codes themselves are never returned.
 - **Enforcement needs an administrator with two-factor** — `auth.enforceTwoFactor` cannot be turned on, from the settings or the offline CLI, while no administrator has two-factor authentication enabled. The refusal carries `auth.two_factor_requires_admin`.
 - **Profile PIN attempts left** — a wrong PIN for a PIN-protected profile now answers `profile.pin_invalid` with `attemptsRemaining`. After 10 wrong PINs within 15 minutes the switch answers `profile.pin_locked` (429) with `retryAfterSeconds` until the window passes or a correct PIN is entered. Missing PINs are not counted. The budget equals the switch route's existing limit, so no new restriction applies.
@@ -469,6 +470,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **HDR transcode reason** — the playback reason said a transcoded HDR video was tone-mapped to SDR even when the server had no tone-mapping filter. It now says tone-mapping is unavailable, and the reason carries `toneMapped: false`.
 - **Collections keep merged titles** — merging two versions of a title moves the source's collection memberships to the target, so the title no longer drops out of its collections. A collection that already listed the target keeps the target's entry.
 
 - **Admin user list and creation status** — the user list clamps a page below 1 to the first page instead of rejecting it, and creating a user answers `201 Created`.
