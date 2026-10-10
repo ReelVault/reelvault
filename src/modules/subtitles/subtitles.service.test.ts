@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Subtitle, SubtitleEntity } from "@reelvault/sdk/common";
+import { subtitleProviderSettingsRepository } from "@/database/repositories/subtitle-provider-settings.repository";
 import { NotFoundError } from "@/utils/errors";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import type { SubtitleContent } from "./subtitle-content.resolver";
 import { SubtitlesService } from "./subtitles.service";
 
@@ -216,11 +218,16 @@ describe("SubtitlesService", () => {
 	});
 
 	test("provider status and search delegate to the plugins layer", async () => {
+		const disabledStub = stubMethod(subtitleProviderSettingsRepository, "listDisabledIds", () => Promise.resolve([]));
 		const { service, providerCalls } = createService();
 
-		await service.getProviders();
-		await service.searchProviders({ mediaFileId: "file-1" });
+		try {
+			await service.getProviders();
+			await service.searchProviders({ mediaFileId: "file-1" });
 
-		expect(providerCalls).toEqual({ status: 1, search: 1 });
+			expect(providerCalls).toEqual({ status: 1, search: 1 });
+		} finally {
+			disabledStub.restore();
+		}
 	});
 });

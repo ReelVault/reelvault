@@ -32,6 +32,7 @@ import * as resourceMetrics from "./schemas/resource-metrics.schema";
 import * as scanFindings from "./schemas/scan-findings.schema";
 import * as scanState from "./schemas/scan-state.schema";
 import * as seasons from "./schemas/seasons.schema";
+import * as subtitleProviderSettings from "./schemas/subtitle-provider-settings.schema";
 import * as subtitles from "./schemas/subtitles.schema";
 import * as systemSettings from "./schemas/system-settings.schema";
 import * as updateHistory from "./schemas/update-history.schema";
@@ -63,6 +64,7 @@ export const schema = {
 	...metadata,
 	...metadataExternalIds,
 	...metadataProviderSettings,
+	...subtitleProviderSettings,
 	...notifications,
 	...movies,
 	...people,

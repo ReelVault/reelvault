@@ -6,12 +6,13 @@ import type {
 } from "@reelvault/sdk/common";
 import type { SubtitleDownload } from "@reelvault/sdk/plugin";
 import { file } from "bun";
+import { subtitleProviderSettingsRepository } from "@/database/repositories/subtitle-provider-settings.repository";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
-import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { ConflictError, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -36,10 +37,24 @@ class SubtitleProviderService extends BaseService {
 		super("SubtitleProviderService");
 	}
 
+	/** Ids of the subtitle providers the admin has switched off. */
+	async disabledProviderIds(): Promise<Set<string>> {
+		return new Set(await subtitleProviderSettingsRepository.listDisabledIds());
+	}
+
+	async setEnabled(providerId: string, enabled: boolean): Promise<void> {
+		if (!pluginManager.getSubtitleProvider(providerId)) {
+			throw new NotFoundError(`Subtitle provider ${providerId} was not found`, { code: "plugin.subtitle.provider_not_found" });
+		}
+
+		await subtitleProviderSettingsRepository.setEnabled(providerId, enabled);
+	}
+
 	async search(request: SubtitleProviderSearchRequest): Promise<SubtitleProviderSearchResponse[]> {
 		const media = await this.getMediaItem(request.mediaFileId);
+		const disabled = await this.disabledProviderIds();
 		const results = await PromiseUtils.mapConcurrent(
-			pluginManager.getSubtitleProviders(),
+			pluginManager.getSubtitleProviders().filter((provider) => !disabled.has(provider.id)),
 			serverConfig.plugins.subtitles.providerConcurrency,
 			async (provider) => {
 				try {
@@ -60,6 +75,9 @@ class SubtitleProviderService extends BaseService {
 	async download(providerId: string, request: SubtitleProviderDownloadRequest): Promise<string> {
 		const provider = pluginManager.getSubtitleProvider(providerId);
 		if (!provider) throw new NotFoundError(`Subtitle provider ${providerId} was not found`, { code: "plugin.subtitle.provider_not_found" });
+		if (await subtitleProviderSettingsRepository.isDisabled(providerId)) {
+			throw new ConflictError(`Subtitle provider ${providerId} is turned off`, { code: "plugin.subtitle.provider_disabled" });
+		}
 
 		await this.getMediaItem(request.mediaFileId);
 

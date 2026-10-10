@@ -4,9 +4,9 @@ import {
 	CreateSubtitleRequestSchema,
 	SubtitleFiltersSchema,
 	SubtitleProviderDownloadRequestSchema,
+	SubtitleProviderInfoSchema,
 	SubtitleProviderSearchRequestSchema,
 	SubtitleProviderSearchResponseSchema,
-	SubtitleProviderStatusSchema,
 	SubtitleSchema,
 	SubtitleSortingSchema,
 	UpdateSubtitleRequestSchema,
@@ -34,10 +34,18 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 	})
 	.guard({ auth: true })
 	.get("/providers", async () => await subtitlesService.getProviders(), {
-		response: { ...ROUTE_ERRORS.AUTH, 200: t.Array(SubtitleProviderStatusSchema) },
-		...cached({ maxAge: 300, private: true }),
+		response: { ...ROUTE_ERRORS.AUTH, 200: t.Array(SubtitleProviderInfoSchema) },
 		detail: {
-			description: "List installed subtitle providers.",
+			description: "List installed subtitle providers and whether each one is on.",
+		},
+	})
+	.patch("/providers/:providerId", async ({ params, body }) => await subtitlesService.setProviderEnabled(params.providerId, body.enabled), {
+		adminOnly: true,
+		params: ProviderIdParams,
+		body: t.Object({ enabled: t.Boolean() }),
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: SubtitleProviderInfoSchema },
+		detail: {
+			description: "Turn a subtitle provider on or off. An off provider is not searched and cannot be downloaded from.",
 		},
 	})
 	.post("/search", async ({ body }) => await subtitlesService.searchProviders(body), {

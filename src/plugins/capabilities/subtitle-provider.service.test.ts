@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import type { SubtitleProvider } from "@reelvault/sdk/plugin";
+import { subtitleProviderSettingsRepository } from "@/database/repositories/subtitle-provider-settings.repository";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
 import { pluginMetadataService } from "@/plugins/capabilities/plugin.metadata";
@@ -28,6 +29,8 @@ const generatedPaths: string[] = [];
 const activeStubs: Array<{ restore(): void }> = [];
 
 beforeEach(() => {
+	activeStubs.push(stubMethod(subtitleProviderSettingsRepository, "listDisabledIds", () => Promise.resolve([])));
+	activeStubs.push(stubMethod(subtitleProviderSettingsRepository, "isDisabled", () => Promise.resolve(false)));
 	storedSubtitle = undefined;
 	providers.splice(0);
 	generatedPaths.splice(0);
@@ -173,3 +176,36 @@ function createProvider(
 		download,
 	};
 }
+
+test("a provider that is switched off is not searched", async () => {
+	let offSearched = false;
+	activeStubs.push(stubMethod(subtitleProviderSettingsRepository, "listDisabledIds", () => Promise.resolve(["off"])));
+	providers.push(
+		createProvider("on", async () => [{ id: "candidate-1", language: "pl", label: "Example Movie", format: "vtt" }]),
+		createProvider("off", () => {
+			offSearched = true;
+
+			return Promise.resolve([]);
+		}),
+	);
+
+	const results = await subtitleProviderService.search({ mediaFileId: "media-1", languages: ["pl"] });
+
+	expect(results.map((result) => result.providerId)).toEqual(["on"]);
+	expect(offSearched).toBe(false);
+});
+
+test("a download from a provider that is switched off is refused", async () => {
+	activeStubs.push(stubMethod(subtitleProviderSettingsRepository, "isDisabled", () => Promise.resolve(true)));
+	providers.push(createProvider("off", async () => []));
+
+	await expect(subtitleProviderService.download("off", { mediaFileId: "media-1", subtitleId: "candidate-1" })).rejects.toMatchObject({
+		code: "plugin.subtitle.provider_disabled",
+	});
+});
+
+test("switching an unknown subtitle provider is refused", async () => {
+	await expect(subtitleProviderService.setEnabled("missing", false)).rejects.toMatchObject({
+		code: "plugin.subtitle.provider_not_found",
+	});
+});

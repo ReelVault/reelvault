@@ -8,6 +8,7 @@ import type {
 	SubtitleEntity,
 	SubtitleFilters,
 	SubtitleProviderDownloadRequest,
+	SubtitleProviderInfo,
 	SubtitleProviderSearchRequest,
 	SubtitleProviderSearchResponse,
 	SubtitleProviderStatus,
@@ -93,8 +94,23 @@ export class SubtitlesService extends BaseService {
 		return await this.safeExecute("getById", async () => await this.loadSubtitle(id, () => this.dependencies.findById(id)));
 	}
 
-	async getProviders(): Promise<SubtitleProviderStatus[]> {
-		return await this.safeExecute("getProviders", () => this.dependencies.getProviderStatus());
+	async getProviders(): Promise<SubtitleProviderInfo[]> {
+		return await this.safeExecute("getProviders", async () => {
+			const disabled = await subtitleProviderService.disabledProviderIds();
+
+			return this.dependencies.getProviderStatus().map((provider) => ({ ...provider, enabled: !disabled.has(provider.id) }));
+		});
+	}
+
+	/** Turns a subtitle provider on or off; an off provider is not searched and cannot be downloaded from. */
+	async setProviderEnabled(providerId: string, enabled: boolean): Promise<SubtitleProviderInfo> {
+		return await this.safeExecute("setProviderEnabled", async () => {
+			await subtitleProviderService.setEnabled(providerId, enabled);
+			const updated = (await this.getProviders()).find((provider) => provider.id === providerId);
+			this.assertExists(updated, "Subtitle provider", providerId);
+
+			return updated;
+		});
 	}
 
 	async searchProviders(body: SubtitleProviderSearchRequest): Promise<SubtitleProviderSearchResponse[]> {
