@@ -1,4 +1,4 @@
-import { Elysia } from "elysia";
+import { Elysia, ElysiaCustomStatusResponse } from "elysia";
 import { getPathname, getResponseStatus } from "@/utils/http.utils";
 import { createLogger } from "@/utils/logger";
 
@@ -14,6 +14,20 @@ interface LogContext {
 	set: { status?: number | string };
 	requestId?: string;
 	requestStartedAt?: number;
+}
+
+/**
+ * The status a response is sent with. A `Response` carries its own; a `status(code, body)` result is applied to the
+ * context only after the hook runs, so its code is read from the result itself. Anything else takes the context status.
+ */
+export function responseStatus(responseValue: unknown, set: { status?: number | string }): number {
+	if (responseValue instanceof Response) return responseValue.status;
+	if (responseValue instanceof ElysiaCustomStatusResponse) {
+		const code: unknown = responseValue.code;
+		if (typeof code === "number") return code;
+	}
+
+	return getResponseStatus(set);
 }
 
 function extractLogMeta(context: LogContext & Partial<AuthContext>, extra?: Record<string, unknown>): Record<string, unknown> {
@@ -67,7 +81,7 @@ export const requestLoggerMiddleware = new Elysia({ name: "RequestLogger" })
 	})
 	.onAfterHandle({ as: "global" }, (context) => {
 		const { responseValue, set } = context;
-		const status = responseValue instanceof Response ? responseValue.status : getResponseStatus(set);
+		const status = responseStatus(responseValue, set);
 		const meta = extractLogMeta(context, { status });
 		logger.info(`${String(meta.method)} ${String(meta.path)} → ${String(status)}`, meta);
 	});
