@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type EpisodeWithFileRow, resolveNextEpisodeFileId } from "./playback-view.utils";
+import { type EpisodeWithFileRow, resolveEffectivePlaybackPreferences, resolveNextEpisodeFileId } from "./playback-view.utils";
 
 const UPDATED_AT = new Date("2026-01-01T00:00:00Z");
 
@@ -99,5 +99,28 @@ describe("resolveNextEpisodeFileId", () => {
 		// The immediate next episode (ep-2) has no file, so the later-season scan
 		// runs — there are no later seasons, and ep-3 must not be picked.
 		expect(resolveNextEpisodeFileId(data, { id: "ep-1", seasonId: "s-1" })).toBeNull();
+	});
+});
+
+describe("resolveEffectivePlaybackPreferences", () => {
+	test("reports no bitrate cap when neither the profile nor the server sets one", () => {
+		expect(resolveEffectivePlaybackPreferences({ maxStreamingBitrateKbps: 0, hdrMode: "auto" }, 0)).toEqual({
+			maxStreamingBitrateKbps: null,
+			hdrMode: "auto",
+		});
+	});
+
+	test("the lower of the profile cap and the server limit applies", () => {
+		expect(resolveEffectivePlaybackPreferences({ maxStreamingBitrateKbps: 8000 }, 4000).maxStreamingBitrateKbps).toBe(4000);
+		expect(resolveEffectivePlaybackPreferences({ maxStreamingBitrateKbps: 4000 }, 8000).maxStreamingBitrateKbps).toBe(4000);
+	});
+
+	test("a server limit alone still caps the stream", () => {
+		expect(resolveEffectivePlaybackPreferences(null, 6000).maxStreamingBitrateKbps).toBe(6000);
+	});
+
+	test("reports the HDR mode and defaults to automatic", () => {
+		expect(resolveEffectivePlaybackPreferences({ hdrMode: "toneMapToSdr" }, 0).hdrMode).toBe("toneMapToSdr");
+		expect(resolveEffectivePlaybackPreferences(undefined, 0).hdrMode).toBe("auto");
 	});
 });

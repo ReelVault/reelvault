@@ -1,12 +1,14 @@
 import type { PlaybackViewResponse } from "@reelvault/sdk/common";
 import { episodesRepository } from "@/database/repositories/episodes.repository";
+import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
 import { toPublicSubtitle } from "@/modules/subtitles/subtitle.mapper";
+import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
 import { episodesService } from "../catalog/episodes.service";
 import { metadataService } from "../catalog/metadata/metadata.service";
 import { mediaService } from "./media-files/media-files.service";
-import { resolveNextEpisodeFileId } from "./playback-view.utils";
+import { resolveEffectivePlaybackPreferences, resolveNextEpisodeFileId } from "./playback-view.utils";
 
 class PlaybackViewService extends BaseService {
 	constructor() {
@@ -28,10 +30,11 @@ class PlaybackViewService extends BaseService {
 
 			const subtitles = mediaFile.subtitles.map(toPublicSubtitle);
 
-			const [episode, markers, overview] = await Promise.all([
+			const [episode, markers, overview, preferences] = await Promise.all([
 				mediaFile.episodeId ? episodesService.getById(mediaFile.episodeId).catch(() => null) : Promise.resolve(null),
 				mediaService.listMarkers(mediaFileId, { skipExistsCheck: true }),
 				playbackProgressService.getPlaybackOverview(mediaFile.metadataId, profileId, metadata.type).catch(() => null),
+				profilePreferencesRepository.getEffective({ profileId }),
 			]);
 
 			// The contract field means "the episode after this one". The show-level
@@ -47,6 +50,7 @@ class PlaybackViewService extends BaseService {
 				subtitles,
 				progress: overview?.progress.progress ?? null,
 				nextEpisode: nextEpisodeFileId ? { type: "next_episode", mediaFileId: nextEpisodeFileId } : null,
+				effectivePreferences: resolveEffectivePlaybackPreferences(preferences, serverConfig.stream.maxPerStreamBandwidthKbps),
 			};
 		});
 	}

@@ -355,6 +355,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Features
 
+- **Playback view limits** — the playback view returns `effectivePreferences`: the bitrate cap that applies to the profile's streams and the HDR mode, so clients can show what limits a stream runs under.
 - **Plugin notifications for administrators** — `createForAdmins` fans a plugin notification out to every administrator. A recipient that fails does not stop the others; the first failure is reported back to the plugin.
 - **Bitrate cap per profile** — `maxStreamingBitrateKbps` caps the bitrate requested for a profile's streams (0 = no limit, the default). The client's own limit and the server's per-stream limit still apply, and the lowest value wins.
 - **Transcoded audio settings** — `ffmpeg.audioBitrateKbps` (64–512, default 192) sets the AAC bitrate of transcoded audio, and `ffmpeg.downmixToStereo` (default off) downmixes it to two channels. The defaults keep the previous output.
