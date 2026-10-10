@@ -141,6 +141,8 @@ export const serverConstants = {
 	stream: {
 		/** Retry-After hint for a rejected session start: capacity frees up when another stream ends. */
 		sessionLimitRetryAfterSeconds: 15,
+		/** How often the player sends a heartbeat; the playback session response tells the client this value. */
+		heartbeatIntervalMs: 10_000,
 		playlistTimeoutMs: 30_000,
 		initialSegmentTimeoutMs: 8_000,
 		seekSegmentTimeoutMs: 10_000,

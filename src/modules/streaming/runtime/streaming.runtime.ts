@@ -62,6 +62,8 @@ export async function listMinePlaybackSessions(profileId: string | undefined) {
 				type: media?.type ?? null,
 				posterImageId: media?.posterImageId ?? null,
 				posterImageUpdatedAt: media?.posterImageUpdatedAt ?? null,
+				positionSeconds: session.lastPositionSeconds ?? null,
+				paused: session.lastPaused ?? null,
 			};
 		}),
 	};

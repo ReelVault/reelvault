@@ -184,6 +184,15 @@ class StreamingManager {
 		return (this.inflightSegments.get(sessionId) ?? 0) > 0;
 	}
 
+	/** Keeps the position and pause state a heartbeat reported, so the profile's session list shows where each stream is. */
+	recordHeartbeatPosition(sessionId: string, positionSeconds: number, paused: boolean | null): void {
+		const session = this.store.get(sessionId);
+		if (!session) return;
+
+		session.lastPositionSeconds = positionSeconds;
+		session.lastPaused = paused;
+	}
+
 	getSessionState(sessionId: string): { state: SessionLifecycleState; generation: number } | undefined {
 		const session = this.store.get(sessionId);
 		if (!session) return undefined;
@@ -308,6 +317,8 @@ class StreamingManager {
 				state: SessionLifecycleState;
 				startedAt: number;
 				lastActivity: number;
+				lastPositionSeconds?: number | null;
+				lastPaused?: boolean | null;
 			}>
 		>((acc, session) => {
 			if (session.profileId === profileId) {
@@ -318,6 +329,8 @@ class StreamingManager {
 					state: session.state,
 					startedAt: session.createdAt,
 					lastActivity: session.lastActivity,
+					lastPositionSeconds: session.lastPositionSeconds ?? null,
+					lastPaused: session.lastPaused ?? null,
 				});
 			}
 

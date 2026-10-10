@@ -13,6 +13,7 @@ interface ServiceDependencies {
 	getSessionState: (sessionId: string) => { state: SessionLifecycleState; generation: number } | undefined;
 	updatePlaybackProgress: typeof playbackProgressService.updatePlaybackProgress;
 	sendSessionEvent?: (sessionId: string, event: string, payload: unknown) => void;
+	recordPosition?: (sessionId: string, positionSeconds: number, paused: boolean | null) => void;
 }
 
 const defaultDependencies: ServiceDependencies = {
@@ -21,6 +22,8 @@ const defaultDependencies: ServiceDependencies = {
 	getSessionState: (sessionId) => streamingRuntimeService.getSessionState(sessionId),
 	updatePlaybackProgress: (fileId, body, profileId) => playbackProgressService.updatePlaybackProgress(fileId, body, profileId),
 	sendSessionEvent: (sessionId, event, payload) => realtimeService.sendToSession(sessionId, event, payload),
+	recordPosition: (sessionId, positionSeconds, paused) =>
+		streamingRuntimeService.recordHeartbeatPosition(sessionId, positionSeconds, paused),
 };
 
 export class HeartbeatService extends BaseService {
@@ -41,9 +44,11 @@ export class HeartbeatService extends BaseService {
 			isPaused?: boolean | null;
 		},
 	): Promise<StreamHeartbeatResponse> {
-		const { requireSession, keepAlive, getSessionState, updatePlaybackProgress, sendSessionEvent } = this.dependencies;
+		const { requireSession, keepAlive, getSessionState, updatePlaybackProgress, sendSessionEvent, recordPosition } = this.dependencies;
 		const access = requireSession(sessionId);
 		keepAlive(sessionId);
+		const position = progress?.position;
+		if (recordPosition && isFiniteNumber(position)) recordPosition(sessionId, position, progress?.isPaused ?? null);
 		if (isFiniteNumber(progress?.position)) {
 			await updatePlaybackProgress(access.mediaFileId, progress, access.profileId).catch((error: unknown) =>
 				this.logger.error("Heartbeat progress write failed", error, { sessionId }),

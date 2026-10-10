@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
+import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
 import { type ServiceDependencies, SessionLifecycleService } from "./session-lifecycle.service";
 
 function createService(
@@ -11,6 +13,8 @@ function createService(
 		subtitles?: Array<{ id: string; language: string; isDefault?: boolean; isForced?: boolean }>;
 		streamPrefs?: { audioLanguage: string | null; subtitleLanguage: string | null } | null;
 		titleActive?: boolean;
+		reserveResults?: boolean[];
+		profileSessions?: Array<{ sessionId: string; mediaFileId: string }>;
 	} = {},
 ) {
 	const calls = {
@@ -19,6 +23,7 @@ function createService(
 		setOperations: [] as string[],
 		removedOperations: [] as string[],
 		releasedReservations: [] as string[],
+		releasedSessions: [] as string[],
 		discarded: [] as string[],
 		published: [] as unknown[],
 		streamPrefsLookups: [] as Array<{ profileId: string; metadataId: string }>,
@@ -76,7 +81,8 @@ function createService(
 			: async () => ({ operationId: "op-1" }),
 		runtime: {
 			isProfileTerminatedRecently: () => (options.terminatedByAdmin ? { reason: "admin-stop" } : null),
-			reserveSession: () => !options.reserveFails,
+			reserveSession: () => (options.reserveResults ? (options.reserveResults.shift() ?? true) : !options.reserveFails),
+			listSessionsForProfile: () => options.profileSessions ?? [],
 			explainCapacityLimit: () => ({ scope: "server" as const, limit: 2, active: 2 }),
 			registerSession: (sessionId: string) => {
 				calls.registered.push(sessionId);
@@ -99,7 +105,11 @@ function createService(
 			},
 			getActiveSessions: () => 0,
 			getSessionAccess: () => undefined,
-			releaseSession: () => Promise.resolve("released" as const),
+			releaseSession: (sessionId: string) => {
+				calls.releasedSessions.push(sessionId);
+
+				return Promise.resolve("released" as const);
+			},
 			getTerminatedSession: () => undefined,
 		},
 		publisher: (event) => calls.published.push(event),
@@ -203,4 +213,49 @@ describe("session lifecycle service", () => {
 
 		expect(() => service.requireSession("../../etc")).toThrow("Invalid sessionId");
 	});
+});
+
+test("at the session limit, a profile starting another version of a title takes over its older session slot", async () => {
+	const summaries = stubMethod(liveSessionsRepository, "findMediaSummaries", () =>
+		Promise.resolve([
+			{ mediaFileId: "file-1", metadataId: "meta-1" },
+			{ mediaFileId: "file-old", metadataId: "meta-1" },
+		]),
+	);
+	try {
+		const { service, calls } = createService({
+			reserveResults: [false, true],
+			profileSessions: [{ sessionId: "older", mediaFileId: "file-old" }],
+		});
+
+		const session = await service.createPlaybackSession(body, "profile-1", "key-reclaim", "user-1");
+
+		expect(calls.releasedSessions).toEqual(["older"]);
+		expect(calls.registered).toHaveLength(1);
+		expect(session.heartbeatIntervalMs).toBe(10_000);
+	} finally {
+		summaries.restore();
+	}
+});
+
+test("at the session limit, a profile streaming only other titles is still refused", async () => {
+	const summaries = stubMethod(liveSessionsRepository, "findMediaSummaries", () =>
+		Promise.resolve([
+			{ mediaFileId: "file-1", metadataId: "meta-1" },
+			{ mediaFileId: "file-x", metadataId: "meta-9" },
+		]),
+	);
+	try {
+		const { service, calls } = createService({
+			reserveFails: true,
+			profileSessions: [{ sessionId: "other", mediaFileId: "file-x" }],
+		});
+
+		await expect(service.createPlaybackSession(body, "profile-1", "key-refused", "user-1")).rejects.toMatchObject({
+			code: "stream.limit_reached",
+		});
+		expect(calls.releasedSessions).toEqual([]);
+	} finally {
+		summaries.restore();
+	}
 });

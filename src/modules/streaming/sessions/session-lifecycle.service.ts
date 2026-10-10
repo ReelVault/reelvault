@@ -1,5 +1,6 @@
 import type { CreatePlaybackSession, PlaybackDecision, PlaybackSession } from "@reelvault/sdk/common";
 import { systemSettingsService } from "@/application/admin/system-settings.service";
+import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
 import { mediaRepository as defaultMediaRepository } from "@/database/repositories/media-files.repository";
 import { playbackRepository } from "@/database/repositories/playback.repository";
 import { profilePreferencesRepository as defaultProfilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
@@ -18,6 +19,7 @@ import type { PlaybackSessionInput, SessionReleaseOutcome, TerminatedSessionEntr
 import { PlaybackSessionIdempotencyRegistry } from "./playback-session-idempotency";
 import { SessionCreationGuard } from "./session-creation.guard";
 import { type PlaybackSessionStartedEvent, publishSessionStarted } from "./session-events.publisher";
+import { findSameTitleSession } from "./session-reclaim";
 import { assertSafeId, parseCapabilities, toPlaybackSessionInput } from "./session-request.mapper";
 import { isAdminTerminationReason, resolveSessionAccess } from "./stream-access";
 
@@ -32,6 +34,7 @@ export interface SessionLifecycleRuntime {
 	getActiveSessions(): number;
 	getSessionAccess(sessionId: string): SessionAccessInfo | undefined;
 	releaseSession(sessionId: string, reason: string): Promise<SessionReleaseOutcome>;
+	listSessionsForProfile(profileId: string): Array<{ sessionId: string; mediaFileId: string }>;
 	getTerminatedSession(sessionId: string): TerminatedSessionEntry | undefined;
 	reserveSession(sessionId: string, userId?: string): boolean;
 	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number; active: number };
@@ -150,6 +153,50 @@ export class SessionLifecycleService extends BaseService {
 		);
 	}
 
+	/** Reserves the session's slot. At the limit, a same-title session of the profile may give up its slot first. */
+	private async reserveSlot(sessionId: string, profileId: string, mediaFileId: string, userId?: string): Promise<void> {
+		const { runtime } = this.dependencies;
+		if (runtime.reserveSession(sessionId, userId)) return;
+		if ((await this.reclaimSameTitleSession(profileId, mediaFileId)) && runtime.reserveSession(sessionId, userId)) return;
+
+		const { scope, limit, active } = runtime.explainCapacityLimit(userId);
+		throw new TooManyRequestsError("Concurrent streaming session limit reached. Try again when another stream ends.", {
+			code: "stream.limit_reached",
+			params: { scope, limit, active, retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds },
+		});
+	}
+
+	/** Ends every session the profile holds, for the close-all action on the remote-control page. Returns how many ended. */
+	async releaseAllPlaybackSessions(profileId: string): Promise<number> {
+		const { runtime } = this.dependencies;
+		const sessions = runtime.listSessionsForProfile(profileId);
+		await Promise.all(sessions.map((session) => runtime.releaseSession(session.sessionId, "client-release-all")));
+
+		return sessions.length;
+	}
+
+	/**
+	 * At the session limit, a profile that starts another version of a title it already streams gives up its older session's
+	 * slot instead of being refused by its own session. Returns whether a session was ended.
+	 */
+	private async reclaimSameTitleSession(profileId: string, mediaFileId: string): Promise<boolean> {
+		const { runtime } = this.dependencies;
+		const profileSessions = runtime.listSessionsForProfile(profileId);
+		if (profileSessions.length === 0) return false;
+
+		const summaries = await liveSessionsRepository.findMediaSummaries([
+			mediaFileId,
+			...profileSessions.map((session) => session.mediaFileId),
+		]);
+		const titleOf = new Map(summaries.map((summary) => [summary.mediaFileId, summary.metadataId]));
+		const older = findSameTitleSession(profileSessions, titleOf, mediaFileId);
+		if (!older) return false;
+
+		await runtime.releaseSession(older.sessionId, "superseded-by-same-title");
+
+		return true;
+	}
+
 	private async createPlaybackSessionInternal(
 		fileId: string,
 		capabilitiesQuery: PlaybackSessionInput,
@@ -215,13 +262,7 @@ export class SessionLifecycleService extends BaseService {
 			});
 
 			const sessionId = crypto.randomUUID();
-			if (!runtime.reserveSession(sessionId, userId)) {
-				const { scope, limit, active } = runtime.explainCapacityLimit(userId);
-				throw new TooManyRequestsError("Concurrent streaming session limit reached. Try again when another stream ends.", {
-					code: "stream.limit_reached",
-					params: { scope, limit, active, retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds },
-				});
-			}
+			await this.reserveSlot(sessionId, profileId, file.id, userId);
 
 			// One entity for the whole viewing: the decision/input are bound here and
 			// every later seek restarts the process inside this session, never recreates it.
@@ -275,6 +316,7 @@ export class SessionLifecycleService extends BaseService {
 					subtitleId: subtitle?.id ?? null,
 					subtitleStreamIndex: subtitle?.streamIndex ?? null,
 					subtitleType: subtitle?.type ?? null,
+					heartbeatIntervalMs: serverConstants.stream.heartbeatIntervalMs,
 				};
 			} catch (error) {
 				if (createdOperationId) await workerService.removeOperation(createdOperationId);

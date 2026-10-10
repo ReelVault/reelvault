@@ -180,6 +180,14 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 		},
 	)
 	.delete(
+		"/mine",
+		async ({ profile }) => ({ closed: profile?.id ? await sessionLifecycleService.releaseAllPlaybackSessions(profile.id) : 0 }),
+		{
+			response: { ...ROUTE_ERRORS.AUTH, 200: t.Object({ closed: t.Integer({ minimum: 0 }) }) },
+			detail: { description: "End every playback session of the calling profile (the close-all action on the remote-control page)." },
+		},
+	)
+	.delete(
 		"/:sessionId",
 		async ({ params, set, user, profile }) => {
 			await assertSessionAccess(params.sessionId, user?.id, profile?.id);
