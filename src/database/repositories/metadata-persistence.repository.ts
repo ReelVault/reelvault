@@ -59,13 +59,17 @@ class MetadataPersistenceRepository {
 		providerName,
 		metadata,
 		matchScore,
+		lockedFields,
 	}: {
 		metadataId: string;
 		type: "movie" | "tv_show";
 		providerName: string;
 		metadata: ProviderMetadataResult;
 		matchScore?: number | undefined;
+		/** Locked fields keep their stored values and relation rows. */
+		lockedFields?: readonly string[] | undefined;
 	}) {
+		const locked = new Set(lockedFields ?? []);
 		return await databaseFactory.transaction(
 			async (tx) => {
 				const stableKey = createProviderStableKey({ providerName, entityType: type, externalId: metadata.externalId });
@@ -101,7 +105,7 @@ class MetadataPersistenceRepository {
 					where: eq(schema.metadata.id, metadataId),
 					values: {
 						stableKey,
-						...toMetadataValues(metadata, providerName, matchScore ?? 1.0),
+						...toUnlockedMetadataValues(toMetadataValues(metadata, providerName, matchScore ?? 1.0), locked),
 						popularity: metadata.popularity ?? 0,
 						updatedAt: new Date(),
 					},
@@ -121,17 +125,24 @@ class MetadataPersistenceRepository {
 					await metadataRepository.insertProviders({ values: { metadataId, providerId: provider.id }, tx });
 				}
 
-				await Promise.all([
-					metadataRepository.deleteCast({ where: eq(schema.metadataCast.metadataId, metadataId), tx }),
-					metadataRepository.deleteCrew({ where: eq(schema.metadataCrew.metadataId, metadataId), tx }),
-					metadataRepository.deleteGenres({ where: eq(schema.metadataGenres.metadataId, metadataId), tx }),
-					metadataRepository.deleteKeywords({ where: eq(schema.metadataKeywords.metadataId, metadataId), tx }),
-					metadataRepository.deleteCompanies({ where: eq(schema.metadataCompanies.metadataId, metadataId), tx }),
-					metadataRepository.deleteCollections({ where: eq(schema.metadataCollections.metadataId, metadataId), tx }),
-					metadataRepository.deleteRatings({ where: eq(schema.metadataRatings.metadataId, metadataId), tx }),
-				]);
+				const relationDeletes: Array<Promise<unknown>> = [];
+				if (!locked.has("cast"))
+					relationDeletes.push(metadataRepository.deleteCast({ where: eq(schema.metadataCast.metadataId, metadataId), tx }));
+				if (!locked.has("crew"))
+					relationDeletes.push(metadataRepository.deleteCrew({ where: eq(schema.metadataCrew.metadataId, metadataId), tx }));
+				if (!locked.has("genres"))
+					relationDeletes.push(metadataRepository.deleteGenres({ where: eq(schema.metadataGenres.metadataId, metadataId), tx }));
+				if (!locked.has("keywords"))
+					relationDeletes.push(metadataRepository.deleteKeywords({ where: eq(schema.metadataKeywords.metadataId, metadataId), tx }));
+				if (!(locked.has("companies") || locked.has("studios")))
+					relationDeletes.push(metadataRepository.deleteCompanies({ where: eq(schema.metadataCompanies.metadataId, metadataId), tx }));
+				if (!locked.has("collections"))
+					relationDeletes.push(metadataRepository.deleteCollections({ where: eq(schema.metadataCollections.metadataId, metadataId), tx }));
+				if (!locked.has("ratings"))
+					relationDeletes.push(metadataRepository.deleteRatings({ where: eq(schema.metadataRatings.metadataId, metadataId), tx }));
+				await Promise.all(relationDeletes);
 
-				const personImages = await this.createMetadataRelations(metadataId, providerName, metadata, tx);
+				const personImages = await this.createMetadataRelations(metadataId, providerName, metadata, tx, locked);
 
 				return { personImages };
 			},
@@ -308,24 +319,50 @@ class MetadataPersistenceRepository {
 		providerName: string,
 		metadata: ProviderMetadataResult,
 		tx: DatabaseTransaction,
+		locked: ReadonlySet<string> = new Set(),
 	) {
 		const [, , , , personImages] = await Promise.all([
-			collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
-			companiesRepository.process({ metadataId, providerName, providerCompanies: metadata.productionCompanies, tx }),
-			genreRepository.process({ metadataId, providerName, providerGenres: metadata.genres, tx }),
-			keywordsRepository.process({ metadataId, providerName, keywordNames: metadata.keywords, tx }),
-			peopleRepository.processMetadataCredits({
-				metadataId,
-				providerName,
-				cast: metadata.cast,
-				crew: metadata.crew,
-				tx,
-			}),
-			metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx }),
+			locked.has("collections")
+				? Promise.resolve()
+				: collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
+			locked.has("companies") || locked.has("studios")
+				? Promise.resolve()
+				: companiesRepository.process({ metadataId, providerName, providerCompanies: metadata.productionCompanies, tx }),
+			locked.has("genres") ? Promise.resolve() : genreRepository.process({ metadataId, providerName, providerGenres: metadata.genres, tx }),
+			locked.has("keywords")
+				? Promise.resolve()
+				: keywordsRepository.process({ metadataId, providerName, keywordNames: metadata.keywords, tx }),
+			locked.has("cast") && locked.has("crew")
+				? Promise.resolve([])
+				: peopleRepository.processMetadataCredits({
+						metadataId,
+						providerName,
+						cast: locked.has("cast") ? undefined : metadata.cast,
+						crew: locked.has("crew") ? undefined : metadata.crew,
+						tx,
+					}),
+			locked.has("ratings")
+				? Promise.resolve()
+				: metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx }),
 		]);
 
 		return personImages;
 	}
+}
+
+/** Scalar columns a field lock protects. An undefined column is skipped by the update, so its stored value stays. */
+function toUnlockedMetadataValues(values: ReturnType<typeof toMetadataValues>, locked: ReadonlySet<string>) {
+	return {
+		...values,
+		title: locked.has("title") ? undefined : values.title,
+		originalTitle: locked.has("originalTitle") ? undefined : values.originalTitle,
+		overview: locked.has("overview") ? undefined : values.overview,
+		tagline: locked.has("tagline") ? undefined : values.tagline,
+		releaseDate: locked.has("releaseDate") ? undefined : values.releaseDate,
+		status: locked.has("status") ? undefined : values.status,
+		budget: locked.has("budget") ? undefined : values.budget,
+		revenue: locked.has("revenue") ? undefined : values.revenue,
+	};
 }
 
 /**

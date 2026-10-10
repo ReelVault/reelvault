@@ -473,6 +473,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **Rematch keeps locked fields** — re-identifying a title overwrote fields an administrator had locked, including their artwork and cast or genre lists. Locked fields now keep their values unless the request sets `overwriteLocked`.
 - **HDR transcode reason** — the playback reason said a transcoded HDR video was tone-mapped to SDR even when the server had no tone-mapping filter. It now says tone-mapping is unavailable, and the reason carries `toneMapped: false`.
 - **Collections keep merged titles** — merging two versions of a title moves the source's collection memberships to the target, so the title no longer drops out of its collections. A collection that already listed the target keeps the target's entry.
 

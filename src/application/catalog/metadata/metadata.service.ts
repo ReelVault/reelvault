@@ -358,13 +358,16 @@ class MetadataService extends BaseService {
 
 	async rematch<F extends string>(
 		metadataId: string,
-		body: { providerId: string; externalId: string },
+		body: { providerId: string; externalId: string; overwriteLocked?: boolean | undefined },
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<MetadataWithRelation, F>> {
 		return await this.safeExecute("rematch", async () => {
 			const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type" });
 			this.assertExists(existing, "Metadata", metadataId);
+
+			// Locked fields keep their stored values unless the administrator asks to overwrite them too.
+			const lockedFields = body.overwriteLocked === true ? [] : await metadataRepository.getLockedFields(metadataId);
 
 			return await this.updateLinkedProvider(metadataId, existing, body, query, context, {
 				resourceType: "metadata_rematch",
@@ -375,9 +378,10 @@ class MetadataService extends BaseService {
 						providerName: body.providerId,
 						metadata: providerMetadata,
 						matchScore: 1.0,
+						lockedFields,
 					});
 
-					await imageProcessingService.replaceProviderArtwork(metadataId, providerMetadata);
+					await imageProcessingService.replaceProviderArtwork(metadataId, unlockedArtwork(providerMetadata, lockedFields));
 
 					if (existing.type === "tv_show" && providerMetadata.seasons) {
 						await syncSeasonsAndEpisodes(metadataId, providerMetadata.seasons);
@@ -713,3 +717,11 @@ class MetadataService extends BaseService {
 }
 
 export const metadataService = new MetadataService();
+
+/** Artwork a lock protects is left out of the replacement, so the stored image stays. */
+function unlockedArtwork(artwork: { posterPath?: string | undefined; backdropPath?: string | undefined }, lockedFields: readonly string[]) {
+	return {
+		posterPath: lockedFields.includes("posters") ? undefined : artwork.posterPath,
+		backdropPath: lockedFields.includes("backdrops") ? undefined : artwork.backdropPath,
+	};
+}
