@@ -12,12 +12,13 @@ import { stubMethod } from "../helpers/method-stub";
  * better-auth session lookup is replaced, so a cookie selects the role:
  *   `better-auth.session_token=admin-token` → administrator,
  *   `better-auth.session_token=user-token`  → ordinary user,
+ *   `better-auth.session_token=other-token` → a second ordinary account (isolation between accounts),
  *   no cookie                               → anonymous.
  */
 
-export type Role = "admin" | "user";
+export type Role = "admin" | "user" | "other";
 
-const SESSION_TOKENS: Record<string, Role> = { "admin-token": "admin", "user-token": "user" };
+const SESSION_TOKENS: Record<string, Role> = { "admin-token": "admin", "user-token": "user", "other-token": "other" };
 
 const SESSION_TOKEN_COOKIE = /better-auth\.session_token=([^;]+)/;
 
@@ -30,11 +31,20 @@ export interface RouteEntry {
 }
 
 export function sessionPayload(role: Role) {
-	const id = role === "admin" ? "security-admin" : "security-user";
+	const id = `security-${role}`;
 	const now = new Date();
 
 	return {
-		user: { id, name: id, email: `${id}@example.test`, emailVerified: true, createdAt: now, updatedAt: now, role, banned: false },
+		user: {
+			id,
+			name: id,
+			email: `${id}@example.test`,
+			emailVerified: true,
+			createdAt: now,
+			updatedAt: now,
+			role: role === "admin" ? "admin" : "user",
+			banned: false,
+		},
 		session: {
 			id: `session-${id}`,
 			userId: id,
