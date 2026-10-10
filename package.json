@@ -37,7 +37,7 @@
 		"lint:oxlint": "oxlint --type-aware",
 		"deadcode": "knip-bun --config ./knip.json",
 		"check-types": "tsc --noEmit --pretty",
-		"test": "bun test",
+		"test": "bun test --path-ignore-patterns 'tests/security/**' && bun test tests/security",
 		"----MISC": "",
 		"prepare": "lefthook install"
 	},

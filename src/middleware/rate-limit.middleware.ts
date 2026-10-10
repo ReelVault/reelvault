@@ -36,6 +36,11 @@ function throwRateLimitExceeded(resetMs: number): never {
 	});
 }
 
+/** Forgets every counted request. Test suites that send many requests through one process call this between tests. */
+export function clearRateLimitBuckets(): void {
+	rateLimiter.clear();
+}
+
 function getClientIp(request: Request, server: RateLimitContext["server"]): string {
 	return getRequestClientIp(request, server) ?? "unknown";
 }
