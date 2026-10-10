@@ -43,6 +43,9 @@ import { workerService } from "./workers/worker.service";
 /** Matches the leading major of FFmpeg versions like `7.0.2`, `6.1.1-3ubuntu5` or `n7.0`. */
 const FFMPEG_MAJOR_VERSION_REGEX = /^n?(\d+)/;
 
+/** Wildcard binds are reachable from any network the host is on. */
+const PUBLIC_BIND_HOSTS: ReadonlySet<string> = new Set(["0.0.0.0", "::", "*"]);
+
 async function setupServer(): Promise<void> {
 	try {
 		logger.info("Checking directories and files...");
@@ -216,9 +219,6 @@ function isAddressInUse(error: unknown): boolean {
 
 	return Reflect.get(error, "code") === "EADDRINUSE" || error.message.includes("EADDRINUSE") || error.message.includes("in use");
 }
-
-/** Wildcard binds are reachable from any network the host is on. */
-const PUBLIC_BIND_HOSTS: ReadonlySet<string> = new Set(["0.0.0.0", "::", "*"]);
 
 function isPublicBindHost(host: string): boolean {
 	return PUBLIC_BIND_HOSTS.has(host);

@@ -474,6 +474,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **Fresh installs start again** — the boot check read the wildcard-host constant before it was initialized, so a server without completed setup stopped at startup with a reference error. The constant now comes first.
 - **Failing notification channels are reported** — when an external channel stops delivering, administrators get one notification with its error. Repeated failures stay quiet until the channel delivers again.
 - **Rematch keeps locked fields** — re-identifying a title overwrote fields an administrator had locked, including their artwork and cast or genre lists. Locked fields now keep their values unless the request sets `overwriteLocked`.
 - **HDR transcode reason** — the playback reason said a transcoded HDR video was tone-mapped to SDR even when the server had no tone-mapping filter. It now says tone-mapping is unavailable, and the reason carries `toneMapped: false`.
