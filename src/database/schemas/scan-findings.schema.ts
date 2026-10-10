@@ -1,13 +1,14 @@
 import { sql } from "drizzle-orm";
-import { check, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { DatabaseHelper } from "../utils/database-helper";
 import { libraries } from "./libraries.schema";
 
 /**
  * Files a scan discovered but could not ingest (unknown structure, library type
  * mismatch, no metadata match) — surfaced to admins as "needs attention".
- * Server-internal bookkeeping, kept out of the public SDK contract
- * (`database-schema-parity.test.ts` mirrors every table column).
+ * `ignoredAt` set means an admin dismissed the finding: it leaves that list until
+ * restored, and rescans keep it. Server-internal bookkeeping, kept out of the public
+ * SDK contract (`database-schema-parity.test.ts` mirrors every table column).
  */
 export const scanFindings = sqliteTable(
 	"scan_findings",
@@ -16,6 +17,7 @@ export const scanFindings = sqliteTable(
 		filePath: text("file_path").notNull(),
 		fileName: text("file_name").notNull(),
 		reason: text("reason", { enum: ["recognition_failed", "type_mismatch", "no_metadata_match", "probe_failed"] }).notNull(),
+		ignoredAt: integer("ignored_at", { mode: "timestamp" }),
 		...DatabaseHelper.timestamps,
 	},
 	(table) => [

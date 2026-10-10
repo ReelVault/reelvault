@@ -14,6 +14,9 @@ import type {
 	LibraryWithRelations,
 	PaginatedResponse,
 	PaginationQuery,
+	ScanFindingIgnoredResponse,
+	ScanFindingStatus,
+	ScanFindingsResponse,
 	SelectFields,
 	UpdateLibrary,
 } from "@reelvault/sdk/common";
@@ -23,7 +26,7 @@ import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { librariesRepository } from "@/database/repositories/libraries.repository";
 import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
-import { type ScanFindingItem, scanFindingsRepository } from "@/database/repositories/scan-findings.repository";
+import { scanFindingsRepository } from "@/database/repositories/scan-findings.repository";
 import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
@@ -378,11 +381,41 @@ class LibrariesService extends BaseService {
 		});
 	}
 
-	async getScanFindings(libraryId: string): Promise<ScanFindingItem[]> {
+	async getScanFindings(libraryId: string, status: ScanFindingStatus = "active"): Promise<ScanFindingsResponse> {
 		return await this.safeExecute("getScanFindings", async () => {
 			await this.getLibraryForScan(libraryId, { fields: "id" });
 
-			return await scanFindingsRepository.list(libraryId);
+			const data = await scanFindingsRepository.list(libraryId, status);
+			const counts = await scanFindingsRepository.countByStatus(libraryId);
+
+			return { data, counts };
+		});
+	}
+
+	async setScanFindingIgnored(
+		libraryId: string,
+		filePath: string,
+		ignored: boolean,
+		context?: AdminAuditContext,
+	): Promise<ScanFindingIgnoredResponse> {
+		return await this.safeExecute("setScanFindingIgnored", async () => {
+			await this.getLibraryForScan(libraryId, { fields: "id" });
+
+			const updated = await scanFindingsRepository.setIgnored(libraryId, filePath, ignored);
+			this.assertFound(updated, "Scan finding", filePath);
+
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "library",
+					resourceId: libraryId,
+					after: { scanFinding: filePath, ignored },
+					context,
+				},
+				this.logger,
+			);
+
+			return { filePath, ignored };
 		});
 	}
 

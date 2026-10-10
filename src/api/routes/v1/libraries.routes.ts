@@ -11,7 +11,11 @@ import {
 	LibraryWithRelationsSchema,
 	OperationQueuedResponseSchema,
 	ProjectedResponseSchema,
+	ScanFindingIgnoredResponseSchema,
+	ScanFindingStatusSchema,
+	ScanFindingsResponseSchema,
 	UpdateLibrarySchema,
+	UpdateScanFindingSchema,
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schemas";
@@ -36,6 +40,7 @@ export const librariesRoutes = new Elysia({
 		"libraries.create.body": CreateLibrarySchema,
 		"libraries.update.body": UpdateLibrarySchema,
 		"libraries.checkErrors.body": LibraryErrorsCheckRequestSchema,
+		"libraries.scanFinding.update.body": UpdateScanFindingSchema,
 	})
 	.guard({ auth: true })
 	.post(
@@ -149,20 +154,36 @@ export const librariesRoutes = new Elysia({
 		},
 		detail: { description: "List ignored local sidecar assets inside configured library roots." },
 	})
-	.get("/:libraryId/scan-findings", async ({ params }) => ({ data: await librariesService.getScanFindings(params.libraryId) }), {
+	.get("/:libraryId/scan-findings", async ({ params, query }) => await librariesService.getScanFindings(params.libraryId, query.status), {
 		adminOnly: true,
 		rateLimit: { name: "library-scan-findings", max: 30, windowMs: MINUTE },
 		params: LibraryIdParams,
-		response: {
-			...ROUTE_ERRORS.ADMIN_NOT_FOUND,
-			200: t.Object({
-				data: t.Array(t.Object({ filePath: t.String(), fileName: t.String(), reason: t.String() })),
-			}),
-		},
+		query: t.Object({ status: t.Optional(ScanFindingStatusSchema) }),
+		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: ScanFindingsResponseSchema },
 		detail: {
-			description: "List files the latest scan could not ingest (unknown structure, library type mismatch, no metadata match).",
+			description:
+				"List files the scans could not ingest (unknown structure, library type mismatch, no metadata match) in one status, active by default. `counts` covers both statuses.",
 		},
 	})
+	.patch(
+		"/:libraryId/scan-findings",
+		async ({ params, body, user, request }) =>
+			await librariesService.setScanFindingIgnored(params.libraryId, body.filePath, body.ignored, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			}),
+		{
+			adminOnly: true,
+			rateLimit: { name: "library-scan-finding-update", max: 120, windowMs: MINUTE },
+			params: LibraryIdParams,
+			body: "libraries.scanFinding.update.body",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: ScanFindingIgnoredResponseSchema },
+			detail: {
+				description:
+					"Ignore a scan finding until it is restored. An ignored finding stays ignored through later scans; `ignored: false` restores it.",
+			},
+		},
+	)
 	.patch(
 		"/:libraryId",
 		async ({ params, body, query, user, request }) =>

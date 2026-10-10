@@ -1,4 +1,5 @@
-import { and, eq, inArray } from "drizzle-orm";
+import type { ScanFindingStatus } from "@reelvault/sdk/common";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { forEachChunked } from "@/database/table-access";
@@ -76,13 +77,58 @@ export class ScanFindingsRepository {
 		}, tx);
 	}
 
-	async list(libraryId: string, tx?: DatabaseTransaction): Promise<ScanFindingItem[]> {
+	/** Findings of one status; with no status, every finding (pruning needs both). */
+	async list(libraryId: string, status?: ScanFindingStatus, tx?: DatabaseTransaction): Promise<ScanFindingItem[]> {
+		const conditions = [eq(this.table.libraryId, libraryId)];
+		if (status) conditions.push(status === "ignored" ? isNotNull(this.table.ignoredAt) : isNull(this.table.ignoredAt));
+
 		return await this.database
 			.getClient({ tx })
 			.select({ filePath: this.table.filePath, fileName: this.table.fileName, reason: this.table.reason })
 			.from(this.table)
-			.where(eq(this.table.libraryId, libraryId))
+			.where(and(...conditions))
 			.orderBy(this.table.filePath);
+	}
+
+	/** Active and ignored counts for the status tabs, read in one query. */
+	async countByStatus(libraryId: string): Promise<{ active: number; ignored: number }> {
+		const [counts] = await this.database
+			.getClient()
+			.select({
+				active: sql<number>`coalesce(sum(case when ${this.table.ignoredAt} is null then 1 else 0 end), 0)`,
+				ignored: sql<number>`coalesce(sum(case when ${this.table.ignoredAt} is not null then 1 else 0 end), 0)`,
+			})
+			.from(this.table)
+			.where(eq(this.table.libraryId, libraryId));
+
+		return { active: counts?.active ?? 0, ignored: counts?.ignored ?? 0 };
+	}
+
+	async find(libraryId: string, filePath: string): Promise<ScanFindingItem | null> {
+		const [finding] = await this.database
+			.getClient()
+			.select({ filePath: this.table.filePath, fileName: this.table.fileName, reason: this.table.reason })
+			.from(this.table)
+			.where(and(eq(this.table.libraryId, libraryId), eq(this.table.filePath, filePath)))
+			.limit(1);
+
+		return finding ?? null;
+	}
+
+	/** Ignores a finding, or restores it when `ignored` is false. Resolves false when no finding has that path. */
+	async setIgnored(libraryId: string, filePath: string, ignored: boolean, tx?: DatabaseTransaction): Promise<boolean> {
+		const updated = await this.write(
+			async (activeTx) =>
+				await this.database
+					.getClient({ tx: activeTx })
+					.update(this.table)
+					.set({ ignoredAt: ignored ? new Date() : null })
+					.where(and(eq(this.table.libraryId, libraryId), eq(this.table.filePath, filePath)))
+					.returning({ filePath: this.table.filePath }),
+			tx,
+		);
+
+		return updated.length > 0;
 	}
 
 	/**

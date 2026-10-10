@@ -15,6 +15,7 @@ beforeAll(async () => {
 				file_path TEXT NOT NULL,
 				file_name TEXT NOT NULL,
 				reason TEXT NOT NULL,
+				ignored_at INTEGER,
 				created_at INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL,
 				CONSTRAINT scan_findings_pk PRIMARY KEY (library_id, file_path)
@@ -75,6 +76,58 @@ describe("scanFindingsRepository", () => {
 			{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" },
 			{ filePath: "/other/c.mkv", fileName: "c.mkv", reason: "type_mismatch" },
 		]);
+	});
+
+	test("list filters by status and countByStatus counts both", async () => {
+		const repository = createRepository();
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" });
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" });
+		await repository.setIgnored("lib-1", "/media/b.mkv", true);
+
+		expect(await repository.list("lib-1", "active")).toEqual([{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" }]);
+		expect(await repository.list("lib-1", "ignored")).toEqual([
+			{ filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" },
+		]);
+		expect(await repository.list("lib-1")).toHaveLength(2);
+		expect(await repository.countByStatus("lib-1")).toEqual({ active: 1, ignored: 1 });
+		expect(await repository.countByStatus("lib-2")).toEqual({ active: 0, ignored: 0 });
+	});
+
+	test("a rescan keeps a finding ignored, and restoring it returns it to the active list", async () => {
+		const repository = createRepository();
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" });
+		expect(await repository.setIgnored("lib-1", "/media/a.mkv", true)).toBe(true);
+
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "no_metadata_match" });
+
+		expect(await repository.list("lib-1", "active")).toEqual([]);
+		expect(await repository.list("lib-1", "ignored")).toEqual([
+			{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "no_metadata_match" },
+		]);
+
+		expect(await repository.setIgnored("lib-1", "/media/a.mkv", false)).toBe(true);
+		expect(await repository.list("lib-1", "active")).toHaveLength(1);
+		expect(await repository.list("lib-1", "ignored")).toEqual([]);
+	});
+
+	test("setIgnored and find report a missing finding", async () => {
+		const repository = createRepository();
+
+		expect(await repository.setIgnored("lib-1", "/media/missing.mkv", true)).toBe(false);
+		expect(await repository.find("lib-1", "/media/missing.mkv")).toBeNull();
+
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "probe_failed" });
+		expect(await repository.find("lib-1", "/media/a.mkv")).toEqual({ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "probe_failed" });
+	});
+
+	test("pruneStale also drops an ignored finding whose file is gone", async () => {
+		const repository = createRepository();
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" });
+		await repository.setIgnored("lib-1", "/media/a.mkv", true);
+
+		await repository.pruneStale("lib-1", [], ["/media"]);
+
+		expect(await repository.countByStatus("lib-1")).toEqual({ active: 0, ignored: 0 });
 	});
 
 	test("removeMany issues a single delete statement for a small path list", async () => {
