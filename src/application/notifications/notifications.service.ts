@@ -3,6 +3,7 @@ import { notificationsRepository } from "@/database/repositories/notifications.r
 import { playbackRepository } from "@/database/repositories/playback.repository";
 import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
+import { usersRepository } from "@/database/repositories/users.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { QueryPagination } from "@/database/utils/pagination";
 import { realtimeService } from "@/modules/realtime/realtime.service";
@@ -361,6 +362,25 @@ class NotificationsService extends BaseService {
 				params: { profileId, userId },
 			});
 		}
+	}
+	/**
+	 * Sends the same notification to every administrator. A recipient that fails does not stop the others; the
+	 * first failure is rethrown once every administrator has been tried.
+	 */
+	async createForAdministrators(
+		notification: Omit<CreateNotification, "userId" | "profileId">,
+		options?: { sourcePluginId?: string | undefined },
+	): Promise<void> {
+		const admins = await usersRepository.findAllAdministrators();
+		let firstFailure: Error | undefined;
+		for (const admin of admins) {
+			try {
+				await this.create({ ...notification, userId: admin.id }, options);
+			} catch (error) {
+				firstFailure ??= error instanceof Error ? error : new Error(String(error));
+			}
+		}
+		if (firstFailure) throw firstFailure;
 	}
 }
 

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
 import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
+import { usersRepository } from "@/database/repositories/users.repository";
 import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body-cache";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { notificationsService } from "./notifications.service";
@@ -135,5 +136,36 @@ describe("notificationsService.getPage", () => {
 				},
 			],
 		]);
+	});
+
+	describe("notificationsService.createForAdministrators", () => {
+		test("creates one notification per administrator with the plugin attribution", async () => {
+			const admins = stubMethod(usersRepository, "findAllAdministrators", () => Promise.resolve([{ id: "a1" }, { id: "a2" }]));
+			stubs.push(admins);
+			const created = stubMethod(notificationsService, "create", () => Promise.resolve("n"));
+			stubs.push(created);
+
+			await notificationsService.createForAdministrators(
+				{ type: "bug-report", title: "Playback stutters" },
+				{ sourcePluginId: "org.reelvault.bug-reports" },
+			);
+
+			expect(created.calls).toEqual([
+				[{ type: "bug-report", title: "Playback stutters", userId: "a1" }, { sourcePluginId: "org.reelvault.bug-reports" }],
+				[{ type: "bug-report", title: "Playback stutters", userId: "a2" }, { sourcePluginId: "org.reelvault.bug-reports" }],
+			]);
+		});
+
+		test("a failing recipient does not stop the others and its error is rethrown", async () => {
+			const admins = stubMethod(usersRepository, "findAllAdministrators", () => Promise.resolve([{ id: "a1" }, { id: "a2" }]));
+			stubs.push(admins);
+			const created = stubMethod(notificationsService, "create", (notification: { userId: string }) =>
+				notification.userId === "a1" ? Promise.reject(new Error("quota")) : Promise.resolve("n"),
+			);
+			stubs.push(created);
+
+			await expect(notificationsService.createForAdministrators({ type: "bug-report", title: "Subtitles drift" })).rejects.toThrow("quota");
+			expect(created.calls.length).toBe(2);
+		});
 	});
 });

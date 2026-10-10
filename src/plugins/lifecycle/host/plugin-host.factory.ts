@@ -205,6 +205,21 @@ function buildNotificationsCapability(pluginId: string, scope: PluginScopeApi): 
 					{ sourcePluginId: pluginId },
 				);
 			}),
+		createForAdmins: async (notification) =>
+			withCapability(scope, "notification", async () => {
+				await notificationsService.createForAdministrators(
+					{
+						type: notification.type,
+						title: notification.title,
+						...pickDefined({
+							message: notification.message,
+							data: notification.data,
+							link: notification.link,
+						}),
+					},
+					{ sourcePluginId: pluginId },
+				);
+			}),
 	};
 }
 
