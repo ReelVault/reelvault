@@ -39,6 +39,10 @@ export const STREAMING_SETTINGS_DEFINITIONS = {
 	"ffmpeg.toneMapping": creator.enum("ffmpeg.toneMapping", [...FFMPEG_TONE_MAPPING_OPTIONS], "auto"),
 	"ffmpeg.toneMapAlgorithm": creator.enum("ffmpeg.toneMapAlgorithm", [...FFMPEG_TONE_MAP_ALGORITHM_OPTIONS], "bt2390"),
 	"ffmpeg.gracefulShutdownTimeoutMs": creator.number("ffmpeg.gracefulShutdownTimeoutMs", 1000, Number.MAX_SAFE_INTEGER, 5000),
+	// Bitrate of transcoded AAC audio in kbps; 192 is the value used before this setting existed.
+	"ffmpeg.audioBitrateKbps": creator.number("ffmpeg.audioBitrateKbps", 64, 512, 192),
+	// Downmix transcoded audio to stereo; off keeps the source channel layout.
+	"ffmpeg.downmixToStereo": creator.boolean("ffmpeg.downmixToStereo", false),
 
 	"stream.maxSessions": creator.number("stream.maxSessions", 1, 100, 5),
 	"stream.maxSessionsPerUser": creator.number("stream.maxSessionsPerUser", 1, 100, 3),

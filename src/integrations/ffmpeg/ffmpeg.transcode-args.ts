@@ -7,15 +7,13 @@ import { getEffectiveHwaccel, hardwareDecodeArgs, type ToneMapConfig } from "./f
 export function buildTranscodeAudioArgs(decision: PlaybackDecision): string[] {
 	if (!decision.audioTranscode) return ["-c:a", "copy"];
 
-	return [
-		"-c:a",
-		"aac",
-		"-af",
-		buildAudioFilter(),
-		"-b:a",
-		"192k",
-		...(decision.audioChannels ? ["-ac", `${decision.audioChannels}`] : []),
-	];
+	return ["-c:a", "aac", "-af", buildAudioFilter(), "-b:a", `${serverConfig.ffmpeg.audioBitrateKbps}k`, ...audioChannelArgs(decision)];
+}
+
+function audioChannelArgs(decision: PlaybackDecision): string[] {
+	if (serverConfig.ffmpeg.downmixToStereo) return ["-ac", "2"];
+
+	return decision.audioChannels ? ["-ac", `${decision.audioChannels}`] : [];
 }
 
 export function buildAudioFilter(): string {

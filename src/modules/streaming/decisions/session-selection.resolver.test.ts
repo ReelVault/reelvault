@@ -235,4 +235,36 @@ describe("session selection resolver", () => {
 		expect(passthrough.decision).toMatchObject({ mode: "direct-stream", hdrPassthrough: true });
 		expect(toneMapped.decision).toMatchObject({ mode: "transcode", tonemap: true });
 	});
+	test("a profile bitrate cap lowers the requested bitrate", () => {
+		const selection = resolveSessionSelection(
+			createInput({
+				preferences: {
+					audioLanguage: null,
+					subtitleLanguage: null,
+					subtitlesEnabled: true,
+					forcedSubtitlesOnly: false,
+					maxStreamingBitrateKbps: 4000,
+				},
+			}),
+		);
+
+		expect(selection.decision).toMatchObject({ mode: "transcode", videoBitrateKbps: 4000 });
+	});
+
+	test("the client bitrate cap wins when it is lower than the profile cap", () => {
+		const selection = resolveSessionSelection(
+			createInput({
+				capabilities: { videoCodecs: ["h264"], audioCodecs: ["aac"], maxBitrate: 2000 },
+				preferences: {
+					audioLanguage: null,
+					subtitleLanguage: null,
+					subtitlesEnabled: true,
+					forcedSubtitlesOnly: false,
+					maxStreamingBitrateKbps: 4000,
+				},
+			}),
+		);
+
+		expect(selection.decision).toMatchObject({ mode: "transcode", videoBitrateKbps: 2000 });
+	});
 });

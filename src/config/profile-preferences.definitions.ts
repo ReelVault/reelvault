@@ -36,6 +36,7 @@ export const PROFILE_PREFERENCE_DEFINITIONS = {
 	watchlistAutoRemoveWatched: booleanCodec,
 	hideRatingOverlay: booleanCodec,
 	hdrMode: codecs.enum(HDR_MODE_OPTIONS),
+	maxStreamingBitrateKbps: codecs.number(0, 50000),
 	subtitleSize: codecs.enum(SUBTITLE_SIZE_OPTIONS),
 	subtitlePosition: codecs.enum(SUBTITLE_POSITION_OPTIONS),
 	subtitleColor: codecs.enum(SUBTITLE_COLOR_OPTIONS),

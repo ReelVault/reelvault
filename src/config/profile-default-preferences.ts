@@ -22,6 +22,7 @@ export function profileDefaultPreferences(): ProfilePreferenceDefaults {
 		watchlistAutoRemoveWatched: systemSettingsStore.get("profiles.defaultPreferences.watchlistAutoRemoveWatched"),
 		hideRatingOverlay: false,
 		hdrMode: "auto",
+		maxStreamingBitrateKbps: 0,
 		mutedNotificationTypes: "",
 		hiddenPages: "",
 		subtitleSize: systemSettingsStore.get("profiles.defaultPreferences.subtitleSize"),

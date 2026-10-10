@@ -355,6 +355,8 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Features
 
+- **Bitrate cap per profile** — `maxStreamingBitrateKbps` caps the bitrate requested for a profile's streams (0 = no limit, the default). The client's own limit and the server's per-stream limit still apply, and the lowest value wins.
+- **Transcoded audio settings** — `ffmpeg.audioBitrateKbps` (64–512, default 192) sets the AAC bitrate of transcoded audio, and `ffmpeg.downmixToStereo` (default off) downmixes it to two channels. The defaults keep the previous output.
 - **HDR mode per profile** — profiles choose `hdrMode`: `auto` (default) keeps HDR passthrough where the client renders HDR, `toneMapToSdr` always converts HDR sources to SDR. It is stored with the other profile preferences, so existing databases need no migration.
 - **Backup codes left** — `GET /v1/auth/two-factor/backup-codes` returns how many backup codes the signed-in account can still use (`remaining`, or `null` when the record cannot be read). The codes themselves are never returned.
 - **Enforcement needs an administrator with two-factor** — `auth.enforceTwoFactor` cannot be turned on, from the settings or the offline CLI, while no administrator has two-factor authentication enabled. The refusal carries `auth.two_factor_requires_admin`.

@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { type DetectedHwaccel, hardwareDecodeArgs, type ToneMapConfig } from "./ffmpeg.capabilities";
-import { buildHwaccelInputArgs, buildToneMapFilterChain, buildTranscodeVideoArgs } from "./ffmpeg.transcode-args";
+import { buildHwaccelInputArgs, buildToneMapFilterChain, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "./ffmpeg.transcode-args";
 
 const VAAPI_TONEMAP_UPLOAD_PATTERN = /^tonemapx=.*,format=nv12,hwupload$/;
 
@@ -124,5 +125,31 @@ describe("buildTranscodeVideoArgs", () => {
 		const vfIndex = args.indexOf("-vf");
 		expect(args[vfIndex + 1]).toStartWith("setparams=color_primaries=bt709");
 		expect(args).not.toContain("tonemapx");
+	});
+});
+
+describe("transcoded audio arguments", () => {
+	const audioDecision: PlaybackDecision = { ...sdrDecision, audioTranscode: true, audioChannels: 6 };
+
+	afterEach(() => {
+		systemSettingsStore.setRuntimeValue("ffmpeg.audioBitrateKbps", 192);
+		systemSettingsStore.setRuntimeValue("ffmpeg.downmixToStereo", false);
+	});
+
+	test("uses the configured audio bitrate and keeps the source channel count by default", () => {
+		systemSettingsStore.setRuntimeValue("ffmpeg.audioBitrateKbps", 256);
+
+		const args = buildTranscodeAudioArgs(audioDecision);
+
+		expect(args).toContain("256k");
+		expect(args.slice(args.indexOf("-ac"))).toEqual(["-ac", "6"]);
+	});
+
+	test("downmixes to stereo when the setting is on", () => {
+		systemSettingsStore.setRuntimeValue("ffmpeg.downmixToStereo", true);
+
+		const args = buildTranscodeAudioArgs(audioDecision);
+
+		expect(args.slice(args.indexOf("-ac"))).toEqual(["-ac", "2"]);
 	});
 });

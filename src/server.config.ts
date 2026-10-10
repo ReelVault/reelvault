@@ -269,6 +269,12 @@ export const serverConfig = {
 		get gracefulShutdownTimeoutMs() {
 			return systemSettingsStore.get("ffmpeg.gracefulShutdownTimeoutMs");
 		},
+		get audioBitrateKbps() {
+			return systemSettingsStore.get("ffmpeg.audioBitrateKbps");
+		},
+		get downmixToStereo() {
+			return systemSettingsStore.get("ffmpeg.downmixToStereo");
+		},
 		get preset() {
 			return systemSettingsStore.get("ffmpeg.preset");
 		},

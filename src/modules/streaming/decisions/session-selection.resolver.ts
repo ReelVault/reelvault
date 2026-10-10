@@ -36,6 +36,7 @@ export interface SessionSelectionInput {
 				forcedSubtitlesOnly: boolean;
 				autoForcedSubtitles?: boolean | undefined;
 				hdrMode?: "auto" | "toneMapToSdr" | undefined;
+				maxStreamingBitrateKbps?: number | undefined;
 				preferHearingImpaired?: boolean | undefined;
 				continueWatchingMinutes?: number;
 		  }
@@ -62,6 +63,24 @@ export interface PlaybackSelection {
 	subtitle: Subtitle | undefined;
 	decision: PlaybackDecision;
 	playbackPreferences: ReturnType<typeof resolvePlaybackPreferences>;
+}
+
+/**
+ * Profile choices that narrow what the client may receive. `toneMapToSdr` hides the client's HDR render paths,
+ * so HDR sources transcode and tone-map. A non-zero `maxStreamingBitrateKbps` caps the requested bitrate; the
+ * playback decision still applies the server limit and remuxes when the source already fits.
+ */
+function applyProfileLimits(capabilities: ClientCapabilities, preferences: SessionSelectionInput["preferences"]): ClientCapabilities {
+	const limited: ClientCapabilities = { ...capabilities };
+	if (preferences?.hdrMode === "toneMapToSdr") limited.hdrTransfers = [];
+
+	const profileCap = preferences?.maxStreamingBitrateKbps ?? 0;
+	if (profileCap > 0) {
+		const clientCap = capabilities.maxBitrate && capabilities.maxBitrate > 0 ? capabilities.maxBitrate : profileCap;
+		limited.maxBitrate = Math.min(clientCap, profileCap);
+	}
+
+	return limited;
 }
 
 export function resolveSessionSelection(input: SessionSelectionInput): PlaybackSelection {
@@ -117,8 +136,7 @@ export function resolveSessionSelection(input: SessionSelectionInput): PlaybackS
 		durationSeconds: file.duration,
 		sourceFps: videoStream?.frameRate ? Number(videoStream.frameRate) : null,
 	};
-	// `toneMapToSdr` treats the client as unable to render HDR, so HDR sources transcode and tone-map instead of passing through.
-	const decisionCapabilities = preferences?.hdrMode === "toneMapToSdr" ? { ...capabilities, hdrTransfers: [] } : capabilities;
+	const decisionCapabilities = applyProfileLimits(capabilities, preferences);
 	const decision = decidePlaybackMode(decisionInfo, decisionCapabilities, effectiveAudioStream?.index, {
 		toneMapAvailable: resolveToneMapConfig().method !== "none",
 	});
