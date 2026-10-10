@@ -104,7 +104,7 @@ export class ScanFindingsRepository {
 		return { active: counts?.active ?? 0, ignored: counts?.ignored ?? 0 };
 	}
 
-	async find(libraryId: string, filePath: string): Promise<ScanFindingItem | null> {
+	async findByPath(libraryId: string, filePath: string): Promise<ScanFindingItem | null> {
 		const [finding] = await this.database
 			.getClient()
 			.select({ filePath: this.table.filePath, fileName: this.table.fileName, reason: this.table.reason })

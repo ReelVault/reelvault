@@ -110,14 +110,18 @@ describe("scanFindingsRepository", () => {
 		expect(await repository.list("lib-1", "ignored")).toEqual([]);
 	});
 
-	test("setIgnored and find report a missing finding", async () => {
+	test("setIgnored and findByPath report a missing finding", async () => {
 		const repository = createRepository();
 
 		expect(await repository.setIgnored("lib-1", "/media/missing.mkv", true)).toBe(false);
-		expect(await repository.find("lib-1", "/media/missing.mkv")).toBeNull();
+		expect(await repository.findByPath("lib-1", "/media/missing.mkv")).toBeNull();
 
 		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "probe_failed" });
-		expect(await repository.find("lib-1", "/media/a.mkv")).toEqual({ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "probe_failed" });
+		expect(await repository.findByPath("lib-1", "/media/a.mkv")).toEqual({
+			filePath: "/media/a.mkv",
+			fileName: "a.mkv",
+			reason: "probe_failed",
+		});
 	});
 
 	test("pruneStale also drops an ignored finding whose file is gone", async () => {

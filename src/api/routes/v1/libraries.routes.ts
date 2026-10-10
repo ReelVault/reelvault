@@ -11,6 +11,7 @@ import {
 	LibraryWithRelationsSchema,
 	OperationQueuedResponseSchema,
 	ProjectedResponseSchema,
+	ScanFindingCandidatesResponseSchema,
 	ScanFindingIgnoredResponseSchema,
 	ScanFindingStatusSchema,
 	ScanFindingsResponseSchema,
@@ -181,6 +182,21 @@ export const librariesRoutes = new Elysia({
 			detail: {
 				description:
 					"Ignore a scan finding until it is restored. An ignored finding stays ignored through later scans; `ignored: false` restores it.",
+			},
+		},
+	)
+	.get(
+		"/:libraryId/scan-findings/candidates",
+		async ({ params, query }) => await librariesService.getScanFindingCandidates(params.libraryId, query.filePath),
+		{
+			adminOnly: true,
+			rateLimit: { name: "library-scan-finding-candidates", max: 20, windowMs: MINUTE },
+			params: LibraryIdParams,
+			query: t.Object({ filePath: t.String({ minLength: 1 }) }),
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: ScanFindingCandidatesResponseSchema },
+			detail: {
+				description:
+					"Search the metadata providers for the title parsed from a finding's file name. Runs only when requested, never during a scan.",
 			},
 		},
 	)

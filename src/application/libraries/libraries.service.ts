@@ -14,6 +14,7 @@ import type {
 	LibraryWithRelations,
 	PaginatedResponse,
 	PaginationQuery,
+	ScanFindingCandidatesResponse,
 	ScanFindingIgnoredResponse,
 	ScanFindingStatus,
 	ScanFindingsResponse,
@@ -29,13 +30,16 @@ import { libraryProviderSettingsRepository } from "@/database/repositories/libra
 import { scanFindingsRepository } from "@/database/repositories/scan-findings.repository";
 import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
+import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
+import { providerService } from "@/plugins/capabilities/provider.service";
 import { BaseService } from "@/utils/base-service";
 import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
 import { runMediaCleanup } from "@/utils/server-data.utils";
+import { mapLibraryType } from "@/utils/type.utils";
 import {
 	createLibraryErrorsCheckDedupeKey,
 	enqueueLibraryErrorsCheck,
@@ -416,6 +420,30 @@ class LibrariesService extends BaseService {
 			);
 
 			return { filePath, ignored };
+		});
+	}
+
+	/** Searches the providers for the title parsed from a finding's file name. Runs on request only; only `no_metadata_match` findings are searched. */
+	async getScanFindingCandidates(libraryId: string, filePath: string): Promise<ScanFindingCandidatesResponse> {
+		return await this.safeExecute("getScanFindingCandidates", async () => {
+			const library = await this.getLibraryForScan(libraryId, { fields: "id,type" });
+			const finding = await scanFindingsRepository.findByPath(libraryId, filePath);
+			this.assertExists(finding, "Scan finding", filePath);
+
+			const identity = parseFileName(finding.fileName);
+			const searchTitle = identity?.title ?? null;
+			const searchYear = identity?.year ?? null;
+			if (finding.reason !== "no_metadata_match" || searchTitle === null) {
+				return { searchTitle, searchYear, candidates: [] };
+			}
+
+			const candidates = await providerService.search({
+				type: mapLibraryType(library.type),
+				title: searchTitle,
+				...(searchYear !== null ? { year: searchYear } : {}),
+			});
+
+			return { searchTitle, searchYear, candidates };
 		});
 	}
 
