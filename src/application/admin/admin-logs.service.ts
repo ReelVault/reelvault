@@ -323,6 +323,9 @@ class AdminLogsService extends BaseService {
 
 			return await this.logTailCache.getOrSet(filePath, () => this.readLogTailWindow(fileId));
 		} catch (error) {
+			// A log file that does not exist yet (fresh install, after a purge) is an empty log,
+			// not a failure: the dashboard reads logs alongside everything else.
+			if (isMissingFile(error)) return { lines: [], parsed: [], lowerLines: [], readOffset: 0, carry: "" };
 			if (error instanceof NotFoundError) throw error;
 
 			this.logger.error("Failed to read log file tail", error, { fileId, filePath });

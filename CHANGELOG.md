@@ -480,6 +480,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **Dashboard without a main log file** — before the first log entry was written (or after a purge) the admin dashboard and the log list answered `500`; a missing log file now reads as an empty log.
 - **Blocked accounts lose their API keys** — an API key kept full access after its owner was blocked. The key is now refused while the block holds; a timed block ends when its expiry passes.
 - **Anonymous session revocation** — `DELETE /v1/auth/sessions` answered `500` to a request without a session. It now answers `401`.
 - **Log file deletion** — deleting a log file that no longer exists answered `500`; it now answers `404`. An id that names the logs directory itself, or contains a NUL byte, is refused with a validation error.

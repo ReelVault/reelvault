@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { serverConfig } from "@/server.config";
 import { installSessionStub, prepareSecuritySuite, send } from "./security-harness";
@@ -79,4 +79,16 @@ test("a blank or dot-only log file id is refused as a bad request, not a server 
 		expect(response.status).toBeGreaterThanOrEqual(400);
 		expect(response.status).toBeLessThan(500);
 	}
+});
+
+test("a missing main log file reads as an empty log for the list and the dashboard, not as a failure", async () => {
+	const mainLog = join(serverConfig.paths.logs, "reelvault.log");
+	rmSync(mainLog, { force: true });
+
+	const list = await send("GET", "/v1/admin/logs", { role: "admin" });
+	const dashboard = await send("GET", "/v1/admin/dashboard-view", { role: "admin" });
+
+	expect(list.status).toBeLessThan(500);
+	expect(dashboard.status).toBeLessThan(500);
+	expect(dashboard.status).not.toBe(500);
 });
