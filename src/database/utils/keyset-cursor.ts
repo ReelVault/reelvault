@@ -24,11 +24,11 @@ export const KeysetCursor = {
 		try {
 			text = Buffer.from(value, "base64url").toString("utf8");
 		} catch {
-			throw new ValidationError("Invalid pagination cursor");
+			throw new ValidationError("Invalid pagination cursor", { code: "validation.invalid_cursor" });
 		}
 
 		const parsed = safeParseJson(text);
-		if (!isCreatedAtCursor(parsed)) throw new ValidationError("Invalid pagination cursor");
+		if (!isCreatedAtCursor(parsed)) throw new ValidationError("Invalid pagination cursor", { code: "validation.invalid_cursor" });
 
 		return parsed;
 	},
@@ -39,7 +39,7 @@ export const KeysetCursor = {
  * other sort order is a client error, not a silently ignored parameter.
  */
 export function decodeCursorFor(cursor: string | undefined, cursorMode: boolean, errorMessage: string): CreatedAtCursor | undefined {
-	if (cursor && !cursorMode) throw new ValidationError(errorMessage);
+	if (cursor && !cursorMode) throw new ValidationError(errorMessage, { code: "validation.cursor_not_supported" });
 
 	return cursor && cursorMode ? KeysetCursor.decode(cursor) : undefined;
 }

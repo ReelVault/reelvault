@@ -45,7 +45,10 @@ export const QueryFiltering = {
 		if (!ids || ids.length === 0) return undefined;
 
 		if (ids.length > serverConstants.database.filters.maxValues) {
-			throw new ValidationError(`Filter must not contain more than ${serverConstants.database.filters.maxValues} values`);
+			throw new ValidationError(`Filter must not contain more than ${serverConstants.database.filters.maxValues} values`, {
+				code: "validation.filter_too_many_values",
+				params: { max: serverConstants.database.filters.maxValues },
+			});
 		}
 
 		return inArray(
@@ -65,7 +68,10 @@ export const QueryFiltering = {
 
 		const values = trimAndFilter(value.split(","));
 		if (values.length > serverConstants.database.filters.maxValues) {
-			throw new ValidationError(`Filter must not contain more than ${serverConstants.database.filters.maxValues} values`);
+			throw new ValidationError(`Filter must not contain more than ${serverConstants.database.filters.maxValues} values`, {
+				code: "validation.filter_too_many_values",
+				params: { max: serverConstants.database.filters.maxValues },
+			});
 		}
 
 		return values;
