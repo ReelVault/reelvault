@@ -6,6 +6,7 @@ import { systemSettingsRepository } from "@/database/repositories/system-setting
 import { usersRepository } from "@/database/repositories/users.repository";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
+import { currentLogLevel, setLogLevel } from "@/utils/logger";
 import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body-cache";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { systemSettingsService } from "./system-settings.service";
@@ -73,6 +74,20 @@ describe("systemSettingsService.updateSettings validation", () => {
 
 		expect(setMany.calls.length).toBe(1);
 		expect(systemSettingsStore.get("stream.maxSessions")).toBe(8);
+	});
+});
+
+describe("systemSettingsService log level", () => {
+	test("a stored log level applies to the running logger without a restart", async () => {
+		stubSettingsPersistence();
+		const previous = currentLogLevel();
+		try {
+			await systemSettingsService.updateSettings({ "system.logs.level": "warn" });
+
+			expect(currentLogLevel()).toBe("warn");
+		} finally {
+			setLogLevel(previous);
+		}
 	});
 });
 

@@ -42,6 +42,20 @@ describe("serverConfig tool paths", () => {
 	});
 });
 
+describe("serverConfig worker time limits", () => {
+	afterEach(() => {
+		systemSettingsStore.clearRuntimeValues();
+	});
+
+	test("the library scan and download time limits follow the live settings", () => {
+		systemSettingsStore.setRuntimeValue("workers.definitions.libraryScan.timeoutMs", 5_400_000);
+		systemSettingsStore.setRuntimeValue("workers.definitions.downloadsProcess.timeoutMs", 3_600_000);
+
+		expect(serverConfig.workers.definitions.libraryScan.timeoutMs).toBe(5_400_000);
+		expect(serverConfig.workers.definitions.downloadsProcess.timeoutMs).toBe(3_600_000);
+	});
+});
+
 describe("serverConfig HLS segment length", () => {
 	afterEach(() => systemSettingsStore.clearRuntimeValues());
 

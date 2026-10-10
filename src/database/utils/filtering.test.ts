@@ -7,6 +7,18 @@ import { QueryFiltering } from "./filtering";
 const client = databaseFactory.getClient();
 
 describe("QueryFiltering", () => {
+	test("a filter with more values than the limit answers the too-many-values code with the limit", () => {
+		const ids = Array.from({ length: 501 }, (_, index) => `id-${index}`);
+		let caught: unknown;
+		try {
+			QueryFiltering.m2m(schema.genres.id, ids, schema.genres, schema.genres.id, schema.genres.id);
+		} catch (error) {
+			caught = error;
+		}
+
+		expect(caught).toMatchObject({ code: "validation.filter_too_many_values", params: { max: 500 } });
+	});
+
 	test("bounds comma-separated filter values", () => {
 		expect(() => QueryFiltering.parseCommaSeparated(Array.from({ length: 501 }, (_, index) => `id-${index}`).join(","))).toThrow(
 			"Filter must not contain more than 500 values",

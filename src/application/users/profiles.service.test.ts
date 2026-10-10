@@ -18,6 +18,44 @@ afterEach(() => {
 	profilesRepository.findByPrimaryId = originalFindByPrimaryId;
 });
 
+describe("profilesService.hasPin", () => {
+	test("reports whether the owned profile is PIN-protected", async () => {
+		const lookup = stubMethod(profilesRepository, "findByPrimaryId", () =>
+			Promise.resolve({ id: "profile-pin", userId: "user-pin", pin: hashProfilePin("1234") }),
+		);
+		try {
+			expect(await profilesService.hasPin("profile-pin", "user-pin")).toEqual({ hasPin: true });
+		} finally {
+			lookup.restore();
+		}
+	});
+
+	test("reports no PIN for a profile without one", async () => {
+		const lookup = stubMethod(profilesRepository, "findByPrimaryId", () =>
+			Promise.resolve({ id: "profile-open", userId: "user-open", pin: null }),
+		);
+		try {
+			expect(await profilesService.hasPin("profile-open", "user-open")).toEqual({ hasPin: false });
+		} finally {
+			lookup.restore();
+		}
+	});
+
+	test("refuses to say whether another account's profile has a PIN", async () => {
+		const lookup = stubMethod(profilesRepository, "findByPrimaryId", () =>
+			Promise.resolve({ id: "profile-other", userId: "someone-else", pin: null }),
+		);
+		try {
+			await expect(profilesService.hasPin("profile-other", "user-pin")).rejects.toMatchObject({
+				code: "profile.not_owned",
+				category: "forbidden",
+			});
+		} finally {
+			lookup.restore();
+		}
+	});
+});
+
 describe("profilesService.switch", () => {
 	test("answers with profile.pin_invalid (403) — not a 404 — when a PIN-protected profile is opened without a PIN", async () => {
 		profilesRepository.findByPrimaryId = fakeProfile({
