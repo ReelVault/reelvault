@@ -7,7 +7,11 @@ import { usersRepository } from "@/database/repositories/users.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { QueryPagination } from "@/database/utils/pagination";
 import { realtimeService } from "@/modules/realtime/realtime.service";
-import { dispatchNotificationToChannels } from "@/plugins/runtime/notification-channel.registry";
+import {
+	dispatchNotificationToChannels,
+	type NotificationChannelFailure,
+	onNotificationChannelFailure,
+} from "@/plugins/runtime/notification-channel.registry";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { BaseService } from "@/utils/base-service";
@@ -363,6 +367,16 @@ class NotificationsService extends BaseService {
 			});
 		}
 	}
+	/** Host-generated (no plugin attribution), so the report does not count against the plugin's daily limit. */
+	async notifyAdministratorsOfChannelFailure(failure: NotificationChannelFailure): Promise<void> {
+		await this.createForAdministrators({
+			type: "notification_channel_failed",
+			title: `Notification channel ${failure.channelId} of ${failure.pluginId} stopped delivering`,
+			message: failure.message,
+			data: { pluginId: failure.pluginId, channelId: failure.channelId },
+		});
+	}
+
 	/**
 	 * Sends the same notification to every administrator. A recipient that fails does not stop the others; the
 	 * first failure is rethrown once every administrator has been tried.
@@ -385,3 +399,8 @@ class NotificationsService extends BaseService {
 }
 
 export const notificationsService = new NotificationsService();
+
+// A channel that stops delivering tells the administrators once, with its error.
+onNotificationChannelFailure((failure) => {
+	detach(notificationsService.notifyAdministratorsOfChannelFailure(failure));
+});

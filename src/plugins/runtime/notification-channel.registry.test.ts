@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { OutgoingNotification } from "@reelvault/sdk/plugin";
 import {
 	dispatchNotificationToChannels,
+	onNotificationChannelFailure,
 	registerNotificationChannel,
 	unregisterPluginNotificationChannels,
 } from "./notification-channel.registry";
@@ -93,5 +94,33 @@ describe("notification channel registry", () => {
 
 		expect(() => registerNotificationChannel("plugin-a", channel("c1", seen))).toThrow("already registered");
 		unregister();
+	});
+
+	test("reports a channel once per failing streak and again after it recovers", async () => {
+		let healthy = false;
+		const flaky = {
+			id: "webhook",
+			deliver: () => (healthy ? Promise.resolve() : Promise.reject(new Error("503 from endpoint"))),
+		};
+		const unregister = registerNotificationChannel("plugin-streak", flaky);
+		const reports: string[] = [];
+		const stop = onNotificationChannelFailure((failure) => reports.push(`${failure.channelId}: ${failure.message}`));
+
+		try {
+			await dispatchNotificationToChannels(sample);
+			await dispatchNotificationToChannels(sample);
+			expect(reports).toEqual(["webhook: 503 from endpoint"]);
+
+			healthy = true;
+			await dispatchNotificationToChannels(sample);
+			expect(reports).toHaveLength(1);
+
+			healthy = false;
+			await dispatchNotificationToChannels(sample);
+			expect(reports).toHaveLength(2);
+		} finally {
+			stop();
+			unregister();
+		}
 	});
 });

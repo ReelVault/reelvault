@@ -8,6 +8,25 @@ const logger = createLogger("NotificationChannels");
 
 const channels = new Map<string, { pluginId: string; channel: PluginNotificationChannel }>();
 
+export interface NotificationChannelFailure {
+	pluginId: string;
+	channelId: string;
+	message: string;
+}
+
+type NotificationChannelFailureListener = (failure: NotificationChannelFailure) => void;
+
+const failureListeners = new Set<NotificationChannelFailureListener>();
+/** Channels whose last delivery failed. A failure is reported once per failing streak, so a channel that keeps failing stays quiet. */
+const failingChannels = new Set<string>();
+
+/** Hears about a channel that starts failing. Returns a function that stops listening. */
+export function onNotificationChannelFailure(listener: NotificationChannelFailureListener): () => void {
+	failureListeners.add(listener);
+
+	return () => failureListeners.delete(listener);
+}
+
 /** Returns an unregister function — scopes push it onto their unsubscribe stack. */
 export function registerNotificationChannel(pluginId: string, channel: PluginNotificationChannel): () => void {
 	const key = `${pluginId}:${channel.id}`;
@@ -20,13 +39,31 @@ export function registerNotificationChannel(pluginId: string, channel: PluginNot
 
 	channels.set(key, { pluginId, channel });
 
-	return () => channels.delete(key);
+	return () => {
+		channels.delete(key);
+		failingChannels.delete(key);
+	};
 }
 
 export function unregisterPluginNotificationChannels(pluginId: string): void {
 	for (const [key, entry] of channels) {
-		if (entry.pluginId === pluginId) channels.delete(key);
+		if (entry.pluginId !== pluginId) continue;
+
+		channels.delete(key);
+		failingChannels.delete(key);
 	}
+}
+
+function reportChannelFailure(key: string, entry: { pluginId: string; channel: PluginNotificationChannel }, error: unknown): void {
+	if (failingChannels.has(key)) return;
+
+	failingChannels.add(key);
+	const failure: NotificationChannelFailure = {
+		pluginId: entry.pluginId,
+		channelId: entry.channel.id,
+		message: error instanceof Error ? error.message : String(error),
+	};
+	for (const listener of failureListeners) listener(failure);
 }
 
 /**
@@ -47,8 +84,10 @@ export async function dispatchNotificationToChannels(notification: OutgoingNotif
 					serverConfig.plugins.notifications.channelDeliveryTimeoutMs,
 					`Notification channel ${key}`,
 				);
+				failingChannels.delete(key);
 			} catch (error) {
 				logger.warn("Notification channel delivery failed", { channelKey: key, pluginId: entry.pluginId, error });
+				reportChannelFailure(key, entry, error);
 			}
 		}),
 	);
