@@ -214,6 +214,44 @@ describe("library scan application task", () => {
 		expect(second.checkpoints.has("library-1")).toBe(false);
 	});
 
+	test("reports the enqueue progress after each saved chunk", async () => {
+		const { dependencies, ingested, refreshed } = createHarness({
+			scanResult: {
+				filePaths: ["/media/a", "/media/b", "/media/c"],
+				newFilePaths: ["/media/a", "/media/b", "/media/c"],
+				changedMediaFileIds: ["media-1", "media-2"],
+				removedFilePaths: [],
+			},
+		});
+		dependencies.enqueueMediaFileIngestBatch = (entries) => {
+			for (const entry of entries) ingested.push(entry.filePath);
+
+			return Promise.resolve({ id: "ingest-batch" });
+		};
+		dependencies.enqueueMediaFileRefreshBatch = (mediaFileIds) => {
+			for (const mediaFileId of mediaFileIds) refreshed.push(mediaFileId);
+
+			return Promise.resolve({ id: "refresh-batch" });
+		};
+		const progress: number[] = [];
+
+		await scanLibraryTask(
+			{ libraryId: "library-1", paths: ["/media"] },
+			{
+				correlationId: "scan-6",
+				updateProgress: (percent) => {
+					progress.push(percent);
+
+					return Promise.resolve();
+				},
+			},
+			dependencies,
+		);
+
+		// Five files are queued in total: the three ingests first (3 of 5), then the two refreshes (5 of 5).
+		expect(progress).toEqual([60, 100]);
+	});
+
 	test("prefers the batched enqueue and persists the cursor after each chunk", async () => {
 		const { dependencies, events, checkpoints, ingested, refreshed } = createHarness({
 			scanResult: {

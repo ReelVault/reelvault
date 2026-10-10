@@ -10,6 +10,8 @@ import type {
 	LibraryHealth,
 	LibraryHealthResponse,
 	LibraryPathHealth,
+	LibraryScanProgress,
+	LibraryScanProgressResponse,
 	LibrarySorting,
 	LibraryWithRelations,
 	PaginatedResponse,
@@ -444,6 +446,19 @@ class LibrariesService extends BaseService {
 			});
 
 			return { searchTitle, searchYear, candidates };
+		});
+	}
+
+	/** Each library's queued or running scan. A running scan is reported in place of a queued one for the same library. */
+	async getScanProgress(): Promise<LibraryScanProgressResponse> {
+		return await this.safeExecute("getScanProgress", async () => {
+			const byLibrary = new Map<string, LibraryScanProgress>();
+			for (const scan of await workerOperationRepository.findActiveLibraryScans()) {
+				const current = byLibrary.get(scan.libraryId);
+				if (!current || (current.status === "pending" && scan.status === "running")) byLibrary.set(scan.libraryId, scan);
+			}
+
+			return { data: [...byLibrary.values()] };
 		});
 	}
 

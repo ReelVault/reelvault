@@ -14,6 +14,8 @@ export interface ApplicationContext {
 	logger?: Logger | undefined;
 	/** Re-arms the execution timeout (see WorkerHandlerContext.extendTimeout). */
 	extendTimeout?: ((additionalMs: number) => void) | undefined;
+	/** Reports the job's percent to its operation (see WorkerHandlerContext.updateProgress). */
+	updateProgress?: ((percent: number) => Promise<void>) | undefined;
 }
 
 export function toDomainError(error: unknown, fallbackMessage: string): DomainError {

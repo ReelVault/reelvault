@@ -7,6 +7,7 @@ import {
 	LibraryHealthResponseSchema,
 	LibraryScanAllResponseSchema,
 	LibraryScanCancelResponseSchema,
+	LibraryScanProgressResponseSchema,
 	LibrarySortingSchema,
 	LibraryWithRelationsSchema,
 	OperationQueuedResponseSchema,
@@ -62,6 +63,15 @@ export const librariesRoutes = new Elysia({
 			},
 		},
 	)
+	.get("/scan-progress", async () => await librariesService.getScanProgress(), {
+		adminOnly: true,
+		rateLimit: { name: "library-scan-progress", max: 120, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: LibraryScanProgressResponseSchema },
+		detail: {
+			description:
+				"Each library with a queued or running scan and its progress. The percent is null while the scan discovers files; afterwards it is the share of the enqueued work already handed to the queues.",
+		},
+	})
 	.get("/health", async () => await librariesService.getHealth(), {
 		adminOnly: true,
 		rateLimit: { name: "library-health", max: 30, windowMs: MINUTE },

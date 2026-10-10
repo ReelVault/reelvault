@@ -104,6 +104,25 @@ class WorkerOperationRepository {
 		return result;
 	}
 
+	/** Queued and running library scans, newest first, with the progress each has reported. */
+	async findActiveLibraryScans(): Promise<Array<{ libraryId: string; status: "pending" | "running"; progressPercent: number | null }>> {
+		const rows = await databaseFactory
+			.getClient()
+			.select({ referenceId: operations.referenceId, status: operations.status, progressPercent: operations.progressPercent })
+			.from(operations)
+			.where(and(eq(operations.type, "library-scanning"), inArray(operations.status, ["pending", "running"])))
+			.orderBy(desc(operations.createdAt));
+
+		const scans: Array<{ libraryId: string; status: "pending" | "running"; progressPercent: number | null }> = [];
+		for (const row of rows) {
+			if (!row.referenceId || (row.status !== "pending" && row.status !== "running")) continue;
+
+			scans.push({ libraryId: row.referenceId, status: row.status, progressPercent: row.progressPercent });
+		}
+
+		return scans;
+	}
+
 	async list(
 		options: { status?: WorkerOperationStatus | "active" | undefined; limit?: number | undefined; offset?: number | undefined } = {},
 	): Promise<{ data: WorkerOperation[]; total: number }> {

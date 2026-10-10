@@ -109,11 +109,13 @@ export interface LibraryScanOrchestration {
 export const libraryScanWorker = createWorkerDefinition<LibraryScanData>(
 	"library-scan",
 	() => serverConfig.workers.definitions.libraryScan,
-	async ({ data, logger, signal, operationId, taskId, extendTimeout }) =>
-		await scanLibraryTask(data, { signal, logger, operationId, correlationId: operationId, taskId, extendTimeout }, defaultDependencies, {
-			operationId,
-			taskId,
-		}),
+	async ({ data, logger, signal, operationId, taskId, extendTimeout, updateProgress }) =>
+		await scanLibraryTask(
+			data,
+			{ signal, logger, operationId, correlationId: operationId, taskId, extendTimeout, updateProgress },
+			defaultDependencies,
+			{ operationId, taskId },
+		),
 );
 
 // ─── Task Function ────────────────────────────────────────────────────────────
@@ -203,13 +205,32 @@ async function resolveScanWorkload(
 }
 
 /** Only the cursors change per batch — rewriting the full path arrays each
- * time made checkpoint I/O quadratic in the file count. */
-async function persistScanCursors(state: ScanEnqueueState, libraryId: string, dependencies: LibraryScanTaskDependencies): Promise<void> {
+ * time made checkpoint I/O quadratic in the file count. The enqueue progress
+ * is reported right after each save. */
+async function persistScanCursors(
+	state: ScanEnqueueState,
+	libraryId: string,
+	dependencies: LibraryScanTaskDependencies,
+	context: ApplicationContext,
+): Promise<void> {
 	if (dependencies.updateCheckpointCursors) {
 		await dependencies.updateCheckpointCursors(libraryId, { ingestCursor: state.ingestCursor, refreshCursor: state.refreshCursor });
 	} else {
 		await dependencies.saveCheckpoint(libraryId, { ...state });
 	}
+	await reportEnqueueProgress(state, context);
+}
+
+/**
+ * Percent of the enqueue workload already handed to the queues. Discovery has no
+ * total yet, so a scan reports nothing until its enqueue phase starts.
+ */
+async function reportEnqueueProgress(state: ScanEnqueueState, context: ApplicationContext): Promise<void> {
+	const total = state.newFilePaths.length + state.changedMediaFileIds.length;
+	if (total === 0) return;
+
+	const done = state.ingestCursor + state.refreshCursor;
+	await context.updateProgress?.(Math.min(100, Math.floor((done * 100) / total)));
 }
 
 /**
@@ -268,7 +289,7 @@ async function enqueueIngestWork(
 					)
 			: undefined,
 		(filePath) => dependencies.enqueueMediaFileIngest({ libraryId: data.libraryId, libraryType, filePath }, taskScheduling),
-		() => persistScanCursors(state, data.libraryId, dependencies),
+		() => persistScanCursors(state, data.libraryId, dependencies, context),
 		context,
 	);
 }
@@ -290,7 +311,7 @@ async function enqueueRefreshWork(
 		},
 		enqueueBatch ? (chunk) => enqueueBatch(chunk, taskScheduling, context.signal) : undefined,
 		(mediaFileId) => dependencies.enqueueMediaFileRefresh(mediaFileId, taskScheduling),
-		() => persistScanCursors(state, data.libraryId, dependencies),
+		() => persistScanCursors(state, data.libraryId, dependencies, context),
 		context,
 	);
 }
