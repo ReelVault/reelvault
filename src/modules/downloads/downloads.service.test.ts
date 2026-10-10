@@ -78,6 +78,7 @@ const update = spyOn(downloadsRepository, "update").mockResolvedValue(undefined)
 const deleteRow = spyOn(downloadsRepository, "delete").mockResolvedValue(undefined);
 const countProcessing = spyOn(downloadsRepository, "countProcessingByProfile").mockResolvedValue(0);
 const countPending = spyOn(downloadsRepository, "countPendingByProfile").mockResolvedValue(0);
+const hasActive = spyOn(downloadsRepository, "hasActiveByProfileAndMedia").mockResolvedValue(false);
 const findPending = spyOn(downloadsRepository, "findPendingByProfile").mockResolvedValue([row()]);
 const claim = spyOn(downloadsRepository, "claimForProcessing").mockResolvedValue(true);
 const storageUsed = spyOn(downloadsRepository, "storageUsedByProfile").mockResolvedValue(0);
@@ -95,6 +96,7 @@ beforeEach(() => {
 	deleteRow.mockClear();
 	countProcessing.mockClear().mockResolvedValue(0);
 	countPending.mockClear().mockResolvedValue(0);
+	hasActive.mockClear().mockResolvedValue(false);
 	findPending.mockClear().mockResolvedValue([row()]);
 	claim.mockClear().mockResolvedValue(true);
 	storageUsed.mockClear().mockResolvedValue(0);
@@ -140,6 +142,15 @@ describe("DownloadsService.prepare", () => {
 		expect(insert).toHaveBeenCalled();
 		expect(addItem).not.toHaveBeenCalled();
 		countProcessing.mockResolvedValue(0);
+	});
+
+	test("refuses a second copy of a download the profile already has waiting or running", async () => {
+		hasActive.mockResolvedValue(true);
+		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
+			code: "downloads.in_progress",
+			category: "conflict",
+		});
+		expect(insert).not.toHaveBeenCalled();
 	});
 
 	test("refuses a download once the profile has too many waiting", async () => {
@@ -417,6 +428,29 @@ describe("DownloadsService.queueSeason", () => {
 			expect(insert).toHaveBeenCalledWith(expect.objectContaining({ mediaFileId: "file-1" }));
 		} finally {
 			systemSettingsStore.clearRuntimeValues();
+			restoreSeason.restore();
+			restoreEpisodes.restore();
+		}
+	});
+
+	test("reports an episode that is already downloading by its code and queues the rest of the season", async () => {
+		const restoreSeason = stubMethod(seasonsRepository, "findByPrimaryId", () => Promise.resolve({ id: "season-1", metadataId: "show-1" }));
+		const restoreEpisodes = stubMethod(episodesRepository, "findEpisodesWithFilesByMetadataId", () =>
+			Promise.resolve([
+				{ id: "ep-1", seasonId: "season-1", mediaFileId: "file-1", mediaFileIsDefault: true, mediaFileSize: 10 },
+				{ id: "ep-2", seasonId: "season-1", mediaFileId: "file-2", mediaFileIsDefault: true, mediaFileSize: 10 },
+			]),
+		);
+		hasActive.mockImplementation((_profileId: string, mediaFileId: string) => Promise.resolve(mediaFileId === "file-2"));
+		try {
+			expect(await downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, () => Promise.resolve())).toEqual({
+				results: [
+					{ id: "ep-1", ok: true },
+					{ id: "ep-2", ok: false, code: "downloads.in_progress" },
+				],
+			});
+		} finally {
+			hasActive.mockResolvedValue(false);
 			restoreSeason.restore();
 			restoreEpisodes.restore();
 		}

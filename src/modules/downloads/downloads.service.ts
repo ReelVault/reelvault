@@ -97,6 +97,10 @@ class DownloadsService extends BaseService {
 				throw new ValidationError("Transcoded download requires a known file duration", { code: "downloads.duration_unknown" });
 			}
 
+			if (await downloadsRepository.hasActiveByProfileAndMedia(profileId, mediaFileId)) {
+				throw new ConflictError("This title is already downloading for this profile", { code: "downloads.in_progress" });
+			}
+
 			if ((await downloadsRepository.countPendingByProfile(profileId)) >= MAX_QUEUED_DOWNLOADS_PER_PROFILE) {
 				throw new ConflictError("This profile already has too many downloads waiting", { code: "downloads.queue_full" });
 			}

@@ -163,6 +163,24 @@ const overrides = {
 		return rows[0]?.count ?? 0;
 	},
 
+	/** True while the profile has this file waiting or running: a second copy of the same download would repeat the work. */
+	async hasActiveByProfileAndMedia(profileId: string, mediaFileId: string): Promise<boolean> {
+		const rows = await databaseFactory
+			.getClient()
+			.select({ id: downloads.table.id })
+			.from(downloads.table)
+			.where(
+				and(
+					eq(downloads.table.profileId, profileId),
+					eq(downloads.table.mediaFileId, mediaFileId),
+					inArray(downloads.table.status, ["pending", "processing"]),
+				),
+			)
+			.limit(1);
+
+		return rows.length > 0;
+	},
+
 	/** The profile's waiting downloads, oldest first: the next ones to start as running slots free up. */
 	async findPendingByProfile(profileId: string, limit: number): Promise<DownloadRow[]> {
 		return await databaseFactory

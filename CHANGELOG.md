@@ -480,6 +480,8 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 - **Admin statistics count interrupted playback** — a playback that ends before its title is finished counts in the admin analytics (plays, watch time, leaderboard, top titles and recent plays) once it has played at least `system.analytics.minPlaySeconds` (new admin setting, default 60 s, 0–3600). `completedPlaysCount` in `GET /admin/analytics` tells the finished plays apart from `totalPlaysCount`. Watch history and insights are unchanged, and interrupted sessions follow the watched-history retention setting.
 
+- **Duplicate downloads are refused** — requesting a title that the profile already has waiting or downloading answers `downloads.in_progress` (409) instead of queuing a second copy. A season reports such episodes one by one and still queues the rest.
+
 ### Fixes
 
 - **Admin leaderboard last-played date** — the last-played date of each user in the admin leaderboard read the stored epoch seconds as milliseconds, so it showed a date in 1970.
