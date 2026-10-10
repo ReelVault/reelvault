@@ -467,6 +467,8 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **Collections keep merged titles** — merging two versions of a title moves the source's collection memberships to the target, so the title no longer drops out of its collections. A collection that already listed the target keeps the target's entry.
+
 - **Admin user list and creation status** — the user list clamps a page below 1 to the first page instead of rejecting it, and creating a user answers `201 Created`.
 - **Wrong year for titles containing a year** — "Blade Runner 2049 (2017).mkv" was recognised as "Blade Runner" (2049) because the first year-like number won. The last year before the release tags now wins, so the title keeps its own number.
 - **Year-first file names were not recognised** — `(1993) Jurassic Park` and `1993 - Jurassic Park` ended up with the year inside the title and no release year, which made provider matching fail.

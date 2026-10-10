@@ -95,6 +95,7 @@ class MetadataMergeRepository {
 
 				await this.mergeJunctionTable(schema.watchlist, targetId, sourceId, tx);
 				await this.mergeJunctionTable(schema.userRatings, targetId, sourceId, tx);
+				await this.mergeCollectionMemberships(targetId, sourceId, tx);
 				await metadataRepository.delete({ primaryId: sourceId, tx });
 			},
 			{ immediate: true },
@@ -174,6 +175,32 @@ class MetadataMergeRepository {
 		await forEachChunked(plan.deleteSeasonIds, (idChunk) => client.delete(schema.seasons).where(inArray(schema.seasons.id, idChunk)));
 
 		await client.update(schema.mediaFiles).set({ metadataId: targetId }).where(eq(schema.mediaFiles.metadataId, sourceId));
+	}
+
+	/**
+	 * Moves the source's collection memberships to the target, keeping their place. A collection that already holds the target
+	 * keeps the target's entry; the source's entry there goes with the source row.
+	 */
+	private async mergeCollectionMemberships(targetId: string, sourceId: string, tx: DatabaseTransaction) {
+		const client = databaseFactory.getClient({ tx });
+		const [targetRows, sourceRows] = await Promise.all([
+			client
+				.select({ collectionId: schema.metadataCollections.collectionId })
+				.from(schema.metadataCollections)
+				.where(eq(schema.metadataCollections.metadataId, targetId)),
+			client
+				.select({ collectionId: schema.metadataCollections.collectionId })
+				.from(schema.metadataCollections)
+				.where(eq(schema.metadataCollections.metadataId, sourceId)),
+		]);
+		const existing = new Set(targetRows.map((row) => row.collectionId));
+		const transferIds = sourceRows.map((row) => row.collectionId).filter((collectionId) => !existing.has(collectionId));
+		if (transferIds.length === 0) return;
+
+		await client
+			.update(schema.metadataCollections)
+			.set({ metadataId: targetId })
+			.where(and(eq(schema.metadataCollections.metadataId, sourceId), inArray(schema.metadataCollections.collectionId, transferIds)));
 	}
 
 	private async mergeJunctionTable(
