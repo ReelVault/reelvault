@@ -19,7 +19,7 @@ import type {
 import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
-import { fallbackEpisodeExternalId, fallbackSeasonExternalId, refreshBulkItem } from "@/application/catalog/catalog.utils";
+import { fallbackEpisodeExternalId, fallbackSeasonExternalId, runBulkItem } from "@/application/catalog/catalog.utils";
 import { resolveLibraryLanguage } from "@/application/catalog/metadata/library-metadata-language";
 import { createFromProvider, processPersonImages } from "@/application/catalog/metadata/metadata-create.utils";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
@@ -39,12 +39,13 @@ import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
+import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { errorCodeOf } from "@/utils/error-codes.utils";
-import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { ConflictError, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -301,7 +302,7 @@ class MediaService extends BaseService {
 		return await this.safeExecute("refreshMany", async () => {
 			const results: BulkRefreshItem[] = [];
 			for (const mediaFileId of new Set(mediaFileIds)) {
-				results.push(await refreshBulkItem(mediaFileId, () => this.refresh(mediaFileId, context), "media_file.refresh_failed"));
+				results.push(await runBulkItem(mediaFileId, () => this.refresh(mediaFileId, context), "media_file.refresh_failed"));
 			}
 
 			return { results };
@@ -684,6 +685,30 @@ class MediaService extends BaseService {
 				progressPercent: operation.progressPercent,
 				result,
 			};
+		});
+	}
+
+	/**
+	 * Removes the listed media file records one after another; each id reports its own outcome. Files a stream is playing are
+	 * held back unless `force` is set, because deleting the record ends that playback.
+	 */
+	async deleteMany(mediaFileIds: string[], options: { force?: boolean | undefined } = {}, context?: AdminAuditContext) {
+		return await this.safeExecute("deleteMany", async () => {
+			const ids = [...new Set(mediaFileIds)];
+			const activeStreams = streamingManager.getAllActiveSessions().filter((session) => ids.includes(session.mediaFileId)).length;
+			if (activeStreams > 0 && options.force !== true) {
+				throw new ConflictError("Delete is blocked while streams are playing these files", {
+					code: "media.delete_blocked_active_streams",
+					params: { activeStreams },
+				});
+			}
+
+			const results: BulkRefreshItem[] = [];
+			for (const id of ids) {
+				results.push(await runBulkItem(id, () => this.delete(id, context), "media.delete_failed"));
+			}
+
+			return { results };
 		});
 	}
 

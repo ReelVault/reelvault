@@ -52,10 +52,10 @@ export function invalidateCatalogLists(): void {
 }
 
 /**
- * Runs one item of a bulk refresh. A failure becomes the item's code (a domain error keeps its own code), so one
+ * Runs one item of a bulk action. A failure becomes the item's code (a domain error keeps its own code), so one
  * bad item never stops the rest of the selection, and no exception text is returned.
  */
-export async function refreshBulkItem(id: string, refresh: () => Promise<unknown>, fallbackCode: string): Promise<BulkRefreshItem> {
+export async function runBulkItem(id: string, refresh: () => Promise<unknown>, fallbackCode: string): Promise<BulkRefreshItem> {
 	try {
 		await refresh();
 

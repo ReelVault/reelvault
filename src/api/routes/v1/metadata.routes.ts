@@ -1,4 +1,6 @@
 import {
+	BulkDeleteBodySchema,
+	BulkDeleteResultSchema,
 	BulkRefreshBodySchema,
 	BulkRefreshResultSchema,
 	CreateMetadataSchema,
@@ -252,6 +254,20 @@ export const metadataRoutes = new Elysia({
 			description: "Retrieve a list of metadata entries similar to the specified one, based on various shared attributes.",
 		},
 	})
+	.post(
+		"/bulk-delete",
+		async ({ body, user, request }) =>
+			await metadataService.deleteMany(body.ids, { force: body.force }, { actorUserId: user?.id, headers: request.headers }),
+		{
+			adminOnly: true,
+			rateLimit: { name: "metadata-bulk-delete", max: 10, windowMs: MINUTE },
+			body: BulkDeleteBodySchema,
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkDeleteResultSchema },
+			detail: {
+				description: "Remove up to 50 titles in turn. A title is held back while a stream plays one of its files, unless force is set.",
+			},
+		},
+	)
 	.post("/bulk-refresh-images", async ({ body }) => await metadataService.refreshImagesMany(body.ids), {
 		adminOnly: true,
 		rateLimit: {

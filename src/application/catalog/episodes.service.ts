@@ -7,7 +7,7 @@ import { imageProcessingService } from "@/modules/images/image-processing.servic
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { NotFoundError } from "@/utils/errors";
-import { findFirstProviderResult, invalidateCatalogLists, mapProviderLinks, refreshBulkItem } from "./catalog.utils";
+import { findFirstProviderResult, invalidateCatalogLists, mapProviderLinks, runBulkItem } from "./catalog.utils";
 import { DictionaryReadService } from "./dictionary-crud.service";
 
 class EpisodesService extends DictionaryReadService<EpisodeWithRelations, EpisodeFilters, EpisodeSorting, typeof episodesRepository> {
@@ -83,7 +83,7 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 		return await this.safeExecute("refreshMany", async () => {
 			const results: BulkRefreshItem[] = [];
 			for (const episodeId of new Set(episodeIds)) {
-				results.push(await refreshBulkItem(episodeId, () => this.refresh(episodeId), "episode.refresh_failed"));
+				results.push(await runBulkItem(episodeId, () => this.refresh(episodeId), "episode.refresh_failed"));
 			}
 
 			return { results };

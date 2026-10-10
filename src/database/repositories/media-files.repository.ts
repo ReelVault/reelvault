@@ -911,6 +911,20 @@ class MediaRepository {
 
 		return deleted;
 	}
+	/** Media file ids of the given titles; a title's delete is held back while a stream plays one of these files. */
+	async findIdsByMetadataIds(metadataIds: readonly string[]): Promise<string[]> {
+		if (metadataIds.length === 0) return [];
+
+		const rows = await mapChunked([...metadataIds], (idChunk) =>
+			databaseFactory
+				.getClient()
+				.select({ id: schema.mediaFiles.id })
+				.from(schema.mediaFiles)
+				.where(inArray(schema.mediaFiles.metadataId, idChunk)),
+		);
+
+		return rows.map((row) => row.id);
+	}
 }
 
 export const mediaRepository = new MediaRepository();

@@ -37,19 +37,20 @@ import { imageProcessingService } from "@/modules/images/image-processing.servic
 import { imageUploadService } from "@/modules/images/image-upload.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
+import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { groupBy, toMap } from "@/utils/array.utils";
 import { BaseService } from "@/utils/base-service";
-import { errorMessage, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { ConflictError, errorMessage, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
 import { rankImageOptions } from "@/utils/image-storage.utils";
 import { clamp } from "@/utils/math.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { runMediaCleanup } from "@/utils/server-data.utils";
-import { fetchSeason, mapProviderLinks, refreshBulkItem } from "../catalog.utils";
+import { fetchSeason, mapProviderLinks, runBulkItem } from "../catalog.utils";
 import { resolveMetadataLanguage } from "./library-metadata-language";
 import { metadataRefreshService } from "./metadata-refresh.runtime";
 import { syncSeasonsAndEpisodes } from "./season-sync.utils";
@@ -466,6 +467,31 @@ class MetadataService extends BaseService {
 		return updated;
 	}
 
+	/**
+	 * Removes the listed titles one after another; each id reports its own outcome. A title whose files a stream is playing is
+	 * held back unless `force` is set, because its files lose their title while playing.
+	 */
+	async deleteMany(metadataIds: string[], options: { force?: boolean | undefined } = {}, context?: AdminAuditContext) {
+		return await this.safeExecute("deleteMany", async () => {
+			const ids = [...new Set(metadataIds)];
+			const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds(ids));
+			const activeStreams = streamingManager.getAllActiveSessions().filter((session) => linkedFileIds.has(session.mediaFileId)).length;
+			if (activeStreams > 0 && options.force !== true) {
+				throw new ConflictError("Delete is blocked while streams are playing these titles", {
+					code: "metadata.delete_blocked_active_streams",
+					params: { activeStreams },
+				});
+			}
+
+			const results: BulkRefreshItem[] = [];
+			for (const id of ids) {
+				results.push(await runBulkItem(id, () => this.delete(id, context), "metadata.delete_failed"));
+			}
+
+			return { results };
+		});
+	}
+
 	async delete(metadataId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
 		return await this.safeExecute("delete", async () => {
 			const metadata = await metadataRepository.findByIdForRead(metadataId);
@@ -586,7 +612,7 @@ class MetadataService extends BaseService {
 			const results: BulkRefreshItem[] = [];
 			for (const metadataId of new Set(metadataIds)) {
 				results.push(
-					await refreshBulkItem(metadataId, () => this.refreshImages(metadataId, { force: true }), "metadata.refresh_images_failed"),
+					await runBulkItem(metadataId, () => this.refreshImages(metadataId, { force: true }), "metadata.refresh_images_failed"),
 				);
 			}
 

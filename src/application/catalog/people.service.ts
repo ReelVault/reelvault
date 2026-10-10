@@ -2,7 +2,7 @@ import type { BulkRefreshItem, CreatePerson, PersonFilters, PersonSorting, Perso
 import { peopleRepository } from "@/database/repositories/people.repository";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { findFirstProviderResult, invalidateCatalogLists, refreshBulkItem } from "./catalog.utils";
+import { findFirstProviderResult, invalidateCatalogLists, runBulkItem } from "./catalog.utils";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 
 class PeopleService extends DictionaryCrudService<
@@ -63,7 +63,7 @@ class PeopleService extends DictionaryCrudService<
 		return await this.safeExecute("refreshMany", async () => {
 			const results: BulkRefreshItem[] = [];
 			for (const personId of new Set(personIds)) {
-				results.push(await refreshBulkItem(personId, () => this.refresh(personId), "person.refresh_failed"));
+				results.push(await runBulkItem(personId, () => this.refresh(personId), "person.refresh_failed"));
 			}
 
 			return { results };

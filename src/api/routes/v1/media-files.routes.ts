@@ -1,4 +1,6 @@
 import {
+	BulkDeleteBodySchema,
+	BulkDeleteResultSchema,
 	BulkRefreshBodySchema,
 	BulkRefreshResultSchema,
 	CreateMediaFileSchema,
@@ -93,6 +95,21 @@ export const mediaFilesRoutes = new Elysia({
 			response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Queue a refresh of technical data and linked metadata for all media files.",
+			},
+		},
+	)
+	.post(
+		"/bulk-delete",
+		async ({ body, user, request }) =>
+			await mediaService.deleteMany(body.ids, { force: body.force }, { actorUserId: user?.id, headers: request.headers }),
+		{
+			adminOnly: true,
+			rateLimit: { name: "media-files-bulk-delete", max: 10, windowMs: MINUTE },
+			body: BulkDeleteBodySchema,
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkDeleteResultSchema },
+			detail: {
+				description:
+					"Remove up to 50 media file records in turn. A delete is held back while a stream plays one of the files, unless force is set.",
 			},
 		},
 	)
