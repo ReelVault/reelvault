@@ -543,3 +543,4 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Episodes missing their overview** — a season payload can list an episode without its overview; the import now also asks for the single episode and takes its overview when it has one.
 - **Provider cache TTL applies without a restart** — changing `plugins.providers.detailsCacheTtlMs` only took effect after a restart, because the provider result caches read their TTL once. They are rebuilt when the setting changes.
 - **Failed database backups report their own code** — a backup that could not be written answered a generic internal error. It now answers `database.backup_failed` with the exit status of the backup process; the detail stays in the server log.
+- **Ended playback sessions link to their log** — the log link of a session that had already ended answered `404`. The archive is now built from the FFmpeg logs of that session's operation, as it is for a live session.

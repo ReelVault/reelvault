@@ -8,6 +8,8 @@ export interface EndedLiveSession {
 	reason: string;
 	startedAt: number;
 	endedAt: number;
+	/** The FFmpeg operation that wrote the session's logs; those log files are named after it. */
+	operationId?: string | undefined;
 }
 
 /** In memory and bounded: a long-running server keeps only the latest endings for the admin view. */

@@ -90,7 +90,14 @@ describe("session reaper", () => {
 		expect(store.getTerminatedSession("s1")?.reason).toBe("admin-stop");
 		expect(store.isProfileTerminatedRecently("profile-1", "file-s1", 1_000)).toEqual({ reason: "admin-stop" });
 		expect(ended).toEqual([
-			{ sessionId: "s1", mediaFileId: "file-s1", profileId: "profile-1", reason: "admin-stop", startedAt: expect.any(Number) },
+			{
+				sessionId: "s1",
+				mediaFileId: "file-s1",
+				profileId: "profile-1",
+				reason: "admin-stop",
+				startedAt: expect.any(Number),
+				operationId: "op-1",
+			},
 		]);
 		expect(implicitSeekInvalidations).toEqual(["s1"]);
 	});

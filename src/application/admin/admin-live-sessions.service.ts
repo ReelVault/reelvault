@@ -11,7 +11,7 @@ import type { AdminAuditContext } from "@/database/repositories/admin-audit.repo
 import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { realtimeService } from "@/modules/realtime/realtime.service";
-import { endedSessionHistory } from "@/modules/streaming/runtime/ended-session-history";
+import { ENDED_SESSION_HISTORY_LIMIT, endedSessionHistory } from "@/modules/streaming/runtime/ended-session-history";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { computeProgressPercent } from "@/modules/streaming/utils/playback-position.utils";
 import { serverConfig } from "@/server.config";
@@ -273,18 +273,21 @@ class AdminLiveSessionsService extends BaseService {
 		return { terminated, failed, results };
 	}
 
-	/** The FFmpeg logs of an active session as one zip, with a timeline of its runs. */
+	/** The FFmpeg logs of a live or recently ended session as one zip, with a timeline of its runs. */
 	async getSessionLog(sessionId: string): Promise<{ data: Uint8Array<ArrayBuffer>; filename: string }> {
 		return await this.safeExecute("getSessionLog", async () => {
-			const session = streamingManager.getAllActiveSessions().find((item) => item.id === sessionId);
-			if (!session) {
-				throw new NotFoundError(`Active session not found: ${sessionId}`, {
+			const active = streamingManager.getAllActiveSessions().find((item) => item.id === sessionId);
+			// An ended session is no longer active; its history entry names the operation its logs were written under.
+			const ended = active ? undefined : endedSessionHistory.list(ENDED_SESSION_HISTORY_LIMIT).find((item) => item.sessionId === sessionId);
+			if (!(active || ended)) {
+				throw new NotFoundError(`Session not found: ${sessionId}`, {
 					code: "stream.session_not_found",
 					params: { sessionId },
 				});
 			}
 
-			const { files, truncated } = await readSessionLogFiles(sessionLogSegments(sessionId, session.operationId));
+			const operationId = active ? active.operationId : ended?.operationId;
+			const { files, truncated } = await readSessionLogFiles(sessionLogSegments(sessionId, operationId));
 			const zipped = buildSessionLogArchive(sessionId, files, truncated);
 
 			// A fresh buffer keeps the view narrow (`Uint8Array<ArrayBuffer>`), which the Response body type requires.

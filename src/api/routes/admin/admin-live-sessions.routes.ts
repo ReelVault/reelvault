@@ -70,7 +70,7 @@ export const adminLiveSessionsRoutes = adminShell({ prefix: "/live-activity", ta
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: t.Any() },
 			detail: {
 				description:
-					"Download the FFmpeg logs of an active playback session as a zip: every operation log the session wrote, plus a timeline.json of its runs (start, end, exit code and error).",
+					"Download the FFmpeg logs of a live or recently ended playback session as a zip: every operation log the session wrote, plus a timeline.json of its runs (start, end, exit code and error).",
 			},
 		},
 	)

@@ -26,8 +26,8 @@ export function registerStreamingLifecycle(): void {
 			// not receive session ids or media ids.
 			realtimeService.sendToProfile(profileId, "playback:session:started", { sessionId, mediaFileId });
 		},
-		onSessionEnded: ({ sessionId, mediaFileId, profileId, reason, startedAt }) => {
-			endedSessionHistory.record({ sessionId, mediaFileId, profileId, reason, startedAt, endedAt: Date.now() });
+		onSessionEnded: ({ sessionId, mediaFileId, profileId, reason, startedAt, operationId }) => {
+			endedSessionHistory.record({ sessionId, mediaFileId, profileId, reason, startedAt, operationId, endedAt: Date.now() });
 			pluginEventBus.publish("playback.session.ended", { sessionId, mediaFileId, reason });
 			pluginEventBus.publish("playback.lifecycle.stopped", {
 				sessionId,

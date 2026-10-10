@@ -187,6 +187,7 @@ export class SessionReaper {
 							mediaFileId: session.mediaFileId,
 							profileId: session.profileId,
 							reason,
+							operationId: session.operationId,
 						});
 					} catch (error) {
 						this.logger.error("Playback session end callback failed", error, { sessionId });
