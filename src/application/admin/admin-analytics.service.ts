@@ -19,7 +19,9 @@ class AdminAnalyticsService extends BaseService {
 
 	async getAnalytics(days?: number): Promise<AdminAnalytics> {
 		const clampedDays = days ? clamp(Math.trunc(days), 1, MAX_ANALYTICS_DAYS) : undefined;
-		const cacheKey = `days:${clampedDays ?? "all"}`;
+		// The minimum is part of the key, so a changed setting shows on the next read instead of after the TTL.
+		const minInterruptedSeconds = serverConfig.analytics.minPlaySeconds;
+		const cacheKey = `days:${clampedDays ?? "all"}:min:${minInterruptedSeconds}`;
 
 		return await this.cache.getOrSet(cacheKey, async () => {
 			const now = new Date();
@@ -30,8 +32,8 @@ class AdminAnalyticsService extends BaseService {
 				: new Date(now.getTime() - serverConfig.analytics.windowDays * DAY);
 
 			const [globalData, topContentRaw] = await Promise.all([
-				watchedHistoryRepository.findGlobalAnalytics(since),
-				watchedHistoryRepository.findTopWatchedMedia({ since, limit: 10 }),
+				watchedHistoryRepository.findGlobalAnalytics({ since, minInterruptedSeconds }),
+				watchedHistoryRepository.findTopPlayedMedia({ since, minInterruptedSeconds, limit: 10 }),
 			]);
 
 			const topContent: TopWatchedMedia[] = topContentRaw.map((m) => toTopWatchedMedia(m));
@@ -42,6 +44,7 @@ class AdminAnalyticsService extends BaseService {
 			return {
 				totalWatchMinutes: globalData.totalMinutes,
 				totalPlaysCount: globalData.totalPlays,
+				completedPlaysCount: globalData.completedPlays,
 				activeUsersCount: globalData.activeUsers,
 				mostWatchedTitle: topContent[0] ?? null,
 				topContent,

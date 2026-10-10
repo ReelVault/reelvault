@@ -2,9 +2,11 @@ import { liveSessionsRepository } from "@/database/repositories/live-sessions.re
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { toMap } from "@/utils/array.utils";
+import { detach } from "@/utils/promise.utils";
 import { workerService } from "@/workers/worker.service";
 import { playlistService } from "../playlist/playlist.service";
 import { endedSessionHistory } from "./ended-session-history";
+import { recordInterruptedSession } from "./interrupted-session.recorder";
 import { streamingManager } from "./streaming.manager";
 
 let lifecycleRegistered = false;
@@ -26,8 +28,21 @@ export function registerStreamingLifecycle(): void {
 			// not receive session ids or media ids.
 			realtimeService.sendToProfile(profileId, "playback:session:started", { sessionId, mediaFileId });
 		},
-		onSessionEnded: ({ sessionId, mediaFileId, profileId, reason, startedAt, operationId }) => {
+		onSessionEnded: ({
+			sessionId,
+			mediaFileId,
+			profileId,
+			reason,
+			startedAt,
+			operationId,
+			playedSeconds,
+			furthestPositionSeconds,
+			durationSeconds,
+		}) => {
 			endedSessionHistory.record({ sessionId, mediaFileId, profileId, reason, startedAt, operationId, endedAt: Date.now() });
+			detach(
+				recordInterruptedSession({ mediaFileId, profileId, reason, startedAt, playedSeconds, furthestPositionSeconds, durationSeconds }),
+			);
 			pluginEventBus.publish("playback.session.ended", { sessionId, mediaFileId, reason });
 			pluginEventBus.publish("playback.lifecycle.stopped", {
 				sessionId,

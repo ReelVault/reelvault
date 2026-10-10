@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeProgressPercent, isCompleted, normalizePlaybackPosition } from "./playback-position.utils";
+import { computeProgressPercent, isCompleted, normalizePlaybackPosition, playedSecondsBetween } from "./playback-position.utils";
 
 describe("playback position utils", () => {
 	test("normalizePlaybackPosition collapses missing and non-finite positions to 0", () => {
@@ -38,5 +38,17 @@ describe("playback position utils", () => {
 		expect(computeProgressPercent(50, 0)).toBe(0);
 		expect(computeProgressPercent(50, null)).toBe(0);
 		expect(computeProgressPercent(50, undefined)).toBe(0);
+	});
+
+	test("playedSecondsBetween counts only media time that moved within the wall-clock time", () => {
+		const previous = { position: 100, at: 1_000 };
+
+		expect(playedSecondsBetween(undefined, 100, 16_000)).toBe(0);
+		expect(playedSecondsBetween(previous, 115, 16_000)).toBe(15);
+		expect(playedSecondsBetween(previous, 100, 16_000)).toBe(0);
+		expect(playedSecondsBetween(previous, 400, 16_000)).toBe(15);
+		expect(playedSecondsBetween(previous, 40, 16_000)).toBe(0);
+		expect(playedSecondsBetween(previous, 115, 1_000)).toBe(0);
+		expect(playedSecondsBetween(previous, 115, 0)).toBe(0);
 	});
 });

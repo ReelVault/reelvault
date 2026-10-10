@@ -1,6 +1,7 @@
 import type { PlaybackDecision, StreamingSession } from "@reelvault/sdk/common";
 import { ConflictError, InternalError, NotFoundError } from "@/utils/errors";
 import type { TerminatedSessionEntry } from "../../streaming.types";
+import { playedSecondsBetween } from "../../utils/playback-position.utils";
 
 /** A creating session without a process past this deadline is a stuck stream-init — the reaper releases it. */
 export const RESERVATION_DEADLINE_MS = 60_000;
@@ -34,6 +35,8 @@ export class SessionStore {
 	private readonly sessions = new Map<string, StreamingSession>();
 	private readonly terminatedSessions = new Map<string, TerminatedSessionEntry>();
 	private readonly terminatedSessionsByProfileFile = new Map<string, Set<string>>();
+	/** Played media time and furthest position per session, summed from its heartbeat positions (feeds interrupted-session records). */
+	private readonly playedTime = new Map<string, { playedSeconds: number; furthestPosition: number; position: number; at: number }>();
 
 	// ─── Entities ───────────────────────────────────────────────────────────
 
@@ -93,12 +96,38 @@ export class SessionStore {
 		return this.sessions.get(sessionId)?.process != null;
 	}
 
+	/**
+	 * Adds the media time a heartbeat position shows as played since the session's previous heartbeat. A paused heartbeat adds
+	 * none, even when it reports a seek, because the player was not playing; the furthest position still counts.
+	 */
+	recordPlayedPosition(sessionId: string, position: number, paused: boolean | null, now = Date.now()): void {
+		if (!this.sessions.has(sessionId)) return;
+
+		const tracked = this.playedTime.get(sessionId);
+		const played = paused === true ? 0 : playedSecondsBetween(tracked, position, now);
+		this.playedTime.set(sessionId, {
+			playedSeconds: (tracked?.playedSeconds ?? 0) + played,
+			furthestPosition: Math.max(tracked?.furthestPosition ?? 0, position),
+			position,
+			at: now,
+		});
+	}
+
+	/** Media time the session has played and the furthest position its heartbeats reported (both 0 before the first heartbeat). */
+	playbackOf(sessionId: string): { playedSeconds: number; furthestPosition: number } {
+		const tracked = this.playedTime.get(sessionId);
+
+		return { playedSeconds: tracked?.playedSeconds ?? 0, furthestPosition: tracked?.furthestPosition ?? 0 };
+	}
+
 	delete(sessionId: string): void {
 		this.sessions.delete(sessionId);
+		this.playedTime.delete(sessionId);
 	}
 
 	clear(): void {
 		this.sessions.clear();
+		this.playedTime.clear();
 		this.terminatedSessions.clear();
 		this.terminatedSessionsByProfileFile.clear();
 	}

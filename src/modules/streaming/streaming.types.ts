@@ -140,6 +140,12 @@ export interface StreamingLifecycleCallbacks {
 		reason: string;
 		startedAt: number;
 		operationId?: string | undefined;
+		/** Media time the heartbeats showed as played (pauses and skipped-back time excluded). */
+		playedSeconds: number;
+		/** The furthest position a heartbeat reported, in media seconds. A session that reached the completion line is finished. */
+		furthestPositionSeconds: number;
+		/** Length of the media in seconds, when the source reported one. */
+		durationSeconds: number | null;
 	}): void;
 }
 

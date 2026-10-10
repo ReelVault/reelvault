@@ -175,4 +175,23 @@ describe("session store", () => {
 		expect(store.isProfileTerminatedRecently("profile-0", "file-0", 60_000)).toBeNull();
 		expect(store.isProfileTerminatedRecently("profile-1004", "file-1004", 60_000)).toEqual({ reason: "timeout" });
 	});
+
+	test("recordPlayedPosition counts only media time that moved while playing, within the wall-clock time", () => {
+		const store = new SessionStore();
+		store.register(registration("s1"));
+
+		store.recordPlayedPosition("s1", 10, false, 1_000);
+		store.recordPlayedPosition("s1", 25, false, 16_000);
+		// A paused heartbeat: the position does not move.
+		store.recordPlayedPosition("s1", 25, true, 26_000);
+		// A forward seek counts at most the 10 wall-clock seconds since the last heartbeat.
+		store.recordPlayedPosition("s1", 300, false, 36_000);
+		// A backward seek counts nothing.
+		store.recordPlayedPosition("s1", 120, false, 46_000);
+		// A seek made while paused counts nothing, but its position is still the furthest reached.
+		store.recordPlayedPosition("s1", 900, true, 56_000);
+
+		expect(store.playbackOf("s1")).toEqual({ playedSeconds: 25, furthestPosition: 900 });
+		expect(store.playbackOf("unknown")).toEqual({ playedSeconds: 0, furthestPosition: 0 });
+	});
 });

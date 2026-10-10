@@ -6,6 +6,7 @@ import type {
 	WatchedHistoryWithRelations,
 } from "@reelvault/sdk/common";
 import { and, asc, desc, eq, gte, inArray, lt, type SQL, type SQLWrapper, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { cachedCount, defineTableAccess, filterSignature, mapChunked } from "@/database/table-access";
@@ -14,7 +15,7 @@ import { metadataImageOn, metadataOn, posterImagesOn } from "@/database/utils/jo
 import { type CreatedAtCursor, decodeCursorFor, KeysetCursor, keysetWhere } from "@/database/utils/keyset-cursor";
 import { QueryPagination } from "@/database/utils/pagination";
 import { QueryUtils } from "@/database/utils/query-parser";
-import { daysAgo, serverConstants } from "@/server.constants";
+import { serverConstants } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { unique } from "@/utils/array.utils";
 
@@ -302,19 +303,60 @@ class WatchedHistoryRepository {
 			.orderBy(desc(totals.totalDurationWatched));
 	}
 
-	async findGlobalAnalytics(since?: Date, until?: Date) {
-		const whereClause = this.buildAnalyticsWhereClause(since, until);
+	/** Most-played titles by time played, over the same plays as {@link findGlobalAnalytics}. */
+	async findTopPlayedMedia({ since, minInterruptedSeconds, limit = 10 }: { since: Date; minInterruptedSeconds: number; limit?: number }) {
+		const client = databaseFactory.getClient();
+		const plays = analyticsPlays(since, minInterruptedSeconds);
+
+		// Aggregate first, join the metadata/poster graphs afterwards (same shape as findTopWatchedMedia).
+		const totals = client
+			.select({
+				metadataId: schema.mediaFiles.metadataId,
+				totalDurationWatched: sql<number>`sum(coalesce(${plays.durationWatched}, 0))`.as("total_duration"),
+				watchCount: sql<number>`count(${plays.id})`.as("watch_count"),
+				isCompleted: sql<boolean>`max(coalesce(${plays.isFullWatch}, 0)) > 0`.as("is_completed"),
+			})
+			.from(plays)
+			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, plays.mediaFileId))
+			.groupBy(schema.mediaFiles.metadataId)
+			.orderBy(desc(sql`sum(coalesce(${plays.durationWatched}, 0))`))
+			.limit(limit)
+			.as("top");
+
+		return await client
+			.select({
+				id: schema.metadata.id,
+				title: schema.metadata.title,
+				type: schema.metadata.type,
+				releaseDate: schema.metadata.releaseDate,
+				posterImageId: schema.metadataImages.imageId,
+				posterImageUpdatedAt: schema.images.updatedAt,
+				totalDurationWatched: sql<number>`${totals.totalDurationWatched}`.mapWith(Number),
+				watchCount: sql<number>`${totals.watchCount}`.mapWith(Number),
+				isCompleted: sql<boolean>`${totals.isCompleted}`.mapWith(Boolean),
+			})
+			.from(totals)
+			.innerJoin(schema.metadata, metadataOn(totals.metadataId))
+			.leftJoin(schema.metadataImages, posterImagesOn(schema.metadata.id))
+			.leftJoin(schema.images, metadataImageOn)
+			.orderBy(desc(totals.totalDurationWatched));
+	}
+
+	/** Admin dashboard figures over finished titles and interrupted sessions since `since`. */
+	async findGlobalAnalytics({ since, minInterruptedSeconds }: { since: Date; minInterruptedSeconds: number }) {
+		const plays = analyticsPlays(since, minInterruptedSeconds);
 
 		const [overall, leaderboard, recentPlays, { hourlyRows, dailyRows }] = await Promise.all([
-			this.fetchAnalyticsTotals(whereClause),
-			this.fetchAnalyticsLeaderboard(whereClause),
-			this.fetchAnalyticsRecentPlays(whereClause),
-			this.fetchAnalyticsDistribution(whereClause),
+			this.fetchAnalyticsTotals(plays),
+			this.fetchAnalyticsLeaderboard(plays),
+			this.fetchAnalyticsRecentPlays(plays),
+			this.fetchAnalyticsDistribution(plays),
 		]);
 
 		return {
 			totalMinutes: overall?.totalMinutes ?? 0,
 			totalPlays: overall?.totalPlays ?? 0,
+			completedPlays: overall?.completedPlays ?? 0,
 			activeUsers: overall?.activeUsers ?? 0,
 			leaderboard,
 			recentPlays,
@@ -323,31 +365,21 @@ class WatchedHistoryRepository {
 		};
 	}
 
-	private buildAnalyticsWhereClause(since?: Date, until?: Date): SQL | undefined {
-		const conditions: SQL[] = [];
-		if (since) conditions.push(gte(schema.watchedHistory.watchedAt, since));
-		else conditions.push(gte(schema.watchedHistory.watchedAt, daysAgo(90)));
-
-		if (until) conditions.push(lt(schema.watchedHistory.watchedAt, until));
-
-		return conditions.length > 0 ? and(...conditions) : undefined;
-	}
-
-	private async fetchAnalyticsTotals(whereClause: SQL | undefined) {
+	private async fetchAnalyticsTotals(plays: AnalyticsPlays) {
 		const client = databaseFactory.getClient();
 		const [overall] = await client
 			.select({
-				totalMinutes: sql<number>`round(sum(coalesce(${schema.watchedHistory.durationWatched}, 0)) / 60.0)`.mapWith(Number),
-				totalPlays: sql<number>`count(${schema.watchedHistory.id})`.mapWith(Number),
-				activeUsers: sql<number>`count(distinct ${schema.watchedHistory.profileId})`.mapWith(Number),
+				totalMinutes: sql<number>`round(sum(coalesce(${plays.durationWatched}, 0)) / 60.0)`.mapWith(Number),
+				totalPlays: sql<number>`count(${plays.id})`.mapWith(Number),
+				completedPlays: sql<number>`coalesce(sum(${plays.isFullWatch}), 0)`.mapWith(Number),
+				activeUsers: sql<number>`count(distinct ${plays.profileId})`.mapWith(Number),
 			})
-			.from(schema.watchedHistory)
-			.where(whereClause);
+			.from(plays);
 
 		return overall;
 	}
 
-	private async fetchAnalyticsLeaderboard(whereClause: SQL | undefined) {
+	private async fetchAnalyticsLeaderboard(plays: AnalyticsPlays) {
 		const client = databaseFactory.getClient();
 
 		return await client
@@ -357,64 +389,60 @@ class WatchedHistoryRepository {
 				profileAvatar: schema.profiles.avatarUrl,
 				userName: schema.users.name,
 				userEmail: schema.users.email,
-				totalMinutes: sql<number>`round(sum(coalesce(${schema.watchedHistory.durationWatched}, 0)) / 60.0)`.mapWith(Number),
+				totalMinutes: sql<number>`round(sum(coalesce(${plays.durationWatched}, 0)) / 60.0)`.mapWith(Number),
 				titlesCount: sql<number>`count(distinct ${schema.mediaFiles.metadataId})`.mapWith(Number),
-				lastWatchedAt: sql<Date | null>`max(${schema.watchedHistory.watchedAt})`.mapWith((v: Date | null) => (v ? new Date(v) : null)),
+				// max() returns the raw timestamp column: epoch seconds, not a decoded Date.
+				lastWatchedAt: sql<number | null>`max(${plays.watchedAt})`.mapWith((seconds) => (seconds ? new Date(seconds * 1000) : null)),
 			})
-			.from(schema.watchedHistory)
-			.innerJoin(schema.profiles, eq(schema.profiles.id, schema.watchedHistory.profileId))
+			.from(plays)
+			.innerJoin(schema.profiles, eq(schema.profiles.id, plays.profileId))
 			.innerJoin(schema.users, eq(schema.users.id, schema.profiles.userId))
-			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.watchedHistory.mediaFileId))
-			.where(whereClause)
+			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, plays.mediaFileId))
 			.groupBy(schema.profiles.id)
-			.orderBy(desc(sql`sum(coalesce(${schema.watchedHistory.durationWatched}, 0))`))
+			.orderBy(desc(sql`sum(coalesce(${plays.durationWatched}, 0))`))
 			.limit(10);
 	}
 
-	private async fetchAnalyticsRecentPlays(whereClause: SQL | undefined) {
+	private async fetchAnalyticsRecentPlays(plays: AnalyticsPlays) {
 		const client = databaseFactory.getClient();
 
 		return await client
 			.select({
-				id: schema.watchedHistory.id,
+				id: plays.id,
 				profileName: schema.profiles.name,
 				userName: schema.users.name,
 				title: schema.metadata.title,
 				mediaType: schema.metadata.type,
 				posterImageId: schema.metadataImages.imageId,
-				durationWatched: schema.watchedHistory.durationWatched,
-				isFullWatch: schema.watchedHistory.isFullWatch,
-				watchedAt: schema.watchedHistory.watchedAt,
+				durationWatched: plays.durationWatched,
+				isFullWatch: plays.isFullWatch,
+				watchedAt: plays.watchedAt,
 			})
-			.from(schema.watchedHistory)
-			.innerJoin(schema.profiles, eq(schema.profiles.id, schema.watchedHistory.profileId))
+			.from(plays)
+			.innerJoin(schema.profiles, eq(schema.profiles.id, plays.profileId))
 			.innerJoin(schema.users, eq(schema.users.id, schema.profiles.userId))
-			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.watchedHistory.mediaFileId))
+			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, plays.mediaFileId))
 			.innerJoin(schema.metadata, metadataOn(schema.mediaFiles.metadataId))
 			.leftJoin(schema.metadataImages, posterImagesOn(schema.metadata.id))
-			.where(whereClause)
-			.orderBy(desc(schema.watchedHistory.watchedAt))
+			.orderBy(desc(plays.watchedAt))
 			.limit(15);
 	}
 
-	private async fetchAnalyticsDistribution(whereClause: SQL | undefined) {
+	private async fetchAnalyticsDistribution(plays: AnalyticsPlays) {
 		const client = databaseFactory.getClient();
 		const groupedRows = await client
 			.select({
-				dayOfWeek: sql<number>`cast(strftime('%w', ${schema.watchedHistory.watchedAt}, 'unixepoch', 'localtime') as integer)`.mapWith(
-					Number,
-				),
-				hour: sql<number>`cast(strftime('%H', ${schema.watchedHistory.watchedAt}, 'unixepoch', 'localtime') as integer)`.mapWith(Number),
-				day: sql<string>`date(${schema.watchedHistory.watchedAt}, 'unixepoch', 'localtime')`,
-				minutes: sql<number>`sum(coalesce(${schema.watchedHistory.durationWatched}, 0)) / 60.0`.mapWith(Number),
+				dayOfWeek: sql<number>`cast(strftime('%w', ${plays.watchedAt}, 'unixepoch', 'localtime') as integer)`.mapWith(Number),
+				hour: sql<number>`cast(strftime('%H', ${plays.watchedAt}, 'unixepoch', 'localtime') as integer)`.mapWith(Number),
+				day: sql<string>`date(${plays.watchedAt}, 'unixepoch', 'localtime')`,
+				minutes: sql<number>`sum(coalesce(${plays.durationWatched}, 0)) / 60.0`.mapWith(Number),
 				playCount: sql<number>`count(*)`.mapWith(Number),
 			})
-			.from(schema.watchedHistory)
-			.where(whereClause)
+			.from(plays)
 			.groupBy(
-				sql`strftime('%w', ${schema.watchedHistory.watchedAt}, 'unixepoch', 'localtime')`,
-				sql`strftime('%H', ${schema.watchedHistory.watchedAt}, 'unixepoch', 'localtime')`,
-				sql`date(${schema.watchedHistory.watchedAt}, 'unixepoch', 'localtime')`,
+				sql`strftime('%w', ${plays.watchedAt}, 'unixepoch', 'localtime')`,
+				sql`strftime('%H', ${plays.watchedAt}, 'unixepoch', 'localtime')`,
+				sql`date(${plays.watchedAt}, 'unixepoch', 'localtime')`,
 			);
 
 		const hourlyBySlot = new Map<string, { dayOfWeek: number; hour: number; minutes: number }>();
@@ -508,6 +536,45 @@ class WatchedHistoryRepository {
 		return result.changes;
 	}
 }
+
+/**
+ * Plays the admin analytics count: finished titles from watched history plus interrupted sessions that reached the
+ * minimum play time. Both arms share one column set; an interrupted session is never a full watch.
+ */
+function analyticsPlays(since: Date, minInterruptedSeconds: number) {
+	const client = databaseFactory.getClient();
+	const finished = client
+		.select({
+			id: schema.watchedHistory.id,
+			profileId: schema.watchedHistory.profileId,
+			mediaFileId: schema.watchedHistory.mediaFileId,
+			durationWatched: schema.watchedHistory.durationWatched,
+			isFullWatch: schema.watchedHistory.isFullWatch,
+			watchedAt: schema.watchedHistory.watchedAt,
+		})
+		.from(schema.watchedHistory)
+		.where(gte(schema.watchedHistory.watchedAt, since));
+	const interrupted = client
+		.select({
+			id: schema.interruptedPlaybackSessions.id,
+			profileId: schema.interruptedPlaybackSessions.profileId,
+			mediaFileId: schema.interruptedPlaybackSessions.mediaFileId,
+			durationWatched: schema.interruptedPlaybackSessions.playedSeconds,
+			isFullWatch: sql<boolean>`0`.as("is_full_watch"),
+			watchedAt: schema.interruptedPlaybackSessions.endedAt,
+		})
+		.from(schema.interruptedPlaybackSessions)
+		.where(
+			and(
+				gte(schema.interruptedPlaybackSessions.endedAt, since),
+				gte(schema.interruptedPlaybackSessions.playedSeconds, minInterruptedSeconds),
+			),
+		);
+
+	return unionAll(finished, interrupted).as("plays");
+}
+
+type AnalyticsPlays = ReturnType<typeof analyticsPlays>;
 
 /** Local-calendar date key (YYYY-MM-DD) matching SQLite's date(..., 'localtime'). */
 function localDayKey(date: Date): string {

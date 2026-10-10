@@ -1,5 +1,6 @@
 import { databaseFactory } from "@/database/database";
 import { adminAuditRepository } from "@/database/repositories/admin-audit.repository";
+import { interruptedPlaybackSessionRepository } from "@/database/repositories/interrupted-playback-session.repository";
 import { watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { serverConfig } from "@/server.config";
 import { daysAgo, MINUTE } from "@/server.constants";
@@ -22,7 +23,10 @@ export const cleanupDatabaseWorker = createWorkerDefinition(
 		let prunedHistoryCount = 0;
 		const historyRetentionDays = serverConfig.database.watchedHistoryRetentionDays;
 		if (historyRetentionDays > 0) {
-			prunedHistoryCount = await watchedHistoryRepository.pruneOlderThan(daysAgo(historyRetentionDays));
+			const cutoff = daysAgo(historyRetentionDays);
+			prunedHistoryCount = await watchedHistoryRepository.pruneOlderThan(cutoff);
+			// Interrupted sessions follow the same retention as the rest of the play history.
+			prunedHistoryCount += await interruptedPlaybackSessionRepository.pruneOlderThan(cutoff);
 		}
 
 		// Audit rows carry JSON snapshots and previously grew unbounded; default

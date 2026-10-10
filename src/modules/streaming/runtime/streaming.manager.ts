@@ -191,6 +191,7 @@ class StreamingManager {
 
 		session.lastPositionSeconds = positionSeconds;
 		session.lastPaused = paused;
+		this.store.recordPlayedPosition(sessionId, positionSeconds, paused);
 	}
 
 	getSessionState(sessionId: string): { state: SessionLifecycleState; generation: number } | undefined {

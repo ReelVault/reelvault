@@ -7,6 +7,7 @@ import * as downloads from "./schemas/downloads.schema";
 import * as episodes from "./schemas/episodes.schema";
 import * as genres from "./schemas/genres.schema";
 import * as images from "./schemas/images.schema";
+import * as interruptedPlaybackSessions from "./schemas/interrupted-playback-sessions.schema";
 import * as keywords from "./schemas/keywords.schema";
 import * as libraries from "./schemas/libraries.schema";
 import * as libraryProviderSettings from "./schemas/library-provider-settings.schema";
@@ -87,5 +88,6 @@ export const schema = {
 	...subtitles,
 	...userRatings,
 	...watchedHistory,
+	...interruptedPlaybackSessions,
 	...watchlist,
 };

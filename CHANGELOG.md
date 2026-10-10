@@ -478,8 +478,11 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Specific error codes with parameters** — plugin manifest and interface checks, plugin catalog and repository errors, streaming sessions and segments, background-task scheduling and dependencies, image and sidecar processing, log files and the media-tools check answer with their own code and parameters (for example the invalid field or the missing tool names) instead of a generic category. Clients translate the exact reason; the English message stays in the logs.
 - **Plugin archive check names the exact problem** — each issue of the plugin archive check carries the code and parameters of the failed check, so the report names the invalid field instead of a generic "manifest is invalid".
 
+- **Admin statistics count interrupted playback** — a playback that ends before its title is finished counts in the admin analytics (plays, watch time, leaderboard, top titles and recent plays) once it has played at least `system.analytics.minPlaySeconds` (new admin setting, default 60 s, 0–3600). `completedPlaysCount` in `GET /admin/analytics` tells the finished plays apart from `totalPlaysCount`. Watch history and insights are unchanged, and interrupted sessions follow the watched-history retention setting.
+
 ### Fixes
 
+- **Admin leaderboard last-played date** — the last-played date of each user in the admin leaderboard read the stored epoch seconds as milliseconds, so it showed a date in 1970.
 - **Dashboard without a main log file** — before the first log entry was written (or after a purge) the admin dashboard and the log list answered `500`; a missing log file now reads as an empty log.
 - **Blocked accounts lose their API keys** — an API key kept full access after its owner was blocked. The key is now refused while the block holds; a timed block ends when its expiry passes.
 - **Anonymous session revocation** — `DELETE /v1/auth/sessions` answered `500` to a request without a session. It now answers `401`.

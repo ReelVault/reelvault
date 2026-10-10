@@ -145,6 +145,7 @@ export class SessionReaper {
 		// Release was already claimed (state = `ending`), so no process start can
 		// land after this read — the handle below is the last one this session had.
 		const session = this.store.get(sessionId);
+		const playback = this.store.playbackOf(sessionId);
 		const process = session?.process ?? null;
 		if (process) ffmpegProcessTracker.markIntentionalKill(sessionId);
 
@@ -188,6 +189,9 @@ export class SessionReaper {
 							profileId: session.profileId,
 							reason,
 							operationId: session.operationId,
+							playedSeconds: playback.playedSeconds,
+							furthestPositionSeconds: playback.furthestPosition,
+							durationSeconds: session.durationMs != null ? Math.round(session.durationMs / 1000) : null,
 						});
 					} catch (error) {
 						this.logger.error("Playback session end callback failed", error, { sessionId });

@@ -18,6 +18,18 @@ export function isCompleted(position: number, duration: number): boolean {
 	return duration > 0 && position / duration >= COMPLETION_THRESHOLD;
 }
 
+/**
+ * Media time played between two heartbeats. The position moves only while the stream plays, so a pause adds nothing;
+ * a jump forward (a seek) counts at most the wall-clock time between the two heartbeats, and a jump back counts nothing.
+ */
+export function playedSecondsBetween(previous: { position: number; at: number } | undefined, position: number, now: number): number {
+	if (!previous) return 0;
+
+	const wallSeconds = Math.max(0, (now - previous.at) / 1000);
+
+	return clamp(position - previous.position, 0, wallSeconds);
+}
+
 export function computeProgressPercent(position: number, duration: number | null | undefined): number {
 	return duration != null && duration > 0 ? Math.min(100, Math.round((position / duration) * 100)) : 0;
 }

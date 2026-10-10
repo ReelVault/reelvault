@@ -480,6 +480,10 @@ export const serverConfig = {
 		get windowDays() {
 			return systemSettingsStore.get("system.analytics.windowDays");
 		},
+
+		get minPlaySeconds() {
+			return systemSettingsStore.get("system.analytics.minPlaySeconds");
+		},
 	},
 
 	/** API Pagination */

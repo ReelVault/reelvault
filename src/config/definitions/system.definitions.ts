@@ -45,5 +45,8 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 	// is requested (the "all" view).
 	"system.analytics.windowDays": creator.number("system.analytics.windowDays", 7, 3650, 90),
 
+	// Shortest interrupted playback (media seconds) the admin analytics count. Finished titles always count.
+	"system.analytics.minPlaySeconds": creator.number("system.analytics.minPlaySeconds", 0, 3600, 60),
+
 	"api.pagination.defaultLimit": creator.number("api.pagination.defaultLimit", 5, 100, 20),
 } as const;

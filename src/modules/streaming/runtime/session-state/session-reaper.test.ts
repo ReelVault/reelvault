@@ -97,9 +97,40 @@ describe("session reaper", () => {
 				reason: "admin-stop",
 				startedAt: expect.any(Number),
 				operationId: "op-1",
+				playedSeconds: 0,
+				furthestPositionSeconds: 0,
+				durationSeconds: null,
 			},
 		]);
 		expect(implicitSeekInvalidations).toEqual(["s1"]);
+	});
+
+	test("finalizeRelease reports the media time the heartbeats showed as played", async () => {
+		const { reaper, store } = createReaper();
+		registration(store, "s1");
+		store.attachProcess("s1", spawn(["sleep", "100"]), 0);
+		store.recordPlayedPosition("s1", 10, false, 1_000);
+		store.recordPlayedPosition("s1", 25, false, 16_000);
+		// A paused heartbeat: the position does not move, so no media time is added.
+		store.recordPlayedPosition("s1", 25, true, 26_000);
+
+		const ended: unknown[] = [];
+		await reaper.finalizeRelease(
+			"s1",
+			"client-stop",
+			{ tempRootDir: "/tmp/none" },
+			{
+				cancelOperation: async () => {
+					/* intentionally empty */
+				},
+				onSessionStarted: () => {
+					/* intentionally empty */
+				},
+				onSessionEnded: (session) => ended.push(session),
+			},
+		);
+
+		expect(ended).toEqual([expect.objectContaining({ playedSeconds: 15, furthestPositionSeconds: 25 })]);
 	});
 
 	test("finalizeRelease of a never-started session skips the ended lifecycle event", async () => {
