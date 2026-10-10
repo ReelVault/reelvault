@@ -9,7 +9,7 @@ import { DAY } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { InternalError, isMissingFile, NotFoundError, ValidationError } from "@/utils/errors";
 import { readFile, safeParseJson } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
@@ -248,9 +248,11 @@ class AdminLogsService extends BaseService {
 			return { filePath: this.dependencies.logFilePath, filename: PathUtils.getFileName(this.dependencies.logFilePath) };
 		}
 
-		const cleanId = PathUtils.normalize(fileId.trim()).replace(leadingParentTraversalPattern, "");
+		// A NUL byte never belongs in a path, and the logs root itself is a directory, not a log file.
+		const trimmed = fileId.trim();
+		const cleanId = trimmed.includes("\0") ? "" : PathUtils.normalize(trimmed).replace(leadingParentTraversalPattern, "");
 		const targetPath = PathUtils.resolve(PathUtils.join(logsRoot, cleanId));
-		if (!PathUtils.isSubpath(targetPath, logsRoot) && targetPath !== logsRoot) {
+		if (targetPath === logsRoot || !PathUtils.isSubpath(targetPath, logsRoot)) {
 			throw new ValidationError("Invalid log file path", { code: "admin.log_path_invalid", params: { fileId } });
 		}
 
@@ -397,6 +399,7 @@ class AdminLogsService extends BaseService {
 				}
 			}
 		} catch (error) {
+			if (isMissingFile(error)) throw new NotFoundError(`Log file not found: ${fileId}`, { code: "logs.file_not_found" });
 			this.logger.error("Failed to delete log file", error, { fileId, filePath });
 			throw new InternalError(`Log file could not be deleted: ${fileId}`, { cause: error, code: "logs.delete_failed" });
 		}

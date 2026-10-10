@@ -18,6 +18,11 @@ const logger = createLogger("AuthMiddleware");
 const AUTH_CREDENTIALS_REGEX = /(?:^|;\s*)(?:__Secure-|__Host-)?(?:better-auth\.|session_token=)/;
 const SESSION_TOKEN_REGEX = /(?:^|;\s*)(?:__Secure-|__Host-)?better-auth\.session_token=([^;]+)/;
 
+/** A ban without an expiry holds until it is lifted; a timed ban ends once its expiry has passed. */
+function isBlockedAccount(user: { banned: boolean; banExpires?: Date | null | undefined }, now: Date): boolean {
+	return user.banned && (!user.banExpires || user.banExpires.getTime() > now.getTime());
+}
+
 function extractSessionToken(headers: Headers): string | undefined {
 	const cookie = headers.get("cookie");
 	if (!cookie) return undefined;
@@ -92,9 +97,10 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 				const unlockToken = typeof profile_unlock?.value === "string" ? profile_unlock.value : undefined;
 				const profile = resolveUnlockedProfile(rawProfile && rawProfile.userId === principal.user.id ? rawProfile : null, unlockToken);
 
-				// Full owner record — guards and audit consumers read role/ban state.
+				// Full owner record — guards and audit consumers read role/ban state. A blocked owner
+				// loses the key at once, the same way a blocked account loses its sessions.
 				const user = await usersRepository.findById(principal.user.id);
-				if (!user) return { user: null, session: null, profile: null };
+				if (!user || isBlockedAccount(user, new Date())) return { user: null, session: null, profile: null };
 
 				return { user, session: null, profile };
 			}

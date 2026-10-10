@@ -13,8 +13,8 @@ class SessionsService extends BaseService {
 
 	async list(headers?: Headers, currentSessionId?: string, userId?: string, query?: PaginationQuery): Promise<ActiveSessionsResponse> {
 		return await this.safeExecute("list", async () => {
-			this.assertPresent(headers, "Request headers are required to list sessions");
 			this.assertUserId(userId);
+			this.assertPresent(headers, "Request headers are required to list sessions");
 
 			const sessions = await sessionsRepository.findActivePageByUserId(userId, query);
 			const data = sessions.data.map((session) => ({
@@ -33,8 +33,8 @@ class SessionsService extends BaseService {
 
 	async revoke(sessionId: string, headers?: Headers, currentSessionId?: string, userId?: string): Promise<{ success: boolean }> {
 		return await this.safeExecute("revoke", async () => {
-			this.assertPresent(headers, "Request headers are required to revoke a session");
 			this.assertUserId(userId);
+			this.assertPresent(headers, "Request headers are required to revoke a session");
 			if (sessionId === currentSessionId) {
 				throw new ForbiddenError("Use logout to revoke the current session", { code: "auth.current_session_revoke_forbidden" });
 			}
@@ -55,9 +55,9 @@ class SessionsService extends BaseService {
 
 	async revokeOthers(headers?: Headers, currentSessionId?: string, userId?: string): Promise<{ success: boolean }> {
 		return await this.safeExecute("revokeOthers", async () => {
+			this.assertUserId(userId);
 			this.assertPresent(headers, "Request headers are required to revoke other sessions");
 			this.assertPresent(currentSessionId, "Current session id is required to revoke other sessions");
-			this.assertUserId(userId);
 
 			await sessionsRepository.deleteOtherSessions({ userId, currentSessionId });
 			// Bypasses betterAuthApi, so invalidate the session cache explicitly.

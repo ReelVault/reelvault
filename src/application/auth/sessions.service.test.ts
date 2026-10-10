@@ -98,3 +98,23 @@ describe("SessionsService.revokeOthers", () => {
 		);
 	});
 });
+
+describe("anonymous calls", () => {
+	test("list, revoke and revoke-others refuse a missing user as unauthorized before touching storage", async () => {
+		const deleteCallsBefore = deleteOthers.mock.calls.length;
+
+		await expect(sessionsService.list(undefined, undefined, undefined)).rejects.toMatchObject({
+			category: "unauthorized",
+			code: "auth.user_required",
+		});
+		await expect(sessionsService.revoke("session-2", undefined, undefined, undefined)).rejects.toMatchObject({
+			category: "unauthorized",
+			code: "auth.user_required",
+		});
+		await expect(sessionsService.revokeOthers(undefined, undefined, undefined)).rejects.toMatchObject({
+			category: "unauthorized",
+			code: "auth.user_required",
+		});
+		expect(deleteOthers.mock.calls.length).toBe(deleteCallsBefore);
+	});
+});

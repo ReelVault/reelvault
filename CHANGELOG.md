@@ -480,6 +480,10 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Fixes
 
+- **Blocked accounts lose their API keys** — an API key kept full access after its owner was blocked. The key is now refused while the block holds; a timed block ends when its expiry passes.
+- **Anonymous session revocation** — `DELETE /v1/auth/sessions` answered `500` to a request without a session. It now answers `401`.
+- **Log file deletion** — deleting a log file that no longer exists answered `500`; it now answers `404`. An id that names the logs directory itself, or contains a NUL byte, is refused with a validation error.
+- **Plugin archives with NUL bytes in member names** — such an upload failed with a raw path error, reported as a server error. It is now refused as an unsafe entry path.
 - **Fresh installs start again** — the boot check read the wildcard-host constant before it was initialized, so a server without completed setup stopped at startup with a reference error. The constant now comes first.
 - **Failing notification channels are reported** — when an external channel stops delivering, administrators get one notification with its error. Repeated failures stay quiet until the channel delivers again.
 - **Rematch keeps locked fields** — re-identifying a title overwrote fields an administrator had locked, including their artwork and cast or genre lists. Locked fields now keep their values unless the request sets `overwriteLocked`.

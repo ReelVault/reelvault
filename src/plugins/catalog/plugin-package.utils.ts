@@ -252,7 +252,8 @@ export async function extractPluginPackage(
 
 function assertSafeDestination(workRoot: string, entryPath: string): string {
 	const normalized = entryPath.replaceAll("\\", "/");
-	if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
+	// A NUL byte cannot name a file; refusing it here keeps the raw path error from surfacing as a server error.
+	if (entryPath.includes("\0") || normalized.startsWith("/") || normalized.split("/").includes("..")) {
 		throw new ValidationError(`Plugin package contains an unsafe entry path: ${entryPath}`, {
 			code: "plugin.package_path_unsafe",
 			params: { path: entryPath },
