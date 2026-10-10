@@ -81,6 +81,12 @@ test("a blank or dot-only log file id is refused as a bad request, not a server 
 	}
 });
 
+test("deleting a log file that no longer exists answers 404, not a server error", async () => {
+	const response = await send("DELETE", `/v1/admin/logs?fileId=${encodeURIComponent("reelvault-already-removed.log")}`, { role: "admin" });
+
+	expect(response.status).toBe(404);
+});
+
 test("a missing main log file reads as an empty log for the list and the dashboard, not as a failure", async () => {
 	const mainLog = join(serverConfig.paths.logs, "reelvault.log");
 	rmSync(mainLog, { force: true });

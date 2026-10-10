@@ -3,6 +3,7 @@ import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin }
 import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
 import { metadataProviderSettingsRepository } from "@/database/repositories/metadata-provider-settings.repository";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";
 
 const plugin: ReelVaultPlugin = { setup: async () => undefined };
@@ -26,6 +27,24 @@ function createProvider(id: string): MetadataProvider {
 		getEpisodeDetails: async () => null,
 	};
 }
+
+test("the per-library override cache is bounded: the oldest library is read again after 200 others", async () => {
+	let firstLibraryReads = 0;
+	const listForLibrary = stubMethod(libraryProviderSettingsRepository, "listForLibrary", (libraryId: string) => {
+		if (libraryId === "cap-library-0") firstLibraryReads += 1;
+
+		return Promise.resolve([]);
+	});
+	try {
+		await metadataProviderSettingsService.getLibraryOverrides("cap-library-0");
+		for (let index = 1; index <= 200; index += 1) await metadataProviderSettingsService.getLibraryOverrides(`cap-library-${index}`);
+		await metadataProviderSettingsService.getLibraryOverrides("cap-library-0");
+
+		expect(firstLibraryReads).toBe(2);
+	} finally {
+		listForLibrary.restore();
+	}
+});
 
 function registerProviders(providers: MetadataProvider[]): void {
 	const runtime: PluginRuntime = {

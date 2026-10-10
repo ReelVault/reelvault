@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
 import type { ScanCheckpoint } from "@/database/repositories/scan-state.repository";
-import { type LibraryScanTaskDependencies, scanLibraryTask } from "./library-scan.worker";
+import { LIBRARY_SCAN_PRIORITY } from "@/server.constants";
+import { workerService } from "@/workers/worker.service";
+import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { enqueueLibraryScan, type LibraryScanTaskDependencies, scanLibraryTask } from "./library-scan.worker";
 
 interface TestHarness {
 	dependencies: LibraryScanTaskDependencies;
@@ -78,6 +81,20 @@ function createHarness(options?: {
 
 	return { dependencies, events, checkpoints, ingested, refreshed };
 }
+
+describe("library scan queue priority", () => {
+	test("a library scan enqueues ahead of bulk background work", async () => {
+		const addItem = stubMethod(workerService, "addItem", () => Promise.resolve({ id: "task-1", operationId: "op-1" }));
+		try {
+			await enqueueLibraryScan({ libraryId: "library-1" });
+
+			expect(addItem.calls[0]?.[2]).toMatchObject({ priority: LIBRARY_SCAN_PRIORITY });
+			expect(LIBRARY_SCAN_PRIORITY).toBeLessThan(0);
+		} finally {
+			addItem.restore();
+		}
+	});
+});
 
 describe("library scan application task", () => {
 	test("keeps scan orchestration independent from worker runtime", async () => {

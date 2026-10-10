@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
 import { metadataProviderSettingsRepository } from "@/database/repositories/metadata-provider-settings.repository";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { stubMethod } from "../../../tests/helpers/method-stub";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";
 import { providerService } from "./provider.service";
 
@@ -281,6 +283,50 @@ test("the aggregated lookup is cached per metadata language, so a language chang
 	await providerService.fetchAggregatedDetails("movie", identity, { language: "en" });
 
 	expect(languages).toEqual(["pl", "en"]);
+});
+
+test("a library's provider order is part of the aggregated lookup key, so a reorder yields fresh results", async () => {
+	const fetched: string[] = [];
+	const provider = (id: string) =>
+		createProvider(id, {
+			search: () =>
+				Promise.resolve([{ externalId: `${id}-title`, title: "Order Movie", releaseDate: "2002-01-01", popularity: 10, voteCount: 100 }]),
+			getDetails: (_type, externalId) => {
+				fetched.push(externalId);
+
+				return Promise.resolve({ externalId, title: "Order Movie", releaseDate: "2002-01-01" });
+			},
+		});
+	registerProviders([provider("order-a"), provider("order-b")]);
+	const identity = { title: "Order Movie", type: "movie" as const, year: 2002 };
+	const libraryId = "lib-provider-order";
+	let rows: Array<{ providerId: string; priority: number; enabled: boolean }> = [];
+	const stubs = [
+		stubMethod(libraryProviderSettingsRepository, "listForLibrary", () => Promise.resolve(rows)),
+		stubMethod(libraryProviderSettingsRepository, "replaceForLibrary", () => Promise.resolve()),
+	];
+	const applyOrder = async (next: typeof rows) => {
+		rows = next;
+		await metadataProviderSettingsService.setLibraryOverrides(libraryId, next);
+	};
+	try {
+		await applyOrder([
+			{ providerId: "order-a", priority: 1, enabled: true },
+			{ providerId: "order-b", priority: 2, enabled: true },
+		]);
+		await providerService.fetchAggregatedDetails("movie", identity, { libraryId, language: "pl" });
+		const fetchedBefore = fetched.length;
+
+		await applyOrder([
+			{ providerId: "order-a", priority: 2, enabled: true },
+			{ providerId: "order-b", priority: 1, enabled: true },
+		]);
+		await providerService.fetchAggregatedDetails("movie", identity, { libraryId, language: "pl" });
+
+		expect(fetched.length).toBeGreaterThan(fetchedBefore);
+	} finally {
+		for (const stub of stubs) stub.restore();
+	}
 });
 
 test("fetchDetailsByProvider passes the requested metadata language to the provider", async () => {

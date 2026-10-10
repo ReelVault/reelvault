@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+	CATALOG_LIST_PATH_PREFIXES,
 	type CachedResponseBody,
 	getCachedResponseBody,
 	invalidateResponseBodies,
@@ -17,6 +18,31 @@ function cacheKey(pathWithQuery: string): string {
 }
 
 afterEach(() => invalidateResponseBodies());
+
+describe("catalog list flushes", () => {
+	const catalogLists = [
+		"/v1/people?limit=20",
+		"/v1/companies?limit=20",
+		"/v1/genres?limit=20",
+		"/v1/keywords?limit=20",
+		"/v1/collections?limit=20",
+	];
+
+	test("the shared catalog prefixes cover people, companies, genres, keywords and collections", () => {
+		expect(CATALOG_LIST_PATH_PREFIXES).toEqual(
+			expect.arrayContaining(["/v1/people", "/v1/companies", "/v1/genres", "/v1/keywords", "/v1/collections"]),
+		);
+	});
+
+	test("a catalog flush drops those lists and keeps unrelated responses", () => {
+		for (const path of [...catalogLists, "/v1/profiles"]) setCachedResponseBody(cacheKey(path), entry());
+
+		invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
+
+		for (const path of catalogLists) expect(getCachedResponseBody(cacheKey(path))).toBeUndefined();
+		expect(getCachedResponseBody(cacheKey("/v1/profiles"))).toBeDefined();
+	});
+});
 
 describe("invalidateResponseBodiesForPathPrefixes", () => {
 	test("drops only matching request paths", () => {

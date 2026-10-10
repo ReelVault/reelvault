@@ -3,10 +3,41 @@ import { rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { serverConfig } from "@/server.config";
 import { imageUploadService } from "./image-upload.service";
 
 describe("ImageUploadService", () => {
+	const MIB = 1_048_576;
+	const target = { ownerType: "metadata" as const, ownerId: "metadata-1", variant: "poster" as const };
+
+	it("refuses an upload above the live limit and reports the limit and the size", async () => {
+		systemSettingsStore.setRuntimeValue("images.maxUploadBytes", MIB);
+		try {
+			const oversized = new File([new Uint8Array(2 * MIB)], "poster.png", { type: "image/png" });
+
+			const error = await imageUploadService.upload(oversized, target).catch((caught: unknown) => caught);
+
+			expect(error).toMatchObject({ code: "images.upload_too_large", params: { maxBytes: MIB, size: 2 * MIB } });
+		} finally {
+			systemSettingsStore.clearRuntimeValues();
+		}
+	});
+
+	it("passes the size check once the live limit is raised above the file", async () => {
+		systemSettingsStore.setRuntimeValue("images.maxUploadBytes", 64 * MIB);
+		try {
+			const large = new File([new Uint8Array(30 * MIB)], "poster.png", { type: "image/png" });
+
+			const error = await imageUploadService.upload(large, target).catch((caught: unknown) => caught);
+
+			// Zero bytes are not a raster image: the content check refuses the file, not the size check.
+			expect(error).toMatchObject({ code: "images.unsupported_format" });
+		} finally {
+			systemSettingsStore.clearRuntimeValues();
+		}
+	});
+
 	it("validates, optimizes and stores an uploaded image as WebP", async () => {
 		const previousImagesPath = serverConfig.paths.images;
 		const testRoot = join(tmpdir(), `reelvault-image-upload-${crypto.randomUUID()}`);

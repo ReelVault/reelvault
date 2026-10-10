@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
+import { playbackRepository } from "@/database/repositories/playback.repository";
 import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
 import { usersRepository } from "@/database/repositories/users.repository";
+import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body-cache";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { notificationsService } from "./notifications.service";
@@ -69,6 +71,24 @@ describe("notificationsService read-state flips", () => {
 		stubs.push(stubMethod(notificationsRepository, "markReadForRecipient", () => Promise.resolve(true)));
 
 		await expect(notificationsService.markRead("n1", "u1")).resolves.toEqual({ success: true });
+	});
+});
+
+describe("notificationsService new episode batch", () => {
+	test("flushes the cached notification list of every viewer the new episode is announced to", async () => {
+		stubs.push(
+			stubMethod(playbackRepository, "findViewerProfilesByMetadataId", () =>
+				Promise.resolve([{ profileId: "p-episode", userId: "u-episode" }]),
+			),
+			stubMethod(watchlistRepository, "findProfilesByMetadataId", () => Promise.resolve([])),
+			stubMethod(notificationsRepository, "createBatch", () => Promise.resolve(["n-episode"])),
+		);
+		const key = responseCacheKey({ pathWithQuery: "/v1/notifications", cookie: "c", profileId: "p-episode", auth: "", apiKey: "" });
+		setCachedResponseBody(key, { etag: "e", body: "[]", expiresAt: Date.now() + 60_000, encoded: new Map() });
+
+		await notificationsService.notifyNewEpisode({ metadataId: "meta-episode", showTitle: "Show", seasonNumber: 1, episodeNumber: 2 });
+
+		expect(getCachedResponseBody(key)).toBeUndefined();
 	});
 });
 

@@ -6,6 +6,7 @@ import { systemSettingsRepository } from "@/database/repositories/system-setting
 import { usersRepository } from "@/database/repositories/users.repository";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
+import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body-cache";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { systemSettingsService } from "./system-settings.service";
 
@@ -72,6 +73,32 @@ describe("systemSettingsService.updateSettings validation", () => {
 
 		expect(setMany.calls.length).toBe(1);
 		expect(systemSettingsStore.get("stream.maxSessions")).toBe(8);
+	});
+});
+
+describe("systemSettingsService profile defaults", () => {
+	const profileListKey = responseCacheKey({ pathWithQuery: "/v1/profiles?limit=20", cookie: "c", profileId: "p", auth: "", apiKey: "" });
+
+	function seedProfileList(): void {
+		setCachedResponseBody(profileListKey, { etag: "e", body: "{}", expiresAt: Date.now() + 60_000, encoded: new Map() });
+	}
+
+	test("saving a profile default flushes cached API responses", async () => {
+		stubSettingsPersistence();
+		seedProfileList();
+
+		await systemSettingsService.updateSettings({ "profiles.defaultPreferences.resumeRewindSeconds": 5 });
+
+		expect(getCachedResponseBody(profileListKey)).toBeUndefined();
+	});
+
+	test("changing an unrelated setting leaves cached API responses alone", async () => {
+		stubSettingsPersistence();
+		seedProfileList();
+
+		await systemSettingsService.updateSettings({ "stream.maxSessions": 8 });
+
+		expect(getCachedResponseBody(profileListKey)).toBeDefined();
 	});
 });
 

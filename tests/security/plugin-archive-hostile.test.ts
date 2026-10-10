@@ -109,19 +109,21 @@ const PLUGIN_MANIFEST = strToU8(
 );
 const PLUGIN_ENTRY = strToU8("export default { setup() {} };\n");
 
-async function expectContained(archive: Uint8Array, sentinelName: string): Promise<{ refused: boolean }> {
+async function expectContained(archive: Uint8Array, sentinelName: string): Promise<{ refused: boolean; code: string | undefined }> {
 	const archivePath = await writeArchive(archive);
 	let refused = false;
+	let code: string | undefined;
 	try {
 		const extracted = await extractPluginPackage(archivePath);
 		await extracted.cleanup();
 	} catch (error) {
 		refused = true;
 		expect(error).toBeInstanceOf(DomainError);
+		if (error instanceof DomainError) code = error.code;
 	}
 	expect(existsSync(join(tmpdir(), sentinelName))).toBe(false);
 
-	return { refused };
+	return { refused, code };
 }
 
 test("tar entries that climb out of the root are refused or stay inside it", async () => {
@@ -184,12 +186,13 @@ test("zip members with absolute or traversing names never land outside the root"
 	}
 });
 
-test("zip members with NUL bytes or control characters in their names are handled without a crash", async () => {
+test("zip members with NUL bytes or control characters in their names are refused as unsafe paths", async () => {
 	const name = sentinel();
 	const archive = new Uint8Array(
 		zipSync({ "plugin.json": PLUGIN_MANIFEST, "bad\u0000name.txt": strToU8("x"), "tab\tname.txt": strToU8("y") }),
 	);
-	await expectContained(archive, name);
+
+	expect(await expectContained(archive, name)).toEqual({ refused: true, code: "plugin.package_path_unsafe" });
 });
 
 test("a deeply nested package is extracted or refused without exhausting the stack", async () => {
