@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { databaseFactory } from "@/database/database";
 import { serverConfig } from "@/server.config";
+import { InternalError } from "@/utils/errors";
 import { installSessionStub, prepareSecuritySuite, send } from "./security-harness";
 
 /**
@@ -60,6 +63,20 @@ test("backup deletions never remove a file outside the backups directory", async
 	}
 	expect(findings).toEqual([]);
 	expect(readFileSync(sentinelPath, "utf8")).toBe(SENTINEL_CONTENT);
+});
+
+test("a backup that cannot be written fails with its own code and the exit status", async () => {
+	const unwritable = join(tmpdir(), `missing-${crypto.randomUUID()}`, "backup.sqlite");
+
+	const failure = await databaseFactory.backup(unwritable).then(
+		() => undefined,
+		(caught: unknown) => caught,
+	);
+
+	if (!(failure instanceof InternalError)) throw new TypeError("a backup into a missing directory must fail");
+	expect(failure.code).toBe("database.backup_failed");
+	expect(failure.params?.exitCode).not.toBe(0);
+	expect(existsSync(unwritable)).toBe(false);
 });
 
 test("a restore that names a file outside the backups directory is refused without touching the database", async () => {
