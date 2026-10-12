@@ -1,7 +1,7 @@
 import { notificationsService } from "@/application/notifications/notifications.service";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { HOUR } from "@/server.constants";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { detach } from "@/utils/promise.utils";
 
@@ -16,10 +16,9 @@ import { detach } from "@/utils/promise.utils";
  */
 const DEDUP_WINDOW_MS = 6 * HOUR;
 
-class AdminFailureNotificationService extends BaseService {
-	constructor() {
-		super("AdminFailureNotificationService");
-	}
+class AdminFailureNotificationService {
+	readonly serviceName = "AdminFailureNotificationService";
+	readonly logger = createLogger("AdminFailureNotificationService");
 
 	/** Bounded dedup: one notification per distinct failure inside the window. */
 	private readonly recentFailures = new MemoryCache<boolean>({

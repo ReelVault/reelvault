@@ -1,19 +1,21 @@
 import type { PlaybackCommand, RealtimeEventMessage, RealtimeEventName, RealtimePayload } from "@reelvault/sdk/common";
 import { usersRepository } from "@/database/repositories/users.repository";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { ClientConnection } from "./connection/client-connection";
 import { ConnectionRegistry } from "./connection/connection-registry";
 import { CLIENT_STALE_TIMEOUT_MS, STALE_SWEEP_INTERVAL_MS } from "./realtime.constants";
 import type { ClientConnectionInput, RealtimeStats } from "./realtime.types";
 
-export class RealtimeService extends BaseService {
+export class RealtimeService {
+	readonly serviceName = "RealtimeService";
+	readonly logger = createLogger("RealtimeService");
+
 	private readonly registry = new ConnectionRegistry();
 	private readonly startedAt = Date.now();
 	private totalMessagesSent = 0;
 	private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
 	constructor() {
-		super("RealtimeService");
 		this.startStaleSweep();
 	}
 

@@ -10,7 +10,8 @@ import type {
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/application/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { collectionRepository } from "@/database/repositories/collections.repository";
-import { ConflictError, ValidationError } from "@/utils/errors";
+import { assertFound, DomainError } from "@/utils/errors";
+import { runSafely } from "@/utils/safe-execute";
 import { invalidateCatalogLists } from "./catalog.utils";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 
@@ -31,10 +32,10 @@ class CollectionsService extends DictionaryCrudService<
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<CollectionWithRelations, F>> {
-		return await this.safeExecute("create", async () => {
+		return await runSafely(this, "create", async () => {
 			await this.assertNameAvailable(body.name);
 			const result = await collectionRepository.createAndRead(body, query);
-			this.assertExists(result, "Collection", body.name);
+			assertFound(result, "Collection", body.name);
 			invalidateCatalogLists();
 
 			recordAuditSafe(
@@ -58,7 +59,7 @@ class CollectionsService extends DictionaryCrudService<
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<CollectionWithRelations, F>> {
-		return await this.safeExecute("update", async () =>
+		return await runSafely(this, "update", async () =>
 			auditedUpdate({
 				logger: this.logger,
 				resourceType: "collection",
@@ -66,7 +67,7 @@ class CollectionsService extends DictionaryCrudService<
 				entityName: "Collection",
 				before: async () => {
 					const snapshot = await collectionRepository.findByIdForRead(collectionId, auditBeforeFields(body, query));
-					this.assertExists(snapshot, "Collection", collectionId);
+					assertFound(snapshot, "Collection", collectionId);
 
 					return snapshot;
 				},
@@ -74,7 +75,8 @@ class CollectionsService extends DictionaryCrudService<
 					let updatedBody = body;
 					if (body.name !== undefined) {
 						const normalizedName = body.name.trim();
-						if (!normalizedName) throw new ValidationError("Collection name cannot be empty", { code: "collections.name_required" });
+						if (!normalizedName)
+							throw new DomainError("validation", "Collection name cannot be empty", { code: "collections.name_required" });
 
 						updatedBody = { ...body, name: normalizedName };
 						await this.assertNameAvailable(normalizedName, collectionId);
@@ -89,11 +91,11 @@ class CollectionsService extends DictionaryCrudService<
 	}
 
 	async updateManualOrder(collectionId: string, metadataIds: string[], context?: AdminAuditContext): Promise<{ success: boolean }> {
-		return await this.safeExecute("updateManualOrder", async () => {
+		return await runSafely(this, "updateManualOrder", async () => {
 			const collection = await collectionRepository.findByIdForRead(collectionId);
-			this.assertExists(collection, "Collection", collectionId);
+			assertFound(collection, "Collection", collectionId);
 			if (metadataIds.length === 0)
-				throw new ValidationError("Manual order requires at least one metadata item", { code: "collections.items_required" });
+				throw new DomainError("validation", "Manual order requires at least one metadata item", { code: "collections.items_required" });
 
 			await collectionRepository.updateManualOrder({ collectionId, metadataIds });
 			invalidateCatalogLists();
@@ -114,7 +116,7 @@ class CollectionsService extends DictionaryCrudService<
 	}
 
 	override async delete(collectionId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
-		return await this.safeExecute("delete", async () => {
+		return await runSafely(this, "delete", async () => {
 			await this.getById(collectionId, { fields: "id" });
 
 			await collectionRepository.delete({ primaryId: collectionId });
@@ -137,7 +139,7 @@ class CollectionsService extends DictionaryCrudService<
 	private async assertNameAvailable(name: string, excludeId?: string): Promise<void> {
 		const existing = await collectionRepository.findByName(name);
 		if (existing && existing.id !== excludeId) {
-			throw new ConflictError(`Collection with name "${name}" already exists`, { code: "collections.name_conflict" });
+			throw new DomainError("conflict", `Collection with name "${name}" already exists`, { code: "collections.name_conflict" });
 		}
 	}
 }

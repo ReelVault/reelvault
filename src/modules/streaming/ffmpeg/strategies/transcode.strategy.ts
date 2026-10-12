@@ -1,4 +1,3 @@
-import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { getEffectiveHwaccel, resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { buildHlsMuxerArgs, buildMetadataStripArgs, buildStreamMapArgs } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
@@ -6,6 +5,7 @@ import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-track
 import { resolveStreamingThreads } from "@/integrations/ffmpeg/ffmpeg.threads";
 import { buildHwaccelInputArgs, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
 import { serverConfig } from "@/server.config";
+import type { StreamStartInput } from "../../streaming.types";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**
@@ -18,14 +18,7 @@ import { BaseStreamingStrategy } from "./base-streaming.strategy";
  * Audio PTS are aligned via `aresample=async=1:first_pts=0` in the filter graph.
  */
 export class TranscodeStrategy extends BaseStreamingStrategy {
-	async startSession(
-		sessionId: string,
-		inputPath: string,
-		outputDir: string,
-		decision: PlaybackDecision,
-		startTime = 0,
-		operationId?: string,
-	): Promise<Subprocess> {
+	async startSession({ sessionId, inputPath, outputDir, decision, startTime = 0, operationId }: StreamStartInput): Promise<Subprocess> {
 		const { segmentPattern, startNumber } = await this.prepareSession(inputPath, outputDir, startTime);
 
 		if (decision.audioTranscode) this.logger.debug("Transcoding audio", { sessionId });

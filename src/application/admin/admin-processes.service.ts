@@ -1,11 +1,10 @@
 import type { AdminProcessesResponse } from "@reelvault/sdk/common";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 
-class AdminProcessesService extends BaseService {
-	constructor() {
-		super("AdminProcessesService");
-	}
+class AdminProcessesService {
+	readonly serviceName = "AdminProcessesService";
+	readonly logger = createLogger("AdminProcessesService");
 
 	/** Point-in-time snapshot of every live child process (ffmpeg/ffprobe). */
 	getProcesses(): AdminProcessesResponse {

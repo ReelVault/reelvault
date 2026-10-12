@@ -4,7 +4,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strToU8, zipSync } from "fflate";
-import { assertChecksumMatches, createTarStreamExtractor, downloadArchive, extractPluginPackage } from "./plugin-package.utils";
+import { assertChecksumMatches } from "@/utils/crypto.utils";
+import { createTarStreamExtractor, downloadArchive, extractPluginPackage } from "./plugin-package.utils";
+
+const pluginFailure = {
+	checksum: false,
+	code: "plugin.checksum_mismatch",
+	message: "Plugin package checksum does not match the catalog manifest",
+};
 
 const temporaryDirectories: string[] = [];
 const cleanups: Array<() => Promise<void>> = [];
@@ -105,12 +112,14 @@ describe("plugin package utils", () => {
 		const archivePath = await writeArchive(Uint8Array.from(Bun.gzipSync(tar)));
 		await expect(extractPluginPackage(archivePath, 1024)).rejects.toThrow("uncompressed size limit");
 	});
+});
 
+describe("plugin package utils", () => {
 	test("compares checksums in constant time and rejects mismatches", () => {
 		const checksumA = `sha256-${"a".repeat(64)}`;
 		const checksumB = `sha256-${"b".repeat(64)}`;
-		assertChecksumMatches(checksumA, checksumA);
-		expect(() => assertChecksumMatches(checksumA, checksumB)).toThrow("checksum does not match");
+		assertChecksumMatches(checksumA, checksumA, pluginFailure);
+		expect(() => assertChecksumMatches(checksumA, checksumB, pluginFailure)).toThrow("checksum does not match");
 	});
 
 	test("downloads an archive over HTTP, hashing the exact bytes", async () => {
@@ -184,7 +193,9 @@ describe("plugin package utils", () => {
 
 		expect(readFileSync(join(extracted.pluginRoot, "data.bin")).byteLength).toBe(payload.byteLength);
 	});
+});
 
+describe("plugin package utils", () => {
 	test("extracts a tar archive fed in arbitrary chunk sizes", async () => {
 		const payload = strToU8("A".repeat(1500));
 		const longDirectory = `${"chunked-directory-".repeat(6)}x`;

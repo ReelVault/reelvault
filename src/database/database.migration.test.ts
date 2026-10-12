@@ -112,7 +112,9 @@ describe("database migrations", () => {
 		expect(indexes.has("worker_operations_status_created_idx")).toBe(true);
 		expect(indexes.has("plugin_repositories_url_unique")).toBe(true);
 	});
+});
 
+describe("database migrations", () => {
 	test("adds the index-hardening lookups and partial indexes", () => {
 		const rows = factory.sqlite.query("SELECT name, sql FROM sqlite_master WHERE type = 'index'").all() as Array<{
 			name: string;
@@ -178,7 +180,9 @@ describe("database migrations", () => {
 		const applied = factory.sqlite.query("SELECT count(*) AS count FROM __drizzle_migrations").get() as { count: number };
 		expect(applied.count).toBe(migrationFolderNames().length);
 	});
+});
 
+describe("database migrations", () => {
 	test("upgrades a database created from an older migration prefix", () => {
 		const folders = migrationFolderNames();
 		const legacyFolder = join(root, "legacy-migrations");

@@ -50,11 +50,9 @@ async function runThroughput(
 	server: ManagedServer,
 	sessionId: string,
 	segments: readonly string[],
-	concurrency: number,
-	warmupMs: number,
-	durationMs: number,
-	rangeHeader?: string,
+	load: { concurrency: number; warmupMs: number; durationMs: number; rangeHeader?: string | undefined },
 ): Promise<ThroughputRun> {
+	const { concurrency, warmupMs, durationMs, rangeHeader } = load;
 	const run = await runLoadWindow({
 		concurrency,
 		warmupMs,
@@ -330,6 +328,48 @@ if (!args.help) {
 		return { ok: true };
 	});
 
+	type ThroughputServer = Parameters<typeof runThroughput>[0];
+	type ThroughputSegments = Parameters<typeof runThroughput>[2];
+	type ThroughputLoad = Parameters<typeof runThroughput>[3];
+
+	/** Runs one throughput load, prints its table, and returns the scenario result with the bytes it moved. */
+	async function reportThroughput(
+		server: ThroughputServer,
+		sessionId: string,
+		segments: ThroughputSegments,
+		load: ThroughputLoad,
+		report: { title: string; rateLabel: string },
+	): Promise<{ result: HttpScenarioResult; bytes: number }> {
+		const run = await runThroughput(server, sessionId, segments, load);
+		const stats = summarizeLatencies(run.latencies);
+		const okCount = run.latencies.length - run.non2xx;
+		printTable(
+			report.title,
+			["MB/s", report.rateLabel, "p50", "p95", "p99", "non-2xx"],
+			[
+				[
+					(run.totalBytes / (run.elapsedMs / 1000) / 1024 / 1024).toFixed(2),
+					(run.latencies.length / (run.elapsedMs / 1000)).toFixed(1),
+					fmtMs(stats.p50Ms),
+					fmtMs(stats.p95Ms),
+					fmtMs(stats.p99Ms),
+					String(run.non2xx),
+				],
+			],
+		);
+
+		const result = toScenarioResult({
+			name: run.name,
+			stats,
+			throughputCount: okCount,
+			elapsedMs: run.elapsedMs,
+			errorCount: run.non2xx,
+			total: run.latencies.length,
+		});
+
+		return { result, bytes: run.totalBytes };
+	}
+
 	task("streaming: phases", async () => {
 		if (args.baseUrl) {
 			console.error("The streaming benchmark requires a managed server (do not pass --url)");
@@ -361,65 +401,23 @@ if (!args.help) {
 		let totalBytes = 0;
 		for (const concurrency of args.concurrency) {
 			console.log(`[streaming] throughput at concurrency ${concurrency}...`);
-			const run = await runThroughput(server, sessionId, segments, concurrency, args.warmupMs, args.durationMs);
-			totalBytes += run.totalBytes;
-			const stats = summarizeLatencies(run.latencies);
-			const okCount = run.latencies.length - run.non2xx;
-			results.push(
-				toScenarioResult({
-					name: run.name,
-					stats,
-					throughputCount: okCount,
-					elapsedMs: run.elapsedMs,
-					errorCount: run.non2xx,
-					total: run.latencies.length,
-				}),
-			);
-			printTable(
-				`Throughput c=${concurrency}`,
-				["MB/s", "segments/s", "p50", "p95", "p99", "non-2xx"],
-				[
-					[
-						(run.totalBytes / (run.elapsedMs / 1000) / 1024 / 1024).toFixed(2),
-						(run.latencies.length / (run.elapsedMs / 1000)).toFixed(1),
-						fmtMs(stats.p50Ms),
-						fmtMs(stats.p95Ms),
-						fmtMs(stats.p99Ms),
-						String(run.non2xx),
-					],
-				],
-			);
+			const load = { concurrency, warmupMs: args.warmupMs, durationMs: args.durationMs };
+			const full = await reportThroughput(server, sessionId, segments, load, {
+				title: `Throughput c=${concurrency}`,
+				rateLabel: "segments/s",
+			});
 
 			// Seek path: a 256 KiB window from the middle of a segment — what a
 			// player re-downloads after a seek when byte-range support exists.
-			const rangeRun = await runThroughput(server, sessionId, segments, concurrency, args.warmupMs, args.durationMs, "bytes=131072-393215");
-			totalBytes += rangeRun.totalBytes;
-			const rangeStats = summarizeLatencies(rangeRun.latencies);
-			const rangeOkCount = rangeRun.latencies.length - rangeRun.non2xx;
-			results.push(
-				toScenarioResult({
-					name: rangeRun.name,
-					stats: rangeStats,
-					throughputCount: rangeOkCount,
-					elapsedMs: rangeRun.elapsedMs,
-					errorCount: rangeRun.non2xx,
-					total: rangeRun.latencies.length,
-				}),
+			const range = await reportThroughput(
+				server,
+				sessionId,
+				segments,
+				{ ...load, rangeHeader: "bytes=131072-393215" },
+				{ title: `Throughput Range 256KiB c=${concurrency}`, rateLabel: "req/s" },
 			);
-			printTable(
-				`Throughput Range 256KiB c=${concurrency}`,
-				["MB/s", "req/s", "p50", "p95", "p99", "non-2xx"],
-				[
-					[
-						(rangeRun.totalBytes / (rangeRun.elapsedMs / 1000) / 1024 / 1024).toFixed(2),
-						(rangeRun.latencies.length / (rangeRun.elapsedMs / 1000)).toFixed(1),
-						fmtMs(rangeStats.p50Ms),
-						fmtMs(rangeStats.p95Ms),
-						fmtMs(rangeStats.p99Ms),
-						String(rangeRun.non2xx),
-					],
-				],
-			);
+			results.push(full.result, range.result);
+			totalBytes += full.bytes + range.bytes;
 		}
 
 		await runAbortedDownloads(server, sessionId, segments);

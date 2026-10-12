@@ -30,7 +30,6 @@
 		"globals": ["Bun"],
 		"formatter": {
 			"quoteStyle": "double",
-			"jsxQuoteStyle": "double",
 			"arrowParentheses": "always",
 			"trailingCommas": "all",
 			"semicolons": "always",
@@ -57,15 +56,6 @@
 		},
 		"rules": {
 			"preset": "recommended",
-			"a11y": {
-				"useAltText": "error",
-				"useKeyWithClickEvents": "error",
-				"useButtonType": "error",
-				"useMediaCaption": "warn",
-				"useValidAriaProps": "error",
-				"useValidAriaRole": "error",
-				"noSvgWithoutTitle": "off"
-			},
 			"complexity": {
 				"noUselessStringConcat": "error",
 				"noUselessUndefinedInitialization": "error",
@@ -73,9 +63,21 @@
 				"useDateNow": "error",
 				"noImportantStyles": "off",
 				"noExcessiveCognitiveComplexity": {
-					"level": "warn",
+					"level": "error",
 					"options": {
-						"maxAllowedComplexity": 35
+						"maxAllowedComplexity": 25
+					}
+				},
+				"noExcessiveLinesPerFunction": {
+					"level": "error",
+					"options": {
+						"maxLines": 100
+					}
+				},
+				"useMaxParams": {
+					"level": "error",
+					"options": {
+						"max": 5
 					}
 				},
 				"noExcessiveNestedTestSuites": "warn",
@@ -85,7 +87,6 @@
 				"noUselessTypeConstraint": "error",
 				"noUselessSwitchCase": "error",
 				"noUselessLoneBlockStatements": "error",
-				"noUselessFragments": "error",
 				"noAdjacentSpacesInRegex": "error"
 			},
 			"correctness": {
@@ -97,17 +98,9 @@
 				},
 				"noUnusedFunctionParameters": "error",
 				"noUnusedPrivateClassMembers": "error",
-				"useExhaustiveDependencies": {
-					"level": "error",
-					"options": {
-						"reportUnnecessaryDependencies": false
-					}
-				},
 				"noUnusedVariables": "error",
 				"noUnreachable": "error",
 				"noUnreachableSuper": "error",
-				"noChildrenProp": "error",
-				"noNestedComponentDefinitions": "error",
 				"useIsNan": "error",
 				"useValidTypeof": "error",
 				"noInvalidConstructorSuper": "error",
@@ -115,18 +108,13 @@
 				"noSelfAssign": "error",
 				"noSwitchDeclarations": "error",
 				"noVoidTypeReturn": "error",
-				"useHookAtTopLevel": "error",
-				"useJsxKeyInIterable": "error",
 				"noConstAssign": "error",
 				"noPrecisionLoss": "error",
 				"noSetterReturn": "error",
 				"noGlobalObjectCalls": "error"
 			},
 			"security": {
-				"noGlobalEval": "error",
-				"noBlankTarget": "error",
-				"noDangerouslySetInnerHtml": "error",
-				"noDangerouslySetInnerHtmlWithChildren": "error"
+				"noGlobalEval": "error"
 			},
 			"performance": {
 				"noAccumulatingSpread": "error",
@@ -135,14 +123,12 @@
 				"noNamespaceImport": "warn",
 				"useTopLevelRegex": "error",
 				"noDelete": "error",
-				"noImgElement": "off",
 				"noDynamicNamespaceImportAccess": "error"
 			},
 			"style": {
 				"noParameterProperties": "error",
 				"noYodaExpression": "error",
 				"useConsistentBuiltinInstantiation": "error",
-				"useFragmentSyntax": "error",
 				"useShorthandAssign": "error",
 				"useArrayLiterals": "error",
 				"useFilenamingConvention": {
@@ -167,7 +153,6 @@
 				"noDefaultExport": "off",
 				"noMagicNumbers": "off",
 				"useNamingConvention": "off",
-				"useSelfClosingElements": "error",
 				"useSingleVarDeclarator": "error",
 				"useConst": "error",
 				"useDefaultSwitchClause": "warn",
@@ -201,10 +186,6 @@
 				"noConstantBinaryExpressions": "error",
 				"noDoubleEquals": "error",
 				"noConfusingVoidType": "error",
-				"noReactForwardRef": "error",
-				"noDuplicatedSpreadProps": "error",
-				"noUnknownAttribute": "error",
-				"noArrayIndexKey": "warn",
 				"noAssignInExpressions": "error",
 				"noAsyncPromiseExecutor": "error",
 				"noCatchAssign": "error",
@@ -241,14 +222,6 @@
 				"noOctalEscape": "error"
 			},
 			"nursery": {
-				"useSortedClasses": {
-					"level": "warn",
-					"fix": "safe",
-					"options": {
-						"attributes": ["class", "className"],
-						"functions": ["clsx", "cva", "cn", "tw"]
-					}
-				},
 				"noFloatingPromises": "off",
 				"noMisusedPromises": "off",
 				"useAwaitThenable": "off",
@@ -268,8 +241,6 @@
 				"noDrizzleDeleteWithoutWhere": "error",
 				"noDrizzleUpdateWithoutWhere": "error",
 				"noThisOutsideOfClass": "error",
-				"noJsxLeakedDollar": "error",
-				"noReactStringRefs": "error",
 				"noNegationInEqualityCheck": "error",
 				"noEmptyObjectKeys": "error",
 				"noExcessiveNestedCallbacks": "warn"

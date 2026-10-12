@@ -1,4 +1,4 @@
-import { ConflictError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 /**
  * Rejects active worker tasks that belong to a different operation than the
@@ -14,7 +14,7 @@ export function assertOperationCompatibility(
 
 	for (const task of tasks) {
 		if (task.operationId && task.operationId !== operationId) {
-			throw new ConflictError(`Active ${label} belongs to another operation`, { code: "worker.operation_conflict" });
+			throw new DomainError("conflict", `Active ${label} belongs to another operation`, { code: "worker.operation_conflict" });
 		}
 	}
 }

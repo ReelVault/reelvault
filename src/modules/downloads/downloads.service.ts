@@ -16,13 +16,13 @@ import {
 	isDownloadQuality,
 } from "@/modules/downloads/download-quality.utils";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { errorCodeOf, toErrorCode } from "@/utils/error-codes.utils";
-import { ConflictError, errorMessage, ForbiddenError, isMissingFile, NotFoundError, ValidationError } from "@/utils/errors";
+import { assertFound, assertProfileId, DomainError, errorCodeOf, errorMessage, isMissingFile, toErrorCode } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { enqueueDownloadsProcess } from "@/workers/definitions/downloads/downloads-process.worker";
 
 export interface DownloadJobView {
@@ -70,44 +70,46 @@ function mediaFileBaseName(sourceFileName: string): string {
 	return sourceFileName.replace(FILE_EXTENSION_REGEX, "").replace(ILLEGAL_FILENAME_CHARS_REGEX, "_").slice(0, 120) || "download";
 }
 
-class DownloadsService extends BaseService {
+class DownloadsService {
+	readonly serviceName = "DownloadsService";
+	readonly logger = createLogger("DownloadsService");
+
 	/** Kill-switches for in-flight ffmpeg runs, keyed by download id. */
 	private readonly abortHandles = new Map<string, () => void>();
 	private retentionTimerStarted = false;
 
 	constructor() {
-		super("DownloadsService");
 		this.scheduleRetentionSweep();
 	}
 
 	async prepare(profileId: string | undefined, mediaFileId: string, quality: string = DEFAULT_DOWNLOAD_QUALITY): Promise<DownloadJobView> {
-		return await this.safeExecute("prepare", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "prepare", async () => {
+			assertProfileId(profileId);
 			if (!serverConfig.downloads.enabled)
-				throw new ForbiddenError("Downloads are disabled on this server", { code: "downloads.disabled" });
+				throw new DomainError("forbidden", "Downloads are disabled on this server", { code: "downloads.disabled" });
 
-			if (!mediaFileId.trim()) throw new ValidationError("mediaFileId is required", { code: "downloads.media_file_required" });
+			if (!mediaFileId.trim()) throw new DomainError("validation", "mediaFileId is required", { code: "downloads.media_file_required" });
 
 			const mediaFile = await mediaRepository.findByPrimaryId({
 				primaryId: mediaFileId,
 				fields: QueryFields.parse({ fields: "id,filePath,duration,fileName" }),
 			});
-			this.assertExists(mediaFile, "MediaFile", mediaFileId);
+			assertFound(mediaFile, "MediaFile", mediaFileId);
 			if (quality !== "original" && !(mediaFile.duration && mediaFile.duration > 0)) {
-				throw new ValidationError("Transcoded download requires a known file duration", { code: "downloads.duration_unknown" });
+				throw new DomainError("validation", "Transcoded download requires a known file duration", { code: "downloads.duration_unknown" });
 			}
 
 			if (await downloadsRepository.hasActiveByProfileAndMedia(profileId, mediaFileId)) {
-				throw new ConflictError("This title is already downloading for this profile", { code: "downloads.in_progress" });
+				throw new DomainError("conflict", "This title is already downloading for this profile", { code: "downloads.in_progress" });
 			}
 
 			if ((await downloadsRepository.countPendingByProfile(profileId)) >= MAX_QUEUED_DOWNLOADS_PER_PROFILE) {
-				throw new ConflictError("This profile already has too many downloads waiting", { code: "downloads.queue_full" });
+				throw new DomainError("conflict", "This profile already has too many downloads waiting", { code: "downloads.queue_full" });
 			}
 
 			const { maxBytes, usedBytes } = await this.getStorageQuota(profileId);
 			if (maxBytes > 0 && usedBytes >= maxBytes) {
-				throw new ConflictError("Storage quota exceeded — delete older downloads first", {
+				throw new DomainError("conflict", "Storage quota exceeded — delete older downloads first", {
 					code: "downloads.quota_exceeded",
 					params: { maxBytes, usedBytes },
 				});
@@ -133,16 +135,16 @@ class DownloadsService extends BaseService {
 		body: { seasonId: string; quality?: string | undefined; force?: boolean | undefined },
 		assertAccess: (mediaFileId: string) => Promise<void>,
 	): Promise<{ results: BulkRefreshItem[] }> {
-		return await this.safeExecute("queueSeason", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "queueSeason", async () => {
+			assertProfileId(profileId);
 			if (!serverConfig.downloads.enabled)
-				throw new ForbiddenError("Downloads are disabled on this server", { code: "downloads.disabled" });
+				throw new DomainError("forbidden", "Downloads are disabled on this server", { code: "downloads.disabled" });
 
 			const season = await seasonsRepository.findByPrimaryId({
 				primaryId: body.seasonId,
 				fields: QueryFields.parse({ fields: "id,metadataId" }),
 			});
-			this.assertExists(season, "Season", body.seasonId);
+			assertFound(season, "Season", body.seasonId);
 
 			const episodeFiles = new Map<string, SeasonFileCandidate | null>();
 			for (const row of await episodesRepository.findEpisodesWithFilesByMetadataId(season.metadataId)) {
@@ -157,7 +159,7 @@ class DownloadsService extends BaseService {
 			const { maxBytes, usedBytes } = await this.getStorageQuota(profileId);
 			const freeBytes = Math.max(0, maxBytes - usedBytes);
 			if (maxBytes > 0 && estimatedBytes > freeBytes && !body.force) {
-				throw new ConflictError("This season is larger than the free download space", {
+				throw new DomainError("conflict", "This season is larger than the free download space", {
 					code: "downloads.season_exceeds_quota",
 					params: { estimatedBytes, freeBytes },
 				});
@@ -235,7 +237,7 @@ class DownloadsService extends BaseService {
 	async retryForProfile(jobId: string, profileId: string): Promise<DownloadJobView> {
 		const row = await this.assertOwnedDownload(jobId, profileId);
 		if (row.status !== "failed" && row.status !== "cancelled") {
-			throw new ConflictError("Only failed or cancelled downloads can be retried", {
+			throw new DomainError("conflict", "Only failed or cancelled downloads can be retried", {
 				code: "downloads.not_retryable",
 				params: { status: row.status },
 			});
@@ -261,7 +263,7 @@ class DownloadsService extends BaseService {
 		const row = await this.requireDownload(downloadId);
 
 		if (row.status === "completed")
-			throw new ValidationError("Completed download cannot be cancelled", { code: "completed_download_cancel" });
+			throw new DomainError("validation", "Completed download cannot be cancelled", { code: "completed_download_cancel" });
 
 		this.killInFlight(downloadId);
 		await downloadsRepository.update(downloadId, { status: "cancelled" });
@@ -338,7 +340,7 @@ class DownloadsService extends BaseService {
 
 	private async requireDownload(downloadId: string): Promise<DownloadRow> {
 		const row = await downloadsRepository.findById(downloadId);
-		if (!row) throw new NotFoundError("Download not found", { code: "download_not_found" });
+		if (!row) throw new DomainError("not_found", "Download not found", { code: "download_not_found" });
 
 		return row;
 	}
@@ -398,7 +400,7 @@ class DownloadsService extends BaseService {
 
 	private async assertOwnedDownload(jobId: string, profileId: string): Promise<DownloadRow> {
 		const row = await this.getOwnedDownload(jobId, profileId);
-		if (!row) throw new NotFoundError("Download not found", { code: "download_not_found" });
+		if (!row) throw new DomainError("not_found", "Download not found", { code: "download_not_found" });
 
 		return row;
 	}
@@ -452,7 +454,7 @@ class DownloadsService extends BaseService {
 		sourceFileName: string;
 	} | null> {
 		const row = await downloadsRepository.findById(downloadId);
-		if (!row) throw new NotFoundError(`Download not found: ${downloadId}`, { code: "download_not_found" });
+		if (!row) throw new DomainError("not_found", `Download not found: ${downloadId}`, { code: "download_not_found" });
 
 		if (row.status !== "pending") return null;
 

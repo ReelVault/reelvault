@@ -4,12 +4,22 @@ import { killFfmpegProcessGracefully, waitForExitWithTimeout } from "@/integrati
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { serverConstants } from "@/server.constants";
 import { DirUtils } from "@/utils/directory.utils";
-import { TooManyRequestsError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import type { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
 import type { SessionStore } from "../runtime/session-state/session-store";
 import { isSoftwareFallbackEligible } from "./software-fallback";
 import { createStrategyRegistry } from "./strategies/strategy.factory";
+
+interface ProcessStartInput {
+	sessionId: string;
+	session: StreamingSession;
+	inputPath: string;
+	decision: PlaybackDecision;
+	startTime: number;
+	timelineStart: number;
+	operationId?: string | undefined;
+}
 
 export class ProcessManager {
 	private readonly logger = createLogger(this.constructor.name);
@@ -25,20 +35,12 @@ export class ProcessManager {
 		this.strategies = createStrategyRegistry(config);
 	}
 
-	async startSession(
-		sessionId: string,
-		session: StreamingSession,
-		inputPath: string,
-		decision: PlaybackDecision,
-		startTime: number,
-		timelineStart: number,
-		operationId?: string,
-	): Promise<void> {
+	async startSession({ sessionId, session, inputPath, decision, startTime, timelineStart, operationId }: ProcessStartInput): Promise<void> {
 		// Capacity counts sessions that already ran a process; a restart (seek,
 		// software fallback) re-enters through here and keeps its reserved slot.
 		const isRestart = session.generation > 0;
 		if (!isRestart && this.store.attachedCount() >= this.config.maxSessions) {
-			throw new TooManyRequestsError(`Concurrent stream limit reached (${this.config.maxSessions})`, {
+			throw new DomainError("too_many_requests", `Concurrent stream limit reached (${this.config.maxSessions})`, {
 				code: "stream.limit_reached",
 				params: {
 					scope: "server",
@@ -56,7 +58,14 @@ export class ProcessManager {
 		await this.ensureTempDirectory(session.tempDir);
 
 		const strategy = this.strategies[decision.mode];
-		const process = await strategy.startSession(sessionId, inputPath, session.tempDir, decision, startTime, session.operationId);
+		const process = await strategy.startSession({
+			sessionId,
+			inputPath,
+			outputDir: session.tempDir,
+			decision,
+			startTime,
+			operationId: session.operationId,
+		});
 		try {
 			// Atomic: refuses a session whose release was claimed while ffmpeg spawned.
 			this.store.attachProcess(sessionId, process, timelineStart);

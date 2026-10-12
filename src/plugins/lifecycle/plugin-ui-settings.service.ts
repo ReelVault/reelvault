@@ -1,7 +1,8 @@
 import type { PluginUiSettings, UpdatePluginUiSettingsBody } from "@reelvault/sdk/common";
 import { pluginUiOverridesRepository } from "@/database/repositories/plugin-ui-overrides.repository";
-import { BaseService } from "@/utils/base-service";
-import { NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { pluginRegistry } from "./plugin.registry";
 import { listUiContributions, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions";
 
@@ -10,13 +11,12 @@ import { listUiContributions, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contribut
  * from "everything visible" are stored; the registry applies them when it
  * builds the aggregated UI manifest.
  */
-class PluginUiSettingsService extends BaseService {
+class PluginUiSettingsService {
+	readonly serviceName = "PluginUiSettingsService";
+	readonly logger = createLogger("PluginUiSettingsService");
+
 	// Hidden keys per plugin; rebuilt after every write, so it never goes stale and holds one entry per customized plugin.
 	private hiddenByPlugin: Map<string, Set<string>> | undefined;
-
-	constructor() {
-		super("PluginUiSettingsService");
-	}
 
 	async getHiddenByPlugin(): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
 		this.hiddenByPlugin ??= await pluginUiOverridesRepository.listAll();
@@ -25,7 +25,7 @@ class PluginUiSettingsService extends BaseService {
 	}
 
 	async get(pluginId: string): Promise<PluginUiSettings> {
-		return await this.safeExecute("get", async () => {
+		return await runSafely(this, "get", async () => {
 			this.assertKnownPlugin(pluginId);
 			const hidden = (await this.getHiddenByPlugin()).get(pluginId);
 			const manifest = pluginRegistry.getUiManifest(pluginId);
@@ -39,13 +39,13 @@ class PluginUiSettingsService extends BaseService {
 	}
 
 	async update(pluginId: string, body: UpdatePluginUiSettingsBody): Promise<PluginUiSettings> {
-		return await this.safeExecute("update", async () => {
+		return await runSafely(this, "update", async () => {
 			this.assertKnownPlugin(pluginId);
 			const manifest = pluginRegistry.getUiManifest(pluginId);
 			const known = new Set((manifest ? listUiContributions(manifest) : []).map((item) => item.key));
 			for (const key of body.disabledKeys) {
 				if (!known.has(key)) {
-					throw new ValidationError(`Plugin ${pluginId} has no UI contribution "${key}"`, {
+					throw new DomainError("validation", `Plugin ${pluginId} has no UI contribution "${key}"`, {
 						code: "plugin_ui.unknown_contribution",
 						params: { pluginId, key },
 					});
@@ -87,7 +87,7 @@ class PluginUiSettingsService extends BaseService {
 
 	private assertKnownPlugin(pluginId: string): void {
 		if (!pluginRegistry.get(pluginId)) {
-			throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
+			throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
 		}
 	}
 }

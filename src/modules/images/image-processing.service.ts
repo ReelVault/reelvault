@@ -5,12 +5,13 @@ import {
 	type PersistedImageInput,
 } from "@/database/repositories/images.repository";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { errorMessage } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
-import { BatchGarbageCollector } from "@/utils/gc.utils";
+import { createLogger } from "@/utils/logger";
+import { BatchGarbageCollector } from "@/utils/mem.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import type { UploadedImage } from "./image-upload.service";
 import { type ImageDownloadPipeline, imageDownloadPipeline } from "./processing/image-download.pipeline";
@@ -53,17 +54,20 @@ const defaultDependencies: ServiceDependencies = {
 	placeAtStablePath: (localPath, source) => imageDownloadPipeline.placeAtStablePath(localPath, source),
 };
 
-export class ImageProcessingService extends BaseService {
+export class ImageProcessingService {
+	readonly serviceName = "ImageProcessingService";
+	readonly logger = createLogger("ImageProcessingService");
+
 	private readonly gc = new BatchGarbageCollector();
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("ImageProcessingService");
 		this.dependencies = dependencies;
 	}
 
 	async processMetadata(metadataId: string, images: ImageProcess[], force = false, signal?: AbortSignal) {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"processMetadata",
 			async () => {
 				await PromiseUtils.mapConcurrent(
@@ -104,7 +108,8 @@ export class ImageProcessingService extends BaseService {
 	}
 
 	async replaceMetadataImage(metadataId: string, type: ImageProcess["type"], url: string, signal?: AbortSignal) {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"replaceMetadataImage",
 			() =>
 				this.persistOwnerImage({
@@ -131,7 +136,8 @@ export class ImageProcessingService extends BaseService {
 	}
 
 	async replaceMetadataImageWithUpload(metadataId: string, type: ImageProcess["type"], uploaded: UploadedImage) {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"replaceMetadataImageWithUpload",
 			() =>
 				this.persistOwnerImage({
@@ -145,7 +151,8 @@ export class ImageProcessingService extends BaseService {
 
 	/** Downloads a remote avatar URL through the same persist path as uploads (avatar variant, square 512). */
 	async replaceProfileAvatarFromUrl(profileId: string, url: string): Promise<{ imageId: string; avatarUrl: string }> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"replaceProfileAvatarFromUrl",
 			() =>
 				this.persistOwnerImage({
@@ -158,7 +165,8 @@ export class ImageProcessingService extends BaseService {
 	}
 
 	async replaceProfileAvatarWithUpload(profileId: string, uploaded: UploadedImage): Promise<{ imageId: string; avatarUrl: string }> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"replaceProfileAvatarWithUpload",
 			() =>
 				this.persistOwnerImage({
@@ -176,7 +184,8 @@ export class ImageProcessingService extends BaseService {
 	) {
 		if (!input.imagesUrl) return;
 
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"processSeason",
 			async () => {
 				await this.syncOwnerImage({
@@ -199,7 +208,8 @@ export class ImageProcessingService extends BaseService {
 	) {
 		if (!input.imagesUrl) return;
 
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"processEpisode",
 			async () => {
 				await this.syncOwnerImage({
@@ -219,7 +229,8 @@ export class ImageProcessingService extends BaseService {
 	async processPerson(personId: string, imagesUrl: string, force = false, signal?: AbortSignal) {
 		if (!imagesUrl) return;
 
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"processPerson",
 			async () => {
 				await this.syncOwnerImage({

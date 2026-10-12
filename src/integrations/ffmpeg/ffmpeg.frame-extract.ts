@@ -52,15 +52,25 @@ export function buildSpriteExtractionCommand(inputPath: string, request: SpriteE
 	];
 }
 
-export function buildSingleFrameExtractionCommand(
-	inputPath: string,
-	timeMs: number,
-	width: number,
-	height: number,
-	format: FrameImageFormat,
-	outputPath: string,
-	hwDecodeArgs?: string[],
-): string[] {
+interface SingleFrameExtractionInput {
+	inputPath: string;
+	timeMs: number;
+	width: number;
+	height: number;
+	format: FrameImageFormat;
+	outputPath: string;
+	hwDecodeArgs?: string[] | undefined;
+}
+
+export function buildSingleFrameExtractionCommand({
+	inputPath,
+	timeMs,
+	width,
+	height,
+	format,
+	outputPath,
+	hwDecodeArgs,
+}: SingleFrameExtractionInput): string[] {
 	const filter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`;
 
 	return [

@@ -8,7 +8,7 @@ import { streamingManager } from "@/modules/streaming/runtime/streaming.manager"
 import { serverConfig } from "@/server.config";
 import { HOUR, MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { getAvailableMemoryKiB, getTotalMemoryKiB, readCgroupMemoryLimitKiB, readCgroupMemoryUsageKiB } from "@/utils/mem.utils";
 import { detach } from "@/utils/promise.utils";
@@ -249,7 +249,10 @@ async function getCpuUsage(): Promise<number> {
 	return (await getCgroupCpuUsage()) ?? (await getProcStatCpuUsage());
 }
 
-export class ResourceAllocator extends BaseService {
+export class ResourceAllocator {
+	readonly serviceName = "ResourceAllocator";
+	readonly logger = createLogger("ResourceAllocator");
+
 	private currentSnapshot?: ResourceSnapshot | undefined;
 	private recentAlerts: ResourceAlert[] = [];
 	private readonly alertCooldowns = new Map<string, number>();
@@ -259,10 +262,6 @@ export class ResourceAllocator extends BaseService {
 	private isShutdown = false;
 	private activeWorkersProvider?: (() => Record<string, number>) | undefined;
 	private activeStreamsProvider?: (() => number) | undefined;
-
-	constructor() {
-		super("ResourceAllocator");
-	}
 
 	registerActiveWorkersProvider(provider: () => Record<string, number>): void {
 		this.activeWorkersProvider = provider;

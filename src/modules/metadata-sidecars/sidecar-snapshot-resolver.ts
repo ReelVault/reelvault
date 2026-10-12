@@ -2,9 +2,9 @@ import { episodesRepository } from "@/database/repositories/episodes.repository"
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { QueryFields } from "@/database/utils/fields";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { extractYear } from "@/utils/media-match.utils";
 import type { SidecarSnapshotDocument, SidecarSnapshotResolver } from "./sidecar.types";
-import { extractYear } from "./sidecar-metadata.utils";
 
 export type EpisodeRecord = NonNullable<Awaited<ReturnType<typeof episodesRepository.findByPrimaryId>>>;
 
@@ -18,7 +18,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 				fields: "title,originalTitle,releaseDate,overview,tagline,status,providers,genres,keywords,collections,companies,cast,crew,rating",
 			}),
 		});
-		if (!metadata) throw new NotFoundError(`Metadata ${metadataId} does not exist`, { code: "metadata.not_found" });
+		if (!metadata) throw new DomainError("not_found", `Metadata ${metadataId} does not exist`, { code: "metadata.not_found" });
 
 		const providerIds = Object.fromEntries(metadata.providers.map((provider) => [provider.name, provider.externalId]));
 
@@ -58,7 +58,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 			primaryId: seasonId,
 			fields: QueryFields.parse({ fields: "name,seasonNumber,airDate,overview,status" }),
 		});
-		if (!season) throw new NotFoundError(`Season ${seasonId} does not exist`, { code: "season.not_found" });
+		if (!season) throw new DomainError("not_found", `Season ${seasonId} does not exist`, { code: "season.not_found" });
 
 		return seasonSnapshot(season);
 	}
@@ -68,7 +68,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 			primaryId: episodeId,
 			fields: QueryFields.parse({ fields: "title,episodeNumber,airDate,overview" }),
 		});
-		if (!episode) throw new NotFoundError(`Episode ${episodeId} does not exist`, { code: "episode.not_found" });
+		if (!episode) throw new DomainError("not_found", `Episode ${episodeId} does not exist`, { code: "episode.not_found" });
 
 		return episodeSnapshot(episode);
 	}

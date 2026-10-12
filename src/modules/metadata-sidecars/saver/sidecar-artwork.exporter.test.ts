@@ -108,7 +108,9 @@ describe("SidecarArtworkExporter", () => {
 			await rm(directory, { recursive: true, force: true });
 		}
 	});
+});
 
+describe("SidecarArtworkExporter", () => {
 	test("re-exports after the source changes", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-artwork-"));
 		try {

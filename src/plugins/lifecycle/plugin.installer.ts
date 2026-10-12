@@ -3,7 +3,7 @@ import type { PluginInstallDirection } from "@reelvault/sdk/common";
 import { file, write } from "bun";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { DirUtils } from "@/utils/directory.utils";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -73,7 +73,8 @@ export class PluginInstaller {
 
 		const manifest = await loadPluginManifest(source);
 		if (manifest.minServerVersion && isNewerVersion(manifest.minServerVersion, SERVER_VERSION)) {
-			throw new ValidationError(
+			throw new DomainError(
+				"validation",
 				`Plugin ${manifest.id} ${manifest.version} requires server ${manifest.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
 				{ code: "plugin.server_too_old" },
 			);
@@ -84,7 +85,7 @@ export class PluginInstaller {
 		const targetDirectory = PathUtils.join(pluginsDirectory, targetName);
 		const targetExists = await DirUtils.exists(targetDirectory);
 		if (targetExists && !options.upgrade) {
-			throw new ValidationError(`Plugin ${manifest.id} is already installed in ${targetDirectory}`, {
+			throw new DomainError("validation", `Plugin ${manifest.id} is already installed in ${targetDirectory}`, {
 				code: "plugin.already_installed",
 				params: { pluginId: manifest.id },
 			});
@@ -100,7 +101,9 @@ export class PluginInstaller {
 
 			const installedManifest = await loadPluginManifest(stagingDirectory);
 			if (installedManifest.id !== manifest.id || installedManifest.version !== manifest.version) {
-				throw new ValidationError("Plugin manifest changed while the package was being installed", { code: "plugin.manifest_changed" });
+				throw new DomainError("validation", "Plugin manifest changed while the package was being installed", {
+					code: "plugin.manifest_changed",
+				});
 			}
 
 			// An upgrade replaces the whole package directory, but admin-entered
@@ -120,31 +123,16 @@ export class PluginInstaller {
 			// An upgrade keeps the package it replaces as a rollback point (`previous`). Without a lockfile record there is nothing to roll back to.
 			const backupDirectory = isUpgrade ? PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`) : undefined;
 
-			const record: InstalledPluginRecord = {
-				directory: PathUtils.getFileName(targetDirectory),
-				integrity: await calculateDirectoryIntegrity(stagingDirectory),
-				installedAt: new Date().toISOString(),
-				source: options.source ?? source,
-				// The admin's CSP choice follows the plugin across an upgrade.
-				...(previousRecord?.cspDisabled !== undefined ? { cspDisabled: previousRecord.cspDisabled } : {}),
-				...(previousRecord?.pinned !== undefined ? { pinned: previousRecord.pinned } : {}),
+			const record = buildInstallRecord({
+				targetDirectory,
 				version: manifest.version,
-				...(previousRecord && backupDirectory ? { previous: toPreviousInstall(previousRecord, backupDirectory) } : {}),
-			};
+				integrity: await calculateDirectoryIntegrity(stagingDirectory),
+				source: options.source ?? source,
+				previousRecord,
+				backupDirectory,
+			});
 
-			if (backupDirectory) {
-				// Move the old installation aside; both renames are same-directory
-				// so they are atomic on one filesystem. Restored on any failure below.
-				await rename(targetDirectory, backupDirectory);
-			}
-
-			try {
-				await rename(stagingDirectory, targetDirectory);
-			} catch (error) {
-				if (backupDirectory) await rename(backupDirectory, targetDirectory);
-
-				throw error;
-			}
+			await activateStagedPackage({ stagingDirectory, targetDirectory, backupDirectory });
 
 			try {
 				await this.lockfileStore.writeRecord(manifest.id, record, { replace: isUpgrade });
@@ -299,7 +287,7 @@ export class PluginInstaller {
 		const hashed = await this.hashInstalledPlugins();
 		for (const { plugin, integrity } of hashed) {
 			if (integrity !== plugin.record.integrity) {
-				throw new ValidationError(`Plugin ${plugin.id} integrity does not match ${LOCKFILE_NAME}`, {
+				throw new DomainError("validation", `Plugin ${plugin.id} integrity does not match ${LOCKFILE_NAME}`, {
 					code: "plugin.integrity_mismatch",
 					params: { plugin: plugin.id },
 				});
@@ -351,7 +339,10 @@ export class PluginInstaller {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
 		if (!record)
-			throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
+			throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
+				code: "plugin.not_installed",
+				params: { plugin: pluginId },
+			});
 
 		if (record.pinned === pinned) return;
 
@@ -363,7 +354,10 @@ export class PluginInstaller {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
 		if (!record)
-			throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
+			throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
+				code: "plugin.not_installed",
+				params: { plugin: pluginId },
+			});
 
 		if (record.cspDisabled === disabled) return;
 
@@ -374,7 +368,10 @@ export class PluginInstaller {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
 		if (!record)
-			throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
+			throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
+				code: "plugin.not_installed",
+				params: { plugin: pluginId },
+			});
 
 		if (record.disabled === disabled) return;
 
@@ -399,7 +396,10 @@ export class PluginInstaller {
 		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
 		if (!record)
-			throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
+			throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
+				code: "plugin.not_installed",
+				params: { plugin: pluginId },
+			});
 
 		const directory = this.lockfileStore.resolveInstalledDirectory(pluginId, record);
 		const updatedLockfile: PluginLockfile = { ...lockfile, plugins: { ...lockfile.plugins } };
@@ -422,6 +422,55 @@ export class PluginInstaller {
 	}
 }
 
+interface InstallRecordInput {
+	targetDirectory: string;
+	version: string;
+	integrity: string;
+	source: string;
+	previousRecord: InstalledPluginRecord | undefined;
+	backupDirectory: string | undefined;
+}
+
+/** Lockfile record for a freshly staged package. An upgrade keeps the admin's CSP and pin choices and its rollback point. */
+function buildInstallRecord(input: InstallRecordInput): InstalledPluginRecord {
+	const { targetDirectory, version, integrity, source, previousRecord, backupDirectory } = input;
+
+	return {
+		directory: PathUtils.getFileName(targetDirectory),
+		integrity,
+		installedAt: new Date().toISOString(),
+		source,
+		// The admin's CSP choice follows the plugin across an upgrade.
+		...(previousRecord?.cspDisabled !== undefined ? { cspDisabled: previousRecord.cspDisabled } : {}),
+		...(previousRecord?.pinned !== undefined ? { pinned: previousRecord.pinned } : {}),
+		version,
+		...(previousRecord && backupDirectory ? { previous: toPreviousInstall(previousRecord, backupDirectory) } : {}),
+	};
+}
+
+/** Swaps the staged package into place. An upgrade moves the old package aside first and restores it if the swap fails. */
+async function activateStagedPackage(paths: {
+	stagingDirectory: string;
+	targetDirectory: string;
+	backupDirectory: string | undefined;
+}): Promise<void> {
+	const { stagingDirectory, targetDirectory, backupDirectory } = paths;
+
+	if (backupDirectory) {
+		// Move the old installation aside; both renames are same-directory
+		// so they are atomic on one filesystem. Restored on any failure below.
+		await rename(targetDirectory, backupDirectory);
+	}
+
+	try {
+		await rename(stagingDirectory, targetDirectory);
+	} catch (error) {
+		if (backupDirectory) await rename(backupDirectory, targetDirectory);
+
+		throw error;
+	}
+}
+
 function toPreviousInstall(record: InstalledPluginRecord, backupDirectory: string): PluginPreviousInstall {
 	return {
 		version: record.version,
@@ -440,7 +489,7 @@ async function assertSourceDirectory(directory: string): Promise<void> {
 		// intentionally empty
 	});
 	if (!source?.isDirectory())
-		throw new ValidationError(`Plugin source directory does not exist: ${directory}`, { code: "plugin.source_missing" });
+		throw new DomainError("validation", `Plugin source directory does not exist: ${directory}`, { code: "plugin.source_missing" });
 }
 
 /**
@@ -497,12 +546,12 @@ async function assertFile(path: string, name: string): Promise<void> {
 	const metadata = await stat(path).catch(() => {
 		// intentionally empty
 	});
-	if (!metadata?.isFile()) throw new ValidationError(`${name} does not exist: ${path}`, { code: "plugin.entry_missing" });
+	if (!metadata?.isFile()) throw new DomainError("validation", `${name} does not exist: ${path}`, { code: "plugin.entry_missing" });
 }
 
 function assertSeparateDirectories(source: string, pluginsDirectory: string): void {
 	if (isWithinDirectory(source, pluginsDirectory) || isWithinDirectory(pluginsDirectory, source)) {
-		throw new ValidationError("Plugin source directory must not overlap with the destination plugins directory", {
+		throw new DomainError("validation", "Plugin source directory must not overlap with the destination plugins directory", {
 			code: "plugin.source_overlaps_plugins_directory",
 		});
 	}

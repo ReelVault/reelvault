@@ -117,13 +117,13 @@ function idFrom(value: unknown): string | undefined {
 }
 
 async function requestJson(
-	recorder: Recorder,
+	target: { recorder: Recorder; headers: Record<string, string> },
 	label: string,
 	url: string,
 	method: "POST" | "PATCH" | "DELETE",
-	headers: Record<string, string>,
 	body?: unknown,
 ): Promise<unknown> {
+	const { recorder, headers } = target;
 	const startedAt = performance.now();
 	let ok = false;
 	let payload: unknown;
@@ -211,14 +211,16 @@ async function streamingCycle(server: ManagedServer, headers: Record<string, str
 	if (!server.sampleMediaId) return;
 
 	const created = await requestJson(
-		recorder,
+		{
+			recorder: recorder,
+			headers: {
+				...headers,
+				"idempotency-key": `scenario-${Date.now()}-${Math.random()}`,
+			},
+		},
 		"stream: create session",
 		`${server.baseUrl}/v1/playback-sessions`,
 		"POST",
-		{
-			...headers,
-			"idempotency-key": `scenario-${Date.now()}-${Math.random()}`,
-		},
 		{ mediaFileId: server.sampleMediaId, videoCodecs: ["h264"], audioCodecs: ["aac"] },
 	);
 	const sessionId = sessionIdFrom(created);
@@ -238,18 +240,35 @@ async function streamingCycle(server: ManagedServer, headers: Record<string, str
 			await sleep(400);
 		}
 
-		await requestJson(recorder, "stream: heartbeat", `${server.baseUrl}/v1/playback-sessions/${sessionId}/heartbeat`, "POST", headers, {
-			position: 8,
-			isPaused: false,
-		});
-		await requestJson(recorder, "stream: seek", `${server.baseUrl}/v1/playback-sessions/${sessionId}/seek`, "POST", headers, {
-			position: 15,
-		});
+		await requestJson(
+			{ recorder: recorder, headers: headers },
+			"stream: heartbeat",
+			`${server.baseUrl}/v1/playback-sessions/${sessionId}/heartbeat`,
+			"POST",
+			{
+				position: 8,
+				isPaused: false,
+			},
+		);
+		await requestJson(
+			{ recorder: recorder, headers: headers },
+			"stream: seek",
+			`${server.baseUrl}/v1/playback-sessions/${sessionId}/seek`,
+			"POST",
+			{
+				position: 15,
+			},
+		);
 		await timedFetch(recorder, "stream: playlist after seek", `${server.baseUrl}/v1/playback-sessions/${sessionId}/playlist`, headers);
 		await sleep(800);
 	} finally {
 		// A reaped session (404) is a clean end too — the cycle simply starts over.
-		await requestJson(recorder, "stream: end session", `${server.baseUrl}/v1/playback-sessions/${sessionId}`, "DELETE", headers);
+		await requestJson(
+			{ recorder: recorder, headers: headers },
+			"stream: end session",
+			`${server.baseUrl}/v1/playback-sessions/${sessionId}`,
+			"DELETE",
+		);
 	}
 }
 
@@ -288,13 +307,15 @@ async function ingestActor(server: ManagedServer, deadline: number, recorder: Re
 	}
 
 	const created = await requestJson(
-		recorder,
+		{
+			recorder: recorder,
+			headers: {
+				cookie: server.cookie,
+			},
+		},
 		"ingest: create library",
 		`${server.baseUrl}/v1/libraries`,
 		"POST",
-		{
-			cookie: server.cookie,
-		},
 		{ name: "Scenario Ingest", type: "movies", metadataStorageMode: "database", paths: [{ path: ingestDir }] },
 	);
 	const libraryId = idFrom(created) ?? (await resolveFirstLibraryId(server));
@@ -303,11 +324,10 @@ async function ingestActor(server: ManagedServer, deadline: number, recorder: Re
 	while (Date.now() < deadline) {
 		// Each trigger re-scans the ingest dir: stat sweep + ffprobe storm server-side.
 		await requestJson(
-			recorder,
+			{ recorder: recorder, headers: { cookie: server.cookie } },
 			"ingest: trigger scan",
 			`${server.baseUrl}/v1/libraries/${libraryId}/scan`,
 			"POST",
-			{ cookie: server.cookie },
 			{},
 		);
 		await sleep(INGEST_SCAN_INTERVAL_MS);
@@ -320,13 +340,19 @@ async function adminStormActor(server: ManagedServer, deadline: number, recorder
 	const libraryId = await resolveFirstLibraryId(server);
 
 	while (Date.now() < deadline) {
-		await requestJson(recorder, "admin: update settings", `${server.baseUrl}/v1/admin/settings`, "PATCH", headers, {
+		await requestJson({ recorder: recorder, headers: headers }, "admin: update settings", `${server.baseUrl}/v1/admin/settings`, "PATCH", {
 			"scanning.autoWatcherDelaySeconds": 5,
 		});
 		if (libraryId) {
-			await requestJson(recorder, "admin: library edit", `${server.baseUrl}/v1/libraries/${libraryId}`, "PATCH", headers, {
-				name: "Benchmark Movies",
-			});
+			await requestJson(
+				{ recorder: recorder, headers: headers },
+				"admin: library edit",
+				`${server.baseUrl}/v1/libraries/${libraryId}`,
+				"PATCH",
+				{
+					name: "Benchmark Movies",
+				},
+			);
 		}
 
 		await timedFetch(recorder, "admin: dashboard", `${server.baseUrl}/v1/admin/dashboard`, headers);

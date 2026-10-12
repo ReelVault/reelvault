@@ -1,6 +1,6 @@
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
-import { ConflictError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { detach } from "@/utils/promise.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import { BoundedMap } from "../utils/bounded-map";
@@ -37,7 +37,7 @@ export class PlaybackSessionIdempotencyRegistry<T = unknown> {
 		const existing = this.entries.get(key);
 		if (existing) {
 			if (existing.fingerprint !== fingerprint) {
-				throw new ConflictError("Idempotency-Key was already used with different playback session settings", {
+				throw new DomainError("conflict", "Idempotency-Key was already used with different playback session settings", {
 					code: "stream.idempotency_conflict",
 				});
 			}

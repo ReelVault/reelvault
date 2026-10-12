@@ -18,9 +18,10 @@ import { QueryPagination } from "@/database/utils/pagination";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { hasEntry } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
 import { hashProfilePin } from "@/utils/crypto.utils";
-import { ConflictError, ForbiddenError } from "@/utils/errors";
+import { assertFound, assertPresent, DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { recordAuditSafe } from "./admin-audit.service";
 
 interface AdminUserUpdate {
@@ -35,10 +36,9 @@ interface AdminUserProfileUpdate {
 	pin?: string | null | undefined;
 }
 
-class AdminUsersService extends BaseService {
-	constructor() {
-		super("AdminUsersService");
-	}
+class AdminUsersService {
+	readonly serviceName = "AdminUsersService";
+	readonly logger = createLogger("AdminUsersService");
 
 	async getAll(query: {
 		q?: string;
@@ -47,7 +47,7 @@ class AdminUsersService extends BaseService {
 		page?: number;
 		limit?: number;
 	}): Promise<AdminUsersPage> {
-		return await this.safeExecute("getAll", async () => {
+		return await runSafely(this, "getAll", async () => {
 			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 25 });
 			const { total, data } = await usersRepository.findForAdministration({
 				search: query.q?.trim(),
@@ -77,9 +77,9 @@ class AdminUsersService extends BaseService {
 
 	/** The user's sessions that have not expired, newest first. Tokens are never returned. */
 	async getSessions(userId: string, query: { page?: number; limit?: number }) {
-		return await this.safeExecute("getSessions", async () => {
+		return await runSafely(this, "getSessions", async () => {
 			const user = await usersRepository.findById(userId);
-			this.assertExists(user, "User", userId);
+			assertFound(user, "User", userId);
 
 			const page = await sessionsRepository.findActivePageByUserId(userId, query);
 
@@ -99,9 +99,9 @@ class AdminUsersService extends BaseService {
 
 	/** Ends one session of a user. */
 	async revokeSession(userId: string, sessionId: string, context?: AdminAuditContext) {
-		return await this.safeExecute("revokeSession", async () => {
+		return await runSafely(this, "revokeSession", async () => {
 			const revoked = await sessionsRepository.deleteForUser({ userId, sessionId });
-			this.assertExists(revoked || undefined, "Session", sessionId);
+			assertFound(revoked || undefined, "Session", sessionId);
 
 			recordAuditSafe({ action: "delete", resourceType: "user_session", resourceId: sessionId, after: { userId }, context }, this.logger);
 
@@ -111,7 +111,7 @@ class AdminUsersService extends BaseService {
 
 	/** Ends every session of the listed users at once. */
 	async revokeSessionsForUsers(userIds: string[], context?: AdminAuditContext) {
-		return await this.safeExecute("revokeSessionsForUsers", async () => {
+		return await runSafely(this, "revokeSessionsForUsers", async () => {
 			const revokedSessions = await sessionsRepository.deleteForUsers(userIds);
 
 			recordAuditSafe(
@@ -124,28 +124,28 @@ class AdminUsersService extends BaseService {
 	}
 
 	async getById(userId: string): Promise<AdminUser> {
-		return await this.safeExecute("getById", async () => {
+		return await runSafely(this, "getById", async () => {
 			const user = await usersRepository.findById(userId);
-			this.assertExists(user, "User", userId);
+			assertFound(user, "User", userId);
 
 			return toAdminUser(user, await this.activityOf(userId));
 		});
 	}
 
 	async getByIdWithProfiles(userId: string): Promise<{ user: AdminUser; profiles: AdminUserProfile[] }> {
-		return await this.safeExecute("getByIdWithProfiles", async () => {
+		return await runSafely(this, "getByIdWithProfiles", async () => {
 			const [user, profiles] = await Promise.all([usersRepository.findById(userId), profilesRepository.findByUserId(userId)]);
-			this.assertExists(user, "User", userId);
+			assertFound(user, "User", userId);
 
 			return { user: toAdminUser(user), profiles: profiles.map((item) => toAdminUserProfile(item)) };
 		});
 	}
 
 	async create(body: AdminCreateUser, context?: AdminAuditContext): Promise<AdminUser> {
-		return await this.safeExecute("create", async () => {
-			this.assertPresent(context?.headers, "Request headers are required to create an admin user");
+		return await runSafely(this, "create", async () => {
+			assertPresent(context?.headers, "Request headers are required to create an admin user");
 			const existing = await usersRepository.findByEmail(body.email);
-			if (existing) throw new ConflictError("User with this email already exists", { code: "admin.user_email_conflict" });
+			if (existing) throw new DomainError("conflict", "User with this email already exists", { code: "admin.user_email_conflict" });
 
 			const result = await betterAuthApi.createUser({
 				name: body.name,
@@ -156,7 +156,7 @@ class AdminUsersService extends BaseService {
 			});
 
 			const user = await usersRepository.findById(result.user.id);
-			this.assertExists(user, "User", result.user.id);
+			assertFound(user, "User", result.user.id);
 			recordAuditSafe(
 				{
 					action: "create",
@@ -173,10 +173,10 @@ class AdminUsersService extends BaseService {
 	}
 
 	async setPassword(userId: string, body: AdminSetUserPassword, context?: AdminAuditContext): Promise<SuccessResponse> {
-		return await this.safeExecute("setPassword", async () => {
+		return await runSafely(this, "setPassword", async () => {
 			const user = await usersRepository.findById(userId);
-			this.assertExists(user, "User", userId);
-			this.assertPresent(context?.headers, "Request headers are required to set a user password");
+			assertFound(user, "User", userId);
+			assertPresent(context?.headers, "Request headers are required to set a user password");
 
 			await betterAuthApi.setUserPassword({ userId, newPassword: body.newPassword, headers: context.headers });
 			// A stolen session token must not survive a password reset.
@@ -197,18 +197,18 @@ class AdminUsersService extends BaseService {
 	}
 
 	async update(userId: string, body: AdminUserUpdate, context?: AdminAuditContext): Promise<AdminUser> {
-		return await this.safeExecute("update", async () => {
+		return await runSafely(this, "update", async () => {
 			const user = await usersRepository.findById(userId);
-			this.assertExists(user, "User", userId);
+			assertFound(user, "User", userId);
 			if (user.id === context?.actorUserId && (body.role === "user" || body.banned)) {
-				throw new ForbiddenError("You cannot remove your own administrative access", { code: "admin.self_demotion_forbidden" });
+				throw new DomainError("forbidden", "You cannot remove your own administrative access", { code: "admin.self_demotion_forbidden" });
 			}
 
 			if (user.role === "admin" && body.role === "user") {
 				await this.assertNotLastAdmin(user);
 			}
 
-			this.assertPresent(context?.headers, "Request headers are required to update an admin user");
+			assertPresent(context?.headers, "Request headers are required to update an admin user");
 			if (body.role !== undefined && body.role !== user.role) {
 				await betterAuthApi.setRole({ userId, role: body.role, headers: context.headers });
 			}
@@ -223,7 +223,7 @@ class AdminUsersService extends BaseService {
 			}
 
 			const updated = await usersRepository.findById(userId);
-			this.assertExists(updated, "User", userId);
+			assertFound(updated, "User", userId);
 			recordAuditSafe(
 				{
 					action: "update",
@@ -241,15 +241,15 @@ class AdminUsersService extends BaseService {
 	}
 
 	async delete(userId: string, context?: AdminAuditContext): Promise<SuccessResponse> {
-		return await this.safeExecute("delete", async () => {
+		return await runSafely(this, "delete", async () => {
 			const user = await usersRepository.findById(userId);
-			this.assertExists(user, "User", userId);
+			assertFound(user, "User", userId);
 			if (user.id === context?.actorUserId)
-				throw new ForbiddenError("You cannot delete your own account", { code: "admin.self_delete_forbidden" });
+				throw new DomainError("forbidden", "You cannot delete your own account", { code: "admin.self_delete_forbidden" });
 
 			await this.assertNotLastAdmin(user);
 
-			this.assertPresent(context?.headers, "Request headers are required to delete an admin user");
+			assertPresent(context?.headers, "Request headers are required to delete an admin user");
 			await betterAuthApi.removeUser({ userId, headers: context.headers });
 			recordAuditSafe(
 				{
@@ -267,9 +267,9 @@ class AdminUsersService extends BaseService {
 	}
 
 	async getProfiles(userId: string): Promise<AdminUserProfile[]> {
-		return await this.safeExecute("getProfiles", async () => {
+		return await runSafely(this, "getProfiles", async () => {
 			const userExists = await usersRepository.isExists({ primaryId: userId });
-			this.assertExists(userExists, "User", userId);
+			assertFound(userExists, "User", userId);
 
 			const profiles = await profilesRepository.findByUserId(userId);
 
@@ -278,20 +278,20 @@ class AdminUsersService extends BaseService {
 	}
 
 	async createProfile(userId: string, body: AdminCreateUserProfile, context?: AdminAuditContext): Promise<AdminUserProfile> {
-		return await this.safeExecute("createProfile", async () => {
+		return await runSafely(this, "createProfile", async () => {
 			const [userExists, isNameTaken] = await Promise.all([
 				usersRepository.isExists({ primaryId: userId }),
 				profilesRepository.isNameTaken({ userId, name: body.name }),
 			]);
-			this.assertExists(userExists, "User", userId);
-			if (isNameTaken) throw new ConflictError("Profile with the same name already exists", { code: "profile.name_conflict" });
+			assertFound(userExists, "User", userId);
+			if (isNameTaken) throw new DomainError("conflict", "Profile with the same name already exists", { code: "profile.name_conflict" });
 
 			const profile = await profilesRepository.createAndRead(userId, {
 				name: body.name,
 				...(body.pin ? { pin: await hashProfilePin(body.pin) } : {}),
 				...(body.avatarUrl ? { avatarUrl: body.avatarUrl } : {}),
 			});
-			this.assertExists(profile, "Profile", body.name);
+			assertFound(profile, "Profile", body.name);
 			recordAuditSafe(
 				{
 					action: "create",
@@ -308,7 +308,7 @@ class AdminUsersService extends BaseService {
 	}
 
 	async getProfilePreferences(userId: string, profileId: string): Promise<ProfilePreferences> {
-		return await this.safeExecute("getProfilePreferences", async () => {
+		return await runSafely(this, "getProfilePreferences", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
 
 			return await profilePreferencesRepository.getEffective({ profileId: profile.id });
@@ -321,7 +321,7 @@ class AdminUsersService extends BaseService {
 		body: UpdateProfilePreferences,
 		context?: AdminAuditContext,
 	): Promise<ProfilePreferences> {
-		return await this.safeExecute("updateProfilePreferences", async () => {
+		return await runSafely(this, "updateProfilePreferences", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
 			const preferences = await profilePreferencesRepository.applyUpdate({ profileId: profile.id, body });
 			recordAuditSafe(
@@ -340,7 +340,7 @@ class AdminUsersService extends BaseService {
 	}
 
 	async resetProfilePreferences(userId: string, profileId: string, context?: AdminAuditContext): Promise<ProfilePreferences> {
-		return await this.safeExecute("resetProfilePreferences", async () => {
+		return await runSafely(this, "resetProfilePreferences", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
 			const preferences = await profilePreferencesRepository.reset({ profileId: profile.id });
 			recordAuditSafe(
@@ -364,11 +364,11 @@ class AdminUsersService extends BaseService {
 		body: AdminUserProfileUpdate,
 		context?: AdminAuditContext,
 	): Promise<AdminUserProfile> {
-		return await this.safeExecute("updateProfile", async () => {
+		return await runSafely(this, "updateProfile", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
 			if (body.name !== undefined && body.name !== profile.name) {
 				const nameTaken = await profilesRepository.isNameTaken({ userId, name: body.name, excludeId: profile.id });
-				if (nameTaken) throw new ConflictError("Profile with the same name already exists", { code: "profile.name_conflict" });
+				if (nameTaken) throw new DomainError("conflict", "Profile with the same name already exists", { code: "profile.name_conflict" });
 			}
 
 			const payload: AdminUserProfileUpdate = { ...body };
@@ -394,7 +394,7 @@ class AdminUsersService extends BaseService {
 	}
 
 	async deleteProfile(userId: string, profileId: string, context?: AdminAuditContext): Promise<SuccessResponse> {
-		return await this.safeExecute("deleteProfile", async () => {
+		return await runSafely(this, "deleteProfile", async () => {
 			const profile = await this.getOwnedProfile(userId, profileId);
 			await profilesRepository.delete({ primaryId: profile.id });
 			profilesRepository.invalidateCached(profile.id);
@@ -415,7 +415,7 @@ class AdminUsersService extends BaseService {
 
 	private async getOwnedProfile(userId: string, profileId: string) {
 		const profile = await profilesRepository.findByUserAndId(userId, profileId);
-		this.assertExists(profile, "Profile", profileId);
+		assertFound(profile, "Profile", profileId);
 
 		return profile;
 	}
@@ -425,7 +425,7 @@ class AdminUsersService extends BaseService {
 		if (user.role !== "admin") return;
 
 		const admins = await usersRepository.countAdministrators();
-		if (admins <= 1) throw new ConflictError("At least one administrator must remain", { code: "admin.last_admin_protected" });
+		if (admins <= 1) throw new DomainError("conflict", "At least one administrator must remain", { code: "admin.last_admin_protected" });
 	}
 }
 

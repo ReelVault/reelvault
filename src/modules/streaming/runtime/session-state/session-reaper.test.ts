@@ -21,15 +21,15 @@ function createReaper() {
 	const store = new SessionStore();
 	const reservations = new SessionReservationTracker(store, 5);
 	const implicitSeekInvalidations: string[] = [];
-	const reaper = new SessionReaper(
+	const reaper = new SessionReaper({
 		store,
 		reservations,
-		{
+		processManager: {
 			removeTempDirectory: async () => {
 				/* intentionally empty */
 			},
 		},
-		{
+		playlistFiles: {
 			invalidate: () => {
 				/* intentionally empty */
 			},
@@ -37,8 +37,8 @@ function createReaper() {
 				/* intentionally empty */
 			},
 		},
-		new SessionSeeker(store, 1, async () => 0),
-		{
+		seeker: new SessionSeeker(store, 1, async () => 0),
+		playlistWaiter: {
 			invalidate: () => {
 				/* intentionally empty */
 			},
@@ -46,13 +46,13 @@ function createReaper() {
 				/* intentionally empty */
 			},
 		},
-		new Set<string>(),
-		{
+		softwareFallbackSessions: new Set<string>(),
+		implicitSeek: {
 			invalidate: (id) => {
 				implicitSeekInvalidations.push(id);
 			},
 		},
-	);
+	});
 
 	return { reaper, store, reservations, implicitSeekInvalidations };
 }
@@ -132,7 +132,9 @@ describe("session reaper", () => {
 
 		expect(ended).toEqual([expect.objectContaining({ playedSeconds: 15, furthestPositionSeconds: 25 })]);
 	});
+});
 
+describe("session reaper", () => {
 	test("finalizeRelease of a never-started session skips the ended lifecycle event", async () => {
 		const { reaper, store } = createReaper();
 		registration(store, "s1");

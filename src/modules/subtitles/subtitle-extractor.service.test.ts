@@ -59,10 +59,6 @@ describe("SubtitleExtractorService", () => {
 		return { extractor, ffmpegCalls };
 	}
 
-	async function tmpLeftovers(): Promise<string[]> {
-		return (await readdir(subtitlesDir)).filter((name) => name.endsWith(".tmp"));
-	}
-
 	test("returns null for invalid stream indexes without spawning FFmpeg", async () => {
 		const { extractor, ffmpegCalls } = createExtractor();
 
@@ -107,6 +103,41 @@ describe("SubtitleExtractorService", () => {
 		expect(await result.file.text()).toBe(WEBVTT_BODY);
 		expect(ffmpegCalls).toHaveLength(0);
 	});
+});
+
+describe("SubtitleExtractorService", () => {
+	let subtitlesDir: string;
+
+	beforeEach(async () => {
+		subtitlesDir = await mkdtemp(join(tmpdir(), "reelvault-subtitle-extractor-"));
+	});
+
+	afterEach(async () => {
+		await rm(subtitlesDir, { recursive: true, force: true });
+	});
+
+	function createExtractor(options: HarnessOptions = {}) {
+		const ffmpegCalls: string[][] = [];
+		const extractor = new SubtitleExtractorService({
+			runFfmpeg: async (args) => {
+				ffmpegCalls.push(args);
+				if (options.runFfmpeg) return await options.runFfmpeg(args);
+
+				await writeWebVttToLastArg(args);
+
+				return { exitCode: 0, stderr: "" };
+			},
+			mediaFileExists: options.mediaFileExists ?? (async () => true),
+			subtitlesPath: () => subtitlesDir,
+			getConcurrency: () => 2,
+		});
+
+		return { extractor, ffmpegCalls };
+	}
+
+	async function tmpLeftovers(): Promise<string[]> {
+		return (await readdir(subtitlesDir)).filter((name) => name.endsWith(".tmp"));
+	}
 
 	test("extracts through FFmpeg, atomically caches the VTT and cleans the temp file", async () => {
 		const { extractor, ffmpegCalls } = createExtractor();
@@ -161,6 +192,37 @@ describe("SubtitleExtractorService", () => {
 		expect(await extractor.extractToVtt("sub-empty", "/media/movie.mkv", 2, "subrip")).toBeNull();
 		expect(await tmpLeftovers()).toEqual([]);
 	});
+});
+
+describe("SubtitleExtractorService", () => {
+	let subtitlesDir: string;
+
+	beforeEach(async () => {
+		subtitlesDir = await mkdtemp(join(tmpdir(), "reelvault-subtitle-extractor-"));
+	});
+
+	afterEach(async () => {
+		await rm(subtitlesDir, { recursive: true, force: true });
+	});
+
+	function createExtractor(options: HarnessOptions = {}) {
+		const ffmpegCalls: string[][] = [];
+		const extractor = new SubtitleExtractorService({
+			runFfmpeg: async (args) => {
+				ffmpegCalls.push(args);
+				if (options.runFfmpeg) return await options.runFfmpeg(args);
+
+				await writeWebVttToLastArg(args);
+
+				return { exitCode: 0, stderr: "" };
+			},
+			mediaFileExists: options.mediaFileExists ?? (async () => true),
+			subtitlesPath: () => subtitlesDir,
+			getConcurrency: () => 2,
+		});
+
+		return { extractor, ffmpegCalls };
+	}
 
 	test("deduplicates concurrent extractions of the same subtitle into one FFmpeg run", async () => {
 		let release!: () => void;
@@ -191,6 +253,37 @@ describe("SubtitleExtractorService", () => {
 		expect(await secondResult.file.text()).toBe(WEBVTT_BODY);
 		expect(ffmpegCalls).toHaveLength(1);
 	});
+});
+
+describe("SubtitleExtractorService", () => {
+	let subtitlesDir: string;
+
+	beforeEach(async () => {
+		subtitlesDir = await mkdtemp(join(tmpdir(), "reelvault-subtitle-extractor-"));
+	});
+
+	afterEach(async () => {
+		await rm(subtitlesDir, { recursive: true, force: true });
+	});
+
+	function createExtractor(options: HarnessOptions = {}) {
+		const ffmpegCalls: string[][] = [];
+		const extractor = new SubtitleExtractorService({
+			runFfmpeg: async (args) => {
+				ffmpegCalls.push(args);
+				if (options.runFfmpeg) return await options.runFfmpeg(args);
+
+				await writeWebVttToLastArg(args);
+
+				return { exitCode: 0, stderr: "" };
+			},
+			mediaFileExists: options.mediaFileExists ?? (async () => true),
+			subtitlesPath: () => subtitlesDir,
+			getConcurrency: () => 2,
+		});
+
+		return { extractor, ffmpegCalls };
+	}
 
 	test("waitForInFlight resolves only after the shared extraction settles", async () => {
 		let release!: () => void;

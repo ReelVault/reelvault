@@ -1,7 +1,7 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
-import { NotFoundError, RequestTimeoutError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { defaultRequireSession } from "../contracts";
 import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
 import type { SeekResult } from "../streaming.types";
@@ -11,7 +11,7 @@ import { SegmentLookup, type SegmentWaitContext } from "./segment-lookup";
 
 function assertSafeSegment(segment: string): void {
 	if (!isSegmentFile(segment)) {
-		throw new ValidationError("Invalid segment name", { code: "stream.segment_name_invalid" });
+		throw new DomainError("validation", "Invalid segment name", { code: "stream.segment_name_invalid" });
 	}
 }
 
@@ -52,11 +52,13 @@ const defaultDependencies: ServiceDependencies = {
 	implicitSeek: implicitSeekCoordinator,
 };
 
-export class SegmentService extends BaseService {
+export class SegmentService {
+	readonly serviceName = "SegmentService";
+	readonly logger = createLogger("SegmentService");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("SegmentService");
 		this.dependencies = dependencies;
 	}
 
@@ -74,7 +76,7 @@ export class SegmentService extends BaseService {
 			const segmentInfo = segment !== INIT_SEGMENT_FILE_NAME ? runtime.getSegmentInfo(segment) : null;
 
 			if (segmentInfo && sessionStartTime !== undefined && segmentInfo.startTime < sessionStartTime) {
-				throw new NotFoundError(`Obsolete segment requested: ${segment}`, { code: "stream.segment_obsolete" });
+				throw new DomainError("not_found", `Obsolete segment requested: ${segment}`, { code: "stream.segment_obsolete" });
 			}
 
 			const context: SegmentWaitContext = {
@@ -92,12 +94,12 @@ export class SegmentService extends BaseService {
 			this.logger.warn(`Segment missing ahead, triggering fast seek: ${segment}`, { sessionId });
 
 			if (!this.dependencies.implicitSeek.tryBegin(sessionId)) {
-				throw new NotFoundError(`Segment not found (implicit seek cooldown): ${segment}`, { code: "stream.segment_not_found" });
+				throw new DomainError("not_found", `Segment not found (implicit seek cooldown): ${segment}`, { code: "stream.segment_not_found" });
 			}
 
 			const decision = runtime.getSessionDecision(sessionId);
 			if (!decision)
-				throw new RequestTimeoutError("Streaming session is not ready yet. Try again in a moment.", { code: "stream.not_ready" });
+				throw new DomainError("timeout", "Streaming session is not ready yet. Try again in a moment.", { code: "stream.not_ready" });
 
 			const seekResult = await runtime.seekTo(sessionId, segmentInfo?.startTime ?? 0, decision);
 			this.dependencies.implicitSeek.announceSeeked({

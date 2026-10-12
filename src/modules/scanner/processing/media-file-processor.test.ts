@@ -60,7 +60,7 @@ describe("mediaFileProcessor.process", () => {
 		const controller = new AbortController();
 		controller.abort();
 
-		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv", true, controller.signal)).rejects.toThrow();
+		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv", true, { signal: controller.signal })).rejects.toThrow();
 	});
 
 	test("returns null when the file is already registered", async () => {

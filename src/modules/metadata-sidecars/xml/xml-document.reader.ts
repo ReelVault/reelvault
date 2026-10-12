@@ -1,6 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import { SyntaxValidator } from "fast-xml-validator";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";
 
 export interface XmlDocument {
@@ -29,7 +29,8 @@ const DTD_OR_ENTITY_REGEX = /<!DOCTYPE|<!ENTITY/i;
 export function assertXmlDocumentSize(documentPath: string, sizeBytes: number | undefined): void {
 	if (sizeBytes === undefined || sizeBytes <= MAX_XML_DOCUMENT_BYTES) return;
 
-	throw new ValidationError(
+	throw new DomainError(
+		"validation",
 		`Sidecar document exceeds the maximum supported size of ${MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB} MB: ${documentPath}`,
 		{ code: "sidecar.document_too_large", params: { maxMb: MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB } },
 	);
@@ -37,7 +38,7 @@ export function assertXmlDocumentSize(documentPath: string, sizeBytes: number | 
 
 export function readXmlDocument(input: string): XmlDocument | null {
 	if (input.length > MAX_XML_DOCUMENT_BYTES) {
-		throw new ValidationError(`XML document exceeds the maximum supported size of ${MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB} MB`, {
+		throw new DomainError("validation", `XML document exceeds the maximum supported size of ${MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB} MB`, {
 			code: "sidecar.document_too_large",
 			params: { maxMb: MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB },
 		});

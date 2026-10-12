@@ -43,7 +43,7 @@ const SETTINGS_KEYS = [
 	"system.resources.monitoringEnabled",
 ] as const;
 
-describe("ResourceAllocator", () => {
+function useAllocatorSettings(): void {
 	beforeEach(() => {
 		systemSettingsStore.setRuntimeValues({
 			"system.resources.enableDynamicThrottling": true,
@@ -56,6 +56,10 @@ describe("ResourceAllocator", () => {
 	afterEach(() => {
 		systemSettingsStore.deleteRuntimeValues([...SETTINGS_KEYS]);
 	});
+}
+
+describe("ResourceAllocator", () => {
+	useAllocatorSettings();
 
 	describe("calculatePressure", () => {
 		test("returns critical when memory or disk >= 95%", () => {
@@ -89,6 +93,10 @@ describe("ResourceAllocator", () => {
 			expect(calculatePressure(a, 100, 50, 50)).toBe("high");
 		});
 	});
+});
+
+describe("ResourceAllocator", () => {
+	useAllocatorSettings();
 
 	describe("getWorkerAllocation", () => {
 		test("critical pressure throttles all workers except transcode", () => {
@@ -182,6 +190,10 @@ describe("ResourceAllocator", () => {
 			expect(kebabImg.allocated).toBe(camelImg.allocated);
 		});
 	});
+});
+
+describe("ResourceAllocator", () => {
+	useAllocatorSettings();
 
 	describe("active providers", () => {
 		test("activeWorkersProvider populates worker counts in snapshot", async () => {

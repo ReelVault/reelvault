@@ -30,6 +30,25 @@ export function parseSemver(version: string): SemverParts | null {
 	};
 }
 
+/** One prerelease identifier pair: numeric identifiers compare by value and rank below alphanumeric ones. */
+function comparePrereleaseIdentifier(a: string, b: string): -1 | 0 | 1 {
+	const aNumeric = NUMERIC_IDENTIFIER_REGEX.test(a);
+	const bNumeric = NUMERIC_IDENTIFIER_REGEX.test(b);
+	if (aNumeric && bNumeric) {
+		const diff = Number(a) - Number(b);
+		if (diff === 0) return 0;
+
+		return diff < 0 ? -1 : 1;
+	}
+
+	// Numeric identifiers always have lower precedence than alphanumeric ones.
+	if (aNumeric) return -1;
+	if (bNumeric) return 1;
+	if (a === b) return 0;
+
+	return a < b ? -1 : 1;
+}
+
 /** Semver prerelease precedence: release > prerelease; identifiers compared numerically, then ASCII. */
 function comparePrerelease(left: string | null, right: string | null): -1 | 0 | 1 {
 	if (left === null && right === null) return 0;
@@ -45,18 +64,8 @@ function comparePrerelease(left: string | null, right: string | null): -1 | 0 | 
 		if (a === undefined) return -1;
 		if (b === undefined) return 1;
 
-		const aNumeric = NUMERIC_IDENTIFIER_REGEX.test(a);
-		const bNumeric = NUMERIC_IDENTIFIER_REGEX.test(b);
-		if (aNumeric && bNumeric) {
-			const diff = Number(a) - Number(b);
-			if (diff !== 0) return diff < 0 ? -1 : 1;
-			continue;
-		}
-
-		// Numeric identifiers always have lower precedence than alphanumeric ones.
-		if (aNumeric) return -1;
-		if (bNumeric) return 1;
-		if (a !== b) return a < b ? -1 : 1;
+		const order = comparePrereleaseIdentifier(a, b);
+		if (order !== 0) return order;
 	}
 
 	return 0;

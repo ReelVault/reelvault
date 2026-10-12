@@ -1,10 +1,9 @@
 import type { AddWorkerItemOptions, WorkerDefinition, WorkerJob as WorkerItemContract, WorkerQueueStats } from "@reelvault/sdk/common";
-import { v7 as uuidv7 } from "uuid";
 import type { ActiveWorkerItem, WorkerItem } from "@/database/repositories/worker.repository";
 import type { WorkerOperationRecord, WorkerOperationStatus } from "@/database/repositories/worker-operation.repository";
 import { resourceAllocator } from "@/system/resource-allocator";
 import { serverRescueService } from "@/system/server-rescue.service";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { enqueueWithOperation } from "./core/worker-operation-enqueue";
 import { type WorkerOperationsService, workerOperationsService } from "./core/worker-operations.service";
 import { WorkerPollingService } from "./core/worker-polling.service";
@@ -17,7 +16,10 @@ import { WorkerWatchdogService } from "./core/worker-watchdog.service";
 import { toJobContract } from "./utils/worker-stats.mapper";
 import type { WorkerOperationJobsQuery } from "./worker.types";
 
-class WorkerService extends BaseService {
+class WorkerService {
+	readonly serviceName = "WorkerService";
+	readonly logger = createLogger("WorkerService");
+
 	readonly registry: WorkerRegistryService;
 	readonly pool: WorkerExecutionPoolService;
 	readonly queue: WorkerQueueService;
@@ -26,11 +28,10 @@ class WorkerService extends BaseService {
 	readonly polling: WorkerPollingService;
 	readonly watchdog: WorkerWatchdogService;
 
-	private readonly runnerId = `server-${process.pid}-${uuidv7()}`;
+	private readonly runnerId = `server-${process.pid}-${Bun.randomUUIDv7()}`;
 	private initialized = false;
 
 	constructor() {
-		super("WorkerService");
 		// Init services
 		this.registry = new WorkerRegistryService();
 		this.pool = new WorkerExecutionPoolService();
@@ -39,7 +40,7 @@ class WorkerService extends BaseService {
 		this.watchdog = new WorkerWatchdogService();
 
 		// Hand the subsystems to the core services without them importing this
-		// module back (that cycle caused a BaseService TDZ at module load).
+		// module back (that import cycle reads uninitialised bindings at module load).
 		setWorkerRuntime({ registry: this.registry, pool: this.pool, queue: this.queue });
 
 		this.pool.setRunnerId(this.runnerId);

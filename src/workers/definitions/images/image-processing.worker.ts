@@ -1,7 +1,7 @@
 import { type ApplicationContext, toDomainError } from "@/application/context";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { serverConfig } from "@/server.config";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -69,7 +69,7 @@ export async function processImageTask(data: ImageProcessingData, context: Appli
 
 				return { entityType: data.kind, entityId: data.episodeId };
 			default:
-				throw new ValidationError("Unknown image processing kind", { code: "images.processing_kind_unknown" });
+				throw new DomainError("validation", "Unknown image processing kind", { code: "images.processing_kind_unknown" });
 		}
 	} catch (error) {
 		throw toDomainError(error, `Image processing failed: ${data.kind}`);
@@ -93,7 +93,7 @@ function getEntityInfo(data: ImageProcessingData): { kind: ImageProcessingData["
 		case "episode":
 			return { kind: "episode", id: data.episodeId };
 		default:
-			throw new ValidationError("Unknown image processing kind", { code: "images.processing_kind_unknown" });
+			throw new DomainError("validation", "Unknown image processing kind", { code: "images.processing_kind_unknown" });
 	}
 }
 

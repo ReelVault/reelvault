@@ -1,11 +1,11 @@
 import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import { detectImageFormat } from "@/modules/images/image-format.utils";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
 import { createHash } from "@/utils/crypto.utils";
 import { DirUtils } from "@/utils/directory.utils";
-import { InternalError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 
 type ImageUploadTarget =
@@ -21,14 +21,13 @@ export interface UploadedImage {
 	sourceHash: string;
 }
 
-class ImageUploadService extends BaseService {
-	constructor() {
-		super("ImageUploadService");
-	}
+class ImageUploadService {
+	readonly serviceName = "ImageUploadService";
+	readonly logger = createLogger("ImageUploadService");
 
 	async upload(file: File, target: ImageUploadTarget): Promise<UploadedImage> {
 		if (file.size > serverConfig.images.maxUploadBytes) {
-			throw new ValidationError(`Image upload exceeds the ${serverConfig.images.maxUploadBytes / 1024 / 1024} MB limit`, {
+			throw new DomainError("validation", `Image upload exceeds the ${serverConfig.images.maxUploadBytes / 1024 / 1024} MB limit`, {
 				code: "images.upload_too_large",
 				params: { maxBytes: serverConfig.images.maxUploadBytes, size: file.size },
 			});
@@ -38,7 +37,7 @@ class ImageUploadService extends BaseService {
 		// carry a known raster-image signature (SVG markup is rejected here).
 		const source = Buffer.from(await file.arrayBuffer());
 		if (!detectImageFormat(source))
-			throw new ValidationError("Uploaded file is not a supported raster image", { code: "images.unsupported_format" });
+			throw new DomainError("validation", "Uploaded file is not a supported raster image", { code: "images.unsupported_format" });
 
 		const localPath = this.createTemporaryImagePath();
 		await DirUtils.create(PathUtils.getDirName(localPath));
@@ -48,14 +47,14 @@ class ImageUploadService extends BaseService {
 		try {
 			await FileUtils.writeAtomic(localPath, data);
 		} catch {
-			throw new InternalError("Cannot write optimized image", { code: "image.write_failed" });
+			throw new DomainError("internal", "Cannot write optimized image", { code: "image.write_failed" });
 		}
 
 		const optimizedData = data;
 		const optimizedInfo = info;
 
 		if (!(optimizedInfo.width && optimizedInfo.height)) {
-			throw new InternalError("Optimized image is invalid", { code: "images.optimized_invalid" });
+			throw new DomainError("internal", "Optimized image is invalid", { code: "images.optimized_invalid" });
 		}
 
 		const sourceHash = createHash("sha256").update(optimizedData).digest("hex");

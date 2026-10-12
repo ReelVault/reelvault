@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { assertChecksumMatches, checksumForFile, serverAssetName, webAssetName } from "./update-release.utils";
+import { assertChecksumMatches } from "@/utils/crypto.utils";
+import { checksumForFile, serverAssetName, webAssetName } from "./update-release.utils";
+
+const releaseFailure = {
+	checksum: true,
+	code: "update.checksum_mismatch",
+	message: "Downloaded release archive failed the SHA256 verification",
+};
 
 describe("serverAssetName", () => {
 	test("maps linux x64 and arm64 and windows", () => {
@@ -50,11 +57,11 @@ describe("checksumForFile", () => {
 
 describe("assertChecksumMatches", () => {
 	test("accepts equal digests regardless of case", () => {
-		expect(() => assertChecksumMatches("AABB", "aabb")).not.toThrow();
+		expect(() => assertChecksumMatches("AABB", "aabb", releaseFailure)).not.toThrow();
 	});
 
 	test("rejects different digests and different lengths", () => {
-		expect(() => assertChecksumMatches("aabb", "ccdd")).toThrow();
-		expect(() => assertChecksumMatches("aabb", "aabbcc")).toThrow();
+		expect(() => assertChecksumMatches("aabb", "ccdd", releaseFailure)).toThrow();
+		expect(() => assertChecksumMatches("aabb", "aabbcc", releaseFailure)).toThrow();
 	});
 });

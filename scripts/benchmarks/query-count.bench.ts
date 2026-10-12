@@ -56,6 +56,196 @@ interface OperationCase {
 	run: () => Promise<unknown>;
 }
 
+interface OperationResult {
+	name: string;
+	statements: number;
+	target: number | null;
+	ms: number;
+	ok: boolean;
+}
+
+function createSidecarFixture() {
+	const sidecarFiles = Array.from({ length: 20 }, (_, index) => ({
+		filePath: `/media/show/Season 0${Math.floor(index / 10) + 1}/episode-${index}.mkv`,
+		metadataId: "show-0",
+		movieId: null,
+		episodeId: `episode-0-${Math.floor(index / 10)}-${index % 10}`,
+	}));
+	const sidecarStorage = new SidecarMetadataStorageService(
+		{
+			saveMovie: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
+			saveSeries: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
+			saveSeason: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
+			saveEpisode: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
+		} satisfies SidecarMetadataWriter,
+		{
+			saveTitleArtwork: () => Promise.resolve([]),
+			saveSeasonArtwork: () => Promise.resolve([]),
+			saveEpisodeArtwork: () => Promise.resolve([]),
+		} satisfies SidecarArtworkWriter,
+	);
+
+	return { sidecarFiles, sidecarStorage };
+}
+
+type SidecarFixture = ReturnType<typeof createSidecarFixture>;
+
+function repositoryOperationCases(): OperationCase[] {
+	return [
+		{
+			name: "metadataRepository.findPage (24, full)",
+			target: null,
+			run: () => metadataRepository.findPage({ limit: 24 }),
+		},
+		{
+			name: "metadataRepository.findById (movie detail)",
+			target: null,
+			run: () => metadataRepository.findById({ primaryId: MOVIE_ID }),
+		},
+		{
+			name: "librariesRepository.findByIdForRead (fields=id,type)",
+			target: 1,
+			run: () => librariesRepository.findByIdForRead(LIBRARY_ID, { fields: "id,type" }),
+		},
+		{
+			// Internal scan paths read the library without the provider-priority
+			// overrides getById loads; findings add one query.
+			name: "librariesService.getScanFindings (existence + findings)",
+			target: 2,
+			run: () => librariesService.getScanFindings(LIBRARY_ID),
+		},
+		{
+			name: "collectionRepository.findPage (24, cold count)",
+			target: null,
+			run: () => collectionRepository.findPage({ limit: 24 }),
+		},
+		{
+			name: "collectionRepository.findPage (24, warm count cache)",
+			target: 5,
+			warmup: () => collectionRepository.findPage({ limit: 24 }),
+			run: () => collectionRepository.findPage({ limit: 24 }),
+		},
+		{
+			name: "workerOperationRepository.list (24, cold count)",
+			target: null,
+			run: () => workerOperationRepository.list({ limit: 24 }),
+		},
+		{
+			name: "workerOperationRepository.list (24, warm count cache)",
+			target: 1,
+			warmup: () => workerOperationRepository.list({ limit: 24 }),
+			run: () => workerOperationRepository.list({ limit: 24 }),
+		},
+		{
+			name: "sessionsRepository.findActivePageByUserId (cold count)",
+			target: null,
+			run: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
+		},
+		{
+			name: "sessionsRepository.findActivePageByUserId (warm count cache)",
+			target: 1,
+			warmup: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
+			run: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
+		},
+		{
+			name: "adminAuditRepository.findMany (cold count)",
+			target: null,
+			run: () => adminAuditRepository.findMany({ page: 1, limit: 20 }),
+		},
+		{
+			name: "adminAuditRepository.findMany (warm count cache)",
+			target: 1,
+			warmup: () => adminAuditRepository.findMany({ page: 1, limit: 20 }),
+			run: () => adminAuditRepository.findMany({ page: 1, limit: 20 }),
+		},
+		{
+			name: "mediaRepository.findPage (24)",
+			target: null,
+			run: () => mediaRepository.findPage({ limit: 24 }),
+		},
+	];
+}
+
+function playbackOperationCases(sidecar: SidecarFixture): OperationCase[] {
+	return [
+		{
+			name: "watchedHistoryRepository.findPage (50)",
+			target: null,
+			run: () => watchedHistoryRepository.findPage(PROFILE_ID, { limit: 50 }),
+		},
+		{
+			name: "playbackRepository.findSmartPlayData (single id)",
+			target: null,
+			run: () => playbackRepository.findSmartPlayData(MOVIE_ID, PROFILE_ID),
+		},
+		{
+			name: `playbackProgressService.getSmartPlayBatch (${BATCH_SIZE} ids)`,
+			target: 8,
+			run: () => playbackProgressService.getSmartPlayBatch(BATCH_IDS, PROFILE_ID),
+		},
+		{
+			name: "playbackRepository.findContinueWatchingData (12)",
+			target: null,
+			run: () => playbackRepository.findContinueWatchingData(PROFILE_ID, 12),
+		},
+		{
+			name: "playbackViewService.getPlaybackView (episode → next)",
+			target: 16,
+			run: () => playbackViewService.getPlaybackView("mf-episode-0-0-0", PROFILE_ID),
+		},
+		{
+			name: "sidecarMetadataStorage.saveLibraryMedia (20 episode files)",
+			target: 6,
+			run: () =>
+				sidecar.sidecarStorage.saveLibraryMedia(
+					{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
+					sidecar.sidecarFiles,
+				),
+		},
+	];
+}
+
+async function measureOperation(operationCase: OperationCase): Promise<OperationResult> {
+	if (operationCase.warmup) await operationCase.warmup();
+
+	databaseFactory.resetQueryStats();
+	const start = performance.now();
+	await operationCase.run();
+	const ms = performance.now() - start;
+	const { queryCount } = databaseFactory.getQueryStats();
+	const ok = operationCase.target === null || queryCount <= operationCase.target;
+
+	return { name: operationCase.name, statements: queryCount, target: operationCase.target, ms, ok };
+}
+
+function printOperationTable(results: OperationResult[]): void {
+	const tableRows = results.map((result) => {
+		const target = result.target === null ? "-" : String(result.target);
+		let status = "audit";
+		if (result.target !== null) status = result.ok ? "ok" : "over";
+
+		return [result.name, String(result.statements), target, result.ms.toFixed(2), status];
+	});
+	printTable(
+		"Statements per operation (target = post-optimization budget)",
+		["operation", "statements", "target", "ms", "status"],
+		tableRows,
+	);
+}
+
+/** Prints the over-budget operations and returns them. */
+function reportBudget(results: OperationResult[]): OperationResult[] {
+	const failing = results.filter((result) => !result.ok);
+	if (failing.length > 0) {
+		console.log(`\n[query-count] ${failing.length}/${results.length} operations over budget:`);
+		for (const result of failing) console.log(`  - ${result.name}: ${String(result.statements)} > ${String(result.target)}`);
+	} else {
+		console.log(`\n[query-count] all ${results.length} operations within budget.`);
+	}
+
+	return failing;
+}
+
 const args = suiteArgs();
 
 if (!args.help) {
@@ -71,167 +261,16 @@ if (!args.help) {
 			analyze: true,
 		});
 
-		const sidecarFiles = Array.from({ length: 20 }, (_, index) => ({
-			filePath: `/media/show/Season 0${Math.floor(index / 10) + 1}/episode-${index}.mkv`,
-			metadataId: "show-0",
-			movieId: null,
-			episodeId: `episode-0-${Math.floor(index / 10)}-${index % 10}`,
-		}));
-		const sidecarStorage = new SidecarMetadataStorageService(
-			{
-				saveMovie: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
-				saveSeries: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
-				saveSeason: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
-				saveEpisode: () => Promise.resolve({ documentPath: "", writtenFiles: [] }),
-			} satisfies SidecarMetadataWriter,
-			{
-				saveTitleArtwork: () => Promise.resolve([]),
-				saveSeasonArtwork: () => Promise.resolve([]),
-				saveEpisodeArtwork: () => Promise.resolve([]),
-			} satisfies SidecarArtworkWriter,
-		);
+		const sidecar = createSidecarFixture();
+		const cases = [...repositoryOperationCases(), ...playbackOperationCases(sidecar)];
 
-		const cases: OperationCase[] = [
-			{
-				name: "metadataRepository.findPage (24, full)",
-				target: null,
-				run: () => metadataRepository.findPage({ limit: 24 }),
-			},
-			{
-				name: "metadataRepository.findById (movie detail)",
-				target: null,
-				run: () => metadataRepository.findById({ primaryId: MOVIE_ID }),
-			},
-			{
-				name: "librariesRepository.findByIdForRead (fields=id,type)",
-				target: 1,
-				run: () => librariesRepository.findByIdForRead(LIBRARY_ID, { fields: "id,type" }),
-			},
-			{
-				// Internal scan paths read the library without the provider-priority
-				// overrides getById loads; findings add one query.
-				name: "librariesService.getScanFindings (existence + findings)",
-				target: 2,
-				run: () => librariesService.getScanFindings(LIBRARY_ID),
-			},
-			{
-				name: "collectionRepository.findPage (24, cold count)",
-				target: null,
-				run: () => collectionRepository.findPage({ limit: 24 }),
-			},
-			{
-				name: "collectionRepository.findPage (24, warm count cache)",
-				target: 5,
-				warmup: () => collectionRepository.findPage({ limit: 24 }),
-				run: () => collectionRepository.findPage({ limit: 24 }),
-			},
-			{
-				name: "workerOperationRepository.list (24, cold count)",
-				target: null,
-				run: () => workerOperationRepository.list({ limit: 24 }),
-			},
-			{
-				name: "workerOperationRepository.list (24, warm count cache)",
-				target: 1,
-				warmup: () => workerOperationRepository.list({ limit: 24 }),
-				run: () => workerOperationRepository.list({ limit: 24 }),
-			},
-			{
-				name: "sessionsRepository.findActivePageByUserId (cold count)",
-				target: null,
-				run: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
-			},
-			{
-				name: "sessionsRepository.findActivePageByUserId (warm count cache)",
-				target: 1,
-				warmup: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
-				run: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
-			},
-			{
-				name: "adminAuditRepository.findMany (cold count)",
-				target: null,
-				run: () => adminAuditRepository.findMany({ page: 1, limit: 20 }),
-			},
-			{
-				name: "adminAuditRepository.findMany (warm count cache)",
-				target: 1,
-				warmup: () => adminAuditRepository.findMany({ page: 1, limit: 20 }),
-				run: () => adminAuditRepository.findMany({ page: 1, limit: 20 }),
-			},
-			{
-				name: "mediaRepository.findPage (24)",
-				target: null,
-				run: () => mediaRepository.findPage({ limit: 24 }),
-			},
-			{
-				name: "watchedHistoryRepository.findPage (50)",
-				target: null,
-				run: () => watchedHistoryRepository.findPage(PROFILE_ID, { limit: 50 }),
-			},
-			{
-				name: "playbackRepository.findSmartPlayData (single id)",
-				target: null,
-				run: () => playbackRepository.findSmartPlayData(MOVIE_ID, PROFILE_ID),
-			},
-			{
-				name: `playbackProgressService.getSmartPlayBatch (${BATCH_SIZE} ids)`,
-				target: 8,
-				run: () => playbackProgressService.getSmartPlayBatch(BATCH_IDS, PROFILE_ID),
-			},
-			{
-				name: "playbackRepository.findContinueWatchingData (12)",
-				target: null,
-				run: () => playbackRepository.findContinueWatchingData(PROFILE_ID, 12),
-			},
-			{
-				name: "playbackViewService.getPlaybackView (episode → next)",
-				target: 16,
-				run: () => playbackViewService.getPlaybackView("mf-episode-0-0-0", PROFILE_ID),
-			},
-			{
-				name: "sidecarMetadataStorage.saveLibraryMedia (20 episode files)",
-				target: 6,
-				run: () =>
-					sidecarStorage.saveLibraryMedia(
-						{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
-						sidecarFiles,
-					),
-			},
-		];
-
-		const results: Array<{ name: string; statements: number; target: number | null; ms: number; ok: boolean }> = [];
+		const results: OperationResult[] = [];
 		for (const operationCase of cases) {
-			if (operationCase.warmup) await operationCase.warmup();
-
-			databaseFactory.resetQueryStats();
-			const start = performance.now();
-			await operationCase.run();
-			const ms = performance.now() - start;
-			const { queryCount } = databaseFactory.getQueryStats();
-			const ok = operationCase.target === null || queryCount <= operationCase.target;
-			results.push({ name: operationCase.name, statements: queryCount, target: operationCase.target, ms, ok });
+			results.push(await measureOperation(operationCase));
 		}
 
-		const tableRows = results.map((result) => {
-			const target = result.target === null ? "-" : String(result.target);
-			let status = "audit";
-			if (result.target !== null) status = result.ok ? "ok" : "over";
-
-			return [result.name, String(result.statements), target, result.ms.toFixed(2), status];
-		});
-		printTable(
-			"Statements per operation (target = post-optimization budget)",
-			["operation", "statements", "target", "ms", "status"],
-			tableRows,
-		);
-
-		const failing = results.filter((result) => !result.ok);
-		if (failing.length > 0) {
-			console.log(`\n[query-count] ${failing.length}/${results.length} operations over budget:`);
-			for (const result of failing) console.log(`  - ${result.name}: ${String(result.statements)} > ${String(result.target)}`);
-		} else {
-			console.log(`\n[query-count] all ${results.length} operations within budget.`);
-		}
+		printOperationTable(results);
+		const failing = reportBudget(results);
 
 		return {
 			ok: failing.length === 0,

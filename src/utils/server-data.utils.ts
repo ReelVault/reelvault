@@ -3,7 +3,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { DirUtils } from "@/utils/directory.utils";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
@@ -12,7 +12,8 @@ import { PromiseUtils } from "@/utils/promise.utils";
 const logger = createLogger("ServerDataUtils");
 
 export async function ensureDataDirectories(): Promise<void> {
-	if (!(await FileUtils.exists(serverConfig.paths.sqlite))) throw new InternalError("No database file", { code: "database.file_missing" });
+	if (!(await FileUtils.exists(serverConfig.paths.sqlite)))
+		throw new DomainError("internal", "No database file", { code: "database.file_missing" });
 
 	const directories = [
 		serverConfig.paths.images,

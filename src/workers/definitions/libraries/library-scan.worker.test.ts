@@ -170,7 +170,9 @@ describe("library scan application task", () => {
 			"notified:library-1:Movies",
 		]);
 	});
+});
 
+describe("library scan application task", () => {
 	test("reports the files the scan removed", async () => {
 		const { dependencies } = createHarness({
 			scanResult: {
@@ -230,7 +232,9 @@ describe("library scan application task", () => {
 		expect(second.ingested).toEqual(["/movies/x"]);
 		expect(second.checkpoints.has("library-1")).toBe(false);
 	});
+});
 
+describe("library scan application task", () => {
 	test("reports the enqueue progress after each saved chunk", async () => {
 		const { dependencies, ingested, refreshed } = createHarness({
 			scanResult: {

@@ -1,7 +1,7 @@
 import type { TaskTrigger } from "@reelvault/sdk/common";
 import type { BackoffType } from "@reelvault/sdk/plugin";
 import { MINUTE } from "@/server.constants";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 
 export function getRetryDelay({
@@ -90,12 +90,15 @@ function cronDayMatches(rawFields: string[], domMatch: boolean, dowMatch: boolea
 export function assertCronExpression(expression: string): void {
 	const fields = expression.trim().split(cronFieldSeparator);
 	if (fields.length !== 5)
-		throw new ValidationError(`Invalid cron expression: ${expression}`, { code: "worker.cron_invalid", params: { expression } });
+		throw new DomainError("validation", `Invalid cron expression: ${expression}`, { code: "worker.cron_invalid", params: { expression } });
 
 	for (const [index, field] of fields.entries()) {
 		const range = CRON_RANGES[index];
 		if (!range)
-			throw new ValidationError(`Invalid cron expression: ${expression}`, { code: "worker.cron_invalid", params: { expression } });
+			throw new DomainError("validation", `Invalid cron expression: ${expression}`, {
+				code: "worker.cron_invalid",
+				params: { expression },
+			});
 
 		assertCronField(field, range[0], range[1], expression);
 	}
@@ -105,22 +108,34 @@ function assertCronField(field: string, min: number, max: number, expression: st
 	for (const part of field.split(",")) {
 		const [rangePart, stepPart, extraPart] = part.split("/");
 		if (!rangePart || extraPart)
-			throw new ValidationError(`Invalid cron expression: ${expression}`, { code: "worker.cron_invalid", params: { expression } });
+			throw new DomainError("validation", `Invalid cron expression: ${expression}`, {
+				code: "worker.cron_invalid",
+				params: { expression },
+			});
 
 		if (stepPart && (!cronStepPattern.test(stepPart) || Number(stepPart) < 1))
-			throw new ValidationError(`Invalid cron expression: ${expression}`, { code: "worker.cron_invalid", params: { expression } });
+			throw new DomainError("validation", `Invalid cron expression: ${expression}`, {
+				code: "worker.cron_invalid",
+				params: { expression },
+			});
 
 		if (rangePart === "*") continue;
 
 		const range = rangePart.split("-");
 		if (range.length > 2 || !range.every((value) => cronStepPattern.test(value))) {
-			throw new ValidationError(`Invalid cron expression: ${expression}`, { code: "worker.cron_invalid", params: { expression } });
+			throw new DomainError("validation", `Invalid cron expression: ${expression}`, {
+				code: "worker.cron_invalid",
+				params: { expression },
+			});
 		}
 
 		const start = Number(range[0]);
 		const end = Number(range[1] ?? range[0]);
 		if (start < min || end > max || start > end)
-			throw new ValidationError(`Invalid cron expression: ${expression}`, { code: "worker.cron_invalid", params: { expression } });
+			throw new DomainError("validation", `Invalid cron expression: ${expression}`, {
+				code: "worker.cron_invalid",
+				params: { expression },
+			});
 	}
 }
 

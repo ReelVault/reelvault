@@ -1,6 +1,6 @@
 import { withDomainError } from "@/application/context";
 import { serverConfig } from "@/server.config";
-import { errorCodeOf } from "@/utils/error-codes.utils";
+import { errorCodeOf } from "@/utils/errors";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";

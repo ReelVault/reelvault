@@ -89,9 +89,9 @@ function processExistingEpisode(
 	existingSeason: SeasonRow,
 	existingEpisode: EpisodeRow,
 	episodeInfo: ProviderEpisodeResult,
-	episodeUpdates: EpisodeUpdate[],
-	tasks: SeasonImageTask[],
+	output: { episodeUpdates: EpisodeUpdate[]; tasks: SeasonImageTask[] },
 ): boolean {
+	const { episodeUpdates, tasks } = output;
 	// Drizzle skips `undefined` fields in .set(), so only compare provided values.
 	const absoluteNumber = episodeInfo.absoluteNumber !== undefined ? Number(episodeInfo.absoluteNumber) : undefined;
 	const changed =
@@ -159,7 +159,7 @@ function processExistingEpisodes(
 			const episodeInfo = episodesByNumber.get(existingEpisode.episodeNumber);
 			if (!episodeInfo) continue;
 
-			if (processExistingEpisode(metadataId, existingSeason, existingEpisode, episodeInfo, episodeUpdates, tasks)) {
+			if (processExistingEpisode(metadataId, existingSeason, existingEpisode, episodeInfo, { episodeUpdates, tasks })) {
 				episodeMissingTranslation = true;
 			}
 		}

@@ -4,9 +4,10 @@ import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.ser
 import { mergeProviderMetadata, type ProviderContribution } from "@/plugins/capabilities/metadata-aggregator";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { hasEntry, isNotNullish } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
-import { errorMessage } from "@/utils/errors";
+import { assertFound, errorMessage } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import type { ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { processPersonImages } from "./metadata-create.utils";
 import { applyMetadataCandidate, toMetadataCandidate } from "./metadata-normalization";
@@ -70,12 +71,23 @@ export interface MetadataRefreshDependencies {
 	enqueueImages?: (data: ImageProcessingData, options?: { operationId?: string | undefined }) => Promise<unknown>;
 }
 
+interface RefreshImageScope {
+	existing: RefreshableMetadata;
+	providerId: string;
+	metadata: ProviderMetadataResult;
+	lockedFields: string[];
+	lockedSet: Set<string>;
+	operationId: string | undefined;
+}
+
 /** Refreshes persisted provider metadata without performing a new title search. */
-export class MetadataRefreshService extends BaseService {
+export class MetadataRefreshService {
+	readonly serviceName = "MetadataRefreshService";
+	readonly logger = createLogger("MetadataRefreshService");
+
 	private readonly dependencies: MetadataRefreshDependencies;
 
 	constructor(dependencies: MetadataRefreshDependencies) {
-		super("MetadataRefreshService");
 		this.dependencies = dependencies;
 	}
 
@@ -89,12 +101,13 @@ export class MetadataRefreshService extends BaseService {
 			prefetchedProviders?: Readonly<Record<string, ProviderMetadataResult>> | undefined;
 		} = {},
 	): Promise<{ metadataId: string; providerId: string }> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"refresh",
 			async () => {
 				options.signal?.throwIfAborted();
 				const existing = await this.dependencies.findMetadata(metadataId);
-				this.assertExists(existing, "Metadata", metadataId);
+				assertFound(existing, "Metadata", metadataId);
 
 				const lockedFields = (await this.dependencies.getLockedFields?.(metadataId)) ?? [];
 				const lockedSet = new Set(lockedFields);
@@ -121,42 +134,14 @@ export class MetadataRefreshService extends BaseService {
 
 				if (this.dependencies.enqueueImages) {
 					options.signal?.throwIfAborted();
-					const enqueueImages = this.dependencies.enqueueImages;
-					const urls: Array<{ type: "poster" | "backdrop"; url?: string }> = [];
-					const isImagesLocked = lockedSet.has("images");
-					const isPostersLocked = isImagesLocked || lockedSet.has("posters") || lockedSet.has("poster");
-					const isBackdropsLocked = isImagesLocked || lockedSet.has("backdrops") || lockedSet.has("backdrop");
-
-					if (!isPostersLocked && metadata.posterPath) urls.push({ type: "poster", url: metadata.posterPath });
-
-					if (!isBackdropsLocked && metadata.backdropPath) urls.push({ type: "backdrop", url: metadata.backdropPath });
-
-					const effectiveOperationId = options.operationId ?? options.correlationId;
-
-					if (urls.length > 0) {
-						await enqueueImages(
-							{
-								kind: "metadata",
-								metadataId: existing.id,
-								urls,
-							},
-							{ operationId: effectiveOperationId },
-						);
-					}
-
-					if (this.dependencies.syncCredits) {
-						const personImages = await this.dependencies.syncCredits(existing.id, source.providerId, metadata, lockedFields);
-						await processPersonImages(personImages, ({ personId, url }) =>
-							enqueueImages({ kind: "person", personId, urls: url }, { operationId: effectiveOperationId }),
-						);
-					}
-
-					if (existing.type === "tv_show" && this.dependencies.syncSeasonsAndEpisodes) {
-						const tvTasks = await this.dependencies.syncSeasonsAndEpisodes(existing.id, source.providerId, metadata, existing.providers);
-						await PromiseUtils.mapConcurrent(tvTasks, systemResourcesService.getIoConcurrency(), (task) =>
-							enqueueImages(task, { operationId: effectiveOperationId }),
-						);
-					}
+					await this.enqueueRefreshImages(this.dependencies.enqueueImages, {
+						existing,
+						providerId: source.providerId,
+						metadata,
+						lockedFields,
+						lockedSet,
+						operationId: options.operationId ?? options.correlationId,
+					});
 				}
 
 				this.dependencies.publishRefreshed(existing.id, options.correlationId);
@@ -167,6 +152,38 @@ export class MetadataRefreshService extends BaseService {
 			},
 			{ logContext: { metadataId, correlationId: options.correlationId, operationId: options.operationId } },
 		);
+	}
+
+	/** Queues poster, backdrop, person and season/episode artwork for a refreshed title. */
+	private async enqueueRefreshImages(
+		enqueueImages: NonNullable<MetadataRefreshDependencies["enqueueImages"]>,
+		scope: RefreshImageScope,
+	): Promise<void> {
+		const { existing, providerId, metadata, lockedFields, lockedSet, operationId } = scope;
+		const urls: Array<{ type: "poster" | "backdrop"; url?: string }> = [];
+		const isImagesLocked = lockedSet.has("images");
+		const isPostersLocked = isImagesLocked || lockedSet.has("posters") || lockedSet.has("poster");
+		const isBackdropsLocked = isImagesLocked || lockedSet.has("backdrops") || lockedSet.has("backdrop");
+
+		if (!isPostersLocked && metadata.posterPath) urls.push({ type: "poster", url: metadata.posterPath });
+
+		if (!isBackdropsLocked && metadata.backdropPath) urls.push({ type: "backdrop", url: metadata.backdropPath });
+
+		if (urls.length > 0) {
+			await enqueueImages({ kind: "metadata", metadataId: existing.id, urls }, { operationId });
+		}
+
+		if (this.dependencies.syncCredits) {
+			const personImages = await this.dependencies.syncCredits(existing.id, providerId, metadata, lockedFields);
+			await processPersonImages(personImages, ({ personId, url }) =>
+				enqueueImages({ kind: "person", personId, urls: url }, { operationId }),
+			);
+		}
+
+		if (existing.type === "tv_show" && this.dependencies.syncSeasonsAndEpisodes) {
+			const tvTasks = await this.dependencies.syncSeasonsAndEpisodes(existing.id, providerId, metadata, existing.providers);
+			await PromiseUtils.mapConcurrent(tvTasks, systemResourcesService.getIoConcurrency(), (task) => enqueueImages(task, { operationId }));
+		}
 	}
 
 	private async fetchFromLinkedProviders(

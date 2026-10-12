@@ -60,7 +60,13 @@ if (!args.help) {
 				await mkdir(outputDir, { recursive: true });
 				const sessionId = `bench-${Date.now()}`;
 				const startedAt = performance.now();
-				const proc = await scenario.strategy.startSession(sessionId, fixturePath, outputDir, scenario.decision, scenario.startTime);
+				const proc = await scenario.strategy.startSession({
+					sessionId,
+					inputPath: fixturePath,
+					outputDir,
+					decision: scenario.decision,
+					startTime: scenario.startTime,
+				});
 				const exitCode = await proc.exited;
 				const elapsedMs = performance.now() - startedAt;
 

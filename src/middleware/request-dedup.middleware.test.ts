@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import Elysia from "elysia";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { domainErrorsMiddleware } from "./domain-errors.middleware";
 import { requestDedupMiddleware } from "./request-dedup.middleware";
 
@@ -180,7 +180,7 @@ test("cleans up in-flight tracking when handler throws an error", async () => {
 				await new Promise((resolve) => {
 					setTimeout(resolve, 20);
 				});
-				throw new InternalError("Simulated failure");
+				throw new DomainError("internal", "Simulated failure");
 			},
 			{ deduplicate: {} },
 		);
@@ -212,7 +212,7 @@ test("follower inherits the leader's error response without re-executing the han
 				await new Promise((resolve) => {
 					setTimeout(resolve, 20);
 				});
-				throw new InternalError("Simulated failure");
+				throw new DomainError("internal", "Simulated failure");
 			},
 			{ deduplicate: {} },
 		);

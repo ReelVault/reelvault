@@ -7,13 +7,14 @@ import { sourceVersionCache } from "@/modules/images/cache/source-version.cache"
 import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
-import { BatchGarbageCollector } from "@/utils/gc.utils";
+import { createLogger } from "@/utils/logger";
+import { BatchGarbageCollector } from "@/utils/mem.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 
 export type ImageOptimizationOutcome = "reoptimized" | "kept" | "missing" | "skipped";
@@ -36,19 +37,18 @@ interface ImageOptimizationCandidate {
 	height: number | null;
 }
 
-class ImageMaintenanceService extends BaseService {
-	private readonly gc = new BatchGarbageCollector();
+class ImageMaintenanceService {
+	readonly serviceName = "ImageMaintenanceService";
+	readonly logger = createLogger("ImageMaintenanceService");
 
-	constructor() {
-		super("ImageMaintenanceService");
-	}
+	private readonly gc = new BatchGarbageCollector();
 
 	/**
 	 * Deletes the optimized copies under `images/.cache`. Originals stay, and a copy requested again is rebuilt from its
 	 * original, so a purge only costs the next requests a rebuild.
 	 */
 	async purgeOptimizedCache(): Promise<PurgeOptimizedCacheResult> {
-		return await this.safeExecute("purgeOptimizedCache", async () => {
+		return await runSafely(this, "purgeOptimizedCache", async () => {
 			const cacheDir = PathUtils.join(serverConfig.paths.images, ".cache");
 			const names = (await DirUtils.exists(cacheDir)) ? await readdir(cacheDir) : [];
 			const ioConcurrency = systemResourcesService.getIoConcurrency();
@@ -73,7 +73,8 @@ class ImageMaintenanceService extends BaseService {
 	}
 
 	async purgeOrphanedImages(options: { minAgeMs?: number } = {}, signal?: AbortSignal): Promise<PurgeOrphanedImagesResult> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"purgeOrphanedImages",
 			async () => {
 				throwIfAborted(signal);
@@ -98,7 +99,7 @@ class ImageMaintenanceService extends BaseService {
 
 				for (const entry of scannedFiles) {
 					throwIfAborted(signal);
-					if (this.shouldPurgeFile(entry.filePath, entry.mtimeMs, now, minAgeMs, localPaths, imageIds)) {
+					if (this.shouldPurgeFile(entry.filePath, entry.mtimeMs, { now, minAgeMs, localPaths, imageIds })) {
 						if (await FileUtils.delete(entry.filePath)) {
 							deletedCount++;
 							freedBytes += entry.size;
@@ -119,11 +120,9 @@ class ImageMaintenanceService extends BaseService {
 	private shouldPurgeFile(
 		filePath: string,
 		mtimeMs: number,
-		now: number,
-		minAgeMs: number,
-		localPaths: Set<string>,
-		imageIds: Set<string>,
+		scope: { now: number; minAgeMs: number; localPaths: Set<string>; imageIds: Set<string> },
 	): boolean {
+		const { now, minAgeMs, localPaths, imageIds } = scope;
 		const normalizedPath = PathUtils.normalize(filePath);
 		const ageMs = now - mtimeMs;
 
@@ -144,7 +143,8 @@ class ImageMaintenanceService extends BaseService {
 	}
 
 	async findOutdatedImageIds(signal?: AbortSignal): Promise<string[]> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"findOutdatedImageIds",
 			async () => {
 				throwIfAborted(signal);
@@ -156,7 +156,8 @@ class ImageMaintenanceService extends BaseService {
 	}
 
 	async optimizeImageById(imageId: string, signal?: AbortSignal): Promise<ImageOptimizationOutcome> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"optimizeImageById",
 			async () => {
 				throwIfAborted(signal);
@@ -200,7 +201,7 @@ class ImageMaintenanceService extends BaseService {
 			// stamp or the optimized-variant cache keeps serving pre-optimization bytes.
 			sourceVersionCache.invalidate(image.localPath);
 		} catch {
-			throw new InternalError(`Cannot write optimized image: ${image.localPath}`, { code: "image.write_failed" });
+			throw new DomainError("internal", `Cannot write optimized image: ${image.localPath}`, { code: "image.write_failed" });
 		}
 
 		await imageRepository.markImageOptimizationVersion(image.id, currentVersion, {

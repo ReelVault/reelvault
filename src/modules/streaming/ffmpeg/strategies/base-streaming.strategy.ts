@@ -1,15 +1,15 @@
-import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
+import type { TranscodeConfig } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { buildHlsOutputPath, segmentStartNumber } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { probeBudgetForFormat } from "@/integrations/ffprobe/ffprobe.probe-budgets";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
 import { transcodeProgressMonitor } from "../../runtime/transcode-progress.monitor";
-import type { StreamingStrategy } from "../../streaming.types";
+import type { StreamingStrategy, StreamStartInput } from "../../streaming.types";
 import { PLAYLIST_FILE_NAME, SEGMENT_OUTPUT_PATTERN } from "../../utils/segment-name.utils";
 
 /**
@@ -26,19 +26,12 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 		this.logger = createLogger(new.target.name);
 	}
 
-	abstract startSession(
-		sessionId: string,
-		inputPath: string,
-		outputDir: string,
-		decision: PlaybackDecision,
-		startTime?: number,
-		operationId?: string,
-	): Promise<Subprocess>;
+	abstract startSession(input: StreamStartInput): Promise<Subprocess>;
 
 	/** Refuses to start when the input disappeared between selection and spawn. */
 	protected async assertInputExists(inputPath: string): Promise<void> {
 		if (!(await FileUtils.exists(inputPath))) {
-			throw new NotFoundError(`Input file does not exist: ${inputPath}`, { code: "media_file.missing" });
+			throw new DomainError("not_found", `Input file does not exist: ${inputPath}`, { code: "media_file.missing" });
 		}
 	}
 

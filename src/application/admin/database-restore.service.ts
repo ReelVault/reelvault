@@ -4,8 +4,9 @@ import { databaseBackupService } from "@/application/admin/database-backup.servi
 import { detachedSpawn } from "@/application/updates/update-install.service";
 import { databaseFactory } from "@/database/database";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
-import { BaseService } from "@/utils/base-service";
-import { ConflictError, NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 
 /**
  * Restore replaces the live SQLite file, so it always goes through a server
@@ -17,11 +18,13 @@ import { ConflictError, NotFoundError } from "@/utils/errors";
  * up, so the state being replaced can be recovered. A restore is refused while
  * streams play, because the restart stops them, unless the caller forces it.
  */
-export class DatabaseRestoreService extends BaseService {
+export class DatabaseRestoreService {
+	readonly serviceName = "DatabaseRestoreService";
+	readonly logger = createLogger("DatabaseRestoreService");
+
 	private readonly countActiveStreams: () => number;
 
 	constructor(countActiveStreams: () => number = () => streamingManager.getAllActiveSessions().length) {
-		super("DatabaseRestoreService");
 		this.countActiveStreams = countActiveStreams;
 	}
 
@@ -32,14 +35,14 @@ export class DatabaseRestoreService extends BaseService {
 		cwd: string,
 		options: { force?: boolean | undefined } = {},
 	): Promise<AdminDatabaseRestoreResponse> {
-		return await this.safeExecute("restore", async () => {
+		return await runSafely(this, "restore", async () => {
 			const backups = await databaseBackupService.listBackups();
 			const backup = backups.find((item) => item.fileName === fileName);
-			if (!backup) throw new NotFoundError("Database backup not found", { code: "database.backup_not_found" });
+			if (!backup) throw new DomainError("not_found", "Database backup not found", { code: "database.backup_not_found" });
 
 			const activeStreams = this.countActiveStreams();
 			if (activeStreams > 0 && options.force !== true) {
-				throw new ConflictError("Restore is blocked while streams are active", {
+				throw new DomainError("conflict", "Restore is blocked while streams are active", {
 					code: "database.restore_blocked_active_streams",
 					params: { activeStreams },
 				});

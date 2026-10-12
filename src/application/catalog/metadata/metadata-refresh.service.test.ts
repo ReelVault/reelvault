@@ -97,7 +97,9 @@ describe("metadata refresh service", () => {
 		expect(updateCalls).toEqual([]);
 		expect(published).toEqual([]);
 	});
+});
 
+describe("metadata refresh service", () => {
 	test("prefers the persisted primary provider without changing it on fallback", async () => {
 		const calls: string[] = [];
 		const dependencies = createDependencies();
@@ -179,7 +181,9 @@ describe("metadata refresh service", () => {
 			},
 		]);
 	});
+});
 
+describe("metadata refresh service", () => {
 	test("prioritizes operationId over correlationId when enqueuing child images", async () => {
 		const enqueued: unknown[] = [];
 		const dependencies = createDependencies();
@@ -216,7 +220,9 @@ describe("metadata refresh service", () => {
 			},
 		]);
 	});
+});
 
+describe("metadata refresh service", () => {
 	test("preserves locked fields and skips locked relation updates during refresh", async () => {
 		const dependencies = createDependencies();
 		let updatedValues: Record<string, unknown> | undefined;

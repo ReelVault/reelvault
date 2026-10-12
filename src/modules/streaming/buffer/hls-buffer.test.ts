@@ -39,6 +39,7 @@ describe("HLS buffering", () => {
 	afterEach(() => {
 		for (const stub of activeStubs.splice(0)) stub.restore();
 	});
+
 	it("reports completed segments and preserves gaps between buffered ranges", () => {
 		const analysis = parseHlsBuffer(
 			["#EXTM3U", "#EXTINF:6.000,", "seg_0.m4s", "#EXTINF:6.000,", "seg_1.m4s", "#EXTINF:5.000,", "seg_3.m4s", "#EXT-X-ENDLIST"].join("\n"),
@@ -110,6 +111,20 @@ describe("HLS buffering", () => {
 		} finally {
 			systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "none");
 		}
+	});
+});
+
+describe("HLS buffering", () => {
+	beforeEach(() => {
+		systemSettingsStore.clearRuntimeValues();
+		// Pin the measured CPU speed: slow CI runners score below the 0.5
+		// threshold, which flips the software lookahead from 10 to 5 and makes
+		// the argument assertions machine-dependent.
+		activeStubs.push(stubMethod(systemResourcesService, "getSpeedFactor", () => 1));
+	});
+
+	afterEach(() => {
+		for (const stub of activeStubs.splice(0)) stub.restore();
 	});
 
 	it("normalizes transcoded audio timestamps after seeking", () => {

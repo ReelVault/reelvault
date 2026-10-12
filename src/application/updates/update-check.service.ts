@@ -1,7 +1,6 @@
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
-import { BaseService } from "@/utils/base-service";
-import { errorCodeOf } from "@/utils/error-codes.utils";
-import { errorMessage } from "@/utils/errors";
+import { errorCodeOf, errorMessage } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
 import { isNewerVersion, isValidSemver } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
@@ -87,7 +86,10 @@ async function toWebRelease(payload: unknown, fetcher: ReleaseFetcher): Promise<
 	return release;
 }
 
-export class UpdateCheckService extends BaseService {
+export class UpdateCheckService {
+	readonly serviceName = "UpdateCheckService";
+	readonly logger = createLogger("UpdateCheckService");
+
 	private readonly fetcher: ReleaseFetcher;
 	private cachedServer: AdminUpdateRelease | null = null;
 	private cachedWeb: AdminUpdateRelease | null = null;
@@ -100,7 +102,6 @@ export class UpdateCheckService extends BaseService {
 		fetcher: ReleaseFetcher = (url) =>
 			guardedFetch(url, { headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
 	) {
-		super("UpdateCheckService");
 		this.fetcher = fetcher;
 	}
 

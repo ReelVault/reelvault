@@ -1,4 +1,4 @@
-import { ConflictError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import type { SidecarFormatInput } from "../sidecar.types";
 import type { SidecarFormatAdapter } from "./sidecar-format.adapter";
 
@@ -13,7 +13,7 @@ export class InMemorySidecarFormatRegistry implements SidecarFormatRegistry {
 
 	register(adapter: SidecarFormatAdapter): void {
 		if (this.adapters.has(adapter.id)) {
-			throw new ConflictError(`A sidecar format adapter with id '${adapter.id}' is already registered`, {
+			throw new DomainError("conflict", `A sidecar format adapter with id '${adapter.id}' is already registered`, {
 				code: "sidecar.adapter_already_registered",
 			});
 		}

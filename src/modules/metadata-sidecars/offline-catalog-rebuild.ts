@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { rename } from "node:fs/promises";
 import { databaseMaintenanceRepository } from "@/database/repositories/database-maintenance.repository";
-import { BaseService } from "@/utils/base-service";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createTempPath, FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { metadataSidecarsService } from "./metadata-sidecars.service";
 import { CatalogMoviesImporter } from "./offline/catalog-movies.importer";
@@ -20,7 +20,10 @@ interface OfflineCatalogRebuildService {
 	}): Promise<OfflineRebuildReport>;
 }
 
-export class SqliteOfflineCatalogRebuildService extends BaseService implements OfflineCatalogRebuildService {
+export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuildService {
+	readonly serviceName = "SqliteOfflineCatalogRebuildService";
+	readonly logger = createLogger("SqliteOfflineCatalogRebuildService");
+
 	private readonly readSidecarDocument: SidecarDocumentReader;
 	private readonly treeWalker: CatalogTreeWalker;
 	private readonly schemaBuilder: CatalogSchemaBuilder;
@@ -28,7 +31,6 @@ export class SqliteOfflineCatalogRebuildService extends BaseService implements O
 	private readonly seriesImporter: CatalogSeriesImporter;
 
 	constructor(readSidecarDocument?: SidecarDocumentReader) {
-		super("SqliteOfflineCatalogRebuildService");
 		this.readSidecarDocument = readSidecarDocument ?? ((path) => metadataSidecarsService.readDocument(path));
 		this.treeWalker = new CatalogTreeWalker();
 		this.schemaBuilder = new CatalogSchemaBuilder();
@@ -77,7 +79,7 @@ export class SqliteOfflineCatalogRebuildService extends BaseService implements O
 			const foreignKeyErrors = database.query("PRAGMA foreign_key_check").all();
 			database.close();
 			if (foreignKeyErrors.length > 0)
-				throw new InternalError(`Offline rebuild foreign key validation failed: ${JSON.stringify(foreignKeyErrors)}`, {
+				throw new DomainError("internal", `Offline rebuild foreign key validation failed: ${JSON.stringify(foreignKeyErrors)}`, {
 					code: "database.foreign_key_violation",
 				});
 

@@ -1,18 +1,20 @@
 import { createPluginEventPayload, type PluginEventHandler, type PluginEventInput, type PluginEventName } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { detach, PromiseUtils } from "@/utils/promise.utils";
 import { PluginHandlerTable } from "./plugin-handler-table";
 
 type ErasedPluginHandler = (payload: never) => void | Promise<void>;
 
-export class PluginEventBus extends BaseService {
+export class PluginEventBus {
+	readonly serviceName = "PluginEventBus";
+	readonly logger = createLogger("PluginEventBus");
+
 	private readonly handlersByEvent = new Map<PluginEventName, PluginHandlerTable<ErasedPluginHandler>>();
 	private readonly timeoutMs: number;
 
 	constructor(timeoutMs = serverConfig.plugins.runtime.hookTimeoutMs) {
-		super("PluginEventBus");
 		this.timeoutMs = timeoutMs;
 	}
 

@@ -3,7 +3,7 @@ import type { AdminAuditContext } from "@/database/repositories/admin-audit.repo
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { trimAndFilter, unique } from "@/utils/array.utils";
-import { ConflictError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { enqueueManyMetadataRefresh, enqueueMetadataRefresh } from "@/workers/definitions/metadata/metadata-refresh.worker";
 import { batchChunks } from "@/workers/utils/batch-chunker";
@@ -76,11 +76,11 @@ class MetadataRefreshQueueService {
 				});
 
 				if (enqueued === 0) {
-					throw new ValidationError("No metadata to refresh", { code: "admin.metadata.refresh_empty" });
+					throw new DomainError("validation", "No metadata to refresh", { code: "admin.metadata.refresh_empty" });
 				}
 
 				if (!attachment.attached) {
-					throw new ConflictError("A metadata refresh is already in progress", {
+					throw new DomainError("conflict", "A metadata refresh is already in progress", {
 						code: "admin.metadata.refresh_in_progress",
 					});
 				}
@@ -107,11 +107,11 @@ class MetadataRefreshQueueService {
 	private async queueBatch(metadataIds: string[], context: AdminAuditContext): Promise<{ operationId: string }> {
 		const ids = unique(trimAndFilter(metadataIds));
 		if (ids.length === 0) {
-			throw new ValidationError("No metadata ids to refresh", { code: "admin.metadata.refresh_empty" });
+			throw new DomainError("validation", "No metadata ids to refresh", { code: "admin.metadata.refresh_empty" });
 		}
 
 		if (ids.length > METADATA_REFRESH_BATCH_LIMIT) {
-			throw new ValidationError(`Too many metadata ids (max ${METADATA_REFRESH_BATCH_LIMIT})`, {
+			throw new DomainError("validation", `Too many metadata ids (max ${METADATA_REFRESH_BATCH_LIMIT})`, {
 				code: "admin.metadata.refresh_batch_too_large",
 			});
 		}
@@ -131,7 +131,7 @@ class MetadataRefreshQueueService {
 				}
 
 				if (!attached) {
-					throw new ConflictError("The requested metadata refresh is already in progress", {
+					throw new DomainError("conflict", "The requested metadata refresh is already in progress", {
 						code: "admin.metadata.refresh_in_progress",
 					});
 				}

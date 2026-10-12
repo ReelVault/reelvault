@@ -164,6 +164,24 @@ describe("plugin ui manifest", () => {
 			validatePluginUiManifest({ ...validUiManifest, tabs: { details: [{ id: "t", host: "details", label: "T", page: "nope" }] } }),
 		).toThrow("unknown page");
 	});
+});
+
+describe("plugin ui manifest", () => {
+	const validUiManifest = {
+		name: "Example UI",
+		version: "1.0.0",
+		entry: "./dist/ui/index.js",
+		pages: [
+			{ id: "list", path: "list", name: "List", tag: "rv-example-list", nav: "admin", adminOnly: true },
+			{ id: "submit", path: "submit", name: { pl: "Zgłoś", en: "Submit" }, tag: "rv-example-submit", nav: "user" },
+		],
+		dialogs: [{ id: "details", title: "Details", size: "lg", tag: "rv-example-details" }],
+		tabs: { details: [{ id: "example", host: "details", label: "Example", page: "list" }] },
+		slots: {
+			"player-footer": [{ label: "Example", icon: "Star", priority: 10, action: { type: "page", page: "submit" } }],
+			"root-floating-overlay": [{ label: "Widget", element: { tag: "rv-example-widget" } }],
+		},
+	};
 
 	it("accepts a schema button that opens a declared dialog", () => {
 		expect(() =>
@@ -232,6 +250,24 @@ describe("plugin ui manifest", () => {
 			}),
 		).toThrow("duplicate page id");
 	});
+});
+
+describe("plugin ui manifest", () => {
+	const validUiManifest = {
+		name: "Example UI",
+		version: "1.0.0",
+		entry: "./dist/ui/index.js",
+		pages: [
+			{ id: "list", path: "list", name: "List", tag: "rv-example-list", nav: "admin", adminOnly: true },
+			{ id: "submit", path: "submit", name: { pl: "Zgłoś", en: "Submit" }, tag: "rv-example-submit", nav: "user" },
+		],
+		dialogs: [{ id: "details", title: "Details", size: "lg", tag: "rv-example-details" }],
+		tabs: { details: [{ id: "example", host: "details", label: "Example", page: "list" }] },
+		slots: {
+			"player-footer": [{ label: "Example", icon: "Star", priority: 10, action: { type: "page", page: "submit" } }],
+			"root-floating-overlay": [{ label: "Widget", element: { tag: "rv-example-widget" } }],
+		},
+	};
 
 	it("rejects an invalid custom element tag", () => {
 		expect(() =>

@@ -1,6 +1,6 @@
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { subtitleVttPath } from "./subtitle-path.utils";
 
@@ -19,11 +19,13 @@ const defaultDependencies: ServiceDependencies = {
 	subtitlesPath: () => serverConfig.paths.subtitles,
 };
 
-export class SubtitleFileCleaner extends BaseService {
+export class SubtitleFileCleaner {
+	readonly serviceName = "SubtitleFileCleaner";
+	readonly logger = createLogger("SubtitleFileCleaner");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("SubtitleFileCleaner");
 		this.dependencies = dependencies;
 	}
 

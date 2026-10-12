@@ -18,7 +18,7 @@ import {
 } from "@reelvault/sdk/plugin";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { unique } from "@/utils/array.utils";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { isValidSemver } from "@/utils/semver.utils";
@@ -68,11 +68,11 @@ const SCHEMA_CONDITION_OPS: ReadonlySet<string> = new Set(PLUGIN_SCHEMA_CONDITIO
 const SCHEMA_ACTION_TYPES: ReadonlySet<string> = new Set(PLUGIN_SCHEMA_ACTION_TYPE_VALUES);
 
 export function validatePluginManifest(value: unknown): asserts value is PluginManifest {
-	if (!isRecord(value)) throw new ValidationError("Plugin manifest must be an object", { code: "plugin.manifest_not_object" });
+	if (!isRecord(value)) throw new DomainError("validation", "Plugin manifest must be an object", { code: "plugin.manifest_not_object" });
 
 	assertNonEmptyString(value.id, "id");
 	if (!PLUGIN_IDENTIFIER_PATTERN.test(value.id)) {
-		throw new ValidationError(`Plugin manifest id contains unsupported characters: ${value.id}`, {
+		throw new DomainError("validation", `Plugin manifest id contains unsupported characters: ${value.id}`, {
 			code: "plugin.id_invalid",
 			params: { id: value.id },
 		});
@@ -84,12 +84,12 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 
 	assertStringArray(value.capabilities, "capabilities");
 	if (value.capabilities.length === 0)
-		throw new ValidationError("Plugin manifest capabilities must not be empty", { code: "plugin.capabilities_empty" });
+		throw new DomainError("validation", "Plugin manifest capabilities must not be empty", { code: "plugin.capabilities_empty" });
 
 	assertUnique(value.capabilities, "capabilities");
 	for (const capability of value.capabilities) {
 		if (!CAPABILITY_NAMES.has(capability)) {
-			throw new ValidationError(`Plugin manifest has unsupported capability '${capability}'`, {
+			throw new DomainError("validation", `Plugin manifest has unsupported capability '${capability}'`, {
 				code: "plugin.capability_unsupported",
 				params: { capability },
 			});
@@ -105,7 +105,7 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 	if (value.minServerVersion !== undefined) {
 		assertNonEmptyString(value.minServerVersion, "minServerVersion");
 		if (!isValidSemver(value.minServerVersion)) {
-			throw new ValidationError(`Plugin manifest minServerVersion must be a semantic version: ${value.minServerVersion}`, {
+			throw new DomainError("validation", `Plugin manifest minServerVersion must be a semantic version: ${value.minServerVersion}`, {
 				code: "plugin.min_server_version_invalid",
 				params: { value: value.minServerVersion },
 			});
@@ -122,19 +122,22 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
  */
 function validatePluginCsp(value: unknown): void {
 	if (!isRecord(value))
-		throw new ValidationError("Plugin manifest csp must be an object", { code: "plugin.field_not_object", params: { field: "csp" } });
+		throw new DomainError("validation", "Plugin manifest csp must be an object", {
+			code: "plugin.field_not_object",
+			params: { field: "csp" },
+		});
 
 	let total = 0;
 	for (const [directive, sources] of Object.entries(value)) {
 		if (!PLUGIN_CSP_DIRECTIVE_SET.has(directive)) {
-			throw new ValidationError(`Plugin manifest csp has unsupported directive '${directive}'`, {
+			throw new DomainError("validation", `Plugin manifest csp has unsupported directive '${directive}'`, {
 				code: "plugin.csp_directive_unsupported",
 				params: { directive },
 			});
 		}
 
 		if (!Array.isArray(sources) || sources.length === 0) {
-			throw new ValidationError(`Plugin manifest csp.${directive} must be a non-empty array of sources`, {
+			throw new DomainError("validation", `Plugin manifest csp.${directive} must be a non-empty array of sources`, {
 				code: "plugin.field_empty",
 				params: { field: `csp.${directive}` },
 			});
@@ -142,7 +145,7 @@ function validatePluginCsp(value: unknown): void {
 
 		for (const source of sources) {
 			if (!(isNonEmptyString(source) && CSP_SOURCE_PATTERN.test(source))) {
-				throw new ValidationError(`Plugin manifest csp.${directive} has an invalid source '${String(source)}'`, {
+				throw new DomainError("validation", `Plugin manifest csp.${directive} has an invalid source '${String(source)}'`, {
 					code: "plugin.csp_source_invalid",
 					params: { directive, source: String(source) },
 				});
@@ -153,7 +156,7 @@ function validatePluginCsp(value: unknown): void {
 	}
 
 	if (total > CSP_MAX_SOURCES) {
-		throw new ValidationError(`Plugin manifest csp declares more than ${CSP_MAX_SOURCES} sources`, {
+		throw new DomainError("validation", `Plugin manifest csp declares more than ${CSP_MAX_SOURCES} sources`, {
 			code: "plugin.csp_too_many_sources",
 			params: { max: CSP_MAX_SOURCES },
 		});
@@ -161,7 +164,7 @@ function validatePluginCsp(value: unknown): void {
 }
 
 export function validatePluginUiManifest(value: unknown): asserts value is PluginUiManifest {
-	if (!isRecord(value)) throw new ValidationError("Plugin ui.json must be an object", { code: "plugin.ui.manifest_not_object" });
+	if (!isRecord(value)) throw new DomainError("validation", "Plugin ui.json must be an object", { code: "plugin.ui.manifest_not_object" });
 
 	assertNonEmptyString(value.name, "ui.name");
 	assertNonEmptyString(value.version, "ui.version");
@@ -209,25 +212,28 @@ function validateUiPages(pages: unknown, dialogIds: ReadonlySet<string>): Set<st
 	if (pages === undefined) return ids;
 
 	if (!Array.isArray(pages))
-		throw new ValidationError("Plugin ui.json pages must be an array", { code: "plugin.ui.field_not_array", params: { field: "pages" } });
+		throw new DomainError("validation", "Plugin ui.json pages must be an array", {
+			code: "plugin.ui.field_not_array",
+			params: { field: "pages" },
+		});
 
 	for (const page of pages) {
 		if (!isRecord(page))
-			throw new ValidationError("Plugin ui.json pages entries must be objects", {
+			throw new DomainError("validation", "Plugin ui.json pages entries must be objects", {
 				code: "plugin.ui.entry_not_object",
 				params: { field: "pages" },
 			});
 
 		assertUiId(page.id, "ui.pages[].id");
 		if (ids.has(page.id))
-			throw new ValidationError(`Plugin ui.json has duplicate page id '${page.id}'`, {
+			throw new DomainError("validation", `Plugin ui.json has duplicate page id '${page.id}'`, {
 				code: "plugin.ui.duplicate_id",
 				params: { field: "pages", id: page.id },
 			});
 
 		ids.add(page.id);
 		if (typeof page.path !== "string" || !PLUGIN_UI_PAGE_PATH_PATTERN.test(page.path)) {
-			throw new ValidationError(`Plugin ui.json page '${page.id}' has an invalid path`, {
+			throw new DomainError("validation", `Plugin ui.json page '${page.id}' has an invalid path`, {
 				code: "plugin.ui.page_path_invalid",
 				params: { page: page.id },
 			});
@@ -240,7 +246,7 @@ function validateUiPages(pages: unknown, dialogIds: ReadonlySet<string>): Set<st
 		assertOptionalType(page.adminOnly, "boolean", `page '${page.id}' adminOnly`);
 
 		if (page.nav !== undefined && page.nav !== false && page.nav !== "user" && page.nav !== "admin") {
-			throw new ValidationError(`Plugin ui.json page '${page.id}' nav must be 'user', 'admin' or false`, {
+			throw new DomainError("validation", `Plugin ui.json page '${page.id}' nav must be 'user', 'admin' or false`, {
 				code: "plugin.ui.page_nav_invalid",
 				params: { page: page.id },
 			});
@@ -273,21 +279,21 @@ function validateUiDialogs(dialogs: unknown, dialogIds: ReadonlySet<string>): Se
 	if (dialogs === undefined) return ids;
 
 	if (!Array.isArray(dialogs))
-		throw new ValidationError("Plugin ui.json dialogs must be an array", {
+		throw new DomainError("validation", "Plugin ui.json dialogs must be an array", {
 			code: "plugin.ui.field_not_array",
 			params: { field: "dialogs" },
 		});
 
 	for (const dialog of dialogs) {
 		if (!isRecord(dialog))
-			throw new ValidationError("Plugin ui.json dialogs entries must be objects", {
+			throw new DomainError("validation", "Plugin ui.json dialogs entries must be objects", {
 				code: "plugin.ui.entry_not_object",
 				params: { field: "dialogs" },
 			});
 
 		assertUiId(dialog.id, "ui.dialogs[].id");
 		if (ids.has(dialog.id))
-			throw new ValidationError(`Plugin ui.json has duplicate dialog id '${dialog.id}'`, {
+			throw new DomainError("validation", `Plugin ui.json has duplicate dialog id '${dialog.id}'`, {
 				code: "plugin.ui.duplicate_id",
 				params: { field: "dialogs", id: dialog.id },
 			});
@@ -297,7 +303,7 @@ function validateUiDialogs(dialogs: unknown, dialogIds: ReadonlySet<string>): Se
 		if (dialog.icon !== undefined) assertNonEmptyString(dialog.icon, `ui.dialogs.${dialog.id}.icon`);
 
 		if (dialog.size !== undefined && (typeof dialog.size !== "string" || !PLUGIN_DIALOG_SIZES.has(dialog.size))) {
-			throw new ValidationError(`Plugin ui.json dialog '${dialog.id}' has an unsupported size`, {
+			throw new DomainError("validation", `Plugin ui.json dialog '${dialog.id}' has an unsupported size`, {
 				code: "plugin.ui.dialog_size_invalid",
 				params: { dialog: dialog.id },
 			});
@@ -312,32 +318,35 @@ function validateUiDialogs(dialogs: unknown, dialogIds: ReadonlySet<string>): Se
 
 function validateUiTabs(tabs: unknown, pageIds: ReadonlySet<string>): void {
 	if (!isRecord(tabs))
-		throw new ValidationError("Plugin ui.json tabs must be an object", { code: "plugin.ui.field_not_object", params: { field: "tabs" } });
+		throw new DomainError("validation", "Plugin ui.json tabs must be an object", {
+			code: "plugin.ui.field_not_object",
+			params: { field: "tabs" },
+		});
 
 	for (const [host, contributions] of Object.entries(tabs)) {
 		if (!PLUGIN_TAB_HOST_NAMES.has(host)) {
-			throw new ValidationError(`Plugin ui.json has unsupported tab host '${host}'`, {
+			throw new DomainError("validation", `Plugin ui.json has unsupported tab host '${host}'`, {
 				code: "plugin.ui.tab_host_unsupported",
 				params: { host },
 			});
 		}
 
 		if (!Array.isArray(contributions))
-			throw new ValidationError(`Plugin ui.json tab host '${host}' must be an array`, {
+			throw new DomainError("validation", `Plugin ui.json tab host '${host}' must be an array`, {
 				code: "plugin.ui.field_not_array",
 				params: { field: `tabs.${host}` },
 			});
 
 		for (const tab of contributions) {
 			if (!isRecord(tab))
-				throw new ValidationError(`Plugin ui.json tab host '${host}' entries must be objects`, {
+				throw new DomainError("validation", `Plugin ui.json tab host '${host}' entries must be objects`, {
 					code: "plugin.ui.entry_not_object",
 					params: { field: `tabs.${host}` },
 				});
 
 			assertUiId(tab.id, `ui.tabs.${host}[].id`);
 			if (tab.host !== host)
-				throw new ValidationError(`Plugin ui.json tab '${tab.id}' host must match its group '${host}'`, {
+				throw new DomainError("validation", `Plugin ui.json tab '${tab.id}' host must match its group '${host}'`, {
 					code: "plugin.ui.tab_host_mismatch",
 					params: { tab: tab.id, host },
 				});
@@ -347,7 +356,7 @@ function validateUiTabs(tabs: unknown, pageIds: ReadonlySet<string>): void {
 
 			assertNonEmptyString(tab.page, `ui.tabs.${host}.${tab.id}.page`);
 			if (!pageIds.has(tab.page))
-				throw new ValidationError(`Plugin ui.json tab '${tab.id}' references unknown page '${tab.page}'`, {
+				throw new DomainError("validation", `Plugin ui.json tab '${tab.id}' references unknown page '${tab.page}'`, {
 					code: "plugin.ui.page_unknown",
 					params: { page: tab.page },
 				});
@@ -361,15 +370,21 @@ function validateUiTabs(tabs: unknown, pageIds: ReadonlySet<string>): void {
 
 function validateUiSlots(slots: unknown, pageIds: ReadonlySet<string>, dialogIds: ReadonlySet<string>): void {
 	if (!isRecord(slots))
-		throw new ValidationError("Plugin ui.json slots must be an object", { code: "plugin.ui.field_not_object", params: { field: "slots" } });
+		throw new DomainError("validation", "Plugin ui.json slots must be an object", {
+			code: "plugin.ui.field_not_object",
+			params: { field: "slots" },
+		});
 
 	for (const [slot, contributions] of Object.entries(slots)) {
 		if (!PLUGIN_SLOT_NAMES.has(slot)) {
-			throw new ValidationError(`Plugin ui.json has unsupported slot '${slot}'`, { code: "plugin.ui.slot_unsupported", params: { slot } });
+			throw new DomainError("validation", `Plugin ui.json has unsupported slot '${slot}'`, {
+				code: "plugin.ui.slot_unsupported",
+				params: { slot },
+			});
 		}
 
 		if (!Array.isArray(contributions))
-			throw new ValidationError(`Plugin ui.json slot '${slot}' must be an array`, {
+			throw new DomainError("validation", `Plugin ui.json slot '${slot}' must be an array`, {
 				code: "plugin.ui.field_not_array",
 				params: { field: `slots.${slot}` },
 			});
@@ -380,7 +395,7 @@ function validateUiSlots(slots: unknown, pageIds: ReadonlySet<string>, dialogIds
 			if (id === undefined) continue;
 
 			if (ids.has(id))
-				throw new ValidationError(`Plugin ui.json slot '${slot}' declares the id '${id}' twice`, {
+				throw new DomainError("validation", `Plugin ui.json slot '${slot}' declares the id '${id}' twice`, {
 					code: "plugin.ui.duplicate_id",
 					params: { field: `slots.${slot}`, id },
 				});
@@ -392,7 +407,7 @@ function validateUiSlots(slots: unknown, pageIds: ReadonlySet<string>, dialogIds
 /** The pre-play declaration only carries a relative plugin route path. */
 function validatePlaybackPreRoll(value: unknown): asserts value is { endpoint: string } {
 	if (!isRecord(value))
-		throw new ValidationError("Plugin ui.json playbackPreRoll must be an object", {
+		throw new DomainError("validation", "Plugin ui.json playbackPreRoll must be an object", {
 			code: "plugin.ui.field_not_object",
 			params: { field: "playbackPreRoll" },
 		});
@@ -406,7 +421,7 @@ function validateSearchProvider(
 	pageIds: ReadonlySet<string>,
 ): asserts value is { endpoint: string; requestEndpoint?: string; itemPage?: string } {
 	if (!isRecord(value))
-		throw new ValidationError("Plugin ui.json searchProvider must be an object", {
+		throw new DomainError("validation", "Plugin ui.json searchProvider must be an object", {
 			code: "plugin.ui.field_not_object",
 			params: { field: "searchProvider" },
 		});
@@ -417,7 +432,7 @@ function validateSearchProvider(
 	if (value.itemPage !== undefined) {
 		assertUiId(value.itemPage, "ui.searchProvider.itemPage");
 		if (!pageIds.has(value.itemPage)) {
-			throw new ValidationError(`Plugin ui.json searchProvider.itemPage references unknown page '${value.itemPage}'`, {
+			throw new DomainError("validation", `Plugin ui.json searchProvider.itemPage references unknown page '${value.itemPage}'`, {
 				code: "plugin.ui.page_unknown",
 				params: { page: value.itemPage },
 			});
@@ -433,7 +448,7 @@ function validateUiSlotContribution(
 	dialogIds: ReadonlySet<string>,
 ): string | undefined {
 	if (!isRecord(contribution))
-		throw new ValidationError(`Plugin ui.json slot '${slot}' entries must be objects`, {
+		throw new DomainError("validation", `Plugin ui.json slot '${slot}' entries must be objects`, {
 			code: "plugin.ui.entry_not_object",
 			params: { field: `slots.${slot}` },
 		});
@@ -445,7 +460,7 @@ function validateUiSlotContribution(
 	const hasAction = contribution.action !== undefined;
 	const hasElement = contribution.element !== undefined;
 	if (hasAction === hasElement) {
-		throw new ValidationError(`Plugin ui.json slot '${slot}' entry must declare exactly one of action or element`, {
+		throw new DomainError("validation", `Plugin ui.json slot '${slot}' entry must declare exactly one of action or element`, {
 			code: "plugin.ui.slot_entry_ambiguous",
 			params: { slot },
 		});
@@ -466,13 +481,16 @@ function validateUiSlotContribution(
 
 function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet<string>, dialogIds: ReadonlySet<string>): void {
 	if (!isRecord(action) || typeof action.type !== "string")
-		throw new ValidationError(`Plugin ui.json ${field} must declare a type`, { code: "plugin.ui.action_type_missing", params: { field } });
+		throw new DomainError("validation", `Plugin ui.json ${field} must declare a type`, {
+			code: "plugin.ui.action_type_missing",
+			params: { field },
+		});
 
 	switch (action.type) {
 		case "page":
 			assertNonEmptyString(action.page, `${field}.page`);
 			if (!pageIds.has(action.page))
-				throw new ValidationError(`Plugin ui.json ${field} references unknown page '${action.page}'`, {
+				throw new DomainError("validation", `Plugin ui.json ${field} references unknown page '${action.page}'`, {
 					code: "plugin.ui.page_unknown",
 					params: { page: action.page },
 				});
@@ -483,7 +501,7 @@ function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet
 		case "dialog":
 			assertNonEmptyString(action.dialog, `${field}.dialog`);
 			if (!dialogIds.has(action.dialog))
-				throw new ValidationError(`Plugin ui.json ${field} references unknown dialog '${action.dialog}'`, {
+				throw new DomainError("validation", `Plugin ui.json ${field} references unknown dialog '${action.dialog}'`, {
 					code: "plugin.ui.dialog_unknown",
 					params: { dialog: action.dialog },
 				});
@@ -500,7 +518,7 @@ function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet
 
 			return;
 		default:
-			throw new ValidationError(`Plugin ui.json ${field} has unsupported type '${action.type}'`, {
+			throw new DomainError("validation", `Plugin ui.json ${field} has unsupported type '${action.type}'`, {
 				code: "plugin.ui.action_type_unsupported",
 				params: { field, type: action.type },
 			});
@@ -509,14 +527,17 @@ function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet
 
 function validateUiSurface(surface: unknown, field: string): void {
 	if (!isRecord(surface))
-		throw new ValidationError(`Plugin ui.json ${field} must be an object`, { code: "plugin.ui.field_not_object", params: { field } });
+		throw new DomainError("validation", `Plugin ui.json ${field} must be an object`, {
+			code: "plugin.ui.field_not_object",
+			params: { field },
+		});
 
 	assertSurfaceTag(surface.tag, `${field}.tag`);
 }
 
 function assertSurfaceTag(tag: unknown, field: string): asserts tag is string {
 	if (typeof tag !== "string" || !CUSTOM_ELEMENT_NAME_PATTERN.test(tag)) {
-		throw new ValidationError(`Plugin ui.json ${field} must be a valid custom element tag (lowercase, hyphenated)`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} must be a valid custom element tag (lowercase, hyphenated)`, {
 			code: "plugin.ui.element_tag_invalid",
 			params: { field },
 		});
@@ -527,7 +548,7 @@ function assertSurfaceTag(tag: unknown, field: string): asserts tag is string {
 function validateSurfaceDefinition(surface: Record<string, unknown>, field: string, dialogIds: ReadonlySet<string>): void {
 	const variants = [surface.tag !== undefined, surface.schema !== undefined, surface.schemaRef !== undefined].filter(Boolean).length;
 	if (variants !== 1) {
-		throw new ValidationError(`Plugin ui.json ${field} must declare exactly one of tag, schema or schemaRef`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} must declare exactly one of tag, schema or schemaRef`, {
 			code: "plugin.ui.element_source_invalid",
 			params: { field },
 		});
@@ -547,25 +568,28 @@ export function validatePluginSchema(
 	dialogIds?: ReadonlySet<string>,
 ): asserts value is PluginUiSchemaSurface {
 	if (!isRecord(value))
-		throw new ValidationError(`Plugin ui.json ${field} must be an object`, { code: "plugin.ui.field_not_object", params: { field } });
+		throw new DomainError("validation", `Plugin ui.json ${field} must be an object`, {
+			code: "plugin.ui.field_not_object",
+			params: { field },
+		});
 
 	if (value.data !== undefined) {
 		if (!isRecord(value.data))
-			throw new ValidationError(`Plugin ui.json ${field}.data must be an object`, {
+			throw new DomainError("validation", `Plugin ui.json ${field}.data must be an object`, {
 				code: "plugin.ui.field_not_object",
 				params: { field: `${field}.data` },
 			});
 
 		const sources = Object.entries(value.data);
 		if (sources.length > SCHEMA_MAX_SOURCES)
-			throw new ValidationError(`Plugin ui.json ${field}.data has too many sources`, {
+			throw new DomainError("validation", `Plugin ui.json ${field}.data has too many sources`, {
 				code: "plugin.ui.data_too_many_sources",
 				params: { field },
 			});
 
 		for (const [name, source] of sources) {
 			if (!isRecord(source))
-				throw new ValidationError(`Plugin ui.json ${field}.data.${name} must be an object`, {
+				throw new DomainError("validation", `Plugin ui.json ${field}.data.${name} must be an object`, {
 					code: "plugin.ui.field_not_object",
 					params: { field: `${field}.data.${name}` },
 				});
@@ -576,7 +600,7 @@ export function validatePluginSchema(
 
 	if (value.onMount !== undefined) {
 		if (!Array.isArray(value.onMount))
-			throw new ValidationError(`Plugin ui.json ${field}.onMount must be an array`, {
+			throw new DomainError("validation", `Plugin ui.json ${field}.onMount must be an array`, {
 				code: "plugin.ui.field_not_array",
 				params: { field: `${field}.onMount` },
 			});
@@ -591,7 +615,7 @@ export function validatePluginSchema(
 function validateSchemaField(entry: Record<string, unknown>, fieldName: string): void {
 	assertNonEmptyString(entry.name, `${fieldName}.name`);
 	if (typeof entry.input !== "string" || !SCHEMA_FIELD_INPUTS.has(entry.input)) {
-		throw new ValidationError(`Plugin ui.json ${fieldName}.input is unsupported`, {
+		throw new DomainError("validation", `Plugin ui.json ${fieldName}.input is unsupported`, {
 			code: "plugin.ui.field_unsupported",
 			params: { field: `${fieldName}.input` },
 		});
@@ -606,21 +630,21 @@ function validateSchemaField(entry: Record<string, unknown>, fieldName: string):
 
 	if (entry.options !== undefined) {
 		if (!Array.isArray(entry.options))
-			throw new ValidationError(`Plugin ui.json ${fieldName}.options must be an array`, {
+			throw new DomainError("validation", `Plugin ui.json ${fieldName}.options must be an array`, {
 				code: "plugin.ui.field_not_array",
 				params: { field: `${fieldName}.options` },
 			});
 
 		for (const option of entry.options) {
 			if (!isRecord(option))
-				throw new ValidationError(`Plugin ui.json ${fieldName}.options entries must be objects`, {
+				throw new DomainError("validation", `Plugin ui.json ${fieldName}.options entries must be objects`, {
 					code: "plugin.ui.entry_not_object",
 					params: { field: `${fieldName}.options` },
 				});
 
 			assertLocalizedText(option.label, `${fieldName}.options[].label`);
 			if (typeof option.value !== "string" && typeof option.value !== "number") {
-				throw new ValidationError(`Plugin ui.json ${fieldName}.options[].value must be a string or number`, {
+				throw new DomainError("validation", `Plugin ui.json ${fieldName}.options[].value must be a string or number`, {
 					code: "plugin.ui.option_value_invalid",
 					params: { field: `${fieldName}.options[].value` },
 				});
@@ -639,13 +663,16 @@ function validateSchemaNodes(
 	dialogIds: ReadonlySet<string> | undefined,
 ): void {
 	if (depth > SCHEMA_MAX_DEPTH)
-		throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum nesting depth`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} exceeds the maximum nesting depth`, {
 			code: "plugin.ui.nesting_too_deep",
 			params: { field },
 		});
 
 	if (!Array.isArray(nodes))
-		throw new ValidationError(`Plugin ui.json ${field} must be an array`, { code: "plugin.ui.field_not_array", params: { field } });
+		throw new DomainError("validation", `Plugin ui.json ${field} must be an array`, {
+			code: "plugin.ui.field_not_array",
+			params: { field },
+		});
 
 	for (const node of nodes) validateSchemaNode(node, field, depth, counter, dialogIds);
 }
@@ -660,7 +687,7 @@ interface SchemaNodeContext {
 function validateFieldNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	context.counter.fields += 1;
 	if (context.counter.fields > SCHEMA_MAX_FIELDS)
-		throw new ValidationError(`Plugin ui.json ${context.field} has too many fields`, {
+		throw new DomainError("validation", `Plugin ui.json ${context.field} has too many fields`, {
 			code: "plugin.ui.too_many_fields",
 			params: { field: context.field },
 		});
@@ -682,14 +709,14 @@ function validateContainerNode(node: Record<string, unknown>, context: SchemaNod
 function validateTabsNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	const { field } = context;
 	if (!Array.isArray(node.tabs))
-		throw new ValidationError(`Plugin ui.json ${field}.tabs must be an array`, {
+		throw new DomainError("validation", `Plugin ui.json ${field}.tabs must be an array`, {
 			code: "plugin.ui.field_not_array",
 			params: { field: `${field}.tabs` },
 		});
 
 	for (const [index, tab] of node.tabs.entries()) {
 		if (!isRecord(tab))
-			throw new ValidationError(`Plugin ui.json ${field}.tabs[${index}] must be an object`, {
+			throw new DomainError("validation", `Plugin ui.json ${field}.tabs[${index}] must be an object`, {
 				code: "plugin.ui.field_not_object",
 				params: { field: `${field}.tabs[${index}]` },
 			});
@@ -721,14 +748,14 @@ function validateButtonNode(node: Record<string, unknown>, context: SchemaNodeCo
 function validateStatsNode(node: Record<string, unknown>, context: SchemaNodeContext): void {
 	const { field } = context;
 	if (!Array.isArray(node.items))
-		throw new ValidationError(`Plugin ui.json ${field}.items must be an array`, {
+		throw new DomainError("validation", `Plugin ui.json ${field}.items must be an array`, {
 			code: "plugin.ui.field_not_array",
 			params: { field: `${field}.items` },
 		});
 
 	for (const item of node.items) {
 		if (!isRecord(item))
-			throw new ValidationError(`Plugin ui.json ${field}.items entries must be objects`, {
+			throw new DomainError("validation", `Plugin ui.json ${field}.items entries must be objects`, {
 				code: "plugin.ui.entry_not_object",
 				params: { field: `${field}.items` },
 			});
@@ -742,14 +769,14 @@ function validateTableNode(node: Record<string, unknown>, context: SchemaNodeCon
 	const { field } = context;
 	assertNonEmptyString(node.source, `${field}.source`);
 	if (!Array.isArray(node.columns))
-		throw new ValidationError(`Plugin ui.json ${field}.columns must be an array`, {
+		throw new DomainError("validation", `Plugin ui.json ${field}.columns must be an array`, {
 			code: "plugin.ui.field_not_array",
 			params: { field: `${field}.columns` },
 		});
 
 	for (const column of node.columns) {
 		if (!isRecord(column))
-			throw new ValidationError(`Plugin ui.json ${field}.columns entries must be objects`, {
+			throw new DomainError("validation", `Plugin ui.json ${field}.columns entries must be objects`, {
 				code: "plugin.ui.entry_not_object",
 				params: { field: `${field}.columns` },
 			});
@@ -818,20 +845,20 @@ function validateSchemaNode(
 ): void {
 	counter.count += 1;
 	if (counter.count > SCHEMA_MAX_NODES)
-		throw new ValidationError(`Plugin ui.json ${field} exceeds the maximum node count`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} exceeds the maximum node count`, {
 			code: "plugin.ui.too_many_nodes",
 			params: { field },
 		});
 
 	if (!isRecord(node) || typeof node.type !== "string")
-		throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} has an unsupported node type`, {
 			code: "plugin.ui.field_unsupported",
 			params: { field },
 		});
 
 	const validator = schemaNodeValidators[node.type];
 	if (!validator)
-		throw new ValidationError(`Plugin ui.json ${field} has an unsupported node type`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} has an unsupported node type`, {
 			code: "plugin.ui.field_unsupported",
 			params: { field },
 		});
@@ -841,7 +868,7 @@ function validateSchemaNode(
 
 function validateSchemaAction(action: unknown, field: string, dialogIds?: ReadonlySet<string>): void {
 	if (!isRecord(action) || typeof action.type !== "string" || !SCHEMA_ACTION_TYPES.has(action.type)) {
-		throw new ValidationError(`Plugin ui.json ${field} has an unsupported action type`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} has an unsupported action type`, {
 			code: "plugin.ui.field_unsupported",
 			params: { field },
 		});
@@ -862,7 +889,7 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 		case "openDialog":
 			assertNonEmptyString(action.dialog, `${field}.dialog`);
 			if (dialogIds && !dialogIds.has(action.dialog)) {
-				throw new ValidationError(`Plugin ui.json ${field} references unknown dialog '${action.dialog}'`, {
+				throw new DomainError("validation", `Plugin ui.json ${field} references unknown dialog '${action.dialog}'`, {
 					code: "plugin.ui.dialog_unknown",
 					params: { dialog: action.dialog },
 				});
@@ -873,7 +900,7 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 			return;
 		case "toast":
 			if (action.level !== "success" && action.level !== "error" && action.level !== "info") {
-				throw new ValidationError(`Plugin ui.json ${field}.level must be success, error or info`, {
+				throw new DomainError("validation", `Plugin ui.json ${field}.level must be success, error or info`, {
 					code: "plugin.ui.level_invalid",
 					params: { field: `${field}.level` },
 				});
@@ -887,7 +914,7 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 
 			return;
 		default:
-			throw new ValidationError(`Plugin ui.json ${field} has an unsupported action type`, {
+			throw new DomainError("validation", `Plugin ui.json ${field} has an unsupported action type`, {
 				code: "plugin.ui.field_unsupported",
 				params: { field },
 			});
@@ -896,11 +923,14 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 
 function validateSchemaCondition(condition: unknown, field: string): void {
 	if (!isRecord(condition))
-		throw new ValidationError(`Plugin ui.json ${field} must be an object`, { code: "plugin.ui.field_not_object", params: { field } });
+		throw new DomainError("validation", `Plugin ui.json ${field} must be an object`, {
+			code: "plugin.ui.field_not_object",
+			params: { field },
+		});
 
 	assertNonEmptyString(condition.left, `${field}.left`);
 	if (typeof condition.op !== "string" || !SCHEMA_CONDITION_OPS.has(condition.op)) {
-		throw new ValidationError(`Plugin ui.json ${field}.op is unsupported`, {
+		throw new DomainError("validation", `Plugin ui.json ${field}.op is unsupported`, {
 			code: "plugin.ui.field_unsupported",
 			params: { field: `${field}.op` },
 		});
@@ -909,7 +939,7 @@ function validateSchemaCondition(condition: unknown, field: string): void {
 
 function assertOptionalType(value: unknown, type: "boolean" | "number", subject: string): void {
 	if (value !== undefined && typeof value !== type)
-		throw new ValidationError(`Plugin ui.json ${subject} must be a ${type}`, {
+		throw new DomainError("validation", `Plugin ui.json ${subject} must be a ${type}`, {
 			code: "plugin.ui.field_invalid",
 			params: { field: subject },
 		});
@@ -919,7 +949,7 @@ function assertOptionalStringArray(value: unknown, field: string): void {
 	if (value === undefined) return;
 
 	if (!Array.isArray(value) || value.some((item) => !isNonEmptyString(item))) {
-		throw new ValidationError(`Plugin ui.json ${field} must be an array of strings`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} must be an array of strings`, {
 			code: "plugin.ui.string_array_invalid",
 			params: { field },
 		});
@@ -929,7 +959,7 @@ function assertOptionalStringArray(value: unknown, field: string): void {
 function assertUiId(value: unknown, field: string): asserts value is string {
 	assertNonEmptyString(value, field);
 	if (!PLUGIN_UI_ID_PATTERN.test(value))
-		throw new ValidationError(`Plugin ui.json ${field} has unsupported characters: ${value}`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} has unsupported characters: ${value}`, {
 			code: "plugin.ui.characters_unsupported",
 			params: { field, value },
 		});
@@ -947,18 +977,21 @@ function assertLocalizedText(value: unknown, field: string): void {
 	if (isNonEmptyString(value)) return;
 
 	if (!isRecord(value))
-		throw new ValidationError(`Plugin ui.json ${field} must be a string or a locale map`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} must be a string or a locale map`, {
 			code: "plugin.ui.locale_text_invalid",
 			params: { field },
 		});
 
 	const entries = Object.entries(value);
 	if (entries.length === 0)
-		throw new ValidationError(`Plugin ui.json ${field} locale map must not be empty`, { code: "plugin.ui.field_empty", params: { field } });
+		throw new DomainError("validation", `Plugin ui.json ${field} locale map must not be empty`, {
+			code: "plugin.ui.field_empty",
+			params: { field },
+		});
 
 	for (const [locale, text] of entries) {
 		if (!(isNonEmptyString(locale) && isNonEmptyString(text))) {
-			throw new ValidationError(`Plugin ui.json ${field} locale map values must be non-empty strings`, {
+			throw new DomainError("validation", `Plugin ui.json ${field} locale map values must be non-empty strings`, {
 				code: "plugin.ui.locale_text_invalid",
 				params: { field },
 			});
@@ -970,7 +1003,7 @@ function assertOptionalStringRecord(value: unknown, field: string): void {
 	if (value === undefined) return;
 
 	if (!isRecord(value) || Object.values(value).some((item) => !isNonEmptyString(item))) {
-		throw new ValidationError(`Plugin ui.json ${field} must be a map of non-empty strings`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} must be a map of non-empty strings`, {
 			code: "plugin.ui.field_invalid",
 			params: { field },
 		});
@@ -987,7 +1020,7 @@ const ALLOWED_HREF_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"])
 function assertSafeHref(value: unknown, field: string): asserts value is string {
 	assertNonEmptyString(value, field);
 	if (value.startsWith("//") || value.startsWith("\\")) {
-		throw new ValidationError(`Plugin ui.json ${field} must not be protocol-relative`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} must not be protocol-relative`, {
 			code: "plugin.ui.url_invalid",
 			params: { field },
 		});
@@ -999,14 +1032,14 @@ function assertSafeHref(value: unknown, field: string): asserts value is string 
 	try {
 		parsed = new URL(value);
 	} catch {
-		throw new ValidationError(`Plugin ui.json ${field} must be an absolute http(s) URL or a site-relative path`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} must be an absolute http(s) URL or a site-relative path`, {
 			code: "plugin.ui.url_invalid",
 			params: { field },
 		});
 	}
 
 	if (!ALLOWED_HREF_PROTOCOLS.has(parsed.protocol)) {
-		throw new ValidationError(`Plugin ui.json ${field} uses an unsupported URL scheme: ${parsed.protocol}`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} uses an unsupported URL scheme: ${parsed.protocol}`, {
 			code: "plugin.ui.url_invalid",
 			params: { field },
 		});
@@ -1030,7 +1063,7 @@ function assertSafePluginSubPath(value: unknown, field: string): asserts value i
 		value.includes("#") ||
 		URL_SCHEME_PREFIX.test(value)
 	) {
-		throw new ValidationError(`Plugin ui.json ${field} must be a relative plugin path without traversal or query`, {
+		throw new DomainError("validation", `Plugin ui.json ${field} must be a relative plugin path without traversal or query`, {
 			code: "plugin.ui.path_invalid",
 			params: { field },
 		});
@@ -1040,7 +1073,8 @@ function assertSafePluginSubPath(value: unknown, field: string): asserts value i
 export async function loadPluginManifest(pluginDir: string): Promise<PluginManifest> {
 	const manifestPath = PathUtils.join(pluginDir, "plugin.json");
 	const manifest = await FileUtils.readJson<unknown>(manifestPath);
-	if (!manifest) throw new ValidationError(`Plugin is missing a valid plugin.json: ${manifestPath}`, { code: "plugin.manifest_missing" });
+	if (!manifest)
+		throw new DomainError("validation", `Plugin is missing a valid plugin.json: ${manifestPath}`, { code: "plugin.manifest_missing" });
 
 	validatePluginManifest(manifest);
 
@@ -1061,7 +1095,7 @@ async function loadResolvedSchema(
 	const refPath = resolvePluginPath(pluginDir, ref, `${field}.schemaRef`);
 	const raw = await FileUtils.readJson<unknown>(refPath, { maxSize: SCHEMA_MAX_BYTES });
 	if (raw === null)
-		throw new ValidationError(`Plugin ui.json ${field}.schemaRef is missing or unreadable: ${ref}`, {
+		throw new DomainError("validation", `Plugin ui.json ${field}.schemaRef is missing or unreadable: ${ref}`, {
 			code: "plugin.ui.schema_ref_missing",
 			params: { field: `${field}.schemaRef`, ref },
 		});
@@ -1115,7 +1149,7 @@ export function assertDeclaredPluginCapabilities(
 	const declared = new Set(declaredCapabilities);
 	const missing = unique([...usedCapabilities]).filter((capability) => !declared.has(capability));
 	if (missing.length > 0) {
-		throw new ValidationError(`Plugin uses capabilities missing from plugin.json: ${missing.join(", ")}`, {
+		throw new DomainError("validation", `Plugin uses capabilities missing from plugin.json: ${missing.join(", ")}`, {
 			code: "plugin.capability_undeclared",
 			params: { capability: missing.join(", ") },
 		});
@@ -1124,7 +1158,8 @@ export function assertDeclaredPluginCapabilities(
 
 export function validatePluginConfig(config: unknown, definition?: ConfigDefinition): PluginConfig {
 	const validated = definition ? definition.parse(config) : config;
-	if (!isRecord(validated)) throw new ValidationError("Plugin configuration must be an object", { code: "plugin.config_not_object" });
+	if (!isRecord(validated))
+		throw new DomainError("validation", "Plugin configuration must be an object", { code: "plugin.config_not_object" });
 
 	return validated;
 }
@@ -1137,10 +1172,10 @@ function fieldError(
 	field: string,
 	problem: "not_string" | "not_array" | "path_invalid" | "path_escapes" | "duplicates",
 	reason: string,
-): ValidationError {
+): DomainError {
 	const interfaceField = field.startsWith("ui.");
 
-	return new ValidationError(`Plugin ${interfaceField ? "ui.json" : "manifest"} ${field} ${reason}`, {
+	return new DomainError("validation", `Plugin ${interfaceField ? "ui.json" : "manifest"} ${field} ${reason}`, {
 		code: `plugin.${interfaceField ? "ui." : ""}field_${problem}`,
 		params: { field },
 	});

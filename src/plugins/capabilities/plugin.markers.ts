@@ -3,13 +3,12 @@ import { mediaRepository } from "@/database/repositories/media-files.repository"
 import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
 import { toPublicMarker } from "@/database/utils/media-marker.mapper";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { BaseService } from "@/utils/base-service";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 
-class PluginMarkersService extends BaseService {
-	constructor() {
-		super("PluginMarkersService");
-	}
+class PluginMarkersService {
+	readonly serviceName = "PluginMarkersService";
+	readonly logger = createLogger("PluginMarkersService");
 
 	async list(pluginId: string, mediaFileId: string): Promise<MediaMarker[]> {
 		// Scoped to the calling plugin: a plugin must not observe other plugins'
@@ -21,7 +20,7 @@ class PluginMarkersService extends BaseService {
 
 	async setMarkers(pluginId: string, mediaFileId: string, markers: readonly CreateMediaMarker[]): Promise<MediaMarker[]> {
 		const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
-		if (!mediaFileExists) throw new NotFoundError(`Media file ${mediaFileId} was not found`, { code: "media_file.not_found" });
+		if (!mediaFileExists) throw new DomainError("not_found", `Media file ${mediaFileId} was not found`, { code: "media_file.not_found" });
 
 		const saved = await mediaMarkersRepository.replaceMarkersForMediaFile(mediaFileId, markers, {
 			pluginId,

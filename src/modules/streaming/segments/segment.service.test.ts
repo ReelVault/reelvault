@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { file } from "bun";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createMockPlaybackDecision } from "../streaming.test-utils";
 import { SegmentService, type ServiceDependencies } from "./segment.service";
 
@@ -49,7 +49,7 @@ function createService(
 			if (options.existing) return file("/dev/null");
 
 			// A real SegmentLookup breaks the wait-ladder with an error when the session is seeking.
-			if (context.isSeeking()) throw new NotFoundError("Segment not found after ongoing seek");
+			if (context.isSeeking()) throw new DomainError("not_found", "Segment not found after ongoing seek");
 
 			if (options.waitOutcome === "ok") return file("/dev/null");
 

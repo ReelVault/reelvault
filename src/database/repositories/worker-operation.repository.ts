@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, type SQL, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
@@ -8,7 +8,7 @@ import { QueryFiltering } from "@/database/utils/filtering";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { DAY, serverConstants } from "@/server.constants";
 import { chunk, unique } from "@/utils/array.utils";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import type { WorkerItemSummary } from "./worker.repository";
 import { workerJobSummaryColumns } from "./worker-job.projection";
@@ -46,7 +46,7 @@ class WorkerOperationRepository {
 				status: input.error ? "failed" : "pending",
 			})
 			.returning();
-		if (!operation) throw new InternalError("Failed to create worker operation", { code: "worker.operation_create_failed" });
+		if (!operation) throw new DomainError("internal", "Failed to create worker operation", { code: "worker.operation_create_failed" });
 
 		return operation;
 	}
@@ -135,11 +135,7 @@ class WorkerOperationRepository {
 		}
 
 		const [countRows, rows] = await Promise.all([
-			cachedCount("worker_operations", { status: options.status ?? null }, async () => {
-				const [countRow] = await client.select({ count: count() }).from(operations).where(whereClause);
-
-				return countRow?.count ?? 0;
-			}),
+			cachedCount("worker_operations", { status: options.status ?? null }, async () => await client.$count(operations, whereClause)),
 			client
 				.select()
 				.from(operations)
@@ -417,8 +413,8 @@ class WorkerOperationRepository {
 		if (options.search) conditions.push(QueryFiltering.like(jobs.data, options.search));
 
 		const where = and(...conditions);
-		const [countRows, rows] = await Promise.all([
-			client.select({ count: count() }).from(jobs).where(where),
+		const [total, rows] = await Promise.all([
+			client.$count(jobs, where),
 			client
 				.select(workerJobSummaryColumns)
 				.from(jobs)
@@ -428,7 +424,7 @@ class WorkerOperationRepository {
 				.offset(options.offset ?? 0),
 		]);
 
-		return { items: rows, total: countRows[0]?.count ?? 0 };
+		return { items: rows, total };
 	}
 
 	async getOperationItemsSummary(operationId: string) {
@@ -555,15 +551,12 @@ class WorkerOperationRepository {
 	): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }> {
 		const where = terminalOperationsWhere(options);
 		const client = databaseFactory.getClient();
-		const [operationRows, jobRows] = await Promise.all([
-			client.select({ value: count() }).from(operations).where(where),
-			client
-				.select({ value: count() })
-				.from(jobs)
-				.where(inArray(jobs.operationId, client.select({ id: operations.id }).from(operations).where(where))),
+		const [deletedOperationsCount, deletedJobsCount] = await Promise.all([
+			client.$count(operations, where),
+			client.$count(jobs, inArray(jobs.operationId, client.select({ id: operations.id }).from(operations).where(where))),
 		]);
 
-		return { deletedOperationsCount: operationRows[0]?.value ?? 0, deletedJobsCount: jobRows[0]?.value ?? 0 };
+		return { deletedOperationsCount, deletedJobsCount };
 	}
 
 	private withEta(record: WorkerOperationRecord): WorkerOperation {

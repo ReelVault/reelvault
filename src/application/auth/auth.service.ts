@@ -15,10 +15,11 @@ import { usersRepository } from "@/database/repositories/users.repository";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { toAuthFailure } from "@/integrations/better-auth/better-auth.failures";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
-import { ForbiddenError, TooManyRequestsError } from "@/utils/errors";
+import { assertFound, DomainError } from "@/utils/errors";
 import { rewriteCookieDomain } from "@/utils/http.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { serializeDate } from "@/utils/time.utils";
 import { normalizeLower } from "@/utils/type.utils";
 
@@ -28,13 +29,12 @@ const LOGIN_ACCOUNT_WINDOW_MS = 5 * 60_000;
  * tests via REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS (see env.ts). */
 const loginAccountLimiter = new InMemoryRateLimiter();
 
-class AuthService extends BaseService {
-	constructor() {
-		super("AuthService");
-	}
+class AuthService {
+	readonly serviceName = "AuthService";
+	readonly logger = createLogger("AuthService");
 
 	async register(body: RegisterRequest, request: Request): Promise<Response> {
-		return await this.safeExecute("register", async () => {
+		return await runSafely(this, "register", async () => {
 			const response = await firstRunSetupService.registerUser({
 				email: body.email,
 				password: body.password,
@@ -48,7 +48,7 @@ class AuthService extends BaseService {
 	}
 
 	async changePassword(body: ChangePasswordRequest, request: Request): Promise<Response> {
-		return await this.safeExecute("changePassword", async () => {
+		return await runSafely(this, "changePassword", async () => {
 			const response = await betterAuthApi.changePassword({
 				currentPassword: body.currentPassword,
 				newPassword: body.newPassword,
@@ -61,11 +61,11 @@ class AuthService extends BaseService {
 	}
 
 	async login(body: LoginRequest, request: Request): Promise<Response> {
-		return await this.safeExecute("login", async () => {
+		return await runSafely(this, "login", async () => {
 			const accountKey = `login:${normalizeLower(body.email.trim())}`;
 			const result = loginAccountLimiter.consume(accountKey, serverConfig.auth.loginAccountMaxAttempts, LOGIN_ACCOUNT_WINDOW_MS);
 			if (!result.allowed) {
-				throw new TooManyRequestsError("Too many login attempts for this account.", {
+				throw new DomainError("too_many_requests", "Too many login attempts for this account.", {
 					code: "rate_limit.exceeded",
 					params: { retryAfterSeconds: Math.ceil(result.resetMs / 1000) },
 				});
@@ -77,7 +77,9 @@ class AuthService extends BaseService {
 			if (serverConfig.auth.enforceTwoFactor) {
 				const user = await usersRepository.findByEmail(body.email.trim());
 				if (user && !user.twoFactorEnabled) {
-					throw new ForbiddenError("Two-factor authentication is required for this account", { code: "auth.two_factor_required" });
+					throw new DomainError("forbidden", "Two-factor authentication is required for this account", {
+						code: "auth.two_factor_required",
+					});
 				}
 			}
 
@@ -98,8 +100,8 @@ class AuthService extends BaseService {
 	}
 
 	async logout(request: Request): Promise<Response> {
-		return await this.safeExecute("logout", async () => {
-			this.assertExists(request.headers, "Auth", "logout");
+		return await runSafely(this, "logout", async () => {
+			assertFound(request.headers, "Auth", "logout");
 
 			const response = await betterAuthApi.signOut(request.headers);
 
@@ -108,7 +110,7 @@ class AuthService extends BaseService {
 	}
 
 	getMe(session?: Session | null, user?: User | null, profile?: Profile | null): Promise<SessionResponse> {
-		return this.safeExecute("getMe", () => ({
+		return runSafely(this, "getMe", () => ({
 			session: session ? toPublicSession(session) : null,
 			user: user ? toPublicUser(user) : null,
 			profile: profile ? toPublicProfile(profile) : null,

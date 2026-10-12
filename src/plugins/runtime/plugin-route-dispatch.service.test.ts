@@ -112,6 +112,35 @@ describe("pluginRouteDispatchService", () => {
 			message: "Admin role required for this plugin route",
 		});
 	});
+});
+
+describe("pluginRouteDispatchService", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+	let dispatchStub: { calls: unknown[][]; restore(): void };
+
+	beforeEach(async () => {
+		activeStubs = [];
+		const { pluginRoutesRegistry } = await import("./plugin.routes");
+		const { pluginRegistry } = await import("@/plugins/lifecycle/plugin.registry");
+		const { usersRepository } = await import("@/database/repositories/users.repository");
+		dispatchStub = stubMethod(pluginRoutesRegistry, "dispatch", () => ({ body: { ok: true } }));
+		activeStubs.push(
+			stubMethod(pluginRoutesRegistry, "resolve", (pluginId: string, method: string) =>
+				pluginId === "org.reelvault.routed" && method === "GET" ? createResolvedRoute() : undefined,
+			),
+			dispatchStub,
+			stubMethod(pluginRegistry, "get", (pluginId: string) => (pluginId === "org.reelvault.routed" ? { state: "enabled" } : undefined)),
+			stubMethod(usersRepository, "findById", (userId: string) =>
+				userId === "user-1" ? { id: userId, role: "admin" } : { id: userId, role: "user" },
+			),
+		);
+	});
+
+	afterEach(() => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+	});
 
 	test("maps schema validation errors to invalid_request and rethrows anything else", async () => {
 		const { pluginRoutesRegistry } = await import("./plugin.routes");

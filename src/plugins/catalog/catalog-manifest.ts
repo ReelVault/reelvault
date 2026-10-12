@@ -1,5 +1,5 @@
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { isValidSemver } from "@/utils/semver.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 
@@ -128,15 +128,15 @@ interface CatalogField {
 }
 
 /** A validation error about one field; with an entry index the translated code names the entry and the field. */
-function fieldError(where: CatalogField, reason: string): ValidationError {
+function fieldError(where: CatalogField, reason: string): DomainError {
 	if (where.index === undefined) {
-		return new ValidationError(`Catalog field '${where.field}' ${reason}`, {
+		return new DomainError("validation", `Catalog field '${where.field}' ${reason}`, {
 			code: "plugin.catalog_field_invalid",
 			params: { field: where.field },
 		});
 	}
 
-	return new ValidationError(`Catalog plugin #${where.index}: '${where.field}' ${reason}`, {
+	return new DomainError("validation", `Catalog plugin #${where.index}: '${where.field}' ${reason}`, {
 		code: "plugin.catalog_entry_invalid",
 		params: { index: where.index, field: where.field },
 	});
@@ -153,22 +153,23 @@ export function parsePluginCatalogManifest(raw: string): PluginCatalogManifest {
 	try {
 		value = JSON.parse(raw);
 	} catch {
-		throw new ValidationError("Catalog manifest is not valid JSON", { code: "plugin.catalog_not_json" });
+		throw new DomainError("validation", "Catalog manifest is not valid JSON", { code: "plugin.catalog_not_json" });
 	}
 
-	if (!isRecord(value)) throw new ValidationError("Catalog manifest must be a JSON object", { code: "plugin.catalog_not_object" });
+	if (!isRecord(value))
+		throw new DomainError("validation", "Catalog manifest must be a JSON object", { code: "plugin.catalog_not_object" });
 
 	assertVersion(value.apiVersion);
 	const name = assertString(value.name, { field: "name" }, 200);
 	if (!Array.isArray(value.plugins)) {
-		throw new ValidationError("Catalog manifest field 'plugins' must be an array", {
+		throw new DomainError("validation", "Catalog manifest field 'plugins' must be an array", {
 			code: "plugin.catalog_field_not_array",
 			params: { field: "plugins" },
 		});
 	}
 
 	if (value.plugins.length > MAX_PLUGINS) {
-		throw new ValidationError(`Catalog manifest lists more than ${MAX_PLUGINS} plugins`, {
+		throw new DomainError("validation", `Catalog manifest lists more than ${MAX_PLUGINS} plugins`, {
 			code: "plugin.catalog_too_many_plugins",
 			params: { max: MAX_PLUGINS },
 		});
@@ -181,7 +182,7 @@ export function parsePluginCatalogManifest(raw: string): PluginCatalogManifest {
 
 function assertVersion(apiVersion: unknown): void {
 	if (apiVersion !== PLUGIN_CATALOG_API_VERSION) {
-		throw new ValidationError(`Unsupported catalog apiVersion: ${String(apiVersion)} (expected ${PLUGIN_CATALOG_API_VERSION})`, {
+		throw new DomainError("validation", `Unsupported catalog apiVersion: ${String(apiVersion)} (expected ${PLUGIN_CATALOG_API_VERSION})`, {
 			code: "plugin.catalog_api_version_unsupported",
 			params: { version: String(apiVersion), expected: PLUGIN_CATALOG_API_VERSION },
 		});
@@ -190,14 +191,17 @@ function assertVersion(apiVersion: unknown): void {
 
 function validateEntry(entry: unknown, index: number): PluginCatalogEntry {
 	if (!isRecord(entry)) {
-		throw new ValidationError(`Catalog plugin #${index} must be an object`, { code: "plugin.catalog_entry_not_object", params: { index } });
+		throw new DomainError("validation", `Catalog plugin #${index} must be an object`, {
+			code: "plugin.catalog_entry_not_object",
+			params: { index },
+		});
 	}
 
 	const where = (field: string): CatalogField => ({ index, field });
 
 	const id = assertString(entry.id, where("id"), 128);
 	if (!PLUGIN_IDENTIFIER_PATTERN.test(id)) {
-		throw new ValidationError(`Catalog plugin #${index}: 'id' has an unsupported identifier format`, {
+		throw new DomainError("validation", `Catalog plugin #${index}: 'id' has an unsupported identifier format`, {
 			code: "plugin.catalog_id_invalid",
 			params: { index },
 		});
@@ -208,7 +212,7 @@ function validateEntry(entry: unknown, index: number): PluginCatalogEntry {
 
 	const categoryValue = entry.category === undefined ? "other" : entry.category;
 	if (typeof categoryValue !== "string" || !isPluginCatalogCategory(categoryValue)) {
-		throw new ValidationError(`Catalog plugin #${index}: 'category' must be one of: ${PLUGIN_CATALOG_CATEGORIES.join(", ")}`, {
+		throw new DomainError("validation", `Catalog plugin #${index}: 'category' must be one of: ${PLUGIN_CATALOG_CATEGORIES.join(", ")}`, {
 			code: "plugin.catalog_category_invalid",
 			params: { index, categories: PLUGIN_CATALOG_CATEGORIES.join(", ") },
 		});
@@ -245,14 +249,14 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 	if (value === undefined || value === null) return undefined;
 
 	if (!Array.isArray(value)) {
-		throw new ValidationError(`Catalog plugin #${index}: invalid 'versions' array`, {
+		throw new DomainError("validation", `Catalog plugin #${index}: invalid 'versions' array`, {
 			code: "plugin.catalog_versions_not_array",
 			params: { index },
 		});
 	}
 
 	if (value.length > MAX_VERSIONS_PER_PLUGIN) {
-		throw new ValidationError(`Catalog plugin #${index}: 'versions' lists more than ${MAX_VERSIONS_PER_PLUGIN} entries`, {
+		throw new DomainError("validation", `Catalog plugin #${index}: 'versions' lists more than ${MAX_VERSIONS_PER_PLUGIN} entries`, {
 			code: "plugin.catalog_versions_too_many",
 			params: { index, max: MAX_VERSIONS_PER_PLUGIN },
 		});
@@ -262,7 +266,7 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 	const versions: PluginCatalogVersionEntry[] = [];
 	for (const item of value) {
 		if (!isRecord(item)) {
-			throw new ValidationError(`Catalog plugin #${index}: invalid version entry`, {
+			throw new DomainError("validation", `Catalog plugin #${index}: invalid version entry`, {
 				code: "plugin.catalog_version_entry_invalid",
 				params: { index },
 			});
@@ -273,7 +277,7 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 		const { version, downloadUrl, checksum } = assertReleaseFields(item, where);
 
 		if (seen.has(version)) {
-			throw new ValidationError(`Catalog plugin #${index}: duplicate version '${version}'`, {
+			throw new DomainError("validation", `Catalog plugin #${index}: duplicate version '${version}'`, {
 				code: "plugin.catalog_version_duplicate",
 				params: { index, version },
 			});

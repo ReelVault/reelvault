@@ -1,4 +1,3 @@
-import { v7 as uuidv7 } from "uuid";
 import { type WorkerItem, workerJobRepository } from "@/database/repositories/worker.repository";
 import {
 	type WorkerOperationRecord,
@@ -8,9 +7,9 @@ import {
 import { QueryPagination } from "@/database/utils/pagination";
 import { daysAgo } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { safeParseJson } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { toJobContract, toOperationContract } from "../utils/worker-stats.mapper";
 import type { WorkerOperationJobsQuery } from "../worker.types";
@@ -19,14 +18,13 @@ import { getWorkerRuntime } from "./worker-runtime";
 /** Cancelled jobs re-read per page during resume — bounded memory for huge operations. */
 const RESUME_PAGE_SIZE = 5000;
 
-export class WorkerOperationsService extends BaseService {
-	constructor() {
-		super("WorkerOperationsService");
-	}
+export class WorkerOperationsService {
+	readonly serviceName = "WorkerOperationsService";
+	readonly logger = createLogger("WorkerOperationsService");
 
 	create(input: { type: string; reference?: { type: string; id: string }; error?: string }): Promise<WorkerOperationRecord> {
 		return workerOperationRepository.create({
-			id: uuidv7(),
+			id: Bun.randomUUIDv7(),
 			type: input.type,
 			referenceType: input.reference?.type,
 			referenceId: input.reference?.id,
@@ -109,14 +107,14 @@ export class WorkerOperationsService extends BaseService {
 		if (!operation) return { resumed: 0 };
 
 		if (operation.status !== "cancelled") {
-			throw new ValidationError(`Only cancelled operations can be resumed (status: ${operation.status})`, {
+			throw new DomainError("validation", `Only cancelled operations can be resumed (status: ${operation.status})`, {
 				code: "worker.operation_not_cancelled",
 			});
 		}
 
 		const total = await workerJobRepository.countCancelledByOperation(id);
 		if (total === 0) {
-			throw new ValidationError("The operation has no cancelled tasks to resume", { code: "worker.nothing_to_resume" });
+			throw new DomainError("validation", "The operation has no cancelled tasks to resume", { code: "worker.nothing_to_resume" });
 		}
 
 		// Clear the cancel request BEFORE re-enqueueing: `enqueueMany` validates the

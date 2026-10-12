@@ -1,4 +1,4 @@
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "./recognition.types";
 import { MoviesBasicStrategy } from "./strategies/movies-basic.strategy";
@@ -6,11 +6,13 @@ import { MoviesCategorizedStrategy } from "./strategies/movies-categorized.strat
 import { SeriesBasicStrategy } from "./strategies/series-basic.strategy";
 import { SeriesCategorizedStrategy } from "./strategies/series-categorized.strategy";
 
-class RecognitionService extends BaseService {
+class RecognitionService {
+	readonly serviceName = "RecognitionService";
+	readonly logger = createLogger("RecognitionService");
+
 	private readonly strategies: readonly RecognitionStrategy[];
 
 	constructor() {
-		super("RecognitionService");
 		this.strategies = [
 			new SeriesCategorizedStrategy(), // 1. Try: series / season / file
 			new SeriesBasicStrategy(), // 2. Try: series / file (S01E01)

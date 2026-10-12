@@ -34,7 +34,7 @@ import { createLocalStableKey } from "@/database/utils/stable-key";
 import { runInTransaction } from "@/database/utils/transaction";
 import { MINUTE } from "@/server.constants";
 import { groupBy, hasEntry, toMap } from "@/utils/array.utils";
-import { ConflictError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -627,7 +627,7 @@ class LibrariesRepository {
 			.all();
 		const stolen = stolenRows[0];
 		if (stolen) {
-			throw new ConflictError(`Path ${stolen.path} is already assigned to another library`, { code: "library.path_conflict" });
+			throw new DomainError("conflict", `Path ${stolen.path} is already assigned to another library`, { code: "library.path_conflict" });
 		}
 
 		await client

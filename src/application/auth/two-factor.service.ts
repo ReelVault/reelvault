@@ -1,7 +1,7 @@
 import { twoFactorRepository } from "@/database/repositories/two-factor.repository";
 import { countEncryptedBackupCodes } from "@/integrations/better-auth/backup-codes";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
-import { UnauthorizedError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 /**
  * Thin pass-through to the better-auth two-factor plugin. Success responses are
@@ -13,7 +13,7 @@ class TwoFactorService {
 	/** Backup codes the signed-in account can still use (`null` when they cannot be read). The codes themselves are never returned. */
 	async countRemainingBackupCodes(headers: Headers): Promise<{ remaining: number | null }> {
 		const session = await betterAuthApi.getSession({ headers, query: { disableCookieCache: true } });
-		if (!session) throw new UnauthorizedError("Sign in to see your backup codes", { code: "auth.session_invalid" });
+		if (!session) throw new DomainError("unauthorized", "Sign in to see your backup codes", { code: "auth.session_invalid" });
 
 		const encrypted = await twoFactorRepository.findEncryptedBackupCodes(session.user.id);
 		if (encrypted === null) return { remaining: 0 };
@@ -50,14 +50,14 @@ class TwoFactorService {
 		// caller maps to its own stable code. better-auth's message is dropped —
 		// responses travel as code + params only.
 		if (response.status === 401 || response.status === 403) {
-			throw new UnauthorizedError(`Two-factor secret rejected (${response.status})`, { code: rejectionCode });
+			throw new DomainError("unauthorized", `Two-factor secret rejected (${response.status})`, { code: rejectionCode });
 		}
 
 		if (response.status >= 400 && response.status < 500) {
-			throw new ValidationError("Two-factor request rejected", { code: rejectionCode });
+			throw new DomainError("validation", "Two-factor request rejected", { code: rejectionCode });
 		}
 
-		throw new ValidationError("Two-factor request failed", { code: "auth.two_factor.failed" });
+		throw new DomainError("validation", "Two-factor request failed", { code: "auth.two_factor.failed" });
 	}
 }
 

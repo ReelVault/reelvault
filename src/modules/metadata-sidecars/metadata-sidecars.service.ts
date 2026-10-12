@@ -1,4 +1,4 @@
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { findIgnoredLocalAssets } from "./files/ignored-assets.diagnostics";
 import { JellyfinFormatAdapter } from "./formats/jellyfin/jellyfin-format.adapter";
 import { KodiFormatAdapter } from "./formats/kodi/kodi-format.adapter";
@@ -7,11 +7,13 @@ import { InMemorySidecarFormatRegistry, type SidecarFormatRegistry } from "./for
 import { RegistrySidecarMetadataWriter } from "./saver/metadata-saver";
 import type { CanonicalSidecarDocument, SidecarMetadataWriter, SidecarSnapshotResolver } from "./sidecar.types";
 
-class MetadataSidecarsService extends BaseService {
+class MetadataSidecarsService {
+	readonly serviceName = "MetadataSidecarsService";
+	readonly logger = createLogger("MetadataSidecarsService");
+
 	private readonly registry: SidecarFormatRegistry;
 
 	constructor(registry?: SidecarFormatRegistry) {
-		super("MetadataSidecarsService");
 		if (registry) {
 			this.registry = registry;
 		} else {

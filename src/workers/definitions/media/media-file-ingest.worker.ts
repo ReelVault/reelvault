@@ -7,7 +7,7 @@ import { mediaMarkersRepository } from "@/database/repositories/media-markers.re
 import { scanFindingsRepository } from "@/database/repositories/scan-findings.repository";
 import { SidecarMetadataStorageService } from "@/modules/metadata-sidecars/sidecar-metadata-storage.service";
 import { sidecarMetadataWriter } from "@/modules/metadata-sidecars/sidecar-metadata-writer.runtime";
-import { mediaFileProcessor } from "@/modules/scanner/processing/media-file-processor";
+import { mediaFileProcessor, type ProcessRunOptions } from "@/modules/scanner/processing/media-file-processor";
 import { importSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles";
 import type { ProcessedMediaFileWithMarkers, ScanFindingReason, SkippedMediaFile } from "@/modules/scanner/scanner.types";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
@@ -54,9 +54,7 @@ export interface MediaFileIngestTaskDependencies {
 		libraryType: "movie" | "tv_show",
 		filePath: string,
 		skipExistingLookup: boolean,
-		signal?: AbortSignal,
-		scheduling?: TaskSchedulingOptions,
-		libraryId?: string,
+		options?: ProcessRunOptions,
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null>;
 	upsertScanFinding(finding: { libraryId: string; filePath: string; fileName: string; reason: ScanFindingReason }): Promise<void>;
 	deleteScanFinding(libraryId: string, filePath: string): Promise<void>;
@@ -90,8 +88,8 @@ const defaultDependencies: MediaFileIngestTaskDependencies = {
 
 		return library;
 	},
-	processFile: (libraryType, filePath, skipExistingLookup, signal, scheduling, libraryId) =>
-		mediaFileProcessor.process(libraryType, filePath, skipExistingLookup, signal, scheduling, { libraryId }),
+	processFile: (libraryType, filePath, skipExistingLookup, options) =>
+		mediaFileProcessor.process(libraryType, filePath, skipExistingLookup, options),
 	upsertScanFinding: (finding) => scanFindingsRepository.upsert(finding),
 	deleteScanFinding: (libraryId, filePath) => scanFindingsRepository.remove(libraryId, filePath),
 	createMediaFile: (data) => mediaRepository.createWithStreams(data),
@@ -335,6 +333,52 @@ async function completeAdditionalTargetOnRetry(
 	await enqueueCompletionAnalysis(target, input, dependencies);
 }
 
+/** Creates the extra rows of a multi-episode file; a new row is completed, an existing one is repaired on a retry. */
+async function ingestAdditionalTargets(
+	targets: ReadonlyArray<Omit<IngestTarget, "mediaFileId">>,
+	createData: Omit<CreateMediaFile, "libraryId">,
+	input: IngestCompletionInput,
+	dependencies: MediaFileIngestTaskDependencies,
+): Promise<void> {
+	const { data, context, orchestration } = input;
+
+	for (const target of targets) {
+		try {
+			const { mediaFile: episodeFile, created: episodeCreated } = await dependencies.createMediaFile({
+				libraryId: data.libraryId,
+				...createData,
+				metadataId: target.metadataId,
+				movieId: target.movieId,
+				episodeId: target.episodeId,
+			});
+
+			const episodeTarget: IngestTarget = {
+				mediaFileId: episodeFile.id,
+				metadataId: target.metadataId,
+				movieId: target.movieId,
+				episodeId: target.episodeId,
+			};
+
+			if (episodeCreated) {
+				await completeAdditionalTarget(episodeTarget, input, dependencies);
+			} else if ((orchestration.attempt ?? 1) > 1) {
+				// The row exists but a crashed prior attempt may not have finished
+				// its side effects — the scan re-ingests range files until the span
+				// is filled, so this repair must run instead of skipping forever.
+				await completeAdditionalTargetOnRetry(episodeTarget, input, dependencies);
+			}
+		} catch (error) {
+			// The row count stays below the file's span, so the next scan
+			// re-ingests this file and retries the missing episode.
+			context.logger?.warn("Multi-episode target ingest failed", {
+				filePath: data.filePath,
+				episodeId: target.episodeId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+}
+
 export async function ingestMediaFileTask(
 	data: MediaFileIngestData,
 	context: ApplicationContext,
@@ -347,7 +391,11 @@ export async function ingestMediaFileTask(
 		assertFound(library, "Library", data.libraryId);
 
 		const taskScheduling = toTaskSchedulingOptions(orchestration);
-		const mediaFile = await dependencies.processFile(data.libraryType, data.filePath, true, context.signal, taskScheduling, data.libraryId);
+		const mediaFile = await dependencies.processFile(data.libraryType, data.filePath, true, {
+			signal: context.signal,
+			scheduling: taskScheduling,
+			libraryId: data.libraryId,
+		});
 		if (!mediaFile) {
 			await dependencies.deleteScanFinding(data.libraryId, data.filePath);
 
@@ -391,41 +439,7 @@ export async function ingestMediaFileTask(
 		// main row above is the first episode, the rest are created here. Runs
 		// regardless of the main row's created flag so a backfill re-ingest of an
 		// older single-episode import still fills in the missing episodes.
-		for (const target of mediaFile.additionalTargets ?? []) {
-			try {
-				const { mediaFile: episodeFile, created: episodeCreated } = await dependencies.createMediaFile({
-					libraryId: data.libraryId,
-					...createData,
-					metadataId: target.metadataId,
-					movieId: target.movieId,
-					episodeId: target.episodeId,
-				});
-
-				const episodeTarget: IngestTarget = {
-					mediaFileId: episodeFile.id,
-					metadataId: target.metadataId,
-					movieId: target.movieId,
-					episodeId: target.episodeId,
-				};
-
-				if (episodeCreated) {
-					await completeAdditionalTarget(episodeTarget, input, dependencies);
-				} else if ((orchestration.attempt ?? 1) > 1) {
-					// The row exists but a crashed prior attempt may not have finished
-					// its side effects — the scan re-ingests range files until the span
-					// is filled, so this repair must run instead of skipping forever.
-					await completeAdditionalTargetOnRetry(episodeTarget, input, dependencies);
-				}
-			} catch (error) {
-				// The row count stays below the file's span, so the next scan
-				// re-ingests this file and retries the missing episode.
-				context.logger?.warn("Multi-episode target ingest failed", {
-					filePath: data.filePath,
-					episodeId: target.episodeId,
-					error: error instanceof Error ? error.message : String(error),
-				});
-			}
-		}
+		await ingestAdditionalTargets(mediaFile.additionalTargets ?? [], createData, input, dependencies);
 
 		// Scoped replace touches only `source: "automatic"` rows; manual and
 		// plugin markers survive rescans.

@@ -154,115 +154,134 @@ function seedCatalog(rootDir: string, rows: number): void {
 		)
 		.run("lib-benchmark", "Benchmark Movies", now, now);
 
-	const insertMetadata = database.prepare(
-		"INSERT INTO metadata (id, stable_key, title, original_title, overview, tagline, type, status, release_date, origin_country, popularity, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'released', ?, 'US', ?, ?, ?)",
-	);
-	const insertMovie = database.prepare("INSERT INTO movies (id, stable_key, metadata_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
-	const insertMediaFile = database.prepare(
-		"INSERT INTO media_files (id, library_id, metadata_id, movie_id, episode_id, file_path, file_name, duration, file_size, is_default, created_at, updated_at) VALUES (?, 'lib-benchmark', ?, ?, ?, ?, ?, ?, 4000000000, 1, ?, ?)",
-	);
-	const insertSeason = database.prepare(
-		"INSERT INTO seasons (id, stable_key, metadata_id, season_number, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-	);
-	const insertEpisode = database.prepare(
-		"INSERT INTO episodes (id, stable_key, season_id, episode_number, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-	);
-	const insertGenre = database.prepare("INSERT INTO genres (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
-	const insertMetadataGenre = database.prepare("INSERT INTO metadata_genres (metadata_id, genre_id) VALUES (?, ?)");
+	const inserts = prepareCatalogInserts(database);
 
 	// One real PNG on disk + a poster link per 3rd title: gives the image route
 	// (GET /v1/images) and poster joins real traffic in load tests.
 	const posterPath = join(rootDir, "benchmark-poster.png");
 	writeFileSync(posterPath, Buffer.from(BENCHMARK_POSTER_PNG_BASE64, "base64"));
-	const insertImage = database.prepare(
-		"INSERT INTO images (id, stable_key, local_path, content_type, width, height, file_size, created_at, updated_at) VALUES (?, 'benchmark-poster', ?, 'image/png', 128, 192, ?, ?, ?)",
-	);
-	insertImage.run(BENCHMARK_IMAGE_ID, posterPath, 731, now, now);
-	const insertMetadataImage = database.prepare("INSERT INTO metadata_images (metadata_id, image_id, image_type) VALUES (?, ?, 'poster')");
+	inserts.insertImage.run(BENCHMARK_IMAGE_ID, posterPath, 731, now, now);
 
-	const insertPerson = database.prepare("INSERT INTO people (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
-	const insertCast = database.prepare("INSERT INTO metadata_cast (metadata_id, person_id, role, sort_order) VALUES (?, ?, 'Actor', ?)");
-
-	for (let genreIndex = 0; genreIndex < 10; genreIndex++) {
-		insertGenre.run(`genre-${genreIndex}`, `genre-${genreIndex}`, `Genre ${genreIndex}`, now, now);
-	}
-
-	for (let personIndex = 0; personIndex < 50; personIndex++) {
-		insertPerson.run(`person-${personIndex}`, `person-${personIndex}`, `Actor ${personIndex}`, now, now);
-	}
-
+	seedCatalogLookups(inserts, now);
 	for (let index = 0; index < rows; index++) {
-		const id = `meta-${String(index).padStart(7, "0")}`;
-		const isTv = index % TV_SHOW_CYCLE === 0;
-		const title = index % 5 === 0 ? `Star Odyssey ${index}` : `Benchmark Title ${index}`;
-		insertMetadata.run(
-			id,
-			id,
-			title,
-			title,
-			"Benchmark overview text for load testing.",
-			"Benchmark tagline",
-			isTv ? "tv_show" : "movie",
-			`202${index % 5}-0${(index % 9) + 1}-15`,
-			(index % 10000) / 10,
-			now + index,
-			now + index,
-		);
-
-		if (isTv) {
-			// TV branch: seasons + episodes + per-episode media files — gives the
-			// TV detail endpoint (seasons/episodes/files enrichment) real weight.
-			const seasonCount = 2 + (index % 2);
-			const episodeCount = EPISODES_BASE + (index % 5);
-			for (let seasonIndex = 0; seasonIndex < seasonCount; seasonIndex++) {
-				const seasonId = `season-${index}-${seasonIndex}`;
-				insertSeason.run(seasonId, seasonId, id, seasonIndex + 1, `Season ${seasonIndex + 1}`, now + index, now + index);
-				for (let episodeIndex = 0; episodeIndex < episodeCount; episodeIndex++) {
-					const episodeId = `ep-${index}-${seasonIndex}-${episodeIndex}`;
-					insertEpisode.run(
-						episodeId,
-						episodeId,
-						seasonId,
-						episodeIndex + 1,
-						`Episode S${seasonIndex + 1}E${episodeIndex + 1}`,
-						now + index,
-						now + index,
-					);
-					insertMediaFile.run(
-						`mf-${episodeId}`,
-						id,
-						episodeId,
-						null,
-						`/benchmark/library/ep-${index}-${seasonIndex}-${episodeIndex}.mkv`,
-						`ep-${episodeIndex}.mkv`,
-						1800,
-						now + index,
-						now + index,
-					);
-				}
-			}
-		} else {
-			insertMovie.run(`movie-${id}`, id, id, now + index, now + index);
-			insertMediaFile.run(
-				`mf-${id}`,
-				id,
-				`movie-${id}`,
-				null,
-				`/benchmark/library/movie-${index}.mkv`,
-				`movie-${index}.mkv`,
-				6000,
-				now + index,
-				now + index,
-			);
-		}
-
-		insertMetadataGenre.run(id, `genre-${index % 10}`);
-		insertCast.run(id, `person-${index % 50}`, 0);
-		if (index % 3 === 0) insertMetadataImage.run(id, BENCHMARK_IMAGE_ID);
+		seedCatalogTitle(inserts, index, now);
 	}
 
 	database.run("COMMIT");
 	database.close();
+}
+
+function prepareCatalogInserts(database: Database) {
+	return {
+		insertMetadata: database.prepare(
+			"INSERT INTO metadata (id, stable_key, title, original_title, overview, tagline, type, status, release_date, origin_country, popularity, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'released', ?, 'US', ?, ?, ?)",
+		),
+		insertMovie: database.prepare("INSERT INTO movies (id, stable_key, metadata_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
+		insertMediaFile: database.prepare(
+			"INSERT INTO media_files (id, library_id, metadata_id, movie_id, episode_id, file_path, file_name, duration, file_size, is_default, created_at, updated_at) VALUES (?, 'lib-benchmark', ?, ?, ?, ?, ?, ?, 4000000000, 1, ?, ?)",
+		),
+		insertSeason: database.prepare(
+			"INSERT INTO seasons (id, stable_key, metadata_id, season_number, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		),
+		insertEpisode: database.prepare(
+			"INSERT INTO episodes (id, stable_key, season_id, episode_number, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		),
+		insertGenre: database.prepare("INSERT INTO genres (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
+		insertMetadataGenre: database.prepare("INSERT INTO metadata_genres (metadata_id, genre_id) VALUES (?, ?)"),
+		insertImage: database.prepare(
+			"INSERT INTO images (id, stable_key, local_path, content_type, width, height, file_size, created_at, updated_at) VALUES (?, 'benchmark-poster', ?, 'image/png', 128, 192, ?, ?, ?)",
+		),
+		insertMetadataImage: database.prepare("INSERT INTO metadata_images (metadata_id, image_id, image_type) VALUES (?, ?, 'poster')"),
+		insertPerson: database.prepare("INSERT INTO people (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
+		insertCast: database.prepare("INSERT INTO metadata_cast (metadata_id, person_id, role, sort_order) VALUES (?, ?, 'Actor', ?)"),
+	};
+}
+
+type CatalogInserts = ReturnType<typeof prepareCatalogInserts>;
+
+function seedCatalogLookups(inserts: CatalogInserts, now: number): void {
+	for (let genreIndex = 0; genreIndex < 10; genreIndex++) {
+		inserts.insertGenre.run(`genre-${genreIndex}`, `genre-${genreIndex}`, `Genre ${genreIndex}`, now, now);
+	}
+
+	for (let personIndex = 0; personIndex < 50; personIndex++) {
+		inserts.insertPerson.run(`person-${personIndex}`, `person-${personIndex}`, `Actor ${personIndex}`, now, now);
+	}
+}
+
+/** Writes one title: its metadata row, the movie or TV branch, a genre, a cast member and an optional poster link. */
+function seedCatalogTitle(inserts: CatalogInserts, index: number, now: number): void {
+	const id = `meta-${String(index).padStart(7, "0")}`;
+	const isTv = index % TV_SHOW_CYCLE === 0;
+	const title = index % 5 === 0 ? `Star Odyssey ${index}` : `Benchmark Title ${index}`;
+	inserts.insertMetadata.run(
+		id,
+		id,
+		title,
+		title,
+		"Benchmark overview text for load testing.",
+		"Benchmark tagline",
+		isTv ? "tv_show" : "movie",
+		`202${index % 5}-0${(index % 9) + 1}-15`,
+		(index % 10000) / 10,
+		now + index,
+		now + index,
+	);
+
+	if (isTv) seedTvBranch(inserts, id, index, now);
+	else seedMovieBranch(inserts, id, index, now);
+
+	inserts.insertMetadataGenre.run(id, `genre-${index % 10}`);
+	inserts.insertCast.run(id, `person-${index % 50}`, 0);
+	if (index % 3 === 0) inserts.insertMetadataImage.run(id, BENCHMARK_IMAGE_ID);
+}
+
+/** TV branch: seasons + episodes + per-episode media files — gives the TV detail endpoint (seasons/episodes/files enrichment) real weight. */
+function seedTvBranch(inserts: CatalogInserts, id: string, index: number, now: number): void {
+	const seasonCount = 2 + (index % 2);
+	const episodeCount = EPISODES_BASE + (index % 5);
+	for (let seasonIndex = 0; seasonIndex < seasonCount; seasonIndex++) {
+		const seasonId = `season-${index}-${seasonIndex}`;
+		inserts.insertSeason.run(seasonId, seasonId, id, seasonIndex + 1, `Season ${seasonIndex + 1}`, now + index, now + index);
+		for (let episodeIndex = 0; episodeIndex < episodeCount; episodeIndex++) {
+			const episodeId = `ep-${index}-${seasonIndex}-${episodeIndex}`;
+			inserts.insertEpisode.run(
+				episodeId,
+				episodeId,
+				seasonId,
+				episodeIndex + 1,
+				`Episode S${seasonIndex + 1}E${episodeIndex + 1}`,
+				now + index,
+				now + index,
+			);
+			inserts.insertMediaFile.run(
+				`mf-${episodeId}`,
+				id,
+				episodeId,
+				null,
+				`/benchmark/library/ep-${index}-${seasonIndex}-${episodeIndex}.mkv`,
+				`ep-${episodeIndex}.mkv`,
+				1800,
+				now + index,
+				now + index,
+			);
+		}
+	}
+}
+
+function seedMovieBranch(inserts: CatalogInserts, id: string, index: number, now: number): void {
+	inserts.insertMovie.run(`movie-${id}`, id, id, now + index, now + index);
+	inserts.insertMediaFile.run(
+		`mf-${id}`,
+		id,
+		`movie-${id}`,
+		null,
+		`/benchmark/library/movie-${index}.mkv`,
+		`movie-${index}.mkv`,
+		6000,
+		now + index,
+		now + index,
+	);
 }
 
 /**
@@ -278,132 +297,13 @@ function seedProfileData(rootDir: string, workerCount: number, rows: number): vo
 	database.run("BEGIN");
 
 	const now = Date.now();
-
-	const insertWatchlist = database.prepare(
-		"INSERT OR IGNORE INTO watchlist (id, profile_id, metadata_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-	);
-	const insertProgress = database.prepare(
-		"INSERT OR IGNORE INTO playback_progress (id, profile_id, media_file_id, position, duration, completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-	);
-	const insertHistory = database.prepare(
-		"INSERT INTO watched_history (id, media_file_id, profile_id, duration_watched, is_full_watch, watched_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-	);
-	const insertRating = database.prepare(
-		"INSERT OR IGNORE INTO user_ratings (id, profile_id, metadata_id, rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-	);
-	const insertNotification = database.prepare(
-		// The notifications table mixes column casings: `userId` is camelCase,
-		// `profile_id`/`read_at` are snake_case — match the schema exactly.
-		"INSERT INTO notifications (id, userId, profile_id, type, title, message, data, read_at, created_at, updated_at) VALUES (?, ?, ?, 'system', ?, NULL, '{}', ?, ?, ?)",
-	);
+	const inserts = prepareProfileInserts(database);
 
 	for (let worker = 0; worker < workerCount; worker++) {
-		const profileId = `profile-bench-${worker}`;
-		const userId = `user-bench-${worker}`;
-
-		for (let i = 0; i < WATCHLIST_PER_PROFILE; i++) {
-			const metadataIndex = (worker * 131 + i * 7) % rows;
-			insertWatchlist.run(
-				`wl-bench-${worker}-${i}`,
-				profileId,
-				`meta-${String(metadataIndex).padStart(7, "0")}`,
-				now - i * 60_000,
-				now - i * 60_000,
-			);
-		}
-
-		for (let i = 0; i < RATINGS_PER_PROFILE; i++) {
-			const metadataIndex = (worker * 173 + i * 11) % rows;
-			insertRating.run(
-				`rating-bench-${worker}-${i}`,
-				profileId,
-				`meta-${String(metadataIndex).padStart(7, "0")}`,
-				(i % 10) + 1,
-				now - i * 3_600_000,
-				now - i * 3_600_000,
-			);
-		}
-
-		// In-progress movies (index falls back +1 onto a movie when it hits a TV slot).
-		for (let i = 0; i < IN_PROGRESS_MOVIES_PER_PROFILE; i++) {
-			let metadataIndex = (worker * 97 + i * 13) % rows;
-			if (metadataIndex % TV_SHOW_CYCLE === 0) metadataIndex = (metadataIndex + 1) % rows;
-
-			insertProgress.run(
-				`prog-bench-${worker}-${i}`,
-				profileId,
-				`mf-meta-${String(metadataIndex).padStart(7, "0")}`,
-				1000 + ((i * 977) % 3000),
-				6000,
-				0,
-				now - i * 3_600_000,
-				now - i * 3_600_000,
-			);
-		}
-
-		// TV next-episode paths: last episode completed, the one before it in progress.
-		for (let i = 0; i < TV_PROGRESS_SHOWS_PER_PROFILE; i++) {
-			const showIndex = (i * TV_SHOW_CYCLE + worker) * TV_SHOW_CYCLE;
-			if (showIndex >= rows) break;
-
-			const seasonCount = 2 + (showIndex % 2);
-			const episodeCount = EPISODES_BASE + (showIndex % 5);
-			const lastSeason = seasonCount - 1;
-			insertProgress.run(
-				`prog-tv-bench-${worker}-${i}-last`,
-				profileId,
-				`mf-ep-${showIndex}-${lastSeason}-${episodeCount - 1}`,
-				1800,
-				1800,
-				1,
-				now - i * 7_200_000,
-				now - i * 7_200_000,
-			);
-			insertProgress.run(
-				`prog-tv-bench-${worker}-${i}-prev`,
-				profileId,
-				`mf-ep-${showIndex}-${lastSeason}-${episodeCount - 2}`,
-				700,
-				1800,
-				0,
-				now - i * 7_200_000 - 60_000,
-				now - i * 7_200_000 - 60_000,
-			);
-		}
-
-		// Watched history spread over ~90 days — feeds the insights aggregations.
-		// `watched_at` is a drizzle timestamp (SECONDS) and is range-filtered by
-		// insights, so it must land in the real epoch-second window.
-		for (let i = 0; i < HISTORY_PER_PROFILE; i++) {
-			let metadataIndex = (worker * 211 + i * 17) % rows;
-			if (metadataIndex % TV_SHOW_CYCLE === 0) metadataIndex = (metadataIndex + 1) % rows;
-
-			const watchedAtSeconds = Math.floor(now / 1000) - ((i * 6 * 3600) % (90 * 24 * 3600));
-			insertHistory.run(
-				`hist-bench-${worker}-${i}`,
-				`mf-meta-${String(metadataIndex).padStart(7, "0")}`,
-				profileId,
-				2400 + ((i * 613) % 3600),
-				1,
-				watchedAtSeconds,
-				watchedAtSeconds,
-				watchedAtSeconds,
-			);
-		}
-
-		for (let i = 0; i < NOTIFICATIONS_PER_PROFILE; i++) {
-			const read = i >= UNREAD_NOTIFICATIONS;
-			const readAt = read ? now - i * 3_600_000 : null;
-			insertNotification.run(
-				`notif-bench-${worker}-${i}`,
-				userId,
-				profileId,
-				`Benchmark notification ${i}`,
-				readAt,
-				now - i * 3_600_000,
-				now - i * 3_600_000,
-			);
-		}
+		seedProfileWatchlistAndRatings(inserts, worker, rows, now);
+		seedProfileProgress(inserts, worker, rows, now);
+		seedProfileHistory(inserts, worker, rows, now);
+		seedProfileNotifications(inserts, worker, now);
 	}
 
 	database.run("COMMIT");
@@ -411,6 +311,153 @@ function seedProfileData(rootDir: string, workerCount: number, rows: number): vo
 	// paginated browse path instead of using the composite indexes.
 	database.run("ANALYZE");
 	database.close();
+}
+
+function prepareProfileInserts(database: Database) {
+	return {
+		insertWatchlist: database.prepare(
+			"INSERT OR IGNORE INTO watchlist (id, profile_id, metadata_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		),
+		insertProgress: database.prepare(
+			"INSERT OR IGNORE INTO playback_progress (id, profile_id, media_file_id, position, duration, completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		),
+		insertHistory: database.prepare(
+			"INSERT INTO watched_history (id, media_file_id, profile_id, duration_watched, is_full_watch, watched_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		),
+		insertRating: database.prepare(
+			"INSERT OR IGNORE INTO user_ratings (id, profile_id, metadata_id, rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		),
+		insertNotification: database.prepare(
+			// The notifications table mixes column casings: `userId` is camelCase,
+			// `profile_id`/`read_at` are snake_case — match the schema exactly.
+			"INSERT INTO notifications (id, userId, profile_id, type, title, message, data, read_at, created_at, updated_at) VALUES (?, ?, ?, 'system', ?, NULL, '{}', ?, ?, ?)",
+		),
+	};
+}
+
+type ProfileInserts = ReturnType<typeof prepareProfileInserts>;
+
+function seedProfileWatchlistAndRatings(inserts: ProfileInserts, worker: number, rows: number, now: number): void {
+	const profileId = `profile-bench-${worker}`;
+
+	for (let i = 0; i < WATCHLIST_PER_PROFILE; i++) {
+		const metadataIndex = (worker * 131 + i * 7) % rows;
+		inserts.insertWatchlist.run(
+			`wl-bench-${worker}-${i}`,
+			profileId,
+			`meta-${String(metadataIndex).padStart(7, "0")}`,
+			now - i * 60_000,
+			now - i * 60_000,
+		);
+	}
+
+	for (let i = 0; i < RATINGS_PER_PROFILE; i++) {
+		const metadataIndex = (worker * 173 + i * 11) % rows;
+		inserts.insertRating.run(
+			`rating-bench-${worker}-${i}`,
+			profileId,
+			`meta-${String(metadataIndex).padStart(7, "0")}`,
+			(i % 10) + 1,
+			now - i * 3_600_000,
+			now - i * 3_600_000,
+		);
+	}
+}
+
+function seedProfileProgress(inserts: ProfileInserts, worker: number, rows: number, now: number): void {
+	const profileId = `profile-bench-${worker}`;
+
+	// In-progress movies (index falls back +1 onto a movie when it hits a TV slot).
+	for (let i = 0; i < IN_PROGRESS_MOVIES_PER_PROFILE; i++) {
+		let metadataIndex = (worker * 97 + i * 13) % rows;
+		if (metadataIndex % TV_SHOW_CYCLE === 0) metadataIndex = (metadataIndex + 1) % rows;
+
+		inserts.insertProgress.run(
+			`prog-bench-${worker}-${i}`,
+			profileId,
+			`mf-meta-${String(metadataIndex).padStart(7, "0")}`,
+			1000 + ((i * 977) % 3000),
+			6000,
+			0,
+			now - i * 3_600_000,
+			now - i * 3_600_000,
+		);
+	}
+
+	// TV next-episode paths: last episode completed, the one before it in progress.
+	for (let i = 0; i < TV_PROGRESS_SHOWS_PER_PROFILE; i++) {
+		const showIndex = (i * TV_SHOW_CYCLE + worker) * TV_SHOW_CYCLE;
+		if (showIndex >= rows) break;
+
+		const seasonCount = 2 + (showIndex % 2);
+		const episodeCount = EPISODES_BASE + (showIndex % 5);
+		const lastSeason = seasonCount - 1;
+		inserts.insertProgress.run(
+			`prog-tv-bench-${worker}-${i}-last`,
+			profileId,
+			`mf-ep-${showIndex}-${lastSeason}-${episodeCount - 1}`,
+			1800,
+			1800,
+			1,
+			now - i * 7_200_000,
+			now - i * 7_200_000,
+		);
+		inserts.insertProgress.run(
+			`prog-tv-bench-${worker}-${i}-prev`,
+			profileId,
+			`mf-ep-${showIndex}-${lastSeason}-${episodeCount - 2}`,
+			700,
+			1800,
+			0,
+			now - i * 7_200_000 - 60_000,
+			now - i * 7_200_000 - 60_000,
+		);
+	}
+}
+
+/**
+ * Watched history spread over ~90 days — feeds the insights aggregations.
+ * `watched_at` is a drizzle timestamp (SECONDS) and is range-filtered by
+ * insights, so it must land in the real epoch-second window.
+ */
+function seedProfileHistory(inserts: ProfileInserts, worker: number, rows: number, now: number): void {
+	const profileId = `profile-bench-${worker}`;
+
+	for (let i = 0; i < HISTORY_PER_PROFILE; i++) {
+		let metadataIndex = (worker * 211 + i * 17) % rows;
+		if (metadataIndex % TV_SHOW_CYCLE === 0) metadataIndex = (metadataIndex + 1) % rows;
+
+		const watchedAtSeconds = Math.floor(now / 1000) - ((i * 6 * 3600) % (90 * 24 * 3600));
+		inserts.insertHistory.run(
+			`hist-bench-${worker}-${i}`,
+			`mf-meta-${String(metadataIndex).padStart(7, "0")}`,
+			profileId,
+			2400 + ((i * 613) % 3600),
+			1,
+			watchedAtSeconds,
+			watchedAtSeconds,
+			watchedAtSeconds,
+		);
+	}
+}
+
+function seedProfileNotifications(inserts: ProfileInserts, worker: number, now: number): void {
+	const profileId = `profile-bench-${worker}`;
+	const userId = `user-bench-${worker}`;
+
+	for (let i = 0; i < NOTIFICATIONS_PER_PROFILE; i++) {
+		const read = i >= UNREAD_NOTIFICATIONS;
+		const readAt = read ? now - i * 3_600_000 : null;
+		inserts.insertNotification.run(
+			`notif-bench-${worker}-${i}`,
+			userId,
+			profileId,
+			`Benchmark notification ${i}`,
+			readAt,
+			now - i * 3_600_000,
+			now - i * 3_600_000,
+		);
+	}
 }
 
 /** Registers the generated sample clip in the catalog and returns its media-file id. */

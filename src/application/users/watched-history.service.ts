@@ -15,15 +15,16 @@ import { playbackRepository } from "@/database/repositories/playback.repository"
 import { toTopWatchedMedia, watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { DAY } from "@/server.constants";
 import { maxBy } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
+import { assertFound, assertProfileId } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { clearProfileInsights, invalidateProfileCaches, profileInsightsCache, wrappedInsightsCache } from "./cache-invalidation";
 
 const RANGE_DAYS: Record<InsightsRange, number> = { "7d": 7, "30d": 30, "90d": 90, "1y": 365, all: 365 };
 
-class WatchedHistoryService extends BaseService {
-	constructor() {
-		super("WatchedHistoryService");
-	}
+class WatchedHistoryService {
+	readonly serviceName = "WatchedHistoryService";
+	readonly logger = createLogger("WatchedHistoryService");
 
 	clearCache(profileId?: string): void {
 		if (profileId) {
@@ -38,20 +39,20 @@ class WatchedHistoryService extends BaseService {
 		query: CursorPaginationQuery & { sortBy?: "watchedAt" | "createdAt"; sortOrder?: "asc" | "desc" },
 		profileId?: string,
 	): Promise<CursorPaginatedResponse<WatchedHistoryWithRelations>> {
-		return await this.safeExecute("getAll", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "getAll", async () => {
+			assertProfileId(profileId);
 
 			return await watchedHistoryRepository.findPage(profileId, query);
 		});
 	}
 
 	async sync(body: CreateWatchedHistory, profileId?: string): Promise<{ success: true }> {
-		return await this.safeExecute("sync", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "sync", async () => {
+			assertProfileId(profileId);
 
 			// A stale catalog id would otherwise surface as an FK violation (500).
 			const mediaFile = await mediaRepository.findByIdForRead(body.mediaFileId, { fields: "id,duration" });
-			this.assertExists(mediaFile, "MediaFile", body.mediaFileId);
+			assertFound(mediaFile, "MediaFile", body.mediaFileId);
 
 			// Marking an episode watched must advance Continue Watching: the row
 			// builder only offers the next episode when the current one is completed.
@@ -80,7 +81,7 @@ class WatchedHistoryService extends BaseService {
 	}
 
 	async getInsights(range: InsightsRange, profileId?: string): Promise<ProfileInsights> {
-		this.assertProfileId(profileId);
+		assertProfileId(profileId);
 		const cacheKey = `${profileId}:insights:${range}`;
 
 		return await profileInsightsCache.getOrSet(cacheKey, async () => {
@@ -141,7 +142,7 @@ class WatchedHistoryService extends BaseService {
 	}
 
 	async getWrapped(year: number, profileId?: string): Promise<WrappedInsights> {
-		this.assertProfileId(profileId);
+		assertProfileId(profileId);
 		const cacheKey = `${profileId}:wrapped:${year}`;
 
 		return await wrappedInsightsCache.getOrSet(cacheKey, async () => {
@@ -234,8 +235,8 @@ class WatchedHistoryService extends BaseService {
 	}
 
 	async isWatched(metadataId: string, profileId?: string): Promise<{ watched: boolean }> {
-		return await this.safeExecute("isWatched", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "isWatched", async () => {
+			assertProfileId(profileId);
 			const watched = await watchedHistoryRepository.isWatched(profileId, metadataId);
 
 			return { watched };
@@ -243,8 +244,8 @@ class WatchedHistoryService extends BaseService {
 	}
 
 	async clear(profileId?: string): Promise<{ success: true }> {
-		return await this.safeExecute("clearHistory", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "clearHistory", async () => {
+			assertProfileId(profileId);
 			await watchedHistoryRepository.clearForProfile(profileId);
 			invalidateProfileCaches(profileId);
 

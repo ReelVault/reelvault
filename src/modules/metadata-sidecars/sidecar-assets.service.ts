@@ -1,6 +1,6 @@
 import { librariesService } from "@/application/libraries/libraries.service";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { metadataSidecarsService } from "./metadata-sidecars.service";
@@ -9,14 +9,13 @@ import { metadataSidecarsService } from "./metadata-sidecars.service";
 type IgnoredAssets = Awaited<ReturnType<typeof metadataSidecarsService.findIgnoredAssets>>;
 const ASSETS_CACHE_TTL_MS = 30_000;
 
-class SidecarAssetsService extends BaseService {
+class SidecarAssetsService {
+	readonly serviceName = "SidecarAssetsService";
+	readonly logger = createLogger("SidecarAssetsService");
+
 	// The walk is expensive and the result is only advisory; a short TTL absorbs
 	// repeated admin refreshes.
 	private readonly cache = new MemoryCache<IgnoredAssets>({ name: "library-sidecar-assets", ttlMs: ASSETS_CACHE_TTL_MS, maxSize: 128 });
-
-	constructor() {
-		super("SidecarAssetsService");
-	}
 
 	async getIgnoredAssets(libraryId: string): Promise<IgnoredAssets> {
 		return await this.cache.getOrSet(libraryId, async () => {

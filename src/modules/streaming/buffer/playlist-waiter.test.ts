@@ -3,7 +3,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $, spawn } from "bun";
-import { RequestTimeoutError } from "@/utils/errors";
 import { stubMethod } from "../../../../tests/helpers/method-stub";
 import { playlistFileCache } from "../playlist/playlist.cache";
 import { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
@@ -103,7 +102,7 @@ describe("playlist waiter", () => {
 
 		const error: unknown = await waiter.waitForPlaylist("s1", 60, async () => false).catch((caught: unknown) => caught);
 
-		expect(error).toBeInstanceOf(RequestTimeoutError);
+		expect(error).toMatchObject({ category: "timeout" });
 		expect(error).toMatchObject({ category: "timeout", code: "playlist_generation_timeout" });
 		expect(Date.now() - started).toBeGreaterThanOrEqual(50);
 	});

@@ -103,12 +103,12 @@ class ScopeSpy implements PluginScopeApi {
 	}
 }
 
-describe("createPluginHost", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
-	let broadcastStub: { calls: unknown[][]; restore(): void };
-	let scope: ScopeSpy;
-	let host: ReturnType<typeof createPluginHost>;
+let activeStubs: Array<{ restore(): void }> = [];
+let broadcastStub: { calls: unknown[][]; restore(): void };
+let scope: ScopeSpy;
+let host: ReturnType<typeof createPluginHost>;
 
+function useHostFixtures(): void {
 	beforeEach(async () => {
 		activeStubs = [];
 		const { pluginMediaService } = await import("../../capabilities/plugin.media");
@@ -148,6 +148,10 @@ describe("createPluginHost", () => {
 	afterEach(() => {
 		for (const stub of activeStubs.splice(0)) stub.restore();
 	});
+}
+
+describe("createPluginHost", () => {
+	useHostFixtures();
 
 	test("media and metadata reads require their read capability and delegate", async () => {
 		await expect(host.media.get("file-1")).resolves.toMatchObject({ id: "file-1" });

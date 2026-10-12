@@ -3,7 +3,7 @@ import type { WorkerItem } from "@/database/repositories/worker.repository";
 import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import { serverConfig } from "@/server.config";
-import { KeyedMutex } from "@/utils/mutex";
+import { KeyedMutex } from "@/utils/concurrency";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";

@@ -1,8 +1,9 @@
 import { type TaskSchedulingOptions, toDomainError } from "@/application/context";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import type { ActiveWorkerItem } from "@/database/repositories/worker.repository";
-import { BaseService } from "@/utils/base-service";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { enqueueMediaFileTechnicalRefresh } from "@/workers/definitions/media/media-file-technical-refresh.worker";
 import { enqueueMetadataRefresh } from "@/workers/definitions/metadata/metadata-refresh.worker";
 import { assertOperationCompatibility } from "@/workers/utils/operation-compat";
@@ -24,11 +25,13 @@ const defaultDependencies: MediaFileRefreshOperationDependencies = {
 	scheduleMetadata: (data, options) => enqueueMetadataRefresh(data, options),
 };
 
-export class MediaFileRefreshService extends BaseService {
+export class MediaFileRefreshService {
+	readonly serviceName = "MediaFileRefreshService";
+	readonly logger = createLogger("MediaFileRefreshService");
+
 	private readonly dependencies: MediaFileRefreshOperationDependencies;
 
 	constructor(dependencies: MediaFileRefreshOperationDependencies = defaultDependencies) {
-		super("MediaFileRefreshService");
 		this.dependencies = dependencies;
 	}
 
@@ -37,12 +40,13 @@ export class MediaFileRefreshService extends BaseService {
 		options: TaskSchedulingOptions = {},
 		knownMetadataId?: string,
 	): Promise<{ technicalTask: ScheduledTask; metadataTask: ScheduledTask }> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"queue",
 			async () => {
 				const metadataId = knownMetadataId ?? (await this.dependencies.findById(mediaFileId))?.metadataId;
 				if (!metadataId) {
-					throw new NotFoundError(`Media file not found: ${mediaFileId}`, { code: "media_file.not_found" });
+					throw new DomainError("not_found", `Media file not found: ${mediaFileId}`, { code: "media_file.not_found" });
 				}
 
 				const activeTechnical = await this.dependencies.findActive("media-file-technical-refresh", mediaFileId);

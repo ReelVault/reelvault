@@ -7,9 +7,10 @@ import { profilePreferencesRepository as defaultProfilePreferencesRepository } f
 import { profileStreamPrefsRepository } from "@/database/repositories/profile-stream-prefs.repository";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { serverConstants } from "@/server.constants";
-import { BaseService } from "@/utils/base-service";
-import { ForbiddenError, InternalError, TooManyRequestsError, UnauthorizedError } from "@/utils/errors";
+import { assertFound, DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { enqueueStreamInit as defaultEnqueueStreamInit } from "@/workers/definitions/streaming/stream-initialization.worker";
 import { workerService as defaultWorkerService } from "@/workers/worker.service";
 import { resolveSessionSelection, type SessionSelectionInput } from "../decisions/session-selection.resolver";
@@ -84,13 +85,15 @@ const defaultDependencies: ServiceDependencies = {
 	assertEnvironment: assertFFMpegAvailable,
 };
 
-export class SessionLifecycleService extends BaseService {
+export class SessionLifecycleService {
+	readonly serviceName = "SessionLifecycleService";
+	readonly logger = createLogger("SessionLifecycleService");
+
 	private readonly playbackSessionIdempotency = new PlaybackSessionIdempotencyRegistry<PlaybackSession>();
 	private readonly creationGuard = new SessionCreationGuard();
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("SessionLifecycleService");
 		this.dependencies = dependencies;
 	}
 
@@ -101,11 +104,13 @@ export class SessionLifecycleService extends BaseService {
 		userId?: string,
 	): Promise<PlaybackSession> {
 		if (!profileId)
-			throw new UnauthorizedError("An active profile is required to create a streaming session", { code: "auth.profile_required" });
+			throw new DomainError("unauthorized", "An active profile is required to create a streaming session", {
+				code: "auth.profile_required",
+			});
 
 		const recentTermination = this.dependencies.runtime.isProfileTerminatedRecently(profileId, body.mediaFileId, 20_000);
 		if (recentTermination && isAdminTerminationReason(recentTermination.reason)) {
-			throw new ForbiddenError("Playback session was terminated", { code: "stream.session_terminated" });
+			throw new DomainError("forbidden", "Playback session was terminated", { code: "stream.session_terminated" });
 		}
 
 		return await this.playbackSessionIdempotency.execute(profileId, idempotencyKey, body, async () => {
@@ -160,7 +165,7 @@ export class SessionLifecycleService extends BaseService {
 		if ((await this.reclaimSameTitleSession(profileId, mediaFileId)) && runtime.reserveSession(sessionId, userId)) return;
 
 		const { scope, limit, active } = runtime.explainCapacityLimit(userId);
-		throw new TooManyRequestsError("Concurrent streaming session limit reached. Try again when another stream ends.", {
+		throw new DomainError("too_many_requests", "Concurrent streaming session limit reached. Try again when another stream ends.", {
 			code: "stream.limit_reached",
 			params: { scope, limit, active, retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds },
 		});
@@ -203,56 +208,20 @@ export class SessionLifecycleService extends BaseService {
 		profileId?: string,
 		userId?: string,
 	): Promise<PlaybackSession> {
-		return await this.safeExecute("createPlaybackSession", async () => {
-			const { mediaRepository, profilePreferencesRepository, systemSettings, workerService, enqueueStreamInit, runtime, publisher } =
-				this.dependencies;
+		return await runSafely(this, "createPlaybackSession", async () => {
+			const { workerService, enqueueStreamInit, runtime, publisher } = this.dependencies;
 			this.dependencies.assertEnvironment();
 			assertSafeId(fileId);
 			if (!profileId)
-				throw new UnauthorizedError("An active profile is required to create a streaming session", { code: "auth.profile_required" });
+				throw new DomainError("unauthorized", "An active profile is required to create a streaming session", {
+					code: "auth.profile_required",
+				});
 
-			const [file, preferences, progressData] = await Promise.all([
-				mediaRepository.findForPlaybackSession(fileId),
-				profilePreferencesRepository.getEffective({ profileId }),
-				this.dependencies.playbackRepository.findProgressUpdateData(fileId, profileId),
-			]);
-			this.assertExists(file, "MediaFile", fileId);
-
-			if (!file.isEnabled) {
-				throw new ForbiddenError("This media file is disabled and cannot be played", { code: "media_file.disabled" });
-			}
-
-			const capabilities = parseCapabilities(capabilitiesQuery);
-			const smartSelectionEnabled = systemSettings.get("stream.smartAudioTrackSelection");
-			const thresholdSeconds = (preferences?.continueWatchingMinutes ?? 0) * 60;
-			const existingProgress = progressData.existingProgress;
-			const hasActiveProgress =
-				existingProgress !== undefined && !existingProgress.completed && (existingProgress.position ?? 0) >= thresholdSeconds;
-			const hasActiveTitleProgress =
-				hasActiveProgress ||
-				(profileId && progressData.mediaFile
-					? await this.dependencies.playbackRepository.hasActiveTitleProgress(
-							profileId,
-							progressData.mediaFile.metadataId,
-							thresholdSeconds,
-						)
-					: false);
-			const perTitlePreferences =
-				hasActiveTitleProgress && progressData.mediaFile
-					? await this.dependencies.profileStreamPrefsRepository.find(profileId, progressData.mediaFile.metadataId)
-					: null;
-			const { decision, videoCodec, audioStream, subtitle, playbackPreferences } = resolveSessionSelection({
-				file,
-				preferences,
-				perTitlePreferences,
+			const { file, decision, videoCodec, audioStream, subtitle, playbackPreferences } = await this.selectPlayback(
+				fileId,
+				profileId,
 				capabilitiesQuery,
-				capabilities,
-				smartSelectionEnabled,
-				savedAudioStreamIndex: existingProgress?.audioStreamIndex,
-				savedSubtitleId: existingProgress?.subtitleId,
-				hasActiveProgress,
-				hasActiveTitleProgress,
-			});
+			);
 
 			this.logger.info(`Playback decision: ${decision.mode}`, {
 				fileId,
@@ -286,7 +255,8 @@ export class SessionLifecycleService extends BaseService {
 					{ sessionId, mediaFileId: file.id, filePath: file.filePath, decision },
 					{ operationId: operation.id },
 				);
-				if (!task.operationId) throw new InternalError("Streaming operation was not attached to its task", { code: "stream.start_failed" });
+				if (!task.operationId)
+					throw new DomainError("internal", "Streaming operation was not attached to its task", { code: "stream.start_failed" });
 
 				sessionOperationId = task.operationId;
 				runtime.setSessionOperation(sessionId, task.operationId);
@@ -326,6 +296,53 @@ export class SessionLifecycleService extends BaseService {
 				throw error;
 			}
 		});
+	}
+
+	/** Loads the file and the viewer's saved state, then picks the decision, codecs and tracks to play with. */
+	private async selectPlayback(fileId: string, profileId: string, capabilitiesQuery: PlaybackSessionInput) {
+		const { mediaRepository, profilePreferencesRepository, systemSettings } = this.dependencies;
+		const [file, preferences, progressData] = await Promise.all([
+			mediaRepository.findForPlaybackSession(fileId),
+			profilePreferencesRepository.getEffective({ profileId }),
+			this.dependencies.playbackRepository.findProgressUpdateData(fileId, profileId),
+		]);
+		assertFound(file, "MediaFile", fileId);
+
+		if (!file.isEnabled) {
+			throw new DomainError("forbidden", "This media file is disabled and cannot be played", { code: "media_file.disabled" });
+		}
+
+		const capabilities = parseCapabilities(capabilitiesQuery);
+		const smartSelectionEnabled = systemSettings.get("stream.smartAudioTrackSelection");
+		const thresholdSeconds = (preferences?.continueWatchingMinutes ?? 0) * 60;
+		const existingProgress = progressData.existingProgress;
+		const hasActiveProgress =
+			existingProgress !== undefined && !existingProgress.completed && (existingProgress.position ?? 0) >= thresholdSeconds;
+		const hasActiveTitleProgress =
+			hasActiveProgress ||
+			(profileId && progressData.mediaFile
+				? await this.dependencies.playbackRepository.hasActiveTitleProgress(profileId, progressData.mediaFile.metadataId, thresholdSeconds)
+				: false);
+		const perTitlePreferences =
+			hasActiveTitleProgress && progressData.mediaFile
+				? await this.dependencies.profileStreamPrefsRepository.find(profileId, progressData.mediaFile.metadataId)
+				: null;
+
+		return {
+			file,
+			...resolveSessionSelection({
+				file,
+				preferences,
+				perTitlePreferences,
+				capabilitiesQuery,
+				capabilities,
+				smartSelectionEnabled,
+				savedAudioStreamIndex: existingProgress?.audioStreamIndex,
+				savedSubtitleId: existingProgress?.subtitleId,
+				hasActiveProgress,
+				hasActiveTitleProgress,
+			}),
+		};
 	}
 }
 

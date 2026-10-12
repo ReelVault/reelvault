@@ -1,6 +1,5 @@
 import type { MetadataType } from "@reelvault/sdk/common";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
-import { v7 as uuidv7 } from "uuid";
 import { databaseFactory } from "@/database/database";
 import { createPreparedQuery } from "@/database/prepared-queries";
 import { schema } from "@/database/schema";
@@ -350,7 +349,7 @@ class PlaybackRepository {
 		const prepared = selectUpsertProgressPrepared(audioStreamIndex !== undefined, subtitleId !== undefined);
 
 		await prepared(databaseFactory.getClient({ tx })).execute({
-			id: uuidv7(),
+			id: Bun.randomUUIDv7(),
 			profileId,
 			fileId,
 			position,

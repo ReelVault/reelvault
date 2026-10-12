@@ -1,4 +1,4 @@
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 /**
  * Download/optimize allowlist keyed by the format libvips reported. Intentionally
@@ -22,7 +22,7 @@ const contentTypes: Record<string, string> = {
 
 export function getContentType(imageType: string): string {
 	const contentType = contentTypes[imageType.toLowerCase()];
-	if (!contentType) throw new ValidationError(`Unsupported image format: ${imageType}`, { code: "images.unsupported_format" });
+	if (!contentType) throw new DomainError("validation", `Unsupported image format: ${imageType}`, { code: "images.unsupported_format" });
 
 	return contentType;
 }

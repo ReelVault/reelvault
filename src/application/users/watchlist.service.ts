@@ -13,25 +13,25 @@ import type {
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { watchlistRepository } from "@/database/repositories/watchlist.repository";
 import { isNotNullish, toMap, unique } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
-import { ValidationError } from "@/utils/errors";
+import { assertFound, assertProfileId, DomainError, notFoundError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 
 import { invalidateProfileCaches } from "./cache-invalidation";
 
 /** Hard cap for batch status checks (guards against giant query strings). */
 const MAX_STATUSES_IDS = 500;
 
-class WatchlistService extends BaseService {
-	constructor() {
-		super("WatchlistService");
-	}
+class WatchlistService {
+	readonly serviceName = "WatchlistService";
+	readonly logger = createLogger("WatchlistService");
 
 	async getAll<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & WatchlistFilters & WatchlistSorting & { hydrate?: boolean },
 		profileId?: string,
 	): Promise<PaginatedResponse<SelectFields<Watchlist, F>> | PaginatedResponse<HydratedWatchlistItem>> {
-		return await this.safeExecute("getAll", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "getAll", async () => {
+			assertProfileId(profileId);
 			const { hydrate, fields, ...pageQuery } = query ?? {};
 			// Hydration returns full watchlist rows plus their metadata cards; a field
 			// projection would drop `profileId`/`updatedAt`, which the hydrated
@@ -60,8 +60,8 @@ class WatchlistService extends BaseService {
 	}
 
 	async add(metadataId: string, profileId?: string) {
-		return await this.safeExecute("add", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "add", async () => {
+			assertProfileId(profileId);
 			await this.assertMetadataExists(metadataId);
 
 			await watchlistRepository.insert({ values: { profileId, metadataId } });
@@ -72,8 +72,8 @@ class WatchlistService extends BaseService {
 	}
 
 	async remove(metadataId: string, profileId?: string) {
-		return await this.safeExecute("remove", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "remove", async () => {
+			assertProfileId(profileId);
 
 			await watchlistRepository.remove(profileId, metadataId);
 			invalidateProfileCaches(profileId);
@@ -87,14 +87,14 @@ class WatchlistService extends BaseService {
 	 * refuses the whole batch, so a stale id cannot leave it half applied.
 	 */
 	async bulkUpdate(body: WatchlistBulkBody, profileId?: string) {
-		return await this.safeExecute("bulkUpdate", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "bulkUpdate", async () => {
+			assertProfileId(profileId);
 			const add = unique(body.add ?? []);
 			const remove = unique(body.remove ?? []);
 			const removing = new Set(remove);
 			const both = add.find((metadataId) => removing.has(metadataId));
 			if (both !== undefined) {
-				throw new ValidationError("A title cannot be added and removed in the same request", {
+				throw new DomainError("validation", "A title cannot be added and removed in the same request", {
 					code: "watchlist.bulk_conflict",
 					params: { metadataId: both },
 				});
@@ -110,8 +110,8 @@ class WatchlistService extends BaseService {
 	}
 
 	async clear(profileId?: string) {
-		return await this.safeExecute("clear", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "clear", async () => {
+			assertProfileId(profileId);
 
 			const removed = await watchlistRepository.clear(profileId);
 			invalidateProfileCaches(profileId);
@@ -120,8 +120,8 @@ class WatchlistService extends BaseService {
 		});
 	}
 
-	async isWatchlisted(metadataId: string, profileId?: string): Promise<{ inWatchlist: boolean }> {
-		return await this.safeExecute("isWatchlisted", async () => {
+	async isWatchlisted(metadataId: string, profileId?: string) {
+		return await runSafely(this, "isWatchlisted", async () => {
 			if (!profileId) return { inWatchlist: false };
 
 			const exists = await watchlistRepository.isWatchlisted(profileId, metadataId);
@@ -131,7 +131,7 @@ class WatchlistService extends BaseService {
 	}
 
 	async getStatuses(metadataIds: string[], profileId?: string): Promise<{ statuses: Array<{ metadataId: string; inWatchlist: boolean }> }> {
-		return await this.safeExecute("getStatuses", async () => {
+		return await runSafely(this, "getStatuses", async () => {
 			const uniqueIds = unique(metadataIds).slice(0, MAX_STATUSES_IDS);
 			if (!profileId || uniqueIds.length === 0) {
 				return { statuses: uniqueIds.map((metadataId) => ({ metadataId, inWatchlist: false })) };
@@ -144,8 +144,8 @@ class WatchlistService extends BaseService {
 	}
 
 	async toggle(body: CreateWatchlist, profileId?: string) {
-		return await this.safeExecute("toggle", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "toggle", async () => {
+			assertProfileId(profileId);
 			await this.assertMetadataExists(body.metadataId);
 
 			const result = await watchlistRepository.toggle({ metadataId: body.metadataId, profileId });
@@ -159,13 +159,13 @@ class WatchlistService extends BaseService {
 	private async assertMetadataExistAll(metadataIds: readonly string[]): Promise<void> {
 		const existing = await metadataRepository.findExistingIds(metadataIds);
 		const missing = metadataIds.find((metadataId) => !existing.has(metadataId));
-		this.assertFound(missing === undefined, "Metadata", missing);
+		if (missing !== undefined) throw notFoundError("Metadata", missing);
 	}
 
 	/** A stale catalog id must be a 404, not an FK violation surfacing as a 500. */
 	private async assertMetadataExists(metadataId: string): Promise<void> {
 		const metadata = await metadataRepository.findByIdForRead(metadataId);
-		this.assertExists(metadata, "Metadata", metadataId);
+		assertFound(metadata, "Metadata", metadataId);
 	}
 }
 

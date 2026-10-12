@@ -5,8 +5,9 @@ import { mediaRepository } from "@/database/repositories/media-files.repository"
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { episodeRangeSpan, parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { toMap } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { fileScannerService } from "./disk/file-scanner";
 import { type RemovalGuard, removalGuard } from "./disk/removal-guard";
@@ -70,11 +71,13 @@ const defaultDependencies: ServiceDependencies = {
 	cleaner: staleArtifactCleaner,
 };
 
-export class ScannerService extends BaseService {
+export class ScannerService {
+	readonly serviceName = "ScannerService";
+	readonly logger = createLogger("ScannerService");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("ScannerService");
 		this.dependencies = dependencies;
 	}
 
@@ -120,7 +123,8 @@ export class ScannerService extends BaseService {
 	}
 
 	async scanPaths(libraryId: string, type: LibraryType, paths?: string[], signal?: AbortSignal): Promise<LibraryScanResult> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"scanPaths",
 			async () => {
 				throwIfAborted(signal);

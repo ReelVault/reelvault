@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
@@ -24,7 +24,10 @@ const defaultDependencies: ServiceDependencies = {
 	getIoConcurrency: () => systemResourcesService.getIoConcurrency(),
 };
 
-export class ImageCacheEviction extends BaseService {
+export class ImageCacheEviction {
+	readonly serviceName = "ImageCacheEviction";
+	readonly logger = createLogger("ImageCacheEviction");
+
 	private readonly dependencies: ServiceDependencies;
 	private writesSinceLastSweep = 0;
 	/**
@@ -38,7 +41,6 @@ export class ImageCacheEviction extends BaseService {
 	private readonly reconciled = new Set<string>();
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("ImageCacheEviction");
 		this.dependencies = dependencies;
 	}
 

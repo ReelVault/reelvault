@@ -110,7 +110,9 @@ describe("plugin catalog manifest", () => {
 			),
 		).toThrow("semantic version");
 	});
+});
 
+describe("plugin catalog manifest", () => {
 	test("rejects a history entry with a non-https download URL", () => {
 		expect(() =>
 			parsePluginCatalogManifest(

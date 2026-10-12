@@ -121,8 +121,8 @@ export class AdminAuditRepository {
 	async summarizeByActor(filters: AdminAuditFilters, limit: number) {
 		const condition = this.conditionFor(filters);
 		const client = this.database.getClient();
-		const [[totalRow], actors] = await Promise.all([
-			client.select({ total: count() }).from(this.table).where(condition),
+		const [total, actors] = await Promise.all([
+			client.$count(this.table, condition),
 			client
 				.select({
 					actorUserId: this.table.actorUserId,
@@ -142,7 +142,7 @@ export class AdminAuditRepository {
 				.limit(limit),
 		]);
 
-		return { total: totalRow?.total ?? 0, actors };
+		return { total, actors };
 	}
 
 	/**

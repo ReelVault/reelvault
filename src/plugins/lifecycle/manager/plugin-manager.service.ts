@@ -1,9 +1,9 @@
 import type { InstallCatalogPluginResponse, PluginConfigDetails } from "@reelvault/sdk/common";
 import type { PluginConfigField, PluginRuntime, PluginStatus, SubtitleProvider, SubtitleProviderStatus } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
-import { errorMessage, ValidationError } from "@/utils/errors";
+import { KeyedMutex } from "@/utils/concurrency";
+import { DomainError, errorMessage } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
-import { Mutex } from "@/utils/mutex";
 import { PluginConfig } from "../plugin.config";
 import { type InstalledPlugin, type InstalledPluginRecord, installDirection, PluginInstaller } from "../plugin.installer";
 import { PluginLoader } from "../plugin.loader";
@@ -38,6 +38,9 @@ export interface PluginPackageDetails {
 	pinned?: boolean;
 }
 
+/** Serialises install, upgrade, reload, enable and disable — they mutate the same directories and registry. */
+const PLUGIN_LIFECYCLE_KEY = "plugin-lifecycle";
+
 class ConfigRequiredError extends Error {
 	readonly field: string;
 
@@ -59,7 +62,7 @@ export class PluginManager {
 	private readonly loader: PluginLoader;
 	private readonly installer: PluginInstaller;
 	/** Serialises lifecycle mutations (install/reload/enable/uninstall) across admin requests. */
-	private readonly lifecycleMutex = new Mutex();
+	private readonly lifecycleMutex = new KeyedMutex();
 	/** Installed but unloaded plugins — the registry only tracks loaded ones, so the disabled state lives here. */
 	private readonly disabledStatuses = new Map<string, PluginStatus>();
 	/** Plugins whose package did not match its lockfile record at the last integrity check. */
@@ -145,7 +148,7 @@ export class PluginManager {
 	 * with an install/reload.
 	 */
 	async setEnabled(pluginId: string, enabled: boolean): Promise<void> {
-		await this.lifecycleMutex.runExclusive(async () => {
+		await this.lifecycleMutex.runExclusive(PLUGIN_LIFECYCLE_KEY, async () => {
 			try {
 				await this.installer.setDisabled(pluginId, !enabled);
 			} catch {
@@ -163,7 +166,7 @@ export class PluginManager {
 					const restored = await this.rollBackUpgrade(pluginId);
 					if (!restored) throw error;
 
-					throw new ValidationError(`Plugin ${pluginId} did not load; version ${restored.version} was restored`, {
+					throw new DomainError("validation", `Plugin ${pluginId} did not load; version ${restored.version} was restored`, {
 						code: "plugin.upgrade_rolled_back",
 						params: { pluginId, version: restored.version },
 					});
@@ -176,7 +179,10 @@ export class PluginManager {
 				const status =
 					this.statusFromRegistry(pluginId) ?? this.disabledStatuses.get(pluginId) ?? (await this.statusFromManifest(pluginId));
 				if (!status)
-					throw new ValidationError(`Plugin ${pluginId} is not installed`, { code: "plugin.not_installed", params: { plugin: pluginId } });
+					throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
+						code: "plugin.not_installed",
+						params: { plugin: pluginId },
+					});
 
 				try {
 					// unloadPlugin unregisters even when lifecycle hooks fail (it throws afterwards),
@@ -223,7 +229,7 @@ export class PluginManager {
 
 	/** Full reload: unload every plugin first, then load them again. */
 	async reloadAll(): Promise<void> {
-		await this.lifecycleMutex.runExclusive(async () => {
+		await this.lifecycleMutex.runExclusive(PLUGIN_LIFECYCLE_KEY, async () => {
 			await this.loader.unloadAll();
 			await this.loader.loadAll();
 		});
@@ -272,11 +278,11 @@ export class PluginManager {
 	}
 
 	async load(pluginName: string): Promise<void> {
-		await this.lifecycleMutex.runExclusive(() => this.loader.load(pluginName));
+		await this.lifecycleMutex.runExclusive(PLUGIN_LIFECYCLE_KEY, () => this.loader.load(pluginName));
 	}
 
 	async reload(pluginId: string): Promise<void> {
-		await this.lifecycleMutex.runExclusive(async () => {
+		await this.lifecycleMutex.runExclusive(PLUGIN_LIFECYCLE_KEY, async () => {
 			// load() ignores the lockfile flag — reloading a disabled plugin would silently enable it until restart.
 			if (this.disabledStatuses.has(pluginId)) return;
 
@@ -285,7 +291,7 @@ export class PluginManager {
 	}
 
 	async unload(pluginId: string): Promise<void> {
-		await this.lifecycleMutex.runExclusive(() => this.loader.unloadPlugin(pluginId));
+		await this.lifecycleMutex.runExclusive(PLUGIN_LIFECYCLE_KEY, () => this.loader.unloadPlugin(pluginId));
 	}
 
 	/** Admin choice: keep the installed version or allow catalog updates again. Persisted. */
@@ -300,7 +306,7 @@ export class PluginManager {
 	}
 
 	async uninstall(pluginId: string): Promise<void> {
-		await this.lifecycleMutex.runExclusive(async () => {
+		await this.lifecycleMutex.runExclusive(PLUGIN_LIFECYCLE_KEY, async () => {
 			await this.loader.prepareUninstall(pluginId);
 			try {
 				// Package first: if removing the directory/lockfile fails, the plugin
@@ -310,7 +316,7 @@ export class PluginManager {
 				// removed below regardless.
 				await this.installer.uninstall(pluginId);
 			} catch (error) {
-				if (!(error instanceof ValidationError)) throw error;
+				if (!(error instanceof DomainError && error.category === "validation")) throw error;
 
 				this.logger.warn(`No installer record for ${pluginId} — removed loaded data only`);
 			}
@@ -331,7 +337,7 @@ export class PluginManager {
 	 * back to the package it replaced.
 	 */
 	async installFromDirectory(sourceDirectory: string, options: { source?: string }): Promise<InstallCatalogPluginResponse> {
-		return await this.lifecycleMutex.runExclusive(async () => {
+		return await this.lifecycleMutex.runExclusive(PLUGIN_LIFECYCLE_KEY, async () => {
 			const previousRecords = await this.installer.list();
 			const result = await this.installer.install(sourceDirectory, {
 				upgrade: true,
@@ -537,7 +543,7 @@ export class PluginManager {
 			} catch (error) {
 				const field = error instanceof ConfigRequiredError ? error.field : pluginConfigField(error);
 
-				throw new ValidationError(errorMessage(error), {
+				throw new DomainError("validation", errorMessage(error), {
 					code: "plugin.config_invalid",
 					...(field ? { params: { field } } : {}),
 				});

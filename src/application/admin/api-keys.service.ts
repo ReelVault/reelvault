@@ -6,8 +6,8 @@ import { databaseFactory } from "@/database/database";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { apiKeys } from "@/database/schemas/api-keys.schema";
 import { users } from "@/database/schemas/auth.schema";
-import { BaseService } from "@/utils/base-service";
-import { NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { detach } from "@/utils/promise.utils";
 
@@ -47,10 +47,9 @@ function toScope(value: string): ApiKeyScope {
 	return value === "full" ? "full" : "read_only";
 }
 
-class ApiKeysService extends BaseService {
-	constructor() {
-		super("ApiKeysService");
-	}
+class ApiKeysService {
+	readonly serviceName = "ApiKeysService";
+	readonly logger = createLogger("ApiKeysService");
 
 	async list(): Promise<ApiKey[]> {
 		const rows = await databaseFactory
@@ -70,14 +69,14 @@ class ApiKeysService extends BaseService {
 
 		if (input.name !== undefined) {
 			const name = input.name.trim();
-			if (!name) throw new ValidationError("API key name is required", { code: "api_key.name_required" });
+			if (!name) throw new DomainError("validation", "API key name is required", { code: "api_key.name_required" });
 
 			changes.name = name;
 		}
 
 		if (input.expiresAtDays !== undefined) {
 			if (input.expiresAtDays !== null && (input.expiresAtDays < 1 || input.expiresAtDays > 3650)) {
-				throw new ValidationError("Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
+				throw new DomainError("validation", "Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
 			}
 
 			changes.expiresAt = input.expiresAtDays === null ? null : new Date(Date.now() + input.expiresAtDays * 86_400_000);
@@ -138,7 +137,7 @@ class ApiKeysService extends BaseService {
 
 	private async requireRow(id: string): Promise<typeof apiKeys.$inferSelect> {
 		const [row] = await databaseFactory.getClient().select().from(apiKeys).where(eq(apiKeys.id, id)).limit(1);
-		if (!row) throw new NotFoundError("API key not found", { code: "api_key.not_found" });
+		if (!row) throw new DomainError("not_found", "API key not found", { code: "api_key.not_found" });
 
 		return row;
 	}
@@ -158,9 +157,9 @@ class ApiKeysService extends BaseService {
 		context?: AdminAuditContext,
 	): Promise<ApiKeyCreated> {
 		const name = input.name.trim();
-		if (!name) throw new ValidationError("API key name is required", { code: "api_key.name_required" });
+		if (!name) throw new DomainError("validation", "API key name is required", { code: "api_key.name_required" });
 		if (input.expiresAtDays !== undefined && (input.expiresAtDays < 1 || input.expiresAtDays > 3650)) {
-			throw new ValidationError("Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
+			throw new DomainError("validation", "Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
 		}
 
 		const rawKey = this.newRawKey();
@@ -212,7 +211,7 @@ class ApiKeysService extends BaseService {
 
 	async revoke(id: string, context?: AdminAuditContext): Promise<void> {
 		const result = await databaseFactory.getClient().delete(apiKeys).where(eq(apiKeys.id, id));
-		if (result.changes === 0) throw new NotFoundError("API key not found", { code: "api_key.not_found" });
+		if (result.changes === 0) throw new DomainError("not_found", "API key not found", { code: "api_key.not_found" });
 
 		authenticateCache.clear();
 		this.logger.info("API key revoked", { keyId: id });

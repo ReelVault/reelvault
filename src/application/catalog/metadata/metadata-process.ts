@@ -11,8 +11,8 @@ import type { SidecarMetadataHint } from "@/modules/metadata-sidecars/files/loca
 import type { AggregatedMetadata, AggregatedProviderLink } from "@/plugins/capabilities/metadata-aggregator";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { BaseService } from "@/utils/base-service";
-import { InFlightMap } from "@/utils/in-flight-map";
+import { InFlightMap } from "@/utils/concurrency";
+import { createLogger } from "@/utils/logger";
 import { normalizeForMatching } from "@/utils/release-tags.constants";
 import { enqueueImageProcessing, type ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
@@ -35,13 +35,23 @@ interface MetadataProcessResult {
 const enqueueImagesInBackground = (data: ImageProcessingData, options: TaskSchedulingOptions = {}): Promise<unknown> =>
 	enqueueImageProcessing(data, options);
 
-export class MetadataProcess extends BaseService {
+interface TvProcessOptions {
+	metadataStableKey?: string | null | undefined;
+	scheduling?: TaskSchedulingOptions | undefined;
+	providers?: AggregatedProviderLink[] | undefined;
+	sidecarHint?: SidecarMetadataHint | undefined;
+	language?: string | undefined;
+}
+
+export class MetadataProcess {
+	readonly serviceName = "MetadataProcess";
+	readonly logger = createLogger("MetadataProcess");
+
 	private readonly baseMetadataProcesses = new InFlightMap<CreatedProviderMetadata>();
 	private readonly imageEnqueueProcesses = new InFlightMap<void>();
 	private readonly enqueueImages: EnqueueImages;
 
 	constructor(enqueueImages: EnqueueImages = enqueueImagesInBackground) {
-		super("MetadataProcess");
 		this.enqueueImages = enqueueImages;
 	}
 
@@ -76,16 +86,13 @@ export class MetadataProcess extends BaseService {
 				}
 
 				// An undefined TV match falls through to the local-database lookup.
-				const tvShow = await this.processTVShowMetadata(
-					sidecarMatch.metadataId,
-					parsed,
-					sidecarMatch.metadata,
-					sidecarMatch.stableKey,
-					scheduling,
-					sidecarMatch.providers,
-					sidecar,
-					language,
-				);
+				const tvShow = await this.processTVShowMetadata(sidecarMatch.metadataId, parsed, sidecarMatch.metadata, {
+					metadataStableKey: sidecarMatch.stableKey,
+					scheduling: scheduling,
+					providers: sidecarMatch.providers,
+					sidecarHint: sidecar,
+					language: language,
+				});
 				if (tvShow) return tvShow;
 			}
 
@@ -131,16 +138,13 @@ export class MetadataProcess extends BaseService {
 				}
 
 				return await this.withFreshImageEnqueue(fromSidecar.base, scheduling, () =>
-					this.processTVShowMetadata(
-						fromSidecar.base.metadataId,
-						parsed,
-						fromSidecar.base.metadata,
-						fromSidecar.base.metadataStableKey,
-						scheduling,
-						fromSidecar.providers,
-						sidecar,
-						language,
-					),
+					this.processTVShowMetadata(fromSidecar.base.metadataId, parsed, fromSidecar.base.metadata, {
+						metadataStableKey: fromSidecar.base.metadataStableKey,
+						scheduling: scheduling,
+						providers: fromSidecar.providers,
+						sidecarHint: sidecar,
+						language: language,
+					}),
 				);
 			}
 
@@ -174,16 +178,13 @@ export class MetadataProcess extends BaseService {
 		}
 
 		return await this.withFreshImageEnqueue(baseMetadata, scheduling, () =>
-			this.processTVShowMetadata(
-				baseMetadata.metadataId,
-				parsed,
-				baseMetadata.metadata,
-				baseMetadata.metadataStableKey,
-				scheduling,
-				aggregated.providers,
-				undefined,
-				language,
-			),
+			this.processTVShowMetadata(baseMetadata.metadataId, parsed, baseMetadata.metadata, {
+				metadataStableKey: baseMetadata.metadataStableKey,
+				scheduling: scheduling,
+				providers: aggregated.providers,
+				sidecarHint: undefined,
+				language: language,
+			}),
 		);
 	}
 
@@ -336,16 +337,13 @@ export class MetadataProcess extends BaseService {
 					releaseDate: existingMetadata.releaseDate ?? "",
 				};
 
-				return await this.processTVShowMetadata(
-					existingMetadata.id,
-					parsed,
-					pseudoMetadata,
-					existingMetadata.stableKey,
-					scheduling,
-					[{ providerId: providerLink.name, externalId: providerLink.externalId }],
-					sidecar,
-					language,
-				);
+				return await this.processTVShowMetadata(existingMetadata.id, parsed, pseudoMetadata, {
+					metadataStableKey: existingMetadata.stableKey,
+					scheduling: scheduling,
+					providers: [{ providerId: providerLink.name, externalId: providerLink.externalId }],
+					sidecarHint: sidecar,
+					language: language,
+				});
 			}
 		} catch (error) {
 			this.logger.debug("Failed to resolve local TV show", { externalId: existingMetadata.id, error });
@@ -407,32 +405,22 @@ export class MetadataProcess extends BaseService {
 		return { metadataId, movieId: movie.id, episodeId: null };
 	}
 
-	private async processTVShowMetadata(
-		metadataId: string,
-		parsed: MediaIdentity,
+	/** The season for this file from the provider's data, or a synthesized season so the file stays attached. */
+	private async resolveSeasonInfo(
 		metadata: ProviderMetadataResult,
-		metadataStableKey?: string | null,
-		scheduling?: TaskSchedulingOptions,
-		providers?: AggregatedProviderLink[],
-		sidecarHint?: SidecarMetadataHint,
-		language?: string,
-	): Promise<MetadataProcessResult | undefined> {
-		if (parsed.season === undefined) {
-			this.logger.warn("TV show missing season number in identity", { parsed });
-
-			return undefined;
-		}
-
-		const providerLinks = (providers ?? []).map((provider) => ({ providerId: provider.providerId, externalId: provider.externalId }));
-
+		seasonNumber: number,
+		providerLinks: Array<{ providerId: string; externalId: string }>,
+		sidecarHint: TvProcessOptions["sidecarHint"],
+		language: TvProcessOptions["language"],
+	): Promise<ProviderSeasonResult> {
 		let seasonInfo: ProviderSeasonResult | undefined;
 		if (metadata.seasons) {
 			const seasonsByNumber = firstWinsByNumber(metadata.seasons, (s) => s.seasonNumber);
-			seasonInfo = seasonsByNumber.get(parsed.season);
+			seasonInfo = seasonsByNumber.get(seasonNumber);
 		}
 
 		if (!seasonInfo?.episodes || seasonInfo.episodes.length === 0) {
-			const fetchedSeason = await fetchSeason(providerLinks, parsed.season, language);
+			const fetchedSeason = await fetchSeason(providerLinks, seasonNumber, language);
 			if (fetchedSeason) {
 				seasonInfo = seasonInfo
 					? { ...seasonInfo, ...fetchedSeason, episodes: fetchedSeason.episodes ?? seasonInfo.episodes }
@@ -440,18 +428,31 @@ export class MetadataProcess extends BaseService {
 			}
 		}
 
-		if (!seasonInfo) {
-			this.logger.warn("TV show missing season info from provider, using fallback", {
-				externalId: metadata.externalId,
-				seasonNumber: parsed.season,
-			});
-			seasonInfo = {
-				externalId: fallbackSeasonExternalId(metadata.externalId, parsed.season),
-				seasonNumber: parsed.season,
-				name: sidecarHint?.seasonName,
-				posterPath: sidecarHint?.seasonPosterPath,
-			};
-		}
+		if (seasonInfo) return seasonInfo;
+
+		this.logger.warn("TV show missing season info from provider, using fallback", {
+			externalId: metadata.externalId,
+			seasonNumber,
+		});
+
+		return {
+			externalId: fallbackSeasonExternalId(metadata.externalId, seasonNumber),
+			seasonNumber,
+			name: sidecarHint?.seasonName,
+			posterPath: sidecarHint?.seasonPosterPath,
+		};
+	}
+
+	/** The episode for this file from the season's provider data, or a synthesized episode when none resolves. */
+	private async resolveEpisodeInfo(input: {
+		parsed: MediaIdentity;
+		metadata: ProviderMetadataResult;
+		seasonInfo: ProviderSeasonResult;
+		providerLinks: Array<{ providerId: string; externalId: string }>;
+		sidecarHint: TvProcessOptions["sidecarHint"];
+		language: TvProcessOptions["language"];
+	}): Promise<ProviderEpisodeResult | undefined> {
+		const { parsed, metadata, seasonInfo, providerLinks, sidecarHint, language } = input;
 
 		let episodeInfo: ProviderEpisodeResult | undefined;
 		if (parsed.episode !== undefined && seasonInfo.episodes) {
@@ -468,16 +469,36 @@ export class MetadataProcess extends BaseService {
 			if (fetchedEpisode && (!episodeInfo || fetchedEpisode.overview)) episodeInfo = fetchedEpisode;
 		}
 
-		if (parsed.episode !== undefined && !episodeInfo) {
-			this.logger.warn("TV show missing episode info from provider, using fallback", { parsed });
-			episodeInfo = {
-				externalId: fallbackEpisodeExternalId(metadata.externalId, seasonInfo.seasonNumber, parsed.episode),
-				episodeNumber: parsed.episode,
-				seasonNumber: Number(seasonInfo.seasonNumber),
-				name: sidecarHint?.episodeName,
-				thumbnailPath: sidecarHint?.episodeThumbnailPath,
-			};
+		if (parsed.episode === undefined || episodeInfo) return episodeInfo;
+
+		this.logger.warn("TV show missing episode info from provider, using fallback", { parsed });
+
+		return {
+			externalId: fallbackEpisodeExternalId(metadata.externalId, seasonInfo.seasonNumber, parsed.episode),
+			episodeNumber: parsed.episode,
+			seasonNumber: Number(seasonInfo.seasonNumber),
+			name: sidecarHint?.episodeName,
+			thumbnailPath: sidecarHint?.episodeThumbnailPath,
+		};
+	}
+
+	private async processTVShowMetadata(
+		metadataId: string,
+		parsed: MediaIdentity,
+		metadata: ProviderMetadataResult,
+		options: TvProcessOptions = {},
+	): Promise<MetadataProcessResult | undefined> {
+		const { metadataStableKey, scheduling, providers, sidecarHint, language } = options;
+		if (parsed.season === undefined) {
+			this.logger.warn("TV show missing season number in identity", { parsed });
+
+			return undefined;
 		}
+
+		const providerLinks = (providers ?? []).map((provider) => ({ providerId: provider.providerId, externalId: provider.externalId }));
+
+		const seasonInfo = await this.resolveSeasonInfo(metadata, parsed.season, providerLinks, sidecarHint, language);
+		const episodeInfo = await this.resolveEpisodeInfo({ parsed, metadata, seasonInfo, providerLinks, sidecarHint, language });
 
 		// Keep season, episode and the fallback-language flag atomic. Provider calls
 		// happen before the transaction so a slow integration cannot hold SQLite

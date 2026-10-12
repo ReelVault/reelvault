@@ -6,7 +6,7 @@ import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { serverConfig } from "@/server.config";
 import { hasEntry } from "@/utils/array.utils";
 import { DirUtils } from "@/utils/directory.utils";
-import { errorMessage, ValidationError } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
@@ -34,6 +34,8 @@ import {
 import type { PluginRegistry } from "./plugin.registry";
 import { clearPluginRuntimes, materializePluginRuntime, pluginRuntimeRoot } from "./plugin-runtime-copy";
 import { ensurePluginSdkShim } from "./plugin-sdk-alias";
+
+type LoadedPluginManifest = Awaited<ReturnType<typeof loadPluginManifest>>;
 
 export class PluginLoader {
 	private readonly logger = createLogger("PluginLoader");
@@ -139,32 +141,77 @@ export class PluginLoader {
 		this.logger.info(`Loaded: ${successful}/${loadableNames.length} plugins (errors: ${failed})`);
 	}
 
+	/** Directory for a plugin given by directory name or manifest id; a manifest id resolves through the index instead of a rescan. */
+	private async resolvePluginDirectory(pluginNameOrId: string): Promise<{ pluginDir: string; pluginName: string }> {
+		let pluginDir = PathUtils.join(this.pluginsDirectory, pluginNameOrId);
+		let pluginName = pluginNameOrId;
+
+		if (!(await DirUtils.exists(pluginDir))) {
+			// Not a directory name — resolve by manifest id through the index instead of rescanning.
+			const resolvedName = await this.findDirectoryNameForPluginId(pluginNameOrId);
+			if (resolvedName) {
+				pluginName = resolvedName;
+				pluginDir = PathUtils.join(this.pluginsDirectory, resolvedName);
+			}
+		}
+
+		return { pluginDir, pluginName };
+	}
+
+	/** Loads the optional ui.json into the scope; a malformed manifest skips UI contributions, not the plugin. */
+	private async loadUiManifest(pluginDir: string, scope: PluginScope): Promise<void> {
+		const uiManifestPath = PathUtils.join(pluginDir, "ui.json");
+		const uiManifestRaw = await FileUtils.readJson<unknown>(uiManifestPath, { silent: true });
+		if (uiManifestRaw === null) return;
+
+		try {
+			validatePluginUiManifest(uiManifestRaw);
+			// Inline schemaRef files so the client receives renderable schemas.
+			scope.setUiManifest(await resolvePluginUiSchemas(pluginDir, uiManifestRaw));
+		} catch (error) {
+			// ui.json is optional — a malformed manifest skips UI contributions, not the plugin.
+			this.logger.warn("Skipping invalid plugin ui.json", { pluginDir, error: errorMessage(error) });
+		}
+	}
+
+	/** Imports the plugin entry from its runtime copy and checks that its default export is a ReelVault plugin. */
+	private async importPlugin(manifest: LoadedPluginManifest, runtimeDirectory: string): Promise<ReelVaultPlugin> {
+		this.registry.markPhase(manifest.id, "entry");
+		const entryPath = resolvePluginEntry(runtimeDirectory, manifest);
+		this.registry.advance(manifest.id, "resolved", "entry");
+		this.registry.markPhase(manifest.id, "import");
+		const module: unknown = await import(pathToFileURL(entryPath).href);
+		const defaultExport = isRecord(module) ? module.default : undefined;
+		if (!defaultExport) {
+			throw new DomainError("validation", `Plugin ${manifest.id} is missing a default export`, {
+				code: "plugin.export_missing",
+				params: { plugin: manifest.id },
+			});
+		}
+
+		if (!isReelVaultPlugin(defaultExport))
+			throw new DomainError("validation", `Plugin ${manifest.id} has an invalid default export`, {
+				code: "plugin.export_invalid",
+				params: { plugin: manifest.id },
+			});
+
+		return defaultExport;
+	}
+
 	async load(pluginNameOrId: string): Promise<void> {
 		// Keep the SDK shim current on every load — catalog-installed plugins ship without node_modules.
 		await ensurePluginSdkShim(this.pluginsDirectory);
 
 		// Never join an unvalidated identifier: a `..%2F` path param must not escape the plugins directory.
 		if (!PLUGIN_IDENTIFIER_PATTERN.test(pluginNameOrId)) {
-			throw new ValidationError("Invalid plugin identifier", { code: "plugin.invalid_identifier" });
+			throw new DomainError("validation", "Invalid plugin identifier", { code: "plugin.invalid_identifier" });
 		}
 
-		let pluginDir = PathUtils.join(this.pluginsDirectory, pluginNameOrId);
-		let pluginName = pluginNameOrId;
-		let isDir = await DirUtils.exists(pluginDir);
-
-		if (!isDir) {
-			// Not a directory name — resolve by manifest id through the index instead of rescanning.
-			const resolvedName = await this.findDirectoryNameForPluginId(pluginNameOrId);
-			if (resolvedName) {
-				pluginName = resolvedName;
-				pluginDir = PathUtils.join(this.pluginsDirectory, resolvedName);
-				isDir = true;
-			}
-		}
+		const { pluginDir, pluginName } = await this.resolvePluginDirectory(pluginNameOrId);
 
 		// Defense in depth — the resolved directory must stay inside the plugins root.
 		if (!PathUtils.isSubpath(pluginDir, this.pluginsDirectory)) {
-			throw new ValidationError("Invalid plugin directory", { code: "plugin.invalid_identifier" });
+			throw new DomainError("validation", "Invalid plugin directory", { code: "plugin.invalid_identifier" });
 		}
 
 		// A package whose manifest could not be read is listed under its directory name; a retry starts clean.
@@ -202,43 +249,13 @@ export class PluginLoader {
 			const rawConfig = await this.config.load(pluginDir);
 			this.registry.advance(manifest.id, "validated", "config");
 
-			// Load optional ui.json
-			const uiManifestPath = PathUtils.join(pluginDir, "ui.json");
-			const uiManifestRaw = await FileUtils.readJson<unknown>(uiManifestPath, { silent: true });
-			if (uiManifestRaw !== null) {
-				try {
-					validatePluginUiManifest(uiManifestRaw);
-					// Inline schemaRef files so the client receives renderable schemas.
-					scope.setUiManifest(await resolvePluginUiSchemas(pluginDir, uiManifestRaw));
-				} catch (error) {
-					// ui.json is optional — a malformed manifest skips UI contributions, not the plugin.
-					this.logger.warn("Skipping invalid plugin ui.json", { pluginDir, error: errorMessage(error) });
-				}
-			}
+			await this.loadUiManifest(pluginDir, scope);
 
-			this.registry.markPhase(manifest.id, "entry");
-			const entryPath = resolvePluginEntry(runtimeDirectory, manifest);
-			this.registry.advance(manifest.id, "resolved", "entry");
-			this.registry.markPhase(manifest.id, "import");
-			const module: unknown = await import(pathToFileURL(entryPath).href);
-			const defaultExport = isRecord(module) ? module.default : undefined;
-			if (!defaultExport) {
-				throw new ValidationError(`Plugin ${manifest.id} is missing a default export`, {
-					code: "plugin.export_missing",
-					params: { plugin: manifest.id },
-				});
-			}
-
-			if (!isReelVaultPlugin(defaultExport))
-				throw new ValidationError(`Plugin ${manifest.id} has an invalid default export`, {
-					code: "plugin.export_invalid",
-					params: { plugin: manifest.id },
-				});
-
-			plugin = defaultExport;
+			plugin = await this.importPlugin(manifest, runtimeDirectory);
 
 			// Parse the stored values through the plugin's own config schema before setup() sees them.
-			configDefinition = isRecord(defaultExport) && isConfigDefinition(defaultExport.config) ? defaultExport.config : undefined;
+			configDefinition = isRecord(plugin) && isConfigDefinition(plugin.config) ? plugin.config : undefined;
+
 			const config = validatePluginConfig(rawConfig, configDefinition);
 			this.registry.markPhase(manifest.id, "setup");
 
@@ -257,16 +274,7 @@ export class PluginLoader {
 			scope.registerHttpRoutes(manifest.id);
 			this.registry.markPhase(manifest.id, "activation");
 
-			const runtime: PluginRuntime = {
-				manifest,
-				plugin,
-				...(configDefinition ? { configDefinition } : {}),
-				state: "initialized",
-				providerIds: scope.getProviderIds(),
-				subtitleProviderIds: scope.getSubtitleProviderIds(),
-				analyzerIds: scope.getAnalyzerIds(),
-				jobNames: scope.getJobNames(),
-			};
+			const runtime = buildPluginRuntime(manifest, plugin, configDefinition, scope);
 			this.registry.register(runtime, scope.getProviders(), scope.getAnalyzers(), scope.getSubtitleProviders());
 			this.pluginScopes.set(manifest.id, scope);
 
@@ -291,34 +299,58 @@ export class PluginLoader {
 			});
 		} catch (err) {
 			await scope.cleanup();
-			// A partially-initialized plugin may have opened timers/sockets during setup().
-			if (plugin?.onUnload) {
-				try {
-					await plugin.onUnload();
-				} catch (unloadError) {
-					this.logger.warn("Plugin onUnload failed during load error cleanup", {
-						pluginId: trackedPluginId,
-						error: errorMessage(unloadError),
-					});
-				}
-			}
-
-			if (trackedPluginId) {
-				this.registry.fail(trackedPluginId, err, configDefinition);
-				failurePhase = this.registry.get(trackedPluginId)?.failurePhase;
-				this.registry.unregister(trackedPluginId, true);
-				this.directoryIndex.delete(trackedPluginId);
-				this.pluginScopes.delete(trackedPluginId);
-			} else if (manifest) {
-				this.registry.recordFailure(manifest, err, failurePhase, configDefinition);
-			} else {
-				// plugin.json missing or invalid: without this the admin saw nothing at all for a broken package.
-				this.registry.recordFailure({ id: pluginName, name: pluginName, version: "unknown" }, err, "manifest");
-			}
+			await this.runFailedLoadUnload(plugin, trackedPluginId);
+			failurePhase = this.recordLoadFailure({ trackedPluginId, manifest, pluginName, failurePhase, configDefinition }, err);
 
 			this.logger.error(`Failed to load plugin ${pluginName}`, err, { failurePhase });
 			throw err;
 		}
+	}
+
+	/** A partially-initialized plugin may have opened timers/sockets during setup(), so its unload hook still runs. */
+	private async runFailedLoadUnload(plugin: ReelVaultPlugin | undefined, trackedPluginId: string | undefined): Promise<void> {
+		if (!plugin?.onUnload) return;
+
+		try {
+			await plugin.onUnload();
+		} catch (unloadError) {
+			this.logger.warn("Plugin onUnload failed during load error cleanup", {
+				pluginId: trackedPluginId,
+				error: errorMessage(unloadError),
+			});
+		}
+	}
+
+	/** Records a failed load in the registry; returns the phase the failure happened in. */
+	private recordLoadFailure(
+		attempt: {
+			trackedPluginId: string | undefined;
+			manifest: LoadedPluginManifest | undefined;
+			pluginName: string;
+			failurePhase: PluginLoadPhase | undefined;
+			configDefinition: ConfigDefinition | undefined;
+		},
+		err: unknown,
+	): PluginLoadPhase | undefined {
+		const { trackedPluginId, manifest, pluginName, failurePhase, configDefinition } = attempt;
+		if (trackedPluginId) {
+			this.registry.fail(trackedPluginId, err, configDefinition);
+			const phase = this.registry.get(trackedPluginId)?.failurePhase;
+			this.registry.unregister(trackedPluginId, true);
+			this.directoryIndex.delete(trackedPluginId);
+			this.pluginScopes.delete(trackedPluginId);
+
+			return phase;
+		}
+
+		if (manifest) {
+			this.registry.recordFailure(manifest, err, failurePhase, configDefinition);
+		} else {
+			// plugin.json missing or invalid: without this the admin saw nothing at all for a broken package.
+			this.registry.recordFailure({ id: pluginName, name: pluginName, version: "unknown" }, err, "manifest");
+		}
+
+		return failurePhase;
 	}
 
 	async reloadPlugin(pluginId: string): Promise<void> {
@@ -435,6 +467,25 @@ export class PluginLoader {
 		]);
 		this.logger.info(`Plugin ${pluginId} data removed`);
 	}
+}
+
+/** Runtime record for a plugin whose setup() has finished, before it is registered. */
+function buildPluginRuntime(
+	manifest: LoadedPluginManifest,
+	plugin: ReelVaultPlugin,
+	configDefinition: ConfigDefinition | undefined,
+	scope: PluginScope,
+): PluginRuntime {
+	return {
+		manifest,
+		plugin,
+		...(configDefinition ? { configDefinition } : {}),
+		state: "initialized",
+		providerIds: scope.getProviderIds(),
+		subtitleProviderIds: scope.getSubtitleProviderIds(),
+		analyzerIds: scope.getAnalyzerIds(),
+		jobNames: scope.getJobNames(),
+	};
 }
 
 function isReelVaultPlugin(value: unknown): value is ReelVaultPlugin {

@@ -1,9 +1,9 @@
 import type { ImageQuality } from "@reelvault/sdk/common";
 import { imageRepository } from "@/database/repositories/images.repository";
 import { reencodeImage } from "@/integrations/sharp/sharp.actions";
-import { BaseService } from "@/utils/base-service";
 import { errorMessage } from "@/utils/errors";
 import { FileUtils, fileStatSignature } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 import { assertEpisodeBaseName, formatSeasonNumber } from "./sidecar-path.policy";
@@ -61,11 +61,13 @@ export interface SidecarArtworkWriter {
  * and our own scanner discover. Actor portraits are deliberately not exported;
  * logos have no persisted source yet.
  */
-export class SidecarArtworkExporter extends BaseService implements SidecarArtworkWriter {
+export class SidecarArtworkExporter implements SidecarArtworkWriter {
+	readonly serviceName = "SidecarArtworkExporter";
+	readonly logger = createLogger("SidecarArtworkExporter");
+
 	private readonly dependencies: SidecarArtworkExporterDependencies;
 
 	constructor(dependencies: SidecarArtworkExporterDependencies = defaultDependencies) {
-		super("SidecarArtworkExporter");
 		this.dependencies = dependencies;
 	}
 

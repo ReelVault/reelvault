@@ -1,5 +1,5 @@
 import type { Logger } from "@reelvault/sdk/common";
-import { DomainError, InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 export interface TaskSchedulingOptions {
 	operationId?: string | undefined;
@@ -23,7 +23,7 @@ export function toDomainError(error: unknown, fallbackMessage: string): DomainEr
 
 	const message = error instanceof Error && error.message ? error.message : fallbackMessage;
 
-	return new InternalError(message, { cause: error });
+	return new DomainError("internal", message, { cause: error });
 }
 
 /** Wraps an async function so any thrown error is converted to a `DomainError`. */

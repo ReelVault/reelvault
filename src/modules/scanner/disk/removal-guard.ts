@@ -1,6 +1,6 @@
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { isMassRemoval } from "../utils/scanner.utils";
@@ -41,11 +41,13 @@ const defaultDependencies: ServiceDependencies = {
  * stat/glob miss must not delete a file that is still on disk, and a whole
  * unmounted tree must never cascade-delete watched history and markers.
  */
-export class RemovalGuard extends BaseService {
+export class RemovalGuard {
+	readonly serviceName = "RemovalGuard";
+	readonly logger = createLogger("RemovalGuard");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("RemovalGuard");
 		this.dependencies = dependencies;
 	}
 

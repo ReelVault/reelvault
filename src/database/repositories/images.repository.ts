@@ -14,7 +14,7 @@ import { metadataImageOn } from "@/database/utils/join-conditions";
 import { collectKeysetPages } from "@/database/utils/keyset-pages";
 import { createLocalStableKey } from "@/database/utils/stable-key";
 import { MINUTE, serverConstants } from "@/server.constants";
-import { InternalError, NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -203,7 +203,7 @@ class ImageRepository {
 			fields: QueryFields.parse({ fields: "stableKey" }),
 			tx,
 		});
-		if (!metadata) throw new NotFoundError(`Metadata ${metadataId} does not exist`, { code: "metadata.not_found" });
+		if (!metadata) throw new DomainError("not_found", `Metadata ${metadataId} does not exist`, { code: "metadata.not_found" });
 
 		return metadata;
 	}
@@ -298,7 +298,7 @@ class ImageRepository {
 			tx,
 		});
 		if (!season || season.metadataId !== metadataId)
-			throw new NotFoundError(`Season ${seasonId} does not belong to metadata ${metadataId}`, { code: "season.not_found" });
+			throw new DomainError("not_found", `Season ${seasonId} does not belong to metadata ${metadataId}`, { code: "season.not_found" });
 
 		return season;
 	}
@@ -333,7 +333,8 @@ class ImageRepository {
 			.where(and(eq(schema.episodes.id, episodeId), eq(schema.seasons.metadataId, metadataId)))
 			.limit(1);
 
-		if (!row) throw new NotFoundError(`Episode ${episodeId} does not belong to metadata ${metadataId}`, { code: "episode.not_found" });
+		if (!row)
+			throw new DomainError("not_found", `Episode ${episodeId} does not belong to metadata ${metadataId}`, { code: "episode.not_found" });
 
 		return row;
 	}
@@ -365,7 +366,7 @@ class ImageRepository {
 			fields: QueryFields.parse({ fields: "stableKey,imageId" }),
 			tx,
 		});
-		if (!person) throw new NotFoundError(`Person ${personId} does not exist`, { code: "person.not_found" });
+		if (!person) throw new DomainError("not_found", `Person ${personId} does not exist`, { code: "person.not_found" });
 
 		return person;
 	}
@@ -393,7 +394,7 @@ class ImageRepository {
 
 	async getProfileAvatarTarget(profileId: string): Promise<ImageOwnerTarget> {
 		if (!(await profilesRepository.isExists({ primaryId: profileId })))
-			throw new NotFoundError(`Profile ${profileId} does not exist`, { code: "profile.not_found" });
+			throw new DomainError("not_found", `Profile ${profileId} does not exist`, { code: "profile.not_found" });
 
 		return { ownerStableKey: createLocalStableKey({ namespace: "profile", value: profileId }) };
 	}
@@ -407,7 +408,7 @@ class ImageRepository {
 					.from(schema.profiles)
 					.where(eq(schema.profiles.id, profileId))
 					.limit(1);
-				if (!profile) throw new NotFoundError(`Profile ${profileId} does not exist`, { code: "profile.not_found" });
+				if (!profile) throw new DomainError("not_found", `Profile ${profileId} does not exist`, { code: "profile.not_found" });
 
 				const persisted = await this.upsertImage(image, tx);
 				const avatarUrl = `/v1/images/${persisted.id}`;
@@ -482,7 +483,7 @@ class ImageRepository {
 			.insert(this.table)
 			.values({ ...values, optimizationVersion })
 			.returning();
-		if (!persisted) throw new InternalError(`Failed to save image: ${image.localPath}`, { code: "images.save_failed" });
+		if (!persisted) throw new DomainError("internal", `Failed to save image: ${image.localPath}`, { code: "images.save_failed" });
 
 		return persisted;
 	}

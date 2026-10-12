@@ -80,7 +80,9 @@ describe("RealtimeService", () => {
 
 		service.shutdown();
 	});
+});
 
+describe("RealtimeService", () => {
 	it("resets the drop streak once a send succeeds", () => {
 		const service = new RealtimeService();
 		let sendResult: number | undefined = -1;

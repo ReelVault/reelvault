@@ -3,10 +3,10 @@ import { MetadataProcess } from "@/application/catalog/metadata/metadata-process
 import { type TaskSchedulingOptions, toDomainError } from "@/application/context";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { readSidecarMetadataHint, type SidecarMetadataHint } from "@/modules/metadata-sidecars/files/local-sidecar-hint";
-import { BaseService } from "@/utils/base-service";
-import { ValidationError } from "@/utils/errors";
+import { InFlightMap } from "@/utils/concurrency";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
-import { InFlightMap } from "@/utils/in-flight-map";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { throwIfAborted, WorkerCancellationError } from "@/workers/utils/worker-cancellation";
 import type { RecognitionResult } from "../../recognition/recognition.types";
@@ -30,13 +30,18 @@ interface ProbeAndMapResult {
 	markers?: ChapterMarkerDraft[] | undefined;
 }
 
-class MediaFileProcessor extends BaseService {
+export interface ProcessRunOptions {
+	signal?: AbortSignal | undefined;
+	scheduling?: TaskSchedulingOptions | undefined;
+	libraryId?: string | undefined;
+}
+
+class MediaFileProcessor {
+	readonly serviceName = "MediaFileProcessor";
+	readonly logger = createLogger("MediaFileProcessor");
+
 	private metadataProcessInstance: MetadataProcess | undefined;
 	private readonly processingFiles = new InFlightMap<ProcessedMediaFileWithMarkers | SkippedMediaFile | null>();
-
-	constructor() {
-		super("MediaFileProcessor");
-	}
 
 	// Lazily constructed: `media-file-processor` sits in an import cycle with
 	// `metadata-process` (via the worker graph). Eager construction at module
@@ -73,13 +78,9 @@ class MediaFileProcessor extends BaseService {
 		libraryType: LibraryType,
 		filePath: string,
 		skipExistingLookup = false,
-		signal?: AbortSignal,
-		scheduling?: TaskSchedulingOptions,
-		options?: { libraryId?: string | undefined },
+		options: ProcessRunOptions = {},
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
-		return await this.processingFiles.run(filePath, () =>
-			this.processOnce(libraryType, filePath, skipExistingLookup, signal, scheduling, options),
-		);
+		return await this.processingFiles.run(filePath, () => this.processOnce(libraryType, filePath, skipExistingLookup, options));
 	}
 
 	/**
@@ -137,14 +138,13 @@ class MediaFileProcessor extends BaseService {
 		libraryType: LibraryType,
 		filePath: string,
 		skipExistingLookup: boolean,
-		signal?: AbortSignal,
-		scheduling?: TaskSchedulingOptions,
-		options?: { libraryId?: string | undefined },
+		options: ProcessRunOptions,
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
+		const { signal, scheduling } = options;
 		try {
 			throwIfAborted(signal);
 			if (!filePath) {
-				throw new ValidationError("filePath is required", { code: "media_file.path_required" });
+				throw new DomainError("validation", "filePath is required", { code: "media_file.path_required" });
 			}
 
 			if (!skipExistingLookup) {
@@ -192,7 +192,7 @@ class MediaFileProcessor extends BaseService {
 					sidecar,
 					signal,
 					scheduling,
-					libraryId: options?.libraryId,
+					libraryId: options.libraryId,
 				}),
 			]);
 			throwIfAborted(signal);

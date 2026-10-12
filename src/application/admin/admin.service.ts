@@ -31,11 +31,12 @@ import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
 import { resourceAllocator } from "@/system/resource-allocator";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
-import { DomainError, errorMessage, NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { cacheRegistrySnapshot, MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { measureDirectory } from "@/utils/server-data.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 import { SERVER_VERSION } from "@/version";
@@ -56,17 +57,16 @@ function summarizeUiSettings(settings: PluginUiSettings): { enabled: boolean; di
 	return { enabled: settings.enabled, disabledKeys: settings.contributions.filter((item) => !item.enabled).map((item) => item.key) };
 }
 
-class AdminService extends BaseService {
+class AdminService {
+	readonly serviceName = "AdminService";
+	readonly logger = createLogger("AdminService");
+
 	private readonly statsCache = new MemoryCache<AdminStats>({ ttlMs: STATS_CACHE_TTL_MS, maxSize: 1, name: "admin-stats" });
 	private readonly diskStatsCache = new MemoryCache<AdminCacheStats["disk"]>({
 		ttlMs: DISK_STATS_CACHE_TTL_MS,
 		maxSize: 1,
 		name: "admin-cache-disk",
 	});
-
-	constructor() {
-		super("AdminService");
-	}
 
 	async stats(): Promise<AdminStats> {
 		return await this.statsCache.getOrSet("stats", () => this.computeStats());
@@ -151,7 +151,7 @@ class AdminService extends BaseService {
 
 	/** Deletes the optimized image copies; the disk stats are measured again on the next read. */
 	async purgeImageCache(): Promise<PurgeOptimizedCacheResult> {
-		return await this.safeExecute("purgeImageCache", async () => {
+		return await runSafely(this, "purgeImageCache", async () => {
 			const result = await imageMaintenanceService.purgeOptimizedCache();
 			this.diskStatsCache.clear();
 
@@ -171,7 +171,7 @@ class AdminService extends BaseService {
 		plugins: PluginAdminStatus[];
 		settings: Awaited<ReturnType<typeof systemSettingsService.getAll>>;
 	}> {
-		return await this.safeExecute("dashboard", async () => {
+		return await runSafely(this, "dashboard", async () => {
 			const [stats, providers, pluginList, settings] = await Promise.all([
 				this.stats(),
 				this.getMetadataProviderConfigurations(),
@@ -200,7 +200,7 @@ class AdminService extends BaseService {
 	 * logs, update status) run here in parallel behind one request.
 	 */
 	async dashboardView(): Promise<AdminDashboardViewResponse> {
-		return await this.safeExecute("dashboardView", async () => {
+		return await runSafely(this, "dashboardView", async () => {
 			await updateCheckService.checkLatest(false);
 			const updateState = updateCheckService.getState();
 
@@ -238,7 +238,7 @@ class AdminService extends BaseService {
 	}
 
 	async pluginConfig(pluginId: string): Promise<PluginConfigDetails> {
-		return await this.safeExecute("pluginConfig", async () => await pluginManager.getPluginConfigDetails(pluginId));
+		return await runSafely(this, "pluginConfig", async () => await pluginManager.getPluginConfigDetails(pluginId));
 	}
 
 	async updatePluginConfig(
@@ -246,7 +246,7 @@ class AdminService extends BaseService {
 		updatedConfig: Record<string, unknown>,
 		context?: AdminAuditContext,
 	): Promise<PluginConfigDetails> {
-		return await this.safeExecute("updatePluginConfig", async () => {
+		return await runSafely(this, "updatePluginConfig", async () => {
 			const before = await pluginManager.getPluginConfigDetails(pluginId);
 			const after = await pluginManager.savePluginConfig(pluginId, updatedConfig);
 			recordAuditSafe(
@@ -267,7 +267,7 @@ class AdminService extends BaseService {
 
 	/** Enables or disables several plugins. Each one is attempted on its own, so one failure does not stop the rest. */
 	async setPluginsEnabled(body: PluginBulkStateBody, context?: AdminAuditContext): Promise<PluginBulkStateResult> {
-		return await this.safeExecute("setPluginsEnabled", async () => {
+		return await runSafely(this, "setPluginsEnabled", async () => {
 			const results: PluginBulkStateResult["results"] = [];
 			for (const pluginId of body.pluginIds) {
 				try {
@@ -303,7 +303,7 @@ class AdminService extends BaseService {
 
 	/** Admin choice: keep the installed version (`pinned: true`) or allow catalog updates again. */
 	async setPluginPinned(pluginId: string, pinned: boolean, context?: AdminAuditContext): Promise<PluginAdminStatus> {
-		return await this.safeExecute("setPluginPinned", async () => {
+		return await runSafely(this, "setPluginPinned", async () => {
 			const before = await pluginManager.getPackageDetails(pluginId);
 			await pluginManager.setPluginPinned(pluginId, pinned);
 			recordAuditSafe(
@@ -319,7 +319,7 @@ class AdminService extends BaseService {
 			);
 
 			const status = await pluginAdminService.get(pluginId);
-			if (!status) throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
+			if (!status) throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
 
 			return status;
 		});
@@ -327,7 +327,7 @@ class AdminService extends BaseService {
 
 	/** Admin choice: allow (`enabled: true`) or refuse the CSP sources the plugin's manifest declares. */
 	async setPluginCspEnabled(pluginId: string, enabled: boolean, context?: AdminAuditContext): Promise<PluginAdminStatus> {
-		return await this.safeExecute("setPluginCspEnabled", async () => {
+		return await runSafely(this, "setPluginCspEnabled", async () => {
 			const before = await pluginManager.getPackageDetails(pluginId);
 			await pluginManager.setPluginCspDisabled(pluginId, !enabled);
 			recordAuditSafe(
@@ -343,14 +343,14 @@ class AdminService extends BaseService {
 			);
 
 			const status = await pluginAdminService.get(pluginId);
-			if (!status) throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
+			if (!status) throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
 
 			return status;
 		});
 	}
 
 	async resetPluginConfig(pluginId: string, body: ResetPluginConfigBody, context?: AdminAuditContext): Promise<PluginConfigDetails> {
-		return await this.safeExecute("resetPluginConfig", async () => {
+		return await runSafely(this, "resetPluginConfig", async () => {
 			const before = await pluginManager.getPluginConfigDetails(pluginId);
 			const after = await pluginManager.resetPluginConfig(pluginId, body.keys);
 			recordAuditSafe(
@@ -371,7 +371,7 @@ class AdminService extends BaseService {
 
 	/** The configuration an administrator can carry to another installation: every non-secret value. */
 	async exportPluginConfig(pluginId: string): Promise<PluginConfigExport> {
-		return await this.safeExecute("exportPluginConfig", async () => {
+		return await runSafely(this, "exportPluginConfig", async () => {
 			const details = await pluginManager.getPluginConfigDetails(pluginId);
 
 			return { format: "reelvault.plugin-config", formatVersion: 1, pluginId: details.id, values: details.config };
@@ -383,9 +383,9 @@ class AdminService extends BaseService {
 	 * never overwrite a stored credential; everything else goes through the normal config validation.
 	 */
 	async importPluginConfig(pluginId: string, body: PluginConfigExport, context?: AdminAuditContext): Promise<PluginConfigDetails> {
-		return await this.safeExecute("importPluginConfig", async () => {
+		return await runSafely(this, "importPluginConfig", async () => {
 			if (body.pluginId !== pluginId) {
-				throw new ValidationError("The configuration file belongs to another plugin", { code: "plugin.config_import_mismatch" });
+				throw new DomainError("validation", "The configuration file belongs to another plugin", { code: "plugin.config_import_mismatch" });
 			}
 
 			const before = await pluginManager.getPluginConfigDetails(pluginId);
@@ -430,7 +430,7 @@ class AdminService extends BaseService {
 
 	async getPlugin(pluginId: string): Promise<PluginAdminStatus> {
 		const plugin = await pluginAdminService.get(pluginId);
-		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
+		if (!plugin) throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
 
 		return plugin;
 	}
@@ -446,7 +446,7 @@ class AdminService extends BaseService {
 			reload: (id) => pluginAdminService.reload(id),
 		};
 		const plugin = await operations[action](pluginId);
-		if (!plugin) throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
+		if (!plugin) throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found" });
 
 		recordAuditSafe(
 			{
@@ -525,7 +525,7 @@ class AdminService extends BaseService {
 		context?: AdminAuditContext,
 	): Promise<MetadataProviderConfiguration> {
 		const before = (await providerService.getConfigurations()).find((provider) => provider.id === providerId);
-		if (!before) throw new NotFoundError(`Metadata provider not found: ${providerId}`, { code: "metadata.provider_not_found" });
+		if (!before) throw new DomainError("not_found", `Metadata provider not found: ${providerId}`, { code: "metadata.provider_not_found" });
 
 		const after = await providerService.updateConfiguration(providerId, values);
 		recordAuditSafe(

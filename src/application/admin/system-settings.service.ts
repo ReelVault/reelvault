@@ -21,9 +21,8 @@ import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { serverConfig } from "@/server.config";
 import { resourceAllocator } from "@/system/resource-allocator";
-import { BaseService } from "@/utils/base-service";
-import { ValidationError } from "@/utils/errors";
-import { setLogLevel } from "@/utils/logger";
+import { DomainError } from "@/utils/errors";
+import { createLogger, setLogLevel } from "@/utils/logger";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
 import { recordAuditSafe } from "./admin-audit.service";
 
@@ -41,15 +40,14 @@ interface SystemSettingItemView {
 	lastModifiedBy?: string | null;
 }
 
-class SystemSettingsService extends BaseService {
+class SystemSettingsService {
+	readonly serviceName = "SystemSettingsService";
+	readonly logger = createLogger("SystemSettingsService");
+
 	private isInitialized = false;
 	// Dedupes concurrent ensureInitialized() calls: without it two parallel requests
 	// would run repository.list() + populateCache() twice before the first init() finished.
 	private initPromise: Promise<void> | null = null;
-
-	constructor() {
-		super("SystemSettingsService");
-	}
 
 	init(): Promise<void> {
 		if (this.isInitialized) return Promise.resolve();
@@ -156,7 +154,7 @@ class SystemSettingsService extends BaseService {
 		// of silently persisting the definition default over the configured value.
 		const parsedValue = def.validate(serializeSettingValue(rawValue));
 		if (parsedValue === null) {
-			throw new ValidationError(`Invalid value for setting "${key}"`, {
+			throw new DomainError("validation", `Invalid value for setting "${key}"`, {
 				code: "admin.settings.invalid_value",
 				params: { key, ...(def.min !== undefined ? { min: def.min } : {}), ...(def.max !== undefined ? { max: def.max } : {}) },
 			});
@@ -179,28 +177,11 @@ class SystemSettingsService extends BaseService {
 		for (const [key, rawValue] of Object.entries(updates)) {
 			// A stale or misspelled key used to be dropped silently, so the admin saw "saved" for a setting that never changed.
 			if (!isSystemSettingKey(key)) {
-				throw new ValidationError(`Unknown setting "${key}"`, { code: "admin.settings.unknown_key", params: { key } });
+				throw new DomainError("validation", `Unknown setting "${key}"`, { code: "admin.settings.unknown_key", params: { key } });
 			}
 
 			const { parsedValue, finalSerialized } = this.parseAndSerialize(key, rawValue);
-
-			// A route budget override must name tunable buckets with whole numbers, or the limiter would ignore it silently.
-			if (key === "network.rateLimit.routeOverrides") {
-				const issues = rateLimitOverrideIssues(String(parsedValue));
-				if (issues.malformed.length > 0 || issues.untunable.length > 0) {
-					throw new ValidationError("Route budget overrides must be name=max pairs for tunable routes", {
-						code: "network.rate_limit_override_invalid",
-						params: { malformed: issues.malformed.join(", "), untunable: issues.untunable.join(", ") },
-					});
-				}
-			}
-
-			// Enforcement signs out accounts without an authenticator, so it stays off until an administrator has one.
-			if (key === "auth.enforceTwoFactor" && parsedValue === true && (await usersRepository.countAdministratorsWithTwoFactor()) === 0) {
-				throw new ValidationError("Two-factor enforcement needs at least one administrator with two-factor authentication enabled", {
-					code: "auth.two_factor_requires_admin",
-				});
-			}
+			await assertSettingAllowed(key, parsedValue);
 
 			// Record "before" only after successful parsing — the audit must contain real changes only.
 			beforeValues[key] = systemSettingsStore.getWithMeta(key).value;
@@ -378,6 +359,27 @@ class SystemSettingsService extends BaseService {
 	}
 }
 
+/** Per-key rules that reject a value before anything is persisted or mutated. */
+async function assertSettingAllowed(key: SystemSettingKey, parsedValue: unknown): Promise<void> {
+	// A route budget override must name tunable buckets with whole numbers, or the limiter would ignore it silently.
+	if (key === "network.rateLimit.routeOverrides") {
+		const issues = rateLimitOverrideIssues(String(parsedValue));
+		if (issues.malformed.length > 0 || issues.untunable.length > 0) {
+			throw new DomainError("validation", "Route budget overrides must be name=max pairs for tunable routes", {
+				code: "network.rate_limit_override_invalid",
+				params: { malformed: issues.malformed.join(", "), untunable: issues.untunable.join(", ") },
+			});
+		}
+	}
+
+	// Enforcement signs out accounts without an authenticator, so it stays off until an administrator has one.
+	if (key === "auth.enforceTwoFactor" && parsedValue === true && (await usersRepository.countAdministratorsWithTwoFactor()) === 0) {
+		throw new DomainError("validation", "Two-factor enforcement needs at least one administrator with two-factor authentication enabled", {
+			code: "auth.two_factor_requires_admin",
+		});
+	}
+}
+
 export const systemSettingsService = new SystemSettingsService();
 
 /**
@@ -399,7 +401,7 @@ function assertCrossFieldSettings(updates: Record<string, unknown>, afterValues:
 		const threshold = getEffectiveNumber("system.resources.memoryThresholdPercent");
 		const critical = getEffectiveNumber("system.resources.memoryCriticalPercent");
 		if (threshold >= critical) {
-			throw new ValidationError("memoryThresholdPercent must be lower than memoryCriticalPercent", {
+			throw new DomainError("validation", "memoryThresholdPercent must be lower than memoryCriticalPercent", {
 				code: "settings.memory_threshold_order",
 				params: { threshold, critical },
 			});
@@ -410,7 +412,7 @@ function assertCrossFieldSettings(updates: Record<string, unknown>, afterValues:
 		const maxSessions = getEffectiveNumber("stream.maxSessions");
 		const maxSessionsPerUser = getEffectiveNumber("stream.maxSessionsPerUser");
 		if (maxSessionsPerUser > maxSessions) {
-			throw new ValidationError("maxSessionsPerUser must not exceed maxSessions", {
+			throw new DomainError("validation", "maxSessionsPerUser must not exceed maxSessions", {
 				code: "settings.max_sessions_order",
 				params: { maxSessions, maxSessionsPerUser },
 			});

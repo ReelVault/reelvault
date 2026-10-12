@@ -1,1 +1,0 @@
-ALTER TABLE `scan_findings` ADD `ignored_at` integer;

@@ -5,7 +5,7 @@ import { printUsage, suiteArgs } from "./args";
 import { type BaselineComparison, type BaselineEntry, type BaselineFile, compareWithBaseline, type Verdict } from "./baseline";
 import { compareVariants, printAbResult } from "./compare";
 import { benchmark, benchmarkAsync, type MicroBenchmarkResult, printMicroResults } from "./harness";
-import { cleanupFixtures, collectUnits, markCollection, type Unit } from "./registry";
+import { type BenchUnit, type CompareUnit, cleanupFixtures, collectUnits, markCollection, type TaskUnit, type Unit } from "./registry";
 import { printTable } from "./report";
 import { summarizeLatencies } from "./stats";
 
@@ -85,55 +85,75 @@ async function executeUnits(
 
 		if (unit.kind === "bench") {
 			pendingGroup = unit.group;
-			// One extra warmup probe doubles as the sync/async detector.
-			const probe = unit.fn({ iteration: 0 });
-			const entry = isThenable(probe)
-				? await benchmarkAsync(unit.name, (iteration) => Promise.resolve(unit.fn({ iteration })), unit.options)
-				: benchmark(unit.name, (iteration) => unit.fn({ iteration }), unit.options);
-			json.push({
-				kind: "bench",
-				name: entry.name,
-				...(unit.group.length > 0 ? { group: unit.group } : {}),
-				stats: summarizeLatencies(entry.timesMs),
-				...(entry.rows !== undefined ? { rows: entry.rows } : {}),
-			});
-			baselineOut?.push({
-				kind: "bench",
-				file: fileStem,
-				name: entry.name,
-				samples: entry.timesMs,
-				p50Ms: summarizeLatencies(entry.timesMs).p50Ms,
-			});
-			pending.push(entry);
+			pending.push(await runBenchUnit(unit, json, baselineOut, fileStem));
 		} else if (unit.kind === "compare") {
-			const outcome = compareVariants(unit.name, unit.variants, { ...unit.options, equal: unit.equal });
-			printAbResult(outcome.result, outcome.equalOk);
-			if (!outcome.equalOk) strictFailures++;
-
-			const compareJson: CompareJson = {
-				kind: "compare",
-				name: outcome.result.name,
-				winner: outcome.result.winner,
-				equalOk: outcome.equalOk,
-				rows: outcome.result.rows,
-			};
-			json.push(compareJson);
-		} else {
-			const outcome = asTaskOutcome(await unit.fn());
-			const taskJson: TaskJson = { kind: "task", name: unit.name, ok: outcome.ok };
-			if (outcome.data !== undefined) taskJson.data = outcome.data;
-
-			json.push(taskJson);
-			if (!outcome.ok) {
-				strictFailures++;
-				console.warn(`[benchkit] task "${unit.name}" reported failure`);
-			}
+			if (!runCompareUnit(unit, json)) strictFailures++;
+		} else if (!(await runTaskUnit(unit, json))) {
+			strictFailures++;
 		}
 	}
 
 	flush();
 
 	return { strictFailures };
+}
+
+async function runBenchUnit(
+	unit: BenchUnit,
+	json: UnitJson[],
+	baselineOut: BaselineEntry[] | undefined,
+	fileStem: string,
+): Promise<MicroBenchmarkResult> {
+	// One extra warmup probe doubles as the sync/async detector.
+	const probe = unit.fn({ iteration: 0 });
+	const entry = isThenable(probe)
+		? await benchmarkAsync(unit.name, (iteration) => Promise.resolve(unit.fn({ iteration })), unit.options)
+		: benchmark(unit.name, (iteration) => unit.fn({ iteration }), unit.options);
+	json.push({
+		kind: "bench",
+		name: entry.name,
+		...(unit.group.length > 0 ? { group: unit.group } : {}),
+		stats: summarizeLatencies(entry.timesMs),
+		...(entry.rows !== undefined ? { rows: entry.rows } : {}),
+	});
+	baselineOut?.push({
+		kind: "bench",
+		file: fileStem,
+		name: entry.name,
+		samples: entry.timesMs,
+		p50Ms: summarizeLatencies(entry.timesMs).p50Ms,
+	});
+
+	return entry;
+}
+
+/** Returns whether the A/B comparison passed its equality check. */
+function runCompareUnit(unit: CompareUnit, json: UnitJson[]): boolean {
+	const outcome = compareVariants(unit.name, unit.variants, { ...unit.options, equal: unit.equal });
+	printAbResult(outcome.result, outcome.equalOk);
+
+	const compareJson: CompareJson = {
+		kind: "compare",
+		name: outcome.result.name,
+		winner: outcome.result.winner,
+		equalOk: outcome.equalOk,
+		rows: outcome.result.rows,
+	};
+	json.push(compareJson);
+
+	return outcome.equalOk;
+}
+
+/** Returns whether the task reported success. */
+async function runTaskUnit(unit: TaskUnit, json: UnitJson[]): Promise<boolean> {
+	const outcome = asTaskOutcome(await unit.fn());
+	const taskJson: TaskJson = { kind: "task", name: unit.name, ok: outcome.ok };
+	if (outcome.data !== undefined) taskJson.data = outcome.data;
+
+	json.push(taskJson);
+	if (!outcome.ok) console.warn(`[benchkit] task "${unit.name}" reported failure`);
+
+	return outcome.ok;
 }
 
 export interface DiscoveryOptions {

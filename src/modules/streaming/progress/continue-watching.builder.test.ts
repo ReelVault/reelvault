@@ -90,7 +90,9 @@ describe("continue watching builder", () => {
 
 		expect(items).toEqual([]);
 	});
+});
 
+describe("continue watching builder", () => {
 	test("continues the most recently active episode of a show", () => {
 		const items = buildContinueWatching(
 			createData({
@@ -159,7 +161,9 @@ describe("continue watching builder", () => {
 			audioStreamIndex: 1,
 		});
 	});
+});
 
+describe("continue watching builder", () => {
 	test("recommends the next episode when the active one is completed", () => {
 		const items = buildContinueWatching(
 			createData({
@@ -245,7 +249,9 @@ describe("continue watching builder", () => {
 
 		expect(items.map((item) => item.metadata.id)).toEqual(["meta-3", "meta-2"]);
 	});
+});
 
+describe("continue watching builder", () => {
 	test("applies the minimum position threshold to movie candidates", () => {
 		const progressRows = [
 			{

@@ -108,7 +108,9 @@ describe("session selection resolver", () => {
 		expect(selection.subtitle?.id).toBe("sub-2");
 		expect(selection.playbackPreferences.subtitlesEnabled).toBe(true);
 	});
+});
 
+describe("session selection resolver", () => {
 	test("an active title reopens on its remembered audio track", () => {
 		const selection = resolveSessionSelection(
 			createInput({
@@ -195,7 +197,9 @@ describe("session selection resolver", () => {
 
 		expect(selection.audioStream?.language).toBe("eng");
 	});
+});
 
+describe("session selection resolver", () => {
 	test("disabled subtitles yield no subtitle", () => {
 		const selection = resolveSessionSelection(
 			createInput({

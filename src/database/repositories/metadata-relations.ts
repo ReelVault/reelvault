@@ -70,32 +70,16 @@ function emptyRelationData(): MetadataRelationData {
 	};
 }
 
-export async function loadRelations<F extends string>(
+type RelationClient = ReturnType<typeof databaseFactory.getClient>;
+
+/** Loads every relation the fields ask for in parallel; the others resolve to nothing. */
+function loadRelationRows<F extends string>(
+	client: RelationClient,
 	metadataIds: string[],
-	tx?: DatabaseTransaction,
-	fields?: FieldsConfig<F>,
-	isDetailPage = false,
-): Promise<Map<string, MetadataRelationData>> {
-	const relationsByMetadataId = new Map<string, MetadataRelationData>();
-	if (metadataIds.length === 0) return relationsByMetadataId;
-
-	// Recurse on chunk boundaries so each relation query stays within SQLite's
-	// bound-variable limit. Each metadata id lands in exactly one chunk, so the
-	// merged map is identical to a single unbounded load.
-	if (metadataIds.length > serverConstants.database.queryChunkSize) {
-		for (const idsChunk of chunk(metadataIds, serverConstants.database.queryChunkSize)) {
-			for (const [id, data] of await loadRelations(idsChunk, tx, fields, isDetailPage)) {
-				relationsByMetadataId.set(id, data);
-			}
-		}
-
-		return relationsByMetadataId;
-	}
-
-	const client = databaseFactory.getClient({ tx });
-	const includes = (rel: string) => shouldLoadRelation(fields, rel, isDetailPage);
-
-	const [collections, companies, genres, keywords, cast, crew, images, ratings, providers, lockedFields] = await Promise.all([
+	fields: FieldsConfig<F> | undefined,
+	includes: (rel: string) => boolean,
+) {
+	return Promise.all([
 		loadIf(includes("collections"), async () =>
 			loadNamedRelation(client, metadataIds, {
 				metadataId: schema.metadataCollections.metadataId,
@@ -193,6 +177,39 @@ export async function loadRelations<F extends string>(
 				.where(inArray(schema.metadataLockedFields.metadataId, metadataIds)),
 		),
 	]);
+}
+
+export async function loadRelations<F extends string>(
+	metadataIds: string[],
+	tx?: DatabaseTransaction,
+	fields?: FieldsConfig<F>,
+	isDetailPage = false,
+): Promise<Map<string, MetadataRelationData>> {
+	const relationsByMetadataId = new Map<string, MetadataRelationData>();
+	if (metadataIds.length === 0) return relationsByMetadataId;
+
+	// Recurse on chunk boundaries so each relation query stays within SQLite's
+	// bound-variable limit. Each metadata id lands in exactly one chunk, so the
+	// merged map is identical to a single unbounded load.
+	if (metadataIds.length > serverConstants.database.queryChunkSize) {
+		for (const idsChunk of chunk(metadataIds, serverConstants.database.queryChunkSize)) {
+			for (const [id, data] of await loadRelations(idsChunk, tx, fields, isDetailPage)) {
+				relationsByMetadataId.set(id, data);
+			}
+		}
+
+		return relationsByMetadataId;
+	}
+
+	const client = databaseFactory.getClient({ tx });
+	const includes = (rel: string) => shouldLoadRelation(fields, rel, isDetailPage);
+
+	const [collections, companies, genres, keywords, cast, crew, images, ratings, providers, lockedFields] = await loadRelationRows(
+		client,
+		metadataIds,
+		fields,
+		includes,
+	);
 
 	for (const metadataId of metadataIds) {
 		relationsByMetadataId.set(metadataId, emptyRelationData());

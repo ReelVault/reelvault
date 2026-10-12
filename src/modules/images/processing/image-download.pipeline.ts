@@ -3,12 +3,12 @@ import type { ImageOwnerTarget, PersistedImageInput } from "@/database/repositor
 import { getImageMetadata, type OptimizedImageResult, optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
 import { createHash } from "@/utils/crypto.utils";
 import { DirUtils } from "@/utils/directory.utils";
-import { errorMessage, InternalError, ValidationError } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/errors";
 import { createTempPath, FileUtils } from "@/utils/file.utils";
 import { createImageStableKey, createImageStoragePath } from "@/utils/image-storage.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { getContentType } from "./content-types";
@@ -43,11 +43,13 @@ const defaultDependencies: ServiceDependencies = {
 	imagesRoot: () => serverConfig.paths.images,
 };
 
-export class ImageDownloadPipeline extends BaseService {
+export class ImageDownloadPipeline {
+	readonly serviceName = "ImageDownloadPipeline";
+	readonly logger = createLogger("ImageDownloadPipeline");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("ImageDownloadPipeline");
 		this.dependencies = dependencies;
 	}
 
@@ -103,7 +105,7 @@ export class ImageDownloadPipeline extends BaseService {
 		try {
 			await this.dependencies.renameFile(localPath, stablePath);
 		} catch (error) {
-			throw new InternalError(`Cannot move image to stable path: ${stablePath}`, { cause: error, code: "images.save_failed" });
+			throw new DomainError("internal", `Cannot move image to stable path: ${stablePath}`, { cause: error, code: "images.save_failed" });
 		}
 
 		return stablePath;
@@ -148,7 +150,7 @@ export class ImageDownloadPipeline extends BaseService {
 			},
 		});
 		if (!downloaded)
-			throw new ValidationError(`Cannot download a valid image from ${url}${downloadError ? `: ${downloadError}` : ""}`, {
+			throw new DomainError("validation", `Cannot download a valid image from ${url}${downloadError ? `: ${downloadError}` : ""}`, {
 				code: "images.download_failed",
 			});
 	}
@@ -156,7 +158,7 @@ export class ImageDownloadPipeline extends BaseService {
 	/** Rejects an empty detected format, then checks the format against the content-type allowlist. */
 	private async assertRecognizedImage(imagePath: string, emptyFormatMessage: string): Promise<void> {
 		const metadata = await this.dependencies.getImageMetadata(imagePath);
-		if (metadata.format === "") throw new ValidationError(emptyFormatMessage, { code: "images.format_unrecognized" });
+		if (metadata.format === "") throw new DomainError("validation", emptyFormatMessage, { code: "images.format_unrecognized" });
 
 		getContentType(metadata.format);
 	}
@@ -181,7 +183,7 @@ export class ImageDownloadPipeline extends BaseService {
 			throwIfAborted(signal);
 			const { data, info } = await this.dependencies.optimizeImageWithInfo(sourcePath, this.dependencies.resolveVariant(variant), signal);
 			if (!(await this.dependencies.writeFile(optimizedPath, data)))
-				throw new InternalError(`Cannot write optimized image: ${localPath}`, { code: "image.write_failed" });
+				throw new DomainError("internal", `Cannot write optimized image: ${localPath}`, { code: "image.write_failed" });
 
 			await this.dependencies.renameFile(optimizedPath, localPath);
 

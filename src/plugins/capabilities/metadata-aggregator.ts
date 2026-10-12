@@ -1,5 +1,5 @@
 import type { ProviderMetadataResult, ProviderRating } from "@reelvault/sdk/plugin";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { isValidRating } from "@/utils/math.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 
@@ -32,7 +32,7 @@ export interface AggregatedMetadata {
  */
 export function mergeProviderMetadata(contributions: readonly ProviderContribution[]): AggregatedMetadata {
 	const primary = contributions[0];
-	if (!primary) throw new ValidationError("Cannot merge zero provider contributions", { code: "zero_provider_contributions" });
+	if (!primary) throw new DomainError("validation", "Cannot merge zero provider contributions", { code: "zero_provider_contributions" });
 
 	const metadata: ProviderMetadataResult = {
 		...primary.metadata,

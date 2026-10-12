@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { NotFoundError } from "@/utils/errors";
 import type { OptimizedImage } from "./image-optimization.service";
 import { ImagesService } from "./images.service";
 
@@ -54,7 +53,7 @@ describe("ImagesService", () => {
 	test("getById throws NotFoundError when the row is missing", async () => {
 		const { service } = createService();
 
-		await expect(service.getById("missing")).rejects.toThrow(NotFoundError);
+		await expect(service.getById("missing")).rejects.toMatchObject({ category: "not_found" });
 	});
 
 	test("getById throws NotFoundError when the file is gone from disk", async () => {
@@ -94,7 +93,7 @@ describe("ImagesService", () => {
 	test("delete throws NotFoundError when the row is missing and keeps files untouched", async () => {
 		const { service, spies } = createService();
 
-		await expect(service.delete("missing")).rejects.toThrow(NotFoundError);
+		await expect(service.delete("missing")).rejects.toMatchObject({ category: "not_found" });
 		expect(spies.deletedFiles).toEqual([]);
 	});
 });

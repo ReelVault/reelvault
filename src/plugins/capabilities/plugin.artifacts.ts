@@ -1,18 +1,17 @@
 import type { PlaybackArtifact, PlaybackArtifactWrite } from "@reelvault/sdk/common";
 import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 
 /**
  * Plugin-facing facade over the shared media-artifacts store. Core generators
  * (trickplay) write to the same store with their own budget; only this boundary
  * applies the per-plugin quota (`plugins.artifacts.maxTotalBytesPerPlugin`).
  */
-class PluginArtifactsService extends BaseService {
-	constructor() {
-		super("PluginArtifactsService");
-	}
+class PluginArtifactsService {
+	readonly serviceName = "PluginArtifactsService";
+	readonly logger = createLogger("PluginArtifactsService");
 
 	list(mediaFileId: string): Promise<PlaybackArtifact[]> {
 		return mediaArtifactsService.list(mediaFileId);
@@ -36,7 +35,8 @@ class PluginArtifactsService extends BaseService {
 	private assertWithinPluginQuota(pluginId: string, totalBytes: number): void {
 		const maxTotalBytes = serverConfig.plugins.artifacts.maxTotalBytesPerPlugin;
 		if (totalBytes > maxTotalBytes) {
-			throw new ValidationError(
+			throw new DomainError(
+				"validation",
 				`Plugin '${pluginId}' artifact storage must not exceed ${(maxTotalBytes / 1024 / 1024).toFixed(0)} MB (${maxTotalBytes} bytes).`,
 				{ code: "plugin.artifact.quota_exceeded" },
 			);

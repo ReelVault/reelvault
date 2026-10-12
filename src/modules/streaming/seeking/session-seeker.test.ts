@@ -27,16 +27,12 @@ describe("session seeker", () => {
 		const seeker = new SessionSeeker(store, 1, () => Promise.resolve(0));
 
 		expect(
-			seeker.seekTo(
-				"missing",
-				10,
-				decision,
-				4,
-				async () => null,
-				() => {
+			seeker.seekTo("missing", 10, decision, 4, {
+				getBufferedSeekStart: async () => null,
+				keepAlive: () => {
 					/* intentionally empty */
 				},
-			),
+			}),
 		).rejects.toThrow("Session not found");
 	});
 
@@ -46,14 +42,10 @@ describe("session seeker", () => {
 		const seeker = new SessionSeeker(store, 1, () => Promise.reject(new Error("executor must not run")));
 		const keepAliveIds: string[] = [];
 
-		const result = await seeker.seekTo(
-			"s1",
-			20,
-			decision,
-			4,
-			async () => 16,
-			(id) => keepAliveIds.push(id),
-		);
+		const result = await seeker.seekTo("s1", 20, decision, 4, {
+			getBufferedSeekStart: async () => 16,
+			keepAlive: (id) => keepAliveIds.push(id),
+		});
 
 		expect(result).toEqual({ startTime: 30, reusedBuffer: true });
 		expect(keepAliveIds).toEqual(["s1"]);
@@ -69,16 +61,12 @@ describe("session seeker", () => {
 			return Promise.resolve(offset);
 		});
 
-		const result = await seeker.seekTo(
-			"s1",
-			123.7,
-			decision,
-			4,
-			async () => null,
-			() => {
+		const result = await seeker.seekTo("s1", 123.7, decision, 4, {
+			getBufferedSeekStart: async () => null,
+			keepAlive: () => {
 				/* intentionally empty */
 			},
-		);
+		});
 
 		expect(result.startTime).toBe(120);
 		expect(executed).toEqual([{ sessionId: "s1", offset: 120 }]);
@@ -89,16 +77,12 @@ describe("session seeker", () => {
 		registeredSession(store, "s1", 0);
 		const seeker = new SessionSeeker(store, 1, (_sessionId, offset) => Promise.resolve(offset));
 
-		const result = await seeker.seekTo(
-			"s1",
-			-50,
-			decision,
-			4,
-			async () => null,
-			() => {
+		const result = await seeker.seekTo("s1", -50, decision, 4, {
+			getBufferedSeekStart: async () => null,
+			keepAlive: () => {
 				/* intentionally empty */
 			},
-		);
+		});
 
 		expect(result.startTime).toBe(0);
 	});

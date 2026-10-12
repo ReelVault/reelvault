@@ -58,7 +58,9 @@ describe("metadata rating projections", () => {
 		const count = await metadataRepository.deleteOrphansByIds([]);
 		expect(count).toBe(0);
 	});
+});
 
+describe("metadata rating projections", () => {
 	test("deleteOrphansByIds skips rows that gained a media file and reports actual changes", async () => {
 		const { mkdtempSync, rmSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");
@@ -133,7 +135,9 @@ describe("metadata rating projections", () => {
 			rmSync(tempDir, { recursive: true, force: true });
 		}
 	});
+});
 
+describe("metadata rating projections", () => {
 	test("getMoreLikeThis loads the source traits itself and keeps only titles sharing one", async () => {
 		const { mkdtempSync, rmSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");

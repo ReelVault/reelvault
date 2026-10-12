@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { profilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
-import { ForbiddenError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { profilesService } from "./profiles.service";
 
@@ -14,7 +14,7 @@ test("copying preferences needs both profiles to belong to the caller, then copi
 	const assertOwned = stubMethod(profilesService, "assertOwnedProfile", (profileId: string) =>
 		owned.has(profileId)
 			? Promise.resolve()
-			: Promise.reject(new ForbiddenError("Profile belongs to another account", { code: "profile.forbidden" })),
+			: Promise.reject(new DomainError("forbidden", "Profile belongs to another account", { code: "profile.forbidden" })),
 	);
 	const copy = stubMethod(profilePreferencesRepository, "copyFrom", () => Promise.resolve({ profileId: "mine-1" }));
 	stubs.push(assertOwned, copy);

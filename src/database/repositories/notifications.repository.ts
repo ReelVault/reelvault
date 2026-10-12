@@ -1,9 +1,9 @@
-import { and, count, desc, eq, gte, inArray, isNotNull, isNull, notInArray, or, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, notInArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess, forEachChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 const notifications = defineTableAccess("notifications", {
 	primaryKeyColumn: "id",
@@ -75,7 +75,7 @@ const setBatchReadState = async (ids: string[], where: SQL | undefined, read: bo
 const overrides = {
 	async create(values: typeof schema.notifications.$inferInsert, tx?: DatabaseTransaction): Promise<string> {
 		const [notification] = await notifications.insertReturning({ values, tx });
-		if (!notification) throw new InternalError("Notification was not created", { code: "notifications.create_failed" });
+		if (!notification) throw new DomainError("internal", "Notification was not created", { code: "notifications.create_failed" });
 
 		return notification.id;
 	},
@@ -127,8 +127,8 @@ const overrides = {
 
 		const where = and(...conditions);
 		const client = databaseFactory.getClient();
-		const [countRows, rows] = await Promise.all([
-			client.select({ count: count() }).from(schema.notifications).where(where),
+		const [total, rows] = await Promise.all([
+			client.$count(schema.notifications, where),
 			client
 				.select()
 				.from(schema.notifications)
@@ -139,29 +139,21 @@ const overrides = {
 				.offset(offset),
 		]);
 
-		return { data: rows, total: countRows[0]?.count ?? 0 };
+		return { data: rows, total };
 	},
 
 	async countUnread(userId: string, profileId?: string, excludedTypes: readonly string[] = []): Promise<number> {
 		const recipient = recipientWhere(userId, profileId);
-		const [result] = await databaseFactory
+		return await databaseFactory
 			.getClient()
-			.select({ count: count() })
-			.from(notifications.table)
-			.where(and(recipient, isNull(notifications.table.readAt), excludedTypesWhere(excludedTypes)));
-
-		return result?.count ?? 0;
+			.$count(notifications.table, and(recipient, isNull(notifications.table.readAt), excludedTypesWhere(excludedTypes)));
 	},
 
 	/** Daily-quota check for plugin notifications — notifications created by `pluginId` since `since`. */
 	async countCreatedByPluginSince(pluginId: string, since: Date): Promise<number> {
-		const [result] = await databaseFactory
+		return await databaseFactory
 			.getClient()
-			.select({ count: count() })
-			.from(notifications.table)
-			.where(and(eq(notifications.table.sourcePluginId, pluginId), gte(notifications.table.createdAt, since)));
-
-		return result?.count ?? 0;
+			.$count(notifications.table, and(eq(notifications.table.sourcePluginId, pluginId), gte(notifications.table.createdAt, since)));
 	},
 
 	/** De-duplication for system notifications carrying `version`/`component` inside their data payload. */

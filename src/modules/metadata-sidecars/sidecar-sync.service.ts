@@ -2,9 +2,10 @@ import { librariesRepository } from "@/database/repositories/libraries.repositor
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { groupBy } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
 import { errorMessage } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { detach, PromiseUtils } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { SidecarMetadataStorageService } from "./sidecar-metadata-storage.service";
 import { sidecarMetadataWriter } from "./sidecar-metadata-writer.runtime";
 
@@ -17,17 +18,16 @@ import { sidecarMetadataWriter } from "./sidecar-metadata-writer.runtime";
  * which is what makes its internal `savedSeries`/`savedSeasons` dedup apply —
  * the ingest path called it per file and lost the cross-file dedup.
  */
-class SidecarSyncService extends BaseService {
+class SidecarSyncService {
+	readonly serviceName = "SidecarSyncService";
+	readonly logger = createLogger("SidecarSyncService");
+
 	private readonly storage = new SidecarMetadataStorageService(sidecarMetadataWriter);
 	/** In-flight sync per metadataId — a second request schedules one re-run instead of a parallel write. */
 	private readonly inFlight = new Map<string, Promise<void>>();
 	private readonly rerunRequested = new Set<string>();
 	/** Bounds how many titles rewrite sidecars at once during a catalog-wide refresh. */
 	private readonly semaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getIoConcurrency());
-
-	constructor() {
-		super("SidecarSyncService");
-	}
 
 	/**
 	 * Queues a sidecar rewrite for one title. Concurrent requests for the same
@@ -60,7 +60,7 @@ class SidecarSyncService extends BaseService {
 	}
 
 	async syncForMetadata(metadataId: string): Promise<void> {
-		await this.safeExecute("syncForMetadata", async () => {
+		await runSafely(this, "syncForMetadata", async () => {
 			const mediaFiles = await mediaRepository.findRootsByMetadataId(metadataId);
 			if (mediaFiles.length === 0) return;
 

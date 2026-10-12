@@ -5,9 +5,11 @@ import { metadataRepository } from "@/database/repositories/metadata.repository"
 import { MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { groupBy, isNotNullish, toMap, unique } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
+import { assertProfileId } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { MemoryCache } from "@/utils/memory-cache";
+import { runSafely } from "@/utils/safe-execute";
 import {
 	applyDiversityFilter,
 	buildRelationScores,
@@ -67,19 +69,18 @@ function buildSeedWeights(
 	return seedWeights;
 }
 
-class DiscoverService extends BaseService {
+class DiscoverService {
+	readonly serviceName = "DiscoverService";
+	readonly logger = createLogger("DiscoverService");
+
 	private readonly cache = new MemoryCache<DiscoverResponse>({
 		ttlMs: MINUTE,
 		maxSize: systemResourcesService.getRamScaledCacheEntries(12, 25, 100),
 		name: "discover",
 	});
 
-	constructor() {
-		super("DiscoverService");
-	}
-
 	async getDiscoverView(query: { limit?: number }, profileId?: string): Promise<DiscoverResponse> {
-		this.assertProfileId(profileId);
+		assertProfileId(profileId);
 		const limit = clamp(query.limit ?? 10, 1, 50);
 
 		const full = await this.cache.getOrSet(profileId, () => this.buildDiscoverView(profileId));
@@ -141,7 +142,7 @@ class DiscoverService extends BaseService {
 	}
 
 	private async getRecommendations(profileId: string, limit: number): Promise<string[]> {
-		return await this.safeExecute("getRecommendations", async () => {
+		return await runSafely(this, "getRecommendations", async () => {
 			const [{ watched, ratings, watchlist, catalog }, progressSignals] = await Promise.all([
 				discoverRepository.findRecommendationCandidates(profileId),
 				discoverRepository.findPlaybackCompletionSignals(profileId),
@@ -203,13 +204,13 @@ class DiscoverService extends BaseService {
 			const scored = unconsumedCandidates.map((item) => ({
 				item,
 				score: scoreCandidate(
-					genresByMetadata.get(item.id) ?? [],
-					keywordsByMetadata.get(item.id) ?? [],
-					castByMetadata.get(item.id) ?? [],
+					{
+						genreIds: genresByMetadata.get(item.id) ?? [],
+						keywordIds: keywordsByMetadata.get(item.id) ?? [],
+						castIds: castByMetadata.get(item.id) ?? [],
+					},
 					item.popularity,
-					genreScores,
-					keywordScores,
-					castScores,
+					{ genre: genreScores, keyword: keywordScores, cast: castScores },
 				),
 			}));
 			scored.sort((a, b) => b.score - a.score || b.item.popularity - a.item.popularity);

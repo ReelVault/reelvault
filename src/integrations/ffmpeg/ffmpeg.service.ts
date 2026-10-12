@@ -2,7 +2,7 @@ import { spawn, which } from "bun";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { serverConfig } from "@/server.config";
-import { RequestTimeoutError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { detach } from "@/utils/promise.utils";
 import { killFfmpegProcessGracefully } from "./ffmpeg.process";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
@@ -109,7 +109,7 @@ class FFmpegService {
 			if (signal?.aborted) throw signal.reason ?? new Error("FFmpeg execution was cancelled");
 
 			if (timeoutState.timedOut && timeoutMs !== undefined) {
-				throw new RequestTimeoutError(`FFmpeg execution timed out after ${timeoutMs}ms`, { code: "ffmpeg.timeout" });
+				throw new DomainError("timeout", `FFmpeg execution timed out after ${timeoutMs}ms`, { code: "ffmpeg.timeout" });
 			}
 
 			return { exitCode, stdout, stderr };

@@ -1,4 +1,4 @@
-import { count, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 
@@ -51,12 +51,12 @@ export class UpdateHistoryRepository {
 	/** Newest runs first; the total counts every run, not just the page. */
 	async findPage({ limit, offset }: { limit: number; offset: number }) {
 		const client = this.database.getClient();
-		const [[totalRow], data] = await Promise.all([
-			client.select({ total: count() }).from(this.table),
+		const [total, data] = await Promise.all([
+			client.$count(this.table),
 			client.select().from(this.table).orderBy(desc(this.table.startedAt), desc(this.table.id)).limit(limit).offset(offset),
 		]);
 
-		return { total: totalRow?.total ?? 0, data };
+		return { total, data };
 	}
 }
 

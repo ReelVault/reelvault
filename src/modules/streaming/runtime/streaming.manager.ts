@@ -6,7 +6,7 @@ import {
 	type ToneMappingMethod,
 } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { serverConfig } from "@/server.config";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { serializeDate } from "@/utils/time.utils";
@@ -53,6 +53,15 @@ interface StreamEnvironment {
  * entity for the whole viewing: seek/quality changes restart the FFmpeg
  * process inside it (`generation` bumps) and never recreate the session.
  */
+interface ManagerStartInput {
+	sessionId: string;
+	inputPath: string;
+	decision: PlaybackDecision;
+	startTime?: number | undefined;
+	operationId?: string | undefined;
+	timelineStart?: number | undefined;
+}
+
 class StreamingManager {
 	private readonly logger = createLogger(this.constructor.name);
 	private readonly store = new SessionStore();
@@ -88,16 +97,16 @@ class StreamingManager {
 			(id, file) => this.getFilePath(id, file),
 			config.hlsSegmentDuration,
 		);
-		this.reaper = new SessionReaper(
-			this.store,
-			this.reservations,
-			this.processManager,
-			playlistFileCache,
-			this.seeker,
-			this.playlistWaiter,
-			this.softwareFallbackSessions,
-			implicitSeekCoordinator,
-		);
+		this.reaper = new SessionReaper({
+			store: this.store,
+			reservations: this.reservations,
+			processManager: this.processManager,
+			playlistFiles: playlistFileCache,
+			seeker: this.seeker,
+			playlistWaiter: this.playlistWaiter,
+			softwareFallbackSessions: this.softwareFallbackSessions,
+			implicitSeek: implicitSeekCoordinator,
+		});
 
 		this.reaper.startInactivityTimer(
 			{
@@ -113,21 +122,22 @@ class StreamingManager {
 		this.lifecycleCallbacks = callbacks;
 	}
 
-	async startSession(
-		sessionId: string,
-		inputPath: string,
-		decision: PlaybackDecision,
+	async startSession({
+		sessionId,
+		inputPath,
+		decision,
 		startTime = 0,
-		operationId?: string,
+		operationId,
 		timelineStart = startTime,
-	): Promise<void> {
+	}: ManagerStartInput): Promise<void> {
 		const session = this.store.get(sessionId);
-		if (!session) throw new NotFoundError(`Session access was not registered: ${sessionId}`, { code: "stream.session_not_found" });
+		if (!session)
+			throw new DomainError("not_found", `Session access was not registered: ${sessionId}`, { code: "stream.session_not_found" });
 
 		const generationBefore = session.generation;
 
 		try {
-			await this.processManager.startSession(sessionId, session, inputPath, decision, startTime, timelineStart, operationId);
+			await this.processManager.startSession({ sessionId, session, inputPath, decision, startTime, timelineStart, operationId });
 			// The process is alive: keep the streaming-session operation open with a
 			// live encode percent instead of letting it complete with stream-init.
 			await transcodeProgressMonitor.onProcessAttached(sessionId);
@@ -145,14 +155,10 @@ class StreamingManager {
 	}
 
 	seekTo(sessionId: string, offset: number, decision: PlaybackDecision): Promise<{ startTime: number; reusedBuffer: boolean }> {
-		return this.seeker.seekTo(
-			sessionId,
-			offset,
-			decision,
-			this.config.hlsSegmentDuration,
-			(id, pos) => this.bufferedSeekStart(id, pos),
-			(id) => this.keepAlive(id),
-		);
+		return this.seeker.seekTo(sessionId, offset, decision, this.config.hlsSegmentDuration, {
+			getBufferedSeekStart: (id, pos) => this.bufferedSeekStart(id, pos),
+			keepAlive: (id) => this.keepAlive(id),
+		});
 	}
 
 	isSessionSeeking(sessionId: string): boolean {
@@ -218,7 +224,8 @@ class StreamingManager {
 						session,
 						this.softwareFallbackSessions,
 						(id) => this.prepareSession(id),
-						(id, path, dec, startTime, opId) => this.startSession(id, path, dec, startTime, opId),
+						(id, path, dec, startTime, opId) =>
+							this.startSession({ sessionId: id, inputPath: path, decision: dec, startTime, operationId: opId }),
 					),
 				),
 			signal,
@@ -431,7 +438,8 @@ class StreamingManager {
 	 */
 	private async doSeek(sessionId: string, offset: number, decision: PlaybackDecision): Promise<number | undefined> {
 		const session = this.store.get(sessionId);
-		if (session?.state !== "active") throw new NotFoundError(`Session not found: ${sessionId}`, { code: "stream.session_not_found" });
+		if (session?.state !== "active")
+			throw new DomainError("not_found", `Session not found: ${sessionId}`, { code: "stream.session_not_found" });
 
 		this.logger.debug("Seeking session", { sessionId, offset, mode: decision.mode });
 		const generation = session.generation;
@@ -441,7 +449,7 @@ class StreamingManager {
 		// Release claimed while the old process was being stopped — do not restart.
 		const afterPrepare = this.store.get(sessionId);
 		if (afterPrepare?.state !== "active" || afterPrepare.generation !== generation) {
-			throw new NotFoundError(`Session released during seek: ${sessionId}`, { code: "stream.session_released" });
+			throw new DomainError("not_found", `Session released during seek: ${sessionId}`, { code: "stream.session_released" });
 		}
 
 		const timelineStart = await resolveSeekTimelineStart(decision.mode, session.inputPath, offset);
@@ -449,10 +457,17 @@ class StreamingManager {
 		// Same check after the keyframe probe await — the release can win there too.
 		const beforeStart = this.store.get(sessionId);
 		if (beforeStart?.state !== "active" || beforeStart.generation !== generation) {
-			throw new NotFoundError(`Session released during seek: ${sessionId}`, { code: "stream.session_released" });
+			throw new DomainError("not_found", `Session released during seek: ${sessionId}`, { code: "stream.session_released" });
 		}
 
-		await this.startSession(sessionId, session.inputPath, decision, offset, session.operationId, timelineStart);
+		await this.startSession({
+			sessionId,
+			inputPath: session.inputPath,
+			decision,
+			startTime: offset,
+			operationId: session.operationId,
+			timelineStart,
+		});
 
 		return timelineStart;
 	}

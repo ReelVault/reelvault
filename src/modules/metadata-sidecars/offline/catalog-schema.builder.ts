@@ -2,8 +2,8 @@ import type { Database } from "bun:sqlite";
 import { readdir } from "node:fs/promises";
 import { MIGRATIONS_DIR } from "@/database/database";
 import { trimAndFilter } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
 import { FileUtils, readFile } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 
 interface ServiceDependencies {
@@ -31,11 +31,13 @@ const defaultDependencies: ServiceDependencies = {
  * Replays the raw migration SQL into a fresh database, so the offline catalog
  * matches the schema the running server would migrate to.
  */
-export class CatalogSchemaBuilder extends BaseService {
+export class CatalogSchemaBuilder {
+	readonly serviceName = "CatalogSchemaBuilder";
+	readonly logger = createLogger("CatalogSchemaBuilder");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("CatalogSchemaBuilder");
 		this.dependencies = dependencies;
 	}
 

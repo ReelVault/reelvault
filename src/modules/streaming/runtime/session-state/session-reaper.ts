@@ -14,6 +14,17 @@ import { transcodeProgressMonitor } from "../transcode-progress.monitor";
 import type { SessionReservationTracker } from "./session-reservation.tracker";
 import { RESERVATION_DEADLINE_MS, type SessionStore } from "./session-store";
 
+interface SessionReaperDeps {
+	store: SessionStore;
+	reservations: SessionReservationTracker;
+	processManager: Pick<ProcessManager, "removeTempDirectory">;
+	playlistFiles: Pick<PlaylistFileCache, "invalidate" | "clear">;
+	seeker: SessionSeeker;
+	playlistWaiter: { invalidate(id: string): void; clear(): void };
+	softwareFallbackSessions: Set<string>;
+	implicitSeek: { invalidate(id: string): void };
+}
+
 export class SessionReaper {
 	private readonly logger = createLogger(this.constructor.name);
 	private cleanupTimer: Timer | null = null;
@@ -26,24 +37,15 @@ export class SessionReaper {
 	private readonly implicitSeek: { invalidate(id: string): void };
 	private readonly softwareFallbackSessions: Set<string>;
 
-	constructor(
-		store: SessionStore,
-		reservations: SessionReservationTracker,
-		processManager: Pick<ProcessManager, "removeTempDirectory">,
-		playlistFiles: Pick<PlaylistFileCache, "invalidate" | "clear">,
-		seeker: SessionSeeker,
-		playlistWaiter: { invalidate(id: string): void; clear(): void },
-		softwareFallbackSessions: Set<string>,
-		implicitSeek: { invalidate(id: string): void },
-	) {
-		this.store = store;
-		this.reservations = reservations;
-		this.processManager = processManager;
-		this.playlistFiles = playlistFiles;
-		this.seeker = seeker;
-		this.playlistWaiter = playlistWaiter;
-		this.softwareFallbackSessions = softwareFallbackSessions;
-		this.implicitSeek = implicitSeek;
+	constructor(deps: SessionReaperDeps) {
+		this.store = deps.store;
+		this.reservations = deps.reservations;
+		this.processManager = deps.processManager;
+		this.playlistFiles = deps.playlistFiles;
+		this.seeker = deps.seeker;
+		this.playlistWaiter = deps.playlistWaiter;
+		this.softwareFallbackSessions = deps.softwareFallbackSessions;
+		this.implicitSeek = deps.implicitSeek;
 	}
 
 	/**

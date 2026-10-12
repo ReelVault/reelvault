@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { databaseFactory } from "@/database/database";
 import { serverConfig } from "@/server.config";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { installSessionStub, prepareSecuritySuite, send } from "./security-harness";
 
 /**
@@ -73,7 +73,8 @@ test("a backup that cannot be written fails with its own code and the exit statu
 		(caught: unknown) => caught,
 	);
 
-	if (!(failure instanceof InternalError)) throw new TypeError("a backup into a missing directory must fail");
+	if (!(failure instanceof DomainError && failure.category === "internal"))
+		throw new TypeError("a backup into a missing directory must fail");
 	expect(failure.code).toBe("database.backup_failed");
 	expect(failure.params?.exitCode).not.toBe(0);
 	expect(existsSync(unwritable)).toBe(false);

@@ -98,7 +98,9 @@ export default { async setup() { events.push(value); } };
 
 		expect((globalThis as Record<string, unknown>)[reloadKey]).toEqual(["v1", "v2"]);
 	});
+});
 
+describe("plugin loader lifecycle", () => {
 	test("cleans up registered resources even when onDisable fails", async () => {
 		const { loader, registry } = await createLoaderFixture();
 		await loader.load("lifecycle");
@@ -162,7 +164,9 @@ export default { async setup() { events.push(value); } };
 		await loader.unloadPlugin("org.reelvault.tasks");
 		expect(registry.get("org.reelvault.tasks")).toBeUndefined();
 	});
+});
 
+describe("plugin loader lifecycle", () => {
 	test("calls onUnload when setup fails partway through loading", async () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
 		temporaryDirectories.push(pluginsDirectory);
@@ -253,7 +257,9 @@ export default {
 		expect(registry.get("org.reelvault.invalid-schedule")).toBeUndefined();
 		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.invalid-schedule", state: "failed", failurePhase: "setup" }]);
 	});
+});
 
+describe("plugin loader lifecycle", () => {
 	test("a plugin that fails during provider initialization keeps its config definition", async () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
 		temporaryDirectories.push(pluginsDirectory);
@@ -304,7 +310,9 @@ export default {
 			{ name: "accessToken", type: "secret", label: "Access token", required: true },
 		]);
 	});
+});
 
+describe("plugin loader lifecycle", () => {
 	test("loadAll skips a plugin disabled in the lockfile; a direct load still works after re-enable", async () => {
 		const { loader, registry, pluginsDirectory } = await createLoaderFixture();
 		// loadAll purges expired plugin blobs first — an empty stub keeps the
@@ -374,7 +382,9 @@ export default {
 		await expect(loader.load("broken-config")).rejects.toThrow("Configuration is invalid");
 		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.broken-config", state: "failed", failurePhase: "config" }]);
 	});
+});
 
+describe("plugin loader lifecycle", () => {
 	test("a package with an invalid plugin.json is listed as a manifest failure under its directory name", async () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
 		temporaryDirectories.push(pluginsDirectory);

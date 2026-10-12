@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { subtitlesService } from "./subtitles.service";
 
@@ -11,7 +11,7 @@ afterEach(() => {
 test("bulk delete removes each subtitle once and reports a failed one by its code, never its message", async () => {
 	const remove = stubMethod(subtitlesService, "delete", (id: string) =>
 		id === "sub-missing"
-			? Promise.reject(new NotFoundError("Subtitle /data/subs/x.srt is gone", { code: "subtitle.not_found" }))
+			? Promise.reject(new DomainError("not_found", "Subtitle /data/subs/x.srt is gone", { code: "subtitle.not_found" }))
 			: Promise.resolve({ success: true }),
 	);
 	stubs.push(remove);

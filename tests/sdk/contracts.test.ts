@@ -98,7 +98,9 @@ describe("public SDK contracts", () => {
 			}),
 		).toBeFalse();
 	});
+});
 
+describe("public SDK contracts", () => {
 	it("keeps subtitle file paths outside public API responses", () => {
 		const timestamp = "2026-01-01T00:00:00.000Z";
 		expect(
@@ -174,7 +176,9 @@ describe("public SDK contracts", () => {
 			}),
 		).toBeFalse();
 	});
+});
 
+describe("public SDK contracts", () => {
 	it("defines operation queue responses and grouped worker item results", () => {
 		const timestamp = "2026-01-01T00:00:00.000Z";
 		expect(
@@ -250,7 +254,9 @@ describe("public SDK contracts", () => {
 		expect(Value.Check(CreatePlaybackSessionSchema, { mediaFileId: "file-1", videoCodecs: ["h264"] })).toBeTrue();
 		expect(Value.Check(CreatePlaybackSessionSchema, { mediaFileId: "file-1", clientTimestamp: "2026-08-06T00:00:00.000Z" })).toBeFalse();
 	});
+});
 
+describe("public SDK contracts", () => {
 	it("defines detailed transcode progress and seek responses", () => {
 		expect(
 			Value.Check(TranscodeProgressResponseSchema, {

@@ -1,7 +1,7 @@
 import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import type { MemoryCache } from "@/utils/memory-cache";
 
 const IPV4_MAPPED_IPV6_REGEX = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/;
@@ -182,19 +182,19 @@ async function resolvePublicTarget(rawUrl: string, options: GuardedFetchOptions)
 	try {
 		parsed = new URL(rawUrl);
 	} catch {
-		throw new ValidationError("Download URL is not a valid URL", { code: "download.invalid_url" });
+		throw new DomainError("validation", "Download URL is not a valid URL", { code: "download.invalid_url" });
 	}
 
 	const allowedProtocols = options.allowedProtocols ?? DEFAULT_ALLOWED_PROTOCOLS;
 	if (!allowedProtocols.includes(parsed.protocol)) {
 		const display = allowedProtocols.map((protocol) => protocol.replace(TRAILING_COLON, "")).join(", ");
-		throw new ValidationError(`Only ${display} downloads are allowed, got: ${parsed.protocol}`, {
+		throw new DomainError("validation", `Only ${display} downloads are allowed, got: ${parsed.protocol}`, {
 			code: "download.unsupported_protocol",
 		});
 	}
 
 	if (parsed.username || parsed.password) {
-		throw new ValidationError("Download URL must not contain credentials", { code: "download.invalid_url" });
+		throw new DomainError("validation", "Download URL must not contain credentials", { code: "download.invalid_url" });
 	}
 
 	const host = normalizeHostname(parsed.hostname);
@@ -204,16 +204,16 @@ async function resolvePublicTarget(rawUrl: string, options: GuardedFetchOptions)
 	try {
 		addresses = await resolveHostAddresses(host, options.dnsCache);
 	} catch {
-		throw new ValidationError(`Download host does not resolve: ${parsed.hostname}`, { code: "download.host_unresolved" });
+		throw new DomainError("validation", `Download host does not resolve: ${parsed.hostname}`, { code: "download.host_unresolved" });
 	}
 
 	if (addresses.length === 0 || addresses.some((address) => !isPublicIp(address))) {
-		throw new ValidationError("Download host resolves to a non-public address", { code: "download.host_blocked" });
+		throw new DomainError("validation", "Download host resolves to a non-public address", { code: "download.host_blocked" });
 	}
 
 	const chosen = addresses.find((address) => !address.includes(":")) ?? addresses[0];
 	if (!chosen) {
-		throw new ValidationError("Download host resolves to a non-public address", { code: "download.host_blocked" });
+		throw new DomainError("validation", "Download host resolves to a non-public address", { code: "download.host_blocked" });
 	}
 
 	return { url: parsed, address: chosen };
@@ -261,7 +261,7 @@ export async function guardedFetch(url: string, options: GuardedFetchOptions = {
 		const location = response.headers.get("location");
 		if (!location) return response;
 
-		if (hop >= redirectLimit) throw new ValidationError("Too many download redirects", { code: "download.too_many_redirects" });
+		if (hop >= redirectLimit) throw new DomainError("validation", "Too many download redirects", { code: "download.too_many_redirects" });
 
 		// Match the fetch spec: 303 (and 301/302 for non-GET/HEAD) downgrade to GET.
 		const method = (currentInit.method ?? "GET").toUpperCase();

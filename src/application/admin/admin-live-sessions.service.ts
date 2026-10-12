@@ -18,29 +18,29 @@ import { serverConfig } from "@/server.config";
 import { MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
-import { DomainError, NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { serializeDate } from "@/utils/time.utils";
 import { buildSessionLogArchive, readSessionLogFiles, sessionLogArchiveName, sessionLogSegments } from "./live-session-log.utils";
 
 const LIVE_ACTIVITY_CACHE_TTL_MS = 2_000;
 
-class AdminLiveSessionsService extends BaseService {
+class AdminLiveSessionsService {
+	readonly serviceName = "AdminLiveSessionsService";
+	readonly logger = createLogger("AdminLiveSessionsService");
+
 	private readonly activityCache = new MemoryCache<AdminLiveActivityResponse>({
 		name: "admin-live-activity",
 		ttlMs: LIVE_ACTIVITY_CACHE_TTL_MS,
 		maxSize: 1,
 	});
 
-	constructor() {
-		super("AdminLiveSessionsService");
-	}
-
 	async getLiveActivity(): Promise<AdminLiveActivityResponse> {
 		return await this.activityCache.getOrSet("activity", () =>
-			this.safeExecute("getLiveActivity", async () => {
+			runSafely(this, "getLiveActivity", async () => {
 				const activeStreamSessions = streamingManager.getAllActiveSessions();
 				const effectiveHw = getEffectiveHwaccel();
 
@@ -127,78 +127,8 @@ class AdminLiveSessionsService extends BaseService {
 	): AdminLiveStreamItem[] {
 		const activeStreams: AdminLiveStreamItem[] = [];
 		for (const session of activeStreamSessions) {
-			const media = maps.mediaMap.get(session.mediaFileId);
-			const profile = maps.profileMap.get(session.profileId);
-			if (!(media && profile)) continue;
-
-			const prog = maps.progressMap.get(`${session.profileId}-${session.mediaFileId}`);
-			const currentTime = prog?.position ?? session.startTime;
-			const totalDurationSeconds = prog?.duration ?? media.duration ?? 0;
-			const progressPercent = computeProgressPercent(currentTime, totalDurationSeconds);
-
-			const videoStreams = maps.videoStreamsByMedia.get(session.mediaFileId) ?? [];
-			const audioStreams = maps.audioStreamsByMedia.get(session.mediaFileId) ?? [];
-
-			const targetVideoStream = videoStreams.find((v) => v.isDefault) ?? videoStreams[0];
-			const targetAudioStream = resolveTargetAudioStream(audioStreams, session.decision.audioStreamIndex);
-
-			const videoEncoder = resolveVideoEncoder(session.decision.videoTranscode, effectiveHw.type, effectiveHw.h264Encoder);
-			const audioEncoder = session.decision.audioTranscode ? "aac" : "copy";
-
-			const bufferAnalysis = maps.bufferMap.get(session.id) ?? null;
-			const isSessionActive = streamingManager.isSessionActive(session.id);
-			const bufferState = resolveBufferState(bufferAnalysis?.complete, isSessionActive);
-
-			const userSession = maps.userSessionMap.get(profile.userId);
-			const parsedUa = parseUserAgent(userSession?.userAgent);
-
-			activeStreams.push({
-				sessionId: session.id,
-				profileId: profile.profileId,
-				profileName: profile.profileName,
-				profileAvatar: profile.profileAvatar,
-				userId: profile.userId,
-				userName: profile.userName,
-				userEmail: profile.userEmail,
-				mediaFileId: session.mediaFileId,
-				metadataId: media.metadataId,
-				title: media.title,
-				type: media.type,
-				releaseYear: media.releaseDate ? new Date(media.releaseDate).getFullYear() : null,
-				seasonNumber: media.seasonNumber ?? null,
-				episodeNumber: media.episodeNumber ?? null,
-				episodeTitle: media.episodeTitle ?? null,
-				posterUrl: media.posterImageId ? `${serverConfig.security.imageRoutePrefix}${media.posterImageId}` : null,
-				posterUpdatedAt: media.posterImageUpdatedAt ?? null,
-				backdropUrl: null,
-				currentTime: Math.round(currentTime),
-				duration: Math.round(totalDurationSeconds),
-				progressPercent,
-				mode: session.mode,
-				videoTranscode: session.decision.videoTranscode,
-				audioTranscode: session.decision.audioTranscode,
-				videoEncoder,
-				audioEncoder,
-				hwaccel: effectiveHw.type,
-				transcodeReasons: session.decision.reasons ?? null,
-				...videoStreamProps(targetVideoStream, session.decision),
-				bitrateKbps: media.bitRate ? Math.round(media.bitRate / 1000) : null,
-				targetVideoBitrateKbps: session.decision.videoBitrateKbps ?? null,
-				...audioStreamProps(targetAudioStream, session.decision),
-				processId: session.process?.pid ?? null,
-				bufferedSeconds: bufferAnalysis ? Number(bufferAnalysis.bufferedSeconds.toFixed(2)) : null,
-				bufferedUntil: bufferAnalysis ? Number(bufferAnalysis.bufferedUntil.toFixed(2)) : null,
-				bufferState,
-				encodePositionSeconds: session.transcodePositionMs !== null ? Number((session.transcodePositionMs / 1000).toFixed(2)) : null,
-				encodePercent: session.transcodePercent,
-				encodeSpeed: session.transcodeSpeed,
-				clientName: parsedUa.clientName,
-				browser: parsedUa.browser,
-				os: parsedUa.os,
-				ipAddress: userSession?.ipAddress ?? null,
-				startedAt: serializeDate(session.createdAt),
-				lastActivityAt: serializeDate(session.lastActivity),
-			});
+			const item = buildActiveStreamItem(session, maps, effectiveHw);
+			if (item) activeStreams.push(item);
 		}
 
 		return activeStreams;
@@ -275,12 +205,12 @@ class AdminLiveSessionsService extends BaseService {
 
 	/** The FFmpeg logs of a live or recently ended session as one zip, with a timeline of its runs. */
 	async getSessionLog(sessionId: string): Promise<{ data: Uint8Array<ArrayBuffer>; filename: string }> {
-		return await this.safeExecute("getSessionLog", async () => {
+		return await runSafely(this, "getSessionLog", async () => {
 			const active = streamingManager.getAllActiveSessions().find((item) => item.id === sessionId);
 			// An ended session is no longer active; its history entry names the operation its logs were written under.
 			const ended = active ? undefined : endedSessionHistory.list(ENDED_SESSION_HISTORY_LIMIT).find((item) => item.sessionId === sessionId);
 			if (!(active || ended)) {
-				throw new NotFoundError(`Session not found: ${sessionId}`, {
+				throw new DomainError("not_found", `Session not found: ${sessionId}`, {
 					code: "stream.session_not_found",
 					params: { sessionId },
 				});
@@ -299,7 +229,7 @@ class AdminLiveSessionsService extends BaseService {
 	}
 
 	async terminateSession(sessionId: string, reason?: string): Promise<{ success: true }> {
-		return await this.safeExecute("terminateSession", async () => {
+		return await runSafely(this, "terminateSession", async () => {
 			const effectiveReason = reason ?? "admin.terminated";
 			const access = streamingManager.getSessionAccess(sessionId);
 			const terminated = streamingManager.getTerminatedSession(sessionId);
@@ -309,7 +239,7 @@ class AdminLiveSessionsService extends BaseService {
 			if (!access) {
 				if (terminated) return { success: true };
 
-				throw new NotFoundError(`Active session not found: ${sessionId}`, {
+				throw new DomainError("not_found", `Active session not found: ${sessionId}`, {
 					code: "stream.session_not_found",
 					params: { sessionId },
 				});
@@ -329,7 +259,7 @@ class AdminLiveSessionsService extends BaseService {
 			// 2. Tear down the stream process and mark as terminated
 			const outcome = await streamingManager.releaseSession(sessionId, effectiveReason);
 			if (outcome === "unknown") {
-				throw new NotFoundError(`Active session not found: ${sessionId}`, {
+				throw new DomainError("not_found", `Active session not found: ${sessionId}`, {
 					code: "stream.session_not_found",
 					params: { sessionId },
 				});
@@ -492,6 +422,85 @@ function buildSessionMaps(params: {
 	}
 
 	return { mediaMap, profileMap, progressMap, videoStreamsByMedia, audioStreamsByMedia, userSessionMap, bufferMap };
+}
+
+type ActiveStreamSession = ReturnType<typeof streamingManager.getAllActiveSessions>[number];
+type SessionMaps = ReturnType<typeof buildSessionMaps>;
+type EffectiveHw = ReturnType<typeof getEffectiveHwaccel>;
+
+/** One live stream row, or null when its media file or profile is no longer known. */
+function buildActiveStreamItem(session: ActiveStreamSession, maps: SessionMaps, effectiveHw: EffectiveHw): AdminLiveStreamItem | null {
+	const media = maps.mediaMap.get(session.mediaFileId);
+	const profile = maps.profileMap.get(session.profileId);
+	if (!(media && profile)) return null;
+
+	const prog = maps.progressMap.get(`${session.profileId}-${session.mediaFileId}`);
+	const currentTime = prog?.position ?? session.startTime;
+	const totalDurationSeconds = prog?.duration ?? media.duration ?? 0;
+	const progressPercent = computeProgressPercent(currentTime, totalDurationSeconds);
+
+	const videoStreams = maps.videoStreamsByMedia.get(session.mediaFileId) ?? [];
+	const audioStreams = maps.audioStreamsByMedia.get(session.mediaFileId) ?? [];
+	const targetVideoStream = videoStreams.find((v) => v.isDefault) ?? videoStreams[0];
+	const targetAudioStream = resolveTargetAudioStream(audioStreams, session.decision.audioStreamIndex);
+
+	const videoEncoder = resolveVideoEncoder(session.decision.videoTranscode, effectiveHw.type, effectiveHw.h264Encoder);
+	const audioEncoder = session.decision.audioTranscode ? "aac" : "copy";
+
+	const bufferAnalysis = maps.bufferMap.get(session.id) ?? null;
+	const isSessionActive = streamingManager.isSessionActive(session.id);
+	const bufferState = resolveBufferState(bufferAnalysis?.complete, isSessionActive);
+
+	const userSession = maps.userSessionMap.get(profile.userId);
+	const parsedUa = parseUserAgent(userSession?.userAgent);
+
+	return {
+		sessionId: session.id,
+		profileId: profile.profileId,
+		profileName: profile.profileName,
+		profileAvatar: profile.profileAvatar,
+		userId: profile.userId,
+		userName: profile.userName,
+		userEmail: profile.userEmail,
+		mediaFileId: session.mediaFileId,
+		metadataId: media.metadataId,
+		title: media.title,
+		type: media.type,
+		releaseYear: media.releaseDate ? new Date(media.releaseDate).getFullYear() : null,
+		seasonNumber: media.seasonNumber ?? null,
+		episodeNumber: media.episodeNumber ?? null,
+		episodeTitle: media.episodeTitle ?? null,
+		posterUrl: media.posterImageId ? `${serverConfig.security.imageRoutePrefix}${media.posterImageId}` : null,
+		posterUpdatedAt: media.posterImageUpdatedAt ?? null,
+		backdropUrl: null,
+		currentTime: Math.round(currentTime),
+		duration: Math.round(totalDurationSeconds),
+		progressPercent,
+		mode: session.mode,
+		videoTranscode: session.decision.videoTranscode,
+		audioTranscode: session.decision.audioTranscode,
+		videoEncoder,
+		audioEncoder,
+		hwaccel: effectiveHw.type,
+		transcodeReasons: session.decision.reasons ?? null,
+		...videoStreamProps(targetVideoStream, session.decision),
+		bitrateKbps: media.bitRate ? Math.round(media.bitRate / 1000) : null,
+		targetVideoBitrateKbps: session.decision.videoBitrateKbps ?? null,
+		...audioStreamProps(targetAudioStream, session.decision),
+		processId: session.process?.pid ?? null,
+		bufferedSeconds: bufferAnalysis ? Number(bufferAnalysis.bufferedSeconds.toFixed(2)) : null,
+		bufferedUntil: bufferAnalysis ? Number(bufferAnalysis.bufferedUntil.toFixed(2)) : null,
+		bufferState,
+		encodePositionSeconds: session.transcodePositionMs !== null ? Number((session.transcodePositionMs / 1000).toFixed(2)) : null,
+		encodePercent: session.transcodePercent,
+		encodeSpeed: session.transcodeSpeed,
+		clientName: parsedUa.clientName,
+		browser: parsedUa.browser,
+		os: parsedUa.os,
+		ipAddress: userSession?.ipAddress ?? null,
+		startedAt: serializeDate(session.createdAt),
+		lastActivityAt: serializeDate(session.lastActivity),
+	};
 }
 
 export const adminLiveSessionsService = new AdminLiveSessionsService();

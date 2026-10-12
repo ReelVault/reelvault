@@ -1,5 +1,4 @@
 import type { AddWorkerItemOptions, WorkerDefinition } from "@reelvault/sdk/common";
-import { v7 as uuidv7 } from "uuid";
 import {
 	type ActiveWorkerItem,
 	type EnqueueWorkerItemInput,
@@ -8,17 +7,16 @@ import {
 } from "@/database/repositories/worker.repository";
 import { serverConfig } from "@/server.config";
 import { daysAgo } from "@/server.constants";
-import { BaseService } from "@/utils/base-service";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { enqueueWithOperation } from "./worker-operation-enqueue";
 import { getWorkerRuntime } from "./worker-runtime";
 
-export class WorkerQueueService extends BaseService {
-	private onEnqueueCallback?: (() => void) | undefined;
+export class WorkerQueueService {
+	readonly serviceName = "WorkerQueueService";
+	readonly logger = createLogger("WorkerQueueService");
 
-	constructor() {
-		super("WorkerQueueService");
-	}
+	private onEnqueueCallback?: (() => void) | undefined;
 
 	onEnqueue(callback: () => void): void {
 		this.onEnqueueCallback = callback;
@@ -26,7 +24,7 @@ export class WorkerQueueService extends BaseService {
 
 	async enqueue(workerId: string, data: unknown, options: AddWorkerItemOptions = {}): Promise<WorkerItem> {
 		const definition = getWorkerRuntime().registry.get(workerId);
-		if (!definition) throw new NotFoundError(`Worker "${workerId}" is not registered`, { code: "worker.not_found" });
+		if (!definition) throw new DomainError("not_found", `Worker "${workerId}" is not registered`, { code: "worker.not_found" });
 
 		const { result } = await enqueueWithOperation(
 			{ type: workerId, reference: { type: "worker", id: workerId } },
@@ -51,7 +49,7 @@ export class WorkerQueueService extends BaseService {
 		if (entries.length === 0) return [];
 
 		const definition = getWorkerRuntime().registry.get(workerId);
-		if (!definition) throw new NotFoundError(`Worker "${workerId}" is not registered`, { code: "worker.not_found" });
+		if (!definition) throw new DomainError("not_found", `Worker "${workerId}" is not registered`, { code: "worker.not_found" });
 
 		const buildInputs = (operationId?: string) =>
 			entries.map(({ data, options = {} }) =>
@@ -139,7 +137,7 @@ export class WorkerQueueService extends BaseService {
 		const backoff = options.backoff ?? definition.backoff ?? serverConfig.workers.scheduling.defaultBackoff;
 
 		return {
-			id: uuidv7(),
+			id: Bun.randomUUIDv7(),
 			workerId,
 			operationId: options.operationId,
 			dependsOnJobId: options.dependsOnJobId ?? options.dependsOnTaskIds?.[0],

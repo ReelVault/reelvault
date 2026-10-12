@@ -19,21 +19,20 @@ import { QueryFields } from "@/database/utils/fields";
 import { QueryUtils } from "@/database/utils/query-parser";
 import { env } from "@/env";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
-
 import { imageUploadService } from "@/modules/images/image-upload.service";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
 import { hashProfilePin, verifyProfilePin } from "@/utils/crypto.utils";
-import { ConflictError, ForbiddenError, TooManyRequestsError } from "@/utils/errors";
+import { assertFound, assertUserId, DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { profilePinFingerprint, signProfileUnlock } from "@/utils/profile-unlock.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { clearWrongPins, pinAttemptStatus, recordWrongPin } from "./profile-pin-attempts";
 
 const EXTERNAL_AVATAR_URL_PATTERN = /^https?:\/\//i;
 
-class ProfilesService extends BaseService {
-	constructor() {
-		super("ProfilesService");
-	}
+class ProfilesService {
+	readonly serviceName = "ProfilesService";
+	readonly logger = createLogger("ProfilesService");
 
 	#stripPin<T extends { pin: string | null }>(profile: T): T {
 		// The (hashed) PIN never leaves the server; the frontend learns
@@ -45,8 +44,8 @@ class ProfilesService extends BaseService {
 		query?: PaginationQuery & FieldsQuery<F> & ProfileFilters & ProfileSorting,
 		userId?: string,
 	): Promise<PaginatedResponse<SelectFields<Profile, F>>> {
-		return await this.safeExecute("getAll", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "getAll", async () => {
+			assertUserId(userId);
 			const page = await profilesRepository.findPage({ ...query, userId });
 
 			return { ...page, data: page.data.map((row) => this.#stripPin(row)) };
@@ -54,7 +53,7 @@ class ProfilesService extends BaseService {
 	}
 
 	async getById<F extends string>(profileId: string, query?: FieldsQuery<F>, userId?: string): Promise<SelectFields<Profile, F>> {
-		return await this.safeExecute("getById", async () => {
+		return await runSafely(this, "getById", async () => {
 			const profile = await this.findOwnedProfile(profileId, userId);
 			const { fields } = QueryUtils.parseStandard(query);
 
@@ -83,20 +82,20 @@ class ProfilesService extends BaseService {
 	}
 
 	async create<F extends string>(body: CreateProfile, query?: FieldsQuery<F>, userId?: string): Promise<SelectFields<Profile, F>> {
-		return await this.safeExecute("create", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "create", async () => {
+			assertUserId(userId);
 			// Administrative quota (0 = unlimited) — keep self-hosted instances from
 			// unbounded profile growth.
 			const maxProfiles = serverConfig.profiles.maxProfilesPerUser;
 			if (maxProfiles > 0) {
 				const owned = await profilesRepository.countByUserId(userId);
 				if (owned >= maxProfiles) {
-					throw new ConflictError(`Profile limit reached (${maxProfiles} per user)`, { code: "profile.limit_reached" });
+					throw new DomainError("conflict", `Profile limit reached (${maxProfiles} per user)`, { code: "profile.limit_reached" });
 				}
 			}
 
 			const isExists = await profilesRepository.isNameTaken({ userId, name: body.name });
-			if (isExists) throw new ConflictError("Profile with the same name already exists", { code: "profile.name_conflict" });
+			if (isExists) throw new DomainError("conflict", "Profile with the same name already exists", { code: "profile.name_conflict" });
 
 			// The source profile is checked before anything is created; the copy itself runs after the profile exists.
 			const { copyPreferencesFromProfileId, ...profileBody } = body;
@@ -104,7 +103,7 @@ class ProfilesService extends BaseService {
 
 			const payload = { ...profileBody, pin: await hashProfilePin(profileBody.pin) };
 			const profile = await profilesRepository.createAndRead(userId, payload, query);
-			this.assertExists(profile, "Profile", "newly created");
+			assertFound(profile, "Profile", "newly created");
 			if (copyPreferencesFromProfileId) {
 				await profilePreferencesRepository.copyFrom({ sourceProfileId: copyPreferencesFromProfileId, targetProfileId: profile.id });
 			}
@@ -138,30 +137,30 @@ class ProfilesService extends BaseService {
 		query?: FieldsQuery<F>,
 		userId?: string,
 	): Promise<SelectFields<Profile, F>> {
-		return await this.safeExecute("update", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "update", async () => {
+			assertUserId(userId);
 			const profile = await this.findOwnedProfile(profileId, userId);
 
 			// Renaming onto a sibling's name would otherwise die on the unique
 			// index as a raw 500 — same pre-check the create path runs.
 			if (body.name !== undefined && body.name !== profile.name) {
 				const nameTaken = await profilesRepository.isNameTaken({ userId, name: body.name, excludeId: profileId });
-				if (nameTaken) throw new ConflictError("Profile with the same name already exists", { code: "profile.name_conflict" });
+				if (nameTaken) throw new DomainError("conflict", "Profile with the same name already exists", { code: "profile.name_conflict" });
 			}
 
 			// An omitted PIN leaves the stored one alone; an explicit null removes it. Dropping the null
 			// here (hashProfilePin returns undefined for it) made removal a silent no-op.
 			const payload = { ...body, pin: body.pin === null ? null : await hashProfilePin(body.pin) };
 			const result = await profilesRepository.updateAndRead(profileId, payload, query);
-			this.assertExists(result, "Profile", profileId);
+			assertFound(result, "Profile", profileId);
 
 			return this.#stripPin(await this.localizeAndPersistAvatar(profileId, result, query));
 		});
 	}
 
 	async delete(profileId: string, userId?: string): Promise<{ success: boolean }> {
-		return await this.safeExecute("delete", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "delete", async () => {
+			assertUserId(userId);
 			await this.assertOwnedProfile(profileId, userId);
 
 			await profilesRepository.deleteOwned({ profileId, userId });
@@ -171,7 +170,7 @@ class ProfilesService extends BaseService {
 	}
 
 	async switch(body: SwitchProfile, userId?: string): Promise<{ success: boolean; profileId: string; unlockToken: string | null }> {
-		return await this.safeExecute("switch", async () => {
+		return await runSafely(this, "switch", async () => {
 			const profile = await this.findOwnedProfile(body.profileId, userId);
 
 			if (profile.pin) {
@@ -180,7 +179,7 @@ class ProfilesService extends BaseService {
 				const attemptKey = `${userId ?? "anonymous"}:${profile.id}`;
 				const status = pinAttemptStatus(attemptKey);
 				if (status.attemptsRemaining === 0) {
-					throw new TooManyRequestsError("Too many wrong PIN attempts", {
+					throw new DomainError("too_many_requests", "Too many wrong PIN attempts", {
 						code: "profile.pin_locked",
 						params: { retryAfterSeconds: status.retryAfterSeconds },
 					});
@@ -192,7 +191,7 @@ class ProfilesService extends BaseService {
 				if (!(body.pin && (await verifyProfilePin(profile.pin, body.pin)))) {
 					if (body.pin) recordWrongPin(attemptKey);
 
-					throw new ForbiddenError("Invalid PIN", {
+					throw new DomainError("forbidden", "Invalid PIN", {
 						code: "profile.pin_invalid",
 						params: { attemptsRemaining: pinAttemptStatus(attemptKey).attemptsRemaining },
 					});
@@ -211,7 +210,7 @@ class ProfilesService extends BaseService {
 	}
 
 	async getPreferences(profileId: string, userId?: string): Promise<ProfilePreferences> {
-		return await this.safeExecute("getPreferences", async () => {
+		return await runSafely(this, "getPreferences", async () => {
 			await this.assertOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.getEffective({ profileId });
@@ -220,7 +219,7 @@ class ProfilesService extends BaseService {
 
 	/** Whether a PIN is set. The PIN itself never leaves the server; the owner only needs this to offer removing it. */
 	async hasPin(profileId: string, userId?: string): Promise<{ hasPin: boolean }> {
-		return await this.safeExecute("hasPin", async () => {
+		return await runSafely(this, "hasPin", async () => {
 			const profile = await this.findOwnedProfile(profileId, userId);
 
 			return { hasPin: profile.pin !== null };
@@ -228,7 +227,7 @@ class ProfilesService extends BaseService {
 	}
 
 	async updatePreferences(profileId: string, body: UpdateProfilePreferences, userId?: string): Promise<ProfilePreferences> {
-		return await this.safeExecute("updatePreferences", async () => {
+		return await runSafely(this, "updatePreferences", async () => {
 			await this.assertOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.applyUpdate({ profileId, body });
@@ -237,7 +236,7 @@ class ProfilesService extends BaseService {
 
 	/** Copies another profile's preference overrides onto this one; both profiles must belong to the same account. */
 	async copyPreferences(profileId: string, sourceProfileId: string, userId?: string): Promise<ProfilePreferences> {
-		return await this.safeExecute("copyPreferences", async () => {
+		return await runSafely(this, "copyPreferences", async () => {
 			await this.assertOwnedProfile(profileId, userId);
 			await this.assertOwnedProfile(sourceProfileId, userId);
 
@@ -251,7 +250,7 @@ class ProfilesService extends BaseService {
 	}
 
 	async resetPreferences(profileId: string, userId?: string): Promise<ProfilePreferences> {
-		return await this.safeExecute("resetPreferences", async () => {
+		return await runSafely(this, "resetPreferences", async () => {
 			await this.assertOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.reset({ profileId });
@@ -259,7 +258,7 @@ class ProfilesService extends BaseService {
 	}
 
 	async uploadAvatar(profileId: string, file: File, userId?: string): Promise<{ avatarUrl: string }> {
-		return await this.safeExecute("uploadAvatar", async () => {
+		return await runSafely(this, "uploadAvatar", async () => {
 			await this.assertOwnedProfile(profileId, userId);
 
 			const uploaded = await imageUploadService.upload(file, { ownerType: "profile", ownerId: profileId, variant: "avatar" });
@@ -271,11 +270,11 @@ class ProfilesService extends BaseService {
 
 	/** Fetches a profile and asserts the authenticated user owns it (404, then 403). */
 	private async findOwnedProfile(profileId: string, userId?: string): Promise<Profile> {
-		this.assertUserId(userId);
+		assertUserId(userId);
 		const profile = await profilesRepository.findByPrimaryId({ primaryId: profileId });
-		this.assertExists(profile, "Profile", profileId);
+		assertFound(profile, "Profile", profileId);
 		if (profile.userId !== userId)
-			throw new ForbiddenError("Profile does not belong to the authenticated user", { code: "profile.not_owned" });
+			throw new DomainError("forbidden", "Profile does not belong to the authenticated user", { code: "profile.not_owned" });
 
 		return profile;
 	}

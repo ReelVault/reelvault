@@ -31,16 +31,65 @@ export async function buildMediaFileAuditReport(): Promise<MediaFileAuditRespons
 	};
 }
 
-export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | null {
+interface RecognizedIdentity {
+	title: string;
+	year: number | null;
+	season: number | null;
+	episode: number | null;
+}
+
+function recognizeMediaFile(row: MediaFileAuditRow): RecognizedIdentity {
 	const recognizedResult = recognitionService.recognize(row.filePath);
 	const fallbackParsed = parseFileName(row.fileName);
-	const recognized = {
+
+	return {
 		title: recognizedResult?.identity.title ?? fallbackParsed?.title ?? row.fileName,
 		year: recognizedResult?.identity.year ?? fallbackParsed?.year ?? null,
 		season: recognizedResult?.identity.season ?? fallbackParsed?.season ?? null,
 		episode: recognizedResult?.identity.episode ?? fallbackParsed?.episode ?? null,
 	};
+}
 
+/** Year drift against the assigned release date: 3+ years is high severity, 2 is medium. */
+function yearMismatchReason(recognizedYear: number, releaseDate: string): MediaFileAuditReason | null {
+	const assignedYear = extractYear(releaseDate);
+	if (assignedYear === undefined) return null;
+
+	const yearDiff = Math.abs(recognizedYear - assignedYear);
+	if (yearDiff < 2) return null;
+
+	return {
+		code: "year_mismatch",
+		severity: yearDiff >= 3 ? "high" : "medium",
+		params: { recognizedYear, assignedYear, diff: yearDiff },
+	};
+}
+
+/** TV-only: episode and season numbers that disagree with the assigned ones. */
+function tvNumberReasons(row: MediaFileAuditRow, recognized: RecognizedIdentity): MediaFileAuditReason[] {
+	const reasons: MediaFileAuditReason[] = [];
+
+	if (recognized.episode !== null && row.episodeNumber !== null && recognized.episode !== row.episodeNumber) {
+		reasons.push({
+			code: "episode_mismatch",
+			severity: "high",
+			params: { recognizedEpisode: recognized.episode, assignedEpisode: row.episodeNumber },
+		});
+	}
+
+	if (recognized.season !== null && row.seasonNumber !== null && recognized.season !== row.seasonNumber) {
+		reasons.push({
+			code: "season_mismatch",
+			severity: "high",
+			params: { recognizedSeason: recognized.season, assignedSeason: row.seasonNumber },
+		});
+	}
+
+	return reasons;
+}
+
+export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | null {
+	const recognized = recognizeMediaFile(row);
 	const reasons: MediaFileAuditReason[] = [];
 
 	if (isSequelMismatch(recognized.title, { title: row.metadataTitle, originalTitle: row.metadataOriginalTitle })) {
@@ -52,23 +101,8 @@ export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | 
 	}
 
 	if (recognized.year && row.metadataReleaseDate) {
-		const assignedYear = extractYear(row.metadataReleaseDate);
-		if (assignedYear !== undefined) {
-			const yearDiff = Math.abs(recognized.year - assignedYear);
-			if (yearDiff >= 3) {
-				reasons.push({
-					code: "year_mismatch",
-					severity: "high",
-					params: { recognizedYear: recognized.year, assignedYear, diff: yearDiff },
-				});
-			} else if (yearDiff === 2) {
-				reasons.push({
-					code: "year_mismatch",
-					severity: "medium",
-					params: { recognizedYear: recognized.year, assignedYear, diff: yearDiff },
-				});
-			}
-		}
+		const yearReason = yearMismatchReason(recognized.year, row.metadataReleaseDate);
+		if (yearReason) reasons.push(yearReason);
 	}
 
 	const simTitle = rankCandidates(
@@ -86,23 +120,7 @@ export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | 
 		});
 	}
 
-	if (row.libraryType === "tv_shows") {
-		if (recognized.episode !== null && row.episodeNumber !== null && recognized.episode !== row.episodeNumber) {
-			reasons.push({
-				code: "episode_mismatch",
-				severity: "high",
-				params: { recognizedEpisode: recognized.episode, assignedEpisode: row.episodeNumber },
-			});
-		}
-
-		if (recognized.season !== null && row.seasonNumber !== null && recognized.season !== row.seasonNumber) {
-			reasons.push({
-				code: "season_mismatch",
-				severity: "high",
-				params: { recognizedSeason: recognized.season, assignedSeason: row.seasonNumber },
-			});
-		}
-	}
+	if (row.libraryType === "tv_shows") reasons.push(...tvNumberReasons(row, recognized));
 
 	if (row.metadataMatchScore !== null && row.metadataMatchScore < REVIEW_MATCH_SCORE && reasons.length === 0) {
 		reasons.push({

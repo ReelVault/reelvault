@@ -14,7 +14,7 @@ import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.servi
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import { MINUTE } from "@/server.constants";
 import { unique } from "@/utils/array.utils";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import {
 	enqueueTrickplayGeneration,
@@ -165,7 +165,7 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 		async ({ params }) => {
 			const operation = await workerService.getOperation(params.operationId);
 			if (operation?.type !== trickplayGenerateWorker.id) {
-				throw new NotFoundError("Trickplay operation was not found", {
+				throw new DomainError("not_found", "Trickplay operation was not found", {
 					code: "trickplay.operation_not_found",
 					params: { operationId: params.operationId },
 				});

@@ -1,7 +1,7 @@
 import type { MetadataCandidate } from "@reelvault/sdk/common";
 import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { toMap } from "@/utils/array.utils";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 export function toMetadataCandidate(type: "movie" | "tv_show", providerId: string, metadata: ProviderMetadataResult): MetadataCandidate {
 	const artwork: MetadataCandidate["artwork"] = [];
@@ -52,15 +52,17 @@ export function applyMetadataCandidate(
 
 function validateMetadataCandidate(type: "movie" | "tv_show", providerId: string, externalId: string, candidate: MetadataCandidate): void {
 	if (candidate.type !== type || candidate.identity.providerId !== providerId || candidate.identity.externalId !== externalId) {
-		throw new ValidationError("beforeMetadataSave cannot change the metadata identity", { code: "metadata.identity_change" });
+		throw new DomainError("validation", "beforeMetadataSave cannot change the metadata identity", { code: "metadata.identity_change" });
 	}
 
 	if (candidate.identity.entityType !== type || !candidate.title.trim()) {
-		throw new ValidationError("beforeMetadataSave returned an invalid metadata candidate", { code: "metadata.invalid_candidate" });
+		throw new DomainError("validation", "beforeMetadataSave returned an invalid metadata candidate", {
+			code: "metadata.invalid_candidate",
+		});
 	}
 
 	for (const artwork of candidate.artwork) {
 		if (!artwork.url.trim())
-			throw new ValidationError("beforeMetadataSave returned artwork without a URL", { code: "metadata.artwork_without_url" });
+			throw new DomainError("validation", "beforeMetadataSave returned artwork without a URL", { code: "metadata.artwork_without_url" });
 	}
 }

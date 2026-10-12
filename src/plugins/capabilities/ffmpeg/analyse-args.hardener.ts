@@ -1,6 +1,6 @@
 import { getEffectiveHwaccel, hardwareDecodeArgs } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { serverConfig } from "@/server.config";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { PathUtils } from "@/utils/path.utils";
 
 /** Flags that read a caller-supplied local file outside the media input. */
@@ -25,7 +25,7 @@ export function processFailureDetail(stderr: string | null, exitCode: number | n
  */
 export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): string[] {
 	if (args.includes("-protocol_whitelist")) {
-		throw new ValidationError("runAnalyse manages -protocol_whitelist itself", { code: "plugin.ffmpeg.security_violation" });
+		throw new DomainError("validation", "runAnalyse manages -protocol_whitelist itself", { code: "plugin.ffmpeg.security_violation" });
 	}
 
 	for (let index = 0; index < args.length; index++) {
@@ -33,17 +33,19 @@ export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): stri
 		if (arg === undefined) continue;
 
 		if (BANNED_ANALYSE_FLAGS.has(arg)) {
-			throw new ValidationError(`runAnalyse does not allow ${arg}`, { code: "plugin.ffmpeg.security_violation" });
+			throw new DomainError("validation", `runAnalyse does not allow ${arg}`, { code: "plugin.ffmpeg.security_violation" });
 		}
 
 		if (arg === "-f" && BANNED_INPUT_FORMATS.has(args[index + 1] ?? "")) {
-			throw new ValidationError(`runAnalyse does not allow the '${args[index + 1] ?? "unknown"}' input format`, {
+			throw new DomainError("validation", `runAnalyse does not allow the '${args[index + 1] ?? "unknown"}' input format`, {
 				code: "plugin.ffmpeg.security_violation",
 			});
 		}
 
 		if (BANNED_FILTER_TOKENS_RE.test(arg)) {
-			throw new ValidationError("runAnalyse does not allow filters that open files", { code: "plugin.ffmpeg.security_violation" });
+			throw new DomainError("validation", "runAnalyse does not allow filters that open files", {
+				code: "plugin.ffmpeg.security_violation",
+			});
 		}
 	}
 
@@ -68,7 +70,7 @@ export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): stri
 		const outputPath = PathUtils.resolve(last);
 		const allowedRoots = [serverConfig.paths.transcodes, serverConfig.paths.subtitles];
 		if (!allowedRoots.some((root) => PathUtils.isSubpath(outputPath, PathUtils.resolve(root)))) {
-			throw new ValidationError("runAnalyse output must stay inside server-managed temporary directories", {
+			throw new DomainError("validation", "runAnalyse output must stay inside server-managed temporary directories", {
 				code: "plugin.ffmpeg.security_violation",
 			});
 		}

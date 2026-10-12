@@ -43,12 +43,13 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { groupBy, toMap } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
-import { ConflictError, errorMessage, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { assertFound, DomainError, errorMessage } from "@/utils/errors";
 import { rankImageOptions } from "@/utils/image-storage.utils";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { invalidateResponseBodies } from "@/utils/response-body-cache";
+import { runSafely } from "@/utils/safe-execute";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import { fetchSeason, mapProviderLinks, runBulkItem } from "../catalog.utils";
 import { resolveMetadataLanguage } from "./library-metadata-language";
@@ -65,19 +66,18 @@ function composeProfileScopedFilter(viewerProfileId: string | undefined, status:
 	return viewerProfileId && status ? { profileId: viewerProfileId, status } : undefined;
 }
 
-class MetadataService extends BaseService {
-	constructor() {
-		super("MetadataService");
-	}
+class MetadataService {
+	readonly serviceName = "MetadataService";
+	readonly logger = createLogger("MetadataService");
 
 	/**
 	 * Retrieve poster and backdrop image options available from linked providers.
 	 * Options are ranked by the provider's own score (best first); unscored
 	 * candidates keep their provider order after the scored ones.
 	 */ async getImageOptions(metadataId: string): Promise<MetadataImageOption[]> {
-		return await this.safeExecute("getImageOptions", async () => {
+		return await runSafely(this, "getImageOptions", async () => {
 			const metadata = await metadataRepository.findProviderDetails(metadataId);
-			this.assertExists(metadata, "Metadata", metadataId);
+			assertFound(metadata, "Metadata", metadataId);
 			const providers = metadata.providers.filter((provider) => provider.entityType === metadata.type);
 			const options = await PromiseUtils.mapConcurrent(
 				providers,
@@ -98,19 +98,20 @@ class MetadataService extends BaseService {
 	 * Select and download a specific candidate image from a provider.
 	 */
 	async selectImage(metadataId: string, selection: SelectMetadataImage, context?: AdminAuditContext): Promise<{ success: true }> {
-		return await this.safeExecute("selectImage", async () => {
+		return await runSafely(this, "selectImage", async () => {
 			const metadata = await metadataRepository.findProviderDetails(metadataId);
-			this.assertExists(metadata, "Metadata", metadataId);
+			assertFound(metadata, "Metadata", metadataId);
 			const providerMap = toMap(metadata.providers, (p) => `${p.name}:${p.entityType}`);
 			const provider = providerMap.get(`${selection.providerId}:${metadata.type}`);
 			if (!provider)
-				throw new ValidationError("Selected provider is not linked to this metadata", { code: "metadata.provider_not_linked" });
+				throw new DomainError("validation", "Selected provider is not linked to this metadata", { code: "metadata.provider_not_linked" });
 
 			// The request body URL is never trusted: only artwork the provider
 			// actually offers (re-resolved now) may be downloaded.
 			const offered = await providerService.fetchImagesByProvider(provider.name, metadata.type, provider.externalId);
 			const isOffered = offered.some((image) => image.type === selection.type && image.url === selection.url);
-			if (!isOffered) throw new ValidationError("Selected image is not offered by this provider", { code: "metadata.image_not_offered" });
+			if (!isOffered)
+				throw new DomainError("validation", "Selected image is not offered by this provider", { code: "metadata.image_not_offered" });
 
 			await imageProcessingService.replaceMetadataImage(metadataId, selection.type, selection.url);
 			this.invalidateReadCaches();
@@ -134,7 +135,7 @@ class MetadataService extends BaseService {
 	 * Upload a custom poster or backdrop image for a metadata item.
 	 */
 	async uploadImage(metadataId: string, type: "poster" | "backdrop", file: File, context?: AdminAuditContext): Promise<{ success: true }> {
-		return await this.safeExecute("uploadImage", async () => {
+		return await runSafely(this, "uploadImage", async () => {
 			const uploaded = await imageUploadService.upload(file, { ownerType: "metadata", ownerId: metadataId, variant: type });
 			await imageProcessingService.replaceMetadataImageWithUpload(metadataId, type, uploaded);
 			this.invalidateReadCaches();
@@ -162,7 +163,7 @@ class MetadataService extends BaseService {
 	}
 
 	async searchGlobal(query: string, limit = 6) {
-		return await this.safeExecute("searchGlobal", async () => {
+		return await runSafely(this, "searchGlobal", async () => {
 			const term = query.trim();
 			const safeLimit = clamp(limit, 1, 20);
 			if (term.length < 2) return { titles: [], people: [], collections: [], genres: [] };
@@ -175,7 +176,7 @@ class MetadataService extends BaseService {
 		query?: CursorPaginationQuery & FieldsQuery<F> & MetadataFilters & MetadataSorting,
 		viewerProfileId?: string,
 	): Promise<CursorPaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
-		return await this.safeExecute("getAll", async () => {
+		return await runSafely(this, "getAll", async () => {
 			// Profile-scoped filters never take the profile from the query string —
 			// the service pairs the client-facing status with the resolved viewer
 			// profile before the repository builder sees the value.
@@ -193,10 +194,10 @@ class MetadataService extends BaseService {
 	}
 
 	async getById<F extends string>(metadataId: string, query?: FieldsQuery<F>): Promise<SelectFields<MetadataWithRelation, F>> {
-		return await this.safeExecute("getById", async () => {
+		return await runSafely(this, "getById", async () => {
 			const metadata = await metadataRepository.findByIdForRead(metadataId, query);
 
-			this.assertExists(metadata, "Metadata", metadataId);
+			assertFound(metadata, "Metadata", metadataId);
 
 			return metadata;
 		});
@@ -208,15 +209,15 @@ class MetadataService extends BaseService {
 	 * run the full detail-page relation load for nothing.
 	 */
 	async getRootsById(metadataId: string): Promise<MetadataRootRow | undefined> {
-		return await this.safeExecute("getRootsById", async () => {
+		return await runSafely(this, "getRootsById", async () => {
 			return await metadataRepository.findRootsById(metadataId);
 		});
 	}
 
 	async getDetailsView(metadataId: string, profileId?: string): Promise<MetadataDetailsViewResponse> {
-		return await this.safeExecute("getDetailsView", async () => {
+		return await runSafely(this, "getDetailsView", async () => {
 			const metadata = await metadataRepository.findByIdForRead(metadataId);
-			this.assertExists(metadata, "Metadata", metadataId);
+			assertFound(metadata, "Metadata", metadataId);
 
 			const isTv = metadata.type === "tv_show";
 
@@ -310,9 +311,9 @@ class MetadataService extends BaseService {
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<MetadataWithRelation, F>> {
-		return await this.safeExecute("create", async () => {
+		return await runSafely(this, "create", async () => {
 			const result = await metadataRepository.createAndRead(body, query);
-			if (!result) throw new InternalError("Metadata creation failed", { code: "metadata.create_failed" });
+			if (!result) throw new DomainError("internal", "Metadata creation failed", { code: "metadata.create_failed" });
 
 			this.invalidateReadCaches();
 			pluginEventBus.publish("metadata.saved", { metadataId: result.id });
@@ -338,7 +339,7 @@ class MetadataService extends BaseService {
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<MetadataWithRelation, F>> {
-		return await this.safeExecute("update", async () =>
+		return await runSafely(this, "update", async () =>
 			auditedUpdate({
 				logger: this.logger,
 				resourceType: "metadata",
@@ -363,14 +364,14 @@ class MetadataService extends BaseService {
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<MetadataWithRelation, F>> {
-		return await this.safeExecute("rematch", async () => {
+		return await runSafely(this, "rematch", async () => {
 			const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type" });
-			this.assertExists(existing, "Metadata", metadataId);
+			assertFound(existing, "Metadata", metadataId);
 
 			// Locked fields keep their stored values unless the administrator asks to overwrite them too.
 			const lockedFields = body.overwriteLocked === true ? [] : await metadataRepository.getLockedFields(metadataId);
 
-			return await this.updateLinkedProvider(metadataId, existing, body, query, context, {
+			return await this.updateLinkedProvider({ metadataId, existing }, body, query, context, {
 				resourceType: "metadata_rematch",
 				persist: async (providerMetadata) => {
 					await metadataPersistenceRepository.rematchProviderMetadata({
@@ -407,11 +408,11 @@ class MetadataService extends BaseService {
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<MetadataWithRelation, F>> {
-		return await this.safeExecute("linkProvider", async () => {
+		return await runSafely(this, "linkProvider", async () => {
 			const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type,providers" });
-			this.assertExists(existing, "Metadata", metadataId);
+			assertFound(existing, "Metadata", metadataId);
 
-			return await this.updateLinkedProvider(metadataId, existing, body, query, context, {
+			return await this.updateLinkedProvider({ metadataId, existing }, body, query, context, {
 				resourceType: "metadata_link_provider",
 				persist: async (providerMetadata) => {
 					await metadataPersistenceRepository.linkProvider(metadataId, existing.type, body.providerId, body.externalId);
@@ -429,8 +430,7 @@ class MetadataService extends BaseService {
 	 * in `options`.
 	 */
 	private async updateLinkedProvider<F extends string>(
-		metadataId: string,
-		existing: { type: "movie" | "tv_show" },
+		target: { metadataId: string; existing: { type: "movie" | "tv_show" } },
 		body: { providerId: string; externalId: string },
 		query: FieldsQuery<F> | undefined,
 		context: AdminAuditContext | undefined,
@@ -440,11 +440,12 @@ class MetadataService extends BaseService {
 			afterInvalidate?: () => void;
 		},
 	): Promise<SelectFields<MetadataWithRelation, F>> {
+		const { metadataId, existing } = target;
 		const providerMetadata = await providerService.fetchDetailsByProvider(body.providerId, existing.type, body.externalId, {
 			language: await resolveMetadataLanguage(metadataId),
 		});
 		if (!providerMetadata) {
-			throw new NotFoundError("Could not fetch metadata details for the specified provider and external ID", {
+			throw new DomainError("not_found", "Could not fetch metadata details for the specified provider and external ID", {
 				code: "metadata.provider_details_not_found",
 				params: { providerId: body.providerId, externalId: body.externalId },
 			});
@@ -455,7 +456,7 @@ class MetadataService extends BaseService {
 		this.invalidateReadCaches();
 		options.afterInvalidate?.();
 		const updated = await metadataRepository.findByIdForRead(metadataId, query);
-		this.assertExists(updated, "Metadata", metadataId);
+		assertFound(updated, "Metadata", metadataId);
 
 		recordAuditSafe(
 			{
@@ -477,12 +478,12 @@ class MetadataService extends BaseService {
 	 * held back unless `force` is set, because its files lose their title while playing.
 	 */
 	async deleteMany(metadataIds: string[], options: { force?: boolean | undefined } = {}, context?: AdminAuditContext) {
-		return await this.safeExecute("deleteMany", async () => {
+		return await runSafely(this, "deleteMany", async () => {
 			const ids = [...new Set(metadataIds)];
 			const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds(ids));
 			const activeStreams = streamingManager.getAllActiveSessions().filter((session) => linkedFileIds.has(session.mediaFileId)).length;
 			if (activeStreams > 0 && options.force !== true) {
-				throw new ConflictError("Delete is blocked while streams are playing these titles", {
+				throw new DomainError("conflict", "Delete is blocked while streams are playing these titles", {
 					code: "metadata.delete_blocked_active_streams",
 					params: { activeStreams },
 				});
@@ -498,9 +499,9 @@ class MetadataService extends BaseService {
 	}
 
 	async delete(metadataId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
-		return await this.safeExecute("delete", async () => {
+		return await runSafely(this, "delete", async () => {
 			const metadata = await metadataRepository.findByIdForRead(metadataId);
-			this.assertExists(metadata, "Metadata", metadataId);
+			assertFound(metadata, "Metadata", metadataId);
 			const cleanup = await metadataRepository.deleteAndGetCleanup(metadataId);
 			await runMediaCleanup(cleanup);
 			this.invalidateReadCaches();
@@ -521,7 +522,7 @@ class MetadataService extends BaseService {
 	}
 
 	async deleteOrphans(context?: AdminAuditContext): Promise<{ count: number }> {
-		return await this.safeExecute("deleteOrphans", async () => {
+		return await runSafely(this, "deleteOrphans", async () => {
 			// Page the purge so a huge orphan set is never materialized at once, and
 			// keep only a bounded sample in the audit payload (the full id list bloated
 			// the audit row forever).
@@ -559,9 +560,9 @@ class MetadataService extends BaseService {
 	}
 
 	async mergeMetadata(targetId: string, sourceId: string, context?: AdminAuditContext): Promise<{ success: true; targetId: string }> {
-		return await this.safeExecute("mergeMetadata", async () => {
+		return await runSafely(this, "mergeMetadata", async () => {
 			if (targetId === sourceId) {
-				throw new ValidationError("Target and source metadata must be different", {
+				throw new DomainError("validation", "Target and source metadata must be different", {
 					code: "metadata.merge_same_id",
 					params: { metadataId: targetId },
 				});
@@ -571,10 +572,10 @@ class MetadataService extends BaseService {
 				metadataRepository.findByIdForRead(targetId),
 				metadataRepository.findByIdForRead(sourceId),
 			]);
-			this.assertExists(target, "Metadata (target)", targetId);
-			this.assertExists(source, "Metadata (source)", sourceId);
+			assertFound(target, "Metadata (target)", targetId);
+			assertFound(source, "Metadata (source)", sourceId);
 			if (target.type !== source.type)
-				throw new ValidationError(`Cannot merge metadata of different types (${target.type} vs ${source.type})`, {
+				throw new DomainError("validation", `Cannot merge metadata of different types (${target.type} vs ${source.type})`, {
 					code: "metadata.merge_type_mismatch",
 				});
 
@@ -610,12 +611,12 @@ class MetadataService extends BaseService {
 		query?: PaginationQuery & FieldsQuery<F>,
 		source?: SelectFields<MetadataWithRelation, string>,
 	): Promise<PaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
-		return await this.safeExecute("getSimilar", () => metadataRepository.findSimilarPage(metadataId, query, source));
+		return await runSafely(this, "getSimilar", () => metadataRepository.findSimilarPage(metadataId, query, source));
 	}
 
 	/** Force-refreshes the artwork of the listed titles one after another; each id reports its own outcome. */
 	async refreshImagesMany(metadataIds: string[]) {
-		return await this.safeExecute("refreshImagesMany", async () => {
+		return await runSafely(this, "refreshImagesMany", async () => {
 			const results: BulkRefreshItem[] = [];
 			for (const metadataId of new Set(metadataIds)) {
 				results.push(
@@ -628,15 +629,15 @@ class MetadataService extends BaseService {
 	}
 
 	async refreshImages(metadataId: string, options: { force?: boolean } = {}): Promise<{ success: boolean }> {
-		return await this.safeExecute("refreshImages", async () => {
+		return await runSafely(this, "refreshImages", async () => {
 			const metadata = await metadataRepository.findProviderDetails(metadataId);
-			this.assertExists(metadata, "Metadata", metadataId);
+			assertFound(metadata, "Metadata", metadataId);
 
 			const providersByName = toMap(metadata.providers, (p) => p.name);
 			const primaryProvider =
 				(metadata.primaryProviderId ? providersByName.get(metadata.primaryProviderId) : undefined) ?? metadata.providers[0];
 			if (!primaryProvider) {
-				throw new NotFoundError("Metadata provider not found for title", {
+				throw new DomainError("not_found", "Metadata provider not found for title", {
 					code: "metadata.provider_not_found",
 					params: { metadataId },
 				});
@@ -649,7 +650,7 @@ class MetadataService extends BaseService {
 				{ language: await resolveMetadataLanguage(metadataId) },
 			);
 			if (!providerMetadata) {
-				throw new NotFoundError("Could not fetch details from provider", {
+				throw new DomainError("not_found", "Could not fetch details from provider", {
 					code: "metadata.provider_details_not_found",
 					params: { providerId: primaryProvider.name, externalId: primaryProvider.externalId },
 				});

@@ -2,7 +2,7 @@ import { Elysia } from "elysia";
 import { isImageAssetPath, isPluginUiPath } from "@/api/utils/route-classification.utils";
 import { serverConfig } from "@/server.config";
 import { getRequestClientIp } from "@/utils/client-ip.utils";
-import { TooManyRequestsError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { getPathname } from "@/utils/http.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
 import { isRecord } from "@/utils/type.utils";
@@ -30,7 +30,7 @@ function setRateLimitHeaders(headers: unknown, limit: number, remaining: number,
 }
 
 function throwRateLimitExceeded(resetMs: number): never {
-	throw new TooManyRequestsError("Too many requests. Try again later.", {
+	throw new DomainError("too_many_requests", "Too many requests. Try again later.", {
 		code: "rate_limit.exceeded",
 		params: { retryAfterSeconds: Math.ceil(resetMs / 1000) },
 	});
@@ -68,17 +68,25 @@ export function isExemptFromGlobalLimit(request: Request): boolean {
 	return false;
 }
 
+/** The user, profile and route params the request is acting on, read from the Elysia context. */
+function readRequestSubject(context: object) {
+	const user = "user" in context && isRecord(context.user) ? context.user : undefined;
+	const profile = "profile" in context && isRecord(context.profile) ? context.profile : undefined;
+	const params = "params" in context && isRecord(context.params) ? context.params : undefined;
+
+	return {
+		userId: user && typeof user.id === "string" ? user.id : undefined,
+		userRole: user && typeof user.role === "string" ? user.role : undefined,
+		profileId: profile && typeof profile.id === "string" ? profile.id : undefined,
+		params,
+	};
+}
+
 export const rateLimitMiddleware = new Elysia({ name: "RateLimitMiddleware" })
 	.macro({
 		rateLimit: (options: { name: string; max: number; windowMs: number; adminBypass?: boolean; perParam?: string }) => ({
 			beforeHandle(context) {
-				const user = "user" in context && isRecord(context.user) ? context.user : undefined;
-				const userId = user && typeof user.id === "string" ? user.id : undefined;
-				const userRole = user && typeof user.role === "string" ? user.role : undefined;
-
-				const profile = "profile" in context && isRecord(context.profile) ? context.profile : undefined;
-				const profileId = profile && typeof profile.id === "string" ? profile.id : undefined;
-
+				const { userId, userRole, profileId, params } = readRequestSubject(context);
 				const { request, server, set } = context;
 
 				if (options.adminBypass && userRole === "admin") return;
@@ -89,7 +97,6 @@ export const rateLimitMiddleware = new Elysia({ name: "RateLimitMiddleware" })
 				const identity = profileId ?? userId ?? `ip:${getClientIp(request, server)}`;
 				// `perParam` gives every value of a route parameter (e.g. a plugin id) its own bucket,
 				// so one chatty plugin cannot exhaust the budget of all the others.
-				const params = "params" in context && isRecord(context.params) ? context.params : undefined;
 				const scoped = options.perParam ? params?.[options.perParam] : undefined;
 				const key = `${options.name}${typeof scoped === "string" ? `:${scoped}` : ""}:${identity}`;
 				const result = rateLimiter.consume(key, routeMax, options.windowMs);

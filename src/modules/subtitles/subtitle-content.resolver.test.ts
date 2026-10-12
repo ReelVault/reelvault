@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { NotFoundError } from "@/utils/errors";
 import { type SubtitleContent, SubtitleContentResolver } from "./subtitle-content.resolver";
 
 interface Overrides {
@@ -80,7 +79,7 @@ describe("SubtitleContentResolver", () => {
 				format: "subrip",
 				mediaFilePath: "/media/a.mkv",
 			}),
-		).rejects.toBeInstanceOf(NotFoundError);
+		).rejects.toMatchObject({ category: "not_found" });
 	});
 
 	test("throws not found for an embedded subtitle without a media file path", () => {
@@ -95,9 +94,9 @@ describe("SubtitleContentResolver", () => {
 	test("throws not found for an unknown subtitle type", () => {
 		const { resolver, calls } = createResolver();
 
-		expect(resolver.resolve("sub-6", { type: "weird", mediaFileId: "file-1", streamIndex: null, format: "srt" })).rejects.toBeInstanceOf(
-			NotFoundError,
-		);
+		expect(resolver.resolve("sub-6", { type: "weird", mediaFileId: "file-1", streamIndex: null, format: "srt" })).rejects.toMatchObject({
+			category: "not_found",
+		});
 		expect(calls.external).toBe(0);
 		expect(calls.embedded).toBe(0);
 	});

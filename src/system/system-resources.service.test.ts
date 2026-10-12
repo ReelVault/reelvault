@@ -104,7 +104,9 @@ describe("SystemResourcesService sizing formulas (injected hardware)", () => {
 			expect(service.getMetrics().reservedWebCores).toBe(1);
 		});
 	});
+});
 
+describe("SystemResourcesService sizing formulas (injected hardware)", () => {
 	test("slow cores get image effort 4, fast cores 5", () => {
 		expect(new SystemResourcesService({ cores: () => 4, speedFactor: () => 0.5 }).getImageEffort()).toBe(4);
 		expect(new SystemResourcesService({ cores: () => 4, speedFactor: () => 1.0 }).getImageEffort()).toBe(5);

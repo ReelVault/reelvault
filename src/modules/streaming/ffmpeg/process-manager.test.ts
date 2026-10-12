@@ -50,7 +50,14 @@ describe("process manager", () => {
 		});
 
 		await expect(
-			manager.startSession("s1", session, "/media/f.mkv", createMockPlaybackDecision({ mode: "transcode" }), 0, 0),
+			manager.startSession({
+				sessionId: "s1",
+				session,
+				inputPath: "/media/f.mkv",
+				decision: createMockPlaybackDecision({ mode: "transcode" }),
+				startTime: 0,
+				timelineStart: 0,
+			}),
 		).rejects.toThrow("Concurrent stream limit reached");
 	});
 

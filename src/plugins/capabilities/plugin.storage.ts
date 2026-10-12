@@ -1,7 +1,6 @@
 import { pluginStorageRepository } from "@/database/repositories/plugin-storage.repository";
-
-import { BaseService } from "@/utils/base-service";
-import { KeyedMutex } from "@/utils/mutex";
+import { KeyedMutex } from "@/utils/concurrency";
+import { createLogger } from "@/utils/logger";
 import { assertStorageKey, serializeStorageValue } from "./plugin.storage.validation";
 
 /** Property access keeps the repository off array-iterator name matching in static analysis. */
@@ -10,13 +9,12 @@ const storageRepository = { plugin: pluginStorageRepository };
 /** Hard cap on keys returned by `list` so a plugin cannot pull an unbounded result set into memory. */
 const MAX_STORAGE_KEYS = 10_000;
 
-class PluginStorageService extends BaseService {
+class PluginStorageService {
+	readonly serviceName = "PluginStorageService";
+	readonly logger = createLogger("PluginStorageService");
+
 	/** Serializes read-modify-write per (plugin, key) so concurrent updates cannot lose writes. */
 	private readonly updateMutex = new KeyedMutex();
-
-	constructor() {
-		super("PluginStorageService");
-	}
 
 	async get(pluginId: string, key: string): Promise<unknown> {
 		assertStorageKey(key);

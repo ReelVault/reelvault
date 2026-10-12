@@ -3,7 +3,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { env } from "@/env";
 import { serverConfig } from "@/server.config";
 import { trimAndFilter, unique } from "@/utils/array.utils";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { isPublicAddress } from "@/utils/url-guard.utils";
 
@@ -101,7 +101,7 @@ export function pathWithQuery(url: string): string {
 export function normalizeHttpUrl(value: string): URL {
 	const url = new URL(value.includes("://") ? value : `http://${value}`);
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new ValidationError(`URL must use HTTP or HTTPS, got: ${url.protocol}`, { code: "http.invalid_protocol" });
+		throw new DomainError("validation", `URL must use HTTP or HTTPS, got: ${url.protocol}`, { code: "http.invalid_protocol" });
 	}
 
 	return url;

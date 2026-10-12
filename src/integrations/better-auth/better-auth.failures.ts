@@ -1,13 +1,5 @@
 import { isAPIError } from "better-auth/api";
-import {
-	ConflictError,
-	type DomainError,
-	ForbiddenError,
-	InternalError,
-	NotFoundError,
-	UnauthorizedError,
-	ValidationError,
-} from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";
 
 /** better-auth error `code`s mapped onto the API's stable error codes. */
@@ -26,29 +18,30 @@ const DEFAULT_INVALID_PASSWORD_CODE = "auth.invalid_credentials";
  * that clients do not mistake it for an expired session).
  */
 function mapFailure(status: number, code: string, invalidPasswordCode: string): DomainError {
-	if (CONFLICT_CODES.has(code)) return new ConflictError("Email is already registered", { code: "auth.email_registered" });
+	if (CONFLICT_CODES.has(code)) return new DomainError("conflict", "Email is already registered", { code: "auth.email_registered" });
 
-	if (WEAK_PASSWORD_CODES.has(code)) return new ValidationError("Password length is not allowed", { code: "auth.weak_password" });
+	if (WEAK_PASSWORD_CODES.has(code)) return new DomainError("validation", "Password length is not allowed", { code: "auth.weak_password" });
 
-	if (code === "INVALID_EMAIL") return new ValidationError("Email is not valid", { code: "auth.invalid_email" });
+	if (code === "INVALID_EMAIL") return new DomainError("validation", "Email is not valid", { code: "auth.invalid_email" });
 
-	if (code === "BANNED_USER") return new ForbiddenError("This account is blocked", { code: "auth.user_banned" });
+	if (code === "BANNED_USER") return new DomainError("forbidden", "This account is blocked", { code: "auth.user_banned" });
 
 	if (code === "INVALID_PASSWORD" || code === "INVALID_EMAIL_OR_PASSWORD") {
 		return invalidPasswordCode === DEFAULT_INVALID_PASSWORD_CODE
-			? new UnauthorizedError("Invalid email or password", { code: invalidPasswordCode })
-			: new ValidationError("Current password is incorrect", { code: invalidPasswordCode });
+			? new DomainError("unauthorized", "Invalid email or password", { code: invalidPasswordCode })
+			: new DomainError("validation", "Current password is incorrect", { code: invalidPasswordCode });
 	}
 
-	if (status === 401) return new UnauthorizedError("Authentication failed", { code: DEFAULT_INVALID_PASSWORD_CODE });
+	if (status === 401) return new DomainError("unauthorized", "Authentication failed", { code: DEFAULT_INVALID_PASSWORD_CODE });
 
-	if (status === 403) return new ForbiddenError("Not allowed", { code: "auth.not_allowed" });
+	if (status === 403) return new DomainError("forbidden", "Not allowed", { code: "auth.not_allowed" });
 
-	if (status === 404) return new NotFoundError("Not found", { code: "auth.not_found" });
+	if (status === 404) return new DomainError("not_found", "Not found", { code: "auth.not_found" });
 
-	if (status >= 400 && status < 500) return new ValidationError("Authentication request rejected", { code: "auth.request_rejected" });
+	if (status >= 400 && status < 500)
+		return new DomainError("validation", "Authentication request rejected", { code: "auth.request_rejected" });
 
-	return new InternalError("Authentication provider failed", { code: "auth.provider_failed" });
+	return new DomainError("internal", "Authentication provider failed", { code: "auth.provider_failed" });
 }
 
 /** Maps a non-OK better-auth `Response` (`{ code, message }` body) to a DomainError. */

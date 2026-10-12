@@ -94,7 +94,9 @@ describe("stream preferences", () => {
 
 		expect(selectPreferredAudioStream(onlyCommentary, "en")?.index).toBe(0);
 	});
+});
 
+describe("stream preferences", () => {
 	test("resolves session overrides first, profile preferences second, per-title languages last", () => {
 		const profile = {
 			audioLanguage: "en",
@@ -174,7 +176,9 @@ describe("stream preferences", () => {
 			})?.id,
 		).toBe("pl-forced");
 	});
+});
 
+describe("stream preferences", () => {
 	test("subtitle language falls back to the preferred audio language", () => {
 		const subtitles = [enFull, plForced];
 
@@ -259,7 +263,9 @@ describe("stream preferences", () => {
 			}),
 		).toBeUndefined();
 	});
+});
 
+describe("stream preferences", () => {
 	test("hearing-impaired preference picks the SDH variant in the preferred language", () => {
 		const subtitles = [plFull, plSdh];
 

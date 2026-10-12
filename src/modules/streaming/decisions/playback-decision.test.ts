@@ -90,7 +90,9 @@ describe("streaming quality decision", () => {
 		);
 		expect(decision).toMatchObject({ mode: "transcode", videoTranscode: true });
 	});
+});
 
+describe("streaming quality decision", () => {
 	test("keeps 8-bit HEVC on the remux path", () => {
 		const decision = decidePlaybackMode(
 			{ videoCodec: "hevc", audioCodec: "aac", videoProfile: "Main", videoPixelFormat: "yuv420p" },

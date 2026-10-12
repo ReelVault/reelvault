@@ -4,29 +4,30 @@ import { profilePreferencesRepository } from "@/database/repositories/profile-pr
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
 import { toPublicSubtitle } from "@/modules/subtitles/subtitle.mapper";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
+import { assertFound, assertProfileId } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { episodesService } from "../catalog/episodes.service";
 import { metadataService } from "../catalog/metadata/metadata.service";
 import { mediaService } from "./media-files/media-files.service";
 import { resolveEffectivePlaybackPreferences, resolveNextEpisodeFileId } from "./playback-view.utils";
 
-class PlaybackViewService extends BaseService {
-	constructor() {
-		super("PlaybackViewService");
-	}
+class PlaybackViewService {
+	readonly serviceName = "PlaybackViewService";
+	readonly logger = createLogger("PlaybackViewService");
 
 	async getPlaybackView(mediaFileId: string, profileId?: string): Promise<PlaybackViewResponse> {
-		return await this.safeExecute("getPlaybackView", async () => {
-			this.assertProfileId(profileId);
+		return await runSafely(this, "getPlaybackView", async () => {
+			assertProfileId(profileId);
 			const mediaFile = await mediaService.getById(mediaFileId);
-			this.assertExists(mediaFile, "MediaFile", mediaFileId);
+			assertFound(mediaFile, "MediaFile", mediaFileId);
 
 			// Flat row only: the contract ships the root metadata object, so the
 			// detail-page relation load (10 queries) would be pure waste. The row
 			// must exist before the overview runs — its type skips the findTypeById
 			// re-read inside the repository.
 			const metadata = await metadataService.getRootsById(mediaFile.metadataId);
-			this.assertExists(metadata, "Metadata", mediaFile.metadataId);
+			assertFound(metadata, "Metadata", mediaFile.metadataId);
 
 			const subtitles = mediaFile.subtitles.map(toPublicSubtitle);
 

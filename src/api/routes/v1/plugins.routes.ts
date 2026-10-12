@@ -7,7 +7,7 @@ import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { pluginRouteDispatchService } from "@/plugins/runtime/plugin-route-dispatch.service";
 import { MINUTE } from "@/server.constants";
-import { ForbiddenError, NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 /** Hop-by-hop / security-sensitive headers a plugin must not set on the host response. */
 const FORBIDDEN_PLUGIN_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
@@ -130,11 +130,11 @@ async function handlePluginRouteDispatch({
 		body: parsedBody,
 		user: { id: user?.id ?? "", role: user?.role ?? "user", ...(profile ? { profileId: profile.id } : {}) },
 	});
-	if (result.type === "not_found") throw new NotFoundError("Plugin route not found", { code: "plugin.route_not_found" });
+	if (result.type === "not_found") throw new DomainError("not_found", "Plugin route not found", { code: "plugin.route_not_found" });
 
-	if (result.type === "forbidden") throw new ForbiddenError(result.message, { code: "plugin.route_forbidden" });
+	if (result.type === "forbidden") throw new DomainError("forbidden", result.message, { code: "plugin.route_forbidden" });
 
-	if (result.type === "invalid_request") throw new ValidationError(result.message, { code: "plugin.route_request_invalid" });
+	if (result.type === "invalid_request") throw new DomainError("validation", result.message, { code: "plugin.route_request_invalid" });
 
 	if (result.headers) {
 		for (const [key, value] of Object.entries(result.headers)) {

@@ -1,5 +1,5 @@
 import type { PlaybackDecision, StreamingSession } from "@reelvault/sdk/common";
-import { ConflictError, InternalError, NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import type { TerminatedSessionEntry } from "../../streaming.types";
 import { playedSecondsBetween } from "../../utils/playback-position.utils";
 
@@ -42,7 +42,7 @@ export class SessionStore {
 
 	register(registration: SessionRegistration): StreamingSession {
 		if (this.sessions.has(registration.id))
-			throw new ConflictError(`Session already registered: ${registration.id}`, { code: "stream.session_exists" });
+			throw new DomainError("conflict", `Session already registered: ${registration.id}`, { code: "stream.session_exists" });
 
 		const now = Date.now();
 		const session: StreamingSession = {
@@ -139,10 +139,12 @@ export class SessionStore {
 	 */
 	attachProcess(sessionId: string, process: Bun.Subprocess, startTime: number): void {
 		const session = this.sessions.get(sessionId);
-		if (!session) throw new NotFoundError(`Session was not registered: ${sessionId}`, { code: "stream.session_not_found" });
+		if (!session) throw new DomainError("not_found", `Session was not registered: ${sessionId}`, { code: "stream.session_not_found" });
 
 		if (session.state === "ending")
-			throw new InternalError(`Session was released while starting its process: ${sessionId}`, { code: "stream.session_released" });
+			throw new DomainError("internal", `Session was released while starting its process: ${sessionId}`, {
+				code: "stream.session_released",
+			});
 
 		session.process = process;
 		session.generation += 1;
@@ -194,7 +196,7 @@ export class SessionStore {
 
 	setSessionOperation(sessionId: string, operationId: string): void {
 		const session = this.sessions.get(sessionId);
-		if (!session) throw new NotFoundError(`Session is not registered: ${sessionId}`, { code: "stream.session_not_found" });
+		if (!session) throw new DomainError("not_found", `Session is not registered: ${sessionId}`, { code: "stream.session_not_found" });
 
 		session.operationId = operationId;
 	}

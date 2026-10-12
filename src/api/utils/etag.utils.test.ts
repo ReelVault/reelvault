@@ -84,7 +84,9 @@ describe("withEtagResponse", () => {
 		expect(response.headers.get("Content-Encoding")).toBe("br");
 		expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
 	});
+});
 
+describe("withEtagResponse", () => {
 	test("cache hit keeps serving the compressed encoding for repeat requests", async () => {
 		invalidateResponseBodies();
 		let run = 0;

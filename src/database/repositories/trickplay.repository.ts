@@ -48,13 +48,7 @@ class TrickplayRepository {
 
 	/** How many media files {@link findMediaFileIdsForRegeneration} matches, before its cap. */
 	async countForRegeneration(scope: TrickplayRegenerationScope, force: boolean): Promise<number> {
-		const [row] = await databaseFactory
-			.getClient()
-			.select({ total: count() })
-			.from(schema.mediaFiles)
-			.where(this.regenerationFilter(scope, force));
-
-		return row?.total ?? 0;
+		return await databaseFactory.getClient().$count(schema.mediaFiles, this.regenerationFilter(scope, force));
 	}
 
 	/** Media files that have no core-generated trickplay artifacts yet. */

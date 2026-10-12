@@ -7,13 +7,14 @@ import { QueryPagination } from "@/database/utils/pagination";
 import { serverConfig } from "@/server.config";
 import { DAY } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { InternalError, isMissingFile, NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError, isMissingFile } from "@/utils/errors";
 import { readFile, safeParseJson } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { isFiniteNumber, isNonEmptyString, isRecord, normalizeLower } from "@/utils/type.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { recordAuditSafe } from "./admin-audit.service";
@@ -172,15 +173,26 @@ interface LogTailEntry {
 	carry: string;
 }
 
+/** Settings shared by every directory visited during one log purge pass. */
+interface LogPurgeScope {
+	logsDir: string;
+	cutoffMs: number;
+	mainLogPath: string | null;
+	signal: AbortSignal | undefined;
+	dryRun: boolean;
+}
+
 const defaultLogsDependencies: AdminLogsServiceDependencies = {
 	logFilePath: serverConfig.paths.logFile,
 };
 
-class AdminLogsService extends BaseService {
+class AdminLogsService {
+	readonly serviceName = "AdminLogsService";
+	readonly logger = createLogger("AdminLogsService");
+
 	private readonly dependencies: AdminLogsServiceDependencies;
 
 	constructor(dependencies: Partial<AdminLogsServiceDependencies> = {}) {
-		super("AdminLogsService");
 		this.dependencies = { ...defaultLogsDependencies, ...dependencies };
 	}
 
@@ -253,7 +265,7 @@ class AdminLogsService extends BaseService {
 		const cleanId = trimmed.includes("\0") ? "" : PathUtils.normalize(trimmed).replace(leadingParentTraversalPattern, "");
 		const targetPath = PathUtils.resolve(PathUtils.join(logsRoot, cleanId));
 		if (targetPath === logsRoot || !PathUtils.isSubpath(targetPath, logsRoot)) {
-			throw new ValidationError("Invalid log file path", { code: "admin.log_path_invalid", params: { fileId } });
+			throw new DomainError("validation", "Invalid log file path", { code: "admin.log_path_invalid", params: { fileId } });
 		}
 
 		return { filePath: targetPath, filename: PathUtils.getFileName(targetPath) };
@@ -279,7 +291,7 @@ class AdminLogsService extends BaseService {
 
 			return { content, truncated: true };
 		} catch {
-			throw new NotFoundError(`Log file not found: ${fileId ?? filePath}`, { code: "logs.file_not_found" });
+			throw new DomainError("not_found", `Log file not found: ${fileId ?? filePath}`, { code: "logs.file_not_found" });
 		}
 	}
 
@@ -326,10 +338,10 @@ class AdminLogsService extends BaseService {
 			// A log file that does not exist yet (fresh install, after a purge) is an empty log,
 			// not a failure: the dashboard reads logs alongside everything else.
 			if (isMissingFile(error)) return { lines: [], parsed: [], lowerLines: [], readOffset: 0, carry: "" };
-			if (error instanceof NotFoundError) throw error;
+			if (error instanceof DomainError && error.category === "not_found") throw error;
 
 			this.logger.error("Failed to read log file tail", error, { fileId, filePath });
-			throw new InternalError(`Log file could not be read: ${fileId ?? filePath}`, { cause: error, code: "logs.read_failed" });
+			throw new DomainError("internal", `Log file could not be read: ${fileId ?? filePath}`, { cause: error, code: "logs.read_failed" });
 		}
 	}
 
@@ -375,11 +387,11 @@ class AdminLogsService extends BaseService {
 		const { filePath, filename } = this.resolveLogFilePath(fileId);
 		try {
 			const file = bunFile(filePath);
-			if (!(await file.exists())) throw new NotFoundError("Log file does not exist", { code: "admin.log_not_found" });
+			if (!(await file.exists())) throw new DomainError("not_found", "Log file does not exist", { code: "admin.log_not_found" });
 
 			return { file, filename };
 		} catch {
-			throw new NotFoundError(`Log file not found: ${fileId ?? filename}`, { code: "logs.file_not_found" });
+			throw new DomainError("not_found", `Log file not found: ${fileId ?? filename}`, { code: "logs.file_not_found" });
 		}
 	}
 	async deleteLogFile(fileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
@@ -402,9 +414,9 @@ class AdminLogsService extends BaseService {
 				}
 			}
 		} catch (error) {
-			if (isMissingFile(error)) throw new NotFoundError(`Log file not found: ${fileId}`, { code: "logs.file_not_found" });
+			if (isMissingFile(error)) throw new DomainError("not_found", `Log file not found: ${fileId}`, { code: "logs.file_not_found" });
 			this.logger.error("Failed to delete log file", error, { fileId, filePath });
-			throw new InternalError(`Log file could not be deleted: ${fileId}`, { cause: error, code: "logs.delete_failed" });
+			throw new DomainError("internal", `Log file could not be deleted: ${fileId}`, { cause: error, code: "logs.delete_failed" });
 		}
 
 		recordAuditSafe(
@@ -426,7 +438,8 @@ class AdminLogsService extends BaseService {
 		signal?: AbortSignal,
 		dryRun = false,
 	): Promise<{ scannedCount: number; deletedCount: number; freedBytes: number; retentionDays: number }> {
-		return await this.safeExecute(
+		return await runSafely(
+			this,
 			"purgeOldLogs",
 			async () => {
 				throwIfAborted(signal);
@@ -443,7 +456,7 @@ class AdminLogsService extends BaseService {
 				}
 
 				const mainLogPath = this.dependencies.logFilePath ? PathUtils.resolve(this.dependencies.logFilePath) : null;
-				const stats = await this.cleanLogDirectory(logsDir, logsDir, cutoffMs, mainLogPath, signal, dryRun);
+				const stats = await this.cleanLogDirectory(logsDir, { logsDir, cutoffMs, mainLogPath, signal, dryRun });
 
 				if (!dryRun && context?.actorUserId && stats.deletedCount > 0) {
 					recordAuditSafe(
@@ -471,12 +484,9 @@ class AdminLogsService extends BaseService {
 
 	private async cleanLogDirectory(
 		currentDir: string,
-		logsDir: string,
-		cutoffMs: number,
-		mainLogPath: string | null,
-		signal?: AbortSignal,
-		dryRun = false,
+		scope: LogPurgeScope,
 	): Promise<{ scannedCount: number; deletedCount: number; freedBytes: number }> {
+		const { logsDir, cutoffMs, mainLogPath, signal, dryRun } = scope;
 		let scannedCount = 0;
 		let deletedCount = 0;
 		let freedBytes = 0;
@@ -488,7 +498,7 @@ class AdminLogsService extends BaseService {
 				const fullPath = PathUtils.join(currentDir, entry.name);
 
 				if (entry.isDirectory()) {
-					const subResult = await this.cleanLogDirectory(fullPath, logsDir, cutoffMs, mainLogPath, signal, dryRun);
+					const subResult = await this.cleanLogDirectory(fullPath, scope);
 					scannedCount += subResult.scannedCount;
 					deletedCount += subResult.deletedCount;
 					freedBytes += subResult.freedBytes;

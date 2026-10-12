@@ -174,7 +174,9 @@ describe("worker execution pool", () => {
 		expect(requeued).toEqual(["job-1"]);
 		expect(cancelled).toEqual([]);
 	});
+});
 
+describe("worker execution pool", () => {
 	test("cancel aborts a running job and reclaims its slot", async () => {
 		pool.start(
 			makeDefinition(

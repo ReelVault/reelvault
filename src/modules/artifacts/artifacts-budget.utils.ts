@@ -1,7 +1,7 @@
 import { statfs } from "node:fs/promises";
 import type { PlaybackArtifact, PlaybackArtifactWrite } from "@reelvault/sdk/common";
 import { serverConfig } from "@/server.config";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { CORE_ARTIFACTS_OWNER } from "./artifacts.constants";
@@ -23,13 +23,13 @@ interface ArtifactsVolume {
 
 const volumeCache = new MemoryCache<ArtifactsVolume>({ ttlMs: VOLUME_CACHE_TTL_MS, maxSize: 1, name: "artifacts-volume" });
 
-function budgetError(message: string, details: Record<string, number>): ValidationError {
-	return new ValidationError(message, { code: "artifact.storage_budget_exceeded", details });
+function budgetError(message: string, details: Record<string, number>): DomainError {
+	return new DomainError("validation", message, { code: "artifact.storage_budget_exceeded", details });
 }
 
 /** True for the core-budget gate error — core writers use it to skip instead of failing. */
 export function isStorageBudgetError(error: unknown): boolean {
-	return error instanceof ValidationError && error.code === "artifact.storage_budget_exceeded";
+	return error instanceof DomainError && error.category === "validation" && error.code === "artifact.storage_budget_exceeded";
 }
 
 /** Auto budget formula: 5% of the volume capacity clamped to 5–100 GB. */

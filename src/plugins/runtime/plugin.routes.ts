@@ -1,7 +1,7 @@
 import type { PluginHttpMethod, PluginHttpRequest, PluginHttpResponse, PluginHttpRoute } from "@reelvault/sdk/plugin";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { errorMessage, ValidationError } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";
 
 const PLUGIN_HTTP_METHODS: ReadonlySet<string> = new Set<PluginHttpMethod>(["DELETE", "GET", "PATCH", "POST", "PUT"]);
@@ -38,10 +38,14 @@ export class PluginRouteRegistry {
 			const conflictsWithExisting = existingRoutes.some((route) => routesConflict(route, candidate));
 			const conflictsWithSibling = candidates.some((route, siblingIndex) => siblingIndex !== index && routesConflict(route, candidate));
 			if (conflictsWithExisting || conflictsWithSibling) {
-				throw new ValidationError(`Plugin HTTP route conflicts with an existing route: ${candidate.route.method} ${candidate.route.path}`, {
-					code: "plugin.route_conflict",
-					params: { method: candidate.route.method, path: candidate.route.path },
-				});
+				throw new DomainError(
+					"validation",
+					`Plugin HTTP route conflicts with an existing route: ${candidate.route.method} ${candidate.route.path}`,
+					{
+						code: "plugin.route_conflict",
+						params: { method: candidate.route.method, path: candidate.route.path },
+					},
+				);
 			}
 		}
 
@@ -79,10 +83,10 @@ export class PluginRouteRegistry {
 
 		const response = await route.route.handler(parsedRequest);
 		if (!isPluginHttpResponse(response))
-			throw new ValidationError("Plugin HTTP route must return a response object", { code: "plugin.route_response_invalid" });
+			throw new DomainError("validation", "Plugin HTTP route must return a response object", { code: "plugin.route_response_invalid" });
 
 		if (route.route.response && !Value.Check(route.route.response, response.body)) {
-			throw new ValidationError("Plugin HTTP response did not match its schema", { code: "plugin.route_response_schema" });
+			throw new DomainError("validation", "Plugin HTTP response did not match its schema", { code: "plugin.route_response_schema" });
 		}
 
 		return response;
@@ -91,14 +95,14 @@ export class PluginRouteRegistry {
 	private createRegisteredRoute(route: PluginHttpRoute): RegisteredPluginRoute {
 		const method = route.method;
 		if (!isPluginHttpMethod(method))
-			throw new ValidationError("Unsupported plugin HTTP method", { code: "plugin.route_method_unsupported" });
+			throw new DomainError("validation", "Unsupported plugin HTTP method", { code: "plugin.route_method_unsupported" });
 
 		if (route.access !== undefined && !PLUGIN_ROUTE_ACCESS_LEVELS.has(route.access)) {
-			throw new ValidationError("Plugin HTTP route access must be 'admin' or 'user'", { code: "plugin.route_access_invalid" });
+			throw new DomainError("validation", "Plugin HTTP route access must be 'admin' or 'user'", { code: "plugin.route_access_invalid" });
 		}
 
 		if (typeof route.handler !== "function")
-			throw new ValidationError("Plugin HTTP route handler is required", { code: "plugin.route_handler_missing" });
+			throw new DomainError("validation", "Plugin HTTP route handler is required", { code: "plugin.route_handler_missing" });
 
 		return { route, segments: parseRoutePath(route.path) };
 	}
@@ -124,13 +128,13 @@ function parseRequestBody(schema: TSchema | undefined, value: unknown): unknown 
 
 function parseRoutePath(path: string): RouteSegment[] {
 	if (!path.startsWith("/")) {
-		throw new ValidationError("Plugin HTTP route path must start with '/'", { code: "plugin.route_path_invalid" });
+		throw new DomainError("validation", "Plugin HTTP route path must start with '/'", { code: "plugin.route_path_invalid" });
 	}
 
 	if (path === "/") return [];
 
 	if (path.endsWith("/")) {
-		throw new ValidationError("Plugin HTTP route path must not end with '/'", { code: "plugin.route_path_invalid" });
+		throw new DomainError("validation", "Plugin HTTP route path must not end with '/'", { code: "plugin.route_path_invalid" });
 	}
 
 	const parameterNames = new Set<string>();
@@ -142,7 +146,9 @@ function parseRoutePath(path: string): RouteSegment[] {
 			if (segment.startsWith(":")) {
 				const name = segment.slice(1);
 				if (!routeParameterNamePattern.test(name) || parameterNames.has(name)) {
-					throw new ValidationError(`Plugin HTTP route has an invalid parameter: ${segment}`, { code: "plugin.route_path_invalid" });
+					throw new DomainError("validation", `Plugin HTTP route has an invalid parameter: ${segment}`, {
+						code: "plugin.route_path_invalid",
+					});
 				}
 
 				parameterNames.add(name);
@@ -151,7 +157,9 @@ function parseRoutePath(path: string): RouteSegment[] {
 			}
 
 			if (!routePathSegmentPattern.test(segment))
-				throw new ValidationError(`Plugin HTTP route has an invalid path segment: ${segment}`, { code: "plugin.route_path_invalid" });
+				throw new DomainError("validation", `Plugin HTTP route has an invalid path segment: ${segment}`, {
+					code: "plugin.route_path_invalid",
+				});
 
 			return { type: "literal", value: segment };
 		});

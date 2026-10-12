@@ -43,13 +43,13 @@ import { streamingManager } from "@/modules/streaming/runtime/streaming.manager"
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
-import { errorCodeOf } from "@/utils/error-codes.utils";
-import { ConflictError, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { assertFound, DomainError, errorCodeOf, notFoundError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
+import { runSafely } from "@/utils/safe-execute";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import { mapLibraryType } from "@/utils/type.utils";
 import { enqueueMediaFileAuditReport } from "@/workers/definitions/media/media-file-audit.worker";
@@ -75,7 +75,64 @@ interface MediaFileScanResult {
 	isEnabled: boolean;
 }
 
-class MediaService extends BaseService {
+/** Existence and readability of the file on disk; a missing or inaccessible file counts as absent. */
+async function probeFileStats(filePath: string): Promise<{ exists: boolean; readable: boolean; sizeBytes: number | null }> {
+	let exists = false;
+	let readable = false;
+	let sizeBytes: number | null = null;
+
+	try {
+		const stats = await FileUtils.getStats(filePath);
+		if (stats) {
+			exists = true;
+			readable = stats.isFile();
+			sizeBytes = stats.size;
+		}
+	} catch {
+		// File not found or not accessible
+	}
+
+	return { exists, readable, sizeBytes };
+}
+
+async function probeMediaFile(filePath: string): Promise<{ probeSuccess: boolean; probeErrorCode: string | null }> {
+	try {
+		const probe = await videoParser.probe(filePath);
+		if (probe) return { probeSuccess: true, probeErrorCode: null };
+
+		return { probeSuccess: false, probeErrorCode: "media.probe_no_data" };
+	} catch (err) {
+		return { probeSuccess: false, probeErrorCode: errorCodeOf(err, "media.probe_failed") };
+	}
+}
+
+/** Decodes the first `durationSeconds` (60 by default) of the file with ffmpeg; a failed decode is recorded, not thrown. */
+async function decodeMediaFile(
+	filePath: string,
+	durationSeconds: number | null | undefined,
+): Promise<{ decodeSuccess: boolean; decodeErrorCode: string | null }> {
+	try {
+		const args = ["-v", "error"];
+		const scanDuration = durationSeconds === undefined ? 60 : durationSeconds;
+		if (scanDuration && scanDuration > 0) {
+			args.push("-t", String(scanDuration));
+		}
+
+		args.push("-i", filePath, "-f", "null", "-");
+
+		const ffmpegResult = await ffMpegService.runToCompletion(args, { stdout: "ignore" });
+		if (ffmpegResult.exitCode === 0) return { decodeSuccess: true, decodeErrorCode: null };
+
+		return { decodeSuccess: false, decodeErrorCode: "media.decode_failed" };
+	} catch (err) {
+		return { decodeSuccess: false, decodeErrorCode: errorCodeOf(err, "media.decode_failed") };
+	}
+}
+
+class MediaService {
+	readonly serviceName = "MediaService";
+	readonly logger = createLogger("MediaService");
+
 	/**
 	 * Validated audit reports by operation id. A completed operation's result is
 	 * immutable, but the client polls it repeatedly; without this, every poll
@@ -83,28 +140,24 @@ class MediaService extends BaseService {
 	 */
 	private readonly auditResultCache = new MemoryCache<MediaFileAuditResponse>({ ttlMs: -1, maxSize: 8, name: "media-file-audit-results" });
 
-	constructor() {
-		super("MediaService");
-	}
-
 	async getAll<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & MediaFileFilters & MediaFileSorting,
 	): Promise<PaginatedResponse<SelectFields<MediaFileWithRelation, F>>> {
-		return await this.safeExecute("getAll", async () => await mediaRepository.findPage(query));
+		return await runSafely(this, "getAll", async () => await mediaRepository.findPage(query));
 	}
 
 	async getById<F extends string>(mediaFileId: string, query?: FieldsQuery<F>): Promise<SelectFields<MediaFileWithRelation, F>> {
-		return await this.safeExecute("getById", async () => {
+		return await runSafely(this, "getById", async () => {
 			const media = await mediaRepository.findByIdForRead(mediaFileId, query);
 
-			this.assertExists(media, "MediaFile", mediaFileId);
+			assertFound(media, "MediaFile", mediaFileId);
 
 			return media;
 		});
 	}
 
 	async listArtifacts(mediaFileId: string, options?: { skipExistsCheck?: boolean }): Promise<PlaybackArtifact[]> {
-		return await this.safeExecute("listArtifacts", async () => {
+		return await runSafely(this, "listArtifacts", async () => {
 			if (!options?.skipExistsCheck) await this.assertMediaFileExists(mediaFileId);
 
 			return await mediaArtifactsService.list(mediaFileId);
@@ -112,16 +165,16 @@ class MediaService extends BaseService {
 	}
 
 	async getArtifact(mediaFileId: string, artifactId: string): Promise<{ artifact: PlaybackArtifact; file: Blob }> {
-		return await this.safeExecute("getArtifact", async () => {
+		return await runSafely(this, "getArtifact", async () => {
 			const artifact = await mediaArtifactsService.findFile(mediaFileId, artifactId);
-			this.assertExists(artifact, "PlaybackArtifact", artifactId);
+			assertFound(artifact, "PlaybackArtifact", artifactId);
 
 			return artifact;
 		});
 	}
 
 	async listMarkers(mediaFileId: string, options?: { skipExistsCheck?: boolean }): Promise<MediaMarker[]> {
-		return await this.safeExecute("listMarkers", async () => {
+		return await runSafely(this, "listMarkers", async () => {
 			if (!options?.skipExistsCheck) await this.assertMediaFileExists(mediaFileId);
 
 			const markers = await mediaMarkersRepository.findByMediaFileId(mediaFileId);
@@ -131,7 +184,7 @@ class MediaService extends BaseService {
 	}
 
 	async listAllMarkers(query: MediaMarkerListQuery & { page?: number } = {}) {
-		return await this.safeExecute("listAllMarkers", async () => {
+		return await runSafely(this, "listAllMarkers", async () => {
 			// Filters and LIMIT run in SQL — fetching every marker row to filter or slice in JS
 			// would read the whole table on a user-triggerable route.
 			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 100 });
@@ -143,10 +196,10 @@ class MediaService extends BaseService {
 
 	/** Every marker matching the filters as NDJSON; an export past the cap is refused rather than cut short. */
 	async exportMarkers(query: MediaMarkerFilters): Promise<string> {
-		return await this.safeExecute("exportMarkers", async () => {
+		return await runSafely(this, "exportMarkers", async () => {
 			const markers = await mediaMarkersRepository.findAll({ ...query, limit: MARKER_TRANSFER_MAX_LINES + 1 });
 			if (markers.length > MARKER_TRANSFER_MAX_LINES) {
-				throw new ValidationError(`The marker export holds at most ${MARKER_TRANSFER_MAX_LINES} markers; narrow the filters`, {
+				throw new DomainError("validation", `The marker export holds at most ${MARKER_TRANSFER_MAX_LINES} markers; narrow the filters`, {
 					code: "media.markers_export_too_large",
 					params: { limit: MARKER_TRANSFER_MAX_LINES },
 				});
@@ -161,13 +214,13 @@ class MediaService extends BaseService {
 	 * before the first marker is written, so an unknown file refuses the whole import.
 	 */
 	async importMarkers(text: string, context?: AdminAuditContext): Promise<{ mediaFiles: number; markers: number }> {
-		return await this.safeExecute("importMarkers", async () => {
+		return await runSafely(this, "importMarkers", async () => {
 			const grouped = groupMarkersByMediaFile(parseMarkersNdjson(text));
 			const mediaFileIds = [...grouped.keys()];
 			const exists = await Promise.all(mediaFileIds.map((mediaFileId) => mediaRepository.isExists({ primaryId: mediaFileId })));
 			const missing = mediaFileIds.find((_, index) => !exists[index]);
 			if (missing !== undefined) {
-				throw new ValidationError(`The marker import names an unknown media file: ${missing}`, {
+				throw new DomainError("validation", `The marker import names an unknown media file: ${missing}`, {
 					code: "media.markers_import_unknown_file",
 					params: { mediaFileId: missing },
 				});
@@ -189,17 +242,19 @@ class MediaService extends BaseService {
 		options?: { pluginId?: string; source?: "automatic" | "manual" | "plugin" },
 		context?: AdminAuditContext,
 	): Promise<MediaMarker[]> {
-		return await this.safeExecute("setMarkers", async () => {
+		return await runSafely(this, "setMarkers", async () => {
 			// Server-owned semantic validation (moved out of the SDK client).
 			const invalid = markers.find((marker) => marker.endSeconds < marker.startSeconds);
 			if (invalid)
-				throw new ValidationError(`Marker end must not precede its start (${invalid.type})`, { code: "media_file.marker_range_invalid" });
+				throw new DomainError("validation", `Marker end must not precede its start (${invalid.type})`, {
+					code: "media_file.marker_range_invalid",
+				});
 
 			const [mediaFileExists, before] = await Promise.all([
 				mediaRepository.isExists({ primaryId: mediaFileId }),
 				mediaMarkersRepository.findByMediaFileId(mediaFileId),
 			]);
-			this.assertFound(mediaFileExists, "MediaFile", mediaFileId);
+			if (!mediaFileExists) throw notFoundError("MediaFile", mediaFileId);
 			const saved = await mediaMarkersRepository.replaceMarkersForMediaFile(mediaFileId, markers, options);
 			const after = saved.map((item) => toPublicMarker(item));
 
@@ -220,7 +275,7 @@ class MediaService extends BaseService {
 	}
 
 	async deleteMarkers(mediaFileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
-		return await this.safeExecute("deleteMarkers", async () => {
+		return await runSafely(this, "deleteMarkers", async () => {
 			await this.assertMediaFileExists(mediaFileId);
 			const before = await mediaMarkersRepository.findByMediaFileId(mediaFileId);
 			await mediaMarkersRepository.deleteByMediaFileId(mediaFileId);
@@ -246,7 +301,7 @@ class MediaService extends BaseService {
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<MediaFileWithRelation, F>> {
-		return await this.safeExecute("update", async () => {
+		return await runSafely(this, "update", async () => {
 			const result = await auditedUpdate({
 				logger: this.logger,
 				resourceType: "media_file",
@@ -264,9 +319,9 @@ class MediaService extends BaseService {
 	}
 
 	async refresh(mediaFileId: string, context?: AdminAuditContext) {
-		return await this.safeExecute("refresh", async () => {
+		return await runSafely(this, "refresh", async () => {
 			const mediaFile = await mediaRepository.findIdentity(mediaFileId);
-			this.assertExists(mediaFile, "MediaFile", mediaFileId);
+			assertFound(mediaFile, "MediaFile", mediaFileId);
 
 			const enqueued = await enqueueDeduped({
 				// Only the technical refresh gates the whole request: a metadata refresh
@@ -300,7 +355,7 @@ class MediaService extends BaseService {
 
 	/** Queues a technical refresh for each listed media file; a file that cannot be queued reports its own code. */
 	async refreshMany(mediaFileIds: string[], context?: AdminAuditContext) {
-		return await this.safeExecute("refreshMany", async () => {
+		return await runSafely(this, "refreshMany", async () => {
 			const results: BulkRefreshItem[] = [];
 			for (const mediaFileId of new Set(mediaFileIds)) {
 				results.push(await runBulkItem(mediaFileId, () => this.refresh(mediaFileId, context), "media_file.refresh_failed"));
@@ -311,7 +366,7 @@ class MediaService extends BaseService {
 	}
 
 	async refreshAll(context?: AdminAuditContext) {
-		return await this.safeExecute("refreshAll", async () => {
+		return await runSafely(this, "refreshAll", async () => {
 			const enqueued = await enqueueDeduped({
 				targets: [{ workerId: "media-files-refresh-all", dedupeKey: "media-files-refresh-all" }],
 				type: "media-files-refresh",
@@ -337,28 +392,15 @@ class MediaService extends BaseService {
 
 	async scan(mediaFileId: string, options?: { durationSeconds?: number | null } | null): Promise<MediaFileScanResult> {
 		return await scanSemaphore.run(async () => {
-			return await this.safeExecute("scan", async () => {
+			return await runSafely(this, "scan", async () => {
 				const mediaFile = await mediaRepository.findByPrimaryId({
 					primaryId: mediaFileId,
 					fields: QueryFields.parse({ fields: "id,filePath,isEnabled" }),
 				});
-				this.assertExists(mediaFile, "MediaFile", mediaFileId);
+				assertFound(mediaFile, "MediaFile", mediaFileId);
 
 				const filePath = mediaFile.filePath;
-				let exists = false;
-				let readable = false;
-				let sizeBytes: number | null = null;
-
-				try {
-					const stats = await FileUtils.getStats(filePath);
-					if (stats) {
-						exists = true;
-						readable = stats.isFile();
-						sizeBytes = stats.size;
-					}
-				} catch {
-					// File not found or not accessible
-				}
+				const { exists, readable, sizeBytes } = await probeFileStats(filePath);
 
 				if (!exists) {
 					return {
@@ -373,39 +415,9 @@ class MediaService extends BaseService {
 					};
 				}
 
-				let probeSuccess = false;
-				let probeErrorCode: string | null = null;
-				try {
-					const probe = await videoParser.probe(filePath);
-					if (probe) {
-						probeSuccess = true;
-					} else {
-						probeErrorCode = "media.probe_no_data";
-					}
-				} catch (err) {
-					probeErrorCode = errorCodeOf(err, "media.probe_failed");
-				}
+				const { probeSuccess, probeErrorCode } = await probeMediaFile(filePath);
 
-				let decodeSuccess = false;
-				let decodeErrorCode: string | null = null;
-				try {
-					const args = ["-v", "error"];
-					const scanDuration = options?.durationSeconds === undefined ? 60 : options.durationSeconds;
-					if (scanDuration && scanDuration > 0) {
-						args.push("-t", String(scanDuration));
-					}
-
-					args.push("-i", filePath, "-f", "null", "-");
-
-					const ffmpegResult = await ffMpegService.runToCompletion(args, { stdout: "ignore" });
-					if (ffmpegResult.exitCode === 0) {
-						decodeSuccess = true;
-					} else {
-						decodeErrorCode = "media.decode_failed";
-					}
-				} catch (err) {
-					decodeErrorCode = errorCodeOf(err, "media.decode_failed");
-				}
+				const { decodeSuccess, decodeErrorCode } = await decodeMediaFile(filePath, options?.durationSeconds);
 
 				// `exists` was already asserted by the early return above.
 				const hasErrors = !(readable && probeSuccess && decodeSuccess);
@@ -433,7 +445,7 @@ class MediaService extends BaseService {
 
 	private async assertMediaFileExists(mediaFileId: string): Promise<void> {
 		const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
-		this.assertFound(mediaFileExists, "MediaFile", mediaFileId);
+		if (!mediaFileExists) throw notFoundError("MediaFile", mediaFileId);
 	}
 
 	/**
@@ -450,7 +462,7 @@ class MediaService extends BaseService {
 			language: await resolveLibraryLanguage(libraryId),
 		});
 		if (!providerMetadata) {
-			throw new NotFoundError("Provider details not found", {
+			throw new DomainError("not_found", "Provider details not found", {
 				code: "media_file.provider_details_not_found",
 				params: { providerId },
 			});
@@ -477,9 +489,9 @@ class MediaService extends BaseService {
 		const existingMetadata = await metadataRepository.findByIdForRead(targetMetadataId, {
 			fields: "id,type,title",
 		});
-		this.assertExists(existingMetadata, "Metadata", targetMetadataId);
+		assertFound(existingMetadata, "Metadata", targetMetadataId);
 		if (existingMetadata.type !== mediaType) {
-			throw new ValidationError("Metadata type mismatch", {
+			throw new DomainError("validation", "Metadata type mismatch", {
 				code: "media_file.metadata_type_mismatch",
 				params: { expectedType: mediaType, actualType: existingMetadata.type },
 			});
@@ -496,14 +508,14 @@ class MediaService extends BaseService {
 
 		if (body.targetMetadataId) return await this.assertReassignTargetMetadata(body.targetMetadataId, mediaType);
 
-		throw new ValidationError("targetMetadataId or provider details are required", {
+		throw new DomainError("validation", "targetMetadataId or provider details are required", {
 			code: "media_file.target_required",
 		});
 	}
 
 	private async resolveMovieAnchor(targetMetadataId: string): Promise<string> {
 		const movie = await moviesRepository.findOrCreateByMetadataId({ metadataId: targetMetadataId });
-		if (!movie) throw new InternalError("Failed to create movie record", { code: "media_file.movie_create_failed" });
+		if (!movie) throw new DomainError("internal", "Failed to create movie record", { code: "media_file.movie_create_failed" });
 
 		return movie.id;
 	}
@@ -512,12 +524,12 @@ class MediaService extends BaseService {
 		const episode = await episodesRepository.findByIdForRead(episodeId, {
 			fields: "id,seasonId",
 		});
-		this.assertExists(episode, "Episode", episodeId);
+		assertFound(episode, "Episode", episodeId);
 		const season = await seasonsRepository.findByIdForRead(episode.seasonId, {
 			fields: "id,metadataId",
 		});
 		if (!season || season.metadataId !== targetMetadataId) {
-			throw new ValidationError("Selected episode does not belong to the target series", {
+			throw new DomainError("validation", "Selected episode does not belong to the target series", {
 				code: "media_file.episode_mismatch",
 			});
 		}
@@ -542,7 +554,8 @@ class MediaService extends BaseService {
 			seasonInfo,
 			episodeInfo,
 		});
-		if (!persisted?.episode) throw new InternalError("Failed to create episode record", { code: "media_file.episode_create_failed" });
+		if (!persisted?.episode)
+			throw new DomainError("internal", "Failed to create episode record", { code: "media_file.episode_create_failed" });
 
 		return persisted.episode.id;
 	}
@@ -564,7 +577,7 @@ class MediaService extends BaseService {
 			};
 		}
 
-		throw new ValidationError("Episode selection required for a series", { code: "media_file.episode_required" });
+		throw new DomainError("validation", "Episode selection required for a series", { code: "media_file.episode_required" });
 	}
 
 	async reassign<F extends string>(
@@ -573,17 +586,17 @@ class MediaService extends BaseService {
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<MediaFileWithRelation, F>> {
-		return await this.safeExecute("reassign", async () => {
+		return await runSafely(this, "reassign", async () => {
 			const mediaFile = await mediaRepository.findByIdForRead(mediaFileId, {
 				fields: "id,libraryId,metadataId,movieId,episodeId,isDefault,filePath,fileName",
 			});
-			this.assertExists(mediaFile, "MediaFile", mediaFileId);
+			assertFound(mediaFile, "MediaFile", mediaFileId);
 
 			// Only library.type is read here — the default fetch would run the
 			// library stats/path aggregates for a single string comparison.
 			const library = await librariesRepository.findByIdForRead(mediaFile.libraryId, { fields: "id,type" });
 			if (!library) {
-				throw new NotFoundError("Library not found for this media file", {
+				throw new DomainError("not_found", "Library not found for this media file", {
 					code: "media_file.library_not_found",
 					params: { libraryId: mediaFile.libraryId },
 				});
@@ -623,7 +636,7 @@ class MediaService extends BaseService {
 			);
 
 			const updated = await mediaRepository.findByIdForRead(mediaFileId, query);
-			this.assertExists(updated, "MediaFile", mediaFileId);
+			assertFound(updated, "MediaFile", mediaFileId);
 
 			return updated;
 		});
@@ -631,7 +644,7 @@ class MediaService extends BaseService {
 
 	/** Queues the full-catalog audit as a background operation (route returns 202). */
 	async queueAudit(context?: AdminAuditContext): Promise<{ success: true; operationId: string; status: "pending" }> {
-		return await this.safeExecute("queueAudit", async () => {
+		return await runSafely(this, "queueAudit", async () => {
 			const enqueued = await enqueueDeduped({
 				targets: [{ workerId: "media-files-audit", dedupeKey: "media-files-audit:all" }],
 				type: "media-files-audit",
@@ -658,10 +671,10 @@ class MediaService extends BaseService {
 
 	/** Polls an audit operation; `result` is populated once it completes. */
 	async getAuditStatus(operationId: string): Promise<MediaFileAuditStatus> {
-		return await this.safeExecute("getAuditStatus", async () => {
+		return await runSafely(this, "getAuditStatus", async () => {
 			const operation = await workerService.getOperation(operationId);
 			if (operation?.type !== "media-files-audit") {
-				throw new NotFoundError("Audit operation not found", { code: "media_file.audit_not_found" });
+				throw new DomainError("not_found", "Audit operation not found", { code: "media_file.audit_not_found" });
 			}
 
 			let result: MediaFileAuditResponse | null = null;
@@ -694,11 +707,11 @@ class MediaService extends BaseService {
 	 * held back unless `force` is set, because deleting the record ends that playback.
 	 */
 	async deleteMany(mediaFileIds: string[], options: { force?: boolean | undefined } = {}, context?: AdminAuditContext) {
-		return await this.safeExecute("deleteMany", async () => {
+		return await runSafely(this, "deleteMany", async () => {
 			const ids = [...new Set(mediaFileIds)];
 			const activeStreams = streamingManager.getAllActiveSessions().filter((session) => ids.includes(session.mediaFileId)).length;
 			if (activeStreams > 0 && options.force !== true) {
-				throw new ConflictError("Delete is blocked while streams are playing these files", {
+				throw new DomainError("conflict", "Delete is blocked while streams are playing these files", {
 					code: "media.delete_blocked_active_streams",
 					params: { activeStreams },
 				});
@@ -714,7 +727,7 @@ class MediaService extends BaseService {
 	}
 
 	async delete(mediaFileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
-		return await this.safeExecute("delete", async () => {
+		return await runSafely(this, "delete", async () => {
 			// getById already asserts existence (404) — no redundant second check needed.
 			const mediaFile = await this.getById(mediaFileId, { fields: "id" });
 			const cleanup = await mediaRepository.deleteAndGetCleanup(mediaFileId);

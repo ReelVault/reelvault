@@ -1,7 +1,7 @@
 import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
 import { getWorkerRuntime } from "./worker-runtime";
 
@@ -23,7 +23,10 @@ function detachStarted(started: void | Promise<void>): void {
 	);
 }
 
-export class WorkerPollingService extends BaseService {
+export class WorkerPollingService {
+	readonly serviceName = "WorkerPollingService";
+	readonly logger = createLogger("WorkerPollingService");
+
 	private runnerId = "default-runner";
 	private pollTimer?: Timer | undefined;
 	private pollDebounceTimer?: Timer | undefined;
@@ -34,10 +37,6 @@ export class WorkerPollingService extends BaseService {
 	private emptyPolls = 0;
 	/** Set when work arrives while a poll is already running, so it is not lost to the in-flight guard. */
 	private pollAgain = false;
-
-	constructor() {
-		super("WorkerPollingService");
-	}
 
 	setRunnerId(runnerId: string): void {
 		this.runnerId = runnerId;

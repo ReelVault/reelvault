@@ -26,8 +26,8 @@ import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { hasEntry, isNotNullish } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
-import { errorMessage, ValidationError } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { isAcceptableMatch, rankCandidates, type ScoredCandidate } from "@/utils/media-match.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { normalizeLower } from "@/utils/type.utils";
@@ -88,12 +88,11 @@ class NoMatchError extends Error {
 	}
 }
 
-class ProviderService extends BaseService {
-	private caches = new ProviderResultCaches();
+class ProviderService {
+	readonly serviceName = "ProviderService";
+	readonly logger = createLogger("ProviderService");
 
-	constructor() {
-		super("ProviderService");
-	}
+	private caches = new ProviderResultCaches();
 
 	/**
 	 * Replaces the result caches. Their TTL is read when they are built, so a changed
@@ -122,14 +121,18 @@ class ProviderService extends BaseService {
 		const externalId = request.externalId?.trim();
 		if (providerId || externalId) {
 			if (!(providerId && externalId))
-				throw new ValidationError("Searching by id requires both providerId and externalId", { code: "provider.search_id_incomplete" });
+				throw new DomainError("validation", "Searching by id requires both providerId and externalId", {
+					code: "provider.search_id_incomplete",
+				});
 
 			return await this.searchByProviderExternalId(type, providerId, externalId);
 		}
 
 		const query = title?.trim();
 		if (!query)
-			throw new ValidationError("Provide a title or a providerId + externalId pair to search", { code: "provider.search_query_missing" });
+			throw new DomainError("validation", "Provide a title or a providerId + externalId pair to search", {
+				code: "provider.search_query_missing",
+			});
 
 		const grouped = await this.searchProviders({ type, query, year });
 
@@ -160,8 +163,10 @@ class ProviderService extends BaseService {
 			providers,
 			serverConfig.plugins.providers.concurrency,
 			async (provider): Promise<ProviderSearchResponse | null> => {
-				const ranked = await this.rankProviderResults(provider, request.type, query, request.year, undefined, (error) =>
-					this.logger.error(`Provider ${provider.id} failed`, error),
+				const ranked = await this.rankProviderResults(
+					provider,
+					{ type: request.type, query, year: request.year, language: undefined },
+					(error) => this.logger.error(`Provider ${provider.id} failed`, error),
 				);
 				if (!ranked) return null;
 
@@ -179,12 +184,10 @@ class ProviderService extends BaseService {
 	 */
 	private async rankProviderResults(
 		provider: MetadataProvider,
-		type: ProviderMediaType,
-		query: string,
-		year: number | undefined,
-		language: string | undefined,
+		search: { type: ProviderMediaType; query: string; year: number | undefined; language: string | undefined },
 		onError: (error: unknown) => void,
 	): Promise<Array<ScoredCandidate<ProviderSearchResult>> | null> {
+		const { type, query, year, language } = search;
 		try {
 			const results = await searchWithVariants(
 				(searchQuery) => (language ? provider.search(type, searchQuery, year, { language }) : provider.search(type, searchQuery, year)),
@@ -214,7 +217,7 @@ class ProviderService extends BaseService {
 		const enabled = await metadataProviderSettingsService.getOrderedProviders();
 		const enabledIds = new Set(enabled.map((p) => p.id));
 		if (!enabledIds.has(providerId)) {
-			throw new ValidationError(`Provider ${providerId} is not registered or is disabled`, {
+			throw new DomainError("validation", `Provider ${providerId} is not registered or is disabled`, {
 				code: "provider.unavailable",
 				params: { provider: providerId },
 			});
@@ -388,12 +391,12 @@ class ProviderService extends BaseService {
 	 */
 	private async firstProviderResult<TResult>(
 		providerId: string | undefined,
-		cacheKey: string,
-		cache: ProviderResultCache<TResult>,
+		slot: { cacheKey: string; cache: ProviderResultCache<TResult> },
 		fetchOne: (provider: MetadataProvider) => Promise<TResult | undefined>,
 		isPositive: (result: TResult) => boolean,
 		onError: (provider: MetadataProvider, error: unknown) => void,
 	): Promise<TResult | null> {
+		const { cacheKey, cache } = slot;
 		const cached = cache.get(cacheKey);
 		if (cached) return cached;
 
@@ -424,8 +427,7 @@ class ProviderService extends BaseService {
 
 		return await this.firstProviderResult(
 			request.providerId,
-			cacheKey,
-			this.caches.discovery,
+			{ cacheKey, cache: this.caches.discovery },
 			async (provider) => {
 				const page = await provider.discover?.(request);
 
@@ -446,8 +448,7 @@ class ProviderService extends BaseService {
 		const cacheKey = `genres:${providerId ?? "*"}:${type}`;
 		const genres = await this.firstProviderResult(
 			providerId,
-			cacheKey,
-			this.caches.genres,
+			{ cacheKey, cache: this.caches.genres },
 			(provider) => Promise.resolve(provider.getGenres?.(type)),
 			(result) => result.length > 0,
 			(provider, error) =>
@@ -527,7 +528,7 @@ class ProviderService extends BaseService {
 			indexed,
 			serverConfig.plugins.providers.concurrency,
 			async ({ provider, index }): Promise<AcceptedMatch | null> => {
-				const ranked = await this.rankProviderResults(provider, type, parsed.title, parsed.year, language, (error) =>
+				const ranked = await this.rankProviderResults(provider, { type, query: parsed.title, year: parsed.year, language }, (error) =>
 					this.logger.warn("Metadata provider failed, trying next provider", {
 						providerId: provider.id,
 						priorityIndex: index,

@@ -1,7 +1,8 @@
 import type { PlaybackDiagnostics, TranscodeProgressResponse } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
+import { assertFound } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { calculateBufferProgress } from "../buffer/hls-buffer";
 import { defaultFindForStreamingDuration, defaultRequireSession } from "../contracts";
 import { selectDefaultOrFirstStream } from "../decisions/stream-preferences";
@@ -96,11 +97,89 @@ const defaultDependencies: ServiceDependencies = {
 	segmentDurationSeconds: serverConfig.stream.hlsSegmentDurationSeconds,
 };
 
-export class DiagnosticsService extends BaseService {
+type SessionDiagnostics = ReturnType<ServiceDependencies["getSessionDiagnostics"]>;
+
+function sourceDiagnostics(file: DiagnosticsMediaFile, selectedAudioIndex: number | null | undefined) {
+	const defaultVideoStream = selectDefaultOrFirstStream(file.videoStreams ?? []);
+	const audioStreams = file.audioStreams ?? [];
+	let targetAudioStream = selectDefaultOrFirstStream(audioStreams);
+	if (selectedAudioIndex != null) {
+		targetAudioStream = audioStreams.find((s) => s.index === selectedAudioIndex) ?? targetAudioStream;
+	}
+
+	return {
+		container: file.formatName ?? file.fileName?.split(".").pop() ?? null,
+		sizeBytes: file.size ?? null,
+		duration: file.duration ?? null,
+		bitrateKbps: file.bitRate ? Math.round(file.bitRate / 1000) : null,
+		videoCodec: defaultVideoStream?.codecName ?? null,
+		videoProfile: defaultVideoStream?.profile ?? null,
+		width: defaultVideoStream?.width ?? null,
+		height: defaultVideoStream?.height ?? null,
+		aspectRatio: defaultVideoStream ? `${defaultVideoStream.width ?? "?"}:${defaultVideoStream.height ?? "?"}` : null,
+		frameRate: defaultVideoStream?.frameRate ?? null,
+		pixelFormat: defaultVideoStream?.pixelFormat ?? null,
+		audioStreamIndex: targetAudioStream?.index ?? null,
+		audioCodec: targetAudioStream?.codecName ?? null,
+		audioChannels: targetAudioStream?.channels ?? null,
+		audioChannelLayout: targetAudioStream?.channelLayout ?? null,
+		audioLanguage: targetAudioStream?.language ?? null,
+		audioTitle: targetAudioStream?.title ?? null,
+		audioBitrateKbps: targetAudioStream?.bitRate ? Math.round(targetAudioStream.bitRate / 1000) : null,
+	};
+}
+
+function sessionDiagnostics(sessionDiag: SessionDiagnostics) {
+	if (!sessionDiag) return null;
+
+	return {
+		...(sessionDiag.operationId ? { operationId: sessionDiag.operationId } : {}),
+		mode: sessionDiag.mode,
+		videoTranscode: sessionDiag.videoTranscode,
+		audioTranscode: sessionDiag.audioTranscode,
+		videoEncoder: sessionDiag.videoEncoder,
+		audioEncoder: sessionDiag.audioEncoder,
+		targetVideoBitrateKbps: sessionDiag.targetVideoBitrateKbps,
+		hwaccel: sessionDiag.hwaccel,
+		tonemapped: sessionDiag.tonemapped,
+		toneMapMethod: sessionDiag.toneMapMethod,
+		reasons: sessionDiag.reasons,
+		startTime: sessionDiag.startTime,
+		startedAt: sessionDiag.startedAt,
+		lastActivityAt: sessionDiag.lastActivityAt,
+		processId: sessionDiag.processId,
+		processExitCode: sessionDiag.processExitCode,
+		encodePositionSeconds: sessionDiag.encodePositionSeconds,
+		encodePercent: sessionDiag.encodePercent,
+		encodeSpeed: sessionDiag.encodeSpeed,
+	};
+}
+
+function bufferDiagnostics(
+	bufferAnalysis: HlsBufferAnalysis | null,
+	bufferProgress: BufferProgress | null,
+	segmentDurationSeconds: ServiceDependencies["segmentDurationSeconds"],
+) {
+	if (!(bufferAnalysis && bufferProgress)) return null;
+
+	return {
+		state: bufferProgress.state,
+		active: bufferProgress.active,
+		bufferedSeconds: bufferProgress.transcodedSeconds,
+		bufferedUntil: bufferProgress.transcodedUntil,
+		segments: bufferAnalysis.segments.length,
+		segmentDuration: segmentDurationSeconds,
+		progressPercent: bufferProgress.progressPercent,
+	};
+}
+
+export class DiagnosticsService {
+	readonly serviceName = "DiagnosticsService";
+	readonly logger = createLogger("DiagnosticsService");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("DiagnosticsService");
 		this.dependencies = dependencies;
 	}
 
@@ -109,79 +188,16 @@ export class DiagnosticsService extends BaseService {
 			this.dependencies;
 		const access = requireSession(sessionId);
 		const [file, bufferAnalysis] = await Promise.all([findForStreamingDiagnostics(access.mediaFileId), getBuffer(sessionId)]);
-		this.assertExists(file, "MediaFile", access.mediaFileId);
+		assertFound(file, "MediaFile", access.mediaFileId);
 
 		const sessionDiag = getSessionDiagnostics(sessionId);
-		const defaultVideoStream = selectDefaultOrFirstStream(file.videoStreams ?? []);
-
-		const selectedAudioIndex = sessionDiag?.audioStreamIndex;
-		const audioStreams = file.audioStreams ?? [];
-		let targetAudioStream = selectDefaultOrFirstStream(audioStreams);
-		if (selectedAudioIndex != null) {
-			targetAudioStream = audioStreams.find((s) => s.index === selectedAudioIndex) ?? targetAudioStream;
-		}
-
-		const active = isSessionActive(sessionId);
-		const duration = file.duration ?? null;
-		const bufferProgress = bufferAnalysis ? toBufferProgress(bufferAnalysis, active, duration) : null;
+		const bufferProgress = bufferAnalysis ? toBufferProgress(bufferAnalysis, isSessionActive(sessionId), file.duration ?? null) : null;
 
 		return {
 			mediaFileId: file.id,
-			source: {
-				container: file.formatName ?? file.fileName?.split(".").pop() ?? null,
-				sizeBytes: file.size ?? null,
-				duration: file.duration ?? null,
-				bitrateKbps: file.bitRate ? Math.round(file.bitRate / 1000) : null,
-				videoCodec: defaultVideoStream?.codecName ?? null,
-				videoProfile: defaultVideoStream?.profile ?? null,
-				width: defaultVideoStream?.width ?? null,
-				height: defaultVideoStream?.height ?? null,
-				aspectRatio: defaultVideoStream ? `${defaultVideoStream.width ?? "?"}:${defaultVideoStream.height ?? "?"}` : null,
-				frameRate: defaultVideoStream?.frameRate ?? null,
-				pixelFormat: defaultVideoStream?.pixelFormat ?? null,
-				audioStreamIndex: targetAudioStream?.index ?? null,
-				audioCodec: targetAudioStream?.codecName ?? null,
-				audioChannels: targetAudioStream?.channels ?? null,
-				audioChannelLayout: targetAudioStream?.channelLayout ?? null,
-				audioLanguage: targetAudioStream?.language ?? null,
-				audioTitle: targetAudioStream?.title ?? null,
-				audioBitrateKbps: targetAudioStream?.bitRate ? Math.round(targetAudioStream.bitRate / 1000) : null,
-			},
-			session: sessionDiag
-				? {
-						...(sessionDiag.operationId ? { operationId: sessionDiag.operationId } : {}),
-						mode: sessionDiag.mode,
-						videoTranscode: sessionDiag.videoTranscode,
-						audioTranscode: sessionDiag.audioTranscode,
-						videoEncoder: sessionDiag.videoEncoder,
-						audioEncoder: sessionDiag.audioEncoder,
-						targetVideoBitrateKbps: sessionDiag.targetVideoBitrateKbps,
-						hwaccel: sessionDiag.hwaccel,
-						tonemapped: sessionDiag.tonemapped,
-						toneMapMethod: sessionDiag.toneMapMethod,
-						reasons: sessionDiag.reasons,
-						startTime: sessionDiag.startTime,
-						startedAt: sessionDiag.startedAt,
-						lastActivityAt: sessionDiag.lastActivityAt,
-						processId: sessionDiag.processId,
-						processExitCode: sessionDiag.processExitCode,
-						encodePositionSeconds: sessionDiag.encodePositionSeconds,
-						encodePercent: sessionDiag.encodePercent,
-						encodeSpeed: sessionDiag.encodeSpeed,
-					}
-				: null,
-			buffer:
-				bufferAnalysis && bufferProgress
-					? {
-							state: bufferProgress.state,
-							active: bufferProgress.active,
-							bufferedSeconds: bufferProgress.transcodedSeconds,
-							bufferedUntil: bufferProgress.transcodedUntil,
-							segments: bufferAnalysis.segments.length,
-							segmentDuration: segmentDurationSeconds,
-							progressPercent: bufferProgress.progressPercent,
-						}
-					: null,
+			source: sourceDiagnostics(file, sessionDiag?.audioStreamIndex),
+			session: sessionDiagnostics(sessionDiag),
+			buffer: bufferDiagnostics(bufferAnalysis, bufferProgress, segmentDurationSeconds),
 		};
 	}
 

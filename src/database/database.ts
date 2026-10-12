@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate as runMigrations } from "drizzle-orm/bun-sqlite/migrator";
 import { env } from "@/env";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { clamp } from "@/utils/math.utils";
 import { getTotalMemoryKiB } from "@/utils/mem.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -328,7 +328,7 @@ export class DatabaseFactory {
 		const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
 		if (exitCode !== 0) {
 			// stderr stays in the message for the server log; the response carries only the code and exit status.
-			throw new InternalError(`Database backup failed (exit ${exitCode}): ${stderr.trim()}`, {
+			throw new DomainError("internal", `Database backup failed (exit ${exitCode}): ${stderr.trim()}`, {
 				code: "database.backup_failed",
 				params: { exitCode },
 			});

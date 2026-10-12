@@ -3,19 +3,18 @@ import { serverConfig } from "@/server.config";
 import { resourceAllocator } from "@/system/resource-allocator";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
-import { ConflictError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 
-export class WorkerRegistryService extends BaseService {
+export class WorkerRegistryService {
+	readonly serviceName = "WorkerRegistryService";
+	readonly logger = createLogger("WorkerRegistryService");
+
 	private readonly definitions = new Map<string, WorkerDefinition>();
-
-	constructor() {
-		super("WorkerRegistryService");
-	}
 
 	register<TData = unknown, TResult = unknown>(definition: WorkerDefinition<TData, TResult>): void {
 		if (this.definitions.has(definition.id)) {
-			throw new ConflictError(`Worker "${definition.id}" is already registered`, { code: "worker.already_registered" });
+			throw new DomainError("conflict", `Worker "${definition.id}" is already registered`, { code: "worker.already_registered" });
 		}
 
 		this.definitions.set(definition.id, this.normalizeDefinition(definition));

@@ -30,16 +30,59 @@ function resolvePassthroughTransfer(doviProfile: number | null | undefined, hdrT
 	return doviProfile === 8 ? "smpte2084" : null;
 }
 
-function bitDepthSuffix(
-	isHighTenH264: boolean,
-	isTwelveBit: boolean,
-	bitDepthUnsupported: boolean,
-): " High10" | " 12-bit" | " 10-bit" | "" {
-	if (isHighTenH264) return " High10";
+interface VideoVerdict {
+	videoOk: boolean;
+	isHdr: boolean;
+	hdrTransfer: string | null;
+	hdrLabel: string;
+	hdrPassthrough: boolean;
+	isHighTenH264: boolean;
+	isTwelveBit: boolean;
+	bitDepthUnsupported: boolean;
+}
 
-	if (isTwelveBit) return " 12-bit";
+// Bit-depth gates. MSE capability probing is name-only ("h265") and 10-bit
+// support is NOT implied by it: HEVC Main10 / VP9 profile 2 require a separate
+// client probe ("<codec>-10bit"). AV1 is the exception — 10-bit belongs to its
+// main profile (0), so every AV1-capable client decodes it. 12-bit has no
+// browser MSE path at all.
+//
+// Browsers cannot render PQ/HLG inside an fMP4 HLS pipeline and DV RPU is
+// lost on remux — HDR content transcodes and needs tone-mapping to SDR,
+// UNLESS the client declares a render path for the source's transfer (see
+// hdrPassthrough below), regardless of the h265-10bit capability.
+//
+// HDR passthrough — a client that probes as able to render the source's
+// transfer gets the original stream remuxed untouched. DV profile 8
+// qualifies through its HDR10-compatible base layer (smpte2084); profile 5's
+// IPTPQc2 base is unviewable once remux strips the RPU, so it always
+// transcodes no matter what the client reports.
+function judgeVideo(file: MediaFileInfo, videoCodec: string | null, capabilities: ClientCapabilities): VideoVerdict {
+	const videoCodecSet = buildCodecSet(capabilities.videoCodecs);
+	const pixelFormat = file.videoPixelFormat ?? "";
+	const isTwelveBit = TWELVE_BIT_PIXEL_FORMAT_REGEX.test(pixelFormat);
+	const isTenBit = TEN_BIT_PIXEL_FORMAT_REGEX.test(pixelFormat);
+	const reportsTenBit = videoCodec === "av1" || (videoCodec !== null && videoCodecSet.has(`${videoCodec}-10bit`));
+	const bitDepthUnsupported = isTwelveBit || (isTenBit && !reportsTenBit);
+	const isHighTenH264 = videoCodec === "h264" && HIGH_TEN_H264_PROFILE_REGEX.test(file.videoProfile ?? "");
+	const lowerTransfer = file.videoColorTransfer?.toLowerCase();
+	const hdrTransfer = lowerTransfer && HDR_TRANSFER_ALLOWLIST.has(lowerTransfer) ? lowerTransfer : null;
+	const isHdr = hdrTransfer !== null || file.doviProfile != null;
+	const hdrLabel = resolveHdrLabel(file.doviProfile, hdrTransfer);
+	const clientHdrTransfers = new Set(capabilities.hdrTransfers ?? []);
+	const passthroughTransfer = resolvePassthroughTransfer(file.doviProfile, hdrTransfer);
+	const hdrPassthrough = isHdr && passthroughTransfer !== null && clientHdrTransfers.has(passthroughTransfer);
+	const videoOk = (!videoCodec || videoCodecSet.has(videoCodec)) && !bitDepthUnsupported && !isHighTenH264 && (!isHdr || hdrPassthrough);
 
-	if (bitDepthUnsupported) return " 10-bit";
+	return { videoOk, isHdr, hdrTransfer, hdrLabel, hdrPassthrough, isHighTenH264, isTwelveBit, bitDepthUnsupported };
+}
+
+function bitDepthSuffix(video: VideoVerdict): " High10" | " 12-bit" | " 10-bit" | "" {
+	if (video.isHighTenH264) return " High10";
+
+	if (video.isTwelveBit) return " 12-bit";
+
+	if (video.bitDepthUnsupported) return " 10-bit";
 
 	return "";
 }
@@ -53,35 +96,42 @@ function bitrateSuffix(videoBitrateKbps: number | undefined, bandwidthCappedReas
 }
 
 function videoTranscodeReason(
-	isHdr: boolean,
+	video: VideoVerdict,
 	displayVideoCodec: string,
-	hdrLabel: string,
 	depth: string,
 	bitrate: string,
 	toneMapAvailable: boolean,
 ): string {
-	if (!isHdr) return `video:${displayVideoCodec}${depth} → H.264${bitrate}`;
+	if (!video.isHdr) return `video:${displayVideoCodec}${depth} → H.264${bitrate}`;
 
 	const toneMapNote = toneMapAvailable ? "tone-mapped to SDR" : "no tone-mapping available";
 
-	return `video:${displayVideoCodec} ${hdrLabel}${depth} → H.264${bitrate}, ${toneMapNote}`;
+	return `video:${displayVideoCodec} ${video.hdrLabel}${depth} → H.264${bitrate}, ${toneMapNote}`;
 }
 
-function videoReasonPart(
-	videoTranscode: boolean,
-	isHdr: boolean,
-	videoCodec: string | null,
-	hdrLabel: string,
-	depth: string,
-	videoBitrateKbps: number | undefined,
-	toneMapAvailable: boolean,
-): PlaybackReasonPart {
+interface VideoReasonInput {
+	video: VideoVerdict;
+	videoTranscode: boolean;
+	videoCodec: string | null;
+	depth: string;
+	videoBitrateKbps: number | undefined;
+	toneMapAvailable: boolean;
+}
+
+function videoReasonPart({
+	video,
+	videoTranscode,
+	videoCodec,
+	depth,
+	videoBitrateKbps,
+	toneMapAvailable,
+}: VideoReasonInput): PlaybackReasonPart {
 	if (!videoTranscode) return { code: "video.copy", params: { codec: videoCodec } };
 
-	if (isHdr) {
+	if (video.isHdr) {
 		return {
 			code: "video.transcode_hdr",
-			params: { codec: videoCodec, hdr: hdrLabel, bitrateKbps: videoBitrateKbps ?? null, toneMapped: toneMapAvailable },
+			params: { codec: videoCodec, hdr: video.hdrLabel, bitrateKbps: videoBitrateKbps ?? null, toneMapped: toneMapAvailable },
 		};
 	}
 
@@ -120,6 +170,101 @@ export interface PlaybackDecisionOptions {
 	toneMapAvailable?: boolean;
 }
 
+interface PlanInput {
+	file: MediaFileInfo;
+	audioStreamIndex: number | undefined;
+	videoCodec: string | null;
+	audioCodec: string | null;
+	video: VideoVerdict;
+}
+
+interface TranscodeInput extends PlanInput {
+	audioTranscode: boolean;
+	videoBitrateKbps: number | undefined;
+	bandwidthCappedReason: string | null;
+	toneMapAvailable: boolean;
+}
+
+function directStreamDecision({ file, audioStreamIndex, videoCodec, audioCodec, video }: PlanInput): PlaybackDecision {
+	const displayVideoCodec = videoCodec ?? "?";
+	const displayAudioCodec = audioCodec ?? "?";
+	const { hdrPassthrough, hdrLabel } = video;
+
+	return {
+		mode: "direct-stream",
+		videoTranscode: false,
+		audioTranscode: false,
+		videoCodec,
+		audioStreamIndex,
+		audioChannels: file.audioChannels,
+		...(hdrPassthrough ? { hdrPassthrough: true } : {}),
+		reason: hdrPassthrough
+			? `Remuxing to fMP4 HLS (video:${displayVideoCodec} ${hdrLabel} passthrough + audio:${displayAudioCodec} copied)`
+			: `Remuxing to fMP4 HLS (video:${displayVideoCodec} + audio:${displayAudioCodec} copied)`,
+		reasons: {
+			video: hdrPassthrough
+				? { code: "video.copy_hdr", params: { codec: videoCodec, hdr: hdrLabel } }
+				: { code: "video.copy", params: { codec: videoCodec } },
+			audio: { code: "audio.copy", params: { codec: audioCodec } },
+		},
+		formatName: file.formatName,
+		durationSeconds: file.durationSeconds,
+		sourceFps: file.sourceFps,
+	};
+}
+
+function transcodeDecision(input: TranscodeInput): PlaybackDecision {
+	const {
+		file,
+		audioStreamIndex,
+		videoCodec,
+		audioCodec,
+		video,
+		audioTranscode,
+		videoBitrateKbps,
+		bandwidthCappedReason,
+		toneMapAvailable,
+	} = input;
+	const displayVideoCodec = videoCodec ?? "?";
+	const displayAudioCodec = audioCodec ?? "?";
+	const videoTranscode = !video.videoOk || !!videoBitrateKbps;
+	const depthSuffix = bitDepthSuffix(video);
+	const rateSuffix = bitrateSuffix(videoBitrateKbps, bandwidthCappedReason);
+	const videoReason = videoTranscode
+		? videoTranscodeReason(video, displayVideoCodec, depthSuffix, rateSuffix, toneMapAvailable)
+		: `video:${displayVideoCodec} copied`;
+	const audioReason = audioTranscode ? `audio:${displayAudioCodec} → AAC` : `audio:${displayAudioCodec} copied`;
+
+	const videoPart: PlaybackReasonPart = videoReasonPart({
+		video,
+		videoTranscode,
+		videoCodec,
+		depth: depthSuffix,
+		videoBitrateKbps,
+		toneMapAvailable,
+	});
+	const audioReasonPart: PlaybackReasonPart = audioTranscode
+		? { code: "audio.transcode", params: { codec: audioCodec } }
+		: { code: "audio.copy", params: { codec: audioCodec } };
+
+	return {
+		mode: "transcode",
+		videoTranscode,
+		audioTranscode,
+		videoCodec,
+		videoBitrateKbps,
+		tonemap: video.isHdr,
+		tonemapTransfer: video.isHdr ? (video.hdrTransfer ?? "smpte2084") : null,
+		audioStreamIndex,
+		audioChannels: file.audioChannels,
+		reason: `${videoReason}; ${audioReason}`,
+		reasons: { video: videoPart, audio: audioReasonPart },
+		formatName: file.formatName,
+		durationSeconds: file.durationSeconds,
+		sourceFps: file.sourceFps,
+	};
+}
+
 export function decidePlaybackMode(
 	file: MediaFileInfo,
 	capabilities: ClientCapabilities,
@@ -128,41 +273,9 @@ export function decidePlaybackMode(
 ): PlaybackDecision {
 	const videoCodec = normalizeCodec(file.videoCodec, VIDEO_CODEC_MAP);
 	const audioCodec = normalizeCodec(file.audioCodec, AUDIO_CODEC_MAP);
-	const displayVideoCodec = videoCodec ?? "?";
-	const displayAudioCodec = audioCodec ?? "?";
-
-	const videoCodecSet = buildCodecSet(capabilities.videoCodecs);
-	const audioCodecSet = buildCodecSet(capabilities.audioCodecs);
-
-	// Bit-depth gates. MSE capability probing is name-only ("h265") and 10-bit
-	// support is NOT implied by it: HEVC Main10 / VP9 profile 2 require a separate
-	// client probe ("<codec>-10bit"). AV1 is the exception — 10-bit belongs to its
-	// main profile (0), so every AV1-capable client decodes it. 12-bit has no
-	// browser MSE path at all.
-	const pixelFormat = file.videoPixelFormat ?? "";
-	const isTwelveBit = TWELVE_BIT_PIXEL_FORMAT_REGEX.test(pixelFormat);
-	const isTenBit = TEN_BIT_PIXEL_FORMAT_REGEX.test(pixelFormat);
-	const reportsTenBit = videoCodec === "av1" || (videoCodec !== null && videoCodecSet.has(`${videoCodec}-10bit`));
-	const bitDepthUnsupported = isTwelveBit || (isTenBit && !reportsTenBit);
-	const isHighTenH264 = videoCodec === "h264" && HIGH_TEN_H264_PROFILE_REGEX.test(file.videoProfile ?? "");
-	// Browsers cannot render PQ/HLG inside an fMP4 HLS pipeline and DV RPU is
-	// lost on remux — HDR content transcodes and needs tone-mapping to SDR,
-	// UNLESS the client declares a render path for the source's transfer (see
-	// hdrPassthrough below), regardless of the h265-10bit capability.
-	const lowerTransfer = file.videoColorTransfer?.toLowerCase();
-	const hdrTransfer = lowerTransfer && HDR_TRANSFER_ALLOWLIST.has(lowerTransfer) ? lowerTransfer : null;
-	const isHdr = hdrTransfer !== null || file.doviProfile != null;
-	const hdrLabel = resolveHdrLabel(file.doviProfile, hdrTransfer);
-	// HDR passthrough — a client that probes as able to render the source's
-	// transfer gets the original stream remuxed untouched. DV profile 8
-	// qualifies through its HDR10-compatible base layer (smpte2084); profile 5's
-	// IPTPQc2 base is unviewable once remux strips the RPU, so it always
-	// transcodes no matter what the client reports.
-	const clientHdrTransfers = new Set(capabilities.hdrTransfers ?? []);
-	const passthroughTransfer = resolvePassthroughTransfer(file.doviProfile, hdrTransfer);
-	const hdrPassthrough = isHdr && passthroughTransfer !== null && clientHdrTransfers.has(passthroughTransfer);
-	const videoOk = (!videoCodec || videoCodecSet.has(videoCodec)) && !bitDepthUnsupported && !isHighTenH264 && (!isHdr || hdrPassthrough);
-	const audioOk = !audioCodec || audioCodecSet.has(audioCodec);
+	const video = judgeVideo(file, videoCodec, capabilities);
+	const audioOk = !audioCodec || buildCodecSet(capabilities.audioCodecs).has(audioCodec);
+	const audioTranscode = !audioOk;
 
 	// Traffic control & bandwidth limit logic
 	const serverPerStreamLimit = serverConfig.stream.maxPerStreamBandwidthKbps;
@@ -174,67 +287,9 @@ export function decidePlaybackMode(
 		sourceBitrateKbps,
 		serverPerStreamLimit,
 	);
-	const audioTranscode = !audioOk;
+	const plan: PlanInput = { file, audioStreamIndex, videoCodec, audioCodec, video };
 
-	if (videoOk && !audioTranscode && !videoBitrateKbps) {
-		return {
-			mode: "direct-stream",
-			videoTranscode: false,
-			audioTranscode: false,
-			videoCodec,
-			audioStreamIndex,
-			audioChannels: file.audioChannels,
-			...(hdrPassthrough ? { hdrPassthrough: true } : {}),
-			reason: hdrPassthrough
-				? `Remuxing to fMP4 HLS (video:${displayVideoCodec} ${hdrLabel} passthrough + audio:${displayAudioCodec} copied)`
-				: `Remuxing to fMP4 HLS (video:${displayVideoCodec} + audio:${displayAudioCodec} copied)`,
-			reasons: {
-				video: hdrPassthrough
-					? { code: "video.copy_hdr", params: { codec: videoCodec, hdr: hdrLabel } }
-					: { code: "video.copy", params: { codec: videoCodec } },
-				audio: { code: "audio.copy", params: { codec: audioCodec } },
-			},
-			formatName: file.formatName,
-			durationSeconds: file.durationSeconds,
-			sourceFps: file.sourceFps,
-		};
-	}
+	if (video.videoOk && !audioTranscode && !videoBitrateKbps) return directStreamDecision(plan);
 
-	const videoTranscode = !videoOk || !!videoBitrateKbps;
-	const depthSuffix = bitDepthSuffix(isHighTenH264, isTwelveBit, bitDepthUnsupported);
-	const rateSuffix = bitrateSuffix(videoBitrateKbps, bandwidthCappedReason);
-	const videoReason = videoTranscode
-		? videoTranscodeReason(isHdr, displayVideoCodec, hdrLabel, depthSuffix, rateSuffix, toneMapAvailable)
-		: `video:${displayVideoCodec} copied`;
-	const audioReason = audioTranscode ? `audio:${displayAudioCodec} → AAC` : `audio:${displayAudioCodec} copied`;
-
-	const videoPart: PlaybackReasonPart = videoReasonPart(
-		videoTranscode,
-		isHdr,
-		videoCodec,
-		hdrLabel,
-		depthSuffix,
-		videoBitrateKbps,
-		toneMapAvailable,
-	);
-	const audioReasonPart: PlaybackReasonPart = audioTranscode
-		? { code: "audio.transcode", params: { codec: audioCodec } }
-		: { code: "audio.copy", params: { codec: audioCodec } };
-
-	return {
-		mode: "transcode",
-		videoTranscode,
-		audioTranscode,
-		videoCodec,
-		videoBitrateKbps,
-		tonemap: isHdr,
-		tonemapTransfer: isHdr ? (hdrTransfer ?? "smpte2084") : null,
-		audioStreamIndex,
-		audioChannels: file.audioChannels,
-		reason: `${videoReason}; ${audioReason}`,
-		reasons: { video: videoPart, audio: audioReasonPart },
-		formatName: file.formatName,
-		durationSeconds: file.durationSeconds,
-		sourceFps: file.sourceFps,
-	};
+	return transcodeDecision({ ...plan, audioTranscode, videoBitrateKbps, bandwidthCappedReason, toneMapAvailable });
 }

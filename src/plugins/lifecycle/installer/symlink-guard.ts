@@ -1,5 +1,5 @@
 import { lstat, readdir } from "node:fs/promises";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
@@ -10,7 +10,7 @@ export async function assertNoSymbolicLinks(directory: string, concurrency: numb
 		const path = PathUtils.join(directory, entry.name);
 		const metadata = await lstat(path);
 		if (metadata.isSymbolicLink())
-			throw new ValidationError(`Plugin package must not contain symbolic links: ${path}`, {
+			throw new DomainError("validation", `Plugin package must not contain symbolic links: ${path}`, {
 				code: "plugin.package_symlink_invalid",
 				params: { path },
 			});

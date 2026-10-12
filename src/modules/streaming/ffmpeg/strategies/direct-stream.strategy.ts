@@ -1,6 +1,6 @@
-import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import { buildDirectStreamOutputArgs } from "@/integrations/ffmpeg/ffmpeg.direct-stream-args";
+import type { StreamStartInput } from "../../streaming.types";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**
@@ -14,14 +14,7 @@ import { BaseStreamingStrategy } from "./base-streaming.strategy";
  * timestamps for fMP4 muxing.
  */
 export class DirectStreamStrategy extends BaseStreamingStrategy {
-	async startSession(
-		sessionId: string,
-		inputPath: string,
-		outputDir: string,
-		decision: PlaybackDecision,
-		startTime = 0,
-		operationId?: string,
-	): Promise<Subprocess> {
+	async startSession({ sessionId, inputPath, outputDir, decision, startTime = 0, operationId }: StreamStartInput): Promise<Subprocess> {
 		const { segmentPattern, startNumber } = await this.prepareSession(inputPath, outputDir, startTime);
 
 		this.logger.debug(`Starting direct-stream at ${startTime}s (seg ${startNumber})`, { sessionId, startTime, startNumber });

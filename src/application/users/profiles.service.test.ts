@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { profilesRepository } from "@/database/repositories/profiles.repository";
 import { hashProfilePin } from "@/utils/crypto.utils";
-import { ConflictError, ForbiddenError } from "@/utils/errors";
+import type { DomainError } from "@/utils/errors";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub";
 import { profilesService } from "./profiles.service";
 
@@ -72,8 +72,8 @@ describe("profilesService.switch", () => {
 			caught = error;
 		}
 
-		expect(caught).toBeInstanceOf(ForbiddenError);
-		expect((caught as ForbiddenError).code).toBe("profile.pin_invalid");
+		expect(caught).toMatchObject({ category: "forbidden" });
+		expect((caught as DomainError).code).toBe("profile.pin_invalid");
 	});
 
 	test("rejects a wrong PIN with profile.pin_invalid", async () => {
@@ -91,8 +91,8 @@ describe("profilesService.switch", () => {
 			caught = error;
 		}
 
-		expect(caught).toBeInstanceOf(ForbiddenError);
-		expect((caught as ForbiddenError).code).toBe("profile.pin_invalid");
+		expect(caught).toMatchObject({ category: "forbidden" });
+		expect((caught as DomainError).code).toBe("profile.pin_invalid");
 	});
 
 	test("switches freely into a profile without a PIN", async () => {
@@ -125,8 +125,8 @@ describe("profilesService.switch", () => {
 			caught = error;
 		}
 
-		expect(caught).toBeInstanceOf(ForbiddenError);
-		expect((caught as ForbiddenError).code).toBe("profile.not_owned");
+		expect(caught).toMatchObject({ category: "forbidden" });
+		expect((caught as DomainError).code).toBe("profile.not_owned");
 	});
 });
 
@@ -151,8 +151,8 @@ describe("profilesService.update", () => {
 			caught = error;
 		}
 
-		expect(caught).toBeInstanceOf(ConflictError);
-		expect((caught as ConflictError).code).toBe("profile.name_conflict");
+		expect(caught).toMatchObject({ category: "conflict" });
+		expect((caught as DomainError).code).toBe("profile.name_conflict");
 	});
 
 	test("renames freely when the name is free, excluding the profile itself", async () => {

@@ -153,7 +153,9 @@ describe("SidecarMetadataStorageService", () => {
 
 		expect(calls).toEqual([]);
 	});
+});
 
+describe("SidecarMetadataStorageService", () => {
 	test("resolves episodes and seasons with one batched lookup each", async () => {
 		const { writer } = recordingWriter();
 		const episodes = await import("@/database/repositories/episodes.repository");

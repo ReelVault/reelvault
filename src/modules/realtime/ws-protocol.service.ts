@@ -5,7 +5,7 @@ import { profilesRepository } from "@/database/repositories/profiles.repository"
 import { env } from "@/env";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
-import { ForbiddenError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { safeParseJson } from "@/utils/file.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
 import { isProfileUnlocked } from "@/utils/profile-unlock.utils";
@@ -86,14 +86,14 @@ export const wsProtocol = {
 	async assertHandshakeProfile(userId: string, queryProfileId: string, unlockToken: string | undefined): Promise<void> {
 		const requested = await profilesRepository.findByPrimaryIdCached(queryProfileId);
 		if (!requested || requested.userId !== userId) {
-			throw new ForbiddenError("Profile does not belong to the current user", { code: "profile.not_owned" });
+			throw new DomainError("forbidden", "Profile does not belong to the current user", { code: "profile.not_owned" });
 		}
 
 		// A PIN-protected profile must not be reachable by passing profileId as a
 		// query param: the signed unlock cookie proves the PIN was entered, exactly
 		// like authMiddleware for HTTP requests.
 		if (requested.pin && !isProfileUnlocked(requested, unlockToken, env.BETTER_AUTH_SECRET)) {
-			throw new ForbiddenError("Profile is locked", { code: "auth.profile_locked" });
+			throw new DomainError("forbidden", "Profile is locked", { code: "auth.profile_locked" });
 		}
 	},
 
@@ -163,7 +163,7 @@ export const wsProtocol = {
 
 		if (msg.type === "playback_command" && typeof msg.sessionId === "string" && Value.Check(PlaybackCommandSchema, msg.command)) {
 			const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
-			await handlePlaybackCommand(ws, msg.sessionId, msg.command, requestId, wsState.profileId, userId);
+			await handlePlaybackCommand(ws, msg.sessionId, msg.command, { requestId, connectedProfileId: wsState.profileId, userId });
 		}
 	},
 
@@ -228,10 +228,9 @@ async function handlePlaybackCommand(
 	ws: ProtocolSocket,
 	sessionId: string,
 	command: PlaybackCommand,
-	requestId: string | undefined,
-	connectedProfileId: string | null,
-	userId: string | undefined,
+	context: { requestId: string | undefined; connectedProfileId: string | null; userId: string | undefined },
 ): Promise<void> {
+	const { requestId, connectedProfileId, userId } = context;
 	const { allowed, access } = await checkPlaybackSessionOwnership(sessionId, connectedProfileId, userId);
 	if (!(allowed && access)) {
 		const error = access ? "forbidden" : "not_found";

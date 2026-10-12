@@ -108,7 +108,9 @@ describe("session store", () => {
 		expect(store.claimRelease("active")).toBe(false);
 		expect(store.claimRelease("ghost")).toBe(false);
 	});
+});
 
+describe("session store", () => {
 	test("getSessionAccess hides ending sessions", () => {
 		const store = new SessionStore();
 		store.register(registration("s1"));

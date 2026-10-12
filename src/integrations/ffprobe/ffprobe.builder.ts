@@ -1,7 +1,7 @@
 import { spawnAndCollect } from "@/integrations/ffmpeg/ffmpeg.process-runner";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { InternalError, RequestTimeoutError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils, fileStatSignature } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 import { isRecord } from "@/utils/type.utils";
@@ -108,27 +108,30 @@ export class FFProbeBuilder {
 
 		try {
 			if (timedOut) {
-				throw new RequestTimeoutError(`FFprobe timed out after ${serverConfig.ffprobe.timeoutMs}ms`, { code: "ffprobe_timeout" });
+				throw new DomainError("timeout", `FFprobe timed out after ${serverConfig.ffprobe.timeoutMs}ms`, { code: "ffprobe_timeout" });
 			}
 
 			if (exitCode !== 0) {
 				const details = errorOutput.trim();
-				throw new InternalError(`FFprobe exited with code ${exitCode}${details ? `: ${details}` : ""}`, { code: "ffprobe_exit_error" });
+				throw new DomainError("internal", `FFprobe exited with code ${exitCode}${details ? `: ${details}` : ""}`, {
+					code: "ffprobe_exit_error",
+				});
 			}
 
 			const parsed: unknown = JSON.parse(output);
-			if (!isFFProbeResult(parsed)) throw new InternalError("ffprobe returned no usable data", { code: "ffprobe_invalid_output" });
+			if (!isFFProbeResult(parsed))
+				throw new DomainError("internal", "ffprobe returned no usable data", { code: "ffprobe_invalid_output" });
 
 			return parsed;
 		} catch (error) {
-			if (error instanceof RequestTimeoutError || error instanceof InternalError) throw error;
+			if (error instanceof DomainError && (error.category === "timeout" || error.category === "internal")) throw error;
 
 			let msg: string;
 			if (error instanceof Error) msg = error.message;
 			else if (typeof error === "string") msg = error;
 			else msg = "Unknown error";
 
-			throw new InternalError(`FFprobe execution failed: ${msg}`, {
+			throw new DomainError("internal", `FFprobe execution failed: ${msg}`, {
 				code: "ffprobe_execution_failed",
 				details: error instanceof Error ? error : new Error(msg),
 			});

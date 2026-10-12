@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
-import { InternalError, NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 class PluginRepositoriesRepository {
 	readonly table = schema.pluginRepositories;
@@ -33,7 +33,7 @@ class PluginRepositoriesRepository {
 				enabled: values.enabled ?? true,
 			})
 			.returning();
-		if (!entry) throw new InternalError("Plugin repository insert returned no row", { code: "plugin.repository_save_failed" });
+		if (!entry) throw new DomainError("internal", "Plugin repository insert returned no row", { code: "plugin.repository_save_failed" });
 
 		return entry;
 	}
@@ -69,7 +69,7 @@ class PluginRepositoriesRepository {
 			.set({ ...values, updatedAt: new Date() })
 			.where(eq(this.table.id, id))
 			.returning();
-		if (!entry) throw new NotFoundError(`Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		if (!entry) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		return entry;
 	}

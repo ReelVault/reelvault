@@ -2,53 +2,54 @@ import { describe, expect, test } from "bun:test";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { mapMediaFileData, mapMediaProbe } from "./media-probe.mapper";
 
+/** A matroska file with HEVC video, an E-AC-3 commentary track and a hearing-impaired subtitle track. */
+const technicalProbe: FFProbeResult = {
+	format: { format_name: "matroska", duration: "120.5", size: "12345", bit_rate: "8000000" },
+	streams: [
+		{
+			codec_type: "video",
+			index: 0,
+			codec_name: "hevc",
+			codec_long_name: "H.265 / HEVC",
+			profile: "Main 10",
+			width: 3840,
+			height: 2160,
+			pix_fmt: "yuv420p10le",
+			color_transfer: "smpte2084",
+			color_primaries: "bt2020",
+			color_space: "bt2020nc",
+			side_data_list: [{ side_data_type: "DOVI configuration record", dv_profile: 8, dv_level: 6 }],
+			avg_frame_rate: "24000/1001",
+			bit_rate: "7000000",
+			disposition: { default: 1, forced: 0 },
+			tags: { language: "eng", title: "Main video" },
+		},
+		{
+			codec_type: "audio",
+			index: 1,
+			codec_name: "eac3",
+			codec_long_name: "ATSC A/52B (AC-3, E-AC-3)",
+			channels: 6,
+			channel_layout: "5.1(side)",
+			sample_rate: "48000",
+			bit_rate: "768000",
+			disposition: { default: 0, forced: 1, comment: 1 },
+			tags: { language: "pol", title: "Lektor" },
+		},
+		{
+			codec_type: "subtitle",
+			index: 2,
+			codec_name: "subrip",
+			codec_long_name: "SubRip subtitle",
+			disposition: { default: 1, forced: 0, hearing_impaired: 1 },
+			tags: { language: "pol", title: "Polski" },
+		},
+	],
+};
+
 describe("mapMediaProbe", () => {
 	test("maps stream tags, dispositions, and technical data", () => {
-		const probe: FFProbeResult = {
-			format: { format_name: "matroska", duration: "120.5", size: "12345", bit_rate: "8000000" },
-			streams: [
-				{
-					codec_type: "video",
-					index: 0,
-					codec_name: "hevc",
-					codec_long_name: "H.265 / HEVC",
-					profile: "Main 10",
-					width: 3840,
-					height: 2160,
-					pix_fmt: "yuv420p10le",
-					color_transfer: "smpte2084",
-					color_primaries: "bt2020",
-					color_space: "bt2020nc",
-					side_data_list: [{ side_data_type: "DOVI configuration record", dv_profile: 8, dv_level: 6 }],
-					avg_frame_rate: "24000/1001",
-					bit_rate: "7000000",
-					disposition: { default: 1, forced: 0 },
-					tags: { language: "eng", title: "Main video" },
-				},
-				{
-					codec_type: "audio",
-					index: 1,
-					codec_name: "eac3",
-					codec_long_name: "ATSC A/52B (AC-3, E-AC-3)",
-					channels: 6,
-					channel_layout: "5.1(side)",
-					sample_rate: "48000",
-					bit_rate: "768000",
-					disposition: { default: 0, forced: 1, comment: 1 },
-					tags: { language: "pol", title: "Lektor" },
-				},
-				{
-					codec_type: "subtitle",
-					index: 2,
-					codec_name: "subrip",
-					codec_long_name: "SubRip subtitle",
-					disposition: { default: 1, forced: 0, hearing_impaired: 1 },
-					tags: { language: "pol", title: "Polski" },
-				},
-			],
-		};
-
-		expect(mapMediaProbe(probe)).toEqual({
+		expect(mapMediaProbe(technicalProbe)).toEqual({
 			formatName: "matroska",
 			duration: 120,
 			size: 12345,
@@ -138,7 +139,9 @@ describe("mapMediaProbe", () => {
 			},
 		]);
 	});
+});
 
+describe("mapMediaProbe", () => {
 	test("drops embedded cover art video streams that would violate DB constraints", () => {
 		const probe: FFProbeResult = {
 			format: { format_name: "matroska", duration: "120", size: "12345", bit_rate: "8000000" },

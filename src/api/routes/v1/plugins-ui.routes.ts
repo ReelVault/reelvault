@@ -6,7 +6,7 @@ import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
 import { serverConfig } from "@/server.config";
-import { ForbiddenError, NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -108,25 +108,25 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 			// id is NOT the directory name ("org.reelvault.x" lives in "x/").
 			const directoryName = await pluginManager.getPluginDirectoryName(pluginId);
 			if (!directoryName) {
-				throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
+				throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
 			}
 
 			// A disabled (or failed) plugin must not keep serving its UI bundle.
 			if (pluginRegistry.get(pluginId)?.state !== "enabled") {
-				throw new NotFoundError(`Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
+				throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
 			}
 
 			const pluginDir = PathUtils.join(serverConfig.paths.plugins, directoryName);
 
 			const resolved = safePath(pluginDir, filePath);
 			if (!resolved) {
-				throw new ForbiddenError("Plugin UI asset path is not allowed", { code: "plugin_ui.forbidden", params: { pluginId } });
+				throw new DomainError("forbidden", "Plugin UI asset path is not allowed", { code: "plugin_ui.forbidden", params: { pluginId } });
 			}
 
 			const extension = PathUtils.getExtension(resolved);
 			// config.json lives in the same directory and may hold provider secrets.
 			if (extension && !SERVABLE_EXTENSIONS.has(extension)) {
-				throw new ForbiddenError("Plugin UI asset type is not servable", { code: "plugin_ui.forbidden", params: { pluginId } });
+				throw new DomainError("forbidden", "Plugin UI asset type is not servable", { code: "plugin_ui.forbidden", params: { pluginId } });
 			}
 
 			let assetPath = resolved;
@@ -134,7 +134,7 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 				// Extension-less request → SPA deep link, serve the nearest index.html.
 				assetPath = extension ? "" : ((await resolveSpaFallback(pluginDir, resolved)) ?? "");
 				if (!assetPath) {
-					throw new NotFoundError(`Plugin UI asset not found: ${filePath}`, {
+					throw new DomainError("not_found", `Plugin UI asset not found: ${filePath}`, {
 						code: "plugin_ui.asset_not_found",
 						params: { pluginId },
 					});

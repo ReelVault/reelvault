@@ -1,7 +1,7 @@
 import type { BulkRefreshItem } from "@reelvault/sdk/common";
 import type { ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { errorCodeOf } from "@/utils/error-codes.utils";
+import { errorCodeOf } from "@/utils/errors";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
 
 /** Maps raw provider entries to the { providerId, externalId } shape used by fetcher APIs. */

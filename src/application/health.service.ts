@@ -5,9 +5,10 @@ import { env } from "@/env";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";
 import { getMemoryInfo, resourceAllocator } from "@/system/resource-allocator";
-import { BaseService } from "@/utils/base-service";
 import { errorMessage } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
+import { runSafely } from "@/utils/safe-execute";
 
 const HEALTH_CACHE_TTL_MS = 10_000;
 
@@ -19,24 +20,23 @@ function resourceStatusFromUsage(name: string, usedPercent: number, freeLabel: s
 	return { name, status: "healthy", message: freeLabel };
 }
 
-class HealthService extends BaseService {
-	private readonly cache = new MemoryCache<HealthStatus>({ name: "health", ttlMs: HEALTH_CACHE_TTL_MS, maxSize: 1 });
+class HealthService {
+	readonly serviceName = "HealthService";
+	readonly logger = createLogger("HealthService");
 
-	constructor() {
-		super("HealthService");
-	}
+	private readonly cache = new MemoryCache<HealthStatus>({ name: "health", ttlMs: HEALTH_CACHE_TTL_MS, maxSize: 1 });
 
 	check(options?: { fresh?: boolean }): Promise<HealthStatus> {
 		if (options?.fresh) {
-			return this.safeExecute("check", async () => this.buildHealthStatus());
+			return runSafely(this, "check", async () => this.buildHealthStatus());
 		}
 
-		return this.cache.getOrSet("health", () => this.safeExecute("check", () => this.buildHealthStatus()));
+		return this.cache.getOrSet("health", () => runSafely(this, "check", () => this.buildHealthStatus()));
 	}
 
 	/** Readiness: only what the API cannot work without (the database). Cheap enough for frequent orchestrator probes. */
 	async checkReady(): Promise<HealthStatus> {
-		return await this.safeExecute("checkReady", async () => {
+		return await runSafely(this, "checkReady", async () => {
 			const database = await this.checkDatabase();
 
 			return {

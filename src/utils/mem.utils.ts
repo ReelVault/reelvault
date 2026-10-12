@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { totalmem } from "node:os";
+import { gc } from "bun";
 import { isFiniteNumber } from "./type.utils";
 
 const MEM_TOTAL_REGEX = /MemTotal:\s+(\d+)/;
@@ -148,5 +149,23 @@ export function getAvailableMemoryKiB(): number | undefined {
 		return available > 0 ? available : undefined;
 	} catch {
 		return undefined;
+	}
+}
+
+export class BatchGarbageCollector {
+	private count = 0;
+	private readonly interval: number;
+
+	constructor(interval = 25) {
+		this.interval = interval;
+	}
+
+	tick(): void {
+		if (++this.count >= this.interval) {
+			this.count = 0;
+			// Defer GC off the synchronous processing path to avoid Stop-The-World
+			// pauses on the event loop. Same pattern as worker-execution-pool.ts.
+			setTimeout(() => gc(false), 0).unref();
+		}
 	}
 }

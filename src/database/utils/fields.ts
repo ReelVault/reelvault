@@ -1,6 +1,6 @@
 import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
 import { serverConstants } from "@/server.constants";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";
 
 interface FieldNode {
@@ -22,7 +22,7 @@ function parseFields<F extends string>({ fields: fieldsString }: { fields?: F | 
 	}
 
 	if (fieldsString.length > serverConstants.database.fields.maxLength) {
-		throw new ValidationError(`Fields query must not exceed ${serverConstants.database.fields.maxLength} characters`, {
+		throw new DomainError("validation", `Fields query must not exceed ${serverConstants.database.fields.maxLength} characters`, {
 			code: "validation.fields_too_long",
 			params: { max: serverConstants.database.fields.maxLength },
 		});
@@ -41,14 +41,14 @@ function parseFields<F extends string>({ fields: fieldsString }: { fields?: F | 
 	}
 
 	if (fields.length > serverConstants.database.fields.maxFields) {
-		throw new ValidationError(`Fields query must not contain more than ${serverConstants.database.fields.maxFields} fields`, {
+		throw new DomainError("validation", `Fields query must not contain more than ${serverConstants.database.fields.maxFields} fields`, {
 			code: "validation.fields_too_many",
 			params: { max: serverConstants.database.fields.maxFields },
 		});
 	}
 
 	if (fields.some((field) => field.split(".").length > serverConstants.database.fields.maxDepth)) {
-		throw new ValidationError(`Fields query must not be nested deeper than ${serverConstants.database.fields.maxDepth} levels`, {
+		throw new DomainError("validation", `Fields query must not be nested deeper than ${serverConstants.database.fields.maxDepth} levels`, {
 			code: "validation.fields_too_deep",
 			params: { max: serverConstants.database.fields.maxDepth },
 		});

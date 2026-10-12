@@ -81,6 +81,45 @@ describe("quickConnectService", () => {
 			usersRepository.findById = origFindById;
 		}
 	});
+});
+
+describe("quickConnectService", () => {
+	const mockUser: User = {
+		id: "qc-user-123",
+		name: "QC Test User",
+		email: "qc@example.com",
+		emailVerified: true,
+		image: null,
+		role: "user",
+		twoFactorEnabled: false,
+		banned: false,
+		banReason: null,
+		banExpires: null,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	};
+
+	const mockProfile: Profile = {
+		id: "qc-profile-456",
+		userId: "qc-user-123",
+		name: "Main Profile",
+		avatarUrl: null,
+		pin: null,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	};
+
+	const mockIssueSession = (_userId: string, profileId?: string | null) => {
+		const cookies = ["better-auth.session_token=mock-token.sig; Path=/; HttpOnly"];
+		if (profileId) {
+			cookies.push(`current_profile_id=${profileId}; Path=/; SameSite=Lax`);
+		}
+
+		return Promise.resolve({
+			signedToken: "mock-token.sig",
+			cookies,
+		});
+	};
 
 	test("omits the JSON token for browser polls (cookie session only)", async () => {
 		const origFindById = usersRepository.findById;
@@ -134,6 +173,33 @@ describe("quickConnectService", () => {
 		await expect(service.redeem("000-000", req)).rejects.toThrow("Invalid or expired login code");
 		await expect(service.authorize("000-000", mockUser)).rejects.toThrow("Invalid or expired quick connect code");
 	});
+});
+
+describe("quickConnectService", () => {
+	const mockUser: User = {
+		id: "qc-user-123",
+		name: "QC Test User",
+		email: "qc@example.com",
+		emailVerified: true,
+		image: null,
+		role: "user",
+		twoFactorEnabled: false,
+		banned: false,
+		banReason: null,
+		banExpires: null,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	};
+
+	const mockProfile: Profile = {
+		id: "qc-profile-456",
+		userId: "qc-user-123",
+		name: "Main Profile",
+		avatarUrl: null,
+		pin: null,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	};
 
 	test("forwards the stored profile PIN to the session issuer", async () => {
 		const origFindById = usersRepository.findById;

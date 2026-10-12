@@ -90,6 +90,28 @@ describe("ServerRescueService", () => {
 		check(service, 45_001); // cooldown elapsed
 		expect(cancelCalls).toBe(2);
 	});
+});
+
+describe("ServerRescueService", () => {
+	// Pin the defaults so unrelated test files leaving overrides in the shared
+	// runtime store cannot skew the state machine timings.
+	beforeEach(() => {
+		systemSettingsStore.setRuntimeValues({
+			"system.rescue.enabled": true,
+			"system.rescue.eventLoopLagMs": 250,
+			"system.rescue.sustainMs": 15000,
+			"system.rescue.releaseMs": 60000,
+		});
+	});
+
+	afterEach(() => {
+		systemSettingsStore.deleteRuntimeValues([
+			"system.rescue.enabled",
+			"system.rescue.eventLoopLagMs",
+			"system.rescue.sustainMs",
+			"system.rescue.releaseMs",
+		]);
+	});
 
 	test("releases rescue after the system stays healthy for releaseMs", () => {
 		const service = new ServerRescueService();
@@ -142,6 +164,28 @@ describe("ServerRescueService", () => {
 		} finally {
 			systemSettingsStore.deleteRuntimeValues(["system.rescue.enabled"]);
 		}
+	});
+});
+
+describe("ServerRescueService", () => {
+	// Pin the defaults so unrelated test files leaving overrides in the shared
+	// runtime store cannot skew the state machine timings.
+	beforeEach(() => {
+		systemSettingsStore.setRuntimeValues({
+			"system.rescue.enabled": true,
+			"system.rescue.eventLoopLagMs": 250,
+			"system.rescue.sustainMs": 15000,
+			"system.rescue.releaseMs": 60000,
+		});
+	});
+
+	afterEach(() => {
+		systemSettingsStore.deleteRuntimeValues([
+			"system.rescue.enabled",
+			"system.rescue.eventLoopLagMs",
+			"system.rescue.sustainMs",
+			"system.rescue.releaseMs",
+		]);
 	});
 
 	test("slow cores scale the lag threshold and sustain window up before engaging", () => {
@@ -208,6 +252,28 @@ describe("ServerRescueService", () => {
 		check(service, 285_000);
 		expect(service.isThrottling()).toBe(true);
 		expect(service.getState().escalations).toBe(4);
+	});
+});
+
+describe("ServerRescueService", () => {
+	// Pin the defaults so unrelated test files leaving overrides in the shared
+	// runtime store cannot skew the state machine timings.
+	beforeEach(() => {
+		systemSettingsStore.setRuntimeValues({
+			"system.rescue.enabled": true,
+			"system.rescue.eventLoopLagMs": 250,
+			"system.rescue.sustainMs": 15000,
+			"system.rescue.releaseMs": 60000,
+		});
+	});
+
+	afterEach(() => {
+		systemSettingsStore.deleteRuntimeValues([
+			"system.rescue.enabled",
+			"system.rescue.eventLoopLagMs",
+			"system.rescue.sustainMs",
+			"system.rescue.releaseMs",
+		]);
 	});
 
 	test("flap memory ages out after an hour of calm", () => {

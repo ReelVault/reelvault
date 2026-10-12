@@ -4,7 +4,7 @@ import type { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import type { DownloadQuality, DownloadStatus } from "@/modules/downloads/download-quality.utils";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 export type DownloadRow = typeof schema.downloads.$inferSelect;
 
@@ -32,7 +32,7 @@ const downloads = defineTableAccess("downloads", {
 const overrides = {
 	async insert(values: DownloadInsert, tx?: DatabaseTransaction): Promise<DownloadRow> {
 		const [row] = await downloads.insertReturning({ values, tx });
-		if (!row) throw new InternalError("Failed to insert download", { code: "downloads.create_failed" });
+		if (!row) throw new DomainError("internal", "Failed to insert download", { code: "downloads.create_failed" });
 
 		return row;
 	},
@@ -65,8 +65,8 @@ const overrides = {
 	}): Promise<{ data: DownloadRow[]; total: number }> {
 		const where = status ? eq(downloads.table.status, status) : undefined;
 		const client = databaseFactory.getClient();
-		const [countRows, rows] = await Promise.all([
-			client.select({ count: count() }).from(downloads.table).where(where),
+		const [total, rows] = await Promise.all([
+			client.$count(downloads.table, where),
 			client
 				.select()
 				.from(downloads.table)
@@ -77,7 +77,7 @@ const overrides = {
 				.offset(offset),
 		]);
 
-		return { data: rows, total: countRows[0]?.count ?? 0 };
+		return { data: rows, total };
 	},
 
 	/** Downloads per status across every profile, for the admin overview's counters. */
@@ -143,24 +143,16 @@ const overrides = {
 
 	/** Downloads of the profile that run right now: they hold its running slots. */
 	async countProcessingByProfile(profileId: string): Promise<number> {
-		const rows = await databaseFactory
+		return await databaseFactory
 			.getClient()
-			.select({ count: count() })
-			.from(downloads.table)
-			.where(and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "processing")));
-
-		return rows[0]?.count ?? 0;
+			.$count(downloads.table, and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "processing")));
 	},
 
 	/** Downloads of the profile waiting for a running slot. */
 	async countPendingByProfile(profileId: string): Promise<number> {
-		const rows = await databaseFactory
+		return await databaseFactory
 			.getClient()
-			.select({ count: count() })
-			.from(downloads.table)
-			.where(and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "pending")));
-
-		return rows[0]?.count ?? 0;
+			.$count(downloads.table, and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "pending")));
 	},
 
 	/** True while the profile has this file waiting or running: a second copy of the same download would repeat the work. */

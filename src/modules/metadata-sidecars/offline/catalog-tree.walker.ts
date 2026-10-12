@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { errorMessage } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
@@ -35,11 +35,13 @@ const defaultDependencies: ServiceDependencies = {
  * so per-document lookups (video files next to a movie/series document) don't
  * re-traverse the tree.
  */
-export class CatalogTreeWalker extends BaseService {
+export class CatalogTreeWalker {
+	readonly serviceName = "CatalogTreeWalker";
+	readonly logger = createLogger("CatalogTreeWalker");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("CatalogTreeWalker");
 		this.dependencies = dependencies;
 	}
 

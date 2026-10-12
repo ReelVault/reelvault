@@ -84,7 +84,9 @@ describe("plugin installer", () => {
 		expect(await file(join(pluginsDirectory, "org.reelvault.managed")).exists()).toBeFalse();
 		await expect(installer.list()).resolves.toEqual([]);
 	});
+});
 
+describe("plugin installer", () => {
 	test("persists the disabled flag in the lockfile and keeps the record verifiable", async () => {
 		const root = await createRoot();
 		const source = join(root, "source");
@@ -151,7 +153,9 @@ describe("plugin installer", () => {
 		// The refreshed record makes the next boot's check clean.
 		await expect(installer.verify()).resolves.toHaveLength(1);
 	});
+});
 
+describe("plugin installer", () => {
 	test("upgrades an installed plugin atomically and records the catalog source", async () => {
 		const root = await createRoot();
 		const source = join(root, "source");
@@ -220,7 +224,9 @@ describe("plugin installer", () => {
 		expect(await file(join(pluginsDirectory, "org.reelvault.config", "config.json")).json()).toEqual({ apiKey: "secret" });
 		expect(await file(join(pluginsDirectory, "org.reelvault.config", "index.mjs")).text()).toContain("return 2");
 	});
+});
 
+describe("plugin installer", () => {
 	test("rolls back the previous installation when an upgrade fails", async () => {
 		const root = await createRoot();
 		const source = join(root, "source");

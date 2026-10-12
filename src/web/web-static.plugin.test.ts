@@ -130,7 +130,9 @@ describe("webStaticPlugin", () => {
 		expect(suffix.status).toBe(206);
 		expect(await suffix.text()).toBe(body.slice(-3));
 	});
+});
 
+describe("webStaticPlugin", () => {
 	test("answers 416 with the full size for an unsatisfiable range", async () => {
 		env.APP_WEB_DIST = seedWebRoot();
 

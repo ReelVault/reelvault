@@ -4,8 +4,9 @@ import { serverConfig } from "@/server.config";
 import { resourceAllocator } from "@/system/resource-allocator";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { toCsvLine } from "@/utils/csv.utils";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { serializeDate } from "@/utils/time.utils";
 
 const ALLOCATION_WORKER_IDS = [
@@ -23,13 +24,12 @@ const DEFAULT_RESOURCE_HOURS = 24;
 
 const CSV_HEADER = "timestamp,cpuPercent,memoryPercent,diskPercent,pressure,activeWorkers";
 
-class AdminResourcesService extends BaseService {
-	constructor() {
-		super("AdminResourcesService");
-	}
+class AdminResourcesService {
+	readonly serviceName = "AdminResourcesService";
+	readonly logger = createLogger("AdminResourcesService");
 
 	async getResourcesView(hours = DEFAULT_RESOURCE_HOURS): Promise<AdminResourcesResponse> {
-		return await this.safeExecute("getResourcesView", async () => {
+		return await runSafely(this, "getResourcesView", async () => {
 			const [rawHistory, aggregates] = await Promise.all([
 				resourceMetricsRepository.getHistory(hours),
 				resourceMetricsRepository.getAggregates(hours),
@@ -65,7 +65,7 @@ class AdminResourcesService extends BaseService {
 
 	/** Every sample of the window, unthinned, as CSV or JSON for offline analysis. */
 	exportHistory(hours = DEFAULT_RESOURCE_HOURS, format: "csv" | "json" = "csv") {
-		return this.safeExecute("exportHistory", async () => {
+		return runSafely(this, "exportHistory", async () => {
 			// An infinite point budget disables the chart thinning, so the export keeps every sample.
 			const samples = await resourceMetricsRepository.getHistory(hours, Number.POSITIVE_INFINITY);
 			const rows = samples.map((sample) => ({

@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 import { systemSettingsService } from "@/application/admin/system-settings.service";
-import { ForbiddenError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { normalizeLower } from "@/utils/type.utils";
 import { guardedFetch, isPublicAddress } from "@/utils/url-guard.utils";
@@ -39,17 +39,21 @@ export function isHostAllowed(hostname: string, allowedList: string): boolean {
 function assertPluginHostAllowed(hostname: string): void {
 	const allowedList = systemSettingsService.get(SETTING_ALLOWED_DOMAINS);
 	if (!isHostAllowed(hostname, allowedList)) {
-		throw new ForbiddenError(`Destination host '${hostname}' is not on the plugins.http.allowedDomains allowlist`, {
+		throw new DomainError("forbidden", `Destination host '${hostname}' is not on the plugins.http.allowedDomains allowlist`, {
 			code: "plugin.http.host_not_allowed",
 		});
 	}
 
 	if (hostname === "localhost" || LOCAL_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) {
-		throw new ForbiddenError(`Plugin HTTP fetch to a local host is not allowed: ${hostname}`, { code: "plugin.http.private_address" });
+		throw new DomainError("forbidden", `Plugin HTTP fetch to a local host is not allowed: ${hostname}`, {
+			code: "plugin.http.private_address",
+		});
 	}
 
 	if (isIP(hostname) !== 0 && !isPublicAddress(hostname)) {
-		throw new ForbiddenError(`Plugin HTTP fetch to a private address is not allowed: ${hostname}`, { code: "plugin.http.private_address" });
+		throw new DomainError("forbidden", `Plugin HTTP fetch to a private address is not allowed: ${hostname}`, {
+			code: "plugin.http.private_address",
+		});
 	}
 }
 

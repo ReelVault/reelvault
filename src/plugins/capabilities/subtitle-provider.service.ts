@@ -11,9 +11,9 @@ import { subtitlesRepository } from "@/database/repositories/subtitles.repositor
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
-import { ConflictError, InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { normalizeLower } from "@/utils/type.utils";
@@ -23,19 +23,18 @@ import { pluginMetadataService } from "./plugin.metadata";
 const supportedFormats: ReadonlySet<string> = new Set(serverConfig.plugins.subtitles.supportedFormats);
 const leadingDotRegex = /^\./;
 
-class SubtitleProviderService extends BaseService {
+class SubtitleProviderService {
+	readonly serviceName = "SubtitleProviderService";
+	readonly logger = createLogger("SubtitleProviderService");
+
 	/** Creates the subtitle storage directory once per process instead of on every download. */
 	private readonly ensureStorageDirectory = createDirectoryOnce(
 		serverConfig.paths.subtitles,
 		() =>
-			new InternalError(`Failed to create subtitle storage directory: ${serverConfig.paths.subtitles}`, {
+			new DomainError("internal", `Failed to create subtitle storage directory: ${serverConfig.paths.subtitles}`, {
 				code: "plugin.subtitle.storage_error",
 			}),
 	);
-
-	constructor() {
-		super("SubtitleProviderService");
-	}
 
 	/** Ids of the subtitle providers the admin has switched off. */
 	async disabledProviderIds(): Promise<Set<string>> {
@@ -44,7 +43,7 @@ class SubtitleProviderService extends BaseService {
 
 	async setEnabled(providerId: string, enabled: boolean): Promise<void> {
 		if (!pluginManager.getSubtitleProvider(providerId)) {
-			throw new NotFoundError(`Subtitle provider ${providerId} was not found`, { code: "plugin.subtitle.provider_not_found" });
+			throw new DomainError("not_found", `Subtitle provider ${providerId} was not found`, { code: "plugin.subtitle.provider_not_found" });
 		}
 
 		await subtitleProviderSettingsRepository.setEnabled(providerId, enabled);
@@ -74,16 +73,17 @@ class SubtitleProviderService extends BaseService {
 
 	async download(providerId: string, request: SubtitleProviderDownloadRequest): Promise<string> {
 		const provider = pluginManager.getSubtitleProvider(providerId);
-		if (!provider) throw new NotFoundError(`Subtitle provider ${providerId} was not found`, { code: "plugin.subtitle.provider_not_found" });
+		if (!provider)
+			throw new DomainError("not_found", `Subtitle provider ${providerId} was not found`, { code: "plugin.subtitle.provider_not_found" });
 		if (await subtitleProviderSettingsRepository.isDisabled(providerId)) {
-			throw new ConflictError(`Subtitle provider ${providerId} is turned off`, { code: "plugin.subtitle.provider_disabled" });
+			throw new DomainError("conflict", `Subtitle provider ${providerId} is turned off`, { code: "plugin.subtitle.provider_disabled" });
 		}
 
 		await this.getMediaItem(request.mediaFileId);
 
 		const download = await provider.download(request.subtitleId);
 		if (!download)
-			throw new NotFoundError(`Subtitle ${request.subtitleId} was not found in provider ${providerId}`, {
+			throw new DomainError("not_found", `Subtitle ${request.subtitleId} was not found in provider ${providerId}`, {
 				code: "plugin.subtitle.not_found",
 			});
 
@@ -135,11 +135,12 @@ class SubtitleProviderService extends BaseService {
 
 	private async getMediaItem(mediaFileId: string): Promise<MediaItem> {
 		const mediaFile = await pluginMediaService.get(mediaFileId);
-		if (!mediaFile) throw new NotFoundError(`Media file ${mediaFileId} was not found`, { code: "plugin.subtitle.media_not_found" });
+		if (!mediaFile)
+			throw new DomainError("not_found", `Media file ${mediaFileId} was not found`, { code: "plugin.subtitle.media_not_found" });
 
 		const metadata = await pluginMetadataService.get(mediaFile.metadataId);
 		if (!metadata)
-			throw new NotFoundError(`Metadata ${mediaFile.metadataId} was not found`, { code: "plugin.subtitle.metadata_not_found" });
+			throw new DomainError("not_found", `Metadata ${mediaFile.metadataId} was not found`, { code: "plugin.subtitle.metadata_not_found" });
 
 		return {
 			id: metadata.id,
@@ -164,7 +165,7 @@ class SubtitleProviderService extends BaseService {
 
 	private assertDownloadSize(download: SubtitleDownload): void {
 		if (contentByteSize(download.content) > serverConfig.plugins.subtitles.maxSizeBytes) {
-			throw new ValidationError(`Subtitle exceeds the ${serverConfig.plugins.subtitles.maxSizeBytes} byte limit`, {
+			throw new DomainError("validation", `Subtitle exceeds the ${serverConfig.plugins.subtitles.maxSizeBytes} byte limit`, {
 				code: "plugin.subtitle.too_large",
 			});
 		}
@@ -174,7 +175,7 @@ class SubtitleProviderService extends BaseService {
 function normalizeFormat(value: string): string {
 	const format = normalizeLower(value).replace(leadingDotRegex, "");
 	if (!supportedFormats.has(format)) {
-		throw new ValidationError(`Unsupported subtitle format ${value}`, { code: "plugin.subtitle.unsupported_format" });
+		throw new DomainError("validation", `Unsupported subtitle format ${value}`, { code: "plugin.subtitle.unsupported_format" });
 	}
 
 	return format;

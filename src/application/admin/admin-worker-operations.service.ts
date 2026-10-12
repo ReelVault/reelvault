@@ -2,14 +2,13 @@ import type { TaskTrigger, WorkerCategory, WorkerCategoryRunResponse, WorkerSumm
 import { recordAuditSafe } from "@/application/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { QueryPagination } from "@/database/utils/pagination";
-import { BaseService } from "@/utils/base-service";
-import { ConflictError } from "@/utils/errors";
+import { assertFound, DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { workerService } from "../../workers/worker.service";
 
-class AdminWorkerOperationsService extends BaseService {
-	constructor() {
-		super("AdminWorkerOperationsService");
-	}
+class AdminWorkerOperationsService {
+	readonly serviceName = "AdminWorkerOperationsService";
+	readonly logger = createLogger("AdminWorkerOperationsService");
 
 	getWorkerSummaries(): Promise<WorkerSummary[]> {
 		return workerService.scheduler.listWorkerSummaries();
@@ -105,7 +104,7 @@ class AdminWorkerOperationsService extends BaseService {
 
 	async getItem(id: string) {
 		const item = await workerService.getItem(id);
-		this.assertExists(item, "Worker item", id);
+		assertFound(item, "Worker item", id);
 
 		return item;
 	}
@@ -116,7 +115,7 @@ class AdminWorkerOperationsService extends BaseService {
 
 	async getOperation(id: string) {
 		const operation = await workerService.getOperation(id);
-		this.assertExists(operation, "Worker operation", id);
+		assertFound(operation, "Worker operation", id);
 
 		return operation;
 	}
@@ -145,11 +144,11 @@ class AdminWorkerOperationsService extends BaseService {
 
 	async cancelOperation(id: string, context?: AdminAuditContext): Promise<{ success: true }> {
 		const operation = await workerService.getOperation(id);
-		this.assertExists(operation, "Worker operation", id);
+		assertFound(operation, "Worker operation", id);
 
 		const cancelled = await workerService.cancelOperation(id);
 		if (!cancelled) {
-			throw new ConflictError("The worker operation could not be cancelled", {
+			throw new DomainError("conflict", "The worker operation could not be cancelled", {
 				code: "worker.operation_cancel_failed",
 				params: { operationId: id },
 			});
@@ -172,7 +171,7 @@ class AdminWorkerOperationsService extends BaseService {
 
 	async resumeOperation(id: string, context?: AdminAuditContext): Promise<{ success: true; resumed: number }> {
 		const operation = await workerService.getOperation(id);
-		this.assertExists(operation, "Worker operation", id);
+		assertFound(operation, "Worker operation", id);
 
 		const result = await workerService.resumeOperation(id);
 
@@ -209,9 +208,9 @@ class AdminWorkerOperationsService extends BaseService {
 
 	async cancelItem(id: string, context?: AdminAuditContext): Promise<{ success: true }> {
 		const item = await workerService.getItem(id);
-		this.assertExists(item, "Worker item", id);
+		assertFound(item, "Worker item", id);
 		if (item.status !== "pending" && item.status !== "running") {
-			throw new ConflictError("Only pending or running worker items can be cancelled", {
+			throw new DomainError("conflict", "Only pending or running worker items can be cancelled", {
 				code: "worker.item_not_cancellable",
 				params: { itemId: id, status: item.status },
 			});
@@ -219,7 +218,7 @@ class AdminWorkerOperationsService extends BaseService {
 
 		const cancelled = await workerService.cancelItem(id);
 		if (!cancelled) {
-			throw new ConflictError("The worker item could not be cancelled", {
+			throw new DomainError("conflict", "The worker item could not be cancelled", {
 				code: "worker.item_cancel_failed",
 				params: { itemId: id },
 			});
@@ -242,16 +241,16 @@ class AdminWorkerOperationsService extends BaseService {
 
 	async retryItem(id: string, context?: AdminAuditContext): Promise<{ success: true; jobId: string }> {
 		const item = await workerService.getItem(id);
-		this.assertExists(item, "Worker item", id);
+		assertFound(item, "Worker item", id);
 		if (item.status !== "failed") {
-			throw new ConflictError("Only failed worker items can be retried", {
+			throw new DomainError("conflict", "Only failed worker items can be retried", {
 				code: "worker.item_not_retryable",
 				params: { itemId: id, status: item.status },
 			});
 		}
 
 		const retried = await workerService.retryItem(id);
-		this.assertExists(retried, "Worker item", id);
+		assertFound(retried, "Worker item", id);
 
 		recordAuditSafe(
 			{

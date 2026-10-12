@@ -91,6 +91,24 @@ describe("RemovalGuard", () => {
 		// Five missing ROWS still hit the mass-removal threshold (max(5, 10/2)).
 		expect(assessment.massRemoval).toBeTrue();
 	});
+});
+
+describe("RemovalGuard", () => {
+	let existingPaths: Set<string>;
+	let unavailablePaths: Set<string>;
+	let guard: RemovalGuard;
+
+	beforeEach(() => {
+		existingPaths = new Set();
+		unavailablePaths = new Set();
+		guard = createGuard((path) => {
+			if (unavailablePaths.has(path)) return Promise.resolve("unavailable");
+
+			if (existingPaths.has(path)) return Promise.resolve("exists");
+
+			return Promise.resolve("missing");
+		});
+	});
 
 	test("treats an empty disk listing as a mass removal", async () => {
 		const assessment = await guard.assess({ libraryId: "lib-1", candidates: ["/media/a.mkv"], existingCount: 10, filesOnDiskCount: 0 });

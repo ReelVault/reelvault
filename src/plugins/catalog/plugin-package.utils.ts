@@ -3,8 +3,8 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { Gunzip, Unzip, type UnzipFileHandler, UnzipInflate } from "fflate";
-import { constantTimeEquals, createHash } from "@/utils/crypto.utils";
-import { ValidationError } from "@/utils/errors";
+import { createHash } from "@/utils/crypto.utils";
+import { DomainError } from "@/utils/errors";
 import { guardedFetch } from "@/utils/url-guard.utils";
 
 const DEFAULT_MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
@@ -64,20 +64,21 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
 		});
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : "unknown error";
-		throw new ValidationError(`Failed to download plugin package: ${reason}`, { code: "plugin.download_failed" });
+		throw new DomainError("validation", `Failed to download plugin package: ${reason}`, { code: "plugin.download_failed" });
 	}
 
 	if (!response.ok)
-		throw new ValidationError(`Plugin package download failed with HTTP ${response.status}`, {
+		throw new DomainError("validation", `Plugin package download failed with HTTP ${response.status}`, {
 			code: "plugin.download_failed_http",
 			params: { status: response.status },
 		});
 
-	if (!response.body) throw new ValidationError("Plugin package download returned an empty body", { code: "plugin.download_empty" });
+	if (!response.body)
+		throw new DomainError("validation", "Plugin package download returned an empty body", { code: "plugin.download_empty" });
 
 	const declaredLength = Number(response.headers.get("content-length") ?? 0);
 	if (declaredLength > maxBytes)
-		throw new ValidationError(`Plugin package exceeds the ${maxBytes} byte limit`, {
+		throw new DomainError("validation", `Plugin package exceeds the ${maxBytes} byte limit`, {
 			code: "plugin.package_too_large",
 			params: { maxBytes },
 		});
@@ -91,7 +92,7 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
 		for await (const chunk of response.body) {
 			received += chunk.byteLength;
 			if (received > maxBytes)
-				throw new ValidationError(`Plugin package exceeds the ${maxBytes} byte limit`, {
+				throw new DomainError("validation", `Plugin package exceeds the ${maxBytes} byte limit`, {
 					code: "plugin.package_too_large",
 					params: { maxBytes },
 				});
@@ -120,16 +121,6 @@ export async function downloadArchive(url: string, options: DownloadArchiveOptio
 		size: received,
 		cleanup: () => rm(directory, { recursive: true, force: true }),
 	};
-}
-
-/**
- * Verifies a downloaded archive against the checksum advertised by the
- * catalog manifest before a single byte is extracted.
- */
-export function assertChecksumMatches(actual: string, expected: string): void {
-	if (!constantTimeEquals(actual, expected)) {
-		throw new ValidationError("Plugin package checksum does not match the catalog manifest", { code: "plugin.checksum_mismatch" });
-	}
 }
 
 /**
@@ -169,7 +160,7 @@ export async function extractArchive(
 
 function sniffArchiveType(chunk: Uint8Array): "zip" | "gzip" | "tar" {
 	if (chunk[0] === 0x52 && chunk[1] === 0x61 && chunk[2] === 0x72 && chunk[3] === 0x21) {
-		throw new ValidationError("RAR archives are not supported — repackage the plugin as .zip or .tar.gz", {
+		throw new DomainError("validation", "RAR archives are not supported — repackage the plugin as .zip or .tar.gz", {
 			code: "plugin.archive_format_unsupported",
 		});
 	}
@@ -254,7 +245,7 @@ function assertSafeDestination(workRoot: string, entryPath: string): string {
 	const normalized = entryPath.replaceAll("\\", "/");
 	// A NUL byte cannot name a file; refusing it here keeps the raw path error from surfacing as a server error.
 	if (entryPath.includes("\0") || normalized.startsWith("/") || normalized.split("/").includes("..")) {
-		throw new ValidationError(`Plugin package contains an unsafe entry path: ${entryPath}`, {
+		throw new DomainError("validation", `Plugin package contains an unsafe entry path: ${entryPath}`, {
 			code: "plugin.package_path_unsafe",
 			params: { path: entryPath },
 		});
@@ -262,7 +253,7 @@ function assertSafeDestination(workRoot: string, entryPath: string): string {
 
 	const target = resolve(workRoot, normalized);
 	if (target !== workRoot && !target.startsWith(`${workRoot}${sep}`)) {
-		throw new ValidationError(`Plugin package contains an unsafe entry path: ${entryPath}`, {
+		throw new DomainError("validation", `Plugin package contains an unsafe entry path: ${entryPath}`, {
 			code: "plugin.package_path_unsafe",
 			params: { path: entryPath },
 		});
@@ -286,7 +277,11 @@ function createZipEntryHandler(workRoot: string, maxUncompressedBytes: number, o
 			// attacker-controlled and cannot bound a zip bomb.
 			total += chunk.byteLength;
 			if (total > maxUncompressedBytes) {
-				onFailure(new ValidationError("Plugin package exceeds the uncompressed size limit", { code: "plugin.package_unpacked_too_large" }));
+				onFailure(
+					new DomainError("validation", "Plugin package exceeds the uncompressed size limit", {
+						code: "plugin.package_unpacked_too_large",
+					}),
+				);
 
 				return;
 			}
@@ -322,165 +317,206 @@ const TAR_TYPE_LONG_NAME = "L";
  * Exported for the chunk-boundary tests.
  */
 export function createTarStreamExtractor(workRoot: string, maxUncompressedBytes: number): TarStreamExtractor {
-	const header = new Uint8Array(TAR_BLOCK_SIZE);
-	let headerFilled = 0;
-	let payload: TarPayload | null = null;
-	let longNameParts: Uint8Array[] = [];
-	let pendingLongName: string | undefined;
-	const symlinks: Array<{ linkPath: string; target: string }> = [];
-	let total = 0;
-	const state = { ended: false };
-
-	/**
-	 * Consumes payload bytes (file data, long name or discard) plus padding.
-	 * Returns the new offset, or null when the payload needs more chunks.
-	 */
-	const consumePayload = (chunk: Uint8Array, startOffset: number): number | null => {
-		if (!payload) return startOffset;
-
-		const current = payload;
-		let offset = startOffset;
-		const take = Math.min(current.remaining, chunk.byteLength - offset);
-		if (take > 0) {
-			const data = chunk.subarray(offset, offset + take);
-			if (current.kind === "file" && current.target) appendFileSync(current.target, data);
-			else if (current.kind === "long-name") longNameParts.push(data);
-
-			current.remaining -= take;
-			offset += take;
-		}
-
-		if (current.remaining > 0) return null;
-
-		const skip = Math.min(current.padding, chunk.byteLength - offset);
-		current.padding -= skip;
-		offset += skip;
-		if (current.padding > 0) return null;
-
-		if (current.kind === "long-name") {
-			pendingLongName = decodeTarLongName(longNameParts);
-			longNameParts = [];
-		}
-
-		payload = null;
-
-		return offset;
-	};
-
-	/** Parses one complete header block; returns true for the end-of-archive marker. */
-	const consumeHeader = (): boolean => {
-		headerFilled = 0;
-		if (header.every((byte) => byte === 0)) return true;
-
-		const size = parseTarNumber(header, 124, 12);
-		const padding = (TAR_BLOCK_SIZE - (size % TAR_BLOCK_SIZE)) % TAR_BLOCK_SIZE;
-		const typeFlag = String.fromCharCode(header[156] ?? 0x30);
-
-		if (typeFlag === TAR_TYPE_LONG_NAME) {
-			payload = { kind: "long-name", remaining: size, padding };
-
-			return false;
-		}
-
-		const name = pendingLongName ?? readTarName(header);
-		pendingLongName = undefined;
-
-		if (typeFlag === TAR_TYPE_DIRECTORY) {
-			// Preserve declared directories (including empty ones) like a real
-			// tar reader; files inside would create their parents anyway.
-			mkdirSync(assertSafeDestination(workRoot, name), { recursive: true });
-			payload = { kind: "discard", remaining: size, padding };
-
-			return false;
-		}
-
-		if (typeFlag === TAR_TYPE_SYMLINK) {
-			const linkPath = assertSafeDestination(workRoot, name);
-			const target = readTarString(header, 157, 100);
-			if (target.length === 0)
-				throw new ValidationError(`Plugin package contains a symlink without a target: ${name}`, {
-					code: "plugin.package_symlink_invalid",
-					params: { path: name },
-				});
-			if (target.startsWith("/"))
-				throw new ValidationError(`Plugin package contains an absolute symlink: ${name}`, {
-					code: "plugin.package_symlink_invalid",
-					params: { path: name },
-				});
-
-			const resolved = resolve(dirname(linkPath), target);
-			if (!resolved.startsWith(`${workRoot}${sep}`)) {
-				throw new ValidationError(`Plugin package contains an out-of-tree symlink: ${name}`, {
-					code: "plugin.package_symlink_invalid",
-					params: { path: name },
-				});
-			}
-
-			symlinks.push({ linkPath, target });
-			payload = { kind: "discard", remaining: size, padding };
-
-			return false;
-		}
-
-		if (!TAR_TYPE_REGULAR.has(typeFlag)) {
-			throw new ValidationError(`Plugin package contains an unsupported tar entry type '${typeFlag}': ${name}`, {
-				code: "plugin.package_entry_unsupported",
-				params: { path: name },
-			});
-		}
-
-		total += size;
-		if (total > maxUncompressedBytes)
-			throw new ValidationError("Plugin package exceeds the uncompressed size limit", { code: "plugin.package_unpacked_too_large" });
-
-		const target = assertSafeDestination(workRoot, name);
-		mkdirSync(dirname(target), { recursive: true });
-		const mode = parseTarNumber(header, 100, 8);
-		writeFileSync(target, new Uint8Array(0), mode ? { mode: mode & 0o777 } : undefined);
-		payload = { kind: "file", target, remaining: size, padding };
-
-		return false;
-	};
+	const reader = createTarReader(workRoot, maxUncompressedBytes);
 
 	return {
 		push(chunk) {
-			if (state.ended) return;
-
-			let offset = 0;
-			while (offset < chunk.byteLength) {
-				if (payload) {
-					const nextOffset = consumePayload(chunk, offset);
-					// The payload is still incomplete — wait for the next chunk.
-					if (nextOffset === null) break;
-
-					offset = nextOffset;
-					continue;
-				}
-
-				const take = Math.min(TAR_BLOCK_SIZE - headerFilled, chunk.byteLength - offset);
-				header.set(chunk.subarray(offset, offset + take), headerFilled);
-				headerFilled += take;
-				offset += take;
-				if (headerFilled < TAR_BLOCK_SIZE) break;
-
-				if (consumeHeader()) {
-					state.ended = true;
-
-					break;
-				}
-			}
+			pushTarChunk(reader, chunk);
 		},
 		finish() {
-			if (!state.ended && (payload || headerFilled > 0)) {
-				throw new ValidationError("Plugin package contains a truncated tar archive", { code: "plugin.archive_truncated" });
-			}
-
-			for (const { linkPath, target } of symlinks) {
-				mkdirSync(dirname(linkPath), { recursive: true });
-				symlinkSync(target, linkPath);
-			}
+			finishTarReader(reader);
 		},
 	};
+}
+
+/** Parser state carried across `push` calls, so a header or entry may span any number of chunks. */
+interface TarReader {
+	readonly workRoot: string;
+	readonly maxUncompressedBytes: number;
+	readonly header: Uint8Array;
+	headerFilled: number;
+	payload: TarPayload | null;
+	longNameParts: Uint8Array[];
+	pendingLongName: string | undefined;
+	readonly symlinks: Array<{ linkPath: string; target: string }>;
+	total: number;
+	ended: boolean;
+}
+
+interface TarEntry {
+	name: string;
+	size: number;
+	padding: number;
+}
+
+function createTarReader(workRoot: string, maxUncompressedBytes: number): TarReader {
+	return {
+		workRoot,
+		maxUncompressedBytes,
+		header: new Uint8Array(TAR_BLOCK_SIZE),
+		headerFilled: 0,
+		payload: null,
+		longNameParts: [],
+		pendingLongName: undefined,
+		symlinks: [],
+		total: 0,
+		ended: false,
+	};
+}
+
+function pushTarChunk(reader: TarReader, chunk: Uint8Array): void {
+	if (reader.ended) return;
+
+	let offset = 0;
+	while (offset < chunk.byteLength) {
+		if (reader.payload) {
+			const nextOffset = consumePayload(reader, chunk, offset);
+			// The payload is still incomplete — wait for the next chunk.
+			if (nextOffset === null) break;
+
+			offset = nextOffset;
+			continue;
+		}
+
+		const take = Math.min(TAR_BLOCK_SIZE - reader.headerFilled, chunk.byteLength - offset);
+		reader.header.set(chunk.subarray(offset, offset + take), reader.headerFilled);
+		reader.headerFilled += take;
+		offset += take;
+		if (reader.headerFilled < TAR_BLOCK_SIZE) break;
+
+		if (consumeHeader(reader)) {
+			reader.ended = true;
+
+			break;
+		}
+	}
+}
+
+function finishTarReader(reader: TarReader): void {
+	if (!reader.ended && (reader.payload || reader.headerFilled > 0)) {
+		throw new DomainError("validation", "Plugin package contains a truncated tar archive", { code: "plugin.archive_truncated" });
+	}
+
+	for (const { linkPath, target } of reader.symlinks) {
+		mkdirSync(dirname(linkPath), { recursive: true });
+		symlinkSync(target, linkPath);
+	}
+}
+
+/**
+ * Consumes payload bytes (file data, long name or discard) plus padding.
+ * Returns the new offset, or null when the payload needs more chunks.
+ */
+function consumePayload(reader: TarReader, chunk: Uint8Array, startOffset: number): number | null {
+	const current = reader.payload;
+	if (!current) return startOffset;
+
+	let offset = startOffset;
+	const take = Math.min(current.remaining, chunk.byteLength - offset);
+	if (take > 0) {
+		const data = chunk.subarray(offset, offset + take);
+		if (current.kind === "file" && current.target) appendFileSync(current.target, data);
+		else if (current.kind === "long-name") reader.longNameParts.push(data);
+
+		current.remaining -= take;
+		offset += take;
+	}
+
+	if (current.remaining > 0) return null;
+
+	const skip = Math.min(current.padding, chunk.byteLength - offset);
+	current.padding -= skip;
+	offset += skip;
+	if (current.padding > 0) return null;
+
+	if (current.kind === "long-name") {
+		reader.pendingLongName = decodeTarLongName(reader.longNameParts);
+		reader.longNameParts = [];
+	}
+
+	reader.payload = null;
+
+	return offset;
+}
+
+/** Parses one complete header block; returns true for the end-of-archive marker. */
+function consumeHeader(reader: TarReader): boolean {
+	const { header } = reader;
+	reader.headerFilled = 0;
+	if (header.every((byte) => byte === 0)) return true;
+
+	const size = parseTarNumber(header, 124, 12);
+	const padding = (TAR_BLOCK_SIZE - (size % TAR_BLOCK_SIZE)) % TAR_BLOCK_SIZE;
+	const typeFlag = String.fromCharCode(header[156] ?? 0x30);
+
+	if (typeFlag === TAR_TYPE_LONG_NAME) {
+		reader.payload = { kind: "long-name", remaining: size, padding };
+
+		return false;
+	}
+
+	const name = reader.pendingLongName ?? readTarName(header);
+	reader.pendingLongName = undefined;
+	const entry: TarEntry = { name, size, padding };
+
+	if (typeFlag === TAR_TYPE_DIRECTORY) beginDirectory(reader, entry);
+	else if (typeFlag === TAR_TYPE_SYMLINK) beginSymlink(reader, entry);
+	else if (TAR_TYPE_REGULAR.has(typeFlag)) beginRegularFile(reader, entry);
+	else
+		throw new DomainError("validation", `Plugin package contains an unsupported tar entry type '${typeFlag}': ${name}`, {
+			code: "plugin.package_entry_unsupported",
+			params: { path: name },
+		});
+
+	return false;
+}
+
+function beginDirectory(reader: TarReader, entry: TarEntry): void {
+	// Preserve declared directories (including empty ones) like a real
+	// tar reader; files inside would create their parents anyway.
+	mkdirSync(assertSafeDestination(reader.workRoot, entry.name), { recursive: true });
+	reader.payload = { kind: "discard", remaining: entry.size, padding: entry.padding };
+}
+
+function beginSymlink(reader: TarReader, entry: TarEntry): void {
+	const { name } = entry;
+	const linkPath = assertSafeDestination(reader.workRoot, name);
+	const target = readTarString(reader.header, 157, 100);
+	if (target.length === 0)
+		throw new DomainError("validation", `Plugin package contains a symlink without a target: ${name}`, {
+			code: "plugin.package_symlink_invalid",
+			params: { path: name },
+		});
+	if (target.startsWith("/"))
+		throw new DomainError("validation", `Plugin package contains an absolute symlink: ${name}`, {
+			code: "plugin.package_symlink_invalid",
+			params: { path: name },
+		});
+
+	const resolved = resolve(dirname(linkPath), target);
+	if (!resolved.startsWith(`${reader.workRoot}${sep}`)) {
+		throw new DomainError("validation", `Plugin package contains an out-of-tree symlink: ${name}`, {
+			code: "plugin.package_symlink_invalid",
+			params: { path: name },
+		});
+	}
+
+	reader.symlinks.push({ linkPath, target });
+	reader.payload = { kind: "discard", remaining: entry.size, padding: entry.padding };
+}
+
+function beginRegularFile(reader: TarReader, entry: TarEntry): void {
+	reader.total += entry.size;
+	if (reader.total > reader.maxUncompressedBytes)
+		throw new DomainError("validation", "Plugin package exceeds the uncompressed size limit", {
+			code: "plugin.package_unpacked_too_large",
+		});
+
+	const target = assertSafeDestination(reader.workRoot, entry.name);
+	mkdirSync(dirname(target), { recursive: true });
+	const mode = parseTarNumber(reader.header, 100, 8);
+	writeFileSync(target, new Uint8Array(0), mode ? { mode: mode & 0o777 } : undefined);
+	reader.payload = { kind: "file", target, remaining: entry.size, padding: entry.padding };
 }
 
 function parseTarNumber(block: Uint8Array, offset: number, length: number): number {
@@ -534,5 +570,5 @@ async function locatePluginDirectory(root: string): Promise<string> {
 		}
 	}
 
-	throw new ValidationError("Plugin package does not contain a plugin.json manifest", { code: "plugin.manifest_missing" });
+	throw new DomainError("validation", "Plugin package does not contain a plugin.json manifest", { code: "plugin.manifest_missing" });
 }

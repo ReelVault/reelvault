@@ -541,8 +541,11 @@ function normalizeTitle(value: string): string {
 	return normalized;
 }
 
-export function extractYear(date: string | undefined): number | undefined {
-	const year = date && date.length >= 4 ? Number(date.slice(0, 4)) : undefined;
+/** The year a date text starts with (`2020`, `2020-05-01`); a longer digit run (`12345`) is no year. */
+const YEAR_PREFIX_REGEX = /^(\d{4})(?!\d)/;
 
-	return year && Number.isInteger(year) ? year : undefined;
+export function extractYear(date: string | undefined): number | undefined {
+	const year = Number(YEAR_PREFIX_REGEX.exec(date ?? "")?.[1]);
+
+	return year > 0 ? year : undefined;
 }

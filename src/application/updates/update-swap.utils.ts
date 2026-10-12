@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import {
 	componentMarkerName,
 	DISCARD_DIR,
@@ -101,7 +101,9 @@ export function swapBackFromPrevious(root: string, component: UpdateComponent): 
 export function readPreviousVersion(root: string, component: UpdateComponent): string {
 	const marker = join(root, PREVIOUS_DIR, componentMarkerName(component));
 	if (!existsSync(marker)) {
-		throw new ValidationError(`No previous ${component} version is available to roll back to`, { code: "update.no_previous_version" });
+		throw new DomainError("validation", `No previous ${component} version is available to roll back to`, {
+			code: "update.no_previous_version",
+		});
 	}
 
 	return readFileSync(marker, "utf8").trim() || "";

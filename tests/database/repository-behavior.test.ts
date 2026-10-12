@@ -136,7 +136,9 @@ describe("repository write behavior", () => {
 		const allTriggers = await workerSchedulesRepository.getAllTriggers();
 		expect(allTriggers.get("metadata-refresh")).toEqual([{ id: "t2", type: "daily", timeOfDay: "03:00" }]);
 	});
+});
 
+describe("repository write behavior", () => {
 	test("TableAccess generic returning and batch methods work correctly", async () => {
 		// insertReturning
 		const [row1, row2] = await watchlistRepository.insertReturning({

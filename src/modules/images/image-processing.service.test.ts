@@ -205,7 +205,9 @@ describe("ImageProcessingService", () => {
 
 		expect(spies.targetsFetched).toEqual([]);
 	});
+});
 
+describe("ImageProcessingService", () => {
 	test("processMetadata persists every URL-bearing image and skips blank entries", async () => {
 		const { service, spies } = createService();
 

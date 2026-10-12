@@ -8,7 +8,7 @@ import { schema } from "@/database/schema";
 import { forEachChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { groupBy, toMap } from "@/utils/array.utils";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 interface TvShowMergePlan {
 	deleteSeasonIds: string[];
@@ -113,7 +113,9 @@ class MetadataMergeRepository {
 		// violate the media_files single-target check (and orphan the row).
 		const targetMovieId = targetMovie?.id ?? (await moviesRepository.findOrCreateByMetadataId({ metadataId: targetId, tx }))?.id;
 		if (!targetMovieId)
-			throw new InternalError(`Could not resolve the movie row for metadata ${targetId}`, { code: "metadata.merge_movie_missing" });
+			throw new DomainError("internal", `Could not resolve the movie row for metadata ${targetId}`, {
+				code: "metadata.merge_movie_missing",
+			});
 
 		await client
 			.update(schema.mediaFiles)

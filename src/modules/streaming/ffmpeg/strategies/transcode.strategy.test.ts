@@ -16,13 +16,13 @@ describe("transcode strategy", () => {
 		const strategy = new TranscodeStrategy(config);
 
 		expect(
-			strategy.startSession(
-				"s1",
-				"/nonexistent/input.mkv",
-				"/tmp/reelvault-strategies/s1",
-				createMockPlaybackDecision({ mode: "transcode" }),
-				0,
-			),
+			strategy.startSession({
+				sessionId: "s1",
+				inputPath: "/nonexistent/input.mkv",
+				outputDir: "/tmp/reelvault-strategies/s1",
+				decision: createMockPlaybackDecision({ mode: "transcode" }),
+				startTime: 0,
+			}),
 		).rejects.toThrow("Input file does not exist");
 	});
 });

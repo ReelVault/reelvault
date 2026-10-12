@@ -8,11 +8,12 @@ import {
 	adminAuditRepository,
 } from "@/database/repositories/admin-audit.repository";
 import { QueryPagination } from "@/database/utils/pagination";
-import { BaseService } from "@/utils/base-service";
 import { toCsvLine } from "@/utils/csv.utils";
-import { NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { safeParseJson } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 
 /** Largest audit export; a wider one is refused, so an export never silently drops entries. */
 export const AUDIT_EXPORT_MAX_ENTRIES = 10_000;
@@ -48,10 +49,9 @@ function jsonCell(value: unknown): string {
 	return value === undefined || value === null ? "" : JSON.stringify(value);
 }
 
-class AdminAuditService extends BaseService {
-	constructor() {
-		super("AdminAuditService");
-	}
+class AdminAuditService {
+	readonly serviceName = "AdminAuditService";
+	readonly logger = createLogger("AdminAuditService");
 
 	async record(record: AdminAuditRecord): Promise<void> {
 		await adminAuditRepository.insert(record);
@@ -59,7 +59,7 @@ class AdminAuditService extends BaseService {
 
 	/** Activity per administrator for the filters, busiest first; `limit` caps how many administrators are listed. */
 	async getSummary(query: AdminAuditFilters & { limit?: number | undefined }): Promise<AdminAuditSummary> {
-		return await this.safeExecute("getSummary", async () => {
+		return await runSafely(this, "getSummary", async () => {
 			const { limit, ...filters } = query;
 			const pagination = QueryPagination.resolvePageParams({ limit }, { defaultLimit: 20, maxLimit: 50 });
 			const result = await adminAuditRepository.summarizeByActor(filters, pagination.limit);
@@ -80,7 +80,7 @@ class AdminAuditService extends BaseService {
 	}
 
 	async getAll(query: AdminAuditQuery): Promise<AdminAuditPage> {
-		return await this.safeExecute("getAll", async () => {
+		return await runSafely(this, "getAll", async () => {
 			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 50 });
 			const result = await adminAuditRepository.findMany({ ...query, page: pagination.page, limit: pagination.limit });
 
@@ -93,16 +93,16 @@ class AdminAuditService extends BaseService {
 
 	/** The resource types and administrators the audit filter dropdowns offer. */
 	async getFilterOptions(): Promise<AdminAuditOptions> {
-		return await this.safeExecute("getFilterOptions", async () => await adminAuditRepository.findFilterOptions(AUDIT_FILTER_OPTIONS_LIMIT));
+		return await runSafely(this, "getFilterOptions", async () => await adminAuditRepository.findFilterOptions(AUDIT_FILTER_OPTIONS_LIMIT));
 	}
 
 	/** The entries matching the filters, as CSV or JSON Lines; an export past the cap is refused. */
 	exportEntries(query: AdminAuditQuery & { format?: "csv" | "jsonl" | undefined }) {
-		return this.safeExecute("exportEntries", async () => {
+		return runSafely(this, "exportEntries", async () => {
 			const { format = "csv", ...filters } = query;
 			const result = await adminAuditRepository.findMany({ ...filters, page: 1, limit: AUDIT_EXPORT_MAX_ENTRIES + 1 });
 			if (result.data.length > AUDIT_EXPORT_MAX_ENTRIES) {
-				throw new ValidationError(`The audit export holds at most ${AUDIT_EXPORT_MAX_ENTRIES} entries; narrow the filters`, {
+				throw new DomainError("validation", `The audit export holds at most ${AUDIT_EXPORT_MAX_ENTRIES} entries; narrow the filters`, {
 					code: "admin.audit.export_too_large",
 					params: { limit: AUDIT_EXPORT_MAX_ENTRIES },
 				});
@@ -161,14 +161,14 @@ interface AuditedUpdateParams<T> {
 /**
  * Audited update skeleton: before-snapshot → update → not-found assert →
  * post-hooks → fire-and-forget audit record. The not-found assert mirrors
- * `BaseService.assertExists` (same `entity.not_found` error contract).
+ * `assertFound` (same `entity.not_found` error contract).
  */
 export async function auditedUpdate<T>(params: AuditedUpdateParams<T>): Promise<NonNullable<T>> {
 	const { logger, resourceType, resourceId, entityName } = params;
 	const before = await params.before();
 	const result = await params.update();
 	if (result == null) {
-		throw new NotFoundError(`${entityName} not found: ${resourceId}`, {
+		throw new DomainError("not_found", `${entityName} not found: ${resourceId}`, {
 			code: "entity.not_found",
 			params: { entityType: entityName, entityId: resourceId },
 		});

@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { CryptoHasher, password } from "bun";
+import { DomainError } from "./errors";
 
 interface Hasher {
 	update(data: string | Uint8Array): Hasher;
@@ -21,6 +22,20 @@ export function constantTimeEquals(actual: string, expected: string, options: { 
 	const expectedBytes = Buffer.from(right);
 
 	return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
+}
+
+/**
+ * Throws `failure` unless the digests match in constant time. `checksum` also ignores
+ * a `sha256:` prefix and letter case (see `constantTimeEquals`).
+ */
+export function assertChecksumMatches(
+	actual: string,
+	expected: string,
+	failure: { checksum: boolean; code: string; message: string },
+): void {
+	if (!constantTimeEquals(actual, expected, { checksum: failure.checksum })) {
+		throw new DomainError("validation", failure.message, { code: failure.code });
+	}
 }
 
 /**

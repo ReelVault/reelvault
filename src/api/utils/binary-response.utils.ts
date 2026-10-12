@@ -12,14 +12,16 @@ function binaryFileEtag(file: Blob): string | undefined {
 	return `"${file.size}-${Math.floor(lastModified)}"`;
 }
 
-function toBinaryResponse(
-	body: Blob | null,
-	contentType: string,
-	etag: string | undefined,
-	cacheControl: string,
-	status: 200 | 304,
-	extraHeaders?: HeadersInit,
-): Response {
+interface BinaryResponseInit {
+	body: Blob | null;
+	contentType: string;
+	etag: string | undefined;
+	cacheControl: string;
+	status: 200 | 304;
+	extraHeaders?: HeadersInit | undefined;
+}
+
+function toBinaryResponse({ body, contentType, etag, cacheControl, status, extraHeaders }: BinaryResponseInit): Response {
 	const headers = new Headers(extraHeaders);
 	headers.set("Content-Type", contentType);
 	headers.set("Cache-Control", cacheControl);
@@ -52,8 +54,8 @@ export function binaryFileResponse(
 ): Response {
 	const etag = binaryFileEtag(file);
 	if (etag && matchesIfNoneMatch(ifNoneMatch, etag)) {
-		return toBinaryResponse(null, contentType, etag, cacheControl, 304, options?.headers);
+		return toBinaryResponse({ body: null, contentType, etag, cacheControl, status: 304, extraHeaders: options?.headers });
 	}
 
-	return toBinaryResponse(file, contentType, etag, cacheControl, 200, options?.headers);
+	return toBinaryResponse({ body: file, contentType, etag, cacheControl, status: 200, extraHeaders: options?.headers });
 }

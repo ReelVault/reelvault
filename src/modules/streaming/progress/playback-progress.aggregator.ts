@@ -4,44 +4,24 @@ import type { PlaybackProgressComputeData, SmartPlay, SmartPlayComputeData } fro
 import { getPlaybackItemStatus } from "./playback-status";
 import { selectEpisodeSmartPlay, selectMovieSmartPlay } from "./smart-play";
 
-export function computePlaybackProgress(data: PlaybackProgressComputeData): MetadataPlaybackProgress {
-	const { metadata, mediaFiles, progressRows, episodes } = data;
+type ProgressByMediaFile = Map<string, PlaybackProgressItem>;
 
-	const progressByMediaFileId = new Map<string, PlaybackProgressItem>(
-		progressRows.map((progress) => [
-			progress.mediaFileId,
-			{
-				...progress,
-				duration: progress.duration ?? 0,
-				updatedAt: progress.updatedAt.toISOString(),
-			},
-		]),
-	);
-
-	// Per-file playback status keyed by mediaFileId — clients index into it
-	// instead of re-deriving "which saved progress belongs to which file".
-	const fileProgress: MetadataPlaybackProgress["fileProgress"] = Object.fromEntries(
-		[...progressByMediaFileId].map(([fileId, item]) => [fileId, getPlaybackItemStatus([item])]),
-	);
-
-	if (metadata.type === "movie") {
-		const movieProgress: PlaybackProgressItem[] = [];
-		for (const mf of mediaFiles) {
-			if (mf.movieId === null) continue;
-
-			const item = progressByMediaFileId.get(mf.id);
-			if (item) movieProgress.push(item);
-		}
-
-		return {
-			...getPlaybackItemStatus(movieProgress),
-			fileProgress,
-			completedEpisodes: 0,
-			totalEpisodes: 0,
-			episodes: {},
-		};
+/** Saved progress for the given media files, skipping files that have none. */
+function collectProgressItems(fileIds: Iterable<string>, progressByMediaFileId: ProgressByMediaFile): PlaybackProgressItem[] {
+	const items: PlaybackProgressItem[] = [];
+	for (const id of fileIds) {
+		const item = progressByMediaFileId.get(id);
+		if (item) items.push(item);
 	}
 
+	return items;
+}
+
+function seriesProgress(
+	mediaFiles: PlaybackProgressComputeData["mediaFiles"],
+	episodes: PlaybackProgressComputeData["episodes"],
+	progressByMediaFileId: ProgressByMediaFile,
+): Omit<MetadataPlaybackProgress, "fileProgress"> {
 	const mediaFilesByEpisodeId = groupBy(
 		mediaFiles,
 		(mediaFile) => mediaFile.episodeId,
@@ -50,15 +30,7 @@ export function computePlaybackProgress(data: PlaybackProgressComputeData): Meta
 
 	const episodeStatuses: MetadataPlaybackProgress["episodes"] = {};
 	for (const episode of episodes) {
-		const fileIds = mediaFilesByEpisodeId.get(episode.id);
-		const progress: PlaybackProgressItem[] = [];
-		if (fileIds) {
-			for (const id of fileIds) {
-				const item = progressByMediaFileId.get(id);
-				if (item) progress.push(item);
-			}
-		}
-
+		const progress = collectProgressItems(mediaFilesByEpisodeId.get(episode.id) ?? [], progressByMediaFileId);
 		episodeStatuses[episode.id] = getPlaybackItemStatus(progress);
 	}
 
@@ -83,11 +55,45 @@ export function computePlaybackProgress(data: PlaybackProgressComputeData): Meta
 	return {
 		status,
 		progress: null,
-		fileProgress,
 		completedEpisodes,
 		totalEpisodes: totalPlayable,
 		episodes: episodeStatuses,
 	};
+}
+
+export function computePlaybackProgress(data: PlaybackProgressComputeData): MetadataPlaybackProgress {
+	const { metadata, mediaFiles, progressRows, episodes } = data;
+
+	const progressByMediaFileId: ProgressByMediaFile = new Map<string, PlaybackProgressItem>(
+		progressRows.map((progress) => [
+			progress.mediaFileId,
+			{
+				...progress,
+				duration: progress.duration ?? 0,
+				updatedAt: progress.updatedAt.toISOString(),
+			},
+		]),
+	);
+
+	// Per-file playback status keyed by mediaFileId — clients index into it
+	// instead of re-deriving "which saved progress belongs to which file".
+	const fileProgress: MetadataPlaybackProgress["fileProgress"] = Object.fromEntries(
+		[...progressByMediaFileId].map(([fileId, item]) => [fileId, getPlaybackItemStatus([item])]),
+	);
+
+	if (metadata.type === "movie") {
+		const movieFileIds = mediaFiles.filter((mf) => mf.movieId !== null).map((mf) => mf.id);
+
+		return {
+			...getPlaybackItemStatus(collectProgressItems(movieFileIds, progressByMediaFileId)),
+			fileProgress,
+			completedEpisodes: 0,
+			totalEpisodes: 0,
+			episodes: {},
+		};
+	}
+
+	return { ...seriesProgress(mediaFiles, episodes, progressByMediaFileId), fileProgress };
 }
 
 export function computeSmartPlay(data: SmartPlayComputeData): SmartPlay {

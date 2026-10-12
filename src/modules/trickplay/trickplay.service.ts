@@ -12,9 +12,9 @@ import { summarizeRegenerationOutcomes } from "@/modules/trickplay/trickplay-reg
 import { serverConfig } from "@/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/server.constants";
 import { chunk } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { InternalError, NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -34,11 +34,73 @@ interface TrickplayCue {
 	spriteUrl: string;
 }
 
+interface TrickplayLayout {
+	tileWidth: number;
+	tileHeight: number;
+	columns: number;
+	tilesPerSprite: number;
+}
+
+/** One generation run: the source file, the scratch dir its sprites are staged in, and the frame timing. */
+interface TrickplayJob {
+	mediaFileId: string;
+	filePath: string;
+	tempDir: string;
+	layout: TrickplayLayout;
+	frameCount: number;
+	durationSeconds: number;
+	effectiveInterval: number;
+}
+
 export interface TrickplayGenerationResult {
 	mediaFileId: string;
 	frames: number;
 	sprites: number;
 	skipped?: "disabled" | "no-duration" | "storage-budget";
+}
+
+function resolveLayout(): TrickplayLayout {
+	const tileWidth = serverConfig.trickplay.tileWidth;
+	const columns = serverConfig.trickplay.columns;
+
+	return {
+		tileWidth,
+		tileHeight: Math.round((tileWidth * 9) / 16 / 2) * 2,
+		columns,
+		tilesPerSprite: columns * columns,
+	};
+}
+
+/**
+ * xstack needs a full grid (and ≥2 inputs for its relative layout) — pad
+ * the last chunk by repeating its final timestamp; unused tiles are never
+ * referenced by the VTT.
+ */
+function padLastChunk(chunks: number[][], tilesPerSprite: number): void {
+	const lastChunk = chunks.at(-1);
+	const padSource = lastChunk?.at(-1);
+	if (lastChunk && padSource !== undefined) {
+		while (lastChunk.length < tilesPerSprite) lastChunk.push(padSource);
+	}
+}
+
+/** Cue timeline spans the whole duration; each cue points at its tile inside its sprite. */
+function buildCues(job: TrickplayJob, sprites: readonly TrickplaySprite[]): TrickplayCue[] {
+	const { layout, frameCount, durationSeconds, effectiveInterval } = job;
+	const cues: TrickplayCue[] = [];
+	for (let index = 0; index < frameCount; index++) {
+		const spriteIndex = Math.floor(index / layout.tilesPerSprite);
+		const positionInSprite = index % layout.tilesPerSprite;
+		cues.push({
+			startSeconds: index * effectiveInterval,
+			endSeconds: Math.min((index + 1) * effectiveInterval, durationSeconds),
+			x: (positionInSprite % layout.columns) * layout.tileWidth,
+			y: Math.floor(positionInSprite / layout.columns) * layout.tileHeight,
+			spriteUrl: sprites[spriteIndex]?.url ?? sprites[0]?.url ?? "",
+		});
+	}
+
+	return cues;
 }
 
 /**
@@ -50,10 +112,9 @@ export interface TrickplayGenerationResult {
  * `org.reelvault.trickplay` unnecessary. Core writes bypass the per-plugin
  * artifact quota and use the configurable core budget instead.
  */
-class TrickplayService extends BaseService {
-	constructor() {
-		super("TrickplayService");
-	}
+class TrickplayService {
+	readonly serviceName = "TrickplayService";
+	readonly logger = createLogger("TrickplayService");
 
 	async generateForMediaFile(mediaFileId: string): Promise<TrickplayGenerationResult> {
 		if (!serverConfig.trickplay.enabled) {
@@ -66,33 +127,21 @@ class TrickplayService extends BaseService {
 		});
 
 		if (!mediaFile?.filePath)
-			throw new NotFoundError(`Trickplay generation failed: media file '${mediaFileId}' not found`, { code: "media_file_not_found" });
+			throw new DomainError("not_found", `Trickplay generation failed: media file '${mediaFileId}' not found`, {
+				code: "media_file_not_found",
+			});
 
 		const durationSeconds = mediaFile.duration ?? 0;
 		if (durationSeconds <= 0) return { mediaFileId, frames: 0, sprites: 0, skipped: "no-duration" };
 
 		// Stop before touching the previous generation when even dropping this
 		// file's own artifacts would not bring core storage back under budget.
-		const budgetBytes = await resolveCoreArtifactsBudgetBytes();
-		const storedBytes = await mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER);
-		const existingBytes = await mediaArtifactsService.getMediaFileStoredBytes(mediaFileId, CORE_ARTIFACTS_OWNER);
-		if (storedBytes - existingBytes >= budgetBytes) {
-			this.logger.warn("Trickplay generation skipped: artifact storage budget exhausted", {
-				mediaFileId,
-				storedBytes,
-				existingBytes,
-				budgetBytes,
-			});
-
+		if (await this.exceedsArtifactBudget(mediaFileId)) {
 			return { mediaFileId, frames: 0, sprites: 0, skipped: "storage-budget" };
 		}
 
+		const layout = resolveLayout();
 		const intervalSeconds = Math.max(1, serverConfig.trickplay.intervalSeconds);
-		const tileWidth = serverConfig.trickplay.tileWidth;
-		const columns = serverConfig.trickplay.columns;
-		const tileHeight = Math.round((tileWidth * 9) / 16 / 2) * 2;
-		const tilesPerSprite = columns * columns;
-
 		const frameCount = clamp(Math.floor(durationSeconds / intervalSeconds), 1, serverConfig.trickplay.maxFramesPerFile);
 		const effectiveInterval = durationSeconds / frameCount;
 		// Sample the middle of each interval — avoids black frames at scene starts.
@@ -104,80 +153,37 @@ class TrickplayService extends BaseService {
 		if (!(await DirUtils.create(tempDir))) {
 			// create() logs the underlying fs error and returns false — fail with the
 			// actual cause instead of later reporting an empty sprite.
-			throw new InternalError("Trickplay temp directory could not be created", { code: "trickplay_temp_dir_failed" });
+			throw new DomainError("internal", "Trickplay temp directory could not be created", { code: "trickplay_temp_dir_failed" });
 		}
 
-		try {
-			const chunks = chunk(timestampsMs, tilesPerSprite);
-			// xstack needs a full grid (and ≥2 inputs for its relative layout) — pad
-			// the last chunk by repeating its final timestamp; unused tiles are never
-			// referenced by the VTT.
-			const lastChunk = chunks.at(-1);
-			const padSource = lastChunk?.at(-1);
-			if (lastChunk && padSource !== undefined) {
-				while (lastChunk.length < tilesPerSprite) lastChunk.push(padSource);
-			}
+		const job: TrickplayJob = {
+			mediaFileId,
+			filePath: mediaFile.filePath,
+			tempDir,
+			layout,
+			frameCount,
+			durationSeconds,
+			effectiveInterval,
+		};
 
-			const sprites: TrickplaySprite[] = [];
+		try {
+			const chunks = chunk(timestampsMs, layout.tilesPerSprite);
+			padLastChunk(chunks, layout.tilesPerSprite);
 
 			// Idempotent regeneration: remove the PREVIOUS generation before writing
 			// the new sprites. Deleting after the loop (as before) removed the
 			// sprites we just wrote, leaving the VTT pointing at missing artifacts.
 			await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER);
 
+			let sprites: TrickplaySprite[];
 			try {
-				for (const [spriteIndex, chunkTimeMs] of chunks.entries()) {
-					const spritePath = PathUtils.join(tempDir, `sprite_${spriteIndex}.webp`);
-					const command = buildSpriteExtractionCommand(
-						mediaFile.filePath,
-						{ mediaFileId, timeMs: chunkTimeMs, width: tileWidth, height: tileHeight, columns, format: "webp" },
-						spritePath,
-					);
-					const result = await ffMpegService.runToCompletion(command, {
-						timeoutMs: FFMPEG_TIMEOUT_MS,
-						maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
-					});
-					if (result.exitCode !== 0) {
-						const exitText = result.exitCode === null ? "signal" : String(result.exitCode);
-						throw new InternalError(`Trickplay sprite extraction failed (exit ${exitText}): ${result.stderr}`, {
-							code: "trickplay_extraction_failed",
-						});
-					}
-
-					const spriteFile = file(spritePath);
-					if (spriteFile.size === 0) throw new InternalError("Trickplay sprite is empty", { code: "trickplay_empty_sprite" });
-
-					// The artifact write streams the BunFile straight to its storage
-					// path (no full buffer through JS) and deletes the temp source
-					// afterwards — writeFileWithRollback owns that cleanup.
-					const written = await writeCoreArtifact({
-						mediaFileId,
-						kind: "trickplay",
-						contentType: CONTENT_TYPE_WEBP,
-						content: spriteFile,
-					});
-					sprites.push({ url: written.url, tileCount: chunkTimeMs.length });
-				}
-
-				// Cue timeline spans the whole duration; each cue points at its tile.
-				const cues: TrickplayCue[] = [];
-				for (let index = 0; index < frameCount; index++) {
-					const spriteIndex = Math.floor(index / tilesPerSprite);
-					const positionInSprite = index % tilesPerSprite;
-					cues.push({
-						startSeconds: index * effectiveInterval,
-						endSeconds: Math.min((index + 1) * effectiveInterval, durationSeconds),
-						x: (positionInSprite % columns) * tileWidth,
-						y: Math.floor(positionInSprite / columns) * tileHeight,
-						spriteUrl: sprites[spriteIndex]?.url ?? sprites[0]?.url ?? "",
-					});
-				}
+				sprites = await this.extractSprites(job, chunks);
 
 				await writeCoreArtifact({
 					mediaFileId,
 					kind: "trickplay",
 					contentType: CONTENT_TYPE_VTT,
-					content: new TextEncoder().encode(buildTrickplayVtt(cues, tileWidth, tileHeight)),
+					content: new TextEncoder().encode(buildTrickplayVtt(buildCues(job, sprites), layout.tileWidth, layout.tileHeight)),
 				});
 			} catch (error) {
 				// Remove partial sprites so a failed generation leaves no artifact
@@ -203,6 +209,70 @@ class TrickplayService extends BaseService {
 		} finally {
 			await DirUtils.delete(tempDir);
 		}
+	}
+
+	/** Whether dropping this file's own artifacts would still leave core storage over budget. */
+	private async exceedsArtifactBudget(mediaFileId: string): Promise<boolean> {
+		const budgetBytes = await resolveCoreArtifactsBudgetBytes();
+		const storedBytes = await mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER);
+		const existingBytes = await mediaArtifactsService.getMediaFileStoredBytes(mediaFileId, CORE_ARTIFACTS_OWNER);
+		if (storedBytes - existingBytes < budgetBytes) return false;
+
+		this.logger.warn("Trickplay generation skipped: artifact storage budget exhausted", {
+			mediaFileId,
+			storedBytes,
+			existingBytes,
+			budgetBytes,
+		});
+
+		return true;
+	}
+
+	/** Renders each timestamp chunk into one WebP sprite sheet and stores it as a core trickplay artifact. */
+	private async extractSprites(job: TrickplayJob, chunks: number[][]): Promise<TrickplaySprite[]> {
+		const { layout } = job;
+		const sprites: TrickplaySprite[] = [];
+		for (const [spriteIndex, chunkTimeMs] of chunks.entries()) {
+			const spritePath = PathUtils.join(job.tempDir, `sprite_${spriteIndex}.webp`);
+			const command = buildSpriteExtractionCommand(
+				job.filePath,
+				{
+					mediaFileId: job.mediaFileId,
+					timeMs: chunkTimeMs,
+					width: layout.tileWidth,
+					height: layout.tileHeight,
+					columns: layout.columns,
+					format: "webp",
+				},
+				spritePath,
+			);
+			const result = await ffMpegService.runToCompletion(command, {
+				timeoutMs: FFMPEG_TIMEOUT_MS,
+				maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
+			});
+			if (result.exitCode !== 0) {
+				const exitText = result.exitCode === null ? "signal" : String(result.exitCode);
+				throw new DomainError("internal", `Trickplay sprite extraction failed (exit ${exitText}): ${result.stderr}`, {
+					code: "trickplay_extraction_failed",
+				});
+			}
+
+			const spriteFile = file(spritePath);
+			if (spriteFile.size === 0) throw new DomainError("internal", "Trickplay sprite is empty", { code: "trickplay_empty_sprite" });
+
+			// The artifact write streams the BunFile straight to its storage
+			// path (no full buffer through JS) and deletes the temp source
+			// afterwards — writeFileWithRollback owns that cleanup.
+			const written = await writeCoreArtifact({
+				mediaFileId: job.mediaFileId,
+				kind: "trickplay",
+				contentType: CONTENT_TYPE_WEBP,
+				content: spriteFile,
+			});
+			sprites.push({ url: written.url, tileCount: chunkTimeMs.length });
+		}
+
+		return sprites;
 	}
 
 	/** Media files that have no core-generated trickplay artifacts yet. */

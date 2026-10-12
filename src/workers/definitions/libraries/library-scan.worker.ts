@@ -11,6 +11,7 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { LIBRARY_SCAN_PRIORITY, MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
+import { KeyedMutex } from "@/utils/concurrency";
 import { assertFound } from "@/utils/errors";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { mapLibraryType } from "@/utils/type.utils";
@@ -22,7 +23,6 @@ import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 import { enqueueManyMediaFileIngest, enqueueMediaFileIngest, type MediaFileIngestData } from "../media/media-file-ingest.worker";
 import { enqueueMediaFileRefreshBatch } from "../media/media-file-refresh-batch";
-import { LibraryRunLock } from "./library-run.lock";
 
 export interface LibraryScanData {
 	libraryId: string;
@@ -130,7 +130,7 @@ const ENQUEUE_TIMEOUT_PER_ITEM_MS = 250;
 const ENQUEUE_CHUNK_TIMEOUT_MS = 15 * MINUTE;
 
 /** Serializes scans per library — a watcher-triggered scan must not interleave with a scheduled one. */
-const libraryRunLock = new LibraryRunLock();
+const libraryRunLock = new KeyedMutex();
 
 export function scanLibraryTask(
 	data: LibraryScanData,
@@ -138,7 +138,7 @@ export function scanLibraryTask(
 	dependencies: LibraryScanTaskDependencies = defaultDependencies,
 	orchestration: LibraryScanOrchestration = {},
 ): Promise<LibraryScanResults> {
-	return libraryRunLock.run(data.libraryId, () => runScanLibraryTask(data, context, dependencies, orchestration));
+	return libraryRunLock.runExclusive(data.libraryId, () => runScanLibraryTask(data, context, dependencies, orchestration));
 }
 
 /** Mutable scan progress — cursors advance as batches are enqueued and persisted. */
@@ -152,15 +152,35 @@ interface ScanEnqueueState {
 	refreshCursor: number;
 }
 
+interface ScanWork {
+	libraryType: "movie" | "tv_show";
+	pathsToScan: string[];
+	pathsSignature: string;
+}
+
+interface IngestScope {
+	taskScheduling: TaskSchedulingOptions;
+	context: ApplicationContext;
+	dependencies: LibraryScanTaskDependencies;
+}
+
+interface ChunkPlan<T> {
+	items: readonly T[];
+	cursor: number;
+	setCursor: (cursor: number) => void;
+	batch: ((chunk: T[]) => Promise<unknown>) | undefined;
+	item: (entry: T) => Promise<unknown>;
+	persist: () => Promise<void>;
+}
+
 /** Restores an interrupted scan's state or performs a fresh path scan and arms its checkpoint. */
 async function resolveScanWorkload(
 	data: LibraryScanData,
-	libraryType: "movie" | "tv_show",
-	pathsToScan: string[],
-	pathsSignature: string,
+	work: ScanWork,
 	context: ApplicationContext,
 	dependencies: LibraryScanTaskDependencies,
 ): Promise<ScanEnqueueState> {
+	const { libraryType, pathsToScan, pathsSignature } = work;
 	const checkpoint = await dependencies.loadCheckpoint(data.libraryId);
 	if (checkpoint) {
 		// An interrupted scan left a checkpoint. Its file list is stale by
@@ -239,15 +259,8 @@ async function reportEnqueueProgress(state: ScanEnqueueState, context: Applicati
  * — unbounded concurrent inserts lock up single-writer SQLite); the cursor is
  * persisted after each chunk and every finished chunk re-arms the stall guard.
  */
-async function enqueueInChunks<T>(
-	items: readonly T[],
-	cursor: number,
-	setCursor: (cursor: number) => void,
-	batch: ((chunk: T[]) => Promise<unknown>) | undefined,
-	item: (entry: T) => Promise<unknown>,
-	persist: () => Promise<void>,
-	context: ApplicationContext,
-): Promise<void> {
+async function enqueueInChunks<T>(plan: ChunkPlan<T>, context: ApplicationContext): Promise<void> {
+	const { items, cursor, setCursor, batch, item, persist } = plan;
 	if (batch) {
 		for (const { items: chunk, nextCursor } of batchChunks(items, ENQUEUE_BATCH_SIZE, cursor)) {
 			context.signal?.throwIfAborted();
@@ -270,26 +283,27 @@ async function enqueueIngestWork(
 	state: ScanEnqueueState,
 	data: LibraryScanData,
 	libraryType: "movie" | "tv_show",
-	taskScheduling: TaskSchedulingOptions,
-	context: ApplicationContext,
-	dependencies: LibraryScanTaskDependencies,
+	scope: IngestScope,
 ): Promise<void> {
+	const { taskScheduling, context, dependencies } = scope;
 	const enqueueBatch = dependencies.enqueueMediaFileIngestBatch?.bind(dependencies);
 	await enqueueInChunks(
-		state.newFilePaths,
-		state.ingestCursor,
-		(cursor) => {
-			state.ingestCursor = cursor;
+		{
+			items: state.newFilePaths,
+			cursor: state.ingestCursor,
+			setCursor: (cursor) => {
+				state.ingestCursor = cursor;
+			},
+			batch: enqueueBatch
+				? (chunk) =>
+						enqueueBatch(
+							chunk.map((filePath) => ({ libraryId: data.libraryId, libraryType, filePath })),
+							taskScheduling,
+						)
+				: undefined,
+			item: (filePath) => dependencies.enqueueMediaFileIngest({ libraryId: data.libraryId, libraryType, filePath }, taskScheduling),
+			persist: () => persistScanCursors(state, data.libraryId, dependencies, context),
 		},
-		enqueueBatch
-			? (chunk) =>
-					enqueueBatch(
-						chunk.map((filePath) => ({ libraryId: data.libraryId, libraryType, filePath })),
-						taskScheduling,
-					)
-			: undefined,
-		(filePath) => dependencies.enqueueMediaFileIngest({ libraryId: data.libraryId, libraryType, filePath }, taskScheduling),
-		() => persistScanCursors(state, data.libraryId, dependencies, context),
 		context,
 	);
 }
@@ -304,14 +318,16 @@ async function enqueueRefreshWork(
 ): Promise<void> {
 	const enqueueBatch = dependencies.enqueueMediaFileRefreshBatch?.bind(dependencies);
 	await enqueueInChunks(
-		state.changedMediaFileIds,
-		state.refreshCursor,
-		(cursor) => {
-			state.refreshCursor = cursor;
+		{
+			items: state.changedMediaFileIds,
+			cursor: state.refreshCursor,
+			setCursor: (cursor) => {
+				state.refreshCursor = cursor;
+			},
+			batch: enqueueBatch ? (chunk) => enqueueBatch(chunk, taskScheduling, context.signal) : undefined,
+			item: (mediaFileId) => dependencies.enqueueMediaFileRefresh(mediaFileId, taskScheduling),
+			persist: () => persistScanCursors(state, data.libraryId, dependencies, context),
 		},
-		enqueueBatch ? (chunk) => enqueueBatch(chunk, taskScheduling, context.signal) : undefined,
-		(mediaFileId) => dependencies.enqueueMediaFileRefresh(mediaFileId, taskScheduling),
-		() => persistScanCursors(state, data.libraryId, dependencies, context),
 		context,
 	);
 }
@@ -335,8 +351,8 @@ async function runScanLibraryTask(
 		const pathsSignature = pathsToScan.join("\n");
 		const libraryType = mapLibraryType(library.type);
 
-		const state = await resolveScanWorkload(data, libraryType, pathsToScan, pathsSignature, context, dependencies);
-		await enqueueIngestWork(state, data, libraryType, taskScheduling, context, dependencies);
+		const state = await resolveScanWorkload(data, { libraryType, pathsToScan, pathsSignature }, context, dependencies);
+		await enqueueIngestWork(state, data, libraryType, { taskScheduling, context, dependencies });
 		await enqueueRefreshWork(state, data, taskScheduling, context, dependencies);
 
 		// Everything enqueued — the checkpoint has served its purpose.

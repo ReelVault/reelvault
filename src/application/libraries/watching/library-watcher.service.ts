@@ -6,11 +6,12 @@ import { serverConfig } from "@/server.config";
 import { HOUR } from "@/server.constants";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { toMap } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 
 interface WatchedPathEntry {
 	libraryId: string;
@@ -91,7 +92,10 @@ const RESCUE_RECHECK_MS = 5_000;
 /** Periodic reconcile: re-arm watchers lost to a missing mount or an fs error. */
 const WATCHER_RECONCILE_INTERVAL_MS = 60_000;
 
-export class LibraryWatcherService extends BaseService {
+export class LibraryWatcherService {
+	readonly serviceName = "LibraryWatcherService";
+	readonly logger = createLogger("LibraryWatcherService");
+
 	private readonly watchers = new Map<string, WatchedPathEntry>();
 	/** `${libraryId}:${pathId}` → debounce timer waiting to fire a scan. */
 	private readonly pendingScans = new Map<string, PendingScanState>();
@@ -118,7 +122,6 @@ export class LibraryWatcherService extends BaseService {
 		clock: LibraryWatcherClock = defaultClock,
 		notifyFailure: (failure: WatcherFailureInfo) => Promise<void> = notifyAdminsOfWatcherFailure,
 	) {
-		super("LibraryWatcherService");
 		this.clock = clock;
 		this.notifyFailure = notifyFailure;
 	}
@@ -215,7 +218,7 @@ export class LibraryWatcherService extends BaseService {
 				return;
 			}
 
-			await this.safeExecute("syncWatchers", async () => {
+			await runSafely(this, "syncWatchers", async () => {
 				const activePaths = await librariesRepository.findActiveLibraryPaths();
 				const activePathIds = new Set(activePaths.map((p) => p.id));
 				const activePathById = toMap(activePaths, (p) => p.id);

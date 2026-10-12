@@ -1,6 +1,6 @@
 import type { BunFile } from "bun";
 import { serverConfig } from "@/server.config";
-import { isMissingFile, NotFoundError, RequestTimeoutError } from "@/utils/errors";
+import { DomainError, isMissingFile } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { INIT_SEGMENT_FILE_NAME } from "../utils/segment-name.utils";
@@ -55,21 +55,21 @@ export class SegmentLookup {
 		if (initialFile) return initialFile;
 
 		if (segment === INIT_SEGMENT_FILE_NAME)
-			throw new NotFoundError("fMP4 init segment was not generated in time", { code: "init_segment_not_found" });
+			throw new DomainError("not_found", "fMP4 init segment was not generated in time", { code: "init_segment_not_found" });
 
 		if (context.isSeeking()) {
 			const seekWaitMs = this.dependencies.seekWaitMs ?? serverConfig.stream.seekSegmentTimeoutMs;
 			const seekFile = await this.waitThenRead(filePath, seekWaitMs, signal);
 			if (seekFile) return seekFile;
 
-			throw new NotFoundError(`Segment not found after ongoing seek: ${segment}`, {
+			throw new DomainError("not_found", `Segment not found after ongoing seek: ${segment}`, {
 				code: "stream.segment_not_found",
 				params: { segment },
 			});
 		}
 
 		if (context.isNearActiveWindow) {
-			throw new NotFoundError(`Segment not yet generated: ${segment}`, {
+			throw new DomainError("not_found", `Segment not yet generated: ${segment}`, {
 				code: "stream.segment_not_ready",
 				params: { segment },
 			});
@@ -83,7 +83,7 @@ export class SegmentLookup {
 		const seekFile = await this.waitThenRead(filePath, timeoutMs, signal);
 		if (seekFile) return seekFile;
 
-		throw new NotFoundError(`Segment not found after seek: ${segment}`, {
+		throw new DomainError("not_found", `Segment not found after seek: ${segment}`, {
 			code: "stream.segment_not_found",
 			params: { segment },
 		});
@@ -107,7 +107,7 @@ export class SegmentLookup {
 			return this.dependencies.readFile(filePath);
 		} catch (error) {
 			if (isMissingFile(error)) {
-				throw new RequestTimeoutError("Segment was removed by a seek restart — retry shortly", { code: "stream.segment_removed" });
+				throw new DomainError("timeout", "Segment was removed by a seek restart — retry shortly", { code: "stream.segment_removed" });
 			}
 
 			throw error;

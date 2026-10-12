@@ -114,7 +114,9 @@ describe("DatabaseFactory.transaction", () => {
 		const [written] = await databaseFactory.getClient().select().from(probe).where(eq(probe.value, "after-rollback"));
 		expect(written).toBeDefined();
 	});
+});
 
+describe("DatabaseFactory.transaction", () => {
 	test("runWrite inside a transaction runs inline instead of queueing on its own lock", async () => {
 		const order: string[] = [];
 

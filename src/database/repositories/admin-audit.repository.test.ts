@@ -80,7 +80,9 @@ describe("admin audit redaction", () => {
 		expect(factory.getClient().all(sql.raw("SELECT id FROM admin_audit_logs"))).toEqual([]);
 		factory.shutdown();
 	});
+});
 
+describe("admin audit redaction", () => {
 	test("inserts and retrieves resourceName and summary fields", async () => {
 		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
@@ -159,7 +161,9 @@ describe("admin audit redaction", () => {
 		expect(filtered.data[0]?.resourceType).toBe("library");
 		factory.shutdown();
 	});
+});
 
+describe("admin audit redaction", () => {
 	test("filters by ipAddress and requestId", async () => {
 		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
@@ -248,7 +252,9 @@ describe("admin audit redaction", () => {
 		expect(literalPercent.total).toBe(1);
 		factory.shutdown();
 	});
+});
 
+describe("admin audit redaction", () => {
 	test("summarizes activity per administrator with names, filters and unattributed entries", async () => {
 		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);
@@ -300,7 +306,9 @@ describe("admin audit redaction", () => {
 		expect(capped.total).toBe(6);
 		factory.shutdown();
 	});
+});
 
+describe("admin audit redaction", () => {
 	test("lists the resource types and administrators the filter dropdowns offer", async () => {
 		const path = `${tmpdir()}/reelvault-audit-${process.pid}-${crypto.randomUUID()}.sqlite`;
 		databasePaths.push(path, `${path}-shm`, `${path}-wal`);

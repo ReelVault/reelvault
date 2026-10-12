@@ -10,12 +10,12 @@ import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
 import { contentByteSize, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
+import { KeyedMutex } from "@/utils/concurrency";
 import { DirUtils } from "@/utils/directory.utils";
-import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
-import { KeyedMutex } from "@/utils/mutex";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
@@ -38,7 +38,10 @@ export interface ArtifactWriteOptions {
  * Both built-in generators and plugins write here; "plugin artifact" naming
  * only survives at the plugin capability boundary.
  */
-class MediaArtifactsService extends BaseService {
+class MediaArtifactsService {
+	readonly serviceName = "MediaArtifactsService";
+	readonly logger = createLogger("MediaArtifactsService");
+
 	/**
 	 * Per-owner stored bytes. The artifacts table has no size column, so the
 	 * total comes from stat'ing every stored file; trickplay writes dozens of
@@ -48,10 +51,6 @@ class MediaArtifactsService extends BaseService {
 	private readonly ownerByteTotals = new MemoryCache<number>({ ttlMs: -1, maxSize: 64, name: "artifact-owner-totals" });
 	/** Per-owner write serialisation for the quota check-then-write window. */
 	private readonly writeLocks = new KeyedMutex();
-
-	constructor() {
-		super("MediaArtifactsService");
-	}
 
 	async list(mediaFileId: string): Promise<PlaybackArtifact[]> {
 		const artifacts = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
@@ -68,19 +67,20 @@ class MediaArtifactsService extends BaseService {
 
 	private async writeUnlocked(ownerId: string, artifact: PlaybackArtifactWrite, options?: ArtifactWriteOptions): Promise<PlaybackArtifact> {
 		if (typeof artifact !== "object") {
-			throw new ValidationError(`Artifact owner '${ownerId}' write failed: artifact must be an object.`, {
+			throw new DomainError("validation", `Artifact owner '${ownerId}' write failed: artifact must be an object.`, {
 				code: "artifact.invalid_request",
 			});
 		}
 
 		if (!artifact.mediaFileId || typeof artifact.mediaFileId !== "string") {
-			throw new ValidationError(`Artifact owner '${ownerId}' write failed: missing or invalid 'mediaFileId'.`, {
+			throw new DomainError("validation", `Artifact owner '${ownerId}' write failed: missing or invalid 'mediaFileId'.`, {
 				code: "artifact.invalid_request",
 			});
 		}
 
 		if (!VALID_ARTIFACT_KINDS.has(artifact.kind)) {
-			throw new ValidationError(
+			throw new DomainError(
+				"validation",
 				`Artifact owner '${ownerId}' write failed: invalid kind '${artifact.kind}'. Supported kinds: 'trickplay', 'chapters', 'preview', 'waveform'.`,
 				{ code: "artifact.invalid_request" },
 			);
@@ -106,9 +106,13 @@ class MediaArtifactsService extends BaseService {
 
 		const mediaFileExists = await mediaRepository.isExists({ primaryId: normalizedArtifact.mediaFileId });
 		if (!mediaFileExists)
-			throw new NotFoundError(`Artifact owner '${ownerId}' write failed: media file '${normalizedArtifact.mediaFileId}' was not found.`, {
-				code: "artifact.not_found",
-			});
+			throw new DomainError(
+				"not_found",
+				`Artifact owner '${ownerId}' write failed: media file '${normalizedArtifact.mediaFileId}' was not found.`,
+				{
+					code: "artifact.not_found",
+				},
+			);
 
 		const id = crypto.randomUUID();
 		const storageKey = `${normalizedArtifact.mediaFileId}/${id}`;
@@ -134,7 +138,7 @@ class MediaArtifactsService extends BaseService {
 
 		const storedArtifact = storedRows[0];
 		if (!storedArtifact)
-			throw new InternalError(`Artifact owner '${ownerId}' write failed: artifact '${id}' could not be saved.`, {
+			throw new DomainError("internal", `Artifact owner '${ownerId}' write failed: artifact '${id}' could not be saved.`, {
 				code: "artifact.save_failed",
 			});
 
@@ -269,7 +273,8 @@ class MediaArtifactsService extends BaseService {
 	private assertAllowedContentType(contentType: string, ownerId: string): void {
 		const allowed = serverConfig.plugins.artifacts.allowedContentTypes;
 		if (!allowed.includes(contentType)) {
-			throw new ValidationError(
+			throw new DomainError(
+				"validation",
 				`Artifact owner '${ownerId}' write failed: content type '${contentType}' is not allowed. Supported: ${allowed.join(", ")}.`,
 				{ code: "artifact.invalid_content_type" },
 			);
@@ -280,7 +285,8 @@ class MediaArtifactsService extends BaseService {
 		const size = contentByteSize(content);
 		if (size > serverConfig.plugins.artifacts.maxSizeBytes) {
 			const ownerPrefix = ownerId ? `Artifact owner '${ownerId}'` : "Artifact";
-			throw new ValidationError(
+			throw new DomainError(
+				"validation",
 				`${ownerPrefix} size (${(size / 1024 / 1024).toFixed(2)} MB) exceeds the maximum allowed limit of ${(serverConfig.plugins.artifacts.maxSizeBytes / 1024 / 1024).toFixed(2)} MB (${serverConfig.plugins.artifacts.maxSizeBytes} bytes).`,
 				{ code: "artifact.too_large" },
 			);

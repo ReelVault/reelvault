@@ -184,7 +184,9 @@ describe("syncSeasonsAndEpisodes", () => {
 		expect(tasks).toHaveLength(1);
 		expect(tasks[0]).toMatchObject({ kind: "episode", episodeId: "e-1", urls: "/thumbs/e1.jpg" });
 	});
+});
 
+describe("syncSeasonsAndEpisodes", () => {
 	test("skips the fetch fallback when the provider already embedded episodes", async () => {
 		const seasons = await import("@/database/repositories/seasons.repository");
 		const episodes = await import("@/database/repositories/episodes.repository");

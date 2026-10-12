@@ -8,9 +8,9 @@ import { databaseMaintenanceService } from "@/application/admin/database-mainten
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { type ArchiveFetcher, downloadArchive, extractArchive } from "@/plugins/catalog/plugin-package.utils";
 import { requestApplicationRestart } from "@/shutdown";
-import { BaseService } from "@/utils/base-service";
-import { errorCodeOf } from "@/utils/error-codes.utils";
-import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
+import { assertChecksumMatches } from "@/utils/crypto.utils";
+import { DomainError, errorCodeOf } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
@@ -36,7 +36,7 @@ import {
 	type UpdateInstallType,
 } from "./update-environment";
 import { updateHistoryService } from "./update-history.service";
-import { assertChecksumMatches, checksumForFile, serverAssetName, webAssetName } from "./update-release.utils";
+import { checksumForFile, serverAssetName, webAssetName } from "./update-release.utils";
 import { readPreviousVersion, swapBackFromPrevious, swapIntoPlace, swapWebDirectory } from "./update-swap.utils";
 
 /** Release archives reach ~250 MB compressed (~1 GB uncompressed with ffmpeg). */
@@ -89,7 +89,10 @@ interface UpdateServiceOptions {
 	countActiveStreams?: (() => number) | undefined;
 }
 
-export class UpdateInstallService extends BaseService {
+export class UpdateInstallService {
+	readonly serviceName = "UpdateInstallService";
+	readonly logger = createLogger("UpdateInstallService");
+
 	private readonly restartScheduler: RestartScheduler;
 	private readonly archiveFetcher: ArchiveFetcher | undefined;
 	private readonly countActiveStreams: () => number;
@@ -102,7 +105,6 @@ export class UpdateInstallService extends BaseService {
 	private lastWebError: string | null = null;
 
 	constructor(options: UpdateServiceOptions = {}) {
-		super("UpdateInstallService");
 		const root = options.root ?? resolveInstallRoot();
 		this.root = root;
 		this.installType = options.installType ?? detectInstallType(root);
@@ -149,7 +151,7 @@ export class UpdateInstallService extends BaseService {
 		const release = await this.assertInstallPreconditions(target);
 		await this.assertDiskSpace(target, release);
 		this.assertNoActiveStreams(target, options.force === true);
-		if (this.job) throw new ConflictError("An update is already in progress", { code: "update.install_already_running" });
+		if (this.job) throw new DomainError("conflict", "An update is already in progress", { code: "update.install_already_running" });
 
 		this.cancelController = new AbortController();
 		this.beginJob(target, "downloading", 5, release.version);
@@ -193,10 +195,10 @@ export class UpdateInstallService extends BaseService {
 	cancelInstall(target: UpdateComponent): { target: UpdateComponent } {
 		const job = this.job;
 		if (!job || job.target !== target) {
-			throw new NotFoundError(`No ${target} update is running`, { code: "update.not_running" });
+			throw new DomainError("not_found", `No ${target} update is running`, { code: "update.not_running" });
 		}
 		if (!CANCELLABLE_STATES.has(job.state)) {
-			throw new ConflictError("The update is already replacing files and can no longer be cancelled", {
+			throw new DomainError("conflict", "The update is already replacing files and can no longer be cancelled", {
 				code: "update.not_cancellable",
 				params: { state: job.state },
 			});
@@ -220,7 +222,7 @@ export class UpdateInstallService extends BaseService {
 		const requiredBytes = asset.size * DISK_HEADROOM_FACTOR;
 		const freeBytes = stats.bavail * stats.bsize;
 		if (freeBytes < requiredBytes) {
-			throw new ValidationError("The disk does not have enough free space for this update", {
+			throw new DomainError("validation", "The disk does not have enough free space for this update", {
 				code: "update.insufficient_disk_space",
 				params: { requiredBytes, freeBytes },
 			});
@@ -229,7 +231,8 @@ export class UpdateInstallService extends BaseService {
 
 	private assertInstallPreconditions(target: UpdateComponent): Promise<AdminUpdateRelease> {
 		if (this.installType !== "archive") {
-			throw new ValidationError(
+			throw new DomainError(
+				"validation",
 				this.installType === "docker"
 					? "Docker installs are updated by pulling a new image"
 					: "Self-update is unavailable for this install type",
@@ -237,7 +240,7 @@ export class UpdateInstallService extends BaseService {
 			);
 		}
 		if (this.job) {
-			throw new ConflictError("An update is already in progress", { code: "update.install_already_running" });
+			throw new DomainError("conflict", "An update is already in progress", { code: "update.install_already_running" });
 		}
 
 		return this.assertNewerReleaseAvailable(target);
@@ -245,13 +248,17 @@ export class UpdateInstallService extends BaseService {
 
 	private assertRollbackPreconditions(target: UpdateComponent): void {
 		if (this.installType !== "archive") {
-			throw new ValidationError("Rollback is only available for archive installs", { code: "update.install_unsupported_install_type" });
+			throw new DomainError("validation", "Rollback is only available for archive installs", {
+				code: "update.install_unsupported_install_type",
+			});
 		}
 		if (this.job) {
-			throw new ConflictError("An update is already in progress", { code: "update.install_already_running" });
+			throw new DomainError("conflict", "An update is already in progress", { code: "update.install_already_running" });
 		}
 		if (!isPreviousVersionPresent(target, this.root)) {
-			throw new ValidationError(`No previous ${target} version is available to roll back to`, { code: "update.no_previous_version" });
+			throw new DomainError("validation", `No previous ${target} version is available to roll back to`, {
+				code: "update.no_previous_version",
+			});
 		}
 	}
 
@@ -264,7 +271,7 @@ export class UpdateInstallService extends BaseService {
 
 		const activeStreams = this.countActiveStreams();
 		if (activeStreams > 0) {
-			throw new ConflictError("A server update is blocked while streams are active", {
+			throw new DomainError("conflict", "A server update is blocked while streams are active", {
 				code: "update.blocked_active_streams",
 				params: { activeStreams },
 			});
@@ -274,7 +281,7 @@ export class UpdateInstallService extends BaseService {
 	/** Checkpoint between stages: a cancelled install stops here, before anything is replaced. */
 	private assertNotCancelled(): void {
 		if (this.cancelController?.signal.aborted) {
-			throw new ConflictError("The update was cancelled", { code: "update.cancelled" });
+			throw new DomainError("conflict", "The update was cancelled", { code: "update.cancelled" });
 		}
 	}
 
@@ -291,25 +298,28 @@ export class UpdateInstallService extends BaseService {
 		const state = updateCheckService.getState();
 		const release = target === "server" ? state.serverLatest : state.webLatest;
 		if (!release) {
-			throw new ValidationError(`No ${target} release information is available — check for updates first`, {
+			throw new DomainError("validation", `No ${target} release information is available — check for updates first`, {
 				code: "update.no_release_info",
 			});
 		}
 
 		if (target === "server") {
 			if (!isNewerVersion(release.version, SERVER_VERSION)) {
-				throw new ValidationError(`ReelVault server ${SERVER_VERSION} is already up to date`, { code: "update.up_to_date" });
+				throw new DomainError("validation", `ReelVault server ${SERVER_VERSION} is already up to date`, { code: "update.up_to_date" });
 			}
 		} else {
 			const webVersion = readInstalledWebVersion(this.root) ?? resolveWebVersion();
 			if (!(webVersion && isNewerVersion(release.version, webVersion))) {
-				throw new ValidationError(`The web UI ${webVersion ?? "(version unknown)"} is already up to date`, { code: "update.up_to_date" });
+				throw new DomainError("validation", `The web UI ${webVersion ?? "(version unknown)"} is already up to date`, {
+					code: "update.up_to_date",
+				});
 			}
 
 			// The web release declares the oldest server it works with. The UI only warns;
 			// this is the actual gate, so the API and dashboard cannot bypass it.
 			if (release.minServerVersion && isNewerVersion(release.minServerVersion, SERVER_VERSION)) {
-				throw new ValidationError(
+				throw new DomainError(
+					"validation",
 					`Web UI ${release.version} requires server ${release.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
 					{ code: "update.server_too_old" },
 				);
@@ -325,13 +335,13 @@ export class UpdateInstallService extends BaseService {
 				target === "server" ? serverAssetName(process.platform, process.arch, release.version) : webAssetName(release.version);
 			const asset = release.assets.find((item) => item.name === assetName);
 			if (!asset) {
-				throw new ValidationError(`Release ${release.version} has no archive for this component (${assetName})`, {
+				throw new DomainError("validation", `Release ${release.version} has no archive for this component (${assetName})`, {
 					code: "update.asset_missing",
 				});
 			}
 			const sumsAsset = release.assets.find((item) => item.name === "SHA256SUMS.txt");
 			if (!sumsAsset) {
-				throw new ValidationError("Release assets are missing SHA256SUMS.txt", { code: "update.checksums_missing" });
+				throw new DomainError("validation", "Release assets are missing SHA256SUMS.txt", { code: "update.checksums_missing" });
 			}
 
 			this.setJob("downloading", 10, assetName);
@@ -350,9 +360,13 @@ export class UpdateInstallService extends BaseService {
 				this.setJob("verifying", 65, "SHA256SUMS.txt");
 				const expected = checksumForFile(await this.fetchText(sumsAsset.url), assetName);
 				if (!expected) {
-					throw new ValidationError(`SHA256SUMS.txt has no entry for ${assetName}`, { code: "update.checksum_mismatch" });
+					throw new DomainError("validation", `SHA256SUMS.txt has no entry for ${assetName}`, { code: "update.checksum_mismatch" });
 				}
-				assertChecksumMatches(download.checksum, expected);
+				assertChecksumMatches(download.checksum, expected, {
+					checksum: true,
+					code: "update.checksum_mismatch",
+					message: "Downloaded release archive failed the SHA256 verification",
+				});
 				this.assertNotCancelled();
 
 				if (target === "web") {
@@ -397,7 +411,7 @@ export class UpdateInstallService extends BaseService {
 		// directory itself becomes the new `web/`.
 		await extractArchive(archivePath, stagingRoot, MAX_UNCOMPRESSED_BYTES);
 		if (!existsSync(join(stagingRoot, "index.html"))) {
-			throw new ValidationError("The extracted web release has an unexpected layout", { code: "update.unexpected_layout" });
+			throw new DomainError("validation", "The extracted web release has an unexpected layout", { code: "update.unexpected_layout" });
 		}
 
 		this.assertNotCancelled();
@@ -516,7 +530,7 @@ export class UpdateInstallService extends BaseService {
 		const backup = await databaseBackupService.createBackup();
 		const integrity = await databaseMaintenanceService.checkIntegrity();
 		if (!integrity.ok) {
-			throw new ValidationError("The database failed its integrity check, so the update was not installed", {
+			throw new DomainError("validation", "The database failed its integrity check, so the update was not installed", {
 				code: "update.database_integrity_failed",
 				params: { backup: backup.fileName },
 			});
@@ -528,7 +542,7 @@ export class UpdateInstallService extends BaseService {
 	/** Server archives keep the classic `ReelVault/` layout minus `web/`. */
 	private assertServerStagedLayout(stagedApp: string): void {
 		if (!existsSync(join(stagedApp, "server", "package.json"))) {
-			throw new ValidationError("The extracted release archive has an unexpected layout", { code: "update.unexpected_layout" });
+			throw new DomainError("validation", "The extracted release archive has an unexpected layout", { code: "update.unexpected_layout" });
 		}
 	}
 
@@ -582,7 +596,9 @@ export class UpdateInstallService extends BaseService {
 		const fetcher = this.archiveFetcher ?? guardedFetch;
 		const response = await fetcher(url, { signal: AbortSignal.timeout(60_000) });
 		if (!response.ok)
-			throw new ValidationError(`Checksum listing download failed with HTTP ${response.status}`, { code: "update.checksums_missing" });
+			throw new DomainError("validation", `Checksum listing download failed with HTTP ${response.status}`, {
+				code: "update.checksums_missing",
+			});
 
 		return await response.text();
 	}

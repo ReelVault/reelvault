@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { NotFoundError } from "@/utils/errors";
 import { type SubtitleContentInfo, SubtitleInfoCache } from "./subtitle-info.cache";
 
 interface Overrides {
@@ -61,7 +60,7 @@ describe("SubtitleInfoCache", () => {
 		const { cache } = createCache();
 
 		expect(cache.getOrSet("missing")).rejects.toThrow("Subtitle not found: missing");
-		expect(cache.getOrSet("missing")).rejects.toBeInstanceOf(NotFoundError);
+		expect(cache.getOrSet("missing")).rejects.toMatchObject({ category: "not_found" });
 	});
 
 	test("throws not found when an embedded subtitle has no media file", () => {

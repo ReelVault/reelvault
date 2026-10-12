@@ -73,13 +73,12 @@ function tvCandidate(
 
 function nextEpisodeCandidate(
 	meta: MetadataRow,
-	nextEp: EpisodeRow,
-	nextPreferredFile: MediaFileRow,
-	nextSeason: SeasonRow | undefined,
+	next: { episode: EpisodeRow; file: MediaFileRow; season: SeasonRow | undefined },
 	activeProgress: ProgressRow,
 	episodeProgressMap: ReadonlyMap<string, ProgressRow>,
 	ctx: CandidateContext,
 ): ContinueCandidate | null {
+	const { episode: nextEp, file: nextPreferredFile, season: nextSeason } = next;
 	const nextProgress = episodeProgressMap.get(nextEp.id);
 	const hasNewerProgress = nextProgress && nextProgress.updatedAt.getTime() > activeProgress.updatedAt.getTime();
 	if (hasNewerProgress) return null;
@@ -104,17 +103,22 @@ function nextEpisodeCandidate(
 	};
 }
 
+interface TvCandidateIndexes {
+	mediaFilesByMetadataId: Map<string, MediaFileRow[]>;
+	seasonsByMetadataId: Map<string, SeasonRow[]>;
+	episodesBySeasonId: Map<string, EpisodeRow[]>;
+	seasonById: Map<string, SeasonRow>;
+	episodeProgressMap: ReadonlyMap<string, ProgressRow>;
+}
+
 function buildTvCandidate(
 	meta: MetadataRow,
 	metadataId: string,
-	mediaFilesByMetadataId: Map<string, MediaFileRow[]>,
-	seasonsByMetadataId: Map<string, SeasonRow[]>,
-	episodesBySeasonId: Map<string, EpisodeRow[]>,
-	seasonById: Map<string, SeasonRow>,
-	episodeProgressMap: ReadonlyMap<string, ProgressRow>,
+	indexes: TvCandidateIndexes,
 	minPositionSeconds: number,
 	ctx: CandidateContext,
 ): ContinueCandidate | null {
+	const { mediaFilesByMetadataId, seasonsByMetadataId, episodesBySeasonId, seasonById, episodeProgressMap } = indexes;
 	const metaFiles = mediaFilesByMetadataId.get(metadataId) ?? [];
 	const metaSeasons = seasonsByMetadataId.get(metadataId) ?? [];
 	const metaEpisodes = metaSeasons.flatMap((s) => episodesBySeasonId.get(s.id) ?? []);
@@ -148,7 +152,13 @@ function buildTvCandidate(
 		const nextPreferredFile = selectPreferredMediaFile(nextEpFiles);
 
 		if (nextPreferredFile) {
-			return nextEpisodeCandidate(meta, nextEp, nextPreferredFile, nextSeason, activeProgress, episodeProgressMap, ctx);
+			return nextEpisodeCandidate(
+				meta,
+				{ episode: nextEp, file: nextPreferredFile, season: nextSeason },
+				activeProgress,
+				episodeProgressMap,
+				ctx,
+			);
 		}
 	}
 
@@ -217,11 +227,7 @@ export function buildContinueWatching(data: ContinueWatchingData, limit: number,
 		const tvCandidateResult = buildTvCandidate(
 			meta,
 			metadataId,
-			mediaFilesByMetadataId,
-			seasonsByMetadataId,
-			episodesBySeasonId,
-			seasonById,
-			episodeProgressMap,
+			{ mediaFilesByMetadataId, seasonsByMetadataId, episodesBySeasonId, seasonById, episodeProgressMap },
 			minPositionSeconds,
 			ctx,
 		);

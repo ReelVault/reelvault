@@ -256,22 +256,8 @@ test("plugin config endpoints return schema and update configuration for adminis
 	}
 });
 
-test("admin worker routes handle items, operations, stats and cancel requests", async () => {
-	auth.api.getSession = fakeGetSession({
-		user: {
-			id: "admin-1",
-			name: "Admin",
-			email: "admin@example.com",
-			emailVerified: true,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-			role: "admin",
-			banned: false,
-		},
-		session: { id: "session-1" },
-	});
-	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
-
+/** Points the worker-operations service at fixed fixtures; the returned function restores the originals. */
+function stubWorkerOperations(): () => void {
 	const originalGetWorkerItems = adminWorkerOperationsService.getItems;
 	const originalGetWorkerItem = adminWorkerOperationsService.getItem;
 	const originalCancelWorkerItem = adminWorkerOperationsService.cancelItem;
@@ -281,6 +267,7 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 	const originalGetWorkerOperationItems = adminWorkerOperationsService.getOperationItems;
 	const originalCancelWorkerOperation = adminWorkerOperationsService.cancelOperation;
 	const originalCancelAllOperations = adminWorkerOperationsService.cancelAllOperations;
+	const originalGetWorkerSummaries = adminWorkerOperationsService.getWorkerSummaries;
 
 	const mockItem = {
 		id: "item-1",
@@ -312,8 +299,6 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 		createdAt: new Date().toISOString(),
 		updatedAt: new Date().toISOString(),
 	};
-
-	const originalGetWorkerSummaries = adminWorkerOperationsService.getWorkerSummaries;
 
 	const mockSummary = {
 		id: "test-worker",
@@ -347,6 +332,37 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 	adminWorkerOperationsService.cancelOperation = async () => ({ success: true });
 	adminWorkerOperationsService.cancelAllOperations = async () => ({ count: 3 });
 
+	return () => {
+		adminWorkerOperationsService.getWorkerSummaries = originalGetWorkerSummaries;
+		adminWorkerOperationsService.getItems = originalGetWorkerItems;
+		adminWorkerOperationsService.getItem = originalGetWorkerItem;
+		adminWorkerOperationsService.cancelItem = originalCancelWorkerItem;
+		adminWorkerOperationsService.cancelPendingItems = originalCancelPendingItems;
+		adminWorkerOperationsService.getStats = originalGetWorkerStats;
+		adminWorkerOperationsService.getOperation = originalGetWorkerOperation;
+		adminWorkerOperationsService.getOperationItems = originalGetWorkerOperationItems;
+		adminWorkerOperationsService.cancelOperation = originalCancelWorkerOperation;
+		adminWorkerOperationsService.cancelAllOperations = originalCancelAllOperations;
+	};
+}
+
+test("admin worker routes handle items, operations, stats and cancel requests", async () => {
+	auth.api.getSession = fakeGetSession({
+		user: {
+			id: "admin-1",
+			name: "Admin",
+			email: "admin@example.com",
+			emailVerified: true,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			role: "admin",
+			banned: false,
+		},
+		session: { id: "session-1" },
+	});
+	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+
+	const restoreWorkerOperations = stubWorkerOperations();
 	try {
 		const itemsRes = await app.handle(new Request("http://localhost/admin/workers/jobs", { headers: { authorization: "Bearer admin" } }));
 		expect(itemsRes.status).toBe(200);
@@ -414,16 +430,7 @@ test("admin worker routes handle items, operations, stats and cancel requests", 
 		);
 		expect(cancelOpRes.status).toBe(200);
 	} finally {
-		adminWorkerOperationsService.getWorkerSummaries = originalGetWorkerSummaries;
-		adminWorkerOperationsService.getItems = originalGetWorkerItems;
-		adminWorkerOperationsService.getItem = originalGetWorkerItem;
-		adminWorkerOperationsService.cancelItem = originalCancelWorkerItem;
-		adminWorkerOperationsService.cancelPendingItems = originalCancelPendingItems;
-		adminWorkerOperationsService.getStats = originalGetWorkerStats;
-		adminWorkerOperationsService.getOperation = originalGetWorkerOperation;
-		adminWorkerOperationsService.getOperationItems = originalGetWorkerOperationItems;
-		adminWorkerOperationsService.cancelOperation = originalCancelWorkerOperation;
-		adminWorkerOperationsService.cancelAllOperations = originalCancelAllOperations;
+		restoreWorkerOperations();
 	}
 });
 

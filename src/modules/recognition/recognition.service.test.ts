@@ -86,7 +86,9 @@ describe("recognition service", () => {
 		expect(identity?.season).toBe(0);
 		expect(identity?.episode).toBe(4);
 	});
+});
 
+describe("recognition service", () => {
 	test("recognizes a three-digit season spelling in a season folder (S012E03)", () => {
 		const result = recognitionService.recognize("/media/Series/Example Show (2011)/Season 12/Example.Show.S012E03.mkv");
 
@@ -172,7 +174,9 @@ describe("recognition service", () => {
 		expect(result?.identity.season).toBe(1);
 		expect(result?.identity.episode).toBe(1);
 	});
+});
 
+describe("recognition service", () => {
 	test("does not invent a season for a bare episode number in a basic structure", () => {
 		const result = recognitionService.recognize("/media/Series/Friends (1994)/Friends - 01.mkv");
 

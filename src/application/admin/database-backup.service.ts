@@ -5,12 +5,13 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseMaintenanceRepository } from "@/database/repositories/database-maintenance.repository";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { ForbiddenError, NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { runSafely } from "@/utils/safe-execute";
 
 /** The first 16 bytes of every SQLite 3 database file. */
 const SQLITE_HEADER = new TextEncoder().encode("SQLite format 3\0");
@@ -22,13 +23,12 @@ function backupTimestamp(now: Date): string {
 		.replace("Z", "");
 }
 
-class DatabaseBackupService extends BaseService {
-	constructor() {
-		super("DatabaseBackupService");
-	}
+class DatabaseBackupService {
+	readonly serviceName = "DatabaseBackupService";
+	readonly logger = createLogger("DatabaseBackupService");
 
 	async createBackup(): Promise<AdminDatabaseBackup> {
-		return await this.safeExecute("createBackup", async () => {
+		return await runSafely(this, "createBackup", async () => {
 			await DirUtils.create(serverConfig.paths.backups);
 
 			const now = new Date();
@@ -56,7 +56,7 @@ class DatabaseBackupService extends BaseService {
 	}
 
 	async listBackups(): Promise<AdminDatabaseBackup[]> {
-		return await this.safeExecute("listBackups", async () => {
+		return await runSafely(this, "listBackups", async () => {
 			await DirUtils.create(serverConfig.paths.backups);
 			const entries = await readdir(serverConfig.paths.backups, { withFileTypes: true });
 			const sqliteEntries = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".sqlite"));
@@ -82,14 +82,14 @@ class DatabaseBackupService extends BaseService {
 	 * unless uploads are turned on. The file is staged under a dot name, so listings and rotation never see it before it passes.
 	 */
 	async uploadBackup(upload: File): Promise<AdminDatabaseBackup> {
-		return await this.safeExecute("uploadBackup", async () => {
+		return await runSafely(this, "uploadBackup", async () => {
 			if (!systemSettingsStore.get("system.database.backupUploadEnabled")) {
-				throw new ForbiddenError("Backup upload is turned off", { code: "database.backup_upload_disabled" });
+				throw new DomainError("forbidden", "Backup upload is turned off", { code: "database.backup_upload_disabled" });
 			}
 
 			const header = new Uint8Array(await upload.slice(0, SQLITE_HEADER.length).arrayBuffer());
 			if (header.length !== SQLITE_HEADER.length || !header.every((byte, index) => byte === SQLITE_HEADER[index])) {
-				throw new ValidationError("Uploaded file is not a SQLite database", { code: "database.backup_invalid" });
+				throw new DomainError("validation", "Uploaded file is not a SQLite database", { code: "database.backup_invalid" });
 			}
 
 			await DirUtils.create(serverConfig.paths.backups);
@@ -97,7 +97,7 @@ class DatabaseBackupService extends BaseService {
 			try {
 				await Bun.write(stagingPath, upload);
 				if (!databaseMaintenanceRepository.verifyBackupFile(stagingPath)) {
-					throw new ValidationError("Uploaded database failed the SQLite check", { code: "database.backup_invalid" });
+					throw new DomainError("validation", "Uploaded database failed the SQLite check", { code: "database.backup_invalid" });
 				}
 
 				const now = new Date();
@@ -117,19 +117,19 @@ class DatabaseBackupService extends BaseService {
 
 	/** The backup file behind a download link. Names that could leave the backups folder are refused. */
 	async findBackupFile(fileName: string): Promise<{ fileName: string; path: string; sizeBytes: number }> {
-		return await this.safeExecute("findBackupFile", async () => {
+		return await runSafely(this, "findBackupFile", async () => {
 			if (!fileName.endsWith(".sqlite") || fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
-				throw new ValidationError("Invalid backup file name", { code: "admin.invalid_backup_name" });
+				throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 			}
 
 			const fullPath = PathUtils.join(serverConfig.paths.backups, fileName);
 			if (!PathUtils.isSubpath(fullPath, serverConfig.paths.backups)) {
-				throw new ValidationError("Invalid backup file name", { code: "admin.invalid_backup_name" });
+				throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 			}
 
 			const handle = file(fullPath);
 			if (!(await handle.exists())) {
-				throw new NotFoundError("Backup not found", { code: "admin.backup_not_found", params: { fileName } });
+				throw new DomainError("not_found", "Backup not found", { code: "admin.backup_not_found", params: { fileName } });
 			}
 
 			return { fileName, path: fullPath, sizeBytes: handle.size };
@@ -137,15 +137,15 @@ class DatabaseBackupService extends BaseService {
 	}
 
 	async deleteBackup(fileName: string): Promise<boolean> {
-		return await this.safeExecute("deleteBackup", async () => {
+		return await runSafely(this, "deleteBackup", async () => {
 			// Prevent path traversal
 			if (fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
-				throw new ValidationError("Invalid backup file name", { code: "admin.invalid_backup_name" });
+				throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 			}
 
 			const fullPath = PathUtils.join(serverConfig.paths.backups, fileName);
 			if (!PathUtils.isSubpath(fullPath, serverConfig.paths.backups)) {
-				throw new ValidationError("Invalid backup file name", { code: "admin.invalid_backup_name" });
+				throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 			}
 
 			return await FileUtils.delete(fullPath);
@@ -153,7 +153,7 @@ class DatabaseBackupService extends BaseService {
 	}
 
 	private async rotateBackups(): Promise<void> {
-		return await this.safeExecute("rotateBackups", async () => {
+		return await runSafely(this, "rotateBackups", async () => {
 			const backups = await this.listBackups();
 			const maxRetainedBackups = serverConfig.database.backupRetentionCount;
 			if (backups.length > maxRetainedBackups) {

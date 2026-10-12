@@ -1,7 +1,7 @@
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils, type ScannedFileEntry } from "@/utils/directory.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseTimeoutError, PromiseUtils } from "@/utils/promise.utils";
 
@@ -27,12 +27,14 @@ function resolveScanOptions(options: ScanOptions): {
 	};
 }
 
-export class FileScannerService extends BaseService {
+export class FileScannerService {
+	readonly serviceName = "FileScannerService";
+	readonly logger = createLogger("FileScannerService");
+
 	/** An explicit timeout (tests) wins; otherwise the live `scanning.pathScanTimeoutMs` setting applies. */
 	private readonly pathScanTimeoutOverride: number | undefined;
 
 	constructor(pathScanTimeoutOverride?: number) {
-		super("FileScannerService");
 		this.pathScanTimeoutOverride = pathScanTimeoutOverride;
 	}
 

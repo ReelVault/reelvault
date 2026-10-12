@@ -18,7 +18,7 @@ import type {
 	SubtitleProviderStatus,
 } from "@reelvault/sdk/plugin";
 import { PLUGIN_SLOT_NAMES, PLUGIN_TAB_HOST_NAMES } from "@reelvault/sdk/plugin";
-import { errorMessage, ValidationError } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { createPluginStatus, pluginErrorCode } from "./plugin.status";
 import { applyUiOverrides, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions";
@@ -68,7 +68,7 @@ export class PluginRegistry {
 
 	begin(manifest: PluginManifest): void {
 		if (this.plugins.has(manifest.id))
-			throw new ValidationError(`Plugin "${manifest.id}" is already registered`, {
+			throw new DomainError("validation", `Plugin "${manifest.id}" is already registered`, {
 				code: "plugin.already_registered",
 				params: { plugin: manifest.id },
 			});
@@ -88,7 +88,7 @@ export class PluginRegistry {
 	advance(pluginId: string, state: "validated" | "resolved" | "initialized", phase: PluginLoadPhase): void {
 		const runtime = this.requirePlugin(pluginId);
 		if (ADVANCE_TRANSITIONS[runtime.state] !== state) {
-			throw new ValidationError(`Plugin ${pluginId} cannot transition from ${runtime.state} to ${state}`, {
+			throw new DomainError("validation", `Plugin ${pluginId} cannot transition from ${runtime.state} to ${state}`, {
 				code: "plugin.state_invalid",
 				params: { plugin: pluginId },
 			});
@@ -111,7 +111,7 @@ export class PluginRegistry {
 		const pluginId = runtime.manifest.id;
 		const existing = this.plugins.get(pluginId);
 		if (existing && (existing.plugin || !PRE_ACTIVATION_STATES.has(existing.state))) {
-			throw new ValidationError(`Plugin "${pluginId}" is already registered`, {
+			throw new DomainError("validation", `Plugin "${pluginId}" is already registered`, {
 				code: "plugin.already_registered",
 				params: { plugin: pluginId },
 			});
@@ -345,7 +345,7 @@ export class PluginRegistry {
 
 				for (const tag of collectUiManifestTags(otherManifest)) {
 					if (incomingTags.has(tag)) {
-						throw new ValidationError(`Plugin "${pluginId}" and plugin "${otherId}" both declare the custom element "${tag}"`, {
+						throw new DomainError("validation", `Plugin "${pluginId}" and plugin "${otherId}" both declare the custom element "${tag}"`, {
 							code: "plugin.element_conflict",
 							params: { plugin: pluginId, otherPlugin: otherId, tag },
 						});
@@ -394,7 +394,10 @@ export class PluginRegistry {
 	private requirePlugin(pluginId: string): PluginRuntime {
 		const runtime = this.plugins.get(pluginId);
 		if (!runtime)
-			throw new ValidationError(`Plugin ${pluginId} is not registered`, { code: "plugin.not_registered", params: { plugin: pluginId } });
+			throw new DomainError("validation", `Plugin ${pluginId} is not registered`, {
+				code: "plugin.not_registered",
+				params: { plugin: pluginId },
+			});
 
 		return runtime;
 	}

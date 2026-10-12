@@ -1,9 +1,14 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import type { SessionStore } from "../runtime/session-state/session-store";
 import type { SeekResult } from "../streaming.types";
 import { clampSeekOffsetToDuration } from "../utils/playback-budgets";
 import { type SeekExecutor, SeekScheduler } from "./seek.scheduler";
+
+export interface SeekHooks {
+	getBufferedSeekStart: (sessionId: string, position: number) => Promise<number | null>;
+	keepAlive: (sessionId: string) => void;
+}
 
 export class SessionSeeker {
 	private readonly seekScheduler: SeekScheduler;
@@ -19,11 +24,11 @@ export class SessionSeeker {
 		offset: number,
 		decision: PlaybackDecision,
 		hlsSegmentDuration: number,
-		getBufferedSeekStart: (sessionId: string, position: number) => Promise<number | null>,
-		keepAlive: (sessionId: string) => void,
+		hooks: SeekHooks,
 	): Promise<SeekResult> {
+		const { getBufferedSeekStart, keepAlive } = hooks;
 		const session = this.store.get(sessionId);
-		if (!session) throw new NotFoundError(`Session not found: ${sessionId}`, { code: "stream.session_not_found" });
+		if (!session) throw new DomainError("not_found", `Session not found: ${sessionId}`, { code: "stream.session_not_found" });
 
 		// The single seek-offset clamp — both explicit API seeks and implicit
 		// segment seeks pass through here before the buffered check and alignment.

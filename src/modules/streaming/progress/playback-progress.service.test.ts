@@ -25,36 +25,28 @@ interface TestHarness {
 	prefsUpserts: Array<Parameters<ProfileStreamPrefsRepo["upsert"]>[0]>;
 }
 
-function createService(
-	options: {
-		watchlistedIds?: string[];
-		existingProgress?:
-			| { completed: boolean; position?: number | null; audioStreamIndex?: number | null; subtitleId?: string | null }
-			| null
-			| undefined;
-		continueWatchingData?: ContinueWatchingRepoData;
-		fileMetadataId?: string | null | undefined;
-		smartPlayBatchData?: SmartPlayBatchEntries;
-		smartPlayBatchFails?: boolean;
-		unknownFileIds?: string[];
-		autoRemoveWatched?: boolean;
-	} = {},
-): TestHarness {
-	const upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]> = [];
-	const watchedSyncs: Array<Parameters<WatchedHistoryRepo["sync"]>[0]> = [];
-	const published: PlaybackProgressUpdateEvent[] = [];
-	const resets = { file: [] as string[], metadata: [] as string[], dismissed: [] as string[], bulk: [] as string[] };
-	const watchlistRemovals: string[] = [];
-	const continueWatchingData: ContinueWatchingRepoData = options.continueWatchingData ?? {
-		progressRows: [],
-		metadataList: [],
-		mediaFiles: [],
-		seasons: [],
-		episodes: [],
-		backdrops: [],
-	};
+interface ServiceStubOptions {
+	watchlistedIds?: string[];
+	existingProgress?:
+		| { completed: boolean; position?: number | null; audioStreamIndex?: number | null; subtitleId?: string | null }
+		| null
+		| undefined;
+	continueWatchingData?: ContinueWatchingRepoData;
+	fileMetadataId?: string | null | undefined;
+	smartPlayBatchData?: SmartPlayBatchEntries;
+	smartPlayBatchFails?: boolean;
+	unknownFileIds?: string[];
+	autoRemoveWatched?: boolean;
+}
 
-	const playbackRepository: PlaybackProgressRepo = {
+/** Playback-progress repository stub: records writes into the harness arrays and answers reads from the options. */
+function createPlaybackRepositoryStub(
+	options: ServiceStubOptions,
+	recorded: Pick<TestHarness, "upserts" | "resets" | "continueWatchingData">,
+): PlaybackProgressRepo {
+	const { upserts, resets, continueWatchingData } = recorded;
+
+	return {
 		findProgressUpdateData: () =>
 			Promise.resolve({
 				mediaFile: { id: "file-1", duration: 1000, metadataId: "meta-1" },
@@ -128,6 +120,24 @@ function createService(
 			return Promise.resolve(options.smartPlayBatchData ?? []);
 		},
 	};
+}
+
+function createService(options: ServiceStubOptions = {}): TestHarness {
+	const upserts: Array<Parameters<PlaybackProgressRepo["upsertProgress"]>[0]> = [];
+	const watchedSyncs: Array<Parameters<WatchedHistoryRepo["sync"]>[0]> = [];
+	const published: PlaybackProgressUpdateEvent[] = [];
+	const resets = { file: [] as string[], metadata: [] as string[], dismissed: [] as string[], bulk: [] as string[] };
+	const watchlistRemovals: string[] = [];
+	const continueWatchingData: ContinueWatchingRepoData = options.continueWatchingData ?? {
+		progressRows: [],
+		metadataList: [],
+		mediaFiles: [],
+		seasons: [],
+		episodes: [],
+		backdrops: [],
+	};
+
+	const playbackRepository = createPlaybackRepositoryStub(options, { upserts, resets, continueWatchingData });
 
 	const watchedHistoryRepository: WatchedHistoryRepo = {
 		sync: (input) => {
@@ -266,7 +276,9 @@ describe("playback progress service", () => {
 			["file-2", { position: Number.MAX_SAFE_INTEGER }, "profile-1"],
 		]);
 	});
+});
 
+describe("playback progress service", () => {
 	test("bulk rejects the whole request when one file is unknown and writes nothing", async () => {
 		const { service, resets } = createService({ unknownFileIds: ["file-2"] });
 
@@ -348,7 +360,9 @@ describe("playback progress service", () => {
 		expect(resets.metadata).toEqual([]);
 		expect(resets.file).toEqual([]);
 	});
+});
 
+describe("playback progress service", () => {
 	test("compute methods delegate to the aggregator", () => {
 		const { service } = createService();
 

@@ -1,6 +1,6 @@
 import type { AddWorkerItemOptions, WorkerDefinition } from "@reelvault/sdk/common";
 import type { ActiveWorkerItem, WorkerItem } from "@/database/repositories/worker.repository";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 export interface WorkerRuntimeRegistry {
 	get(workerId: string): WorkerDefinition | undefined;
@@ -33,7 +33,7 @@ export interface WorkerRuntimeQueue {
  *
  * `worker.service` imports the core services to construct them; the core
  * services used to import `workerService` back, forming a runtime import cycle
- * that hit a TDZ on `BaseService` when a module graph entered through a core
+ * that reads uninitialised bindings when a module graph is entered through a core
  * service. The cycle is broken by handing the subsystems over here instead:
  * `WorkerService` registers them once, core services read them lazily.
  */
@@ -50,7 +50,7 @@ export function setWorkerRuntime(next: WorkerRuntime): void {
 }
 
 export function getWorkerRuntime(): WorkerRuntime {
-	if (!runtime) throw new InternalError("Worker runtime is not initialized", { code: "worker.runtime_unavailable" });
+	if (!runtime) throw new DomainError("internal", "Worker runtime is not initialized", { code: "worker.runtime_unavailable" });
 
 	return runtime;
 }

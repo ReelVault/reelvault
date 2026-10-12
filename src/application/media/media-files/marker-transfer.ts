@@ -1,7 +1,7 @@
 import type { CreateMediaMarker, MediaMarker } from "@reelvault/sdk/common";
 import { CreateMediaMarkerSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { isRecord } from "@/utils/type.utils";
 
 /** Most markers one export or import handles; a larger one is refused rather than cut short. */
@@ -34,8 +34,8 @@ export function serializeMarkersNdjson(markers: readonly MediaMarker[]): string 
 	return `${lines.join("\n")}\n`;
 }
 
-function invalidLine(lineNumber: number, reason: string): ValidationError {
-	return new ValidationError(`Marker line ${lineNumber} is invalid: ${reason}`, {
+function invalidLine(lineNumber: number, reason: string): DomainError {
+	return new DomainError("validation", `Marker line ${lineNumber} is invalid: ${reason}`, {
 		code: "media.markers_import_invalid",
 		params: { line: lineNumber, reason },
 	});
@@ -62,7 +62,7 @@ export function parseMarkersNdjson(text: string): MarkerImportEntry[] {
 
 		const lineNumber = index + 1;
 		if (entries.length >= MARKER_TRANSFER_MAX_LINES) {
-			throw new ValidationError(`A marker import holds at most ${MARKER_TRANSFER_MAX_LINES} markers`, {
+			throw new DomainError("validation", `A marker import holds at most ${MARKER_TRANSFER_MAX_LINES} markers`, {
 				code: "media.markers_import_too_large",
 				params: { limit: MARKER_TRANSFER_MAX_LINES },
 			});

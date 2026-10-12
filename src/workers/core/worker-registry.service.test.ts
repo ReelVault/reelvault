@@ -127,7 +127,9 @@ describe("WorkerRegistryService", () => {
 		expect(stored?.backoff).toEqual({ type: "exponential", delayMs: 1_000 });
 		expect(stored?.timeoutMs).toBe(5 * MINUTE);
 	});
+});
 
+describe("WorkerRegistryService", () => {
 	test("keeps explicit attempts, backoff and timeoutMs", async () => {
 		const { WorkerRegistryService } = await import("./worker-registry.service");
 		const registry = new WorkerRegistryService();

@@ -5,8 +5,8 @@ import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.servi
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
@@ -38,11 +38,13 @@ const defaultDependencies: ServiceDependencies = {
  * from disk. Only subtitle artifacts under the configured subtitles root are
  * deleted — anything else stays untouched.
  */
-export class StaleArtifactCleaner extends BaseService {
+export class StaleArtifactCleaner {
+	readonly serviceName = "StaleArtifactCleaner";
+	readonly logger = createLogger("StaleArtifactCleaner");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("StaleArtifactCleaner");
 		this.dependencies = dependencies;
 	}
 

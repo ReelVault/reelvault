@@ -24,7 +24,7 @@ import { metadataService } from "@/application/catalog/metadata/metadata.service
 import { metadataRefreshQueueService } from "@/application/catalog/metadata/metadata-refresh-queue.service";
 import { cached } from "@/middleware/response-cache.middleware";
 import { MINUTE } from "@/server.constants";
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { RefreshMetadataSchema } from "./admin.schema";
 import { adminShell } from "./admin-shell";
 
@@ -223,7 +223,8 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		"/refresh-metadata",
 		async ({ body, status, user, request }) => {
 			const task = await metadataRefreshQueueService.queue(body, { actorUserId: user?.id, headers: request.headers });
-			if (!task) throw new InternalError("Metadata refresh operation was not created", { code: "admin.metadata.refresh_not_created" });
+			if (!task)
+				throw new DomainError("internal", "Metadata refresh operation was not created", { code: "admin.metadata.refresh_not_created" });
 
 			return status(202, {
 				success: true,

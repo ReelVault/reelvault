@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Subtitle, SubtitleEntity } from "@reelvault/sdk/common";
 import { subtitleProviderSettingsRepository } from "@/database/repositories/subtitle-provider-settings.repository";
-import { NotFoundError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import type { SubtitleContent } from "./subtitle-content.resolver";
 import { SubtitlesService } from "./subtitles.service";
@@ -148,7 +147,7 @@ describe("SubtitlesService", () => {
 	test("getById throws not found for a missing subtitle", () => {
 		const { service } = createService();
 
-		expect(service.getById("missing")).rejects.toBeInstanceOf(NotFoundError);
+		expect(service.getById("missing")).rejects.toMatchObject({ category: "not_found" });
 	});
 
 	test("create resolves the subtitle type from the request source", async () => {
@@ -196,7 +195,7 @@ describe("SubtitlesService", () => {
 	test("delete throws not found when the row is gone but still coordinates first", () => {
 		const { service, events } = createService({ rows: [] });
 
-		expect(service.delete("sub-1")).rejects.toBeInstanceOf(NotFoundError);
+		expect(service.delete("sub-1")).rejects.toMatchObject({ category: "not_found" });
 		expect(events).toEqual(["cacheInvalidate:sub-1", "waitFor:sub-1", "deleteRow:sub-1"]);
 	});
 
@@ -212,9 +211,9 @@ describe("SubtitlesService", () => {
 	test("downloadFromProvider throws not found when the download has no subtitle row", () => {
 		const { service } = createService({ downloadedId: "gone" });
 
-		expect(service.downloadFromProvider("provider-1", { mediaFileId: "file-1", subtitleId: "p-sub-1" })).rejects.toBeInstanceOf(
-			NotFoundError,
-		);
+		expect(service.downloadFromProvider("provider-1", { mediaFileId: "file-1", subtitleId: "p-sub-1" })).rejects.toMatchObject({
+			category: "not_found",
+		});
 	});
 
 	test("provider status and search delegate to the plugins layer", async () => {

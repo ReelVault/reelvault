@@ -189,13 +189,15 @@ export interface HlsBufferAnalysis {
 	bufferedUntil: number;
 }
 
+export interface StreamStartInput {
+	sessionId: string;
+	inputPath: string;
+	outputDir: string;
+	decision: PlaybackDecision;
+	startTime?: number | undefined;
+	operationId?: string | undefined;
+}
+
 export interface StreamingStrategy {
-	startSession(
-		sessionId: string,
-		inputPath: string,
-		outputDir: string,
-		decision: PlaybackDecision,
-		startTime?: number,
-		operationId?: string,
-	): Promise<Subprocess>;
+	startSession(input: StreamStartInput): Promise<Subprocess>;
 }

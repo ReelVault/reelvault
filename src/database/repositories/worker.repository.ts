@@ -7,7 +7,7 @@ import { forEachChunked, mapChunked } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
 import { MINUTE, serverConstants } from "@/server.constants";
 import { chunk, toMap, unique } from "@/utils/array.utils";
-import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { MemoryCache } from "@/utils/memory-cache";
 import { workerJobSummaryColumns } from "./worker-job.projection";
 import { workerOperationRepository } from "./worker-operation.repository";
@@ -107,7 +107,8 @@ class WorkerJobRepository {
 		// Empty result means the dedupe fetch-back found no active row either —
 		// the previously-active job went terminal mid-race, so the trigger cannot
 		// be satisfied right now (client retries); never a raw 500.
-		if (!item) throw new ConflictError(`Failed to enqueue item for worker "${input.workerId}"`, { code: "worker.enqueue_failed" });
+		if (!item)
+			throw new DomainError("conflict", `Failed to enqueue item for worker "${input.workerId}"`, { code: "worker.enqueue_failed" });
 
 		return item;
 	}
@@ -204,8 +205,8 @@ class WorkerJobRepository {
 
 		const where = conditions.length > 0 ? and(...conditions) : undefined;
 		const client = databaseFactory.getClient();
-		const [countRows, rows] = await Promise.all([
-			client.select({ count: count() }).from(items).where(where),
+		const [total, rows] = await Promise.all([
+			client.$count(items, where),
 			client
 				.select(workerJobSummaryColumns)
 				.from(items)
@@ -216,7 +217,7 @@ class WorkerJobRepository {
 				.offset(options.offset),
 		]);
 
-		return { items: rows, total: countRows[0]?.count ?? 0 };
+		return { items: rows, total };
 	}
 
 	async findPendingWorkerIds(now: Date = new Date()): Promise<string[]> {
@@ -240,7 +241,7 @@ class WorkerJobRepository {
 	async claimNextBatch(input: ClaimNextInput, max: number): Promise<WorkerItem[]> {
 		if (max <= 0) return [];
 
-		const { workerId, runnerId, concurrency, timeoutMs, now } = input;
+		const { workerId, now } = input;
 		const [pending] = await databaseFactory
 			.getClient()
 			.select({ id: items.id })
@@ -249,91 +250,90 @@ class WorkerJobRepository {
 			.limit(1);
 		if (!pending) return [];
 
-		const startedByOperation = new Map<string, number>();
-
 		return await databaseFactory.transaction(
-			async (tx) => {
-				await this.recoverExpired(workerId, now, tx, input.excludeActiveIds);
-
-				// Claim decisions need only these columns — the arbitrary `data` JSON
-				// payload would be materialized per poll for candidates it discards
-				// (claimed rows return full data via the guarded UPDATE ... RETURNING).
-				const candidates = await tx
-					.select({
-						id: items.id,
-						workerId: items.workerId,
-						operationId: items.operationId,
-						dependsOnJobId: items.dependsOnJobId,
-						attempts: items.attempts,
-						maxAttempts: items.maxAttempts,
-						priority: items.priority,
-						runAt: items.runAt,
-					})
-					.from(items)
-					.where(and(eq(items.workerId, workerId), eq(items.status, "pending"), lte(items.runAt, now)))
-					.orderBy(asc(items.priority), asc(items.runAt), asc(items.createdAt))
-					.limit(Math.max(max, 20, concurrency * 2));
-
-				const [runningRow] = await tx
-					.select({ count: count() })
-					.from(items)
-					.where(and(eq(items.workerId, workerId), eq(items.status, "running")));
-				let runningCount = runningRow?.count ?? 0;
-
-				const parentStatuses = await this.loadParentStatuses(candidates, tx);
-
-				const claimedItems: WorkerItem[] = [];
-				for (const candidate of candidates) {
-					if (claimedItems.length >= max) break;
-
-					const parentStatus = candidate.dependsOnJobId ? parentStatuses.get(candidate.dependsOnJobId) : undefined;
-					if (parentStatus === "failed" || parentStatus === "cancelled") {
-						await this.cancelPending(candidate.id, tx);
-						continue;
-					}
-
-					if (parentStatus === "pending" || parentStatus === "running") {
-						continue; // Prerequisite not finished yet (completed or gone → claimable)
-					}
-
-					if (runningCount >= concurrency) break;
-
-					const [claimed] = await tx
-						.update(items)
-						.set({
-							status: "running",
-							attempts: sql`${items.attempts} + 1`,
-							runnerId,
-							claimToken: crypto.randomUUID(),
-							leaseUntil: new Date(now.getTime() + timeoutMs),
-							startedAt: now,
-							updatedAt: now,
-						})
-						.where(and(eq(items.id, candidate.id), eq(items.status, "pending")))
-						.returning();
-
-					if (claimed) {
-						// Subsequent claims in this transaction must see the new running row.
-						runningCount++;
-						if (claimed.operationId) {
-							startedByOperation.set(claimed.operationId, (startedByOperation.get(claimed.operationId) ?? 0) + 1);
-						}
-
-						claimedItems.push(claimed);
-					}
-				}
-
-				// One counter update per operation instead of one per claimed job.
-				for (const [operationId, amount] of startedByOperation) {
-					await workerOperationRepository.markJobStarted(operationId, now, tx, amount);
-				}
-
-				return claimedItems;
-			},
+			async (tx) => await this.claimRunnableItems(tx, input, max),
 			// The claim reads candidates before it writes; a deferred BEGIN fails with
 			// SQLITE_BUSY_SNAPSHOT when the main connection commits in that window.
 			{ immediate: true },
 		);
+	}
+
+	/** One claim pass inside its transaction: recovers expired leases, then claims runnable candidates up to `max`. */
+	private async claimRunnableItems(tx: DatabaseTransaction, input: ClaimNextInput, max: number): Promise<WorkerItem[]> {
+		const { workerId, runnerId, concurrency, timeoutMs, now } = input;
+		await this.recoverExpired(workerId, now, tx, input.excludeActiveIds);
+
+		// Claim decisions need only these columns — the arbitrary `data` JSON
+		// payload would be materialized per poll for candidates it discards
+		// (claimed rows return full data via the guarded UPDATE ... RETURNING).
+		const candidates = await tx
+			.select({
+				id: items.id,
+				workerId: items.workerId,
+				operationId: items.operationId,
+				dependsOnJobId: items.dependsOnJobId,
+				attempts: items.attempts,
+				maxAttempts: items.maxAttempts,
+				priority: items.priority,
+				runAt: items.runAt,
+			})
+			.from(items)
+			.where(and(eq(items.workerId, workerId), eq(items.status, "pending"), lte(items.runAt, now)))
+			.orderBy(asc(items.priority), asc(items.runAt), asc(items.createdAt))
+			.limit(Math.max(max, 20, concurrency * 2));
+
+		let runningCount = await tx.$count(items, and(eq(items.workerId, workerId), eq(items.status, "running")));
+
+		const parentStatuses = await this.loadParentStatuses(candidates, tx);
+		const startedByOperation = new Map<string, number>();
+
+		const claimedItems: WorkerItem[] = [];
+		for (const candidate of candidates) {
+			if (claimedItems.length >= max) break;
+
+			const parentStatus = candidate.dependsOnJobId ? parentStatuses.get(candidate.dependsOnJobId) : undefined;
+			if (parentStatus === "failed" || parentStatus === "cancelled") {
+				await this.cancelPending(candidate.id, tx);
+				continue;
+			}
+
+			if (parentStatus === "pending" || parentStatus === "running") {
+				continue; // Prerequisite not finished yet (completed or gone → claimable)
+			}
+
+			if (runningCount >= concurrency) break;
+
+			const [claimed] = await tx
+				.update(items)
+				.set({
+					status: "running",
+					attempts: sql`${items.attempts} + 1`,
+					runnerId,
+					claimToken: crypto.randomUUID(),
+					leaseUntil: new Date(now.getTime() + timeoutMs),
+					startedAt: now,
+					updatedAt: now,
+				})
+				.where(and(eq(items.id, candidate.id), eq(items.status, "pending")))
+				.returning();
+
+			if (claimed) {
+				// Subsequent claims in this transaction must see the new running row.
+				runningCount++;
+				if (claimed.operationId) {
+					startedByOperation.set(claimed.operationId, (startedByOperation.get(claimed.operationId) ?? 0) + 1);
+				}
+
+				claimedItems.push(claimed);
+			}
+		}
+
+		// One counter update per operation instead of one per claimed job.
+		for (const [operationId, amount] of startedByOperation) {
+			await workerOperationRepository.markJobStarted(operationId, now, tx, amount);
+		}
+
+		return claimedItems;
 	}
 
 	/** Batched lookup of dependency-parent statuses for the candidate set. */
@@ -377,10 +377,11 @@ class WorkerJobRepository {
 		const operationById = toMap(operationRows, (row) => row.id);
 		for (const operationId of operationIds) {
 			const operation = operationById.get(operationId);
-			if (!operation) throw new NotFoundError(`Worker operation not found: ${operationId}`, { code: "worker.operation_not_found" });
+			if (!operation)
+				throw new DomainError("not_found", `Worker operation not found: ${operationId}`, { code: "worker.operation_not_found" });
 
 			if (operation.cancelRequested)
-				throw new ConflictError(`Worker operation has been cancelled: ${operationId}`, { code: "worker.operation_cancelled" });
+				throw new DomainError("conflict", `Worker operation has been cancelled: ${operationId}`, { code: "worker.operation_cancelled" });
 		}
 
 		const dependencyIds = new Set<string>();
@@ -400,20 +401,22 @@ class WorkerJobRepository {
 			if (!depId) continue;
 
 			if (!input.operationId) {
-				throw new ValidationError("Worker task dependencies require a non-empty operationId", { code: "worker.dependency_invalid" });
+				throw new DomainError("validation", "Worker task dependencies require a non-empty operationId", {
+					code: "worker.dependency_invalid",
+				});
 			}
 
 			if (depId === input.id) {
-				throw new ConflictError("Worker task dependency cannot reference itself", { code: "worker.dependency_self" });
+				throw new DomainError("conflict", "Worker task dependency cannot reference itself", { code: "worker.dependency_self" });
 			}
 
 			const dep = dependencyById.get(depId);
 			if (!dep) {
-				throw new NotFoundError(`Worker dependency task not found: ${depId}`, { code: "worker.dependency_not_found" });
+				throw new DomainError("not_found", `Worker dependency task not found: ${depId}`, { code: "worker.dependency_not_found" });
 			}
 
 			if (dep.operationId !== input.operationId) {
-				throw new ValidationError("Worker task dependencies must belong to the same operation", {
+				throw new DomainError("validation", "Worker task dependencies must belong to the same operation", {
 					code: "worker.dependency_other_operation",
 				});
 			}
@@ -716,13 +719,7 @@ class WorkerJobRepository {
 
 	/** Cancelled-job count for an operation — pre-set as the resume total. */
 	async countCancelledByOperation(operationId: string): Promise<number> {
-		const [row] = await databaseFactory
-			.getClient()
-			.select({ count: count() })
-			.from(items)
-			.where(and(eq(items.operationId, operationId), eq(items.status, "cancelled")));
-
-		return row?.count ?? 0;
+		return await databaseFactory.getClient().$count(items, and(eq(items.operationId, operationId), eq(items.status, "cancelled")));
 	}
 
 	async cancelAllPending(workerId?: string): Promise<number> {
@@ -1024,9 +1021,7 @@ class WorkerJobRepository {
 
 	/** Rows `purgeTerminalJobs` would delete with the same filters; nothing is removed. */
 	async countTerminalJobs(options: TerminalJobPurgeOptions = {}): Promise<number> {
-		const [row] = await databaseFactory.getClient().select({ value: count() }).from(items).where(terminalStandaloneJobsWhere(options));
-
-		return row?.value ?? 0;
+		return await databaseFactory.getClient().$count(items, terminalStandaloneJobsWhere(options));
 	}
 }
 

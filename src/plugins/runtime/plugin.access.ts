@@ -1,22 +1,22 @@
 import type { PluginAccessContext, PluginAccessDenial, PluginAccessPolicy } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
-import { ConflictError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
 
-class PluginAccessBus extends BaseService {
+class PluginAccessBus {
+	readonly serviceName = "PluginAccessBus";
+	readonly logger = createLogger("PluginAccessBus");
+
 	private readonly policiesByPlugin = new Map<string, Map<string, PluginAccessPolicy>>();
 
-	constructor() {
-		super("PluginAccessBus");
-	}
-
 	register(pluginId: string, policy: PluginAccessPolicy): () => void {
-		if (!policy.id.trim()) throw new ValidationError("Plugin access policy id is required", { code: "plugin.access_policy_id_required" });
+		if (!policy.id.trim())
+			throw new DomainError("validation", "Plugin access policy id is required", { code: "plugin.access_policy_id_required" });
 
 		const policies = this.policiesByPlugin.get(pluginId) ?? new Map<string, PluginAccessPolicy>();
 		if (policies.has(policy.id))
-			throw new ConflictError(`Plugin access policy ${policy.id} is already registered`, {
+			throw new DomainError("conflict", `Plugin access policy ${policy.id} is already registered`, {
 				code: "plugin.access_policy_duplicate",
 				params: { policy: policy.id },
 			});

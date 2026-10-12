@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { MetadataProvider, SubtitleProvider } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { PluginScope } from "./plugin.scope";
 
 /** The registration-limit code thrown by `register`, or undefined when it succeeds. */
@@ -9,7 +9,7 @@ function limitCodeOf(register: () => void): string | undefined {
 	try {
 		register();
 	} catch (error) {
-		return error instanceof ValidationError ? error.code : undefined;
+		return error instanceof DomainError && error.category === "validation" ? error.code : undefined;
 	}
 
 	return undefined;
@@ -127,6 +127,14 @@ describe("PluginScope", () => {
 			),
 		).toBe("plugin.registration_limit.scheduled_tasks");
 	});
+});
+
+describe("PluginScope", () => {
+	let scope: PluginScope;
+
+	beforeEach(() => {
+		scope = new PluginScope();
+	});
 
 	test("caps metadata providers per plugin", () => {
 		const limits = serverConfig.plugins.registration;
@@ -204,6 +212,14 @@ describe("PluginScope", () => {
 
 		await scope.cleanup();
 		expect(calls).toEqual(["healthy"]);
+	});
+});
+
+describe("PluginScope", () => {
+	let scope: PluginScope;
+
+	beforeEach(() => {
+		scope = new PluginScope();
 	});
 
 	test("stores runtime directory and ui manifest accessors", () => {

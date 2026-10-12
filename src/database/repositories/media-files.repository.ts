@@ -46,6 +46,60 @@ interface LoadedMediaFileRelations {
 	library: MediaFileWithRelation["library"];
 }
 
+/** Groups the loaded relation rows per media file. A file whose library is gone is left out of the result, but never silently. */
+function assembleRelations(
+	mediaFileRows: Array<{ id: string; libraryId: string }>,
+	loaded: {
+		videoStreams: Array<typeof schema.mediaFileVideoStreams.$inferSelect>;
+		audioStreams: Array<typeof schema.mediaFileAudioStreams.$inferSelect>;
+		subtitles: Array<typeof schema.subtitles.$inferSelect>;
+		libraries: Array<MediaFileWithRelation["library"]>;
+	},
+): Map<string, LoadedMediaFileRelations> {
+	const { videoStreams, audioStreams, subtitles, libraries } = loaded;
+
+	const librariesById = new Map(libraries.map((library) => [library.id, library] as const));
+	const libraryIdByMediaFileId = toMap(
+		mediaFileRows,
+		(mediaFile) => mediaFile.id,
+		(mediaFile) => mediaFile.libraryId,
+	);
+	const videosByMediaFileId = groupBy(
+		videoStreams.filter((item) => hasMediaFileId(item)),
+		(item) => item.mediaFileId,
+	);
+	const audioByMediaFileId = groupBy(
+		audioStreams.filter((item) => hasMediaFileId(item)),
+		(item) => item.mediaFileId,
+	);
+	const subtitlesByMediaFileId = groupBy(
+		subtitles.filter((item) => hasMediaFileId(item)),
+		(item) => item.mediaFileId,
+	);
+
+	const result = new Map<string, LoadedMediaFileRelations>();
+	for (const { id: mediaFileId } of mediaFileRows) {
+		const libraryId = libraryIdByMediaFileId.get(mediaFileId) ?? "";
+		const library = librariesById.get(libraryId);
+		if (!library) {
+			// Dangling libraryId (library removed out from under the row). The row
+			// cannot satisfy MediaFileWithRelation's `library` contract, so it is
+			// omitted from results — but never silently.
+			logger.warn("Media file references a missing library — omitted from results", { mediaFileId, libraryId });
+			continue;
+		}
+
+		result.set(mediaFileId, {
+			videoStreams: videosByMediaFileId.get(mediaFileId) ?? [],
+			audioStreams: audioByMediaFileId.get(mediaFileId) ?? [],
+			subtitles: subtitlesByMediaFileId.get(mediaFileId) ?? [],
+			library,
+		});
+	}
+
+	return result;
+}
+
 function hasMediaFileId<T>(item: T): item is T & { mediaFileId: string } {
 	return typeof item === "object" && item !== null && "mediaFileId" in item && typeof item.mediaFileId === "string";
 }
@@ -826,48 +880,7 @@ class MediaRepository {
 			librariesQuery,
 		]);
 
-		// Manual Map: `libraries` is a union of projected-row types from the
-		// conditional select above — toMap's generic inference collapses it.
-		const librariesById = new Map(libraries.map((library) => [library.id, library] as const));
-		const libraryIdByMediaFileId = toMap(
-			mediaFileRows,
-			(mediaFile) => mediaFile.id,
-			(mediaFile) => mediaFile.libraryId,
-		);
-		const videosByMediaFileId = groupBy(
-			videoStreams.filter((item) => hasMediaFileId(item)),
-			(item) => item.mediaFileId,
-		);
-		const audioByMediaFileId = groupBy(
-			audioStreams.filter((item) => hasMediaFileId(item)),
-			(item) => item.mediaFileId,
-		);
-		const subtitlesByMediaFileId = groupBy(
-			subtitles.filter((item) => hasMediaFileId(item)),
-			(item) => item.mediaFileId,
-		);
-
-		const result = new Map<string, LoadedMediaFileRelations>();
-		for (const mediaFileId of mediaFileIds) {
-			const libraryId = libraryIdByMediaFileId.get(mediaFileId) ?? "";
-			const library = librariesById.get(libraryId);
-			if (!library) {
-				// Dangling libraryId (library removed out from under the row). The row
-				// cannot satisfy MediaFileWithRelation's `library` contract, so it is
-				// omitted from results — but never silently.
-				logger.warn("Media file references a missing library — omitted from results", { mediaFileId, libraryId });
-				continue;
-			}
-
-			result.set(mediaFileId, {
-				videoStreams: videosByMediaFileId.get(mediaFileId) ?? [],
-				audioStreams: audioByMediaFileId.get(mediaFileId) ?? [],
-				subtitles: subtitlesByMediaFileId.get(mediaFileId) ?? [],
-				library,
-			});
-		}
-
-		return result;
+		return assembleRelations(mediaFileRows, { videoStreams, audioStreams, subtitles, libraries });
 	}
 
 	/**

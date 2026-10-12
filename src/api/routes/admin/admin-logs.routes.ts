@@ -3,7 +3,7 @@ import { t } from "elysia";
 import { ROUTE_ERRORS } from "@/api/schemas/common.schemas";
 import { adminLogsService } from "@/application/admin/admin-logs.service";
 import { MINUTE } from "@/server.constants";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { AdminLogsQuerySchema } from "./admin.schema";
 import { adminShell } from "./admin-shell";
 
@@ -75,7 +75,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 	.delete(
 		"/logs",
 		async ({ query, user, request }) => {
-			if (!query.fileId) throw new ValidationError("Missing fileId", { code: "admin.logs.file_id_required" });
+			if (!query.fileId) throw new DomainError("validation", "Missing fileId", { code: "admin.logs.file_id_required" });
 
 			return await adminLogsService.deleteLogFile(query.fileId, { actorUserId: user?.id, headers: request.headers });
 		},

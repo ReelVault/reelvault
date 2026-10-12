@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
-import { v7 as uuidv7 } from "uuid";
 import type { EnqueueWorkerItemInput } from "@/database/repositories/worker.repository";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { workerOperationsService } from "./worker-operations.service";
@@ -42,7 +41,7 @@ beforeEach(async () => {
 		stubMethod(repo, "cancelAllPending", () => Promise.resolve(0)),
 		stubMethod(repo, "purgeTerminalJobs", () => Promise.resolve(0)),
 		stubMethod(repo, "findItem", () => Promise.resolve(undefined)),
-		stubMethod(workerOperationsService, "create", () => Promise.resolve({ id: uuidv7() })),
+		stubMethod(workerOperationsService, "create", () => Promise.resolve({ id: Bun.randomUUIDv7() })),
 		stubMethod(workerOperationsService, "remove", () => Promise.resolve()),
 	);
 });
@@ -115,7 +114,9 @@ describe("WorkerQueueService.enqueue", () => {
 		expect(item.data).toBe("null");
 		expect(Date.now() - item.runAt.getTime()).toBeLessThan(5_000);
 	});
+});
 
+describe("WorkerQueueService.enqueue", () => {
 	test("falls back to the definition defaultPriority, options still win", async () => {
 		const prioritized: WorkerDefinition = { ...definition, defaultPriority: 100 };
 		setWorkerRuntime(
@@ -198,7 +199,9 @@ describe("WorkerQueueService.enqueue", () => {
 
 		expect(removedCount).toBe(0);
 	});
+});
 
+describe("WorkerQueueService.enqueue", () => {
 	test("enqueueMany builds one input per entry and skips empty batches", async () => {
 		const queue = new WorkerQueueService();
 		expect(await queue.enqueueMany("w-queue", [])).toEqual([]);

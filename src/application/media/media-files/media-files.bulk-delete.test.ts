@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { stubMethod } from "../../../../tests/helpers/method-stub";
 import { mediaService } from "./media-files.service";
 
@@ -24,7 +24,7 @@ test("holds a bulk delete back while a stream plays one of the files, and delete
 test("deletes the files once the admin forces it, and reports a failure by its code", async () => {
 	stubs.push(stubMethod(streamingManager, "getAllActiveSessions", () => [{ mediaFileId: "f1" }]));
 	const remove = stubMethod(mediaService, "delete", (id: string) => {
-		if (id === "f2") return Promise.reject(new NotFoundError("Gone", { code: "media.not_found" }));
+		if (id === "f2") return Promise.reject(new DomainError("not_found", "Gone", { code: "media.not_found" }));
 
 		return Promise.resolve({ success: true });
 	});

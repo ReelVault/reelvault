@@ -1,10 +1,11 @@
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { serverConfig } from "@/server.config";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 export function assertStorageKey(key: string): void {
 	if (!PLUGIN_IDENTIFIER_PATTERN.test(key) || key.length > serverConfig.plugins.storage.maxKeyLength) {
-		throw new ValidationError(
+		throw new DomainError(
+			"validation",
 			`Plugin storage key must match [A-Za-z0-9._-] and be at most ${serverConfig.plugins.storage.maxKeyLength} characters`,
 			{ code: "plugin.storage.invalid_key" },
 		);
@@ -26,14 +27,14 @@ export function serializeStorageValue(value: unknown): string {
 	try {
 		serialized = stringifyOrUndefined(value);
 	} catch {
-		throw new ValidationError("Plugin storage value must be JSON-serializable", { code: "plugin.storage.invalid_value" });
+		throw new DomainError("validation", "Plugin storage value must be JSON-serializable", { code: "plugin.storage.invalid_value" });
 	}
 
 	if (serialized === undefined)
-		throw new ValidationError("Plugin storage value must be JSON-serializable", { code: "plugin.storage.invalid_value" });
+		throw new DomainError("validation", "Plugin storage value must be JSON-serializable", { code: "plugin.storage.invalid_value" });
 
 	if (new TextEncoder().encode(serialized).byteLength > serverConfig.plugins.storage.maxValueBytes) {
-		throw new ValidationError(`Plugin storage value must not exceed ${serverConfig.plugins.storage.maxValueBytes} bytes`, {
+		throw new DomainError("validation", `Plugin storage value must not exceed ${serverConfig.plugins.storage.maxValueBytes} bytes`, {
 			code: "plugin.storage.value_too_large",
 		});
 	}

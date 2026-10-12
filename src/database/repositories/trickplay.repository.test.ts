@@ -12,10 +12,17 @@ const NOW = 1_700_000_000;
 
 type Value = string | number | null;
 
+type Insert = (sqlText: string, values: Value[]) => unknown;
+
 /** Seeds a small library: one movie with a preview, one playable movie without a preview, one episode, one unplayable movie. */
 function seed(db: DatabaseFactory["sqlite"]): void {
-	const insert = (sqlText: string, values: Value[]) => db.run(sqlText, values);
+	const insert: Insert = (sqlText, values) => db.run(sqlText, values);
+	seedLibrariesAndTitles(insert);
+	seedMediaFiles(insert);
+	seedWorkerRuns(insert);
+}
 
+function seedLibrariesAndTitles(insert: Insert): void {
 	insert("INSERT INTO libraries (id, name, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", [
 		"lib-movies",
 		"Movies",
@@ -87,7 +94,9 @@ function seed(db: DatabaseFactory["sqlite"]): void {
 		NOW,
 		NOW,
 	]);
+}
 
+function seedMediaFiles(insert: Insert): void {
 	const mediaFile =
 		"INSERT INTO media_files (id, library_id, metadata_id, movie_id, episode_id, file_path, file_name, duration, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 	insert(mediaFile, ["file-movie", "lib-movies", "title-movie", "movie-1", null, "/m/alpha.mkv", "alpha.mkv", 5400, NOW, NOW]);
@@ -108,7 +117,9 @@ function seed(db: DatabaseFactory["sqlite"]): void {
 			NOW,
 		],
 	);
+}
 
+function seedWorkerRuns(insert: Insert): void {
 	insert(
 		"INSERT INTO worker_operations (id, type, status, cancel_requested, total_items, pending_items, running_items, completed_items, failed_items, cancelled_items, retention_until, created_at, updated_at) VALUES (?,?,?,0,0,0,0,0,0,0,?,?,?)",
 		["op-regen", "trickplay-generate", "completed", null, NOW, NOW],

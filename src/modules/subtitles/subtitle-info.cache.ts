@@ -2,7 +2,8 @@ import type { SubtitleEntity } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/database/repositories/media-files.repository";
 import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
 import { MINUTE } from "@/server.constants";
-import { BaseService } from "@/utils/base-service";
+import { assertFound } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 
 export interface SubtitleContentInfo {
@@ -25,7 +26,10 @@ const defaultDependencies: ServiceDependencies = {
 	findMediaFilePath: async (mediaFileId) => (await mediaRepository.findForSubtitleExtraction(mediaFileId))?.filePath ?? null,
 };
 
-export class SubtitleInfoCache extends BaseService {
+export class SubtitleInfoCache {
+	readonly serviceName = "SubtitleInfoCache";
+	readonly logger = createLogger("SubtitleInfoCache");
+
 	private readonly dependencies: ServiceDependencies;
 	private readonly cache = new MemoryCache<SubtitleContentInfo>({
 		ttlMs: 30 * MINUTE,
@@ -34,7 +38,6 @@ export class SubtitleInfoCache extends BaseService {
 	});
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("SubtitleInfoCache");
 		this.dependencies = dependencies;
 	}
 
@@ -48,12 +51,12 @@ export class SubtitleInfoCache extends BaseService {
 
 	private async load(id: string): Promise<SubtitleContentInfo> {
 		const subtitle = await this.dependencies.findSubtitle(id);
-		this.assertExists(subtitle, "Subtitle", id);
+		assertFound(subtitle, "Subtitle", id);
 
 		let mediaFilePath: string | undefined;
 		if (subtitle.type === "embedded") {
 			const candidatePath = await this.dependencies.findMediaFilePath(subtitle.mediaFileId);
-			this.assertExists(candidatePath, "Media file", subtitle.mediaFileId);
+			assertFound(candidatePath, "Media file", subtitle.mediaFileId);
 			mediaFilePath = candidatePath;
 		}
 

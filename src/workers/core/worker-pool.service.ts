@@ -5,9 +5,9 @@ import { workerOperationRepository } from "@/database/repositories/worker-operat
 import { type WorkerExecutionRecord, workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { MINUTE } from "@/server.constants";
-import { BaseService } from "@/utils/base-service";
 import { errorMessage } from "@/utils/errors";
 import { safeParseJson } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
 import { getRetryDelay } from "../utils/worker-policy.utils";
 
@@ -34,15 +34,14 @@ const DEFAULT_WORKER_TIMEOUT_MS = 5 * MINUTE;
 /** Handlers report progress per processed item; DB writes are throttled to this cadence. */
 const PROGRESS_WRITE_MIN_INTERVAL_MS = 1_000;
 
-export class WorkerExecutionPoolService extends BaseService {
+export class WorkerExecutionPoolService {
+	readonly serviceName = "WorkerExecutionPoolService";
+	readonly logger = createLogger("WorkerExecutionPoolService");
+
 	private readonly running = new Map<string, ActiveExecution>();
 	private readonly runningCountByWorker = new Map<string, number>();
 	private runnerId = "default-runner";
 	private onSlotFreedCallback?: (() => void) | undefined;
-
-	constructor() {
-		super("WorkerExecutionPoolService");
-	}
 
 	setRunnerId(runnerId: string): void {
 		this.runnerId = runnerId;

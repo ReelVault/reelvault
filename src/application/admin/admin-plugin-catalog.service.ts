@@ -5,7 +5,7 @@ import type {
 	UpdatePluginRepositoryBody,
 } from "@reelvault/sdk/common";
 import { type PluginCatalogView, pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { recordAuditSafe } from "./admin-audit.service";
 
@@ -59,7 +59,7 @@ class AdminPluginCatalogService {
 
 	async deleteRepository(id: string, context: AuditContext): Promise<{ success: boolean }> {
 		const before = await pluginCatalogService.listRepositories().then((rows) => rows.find((row) => row.id === id));
-		if (!before) throw new NotFoundError(`Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		if (!before) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		await pluginCatalogService.deleteRepository(id);
 		recordAuditSafe(

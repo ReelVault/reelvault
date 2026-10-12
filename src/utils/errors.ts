@@ -31,88 +31,27 @@ interface DomainErrorOptions extends ErrorOptions {
 }
 
 /**
- * Base class for all expected/handled failures.
+ * The one expected/handled failure type. `category` picks the HTTP status and
+ * `code` is the stable machine code clients translate: call sites write
+ * `new DomainError("not_found", message, { code })`.
  *
  * `message` is a developer-facing diagnostic kept for server logs only — it is
  * deliberately NOT part of the API response. Clients receive `code` + `params`
  * and translate locally.
  */
-export abstract class DomainError extends Error {
-	abstract readonly category: DomainErrorCategory;
+export class DomainError extends Error {
+	readonly category: DomainErrorCategory;
 	readonly code: string;
 	readonly params?: DomainErrorParams | undefined;
 	readonly details?: unknown;
 
-	protected constructor(category: DomainErrorCategory, message: string, options?: DomainErrorOptions) {
+	constructor(category: DomainErrorCategory, message: string, options?: DomainErrorOptions) {
 		super(message, options);
-		this.name = this.constructor.name;
+		this.name = "DomainError";
+		this.category = category;
 		this.code = options?.code ?? category;
 		this.params = options?.params;
 		this.details = options?.details;
-	}
-}
-
-export class ValidationError extends DomainError {
-	readonly category = "validation" as const;
-
-	constructor(message: string, options?: DomainErrorOptions) {
-		super("validation", message, options);
-	}
-}
-
-export class UnauthorizedError extends DomainError {
-	readonly category = "unauthorized" as const;
-
-	constructor(message: string, options?: DomainErrorOptions) {
-		super("unauthorized", message, options);
-	}
-}
-
-export class ForbiddenError extends DomainError {
-	readonly category = "forbidden" as const;
-
-	constructor(message: string, options?: DomainErrorOptions) {
-		super("forbidden", message, options);
-	}
-}
-
-export class NotFoundError extends DomainError {
-	readonly category = "not_found" as const;
-
-	constructor(message: string, options?: DomainErrorOptions) {
-		super("not_found", message, options);
-	}
-}
-
-export class ConflictError extends DomainError {
-	readonly category = "conflict" as const;
-
-	constructor(message: string, options?: DomainErrorOptions) {
-		super("conflict", message, options);
-	}
-}
-
-export class RequestTimeoutError extends DomainError {
-	readonly category = "timeout" as const;
-
-	constructor(message: string, options?: DomainErrorOptions) {
-		super("timeout", message, options);
-	}
-}
-
-export class TooManyRequestsError extends DomainError {
-	readonly category = "too_many_requests" as const;
-
-	constructor(message: string, options?: DomainErrorOptions) {
-		super("too_many_requests", message, options);
-	}
-}
-
-export class InternalError extends DomainError {
-	readonly category = "internal" as const;
-
-	constructor(message: string, options?: DomainErrorOptions) {
-		super("internal", message, options);
 	}
 }
 
@@ -148,19 +87,62 @@ export function definedParams(params: DomainErrorParams | undefined): Record<str
 }
 
 /** Canonical not-found error carrying the translatable code + params for an entity. */
-export function notFoundError(entityType: string, entityId?: string): NotFoundError {
+export function notFoundError(entityType: string, entityId?: string): DomainError {
 	const message = entityId !== undefined ? `${entityType} not found: ${entityId}` : `${entityType} not found`;
 
-	return new NotFoundError(message, {
+	return new DomainError("not_found", message, {
 		code: "entity.not_found",
 		...(entityId !== undefined ? { params: { entityType, entityId } } : {}),
 	});
 }
 
+type ErrorFactory = Error | ((cause?: unknown) => Error);
+
 /**
- * Standalone assertion for use outside BaseService (workers, utilities).
- * Throws NotFoundError when the value is null/undefined.
+ * Throws a `not_found` DomainError when the value is null/undefined, or `customThrow`
+ * (an instance, or a factory called with no arguments) when one is given.
  */
-export function assertFound<T>(value: T | null | undefined, entityType: string, entityId?: string): asserts value is T {
-	if (value == null) throw notFoundError(entityType, entityId);
+export function assertFound<T>(
+	value: T | null | undefined,
+	entityType: string,
+	entityId?: string,
+	customThrow?: ErrorFactory,
+): asserts value is T {
+	if (value != null) return;
+	if (customThrow) throw typeof customThrow === "function" ? customThrow() : customThrow;
+
+	throw notFoundError(entityType, entityId);
+}
+
+export function assertProfileId(profileId: string | undefined): asserts profileId is string {
+	if (!profileId) throw new DomainError("unauthorized", "Active profile required", { code: "auth.profile_required" });
+}
+
+export function assertUserId(userId: string | undefined): asserts userId is string {
+	if (!userId) throw new DomainError("unauthorized", "Active user required", { code: "auth.user_required" });
+}
+
+/** Guards a dependency that must always be present — its absence is a caller bug (500), not a client-facing not-found (404). */
+export function assertPresent<T>(value: T | null | undefined, message: string): asserts value is T {
+	if (value == null) throw new DomainError("internal", message);
+}
+
+const ERROR_CODE_PATTERN = /^[a-z][a-z0-9_.]{0,63}$/;
+
+/**
+ * The code a failure is recorded and reported with: a domain error keeps its own code, anything else gets
+ * the fallback. The exception message itself is never stored or returned.
+ */
+export function errorCodeOf(error: unknown, fallback: string): string {
+	return error instanceof DomainError ? error.code : fallback;
+}
+
+/**
+ * A stored error value as a response code. Values written by this release are codes already; older rows
+ * hold raw messages, which become the fallback so no exception text reaches a response.
+ */
+export function toErrorCode(stored: string | null | undefined, fallback: string): string | null {
+	if (!stored) return null;
+
+	return ERROR_CODE_PATTERN.test(stored) ? stored : fallback;
 }

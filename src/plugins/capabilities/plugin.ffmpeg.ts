@@ -18,17 +18,20 @@ import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
-import { InternalError, NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { hardenAnalyseArgs, processFailureDetail } from "./ffmpeg/analyse-args.hardener";
 import { assertFrameExtractionRequest, assertSpriteExtractionRequest, contentTypeFor } from "./ffmpeg/request-validation";
 
-class PluginFfmpegService extends BaseService {
+class PluginFfmpegService {
+	readonly serviceName = "PluginFfmpegService";
+	readonly logger = createLogger("PluginFfmpegService");
+
 	/**
 	 * Plugin-triggered ffmpeg analyses share the machine with playback transcoding —
 	 * a batch plugin must not be able to spawn an unbounded number of ffmpeg
@@ -37,10 +40,6 @@ class PluginFfmpegService extends BaseService {
 	private readonly analyseSemaphore = PromiseUtils.createSemaphore(() =>
 		clamp(Math.ceil(systemResourcesService.getMetrics().capacity / 2), 1, 4),
 	);
-
-	constructor() {
-		super("PluginFfmpegService");
-	}
 
 	/**
 	 * Generic ffmpeg run for analysis-type jobs (loudnorm passes, scene detection…).
@@ -158,19 +157,16 @@ class PluginFfmpegService extends BaseService {
 		await PromiseUtils.mapConcurrent(request.timeMs, systemResourcesService.getHeavySubprocessConcurrency(), async (timeMs, index) => {
 			const paddedIndex = String(index).padStart(4, "0");
 			const framePath = PathUtils.join(framesDir, `frame_${paddedIndex}.${ext}`);
-			const frameCmd = buildSingleFrameExtractionCommand(
-				filePath,
+			const frameInput = {
+				inputPath: filePath,
 				timeMs,
-				request.width,
-				request.height,
-				request.format ?? "webp",
-				framePath,
-				hwDecodeArgs,
-			);
-			const softwareFrameCmd =
-				hwDecodeArgs.length > 0
-					? buildSingleFrameExtractionCommand(filePath, timeMs, request.width, request.height, request.format ?? "webp", framePath)
-					: undefined;
+				width: request.width,
+				height: request.height,
+				format: request.format ?? "webp",
+				outputPath: framePath,
+			};
+			const frameCmd = buildSingleFrameExtractionCommand({ ...frameInput, hwDecodeArgs });
+			const softwareFrameCmd = hwDecodeArgs.length > 0 ? buildSingleFrameExtractionCommand(frameInput) : undefined;
 			const result = await this.runWithHwFallback(frameCmd, softwareFrameCmd, (exitCode) =>
 				this.logger.warn("HW decode failed for sprite frame — retrying with software decode", {
 					mediaFileId: request.mediaFileId,
@@ -185,7 +181,7 @@ class PluginFfmpegService extends BaseService {
 					new Error(processFailureDetail(result.stderr, result.exitCode, "FFmpeg process")),
 					{ mediaFileId: request.mediaFileId, timeMs, exitCode: result.exitCode },
 				);
-				throw new InternalError("FFmpeg sprite extraction failed", { code: "plugin.ffmpeg.process_failed" });
+				throw new DomainError("internal", "FFmpeg sprite extraction failed", { code: "plugin.ffmpeg.process_failed" });
 			}
 		});
 	}
@@ -211,7 +207,7 @@ class PluginFfmpegService extends BaseService {
 				mediaFileId: request.mediaFileId,
 				exitCode: tileExitCode,
 			});
-			throw new InternalError("FFmpeg sprite extraction failed", { code: "plugin.ffmpeg.process_failed" });
+			throw new DomainError("internal", "FFmpeg sprite extraction failed", { code: "plugin.ffmpeg.process_failed" });
 		}
 
 		return { columns, rows };
@@ -228,7 +224,7 @@ class PluginFfmpegService extends BaseService {
 		const size = spriteFile.size;
 		if (size === 0 || size > serverConfig.plugins.ffmpeg.maxOutputBytes) {
 			await FileUtils.delete(spriteOutputPath);
-			throw new InternalError("FFmpeg returned an invalid sprite size", { code: "plugin.ffmpeg.invalid_output" });
+			throw new DomainError("internal", "FFmpeg returned an invalid sprite size", { code: "plugin.ffmpeg.invalid_output" });
 		}
 
 		const content = new Uint8Array(await spriteFile.arrayBuffer());
@@ -250,7 +246,7 @@ class PluginFfmpegService extends BaseService {
 			fields: QueryFields.parse({ fields: "id,filePath" }),
 		});
 		if (!(mediaFile && (await FileUtils.exists(mediaFile.filePath)))) {
-			throw new NotFoundError(`Media file ${mediaFileId} is unavailable`, { code: "plugin.ffmpeg.media_not_found" });
+			throw new DomainError("not_found", `Media file ${mediaFileId} is unavailable`, { code: "plugin.ffmpeg.media_not_found" });
 		}
 
 		return mediaFile;
@@ -310,14 +306,14 @@ class PluginFfmpegService extends BaseService {
 					exitCode,
 				},
 			);
-			throw new InternalError(`FFmpeg ${label} extraction failed`, { code: "plugin.ffmpeg.process_failed" });
+			throw new DomainError("internal", `FFmpeg ${label} extraction failed`, { code: "plugin.ffmpeg.process_failed" });
 		}
 
 		const tempFile = file(tempFilePath);
 		const size = tempFile.size;
 		if (size === 0 || size > serverConfig.plugins.ffmpeg.maxOutputBytes) {
 			await FileUtils.delete(tempFilePath);
-			throw new InternalError(`FFmpeg returned an invalid ${label} size`, { code: "plugin.ffmpeg.invalid_output" });
+			throw new DomainError("internal", `FFmpeg returned an invalid ${label} size`, { code: "plugin.ffmpeg.invalid_output" });
 		}
 
 		// Read the (size-bounded) result into memory so the temp file can be

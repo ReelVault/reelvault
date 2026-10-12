@@ -35,11 +35,12 @@ import { workerOperationRepository } from "@/database/repositories/worker-operat
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { BaseService } from "@/utils/base-service";
-import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
+import { assertFound, DomainError, notFoundError } from "@/utils/errors";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
+import { runSafely } from "@/utils/safe-execute";
 import { runMediaCleanup } from "@/utils/server-data.utils";
 import { mapLibraryType } from "@/utils/type.utils";
 import {
@@ -94,7 +95,7 @@ function normalizeMetadataLanguage(value: string | null | undefined): string | n
 	if (!trimmed) return null;
 
 	if (!LANGUAGE_TAG_PATTERN.test(trimmed)) {
-		throw new ValidationError("metadataLanguage must be an ISO language code like 'pl' or 'en-US'", {
+		throw new DomainError("validation", "metadataLanguage must be an ISO language code like 'pl' or 'en-US'", {
 			code: "library.invalid_metadata_language",
 		});
 	}
@@ -102,9 +103,11 @@ function normalizeMetadataLanguage(value: string | null | undefined): string | n
 	return trimmed;
 }
 
-class LibrariesService extends BaseService {
+class LibrariesService {
+	readonly serviceName = "LibrariesService";
+	readonly logger = createLogger("LibrariesService");
+
 	constructor() {
-		super("LibrariesService");
 		// Break the libraries ↔ watcher import cycle: the watcher calls back here.
 		libraryWatcherService.registerScanner((libraryId, pathId) => this.scanPath(libraryId, pathId));
 		libraryWatcherService.registerLibraryScanner((libraryId) => this.scan(libraryId));
@@ -113,13 +116,13 @@ class LibrariesService extends BaseService {
 	async getAll<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & LibrarySorting & LibraryFilters,
 	): Promise<PaginatedResponse<SelectFields<LibraryWithRelations, F>>> {
-		return await this.safeExecute("getAll", async () => await librariesRepository.findPage(query));
+		return await runSafely(this, "getAll", async () => await librariesRepository.findPage(query));
 	}
 
 	async getById<F extends string>(libraryId: string, query?: FieldsQuery<F>, options?: { siblings?: boolean }) {
-		return await this.safeExecute("getById", async () => {
+		return await runSafely(this, "getById", async () => {
 			const library = await librariesRepository.findByIdForRead(libraryId, query);
-			this.assertExists(library, "Library", libraryId);
+			assertFound(library, "Library", libraryId);
 
 			if (options?.siblings) {
 				const [{ data: siblings }, providerPriorities] = await Promise.all([
@@ -144,12 +147,12 @@ class LibrariesService extends BaseService {
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<LibraryWithRelations, F>> {
-		return await this.safeExecute("create", async () => {
+		return await runSafely(this, "create", async () => {
 			this.assertPathsExist(body.paths);
 			// Direct probe (not findPage) — the count cache would hide a library
 			// created seconds ago and the duplicate would slip through as 200.
 			if (await librariesRepository.hasNameConflict(body.name, body.type)) {
-				throw new ConflictError(`A ${body.type} library named "${body.name}" already exists`, { code: "library.name_conflict" });
+				throw new DomainError("conflict", `A ${body.type} library named "${body.name}" already exists`, { code: "library.name_conflict" });
 			}
 
 			const metadataLanguage = normalizeMetadataLanguage(body.metadataLanguage);
@@ -157,7 +160,7 @@ class LibrariesService extends BaseService {
 			if (!library) {
 				// Lost a race against a concurrent create with the same (name, type)
 				// — the pre-check above only catches non-concurrent duplicates.
-				throw new ConflictError(`A ${body.type} library named "${body.name}" already exists`, { code: "library.name_conflict" });
+				throw new DomainError("conflict", `A ${body.type} library named "${body.name}" already exists`, { code: "library.name_conflict" });
 			}
 
 			if (body.providerPriorities) {
@@ -189,15 +192,15 @@ class LibrariesService extends BaseService {
 		query?: FieldsQuery<F>,
 		context?: AdminAuditContext,
 	): Promise<SelectFields<LibraryWithRelations, F>> {
-		return await this.safeExecute("update", async () => {
+		return await runSafely(this, "update", async () => {
 			if (body.paths) this.assertPathsExist(body.paths);
 
 			const before = await librariesRepository.findWithPaths(libraryId);
-			this.assertExists(before, "Library", libraryId);
+			assertFound(before, "Library", libraryId);
 			// Renaming onto an existing (name, type) would otherwise die on the
 			// unique index as a raw 500.
 			if (body.name && (await librariesRepository.hasNameConflict(body.name, body.type ?? before.type, libraryId))) {
-				throw new ConflictError(`A ${body.type ?? before.type} library named "${body.name}" already exists`, {
+				throw new DomainError("conflict", `A ${body.type ?? before.type} library named "${body.name}" already exists`, {
 					code: "library.name_conflict",
 				});
 			}
@@ -208,7 +211,7 @@ class LibrariesService extends BaseService {
 				metadataLanguage === undefined ? body : { ...body, metadataLanguage },
 				query,
 			);
-			this.assertExists(result, "Library", libraryId);
+			assertFound(result, "Library", libraryId);
 			ingestLibraryCache.delete(libraryId);
 			// Dynamic import keeps the catalog graph out of the library service's
 			// module-load cycle; this path runs once per admin edit.
@@ -247,15 +250,15 @@ class LibrariesService extends BaseService {
 		for (const item of paths) {
 			const resolved = PathUtils.resolve(item.path.trim());
 			if (!existsSync(resolved)) {
-				throw new ValidationError(`Source path does not exist: ${resolved}`, { code: "library.path_not_found" });
+				throw new DomainError("validation", `Source path does not exist: ${resolved}`, { code: "library.path_not_found" });
 			}
 		}
 	}
 
 	async delete(libraryId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
-		return await this.safeExecute("delete", async () => {
+		return await runSafely(this, "delete", async () => {
 			const library = await librariesRepository.findWithPaths(libraryId);
-			this.assertExists(library, "Library", libraryId);
+			assertFound(library, "Library", libraryId);
 			ingestLibraryCache.delete(libraryId);
 
 			const cleanup = await librariesRepository.deleteWithDependents(libraryId);
@@ -285,13 +288,13 @@ class LibrariesService extends BaseService {
 	 */
 	private async getLibraryForScan<F extends string>(libraryId: string, query: FieldsQuery<F>) {
 		const library = await librariesRepository.findByIdForRead(libraryId, query);
-		this.assertExists(library, "Library", libraryId);
+		assertFound(library, "Library", libraryId);
 
 		return library;
 	}
 
 	async scan(libraryId: string, context?: AdminAuditContext) {
-		return await this.safeExecute("scan", async () => {
+		return await runSafely(this, "scan", async () => {
 			const library = await this.getLibraryForScan(libraryId, { fields: "id,paths.path" });
 
 			const data = {
@@ -317,7 +320,7 @@ class LibrariesService extends BaseService {
 
 	/** Queues a scan of every library in order. The library-scan worker runs one scan at a time, so they run one after another. */
 	async scanAll(context?: AdminAuditContext) {
-		return await this.safeExecute("scanAll", async () => {
+		return await runSafely(this, "scanAll", async () => {
 			const libraryIds = await librariesRepository.findAllIds();
 			const queued: Array<{ libraryId: string; operationId: string }> = [];
 			for (const libraryId of libraryIds) {
@@ -331,7 +334,7 @@ class LibrariesService extends BaseService {
 
 	/** Cancels the queued and running scans of a library: its whole-library scan, its path scans and their catch-up passes. */
 	async cancelScans(libraryId: string, context?: AdminAuditContext) {
-		return await this.safeExecute("cancelScans", async () => {
+		return await runSafely(this, "cancelScans", async () => {
 			const library = await this.getLibraryForScan(libraryId, { fields: "id,paths.id" });
 			const { workerService } = await import("@/workers/worker.service");
 
@@ -361,11 +364,11 @@ class LibrariesService extends BaseService {
 	}
 
 	async scanPath(libraryId: string, pathId: string, context?: AdminAuditContext) {
-		return await this.safeExecute("scanPath", async () => {
+		return await runSafely(this, "scanPath", async () => {
 			const library = await this.getLibraryForScan(libraryId, { fields: "id,paths.id,paths.path,paths.isActive" });
 
 			const path = library.paths.find((item) => item.id === pathId && item.isActive);
-			this.assertExists(path, "Library path", pathId);
+			assertFound(path, "Library path", pathId);
 
 			const result = await this.triggerLibraryScan(
 				{ libraryId: library.id, paths: [path.path], pathId: path.id },
@@ -388,7 +391,7 @@ class LibrariesService extends BaseService {
 	}
 
 	async getScanFindings(libraryId: string, status: ScanFindingStatus = "active"): Promise<ScanFindingsResponse> {
-		return await this.safeExecute("getScanFindings", async () => {
+		return await runSafely(this, "getScanFindings", async () => {
 			await this.getLibraryForScan(libraryId, { fields: "id" });
 
 			const data = await scanFindingsRepository.list(libraryId, status);
@@ -404,11 +407,11 @@ class LibrariesService extends BaseService {
 		ignored: boolean,
 		context?: AdminAuditContext,
 	): Promise<ScanFindingIgnoredResponse> {
-		return await this.safeExecute("setScanFindingIgnored", async () => {
+		return await runSafely(this, "setScanFindingIgnored", async () => {
 			await this.getLibraryForScan(libraryId, { fields: "id" });
 
 			const updated = await scanFindingsRepository.setIgnored(libraryId, filePath, ignored);
-			this.assertFound(updated, "Scan finding", filePath);
+			if (!updated) throw notFoundError("Scan finding", filePath);
 
 			recordAuditSafe(
 				{
@@ -427,10 +430,10 @@ class LibrariesService extends BaseService {
 
 	/** Searches the providers for the title parsed from a finding's file name. Runs on request only; only `no_metadata_match` findings are searched. */
 	async getScanFindingCandidates(libraryId: string, filePath: string): Promise<ScanFindingCandidatesResponse> {
-		return await this.safeExecute("getScanFindingCandidates", async () => {
+		return await runSafely(this, "getScanFindingCandidates", async () => {
 			const library = await this.getLibraryForScan(libraryId, { fields: "id,type" });
 			const finding = await scanFindingsRepository.findByPath(libraryId, filePath);
-			this.assertExists(finding, "Scan finding", filePath);
+			assertFound(finding, "Scan finding", filePath);
 
 			const identity = parseFileName(finding.fileName);
 			const searchTitle = identity?.title ?? null;
@@ -451,7 +454,7 @@ class LibrariesService extends BaseService {
 
 	/** Each library's queued or running scan. A running scan is reported in place of a queued one for the same library. */
 	async getScanProgress(): Promise<LibraryScanProgressResponse> {
-		return await this.safeExecute("getScanProgress", async () => {
+		return await runSafely(this, "getScanProgress", async () => {
 			const byLibrary = new Map<string, LibraryScanProgress>();
 			for (const scan of await workerOperationRepository.findActiveLibraryScans()) {
 				const current = byLibrary.get(scan.libraryId);
@@ -463,10 +466,10 @@ class LibrariesService extends BaseService {
 	}
 
 	async checkErrors(libraryPaths: string[], context?: AdminAuditContext) {
-		return await this.safeExecute("checkErrors", async () => {
+		return await runSafely(this, "checkErrors", async () => {
 			const normalizedPaths = normalizeLibraryPaths(libraryPaths);
 			if (normalizedPaths.length === 0)
-				throw new ValidationError("At least one library path is required", { code: "library.path_required" });
+				throw new DomainError("validation", "At least one library path is required", { code: "library.path_required" });
 
 			const data: LibraryErrorsCheckData = { libraryPaths: normalizedPaths };
 			const dedupeKey = createLibraryErrorsCheckDedupeKey(normalizedPaths);
@@ -496,11 +499,11 @@ class LibrariesService extends BaseService {
 
 	/** Status of a check queued by `checkErrors`; the result is read from the finished job once the check has completed. */
 	async getErrorsCheckStatus(operationId: string): Promise<LibraryErrorsCheckStatus> {
-		return await this.safeExecute("getErrorsCheckStatus", async () => {
+		return await runSafely(this, "getErrorsCheckStatus", async () => {
 			const { workerService } = await import("@/workers/worker.service");
 			const operation = await workerService.getOperation(operationId);
 			if (operation?.type !== "library-errors-check") {
-				throw new NotFoundError("Error check operation not found", { code: "library.errors_check_not_found" });
+				throw new DomainError("not_found", "Error check operation not found", { code: "library.errors_check_not_found" });
 			}
 
 			let result: LibraryErrorsCheckResult | null = null;
@@ -518,7 +521,7 @@ class LibrariesService extends BaseService {
 
 	/** Every library's paths as they are now: whether each exists, whether the watcher covers it, and when the library was last scanned. */
 	async getHealth(): Promise<LibraryHealthResponse> {
-		return await this.safeExecute("getHealth", async () => {
+		return await runSafely(this, "getHealth", async () => {
 			const { data: libraries } = await librariesRepository.findPage({ limit: MAX_HEALTH_LIBRARIES });
 			const unwatchable = new Map(libraryWatcherService.getUnwatchablePaths().map((failure) => [failure.pathId, failure]));
 			const lastScans = await workerOperationRepository.findLatestLibraryScanTimes(libraries.map((library) => library.id));

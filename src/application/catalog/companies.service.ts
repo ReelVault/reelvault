@@ -1,6 +1,7 @@
 import type { Company, CompanyFilters, CompanySorting, CreateCompany, Metadata, UpdateCompany } from "@reelvault/sdk/common";
 import { companiesRepository } from "@/database/repositories/companies.repository";
 import { clamp } from "@/utils/math.utils";
+import { runSafely } from "@/utils/safe-execute";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 
 class CompaniesService extends DictionaryCrudService<
@@ -16,7 +17,7 @@ class CompaniesService extends DictionaryCrudService<
 	}
 
 	async getMetadata(companyId: string, limit = 100): Promise<Metadata[]> {
-		return await this.safeExecute("getMetadata", async () => {
+		return await runSafely(this, "getMetadata", async () => {
 			await this.getById(companyId, { fields: "id" });
 
 			return await this.repository.findMetadata({

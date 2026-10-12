@@ -16,7 +16,7 @@ import { sessionsService } from "@/application/auth/sessions.service";
 import { authMiddleware } from "@/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/middleware/rate-limit.middleware";
 import { MINUTE } from "@/server.constants";
-import { ForbiddenError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { isOriginAllowed } from "@/utils/http.utils";
 import { quickConnectRoutes } from "./quick-connect.routes";
 
@@ -37,7 +37,7 @@ export const authRoutes = new Elysia({
 
 		const origin = request.headers.get("origin");
 		if (origin && !isOriginAllowed(origin)) {
-			throw new ForbiddenError("Request origin is not allowed", { code: "auth.origin_denied" });
+			throw new DomainError("forbidden", "Request origin is not allowed", { code: "auth.origin_denied" });
 		}
 	})
 	.model({

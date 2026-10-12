@@ -6,7 +6,7 @@ import { mediaRepository } from "@/database/repositories/media-files.repository"
 import { schema } from "@/database/schema";
 import { QueryFields } from "@/database/utils/fields";
 import { groupBy } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 
 const MAX_LIST_MEDIA_LIMIT = 10_000;
@@ -22,10 +22,9 @@ interface PluginEpisodeMediaFile {
 	title?: string | undefined;
 }
 
-class PluginMediaService extends BaseService {
-	constructor() {
-		super("PluginMediaService");
-	}
+class PluginMediaService {
+	readonly serviceName = "PluginMediaService";
+	readonly logger = createLogger("PluginMediaService");
 
 	async get(mediaFileId: string): Promise<PluginMediaFile | null> {
 		const mediaFile = await mediaRepository.findByPrimaryId({

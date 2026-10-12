@@ -34,7 +34,7 @@ async function removeOperationBestEffort(operationId: string): Promise<void> {
  *
  * Lives next to `worker-runtime` (not on `worker.service`) so the queue and
  * scheduler services can use it without importing `worker.service` back — that
- * runtime cycle hits a `BaseService` TDZ (see worker-runtime.ts).
+ * runtime cycle reads uninitialised bindings at module load (see worker-runtime.ts).
  */
 export async function enqueueWithOperation<T>(
 	input: WorkerOperationInput,

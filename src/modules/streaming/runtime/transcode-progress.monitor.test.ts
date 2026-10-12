@@ -153,7 +153,9 @@ describe("TranscodeProgressMonitor", () => {
 		await monitor.onProcessAttached("s1");
 		expect(deps.calls.attach).toEqual(["op-1", "op-1"]);
 	});
+});
 
+describe("TranscodeProgressMonitor", () => {
 	test("a rejected slot claim (cancelled operation) does not poison the session", async () => {
 		const store = createStore(600_000);
 		let attempts = 0;

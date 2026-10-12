@@ -51,7 +51,7 @@ import { cached } from "@/middleware/response-cache.middleware";
 import { playbackProgressService } from "@/modules/streaming/progress/playback-progress.service";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
 import { trimAndFilter } from "@/utils/array.utils";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 /** The website checks at most this many titles per batch; a longer list is refused rather than scanned. */
 const WATCHLIST_STATUS_MAX_IDS = 500;
@@ -237,7 +237,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		async ({ query, profile }) => {
 			const metadataIds = trimAndFilter(query.ids.split(","));
 			if (metadataIds.length > WATCHLIST_STATUS_MAX_IDS) {
-				throw new ValidationError("Too many titles in one status request", {
+				throw new DomainError("validation", "Too many titles in one status request", {
 					code: "watchlist.statuses_too_many",
 					params: { limit: WATCHLIST_STATUS_MAX_IDS },
 				});

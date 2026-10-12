@@ -48,15 +48,23 @@ describe("scoreCandidate", () => {
 		const genreScores = new Map([["genre-action", 10]]);
 		const empty = new Map<string, number>();
 
-		const withGenre = scoreCandidate(["genre-action"], [], [], 5, genreScores, empty, empty);
-		const withoutGenre = scoreCandidate([], [], [], 5, genreScores, empty, empty);
+		const withGenre = scoreCandidate({ genreIds: ["genre-action"], keywordIds: [], castIds: [] }, 5, {
+			genre: genreScores,
+			keyword: empty,
+			cast: empty,
+		});
+		const withoutGenre = scoreCandidate({ genreIds: [], keywordIds: [], castIds: [] }, 5, {
+			genre: genreScores,
+			keyword: empty,
+			cast: empty,
+		});
 
 		expect(withGenre).toBeGreaterThan(withoutGenre);
 	});
 
 	test("popularity-only score equals popularity × POPULARITY_WEIGHT", () => {
 		const empty = new Map<string, number>();
-		const result = scoreCandidate([], [], [], 100, empty, empty, empty);
+		const result = scoreCandidate({ genreIds: [], keywordIds: [], castIds: [] }, 100, { genre: empty, keyword: empty, cast: empty });
 		expect(result).toBeCloseTo(100 * 0.03, 5);
 	});
 
@@ -64,9 +72,9 @@ describe("scoreCandidate", () => {
 		const scores = new Map([["x", 10]]);
 		const empty = new Map<string, number>();
 
-		const genreOnly = scoreCandidate(["x"], [], [], 0, scores, empty, empty);
-		const castOnly = scoreCandidate([], [], ["x"], 0, empty, empty, scores);
-		const kwOnly = scoreCandidate([], ["x"], [], 0, empty, scores, empty);
+		const genreOnly = scoreCandidate({ genreIds: ["x"], keywordIds: [], castIds: [] }, 0, { genre: scores, keyword: empty, cast: empty });
+		const castOnly = scoreCandidate({ genreIds: [], keywordIds: [], castIds: ["x"] }, 0, { genre: empty, keyword: empty, cast: scores });
+		const kwOnly = scoreCandidate({ genreIds: [], keywordIds: ["x"], castIds: [] }, 0, { genre: empty, keyword: scores, cast: empty });
 
 		expect(genreOnly).toBeCloseTo(10 * SIGNAL_WEIGHTS.genre, 5);
 		expect(castOnly).toBeCloseTo(10 * SIGNAL_WEIGHTS.cast, 5);

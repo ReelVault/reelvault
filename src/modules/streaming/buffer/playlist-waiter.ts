@@ -1,7 +1,7 @@
 import type { StreamingSession } from "@reelvault/sdk/common";
 import { sleep } from "bun";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { InternalError, RequestTimeoutError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { playlistFileCache } from "../playlist/playlist.cache";
@@ -42,7 +42,7 @@ export class PlaylistWaiter {
 			if (session && exitCode != null) {
 				const restarted = await retryWithSoftwareEncoder(sessionId, session);
 				if (!restarted) {
-					throw new InternalError(`Streaming process exited before creating the playlist (exit code ${exitCode})`, {
+					throw new DomainError("internal", `Streaming process exited before creating the playlist (exit code ${exitCode})`, {
 						code: "streaming_process_exited",
 					});
 				}
@@ -51,14 +51,14 @@ export class PlaylistWaiter {
 			}
 
 			if (!(session || this.reservations.isPending(sessionId))) {
-				throw new InternalError("Streaming process was not started", { code: "streaming_process_not_started" });
+				throw new DomainError("internal", "Streaming process was not started", { code: "streaming_process_not_started" });
 			}
 
 			const processHandle = session?.process;
 			const exitPromise: Promise<never> = processHandle
 				? (async () => {
 						const code = await processHandle.exited;
-						throw new InternalError(`Streaming process exited before creating the playlist (exit code ${code})`, {
+						throw new DomainError("internal", `Streaming process exited before creating the playlist (exit code ${code})`, {
 							code: "streaming_process_exited",
 						});
 					})()
@@ -71,8 +71,8 @@ export class PlaylistWaiter {
 				// no watcher can be created — keep it tight, it sits on playback start.
 				await Promise.race([PromiseUtils.waitForFile(playlistPath, timeoutMs, 25, signal), exitPromise]);
 			} catch (error) {
-				if (error instanceof RequestTimeoutError) {
-					throw new RequestTimeoutError(`Playlist was not generated within ${timeoutMs}ms`, { code: "playlist_generation_timeout" });
+				if (error instanceof DomainError && error.category === "timeout") {
+					throw new DomainError("timeout", `Playlist was not generated within ${timeoutMs}ms`, { code: "playlist_generation_timeout" });
 				}
 
 				throw error;

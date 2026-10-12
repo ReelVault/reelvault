@@ -1,6 +1,6 @@
 import type { StreamSeekResponse } from "@reelvault/sdk/common";
-import { BaseService } from "@/utils/base-service";
-import { RequestTimeoutError } from "@/utils/errors";
+import { assertFound, DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { isFiniteNumber } from "@/utils/type.utils";
 import { defaultFindForStreamingDuration, defaultRequireSession } from "../contracts";
 import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
@@ -21,11 +21,13 @@ const defaultDependencies: ServiceDependencies = {
 	seekTo: (sessionId, position, decision) => streamingRuntimeService.seekTo(sessionId, position, decision),
 };
 
-export class SeekService extends BaseService {
+export class SeekService {
+	readonly serviceName = "SeekService";
+	readonly logger = createLogger("SeekService");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("SeekService");
 		this.dependencies = dependencies;
 	}
 
@@ -33,7 +35,7 @@ export class SeekService extends BaseService {
 		const { requireSession, findForStreamingDuration, getSessionDecision, seekTo } = this.dependencies;
 		const access = requireSession(sessionId);
 		const file = await findForStreamingDuration(access.mediaFileId);
-		this.assertExists(file, "Streaming", access.mediaFileId);
+		assertFound(file, "Streaming", access.mediaFileId);
 
 		const rawPosition = isFiniteNumber(requestedPosition) ? requestedPosition : 0;
 		const duration = file.duration ?? null;
@@ -42,7 +44,7 @@ export class SeekService extends BaseService {
 		const position = clampSeekOffsetToDuration(rawPosition, duration);
 		const decision = getSessionDecision(sessionId);
 		if (!decision)
-			throw new RequestTimeoutError("Streaming session is not ready yet. Try again in a moment.", {
+			throw new DomainError("timeout", "Streaming session is not ready yet. Try again in a moment.", {
 				code: "stream.not_ready",
 			});
 

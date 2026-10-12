@@ -22,13 +22,13 @@ describe("direct-stream strategy", () => {
 		const strategy = new DirectStreamStrategy(config);
 
 		expect(
-			strategy.startSession(
-				"s1",
-				"/nonexistent/input.mkv",
-				"/tmp/reelvault-strategies/s1",
-				createMockPlaybackDecision({ mode: "direct-stream" }),
-				0,
-			),
+			strategy.startSession({
+				sessionId: "s1",
+				inputPath: "/nonexistent/input.mkv",
+				outputDir: "/tmp/reelvault-strategies/s1",
+				decision: createMockPlaybackDecision({ mode: "direct-stream" }),
+				startTime: 0,
+			}),
 		).rejects.toThrow("Input file does not exist");
 	});
 });
@@ -91,7 +91,13 @@ describe("direct-stream strategy output paths", () => {
 			const outputDir = "C:\\Users\\me\\AppData\\Local\\ReelVault\\data\\transcodes\\s1";
 			const strategy = new DirectStreamStrategy(config);
 
-			await strategy.startSession("s1", inputPath, outputDir, createMockPlaybackDecision({ mode: "direct-stream" }), 0);
+			await strategy.startSession({
+				sessionId: "s1",
+				inputPath,
+				outputDir,
+				decision: createMockPlaybackDecision({ mode: "direct-stream" }),
+				startTime: 0,
+			});
 
 			expect(playlistPath).toBe("C:/Users/me/AppData/Local/ReelVault/data/transcodes/s1/playlist.m3u8");
 			expect(outputArgs).toEqual(

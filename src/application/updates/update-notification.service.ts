@@ -3,7 +3,8 @@ import { notificationsService } from "@/application/notifications/notifications.
 import type { UpdateComponent } from "@/application/updates/update-environment";
 import { notificationsRepository } from "@/database/repositories/notifications.repository";
 import { usersRepository } from "@/database/repositories/users.repository";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { updateCheckService } from "./update-check.service";
 
 const UPDATE_NOTIFICATION_TYPE = "update_available";
@@ -14,10 +15,9 @@ const TITLE_KEYS: Record<UpdateComponent, string> = {
 	web: "notification.update_available_web",
 };
 
-class UpdateNotificationService extends BaseService {
-	constructor() {
-		super("UpdateNotificationService");
-	}
+class UpdateNotificationService {
+	readonly serviceName = "UpdateNotificationService";
+	readonly logger = createLogger("UpdateNotificationService");
 
 	/**
 	 * Refreshes both release checks and, when a newer version exists, sends one
@@ -25,7 +25,7 @@ class UpdateNotificationService extends BaseService {
 	 * (version, component) — the same release never notifies twice.
 	 */
 	async notifyIfUpdateAvailable(forceCheck = true): Promise<boolean> {
-		return await this.safeExecute("notifyIfUpdateAvailable", async () => {
+		return await runSafely(this, "notifyIfUpdateAvailable", async () => {
 			await updateCheckService.checkLatest(forceCheck);
 			const state = updateCheckService.getState();
 			const notifiedServer = await this.notifyComponent("server", state.serverLatest, state.serverUpdateAvailable);

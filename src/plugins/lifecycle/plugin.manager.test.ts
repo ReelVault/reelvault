@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginRuntime } from "@reelvault/sdk/plugin";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { PluginManager } from "./manager/plugin-manager.service";
 import type { PluginConfig } from "./plugin.config";
@@ -174,6 +174,22 @@ describe("PluginManager lifecycle orchestration", () => {
 		await manager.setEnabled("org.reelvault.m", false);
 		expect(calls).toEqual(["setDisabled:true", "unload:org.reelvault.m"]);
 	});
+});
+
+describe("PluginManager lifecycle orchestration", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeStubs = [];
+	});
+
+	afterEach(async () => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+		pluginRegistry.clear();
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	});
 
 	test("setEnabled still loads when the plugin has no lockfile record", async () => {
 		const { manager, loader, installer } = createManagerFixture(activeStubs);
@@ -243,6 +259,22 @@ describe("PluginManager lifecycle orchestration", () => {
 		await expect(manager.setEnabled("org.reelvault.m", true)).rejects.toThrow("broken build");
 		expect(manager.getStatus()).toEqual([]);
 	});
+});
+
+describe("PluginManager lifecycle orchestration", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeStubs = [];
+	});
+
+	afterEach(async () => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+		pluginRegistry.clear();
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	});
 
 	test("disable records the disabled status even when unloading throws", async () => {
 		const { manager, loader, registry } = createManagerFixture(activeStubs);
@@ -308,6 +340,22 @@ describe("PluginManager lifecycle orchestration", () => {
 
 		expect(setDisabled.calls).toEqual([["org.reelvault.m", true]]);
 		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.m", state: "disabled" })]);
+	});
+});
+
+describe("PluginManager lifecycle orchestration", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeStubs = [];
+	});
+
+	afterEach(async () => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+		pluginRegistry.clear();
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
 	});
 
 	test("installFromDirectory leaves a previously enabled plugin enabled", async () => {
@@ -383,6 +431,22 @@ describe("PluginManager lifecycle orchestration", () => {
 		await manager.reloadAll();
 		expect(calls).toEqual(["unloadAll", "loadAll"]);
 	});
+});
+
+describe("PluginManager lifecycle orchestration", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeStubs = [];
+	});
+
+	afterEach(async () => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+		pluginRegistry.clear();
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	});
 
 	test("getPluginDirectoryName resolves through the loader index", async () => {
 		const { manager } = createManagerFixture(activeStubs);
@@ -407,7 +471,7 @@ describe("PluginManager lifecycle orchestration", () => {
 		const installerStub = stubMethod(installer, "uninstall", () => {
 			calls.push("installer");
 
-			return Promise.reject(new ValidationError("not installed"));
+			return Promise.reject(new DomainError("validation", "not installed"));
 		});
 		activeStubs.push(prepareStub, removeDataStub, installerStub);
 
@@ -448,6 +512,22 @@ describe("PluginManager lifecycle orchestration", () => {
 			error: "reload blew up",
 			errorCode: "plugin.load_failed",
 		});
+	});
+});
+
+describe("PluginManager lifecycle orchestration", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeStubs = [];
+	});
+
+	afterEach(async () => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+		pluginRegistry.clear();
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
 	});
 
 	test("installFromDirectory rolls an upgrade back when the new version does not load", async () => {
@@ -512,6 +592,22 @@ describe("PluginManager lifecycle orchestration", () => {
 		activeStubs.push(stubMethod(loader, "load", () => Promise.reject(new Error("broken"))));
 
 		await expect(manager.setEnabled("org.reelvault.m", true)).rejects.toThrow("broken");
+	});
+});
+
+describe("PluginManager lifecycle orchestration", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeStubs = [];
+	});
+
+	afterEach(async () => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+		pluginRegistry.clear();
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
 	});
 
 	test("installFromDirectory activates a fresh install", async () => {
@@ -658,6 +754,30 @@ describe("PluginManager config details", () => {
 
 		expect(details.fields).toContainEqual({ name: "apiKey", type: "secret", label: "Api Key", hasValue: false });
 	});
+});
+
+describe("PluginManager config details", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeStubs = [];
+	});
+
+	afterEach(async () => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+		pluginRegistry.clear();
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	});
+
+	function stubRequiredApiKey(registry: PluginRegistry) {
+		return stubMethod(registry, "getConfigDefinition", () => ({
+			fields: {},
+			descriptors: [{ name: "apiKey", type: "secret", label: "API key", required: true }],
+			parse: (value: Record<string, unknown>) => ({ apiKey: value.apiKey ?? "" }),
+		}));
+	}
 
 	test("savePluginConfig persists the patch, reloads, and returns refreshed details", async () => {
 		const { manager, config, loader } = createManagerFixture(activeStubs);
@@ -691,17 +811,9 @@ describe("PluginManager config details", () => {
 
 		const error = await manager.savePluginConfig("org.reelvault.m", { language: "not a locale" }).catch((reason: unknown) => reason);
 
-		expect(error).toBeInstanceOf(ValidationError);
+		expect(error).toMatchObject({ category: "validation" });
 		expect(error).toMatchObject({ code: "plugin.config_invalid", params: { field: "language" } });
 	});
-
-	function stubRequiredApiKey(registry: PluginRegistry) {
-		return stubMethod(registry, "getConfigDefinition", () => ({
-			fields: {},
-			descriptors: [{ name: "apiKey", type: "secret", label: "API key", required: true }],
-			parse: (value: Record<string, unknown>) => ({ apiKey: value.apiKey ?? "" }),
-		}));
-	}
 
 	test("savePluginConfig refuses to save a required field that is still blank", async () => {
 		const { manager, config, registry } = createManagerFixture(activeStubs);
@@ -713,7 +825,7 @@ describe("PluginManager config details", () => {
 
 		const error = await manager.savePluginConfig("org.reelvault.m", { apiKey: "   " }).catch((reason: unknown) => reason);
 
-		expect(error).toBeInstanceOf(ValidationError);
+		expect(error).toMatchObject({ category: "validation" });
 		expect(error).toMatchObject({ code: "plugin.config_invalid", params: { field: "apiKey" } });
 	});
 
@@ -732,6 +844,30 @@ describe("PluginManager config details", () => {
 
 		expect(save.calls).toHaveLength(1);
 	});
+});
+
+describe("PluginManager config details", () => {
+	let activeStubs: Array<{ restore(): void }> = [];
+
+	beforeEach(() => {
+		activeStubs = [];
+	});
+
+	afterEach(async () => {
+		for (const stub of activeStubs.toReversed()) stub.restore();
+
+		activeStubs = [];
+		pluginRegistry.clear();
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	});
+
+	function stubRequiredApiKey(registry: PluginRegistry) {
+		return stubMethod(registry, "getConfigDefinition", () => ({
+			fields: {},
+			descriptors: [{ name: "apiKey", type: "secret", label: "API key", required: true }],
+			parse: (value: Record<string, unknown>) => ({ apiKey: value.apiKey ?? "" }),
+		}));
+	}
 
 	test("a stored value satisfies the requirement when the patch leaves the secret out", async () => {
 		const { manager, config, registry, loader } = createManagerFixture(activeStubs);

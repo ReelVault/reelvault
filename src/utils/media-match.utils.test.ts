@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	boundedLevenshtein,
+	extractYear,
 	fuzzyTitleDistance,
 	generateQueryVariants,
 	isSequelMismatch,
@@ -261,4 +262,21 @@ test("isSequelMismatch correctly respects originalTitle for The Fate of the Furi
 
 	// Searching for Iron Man (part 1) against Iron Man 3 is a mismatch
 	expect(isSequelMismatch("Iron Man", { title: "Iron Man 3", originalTitle: "Iron Man 3" })).toBe(true);
+});
+
+describe("extractYear", () => {
+	test("reads the year a date starts with", () => {
+		expect(extractYear("2020")).toBe(2020);
+		expect(extractYear("2020-05-01")).toBe(2020);
+		expect(extractYear("2020/05/01")).toBe(2020);
+	});
+
+	test("rejects missing, short and longer digit runs", () => {
+		expect(extractYear(undefined)).toBeUndefined();
+		expect(extractYear("")).toBeUndefined();
+		expect(extractYear("202")).toBeUndefined();
+		expect(extractYear("12345")).toBeUndefined();
+		expect(extractYear("abcd")).toBeUndefined();
+		expect(extractYear("0000")).toBeUndefined();
+	});
 });

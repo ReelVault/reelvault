@@ -1,4 +1,4 @@
-import { ConflictError, InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 /** Result shared by every scan/refresh trigger endpoint. */
 export interface DedupedEnqueue {
@@ -38,7 +38,8 @@ export async function enqueueDeduped(options: {
 		for (const { workerId, dedupeKey } of options.targets) {
 			const existing = await workerService.findActiveItem(workerId, dedupeKey);
 			if (existing) {
-				if (!existing.operationId) throw new InternalError(`Active ${options.label} has no operation`, { code: "worker.enqueue_failed" });
+				if (!existing.operationId)
+					throw new DomainError("internal", `Active ${options.label} has no operation`, { code: "worker.enqueue_failed" });
 
 				await options.onDeduped?.(existing.operationId);
 
@@ -58,7 +59,7 @@ export async function enqueueDeduped(options: {
 			async (enqueuedOperationId) => {
 				const enqueued = await options.enqueue(enqueuedOperationId);
 				if (!enqueued.operationId)
-					throw new InternalError(`${options.label} operation was not attached to its task`, { code: "worker.enqueue_failed" });
+					throw new DomainError("internal", `${options.label} operation was not attached to its task`, { code: "worker.enqueue_failed" });
 
 				return enqueued.operationId;
 			},
@@ -77,6 +78,6 @@ export async function enqueueDeduped(options: {
 		const racedTarget = await findActiveTarget();
 		if (racedTarget) return racedTarget;
 
-		throw new ConflictError(`Could not enqueue ${options.label}`, { cause: error, code: "worker.enqueue_failed" });
+		throw new DomainError("conflict", `Could not enqueue ${options.label}`, { cause: error, code: "worker.enqueue_failed" });
 	}
 }

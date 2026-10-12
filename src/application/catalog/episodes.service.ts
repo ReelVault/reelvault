@@ -6,7 +6,8 @@ import { QueryFields } from "@/database/utils/fields";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { NotFoundError } from "@/utils/errors";
+import { assertFound, DomainError } from "@/utils/errors";
+import { runSafely } from "@/utils/safe-execute";
 import { findFirstProviderResult, invalidateCatalogLists, mapProviderLinks, runBulkItem } from "./catalog.utils";
 import { DictionaryReadService } from "./dictionary-crud.service";
 
@@ -16,25 +17,25 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 	}
 
 	async refresh(episodeId: string, options: { forceImage?: boolean } = {}) {
-		return await this.safeExecute("refresh", async () => {
+		return await runSafely(this, "refresh", async () => {
 			const episode = await episodesRepository.findByPrimaryId({
 				primaryId: episodeId,
 				fields: QueryFields.parse({ fields: "id,seasonId,episodeNumber,title,overview,airDate,imageId" }),
 			});
-			this.assertExists(episode, "Episode", episodeId);
+			assertFound(episode, "Episode", episodeId);
 
 			const season = await seasonsRepository.findByPrimaryId({
 				primaryId: episode.seasonId,
 				fields: QueryFields.parse({ fields: "id,seasonNumber,metadataId" }),
 			});
-			this.assertExists(season, "Season", episode.seasonId);
+			assertFound(season, "Season", episode.seasonId);
 
 			const metadata = await metadataRepository.findProviderDetails(season.metadataId);
-			this.assertExists(metadata, "Metadata", season.metadataId);
+			assertFound(metadata, "Metadata", season.metadataId);
 
 			const providerLinks = mapProviderLinks(metadata.providers);
 			if (providerLinks.length === 0) {
-				throw new NotFoundError("Metadata provider not found for series", { code: "metadata.provider_not_found" });
+				throw new DomainError("not_found", "Metadata provider not found for series", { code: "metadata.provider_not_found" });
 			}
 
 			const seasonNum = season.seasonNumber;
@@ -80,7 +81,7 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 
 	/** Refreshes the listed episodes one after another, so provider calls stay sequential; each id reports its own outcome. */
 	async refreshMany(episodeIds: string[]) {
-		return await this.safeExecute("refreshMany", async () => {
+		return await runSafely(this, "refreshMany", async () => {
 			const results: BulkRefreshItem[] = [];
 			for (const episodeId of new Set(episodeIds)) {
 				results.push(await runBulkItem(episodeId, () => this.refresh(episodeId), "episode.refresh_failed"));

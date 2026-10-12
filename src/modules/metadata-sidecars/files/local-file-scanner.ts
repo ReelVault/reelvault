@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { EPISODE_SXXEXX_PATTERN } from "@/modules/recognition/utils/recognition.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { isNotNullish } from "@/utils/array.utils";
-import { errorMessage, ValidationError } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
@@ -103,7 +103,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 	private assertWithinRoot(path: string): void {
 		if (!PathUtils.isSubpath(path, this.libraryRoot)) {
-			throw new ValidationError(`Sidecar path must be inside configured library root: ${PathUtils.resolve(path)}`, {
+			throw new DomainError("validation", `Sidecar path must be inside configured library root: ${PathUtils.resolve(path)}`, {
 				code: "sidecar.path_outside_library",
 			});
 		}

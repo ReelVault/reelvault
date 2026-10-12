@@ -2,12 +2,11 @@ import type { MetadataItem } from "@reelvault/sdk/common";
 import type { MetadataAvailability, ProviderMediaType } from "@reelvault/sdk/plugin";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { QueryFields } from "@/database/utils/fields";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 
-class PluginMetadataService extends BaseService {
-	constructor() {
-		super("PluginMetadataService");
-	}
+class PluginMetadataService {
+	readonly serviceName = "PluginMetadataService";
+	readonly logger = createLogger("PluginMetadataService");
 
 	async get(metadataId: string): Promise<MetadataItem | null> {
 		const metadata = await metadataRepository.findById({

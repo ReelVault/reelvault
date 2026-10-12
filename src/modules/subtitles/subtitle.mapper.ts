@@ -1,5 +1,5 @@
 import type { CreateSubtitleRequest, Subtitle, SubtitleType } from "@reelvault/sdk/common";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { serializeDate } from "@/utils/time.utils";
 import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
 
@@ -7,11 +7,11 @@ export function resolveSubtitleType(body: Pick<Partial<CreateSubtitleRequest>, "
 	const hasSourcePath = body.sourcePath !== undefined;
 	const hasStreamIndex = body.streamIndex !== undefined;
 	if (hasSourcePath === hasStreamIndex)
-		throw new ValidationError("Subtitle must have exactly one of sourcePath or streamIndex", { code: "subtitle.source_invalid" });
+		throw new DomainError("validation", "Subtitle must have exactly one of sourcePath or streamIndex", { code: "subtitle.source_invalid" });
 
 	const inferredType: SubtitleType = hasSourcePath ? "external" : "embedded";
 	if (body.type && body.type !== inferredType)
-		throw new ValidationError(`Subtitle type ${body.type} does not match its source`, { code: "subtitle.type_mismatch" });
+		throw new DomainError("validation", `Subtitle type ${body.type} does not match its source`, { code: "subtitle.type_mismatch" });
 
 	return body.type ?? inferredType;
 }

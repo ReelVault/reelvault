@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { adminService } from "./admin.service";
 
@@ -12,7 +12,9 @@ afterEach(() => {
 describe("adminService.setPluginsEnabled", () => {
 	test("attempts every plugin and reports each outcome, so one failure does not stop the rest", async () => {
 		const setEnabled = stubMethod(pluginManager, "setEnabled", (pluginId: string) =>
-			pluginId === "org.example.broken" ? Promise.reject(new NotFoundError("Plugin not found: org.example.broken")) : Promise.resolve(),
+			pluginId === "org.example.broken"
+				? Promise.reject(new DomainError("not_found", "Plugin not found: org.example.broken"))
+				: Promise.resolve(),
 		);
 		stubs.push(setEnabled);
 

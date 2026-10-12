@@ -1,7 +1,7 @@
 import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import { FileUtils, readFile } from "@/utils/file.utils";
+import { extractYear } from "@/utils/media-match.utils";
 import type { CanonicalSidecarDocument, SidecarArtwork, SidecarFormatInput } from "../../sidecar.types";
-import { extractYear } from "../../sidecar-metadata.utils";
 import { assertXmlDocumentSize, readXmlDocument, type XmlDocument } from "../../xml/xml-document.reader";
 import { readXmlAttr, readXmlObject, readXmlObjects, readXmlText, readXmlTexts, readXmlValue } from "../../xml/xml-value.reader";
 import { mapJellyfinArtwork } from "./jellyfin-artwork.mapper";

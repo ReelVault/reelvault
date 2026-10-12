@@ -37,7 +37,7 @@ import { QueryUtils } from "@/database/utils/query-parser";
 import { createLocalMetadataStableKey, createProviderStableKey } from "@/database/utils/stable-key";
 import { runInTransaction } from "@/database/utils/transaction";
 import { hasEntry, toMap } from "@/utils/array.utils";
-import { InternalError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { buildCollectionOrderBy, type MetadataRepositoryFilters, metadataQueryMap, titleMatchFilter } from "./metadata-filters";
 import type { MoreLikeThisSource } from "./metadata-recommendations";
@@ -94,7 +94,7 @@ async function findMetadataProvider({
 	}
 
 	if (!where)
-		throw new ValidationError("Metadata provider lookup requires a provider ID or a complete external identity", {
+		throw new DomainError("validation", "Metadata provider lookup requires a provider ID or a complete external identity", {
 			code: "metadata_provider_lookup_requires",
 		});
 
@@ -830,7 +830,7 @@ class MetadataRepository {
 			metadata = await this.findOrCreate({ where: metadataWhere, values: metadataValues, tx });
 		}
 
-		if (!metadata) throw new InternalError("Error while creating metadata", { code: "metadata.create_failed" });
+		if (!metadata) throw new DomainError("internal", "Error while creating metadata", { code: "metadata.create_failed" });
 
 		const metadataWithStableKey = metadata.stableKey ? metadata : { ...metadata, stableKey };
 		const patch: { stableKey?: string; primaryProviderId?: string } = {};

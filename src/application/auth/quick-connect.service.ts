@@ -10,10 +10,11 @@ import { toPublicUser } from "@/application/auth/auth.service";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { issueSession } from "@/integrations/better-auth/better-auth.session";
 import { MINUTE } from "@/server.constants";
-import { BaseService } from "@/utils/base-service";
 import { secureRandomInt } from "@/utils/crypto.utils";
-import { InternalError, NotFoundError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { rewriteCookieDomain } from "@/utils/http.utils";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { isExpired } from "@/utils/time.utils";
 
 export interface QuickConnectEntry {
@@ -45,14 +46,16 @@ function isNativeClient(request: Request): boolean {
 	return request.headers.get("x-client-shell") === "native";
 }
 
-export class QuickConnectService extends BaseService {
+export class QuickConnectService {
+	readonly serviceName = "QuickConnectService";
+	readonly logger = createLogger("QuickConnectService");
+
 	private readonly entries = new Map<string, QuickConnectEntry>();
 	/** Secondary index: codes are looked up on every device poll — a linear scan over all entries ran per check. */
 	private readonly entriesByCode = new Map<string, QuickConnectEntry>();
 	private readonly sessionIssuer: typeof issueSession;
 
 	constructor(sessionIssuer: typeof issueSession = issueSession) {
-		super("QuickConnectService");
 		this.sessionIssuer = sessionIssuer;
 
 		// Clean up expired entries every 2 minutes
@@ -69,7 +72,7 @@ export class QuickConnectService extends BaseService {
 			if (!this.findByNormalizedCode(raw)) return `${raw.slice(0, 4)}-${raw.slice(4)}`;
 		}
 
-		throw new InternalError("Could not generate a unique quick-connect code", { code: "quick_connect.code_generation_failed" });
+		throw new DomainError("internal", "Could not generate a unique quick-connect code", { code: "quick_connect.code_generation_failed" });
 	}
 
 	private normalizeCode(raw: string): string {
@@ -114,7 +117,7 @@ export class QuickConnectService extends BaseService {
 	): Promise<{ signedToken: string; cookies: string[]; user: User }> {
 		const user = knownUser ?? (await usersRepository.findById(userId));
 		if (!user) {
-			throw new NotFoundError("User not found", { code: "quick_connect.user_not_found" });
+			throw new DomainError("not_found", "User not found", { code: "quick_connect.user_not_found" });
 		}
 
 		// The active profile reached this point only through the PIN-checked auth
@@ -130,7 +133,7 @@ export class QuickConnectService extends BaseService {
 	 * TV / Device pairing flow: Initiates a pending session and displays a code to the user.
 	 */
 	initiate(): Promise<QuickConnectInitiateResponse> {
-		return this.safeExecute("initiate", () => {
+		return runSafely(this, "initiate", () => {
 			const { entry, code } = this.createPendingEntry("device_pair");
 
 			return {
@@ -145,10 +148,10 @@ export class QuickConnectService extends BaseService {
 	 * TV / Device polling: Checks if the pending code has been authorized.
 	 */
 	check(secret: string, request: Request): Promise<Response> {
-		return this.safeExecute("check", async () => {
+		return runSafely(this, "check", async () => {
 			const entry = this.entries.get(secret);
 			if (!entry || isExpired(entry.expiresAt)) {
-				throw new NotFoundError("Quick connect session expired or not found", { code: "quick_connect.session_expired" });
+				throw new DomainError("not_found", "Quick connect session expired or not found", { code: "quick_connect.session_expired" });
 			}
 
 			if (entry.status === "pending") {
@@ -161,12 +164,12 @@ export class QuickConnectService extends BaseService {
 			this.removeEntry(secret);
 
 			if (!entry.userId) {
-				throw new NotFoundError("User not associated with session", { code: "quick_connect.session_user_missing" });
+				throw new DomainError("not_found", "User not associated with session", { code: "quick_connect.session_user_missing" });
 			}
 
 			const user = await usersRepository.findById(entry.userId);
 			if (!user) {
-				throw new NotFoundError("User not found", { code: "quick_connect.user_not_found" });
+				throw new DomainError("not_found", "User not found", { code: "quick_connect.user_not_found" });
 			}
 
 			const responseData: QuickConnectCheckResponse = {
@@ -186,18 +189,18 @@ export class QuickConnectService extends BaseService {
 	 * Logged-in user authorizes a TV / Device pairing code.
 	 */
 	authorize(code: string, user: User, profile?: Profile | null): Promise<{ success: boolean }> {
-		return this.safeExecute("authorize", async () => {
+		return runSafely(this, "authorize", async () => {
 			const normalized = this.normalizeCode(code);
 			const entry = this.findByNormalizedCode(normalized);
 
 			if (entry?.type !== "device_pair") {
-				throw new NotFoundError("Invalid or expired quick connect code", { code: "quick_connect.code_invalid" });
+				throw new DomainError("not_found", "Invalid or expired quick connect code", { code: "quick_connect.code_invalid" });
 			}
 
 			// Synchronous claim: two concurrent authorizes of the same code must not
 			// create two sessions (the pending check alone races across awaits).
 			if (entry.status !== "pending" || entry.authorizing) {
-				throw new ValidationError("Quick connect code has already been used", { code: "quick_connect.code_already_used" });
+				throw new DomainError("validation", "Quick connect code has already been used", { code: "quick_connect.code_already_used" });
 			}
 
 			entry.authorizing = true;
@@ -224,7 +227,7 @@ export class QuickConnectService extends BaseService {
 	 * Voucher flow: Logged-in user generates a quick login code directly from their account/profile.
 	 */
 	generate(user: User, profile?: Profile | null): Promise<QuickConnectGenerateResponse> {
-		return this.safeExecute("generate", () => {
+		return runSafely(this, "generate", () => {
 			const { code } = this.createPendingEntry("voucher", {
 				userId: user.id,
 				profileId: profile?.id,
@@ -271,16 +274,16 @@ export class QuickConnectService extends BaseService {
 	 * Device redeems a voucher code generated by an account/profile.
 	 */
 	redeem(code: string, request: Request): Promise<Response> {
-		return this.safeExecute("redeem", async () => {
+		return runSafely(this, "redeem", async () => {
 			const normalized = this.normalizeCode(code);
 			const entry = this.findByNormalizedCode(normalized);
 
 			if (entry?.type !== "voucher" || !entry.userId) {
-				throw new NotFoundError("Invalid or expired login code", { code: "quick_connect.voucher_invalid" });
+				throw new DomainError("not_found", "Invalid or expired login code", { code: "quick_connect.voucher_invalid" });
 			}
 
 			if (entry.status !== "pending") {
-				throw new ValidationError("Login code has already been used", { code: "quick_connect.voucher_already_used" });
+				throw new DomainError("validation", "Login code has already been used", { code: "quick_connect.voucher_already_used" });
 			}
 
 			// Invalidate voucher immediately so it's one-time use

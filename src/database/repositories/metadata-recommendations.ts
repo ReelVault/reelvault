@@ -1,5 +1,5 @@
 import type { FieldsConfig, MetadataWithRelation, SelectFields } from "@reelvault/sdk/common";
-import { and, count, desc, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import type { DatabaseTransaction } from "@/database/types";
@@ -148,6 +148,82 @@ async function loadSourceTraits(client: MoreLikeThisClient, metadataId: string):
 	return { type: metadataRow.type, collections, genres, keywords, crew, cast };
 }
 
+interface SimilarityTraits {
+	collectionIds: string[];
+	genreIds: string[];
+	keywordIds: string[];
+	directors: string[];
+	topCast: string[];
+	type: MoreLikeThisSource["type"];
+}
+
+/** Per-candidate score terms. Weights are chosen so collection and director rank highest, right after genre. */
+function buildSimilarityScores(traits: SimilarityTraits) {
+	const { collectionIds, genreIds, keywordIds, directors, topCast, type } = traits;
+
+	const collectionScore =
+		collectionIds.length > 0
+			? sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCollections} WHERE ${schema.metadataCollections.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCollections.collectionId, collectionIds)}) THEN -100 ELSE 0 END)`
+			: sql`0`;
+
+	const genreScore =
+		genreIds.length > 0
+			? sql`(SELECT COUNT(*) * 30 FROM ${schema.metadataGenres} WHERE ${schema.metadataGenres.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataGenres.genreId, genreIds)})`
+			: sql`0`;
+
+	const keywordScore =
+		keywordIds.length > 0
+			? sql`(SELECT COUNT(*) * 12 FROM ${schema.metadataKeywords} WHERE ${schema.metadataKeywords.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataKeywords.keywordId, keywordIds)})`
+			: sql`0`;
+
+	const directorScore =
+		directors.length > 0
+			? sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCrew} WHERE ${schema.metadataCrew.metadataId} = ${schema.metadata.id} AND ${schema.metadataCrew.job} LIKE '%Director%' AND ${inArray(schema.metadataCrew.personId, directors)}) THEN 80 ELSE 0 END)`
+			: sql`0`;
+
+	const castScore =
+		topCast.length > 0
+			? sql`(SELECT COUNT(*) * 15 FROM ${schema.metadataCast} WHERE ${schema.metadataCast.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCast.personId, topCast)})`
+			: sql`0`;
+
+	// Prefer the same type (movie -> movies, show -> show)
+	const typeScore = sql`CASE WHEN ${schema.metadata.type} = ${type} THEN 50 ELSE 0 END`;
+
+	return { collectionScore, genreScore, keywordScore, directorScore, castScore, typeScore };
+}
+
+/**
+ * Candidates that share at least one trait with the source. Each subset drives from the junction
+ * side, so SQLite starts at the trait matches instead of scanning every row of the metadata table.
+ */
+function buildCandidateFilter(client: MoreLikeThisClient, traits: Omit<SimilarityTraits, "type">): SQL | undefined {
+	const { collectionIds, genreIds, keywordIds, directors, topCast } = traits;
+
+	const candidateFeatureFilters: SQL[] = [];
+	const featureGroups = [
+		{ ids: collectionIds, table: schema.metadataCollections, column: schema.metadataCollections.collectionId },
+		{ ids: genreIds, table: schema.metadataGenres, column: schema.metadataGenres.genreId },
+		{ ids: keywordIds, table: schema.metadataKeywords, column: schema.metadataKeywords.keywordId },
+		{ ids: directors, table: schema.metadataCrew, column: schema.metadataCrew.personId },
+		{ ids: topCast, table: schema.metadataCast, column: schema.metadataCast.personId },
+	];
+	for (const group of featureGroups) {
+		if (group.ids.length > 0) {
+			// Drive the candidate set from the (small) junction side: `id IN (...)`
+			// lets SQLite start at the trait matches instead of scanning every row of
+			// the type and probing each one with a correlated EXISTS.
+			candidateFeatureFilters.push(
+				inArray(
+					schema.metadata.id,
+					client.select({ id: group.table.metadataId }).from(group.table).where(inArray(group.column, group.ids)),
+				),
+			);
+		}
+	}
+
+	return candidateFeatureFilters.length > 0 ? or(...candidateFeatureFilters) : undefined;
+}
+
 async function rankSimilarIds(
 	client: MoreLikeThisClient,
 	metadataId: string,
@@ -177,60 +253,16 @@ async function rankSimilarIds(
 	const topCast = topCastCandidates.slice(0, 5).map((c) => c.id);
 
 	// 2. Build the scoring queries
-	// Weights chosen so collection and director rank highest, right after genre
-	const collectionScore =
-		collectionIds.length > 0
-			? sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCollections} WHERE ${schema.metadataCollections.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCollections.collectionId, collectionIds)}) THEN -100 ELSE 0 END)`
-			: sql`0`;
+	const { collectionScore, genreScore, keywordScore, directorScore, castScore, typeScore } = buildSimilarityScores({
+		collectionIds,
+		genreIds,
+		keywordIds,
+		directors,
+		topCast,
+		type: source.type,
+	});
 
-	const genreScore =
-		genreIds.length > 0
-			? sql`(SELECT COUNT(*) * 30 FROM ${schema.metadataGenres} WHERE ${schema.metadataGenres.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataGenres.genreId, genreIds)})`
-			: sql`0`;
-
-	const keywordScore =
-		keywordIds.length > 0
-			? sql`(SELECT COUNT(*) * 12 FROM ${schema.metadataKeywords} WHERE ${schema.metadataKeywords.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataKeywords.keywordId, keywordIds)})`
-			: sql`0`;
-
-	const directorScore =
-		directors.length > 0
-			? sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCrew} WHERE ${schema.metadataCrew.metadataId} = ${schema.metadata.id} AND ${schema.metadataCrew.job} LIKE '%Director%' AND ${inArray(schema.metadataCrew.personId, directors)}) THEN 80 ELSE 0 END)`
-			: sql`0`;
-
-	const castScore =
-		topCast.length > 0
-			? sql`(SELECT COUNT(*) * 15 FROM ${schema.metadataCast} WHERE ${schema.metadataCast.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCast.personId, topCast)})`
-			: sql`0`;
-
-	// Prefer the same type (movie -> movies, show -> show)
-	const typeScore = sql`CASE WHEN ${schema.metadata.type} = ${source.type} THEN 50 ELSE 0 END`;
-
-	// First we narrow the candidate set. Every subset uses the index
-	// on the other side of the junction, so scoring never scans the whole metadata table.
-	const candidateFeatureFilters: SQL[] = [];
-	const featureGroups = [
-		{ ids: collectionIds, table: schema.metadataCollections, column: schema.metadataCollections.collectionId },
-		{ ids: genreIds, table: schema.metadataGenres, column: schema.metadataGenres.genreId },
-		{ ids: keywordIds, table: schema.metadataKeywords, column: schema.metadataKeywords.keywordId },
-		{ ids: directors, table: schema.metadataCrew, column: schema.metadataCrew.personId },
-		{ ids: topCast, table: schema.metadataCast, column: schema.metadataCast.personId },
-	];
-	for (const group of featureGroups) {
-		if (group.ids.length > 0) {
-			// Drive the candidate set from the (small) junction side: `id IN (...)`
-			// lets SQLite start at the trait matches instead of scanning every row of
-			// the type and probing each one with a correlated EXISTS.
-			candidateFeatureFilters.push(
-				inArray(
-					schema.metadata.id,
-					client.select({ id: group.table.metadataId }).from(group.table).where(inArray(group.column, group.ids)),
-				),
-			);
-		}
-	}
-
-	const candidateFilter = candidateFeatureFilters.length > 0 ? or(...candidateFeatureFilters) : undefined;
+	const candidateFilter = buildCandidateFilter(client, { collectionIds, genreIds, keywordIds, directors, topCast });
 	const typeFilter = source.type ? eq(schema.metadata.type, source.type) : undefined;
 
 	// 3. Run the ID + similarity-score query. `COUNT(*) OVER ()` returns the
@@ -255,8 +287,7 @@ async function rankSimilarIds(
 	const recommendedIds = hasMore ? recommendedWithProbe.slice(0, limit) : recommendedWithProbe;
 	let total = recommendedWithProbe[0]?.total ?? 0;
 	if (recommendedIds.length === 0 && offset > 0) {
-		const totalRows = await client.select({ value: count() }).from(schema.metadata).where(candidateWhere);
-		total = totalRows[0]?.value ?? 0;
+		total = await client.$count(schema.metadata, candidateWhere);
 	}
 
 	const ids = recommendedIds.map((r) => r.id);

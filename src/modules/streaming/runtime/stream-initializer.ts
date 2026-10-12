@@ -22,7 +22,7 @@ export interface StreamInitializerDependencies {
 
 const defaultDependencies: StreamInitializerDependencies = {
 	startSession: (sessionId, filePath, decision, startTime, operationId) =>
-		streamingManager.startSession(sessionId, filePath, decision, startTime, operationId),
+		streamingManager.startSession({ sessionId, inputPath: filePath, decision, startTime, operationId }),
 	discardSession: (sessionId) => streamingManager.discardSession(sessionId),
 	releaseSessionReservation: (sessionId) => streamingManager.releaseSessionReservation(sessionId),
 };

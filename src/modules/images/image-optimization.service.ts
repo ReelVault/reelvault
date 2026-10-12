@@ -3,11 +3,11 @@ import { file as bunFile } from "bun";
 import { optimizeImage } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
 import { createHash } from "@/utils/crypto.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
@@ -24,7 +24,10 @@ export interface OptimizedImage {
 	options: SharpImageOptions;
 }
 
-class ImageOptimizationService extends BaseService {
+class ImageOptimizationService {
+	readonly serviceName = "ImageOptimizationService";
+	readonly logger = createLogger("ImageOptimizationService");
+
 	// Coalesces concurrent identical optimizations: while one variant is being
 	// computed, every other request for the same cache path awaits its promise.
 	private readonly inflight = new MemoryCache<OptimizedImage>({
@@ -32,10 +35,6 @@ class ImageOptimizationService extends BaseService {
 		maxSize: -1,
 		name: "image-optimization-inflight",
 	});
-
-	constructor() {
-		super("ImageOptimizationService");
-	}
 
 	async getOptimizedImage(sourcePath: string, request: ImageQuery, imageId?: string, signal?: AbortSignal): Promise<OptimizedImage> {
 		const options = parseImageRequest(request, serverConfig.images);

@@ -7,13 +7,12 @@ import {
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import { v7 as uuidv7 } from "uuid";
 
 export const DatabaseHelper = {
 	id: text("id")
 		.primaryKey()
 		.notNull()
-		.$defaultFn(() => uuidv7()),
+		.$defaultFn(() => Bun.randomUUIDv7()),
 
 	nullableTableRef(id: string, ref: ReferenceConfig["ref"], actions?: ReferenceConfig["actions"]) {
 		return text(id).references(ref, { ...actions });

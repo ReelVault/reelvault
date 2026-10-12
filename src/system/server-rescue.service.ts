@@ -1,7 +1,7 @@
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { detach } from "@/utils/promise.utils";
 
@@ -77,7 +77,10 @@ const PROTECTED_WORKER_IDS = new Set(["stream-init", "transcode"]);
  * Watcher-triggered library scans consult `isThrottling()` and wait instead of
  * piling more work onto a drowning server.
  */
-class ServerRescueService extends BaseService {
+class ServerRescueService {
+	readonly serviceName = "ServerRescueService";
+	readonly logger = createLogger("ServerRescueService");
+
 	private state: RescueState = "healthy";
 	private stateSince = Date.now();
 	private breachSince: number | null = null;
@@ -96,10 +99,6 @@ class ServerRescueService extends BaseService {
 	private engageTimes: number[] = [];
 	private actions?: RescueActions | undefined;
 	private isInitialized = false;
-
-	constructor() {
-		super("ServerRescueService");
-	}
 
 	registerPressureProvider(provider: () => SystemPressure): void {
 		this.pressureProvider = provider;

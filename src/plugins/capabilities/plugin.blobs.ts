@@ -5,10 +5,10 @@ import { pluginBlobsRepository } from "@/database/repositories/plugin-storage.re
 import type { DatabaseTransaction, InferTable } from "@/database/types";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
-import { ValidationError } from "@/utils/errors";
+import { KeyedMutex } from "@/utils/concurrency";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
-import { KeyedMutex } from "@/utils/mutex";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { isExpired } from "@/utils/time.utils";
@@ -20,20 +20,19 @@ const repositories = { blobs: pluginBlobsRepository };
 
 type PluginBlobRow = InferTable<"pluginBlobs">;
 
-class PluginBlobsService extends BaseService {
+class PluginBlobsService {
+	readonly serviceName = "PluginBlobsService";
+	readonly logger = createLogger("PluginBlobsService");
+
 	private readonly operationQueue = new KeyedMutex();
 	/** Creates the blob storage directory once per process instead of on every put(). */
 	private readonly ensureStorageDirectory = createDirectoryOnce(
 		serverConfig.paths.pluginBlobs,
 		() =>
-			new ValidationError(`Failed to create plugin blob storage directory: ${serverConfig.paths.pluginBlobs}`, {
+			new DomainError("validation", `Failed to create plugin blob storage directory: ${serverConfig.paths.pluginBlobs}`, {
 				code: "plugin.blobs_storage_failed",
 			}),
 	);
-
-	constructor() {
-		super("PluginBlobsService");
-	}
 
 	async put(pluginId: string, key: string, content: Blob | Uint8Array, options: PluginBlobWriteOptions): Promise<PluginBlobMetadata> {
 		assertStorageKey(key);
@@ -164,7 +163,7 @@ class PluginBlobsService extends BaseService {
 	): Promise<void> {
 		const totalSize = (await repositories.blobs.sumSizeByPlugin(pluginId, tx)) - (replacing?.size ?? 0) + newEntrySize;
 		if (totalSize > serverConfig.plugins.blobs.maxStorageBytes) {
-			throw new ValidationError(`Plugin blob storage must not exceed ${serverConfig.plugins.blobs.maxStorageBytes} bytes`, {
+			throw new DomainError("validation", `Plugin blob storage must not exceed ${serverConfig.plugins.blobs.maxStorageBytes} bytes`, {
 				code: "plugin.blobs_quota_exceeded",
 				params: { maxBytes: serverConfig.plugins.blobs.maxStorageBytes },
 			});

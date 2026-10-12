@@ -1,5 +1,5 @@
 import { MINUTE } from "@/server.constants";
-import { TooManyRequestsError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { BoundedMap } from "../utils/bounded-map";
 
 const DEFAULT_COOLDOWN_MS = 500;
@@ -28,7 +28,8 @@ export class SessionCreationGuard {
 		const now = this.now();
 		const lastTime = this.lastCreationByProfile.get(profileId);
 		if (lastTime !== undefined && now - lastTime < this.cooldownMs) {
-			throw new TooManyRequestsError(
+			throw new DomainError(
+				"too_many_requests",
 				`Playback session creation rate limit exceeded. Please wait ${this.cooldownMs}ms before creating a new session.`,
 				{
 					code: "stream.creation_throttled",

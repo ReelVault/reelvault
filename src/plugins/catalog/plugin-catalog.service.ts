@@ -5,8 +5,8 @@ import type { InstallCatalogPluginResponse, PluginValidationResult } from "@reel
 import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
 import { env } from "@/env";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { errorCodeOf, toErrorCode } from "@/utils/error-codes.utils";
-import { DomainError, NotFoundError, ValidationError } from "@/utils/errors";
+import { assertChecksumMatches } from "@/utils/crypto.utils";
+import { DomainError, errorCodeOf, toErrorCode } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
@@ -22,7 +22,7 @@ import {
 	parsePluginCatalogManifest,
 	resolveCatalogCandidate,
 } from "./catalog-manifest";
-import { assertChecksumMatches, downloadArchive, extractPluginPackage } from "./plugin-package.utils";
+import { downloadArchive, extractPluginPackage } from "./plugin-package.utils";
 import { archiveValidationFailure, validatePluginPackage } from "./plugin-package-validation";
 
 const CACHE_TTL_MS = 15 * 60_000;
@@ -121,7 +121,7 @@ class PluginCatalogService {
 
 	async createRepository(values: { name: string; url: string; token?: string | null }): Promise<PluginRepositoryView> {
 		if (!isHttpsUrl(values.url))
-			throw new ValidationError("Repository URL must be an https URL", { code: "plugin.repository_url_invalid" });
+			throw new DomainError("validation", "Repository URL must be an https URL", { code: "plugin.repository_url_invalid" });
 
 		const row = await pluginRepositoriesRepository.create({
 			name: values.name,
@@ -136,7 +136,7 @@ class PluginCatalogService {
 			});
 		});
 		const created = await pluginRepositoriesRepository.findById(row.id);
-		if (!created) throw new NotFoundError(`Plugin repository not found: ${row.id}`, { code: "plugin.repository_not_found" });
+		if (!created) throw new DomainError("not_found", `Plugin repository not found: ${row.id}`, { code: "plugin.repository_not_found" });
 
 		return this.toView(created);
 	}
@@ -146,10 +146,10 @@ class PluginCatalogService {
 		values: { name?: string; url?: string; token?: string | null; enabled?: boolean },
 	): Promise<PluginRepositoryView> {
 		const existing = await pluginRepositoriesRepository.findById(id);
-		if (!existing) throw new NotFoundError(`Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		if (!existing) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		if (values.url !== undefined && !isHttpsUrl(values.url))
-			throw new ValidationError("Repository URL must be an https URL", { code: "plugin.repository_url_invalid" });
+			throw new DomainError("validation", "Repository URL must be an https URL", { code: "plugin.repository_url_invalid" });
 
 		// undefined = leave the stored token unchanged, null = remove it, string = replace it
 		let tokenEncrypted: string | null | undefined;
@@ -174,7 +174,7 @@ class PluginCatalogService {
 
 	async deleteRepository(id: string): Promise<void> {
 		const existing = await pluginRepositoriesRepository.findById(id);
-		if (!existing) throw new NotFoundError(`Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		if (!existing) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		await pluginRepositoriesRepository.delete(id);
 		this.cache.delete(id);
@@ -182,11 +182,11 @@ class PluginCatalogService {
 
 	async refreshRepository(id: string): Promise<PluginRepositoryView> {
 		const existing = await pluginRepositoriesRepository.findById(id);
-		if (!existing) throw new NotFoundError(`Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		if (!existing) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		await this.fetchManifest(existing, { force: true });
 		const refreshed = await pluginRepositoriesRepository.findById(id);
-		if (!refreshed) throw new NotFoundError(`Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		if (!refreshed) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		return this.toView(refreshed);
 	}
@@ -261,21 +261,27 @@ class PluginCatalogService {
 
 	async installFromCatalog(input: InstallCatalogPluginInput): Promise<InstallCatalogPluginResponse> {
 		const row = await pluginRepositoriesRepository.findById(input.repositoryId);
-		if (!row) throw new NotFoundError(`Plugin repository not found: ${input.repositoryId}`, { code: "plugin.repository_not_found" });
+		if (!row)
+			throw new DomainError("not_found", `Plugin repository not found: ${input.repositoryId}`, { code: "plugin.repository_not_found" });
 
 		const { manifest } = await this.fetchManifest(row, { force: false });
 
 		const candidate = resolveCatalogCandidate(manifest.plugins, input.pluginId, input.version);
 		if (!candidate)
-			throw new NotFoundError(`Plugin ${input.pluginId} (version ${input.version ?? "latest"}) not found in repository ${row.name}`, {
-				code: "plugin.not_in_repository",
-				params: { plugin: input.pluginId },
-			});
+			throw new DomainError(
+				"not_found",
+				`Plugin ${input.pluginId} (version ${input.version ?? "latest"}) not found in repository ${row.name}`,
+				{
+					code: "plugin.not_in_repository",
+					params: { plugin: input.pluginId },
+				},
+			);
 
 		// The catalog entry declares the oldest compatible server — refuse before
 		// downloading anything. Mirrors the web-UI update gate.
 		if (candidate.minServerVersion && isNewerVersion(candidate.minServerVersion, SERVER_VERSION)) {
-			throw new ValidationError(
+			throw new DomainError(
+				"validation",
 				`Plugin ${candidate.id} ${candidate.version} requires server ${candidate.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
 				{ code: "plugin.server_too_old" },
 			);
@@ -285,7 +291,11 @@ class PluginCatalogService {
 		const download = await downloadArchive(candidate.downloadUrl, token ? { token } : {});
 		let extracted: Awaited<ReturnType<typeof extractPluginPackage>> | undefined;
 		try {
-			assertChecksumMatches(download.checksum, candidate.checksum);
+			assertChecksumMatches(download.checksum, candidate.checksum, {
+				checksum: false,
+				code: "plugin.checksum_mismatch",
+				message: "Plugin package checksum does not match the catalog manifest",
+			});
 			extracted = await extractPluginPackage(download.filePath);
 			const result = await pluginManager.installFromDirectory(extracted.pluginRoot, {
 				source: catalogSource(row.id, candidate.id, candidate.version),
@@ -339,7 +349,10 @@ class PluginCatalogService {
 	async uninstallPlugin(pluginId: string): Promise<void> {
 		const installed = (await pluginManager.getInstalledRecords()).some((record) => record.id === pluginId);
 		if (!installed)
-			throw new NotFoundError(`Plugin is not installed: ${pluginId}`, { code: "plugin.not_installed", params: { plugin: pluginId } });
+			throw new DomainError("not_found", `Plugin is not installed: ${pluginId}`, {
+				code: "plugin.not_installed",
+				params: { plugin: pluginId },
+			});
 
 		await pluginManager.uninstall(pluginId);
 		this.logger.info(`Uninstalled plugin ${pluginId}`);
@@ -382,7 +395,7 @@ class PluginCatalogService {
 				signal: AbortSignal.timeout(MANIFEST_TIMEOUT_MS),
 			});
 			if (!response.ok)
-				throw new ValidationError(`Repository manifest fetch failed with HTTP ${response.status}`, {
+				throw new DomainError("validation", `Repository manifest fetch failed with HTTP ${response.status}`, {
 					code: "plugin.repository_fetch_failed",
 					params: { status: response.status },
 				});
@@ -433,7 +446,8 @@ export const pluginCatalogService = new PluginCatalogService();
  */
 async function readBodyTextWithinLimit(response: Response, maxBytes: number): Promise<string> {
 	const declared = Number(response.headers.get("content-length") ?? 0);
-	if (declared > maxBytes) throw new ValidationError("Repository manifest exceeds the size limit", { code: "plugin.repository_too_large" });
+	if (declared > maxBytes)
+		throw new DomainError("validation", "Repository manifest exceeds the size limit", { code: "plugin.repository_too_large" });
 
 	if (!response.body) return "";
 
@@ -449,7 +463,7 @@ async function readBodyTextWithinLimit(response: Response, maxBytes: number): Pr
 			total += value.byteLength;
 			if (total > maxBytes) {
 				await reader.cancel();
-				throw new ValidationError("Repository manifest exceeds the size limit", { code: "plugin.repository_too_large" });
+				throw new DomainError("validation", "Repository manifest exceeds the size limit", { code: "plugin.repository_too_large" });
 			}
 
 			text += decoder.decode(value, { stream: true });

@@ -3,19 +3,18 @@ import { buildHourlyHeatmap, recentDayKeys } from "@/application/analytics.utils
 import { toTopWatchedMedia, watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
 import { serverConfig } from "@/server.config";
 import { DAY, MINUTE } from "@/server.constants";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { clamp } from "@/utils/math.utils";
 import { MemoryCache } from "@/utils/memory-cache";
 
 const ANALYTICS_CACHE_TTL_MS = MINUTE;
 const MAX_ANALYTICS_DAYS = 365;
 
-class AdminAnalyticsService extends BaseService {
-	private readonly cache = new MemoryCache<AdminAnalytics>({ ttlMs: ANALYTICS_CACHE_TTL_MS, maxSize: 32, name: "admin-analytics" });
+class AdminAnalyticsService {
+	readonly serviceName = "AdminAnalyticsService";
+	readonly logger = createLogger("AdminAnalyticsService");
 
-	constructor() {
-		super("AdminAnalyticsService");
-	}
+	private readonly cache = new MemoryCache<AdminAnalytics>({ ttlMs: ANALYTICS_CACHE_TTL_MS, maxSize: 32, name: "admin-analytics" });
 
 	async getAnalytics(days?: number): Promise<AdminAnalytics> {
 		const clampedDays = days ? clamp(Math.trunc(days), 1, MAX_ANALYTICS_DAYS) : undefined;

@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { file } from "bun";
 import { createHash } from "@/utils/crypto.utils";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { PathUtils } from "@/utils/path.utils";
 
 /** Admin-owned runtime state at the package root — mutable, so excluded from the hash. */
@@ -34,7 +34,7 @@ async function updateIntegrityHash(hash: ReturnType<typeof createHash>, root: st
 		}
 
 		if (!entry.isFile())
-			throw new ValidationError(`Plugin package contains an unsupported filesystem entry: ${path}`, {
+			throw new DomainError("validation", `Plugin package contains an unsupported filesystem entry: ${path}`, {
 				code: "plugin.package_entry_unsupported",
 				params: { path },
 			});

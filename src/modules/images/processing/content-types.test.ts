@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { getContentType } from "./content-types";
+
+/** The category of the error `run` throws, or undefined when it does not throw. */
+function categoryOf(run: () => unknown): string | undefined {
+	try {
+		run();
+	} catch (error) {
+		return error instanceof DomainError ? error.category : undefined;
+	}
+
+	return undefined;
+}
 
 describe("getContentType", () => {
 	test("maps sharp format names to mime types", () => {
@@ -22,8 +33,8 @@ describe("getContentType", () => {
 	});
 
 	test("rejects unknown formats", () => {
-		expect(() => getContentType("exe")).toThrow(ValidationError);
+		expect(categoryOf(() => getContentType("exe"))).toBe("validation");
 		expect(() => getContentType("exe")).toThrow("Unsupported image format: exe");
-		expect(() => getContentType("")).toThrow(ValidationError);
+		expect(categoryOf(() => getContentType(""))).toBe("validation");
 	});
 });

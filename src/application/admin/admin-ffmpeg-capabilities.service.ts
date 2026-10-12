@@ -8,7 +8,7 @@ import {
 	runHwaccelDecodeTest,
 } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 
 const HARDWARE_ENCODER_PATTERN = /_(nvenc|vaapi|qsv|amf|videotoolbox)$/;
 
@@ -17,12 +17,11 @@ const HARDWARE_ENCODER_PATTERN = /_(nvenc|vaapi|qsv|amf|videotoolbox)$/;
  * binary supports, which accelerator the server actually uses, and whether the
  * startup test encode passed (with the error that made it fall back to software).
  */
-class AdminFfmpegCapabilitiesService extends BaseService {
-	private lastDecodeTest: FfmpegDecodeTest | null = null;
+class AdminFfmpegCapabilitiesService {
+	readonly serviceName = "AdminFfmpegCapabilitiesService";
+	readonly logger = createLogger("AdminFfmpegCapabilitiesService");
 
-	constructor() {
-		super("AdminFfmpegCapabilitiesService");
-	}
+	private lastDecodeTest: FfmpegDecodeTest | null = null;
 
 	getCapabilities(): AdminFfmpegCapabilities {
 		return this.buildView();

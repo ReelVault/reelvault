@@ -1,7 +1,7 @@
 import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { MINUTE } from "@/server.constants";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { detach } from "@/utils/promise.utils";
 import { getWorkerRuntime } from "./worker-runtime";
 
@@ -12,7 +12,10 @@ const watchdogTimeoutMs = () => systemResourcesService.scaledTimeoutMs(15_000);
 /** Consecutive stalled checks before the watchdog escalates beyond nudging polling. */
 const ESCALATE_AFTER_STALLS = 3;
 
-export class WorkerWatchdogService extends BaseService {
+export class WorkerWatchdogService {
+	readonly serviceName = "WorkerWatchdogService";
+	readonly logger = createLogger("WorkerWatchdogService");
+
 	private timer: Timer | undefined;
 	private recoveryTimer: Timer | undefined;
 	private getLastPollAtFn: () => number = () => Date.now();
@@ -23,10 +26,6 @@ export class WorkerWatchdogService extends BaseService {
 		// intentionally empty
 	};
 	private runnerId: string | undefined;
-
-	constructor() {
-		super("WorkerWatchdogService");
-	}
 
 	/** This process's runner id — enables foreign-runner crash recovery (single-instance). */
 	setRunnerId(runnerId: string): void {

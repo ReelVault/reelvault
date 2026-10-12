@@ -1,5 +1,4 @@
 import cors from "@elysiajs/cors";
-import serverTiming from "@elysiajs/server-timing";
 import Elysia from "elysia";
 import { apiRouter } from "./api/routes";
 import { systemSettingsService } from "./application/admin/system-settings.service";
@@ -139,8 +138,6 @@ await setupServer();
 // them to structured API responses (400/401/403/404/409/408/429/500).
 const app = new Elysia({ name: "ReelVault", aot: true })
 	.use(domainErrorsMiddleware)
-	// Tracing closures + Server-Timing header on every request — dev diagnostics only.
-	.use(serverTiming({ enabled: env.NODE_ENV === "development" }))
 	.use(securityHeadersMiddleware)
 	.use(requestLoggerMiddleware)
 	.use(requestDedupMiddleware)

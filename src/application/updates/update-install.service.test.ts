@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
-import { ValidationError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { updateCheckService } from "./update-check.service";
 import { UpdateInstallService } from "./update-install.service";
@@ -19,7 +18,7 @@ describe("updateInstallService preflight", () => {
 		for (const installType of ["docker", "dev"] as const) {
 			const service = new UpdateInstallService({ installType, restartScheduler: { scheduleRestart: () => undefined } });
 			await expect(service.startInstall("server")).rejects.toHaveProperty("code", "update.install_unsupported_install_type");
-			await expect(service.startInstall("web")).rejects.toBeInstanceOf(ValidationError);
+			await expect(service.startInstall("web")).rejects.toMatchObject({ category: "validation" });
 		}
 	});
 

@@ -1,6 +1,6 @@
 import type { SessionLifecycleState, StreamHeartbeatResponse } from "@reelvault/sdk/common";
 import { realtimeService } from "@/modules/realtime/realtime.service";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { isFiniteNumber } from "@/utils/type.utils";
 import { defaultRequireSession } from "../contracts";
 import { playbackProgressService } from "../progress/playback-progress.service";
@@ -26,11 +26,13 @@ const defaultDependencies: ServiceDependencies = {
 		streamingRuntimeService.recordHeartbeatPosition(sessionId, positionSeconds, paused),
 };
 
-export class HeartbeatService extends BaseService {
+export class HeartbeatService {
+	readonly serviceName = "HeartbeatService";
+	readonly logger = createLogger("HeartbeatService");
+
 	private readonly dependencies: ServiceDependencies;
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("HeartbeatService");
 		this.dependencies = dependencies;
 	}
 

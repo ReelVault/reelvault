@@ -132,7 +132,9 @@ describe("UpdateCheckService (two sources)", () => {
 		expect(state.webLatest).toBeNull();
 		expect(state.webLastError).toBe("update.check_failed");
 	});
+});
 
+describe("UpdateCheckService (two sources)", () => {
 	test("serves the cached releases while the TTL is fresh", async () => {
 		let fetchCount = 0;
 		const service = new UpdateCheckService(() => {

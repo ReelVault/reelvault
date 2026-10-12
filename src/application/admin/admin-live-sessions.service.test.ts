@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { adminAuditService } from "@/application/admin/admin-audit.service";
-import { ConflictError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { adminLiveSessionsService } from "./admin-live-sessions.service";
 
@@ -13,7 +13,7 @@ afterEach(() => {
 describe("AdminLiveSessionsService.terminateSessions", () => {
 	test("terminates each session on its own and reports one outcome per session", async () => {
 		const terminate = stubMethod(adminLiveSessionsService, "terminateSession", (sessionId: string) => {
-			if (sessionId === "s-2") return Promise.reject(new ConflictError("Session is busy", { code: "stream.session_busy" }));
+			if (sessionId === "s-2") return Promise.reject(new DomainError("conflict", "Session is busy", { code: "stream.session_busy" }));
 
 			return Promise.resolve({ success: true });
 		});

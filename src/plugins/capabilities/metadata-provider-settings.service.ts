@@ -8,20 +8,19 @@ import {
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { serverConfig } from "@/server.config";
 import { toMap } from "@/utils/array.utils";
-import { BaseService } from "@/utils/base-service";
-import { ValidationError } from "@/utils/errors";
+import { assertFound, DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 
 /** Upper bound on cached per-library override sets (oldest entry is dropped first). */
 const LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES = 200;
 
-class MetadataProviderSettingsService extends BaseService {
+class MetadataProviderSettingsService {
+	readonly serviceName = "MetadataProviderSettingsService";
+	readonly logger = createLogger("MetadataProviderSettingsService");
+
 	private cachedSettings?: { expiresAt: number; values: Map<string, MetadataProviderSetting> } | undefined;
 	private cachedOrdered?: { source: MetadataProvider[]; values: MetadataProvider[] } | undefined;
 	private readonly cachedLibraryOverrides = new Map<string, { expiresAt: number; values: Map<string, LibraryProviderPriority> }>();
-
-	constructor() {
-		super("MetadataProviderSettingsService");
-	}
 
 	async getOrderedProviders(libraryId?: string): Promise<MetadataProvider[]> {
 		const source = pluginRegistry.getProviders();
@@ -91,11 +90,11 @@ class MetadataProviderSettingsService extends BaseService {
 
 	async update(providerId: string, values: { priority?: number; enabled?: boolean }): Promise<MetadataProviderConfiguration> {
 		const provider = pluginRegistry.getProviderStatus().find((item) => item.id === providerId);
-		this.assertExists(provider, "Metadata provider", providerId);
+		assertFound(provider, "Metadata provider", providerId);
 		await metadataProviderSettingsRepository.upsert(providerId, values);
 		this.invalidateCache();
 		const updated = (await this.list()).find((item) => item.id === providerId);
-		this.assertExists(updated, "Metadata provider", providerId);
+		assertFound(updated, "Metadata provider", providerId);
 
 		return updated;
 	}
@@ -104,7 +103,7 @@ class MetadataProviderSettingsService extends BaseService {
 		const registered = new Set(pluginRegistry.getProviderStatus().map((provider) => provider.id));
 		const unknown = providerIds.filter((providerId) => !registered.has(providerId));
 		if (unknown.length > 0)
-			throw new ValidationError(`Unknown metadata providers: ${unknown.join(", ")}`, {
+			throw new DomainError("validation", `Unknown metadata providers: ${unknown.join(", ")}`, {
 				code: "metadata.providers_unknown",
 				params: { providers: unknown.join(", ") },
 			});

@@ -1,7 +1,7 @@
 import type { RemoteAccessCheck, RemoteAccessDiagnostics } from "@reelvault/sdk/common";
 import { env } from "@/env";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 
 const TRAILING_SLASH_RE = /\/$/;
 const HTTP_URL_RE = /^https?:\/\//;
@@ -11,10 +11,9 @@ const HTTP_URL_RE = /^https?:\/\//;
  * reverse-proxy snippets. Remote access itself is intentionally proxy-based —
  * the server ships no TLS and no automatic UPnP exposure.
  */
-class RemoteAccessService extends BaseService {
-	constructor() {
-		super("RemoteAccessService");
-	}
+class RemoteAccessService {
+	readonly serviceName = "RemoteAccessService";
+	readonly logger = createLogger("RemoteAccessService");
 
 	async getDiagnostics(): Promise<RemoteAccessDiagnostics> {
 		const trimmedUrl = env.APP_PUBLIC_URL?.trim();

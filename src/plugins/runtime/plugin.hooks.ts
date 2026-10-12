@@ -8,8 +8,8 @@ import {
 	PluginHookRejection,
 } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 import { deepFreeze } from "../shared/plugin.object.utils";
@@ -19,14 +19,16 @@ const PLAYBACK_ARTIFACT_KINDS_SET = new Set(playbackArtifactKinds);
 
 type CandidateHook<TCandidate> = (input: { candidate: Readonly<TCandidate> }) => Promise<TCandidate | undefined> | TCandidate | undefined;
 
-export class PluginHookBus extends BaseService {
+export class PluginHookBus {
+	readonly serviceName = "PluginHookBus";
+	readonly logger = createLogger("PluginHookBus");
+
 	private readonly beforeArtifactCreateHooks = new PluginHandlerTable<BeforeArtifactCreateHook>();
 	private readonly beforeMediaRecognitionHooks = new PluginHandlerTable<BeforeMediaRecognitionHook>();
 	private readonly beforeMetadataSaveHooks = new PluginHandlerTable<BeforeMetadataSaveHook>();
 	private readonly timeoutMs: number;
 
 	constructor(timeoutMs = serverConfig.plugins.runtime.hookTimeoutMs) {
-		super("PluginHookBus");
 		this.timeoutMs = timeoutMs;
 	}
 
@@ -111,7 +113,9 @@ function validateArtifactCandidate(original: ArtifactCreationCandidate, candidat
 		!PLAYBACK_ARTIFACT_KINDS_SET.has(candidate.kind) ||
 		!isNonEmptyString(candidate.contentType)
 	) {
-		throw new ValidationError("beforeArtifactCreate returned an invalid artifact candidate", { code: "plugin.artifact_candidate_invalid" });
+		throw new DomainError("validation", "beforeArtifactCreate returned an invalid artifact candidate", {
+			code: "plugin.artifact_candidate_invalid",
+		});
 	}
 }
 

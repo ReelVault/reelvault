@@ -10,7 +10,7 @@ import { seasonsRepository } from "@/database/repositories/seasons.repository";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";
-import { ForbiddenError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createMockWorkerItem } from "@/workers/core/worker-runtime.test-utils";
 import { workerService } from "@/workers/worker.service";
@@ -306,6 +306,46 @@ describe("DownloadsService.process", () => {
 		expect(fake.outputPath.endsWith("Bad_Name_.720p-mobile.mp4")).toBe(true);
 		fake.spy.mockRestore();
 	});
+});
+
+describe("DownloadsService.process", () => {
+	function fakeFfmpeg(exitCode: number | null, onSpawn?: (outputPath: string) => void) {
+		let exitHandler: Parameters<FFmpegBuilder["onExit"]>[0] | undefined;
+		let outputPath = "";
+		const fakeProc = spawn({ cmd: ["true"], stdout: "ignore", stderr: "pipe" });
+
+		class FakeBuilder extends FFmpegBuilder {
+			override input() {
+				return this;
+			}
+			override outputArgs() {
+				return this;
+			}
+			override onProgress() {
+				return this;
+			}
+			override onExit(handler: NonNullable<Parameters<FFmpegBuilder["onExit"]>[0]>) {
+				exitHandler = handler;
+
+				return this;
+			}
+			override run(path: string) {
+				outputPath = path;
+				onSpawn?.(path);
+				queueMicrotask(() => exitHandler?.(fakeProc, exitCode, null));
+
+				return fakeProc;
+			}
+		}
+		const spy = spyOn(ffMpegService, "create").mockReturnValue(new FakeBuilder());
+
+		return {
+			spy,
+			get outputPath() {
+				return outputPath;
+			},
+		};
+	}
 
 	test("a non-zero exit fails the job and removes the partial file", async () => {
 		findById.mockResolvedValue(row()).mockResolvedValueOnce(row());
@@ -352,6 +392,46 @@ describe("DownloadsService.process", () => {
 		expect(await FileUtils.exists(fake.outputPath)).toBe(false);
 		fake.spy.mockRestore();
 	});
+});
+
+describe("DownloadsService.process", () => {
+	function fakeFfmpeg(exitCode: number | null, onSpawn?: (outputPath: string) => void) {
+		let exitHandler: Parameters<FFmpegBuilder["onExit"]>[0] | undefined;
+		let outputPath = "";
+		const fakeProc = spawn({ cmd: ["true"], stdout: "ignore", stderr: "pipe" });
+
+		class FakeBuilder extends FFmpegBuilder {
+			override input() {
+				return this;
+			}
+			override outputArgs() {
+				return this;
+			}
+			override onProgress() {
+				return this;
+			}
+			override onExit(handler: NonNullable<Parameters<FFmpegBuilder["onExit"]>[0]>) {
+				exitHandler = handler;
+
+				return this;
+			}
+			override run(path: string) {
+				outputPath = path;
+				onSpawn?.(path);
+				queueMicrotask(() => exitHandler?.(fakeProc, exitCode, null));
+
+				return fakeProc;
+			}
+		}
+		const spy = spyOn(ffMpegService, "create").mockReturnValue(new FakeBuilder());
+
+		return {
+			spy,
+			get outputPath() {
+				return outputPath;
+			},
+		};
+	}
 
 	test("the completion-time storage quota rejects oversized artifacts", async () => {
 		findById.mockResolvedValue(row()).mockResolvedValueOnce(row());
@@ -461,7 +541,7 @@ describe("DownloadsService.queueSeason", () => {
 		const restoreEpisodes = stubMethod(episodesRepository, "findEpisodesWithFilesByMetadataId", () =>
 			Promise.resolve([{ id: "ep-1", seasonId: "season-1", mediaFileId: "file-1", mediaFileIsDefault: true, mediaFileSize: 10 }]),
 		);
-		const assertAccess = () => Promise.reject(new ForbiddenError("No access to this file", { code: "stream.forbidden" }));
+		const assertAccess = () => Promise.reject(new DomainError("forbidden", "No access to this file", { code: "stream.forbidden" }));
 		try {
 			expect(await downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, assertAccess)).toEqual({
 				results: [{ id: "ep-1", ok: false, code: "stream.forbidden" }],

@@ -114,22 +114,28 @@ export function buildRelationScores(
 	return scores;
 }
 
+/** Relation ids that belong to one candidate, grouped by signal. */
+interface CandidateRelations {
+	genreIds: string[];
+	keywordIds: string[];
+	castIds: string[];
+}
+
+/** Pre-built per-signal score maps, keyed by relation id. */
+interface RelationScores {
+	genre: Map<string, number>;
+	keyword: Map<string, number>;
+	cast: Map<string, number>;
+}
+
 /**
  * Score a single candidate against pre-built relation score maps.
- * genreIds / keywordIds / castIds are the relations belonging to that candidate.
+ * `relations` are the relations belonging to that candidate.
  */
-export function scoreCandidate(
-	genreIds: string[],
-	keywordIds: string[],
-	castIds: string[],
-	popularity: number,
-	genreScores: Map<string, number>,
-	keywordScores: Map<string, number>,
-	castScores: Map<string, number>,
-): number {
-	const gScore = genreIds.reduce((acc, id) => acc + (genreScores.get(id) ?? 0), 0);
-	const kScore = keywordIds.reduce((acc, id) => acc + (keywordScores.get(id) ?? 0), 0);
-	const cScore = castIds.reduce((acc, id) => acc + (castScores.get(id) ?? 0), 0);
+export function scoreCandidate(relations: CandidateRelations, popularity: number, scores: RelationScores): number {
+	const gScore = relations.genreIds.reduce((acc, id) => acc + (scores.genre.get(id) ?? 0), 0);
+	const kScore = relations.keywordIds.reduce((acc, id) => acc + (scores.keyword.get(id) ?? 0), 0);
+	const cScore = relations.castIds.reduce((acc, id) => acc + (scores.cast.get(id) ?? 0), 0);
 
 	return gScore * SIGNAL_WEIGHTS.genre + kScore * SIGNAL_WEIGHTS.keyword + cScore * SIGNAL_WEIGHTS.cast + popularity * POPULARITY_WEIGHT;
 }

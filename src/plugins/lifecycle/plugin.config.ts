@@ -1,9 +1,9 @@
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { serverConfig } from "@/server.config";
-import { ValidationError } from "@/utils/errors";
+import { KeyedMutex } from "@/utils/concurrency";
+import { DomainError } from "@/utils/errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger";
-import { KeyedMutex } from "@/utils/mutex";
 import { PathUtils } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
 
@@ -77,7 +77,7 @@ export class PluginConfig {
 
 			const serialized = `${JSON.stringify(persistedConfig, null, 2)}\n`;
 			if (serialized.length > MAX_CONFIG_BYTES) {
-				throw new ValidationError(`Plugin configuration exceeds the ${MAX_CONFIG_BYTES} byte limit`, {
+				throw new DomainError("validation", `Plugin configuration exceeds the ${MAX_CONFIG_BYTES} byte limit`, {
 					code: "plugin.config_too_large",
 					params: { maxBytes: MAX_CONFIG_BYTES },
 				});
@@ -93,7 +93,7 @@ export class PluginConfig {
 
 	resolvePluginDirectory(pluginName: string): string {
 		if (!PLUGIN_IDENTIFIER_PATTERN.test(pluginName)) {
-			throw new ValidationError("Plugin configuration requested with an invalid directory name", {
+			throw new DomainError("validation", "Plugin configuration requested with an invalid directory name", {
 				code: "plugin.config_directory_invalid",
 			});
 		}

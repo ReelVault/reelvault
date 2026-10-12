@@ -1,6 +1,5 @@
 import type { TaskTrigger } from "@reelvault/sdk/common";
 import { eq, inArray, sql } from "drizzle-orm";
-import { v7 as uuidv7 } from "uuid";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import { forEachChunked } from "@/database/table-access";
@@ -65,7 +64,7 @@ class WorkerSchedulesRepository {
 		await databaseFactory
 			.getClient()
 			.insert(schedules)
-			.values({ id: uuidv7(), workerId, triggers: [], isEnabled: true, nextRunAt })
+			.values({ id: Bun.randomUUIDv7(), workerId, triggers: [], isEnabled: true, nextRunAt })
 			.onConflictDoUpdate({
 				target: schedules.workerId,
 				set: { nextRunAt, updatedAt: now },
@@ -78,7 +77,7 @@ class WorkerSchedulesRepository {
 		await databaseFactory
 			.getClient()
 			.insert(schedules)
-			.values({ id: uuidv7(), workerId, triggers: [], isEnabled: enabled })
+			.values({ id: Bun.randomUUIDv7(), workerId, triggers: [], isEnabled: enabled })
 			.onConflictDoUpdate({
 				target: schedules.workerId,
 				set: { isEnabled: enabled, updatedAt: now },
@@ -101,7 +100,13 @@ class WorkerSchedulesRepository {
 					.getClient()
 					.insert(schedules)
 					.values(
-						chunk.map((entry) => ({ id: uuidv7(), workerId: entry.workerId, triggers: [], isEnabled: true, nextRunAt: entry.nextRunAt })),
+						chunk.map((entry) => ({
+							id: Bun.randomUUIDv7(),
+							workerId: entry.workerId,
+							triggers: [],
+							isEnabled: true,
+							nextRunAt: entry.nextRunAt,
+						})),
 					)
 					.onConflictDoUpdate({
 						target: schedules.workerId,
@@ -129,7 +134,7 @@ class WorkerSchedulesRepository {
 			await client
 				.insert(schedules)
 				.values({
-					id: uuidv7(),
+					id: Bun.randomUUIDv7(),
 					workerId,
 					triggers,
 					isEnabled: true,
@@ -152,7 +157,7 @@ class WorkerSchedulesRepository {
 			await client
 				.insert(schedules)
 				.values({
-					id: uuidv7(),
+					id: Bun.randomUUIDv7(),
 					workerId,
 					triggers: [],
 					isEnabled: true,

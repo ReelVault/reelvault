@@ -1,17 +1,16 @@
 import { ffProbeService } from "@/integrations/ffprobe/ffprobe.service";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 
-class VideoParser extends BaseService {
-	private readonly semaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getFfprobeConcurrency());
+class VideoParser {
+	readonly serviceName = "VideoParser";
+	readonly logger = createLogger("VideoParser");
 
-	constructor() {
-		super("VideoParser");
-	}
+	private readonly semaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getFfprobeConcurrency());
 
 	async probe(filePath: string, signal?: AbortSignal): Promise<FFProbeResult | null> {
 		throwIfAborted(signal);

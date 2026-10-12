@@ -1,6 +1,6 @@
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { DEFAULT_BROWSER_CAPABILITIES } from "@reelvault/sdk/common";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { HDR_TRANSFER_ALLOWLIST } from "../decisions/codec-maps";
 import type { PlaybackSessionInput } from "../streaming.types";
 import { normalizeStringList } from "../utils/string-list.utils";
@@ -16,7 +16,7 @@ function parseList(val?: string): string[] {
 
 export function assertSafeId(id: string, label = "fileId"): void {
 	if (!SAFE_ID_PATTERN.test(id)) {
-		throw new ValidationError(`Invalid ${label}`, { code: "stream.id_invalid" });
+		throw new DomainError("validation", `Invalid ${label}`, { code: "stream.id_invalid" });
 	}
 }
 

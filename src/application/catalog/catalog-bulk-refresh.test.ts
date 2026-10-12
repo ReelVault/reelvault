@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { mediaService } from "@/application/media/media-files/media-files.service";
-import { NotFoundError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { episodesService } from "./episodes.service";
 import { metadataService } from "./metadata/metadata.service";
@@ -14,7 +14,7 @@ afterEach(() => {
 /** A refresh that fails for `failingId` with a domain error, and for `strayId` with a raw error that must not leak. */
 function refreshFailingFor(failingId: string, strayId: string) {
 	return (id: string) => {
-		if (id === failingId) return Promise.reject(new NotFoundError("Gone", { code: "catalog.not_found" }));
+		if (id === failingId) return Promise.reject(new DomainError("not_found", "Gone", { code: "catalog.not_found" }));
 		if (id === strayId) return Promise.reject(new Error("/data/internal/path failed"));
 
 		return Promise.resolve({ id });

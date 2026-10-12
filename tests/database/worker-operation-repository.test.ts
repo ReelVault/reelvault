@@ -3,7 +3,6 @@ import { sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { workerJobRepository } from "@/database/repositories/worker.repository";
 import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
-import { ConflictError, NotFoundError, ValidationError } from "@/utils/errors";
 
 const client = databaseFactory.getClient();
 
@@ -150,7 +149,9 @@ describe("worker operation read model", () => {
 		expect(await workerJobRepository.findItem("task-2")).toBeUndefined();
 		expect(client.all(sql.raw("SELECT * FROM worker_job_dependencies"))).toEqual([]);
 	});
+});
 
+describe("worker operation read model", () => {
 	test("derives cancelled status and recovers an expired lease without counters", async () => {
 		await workerOperationRepository.create({ id: "operation-2", type: "test" });
 		await enqueue("operation-2", "worker-b", "task-3", 1);
@@ -215,7 +216,9 @@ describe("worker operation read model", () => {
 		expect(await workerJobRepository.findItem("task-ungrouped")).toBeUndefined();
 		expect(await workerJobRepository.findItem("task-grouped")).toBeDefined();
 	});
+});
 
+describe("worker operation read model", () => {
 	test("does not claim a dependent task before its prerequisite completes", async () => {
 		await workerOperationRepository.create({ id: "operation-sequence", type: "test" });
 		await enqueue("operation-sequence", "worker-sequence", "task-prerequisite");
@@ -282,7 +285,9 @@ describe("worker operation read model", () => {
 		});
 		expect(dependent?.id).toBe("task-dependent");
 	});
+});
 
+describe("worker operation read model", () => {
 	test("requires the same operation and rejects self and missing dependencies", async () => {
 		await workerOperationRepository.create({ id: "operation-dependencies", type: "test" });
 		await workerOperationRepository.create({ id: "operation-other", type: "test" });
@@ -300,16 +305,16 @@ describe("worker operation read model", () => {
 				backoffDelayMs: 0,
 				runAt: new Date(0),
 			}),
-		).rejects.toBeInstanceOf(ValidationError);
-		await expect(enqueue("operation-other", "worker-dependencies", "task-cross-operation", 3, ["task-existing"])).rejects.toBeInstanceOf(
-			ValidationError,
-		);
-		await expect(enqueue("operation-dependencies", "worker-dependencies", "task-self", 3, ["task-self"])).rejects.toBeInstanceOf(
-			ConflictError,
-		);
-		await expect(enqueue("operation-dependencies", "worker-dependencies", "task-missing", 3, ["does-not-exist"])).rejects.toBeInstanceOf(
-			NotFoundError,
-		);
+		).rejects.toMatchObject({ category: "validation" });
+		await expect(enqueue("operation-other", "worker-dependencies", "task-cross-operation", 3, ["task-existing"])).rejects.toMatchObject({
+			category: "validation",
+		});
+		await expect(enqueue("operation-dependencies", "worker-dependencies", "task-self", 3, ["task-self"])).rejects.toMatchObject({
+			category: "conflict",
+		});
+		await expect(enqueue("operation-dependencies", "worker-dependencies", "task-missing", 3, ["does-not-exist"])).rejects.toMatchObject({
+			category: "not_found",
+		});
 	});
 
 	test("propagates failure and cancellation through dependent tasks", async () => {

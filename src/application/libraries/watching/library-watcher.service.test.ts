@@ -194,7 +194,9 @@ describe("LibraryWatcherService", () => {
 			cleanup();
 		}
 	});
+});
 
+describe("LibraryWatcherService", () => {
 	test("holds scans while server rescue is throttling and fires on the next re-check after release", async () => {
 		let throttling = true;
 		const { service, clock, scanCalls, cleanup } = createHarness({ rescue: () => throttling });
@@ -271,7 +273,9 @@ describe("LibraryWatcherService", () => {
 			cleanup();
 		}
 	});
+});
 
+describe("LibraryWatcherService", () => {
 	test("clears the failure once the path becomes watchable again", async () => {
 		const tempDir = PathUtils.join(tmpdir(), `rv-test-watcher-recovery-${Date.now()}`);
 		mkdirSync(tempDir, { recursive: true });
@@ -345,7 +349,9 @@ describe("LibraryWatcherService", () => {
 			cleanup();
 		}
 	});
+});
 
+describe("LibraryWatcherService", () => {
 	test("fallback scans wait out server rescue throttling", async () => {
 		let throttling = true;
 		const { service, clock, scanCalls, cleanup } = createHarness({ rescue: () => throttling });

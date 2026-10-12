@@ -102,7 +102,9 @@ describe("http.utils", () => {
 			expect(isLocalNetworkHost("172.15.0.1")).toBe(false);
 		});
 	});
+});
 
+describe("http.utils", () => {
 	describe("wildcardPatternToRegex", () => {
 		it("matches custom Tailscale / VPN patterns with ports", () => {
 			const regex = wildcardPatternToRegex("http://*.ts:*");

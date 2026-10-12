@@ -6,7 +6,8 @@ import {
 	updateHistoryRepository,
 } from "@/database/repositories/update-history.repository";
 import { QueryPagination } from "@/database/utils/pagination";
-import { BaseService } from "@/utils/base-service";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 
 type UpdateHistoryRow = Awaited<ReturnType<UpdateHistoryRepository["findPage"]>>["data"][number];
 
@@ -31,10 +32,9 @@ function toHistoryEntry(row: UpdateHistoryRow): AdminUpdateHistoryEntry {
  * Records every install and rollback run. Writes never throw: a failed history
  * write must not change the outcome of the update it describes.
  */
-export class UpdateHistoryService extends BaseService {
-	constructor() {
-		super("UpdateHistoryService");
-	}
+export class UpdateHistoryService {
+	readonly serviceName = "UpdateHistoryService";
+	readonly logger = createLogger("UpdateHistoryService");
 
 	/** Opens a run and returns its id, or null when the run could not be recorded. */
 	async begin(run: UpdateHistoryStart): Promise<string | null> {
@@ -83,7 +83,7 @@ export class UpdateHistoryService extends BaseService {
 	}
 
 	async list(query: { page?: number | undefined; limit?: number | undefined }): Promise<AdminUpdateHistoryPage> {
-		return await this.safeExecute("list", async () => {
+		return await runSafely(this, "list", async () => {
 			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 20 });
 			const result = await updateHistoryRepository.findPage({ limit: pagination.limit, offset: pagination.offset });
 

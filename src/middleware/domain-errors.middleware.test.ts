@@ -1,16 +1,16 @@
 import { expect, test } from "bun:test";
 import Elysia, { t } from "elysia";
-import { ConflictError, NotFoundError, TooManyRequestsError, ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { domainErrorsMiddleware } from "./domain-errors.middleware";
 
 test("domain error middleware maps categories to HTTP responses without user-facing text", async () => {
 	const app = new Elysia()
 		.use(domainErrorsMiddleware)
 		.get("/validation", () => {
-			throw new ValidationError("Invalid input");
+			throw new DomainError("validation", "Invalid input");
 		})
 		.get("/conflict", () => {
-			throw new ConflictError("Already exists");
+			throw new DomainError("conflict", "Already exists");
 		});
 
 	const [validation, conflict] = await Promise.all([
@@ -26,7 +26,7 @@ test("domain error middleware maps categories to HTTP responses without user-fac
 
 test("domain error middleware carries a granular code and params", async () => {
 	const app = new Elysia().use(domainErrorsMiddleware).get("/missing", () => {
-		throw new NotFoundError("Profile missing", { code: "profile.not_found", params: { profileId: "p1", retryable: false } });
+		throw new DomainError("not_found", "Profile missing", { code: "profile.not_found", params: { profileId: "p1", retryable: false } });
 	});
 
 	const res = await app.handle(new Request("http://localhost/missing"));
@@ -40,7 +40,7 @@ test("domain error middleware carries a granular code and params", async () => {
 
 test("domain error middleware includes details when provided", async () => {
 	const app = new Elysia().use(domainErrorsMiddleware).get("/with-details", () => {
-		throw new ValidationError("Invalid input", { details: { field: "email" } });
+		throw new DomainError("validation", "Invalid input", { details: { field: "email" } });
 	});
 
 	const res = await app.handle(new Request("http://localhost/with-details"));
@@ -96,7 +96,7 @@ test("invalid query input stays a 400 even when the route also declares a respon
 
 test("a 429 with retryAfterSeconds also sends the Retry-After header", async () => {
 	const app = new Elysia().use(domainErrorsMiddleware).get("/slow-down", () => {
-		throw new TooManyRequestsError("Too many", { code: "rate_limit.exceeded", params: { retryAfterSeconds: 12.2 } });
+		throw new DomainError("too_many_requests", "Too many", { code: "rate_limit.exceeded", params: { retryAfterSeconds: 12.2 } });
 	});
 
 	const res = await app.handle(new Request("http://localhost/slow-down"));
@@ -108,7 +108,7 @@ test("a 429 with retryAfterSeconds also sends the Retry-After header", async () 
 
 test("a 429 without a retry hint sends no Retry-After header", async () => {
 	const app = new Elysia().use(domainErrorsMiddleware).get("/busy", () => {
-		throw new TooManyRequestsError("Too many");
+		throw new DomainError("too_many_requests", "Too many");
 	});
 
 	const res = await app.handle(new Request("http://localhost/busy"));

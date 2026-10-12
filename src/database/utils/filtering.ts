@@ -3,7 +3,7 @@ import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
 import { serverConstants } from "@/server.constants";
 import { isNotNullish, trimAndFilter } from "@/utils/array.utils";
-import { ValidationError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 
 export const QueryFiltering = {
 	eq(column: SQLiteColumn, value: string | number | boolean): SQL {
@@ -45,7 +45,7 @@ export const QueryFiltering = {
 		if (!ids || ids.length === 0) return undefined;
 
 		if (ids.length > serverConstants.database.filters.maxValues) {
-			throw new ValidationError(`Filter must not contain more than ${serverConstants.database.filters.maxValues} values`, {
+			throw new DomainError("validation", `Filter must not contain more than ${serverConstants.database.filters.maxValues} values`, {
 				code: "validation.filter_too_many_values",
 				params: { max: serverConstants.database.filters.maxValues },
 			});
@@ -68,7 +68,7 @@ export const QueryFiltering = {
 
 		const values = trimAndFilter(value.split(","));
 		if (values.length > serverConstants.database.filters.maxValues) {
-			throw new ValidationError(`Filter must not contain more than ${serverConstants.database.filters.maxValues} values`, {
+			throw new DomainError("validation", `Filter must not contain more than ${serverConstants.database.filters.maxValues} values`, {
 				code: "validation.filter_too_many_values",
 				params: { max: serverConstants.database.filters.maxValues },
 			});

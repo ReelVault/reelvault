@@ -1,7 +1,7 @@
 import { chmod, rename, stat, unlink } from "node:fs/promises";
 import { file as bunFile, write as bunWrite } from "bun";
 import { FS_STAT_TIMEOUT_MS } from "@/server.constants";
-import { InternalError, isMissingFile, ValidationError } from "./errors";
+import { DomainError, isMissingFile } from "./errors";
 import { createLogger } from "./logger";
 import { PathUtils } from "./path.utils";
 import { PromiseTimeoutError, PromiseUtils } from "./promise.utils";
@@ -220,21 +220,23 @@ export const FileUtils = {
 			// SSRF guard (audit 2026-09-15): https-only, resolved addresses must be
 			// globally routable, redirects re-validated hop by hop.
 			const response = await (options.fetcher ?? guardedFetch)(url, { signal: effectiveSignal });
-			if (!response.ok) throw new InternalError(`HTTP ${response.status}`, { code: "download.http_error" });
+			if (!response.ok) throw new DomainError("internal", `HTTP ${response.status}`, { code: "download.http_error" });
 
 			if (options.allowedContentTypes?.length) {
 				const contentType = normalizeContentType(response.headers.get("content-type"));
 				const isAllowed = options.allowedContentTypes.some((prefix) => contentType.startsWith(prefix));
 				if (!isAllowed)
-					throw new InternalError(`Unexpected content type: ${contentType || "unknown"}`, { code: "download.invalid_content_type" });
+					throw new DomainError("internal", `Unexpected content type: ${contentType || "unknown"}`, {
+						code: "download.invalid_content_type",
+					});
 			}
 
 			const declaredSize = Number(response.headers.get("content-length"));
 			if (isFiniteNumber(declaredSize) && declaredSize > maxBytes) {
-				throw new ValidationError(`Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
+				throw new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
 			}
 
-			if (!response.body) throw new InternalError("Response has no body", { code: "download.no_body" });
+			if (!response.body) throw new DomainError("internal", "Response has no body", { code: "download.no_body" });
 
 			await streamToFile(response.body, temporaryPath, maxBytes, effectiveSignal);
 			if (options.validate) await options.validate(temporaryPath);
@@ -281,7 +283,7 @@ async function streamToFile(body: ReadableStream<Uint8Array>, path: string, maxB
 
 			receivedBytes += value.byteLength;
 			if (receivedBytes > maxBytes)
-				throw new ValidationError(`Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
+				throw new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
 
 			await sink.write(value);
 		}

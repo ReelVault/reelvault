@@ -1,4 +1,8 @@
-/** Per-key serialisation — different keys still run concurrently. */
+/**
+ * Per-key serialisation — callers with the same key run one after another in arrival order,
+ * different keys still run concurrently. A failed section never blocks the ones queued behind it.
+ * Use one key for a global lock (e.g. a single shared resource).
+ */
 export class KeyedMutex {
 	private readonly tails = new Map<string, Promise<void>>();
 
@@ -26,28 +30,33 @@ export class KeyedMutex {
 	}
 }
 
-/** Single shared key — `Mutex` is the global (unkeyed) case of `KeyedMutex`. */
-const GLOBAL_MUTEX_KEY = "__global__";
-
-/**
- * Serialises async critical sections. Plugin lifecycle operations (install,
- * upgrade, reload, enable/disable, uninstall) mutate the same on-disk
- * directories, lockfile and registry, so concurrent admin requests must not
- * interleave them.
- */
-export class Mutex {
-	private readonly inner = new KeyedMutex();
-
-	async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
-		return await this.inner.runExclusive(GLOBAL_MUTEX_KEY, fn);
-	}
-}
-
 /** A failed earlier section must not skip or reject every later section. */
 async function swallow(promise: Promise<void>): Promise<void> {
 	try {
 		await promise;
 	} catch {
 		// Intentionally ignored — the previous holder's failure is not ours.
+	}
+}
+
+/**
+ * Coalesces concurrent calls for the same key: while a call is in flight,
+ * every other caller for that key awaits the same promise instead of starting
+ * a duplicate. The entry is dropped as soon as the call settles.
+ */
+export class InFlightMap<T> {
+	private readonly inFlight = new Map<string, Promise<T>>();
+
+	async run(key: string, task: () => Promise<T>): Promise<T> {
+		const pending = this.inFlight.get(key);
+		if (pending) return await pending;
+
+		const started = task();
+		this.inFlight.set(key, started);
+		try {
+			return await started;
+		} finally {
+			if (this.inFlight.get(key) === started) this.inFlight.delete(key);
+		}
 	}
 }

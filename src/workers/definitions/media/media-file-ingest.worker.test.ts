@@ -124,8 +124,8 @@ describe("media-file-ingest worker", () => {
 		const calls: string[] = [];
 		const dependencies: MediaFileIngestTaskDependencies = {
 			findLibrary: () => Promise.resolve(createMockLibrary({ id: "library-1" })),
-			processFile: (_type, _filePath, _skipExistingLookup, _signal, scheduling) => {
-				calls.push(`process:${scheduling?.dependsOnTaskIds?.join(",")}`);
+			processFile: (_type, _filePath, _skipExistingLookup, options) => {
+				calls.push(`process:${options?.scheduling?.dependsOnTaskIds?.join(",")}`);
 
 				return Promise.resolve(createMockProcessedFile({ metadataId: "metadata-1" }));
 			},
@@ -191,7 +191,9 @@ describe("media-file-ingest worker", () => {
 			"analysis:ingest-1",
 		]);
 	});
+});
 
+describe("media-file-ingest worker", () => {
 	test("records a scan finding and skips persistence when processing reports a skip reason", async () => {
 		const calls: string[] = [];
 		const findings: Array<{ libraryId: string; filePath: string; fileName: string; reason: string }> = [];
@@ -240,7 +242,9 @@ describe("media-file-ingest worker", () => {
 			reason: "no_metadata_match",
 		});
 	});
+});
 
+describe("media-file-ingest worker", () => {
 	test("completes missing post-create side effects when retrying an existing file", async () => {
 		const calls: string[] = [];
 		const dependencies: MediaFileIngestTaskDependencies = {
@@ -290,7 +294,9 @@ describe("media-file-ingest worker", () => {
 
 		expect(calls).toEqual(["clearFinding", "sidecars", "markSidecar", "discovered", "markDiscovered"]);
 	});
+});
 
+describe("media-file-ingest worker", () => {
 	test("runs the completion sequence per additional episode target in order", async () => {
 		const { calls, discovered, identified, dependencies } = createMultiEpisodeHarness();
 
@@ -362,7 +368,9 @@ describe("media-file-ingest worker", () => {
 			"analysis:media-metadata-1",
 		]);
 	});
+});
 
+describe("media-file-ingest worker", () => {
 	test("repairs post-create side effects for an existing additional target on retry", async () => {
 		const calls: string[] = [];
 		const dependencies: MediaFileIngestTaskDependencies = {

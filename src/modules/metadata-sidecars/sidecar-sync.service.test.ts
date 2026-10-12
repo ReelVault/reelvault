@@ -84,7 +84,9 @@ describe("sidecarSyncService", () => {
 
 		expect(warnings).toEqual(["Sidecar sync failed"]);
 	});
+});
 
+describe("sidecarSyncService", () => {
 	test("coalesces repeated requests for the same title into one re-run", async () => {
 		const gates: Array<() => void> = [];
 		let calls = 0;

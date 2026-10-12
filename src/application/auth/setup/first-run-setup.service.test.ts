@@ -3,7 +3,6 @@ import type { User } from "@reelvault/sdk/common";
 import { usersRepository } from "@/database/repositories/users.repository";
 import { env } from "@/env";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
-import { ConflictError, ForbiddenError } from "@/utils/errors";
 import { firstRunSetupService } from "./first-run-setup.service";
 
 const TEST_TOKEN = "test-setup-token-0123456789abcdef";
@@ -140,10 +139,10 @@ describe("firstRunSetupService", () => {
 	test("createAdmin rejects a wrong or missing token when enabled", async () => {
 		await withFlag("true", () =>
 			withToken(TEST_TOKEN, async () => {
-				await expect(firstRunSetupService.createAdmin({ ...ADMIN_INPUT, token: "wrong-token-0123456789abcdef" })).rejects.toThrow(
-					ForbiddenError,
-				);
-				await expect(firstRunSetupService.createAdmin({ ...ADMIN_INPUT, token: null })).rejects.toThrow(ForbiddenError);
+				await expect(firstRunSetupService.createAdmin({ ...ADMIN_INPUT, token: "wrong-token-0123456789abcdef" })).rejects.toMatchObject({
+					category: "forbidden",
+				});
+				await expect(firstRunSetupService.createAdmin({ ...ADMIN_INPUT, token: null })).rejects.toMatchObject({ category: "forbidden" });
 			}),
 		);
 	});
@@ -169,7 +168,7 @@ describe("firstRunSetupService", () => {
 			const restoreCount = stubUserCount(1);
 
 			try {
-				await expect(firstRunSetupService.createAdmin({ ...ADMIN_INPUT, token: null })).rejects.toThrow(ConflictError);
+				await expect(firstRunSetupService.createAdmin({ ...ADMIN_INPUT, token: null })).rejects.toMatchObject({ category: "conflict" });
 			} finally {
 				restoreCount();
 			}

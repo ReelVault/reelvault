@@ -1,5 +1,5 @@
 import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
-import { ForbiddenError, NotFoundError, UnauthorizedError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import type { SessionAccessInfo } from "../runtime/session-state/session-store";
 
 type StreamAccessChecker = (input: {
@@ -33,15 +33,15 @@ export async function assertActiveStreamAccess({
 	mediaFileId: string;
 	check?: StreamAccessChecker | undefined;
 }): Promise<void> {
-	if (!userId) throw new UnauthorizedError("Session expired or invalid", { code: "stream.session_expired" });
+	if (!userId) throw new DomainError("unauthorized", "Session expired or invalid", { code: "stream.session_expired" });
 
-	if (!profileId) throw new UnauthorizedError("An active profile is required to stream media", { code: "auth.profile_required" });
+	if (!profileId) throw new DomainError("unauthorized", "An active profile is required to stream media", { code: "auth.profile_required" });
 
 	const decision = await check({ userId, profileId, mediaFileId });
 	if (decision) {
 		// Surface the structured denial code so clients can translate it (docs:
 		// access-control), with the human message as the error text.
-		throw new ForbiddenError(decision.message, { code: decision.code });
+		throw new DomainError("forbidden", decision.message, { code: decision.code });
 	}
 }
 
@@ -65,13 +65,13 @@ export function resolveSessionAccess(
 		// A deliberate admin kill gets a distinct code so the client can show the
 		// terminated UI instead of silently reconnecting.
 		if (terminated && isAdminTerminationReason(terminated.reason)) {
-			throw new ForbiddenError("Playback session was terminated", { code: "stream.session_terminated" });
+			throw new DomainError("forbidden", "Playback session was terminated", { code: "stream.session_terminated" });
 		}
 
 		// A session released by inactivity or a client release must NOT look alive:
 		// returning its terminated access let heartbeat answer `state:"active"` for
 		// up to 5 minutes, defeating the client's recovery path. A 404 is correct.
-		throw new NotFoundError(`Playback session not found: ${sessionId}`, { code: "stream.session_not_found" });
+		throw new DomainError("not_found", `Playback session not found: ${sessionId}`, { code: "stream.session_not_found" });
 	}
 
 	return session;
@@ -79,5 +79,5 @@ export function resolveSessionAccess(
 
 export function assertSessionOwnership(session: SessionAccessInfo, profileId?: string): void {
 	if (session.profileId !== profileId)
-		throw new ForbiddenError("Playback session belongs to another profile", { code: "stream.session_not_owned" });
+		throw new DomainError("forbidden", "Playback session belongs to another profile", { code: "stream.session_not_owned" });
 }

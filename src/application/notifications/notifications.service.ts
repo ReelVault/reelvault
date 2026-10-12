@@ -14,11 +14,12 @@ import {
 } from "@/plugins/runtime/notification-channel.registry";
 import { pluginEventBus } from "@/plugins/runtime/plugin.events";
 import { serverConfig } from "@/server.config";
-import { BaseService } from "@/utils/base-service";
-import { ForbiddenError, ValidationError } from "@/utils/errors";
+import { assertUserId, DomainError } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
 import { MemoryCache } from "@/utils/memory-cache";
 import { detach } from "@/utils/promise.utils";
 import { invalidateProfileResponseBodies, invalidateResponseBodies } from "@/utils/response-body-cache";
+import { runSafely } from "@/utils/safe-execute";
 import { parseMutedNotificationTypes } from "./notification-mute.utils";
 
 // Clients poll unread-count on an interval; a short TTL absorbs the poll storm
@@ -35,16 +36,15 @@ function unreadCountKey(userId: string, profileId?: string): string {
 	return profileId ? `${userId}:${profileId}` : userId;
 }
 
-class NotificationsService extends BaseService {
-	constructor() {
-		super("NotificationsService");
-	}
+class NotificationsService {
+	readonly serviceName = "NotificationsService";
+	readonly logger = createLogger("NotificationsService");
 
 	async create(
 		notification: CreateNotification,
 		options?: { skipOwnershipCheck?: boolean; sourcePluginId?: string | undefined },
 	): Promise<string> {
-		return await this.safeExecute("create", async () => {
+		return await runSafely(this, "create", async () => {
 			if (!options?.skipOwnershipCheck) {
 				await this.assertProfileBelongsToUser(notification.userId, notification.profileId);
 			}
@@ -58,7 +58,7 @@ class NotificationsService extends BaseService {
 				const createdToday = await notificationsRepository.countCreatedByPluginSince(sourcePluginId, startOfDay);
 				const maxPerDay = serverConfig.plugins.notifications.maxPerDayPerPlugin;
 				if (createdToday >= maxPerDay) {
-					throw new ValidationError(`Plugin '${sourcePluginId}' exceeded the daily notification limit (${maxPerDay})`, {
+					throw new DomainError("validation", `Plugin '${sourcePluginId}' exceeded the daily notification limit (${maxPerDay})`, {
 						code: "plugin.notifications.rate_limited",
 					});
 				}
@@ -119,8 +119,8 @@ class NotificationsService extends BaseService {
 	}
 
 	async getAll(userId?: string, profileId?: string, unreadOnly = false, limit?: number): Promise<Notification[]> {
-		return await this.safeExecute("getAll", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "getAll", async () => {
+			assertUserId(userId);
 
 			// `limit` is optional — when omitted the repository default applies (behavior unchanged).
 			return await notificationsRepository.findForRecipient(userId, profileId, unreadOnly, limit, await this.mutedTypesFor(profileId));
@@ -133,8 +133,8 @@ class NotificationsService extends BaseService {
 		userId?: string,
 		profileId?: string,
 	): Promise<PaginatedResponse<Notification>> {
-		return await this.safeExecute("getPage", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "getPage", async () => {
+			assertUserId(userId);
 			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 25, maxLimit: 100 });
 			const result = await notificationsRepository.findPageForRecipient({
 				userId,
@@ -151,8 +151,8 @@ class NotificationsService extends BaseService {
 	}
 
 	async getUnreadCount(userId?: string, profileId?: string): Promise<{ count: number }> {
-		return await this.safeExecute("getUnreadCount", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "getUnreadCount", async () => {
+			assertUserId(userId);
 			const key = unreadCountKey(userId, profileId);
 			const excludedTypes = await this.mutedTypesFor(profileId);
 			// The cache keys the recipient only, so a profile with muted types is counted live.
@@ -166,13 +166,13 @@ class NotificationsService extends BaseService {
 	}
 
 	async markRead(id: string, userId?: string, profileId?: string, read = true): Promise<{ success: true }> {
-		return await this.safeExecute("markRead", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "markRead", async () => {
+			assertUserId(userId);
 			const updated = read
 				? await notificationsRepository.markReadForRecipient(id, userId, profileId)
 				: await notificationsRepository.markUnreadForRecipient(id, userId, profileId);
 			if (!updated) {
-				throw new ForbiddenError("Notification is not available to this account or profile", {
+				throw new DomainError("forbidden", "Notification is not available to this account or profile", {
 					code: "notification.access_denied",
 					params: { notificationId: id },
 				});
@@ -185,8 +185,8 @@ class NotificationsService extends BaseService {
 	}
 
 	async markAllRead(userId?: string, profileId?: string): Promise<{ success: true }> {
-		return await this.safeExecute("markAllRead", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "markAllRead", async () => {
+			assertUserId(userId);
 			await notificationsRepository.markAllReadForRecipient(userId, profileId);
 			this.invalidateFor(userId, profileId);
 
@@ -204,8 +204,8 @@ class NotificationsService extends BaseService {
 		userId?: string,
 		profileId?: string,
 	): Promise<{ success: true }> {
-		return await this.safeExecute("updateStatus", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "updateStatus", async () => {
+			assertUserId(userId);
 			const read = params.read ?? true;
 
 			if (params.all) {
@@ -226,8 +226,8 @@ class NotificationsService extends BaseService {
 
 	/** Removes notifications from the caller's own list; ids that belong to another recipient are ignored. */
 	async deleteNotifications(ids: string[], userId?: string, profileId?: string): Promise<{ deleted: number }> {
-		return await this.safeExecute("deleteNotifications", async () => {
-			this.assertUserId(userId);
+		return await runSafely(this, "deleteNotifications", async () => {
+			assertUserId(userId);
 			const deleted = await notificationsRepository.deleteBatchForRecipient(ids, userId, profileId);
 			this.invalidateFor(userId, profileId);
 
@@ -251,7 +251,7 @@ class NotificationsService extends BaseService {
 		episodeNumber: number;
 		episodeTitle?: string | undefined;
 	}): Promise<void> {
-		await this.safeExecute("notifyNewEpisode", async () => {
+		await runSafely(this, "notifyNewEpisode", async () => {
 			const [viewers, watchlistUsers] = await Promise.all([
 				playbackRepository.findViewerProfilesByMetadataId(input.metadataId),
 				watchlistRepository.findProfilesByMetadataId(input.metadataId),
@@ -361,7 +361,7 @@ class NotificationsService extends BaseService {
 
 		const profile = await profilesRepository.findByUserAndId(userId, profileId);
 		if (!profile) {
-			throw new ForbiddenError("Notification profile does not belong to the user", {
+			throw new DomainError("forbidden", "Notification profile does not belong to the user", {
 				code: "profile.not_owned",
 				params: { profileId, userId },
 			});

@@ -1,4 +1,4 @@
-import { InternalError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import type { SidecarFormatRegistry } from "../formats/sidecar-format.registry";
 import type {
 	SidecarFlavor,
@@ -85,7 +85,7 @@ export class RegistrySidecarMetadataWriter implements SidecarMetadataWriter {
 	private async write(flavor: SidecarFlavor, documentPath: string, document: SidecarSnapshotDocument): Promise<SidecarWriteResult> {
 		const adapter = this.registry.find(flavor);
 		if (!adapter?.write)
-			throw new InternalError(`Sidecar format adapter is not registered for writing: ${flavor}`, {
+			throw new DomainError("internal", `Sidecar format adapter is not registered for writing: ${flavor}`, {
 				code: "sidecar.adapter_not_registered",
 			});
 

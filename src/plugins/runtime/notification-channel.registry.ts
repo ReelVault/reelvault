@@ -1,6 +1,6 @@
 import type { OutgoingNotification, PluginNotificationChannel } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/server.config";
-import { ConflictError } from "@/utils/errors";
+import { DomainError } from "@/utils/errors";
 import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
 
@@ -31,7 +31,7 @@ export function onNotificationChannelFailure(listener: NotificationChannelFailur
 export function registerNotificationChannel(pluginId: string, channel: PluginNotificationChannel): () => void {
 	const key = `${pluginId}:${channel.id}`;
 	if (channels.has(key)) {
-		throw new ConflictError(`Notification channel '${channel.id}' is already registered`, {
+		throw new DomainError("conflict", `Notification channel '${channel.id}' is already registered`, {
 			code: "plugin.notification_channel.duplicate",
 			params: { pluginId, channelId: channel.id },
 		});

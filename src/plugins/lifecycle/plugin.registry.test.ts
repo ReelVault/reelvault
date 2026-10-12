@@ -149,6 +149,12 @@ describe("plugin registry", () => {
 		expect(registry.getFailedStatuses()).toHaveLength(1);
 		expect(registry.getConfigDefinition("broken-config")?.descriptors).toEqual(configDefinition.descriptors);
 	});
+});
+
+describe("plugin registry", () => {
+	const registry = new PluginRegistry();
+
+	afterEach(() => registry.clear());
 
 	it("tracks a failed load by its lifecycle state and failing phase", () => {
 		const runtime = createRuntime("broken-import");
@@ -234,6 +240,12 @@ describe("plugin registry", () => {
 		registry.setCspDisabled("org.example.refused", false);
 		expect(registry.getCspDirectives()).toEqual({ "frame-src": ["https://embed.example.com"] });
 	});
+});
+
+describe("plugin registry", () => {
+	const registry = new PluginRegistry();
+
+	afterEach(() => registry.clear());
 
 	it("runs media analyzers in order and isolates analyzer failures", async () => {
 		const first = createAnalyzer("first", () => ({ source: "WEB-DL" }));

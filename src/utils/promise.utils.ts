@@ -2,7 +2,7 @@ import { watch } from "node:fs/promises";
 import { file } from "bun";
 import { createLogger } from "@/utils/logger";
 import { PathUtils } from "@/utils/path.utils";
-import { RequestTimeoutError } from "./errors";
+import { DomainError } from "./errors";
 
 const logger = createLogger("PromiseUtils");
 
@@ -150,7 +150,7 @@ export const PromiseUtils = {
 			timeoutTimer = setTimeout(() => {
 				if (!resolved) {
 					cleanup();
-					reject(new RequestTimeoutError(`Timeout waiting for file: ${filePath}`, { code: "file.wait_timeout" }));
+					reject(new DomainError("timeout", `Timeout waiting for file: ${filePath}`, { code: "file.wait_timeout" }));
 				}
 			}, timeoutMs);
 			timeoutTimer.unref();

@@ -1,5 +1,8 @@
+import type { Logger } from "@reelvault/sdk";
 import type { FieldsQuery, PaginatedResponse, PaginationQuery, SelectFields } from "@reelvault/sdk/common";
-import { BaseService } from "@/utils/base-service";
+import { assertFound } from "@/utils/errors";
+import { createLogger } from "@/utils/logger";
+import { runSafely } from "@/utils/safe-execute";
 import { invalidateCatalogLists } from "./catalog.utils";
 
 interface DictionaryReadRepository<TEntity, TFilters, TSorting> {
@@ -22,12 +25,15 @@ export abstract class DictionaryReadService<
 	TFilters,
 	TSorting,
 	TRepo extends DictionaryReadRepository<TEntity, TFilters, TSorting>,
-> extends BaseService {
+> {
+	readonly serviceName: string;
+	readonly logger: Logger;
 	protected readonly entityName: string;
 	protected readonly repository: TRepo;
 
 	constructor(serviceName: string, entityName: string, repository: TRepo) {
-		super(serviceName);
+		this.serviceName = serviceName;
+		this.logger = createLogger(serviceName);
 		this.entityName = entityName;
 		this.repository = repository;
 	}
@@ -35,13 +41,13 @@ export abstract class DictionaryReadService<
 	async getAll<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & TFilters & TSorting,
 	): Promise<PaginatedResponse<SelectFields<TEntity, F>>> {
-		return await this.safeExecute("getAll", () => this.repository.findPage(query));
+		return await runSafely(this, "getAll", () => this.repository.findPage(query));
 	}
 
 	async getById<F extends string>(id: string, query?: FieldsQuery<F>): Promise<SelectFields<TEntity, F>> {
-		return await this.safeExecute("getById", async () => {
+		return await runSafely(this, "getById", async () => {
 			const item = await this.repository.findByIdForRead(id, query);
-			this.assertExists(item, this.entityName, id);
+			assertFound(item, this.entityName, id);
 
 			return item;
 		});
@@ -57,9 +63,9 @@ export abstract class DictionaryCrudService<
 	TRepo extends DictionaryCrudRepository<TEntity, TCreate, TUpdate, TFilters, TSorting>,
 > extends DictionaryReadService<TEntity, TFilters, TSorting, TRepo> {
 	async create<F extends string>(body: TCreate, query?: FieldsQuery<F>): Promise<SelectFields<TEntity, F>> {
-		return await this.safeExecute("create", async () => {
+		return await runSafely(this, "create", async () => {
 			const result = await this.repository.createAndRead(body, query);
-			this.assertExists(result, this.entityName, body.name);
+			assertFound(result, this.entityName, body.name);
 			invalidateCatalogLists();
 
 			return result;
@@ -67,9 +73,9 @@ export abstract class DictionaryCrudService<
 	}
 
 	async update<F extends string>(id: string, body: TUpdate, query?: FieldsQuery<F>): Promise<SelectFields<TEntity, F>> {
-		return await this.safeExecute("update", async () => {
+		return await runSafely(this, "update", async () => {
 			const result = await this.repository.updateAndRead(id, body, query);
-			this.assertExists(result, this.entityName, id);
+			assertFound(result, this.entityName, id);
 			invalidateCatalogLists();
 
 			return result;
@@ -77,7 +83,7 @@ export abstract class DictionaryCrudService<
 	}
 
 	async delete(id: string): Promise<{ success: boolean }> {
-		return await this.safeExecute("delete", async () => {
+		return await runSafely(this, "delete", async () => {
 			await this.getById(id, { fields: "id" });
 			await this.repository.delete({ primaryId: id });
 			invalidateCatalogLists();

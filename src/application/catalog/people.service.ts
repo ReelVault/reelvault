@@ -2,6 +2,8 @@ import type { BulkRefreshItem, CreatePerson, PersonFilters, PersonSorting, Perso
 import { peopleRepository } from "@/database/repositories/people.repository";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
+import { assertFound } from "@/utils/errors";
+import { runSafely } from "@/utils/safe-execute";
 import { findFirstProviderResult, invalidateCatalogLists, runBulkItem } from "./catalog.utils";
 import { DictionaryCrudService } from "./dictionary-crud.service";
 
@@ -18,9 +20,9 @@ class PeopleService extends DictionaryCrudService<
 	}
 
 	async refresh(personId: string, options: { forceImage?: boolean } = {}) {
-		return await this.safeExecute("refresh", async () => {
+		return await runSafely(this, "refresh", async () => {
 			const person = await peopleRepository.findByIdRaw(personId);
-			this.assertExists(person, "Person", personId);
+			assertFound(person, "Person", personId);
 
 			const providerLink = await peopleRepository.findFirstProviderLink(personId);
 			const externalId = providerLink?.externalId;
@@ -60,7 +62,7 @@ class PeopleService extends DictionaryCrudService<
 
 	/** Refreshes the listed people one after another, so provider calls stay sequential; each id reports its own outcome. */
 	async refreshMany(personIds: string[]) {
-		return await this.safeExecute("refreshMany", async () => {
+		return await runSafely(this, "refreshMany", async () => {
 			const results: BulkRefreshItem[] = [];
 			for (const personId of new Set(personIds)) {
 				results.push(await runBulkItem(personId, () => this.refresh(personId), "person.refresh_failed"));

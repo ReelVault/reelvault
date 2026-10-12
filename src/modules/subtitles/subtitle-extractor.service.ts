@@ -3,9 +3,9 @@ import { file } from "bun";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
-import { BaseService } from "@/utils/base-service";
 import { DirUtils } from "@/utils/directory.utils";
 import { createTempPath, FileUtils } from "@/utils/file.utils";
+import { createLogger } from "@/utils/logger";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
@@ -31,14 +31,16 @@ const defaultDependencies: ServiceDependencies = {
 	getConcurrency: () => systemResourcesService.getHeavySubprocessConcurrency(),
 };
 
-export class SubtitleExtractorService extends BaseService {
+export class SubtitleExtractorService {
+	readonly serviceName = "SubtitleExtractorService";
+	readonly logger = createLogger("SubtitleExtractorService");
+
 	private readonly dependencies: ServiceDependencies;
 	private readonly inFlightExtractions = new Map<string, Promise<SubtitleContent | null>>();
 	// Each extraction spawns an FFmpeg — concurrency derives from measured CPU capacity.
 	private readonly extractionSemaphore = PromiseUtils.createSemaphore(() => this.dependencies.getConcurrency());
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		super("SubtitleExtractorService");
 		this.dependencies = dependencies;
 	}
 
