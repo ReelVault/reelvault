@@ -72,7 +72,7 @@ jobs:
       - name: Check types and run tests
         run: |
           bun run check-types
-          bun test
+          bun run test
 
       - name: Build release archives
         env:
