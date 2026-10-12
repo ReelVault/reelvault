@@ -21,4 +21,4 @@ pre-push:
       run: bunx tsc --noEmit --pretty
     test:
       glob: "*.{ts,tsx}"
-      run: bun test
+      run: bun run test
