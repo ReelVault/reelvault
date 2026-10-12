@@ -1,85 +1,100 @@
 # ReelVault Server
 
-[![CI Pipeline](https://github.com/ReelVault/reelvault/actions/workflows/ci.yml/badge.svg)](https://github.com/ReelVault/reelvault/actions/workflows/ci.yml)
+[![CI](https://github.com/ReelVault/reelvault/actions/workflows/ci.yml/badge.svg)](https://github.com/ReelVault/reelvault/actions/workflows/ci.yml)
 
-Self-hosted media server backend: organizes your movie and TV library, streams it over HLS with on-the-fly transcoding, and extends itself through a runtime plugin system. Pairs with [website](https://github.com/ReelVault/website) (web + desktop client).
+**ReelVault is a self-hosted media server.** Point it at your folders of movies and TV shows, and it builds a library you can browse and stream to any browser, phone or TV on your network. Posters, descriptions, subtitles and resume come with it.
 
-## Highlights
+- **Plays what it can, converts only what it must.** Files your device understands stream untouched. Everything else is converted on the fly, on the GPU when one is available.
+- **Made for a household.** Each account has profiles with their own progress, watchlist and preferences. Profiles can be locked with a PIN.
+- **Extensible.** Metadata, subtitles, media requests, webhooks and more come from plugins. Install them from the admin panel, with no restart.
 
-- **Streaming** — HLS with per-session transcode pipelines, direct play / remux when the client can handle the file, adaptive transcode progress reporting, seek with real stream-start alignment, trickplay previews.
-- **Hardware acceleration** — capability detection with a verification test-encode per encoder, per-frame software fallback, diagnostics panel.
-- **HDR** — HDR10 / Dolby Vision / HLG detection, "HDR always transcodes" policy with HDR→SDR tone-mapping (tonemapx / zscale).
-- **Library** — scanning with inotify-style watchers, metadata and images from pluggable providers, seasons/episodes, multiple versions per title, sort titles, intro / credits / recap markers.
-- **Multi-user** — accounts via better-auth, playback sessions with admin visibility and termination, per-profile audio/subtitle preferences, watched state and filters.
-- **Plugins** — first-class SDK: providers (metadata, subtitles), markers, jobs, HTTP routes, storage, artifacts, events, hooks, access policies and UI slots that render in the web client with zero frontend changes. Install from a catalog at runtime — see the [plugin development guide](https://reelvault.org/plugins/getting-started).
-- **Operations** — admin settings UI, worker/scheduled-task dashboards, ffmpeg capability diagnostics, live sessions, notifications, rate limiting, audit log, structured rotating logs.
+📖 **Docs:** [reelvault.org](https://reelvault.org) · **Version:** 1.3.0
 
-## Requirements
+## Install
 
-- [Bun](https://bun.sh) ≥ 1.4.2
-- **ffmpeg + ffprobe** on `PATH` (mandatory — the server refuses to start without them), or a release archive with the `-full` suffix, which bundles both
-
-## Quickstart
-
-The fastest way is Docker — one container runs the API, the web UI and ffmpeg on a single port:
+Docker is the easiest way. Run these commands in a folder of your choice:
 
 ```bash
+mkdir reelvault && cd reelvault
+curl -fsSLO https://raw.githubusercontent.com/ReelVault/installer/main/docker-compose.yml
 docker compose up -d
-# open http://localhost:3030 and create the administrator account
 ```
 
-Installers for Windows (`install.ps1`, wrapper `install.bat`) and Linux (`install.sh`) live in the [ReelVault/installer](https://github.com/ReelVault/installer) repository and resolve the latest bundle for you. The server release archive (built by `scripts/release.sh`) ships the runtime and server sources — the web UI releases separately from [ReelVault/website](https://github.com/ReelVault/website), and the admin panel updates each component independently. Fresh installs use the combined bundles from the installer repository, or install with `install.sh --full` / `install.ps1 -Full` to get the archive with ffmpeg/ffprobe bundled in `bin/`. Setup needs **no token** by default; enable `SETUP_TOKEN_ENABLED=true` before exposing an unconfigured server to the public internet.
+Open **http://localhost:3030** and create your administrator account. To add your movies and shows, follow [Adding your media](https://reelvault.org/guide/libraries).
 
-### From source
+Without Docker, use an installer. It downloads the latest release and sets up ffmpeg for you.
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/ReelVault/installer/main/install/install.ps1 | iex
+```
+
+```bash
+# Linux
+curl -fsSL https://raw.githubusercontent.com/ReelVault/installer/main/install/install.sh | bash
+```
+
+All options and step-by-step guides are in [Install & run](https://reelvault.org/guide/getting-started).
+
+## Run from source
+
+For developers. You need [Bun](https://bun.sh) 1.4.2 or newer, plus `ffmpeg` and `ffprobe` on your `PATH`.
 
 ```bash
 git clone https://github.com/ReelVault/reelvault.git
 cd reelvault
 bun install
-
-cp .env.example .env   # optional — sane defaults apply without it
-bun dev                # http://localhost:3030 — API only, no bundled UI
+bun dev        # API on http://localhost:3030
 ```
 
-Without a `.env` the server uses defaults: port `3030`, data in `./data`, and auto-generated secrets persisted to `data/secrets.env` (created on first boot with `0600` permissions). When setup is pending the log tells you to open the setup wizard (or, with `SETUP_TOKEN_ENABLED=true`, prints the one-time token).
+This runs the API only. The web app lives in [ReelVault/website](https://github.com/ReelVault/website). To serve it from the same port, set `APP_WEB_DIST` to its production build.
 
-To serve the web UI from the same process, point `APP_WEB_DIST` (or a `./web` folder) at a production build of [website](https://github.com/ReelVault/website).
+Without a `.env` file, the server uses port 3030, keeps its data in `./data` and generates its secrets on first start. Copy `.env.example` to `.env` to change anything.
 
-### Configuration
+## Configuration
 
-All settings are optional (see [.env.example](.env.example)); the useful ones:
+Most settings live in the admin panel. These environment variables matter most:
 
-| Variable | Default | Purpose |
+| Variable | Default | What it does |
 |---|---|---|
 | `APP_PORT` | `3030` | HTTP port |
-| `APP_HOST` | `127.0.0.1` (prod) | Bind address; `0.0.0.0` for LAN |
-| `ROOT_DIR` | `./data` | SQLite DB, transcodes, downloads, plugins, images |
-| `APP_WEB_DIST` | `./web` if present | Built web UI served on the same port |
-| `APP_FFMPEG_PATH` | `ffmpeg` on `PATH` | ffmpeg binary; a path saved in the admin UI wins |
-| `APP_FFPROBE_PATH` | `ffprobe` on `PATH` | ffprobe binary; a path saved in the admin UI wins |
-| `SETUP_TOKEN_ENABLED` | `false` | Require a setup token for first-run |
-| `SETUP_TOKEN` | generated when enabled | One-time token for creating the first admin |
-| `BETTER_AUTH_SECRET` | generated | Session/auth secret — keep it stable across restarts |
-| `OPENAPI_DOCS_ENABLED` | `true` | Interactive API reference at `/openapi` |
+| `APP_HOST` | `127.0.0.1` | Set to `0.0.0.0` to reach the server from other devices |
+| `ROOT_DIR` | `./data` | Database, images, plugins, logs and secrets |
+| `APP_PUBLIC_URL` | — | Public address, used for links and sign-in when you use a domain |
+| `SETUP_TOKEN_ENABLED` | `false` | Require a one-time token for first-run setup |
 
-## Plugin development
+The full list is in the [configuration guide](https://reelvault.org/guide/configuration).
 
-ReelVault's plugin SDK is published as [`reelvault-sdk`](https://www.npmjs.com/package/reelvault-sdk) (sources in [`sdk/`](sdk/)). A plugin is a directory with a `plugin.json` manifest and a TypeScript entry — loaded at runtime, no rebuild needed. The full guide (manifest, capabilities, host API, UI slots, publishing to a catalog) lives at [reelvault.org/plugins](https://reelvault.org/plugins/getting-started).
+## Plugins
 
-To use the server as a library (SDK/typed client):
+Plugins are installed from **Admin → Plugins → Available**. They run inside the server process, so only install plugins you trust. To write your own, start with the [plugin guide](https://reelvault.org/plugins/getting-started) and the [plugin template](https://github.com/ReelVault/plugin-template).
+
+## Repositories
+
+| Repository | What it is |
+|---|---|
+| [reelvault](https://github.com/ReelVault/reelvault) | The server (this repository) |
+| [website](https://github.com/ReelVault/website) | Web and desktop client |
+| app | Mobile client, in development |
+| [sdk](https://github.com/ReelVault/sdk) | Typed TypeScript SDK, published as `@reelvault/sdk` |
+| [plugins](https://github.com/ReelVault/plugins) | Official plugins and their catalog |
+| [plugin-template](https://github.com/ReelVault/plugin-template) | Starting point for a new plugin |
+| [installer](https://github.com/ReelVault/installer) | Installers, Docker setup and release bundles |
+| [reelvault.org](https://github.com/ReelVault/reelvault.org) | Documentation site |
+
+## Development
 
 ```bash
-# (SDK lives in the sibling repo: `sdk/` — build with `bun run build` there)
-```
-
-## Scripts
-
-```bash
-bun dev              # watch mode
-bun start            # production start
-bun test             # test suite
-bun run lint         # biome + oxlint
+bun run dev          # watch mode
+bun test             # tests, run from the repository root
+bun run lint         # Biome and oxlint
 bun run check-types  # tsc --noEmit
-bun run deadcode     # knip
-bun run db:migrate   # apply migrations (drizzle-kit)
+bun run deadcode     # Knip
+bun run db:migrate   # apply database migrations
 ```
+
+Contributions are welcome. Please read [CONTRIBUTING.md](https://github.com/ReelVault/.github/blob/main/CONTRIBUTING.md) first.
+
+## License
+
+GPL-3.0-only. See [LICENSE](LICENSE).
