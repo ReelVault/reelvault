@@ -80,7 +80,7 @@ if [ "$(bun --version)" != "$BUN_VERSION" ]; then
 fi
 
 # The archives are assembled from tracked files: fail early, not halfway through.
-for required in bun.lock bunfig.toml tsconfig.json package.json src install/start.sh install/start.bat install/README.txt; do
+for required in bun.lock bunfig.toml tsconfig.json package.json src install/start.sh install/start.bat; do
 	[ -e "$ROOT/$required" ] || die "missing required file in the repository: $required"
 done
 
@@ -142,7 +142,7 @@ for TARGET in "${TARGETS[@]}"; do
 	unzip -q "$WORK/$NAME/bun.zip" -d "$WORK/$NAME/bun-extract"
 	mv "$WORK/$NAME/bun-extract/${BUN_ASSET%.zip}/$BUN_BIN" "$APP/bun/$BUN_BIN"
 
-	cp "$ROOT/install/$LAUNCHER" "$ROOT/install/README.txt" "$APP/"
+	cp "$ROOT/install/$LAUNCHER" "$APP/"
 
 	cp "$ROOT/package.json" "$ROOT/bun.lock" "$ROOT/bunfig.toml" "$ROOT/tsconfig.json" "$APP/server/"
 	cp -r "$ROOT/src" "$APP/server/"

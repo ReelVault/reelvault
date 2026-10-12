@@ -8,7 +8,7 @@ export type UpdateFlavor = "default" | "full";
 export type UpdateComponent = "server" | "web";
 
 export const SERVER_DIR_NAMES = ["server", "bun", "bin"] as const;
-export const LAUNCHER_FILE_NAMES = ["start.sh", "start.bat", "README.txt"] as const;
+export const LAUNCHER_FILE_NAMES = ["start.sh", "start.bat"] as const;
 export const WEB_DIR_NAMES = ["web"] as const;
 
 /** Directory that holds the swapped-out previous version after an update. */
