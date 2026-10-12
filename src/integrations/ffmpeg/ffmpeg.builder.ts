@@ -28,7 +28,7 @@ export class FFmpegBuilder {
 	private operationLogOptions?: Omit<FfmpegOperationLogOptions, "outputPath" | "command"> | undefined;
 	private operationLog?: FfmpegOperationLog | undefined;
 	private monitorFinished = false;
-	private exitInfo?: { exitCode: number | null; signalCode: number | null; error?: Bun.ErrorLike | undefined } | undefined;
+	private exitInfo?: { exitCode: number | null; signalCode: NodeJS.Signals | number | null; error?: Bun.ErrorLike | undefined } | undefined;
 	/** Rolling stderr tail — read after a crash to explain why the process died. */
 	private readonly stderrTail: string[] = [];
 	private _onProgress?: ((progress: FFmpegProgress) => void) | undefined;
@@ -38,7 +38,7 @@ export class FFmpegBuilder {
 	private _onExit?: (
 		subprocess: Subprocess<"ignore", "ignore", "pipe">,
 		exitCode: number | null,
-		signalCode: number | null,
+		signalCode: NodeJS.Signals | number | null,
 		error?: Bun.ErrorLike,
 	) => void;
 
@@ -76,7 +76,7 @@ export class FFmpegBuilder {
 		cb: (
 			subprocess: Subprocess<"ignore", "ignore", "pipe">,
 			exitCode: number | null,
-			signalCode: number | null,
+			signalCode: NodeJS.Signals | number | null,
 			error?: Bun.ErrorLike,
 		) => void,
 	) {
@@ -240,7 +240,7 @@ export class FFmpegBuilder {
 	private async finishLogSilently(
 		log: FfmpegOperationLog,
 		exitCode: number | null,
-		signalCode: number | null,
+		signalCode: NodeJS.Signals | number | null,
 		error: unknown,
 	): Promise<void> {
 		try {

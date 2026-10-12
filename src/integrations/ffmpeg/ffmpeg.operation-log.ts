@@ -65,7 +65,7 @@ export class FfmpegOperationLog {
 		this.writeLine(`[progress] ${text.trimEnd()}`);
 	}
 
-	finish(exitCode: number | null, signalCode: number | null, error?: unknown): Promise<void> {
+	finish(exitCode: number | null, signalCode: NodeJS.Signals | number | null, error?: unknown): Promise<void> {
 		if (this.finished) return Promise.resolve();
 
 		this.writeLine(`exitCode: ${exitCode ?? "null"}`);

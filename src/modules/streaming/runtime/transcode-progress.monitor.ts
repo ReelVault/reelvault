@@ -96,7 +96,7 @@ export class TranscodeProgressMonitor {
 	 * completed at 100%; a kill (seek restart, release) leaves the slot with the
 	 * session — either a restart re-uses it or the reaper finalizes it.
 	 */
-	async onFfmpegExit(sessionId: string, exitCode: number | null, signalCode: number | null): Promise<void> {
+	async onFfmpegExit(sessionId: string, exitCode: number | null, signalCode: NodeJS.Signals | number | null): Promise<void> {
 		const store = this.store;
 		const session = store?.get(sessionId);
 		if (!(store && session)) return;

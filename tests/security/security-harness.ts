@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach } from "bun:test";
+import { beforeAll, beforeEach, setDefaultTimeout } from "bun:test";
 import { apiRouter } from "@/api/routes";
 import { databaseFactory } from "@/database/database";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
@@ -117,8 +117,16 @@ export async function sendWithin(ms: number, method: string, path: string, optio
 	}
 }
 
-/** Prepares the database schema and a clean session cache before every security test file. */
+/**
+ * Route-table sweeps issue hundreds of sequential requests. bun's 5 s per-test default
+ * was exceeded on the GitHub-hosted runner (sweeps took 7-11 s there, about 1.3 s on a
+ * dev machine). A genuine hang still fails: every request stays bounded by `sendWithin`.
+ */
+const SWEEP_TIMEOUT_MS = 60_000;
+
+/** Prepares the database schema, a clean session cache and sweep-sized timeouts before every security test file. */
 export function prepareSecuritySuite(): void {
+	setDefaultTimeout(SWEEP_TIMEOUT_MS);
 	beforeAll(() => {
 		databaseFactory.migrate();
 		invalidateSessionCache();
