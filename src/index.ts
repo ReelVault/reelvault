@@ -136,7 +136,15 @@ await setupServer();
 
 // Setup Elysia — domainErrorsMiddleware catches DomainError subclasses and maps
 // them to structured API responses (400/401/403/404/409/408/429/500).
-const app = new Elysia({ name: "ReelVault", aot: true })
+//
+// encodeSchema: false skips Elysia's response-transform encoding. SDK entity
+// schemas carry `t.Date()` transforms, and running them over every uncached
+// payload costs CPU. `JSON.stringify` writes a Date as the same ISO string the
+// transform produces. Response validation and unknown-field stripping still run.
+// One difference: a number in a Date field now passes the response check and is
+// served as a number, where it used to fail with a 422. The response-cache hit
+// path has always served pre-serialized bodies without the transform.
+const app = new Elysia({ name: "ReelVault", aot: true, encodeSchema: false })
 	.use(domainErrorsMiddleware)
 	.use(securityHeadersMiddleware)
 	.use(requestLoggerMiddleware)
