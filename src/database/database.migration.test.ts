@@ -50,6 +50,7 @@ describe("database migrations", () => {
 		const tables = tableNames(factory);
 		expect(tables.has("metadata_fts")).toBe(true);
 		expect(tables.has("people_fts")).toBe(true);
+		expect(tables.has("metadata_title_trigram")).toBe(true);
 	});
 
 	// Regression: a hand-edited migration without `--> statement-breakpoint`
@@ -173,6 +174,26 @@ describe("database migrations", () => {
 
 		factory.sqlite.run("DELETE FROM metadata WHERE id = 'm1'");
 		expect(match("beta")).toHaveLength(0);
+	});
+
+	test("keeps the trigram index in sync through the rowid triggers", () => {
+		factory.sqlite.run(
+			"INSERT INTO metadata (id, stable_key, title, original_title, type, release_date, popularity, has_missing_translation, created_at, updated_at) VALUES ('m2', 'm2', 'Statr Wars', null, 'movie', '2024-01-01', 0, 0, 0, 0)",
+		);
+		const match = (term: string) =>
+			factory.sqlite.query("SELECT metadata_id FROM metadata_title_trigram WHERE metadata_title_trigram MATCH ?").all(term) as Array<{
+				metadata_id: string;
+			}>;
+
+		// The fallback searches the first three characters of the query token.
+		expect(match('"atr"')).toHaveLength(1);
+
+		factory.sqlite.run("UPDATE metadata SET title = 'Different' WHERE id = 'm2'");
+		expect(match('"atr"')).toHaveLength(0);
+		expect(match('"iff"')).toHaveLength(1);
+
+		factory.sqlite.run("DELETE FROM metadata WHERE id = 'm2'");
+		expect(match('"iff"')).toHaveLength(0);
 	});
 
 	test("is idempotent and records every migration folder", () => {

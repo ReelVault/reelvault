@@ -149,6 +149,7 @@ export class DatabaseFactory {
 	optimizeFts(): void {
 		this.sqlite.run("INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')");
 		this.sqlite.run("INSERT INTO people_fts(people_fts) VALUES('optimize')");
+		this.sqlite.run("INSERT INTO metadata_title_trigram(metadata_title_trigram) VALUES('optimize')");
 	}
 
 	private analyzeIfStatisticsMissing(): void {

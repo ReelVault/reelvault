@@ -181,12 +181,40 @@ async function fuzzyTitleSearch(
 	const token = longestToken;
 	if (!token) return [];
 
-	const candidates = await client
-		.select({ id: schema.metadata.id, title: schema.metadata.title, type: schema.metadata.type })
-		.from(schema.metadata)
-		.where(titleMatchFilter(token.slice(0, 3), "contains"))
-		.orderBy(desc(schema.metadata.popularity))
-		.limit(400);
+	// Trigram probe instead of scanning the whole catalog with LIKE on every
+	// uncached miss. A three-character substring that is not in the trigram
+	// index cannot match the escaped LIKE either (the trigram tokenizer is a
+	// superset), so an empty probe returns early; a small match set is fetched
+	// by rowid, and only a large one keeps the early-stopping LIKE scan (the
+	// popularity index stops it after 400 matches). The LIKE stays in every
+	// path, so results are exactly the ones the scan produced before.
+	const slice = token.slice(0, 3);
+	const matchTerm = `"${slice.replaceAll('"', '""')}"`;
+	const probe = client.all<{ rowid: number }>(
+		sql`SELECT rowid FROM metadata_title_trigram WHERE metadata_title_trigram MATCH ${matchTerm} LIMIT 401`,
+	);
+	if (probe.length === 0) return [];
+
+	const projection = { id: schema.metadata.id, title: schema.metadata.title, type: schema.metadata.type };
+	const candidates =
+		probe.length <= 400
+			? await client
+					.select(projection)
+					.from(schema.metadata)
+					.where(
+						and(
+							sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(probe.map((row) => row.rowid))}))`,
+							titleMatchFilter(slice, "contains"),
+						),
+					)
+					.orderBy(desc(schema.metadata.popularity))
+					.limit(400)
+			: await client
+					.select(projection)
+					.from(schema.metadata)
+					.where(titleMatchFilter(slice, "contains"))
+					.orderBy(desc(schema.metadata.popularity))
+					.limit(400);
 
 	const maxDistance = Math.max(2, Math.floor(token.length / 4));
 	const exactIds = new Set(exactMatches.map((match) => match.id));

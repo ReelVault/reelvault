@@ -67,6 +67,11 @@ const globalSearch: RequestBuilder = (context, workerIndex, requestIndex) =>
 const typoSearch: RequestBuilder = (context, workerIndex, requestIndex) =>
 	new Request(`${context.baseUrl}/v1/metadata/search/global?q=statr&limit=10`, authHeaders(context, workerIndex, requestIndex));
 
+// Same fallback with a substring no title contains: the trigram probe skips
+// the full-catalog LIKE scan that this case used to pay for.
+const typoSearchNoMatch: RequestBuilder = (context, workerIndex, requestIndex) =>
+	new Request(`${context.baseUrl}/v1/metadata/search/global?q=zzzq&limit=10`, authHeaders(context, workerIndex, requestIndex));
+
 const imageServing: RequestBuilder = (context, workerIndex, requestIndex) =>
 	new Request(`${context.baseUrl}/v1/images/${context.imageId}?w=342`, authHeaders(context, workerIndex, requestIndex));
 
@@ -306,8 +311,9 @@ const SCENARIOS: readonly ScenarioDefinition[] = [
 	{ name: "GET /v1/metadata?fields=... (projected browse)", builder: projectedBrowse },
 	{ name: "GET /v1/metadata?year+genre (filtered browse)", builder: filteredBrowse },
 	{ name: "GET /v1/metadata?page=rows/2 (deep offset page)", builder: deepPage },
-	{ name: "GET /v1/metadata/search (FTS5 search)", builder: globalSearch },
-	{ name: "GET /v1/metadata/search?q=statr (typo → fuzzy fallback)", builder: typoSearch },
+	{ name: "GET /v1/metadata/search/global (FTS5 search)", builder: globalSearch },
+	{ name: "GET /v1/metadata/search/global?q=statr (typo → fuzzy fallback)", builder: typoSearch },
+	{ name: "GET /v1/metadata/search/global?q=zzzq (typo → no-match fallback)", builder: typoSearchNoMatch },
 	{ name: "GET /v1/metadata/:id (movie detail)", builder: movieDetail },
 	{ name: "GET /v1/metadata/:id (tv detail + episodes)", builder: tvDetail },
 	{ name: "GET /v1/metadata/:id/similar", builder: similarTitles },

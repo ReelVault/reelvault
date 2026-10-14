@@ -88,6 +88,16 @@ if (!args.help) {
 				FROM metadata
 				WHERE id = ?
 			`),
+			fuzzyLikeScan: db.prepare(`
+				SELECT id
+				FROM metadata
+				WHERE title LIKE ? ESCAPE ? OR original_title LIKE ? ESCAPE ?
+				ORDER BY popularity DESC
+				LIMIT 400
+			`),
+			trigramProbe: db.prepare(`
+				SELECT rowid FROM metadata_title_trigram WHERE metadata_title_trigram MATCH ? LIMIT 401
+			`),
 			relationJoinQuery: db.prepare(`
 				SELECT m.id, m.title, mf.file_path, g.name AS genre_name
 				FROM metadata m
@@ -145,6 +155,17 @@ if (!args.help) {
 		});
 		bench("FTS5 people search (bm25 rank)", async () => (await database()).ftsPeopleQuery.all("actor*"), {
 			iterations: args.iterations,
+		});
+		// The typo fallback's old shape: a leading-wildcard LIKE no index can
+		// serve, so a no-match term scans the whole catalog. The trigram probe
+		// answers the same question from the index.
+		bench(
+			"Fuzzy fallback: LIKE scan, no-match term (full scan)",
+			async () => (await database()).fuzzyLikeScan.all("%zzz%", "\\", "%zzz%", "\\"),
+			{ iterations: Math.max(10, Math.floor(args.iterations / 4)) },
+		);
+		bench("Fuzzy fallback: trigram probe, no-match term", async () => (await database()).trigramProbe.all('"zzz"'), {
+			iterations: Math.max(10, Math.floor(args.iterations / 4)),
 		});
 		bench("Catalog browse: offset pagination (LIMIT 24 OFFSET 500)", async () => (await database()).offsetPaginationQuery.all(), {
 			iterations: args.iterations,
