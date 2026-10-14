@@ -99,7 +99,7 @@ function repositoryOperationCases(): OperationCase[] {
 		},
 		{
 			name: "metadataRepository.findById (movie detail)",
-			target: 11,
+			target: 2,
 			run: () => metadataRepository.findById({ primaryId: MOVIE_ID }),
 		},
 		{
