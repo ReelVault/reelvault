@@ -11,7 +11,7 @@ import type {
 	UpdateCollection,
 } from "@reelvault/sdk/common";
 import type { ProviderResultCollection } from "@reelvault/sdk/plugin";
-import { and, count, eq, gte, inArray, lte, type SQL, sql } from "drizzle-orm";
+import { and, count, eq, exists, inArray, lte, type SQL, sql } from "drizzle-orm";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
@@ -214,7 +214,13 @@ class CollectionsRepository {
 		return this.hydrateRelations(data, fields, tx);
 	}
 
-	/** Collections whose metadata-item count meets `minItems` (grouped, filtered). */
+	/**
+	 * Collections whose metadata-item count meets `minItems`. The previous
+	 * grouped join counted every junction row of the whole catalog; probing for
+	 * the `minItems`-th row rides the (collection_id, metadata_id) index and
+	 * stops after `minItems` entries per collection — O(collections × minItems)
+	 * instead of O(junction rows).
+	 */
 	private qualifyingCollections({
 		where,
 		minItems,
@@ -224,16 +230,17 @@ class CollectionsRepository {
 		minItems: number;
 		tx?: DatabaseTransaction | undefined;
 	}) {
-		const metadataItemCount = count(schema.metadataCollections.metadataId);
+		const client = databaseFactory.getClient({ tx });
+		const minimumCount = Math.max(minItems, 1);
+		const qualifies = exists(
+			client
+				.select({ one: sql`1` })
+				.from(schema.metadataCollections)
+				.where(eq(schema.metadataCollections.collectionId, this.table.id))
+				.limit(minimumCount),
+		);
 
-		return databaseFactory
-			.getClient({ tx })
-			.select({ id: this.table.id })
-			.from(this.table)
-			.innerJoin(schema.metadataCollections, eq(schema.metadataCollections.collectionId, this.table.id))
-			.where(where)
-			.groupBy(this.table.id)
-			.having(gte(metadataItemCount, minItems));
+		return client.select({ id: this.table.id }).from(this.table).where(and(where, qualifies));
 	}
 
 	/** Total collections meeting the `minItems` threshold, computed in SQL (no id materialization). */
@@ -443,7 +450,11 @@ class CollectionsRepository {
 				? client
 						.select({
 							collectionId: schema.metadataCollections.collectionId,
-							count: sql<number>`COUNT(DISTINCT ${schema.metadataCollections.metadataId})`,
+							// (metadata_id, collection_id) is the primary key, so metadata_id is
+							// unique within a collection and COUNT(*) is exact; it also lets the
+							// planner serve the group from the (collection_id, sort_order) index
+							// instead of deduplicating ids per row.
+							count: sql<number>`COUNT(*)`,
 						})
 						.from(schema.metadataCollections)
 						.where(inArray(schema.metadataCollections.collectionId, collectionIds))
