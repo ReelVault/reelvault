@@ -49,6 +49,21 @@ describe("DailyRotatingStream", () => {
 		expect(await readFile(PathUtils.join(directory, staleDate, "reelvault.log"), "utf8")).toBe("stale\n");
 		expect(await readFile(activePath, "utf8")).toBe("fresh\n");
 	});
+
+	it("keeps the order of a burst written faster than the file drains", async () => {
+		const directory = await mkdtemp(PathUtils.join(tmpdir(), "reelvault-log-"));
+		temporaryDirectories.push(directory);
+		const activePath = PathUtils.join(directory, "reelvault.log");
+		const stream = new DailyRotatingStream(activePath, () => "2030-01-01");
+
+		// Synchronous writes without awaiting drain: the backlog is batched through _writev.
+		const lines = Array.from({ length: 5000 }, (_, index) => `line ${index}\n`);
+		for (const line of lines) stream.write(line);
+		stream.end();
+		await once(stream, "finish");
+
+		expect(await readFile(activePath, "utf8")).toBe(lines.join(""));
+	});
 });
 
 function write(stream: DailyRotatingStream, value: string): Promise<void> {

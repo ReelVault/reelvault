@@ -102,6 +102,18 @@ export class DailyRotatingStream extends Writable {
 		this.writeWithRotation(chunk, encoding, callback);
 	}
 
+	/**
+	 * Pino writes one line per call. Lines queue here while the file stream is
+	 * behind (its `drain` wait), and Node hands the whole backlog to `_writev`.
+	 * Writing it as one buffer keeps the backlog from growing without bound —
+	 * one write per line costs a threadpool round trip each and cannot keep up
+	 * at request-log volume. Rotation is checked once per batch.
+	 */
+	override _writev(chunks: Array<{ chunk: Buffer | string; encoding: BufferEncoding }>, callback: (error?: Error | null) => void): void {
+		const buffers = chunks.map(({ chunk, encoding }) => (Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding)));
+		this.writeWithRotation(Buffer.concat(buffers), "utf8", callback);
+	}
+
 	private writeToStream(chunk: Buffer | string, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
 		if (this.stream.write(chunk, encoding)) {
 			callback();
