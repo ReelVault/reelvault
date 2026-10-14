@@ -1,6 +1,6 @@
 import { Elysia, ElysiaCustomStatusResponse } from "elysia";
 import { getPathname, getResponseStatus } from "@/utils/http.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger, logAccessRecord } from "@/utils/logger";
 
 const logger = createLogger("RequestLogger");
 
@@ -83,5 +83,8 @@ export const requestLoggerMiddleware = new Elysia({ name: "RequestLogger" })
 		const { responseValue, set } = context;
 		const status = responseStatus(responseValue, set);
 		const meta = extractLogMeta(context, { status });
-		logger.info(`${String(meta.method)} ${String(meta.path)} → ${String(status)}`, meta);
+		const message = `${String(meta.method)} ${String(meta.path)} → ${String(status)}`;
+		// Production JSON console logs through the access fast path; development
+		// (pino-pretty) and tests fall back to the regular logger.
+		if (!logAccessRecord(message, meta)) logger.info(message, meta);
 	});

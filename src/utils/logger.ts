@@ -335,23 +335,29 @@ let fileStreamsReady = isTest;
 let rootBuildAttempts = 0;
 const MAX_ROOT_BUILD_ATTEMPTS = 5;
 let cachedPrettyStream: pino.StreamEntry | undefined;
+/** Info-level JSON destinations for the access fast path (undefined = use pino). */
+let accessLineSinks: CoalescingStream[] | undefined;
 
 function buildStreams(): pino.StreamEntry[] {
 	const streams: pino.StreamEntry[] = [];
+	accessLineSinks = undefined;
 
 	if (!isTest) {
+		const jsonSinks: CoalescingStream[] = [];
 		try {
 			const operationalStream = new CoalescingStream(new DailyRotatingStream(serverConstants.paths.logFile));
 			streams.push({
 				level: "info",
 				stream: operationalStream,
 			});
+			jsonSinks.push(operationalStream);
 			if (debugFileEnabled) {
 				const debugStream = new CoalescingStream(new DailyRotatingStream(serverConstants.paths.debugLogFile));
 				streams.push({
 					level: "debug",
 					stream: debugStream,
 				});
+				jsonSinks.push(debugStream);
 			}
 
 			fileStreamsReady = true;
@@ -374,7 +380,12 @@ function buildStreams(): pino.StreamEntry[] {
 			};
 			streams.push(cachedPrettyStream);
 		} else {
-			streams.push({ level: "info", stream: new CoalescingStream(process.stdout) });
+			const stdoutStream = new CoalescingStream(process.stdout);
+			streams.push({ level: "info", stream: stdoutStream });
+			jsonSinks.push(stdoutStream);
+			// Raw-JSON console (not pino-pretty): the access fast path can write
+			// the same bytes to every info-level destination pino would.
+			accessLineSinks = jsonSinks;
 		}
 	} else {
 		streams.push({ level: "info", stream: process.stdout });
@@ -415,6 +426,51 @@ export function setLogLevel(level: LevelWithSilentOrString): void {
 /** The level the root logger writes at now, including a change made at runtime from the settings. */
 export function currentLogLevel(): LevelWithSilentOrString {
 	return rootLoggerOptions.level ?? "info";
+}
+
+/**
+ * Access-log fast path. The request logger builds its record from server-side
+ * values only (request id, path, method, duration, status, user/profile ids),
+ * and the path never includes the query string — no user-supplied credentials,
+ * so the generic sanitizer is unnecessary. Writing the line straight to the
+ * info-level JSON destinations skips pino's per-line machinery (child bindings
+ * merge, `_asJson`, level dispatch): a CPU profile put that at ~12% of the
+ * cached catalog-browse path at `info`. The shape matches pino's output for the
+ * same record, including the repeated `module` key its base + child bindings
+ * produce. Unavailable in development (pino-pretty console) and tests, where
+ * callers fall back to the regular logger.
+ */
+/** pino's numeric level for `info` (RFC 5424), used to build access lines. */
+const ACCESS_LEVEL: number = pino.levels.values.info ?? 30;
+
+function infoLevelEnabled(): boolean {
+	const value: number | undefined = pino.levels.values[currentLogLevel()];
+
+	return value !== undefined && value <= ACCESS_LEVEL;
+}
+
+/** One access-log JSON line, byte-compatible with pino's output for the record. */
+export function formatAccessLine(message: string, meta: LogMeta): string {
+	const serialized = JSON.stringify(meta);
+	const body = serialized.length > 2 ? `${serialized.slice(1, -1)},` : "";
+
+	return `{"level":${ACCESS_LEVEL},"time":${Date.now()},"module":"Server","module":"RequestLogger",${body}"msg":${JSON.stringify(message)}}`;
+}
+
+/**
+ * Writes the access record through the fast path. Returns false when the fast
+ * path is unavailable, so the caller logs through the regular logger instead.
+ */
+export function logAccessRecord(message: string, meta: LogMeta): boolean {
+	const sinks = accessLineSinks;
+	if (!sinks) return false;
+
+	if (infoLevelEnabled()) {
+		const line = `${formatAccessLine(message, meta)}\n`;
+		for (const sink of sinks) sink.write(line);
+	}
+
+	return true;
 }
 
 const SENSITIVE_LOG_KEY = /(authorization|cookie|password|secret|token|api[-_]?key|access[-_]?token|refresh[-_]?token|storage[-_]?key)/i;

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { Writable } from "node:stream";
 import { readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { CoalescingStream, createLogger, DailyRotatingStream, sanitizeLogValue } from "./logger";
+import { CoalescingStream, createLogger, DailyRotatingStream, formatAccessLine, logAccessRecord, sanitizeLogValue } from "./logger";
 
 const temporaryDirectories: string[] = [];
 
@@ -268,4 +268,37 @@ test("sanitizeLogValue replaces subtrees past the max depth when redaction runs"
 	}
 
 	expect(walked).toBe("[MaxDepth]");
+});
+
+const EMPTY_META_ACCESS_LINE = /^\{"level":30,"time":\d+,"module":"Server","module":"RequestLogger","msg":"GET \/ → 200"\}$/;
+
+describe("access log fast path", () => {
+	it("serializes the same JSON shape pino emits for the access record", () => {
+		const meta = { requestId: "req-1", path: "/v1/metadata", method: "GET", durationMs: 3, status: 200, userId: "user-1" };
+		const line = formatAccessLine("GET /v1/metadata → 200", meta);
+
+		// Key order matches pino: level, time, base module, child module, meta, msg.
+		expect(line.startsWith('{"level":30,"time":')).toBe(true);
+		expect(line).toContain('"module":"Server","module":"RequestLogger"');
+		expect(line.endsWith(',"msg":"GET /v1/metadata → 200"}')).toBe(true);
+		expect(JSON.parse(line)).toMatchObject({
+			level: 30,
+			module: "RequestLogger",
+			requestId: "req-1",
+			path: "/v1/metadata",
+			method: "GET",
+			durationMs: 3,
+			status: 200,
+			userId: "user-1",
+			msg: "GET /v1/metadata → 200",
+		});
+	});
+
+	it("omits the meta separator when the record has no fields", () => {
+		expect(formatAccessLine("GET / → 200", {})).toMatch(EMPTY_META_ACCESS_LINE);
+	});
+
+	it("reports the fast path unavailable in tests so the caller falls back to the regular logger", () => {
+		expect(logAccessRecord("GET / → 200", { path: "/", method: "GET" })).toBe(false);
+	});
 });
