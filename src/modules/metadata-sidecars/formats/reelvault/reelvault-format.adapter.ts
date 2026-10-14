@@ -26,7 +26,7 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	async read({ documentPath }: SidecarFormatInput): Promise<CanonicalSidecarDocument | null> {
 		assertXmlDocumentSize(documentPath, FileUtils.getSize(documentPath));
 		const source = await readFile(documentPath, "utf8").catch(() => null);
-		const document = source ? readXmlDocument(source) : null;
+		const document = source ? await readXmlDocument(source) : null;
 		const root = document ? readXmlObject(document, "reelvault") : undefined;
 		const snapshot = root ? parseSnapshot(readXmlText(root, "snapshot")) : undefined;
 		if (!snapshot) return null;
@@ -47,13 +47,11 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	}
 
 	async write({ documentPath, document }: SidecarFormatOutput): Promise<SidecarWriteResult> {
-		return await writeXmlIfChanged(
-			documentPath,
-			writeXmlDocument({
-				rootName: "reelvault",
-				values: { reelvaultSchemaVersion: document.reelvaultSchemaVersion || SNAPSHOT_VERSION, snapshot: JSON.stringify(document) },
-			}),
-		);
+		const contents = await writeXmlDocument({
+			rootName: "reelvault",
+			values: { reelvaultSchemaVersion: document.reelvaultSchemaVersion || SNAPSHOT_VERSION, snapshot: JSON.stringify(document) },
+		});
+		return await writeXmlIfChanged(documentPath, contents);
 	}
 }
 

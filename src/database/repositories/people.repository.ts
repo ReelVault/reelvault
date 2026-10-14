@@ -12,7 +12,6 @@ import type {
 } from "@reelvault/sdk/common";
 import type { ProviderResultCast, ProviderResultCrew } from "@reelvault/sdk/plugin";
 import { eq, getTableColumns, inArray, sql } from "drizzle-orm";
-import { v5 as uuidv5 } from "uuid";
 import { databaseFactory } from "@/database/database";
 import { metadataRepository } from "@/database/repositories/metadata.repository";
 import { schema } from "@/database/schema";
@@ -29,8 +28,11 @@ import { toMap } from "@/utils/array.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 import { providersRepository } from "./providers.repository";
 
+/** RFC 4122 URL namespace: provider person ids are name-based (v5) UUIDs under it. Persisted, so the value must not change. */
+const URL_NAMESPACE = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
+
 function createProviderPersonId(providerName: string, externalId: string): string {
-	return uuidv5(`${providerName.trim()}:${externalId.trim()}`, uuidv5.URL);
+	return Bun.randomUUIDv5(`${providerName.trim()}:${externalId.trim()}`, URL_NAMESPACE);
 }
 
 const people = defineTableAccess("people", {

@@ -1,4 +1,3 @@
-import XMLBuilder from "fast-xml-builder";
 import { FileUtils, readFile } from "@/utils/file.utils";
 import type { SidecarWriteResult } from "../sidecar.types";
 
@@ -7,15 +6,25 @@ export interface XmlDocumentOutput {
 	readonly values: Readonly<Record<string, unknown>>;
 }
 
-const builder = new XMLBuilder({
-	format: true,
-	ignoreAttributes: false,
-	suppressEmptyNode: true,
-	// Kodi/Plex readers expect `default="true"` — the bare-attribute shorthand is not parsed back.
-	suppressBooleanAttributes: false,
-});
+let xmlBuilderModule: Promise<typeof import("fast-xml-builder")> | undefined;
 
-export function writeXmlDocument({ rootName, values }: XmlDocumentOutput): string {
+/** Loaded on first write, so the builder package stays out of the boot-time heap. Memoized: a per-call import costs ~3 µs per document. */
+function loadXmlBuilder(): Promise<typeof import("fast-xml-builder")> {
+	xmlBuilderModule ??= import("fast-xml-builder");
+
+	return xmlBuilderModule;
+}
+
+export async function writeXmlDocument({ rootName, values }: XmlDocumentOutput): Promise<string> {
+	const { default: XMLBuilder } = await loadXmlBuilder();
+	const builder = new XMLBuilder({
+		format: true,
+		ignoreAttributes: false,
+		suppressEmptyNode: true,
+		// Kodi/Plex readers expect `default="true"` — the bare-attribute shorthand is not parsed back.
+		suppressBooleanAttributes: false,
+	});
+
 	return `<?xml version="1.0" encoding="UTF-8"?>\n${builder.build({ [rootName]: values })}\n`;
 }
 

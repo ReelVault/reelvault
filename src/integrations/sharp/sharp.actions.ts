@@ -1,15 +1,19 @@
 import type { ImageQuality } from "@reelvault/sdk/common";
-import sharp, { type Sharp } from "sharp";
+import type { Sharp } from "sharp";
 import { serverConfig } from "@/server.config";
 import { systemResourcesService } from "@/system/system-resources.service";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import type { SharpImageOptions } from "./sharp.types";
 
+type SharpFactory = typeof import("sharp").default;
+
 let sharpInitialized = false;
 
-function ensureSharpConfig(): void {
-	if (sharpInitialized) return;
+/** libvips (~30 MB RSS) loads on the first image operation, not at boot. */
+async function loadSharp(): Promise<SharpFactory> {
+	const { default: sharp } = await import("sharp");
+	if (sharpInitialized) return sharp;
 
 	sharpInitialized = true;
 
@@ -18,6 +22,8 @@ function ensureSharpConfig(): void {
 	// Limit internal libvips worker threads to 1 per operation to prevent glibc malloc arena fragmentation
 	sharp.concurrency(1);
 	sharp.simd(true);
+
+	return sharp;
 }
 
 const sharpSemaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getSharpConcurrency());
@@ -27,8 +33,8 @@ interface Dimensions {
 	height: number;
 }
 
-export function getImageMetadata(filePath: string) {
-	ensureSharpConfig();
+export async function getImageMetadata(filePath: string) {
+	const sharp = await loadSharp();
 
 	return sharp(filePath, { limitInputPixels: serverConfig.sharp.maxInputPixels, failOn: "error" }).metadata();
 }
@@ -73,7 +79,7 @@ export async function optimizeImageWithInfo(
 	signal?: AbortSignal,
 ): Promise<OptimizedImageResult> {
 	throwIfAborted(signal);
-	ensureSharpConfig();
+	const sharp = await loadSharp();
 	await sharpSemaphore.acquire(signal);
 	try {
 		throwIfAborted(signal);
@@ -125,7 +131,7 @@ export async function optimizeImage(input: Buffer | string, options: SharpImageO
  * for sidecar artwork export). No resize — only the codec changes. */
 export async function reencodeImage(input: Buffer | string, quality: ImageQuality, signal?: AbortSignal): Promise<Buffer> {
 	throwIfAborted(signal);
-	ensureSharpConfig();
+	const sharp = await loadSharp();
 	await sharpSemaphore.acquire(signal);
 	try {
 		throwIfAborted(signal);

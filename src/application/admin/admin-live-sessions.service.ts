@@ -218,7 +218,7 @@ class AdminLiveSessionsService {
 
 			const operationId = active ? active.operationId : ended?.operationId;
 			const { files, truncated } = await readSessionLogFiles(sessionLogSegments(sessionId, operationId));
-			const zipped = buildSessionLogArchive(sessionId, files, truncated);
+			const zipped = await buildSessionLogArchive(sessionId, files, truncated);
 
 			// A fresh buffer keeps the view narrow (`Uint8Array<ArrayBuffer>`), which the Response body type requires.
 			const data = new Uint8Array(zipped.byteLength);

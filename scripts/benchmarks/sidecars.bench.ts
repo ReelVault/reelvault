@@ -154,11 +154,11 @@ if (!args.help) {
 
 	// ─── 2. Pure XML round-trip + adapter file write/read ───
 	const document = buildSnapshot(0);
-	const serialized = writeXmlDocument({
+	const serialized = await writeXmlDocument({
 		rootName: "reelvault",
 		values: { reelvaultSchemaVersion: 1, snapshot: JSON.stringify(document) },
 	});
-	const parsedBack = readXmlDocument(serialized);
+	const parsedBack = await readXmlDocument(serialized);
 	console.log(`[sidecars] xml document: ${serialized.length} bytes, round-trip parsed: ${parsedBack ? "ok" : "FAILED"}`);
 
 	const adapter = new ReelVaultFormatAdapter();
@@ -180,15 +180,15 @@ if (!args.help) {
 			if (!canonical) throw new Error("jellyfin read failed");
 		});
 
-		bench("writeXmlDocument (snapshot → xml string)", () => {
-			const output = writeXmlDocument({
+		bench("writeXmlDocument (snapshot → xml string)", async () => {
+			const output = await writeXmlDocument({
 				rootName: "reelvault",
 				values: { reelvaultSchemaVersion: 1, snapshot: JSON.stringify(document) },
 			});
 			if (output.length === 0) throw new Error("empty xml");
 		});
-		bench("readXmlDocument (xml string → values)", () => {
-			const parsed = readXmlDocument(serialized);
+		bench("readXmlDocument (xml string → values)", async () => {
+			const parsed = await readXmlDocument(serialized);
 			if (!parsed) throw new Error("parse failed");
 		});
 		bench("adapter.write (xml + atomic file write)", async () => {

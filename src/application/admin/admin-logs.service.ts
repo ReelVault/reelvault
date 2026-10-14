@@ -1,7 +1,6 @@
 import { readdir, rmdir, stat, truncate, unlink } from "node:fs/promises";
 import type { AdminLogEntry, AdminLogFileInfo, AdminLogsPage } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
-import { zipSync } from "fflate";
 import type { AdminAuditContext } from "@/database/repositories/admin-audit.repository";
 import { QueryPagination } from "@/database/utils/pagination";
 import { serverConfig } from "@/server.config";
@@ -631,6 +630,8 @@ class AdminLogsService {
 		}
 
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+		// Loaded on the first bundle download, not at boot.
+		const { zipSync } = await import("fflate");
 		const zipped = zipSync(entries, { level: 6 });
 
 		// A fresh buffer keeps the view narrow (`Uint8Array<ArrayBuffer>`), which the Response body type requires.

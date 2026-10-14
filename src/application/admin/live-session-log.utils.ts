@@ -1,6 +1,5 @@
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { strToU8, zipSync } from "fflate";
 import { operationLogSegment } from "@/integrations/ffmpeg/ffmpeg.operation-log";
 import { serverConfig } from "@/server.config";
 import { isMissingFile } from "@/utils/errors";
@@ -112,7 +111,9 @@ export async function readSessionLogFiles(segments: readonly string[]): Promise<
 }
 
 /** A zip with every log file of the session under `ffmpeg/` and a `timeline.json` of its runs by start time. */
-export function buildSessionLogArchive(sessionId: string, files: readonly SessionLogFile[], truncated: boolean): Uint8Array {
+export async function buildSessionLogArchive(sessionId: string, files: readonly SessionLogFile[], truncated: boolean): Promise<Uint8Array> {
+	// Loaded on the first session download, not at boot.
+	const { strToU8, zipSync } = await import("fflate");
 	const decoder = new TextDecoder();
 	const runs = files
 		.map((file) => summarizeFfmpegLog(file.name, decoder.decode(file.bytes)))

@@ -8,6 +8,7 @@ export class KodiFormatAdapter implements SidecarFormatAdapter {
 	readonly capabilities = ["write"] as const;
 
 	async write({ documentPath, document }: SidecarFormatOutput): Promise<SidecarWriteResult> {
-		return await writeXmlIfChanged(documentPath, writeXmlDocument(buildKodiDocument(documentPath, document)));
+		const contents = await writeXmlDocument(buildKodiDocument(documentPath, document));
+		return await writeXmlIfChanged(documentPath, contents);
 	}
 }

@@ -58,9 +58,9 @@ describe("summarizeFfmpegLog", () => {
 });
 
 describe("buildSessionLogArchive", () => {
-	test("zips the logs with a timeline ordered by start time", () => {
+	test("zips the logs with a timeline ordered by start time", async () => {
 		const later = LOG_TEXT.replace("2026-10-09T18:01:51.000Z", "2026-10-09T19:00:00.000Z");
-		const archive = buildSessionLogArchive(
+		const archive = await buildSessionLogArchive(
 			"sess-1",
 			[
 				{ name: "2026-10-09/later.log", bytes: strToU8(later) },

@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { Gunzip, Unzip, type UnzipFileHandler, UnzipInflate } from "fflate";
+import type { UnzipFileHandler } from "fflate";
 import { createHash } from "@/utils/crypto.utils";
 import { DomainError } from "@/utils/errors";
 import { guardedFetch } from "@/utils/url-guard.utils";
@@ -141,7 +141,7 @@ export async function extractArchive(
 		const first = await reader.read();
 		if (first.done) return;
 
-		const sink = createArchiveSink(sniffArchiveType(first.value), workRoot, maxUncompressedBytes);
+		const sink = await createArchiveSink(sniffArchiveType(first.value), workRoot, maxUncompressedBytes);
 		sink.dispatch(first.value, false);
 
 		for (;;) {
@@ -172,12 +172,14 @@ function sniffArchiveType(chunk: Uint8Array): "zip" | "gzip" | "tar" {
 }
 
 /** Wires the sniffed archive type to its streaming decoder; `finish` flushes and rethrows failures. */
-function createArchiveSink(
+async function createArchiveSink(
 	mode: "zip" | "gzip" | "tar",
 	workRoot: string,
 	maxUncompressedBytes: number,
-): { dispatch(chunk: Uint8Array, final: boolean): void; finish(): void } {
+): Promise<{ dispatch(chunk: Uint8Array, final: boolean): void; finish(): void }> {
 	if (mode === "zip") {
+		// Loaded per install, not at boot; the streaming loop below stays synchronous.
+		const { Unzip, UnzipInflate } = await import("fflate");
 		let failure: Error | undefined;
 		const unzip = new Unzip();
 		unzip.register(UnzipInflate);
@@ -203,6 +205,7 @@ function createArchiveSink(
 
 	const tar = createTarStreamExtractor(workRoot, maxUncompressedBytes);
 	if (mode === "gzip") {
+		const { Gunzip } = await import("fflate");
 		const gunzip = new Gunzip();
 		gunzip.ondata = (data) => tar.push(data);
 
