@@ -37,6 +37,11 @@ export interface QuickConnectEntry {
 
 const EXPIRATION_MS = 15 * MINUTE;
 const EXPIRATION_SECONDS = Math.floor(EXPIRATION_MS / 1000);
+/**
+ * Hard cap on pending entries. The 15-minute TTL alone lets a burst grow the
+ * maps without bound; the oldest entry (closest to expiry) is evicted first.
+ */
+const MAX_PENDING_ENTRIES = 1000;
 /** Crockford-ish alphabet without ambiguous characters (I/O/0/1). */
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CODE_LENGTH = 8;
@@ -247,6 +252,12 @@ export class QuickConnectService {
 		owner?: { userId: string; profileId?: string | undefined; profilePin?: string | undefined },
 	): { entry: QuickConnectEntry; code: string } {
 		this.cleanupExpired();
+		// Map iteration order is insertion order, so the first key is the oldest entry.
+		if (this.entries.size >= MAX_PENDING_ENTRIES) {
+			const oldest = this.entries.keys().next().value;
+			if (oldest !== undefined) this.removeEntry(oldest);
+		}
+
 		const code = this.generateCode();
 		const secret = crypto.randomUUID();
 		const now = new Date();

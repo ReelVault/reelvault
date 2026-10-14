@@ -94,12 +94,12 @@ function repositoryOperationCases(): OperationCase[] {
 	return [
 		{
 			name: "metadataRepository.findPage (24, full)",
-			target: null,
+			target: 5,
 			run: () => metadataRepository.findPage({ limit: 24 }),
 		},
 		{
 			name: "metadataRepository.findById (movie detail)",
-			target: null,
+			target: 11,
 			run: () => metadataRepository.findById({ primaryId: MOVIE_ID }),
 		},
 		{
@@ -116,7 +116,7 @@ function repositoryOperationCases(): OperationCase[] {
 		},
 		{
 			name: "collectionRepository.findPage (24, cold count)",
-			target: null,
+			target: 6,
 			run: () => collectionRepository.findPage({ limit: 24 }),
 		},
 		{
@@ -127,7 +127,7 @@ function repositoryOperationCases(): OperationCase[] {
 		},
 		{
 			name: "workerOperationRepository.list (24, cold count)",
-			target: null,
+			target: 2,
 			run: () => workerOperationRepository.list({ limit: 24 }),
 		},
 		{
@@ -138,7 +138,7 @@ function repositoryOperationCases(): OperationCase[] {
 		},
 		{
 			name: "sessionsRepository.findActivePageByUserId (cold count)",
-			target: null,
+			target: 2,
 			run: () => sessionsRepository.findActivePageByUserId(PROFILE_ID, { limit: 24 }),
 		},
 		{
@@ -149,7 +149,7 @@ function repositoryOperationCases(): OperationCase[] {
 		},
 		{
 			name: "adminAuditRepository.findMany (cold count)",
-			target: null,
+			target: 2,
 			run: () => adminAuditRepository.findMany({ page: 1, limit: 20 }),
 		},
 		{
@@ -160,7 +160,7 @@ function repositoryOperationCases(): OperationCase[] {
 		},
 		{
 			name: "mediaRepository.findPage (24)",
-			target: null,
+			target: 6,
 			run: () => mediaRepository.findPage({ limit: 24 }),
 		},
 	];
@@ -170,12 +170,12 @@ function playbackOperationCases(sidecar: SidecarFixture): OperationCase[] {
 	return [
 		{
 			name: "watchedHistoryRepository.findPage (50)",
-			target: null,
+			target: 3,
 			run: () => watchedHistoryRepository.findPage(PROFILE_ID, { limit: 50 }),
 		},
 		{
 			name: "playbackRepository.findSmartPlayData (single id)",
-			target: null,
+			target: 3,
 			run: () => playbackRepository.findSmartPlayData(MOVIE_ID, PROFILE_ID),
 		},
 		{
@@ -185,7 +185,7 @@ function playbackOperationCases(sidecar: SidecarFixture): OperationCase[] {
 		},
 		{
 			name: "playbackRepository.findContinueWatchingData (12)",
-			target: null,
+			target: 6,
 			run: () => playbackRepository.findContinueWatchingData(PROFILE_ID, 12),
 		},
 		{

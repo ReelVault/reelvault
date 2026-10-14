@@ -173,6 +173,22 @@ describe("quickConnectService", () => {
 		await expect(service.redeem("000-000", req)).rejects.toThrow("Invalid or expired login code");
 		await expect(service.authorize("000-000", mockUser)).rejects.toThrow("Invalid or expired quick connect code");
 	});
+
+	test("bounds pending entries and evicts the oldest when the cap is hit", async () => {
+		const service = new QuickConnectService(mockIssueSession);
+		let firstSecret = "";
+		let lastSecret = "";
+		for (let index = 0; index < 1001; index++) {
+			const init = await service.initiate();
+			if (index === 0) firstSecret = init.secret;
+			lastSecret = init.secret;
+		}
+
+		const pollReq = new Request("http://localhost/check");
+		await expect(service.check(firstSecret, pollReq)).rejects.toMatchObject({ code: "quick_connect.session_expired" });
+		const lastResponse = await service.check(lastSecret, pollReq);
+		expect(await lastResponse.json()).toEqual({ authenticated: false });
+	});
 });
 
 describe("quickConnectService", () => {
