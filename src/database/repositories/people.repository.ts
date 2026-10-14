@@ -23,17 +23,10 @@ import { QueryFiltering } from "@/database/utils/filtering";
 import { buildRelationProjection } from "@/database/utils/media-file-projection";
 import { findFirstProviderLinkFor } from "@/database/utils/provider-link";
 import { type QueryMap, QueryUtils } from "@/database/utils/query-parser";
-import { createLocalStableKey, createProviderStableKey } from "@/database/utils/stable-key";
+import { createLocalStableKey, createProviderPersonId, createProviderStableKey } from "@/database/utils/stable-key";
 import { toMap } from "@/utils/array.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 import { providersRepository } from "./providers.repository";
-
-/** RFC 4122 URL namespace: provider person ids are name-based (v5) UUIDs under it. Persisted, so the value must not change. */
-const URL_NAMESPACE = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
-
-function createProviderPersonId(providerName: string, externalId: string): string {
-	return Bun.randomUUIDv5(`${providerName.trim()}:${externalId.trim()}`, URL_NAMESPACE);
-}
 
 const people = defineTableAccess("people", {
 	primaryKeyColumn: "id",

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createImageStableKey, createImageStoragePath } from "@/utils/image-storage.utils";
-import { createLocalMetadataStableKey, createLocalStableKey, createProviderStableKey } from "./stable-key";
+import { createLocalMetadataStableKey, createLocalStableKey, createProviderPersonId, createProviderStableKey } from "./stable-key";
 
 const posterPathPattern = /^\/data\/images\/posters\/[a-f0-9]{64}\.webp$/;
 const backdropPathPattern = /^\/data\/images\/backdrops\/[a-f0-9]{64}\.webp$/;
@@ -45,6 +45,22 @@ describe("stable keys", () => {
 		expect(createImageStableKey({ ownerStableKey: "owner", imageType: "poster", sourceHash: "abc" })).toBe(
 			"v1:local:696d616765:6f776e65723a706f737465723a616263",
 		);
+	});
+
+	// Person ids are persisted, so these vectors pin the derivation to the RFC 4122 v5 values (independently computed).
+	test("derives provider person ids as pinned RFC 4122 name-based UUIDs", () => {
+		expect(createProviderPersonId("tmdb", "603")).toBe("64ce9f4b-9083-581e-babc-445f5dcf2e78");
+		expect(createProviderPersonId("tmdb", "1")).toBe("ad684b21-34b4-5c69-9dcb-0b43122ed36d");
+		expect(createProviderPersonId("imdb", "nm0000001")).toBe("0bb376a9-beda-57fb-82b8-ca3b9d8ddcf6");
+		expect(createProviderPersonId("p", "with:colons")).toBe("49776380-05b2-5e41-95c9-94a45e96b88a");
+	});
+
+	test("trims provider name and external id before deriving the person id", () => {
+		expect(createProviderPersonId(" tmdb ", "  603 ")).toBe(createProviderPersonId("tmdb", "603"));
+	});
+
+	test("keeps non-ASCII provider identity in the derivation", () => {
+		expect(createProviderPersonId("Zoë", "Ünïcode-日本語-🎬")).toBe("371ac189-c245-507b-ad01-5f7619cff146");
 	});
 
 	test("builds the categorized image path based on image type", () => {
