@@ -85,6 +85,7 @@ class LibrariesRepository {
 	readonly query = libraries.query;
 	readonly selectMany = libraries.selectMany;
 	readonly selectFirst = libraries.selectFirst;
+	readonly selectFirstById = libraries.selectFirstById;
 	readonly findOrCreate = libraries.findOrCreate;
 	readonly insert = libraries.insert;
 	readonly insertReturning = libraries.insertReturning;
@@ -294,7 +295,7 @@ class LibrariesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<LibraryWithRelations, F> | undefined> {
-		const library = await this.selectFirst({ where: eq(this.primaryKeyColumn, primaryId), tx });
+		const library = await this.selectFirstById({ primaryId, tx });
 
 		if (!library) return undefined;
 

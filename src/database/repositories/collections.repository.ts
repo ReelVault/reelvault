@@ -63,6 +63,7 @@ class CollectionsRepository {
 	readonly query = collections.query;
 	readonly selectMany = collections.selectMany;
 	readonly selectFirst = collections.selectFirst;
+	readonly selectFirstById = collections.selectFirstById;
 	readonly findOrCreate = collections.findOrCreate;
 	readonly insert = collections.insert;
 	readonly update = collections.update;
@@ -286,7 +287,7 @@ class CollectionsRepository {
 		fields: FieldsConfig<F>;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<CollectionWithRelations, F> | undefined> {
-		const collection = await this.selectFirst({ where: eq(this.primaryKeyColumn, primaryId), tx });
+		const collection = await this.selectFirstById({ primaryId, tx });
 		if (!collection) return undefined;
 
 		const [hydrated] = await this.hydrateRelations([collection], fields, tx);

@@ -2,6 +2,7 @@ import type { FieldsConfig, FieldsQuery, PaginatedResponse, PaginationQuery, Sel
 import { and, eq, getTableColumns, inArray, type SQL, sql, type Table } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteInsertValue, SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
+import { createPreparedQuery } from "@/database/prepared-queries";
 import { schema } from "@/database/schema";
 import type { DatabaseTables, DatabaseTransaction, DatabaseType } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
@@ -142,6 +143,8 @@ export interface TableAccess<TTable extends DatabaseTables> extends TableAccessB
 	query: (tx?: DatabaseTransaction) => DatabaseType["query"][TTable];
 	selectMany: (params?: SelectManyParams) => Promise<Array<TableSelect<TTable>>>;
 	selectFirst: (params?: { where?: SQL | undefined; tx?: DatabaseTransaction | undefined }) => Promise<TableSelect<TTable> | undefined>;
+	/** Prepared single-row read by primary key — the default-projection fast path for id lookups. */
+	selectFirstById: (params: { primaryId: string; tx?: DatabaseTransaction | undefined }) => Promise<TableSelect<TTable> | undefined>;
 	/**
 	 * `selectMany` + field projection in one call. Use this instead of
 	 * hand-rolling `.select().from().where().orderBy().limit().offset()` in a
@@ -237,11 +240,14 @@ export function defineTableAccess<TTable extends DatabaseTables>(
 		primaryKeyColumn,
 	};
 
+	// One prepared statement per table (and per connection): the default-projection
+	// id lookup that hydrating repositories run behind every findByPrimaryId.
 	return {
 		...repository,
 		query: (tx) => tableQuery(repository, tx),
 		selectMany: (params) => selectMany(repository, params),
 		selectFirst: (params) => selectFirst(repository, params),
+		selectFirstById: (params) => selectFirstByIdPrepared<TTable>(repository, params),
 		findMany: (params) => findManyRows(repository, params),
 		findById: (params) => findById(repository, params),
 		findByIds: (params) => findByIds(repository, params),
@@ -280,6 +286,7 @@ export function defineRepository<TTable extends DatabaseTables, TOverrides exten
 		query: access.query,
 		selectMany: access.selectMany,
 		selectFirst: access.selectFirst,
+		selectFirstById: access.selectFirstById,
 		findMany: access.findMany,
 		findById: access.findById,
 		findOrCreate: access.findOrCreate,
@@ -440,6 +447,49 @@ async function selectFirst<TTable extends DatabaseTables>(
 	params: { where?: SQL | undefined; tx?: DatabaseTransaction | undefined } = {},
 ): Promise<TableSelect<TTable> | undefined> {
 	const [row] = await selectMany(repository, { ...params, limit: 1 });
+
+	return row;
+}
+
+/**
+ * Prepared single-row read by primary key, shared by `defineTableAccess` and
+ * the by-id helpers. The overload pair carries the table row type to callers
+ * while the implementation stays unknown-typed — the same pattern as
+ * `selectMany`, whose generic table also defeats drizzle's inference.
+ */
+const preparedByIdByAccess = new WeakMap<
+	object,
+	(client: ReturnType<typeof databaseFactory.getClient>) => { execute: (params: { primaryId: string }) => Promise<unknown[]> }
+>();
+
+function preparedFirstById<TTable extends DatabaseTables>(
+	access: TableAccessBase<TTable>,
+): (client: ReturnType<typeof databaseFactory.getClient>) => { execute: (params: { primaryId: string }) => Promise<unknown[]> } {
+	let prepared = preparedByIdByAccess.get(access);
+	if (!prepared) {
+		prepared = createPreparedQuery((client: ReturnType<typeof databaseFactory.getClient>) =>
+			client
+				.select()
+				.from(access.table)
+				.where(eq(access.primaryKeyColumn, sql.placeholder("primaryId")))
+				.limit(1)
+				.prepare(),
+		);
+		preparedByIdByAccess.set(access, prepared);
+	}
+
+	return prepared;
+}
+
+export function selectFirstByIdPrepared<TTable extends DatabaseTables>(
+	access: TableAccessBase<TTable>,
+	params: { primaryId: string; tx?: DatabaseTransaction | undefined },
+): Promise<TableSelect<TTable> | undefined>;
+export async function selectFirstByIdPrepared(
+	access: TableAccessBase<DatabaseTables>,
+	{ primaryId, tx }: { primaryId: string; tx?: DatabaseTransaction | undefined },
+): Promise<unknown> {
+	const [row] = await preparedFirstById(access)(databaseFactory.getClient({ tx })).execute({ primaryId });
 
 	return row;
 }

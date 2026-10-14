@@ -225,6 +225,7 @@ class MediaRepository {
 	readonly query = mediaFiles.query;
 	readonly selectMany = mediaFiles.selectMany;
 	readonly selectFirst = mediaFiles.selectFirst;
+	readonly selectFirstById = mediaFiles.selectFirstById;
 	readonly findOrCreate = mediaFiles.findOrCreate;
 	readonly insert = mediaFiles.insert;
 	readonly update = mediaFiles.update;
@@ -721,7 +722,13 @@ class MediaRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<MediaFileWithRelation, F> | undefined> {
-		return await this.findOneHydrated(eq(this.primaryKeyColumn, primaryId), fields, tx);
+		const media = await this.selectFirstById({ primaryId, tx });
+		if (!media) return undefined;
+
+		const relations = (await this.loadRelations([media], tx, fields)).get(media.id);
+		if (!relations) return undefined;
+
+		return QueryFields.apply<MediaFileWithRelation, F>({ ...media, ...relations }, fields);
 	}
 
 	/**

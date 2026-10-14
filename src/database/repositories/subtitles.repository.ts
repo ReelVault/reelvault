@@ -11,6 +11,7 @@ import type {
 } from "@reelvault/sdk/common";
 import { and, eq, isNull, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
+import { createPreparedQuery } from "@/database/prepared-queries";
 import { schema } from "@/database/schema";
 import { defineRepository, defineTableAccess, findPageWithQueryMap, selectFirstWithFields } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
@@ -21,6 +22,17 @@ import type { QueryMap } from "@/database/utils/query-parser";
 const subtitles = defineTableAccess("subtitles", {
 	primaryKeyColumn: "id",
 });
+
+type SubtitlesReadClient = ReturnType<typeof databaseFactory.getClient>;
+
+/** Fixed-shape per-file read: prepared once per connection instead of rebuilt per request. */
+const preparedSubtitlesByMediaFile = createPreparedQuery((client: SubtitlesReadClient) =>
+	client
+		.select()
+		.from(subtitles.table)
+		.where(eq(subtitles.table.mediaFileId, sql.placeholder("mediaFileId")))
+		.prepare(),
+);
 
 const subtitleQueryMap: QueryMap<SubtitleFilters, SubtitleSorting> = {
 	filters: {
@@ -65,10 +77,7 @@ const overrides = {
 	},
 
 	async findByMediaFileId(mediaFileId: string, tx?: DatabaseTransaction) {
-		return await getSubtitlesRepository().selectMany({
-			where: eq(subtitles.table.mediaFileId, mediaFileId),
-			tx,
-		});
+		return await preparedSubtitlesByMediaFile(databaseFactory.getClient({ tx })).execute({ mediaFileId });
 	},
 
 	/** Ids of every subtitle row — the orphan FileUtils/worker sweep compares extracted VTT files against it. */

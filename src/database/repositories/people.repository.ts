@@ -48,6 +48,7 @@ class PeopleRepository {
 	readonly query = people.query;
 	readonly selectMany = people.selectMany;
 	readonly selectFirst = people.selectFirst;
+	readonly selectFirstById = people.selectFirstById;
 	readonly findOrCreate = people.findOrCreate;
 	readonly insert = people.insert;
 	readonly update = people.update;
@@ -157,7 +158,7 @@ class PeopleRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<PersonWithRelations, F> | undefined> {
-		const person = await this.selectFirst({ where: eq(this.primaryKeyColumn, primaryId), tx });
+		const person = await this.selectFirstById({ primaryId, tx });
 
 		if (!person) return undefined;
 

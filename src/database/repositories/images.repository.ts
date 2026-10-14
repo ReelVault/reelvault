@@ -55,6 +55,7 @@ class ImageRepository {
 	readonly query = images.query;
 	readonly selectMany = images.selectMany;
 	readonly selectFirst = images.selectFirst;
+	readonly selectFirstById = images.selectFirstById;
 	readonly findOrCreate = images.findOrCreate;
 	readonly insert = images.insert;
 	readonly update = images.update;
@@ -83,7 +84,7 @@ class ImageRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<Image, F> | undefined> {
-		const image = await this.selectFirst({ where: eq(this.primaryKeyColumn, primaryId), tx });
+		const image = await this.selectFirstById({ primaryId, tx });
 
 		return image ? QueryFields.apply(image, fields) : undefined;
 	}

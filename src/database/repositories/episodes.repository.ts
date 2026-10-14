@@ -11,6 +11,7 @@ import type {
 } from "@reelvault/sdk/common";
 import { and, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
+import { createPreparedQuery } from "@/database/prepared-queries";
 import { schema } from "@/database/schema";
 import type { ProjectedSelectParams } from "@/database/table-access";
 import {
@@ -33,6 +34,51 @@ import { unique } from "@/utils/array.utils";
 const episodes = defineTableAccess("episodes", {
 	primaryKeyColumn: "id",
 });
+
+type EpisodesReadClient = ReturnType<typeof databaseFactory.getClient>;
+
+/** Fixed-shape per-show reads: prepared once per connection instead of rebuilt per request. */
+const preparedEpisodesProjectedByMetadata = createPreparedQuery((client: EpisodesReadClient) =>
+	client
+		.select({
+			id: episodes.table.id,
+			stableKey: episodes.table.stableKey,
+			seasonId: episodes.table.seasonId,
+			imageId: episodes.table.imageId,
+			episodeType: episodes.table.episodeType,
+			episodeNumber: episodes.table.episodeNumber,
+			absoluteNumber: episodes.table.absoluteNumber,
+			title: episodes.table.title,
+			overview: episodes.table.overview,
+			airDate: episodes.table.airDate,
+			createdAt: episodes.table.createdAt,
+			updatedAt: episodes.table.updatedAt,
+		})
+		.from(episodes.table)
+		.innerJoin(schema.seasons, eq(schema.seasons.id, episodes.table.seasonId))
+		.where(eq(schema.seasons.metadataId, sql.placeholder("metadataId")))
+		.prepare(),
+);
+
+const preparedEpisodesWithFilesByMetadata = createPreparedQuery((client: EpisodesReadClient) =>
+	client
+		.select({
+			id: episodes.table.id,
+			seasonId: episodes.table.seasonId,
+			seasonNumber: schema.seasons.seasonNumber,
+			episodeNumber: episodes.table.episodeNumber,
+			mediaFileId: schema.mediaFiles.id,
+			mediaFileIsDefault: schema.mediaFiles.isDefault,
+			mediaFileSize: schema.mediaFiles.size,
+			mediaFileUpdatedAt: schema.mediaFiles.updatedAt,
+		})
+		.from(episodes.table)
+		.innerJoin(schema.seasons, eq(schema.seasons.id, episodes.table.seasonId))
+		.leftJoin(schema.mediaFiles, eq(schema.mediaFiles.episodeId, episodes.table.id))
+		.where(eq(schema.seasons.metadataId, sql.placeholder("metadataId")))
+		.orderBy(schema.seasons.seasonNumber, episodes.table.episodeNumber, episodes.table.id)
+		.prepare(),
+);
 
 const episodeQueryMap: QueryMap<EpisodeFilters, EpisodeSorting> = {
 	filters: {
@@ -63,6 +109,7 @@ class EpisodesRepository {
 	readonly query = episodes.query;
 	readonly selectMany = episodes.selectMany;
 	readonly selectFirst = episodes.selectFirst;
+	readonly selectFirstById = episodes.selectFirstById;
 	readonly findOrCreate = episodes.findOrCreate;
 	readonly insert = episodes.insert;
 	readonly update = episodes.update;
@@ -104,26 +151,7 @@ class EpisodesRepository {
 
 	/** Episodes of all seasons of a show projected for the metadata details view. */
 	async findByMetadataIdProjected(metadataId: string) {
-		const client = databaseFactory.getClient();
-
-		return await client
-			.select({
-				id: this.table.id,
-				stableKey: this.table.stableKey,
-				seasonId: this.table.seasonId,
-				imageId: this.table.imageId,
-				episodeType: this.table.episodeType,
-				episodeNumber: this.table.episodeNumber,
-				absoluteNumber: this.table.absoluteNumber,
-				title: this.table.title,
-				overview: this.table.overview,
-				airDate: this.table.airDate,
-				createdAt: this.table.createdAt,
-				updatedAt: this.table.updatedAt,
-			})
-			.from(this.table)
-			.innerJoin(schema.seasons, eq(schema.seasons.id, this.table.seasonId))
-			.where(eq(schema.seasons.metadataId, metadataId));
+		return await preparedEpisodesProjectedByMetadata(databaseFactory.getClient()).execute({ metadataId });
 	}
 
 	/**
@@ -133,24 +161,7 @@ class EpisodesRepository {
 	 * paginated service call per later season.
 	 */
 	async findEpisodesWithFilesByMetadataId(metadataId: string) {
-		const client = databaseFactory.getClient();
-
-		return await client
-			.select({
-				id: this.table.id,
-				seasonId: this.table.seasonId,
-				seasonNumber: schema.seasons.seasonNumber,
-				episodeNumber: this.table.episodeNumber,
-				mediaFileId: schema.mediaFiles.id,
-				mediaFileIsDefault: schema.mediaFiles.isDefault,
-				mediaFileSize: schema.mediaFiles.size,
-				mediaFileUpdatedAt: schema.mediaFiles.updatedAt,
-			})
-			.from(this.table)
-			.innerJoin(schema.seasons, eq(schema.seasons.id, this.table.seasonId))
-			.leftJoin(schema.mediaFiles, eq(schema.mediaFiles.episodeId, this.table.id))
-			.where(eq(schema.seasons.metadataId, metadataId))
-			.orderBy(schema.seasons.seasonNumber, this.table.episodeNumber, this.table.id);
+		return await preparedEpisodesWithFilesByMetadata(databaseFactory.getClient()).execute({ metadataId });
 	}
 
 	async findOrCreateByIdentity({
@@ -282,7 +293,14 @@ class EpisodesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
-		return await this.findFirst({ where: eq(this.primaryKeyColumn, primaryId), fields, tx });
+		const data = await this.selectFirstById({ primaryId, tx });
+
+		if (!data) return undefined;
+
+		const row = await findFirstWithMediaFiles(data, { fields, relation: "episodeId", tx });
+		if (!row) return undefined;
+
+		return QueryFields.apply<EpisodeWithRelations, F>(row, fields);
 	}
 
 	/**

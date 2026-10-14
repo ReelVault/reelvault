@@ -197,6 +197,7 @@ class MetadataRepository {
 	readonly query = metadataTable.query;
 	readonly selectMany = metadataTable.selectMany;
 	readonly selectFirst = metadataTable.selectFirst;
+	readonly selectFirstById = metadataTable.selectFirstById;
 	readonly findOrCreate = metadataTable.findOrCreate;
 	readonly insert = metadataTable.insert;
 	readonly update = metadataTable.update;
@@ -621,11 +622,12 @@ class MetadataRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<MetadataWithRelation, F> | undefined> {
-		return await this.findFirst({
-			where: eq(this.primaryKeyColumn, primaryId),
-			fields,
-			tx,
-		});
+		const metadata = await this.selectFirstById({ primaryId, tx });
+		if (!metadata) return undefined;
+
+		const relations = await loadRelations([metadata.id], tx, fields, true);
+
+		return QueryFields.apply(withRelations(metadata, relations.get(metadata.id)), fields);
 	}
 
 	async findOrCreateByIdentity({

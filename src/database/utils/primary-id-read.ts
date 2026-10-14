@@ -1,7 +1,7 @@
 import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
 import { eq, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
-import { selectFirstWithFields, type TableAccessBase, type TableSelect } from "@/database/table-access";
+import { selectFirstByIdPrepared, selectFirstWithFields, type TableAccessBase, type TableSelect } from "@/database/table-access";
 import type { DatabaseTables, DatabaseTransaction } from "@/database/types";
 import { QueryFields } from "@/database/utils/fields";
 
@@ -34,12 +34,20 @@ export async function selectByPrimaryId<F extends string, TRow>(
 
 /**
  * Shared body of projected by-id reads: select the requested columns, then
- * apply the field mask (same pairing as the table-access `findById`).
+ * apply the field mask (same pairing as the table-access `findById`). The
+ * overload pair carries the projected type to callers while the implementation
+ * stays unknown-typed, the same pattern as the table-access helpers.
  */
-export async function selectByIdWithFields<TTable extends DatabaseTables, F extends string>(
+export function selectByIdWithFields<TTable extends DatabaseTables, F extends string>(
 	access: TableAccessBase<TTable>,
-	{ primaryId, fields, tx }: PrimaryIdReadParams<F>,
-): Promise<SelectFields<TableSelect<TTable>, F> | undefined> {
+	params: PrimaryIdReadParams<F>,
+): Promise<SelectFields<TableSelect<TTable>, F> | undefined>;
+export async function selectByIdWithFields(
+	access: TableAccessBase<DatabaseTables>,
+	{ primaryId, fields, tx }: PrimaryIdReadParams<string>,
+): Promise<unknown> {
+	if (!fields?.fields.length) return await selectFirstByIdPrepared(access, { primaryId, tx });
+
 	const row = await selectFirstWithFields(access, { where: eq(access.primaryKeyColumn, primaryId), tx, fields });
 	if (!row) return undefined;
 

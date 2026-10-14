@@ -1,7 +1,8 @@
 import type { FieldsConfig } from "@reelvault/sdk/common";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/database/database";
+import { createPreparedQuery } from "@/database/prepared-queries";
 import { schema } from "@/database/schema";
 import { mapChunked, pickColumns } from "@/database/table-access";
 import type { DatabaseTransaction } from "@/database/types";
@@ -56,6 +57,23 @@ interface WithMediaFiles {
 	mediaFiles: Array<typeof schema.mediaFiles.$inferSelect>;
 }
 
+const mediaFileIdsSubquery = sql`(SELECT value FROM json_each(${sql.placeholder("ids")}))`;
+
+type MediaFileProjectionClient = ReturnType<typeof databaseFactory.getClient>;
+
+/** Default-projection relation reads are fixed SQL: prepared once per connection, not rebuilt per read. */
+const preparedMediaFilesByRelation = {
+	movieId: createPreparedQuery((client: MediaFileProjectionClient) =>
+		client.select().from(schema.mediaFiles).where(inArray(schema.mediaFiles.movieId, mediaFileIdsSubquery)).prepare(),
+	),
+	episodeId: createPreparedQuery((client: MediaFileProjectionClient) =>
+		client.select().from(schema.mediaFiles).where(inArray(schema.mediaFiles.episodeId, mediaFileIdsSubquery)).prepare(),
+	),
+	libraryId: createPreparedQuery((client: MediaFileProjectionClient) =>
+		client.select().from(schema.mediaFiles).where(inArray(schema.mediaFiles.libraryId, mediaFileIdsSubquery)).prepare(),
+	),
+};
+
 interface MediaFileAttachmentOptions<F extends string> {
 	fields?: FieldsConfig<F> | undefined;
 	/** Parent FK column on `media_files` (`movieId` / `episodeId`). */
@@ -78,25 +96,10 @@ async function attachMediaFiles<F extends string, TRow extends { id: string }>(
 	const projection = options.fields?.relations.mediaFiles?.length
 		? buildMediaFileProjection(options.fields.relations.mediaFiles, options.relation)
 		: undefined;
-	const mediaFiles = await (projection
-		? client
-				.select(projection)
-				.from(schema.mediaFiles)
-				.where(
-					inArray(
-						schema.mediaFiles[options.relation],
-						rows.map((row) => row.id),
-					),
-				)
-		: client
-				.select()
-				.from(schema.mediaFiles)
-				.where(
-					inArray(
-						schema.mediaFiles[options.relation],
-						rows.map((row) => row.id),
-					),
-				));
+	const ids = rows.map((row) => row.id);
+	const mediaFiles = projection
+		? await client.select(projection).from(schema.mediaFiles).where(inArray(schema.mediaFiles[options.relation], ids))
+		: await preparedMediaFilesByRelation[options.relation](client).execute({ ids: JSON.stringify(ids) });
 	const mediaFilesByParentId = groupBy(mediaFiles, (mediaFile) => mediaFile[options.relation]);
 
 	return rows.map((row) => ({ ...row, mediaFiles: mediaFilesByParentId.get(row.id) ?? [] }));
