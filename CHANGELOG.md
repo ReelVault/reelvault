@@ -570,3 +570,53 @@ Smaller benchmarks are kept separately so the main table stays focused:
 ### Compatibility notes
 - **List response fields changed** — clients must migrate from `items`, `jobs` and `sessions` to `data` for the affected endpoints. Admin search parameters on users, logs and worker jobs now use `q`.
 - **Existing profile databases** — new profile preferences such as `hdrMode`, `hideRatingOverlay`, `resumeRewindSeconds`, `watchlistAutoRemoveWatched`, `mutedNotificationTypes` and `hiddenPages` use the existing preference storage unless a specific migration is noted above.
+
+# v1.3.1
+
+### Fixes
+
+- **Log file memory grew under request load** — the file stream wrote one chunk per log line, so queued lines piled up in memory faster than they drained. Each queued batch is now one write.
+- **Quick-connect pending entries are capped at 1,000** — the 15-minute TTL alone let a burst of pairing requests grow the pending maps. The oldest entry is evicted at the cap.
+
+### Performance
+
+- **The response cache budgets bytes, not entries** — with the old 512-entry cap, cache-on browsing was no faster than cache-off (1,707 vs 1,711 req/s at c=50). Each body is charged by length against 2 MiB per GiB of RAM (32–256 MiB), with an 8,192-entry bound.
+- **Cache hits write their headers once, and Accept-Encoding results are memoized** — a hit set Cache-Control, Vary and ETag twice. Negotiation results are kept in a bounded 64-entry LRU.
+- **Elysia's response transform encoding is off** — SDK `t.Date()` fields made Elysia run its transform over every uncached response. `JSON.stringify` writes the same ISO timestamps, and the compiled response check still runs. One change: a number in a timestamp field is now served as a number instead of failing response validation with a 422.
+- **Metadata relations are prepared, and detail loads in one statement** — the detail page ran ten relation queries; it now runs one prepared statement. `metadataRepository.findById` went from 11 to 2 statements, and list and detail order their arrays the same way.
+- **The scan findings page counts inside the findings query** — `librariesService.getScanFindings` went from 3 to 2 statements.
+- **Collections use the junction index** — listing collections joined and grouped the whole junction table. It now probes the index and counts with `COUNT(*)`.
+- **Title search probes a trigram index before its fallback scan** — a term with no match scanned the whole catalog, because a leading-wildcard `LIKE` cannot use an index. An FTS5 trigram table answers an empty probe without scanning; matches still pass the `LIKE` check, so results are unchanged.
+- **Media-file, playback and primary-key reads are prepared** — these reads rebuilt Drizzle query builders on every call. They now use prepared statements, with id lists passed through `json_each`. The media-files and collections rows include some of this work; playback reads have no separate measurement in this release.
+- **Logs and static files do less per request** — log lines are written as one buffer per 2 ms window, and access lines skip pino's per-line sanitizer. Rate-limit overrides parse once per settings revision, and the web root and static files are stat'ed once.
+- **Heavy packages load on first use** — libvips loads with the first image operation, and the XML sidecar, zip and plugin packages load when used. The `uuid` dependency is removed; provider person ids keep their values.
+
+### Performance benchmarks
+
+Seeded catalog of 5,000 rows on one machine, managed server. Each value is the median of three rounds run in alternating order (the code before this release, then this release); the machine was quiet (1-minute load below 2) before each run. Rows marked "cache off" use `--no-cache`. Within-side spread is within ±5% except collections at c=100 (base 1,556–1,810 req/s, this release 3,867–5,622 req/s).
+
+| Area | Benchmark | Before | After | Change |
+| --- | --- | ---: | ---: | ---: |
+| HTTP | `GET /v1/metadata?limit=24` catalog browse, cache on, c=50 — req/s | 1,707 | 30,078 | **+1,662%** |
+| HTTP | Same, cache on, c=50 — p95 | 44.1 ms | 2.7 ms | **−93.9%** |
+| HTTP | Same, cache off, c=50 — req/s | 1,711 | 2,422 | **+41.6%** |
+| HTTP | Same, cache off, c=50 — p95 | 43.5 ms | 30.9 ms | **−28.9%** |
+| HTTP | `GET /v1/media-files?limit=24`, cache off, c=50 — req/s | 1,888 | 3,778 | **+100.1%** |
+| HTTP | `GET /v1/collections?limit=24`, cache off, c=50 — req/s | 951 | 1,916 | **+101.4%** |
+| HTTP | Same, c=100 — req/s | 1,645 | 4,981 | **+202.8%** |
+| HTTP | `GET /v1/metadata/:id` movie detail, cache off, c=10 — req/s | 11,758 | 18,564 | **+57.9%** |
+| HTTP | `GET /v1/metadata/search/global?q=zzzq` (no-match fallback), cache off, c=50 — req/s | 1,125 | 5,167 | **+359.2%** |
+| HTTP | Same, c=50 — p95 | 49.0 ms | 11.1 ms | **−77.3%** |
+| Static | `GET /` SPA entry, c=50 — req/s | 36,217 | 55,020 | **+51.9%** |
+| Static | `/assets/app.js` (64 KiB), c=50 — req/s | 16,158 | 25,820 | **+59.8%** |
+| Static | `/assets/app.js` range `bytes=0-4095`, c=50 — req/s | 17,142 | 30,170 | **+76.0%** |
+| In-process | Cache hit through `app.handle`, browser `Accept-Encoding`, c=1 — req/s | 225,939 | 248,490 | **+10.0%** |
+| In-process | Same, c=50 — req/s | 197,085 | 224,645 | **+14.0%** |
+
+The browse and collections rows are the combined result of every change above; they do not isolate one change.
+
+### Additional measurements
+
+- Idle RSS 154.4 → 141.1 MB (−8.6%) and peak RSS 179.0 → 163.1 MB (−8.9%): median of nine boots per side, alternating in blocks of three. Boot time (spawn to health) 544 → 529 ms, with overlapping ranges, so no measurable change.
+- Query-count audit: all 19 audited operations are within budget.
+- Responses: `/openapi/json` is byte-identical to the previous release. Of 34 probed HTTP endpoints, 32 return the same status and body; the other two (`/v1/health` and `/v1/admin/dashboard`) report live memory figures, which also change between runs of this release.
