@@ -394,10 +394,9 @@ class LibrariesService {
 		return await runSafely(this, "getScanFindings", async () => {
 			await this.getLibraryForScan(libraryId, { fields: "id" });
 
-			const data = await scanFindingsRepository.list(libraryId, status);
-			const counts = await scanFindingsRepository.countByStatus(libraryId);
+			const { items, counts } = scanFindingsRepository.listWithCounts(libraryId, status);
 
-			return { data, counts };
+			return { data: items, counts };
 		});
 	}
 

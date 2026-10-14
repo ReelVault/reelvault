@@ -17,11 +17,11 @@ function stubLibraryExists(): void {
 
 test("getScanFindings lists the requested status and returns the counts of both", async () => {
 	stubLibraryExists();
-	const list = stubMethod(scanFindingsRepository, "list", () =>
-		Promise.resolve([{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" }]),
-	);
+	const list = stubMethod(scanFindingsRepository, "listWithCounts", () => ({
+		items: [{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" }],
+		counts: { active: 1, ignored: 2 },
+	}));
 	stubs.push(list);
-	stubs.push(stubMethod(scanFindingsRepository, "countByStatus", () => Promise.resolve({ active: 1, ignored: 2 })));
 
 	const response = await librariesService.getScanFindings("lib-1", "ignored");
 
@@ -34,9 +34,8 @@ test("getScanFindings lists the requested status and returns the counts of both"
 
 test("getScanFindings defaults to the active findings", async () => {
 	stubLibraryExists();
-	const list = stubMethod(scanFindingsRepository, "list", () => Promise.resolve([]));
+	const list = stubMethod(scanFindingsRepository, "listWithCounts", () => ({ items: [], counts: { active: 0, ignored: 0 } }));
 	stubs.push(list);
-	stubs.push(stubMethod(scanFindingsRepository, "countByStatus", () => Promise.resolve({ active: 0, ignored: 0 })));
 
 	await librariesService.getScanFindings("lib-1");
 

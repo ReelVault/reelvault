@@ -40,6 +40,33 @@ function splitEntries(raw: string): string[] {
 		.filter(Boolean);
 }
 
+let cachedOverridesRevision = -1;
+let cachedOverrides: ReadonlyMap<string, number> | undefined;
+
+/**
+ * Parsed `network.rateLimit.routeOverrides` for the current settings revision.
+ * The store hands out the raw string on every read and parsing it per request
+ * is pure allocation; the first valid entry per name wins, matching the
+ * previous first-match scan. Invalid entries are ignored.
+ */
+function parsedOverrides(): ReadonlyMap<string, number> {
+	const revision = systemSettingsStore.revision;
+	if (revision !== cachedOverridesRevision || !cachedOverrides) {
+		const parsed = new Map<string, number>();
+		for (const entry of splitEntries(systemSettingsStore.get("network.rateLimit.routeOverrides"))) {
+			const [entryName, value] = entry.split("=").map((part) => part.trim());
+			if (!(entryName && value && WHOLE_NUMBER_PATTERN.test(value)) || parsed.has(entryName)) continue;
+
+			parsed.set(entryName, Number(value));
+		}
+
+		cachedOverrides = parsed;
+		cachedOverridesRevision = revision;
+	}
+
+	return cachedOverrides;
+}
+
 /** Reports what is wrong with a configured override string, so saving it can be refused with the bad entries. */
 export function rateLimitOverrideIssues(raw: string): RateLimitOverrideIssues {
 	const malformed: string[] = [];
@@ -61,13 +88,8 @@ export function rateLimitOverrideIssues(raw: string): RateLimitOverrideIssues {
 export function tunedRouteMax(name: string, defaultMax: number): number | undefined {
 	if (!TUNABLE_RATE_LIMIT_BUCKETS.has(name)) return undefined;
 
-	const raw = systemSettingsStore.get("network.rateLimit.routeOverrides");
-	for (const entry of splitEntries(raw)) {
-		const [entryName, value] = entry.split("=").map((part) => part.trim());
-		if (entryName !== name || !value || !WHOLE_NUMBER_PATTERN.test(value)) continue;
+	const value = parsedOverrides().get(name);
+	if (value === undefined) return undefined;
 
-		return Math.min(Number(value), defaultMax * RATE_LIMIT_OVERRIDE_CAP_MULTIPLIER);
-	}
-
-	return undefined;
+	return Math.min(value, defaultMax * RATE_LIMIT_OVERRIDE_CAP_MULTIPLIER);
 }

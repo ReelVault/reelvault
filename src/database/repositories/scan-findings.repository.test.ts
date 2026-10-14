@@ -78,7 +78,7 @@ describe("scanFindingsRepository", () => {
 		]);
 	});
 
-	test("list filters by status and countByStatus counts both", async () => {
+	test("list filters by status", async () => {
 		const repository = createRepository();
 		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" });
 		await repository.upsert({ libraryId: "lib-1", filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" });
@@ -89,8 +89,6 @@ describe("scanFindingsRepository", () => {
 			{ filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" },
 		]);
 		expect(await repository.list("lib-1")).toHaveLength(2);
-		expect(await repository.countByStatus("lib-1")).toEqual({ active: 1, ignored: 1 });
-		expect(await repository.countByStatus("lib-2")).toEqual({ active: 0, ignored: 0 });
 	});
 
 	test("a rescan keeps a finding ignored, and restoring it returns it to the active list", async () => {
@@ -131,7 +129,7 @@ describe("scanFindingsRepository", () => {
 
 		await repository.pruneStale("lib-1", [], ["/media"]);
 
-		expect(await repository.countByStatus("lib-1")).toEqual({ active: 0, ignored: 0 });
+		expect(repository.listWithCounts("lib-1").counts).toEqual({ active: 0, ignored: 0 });
 	});
 
 	test("removeMany issues a single delete statement for a small path list", async () => {
@@ -152,5 +150,31 @@ describe("scanFindingsRepository", () => {
 		} finally {
 			stub.restore();
 		}
+	});
+});
+
+describe("scanFindingsRepository.listWithCounts", () => {
+	test("returns the filtered findings plus both status counts in one call", async () => {
+		const repository = createRepository();
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" });
+		await repository.upsert({ libraryId: "lib-1", filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" });
+		await repository.setIgnored("lib-1", "/media/b.mkv", true);
+
+		expect(repository.listWithCounts("lib-1", "active")).toEqual({
+			items: [{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" }],
+			counts: { active: 1, ignored: 1 },
+		});
+		expect(repository.listWithCounts("lib-1", "ignored")).toEqual({
+			items: [{ filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" }],
+			counts: { active: 1, ignored: 1 },
+		});
+		expect(repository.listWithCounts("lib-1")).toEqual({
+			items: [
+				{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" },
+				{ filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" },
+			],
+			counts: { active: 1, ignored: 1 },
+		});
+		expect(repository.listWithCounts("lib-2").counts).toEqual({ active: 0, ignored: 0 });
 	});
 });

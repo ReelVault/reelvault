@@ -6,6 +6,8 @@
  * benchmark before/after (AGENTS: always record before/after, even for "worse").
  */
 
+import { statSync } from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
 import { brotliCompress, constants } from "node:zlib";
 import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
@@ -13,6 +15,8 @@ import { bench, benchmarkAsync, compare, group, main, measureAsync, printMicroRe
 import { hash as bunHash, CryptoHasher } from "bun";
 import { buildJsonResponse } from "@/api/utils/etag.utils";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { env } from "@/env";
+import { RATE_LIMIT_OVERRIDE_CAP_MULTIPLIER, TUNABLE_RATE_LIMIT_BUCKETS, tunedRouteMax } from "@/middleware/rate-limit-overrides";
 import { parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
 import { EventLoopMonitor } from "@/utils/event-loop-monitor.utils";
@@ -21,6 +25,7 @@ import { boundedLevenshtein, splitToSet, stripDiacritics, writeBigramCodes } fro
 import { profilePinFingerprint } from "@/utils/profile-unlock.utils";
 import { deriveSecretKey } from "@/utils/secret-crypto.utils";
 import { parseColonSeparatedSeconds } from "@/utils/time.utils";
+import { resolveWebDistRoot } from "@/web/web-dist";
 
 export const meta = {
 	description: "A/B implementation pairs (cache keys, LRU touch, parsers, hashing, compression) — informs, never auto-adopts",
@@ -56,6 +61,39 @@ function parseColonCharCode(value: string): number {
 	}
 
 	return total;
+}
+
+const WHOLE_NUMBER_PATTERN = /^[1-9][0-9]*$/;
+
+/** The pre-optimization parse-per-call route-override lookup, kept as the A/B baseline. */
+function tunedRouteMaxLegacy(name: string, defaultMax: number): number | undefined {
+	if (!TUNABLE_RATE_LIMIT_BUCKETS.has(name)) return undefined;
+
+	const raw = systemSettingsStore.get("network.rateLimit.routeOverrides");
+	for (const entry of raw
+		.split(",")
+		.map((part) => part.trim())
+		.filter(Boolean)) {
+		const [entryName, value] = entry.split("=").map((part) => part.trim());
+		if (entryName !== name || !value || !WHOLE_NUMBER_PATTERN.test(value)) continue;
+
+		return Math.min(Number(value), defaultMax * RATE_LIMIT_OVERRIDE_CAP_MULTIPLIER);
+	}
+
+	return undefined;
+}
+
+/** The pre-optimization stat-per-call web dist resolution, kept as the A/B baseline. */
+function resolveWebDistRootUncached(): string | null {
+	const configured = env.APP_WEB_DIST?.trim();
+	const hasConfigured = configured !== undefined && configured.length > 0;
+	const candidate = resolvePath(hasConfigured ? configured : join(process.cwd(), "web"));
+
+	try {
+		return statSync(candidate).isDirectory() ? candidate : null;
+	} catch {
+		return null;
+	}
 }
 
 // Single pass over a fixed replacement table (Polish + common Latin-1 accents).
@@ -519,6 +557,39 @@ if (!args.help) {
 		],
 		batch: 8,
 		equal: (a, b) => a === b,
+	});
+
+	// ─── Request-path caches (rate-limit overrides, web dist root) ───────────
+	// The overrides comparison needs a realistic configured value; the
+	// trusted-origin task above clears all runtime values, so set it here —
+	// units execute in registration order.
+	task("micro: set route overrides for the cache comparison", () => {
+		systemSettingsStore.setRuntimeValue(
+			"network.rateLimit.routeOverrides",
+			"admin-analytics=120,admin-workers-list=200,subtitle-content=60",
+		);
+
+		return { ok: true };
+	});
+
+	group("Request-path caches (per call)", () => {
+		compare("tunedRouteMax: parse per call vs revision-cached map (rate-limited route)", {
+			variants: [
+				{ name: "parse per call", fn: () => tunedRouteMaxLegacy("admin-workers-list", 100) },
+				{ name: "revision-cached", fn: () => tunedRouteMax("admin-workers-list", 100) },
+			],
+			batch: 256,
+			equal: (a, b) => a === b,
+		});
+
+		compare("resolveWebDistRoot: statSync per call vs cached per path (static request)", {
+			variants: [
+				{ name: "statSync per call", fn: () => resolveWebDistRootUncached() },
+				{ name: "cached per path", fn: () => resolveWebDistRoot() },
+			],
+			batch: 64,
+			equal: (a, b) => a === b,
+		});
 	});
 
 	// ─── Matching: bounded edit distance (per pair, in the ranking hot path) ──

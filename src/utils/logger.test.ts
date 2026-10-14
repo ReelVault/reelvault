@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, test } from "bun:test";
 import { once } from "node:events";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { Writable } from "node:stream";
 import { readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { createLogger, DailyRotatingStream, sanitizeLogValue } from "./logger";
+import { CoalescingStream, createLogger, DailyRotatingStream, sanitizeLogValue } from "./logger";
 
 const temporaryDirectories: string[] = [];
 
@@ -63,6 +64,55 @@ describe("DailyRotatingStream", () => {
 		await once(stream, "finish");
 
 		expect(await readFile(activePath, "utf8")).toBe(lines.join(""));
+	});
+});
+
+describe("CoalescingStream", () => {
+	function collector(): { chunks: string[]; target: Writable } {
+		const chunks: string[] = [];
+		const target = new Writable({
+			write(chunk: Buffer, _encoding, callback) {
+				chunks.push(chunk.toString());
+				callback();
+			},
+		});
+
+		return { chunks, target };
+	}
+
+	it("batches writes within the flush window into one target write", async () => {
+		const { chunks, target } = collector();
+		const stream = new CoalescingStream(target);
+		stream.write("a\n");
+		stream.write("b\n");
+		stream.write("c\n");
+		stream.end();
+		await once(stream, "finish");
+
+		expect(chunks).toEqual(["a\nb\nc\n"]);
+	});
+
+	it("flushes without an end after the window passes", async () => {
+		const { chunks, target } = collector();
+		const stream = new CoalescingStream(target);
+		stream.write("x\n");
+		await Bun.sleep(20);
+
+		expect(chunks).toEqual(["x\n"]);
+		stream.end();
+		await once(stream, "finish");
+	});
+
+	it("preserves order across a burst and still batches it", async () => {
+		const { chunks, target } = collector();
+		const stream = new CoalescingStream(target);
+		const lines = Array.from({ length: 500 }, (_, index) => `line ${index}\n`);
+		for (const line of lines) stream.write(line);
+		stream.end();
+		await once(stream, "finish");
+
+		expect(chunks.join("")).toBe(lines.join(""));
+		expect(chunks.length).toBeLessThan(lines.length);
 	});
 });
 

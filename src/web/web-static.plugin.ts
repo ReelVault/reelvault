@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { file as bunFile } from "bun";
@@ -50,11 +51,69 @@ const API_ORIGIN_META_TAG = '<meta name="reelvault-api-origin" content="same-ori
 
 let indexEntryCache: { key: string; body: Buffer } | undefined;
 
-async function loadIndexEntry(root: string): Promise<Buffer> {
-	const filePath = join(root, HTML_ENTRY);
-	const fileStat = await stat(filePath).catch(() => null);
-	if (!fileStat?.isFile()) throw new NotFoundError();
+/** Stat fields the handler needs; plain data so `assets/` entries can be cached. */
+interface FileStatView {
+	mtimeMs: number;
+	size: number;
+	isFile: boolean;
+}
 
+function toFileStatView(fileStat: Stats | null): FileStatView | null {
+	if (!fileStat) return null;
+
+	return { mtimeMs: fileStat.mtimeMs, size: fileStat.size, isFile: fileStat.isFile() };
+}
+
+/**
+ * Stats for immutable `assets/` files, keyed by path. Names are content-hashed
+ * and served `immutable`, so a cached entry never goes stale in place; the cap
+ * only bounds a long-lived process.
+ */
+const ASSET_STAT_CACHE_MAX_ENTRIES = 512;
+const assetStatCache = new Map<string, FileStatView>();
+
+function rememberAssetStat(filePath: string, fileStat: FileStatView): void {
+	if (assetStatCache.size >= ASSET_STAT_CACHE_MAX_ENTRIES) {
+		const oldest = assetStatCache.keys().next().value;
+		if (oldest !== undefined) assetStatCache.delete(oldest);
+	}
+
+	assetStatCache.set(filePath, fileStat);
+}
+
+async function statIndexEntry(root: string): Promise<FileStatView | null> {
+	return toFileStatView(await stat(join(root, HTML_ENTRY)).catch(() => null));
+}
+
+/**
+ * Stat for the requested path, plus whether it is the app entry. `/` and
+ * `/index.html` resolve straight to index.html; `assets/` stats come from the
+ * immutable-path cache; everything else stats the file. Null when missing.
+ */
+async function resolveEntryStat(
+	root: string,
+	relativePath: string,
+	filePath: string,
+): Promise<{ isHtmlEntry: boolean; fileStat: FileStatView | null }> {
+	if (relativePath.length === 0 || relativePath === HTML_ENTRY) {
+		return { isHtmlEntry: true, fileStat: await statIndexEntry(root) };
+	}
+
+	if (relativePath.startsWith(ASSETS_PREFIX)) {
+		const cached = assetStatCache.get(filePath);
+		if (cached) return { isHtmlEntry: false, fileStat: cached };
+
+		const fileStat = toFileStatView(await stat(filePath).catch(() => null));
+		if (fileStat?.isFile) rememberAssetStat(filePath, fileStat);
+
+		return { isHtmlEntry: false, fileStat };
+	}
+
+	return { isHtmlEntry: false, fileStat: toFileStatView(await stat(filePath).catch(() => null)) };
+}
+
+async function loadIndexEntry(root: string, fileStat: FileStatView): Promise<Buffer> {
+	const filePath = join(root, HTML_ENTRY);
 	const key = `${root}-${fileStat.mtimeMs}-${fileStat.size}`;
 	if (indexEntryCache?.key !== key) {
 		const raw = await readFile(filePath, "utf8");
@@ -134,16 +193,17 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 	// same transformed entry as the SPA fallback — without the injected API-origin
 	// marker the service worker would pin an app shell that targets the wrong API
 	// origin, and without no-cache browsers keep a stale shell for an hour.
-	let isHtmlEntry = relativePath === HTML_ENTRY;
+	const direct = await resolveEntryStat(root, relativePath, filePath);
+	let isHtmlEntry = direct.isHtmlEntry;
+	let entryStat = direct.fileStat;
 
-	let entryStat = await stat(filePath).catch(() => null);
-	if (!entryStat?.isFile()) {
+	if (!entryStat?.isFile) {
 		if (hasFileExtension) return notFoundResponse();
 
 		// SPA fallback: extension-less routes resolve to the app entry.
 		isHtmlEntry = true;
-		entryStat = await stat(join(root, HTML_ENTRY)).catch(() => null);
-		if (!entryStat?.isFile()) return notFoundResponse();
+		entryStat = await statIndexEntry(root);
+		if (!entryStat?.isFile) return notFoundResponse();
 	}
 
 	const etag = `W/"${Math.floor(entryStat.mtimeMs)}-${entryStat.size}"`;
@@ -169,7 +229,7 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 		set.headers["Cache-Control"] = cacheControl;
 		set.headers.ETag = etag;
 
-		return await loadIndexEntry(root);
+		return await loadIndexEntry(root, entryStat);
 	}
 
 	const headers: Record<string, string> = {

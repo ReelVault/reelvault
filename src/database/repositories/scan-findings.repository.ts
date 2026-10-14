@@ -90,18 +90,46 @@ export class ScanFindingsRepository {
 			.orderBy(this.table.filePath);
 	}
 
-	/** Active and ignored counts for the status tabs, read in one query. */
-	async countByStatus(libraryId: string): Promise<{ active: number; ignored: number }> {
-		const [counts] = await this.database
-			.getClient()
-			.select({
-				active: sql<number>`coalesce(sum(case when ${this.table.ignoredAt} is null then 1 else 0 end), 0)`,
-				ignored: sql<number>`coalesce(sum(case when ${this.table.ignoredAt} is not null then 1 else 0 end), 0)`,
-			})
-			.from(this.table)
-			.where(eq(this.table.libraryId, libraryId));
+	/**
+	 * Findings of one status plus the active/ignored counts for the status tabs
+	 * in ONE statement: the data rows UNION a single counts row (an empty path
+	 * marks it). The page needs both, and a second round trip bought nothing.
+	 */
+	listWithCounts(libraryId: string, status?: ScanFindingStatus): { items: ScanFindingItem[]; counts: { active: number; ignored: number } } {
+		let statusCondition = sql``;
+		if (status === "ignored") statusCondition = sql`AND ignored_at IS NOT NULL`;
+		else if (status === "active") statusCondition = sql`AND ignored_at IS NULL`;
+		const rows = this.database.getClient().all<{
+			filePath: string;
+			fileName: string;
+			reason: ScanFindingReason;
+			activeCount: number | null;
+			ignoredCount: number | null;
+		}>(sql`
+			SELECT file_path AS filePath, file_name AS fileName, reason AS reason, NULL AS activeCount, NULL AS ignoredCount
+			FROM scan_findings
+			WHERE library_id = ${libraryId} ${statusCondition}
+			UNION ALL
+			SELECT '', '', '', coalesce(sum(CASE WHEN ignored_at IS NULL THEN 1 ELSE 0 END), 0), coalesce(sum(CASE WHEN ignored_at IS NOT NULL THEN 1 ELSE 0 END), 0)
+			FROM scan_findings
+			WHERE library_id = ${libraryId}
+			ORDER BY filePath
+		`);
 
-		return { active: counts?.active ?? 0, ignored: counts?.ignored ?? 0 };
+		const items: ScanFindingItem[] = [];
+		let active = 0;
+		let ignored = 0;
+		for (const row of rows) {
+			if (row.filePath.length === 0) {
+				active = row.activeCount ?? 0;
+				ignored = row.ignoredCount ?? 0;
+				continue;
+			}
+
+			items.push({ filePath: row.filePath, fileName: row.fileName, reason: row.reason });
+		}
+
+		return { items, counts: { active, ignored } };
 	}
 
 	async findByPath(libraryId: string, filePath: string): Promise<ScanFindingItem | null> {
