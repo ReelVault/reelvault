@@ -5,6 +5,7 @@ import { printUsage, suiteArgs } from "./args";
 import { type BaselineComparison, type BaselineEntry, type BaselineFile, compareWithBaseline, type Verdict } from "./baseline";
 import { compareVariants, printAbResult } from "./compare";
 import { benchmark, benchmarkAsync, type MicroBenchmarkResult, printMicroResults } from "./harness";
+import { metricsOf } from "./metrics";
 import { type BenchUnit, type CompareUnit, cleanupFixtures, collectUnits, markCollection, type TaskUnit, type Unit } from "./registry";
 import { printTable } from "./report";
 import { summarizeLatencies } from "./stats";
@@ -88,7 +89,7 @@ async function executeUnits(
 			pending.push(await runBenchUnit(unit, json, baselineOut, fileStem));
 		} else if (unit.kind === "compare") {
 			if (!runCompareUnit(unit, json)) strictFailures++;
-		} else if (!(await runTaskUnit(unit, json))) {
+		} else if (!(await runTaskUnit(unit, json, baselineOut, fileStem))) {
 			strictFailures++;
 		}
 	}
@@ -145,10 +146,14 @@ function runCompareUnit(unit: CompareUnit, json: UnitJson[]): boolean {
 }
 
 /** Returns whether the task reported success. */
-async function runTaskUnit(unit: TaskUnit, json: UnitJson[]): Promise<boolean> {
+async function runTaskUnit(unit: TaskUnit, json: UnitJson[], baselineOut: BaselineEntry[] | undefined, fileStem: string): Promise<boolean> {
 	const outcome = asTaskOutcome(await unit.fn());
 	const taskJson: TaskJson = { kind: "task", name: unit.name, ok: outcome.ok };
 	if (outcome.data !== undefined) taskJson.data = outcome.data;
+
+	// A task that returns `data.metrics` opts into baseline comparison.
+	const metrics = metricsOf(outcome.data);
+	if (metrics) baselineOut?.push({ kind: "task", file: fileStem, name: unit.name, metrics });
 
 	json.push(taskJson);
 	if (!outcome.ok) console.warn(`[benchkit] task "${unit.name}" reported failure`);
@@ -302,7 +307,11 @@ export async function runDiscovery(options: DiscoveryOptions): Promise<void> {
 		const baselineFile: BaselineFile = { schema: "benchkit-baseline/v1", generatedAt: new Date().toISOString(), entries: baselineEntries };
 		await mkdir(dirname(options.saveBaseline), { recursive: true });
 		await writeFile(options.saveBaseline, `${JSON.stringify(baselineFile, null, "\t")}\n`);
-		console.log(`\n[benchkit] baseline (${baselineEntries.length} bench units) saved to ${options.saveBaseline}`);
+		const benchCount = baselineEntries.filter((entry) => entry.kind === "bench").length;
+		const taskCount = baselineEntries.length - benchCount;
+		console.log(
+			`\n[benchkit] baseline (${benchCount} bench units${taskCount > 0 ? `, ${taskCount} task metric sets` : ""}) saved to ${options.saveBaseline}`,
+		);
 	}
 
 	if (options.jsonPath) {

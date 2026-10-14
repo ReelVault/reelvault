@@ -1,4 +1,4 @@
-import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
+import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 
 import { suiteServerFixture } from "./lib/server-fixture";
 
@@ -67,6 +67,8 @@ if (!args.help) {
 		});
 
 		printHttpResults(results);
+
+		return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
 	});
 }
 

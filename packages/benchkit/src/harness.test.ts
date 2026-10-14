@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { runRequestScenario, runScenarioMatrix } from "./harness";
+import { httpScenarioMetrics, runRequestScenario, runScenarioMatrix } from "./harness";
 
 const BOTH_LATENCY_LINE = / req\/s, p50 \d+\.\d{2}ms, p95 \d+\.\d{2}ms$/;
 
@@ -110,5 +110,20 @@ describe("runScenarioMatrix", () => {
 			spy.mockRestore();
 			await server.stop(true);
 		}
+	});
+});
+
+describe("httpScenarioMetrics", () => {
+	test("flattens rows into throughput and p95 metrics with directions", () => {
+		const metrics = httpScenarioMetrics([
+			{
+				name: "c=50 GET /ok",
+				stats: { count: 10, meanMs: 1, p50Ms: 1, p95Ms: 2, p99Ms: 3, maxMs: 4 },
+				requestsPerSecond: 1234,
+				errorRatePercent: 0,
+			},
+		]);
+		expect(metrics["c=50 GET /ok req/s"]).toEqual({ value: 1234, higherIsBetter: true });
+		expect(metrics["c=50 GET /ok p95 ms"]).toEqual({ value: 2, higherIsBetter: false });
 	});
 });

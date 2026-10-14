@@ -1,3 +1,4 @@
+import type { TaskMetrics } from "./metrics";
 import { percentile } from "./stats";
 
 export const DEFAULT_MIN_DELTA_PERCENT = 3;
@@ -8,7 +9,7 @@ const Z_SIGNIFICANT = 1.96;
 
 export type Verdict = "faster" | "slower" | "unchanged" | "noisy";
 
-export interface BaselineEntry {
+export interface BenchBaselineEntry {
 	kind: "bench";
 	file: string;
 	name: string;
@@ -16,6 +17,20 @@ export interface BaselineEntry {
 	samples: number[];
 	p50Ms: number;
 }
+
+/**
+ * A task's flattened metrics (throughput, latency, memory, CPU). Tasks return
+ * one number per metric per run, so comparisons are delta-based and carry no
+ * significance verdict — repeated runs are the caller's job.
+ */
+export interface TaskBaselineEntry {
+	kind: "task";
+	file: string;
+	name: string;
+	metrics: TaskMetrics;
+}
+
+export type BaselineEntry = BenchBaselineEntry | TaskBaselineEntry;
 
 export interface BaselineFile {
 	schema: "benchkit-baseline/v1";
@@ -101,8 +116,8 @@ export interface BaselineCompareOptions {
  *   - significant and negative delta        → faster, positive → slower.
  */
 export function compareBaselineEntry(
-	entry: BaselineEntry,
-	baseline: BaselineEntry,
+	entry: BenchBaselineEntry,
+	baseline: BenchBaselineEntry,
 	options: BaselineCompareOptions = {},
 ): BaselineComparison {
 	const minDeltaPercent = options.minDeltaPercent ?? DEFAULT_MIN_DELTA_PERCENT;
@@ -124,6 +139,42 @@ export function compareBaselineEntry(
 	return { file: entry.file, name: entry.name, verdict, deltaPercent, samples: entry.samples.length };
 }
 
+/**
+ * Compares a task's metric map against its baseline: one comparison row per
+ * metric, named after the metric key. Delta-based with the practical
+ * threshold; no significance verdict, since a task run yields one number.
+ */
+export function compareTaskMetrics(
+	entry: TaskBaselineEntry,
+	baseline: TaskBaselineEntry,
+	options: BaselineCompareOptions = {},
+): { comparisons: BaselineComparison[]; missingInBaseline: number } {
+	const minDeltaPercent = options.minDeltaPercent ?? DEFAULT_MIN_DELTA_PERCENT;
+	const comparisons: BaselineComparison[] = [];
+	let missingInBaseline = 0;
+
+	for (const [key, current] of Object.entries(entry.metrics)) {
+		const base = baseline.metrics[key];
+		if (!base) {
+			missingInBaseline++;
+			continue;
+		}
+
+		const deltaPercent = base.value !== 0 ? ((current.value - base.value) / base.value) * 100 : 0;
+		let verdict: Verdict;
+		if (Math.abs(deltaPercent) < minDeltaPercent) {
+			verdict = "unchanged";
+		} else {
+			const improved = current.higherIsBetter ? deltaPercent > 0 : deltaPercent < 0;
+			verdict = improved ? "faster" : "slower";
+		}
+
+		comparisons.push({ file: entry.file, name: key, verdict, deltaPercent, samples: 1 });
+	}
+
+	return { comparisons, missingInBaseline };
+}
+
 /** Matches current entries against baseline entries by `file` + `name`. */
 export function compareWithBaseline(
 	current: readonly BaselineEntry[],
@@ -136,12 +187,18 @@ export function compareWithBaseline(
 
 	for (const entry of current) {
 		const match = byKey.get(`${entry.file}/${entry.name}`);
-		if (!match) {
+		if (!match || match.kind !== entry.kind) {
 			missingInBaseline++;
 			continue;
 		}
 
-		comparisons.push(compareBaselineEntry(entry, match, options));
+		if (entry.kind === "bench" && match.kind === "bench") {
+			comparisons.push(compareBaselineEntry(entry, match, options));
+		} else if (entry.kind === "task" && match.kind === "task") {
+			const result = compareTaskMetrics(entry, match, options);
+			comparisons.push(...result.comparisons);
+			missingInBaseline += result.missingInBaseline;
+		}
 	}
 
 	return { comparisons, missingInBaseline };

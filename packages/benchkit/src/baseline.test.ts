@@ -1,8 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { type BaselineEntry, compareBaselineEntry, compareWithBaseline, mannWhitneyZ } from "./baseline";
+import {
+	type BenchBaselineEntry,
+	compareBaselineEntry,
+	compareTaskMetrics,
+	compareWithBaseline,
+	mannWhitneyZ,
+	type TaskBaselineEntry,
+} from "./baseline";
+import { metric, type TaskMetrics } from "./metrics";
 
-function entry(file: string, name: string, samples: number[]): BaselineEntry {
+function entry(file: string, name: string, samples: number[]): BenchBaselineEntry {
 	return { kind: "bench", file, name, samples, p50Ms: samples.toSorted((a, b) => a - b)[Math.floor(samples.length / 2)] ?? 0 };
+}
+
+function taskEntry(file: string, name: string, metrics: TaskMetrics): TaskBaselineEntry {
+	return { kind: "task", file, name, metrics };
 }
 
 describe("mannWhitneyZ", () => {
@@ -66,5 +78,54 @@ describe("compareWithBaseline", () => {
 		expect(comparisons).toHaveLength(1);
 		expect(missingInBaseline).toBe(1);
 		expect(comparisons[0]?.verdict).toBe("faster");
+	});
+
+	test("compares task metrics by direction and counts kind mismatches", () => {
+		const baseline = [taskEntry("http", "http: scenarios", { "c=50 health req/s": metric(1000, true) })];
+		const current = [
+			taskEntry("http", "http: scenarios", { "c=50 health req/s": metric(1100, true) }),
+			entry("http", "http: scenarios", [9, 9, 9]),
+		];
+		const { comparisons, missingInBaseline } = compareWithBaseline(current, baseline);
+		expect(comparisons).toHaveLength(1);
+		expect(comparisons[0]?.name).toBe("c=50 health req/s");
+		expect(comparisons[0]?.verdict).toBe("faster");
+		expect(missingInBaseline).toBe(1);
+	});
+});
+
+describe("compareTaskMetrics", () => {
+	test("higher-is-better metric up → faster, down → slower", () => {
+		const baseline = taskEntry("http", "http: scenarios", { "req/s": metric(1000, true) });
+		expect(
+			compareTaskMetrics(taskEntry("http", "http: scenarios", { "req/s": metric(1100, true) }), baseline).comparisons[0]?.verdict,
+		).toBe("faster");
+		expect(compareTaskMetrics(taskEntry("http", "http: scenarios", { "req/s": metric(900, true) }), baseline).comparisons[0]?.verdict).toBe(
+			"slower",
+		);
+	});
+
+	test("lower-is-better metric down → faster, up → slower", () => {
+		const baseline = taskEntry("http", "http: scenarios", { "p95 ms": metric(10, false) });
+		expect(compareTaskMetrics(taskEntry("http", "http: scenarios", { "p95 ms": metric(9, false) }), baseline).comparisons[0]?.verdict).toBe(
+			"faster",
+		);
+		expect(
+			compareTaskMetrics(taskEntry("http", "http: scenarios", { "p95 ms": metric(11, false) }), baseline).comparisons[0]?.verdict,
+		).toBe("slower");
+	});
+
+	test("tiny delta → unchanged", () => {
+		const baseline = taskEntry("http", "http: scenarios", { "req/s": metric(1000, true) });
+		expect(
+			compareTaskMetrics(taskEntry("http", "http: scenarios", { "req/s": metric(1020, true) }), baseline).comparisons[0]?.verdict,
+		).toBe("unchanged");
+	});
+
+	test("a metric missing from the baseline counts as missing", () => {
+		const baseline = taskEntry("http", "http: scenarios", { "req/s": metric(1000, true) });
+		const result = compareTaskMetrics(taskEntry("http", "http: scenarios", { "new req/s": metric(1, true) }), baseline);
+		expect(result.comparisons).toHaveLength(0);
+		expect(result.missingInBaseline).toBe(1);
 	});
 });

@@ -98,7 +98,7 @@ Rules:
 - Unit kinds: `bench()` = micro-timing (measure), `compare()` = A/B with optional `equal` (add it whenever variants must be equivalent), `task()` = load flows/audits (own tables). Task names follow `"<suite>: <phase>"` so `--only <regex>` targets are unambiguous.
 - Server/DB lifecycle: `createServerFixture` (lib/server-fixture) and `benchDb` + `seedCatalog` (lib/db-fixture, lib/seed). Never copy seeding SQL into a suite; extend the shared seeder's flags instead.
 - `packages/benchkit` must not import `@/` — app-owned pieces stay in `scripts/benchmarks/lib/`.
-- Selection/CI: `bun run benchmark <suite> --only <regex>`, `--json[=path]`, `--strict`. Before touching hot code: `--save-baseline`, after: `--compare-baseline --strict` (Mann-Whitney on raw samples, 3% practical threshold; "slower" fails the run). Changing anything that moves numbers requires before/after output comparison.
+- Selection/CI: `bun run benchmark <suite> --only <regex>`, `--json[=path]`, `--strict`. Before touching hot code: `--save-baseline`, after: `--compare-baseline --strict` (Mann-Whitney on raw samples, 3% practical threshold; "slower" fails the run). Tasks that return `data.metrics` (see `httpScenarioMetrics`, memory RSS/CPU rows) are saved and compared with the same 3% threshold as delta verdicts — no significance test, so confirm with repeated runs. Changing anything that moves numbers requires before/after output comparison.
 
 ## Other commands
 `db:generate`, `db:migrate`, `db:migrate:runtime`, `scenarios`.

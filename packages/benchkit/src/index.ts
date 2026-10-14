@@ -10,6 +10,8 @@ export * from "./load";
 
 export * from "./main";
 
+export * from "./metrics";
+
 export * from "./process";
 
 export * from "./recorder";

@@ -1,12 +1,16 @@
 import {
+	type CpuSummary,
 	type HttpScenarioResult,
 	main,
+	metric,
 	printHttpResults,
 	printTable,
 	type RssSummary,
 	runRequestScenario,
+	startCpuSampler,
 	startRssSampler,
 	suiteArgs,
+	type TaskMetrics,
 	task,
 } from "benchkit";
 import { authHeaders, identityIndexFor, workerCookie } from "./lib/identity";
@@ -134,6 +138,7 @@ if (!args.help) {
 		const server = await serverFixture();
 		const results: HttpScenarioResult[] = [];
 		const rssRows: string[][] = [];
+		const metrics: TaskMetrics = {};
 
 		const phases: ReadonlyArray<readonly [string, RequestBuilder]> = [
 			["read mix", readMix],
@@ -147,6 +152,10 @@ if (!args.help) {
 				const stopSampler = startRssSampler(server.pid, RSS_SAMPLE_INTERVAL_MS, (captured) => {
 					summary = captured;
 				});
+				let cpu: CpuSummary = {};
+				const stopCpuSampler = startCpuSampler(server.pid, RSS_SAMPLE_INTERVAL_MS, (captured) => {
+					cpu = captured;
+				});
 
 				const result = await runRequestScenario({
 					name: `c=${concurrency} ${phaseName} (c=${concurrency})`,
@@ -156,16 +165,28 @@ if (!args.help) {
 					requestFor: (workerIndex: number, requestIndex: number) => builder(server, workerIndex, requestIndex),
 				});
 				stopSampler();
+				stopCpuSampler();
 				results.push(result);
+
+				const phaseKey = `c=${concurrency} ${phaseName}`;
+				metrics[`${phaseKey} req/s`] = metric(result.requestsPerSecond, true);
+				if (summary.peakBytes !== undefined) metrics[`${phaseKey} rss peak MB`] = metric(summary.peakBytes / 1024 / 1024, false);
+				if (cpu.deltaMs !== undefined) {
+					metrics[`${phaseKey} cpu ms`] = metric(cpu.deltaMs, false);
+					metrics[`${phaseKey} cpu µs/req`] = metric((cpu.deltaMs * 1000) / Math.max(result.stats.count, 1), false);
+				}
+
 				rssRows.push([`${phaseName} c=${concurrency}`, `${result.requestsPerSecond.toFixed(0)} req/s`, ...formatRss(summary)]);
 				console.log(
-					`  ${phaseName} c=${concurrency}: ${result.requestsPerSecond.toFixed(0)} req/s, RSS start/peak/end ${formatRss(summary).join(" / ")}`,
+					`  ${phaseName} c=${concurrency}: ${result.requestsPerSecond.toFixed(0)} req/s, RSS start/peak/end ${formatRss(summary).join(" / ")}, CPU ${cpu.deltaMs?.toFixed(0) ?? "?"}ms`,
 				);
 			}
 		}
 
 		printTable(`Server RSS per load phase (pid ${server.pid})`, ["phase", "throughput", "start", "peak", "end"], rssRows);
 		printHttpResults(results);
+
+		return { ok: true, data: { metrics } };
 	});
 }
 

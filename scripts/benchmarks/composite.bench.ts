@@ -1,4 +1,4 @@
-import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
+import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 import { contextHeaders, rotatingIdentity } from "./lib/identity";
 import type { ManagedServer } from "./lib/server";
 import { suiteServerFixture } from "./lib/server-fixture";
@@ -181,6 +181,8 @@ if (!args.help) {
 		});
 
 		printHttpResults(results);
+
+		return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
 	});
 }
 

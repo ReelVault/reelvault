@@ -1,4 +1,4 @@
-import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
+import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 import { identityIndexFor, subnetIp } from "./lib/identity";
 import { toScenarioEntries } from "./lib/scenarios";
 import { suiteServerFixture } from "./lib/server-fixture";
@@ -457,6 +457,8 @@ if (!args.help) {
 		});
 
 		printHttpResults(results);
+
+		return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
 	});
 }
 

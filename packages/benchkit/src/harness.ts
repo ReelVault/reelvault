@@ -1,4 +1,5 @@
 import { runLoadWindow } from "./load";
+import { metric, type TaskMetrics } from "./metrics";
 import { fmtMs, printTable } from "./report";
 import { type LatencyStats, summarizeLatencies } from "./stats";
 
@@ -279,6 +280,20 @@ export function printHttpResults(results: readonly HttpScenarioResult[]): void {
 			String(result.stats.count),
 		]),
 	);
+}
+
+/**
+ * Flattens scenario rows into baseline-comparable task metrics: throughput
+ * (higher is better) and p95 latency (lower is better) per row.
+ */
+export function httpScenarioMetrics(results: readonly HttpScenarioResult[]): TaskMetrics {
+	const metrics: TaskMetrics = {};
+	for (const result of results) {
+		metrics[`${result.name} req/s`] = metric(result.requestsPerSecond, true);
+		metrics[`${result.name} p95 ms`] = metric(result.stats.p95Ms, false);
+	}
+
+	return metrics;
 }
 
 /** p50/p95/p99/max cells shared by the micro and HTTP result tables. */

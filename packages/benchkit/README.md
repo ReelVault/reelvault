@@ -55,6 +55,11 @@ compare("stripDiacritics", {
 	batch: 32,
 });
 
+// Tasks can return `data.metrics` (a `TaskMetrics` map): captured into
+// --save-baseline and compared by --compare-baseline, one delta verdict per
+// metric. Delta-based, no significance test — run the suite twice for stability.
+task("http: scenarios", async () => ({ ok: true, data: { metrics: httpScenarioMetrics(results) } }));
+
 // Everything that is not a micro-measurement: load flows, audits, phase sequences.
 task("http scenarios", async () => {
 	const s = await server();
@@ -81,11 +86,12 @@ Units are executed by the runner (`runDiscovery` / `runFile`):
 | `args.ts` | shared CLI parser (`--duration`, `--rows`, `--json`, `--strict`, …) + `suiteArgs()` (one parse per process) |
 | `stats.ts` | percentiles, `summarizeLatencies` |
 | `report.ts` | ASCII tables, formatters |
-| `harness.ts` | micro-timing (`measure`/`benchmark`/`benchmarkAsync`/`measureAsync`), result printers, `runHttpScenario`, `runRequestScenario`/`runScenarioMatrix` |
+| `harness.ts` | micro-timing (`measure`/`benchmark`/`benchmarkAsync`/`measureAsync`), result printers, `runHttpScenario`, `runRequestScenario`/`runScenarioMatrix`, `httpScenarioMetrics` |
 | `compare.ts` | `abCompare` (batch+median), `compareVariants` (equal), `printAbResult` |
 | `load.ts` | `runLoadWindow` (one load loop for http/streaming/upload/auth/…), `parseSegments` |
 | `recorder.ts` | `Recorder` (per-op latencies + errors, `serialize()` to JSON) |
-| `rss.ts` | RSS reads from `/proc`, `startRssSampler` (unref'd timer) |
+| `metrics.ts` | `TaskMetric`/`TaskMetrics` + `metric()`; task `data.metrics` feeds baseline comparison |
+| `rss.ts` | RSS and CPU reads from `/proc`, `startRssSampler`/`startCpuSampler` (unref'd timers) |
 | `process.ts` | `spawnManagedProcess`, `waitForHealth`, log-drain |
 | `registry.ts` | `group`/`bench`/`compare`/`task`/`fixture` + unit collection |
 | `baseline.ts` | `--save-baseline`/`--compare-baseline`: raw-sample storage, Mann-Whitney verdicts |
