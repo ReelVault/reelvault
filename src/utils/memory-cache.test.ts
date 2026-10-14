@@ -247,3 +247,88 @@ test("mget and getOrSetMany treat a cached null as a hit", async () => {
 	expect(loaded.get("null-key")).toBeNull();
 	expect(loaded.get("missing")).toBe("loaded");
 });
+
+test("maxWeight evicts least-recently-used entries until the total fits", () => {
+	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1, maxWeight: 10, weigh: (value) => value.length });
+
+	cache.set("a", "aaaa");
+	cache.set("b", "bbbb");
+	cache.set("c", "cccc"); // total 12 > 10 → evicts "a"
+
+	expect(cache.has("a")).toBe(false);
+	expect(cache.has("b")).toBe(true);
+	expect(cache.has("c")).toBe(true);
+	expect(cache.size).toBe(2);
+});
+
+test("maxWeight keeps recently read entries when evicting", () => {
+	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1, maxWeight: 10, weigh: (value) => value.length });
+
+	cache.set("a", "aaaa");
+	cache.set("b", "bbbb");
+	cache.get("a"); // "b" is now the least recently used
+	cache.set("c", "cccc");
+
+	expect(cache.has("a")).toBe(true);
+	expect(cache.has("b")).toBe(false);
+});
+
+test("maxWeight never evicts the entry being written, even when it alone exceeds the budget", () => {
+	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1, maxWeight: 4, weigh: (value) => value.length });
+
+	cache.set("a", "aaaa");
+	cache.set("big", "bbbbbbbbbb");
+
+	expect(cache.has("a")).toBe(false);
+	expect(cache.get("big")).toBe("bbbbbbbbbb");
+});
+
+test("overwriting a key replaces its weight instead of adding to it", () => {
+	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1, maxWeight: 10, weigh: (value) => value.length });
+
+	cache.set("a", "aaaa");
+	cache.set("a", "aaaaaa"); // total 6, not 10
+	cache.set("b", "bbbb"); // total 10 → fits without eviction
+
+	expect(cache.has("a")).toBe(true);
+	expect(cache.has("b")).toBe(true);
+});
+
+test("delete and clear release their weight", () => {
+	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1, maxWeight: 10, weigh: (value) => value.length });
+
+	cache.set("a", "aaaaaa");
+	cache.set("b", "bbb"); // total 9
+	cache.delete("a"); // total 3
+	cache.set("c", "cccccc"); // total 9 → fits; a stale weight of 6 would evict "b"
+
+	expect(cache.has("b")).toBe(true);
+	expect(cache.has("c")).toBe(true);
+
+	cache.clear();
+	cache.set("e", "eeeee");
+	cache.set("f", "fffff"); // exactly the budget once clear() reset the total
+
+	expect(cache.has("e")).toBe(true);
+	expect(cache.has("f")).toBe(true);
+});
+
+test("expired entries release their weight when they are read", async () => {
+	const cache = new MemoryCache<string>({
+		ttlMs: 50,
+		sweepIntervalMs: 0,
+		maxSize: -1,
+		maxWeight: 10,
+		weigh: (value) => value.length,
+	});
+
+	cache.set("a", "aaaaaa");
+	await Bun.sleep(60);
+	expect(cache.has("a")).toBe(false); // expired read removes "a" and its weight
+
+	cache.set("b", "bbbbbb");
+	cache.set("c", "cccc"); // total 10 → fits only if "a" no longer counts
+
+	expect(cache.has("b")).toBe(true);
+	expect(cache.has("c")).toBe(true);
+});

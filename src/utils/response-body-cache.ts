@@ -15,6 +15,16 @@ export const RESPONSE_BODY_CACHE_MAX_BYTES = 512 * 1024;
 const RESPONSE_BODY_CACHE_MAX_TTL_MS = 5 * 60_000;
 /** TTL of the short-lived aggregation bodies stored by withEtagResponse(). */
 const ETAG_BODY_CACHE_TTL_MS = 10_000;
+/**
+ * Total byte budget across all cached bodies: RESPONSE_BODY_CACHE_BYTES_PER_GB for each GiB of
+ * installed RAM, clamped to [MIN, MAX]. A catalog list page is ~22 KB, so a 30 GB box holds
+ * ~2,800 pages — a 512-entry count cap held only ~11 MB and thrashed on wider browse patterns.
+ */
+const RESPONSE_BODY_CACHE_BYTES_PER_GB = 2 * 1024 * 1024;
+const RESPONSE_BODY_CACHE_MIN_TOTAL_BYTES = 32 * 1024 * 1024;
+const RESPONSE_BODY_CACHE_MAX_TOTAL_BYTES = 256 * 1024 * 1024;
+/** Entry-count safety net for many small bodies; the byte budget is the real limit. */
+const RESPONSE_BODY_CACHE_MAX_ENTRIES = 8192;
 
 /**
  * Cross-request body cache shared by the response-cache middleware (route-level
@@ -57,7 +67,15 @@ function removeFromProfileIndex(key: string): void {
 const responseBodyCache = new MemoryCache<CachedResponseBody>({
 	// TTL is enforced per entry (expiresAt) so each route keeps its own max-age.
 	ttlMs: -1,
-	maxSize: systemResourcesService.getRamScaledCacheEntries(64, 128, 512),
+	maxSize: RESPONSE_BODY_CACHE_MAX_ENTRIES,
+	maxWeight: systemResourcesService.getRamScaledCacheBytes(
+		RESPONSE_BODY_CACHE_BYTES_PER_GB,
+		RESPONSE_BODY_CACHE_MIN_TOTAL_BYTES,
+		RESPONSE_BODY_CACHE_MAX_TOTAL_BYTES,
+	),
+	// Uncompressed body length. Compressed variants are memoized later and not charged; for a
+	// catalog list page each is only about 5–10% of the body (br ≈ 1.2 KB, gzip ≈ 2.2 KB at 22.5 KB).
+	weigh: (entry) => entry.body.length,
 	name: "api.responseBody",
 	// Keep the per-profile and etag-key indexes honest across LRU evictions.
 	onEvict: (key) => {

@@ -31,6 +31,14 @@ interface MemoryCacheOptions<T, K extends string> {
 	 */
 	maxSize?: number | undefined;
 	/**
+	 * Total weight budget (LRU eviction by weight, e.g. bytes). Each entry is weighed once,
+	 * at insert, by `weigh`; without `weigh` every entry weighs 0. Set to '-1' to disable.
+	 * @default -1
+	 */
+	maxWeight?: number | undefined;
+	/** Weight of one value, consulted on insert. Only meaningful together with `maxWeight`. */
+	weigh?: ((value: T) => number) | undefined;
+	/**
 	 * How often (ms) to sweep for expired entries in the background.
 	 * Only active when ttlMs is set (not -1). Set to 0 to disable.
 	 * @default ttlMs (sweep once per TTL period)
@@ -53,6 +61,7 @@ interface MemoryCacheOptions<T, K extends string> {
 interface CacheEntry<T> {
 	value: T;
 	expiresAt: number; // Number.POSITIVE_INFINITY when TTL is disabled
+	weight: number;
 }
 
 type EvictReason = "lru" | "ttl" | "delete" | "clear";
@@ -61,6 +70,9 @@ export class MemoryCache<T, K extends string = string> {
 	private readonly cache = new Map<K, CacheEntry<T>>();
 	private readonly ttlMs: number;
 	private readonly maxSize: number;
+	private readonly maxWeight: number;
+	private readonly weigh: ((value: T) => number) | undefined;
+	private totalWeight = 0;
 	private readonly onEvict: ((key: K, value: T) => void) | undefined;
 	private readonly registryName: string | undefined;
 	private readonly registryEntry: (() => Omit<MemoryCacheStats, "name">) | undefined;
@@ -77,6 +89,8 @@ export class MemoryCache<T, K extends string = string> {
 	constructor(options: MemoryCacheOptions<T, K> = {}) {
 		this.ttlMs = options.ttlMs ?? 5 * MINUTE;
 		this.maxSize = options.maxSize ?? 500;
+		this.maxWeight = options.maxWeight ?? -1;
+		this.weigh = options.weigh;
 		this.onEvict = options.onEvict;
 		this.registryName = options.name;
 		this.registryEntry = options.name ? () => this.stats() : undefined;
@@ -103,7 +117,7 @@ export class MemoryCache<T, K extends string = string> {
 		if (this.ttlMs === -1) return true;
 
 		if (this.isExpired(entry)) {
-			this.cache.delete(key);
+			this.remove(key);
 			this.notifyEvict(key, entry.value, "ttl");
 
 			return false;
@@ -131,7 +145,7 @@ export class MemoryCache<T, K extends string = string> {
 		}
 
 		if (this.ttlMs !== -1 && this.isExpired(entry)) {
-			this.cache.delete(key);
+			this.remove(key);
 			this.misses++;
 			this.notifyEvict(key, entry.value, "ttl");
 
@@ -148,14 +162,17 @@ export class MemoryCache<T, K extends string = string> {
 	}
 
 	set(key: K, value: T): void {
-		this.cache.delete(key); // reset position if the key already existed; overwriting isn't an eviction
+		this.remove(key); // reset position if the key already existed; overwriting isn't an eviction
 
 		if (this.maxSize !== -1 && this.cache.size >= this.maxSize) {
 			this.evictOldest();
 		}
 
 		const expiresAt = this.ttlMs === -1 ? Number.POSITIVE_INFINITY : Date.now() + this.ttlMs;
-		this.cache.set(key, { value, expiresAt });
+		const weight = this.weigh?.(value) ?? 0;
+		this.cache.set(key, { value, expiresAt, weight });
+		this.totalWeight += weight;
+		this.evictOverWeight(key);
 	}
 
 	/**
@@ -282,11 +299,10 @@ export class MemoryCache<T, K extends string = string> {
 	}
 
 	delete(key: K): boolean {
-		const entry = this.cache.get(key);
-		const deleted = this.cache.delete(key);
-		if (deleted && entry) this.notifyEvict(key, entry.value, "delete");
+		const entry = this.remove(key);
+		if (entry) this.notifyEvict(key, entry.value, "delete");
 
-		return deleted;
+		return entry !== undefined;
 	}
 
 	clear(): void {
@@ -295,6 +311,7 @@ export class MemoryCache<T, K extends string = string> {
 		}
 
 		this.cache.clear();
+		this.totalWeight = 0;
 	}
 
 	destroy(): void {
@@ -333,6 +350,17 @@ export class MemoryCache<T, K extends string = string> {
 		};
 	}
 
+	/** Deletes an entry and releases its weight. Returns the removed entry, if any. */
+	private remove(key: K): CacheEntry<T> | undefined {
+		const entry = this.cache.get(key);
+		if (!entry) return undefined;
+
+		this.cache.delete(key);
+		this.totalWeight -= entry.weight;
+
+		return entry;
+	}
+
 	private evictOldest(): void {
 		// Prefer evicting an already-expired entry over a live one. Only the
 		// oldest-inserted entry (front of the Map) is checked here — a full scan
@@ -340,7 +368,7 @@ export class MemoryCache<T, K extends string = string> {
 		if (this.ttlMs !== -1) {
 			const oldest = this.cache.entries().next().value;
 			if (oldest && this.isExpired(oldest[1])) {
-				this.cache.delete(oldest[0]);
+				this.remove(oldest[0]);
 				this.notifyEvict(oldest[0], oldest[1].value, "ttl");
 
 				return;
@@ -350,16 +378,29 @@ export class MemoryCache<T, K extends string = string> {
 		const oldestKey = this.cache.keys().next().value;
 		if (oldestKey === undefined) return;
 
-		const oldestEntry = this.cache.get(oldestKey);
-		this.cache.delete(oldestKey);
+		const oldestEntry = this.remove(oldestKey);
 		if (oldestEntry) this.notifyEvict(oldestKey, oldestEntry.value, "lru");
+	}
+
+	/**
+	 * Evicts least-recently-used entries until the weight budget holds. The entry
+	 * just written (`keep`) is never evicted here, so one oversized value stays
+	 * cached alone instead of being dropped on insert.
+	 */
+	private evictOverWeight(keep: K): void {
+		while (this.maxWeight !== -1 && this.totalWeight > this.maxWeight) {
+			const oldestKey = this.cache.keys().next().value;
+			if (oldestKey === undefined || oldestKey === keep) return;
+
+			this.evictOldest();
+		}
 	}
 
 	private sweep(): void {
 		const now = Date.now();
 		for (const [key, entry] of this.cache) {
 			if (this.isExpired(entry, now)) {
-				this.cache.delete(key);
+				this.remove(key);
 				this.notifyEvict(key, entry.value, "ttl");
 			}
 		}

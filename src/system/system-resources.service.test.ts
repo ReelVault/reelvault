@@ -148,6 +148,21 @@ describe("SystemResourcesService sizing formulas (injected hardware)", () => {
 		// 32 GB * 32 = 1024 -> clamped to 256
 		expect(highMemService.getMaxInflightResponses()).toBe(256);
 	});
+
+	test("RAM-scaled byte budget multiplies per GiB and clamps to the bounds", () => {
+		const mib = 1024 * 1024;
+		const lowMemService = new SystemResourcesService({ totalMemoryKiB: () => 4 * 1024 * 1024 });
+		// 4 GB * 8 MiB = 32 MiB, exactly the floor
+		expect(lowMemService.getRamScaledCacheBytes(8 * mib, 32 * mib, 256 * mib)).toBe(32 * mib);
+		// 4 GB * 2 MiB = 8 MiB -> clamped up to the 32 MiB floor
+		expect(lowMemService.getRamScaledCacheBytes(2 * mib, 32 * mib, 256 * mib)).toBe(32 * mib);
+
+		const highMemService = new SystemResourcesService({ totalMemoryKiB: () => 30 * 1024 * 1024 });
+		// 30 GB * 2 MiB = 60 MiB, inside the bounds
+		expect(highMemService.getRamScaledCacheBytes(2 * mib, 32 * mib, 256 * mib)).toBe(60 * mib);
+		// 30 GB * 16 MiB = 480 MiB -> clamped down to the 256 MiB ceiling
+		expect(highMemService.getRamScaledCacheBytes(16 * mib, 32 * mib, 256 * mib)).toBe(256 * mib);
+	});
 });
 
 describe("scaleTimeoutMsForFactor", () => {

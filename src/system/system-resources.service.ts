@@ -504,6 +504,17 @@ export class SystemResourcesService {
 		return clamp(Math.floor(memGb * gbMultiplier), min, max);
 	}
 
+	/** Byte budget for a RAM-held cache: `bytesPerGb` for each GiB of installed memory, clamped to [minBytes, maxBytes]. */
+	getRamScaledCacheBytes(bytesPerGb: number, minBytes: number, maxBytes: number): number {
+		const totalKiB = this.getTotalMemoryKiB();
+		// Unknown RAM → smallest budget (never over-allocate a cache we can't size).
+		if (totalKiB === undefined) return minBytes;
+
+		const memGb = totalKiB / 1024 / 1024;
+
+		return clamp(Math.floor(memGb * bytesPerGb), minBytes, maxBytes);
+	}
+
 	/** Wall-clock budgets need headroom on slow single cores: a fixed 15 s
 	 * timeout that is generous on a modern CPU fires spuriously on E5/RPi-class
 	 * hardware. Fast boxes keep the base (failure detection must not rot);
