@@ -27,6 +27,19 @@ describe("responseCacheMiddleware", () => {
 		expect(publicResponse.headers.get("Vary")).toBe("Accept-Encoding");
 	});
 
+	test("a cache hit carries the same Cache-Control, Vary and ETag as the miss", async () => {
+		const app = new Elysia().use(responseCacheMiddleware).get("/headers", () => ({ data: "headers" }), {
+			cache: { maxAge: 60, private: true },
+		});
+		const miss = await app.handle(new Request("http://localhost/headers"));
+		const hit = await app.handle(new Request("http://localhost/headers"));
+
+		expect(hit.headers.get("Cache-Control")).toBe("private, max-age=60");
+		for (const name of ["Cache-Control", "Vary", "ETag"]) {
+			expect(hit.headers.get(name)).toBe(miss.headers.get(name));
+		}
+	});
+
 	test("answers 304 for weak and comma-separated If-None-Match validators", async () => {
 		const app = makeApp();
 		const first = await app.handle(new Request("http://localhost/cached"));

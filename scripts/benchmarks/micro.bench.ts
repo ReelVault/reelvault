@@ -865,6 +865,22 @@ if (!args.help) {
 		equal: (a, b) => a === b,
 	});
 
+	const browserEncodingHeaders = ["gzip, deflate, br, zstd", "gzip, deflate, br", "gzip, deflate"];
+	compare("negotiateEncoding (browser multi-token header): parser per request vs bounded LRU memo", {
+		variants: [
+			{
+				name: "parser per request (before)",
+				fn: () => browserEncodingHeaders.map((header) => negotiateEncodingOld(header) ?? "-").join(","),
+			},
+			{
+				name: "bounded LRU memo (shipped)",
+				fn: () => browserEncodingHeaders.map((header) => negotiateEncoding(header) ?? "-").join(","),
+			},
+		],
+		batch: 16,
+		equal: (a, b) => a === b,
+	});
+
 	const conditionalHeaders = ['"abc"', 'W/"abc"', "*", '"abc", "def"', null, '"other"'];
 	compare("matchesIfNoneMatch: split list vs single-validator fast path", {
 		variants: [

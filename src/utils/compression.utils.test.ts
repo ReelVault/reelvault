@@ -26,6 +26,25 @@ describe("negotiateEncoding", () => {
 		expect(negotiateEncoding("br; q=0, gzip; q=0.5")).toBe("gzip");
 		expect(negotiateEncoding("x-gzip")).toBe(null);
 	});
+
+	test("repeated and evicted headers keep resolving to the same encoding", () => {
+		const browser = "gzip, deflate, br, zstd";
+		expect(negotiateEncoding(browser)).toBe("br");
+		expect(negotiateEncoding(browser)).toBe("br");
+
+		// Far more distinct headers than the memo holds, so `browser` is evicted and re-parsed.
+		for (let index = 0; index < 200; index++) {
+			expect(negotiateEncoding(`x-${index}, gzip`)).toBe("gzip");
+		}
+		expect(negotiateEncoding(browser)).toBe("br");
+		expect(negotiateEncoding("br;q=0, gzip")).toBe("gzip");
+	});
+
+	test("oversized headers still negotiate correctly", () => {
+		const oversized = `${"x-unknown, ".repeat(64)}deflate`;
+		expect(negotiateEncoding(oversized)).toBe("deflate");
+		expect(negotiateEncoding(oversized)).toBe("deflate");
+	});
 });
 
 describe("compressBuffer", () => {

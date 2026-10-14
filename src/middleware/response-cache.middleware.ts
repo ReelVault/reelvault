@@ -108,7 +108,7 @@ export const responseCacheMiddleware = new Elysia({ name: "ResponseCache" })
 
 			return {
 				async beforeHandle(context): Promise<Response | undefined> {
-					const { request, set } = context;
+					const { request } = context;
 					if (request.method !== "GET") return undefined;
 
 					// A session that resolved to no user (revoked/expired) must never be
@@ -123,10 +123,7 @@ export const responseCacheMiddleware = new Elysia({ name: "ResponseCache" })
 					const entry = getCachedResponseBody(cacheKeyFor(request, resolveProfileId(context)));
 					if (!entry) return undefined;
 
-					set.headers["Cache-Control"] = cacheControl;
-					set.headers.Vary = vary;
-					set.headers.ETag = entry.etag;
-
+					// responseFromBody sets Cache-Control, Vary and ETag on the Response itself.
 					return await responseFromBody(request, entry, cacheControl, vary);
 				},
 				async afterHandle(context): Promise<Response | undefined> {
