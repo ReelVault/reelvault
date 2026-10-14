@@ -18,12 +18,15 @@ export interface CreateServerFixtureOptions {
  */
 export function createServerFixture(options: CreateServerFixtureOptions): Fixture<ManagedServer> {
 	return fixture("server", async ({ onCleanup }) => {
+		// Profiling is opt-in through the environment so suites need no flag of
+		// their own; the directory must survive stop(), so it is not under rootDir.
 		const managed = await startBenchmarkServer({
 			seedRows: options.seedRows,
 			workerCount: options.workerCount,
 			withSampleMedia: options.withSampleMedia,
 			withWebDist: options.withWebDist,
 			keepServer: options.keepServer,
+			profileDir: process.env.BENCHMARK_PROFILE_DIR,
 		});
 		if (!options.keepServer) onCleanup(() => managed.stop());
 

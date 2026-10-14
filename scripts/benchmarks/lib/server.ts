@@ -57,6 +57,12 @@ export interface StartServerOptions {
 	withSampleMedia?: boolean | undefined;
 	/** Stage a minimal web dist (index.html + one immutable asset) and serve it. */
 	withWebDist?: boolean | undefined;
+	/**
+	 * Absolute directory for Bun CPU profiles (`--cpu-prof --cpu-prof-md`).
+	 * Written when the server exits; the directory must be outside rootDir
+	 * (which stop() removes).
+	 */
+	profileDir?: string | undefined;
 }
 
 export const SETUP_TOKEN = "reelvault-benchmark-setup-token-0123456789";
@@ -194,6 +200,12 @@ function prepareCatalogInserts(database: Database) {
 		insertMetadataImage: database.prepare("INSERT INTO metadata_images (metadata_id, image_id, image_type) VALUES (?, ?, 'poster')"),
 		insertPerson: database.prepare("INSERT INTO people (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
 		insertCast: database.prepare("INSERT INTO metadata_cast (metadata_id, person_id, role, sort_order) VALUES (?, ?, 'Actor', ?)"),
+		insertCollection: database.prepare(
+			"INSERT INTO collections (id, stable_key, name, sort_mode, created_at, updated_at) VALUES (?, ?, ?, 'alphabetical', ?, ?)",
+		),
+		insertMetadataCollection: database.prepare(
+			"INSERT INTO metadata_collections (metadata_id, collection_id, sort_order) VALUES (?, ?, ?)",
+		),
 	};
 }
 
@@ -206,6 +218,12 @@ function seedCatalogLookups(inserts: CatalogInserts, now: number): void {
 
 	for (let personIndex = 0; personIndex < 50; personIndex++) {
 		inserts.insertPerson.run(`person-${personIndex}`, `person-${personIndex}`, `Actor ${personIndex}`, now, now);
+	}
+
+	// Collections so the collections list endpoint exercises its grouped
+	// qualification + preview queries instead of scanning empty tables.
+	for (let collectionIndex = 0; collectionIndex < 5; collectionIndex++) {
+		inserts.insertCollection.run(`col-${collectionIndex}`, `col-${collectionIndex}`, `Collection ${collectionIndex}`, now, now);
 	}
 }
 
@@ -233,6 +251,7 @@ function seedCatalogTitle(inserts: CatalogInserts, index: number, now: number): 
 
 	inserts.insertMetadataGenre.run(id, `genre-${index % 10}`);
 	inserts.insertCast.run(id, `person-${index % 50}`, 0);
+	inserts.insertMetadataCollection.run(id, `col-${index % 5}`, index);
 	if (index % 3 === 0) inserts.insertMetadataImage.run(id, BENCHMARK_IMAGE_ID);
 }
 
@@ -651,8 +670,12 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 	const webDist = options.withWebDist ? await stageWebDist(rootDir) : undefined;
 
 	console.log(`[server] starting on port ${port}...`);
+	// Profiling flags must precede the `run` subcommand; the profile is written
+	// when the server exits (SIGTERM shutdown path included).
+	const profileFlags = options.profileDir ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${options.profileDir}`] : [];
+	if (options.profileDir) console.log(`[server] CPU profiling enabled → ${options.profileDir}`);
 	const serverProcess = spawnManagedProcess({
-		cmd: ["bun", "run", "src/index.ts"],
+		cmd: ["bun", ...profileFlags, "run", "src/index.ts"],
 		cwd: repoRoot,
 		env: serverEnv(port, rootDir, webDist),
 		logPath: join(rootDir, "server.log"),
