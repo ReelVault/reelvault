@@ -98,6 +98,159 @@ function selectUpsertProgressPrepared(hasAudio: boolean, hasSubtitle: boolean) {
 	return preparedUpsertProgress.none;
 }
 
+type PlaybackRelationClient = ReturnType<typeof databaseFactory.getClient>;
+
+/**
+ * Fixed-shape reads of the playback view and grid paths: prepared once per
+ * connection instead of rebuilt for every progress view, smart-play read and
+ * continue-watching page.
+ */
+const preparedProgressRows = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({
+			mediaFileId: schema.playbackProgress.mediaFileId,
+			episodeId: schema.mediaFiles.episodeId,
+			movieId: schema.mediaFiles.movieId,
+			position: schema.playbackProgress.position,
+			duration: schema.playbackProgress.duration,
+			completed: schema.playbackProgress.completed,
+			audioStreamIndex: schema.playbackProgress.audioStreamIndex,
+			subtitleId: schema.playbackProgress.subtitleId,
+			updatedAt: schema.playbackProgress.updatedAt,
+		})
+		.from(schema.playbackProgress)
+		.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.playbackProgress.mediaFileId))
+		.where(
+			and(
+				eq(schema.playbackProgress.profileId, sql.placeholder("profileId")),
+				eq(schema.mediaFiles.metadataId, sql.placeholder("metadataId")),
+			),
+		)
+		.prepare(),
+);
+
+const preparedSmartPlayMediaFiles = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({
+			id: schema.mediaFiles.id,
+			movieId: schema.mediaFiles.movieId,
+			episodeId: schema.mediaFiles.episodeId,
+			isDefault: schema.mediaFiles.isDefault,
+			updatedAt: schema.mediaFiles.updatedAt,
+		})
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.metadataId, sql.placeholder("metadataId")))
+		.prepare(),
+);
+
+const seasonEpisodeIdsSubquery = sql`(SELECT value FROM json_each(${sql.placeholder("ids")}))`;
+
+const preparedSeasons = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({
+			id: schema.seasons.id,
+			metadataId: schema.seasons.metadataId,
+			seasonNumber: schema.seasons.seasonNumber,
+		})
+		.from(schema.seasons)
+		.where(inArray(schema.seasons.metadataId, seasonEpisodeIdsSubquery))
+		.prepare(),
+);
+
+const preparedEpisodes = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({
+			id: schema.episodes.id,
+			seasonId: schema.episodes.seasonId,
+			episodeNumber: schema.episodes.episodeNumber,
+			absoluteNumber: schema.episodes.absoluteNumber,
+			title: schema.episodes.title,
+			episodeType: schema.episodes.episodeType,
+		})
+		.from(schema.episodes)
+		.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
+		.where(inArray(schema.seasons.metadataId, seasonEpisodeIdsSubquery))
+		.prepare(),
+);
+
+const preparedRegularEpisodes = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({
+			id: schema.episodes.id,
+			seasonId: schema.episodes.seasonId,
+			episodeNumber: schema.episodes.episodeNumber,
+			absoluteNumber: schema.episodes.absoluteNumber,
+			title: schema.episodes.title,
+			episodeType: schema.episodes.episodeType,
+		})
+		.from(schema.episodes)
+		.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
+		.where(and(inArray(schema.seasons.metadataId, seasonEpisodeIdsSubquery), eq(schema.episodes.episodeType, "regular")))
+		.prepare(),
+);
+
+const preparedContinueWatchingProgress = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({
+			id: schema.playbackProgress.id,
+			profileId: schema.playbackProgress.profileId,
+			mediaFileId: schema.playbackProgress.mediaFileId,
+			position: schema.playbackProgress.position,
+			duration: schema.playbackProgress.duration,
+			completed: schema.playbackProgress.completed,
+			audioStreamIndex: schema.playbackProgress.audioStreamIndex,
+			subtitleId: schema.playbackProgress.subtitleId,
+			updatedAt: schema.playbackProgress.updatedAt,
+			dismissedAt: schema.playbackProgress.dismissedAt,
+			metadataId: schema.mediaFiles.metadataId,
+			movieId: schema.mediaFiles.movieId,
+			episodeId: schema.mediaFiles.episodeId,
+		})
+		.from(schema.playbackProgress)
+		.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.playbackProgress.mediaFileId))
+		.where(eq(schema.playbackProgress.profileId, sql.placeholder("profileId")))
+		.orderBy(desc(schema.playbackProgress.updatedAt))
+		.limit(sql.placeholder("fetchLimit"))
+		.prepare(),
+);
+
+const preparedContinueWatchingMetadata = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({ id: schema.metadata.id, title: schema.metadata.title, type: schema.metadata.type })
+		.from(schema.metadata)
+		.where(inArray(schema.metadata.id, seasonEpisodeIdsSubquery))
+		.prepare(),
+);
+
+const preparedContinueWatchingMediaFiles = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({
+			id: schema.mediaFiles.id,
+			metadataId: schema.mediaFiles.metadataId,
+			movieId: schema.mediaFiles.movieId,
+			episodeId: schema.mediaFiles.episodeId,
+			duration: schema.mediaFiles.duration,
+			isDefault: schema.mediaFiles.isDefault,
+			updatedAt: schema.mediaFiles.updatedAt,
+		})
+		.from(schema.mediaFiles)
+		.where(inArray(schema.mediaFiles.metadataId, seasonEpisodeIdsSubquery))
+		.prepare(),
+);
+
+const preparedContinueWatchingBackdrops = createPreparedQuery((client: PlaybackRelationClient) =>
+	client
+		.select({
+			metadataId: schema.metadataImages.metadataId,
+			imageId: schema.images.id,
+			imageUpdatedAt: schema.images.updatedAt,
+		})
+		.from(schema.metadataImages)
+		.innerJoin(schema.images, metadataImageOn)
+		.where(and(inArray(schema.metadataImages.metadataId, seasonEpisodeIdsSubquery), eq(schema.metadataImages.imageType, "backdrop")))
+		.prepare(),
+);
+
 class PlaybackRepository {
 	/** Distinct profiles that have watched any file of this metadata row. */
 	async findViewerProfilesByMetadataId(metadataId: string): Promise<Array<{ profileId: string; userId: string }>> {
@@ -113,21 +266,7 @@ class PlaybackRepository {
 	async findProgressRows(metadataId: string, profileId: string) {
 		const client = databaseFactory.getClient();
 
-		return await client
-			.select({
-				mediaFileId: schema.playbackProgress.mediaFileId,
-				episodeId: schema.mediaFiles.episodeId,
-				movieId: schema.mediaFiles.movieId,
-				position: schema.playbackProgress.position,
-				duration: schema.playbackProgress.duration,
-				completed: schema.playbackProgress.completed,
-				audioStreamIndex: schema.playbackProgress.audioStreamIndex,
-				subtitleId: schema.playbackProgress.subtitleId,
-				updatedAt: schema.playbackProgress.updatedAt,
-			})
-			.from(schema.playbackProgress)
-			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.playbackProgress.mediaFileId))
-			.where(and(eq(schema.playbackProgress.profileId, profileId), eq(schema.mediaFiles.metadataId, metadataId)));
+		return await preparedProgressRows(client).execute({ metadataId, profileId });
 	}
 
 	async findPlaybackProgressAndSmartPlayData(metadataId: string, profileId: string, metadataType?: MetadataType) {
@@ -137,16 +276,7 @@ class PlaybackRepository {
 		// mode always comes from the row: smart-play ordering depends on it.
 		const [metadata, mediaFiles, progressRows] = await Promise.all([
 			metadataTypeFor(metadataType, metadataId),
-			client
-				.select({
-					id: schema.mediaFiles.id,
-					movieId: schema.mediaFiles.movieId,
-					episodeId: schema.mediaFiles.episodeId,
-					isDefault: schema.mediaFiles.isDefault,
-					updatedAt: schema.mediaFiles.updatedAt,
-				})
-				.from(schema.mediaFiles)
-				.where(eq(schema.mediaFiles.metadataId, metadataId)),
+			preparedSmartPlayMediaFiles(client).execute({ metadataId }),
 			this.findProgressRows(metadataId, profileId),
 		]);
 
@@ -256,29 +386,11 @@ class PlaybackRepository {
 	 */
 	private async findSeasonsAndEpisodes(metadataIds: readonly string[], options?: { regularOnly?: boolean; tx?: DatabaseTransaction }) {
 		const client = databaseFactory.getClient({ tx: options?.tx });
-		const metadataIdFilter = inArray(schema.seasons.metadataId, [...metadataIds]);
+		const ids = JSON.stringify([...metadataIds]);
 
 		const [seasons, episodes] = await Promise.all([
-			client
-				.select({
-					id: schema.seasons.id,
-					metadataId: schema.seasons.metadataId,
-					seasonNumber: schema.seasons.seasonNumber,
-				})
-				.from(schema.seasons)
-				.where(metadataIdFilter),
-			client
-				.select({
-					id: schema.episodes.id,
-					seasonId: schema.episodes.seasonId,
-					episodeNumber: schema.episodes.episodeNumber,
-					absoluteNumber: schema.episodes.absoluteNumber,
-					title: schema.episodes.title,
-					episodeType: schema.episodes.episodeType,
-				})
-				.from(schema.episodes)
-				.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
-				.where(options?.regularOnly ? and(metadataIdFilter, eq(schema.episodes.episodeType, "regular")) : metadataIdFilter),
+			preparedSeasons(client).execute({ ids }),
+			(options?.regularOnly ? preparedRegularEpisodes(client) : preparedEpisodes(client)).execute({ ids }),
 		]);
 
 		return { seasons, episodes };
@@ -430,27 +542,7 @@ class PlaybackRepository {
 	async findContinueWatchingData(profileId: string, limit = 24) {
 		const client = databaseFactory.getClient();
 		const fetchLimit = Math.max(50, limit * 4);
-		const progressRows = await client
-			.select({
-				id: schema.playbackProgress.id,
-				profileId: schema.playbackProgress.profileId,
-				mediaFileId: schema.playbackProgress.mediaFileId,
-				position: schema.playbackProgress.position,
-				duration: schema.playbackProgress.duration,
-				completed: schema.playbackProgress.completed,
-				audioStreamIndex: schema.playbackProgress.audioStreamIndex,
-				subtitleId: schema.playbackProgress.subtitleId,
-				updatedAt: schema.playbackProgress.updatedAt,
-				dismissedAt: schema.playbackProgress.dismissedAt,
-				metadataId: schema.mediaFiles.metadataId,
-				movieId: schema.mediaFiles.movieId,
-				episodeId: schema.mediaFiles.episodeId,
-			})
-			.from(schema.playbackProgress)
-			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.playbackProgress.mediaFileId))
-			.where(eq(schema.playbackProgress.profileId, profileId))
-			.orderBy(desc(schema.playbackProgress.updatedAt))
-			.limit(fetchLimit);
+		const progressRows = await preparedContinueWatchingProgress(client).execute({ profileId, fetchLimit });
 
 		if (progressRows.length === 0) {
 			return { progressRows: [], metadataList: [], mediaFiles: [], seasons: [], episodes: [], backdrops: [] };
@@ -468,36 +560,10 @@ class PlaybackRepository {
 		}
 
 		const [metadataList, mediaFiles, seasonsAndEpisodes, backdrops] = await Promise.all([
-			client
-				.select({
-					id: schema.metadata.id,
-					title: schema.metadata.title,
-					type: schema.metadata.type,
-				})
-				.from(schema.metadata)
-				.where(inArray(schema.metadata.id, metadataIds)),
-			client
-				.select({
-					id: schema.mediaFiles.id,
-					metadataId: schema.mediaFiles.metadataId,
-					movieId: schema.mediaFiles.movieId,
-					episodeId: schema.mediaFiles.episodeId,
-					duration: schema.mediaFiles.duration,
-					isDefault: schema.mediaFiles.isDefault,
-					updatedAt: schema.mediaFiles.updatedAt,
-				})
-				.from(schema.mediaFiles)
-				.where(inArray(schema.mediaFiles.metadataId, metadataIds)),
+			preparedContinueWatchingMetadata(client).execute({ ids: JSON.stringify(metadataIds) }),
+			preparedContinueWatchingMediaFiles(client).execute({ ids: JSON.stringify(metadataIds) }),
 			this.findSeasonsAndEpisodes(metadataIds, { regularOnly: true }),
-			client
-				.select({
-					metadataId: schema.metadataImages.metadataId,
-					imageId: schema.images.id,
-					imageUpdatedAt: schema.images.updatedAt,
-				})
-				.from(schema.metadataImages)
-				.innerJoin(schema.images, metadataImageOn)
-				.where(and(inArray(schema.metadataImages.metadataId, metadataIds), eq(schema.metadataImages.imageType, "backdrop"))),
+			preparedContinueWatchingBackdrops(client).execute({ ids: JSON.stringify(metadataIds) }),
 		]);
 
 		return {
