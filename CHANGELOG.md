@@ -576,6 +576,9 @@ Smaller benchmarks are kept separately so the main table stays focused:
 ### Fixes
 
 - **Log file memory grew under request load** — the file stream wrote one chunk per log line, so queued lines piled up in memory faster than they drained. Each queued batch is now one write.
+- **Seasons and episodes stay in season order** — the per-show season and episode reads had no `ORDER BY`. Before planner statistics exist, SQLite walks an index that happens to give season order; after `ANALYZE` it can return insertion order, so Season 3 could list before Season 1. Both reads now sort by season number, and episodes by episode number within it.
+- **Collections need the full `minItems` count** — the threshold check matched any collection with at least one title, so with the default of two, single-title collections were counted and listed. A collection now needs `minItems` titles, in both the count and the page.
+- **Movie smart-play resumes the file watched last** — with several files, smart-play read the first progress row, which had no defined order, so it could start a fresh play on a finished file instead of resuming the half-watched one. Progress rows are now read newest first.
 - **Quick-connect pending entries are capped at 1,000** — the 15-minute TTL alone let a burst of pairing requests grow the pending maps. The oldest entry is evicted at the cap.
 
 ### Performance
@@ -601,6 +604,8 @@ Seeded catalog of 5,000 rows on one machine, managed server. Each value is the m
 | HTTP | Same, cache on, c=50 — p95 | 44.1 ms | 2.7 ms | **−93.9%** |
 | HTTP | Same, cache off, c=50 — req/s | 1,711 | 2,422 | **+41.6%** |
 | HTTP | Same, cache off, c=50 — p95 | 43.5 ms | 30.9 ms | **−28.9%** |
+| HTTP | `GET /v1/metadata?limit=24` catalog browse, cache off, c=50, `encodeSchema` alone — req/s | 1,974 | 2,457 | **+24.4%** |
+| HTTP | Same, c=50, `encodeSchema` alone — p95 | 37.3 ms | 30.0 ms | **−19.4%** |
 | HTTP | `GET /v1/media-files?limit=24`, cache off, c=50 — req/s | 1,888 | 3,778 | **+100.1%** |
 | HTTP | `GET /v1/collections?limit=24`, cache off, c=50 — req/s | 951 | 1,916 | **+101.4%** |
 | HTTP | Same, c=100 — req/s | 1,645 | 4,981 | **+202.8%** |
@@ -613,10 +618,13 @@ Seeded catalog of 5,000 rows on one machine, managed server. Each value is the m
 | In-process | Cache hit through `app.handle`, browser `Accept-Encoding`, c=1 — req/s | 225,939 | 248,490 | **+10.0%** |
 | In-process | Same, c=50 — req/s | 197,085 | 224,645 | **+14.0%** |
 
-The browse and collections rows are the combined result of every change above; they do not isolate one change.
+The browse and collections rows are the combined result of every change above; they do not isolate one change. The `encodeSchema` rows isolate that one change: the same build with only the option flipped, three alternating rounds per side.
 
 ### Additional measurements
 
 - Idle RSS 154.4 → 141.1 MB (−8.6%) and peak RSS 179.0 → 163.1 MB (−8.9%): median of nine boots per side, alternating in blocks of three. Boot time (spawn to health) 544 → 529 ms, with overlapping ranges, so no measurable change.
 - Query-count audit: all 19 audited operations are within budget.
 - Responses: `/openapi/json` is byte-identical to the previous release. Of 34 probed HTTP endpoints, 32 return the same status and body; the other two (`/v1/health` and `/v1/admin/dashboard`) report live memory figures, which also change between runs of this release.
+- Season and episode order adds no measurable cost: the per-show episode read goes 13.1 → 13.3 µs for 50 episodes and the season read stays at 1.3 µs (in-process, after `ANALYZE`). The planner walks the season and episode index in order, so no temp sort is added.
+- Playback progress read with the newest-first order: 1.30 → 1.63 µs per call (+0.33 µs, in-process). The planner adds a temp sort over the title's progress rows; kept because resume depends on it.
+- Collection threshold probe `LIMIT 1 OFFSET minItems − 1`: 0.58 → 0.61 ms at the default `minItems` of 2 (+5%), and 0.58 → 0.64 ms at 3, for a 2,000-collection catalog with 12 titles each (in-process). The probe reads up to `minItems` junction rows per collection instead of one.
