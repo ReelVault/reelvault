@@ -27,6 +27,8 @@ import { createLocalStableKey } from "@/database/utils/stable-key";
 import { runInTransaction } from "@/database/utils/transaction";
 import { serverConstants } from "@/server.constants";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
+import { MemoryCache } from "@/utils/memory-cache";
+import { responseBodyEpoch } from "@/utils/response-body-cache";
 import { processNamedEntities, upsertNamedEntities } from "../utils/provider-entity-sync";
 import { metadataRepository } from "./metadata.repository";
 
@@ -56,6 +58,25 @@ interface PosterImage {
 	imageId: string;
 	updatedAt: Date;
 }
+
+/** Member count and up to four posters of one collection, as list pages embed them. */
+interface CollectionPreview {
+	count: number;
+	posterImages: PosterImage[];
+	/** responseBodyEpoch() when the preview was read; a later flush of list bodies makes it stale. */
+	epoch: number;
+}
+
+/** Upper bound on how long a preview may outlive its read, even without a write to flush it. */
+const COLLECTION_PREVIEW_TTL_MS = 10_000;
+/** One entry per collection; each is a count plus at most four poster references. */
+const COLLECTION_PREVIEW_MAX_ENTRIES = 1024;
+
+const collectionPreviews = new MemoryCache<CollectionPreview>({
+	ttlMs: COLLECTION_PREVIEW_TTL_MS,
+	maxSize: COLLECTION_PREVIEW_MAX_ENTRIES,
+	name: "collections.previews",
+});
 
 class CollectionsRepository {
 	readonly table = schema.collections;
@@ -432,6 +453,43 @@ class CollectionsRepository {
 
 		if (!(withCounts || withPosters)) return new Map<string, { count: number; posterImages: PosterImage[] }>();
 
+		// A transaction reads its own uncommitted writes, so its result must not reach the shared cache.
+		if (!tx && withCounts && withPosters) return await this.loadCachedMetadataPreviews(collectionIds);
+
+		return await this.queryMetadataPreviews(collectionIds, tx, { withCounts, withPosters });
+	}
+
+	/**
+	 * Full previews from the cache. Ids without a current entry are read in one query, and the
+	 * read is stamped with the epoch captured before it, so a write that flushes list bodies
+	 * while the query runs leaves the entry stale.
+	 */
+	private async loadCachedMetadataPreviews(collectionIds: string[]) {
+		const epoch = responseBodyEpoch();
+		const previews = new Map<string, CollectionPreview>();
+		const missingIds: string[] = [];
+		for (const id of collectionIds) {
+			const cached = collectionPreviews.get(id);
+			if (cached?.epoch === epoch) previews.set(id, cached);
+			else missingIds.push(id);
+		}
+		if (missingIds.length === 0) return previews;
+
+		const loaded = await this.queryMetadataPreviews(missingIds, undefined, { withCounts: true, withPosters: true });
+		for (const [id, preview] of loaded) {
+			const entry = { ...preview, epoch };
+			collectionPreviews.set(id, entry);
+			previews.set(id, entry);
+		}
+
+		return previews;
+	}
+
+	private async queryMetadataPreviews(
+		collectionIds: string[],
+		tx: DatabaseTransaction | undefined,
+		{ withCounts, withPosters }: { withCounts: boolean; withPosters: boolean },
+	) {
 		const client = databaseFactory.getClient({ tx });
 		const rankedPosters = client
 			.select({

@@ -143,8 +143,21 @@ export function cacheEtagBody(key: string, body: string, etag: string): void {
 	etagBodyKeys.add(key);
 }
 
+let invalidationEpoch = 0;
+
+/**
+ * Advances on every flush of shared list bodies. Data that list bodies embed but that is
+ * cached on its own (collection poster previews) records the epoch it was read under and
+ * treats an older one as a miss, so the write that flushed the bodies also drops it.
+ * Profile-scoped writes leave it unchanged: no shared list embeds profile state.
+ */
+export function responseBodyEpoch(): number {
+	return invalidationEpoch;
+}
+
 /** Flushes the response body cache after any write that can stale arbitrary cached GETs. */
 export function invalidateResponseBodies(): void {
+	invalidationEpoch++;
 	responseBodyCache.clear();
 	profileKeyIndex.clear();
 	etagBodyKeys.clear();
@@ -173,6 +186,7 @@ export const CATALOG_LIST_PATH_PREFIXES = [
 export function invalidateResponseBodiesForPathPrefixes(pathPrefixes: readonly string[]): void {
 	if (pathPrefixes.length === 0) return;
 
+	invalidationEpoch++;
 	for (const key of responseBodyCache.keys()) {
 		const path = key.split(KEY_SEGMENT_SEPARATOR)[0] ?? "";
 		if (pathPrefixes.some((prefix) => path.startsWith(prefix))) responseBodyCache.delete(key);
