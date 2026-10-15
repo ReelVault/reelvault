@@ -82,6 +82,7 @@ export const serverConstants = {
 		 * Loaded plugins append their declared content sources (plugin.json `csp`);
 		 * script-src and style-src stay locked to self.
 		 */
+		// TODO: Remove hardcoded dicebear.
 		webUiContentSecurityPolicy:
 			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.dicebear.com; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",
 		/**
