@@ -57,6 +57,8 @@ const preparedEpisodesProjectedByMetadata = createPreparedQuery((client: Episode
 		.from(episodes.table)
 		.innerJoin(schema.seasons, eq(schema.seasons.id, episodes.table.seasonId))
 		.where(eq(schema.seasons.metadataId, sql.placeholder("metadataId")))
+		// No id tie-break: it forces a temp B-tree sort; the season and episode index already yields this order.
+		.orderBy(schema.seasons.seasonNumber, episodes.table.episodeNumber)
 		.prepare(),
 );
 
@@ -76,7 +78,8 @@ const preparedEpisodesWithFilesByMetadata = createPreparedQuery((client: Episode
 		.innerJoin(schema.seasons, eq(schema.seasons.id, episodes.table.seasonId))
 		.leftJoin(schema.mediaFiles, eq(schema.mediaFiles.episodeId, episodes.table.id))
 		.where(eq(schema.seasons.metadataId, sql.placeholder("metadataId")))
-		.orderBy(schema.seasons.seasonNumber, episodes.table.episodeNumber, episodes.table.id)
+		// No id tie-break: it forces a temp B-tree sort; the season and episode index already yields this order.
+		.orderBy(schema.seasons.seasonNumber, episodes.table.episodeNumber)
 		.prepare(),
 );
 

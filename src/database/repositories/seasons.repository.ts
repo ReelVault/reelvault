@@ -7,7 +7,7 @@ import type {
 	SeasonSorting,
 	SelectFields,
 } from "@reelvault/sdk/common";
-import { and, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/database/database";
 import { schema } from "@/database/schema";
 import {
@@ -64,9 +64,12 @@ const overrides = {
 		return await getSeasonsRepository().findByPrimaryId({ primaryId: seasonId, fields: parseFieldsForRead(query) });
 	},
 
-	/** All seasons for a metadata row (raw rows, no relations). */
+	/** All seasons for a metadata row (raw rows, no relations), in season order. */
 	async findByMetadataId(metadataId: string) {
-		return await getSeasonsRepository().selectMany({ where: eq(seasons.table.metadataId, metadataId) });
+		return await getSeasonsRepository().selectMany({
+			where: eq(seasons.table.metadataId, metadataId),
+			orderBy: asc(seasons.table.seasonNumber),
+		});
 	},
 
 	/** A season by its metadata row and number. */
