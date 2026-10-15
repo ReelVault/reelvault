@@ -126,6 +126,8 @@ const preparedProgressRows = createPreparedQuery((client: PlaybackRelationClient
 				eq(schema.mediaFiles.metadataId, sql.placeholder("metadataId")),
 			),
 		)
+		// Newest first: movie smart-play resumes the first row, so the order must be explicit.
+		.orderBy(desc(schema.playbackProgress.updatedAt))
 		.prepare(),
 );
 
