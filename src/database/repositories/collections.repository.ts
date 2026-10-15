@@ -232,12 +232,16 @@ class CollectionsRepository {
 	}) {
 		const client = databaseFactory.getClient({ tx });
 		const minimumCount = Math.max(minItems, 1);
+		// EXISTS only asks for one row, so `LIMIT minimumCount` alone matched every
+		// non-empty collection. OFFSET minimumCount - 1 makes it probe for the
+		// minimumCount-th row instead.
 		const qualifies = exists(
 			client
 				.select({ one: sql`1` })
 				.from(schema.metadataCollections)
 				.where(eq(schema.metadataCollections.collectionId, this.table.id))
-				.limit(minimumCount),
+				.limit(1)
+				.offset(minimumCount - 1),
 		);
 
 		return client.select({ id: this.table.id }).from(this.table).where(and(where, qualifies));

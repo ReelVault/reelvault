@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseFactory, databaseFactory } from "@/database/database";
+import { schema } from "@/database/schema";
 import { stubMethod } from "../../../tests/helpers/method-stub";
 import { collectionRepository } from "./collections.repository";
 
@@ -29,5 +34,63 @@ describe("collectionRepository.findPage count cache", () => {
 		await collectionRepository.findPage(query);
 
 		expect(countCalls).toHaveLength(1);
+	});
+});
+
+describe("collectionRepository minimum metadata threshold", () => {
+	let tempDir: string;
+	let factory: DatabaseFactory;
+	const spies: Array<{ mockRestore(): void }> = [];
+
+	beforeEach(() => {
+		tempDir = mkdtempSync(join(tmpdir(), "rv-collections-"));
+		factory = new DatabaseFactory(join(tempDir, "test.sqlite"));
+		factory.migrate();
+		spies.push(spyOn(databaseFactory, "getClient").mockImplementation((options) => factory.getClient(options)));
+	});
+
+	afterEach(() => {
+		for (const spy of spies.splice(0)) spy.mockRestore();
+		factory.shutdown();
+		rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	async function seedCollection(id: string, titleCount: number) {
+		const db = factory.getClient();
+		await db.insert(schema.collections).values({ id, stableKey: id, name: id });
+
+		for (let index = 0; index < titleCount; index++) {
+			const [row] = await db
+				.insert(schema.metadata)
+				.values({ stableKey: `${id}-${index}`, title: `${id} ${index}`, type: "movie", releaseDate: "2001-01-01", overview: "Overview" })
+				.returning({ id: schema.metadata.id });
+			if (!row) throw new Error("metadata insert returned no row");
+			await db.insert(schema.metadataCollections).values({ metadataId: row.id, collectionId: id, sortOrder: index });
+		}
+	}
+
+	test("counts only collections with at least minItems titles", async () => {
+		await seedCollection("single", 1);
+		await seedCollection("pair", 2);
+		await seedCollection("triple", 3);
+
+		expect(await collectionRepository.countWithMinimumMetadata({ minItems: 1 })).toBe(3);
+		expect(await collectionRepository.countWithMinimumMetadata({ minItems: 2 })).toBe(2);
+		expect(await collectionRepository.countWithMinimumMetadata({ minItems: 3 })).toBe(1);
+	});
+
+	test("pages only collections with at least minItems titles", async () => {
+		await seedCollection("single", 1);
+		await seedCollection("pair", 2);
+		await seedCollection("triple", 3);
+
+		const ids = await collectionRepository.findPageIdsWithMinimumMetadata({
+			minItems: 2,
+			orderBy: undefined,
+			limit: 10,
+			offset: 0,
+		});
+
+		expect(ids.toSorted()).toEqual(["pair", "triple"]);
 	});
 });
