@@ -589,6 +589,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Metadata relations are prepared, and detail loads in one statement** — the detail page ran ten relation queries; it now runs one prepared statement. `metadataRepository.findById` went from 11 to 2 statements, and list and detail order their arrays the same way.
 - **The scan findings page counts inside the findings query** — `librariesService.getScanFindings` went from 3 to 2 statements.
 - **Collections use the junction index** — listing collections joined and grouped the whole junction table. It now probes the index and counts with `COUNT(*)`.
+- **Collection lists reuse poster previews** — each list page re-read the member count and up to four posters for every collection, and the poster query scanned every member title. Previews are cached per collection (1,024 entries, 10 s TTL) and dropped by the writes that flush list bodies; reads inside a transaction bypass the cache. A write that does not flush list bodies can leave previews stale for up to 10 s, the same bound as list totals.
 - **Title search probes a trigram index before its fallback scan** — a term with no match scanned the whole catalog, because a leading-wildcard `LIKE` cannot use an index. An FTS5 trigram table answers an empty probe without scanning; matches still pass the `LIKE` check, so results are unchanged.
 - **Media-file, playback and primary-key reads are prepared** — these reads rebuilt Drizzle query builders on every call. They now use prepared statements, with id lists passed through `json_each`. The media-files and collections rows include some of this work; playback reads have no separate measurement in this release.
 - **Logs and static files do less per request** — log lines are written as one buffer per 2 ms window, and access lines skip pino's per-line sanitizer. Rate-limit overrides parse once per settings revision, and the web root and static files are stat'ed once.
@@ -609,6 +610,8 @@ Seeded catalog of 5,000 rows on one machine, managed server. Each value is the m
 | HTTP | `GET /v1/media-files?limit=24`, cache off, c=50 — req/s | 1,888 | 3,778 | **+100.1%** |
 | HTTP | `GET /v1/collections?limit=24`, cache off, c=50 — req/s | 951 | 1,916 | **+101.4%** |
 | HTTP | Same, c=100 — req/s | 1,645 | 4,981 | **+202.8%** |
+| HTTP | `GET /v1/collections?limit=24`, cache off, c=1, poster-preview change alone — req/s | 480 | 2,757 | **+474%** |
+| HTTP | Same, c=1 — p95 | 2.80 ms | 0.60 ms | **−78.6%** |
 | HTTP | `GET /v1/metadata/:id` movie detail, cache off, c=10 — req/s | 11,758 | 18,564 | **+57.9%** |
 | HTTP | `GET /v1/metadata/search/global?q=zzzq` (no-match fallback), cache off, c=50 — req/s | 1,125 | 5,167 | **+359.2%** |
 | HTTP | Same, c=50 — p95 | 49.0 ms | 11.1 ms | **−77.3%** |
@@ -618,7 +621,7 @@ Seeded catalog of 5,000 rows on one machine, managed server. Each value is the m
 | In-process | Cache hit through `app.handle`, browser `Accept-Encoding`, c=1 — req/s | 225,939 | 248,490 | **+10.0%** |
 | In-process | Same, c=50 — req/s | 197,085 | 224,645 | **+14.0%** |
 
-The browse and collections rows are the combined result of every change above; they do not isolate one change. The `encodeSchema` rows isolate that one change: the same build with only the option flipped, three alternating rounds per side.
+The browse and collections rows are the combined result of every change above; they do not isolate one change. The `encodeSchema` rows isolate that one change: the same build with only the option flipped, three alternating rounds per side. The poster-preview rows isolate that change: the tree before it, then with it, three alternating rounds per side. They ran at a 1-minute load of 8–9 from other processes, so their absolute numbers sit below the rows above.
 
 ### Additional measurements
 
@@ -628,3 +631,4 @@ The browse and collections rows are the combined result of every change above; t
 - Season and episode order adds no measurable cost: the per-show episode read goes 13.1 → 13.3 µs for 50 episodes and the season read stays at 1.3 µs (in-process, after `ANALYZE`). The planner walks the season and episode index in order, so no temp sort is added.
 - Playback progress read with the newest-first order: 1.30 → 1.63 µs per call (+0.33 µs, in-process). The planner adds a temp sort over the title's progress rows; kept because resume depends on it.
 - Collection threshold probe `LIMIT 1 OFFSET minItems − 1`: 0.58 → 0.61 ms at the default `minItems` of 2 (+5%), and 0.58 → 0.64 ms at 3, for a 2,000-collection catalog with 12 titles each (in-process). The probe reads up to `minItems` junction rows per collection instead of one.
+- Collection poster previews, in-process (`findPage` limit 24, 5 collections, 5,000 titles): a cached read with a distinct poster per title goes 9,558–9,659 → 85–106 µs; with the shared-poster seed, 1,522–1,719 → 74–88 µs. A read after a flush keeps the uncached path: with distinct posters, the median across six alternating rounds is 9,522 → 9,675 µs (+1.6%, within host noise).
