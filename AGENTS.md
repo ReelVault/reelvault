@@ -1,104 +1,143 @@
 # ReelVault Media Server
 
-Backend: Bun + ElysiaJS + Drizzle (SQLite) + Better Auth. Validation: `@sinclair/typebox`.
-Prefer Bun native APIs (`Bun.file`, `Bun.serve`) over Node stdlib.
+Backend: Bun, ElysiaJS, Drizzle (SQLite), Better Auth, TypeBox (`@sinclair/typebox`).
+Prefer Bun APIs (`Bun.file`, `Bun.serve`) over Node stdlib.
 
-## Skills
-- ALWAYS load and follow the `karpathy-guidelines` skill before starting any task.
+Load the `karpathy-guidelines` skill before starting any task.
 
-## Definition of done (MANDATORY, every task)
-Before declaring work finished, run ALL of these from the repo ROOT and get them green:
+## Commands
 
-```bash
-bun run format
-bun run lint
-bun run check-types
-bun run deadcode
-bun run test
+Run from the repo root:
+
+- `bun run format`: Biome formatting. It does not sort imports; for import order run `bunx biome check --write <files>`.
+- `bun run lint`: Biome plus oxlint (type-aware).
+- `bun run check-types`: TypeScript (`tsc --noEmit`).
+- `bun run deadcode`: knip.
+- `bun run test`: full suite. `bun test` runs from the root only; `bunfig.toml` preloads don't apply in subdirectories.
+- `bun run db:generate --name "descriptive_name"`, `db:migrate`, `db:migrate:runtime`, `scenarios`, `benchmark`.
+
+The suite runs the real `ffmpeg` and `ffprobe`, so both must be on PATH.
+
+## Definition of done
+
+Before you report a task done, run `format`, `lint`, `check-types`, `deadcode` and `test` from the root after your last edit, and report each outcome. Fix a failure at its root cause. If a failure predates your change, say so and show the evidence.
+
+## Changelog
+
+- A behavior change updates `CHANGELOG.md` in the same task, under the newest heading without a git tag (currently `# v1.4.0`).
+- Sections: `### Features` (user-facing functionality and API changes), `### Fixes` (concrete bugs and their cause), `### Performance`, `### Performance benchmarks`, `### Additional measurements`.
+- Refactors and test cleanups are not logged. Entries are in English, with no commit hashes.
+- A performance claim needs before/after numbers from `bun run benchmark`, regressions included. A bug fix does not.
+
+## Rules enforced by tools
+
+Don't work around these. If one seems wrong, stop and ask the user.
+
+- No suppression comments (`biome-ignore`, `oxlint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`). When a type error appears, fix the model (TypeBox `t.Optional` or `t.Nullable`, return types, hydration), not the cast.
+- No weakening of `biome.json`, `.oxlintrc.json` or `tsconfig.json`, and no new `ignores` or `ignorePatterns` entries.
+- No knip `ignore` entries and no `@public` tags. Delete unused code.
+- No `test.skip`, `test.todo`, `.only` or environment-gated `skipIf`. A test that cannot run fails loudly.
+
+## Code
+
+- Flat, imperative code. No speculative abstractions, no deep nesting.
+- DTOs come from `Static<typeof Schema>`; DB rows from `$inferSelect` or `InferTable`. Use library types instead of hand-rolling them.
+- `exactOptionalPropertyTypes` is on: an optional property that can receive an explicit `undefined` is typed `foo?: T | undefined`.
+- Biome owns formatting. Don't hand-format.
+
+## Architecture
+
+- Layers: `app/` (features, repositories, HTTP, wiring) sits above `modules/`, `plugins/`, `workers/`, `system/`, `integrations/`, `config/` and `utils/`. Queries live in `app/repositories/` and return DTOs. Use `betterAuthApi.*`, not `auth.api.*`. The import rules are under Layout and naming.
+- Errors: throw `DomainError(category, message, { code, params })`. The message is for logs. API responses carry the code and params, never user-facing text.
+- No `new X()` at module scope in a module that can sit in an import cycle (TDZ). Use a lazy getter or a callback registration.
+- `detach()` takes only promises that cannot reject. A fire-and-forget task catches and logs its own errors before it is detached.
+- Repository methods that look identical often aren't: most repositories override `findById` or `findByPrimaryId` to hydrate relations. Check for overrides before deduplicating.
+
+## Layout and naming
+
+This is the agreed layout. Put new code where it belongs. Don't create a new top-level folder in `src/`, and don't add a loose file to the `src/` root (only `src/index.ts`), without asking the user first.
+
+```
+src/
+├── index.ts          entry point (boot)
+├── app/              features: use cases, repositories, types, one folder per feature
+│   ├── http/         Elysia server: routes (*.routes.ts), middleware, schemas, web UI serving, HTTP helpers
+│   ├── repositories/ one repository per entity; readers (*.reader.ts) for large cross-entity reads; queries return DTOs
+│   ├── plugins/      app services that plugins call
+│   ├── wiring/       startup wiring: registers the ports each layer reads
+│   └── <feature>/    admin, auth, catalog, libraries, media, playback, ...
+├── modules/          DB-free engines: streaming, scanner, images, subtitles, trickplay, downloads, realtime, metadata-sidecars, ...
+├── plugins/          top layer: loader, lifecycle, catalog, capability implementations
+├── workers/          background job runtime and job handlers; dependencies injected at startup
+├── system/           runtime supervisors: resource allocator, server rescue, shutdown, data directories, extensions/ (contracts only)
+├── integrations/     external processes and services: ffmpeg, ffprobe, sharp, better-auth, drizzle-orm (schemas, relations, migrations, factory, query building)
+├── config/           env, server settings (config/server/), system settings, version, host resource service (system-resources.service), worker id categories, rate-limit overrides
+└── utils/            pure helpers; no application dependencies
 ```
 
-- Run them after your LAST code change, not just once midway. Any edit invalidates earlier results.
-- Fix failures at the root cause. Never report "done" with a red check. If a failure is pre-existing and unrelated, say so explicitly and show the evidence.
-- Report what you ran and the outcome. Do not claim a check passed unless you actually ran it.
-- `bun run format` does NOT sort imports. If lint complains about import order: `bunx biome check --write <files>`.
-- Run `bun test` from the repo ROOT only (`bunfig.toml` preload doesn't apply in subdirectories).
+- Server settings live under `config/server/`, not in a separate top-level folder.
+- Each folder has one responsibility. Place a file by the feature that uses it, not by its kind ("service", "helper").
+- Import direction: `app/` sits on top. It calls `modules/`, `plugins/`, `workers/`, `system/`, `integrations/`, `config/` and `utils/`, which sit below it. Biome enforces these layers (`style/noRestrictedImports` in `biome.json`, alias imports only):
+  - `modules/` doesn't import `app/`, `plugins/`, `workers/`, `drizzle-orm`, the database factory or schema, `better-auth` or `elysia`. Its data arrives through ports that `app/wiring/module-ports.ts` registers at startup.
+  - `plugins/` doesn't import `app/repositories/`, `drizzle-orm`, the database factory or schema, `better-auth` or `elysia`. They call app services such as `app/plugins/plugin-data.service.ts`.
+  - `workers/` doesn't import `app/` or `plugins/`. Stores and services are injected at startup through `app/wiring/worker-ports.ts`.
+  - `system/` doesn't import `app/`, `plugins/`, `workers/` or `modules/`. It reaches them through `system/system.ports.ts`, which `app/wiring/system-ports.ts` wires.
+  - `integrations/` doesn't import `app/`, `modules/`, `plugins/`, `workers/` or `system/`. Its app-side collaborators arrive through ports: `integrations/better-auth/better-auth.ports.ts` and `integrations/drizzle-orm/utils/provider-entity-sync.ports.ts`, both wired in `app/wiring/integration-ports.ts`.
+  - `config/` and `utils/` depend on each other only, and never on features, plugins, workers, `system/`, `modules/` or `integrations/`.
+  - `elysia` is imported only in `app/http/` and in `*.routes.ts` files.
+  - Relative imports are not checked. Use `@/` for imports across folders.
+- Inside `integrations/drizzle-orm/`, the database layers are separate:
+  - `query/` holds generic building blocks that know no feature: table access, query parsers (`parsing/`), keyset pagination (`keyset/`), transactions, prepared statements.
+  - `utils/` holds helpers tied to a domain (joins, stable keys, provider sync, media projections).
+  - `schemas/`, `relations.schema.ts`, `migrations/` and `database.factory.ts` hold the schema, the relation graph, the migrations and the connection factory.
+- Repositories live in `app/repositories/`: one per entity, with its simple relation reads (`metadata-relations/`). Large cross-entity reads, such as recommendations, live in `*.reader.ts` files there. They return DTOs.
+- `config/system-resources.service.ts` stays in `config/`, although it reads host CPU and RAM at runtime. About 70 files import it, including `integrations/` and `utils/`, and those layers can't import `system/`. Don't move it to `system/` unless the layer rules change first.
+- Inside `app/catalog/metadata/`, group files by responsibility (`refresh/`, `process/`, `records/`, `providers/`). `metadata.service.ts` stays the facade. Don't group by file type (`service/`, `metadata-process/`).
 
-## Changelog (MANDATORY)
-- Update `CHANGELOG.md` in the same task as any behavior change, under the current unreleased version heading (`# vX.Y.Z`).
-- Sections and their intent:
-  - `### Features` — user-facing functionality and API changes.
-  - `### Fixes` — concrete bugs and their causes.
-  - `### Performance` — what was optimized, as prose/bullets. Keep smaller measurements and statement counts inline in the change description; do not turn every change into a table row.
-  - `### Performance benchmarks` — a short table of only the most important, actually measurable A/B results (`Before` / `After` / `Change`), with the measurement context.
-  - `### Additional measurements` — optional compact bullet list of smaller results that do not warrant a table row.
-- No `### Internal` section — refactors/tooling without user-visible or measurable impact are not logged.
-- Write entries in English, without commit hashes.
-- Never a bare "improved performance": every claimed change carries measured before/after numbers from `bun run benchmark` / benchkit; include regressions.
+### File names
 
-## Forbidden: silencing tools
-Never suppress a problem instead of fixing it. No linter blocks these, so YOU must:
-- Suppression comments: `// biome-ignore`, `// oxlint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`.
-- Config weakening: turning a rule off or downgrading its severity in `biome.json`, `.oxlintrc.json`, `eslint.config.js` or `tsconfig.json`, or adding a file to their `ignores`/`ignorePatterns`.
-- Dead-code hiding: knip `ignore*` entries or `@public` tags to make unused code disappear. Delete the code.
-- Test evasion: `test.skip`, `test.todo`, loosened assertions, or deleting a failing test to get green.
+- A file is `<subject>.<role>.ts`, where the role suffix says what the file does. Reuse the existing suffixes: `service`, `repository`, `schema`, `routes`, `reader`, `writer`, `mapper`, `validator`, `guard`, `middleware`, `cache`, `factory`, `runtime`, `adapter`, `store`, `runner`, `scheduler`, `policy`, `manager`, `loader`, `parser`, `builder`, `registry`, `utils`, `types`, `constants`, `config`, `definitions`, `bench`, `resolver`, `strategy`, `publisher`, `importer`, `tracker`, `pipeline`, `cleaner`, `extractor`, `watcher`, `operation`, `limiter`, `aggregator`, `errors`, `failures`, `environment`, `plugin`, `scanner`, `processor`, `matcher`, `logger`, `recorder`, `monitor`, `initializer`, `reaper`, `seeker`, `coordinator`, `lookup`, `waiter`, `selector`, `locator`, `walker`, `exporter`, `eviction`, `diagnostics`, `indexer`, `fetcher`, `hardener`, `fanout`, `projection`, `allocator`, `connection`, `installer`, `history`, `report`. Test-only helpers use `.helper.ts` or `.fixture.ts`, scripts use `.script.ts`, and the preload is `tests/test.preload.ts`.
+- Don't invent a new suffix without asking. Don't use `.common`, `.helpers`, `.misc`, `.validation` (use `.validator`), `.schemas` (use `.schema`) or `.definition` (use `.definitions`).
+- The only files without a role suffix are `index.ts` entry points and barrels.
+- A test file is `<subject>.test.ts`, named after the module it covers.
 
-If a rule seems genuinely wrong, STOP and ask. Do not work around it.
+### Lifecycle
 
-When a type error appears, fix the model, not the cast (`t.Nullable`/`t.Optional`, correct return types, hydrate data).
+Know when a piece of code runs before you put it somewhere.
 
-## Code style
-- Flat, imperative, readable. No over-engineering, no deep nesting, no premature abstraction.
-- DTOs via `Static<typeof Schema>`; DB rows via `$inferSelect`/`InferTable`. Use library types instead of hand-rolling.
-- `exactOptionalPropertyTypes` is on: optional props receiving explicit `undefined` must be `foo?: T | undefined`.
-- Formatting is owned by Biome. Never hand-format.
+| Folder | When it runs | Rule |
+|---|---|---|
+| `config/` | read at boot; system settings read through a cache; the resource monitor runs from boot to shutdown | a write invalidates the cache; the monitor timer is `.unref()` and cleared at shutdown |
+| `integrations/drizzle-orm/` | opened and migrated at boot | closed late in shutdown, after everything that writes to it |
+| `system/` | the resource allocator and server rescue timers start at boot | `.unref()` and cleared at shutdown |
+| `plugins/` | loaded at boot; installed or updated while running | unloaded before the database closes |
+| `workers/` | scheduler and pools start after the database | stopped before the database closes |
+| `modules/` | started by `app/` and `workers/` | ffmpeg processes killed at shutdown |
+| `app/` | per request only (HTTP and use cases) | no global mutable state |
 
-## Architecture (enforced by Biome)
-- Clean Architecture: Domain / Application / Infrastructure. No DB schema or framework leakage into domain.
-- `src/application/**` must NOT import `drizzle-orm`, `@/database/schema(s)`, `@/database/database`, `better-auth`, `elysia`. Put queries in repositories, return DTOs. Use `betterAuthApi.*`, never `auth.api.*`.
-- Never `new X()` at module scope in a module that can be in an import cycle (TDZ). Use a lazy getter or callback registration.
-- Errors: throw `DomainError` (`category` + `code` + `params`). API responses carry codes, never user-facing text.
+Shutdown order (`system/shutdown.service.ts`): realtime, http, library-watchers, resource-allocator, server-rescue, workers, download-sweeps, streaming, ffmpeg, plugins, database. Intake stops first, and the database closes last.
 
-## Critical invariants (breaking these caused real incidents)
-- Error middleware order in `src/index.ts`: `domainErrorsMiddleware` BEFORE `httpExceptionPlugin()`.
-- Never rely on `fs.watch` alone; keep the polling fallback in `waitForFile`.
-- Serve media as lazy `BunFile`; thread `request.signal` through call chains; `throwIfAborted` before acquiring semaphores.
-- In-memory and on-disk caches are always bounded (TTL/LRU + named constants); write paths must invalidate them. Timers: `.unref()` + clear on shutdown.
-- Never hardcode CPU/RAM-dependent budgets or read `os.cpus()`. Derive from `system-resources.service`.
-- SQLite is synchronous: keep queries minimal and indexed. Paginate via `findPageWithQueryMap`. Bulk-chunk id/value lists via `mapChunked`/`forEachChunked` (table-access).
-- Repository methods that read identical across repos are often NOT identical: most classes override `findById`/`findByPrimaryId` with relation hydration, so delegating a "twin" `findByIdForRead` to the table-access object silently drops relations (the type checker rejects it). Never deduplicate textually-identical repo methods without checking for overrides first (attempted + reverted 2026-09-21).
-- Schema changes go through migrations (`bun run db:generate`). Never `db:push`.
-- Migrations are ONLY ever created by `bun run db:generate --name "descriptive_name"` — never hand-write, hand-edit or hand-assemble migration folders/SQL. Between releases, squash accumulated migrations into one: delete the post-release migration folders and re-run `bun run db:generate --name "..."` (drizzle-kit diffs against the last kept snapshot and emits a single combined migration). Never touch existing migrations once a release is out.
-- After any `sdk/` change: rebuild and publish from the `sdk/` repository, then bump `@reelvault/sdk` here and in the other consumers (website, plugins).
-- Any perf change: record before/after numbers, including regressions.
+Before you add or move a file, check this section. If no folder fits, ask the user instead of creating one. Moves and renames are refactors and get no CHANGELOG entry.
 
-## Benchmarks (packages/benchkit)
+## Schema and migrations
 
-A suite is one file: `scripts/benchmarks/<name>.bench.ts`. Skeleton:
+- The schema, relations and migrations live in `src/integrations/drizzle-orm/` (`migrations/`).
+- Schema changes go through `bun run db:generate --name "..."`. Never `db:push`. Never hand-write, edit or assemble migration files.
+- Between releases, squash the unreleased migrations: delete their folders and run `db:generate` once. Never edit a released migration.
+- After a change in `sdk/`, publish from `sdk/`, then bump `@reelvault/sdk` here and in the website and plugin consumers.
 
-```ts
-import { main, runHttpScenario, suiteArgs, task } from "benchkit";
-import { createServerFixture } from "./lib/server-fixture";
+## Runtime invariants
 
-export const meta = { description: "..." };
-const args = suiteArgs(); // one memoized parse per process — never raw-parse here
+- In `src/index.ts`, `domainErrorsMiddleware` is registered before `httpExceptionPlugin()`.
+- Keep the polling fallback in `waitForFile`. `fs.watch` alone misses events on some filesystems.
+- Serve media as lazy `BunFile`. Thread `request.signal` through call chains. Call `throwIfAborted` before acquiring a semaphore.
+- Caches are bounded (TTL or LRU, with named constants), and writes invalidate them. Timers are `.unref()` and cleared on shutdown.
+- Never hardcode CPU or RAM budgets and never read `os.cpus()`. Derive budgets from `system-resources.service`.
+- SQLite is synchronous. Keep queries indexed and minimal, paginate with `findPageWithQueryMap`, and chunk id lists with `mapChunked` or `forEachChunked`.
 
-if (!args.help) {
-	const serverFixture = createServerFixture({ seedRows: args.rows, workerCount: Math.max(...args.concurrency) });
+## Detailed rules
 
-	task("<name>: <phase>", async () => {
-		const server = await serverFixture();
-		// load loops: ALWAYS runLoadWindow / runHttpScenario — never hand-roll deadline/warmup
-	});
-}
+These load when you work on matching files:
 
-await main(import.meta);
-```
-
-Rules:
-- Unit kinds: `bench()` = micro-timing (measure), `compare()` = A/B with optional `equal` (add it whenever variants must be equivalent), `task()` = load flows/audits (own tables). Task names follow `"<suite>: <phase>"` so `--only <regex>` targets are unambiguous.
-- Server/DB lifecycle: `createServerFixture` (lib/server-fixture) and `benchDb` + `seedCatalog` (lib/db-fixture, lib/seed). Never copy seeding SQL into a suite; extend the shared seeder's flags instead.
-- `packages/benchkit` must not import `@/` — app-owned pieces stay in `scripts/benchmarks/lib/`.
-- Selection/CI: `bun run benchmark <suite> --only <regex>`, `--json[=path]`, `--strict`. Before touching hot code: `--save-baseline`, after: `--compare-baseline --strict` (Mann-Whitney on raw samples, 3% practical threshold; "slower" fails the run). Tasks that return `data.metrics` (see `httpScenarioMetrics`, memory RSS/CPU rows) are saved and compared with the same 3% threshold as delta verdicts — no significance test, so confirm with repeated runs. Changing anything that moves numbers requires before/after output comparison.
-
-## Other commands
-`db:generate`, `db:migrate`, `db:migrate:runtime`, `scenarios`.
+- `.claude/rules/testing.md`: tests (`**/*.test.ts`, `tests/**`).
+- `.claude/rules/benchmarks.md`: benchmark suites (`scripts/benchmarks/**`, `packages/benchkit/**`).

@@ -34,7 +34,9 @@ describe("secret crypto utils", () => {
 	});
 
 	test("rejects unsupported payload versions", () => {
-		expect(() => decryptSecret("v99.abc.def.ghi", "master-secret-used-for-derivation")).toThrow("Unsupported secret payload");
+		expect(() => decryptSecret("v99.abc.def.ghi", "master-secret-used-for-derivation")).toThrow(
+			expect.objectContaining({ category: "internal", code: "secret.unsupported_payload" }),
+		);
 	});
 
 	test("derives stable keys from the same master secret", () => {

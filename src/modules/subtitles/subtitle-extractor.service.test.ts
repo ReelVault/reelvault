@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sleep } from "bun";
+import { CancellationError } from "@/utils/cancellation.utils";
+import { removeTree } from "@/utils/directory.utils";
 import { SubtitleExtractorService } from "./subtitle-extractor.service";
 
 const WEBVTT_BODY = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000 t\n\nhello";
@@ -12,6 +14,17 @@ interface HarnessOptions {
 	runFfmpeg?: (args: string[]) => Promise<{ exitCode: number | null; stderr: string }>;
 }
 
+let subtitlesDir = "";
+
+beforeEach(async () => {
+	subtitlesDir = await mkdtemp(join(tmpdir(), "reelvault-subtitle-extractor-"));
+});
+
+afterEach(async () => {
+	await removeTree(subtitlesDir);
+});
+
+/** FFmpeg is the process boundary: by default it writes a WebVTT body to the temp path it was given. */
 function writeWebVttToLastArg(args: string[]): Promise<void> {
 	const outputPath = args.at(-1);
 	if (!outputPath) return Promise.resolve();
@@ -29,36 +42,30 @@ async function waitFor(condition: () => boolean): Promise<void> {
 	throw new Error("Condition not met in time");
 }
 
-describe("SubtitleExtractorService", () => {
-	let subtitlesDir: string;
+function createExtractor(options: HarnessOptions = {}) {
+	const ffmpegCalls: string[][] = [];
+	const extractor = new SubtitleExtractorService({
+		runFfmpeg: async (args) => {
+			ffmpegCalls.push(args);
+			if (options.runFfmpeg) return await options.runFfmpeg(args);
 
-	beforeEach(async () => {
-		subtitlesDir = await mkdtemp(join(tmpdir(), "reelvault-subtitle-extractor-"));
+			await writeWebVttToLastArg(args);
+
+			return { exitCode: 0, stderr: "" };
+		},
+		mediaFileExists: options.mediaFileExists ?? (async () => true),
+		subtitlesPath: () => subtitlesDir,
+		getConcurrency: () => 2,
 	});
 
-	afterEach(async () => {
-		await rm(subtitlesDir, { recursive: true, force: true });
-	});
+	return { extractor, ffmpegCalls };
+}
 
-	function createExtractor(options: HarnessOptions = {}) {
-		const ffmpegCalls: string[][] = [];
-		const extractor = new SubtitleExtractorService({
-			runFfmpeg: async (args) => {
-				ffmpegCalls.push(args);
-				if (options.runFfmpeg) return await options.runFfmpeg(args);
+async function tmpLeftovers(): Promise<string[]> {
+	return (await readdir(subtitlesDir)).filter((name) => name.endsWith(".tmp"));
+}
 
-				await writeWebVttToLastArg(args);
-
-				return { exitCode: 0, stderr: "" };
-			},
-			mediaFileExists: options.mediaFileExists ?? (async () => true),
-			subtitlesPath: () => subtitlesDir,
-			getConcurrency: () => 2,
-		});
-
-		return { extractor, ffmpegCalls };
-	}
-
+describe("SubtitleExtractorService requests that never reach FFmpeg", () => {
 	test("returns null for invalid stream indexes without spawning FFmpeg", async () => {
 		const { extractor, ffmpegCalls } = createExtractor();
 
@@ -83,12 +90,14 @@ describe("SubtitleExtractorService", () => {
 		expect(ffmpegCalls).toHaveLength(0);
 	});
 
-	test("propagates an already-aborted signal", () => {
+	test("an already-aborted request rejects with the worker cancellation", async () => {
 		const { extractor, ffmpegCalls } = createExtractor();
 		const controller = new AbortController();
 		controller.abort();
 
-		expect(extractor.extractToVtt("sub-abort", "/media/movie.mkv", 2, "subrip", controller.signal)).rejects.toThrow();
+		await expect(extractor.extractToVtt("sub-abort", "/media/movie.mkv", 2, "subrip", controller.signal)).rejects.toBeInstanceOf(
+			CancellationError,
+		);
 		expect(ffmpegCalls).toHaveLength(0);
 	});
 
@@ -105,40 +114,7 @@ describe("SubtitleExtractorService", () => {
 	});
 });
 
-describe("SubtitleExtractorService", () => {
-	let subtitlesDir: string;
-
-	beforeEach(async () => {
-		subtitlesDir = await mkdtemp(join(tmpdir(), "reelvault-subtitle-extractor-"));
-	});
-
-	afterEach(async () => {
-		await rm(subtitlesDir, { recursive: true, force: true });
-	});
-
-	function createExtractor(options: HarnessOptions = {}) {
-		const ffmpegCalls: string[][] = [];
-		const extractor = new SubtitleExtractorService({
-			runFfmpeg: async (args) => {
-				ffmpegCalls.push(args);
-				if (options.runFfmpeg) return await options.runFfmpeg(args);
-
-				await writeWebVttToLastArg(args);
-
-				return { exitCode: 0, stderr: "" };
-			},
-			mediaFileExists: options.mediaFileExists ?? (async () => true),
-			subtitlesPath: () => subtitlesDir,
-			getConcurrency: () => 2,
-		});
-
-		return { extractor, ffmpegCalls };
-	}
-
-	async function tmpLeftovers(): Promise<string[]> {
-		return (await readdir(subtitlesDir)).filter((name) => name.endsWith(".tmp"));
-	}
-
+describe("SubtitleExtractorService FFmpeg extraction", () => {
 	test("extracts through FFmpeg, atomically caches the VTT and cleans the temp file", async () => {
 		const { extractor, ffmpegCalls } = createExtractor();
 
@@ -194,36 +170,7 @@ describe("SubtitleExtractorService", () => {
 	});
 });
 
-describe("SubtitleExtractorService", () => {
-	let subtitlesDir: string;
-
-	beforeEach(async () => {
-		subtitlesDir = await mkdtemp(join(tmpdir(), "reelvault-subtitle-extractor-"));
-	});
-
-	afterEach(async () => {
-		await rm(subtitlesDir, { recursive: true, force: true });
-	});
-
-	function createExtractor(options: HarnessOptions = {}) {
-		const ffmpegCalls: string[][] = [];
-		const extractor = new SubtitleExtractorService({
-			runFfmpeg: async (args) => {
-				ffmpegCalls.push(args);
-				if (options.runFfmpeg) return await options.runFfmpeg(args);
-
-				await writeWebVttToLastArg(args);
-
-				return { exitCode: 0, stderr: "" };
-			},
-			mediaFileExists: options.mediaFileExists ?? (async () => true),
-			subtitlesPath: () => subtitlesDir,
-			getConcurrency: () => 2,
-		});
-
-		return { extractor, ffmpegCalls };
-	}
-
+describe("SubtitleExtractorService in-flight sharing", () => {
 	test("deduplicates concurrent extractions of the same subtitle into one FFmpeg run", async () => {
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => {
@@ -247,43 +194,10 @@ describe("SubtitleExtractorService", () => {
 		const secondResult = await second;
 		if (!(firstResult && secondResult)) throw new Error("Both callers should receive the extraction result");
 
-		expect(firstResult.contentType).toBe("text/vtt");
-		expect(secondResult.contentType).toBe("text/vtt");
 		expect(await firstResult.file.text()).toBe(WEBVTT_BODY);
 		expect(await secondResult.file.text()).toBe(WEBVTT_BODY);
 		expect(ffmpegCalls).toHaveLength(1);
 	});
-});
-
-describe("SubtitleExtractorService", () => {
-	let subtitlesDir: string;
-
-	beforeEach(async () => {
-		subtitlesDir = await mkdtemp(join(tmpdir(), "reelvault-subtitle-extractor-"));
-	});
-
-	afterEach(async () => {
-		await rm(subtitlesDir, { recursive: true, force: true });
-	});
-
-	function createExtractor(options: HarnessOptions = {}) {
-		const ffmpegCalls: string[][] = [];
-		const extractor = new SubtitleExtractorService({
-			runFfmpeg: async (args) => {
-				ffmpegCalls.push(args);
-				if (options.runFfmpeg) return await options.runFfmpeg(args);
-
-				await writeWebVttToLastArg(args);
-
-				return { exitCode: 0, stderr: "" };
-			},
-			mediaFileExists: options.mediaFileExists ?? (async () => true),
-			subtitlesPath: () => subtitlesDir,
-			getConcurrency: () => 2,
-		});
-
-		return { extractor, ffmpegCalls };
-	}
 
 	test("waitForInFlight resolves only after the shared extraction settles", async () => {
 		let release!: () => void;
@@ -315,7 +229,7 @@ describe("SubtitleExtractorService", () => {
 		const result = await extraction;
 		if (!result) throw new Error("Extraction should have succeeded");
 
-		expect(result.contentType).toBe("text/vtt");
+		expect(await result.file.text()).toBe(WEBVTT_BODY);
 	});
 
 	test("waitForInFlight settles even when the extraction fails", async () => {
@@ -330,6 +244,6 @@ describe("SubtitleExtractorService", () => {
 	test("waitForInFlight resolves immediately when nothing is in flight", async () => {
 		const { extractor } = createExtractor();
 
-		await extractor.waitForInFlight("unknown");
+		await expect(extractor.waitForInFlight("unknown")).resolves.toBeUndefined();
 	});
 });

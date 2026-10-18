@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Subtitle } from "../streaming.types";
-import { resolvePlaybackPreferences, selectPreferredAudioStream, selectPreferredSubtitle } from "./stream-preferences";
+import type { Subtitle } from "@/modules/streaming/streaming.types";
+import { resolvePlaybackPreferences, selectPreferredAudioStream, selectPreferredSubtitle } from "./stream-preferences.resolver";
 
 const streams = [
 	{ index: 0, codecName: "aac", language: "en", isDefault: true },

@@ -11,9 +11,9 @@ import {
 	task,
 } from "benchkit";
 import { sleep } from "bun";
-import { databaseFactory } from "@/database/database";
-import { workerJobRepository } from "@/database/repositories/worker.repository";
-import { workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { workerSchedulesRepository } from "@/app/repositories/worker-schedules.repository";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 
 export const meta = { description: "Worker job queue engine (bulk enqueue, dedupe, claimNextBatch transaction)" };
 

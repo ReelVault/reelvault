@@ -1,10 +1,9 @@
 import type { SubtitleEntity } from "@reelvault/sdk/common";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
-import { MINUTE } from "@/server.constants";
-import { assertFound } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
-import { MemoryCache } from "@/utils/memory-cache";
+import { MINUTE } from "@/config/server/server.constants";
+import { assertFound } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
+import { MemoryCache } from "@/utils/memory.cache";
+import { subtitlesStorage } from "./subtitles.ports";
 
 export interface SubtitleContentInfo {
 	type: string;
@@ -22,8 +21,8 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	findSubtitle: async (id) => await subtitlesRepository.findByPrimaryId({ primaryId: id }),
-	findMediaFilePath: async (mediaFileId) => (await mediaRepository.findForSubtitleExtraction(mediaFileId))?.filePath ?? null,
+	findSubtitle: async (id) => await subtitlesStorage().findById(id),
+	findMediaFilePath: async (mediaFileId) => await subtitlesStorage().findMediaFilePath(mediaFileId),
 };
 
 export class SubtitleInfoCache {

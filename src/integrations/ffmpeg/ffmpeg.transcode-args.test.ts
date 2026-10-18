@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { type DetectedHwaccel, hardwareDecodeArgs, type ToneMapConfig } from "./ffmpeg.capabilities";
+import { type DetectedHwaccel, hardwareDecodeArgs } from "./capabilities/hwaccel.utils";
+import type { ToneMapConfig } from "./capabilities/tone-mapping.resolver";
 import { buildHwaccelInputArgs, buildToneMapFilterChain, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "./ffmpeg.transcode-args";
 
 const VAAPI_TONEMAP_UPLOAD_PATTERN = /^tonemapx=.*,format=nv12,hwupload$/;
@@ -132,8 +133,7 @@ describe("transcoded audio arguments", () => {
 	const audioDecision: PlaybackDecision = { ...sdrDecision, audioTranscode: true, audioChannels: 6 };
 
 	afterEach(() => {
-		systemSettingsStore.setRuntimeValue("ffmpeg.audioBitrateKbps", 192);
-		systemSettingsStore.setRuntimeValue("ffmpeg.downmixToStereo", false);
+		systemSettingsStore.clearRuntimeValues();
 	});
 
 	test("uses the configured audio bitrate and keeps the source channel count by default", () => {

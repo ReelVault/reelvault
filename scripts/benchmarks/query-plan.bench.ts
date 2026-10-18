@@ -7,7 +7,7 @@
  * full-table `SCAN`s, which are the failure modes that grow with catalog size.
  *
  * Usage:
- *   bun run scripts/benchmark.ts query-plan [--rows 5000] [--strict]
+ *   bun run scripts/benchmark.script.ts query-plan [--rows 5000] [--strict]
  *
  * `--strict` exits non-zero when a query is flagged. Two cases are marked
  * `knownStructural`: they sort by a computed expression (year+genre browse and
@@ -19,8 +19,8 @@
 
 import { main, printTable, suiteArgs, task } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { benchDb } from "./lib/db-fixture";
-import { seedCatalog } from "./lib/seed";
+import { benchDb } from "./lib/db.fixture";
+import { seedCatalog } from "./lib/seed.utils";
 
 export const meta = { description: "EXPLAIN QUERY PLAN audit (flags TEMP B-TREE sorts and full table scans)" };
 

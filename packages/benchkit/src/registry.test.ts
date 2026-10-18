@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { compareVariants } from "./compare";
-import { Recorder } from "./recorder";
-import { bench, cleanupFixtures, collectUnits, compare, fixture, group, markCollection, task } from "./registry";
+import { bench, cleanupFixtures, collectUnits, compare, fixture, group, markCollection, task } from "./bench.registry";
+import { compareVariants } from "./compare.utils";
+import { Recorder } from "./task.recorder";
 
 describe("compareVariants", () => {
 	test("declares a winner when equal passes", () => {
@@ -56,9 +56,9 @@ describe("registry", () => {
 		task("tsk", () => ({ ok: true }));
 		const units = collectUnits(mark);
 		expect(units.map((unit) => unit.kind)).toEqual(["bench", "bench", "compare", "task"]);
-		if (units[0]?.kind === "bench") expect(units[0].group).toBe("");
+		expect(units[0]).toMatchObject({ kind: "bench", group: "" });
 
-		if (units[1]?.kind === "bench") expect(units[1].group).toBe("grp");
+		expect(units[1]).toMatchObject({ kind: "bench", group: "grp" });
 	});
 
 	test("collectUnits drains from the mark", () => {

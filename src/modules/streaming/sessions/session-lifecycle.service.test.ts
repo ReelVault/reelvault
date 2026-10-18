@@ -1,18 +1,83 @@
 import { describe, expect, test } from "bun:test";
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
-import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { eq } from "drizzle-orm";
+import { mediaRepository } from "@/app/repositories/media-files.repository";
+import { playbackRepository } from "@/app/repositories/playback.repository";
+import { profilePreferencesRepository } from "@/app/repositories/profile-preferences.repository";
+import { profileStreamPrefsRepository } from "@/app/repositories/profile-stream-prefs.repository";
+import { systemSettingsStore } from "@/config/system-settings.store";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { workerService } from "@/workers/worker.service";
+import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { type ServiceDependencies, SessionLifecycleService } from "./session-lifecycle.service";
 
+const db = useTestDatabase();
+
+async function seedViewer(): Promise<void> {
+	const client = db.client();
+	await client.insert(schema.users).values({ id: "user-1", name: "Viewer", email: "viewer@example.com", emailVerified: true });
+	await client.insert(schema.profiles).values({ id: "profile-1", userId: "user-1", name: "Default" });
+}
+
+/** A movie file with a video stream, two audio tracks and two external subtitles, read back through the real repositories. */
+async function seedMovieFile(options: { metadataId?: string; filePath?: string; enabled?: boolean } = {}): Promise<string> {
+	const client = db.client();
+	const mediaFileId = await insertMovieMediaFile(client, options.filePath ?? "/media/f.mkv", options.metadataId ?? "meta-1");
+	await client
+		.update(schema.mediaFiles)
+		.set({ duration: 1200, bitRate: 5_000_000, formatName: "matroska", isEnabled: options.enabled ?? true })
+		.where(eq(schema.mediaFiles.id, mediaFileId));
+	await client.insert(schema.mediaFileVideoStreams).values({
+		mediaFileId,
+		index: 0,
+		isDefault: true,
+		codecName: "h264",
+		profile: "high",
+		width: 1920,
+		height: 1080,
+		pixelFormat: "yuv420p",
+		frameRate: "24/1",
+	});
+	await client.insert(schema.mediaFileAudioStreams).values([
+		{ mediaFileId, index: 1, isDefault: true, codecName: "aac", channels: 2, language: "pol" },
+		{ mediaFileId, index: 2, isDefault: false, codecName: "ac3", channels: 6, language: "eng" },
+	]);
+	await client.insert(schema.subtitles).values([
+		{ id: "sub-pl", mediaFileId, language: "pol", format: "srt", type: "external", filePath: "/media/f.pl.srt" },
+		{ id: "sub-eng", mediaFileId, language: "eng", format: "srt", type: "external", filePath: "/media/f.eng.srt" },
+	]);
+
+	return mediaFileId;
+}
+
+/** A second file of the same title, the way another version of the movie is stored. */
+async function seedOtherVersion(metadataId: string, filePath: string): Promise<string> {
+	const client = db.client();
+	const [sibling] = await client
+		.select({ libraryId: schema.mediaFiles.libraryId, movieId: schema.mediaFiles.movieId })
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.metadataId, metadataId))
+		.limit(1);
+	if (!sibling) throw new Error(`No media file for metadata ${metadataId}`);
+	const [inserted] = await client
+		.insert(schema.mediaFiles)
+		.values({ libraryId: sibling.libraryId, metadataId, movieId: sibling.movieId, filePath, fileName: filePath.slice(1) })
+		.returning({ id: schema.mediaFiles.id });
+	if (!inserted) throw new Error("Expected the other version to be inserted");
+
+	return inserted.id;
+}
+
+/**
+ * The runtime owns the live ffmpeg processes and the session capacity, and the enqueue, plugin
+ * publish and ffmpeg-availability checks cross the process boundary. Those are the seams here.
+ */
 function createService(
 	options: {
 		enqueueFails?: boolean;
 		reserveFails?: boolean;
-		fileDisabled?: boolean;
 		terminatedByAdmin?: boolean;
-		subtitles?: Array<{ id: string; language: string; isDefault?: boolean; isForced?: boolean }>;
-		streamPrefs?: { audioLanguage: string | null; subtitleLanguage: string | null } | null;
-		titleActive?: boolean;
 		reserveResults?: boolean[];
 		profileSessions?: Array<{ sessionId: string; mediaFileId: string }>;
 	} = {},
@@ -21,64 +86,24 @@ function createService(
 		registered: [] as string[],
 		prepared: [] as string[],
 		setOperations: [] as string[],
-		removedOperations: [] as string[],
 		releasedReservations: [] as string[],
 		releasedSessions: [] as string[],
 		discarded: [] as string[],
 		published: [] as unknown[],
-		streamPrefsLookups: [] as Array<{ profileId: string; metadataId: string }>,
-	};
-
-	const file = {
-		id: "file-1",
-		filePath: "/media/f.mkv",
-		isEnabled: !options.fileDisabled,
-		duration: 1200,
-		bitRate: 5_000_000,
-		formatName: "matroska",
-		videoStreams: [{ index: 0, isDefault: true, codecName: "h264", profile: "high", pixelFormat: "yuv420p", frameRate: "24/1" }],
-		audioStreams: [{ index: 1, isDefault: true, language: "pol", codecName: "aac", channels: 2 }],
-		subtitles: (options.subtitles ?? []).map((subtitle) => ({
-			...subtitle,
-			isDefault: subtitle.isDefault ?? false,
-			isForced: subtitle.isForced ?? false,
-			isHearingImpaired: false,
-			streamIndex: null,
-			type: "external" as const,
-		})),
 	};
 
 	const dependencies: ServiceDependencies = {
-		mediaRepository: { findForPlaybackSession: async () => file },
-		profilePreferencesRepository: {
-			getEffective: async () => ({ audioLanguage: null, subtitleLanguage: null, subtitlesEnabled: true, forcedSubtitlesOnly: false }),
-		},
-		profileStreamPrefsRepository: {
-			find: (profileId: string, metadataId: string) => {
-				calls.streamPrefsLookups.push({ profileId, metadataId });
+		mediaRepository,
+		profilePreferencesRepository,
+		profileStreamPrefsRepository,
+		playbackRepository,
+		systemSettings: systemSettingsStore,
+		workerService,
+		enqueueStreamInit: (_data, enqueueOptions) => {
+			if (options.enqueueFails) throw new Error("enqueue failed");
 
-				return Promise.resolve(options.streamPrefs ?? null);
-			},
+			return Promise.resolve({ operationId: enqueueOptions?.operationId ?? null });
 		},
-		playbackRepository: {
-			findProgressUpdateData: async () => ({
-				mediaFile: { id: "file-1", duration: 1200, metadataId: "meta-1" },
-				existingProgress: undefined,
-			}),
-			hasActiveTitleProgress: () => Promise.resolve(options.titleActive ?? false),
-		},
-		systemSettings: { get: () => false },
-		workerService: {
-			createOperation: async () => ({ id: "op-1" }),
-			removeOperation: (id: string) => {
-				calls.removedOperations.push(id);
-			},
-		},
-		enqueueStreamInit: options.enqueueFails
-			? () => {
-					throw new Error("enqueue failed");
-				}
-			: async () => ({ operationId: "op-1" }),
 		runtime: {
 			isProfileTerminatedRecently: () => (options.terminatedByAdmin ? { reason: "admin-stop" } : null),
 			reserveSession: () => (options.reserveResults ? (options.reserveResults.shift() ?? true) : !options.reserveFails),
@@ -123,34 +148,41 @@ const body: CreatePlaybackSession = { mediaFileId: "file-1" };
 
 describe("session lifecycle service", () => {
 	test("creates a session: reserves, prepares, enqueues and publishes", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
 		const { service, calls } = createService();
 
-		const session = await service.createPlaybackSession(body, "profile-1", "idem-1", "user-1");
+		const session = await service.createPlaybackSession({ mediaFileId }, "profile-1", "idem-1", "user-1");
 
-		expect(session.sessionId).toBeDefined();
-		expect(session.operationId).toBe("op-1");
+		const operations = await db.client().select({ id: schema.workerOperations.id }).from(schema.workerOperations);
+		expect(operations.map((row) => row.id)).toEqual([session.operationId]);
 		expect(calls.registered).toEqual([session.sessionId]);
 		expect(calls.prepared).toEqual([session.sessionId]);
-		expect(calls.setOperations).toEqual(["op-1"]);
+		expect(calls.setOperations).toEqual([session.operationId]);
 		expect(calls.published).toHaveLength(1);
-		expect(calls.published[0]).toMatchObject({ sessionId: session.sessionId, mediaFileId: "file-1", mode: session.mode });
+		expect(calls.published[0]).toMatchObject({ sessionId: session.sessionId, mediaFileId, mode: session.mode });
 	});
 
-	test("rolls back reservation and operation when enqueueing fails", () => {
+	test("rolls back reservation and operation when enqueueing fails", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
 		const { service, calls } = createService({ enqueueFails: true });
 
 		// A plain Error is wrapped by safeExecute into an InternalError.
-		expect(service.createPlaybackSession(body, "profile-1", "idem-2")).rejects.toThrow("createPlaybackSession failed");
+		await expect(service.createPlaybackSession({ mediaFileId }, "profile-1", "idem-2")).rejects.toMatchObject({ category: "internal" });
 
-		expect(calls.removedOperations).toEqual(["op-1"]);
+		const operations = await db.client().select({ id: schema.workerOperations.id }).from(schema.workerOperations);
+		expect(operations).toEqual([]);
 		expect(calls.releasedReservations).toHaveLength(1);
 		expect(calls.discarded).toEqual(calls.releasedReservations);
 	});
 
-	test("rejects with a stable 429 code when the concurrent session limit is reached", () => {
+	test("rejects with a stable 429 code when the concurrent session limit is reached", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
 		const { service, calls } = createService({ reserveFails: true });
 
-		expect(service.createPlaybackSession(body, "profile-1", "idem-3")).rejects.toMatchObject({
+		await expect(service.createPlaybackSession({ mediaFileId }, "profile-1", "idem-3")).rejects.toMatchObject({
 			code: "stream.limit_reached",
 			category: "too_many_requests",
 			params: { scope: "server", limit: 2 },
@@ -159,103 +191,102 @@ describe("session lifecycle service", () => {
 		expect(calls.registered).toEqual([]);
 	});
 
-	test("rejects a disabled media file", () => {
-		const { service } = createService({ fileDisabled: true });
-
-		expect(service.createPlaybackSession(body, "profile-1", "idem-4")).rejects.toThrow("disabled");
-	});
-
-	test("rejects right after an admin termination", () => {
-		const { service } = createService({ terminatedByAdmin: true });
-
-		expect(service.createPlaybackSession(body, "profile-1", "idem-5")).rejects.toThrow("Playback session was terminated");
-	});
-
-	test("requires an active profile", () => {
+	test("rejects a disabled media file", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile({ enabled: false });
 		const { service } = createService();
 
-		expect(service.createPlaybackSession(body, undefined, "idem-6")).rejects.toMatchObject({
+		await expect(service.createPlaybackSession({ mediaFileId }, "profile-1", "idem-4")).rejects.toMatchObject({
+			category: "forbidden",
+			code: "media_file.disabled",
+		});
+	});
+
+	test("rejects right after an admin termination", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
+		const { service } = createService({ terminatedByAdmin: true });
+
+		await expect(service.createPlaybackSession({ mediaFileId }, "profile-1", "idem-5")).rejects.toMatchObject({
+			category: "forbidden",
+			code: "stream.session_terminated",
+		});
+	});
+
+	test("requires an active profile", async () => {
+		const { service } = createService();
+
+		await expect(service.createPlaybackSession(body, undefined, "idem-6")).rejects.toMatchObject({
 			code: "auth.profile_required",
 			category: "unauthorized",
 		});
 	});
+});
 
-	test("resolves per-title stream prefs and merges them into the session selection", async () => {
-		const { service, calls } = createService({
-			subtitles: [
-				{ id: "sub-pl", language: "pol", isForced: false },
-				{ id: "sub-eng", language: "eng", isForced: false },
-			],
-			streamPrefs: { audioLanguage: null, subtitleLanguage: "eng" },
-			titleActive: true,
-		});
+describe("session lifecycle selection and reclaim", () => {
+	test("applies the title's saved subtitle language when another version of the title is in progress", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
+		const otherVersion = await seedOtherVersion("meta-1", "/media/f-other.mkv");
+		await db.client().insert(schema.profileStreamPrefs).values({ profileId: "profile-1", metadataId: "meta-1", subtitleLanguage: "eng" });
+		await db
+			.client()
+			.insert(schema.playbackProgress)
+			.values({ profileId: "profile-1", mediaFileId: otherVersion, position: 600, duration: 1200, completed: false });
+		const { service } = createService();
 
-		const session = await service.createPlaybackSession(body, "profile-1", "idem-7", "user-1");
+		const session = await service.createPlaybackSession({ mediaFileId }, "profile-1", "idem-7", "user-1");
 
-		expect(calls.streamPrefsLookups).toEqual([{ profileId: "profile-1", metadataId: "meta-1" }]);
 		expect(session.subtitleId).toBe("sub-eng");
 	});
 
-	test("skips per-title stream prefs when the title has no active progress", async () => {
-		const { service, calls } = createService({
-			subtitles: [{ id: "sub-eng", language: "eng", isForced: false }],
-			streamPrefs: { audioLanguage: null, subtitleLanguage: "eng" },
-		});
+	test("ignores the title's saved subtitle language when the viewer has no progress on it", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
+		await db.client().insert(schema.profileStreamPrefs).values({ profileId: "profile-1", metadataId: "meta-1", subtitleLanguage: "eng" });
+		const { service } = createService();
 
-		const session = await service.createPlaybackSession(body, "profile-1", "idem-8", "user-1");
+		const session = await service.createPlaybackSession({ mediaFileId }, "profile-1", "idem-8", "user-1");
 
-		expect(calls.streamPrefsLookups).toEqual([]);
 		expect(session.subtitleId).toBeNull();
 	});
 
-	test("requireSession validates the id shape before resolving access", () => {
+	test("requireSession refuses a path-like session id", () => {
 		const { service } = createService();
 
-		expect(() => service.requireSession("../../etc")).toThrow("Invalid sessionId");
+		expect(() => service.requireSession("../../etc")).toThrow(
+			expect.objectContaining({ category: "validation", code: "stream.id_invalid" }),
+		);
 	});
-});
 
-test("at the session limit, a profile starting another version of a title takes over its older session slot", async () => {
-	const summaries = stubMethod(liveSessionsRepository, "findMediaSummaries", () =>
-		Promise.resolve([
-			{ mediaFileId: "file-1", metadataId: "meta-1" },
-			{ mediaFileId: "file-old", metadataId: "meta-1" },
-		]),
-	);
-	try {
+	test("at the session limit, a profile starting another version of a title takes over its older session slot", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
+		const olderVersion = await seedOtherVersion("meta-1", "/media/f-older.mkv");
 		const { service, calls } = createService({
 			reserveResults: [false, true],
-			profileSessions: [{ sessionId: "older", mediaFileId: "file-old" }],
+			profileSessions: [{ sessionId: "older", mediaFileId: olderVersion }],
 		});
 
-		const session = await service.createPlaybackSession(body, "profile-1", "key-reclaim", "user-1");
+		const session = await service.createPlaybackSession({ mediaFileId }, "profile-1", "key-reclaim", "user-1");
 
 		expect(calls.releasedSessions).toEqual(["older"]);
 		expect(calls.registered).toHaveLength(1);
 		expect(session.heartbeatIntervalMs).toBe(10_000);
-	} finally {
-		summaries.restore();
-	}
-});
+	});
 
-test("at the session limit, a profile streaming only other titles is still refused", async () => {
-	const summaries = stubMethod(liveSessionsRepository, "findMediaSummaries", () =>
-		Promise.resolve([
-			{ mediaFileId: "file-1", metadataId: "meta-1" },
-			{ mediaFileId: "file-x", metadataId: "meta-9" },
-		]),
-	);
-	try {
+	test("at the session limit, a profile streaming only other titles is still refused", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
+		const otherTitle = await insertMovieMediaFile(db.client(), "/media/x.mkv", "meta-9");
 		const { service, calls } = createService({
 			reserveFails: true,
-			profileSessions: [{ sessionId: "other", mediaFileId: "file-x" }],
+			profileSessions: [{ sessionId: "other", mediaFileId: otherTitle }],
 		});
 
-		await expect(service.createPlaybackSession(body, "profile-1", "key-refused", "user-1")).rejects.toMatchObject({
+		await expect(service.createPlaybackSession({ mediaFileId }, "profile-1", "key-refused", "user-1")).rejects.toMatchObject({
 			code: "stream.limit_reached",
 		});
 		expect(calls.releasedSessions).toEqual([]);
-	} finally {
-		summaries.restore();
-	}
+	});
 });

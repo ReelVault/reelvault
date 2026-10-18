@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { file, write } from "bun";
+import { removeTree } from "@/utils/directory.utils";
 import { PluginInstaller } from "./plugin.installer";
 
 const temporaryDirectories: string[] = [];
 const SHA256_INTEGRITY_REGEX = /^sha256-/;
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 });
 
 describe("plugin installer", () => {
@@ -42,7 +43,7 @@ describe("plugin installer", () => {
 		await installer.install(source);
 		const initialLockfile = await file(join(pluginsDirectory, "plugins.lock.json")).text();
 
-		await expect(installer.install(source)).rejects.toThrow("already installed");
+		await expect(installer.install(source)).rejects.toMatchObject({ category: "validation", code: "plugin.already_installed" });
 		expect(await file(join(pluginsDirectory, "plugins.lock.json")).text()).toBe(initialLockfile);
 	});
 
@@ -56,8 +57,8 @@ describe("plugin installer", () => {
 		await symlink(join(linkedSource, "index.mjs"), join(linkedSource, "linked-entry.mjs"));
 		const installer = new PluginInstaller(pluginsDirectory);
 
-		await expect(installer.install(invalidSource)).rejects.toThrow("relative path starting with './'");
-		await expect(installer.install(linkedSource)).rejects.toThrow("symbolic links");
+		await expect(installer.install(invalidSource)).rejects.toMatchObject({ category: "validation", code: "plugin.field_path_invalid" });
+		await expect(installer.install(linkedSource)).rejects.toMatchObject({ category: "validation", code: "plugin.package_symlink_invalid" });
 		expect(await file(join(pluginsDirectory, "plugins.lock.json")).exists()).toBeFalse();
 	});
 
@@ -67,7 +68,10 @@ describe("plugin installer", () => {
 		const source = join(pluginsDirectory, "source");
 		await writePlugin(source, "org.reelvault.overlap");
 
-		await expect(new PluginInstaller(pluginsDirectory).install(source)).rejects.toThrow("must not overlap");
+		await expect(new PluginInstaller(pluginsDirectory).install(source)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.source_overlaps_plugins_directory",
+		});
 	});
 
 	test("lists, verifies, and uninstalls only the plugin recorded in the lockfile", async () => {
@@ -108,7 +112,7 @@ describe("plugin installer", () => {
 		await expect(installer.getDisabledIds()).resolves.toEqual(new Set());
 		await expect(installer.list()).resolves.toMatchObject([{ id: "org.reelvault.toggled", record: { disabled: false } }]);
 
-		await expect(installer.setDisabled("org.reelvault.missing", true)).rejects.toThrow("is not installed");
+		await expect(installer.setDisabled("org.reelvault.missing", true)).rejects.toMatchObject({ code: "plugin.not_installed" });
 	});
 
 	test("detects an installed package whose content no longer matches its lockfile", async () => {
@@ -120,7 +124,7 @@ describe("plugin installer", () => {
 		await installer.install(source);
 		await write(join(pluginsDirectory, "org.reelvault.changed", "index.mjs"), "export default { setup() { return true; } };\n");
 
-		await expect(installer.verify()).rejects.toThrow("integrity does not match");
+		await expect(installer.verify()).rejects.toMatchObject({ category: "validation", code: "plugin.integrity_mismatch" });
 	});
 
 	test("excludes the mutable admin config.json from package integrity", async () => {
@@ -233,7 +237,7 @@ describe("plugin installer", () => {
 		const pluginsDirectory = join(root, "plugins");
 		await writePlugin(source, "org.reelvault.rollback");
 		const installer = new PluginInstaller(pluginsDirectory);
-		const initialLockfile = await installer.install(source);
+		const initialInstall = await installer.install(source);
 
 		// A symlink in the staging copy fails the post-copy safety net mid-upgrade.
 		await write(
@@ -248,9 +252,12 @@ describe("plugin installer", () => {
 		);
 		await symlink(join(source, "plugin.json"), join(source, "linked.mjs"));
 
-		await expect(installer.install(source, { upgrade: true })).rejects.toThrow("symbolic links");
+		await expect(installer.install(source, { upgrade: true })).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_symlink_invalid",
+		});
 		const lockfile = await file(join(pluginsDirectory, "plugins.lock.json")).json();
-		expect(lockfile.plugins["org.reelvault.rollback"]).toMatchObject({ version: initialLockfile.record.version });
+		expect(lockfile.plugins["org.reelvault.rollback"]).toMatchObject({ version: initialInstall.record.version });
 		expect(await file(join(pluginsDirectory, "org.reelvault.rollback", "plugin.json")).json()).toMatchObject({ version: "1.0.0" });
 	});
 	test("upgrades a manually named directory in place instead of creating a second one", async () => {
@@ -298,7 +305,10 @@ describe("plugin installer", () => {
 		const manualDirectory = join(pluginsDirectory, "manual-guard");
 		await writePlugin(manualDirectory, "org.reelvault.manual-guard");
 
-		await expect(new PluginInstaller(pluginsDirectory).install(source)).rejects.toThrow("already installed");
+		await expect(new PluginInstaller(pluginsDirectory).install(source)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.already_installed",
+		});
 		expect(await file(join(manualDirectory, "plugin.json")).exists()).toBeTrue();
 		expect(await file(join(pluginsDirectory, "org.reelvault.manual-guard")).exists()).toBeFalse();
 	});

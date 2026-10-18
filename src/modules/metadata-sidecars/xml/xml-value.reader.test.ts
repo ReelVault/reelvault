@@ -13,11 +13,12 @@ async function parse(input: string): Promise<Readonly<Record<string, unknown>>> 
 }
 
 describe("readXmlObject", () => {
-	test("returns the element record and undefined for missing or scalar elements", async () => {
-		const catalog = await parse("<catalog><title>Tom</title></catalog>");
+	test("returns the element record for a nested element and undefined for missing or scalar ones", async () => {
+		const catalog = await parse("<catalog><fanart><thumb>poster.jpg</thumb></fanart><title>Tom</title></catalog>");
 
+		expect(readXmlObject({ values: catalog }, "fanart")).toEqual({ thumb: "poster.jpg" });
 		expect(readXmlObject({ values: catalog }, "title")).toBeUndefined();
-		expect(readXmlObject({ values: { catalog } }, "catalog")).toBeDefined();
+		expect(readXmlObject({ values: catalog }, "missing")).toBeUndefined();
 	});
 });
 
@@ -35,12 +36,12 @@ describe("readXmlText", () => {
 		expect(readXmlText(catalog, "empty")).toBeUndefined();
 	});
 
-	test("scalar values become strings and nested elements fall back to #text", async () => {
-		const catalog = await parse("<catalog><year>2013</year><enabled>true</enabled><plain>text</plain></catalog>");
+	test("scalar values become strings and elements with attributes fall back to #text", async () => {
+		const catalog = await parse('<catalog><year>2013</year><enabled>true</enabled><rating max="10">7.5</rating></catalog>');
 
 		expect(readXmlText(catalog, "year")).toBe("2013");
 		expect(readXmlText(catalog, "enabled")).toBe("true");
-		expect(readXmlText(catalog, "plain")).toBe("text");
+		expect(readXmlText(catalog, "rating")).toBe("7.5");
 	});
 });
 

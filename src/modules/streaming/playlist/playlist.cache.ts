@@ -1,7 +1,7 @@
+import { parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer.utils";
+import type { HlsBufferAnalysis } from "@/modules/streaming/streaming.types";
 import { FileUtils } from "@/utils/file.utils";
-import { MemoryCache } from "@/utils/memory-cache";
-import { parseHlsBuffer } from "../buffer/hls-buffer";
-import type { HlsBufferAnalysis } from "../streaming.types";
+import { MemoryCache } from "@/utils/memory.cache";
 
 interface PlaylistStats {
 	mtimeMs: number;

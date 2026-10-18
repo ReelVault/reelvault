@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { DetectedHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import { resolveStreamEncoders } from "./encoder-map";
+import type { DetectedHwaccel } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
+import { resolveStreamEncoders } from "./encoder-map.resolver";
 
 const hwNone: DetectedHwaccel = { type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" };
 const hwNvenc: DetectedHwaccel = { type: "nvenc", device: null, h264Encoder: "h264_nvenc", hevcEncoder: "hevc_nvenc" };

@@ -1,56 +1,48 @@
-import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { sql } from "drizzle-orm";
-import { databaseFactory } from "@/database/database";
-import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { subtitlesRepository } from "@/app/repositories/subtitles.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { insertMovieMediaFile } from "../helpers/media.fixture";
+import { useTestDatabase } from "../helpers/test-database.helper";
 
-const client = databaseFactory.getClient();
+const db = useTestDatabase();
 
-interface SubtitleRow {
+type FileKey = "alpha" | "beta";
+
+interface SubtitleFixture {
 	id: string;
-	mediaFileId: string;
+	file: FileKey;
 	language: string;
 	label: string | null;
-	format: string;
+	format: "srt" | "vtt";
 }
 
 // Created in this order, so the default createdAt ordering is the id order.
-const FIXTURES: SubtitleRow[] = [
-	{ id: "s1", mediaFileId: "movie-alpha", language: "en", label: "English", format: "srt" },
-	{ id: "s2", mediaFileId: "movie-beta", language: "de", label: "Deutsch", format: "srt" },
-	{ id: "s3", mediaFileId: "movie-alpha", language: "pl", label: null, format: "vtt" },
+const FIXTURES: SubtitleFixture[] = [
+	{ id: "s1", file: "alpha", language: "en", label: "English", format: "srt" },
+	{ id: "s2", file: "beta", language: "de", label: "Deutsch", format: "srt" },
+	{ id: "s3", file: "alpha", language: "pl", label: null, format: "vtt" },
 ];
 
-beforeAll(async () => {
-	await client.run(
-		sql.raw(`
-			CREATE TABLE IF NOT EXISTS subtitles (
-				id TEXT PRIMARY KEY NOT NULL,
-				media_file_id TEXT NOT NULL,
-				language TEXT NOT NULL,
-				label TEXT,
-				format TEXT NOT NULL,
-				type TEXT NOT NULL DEFAULT 'external',
-				file_path TEXT,
-				stream_index INTEGER,
-				is_default INTEGER NOT NULL DEFAULT 0,
-				is_forced INTEGER NOT NULL DEFAULT 0,
-				is_hearing_impaired INTEGER NOT NULL DEFAULT 0,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-	);
-});
+let fileIds: Record<FileKey, string>;
 
 beforeEach(async () => {
-	await client.run(sql.raw("DELETE FROM subtitles"));
-
-	for (const [index, row] of FIXTURES.entries()) {
-		await client.run(sql`
-			INSERT INTO subtitles (id, media_file_id, language, label, format, type, file_path, is_default, is_forced, is_hearing_impaired, created_at, updated_at)
-			VALUES (${row.id}, ${row.mediaFileId}, ${row.language}, ${row.label}, ${row.format}, 'external', ${`/subs/${row.id}.${row.format}`}, 0, 0, 0, ${index}, ${index})
-		`);
-	}
+	const client = db.client();
+	fileIds = {
+		alpha: await insertMovieMediaFile(client, "/movies/alpha.mkv", "meta-alpha"),
+		beta: await insertMovieMediaFile(client, "/movies/beta.mkv", "meta-beta"),
+	};
+	await client.insert(schema.subtitles).values(
+		FIXTURES.map((row, index) => ({
+			id: row.id,
+			mediaFileId: fileIds[row.file],
+			language: row.language,
+			label: row.label,
+			format: row.format,
+			filePath: `/subs/${row.id}.${row.format}`,
+			createdAt: new Date(index * 1000),
+			updatedAt: new Date(index * 1000),
+		})),
+	);
 });
 
 const idsOf = async (q: string): Promise<string[]> => {
@@ -66,7 +58,7 @@ describe("subtitlesRepository.findPage text query", () => {
 
 	test("matches the language and the media file id", async () => {
 		expect(await idsOf("pl")).toEqual(["s3"]);
-		expect(await idsOf("movie-beta")).toEqual(["s2"]);
+		expect(await idsOf(fileIds.beta)).toEqual(["s2"]);
 	});
 
 	test("treats % as literal text, so it matches nothing here", async () => {

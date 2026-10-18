@@ -1,622 +1,477 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import type { MediaFileWithRelation } from "@reelvault/sdk/common";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { spawn } from "bun";
+import { downloadsRepository } from "@/app/repositories/downloads.repository";
+import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { type DownloadRow, downloadsRepository } from "@/database/repositories/downloads.repository";
-import { episodesRepository } from "@/database/repositories/episodes.repository";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { seasonsRepository } from "@/database/repositories/seasons.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
+import { removeTreeSync } from "@/utils/directory.utils";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createMockWorkerItem } from "@/workers/core/worker-runtime.test-utils";
+import { PathUtils } from "@/utils/path.utils";
+import { detach } from "@/utils/promise.utils";
+import { downloadsProcessWorker } from "@/workers/definitions/downloads/downloads-process.worker";
 import { workerService } from "@/workers/worker.service";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { downloadsService } from "./downloads.service";
 
-function row(overrides: Partial<DownloadRow> = {}): DownloadRow {
-	return {
-		id: "dl-1",
-		profileId: "profile-1",
-		mediaFileId: "file-1",
-		quality: "720p-mobile",
-		status: "pending",
-		progressPercent: 0,
-		sizeBytes: null,
-		fileName: null,
-		errorText: null,
-		createdAt: new Date("2026-08-01T00:00:00.000Z"),
-		updatedAt: new Date("2026-08-01T00:00:00.000Z"),
-		...overrides,
-	};
-}
+type DownloadInsert = typeof schema.downloads.$inferInsert;
 
-function createMockMediaFile(overrides: Partial<MediaFileWithRelation> = {}): MediaFileWithRelation {
-	return {
-		id: "file-1",
-		libraryId: "lib-1",
-		metadataId: "meta-1",
-		movieId: "movie-1",
-		episodeId: null,
-		filePath: "/media/movie.mkv",
-		fileName: "My.Movie.mkv",
-		formatName: "matroska",
-		duration: 3_600,
-		size: 1_000_000,
-		sourceMtimeMs: 123456,
-		bitRate: 5000,
-		source: null,
-		edition: null,
-		qualityTag: null,
-		isDefault: true,
-		isEnabled: true,
-		createdAt: new Date("2026-08-01T00:00:00.000Z"),
-		updatedAt: new Date("2026-08-01T00:00:00.000Z"),
-		videoStreams: [],
-		audioStreams: [],
-		subtitles: [],
-		library: {
-			id: "lib-1",
-			name: "Movies",
-			type: "movies",
-			createdAt: new Date("2026-08-01T00:00:00.000Z"),
-			updatedAt: new Date("2026-08-01T00:00:00.000Z"),
-		},
-		...overrides,
-	};
-}
+const DAY_MS = 24 * 60 * 60 * 1000;
+const allowAccess = () => Promise.resolve();
 
-const mediaFile = createMockMediaFile();
+const db = useTestDatabase();
+const spies: Array<{ mockRestore(): void }> = [];
 
-const findByPrimaryId = spyOn(mediaRepository, "findByPrimaryId").mockResolvedValue(mediaFile);
-const insert = spyOn(downloadsRepository, "insert").mockResolvedValue(row());
-const findById = spyOn(downloadsRepository, "findById").mockResolvedValue(undefined);
-const update = spyOn(downloadsRepository, "update").mockResolvedValue(undefined);
-const deleteRow = spyOn(downloadsRepository, "delete").mockResolvedValue(undefined);
-const countProcessing = spyOn(downloadsRepository, "countProcessingByProfile").mockResolvedValue(0);
-const countPending = spyOn(downloadsRepository, "countPendingByProfile").mockResolvedValue(0);
-const hasActive = spyOn(downloadsRepository, "hasActiveByProfileAndMedia").mockResolvedValue(false);
-const findPending = spyOn(downloadsRepository, "findPendingByProfile").mockResolvedValue([row()]);
-const claim = spyOn(downloadsRepository, "claimForProcessing").mockResolvedValue(true);
-const storageUsed = spyOn(downloadsRepository, "storageUsedByProfile").mockResolvedValue(0);
-const findExpired = spyOn(downloadsRepository, "findExpired").mockResolvedValue([]);
-const findByProfile = spyOn(downloadsRepository, "findByProfile").mockResolvedValue([]);
-const findByStatuses = spyOn(downloadsRepository, "findByStatuses").mockResolvedValue([]);
-const findIdentities = spyOn(mediaRepository, "findIdentitiesByIds").mockResolvedValue([]);
-const addItem = spyOn(workerService, "addItem").mockResolvedValue(createMockWorkerItem({ id: "job-1" }));
+beforeEach(async () => {
+	workerService.registry.register(downloadsProcessWorker);
+	await seedLibrary();
+});
 
-beforeEach(() => {
-	findByPrimaryId.mockClear().mockResolvedValue(mediaFile);
-	insert.mockClear().mockResolvedValue(row());
-	findById.mockClear().mockResolvedValue(undefined);
-	update.mockClear();
-	deleteRow.mockClear();
-	countProcessing.mockClear().mockResolvedValue(0);
-	countPending.mockClear().mockResolvedValue(0);
-	hasActive.mockClear().mockResolvedValue(false);
-	findPending.mockClear().mockResolvedValue([row()]);
-	claim.mockClear().mockResolvedValue(true);
-	storageUsed.mockClear().mockResolvedValue(0);
-	findExpired.mockClear().mockResolvedValue([]);
-	findByProfile.mockClear().mockResolvedValue([]);
-	findByStatuses.mockClear().mockResolvedValue([]);
-	findIdentities.mockClear().mockResolvedValue([]);
-	addItem.mockClear().mockResolvedValue(createMockWorkerItem({ id: "job-1" }));
+afterEach(() => {
+	workerService.registry.unregister(downloadsProcessWorker.id);
+	for (const spy of spies.splice(0)) spy.mockRestore();
+	removeTreeSync(serverConfig.paths.downloads);
+	// The settings store is process-global — never leak overrides into other test files.
 	systemSettingsStore.clearRuntimeValues();
 });
 
-const createdArtifacts: string[] = [];
+/** Two profiles, one movie with several media files: one per situation the downloads can be in. */
+async function seedLibrary(): Promise<void> {
+	const client = db.client();
+	await client.insert(schema.users).values({ id: "user-1", name: "Ann", email: "ann@example.com", emailVerified: true });
+	await client.insert(schema.profiles).values([
+		{ id: "profile-1", userId: "user-1", name: "Ann" },
+		{ id: "profile-2", userId: "user-1", name: "Ben" },
+	]);
+	await client.insert(schema.libraries).values({ id: "lib-1", name: "Movies", type: "movies" });
+	await client
+		.insert(schema.metadata)
+		.values({ id: "meta-1", stableKey: "movie-heat", title: "Heat", type: "movie", releaseDate: "1995-12-15" });
+	await client.insert(schema.movies).values({ id: "movie-1", stableKey: "movie-heat", metadataId: "meta-1" });
 
-afterEach(() => {
-	for (const path of createdArtifacts.splice(0)) rmSync(path, { force: true });
-});
+	const movieFile = { libraryId: "lib-1", metadataId: "meta-1", movieId: "movie-1", size: 1_000, isDefault: false };
+	await client.insert(schema.mediaFiles).values([
+		{ ...movieFile, id: "file-1", fileName: "My.Movie.mkv", filePath: "/media/movie.mkv", duration: 3_600, isDefault: true },
+		{ ...movieFile, id: "file-2", fileName: "Other.mkv", filePath: "/media/other.mkv", duration: 3_600 },
+		{ ...movieFile, id: "file-3", fileName: "Third.mkv", filePath: "/media/third.mkv", duration: 3_600 },
+		{ ...movieFile, id: "file-bad", fileName: 'Bad:Name?*"<>.mkv', filePath: "/media/bad.mkv", duration: 3_600 },
+		{ ...movieFile, id: "file-no-duration", fileName: "Clip.mkv", filePath: "/media/clip.mkv", duration: 0 },
+		{ ...movieFile, id: "file-no-path", fileName: "Gone.mkv", filePath: "", duration: 3_600 },
+	]);
+}
+
+async function seedSeason(): Promise<void> {
+	const client = db.client();
+	await client
+		.insert(schema.metadata)
+		.values({ id: "show-1", stableKey: "show-heat", title: "Show", type: "tv_show", releaseDate: "2000-01-01" });
+	await client.insert(schema.seasons).values([
+		{ id: "season-1", stableKey: "show-1-s1", metadataId: "show-1", seasonNumber: 1 },
+		{ id: "season-2", stableKey: "show-1-s2", metadataId: "show-1", seasonNumber: 2 },
+	]);
+	await client.insert(schema.episodes).values([
+		{ id: "ep-1", stableKey: "show-1-s1e1", seasonId: "season-1", episodeNumber: 1 },
+		{ id: "ep-2", stableKey: "show-1-s1e2", seasonId: "season-1", episodeNumber: 2 },
+		{ id: "ep-3", stableKey: "show-1-s2e1", seasonId: "season-2", episodeNumber: 1 },
+	]);
+	await client.insert(schema.mediaFiles).values([
+		{
+			id: "ep-file-1",
+			libraryId: "lib-1",
+			metadataId: "show-1",
+			episodeId: "ep-1",
+			fileName: "e1.mkv",
+			filePath: "/tv/e1.mkv",
+			size: 600,
+			duration: 1_500,
+			isDefault: true,
+		},
+		{
+			id: "ep-file-3",
+			libraryId: "lib-1",
+			metadataId: "show-1",
+			episodeId: "ep-3",
+			fileName: "e3.mkv",
+			filePath: "/tv/e3.mkv",
+			size: 900,
+			duration: 1_500,
+			isDefault: true,
+		},
+	]);
+}
+
+async function insertDownload(values: Partial<DownloadInsert> & Pick<DownloadInsert, "id">): Promise<void> {
+	await db
+		.client()
+		.insert(schema.downloads)
+		.values({ profileId: "profile-1", mediaFileId: "file-1", ...values });
+}
+
+function daysAgo(days: number): Date {
+	return new Date(Date.now() - days * DAY_MS);
+}
+
+function artifactPath(downloadId: string, fileName: string): string {
+	return PathUtils.join(serverConfig.paths.downloads, downloadId, fileName);
+}
+
+/**
+ * Stands in for the ffmpeg process only. `onRun` writes the artifact (or changes the
+ * row) while the process runs; the process then exits with `exitCode`.
+ */
+function fakeFfmpeg(exitCode: number | null, onRun?: (outputPath: string) => Promise<void> | void): void {
+	let exitHandler: Parameters<FFmpegBuilder["onExit"]>[0] | undefined;
+
+	class FakeBuilder extends FFmpegBuilder {
+		override input() {
+			return this;
+		}
+		override outputArgs() {
+			return this;
+		}
+		override onProgress() {
+			return this;
+		}
+		override onExit(handler: NonNullable<Parameters<FFmpegBuilder["onExit"]>[0]>) {
+			exitHandler = handler;
+
+			return this;
+		}
+		override run(outputPath: string) {
+			const proc = spawn({ cmd: ["true"], stdout: "ignore", stderr: "pipe" });
+			detach(
+				(async () => {
+					await onRun?.(outputPath);
+					exitHandler?.(proc, exitCode, null);
+				})(),
+			);
+
+			return proc;
+		}
+	}
+
+	spies.push(spyOn(ffMpegService, "create").mockImplementation(() => new FakeBuilder()));
+}
 
 describe("DownloadsService.prepare", () => {
-	test("rejects disabled servers, unknown files and duration-less transcoding", async () => {
+	test("refuses every request while downloads are disabled on the server", async () => {
 		systemSettingsStore.setRuntimeValue("downloads.enabled", false);
+
 		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
 			code: "downloads.disabled",
 			category: "forbidden",
 		});
-		systemSettingsStore.clearRuntimeValues();
-
-		await expect(downloadsService.prepare(undefined, "file-1")).rejects.toThrow("Active profile required");
-		await expect(downloadsService.prepare("profile-1", "  ")).rejects.toThrow("mediaFileId is required");
-		findByPrimaryId.mockResolvedValueOnce(undefined);
-		await expect(downloadsService.prepare("profile-1", "file-missing")).rejects.toThrow("file-missing");
-		findByPrimaryId.mockResolvedValue(createMockMediaFile({ duration: 0 }));
-		await expect(downloadsService.prepare("profile-1", "file-1", "1080p-desktop")).rejects.toThrow("known file duration");
-
-		// "original" skips the duration gate.
-		await downloadsService.prepare("profile-1", "file-1", "original");
-		expect(insert).toHaveBeenCalledWith(expect.objectContaining({ quality: "original" }));
+		expect(await downloadsRepository.findByProfile("profile-1")).toEqual([]);
 	});
 
-	test("queues a download beyond the running slots without starting it", async () => {
-		countProcessing.mockResolvedValue(1);
+	test.each([
+		{ reason: "without a profile", profileId: undefined, mediaFileId: "file-1", code: "auth.profile_required" },
+		{ reason: "with a blank media file id", profileId: "profile-1", mediaFileId: "  ", code: "downloads.media_file_required" },
+	])("refuses a request $reason", async ({ profileId, mediaFileId, code }) => {
+		await expect(downloadsService.prepare(profileId, mediaFileId)).rejects.toMatchObject({ code });
+		expect(await downloadsRepository.findByProfile("profile-1")).toEqual([]);
+	});
+
+	test("refuses a media file that is not in the library", async () => {
+		await expect(downloadsService.prepare("profile-1", "file-missing")).rejects.toMatchObject({
+			code: "entity.not_found",
+			category: "not_found",
+			params: { entityType: "MediaFile", entityId: "file-missing" },
+		});
+	});
+
+	test("needs a known duration for transcoded qualities, but not for the original", async () => {
+		await expect(downloadsService.prepare("profile-1", "file-no-duration")).rejects.toMatchObject({
+			code: "downloads.duration_unknown",
+			category: "validation",
+		});
+
+		const original = await downloadsService.prepare("profile-1", "file-no-duration", "original");
+
+		expect(original.quality).toBe("original");
+	});
+
+	test("refuses a second copy while the profile already has one running or waiting", async () => {
 		await downloadsService.prepare("profile-1", "file-1");
 
-		expect(insert).toHaveBeenCalled();
-		expect(addItem).not.toHaveBeenCalled();
-		countProcessing.mockResolvedValue(0);
-	});
-
-	test("refuses a second copy of a download the profile already has waiting or running", async () => {
-		hasActive.mockResolvedValue(true);
 		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
 			code: "downloads.in_progress",
 			category: "conflict",
 		});
-		expect(insert).not.toHaveBeenCalled();
+		expect(await downloadsRepository.findByProfile("profile-1")).toHaveLength(1);
 	});
 
-	test("refuses a download once the profile has too many waiting", async () => {
-		countPending.mockResolvedValue(200);
-		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
+	test("refuses a request once the profile has too many downloads waiting", async () => {
+		await db
+			.client()
+			.insert(schema.downloads)
+			.values(
+				Array.from({ length: 200 }, (_, index) => ({
+					id: `queued-${index}`,
+					profileId: "profile-1",
+					mediaFileId: "file-3",
+					status: "pending" as const,
+				})),
+			);
+
+		await expect(downloadsService.prepare("profile-1", "file-2")).rejects.toMatchObject({
 			code: "downloads.queue_full",
 			category: "conflict",
 		});
-		countPending.mockResolvedValue(0);
 	});
 
-	test("enforces the storage quota", async () => {
-		storageUsed.mockResolvedValue(100);
+	test("refuses a request that would exceed the profile's storage quota", async () => {
+		await insertDownload({ id: "dl-done", status: "completed", sizeBytes: 100, fileName: "done.mp4" });
 		systemSettingsStore.setRuntimeValue("downloads.maxStorageBytesPerProfile", 100);
+
 		await expect(downloadsService.prepare("profile-1", "file-1")).rejects.toMatchObject({
 			code: "downloads.quota_exceeded",
 			category: "conflict",
 		});
-		systemSettingsStore.clearRuntimeValues();
 	});
 
-	test("falls back to 720p-mobile for an unknown quality string and enqueues the worker", async () => {
-		await downloadsService.prepare("profile-1", "file-1", "8k-ultra");
+	test("keeps a request waiting, not started, while the profile has no free running slot", async () => {
+		systemSettingsStore.setRuntimeValue("downloads.maxConcurrentPerProfile", 1);
+		await insertDownload({ id: "dl-running", status: "processing", mediaFileId: "file-3" });
 
-		expect(insert).toHaveBeenCalledWith(expect.objectContaining({ profileId: "profile-1", quality: "720p-mobile" }));
-		expect(addItem).toHaveBeenCalledWith("downloads-process", { downloadId: "dl-1" }, expect.objectContaining({ dedupeKey: "dl-1" }));
-	});
-});
+		const view = await downloadsService.prepare("profile-1", "file-1");
 
-describe("DownloadsService ownership-checked views", () => {
-	test("getJobViewForProfile hides other profiles' jobs", async () => {
-		findById.mockResolvedValue(row());
-		expect((await downloadsService.getJobViewForProfile("dl-1", "profile-1"))?.downloadUrl).toBe(null);
-		expect(await downloadsService.getJobViewForProfile("dl-1", "profile-2")).toBe(null);
-
-		findById.mockResolvedValue(row({ status: "completed", sizeBytes: 5, fileName: "movie.mp4" }));
-		expect((await downloadsService.getJobViewForProfile("dl-1", "profile-1"))?.downloadUrl).toBe("/v1/downloads/dl-1/file");
+		expect(view.status).toBe("pending");
+		expect(await workerService.findActiveItem(downloadsProcessWorker.id, view.id)).toBeUndefined();
 	});
 
-	test("cancel/delete for a foreign profile throw download_not_found", async () => {
-		findById.mockResolvedValue(row());
-		await expect(downloadsService.cancelForProfile("dl-1", "profile-2")).rejects.toThrow("Download not found");
-		await expect(downloadsService.deleteForProfile("dl-1", "profile-2")).rejects.toThrow("Download not found");
-		expect(deleteRow).not.toHaveBeenCalled();
-	});
+	test("falls back to the default quality for an unknown value and queues the job", async () => {
+		const view = await downloadsService.prepare("profile-1", "file-1", "8k-ultra");
 
-	test("completed downloads cannot be cancelled", async () => {
-		findById.mockResolvedValue(row({ status: "completed" }));
-		await expect(downloadsService.cancelForProfile("dl-1", "profile-1")).rejects.toThrow("Completed download cannot be cancelled");
+		expect(view.quality).toBe("720p-mobile");
+		expect(await workerService.findActiveItem(downloadsProcessWorker.id, view.id)).toMatchObject({ id: expect.any(String) });
 	});
 });
 
-describe("DownloadsService job views", () => {
-	test("list and single views carry the title of the media file", async () => {
-		findByProfile.mockResolvedValue([row({ id: "dl-1", mediaFileId: "file-1" })]);
-		findIdentities.mockResolvedValue([{ id: "file-1", metadataId: "meta-7" }]);
+describe("DownloadsService job ownership", () => {
+	test("shows a job to its owner only, with a download link once it is completed", async () => {
+		await insertDownload({ id: "dl-1" });
+		expect(await downloadsService.getJobViewForProfile("dl-1", "profile-2")).toBeNull();
+		expect(await downloadsService.getJobViewForProfile("dl-1", "profile-1")).toMatchObject({ downloadUrl: null });
 
-		const listed = await downloadsService.list("profile-1");
-		expect(listed.data[0]).toMatchObject({ id: "dl-1", metadataId: "meta-7" });
-
-		findById.mockResolvedValue(row({ id: "dl-1", mediaFileId: "file-1" }));
-		expect(await downloadsService.getJobViewForProfile("dl-1", "profile-1")).toMatchObject({ metadataId: "meta-7" });
+		await insertDownload({ id: "dl-2", status: "completed", sizeBytes: 5, fileName: "movie.mp4" });
+		expect(await downloadsService.getJobViewForProfile("dl-2", "profile-1")).toMatchObject({
+			downloadUrl: "/v1/downloads/dl-2/file",
+		});
 	});
 
-	test("a media file without a title gives a null title id", async () => {
-		findByProfile.mockResolvedValue([row({ id: "dl-1", mediaFileId: "file-1" })]);
+	test("refuses to cancel or delete another profile's job and keeps the row", async () => {
+		await insertDownload({ id: "dl-1" });
 
-		const listed = await downloadsService.list("profile-1");
-
-		expect(listed.data[0]?.metadataId).toBeNull();
-	});
-});
-
-describe("DownloadsService.process", () => {
-	function fakeFfmpeg(exitCode: number | null, onSpawn?: (outputPath: string) => void) {
-		let exitHandler: Parameters<FFmpegBuilder["onExit"]>[0] | undefined;
-		let outputPath = "";
-		const fakeProc = spawn({ cmd: ["true"], stdout: "ignore", stderr: "pipe" });
-
-		class FakeBuilder extends FFmpegBuilder {
-			override input() {
-				return this;
-			}
-			override outputArgs() {
-				return this;
-			}
-			override onProgress() {
-				return this;
-			}
-			override onExit(handler: NonNullable<Parameters<FFmpegBuilder["onExit"]>[0]>) {
-				exitHandler = handler;
-
-				return this;
-			}
-			override run(path: string) {
-				outputPath = path;
-				onSpawn?.(path);
-				queueMicrotask(() => exitHandler?.(fakeProc, exitCode, null));
-
-				return fakeProc;
-			}
-		}
-		const spy = spyOn(ffMpegService, "create").mockReturnValue(new FakeBuilder());
-
-		return {
-			spy,
-			get outputPath() {
-				return outputPath;
-			},
-		};
-	}
-
-	test("runs pending → processing → completed and records the artifact size", async () => {
-		findById.mockResolvedValueOnce(row()).mockResolvedValueOnce(row());
-		const statuses: string[] = [];
-		claim.mockImplementationOnce(() => {
-			statuses.push("processing");
-
-			return Promise.resolve(true);
+		await expect(downloadsService.cancelForProfile("dl-1", "profile-2")).rejects.toMatchObject({
+			code: "download_not_found",
+			category: "not_found",
 		});
-		update.mockImplementation((_id: string, values: { status?: string }) => {
-			if (values.status) statuses.push(values.status);
-
-			return Promise.resolve();
+		await expect(downloadsService.deleteForProfile("dl-1", "profile-2")).rejects.toMatchObject({
+			code: "download_not_found",
+			category: "not_found",
 		});
-
-		const fake = fakeFfmpeg(0, (outputPath) => {
-			mkdirSync(serverConfig.paths.downloads, { recursive: true });
-			writeFileSync(outputPath, "video-bytes");
-			createdArtifacts.push(outputPath);
-		});
-
-		await downloadsService.process("dl-1");
-
-		expect(claim).toHaveBeenCalledWith("dl-1", "profile-1", 1);
-		expect(statuses).toEqual(["processing", "completed"]);
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "completed", progressPercent: 100, sizeBytes: 11 }));
-		expect(fake.outputPath).toContain("dl-1");
-		expect(fake.outputPath.endsWith("My.Movie.720p-mobile.mp4")).toBe(true);
-		fake.spy.mockRestore();
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ id: "dl-1", status: "pending" });
 	});
 
-	test("sanitizes the output file name", async () => {
-		findById.mockResolvedValue(row()).mockResolvedValueOnce(row());
-		findByPrimaryId.mockResolvedValue(createMockMediaFile({ fileName: 'Bad:Name?*"<>.mkv' }));
-		const fake = fakeFfmpeg(0, (outputPath) => {
-			mkdirSync(serverConfig.paths.downloads, { recursive: true });
-			writeFileSync(outputPath, "x");
-			createdArtifacts.push(outputPath);
-		});
+	test("refuses to cancel a completed download", async () => {
+		await insertDownload({ id: "dl-1", status: "completed", sizeBytes: 5, fileName: "movie.mp4" });
 
-		await downloadsService.process("dl-1");
-		expect(fake.outputPath.endsWith("Bad_Name_.720p-mobile.mp4")).toBe(true);
-		fake.spy.mockRestore();
+		await expect(downloadsService.cancelForProfile("dl-1", "profile-1")).rejects.toMatchObject({
+			code: "completed_download_cancel",
+			category: "validation",
+		});
 	});
 });
 
 describe("DownloadsService.process", () => {
-	function fakeFfmpeg(exitCode: number | null, onSpawn?: (outputPath: string) => void) {
-		let exitHandler: Parameters<FFmpegBuilder["onExit"]>[0] | undefined;
-		let outputPath = "";
-		const fakeProc = spawn({ cmd: ["true"], stdout: "ignore", stderr: "pipe" });
-
-		class FakeBuilder extends FFmpegBuilder {
-			override input() {
-				return this;
-			}
-			override outputArgs() {
-				return this;
-			}
-			override onProgress() {
-				return this;
-			}
-			override onExit(handler: NonNullable<Parameters<FFmpegBuilder["onExit"]>[0]>) {
-				exitHandler = handler;
-
-				return this;
-			}
-			override run(path: string) {
-				outputPath = path;
-				onSpawn?.(path);
-				queueMicrotask(() => exitHandler?.(fakeProc, exitCode, null));
-
-				return fakeProc;
-			}
-		}
-		const spy = spyOn(ffMpegService, "create").mockReturnValue(new FakeBuilder());
-
-		return {
-			spy,
-			get outputPath() {
-				return outputPath;
-			},
-		};
-	}
-
-	test("a non-zero exit fails the job and removes the partial file", async () => {
-		findById.mockResolvedValue(row()).mockResolvedValueOnce(row());
-		const fake = fakeFfmpeg(1, (outputPath) => {
-			mkdirSync(serverConfig.paths.downloads, { recursive: true });
-			writeFileSync(outputPath, "partial");
-			createdArtifacts.push(outputPath);
-		});
+	test("runs a pending download to completed and records the artifact size", async () => {
+		await insertDownload({ id: "dl-1" });
+		fakeFfmpeg(0, (outputPath) => writeFileSync(outputPath, "video-bytes"));
 
 		await downloadsService.process("dl-1");
 
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed" }));
-		expect(await FileUtils.exists(fake.outputPath)).toBe(false);
-		fake.spy.mockRestore();
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({
+			status: "completed",
+			progressPercent: 100,
+			sizeBytes: 11,
+			fileName: "My.Movie.720p-mobile.mp4",
+		});
+		expect(await FileUtils.exists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(true);
+	});
+
+	test("sanitizes characters that are illegal in file names", async () => {
+		await insertDownload({ id: "dl-bad", mediaFileId: "file-bad" });
+		fakeFfmpeg(0, (outputPath) => writeFileSync(outputPath, "x"));
+
+		await downloadsService.process("dl-bad");
+
+		expect(await downloadsRepository.findById("dl-bad")).toMatchObject({ fileName: "Bad_Name_.720p-mobile.mp4" });
+	});
+
+	test("a failed ffmpeg run marks the job failed and removes the partial file", async () => {
+		await insertDownload({ id: "dl-1" });
+		fakeFfmpeg(1, (outputPath) => writeFileSync(outputPath, "partial"));
+
+		await downloadsService.process("dl-1");
+
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "failed", errorText: "download.ffmpeg_failed" });
+		expect(await FileUtils.exists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(false);
 	});
 
 	test("an empty artifact fails the job", async () => {
-		findById.mockResolvedValue(row()).mockResolvedValueOnce(row());
-		const fake = fakeFfmpeg(0, (outputPath) => {
-			mkdirSync(serverConfig.paths.downloads, { recursive: true });
-			writeFileSync(outputPath, "");
-			createdArtifacts.push(outputPath);
-		});
+		await insertDownload({ id: "dl-1" });
+		fakeFfmpeg(0, (outputPath) => writeFileSync(outputPath, ""));
 
 		await downloadsService.process("dl-1");
 
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed", errorText: "download.empty_output" }));
-		fake.spy.mockRestore();
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "failed", errorText: "download.empty_output" });
 	});
 
-	test("a cancelled row written mid-run makes the exit handler drop the file", async () => {
-		findById.mockResolvedValueOnce(row()).mockResolvedValueOnce(row({ status: "cancelled" }));
-		const fake = fakeFfmpeg(0, (outputPath) => {
-			mkdirSync(serverConfig.paths.downloads, { recursive: true });
+	test("a cancellation during the run keeps the job cancelled and drops the artifact", async () => {
+		await insertDownload({ id: "dl-1" });
+		fakeFfmpeg(0, async (outputPath) => {
 			writeFileSync(outputPath, "partial");
-			createdArtifacts.push(outputPath);
+			await downloadsRepository.update("dl-1", { status: "cancelled" });
 		});
 
 		await downloadsService.process("dl-1");
 
-		// No completed/failed update after the cancellation was observed.
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ fileName: "My.Movie.720p-mobile.mp4" }));
-		expect(update).not.toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "completed" }));
-		expect(await FileUtils.exists(fake.outputPath)).toBe(false);
-		fake.spy.mockRestore();
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "cancelled" });
+		expect(await FileUtils.exists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(false);
 	});
-});
 
-describe("DownloadsService.process", () => {
-	function fakeFfmpeg(exitCode: number | null, onSpawn?: (outputPath: string) => void) {
-		let exitHandler: Parameters<FFmpegBuilder["onExit"]>[0] | undefined;
-		let outputPath = "";
-		const fakeProc = spawn({ cmd: ["true"], stdout: "ignore", stderr: "pipe" });
-
-		class FakeBuilder extends FFmpegBuilder {
-			override input() {
-				return this;
-			}
-			override outputArgs() {
-				return this;
-			}
-			override onProgress() {
-				return this;
-			}
-			override onExit(handler: NonNullable<Parameters<FFmpegBuilder["onExit"]>[0]>) {
-				exitHandler = handler;
-
-				return this;
-			}
-			override run(path: string) {
-				outputPath = path;
-				onSpawn?.(path);
-				queueMicrotask(() => exitHandler?.(fakeProc, exitCode, null));
-
-				return fakeProc;
-			}
-		}
-		const spy = spyOn(ffMpegService, "create").mockReturnValue(new FakeBuilder());
-
-		return {
-			spy,
-			get outputPath() {
-				return outputPath;
-			},
-		};
-	}
-
-	test("the completion-time storage quota rejects oversized artifacts", async () => {
-		findById.mockResolvedValue(row()).mockResolvedValueOnce(row());
-		storageUsed.mockResolvedValue(95);
+	test("an artifact that would exceed the storage quota fails the job with a storage limit", async () => {
+		await insertDownload({ id: "dl-done", status: "completed", sizeBytes: 95, fileName: "done.mp4" });
+		await insertDownload({ id: "dl-1" });
 		systemSettingsStore.setRuntimeValue("downloads.maxStorageBytesPerProfile", 100);
-		const fake = fakeFfmpeg(0, (outputPath) => {
-			mkdirSync(serverConfig.paths.downloads, { recursive: true });
-			writeFileSync(outputPath, "0123456789");
-			createdArtifacts.push(outputPath);
-		});
+		fakeFfmpeg(0, (outputPath) => writeFileSync(outputPath, "0123456789"));
 
 		await downloadsService.process("dl-1");
 
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed" }));
-		expect(await FileUtils.exists(fake.outputPath)).toBe(false);
-		systemSettingsStore.clearRuntimeValues();
-		fake.spy.mockRestore();
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "failed", errorText: "download.storage_limit" });
 	});
 
-	test("a non-pending row is a no-op", async () => {
-		findById.mockResolvedValue(row({ status: "completed" }));
+	test("a job whose media file has no path fails instead of staying pending", async () => {
+		await insertDownload({ id: "dl-1", mediaFileId: "file-no-path" });
+
 		await downloadsService.process("dl-1");
-		expect(update).not.toHaveBeenCalled();
+
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "failed", errorText: "download.media_missing" });
 	});
 
-	test("a download waiting for a running slot stays pending", async () => {
-		findById.mockResolvedValue(row());
-		claim.mockResolvedValueOnce(false);
-		const fake = fakeFfmpeg(0);
+	test("a job that is no longer pending is left untouched", async () => {
+		await insertDownload({ id: "dl-1", status: "completed", sizeBytes: 5, fileName: "kept.mp4" });
 
 		await downloadsService.process("dl-1");
 
-		expect(fake.spy).not.toHaveBeenCalled();
-		expect(update).not.toHaveBeenCalled();
-		fake.spy.mockRestore();
-	});
-
-	test("missing media file fails the job instead of leaving it pending", async () => {
-		findById.mockResolvedValue(row());
-		findByPrimaryId.mockResolvedValue(undefined);
-
-		await downloadsService.process("dl-1");
-
-		expect(update).toHaveBeenCalledWith("dl-1", expect.objectContaining({ status: "failed", errorText: "download.media_missing" }));
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "completed", sizeBytes: 5, fileName: "kept.mp4" });
 	});
 });
 
 describe("DownloadsService.queueSeason", () => {
-	test("refuses a season larger than the free storage until it is forced, then queues each episode", async () => {
-		const restoreSeason = stubMethod(seasonsRepository, "findByPrimaryId", () => Promise.resolve({ id: "season-1", metadataId: "show-1" }));
-		const restoreEpisodes = stubMethod(episodesRepository, "findEpisodesWithFilesByMetadataId", () =>
-			Promise.resolve([
-				{ id: "ep-1", seasonId: "season-1", mediaFileId: "file-1", mediaFileIsDefault: true, mediaFileSize: 600 },
-				{ id: "ep-2", seasonId: "season-1", mediaFileId: null, mediaFileIsDefault: null, mediaFileSize: null },
-				{ id: "ep-3", seasonId: "season-2", mediaFileId: "file-9", mediaFileIsDefault: true, mediaFileSize: 900 },
-			]),
-		);
+	beforeEach(seedSeason);
+
+	test("refuses a season larger than the free space until it is forced, then queues each episode", async () => {
 		systemSettingsStore.setRuntimeValue("downloads.maxStorageBytesPerProfile", 500);
-		const assertAccess = () => Promise.resolve();
-		try {
-			await expect(downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, assertAccess)).rejects.toMatchObject({
-				code: "downloads.season_exceeds_quota",
-				params: { estimatedBytes: 600, freeBytes: 500 },
-			});
 
-			const outcome = await downloadsService.queueSeason("profile-1", { seasonId: "season-1", force: true }, assertAccess);
+		await expect(downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, allowAccess)).rejects.toMatchObject({
+			code: "downloads.season_exceeds_quota",
+			params: { estimatedBytes: 600, freeBytes: 500 },
+		});
 
-			expect(outcome).toEqual({
-				results: [
-					{ id: "ep-1", ok: true },
-					{ id: "ep-2", ok: false, code: "downloads.no_media_file" },
-				],
-			});
-			expect(insert).toHaveBeenCalledWith(expect.objectContaining({ mediaFileId: "file-1" }));
-		} finally {
-			systemSettingsStore.clearRuntimeValues();
-			restoreSeason.restore();
-			restoreEpisodes.restore();
-		}
-	});
+		const { results } = await downloadsService.queueSeason("profile-1", { seasonId: "season-1", force: true }, allowAccess);
 
-	test("reports an episode that is already downloading by its code and queues the rest of the season", async () => {
-		const restoreSeason = stubMethod(seasonsRepository, "findByPrimaryId", () => Promise.resolve({ id: "season-1", metadataId: "show-1" }));
-		const restoreEpisodes = stubMethod(episodesRepository, "findEpisodesWithFilesByMetadataId", () =>
-			Promise.resolve([
-				{ id: "ep-1", seasonId: "season-1", mediaFileId: "file-1", mediaFileIsDefault: true, mediaFileSize: 10 },
-				{ id: "ep-2", seasonId: "season-1", mediaFileId: "file-2", mediaFileIsDefault: true, mediaFileSize: 10 },
+		expect(results).toHaveLength(2);
+		expect(results).toEqual(
+			expect.arrayContaining([
+				{ id: "ep-1", ok: true },
+				{ id: "ep-2", ok: false, code: "downloads.no_media_file" },
 			]),
 		);
-		hasActive.mockImplementation((_profileId: string, mediaFileId: string) => Promise.resolve(mediaFileId === "file-2"));
-		try {
-			expect(await downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, () => Promise.resolve())).toEqual({
-				results: [
-					{ id: "ep-1", ok: true },
-					{ id: "ep-2", ok: false, code: "downloads.in_progress" },
-				],
-			});
-		} finally {
-			hasActive.mockResolvedValue(false);
-			restoreSeason.restore();
-			restoreEpisodes.restore();
-		}
+		expect((await downloadsRepository.findByProfile("profile-1")).map((row) => row.mediaFileId)).toEqual(["ep-file-1"]);
 	});
 
-	test("reports an episode whose media file the caller may not stream by its code", async () => {
-		const restoreSeason = stubMethod(seasonsRepository, "findByPrimaryId", () => Promise.resolve({ id: "season-1", metadataId: "show-1" }));
-		const restoreEpisodes = stubMethod(episodesRepository, "findEpisodesWithFilesByMetadataId", () =>
-			Promise.resolve([{ id: "ep-1", seasonId: "season-1", mediaFileId: "file-1", mediaFileIsDefault: true, mediaFileSize: 10 }]),
-		);
-		const assertAccess = () => Promise.reject(new DomainError("forbidden", "No access to this file", { code: "stream.forbidden" }));
-		try {
-			expect(await downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, assertAccess)).toEqual({
-				results: [{ id: "ep-1", ok: false, code: "stream.forbidden" }],
-			});
-			expect(insert).not.toHaveBeenCalled();
-		} finally {
-			restoreSeason.restore();
-			restoreEpisodes.restore();
-		}
+	test("reports an episode whose file the profile may not stream by its code and queues nothing for it", async () => {
+		const denyAccess = () => Promise.reject(new DomainError("forbidden", "No access to this file", { code: "stream.forbidden" }));
+
+		const { results } = await downloadsService.queueSeason("profile-1", { seasonId: "season-1" }, denyAccess);
+
+		expect(results).toEqual(expect.arrayContaining([{ id: "ep-1", ok: false, code: "stream.forbidden" }]));
+		expect(await downloadsRepository.findByProfile("profile-1")).toEqual([]);
 	});
 });
 
 describe("DownloadsService.reconcileOnStartup", () => {
-	test("re-enqueues stale rows and fails ones whose source is gone", async () => {
-		findByStatuses.mockResolvedValue([
-			row({ id: "dl-a", status: "processing" }),
-			row({ id: "dl-b", status: "pending", mediaFileId: "file-gone" }),
-		]);
-		findByPrimaryId.mockResolvedValueOnce(mediaFile).mockResolvedValueOnce(undefined);
+	test("re-queues interrupted jobs whose media file exists and fails the rest", async () => {
+		await insertDownload({ id: "dl-a", status: "processing" });
+		await insertDownload({ id: "dl-b", status: "pending", mediaFileId: "file-no-path" });
 
 		expect(await downloadsService.reconcileOnStartup()).toBe(1);
-		expect(update).toHaveBeenCalledWith("dl-a", expect.objectContaining({ status: "pending" }));
-		expect(update).toHaveBeenCalledWith("dl-b", expect.objectContaining({ status: "failed" }));
-		expect(addItem).toHaveBeenCalledWith("downloads-process", { downloadId: "dl-a" }, expect.objectContaining({ dedupeKey: "dl-a" }));
+
+		expect(await downloadsRepository.findById("dl-a")).toMatchObject({ status: "pending" });
+		expect(await downloadsRepository.findById("dl-b")).toMatchObject({ status: "failed", errorText: "download.media_missing" });
+		expect(await workerService.findActiveItem(downloadsProcessWorker.id, "dl-a")).toMatchObject({ id: expect.any(String) });
 	});
 });
 
 describe("DownloadsService.sweepExpired", () => {
-	test("retention disabled is a no-op", async () => {
+	test("keeps every job while retention is disabled", async () => {
 		systemSettingsStore.setRuntimeValue("downloads.retentionDays", 0);
+		await insertDownload({ id: "dl-old", status: "completed", sizeBytes: 5, updatedAt: daysAgo(30) });
+
 		expect(await downloadsService.sweepExpired()).toEqual({ removed: 0 });
-		expect(findExpired).not.toHaveBeenCalled();
+		expect(await downloadsRepository.findById("dl-old")).toMatchObject({ id: "dl-old" });
 	});
 
-	test("sweeps expired rows in pages until a short page arrives", async () => {
+	test("removes expired jobs with their artifacts and keeps recent ones", async () => {
 		systemSettingsStore.setRuntimeValue("downloads.retentionDays", 14);
-		const bigPage = Array.from({ length: 500 }, (_, i) => row({ id: `dl-${i}`, fileName: null }));
-		findExpired.mockResolvedValueOnce(bigPage).mockResolvedValueOnce([row({ id: "dl-old", fileName: "movie.mp4" })]);
+		await insertDownload({ id: "dl-old", status: "completed", sizeBytes: 5, fileName: "old.mp4", updatedAt: daysAgo(30) });
+		await insertDownload({ id: "dl-new", status: "completed", sizeBytes: 5, fileName: "new.mp4", updatedAt: new Date() });
+		for (const [id, fileName] of [
+			["dl-old", "old.mp4"],
+			["dl-new", "new.mp4"],
+		] as const) {
+			mkdirSync(PathUtils.join(serverConfig.paths.downloads, id), { recursive: true });
+			writeFileSync(artifactPath(id, fileName), "x");
+		}
 
-		expect(await downloadsService.sweepExpired()).toEqual({ removed: 501 });
-		expect(findExpired).toHaveBeenCalledTimes(2);
-		expect(deleteRow).toHaveBeenCalledWith("dl-0");
-		expect(deleteRow).toHaveBeenCalledWith("dl-old");
+		expect(await downloadsService.sweepExpired()).toEqual({ removed: 1 });
+
+		expect(await downloadsRepository.findById("dl-old")).toBeUndefined();
+		expect(await FileUtils.exists(artifactPath("dl-old", "old.mp4"))).toBe(false);
+		expect(await downloadsRepository.findById("dl-new")).toMatchObject({ id: "dl-new" });
+		expect(await FileUtils.exists(artifactPath("dl-new", "new.mp4"))).toBe(true);
 	});
 });
 
-// The settings store is process-global — never leak overrides into other test files.
-afterEach(() => systemSettingsStore.clearRuntimeValues());
-
 describe("DownloadsService retry and quota", () => {
-	test("retrying a failed download queues a new job and drops the old row", async () => {
-		findById.mockResolvedValue(row({ status: "failed" }));
-		insert.mockResolvedValue(row({ id: "dl-2" }));
-		findPending.mockResolvedValueOnce([row({ id: "dl-2" })]);
+	test("retrying a failed job queues a new one with the same file and quality and drops the old row", async () => {
+		await insertDownload({ id: "dl-1", status: "failed", quality: "1080p-high" });
 
 		const view = await downloadsService.retryForProfile("dl-1", "profile-1");
 
-		expect(view.id).toBe("dl-2");
-		expect(insert).toHaveBeenCalledWith(expect.objectContaining({ profileId: "profile-1", mediaFileId: "file-1", quality: "720p-mobile" }));
-		expect(addItem).toHaveBeenCalledWith("downloads-process", { downloadId: "dl-2" }, expect.objectContaining({ dedupeKey: "dl-2" }));
-		expect(deleteRow).toHaveBeenCalledWith("dl-1");
+		expect(view).toMatchObject({ mediaFileId: "file-1", quality: "1080p-high" });
+		expect(view.id).not.toBe("dl-1");
+		expect(await downloadsRepository.findById("dl-1")).toBeUndefined();
+		expect(await workerService.findActiveItem(downloadsProcessWorker.id, view.id)).toMatchObject({ id: expect.any(String) });
 	});
 
-	test("only failed or cancelled downloads can be retried", async () => {
-		findById.mockResolvedValue(row({ status: "completed" }));
+	test("refuses to retry a completed download", async () => {
+		await insertDownload({ id: "dl-1", status: "completed", sizeBytes: 5, fileName: "movie.mp4" });
 
 		await expect(downloadsService.retryForProfile("dl-1", "profile-1")).rejects.toMatchObject({
 			code: "downloads.not_retryable",
 			category: "conflict",
 		});
-		expect(insert).not.toHaveBeenCalled();
+		expect(await downloadsRepository.findByProfile("profile-1")).toHaveLength(1);
 	});
 
-	test("the list carries the storage quota next to the jobs", async () => {
-		storageUsed.mockResolvedValue(42);
+	test("the list reports the storage the profile uses", async () => {
+		await insertDownload({ id: "dl-1", status: "completed", sizeBytes: 42, fileName: "movie.mp4" });
 
 		const listing = await downloadsService.list("profile-1");
 
@@ -625,25 +480,24 @@ describe("DownloadsService retry and quota", () => {
 });
 
 describe("DownloadsService.listAllPage", () => {
-	test("pages every profile's downloads with the status filter and the counts per status", async () => {
-		const page = spyOn(downloadsRepository, "findPage").mockResolvedValue({ data: [row({ status: "failed" })], total: 7 });
-		const counts = spyOn(downloadsRepository, "countByStatus").mockResolvedValue({
-			pending: 1,
-			processing: 2,
-			completed: 3,
-			failed: 4,
-			cancelled: 5,
+	test("pages every profile's jobs with the status filter and counts every status", async () => {
+		await insertDownload({ id: "dl-pending", status: "pending" });
+		await insertDownload({ id: "dl-processing", status: "processing", profileId: "profile-2", mediaFileId: "file-2" });
+		await insertDownload({ id: "dl-completed", status: "completed", sizeBytes: 5, fileName: "a.mp4", mediaFileId: "file-3" });
+		await insertDownload({ id: "dl-failed-1", status: "failed", mediaFileId: "file-3" });
+		await insertDownload({ id: "dl-failed-2", status: "failed", profileId: "profile-2", mediaFileId: "file-3" });
+		await insertDownload({ id: "dl-cancelled", status: "cancelled", profileId: "profile-2", mediaFileId: "file-3" });
+
+		const listing = await downloadsService.listAllPage({ page: 2, limit: 1, status: "failed" });
+
+		expect(listing).toMatchObject({
+			page: 2,
+			limit: 1,
+			total: 2,
+			totalPages: 2,
+			counts: { pending: 1, processing: 1, completed: 1, failed: 2, cancelled: 1 },
 		});
-
-		try {
-			const listing = await downloadsService.listAllPage({ page: 2, limit: 3, status: "failed" });
-
-			expect(page).toHaveBeenCalledWith({ status: "failed", limit: 3, offset: 3 });
-			expect(listing).toMatchObject({ page: 2, limit: 3, total: 7, totalPages: 3, counts: { failed: 4, cancelled: 5 } });
-			expect(listing.data[0]).toMatchObject({ id: "dl-1", profileId: "profile-1" });
-		} finally {
-			page.mockRestore();
-			counts.mockRestore();
-		}
+		expect(listing.data).toHaveLength(1);
+		expect(listing.data[0]).toMatchObject({ status: "failed" });
 	});
 });

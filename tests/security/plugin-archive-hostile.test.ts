@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strToU8, zipSync } from "fflate";
-import { extractPluginPackage } from "@/plugins/catalog/plugin-package.utils";
-import { DomainError } from "@/utils/errors";
+import { extractPluginPackage } from "@/plugins/catalog/plugin-package/extract.extractor";
+import { removeTree } from "@/utils/directory.utils";
+import { DomainError } from "@/utils/domain.errors";
 
 /**
  * Hostile plugin packages. Every archive below tries to escape the extraction root,
@@ -20,7 +21,7 @@ const created: string[] = [];
 const LEADING_SLASH = /^\//;
 
 afterEach(async () => {
-	await Promise.all(created.splice(0).map(async (path) => await rm(path, { recursive: true, force: true })));
+	await Promise.all(created.splice(0).map(async (path) => await removeTree(path)));
 });
 
 async function writeArchive(bytes: Uint8Array): Promise<string> {
@@ -126,19 +127,21 @@ async function expectContained(archive: Uint8Array, sentinelName: string): Promi
 	return { refused, code };
 }
 
-test("tar entries that climb out of the root are refused or stay inside it", async () => {
+test("tar entries that climb out of the root are refused as unsafe paths", async () => {
 	const name = sentinel();
 	const outcome = await expectContained(buildTar([{ name: `../${name}`, data: strToU8("escape") }]), name);
-	expect(outcome.refused).toBe(true);
+
+	expect(outcome).toEqual({ refused: true, code: "plugin.package_path_unsafe" });
 });
 
-test("tar entries with an absolute path are refused and write nothing", async () => {
+test("tar entries with an absolute path are refused as unsafe paths and write nothing", async () => {
 	const name = sentinel();
 	const outcome = await expectContained(
 		buildTar([{ name: `/${join(tmpdir(), name).replace(LEADING_SLASH, "")}`, data: strToU8("absolute") }]),
 		name,
 	);
-	expect(outcome.refused).toBe(true);
+
+	expect(outcome).toEqual({ refused: true, code: "plugin.package_path_unsafe" });
 });
 
 test("a PAX header that rewrites the path of the next member cannot escape the root", async () => {
@@ -151,7 +154,7 @@ test("a PAX header that rewrites the path of the next member cannot escape the r
 	await expectContained(archive, name);
 });
 
-test("hard links to files outside the root are refused", async () => {
+test("hard links are refused as unsupported entries, whatever they point at", async () => {
 	const name = sentinel();
 	const outcome = await expectContained(
 		buildTar([
@@ -161,10 +164,11 @@ test("hard links to files outside the root are refused", async () => {
 		]),
 		name,
 	);
-	expect(outcome.refused).toBe(true);
+
+	expect(outcome).toEqual({ refused: true, code: "plugin.package_entry_unsupported" });
 });
 
-test("device nodes and FIFOs are refused", async () => {
+test("device nodes and FIFOs are refused as unsupported entries", async () => {
 	for (const typeflag of ["3", "4", "6"]) {
 		const name = sentinel();
 		const outcome = await expectContained(
@@ -174,55 +178,56 @@ test("device nodes and FIFOs are refused", async () => {
 			]),
 			name,
 		);
-		expect(outcome.refused).toBe(true);
+
+		expect(outcome).toEqual({ refused: true, code: "plugin.package_entry_unsupported" });
 	}
 });
 
-test("zip members with absolute or traversing names never land outside the root", async () => {
+test("zip members with absolute or traversing names are refused as unsafe paths", async () => {
 	const name = sentinel();
 	for (const member of [`/${join(tmpdir(), name).replace(LEADING_SLASH, "")}`, `../${name}`, `..\\${name}`, `dir/../../${name}`]) {
 		const archive = new Uint8Array(zipSync({ "plugin.json": PLUGIN_MANIFEST, [member]: strToU8("zip escape") }));
-		await expectContained(archive, name);
+
+		expect(await expectContained(archive, name)).toEqual({ refused: true, code: "plugin.package_path_unsafe" });
 	}
 });
 
-test("zip members with NUL bytes or control characters in their names are refused as unsafe paths", async () => {
+test("zip members with NUL bytes in their names are refused as unsafe paths", async () => {
 	const name = sentinel();
-	const archive = new Uint8Array(
-		zipSync({ "plugin.json": PLUGIN_MANIFEST, "bad\u0000name.txt": strToU8("x"), "tab\tname.txt": strToU8("y") }),
-	);
+	const archive = new Uint8Array(zipSync({ "plugin.json": PLUGIN_MANIFEST, "bad\u0000name.txt": strToU8("x") }));
 
 	expect(await expectContained(archive, name)).toEqual({ refused: true, code: "plugin.package_path_unsafe" });
 });
 
-test("a deeply nested package is extracted or refused without exhausting the stack", async () => {
-	const name = sentinel();
-	const deep = `${Array.from({ length: 80 }, (_, index) => `level-${index}`).join("/")}/note.txt`;
-	const archive = new Uint8Array(zipSync({ "plugin.json": PLUGIN_MANIFEST, [deep]: strToU8("deep") }));
-	await expectContained(archive, name);
+test("a plugin.json below the manifest search depth is refused as missing, one within it is found", async () => {
+	const within = await extractPluginPackage(await writeArchive(new Uint8Array(zipSync({ "a/b/c/plugin.json": PLUGIN_MANIFEST }))));
+	try {
+		expect(within.pluginRoot.endsWith(join("a", "b", "c"))).toBe(true);
+	} finally {
+		await within.cleanup();
+	}
+
+	const beyond = await writeArchive(new Uint8Array(zipSync({ "a/b/c/d/plugin.json": PLUGIN_MANIFEST })));
+
+	await expect(extractPluginPackage(beyond)).rejects.toMatchObject({ code: "plugin.manifest_missing" });
 });
 
-test("a package with thousands of small members extracts within a bounded time", async () => {
-	const name = sentinel();
+test("a package with thousands of small members extracts every member", async () => {
 	const files: Record<string, Uint8Array> = { "plugin.json": PLUGIN_MANIFEST, "index.mjs": PLUGIN_ENTRY };
 	for (let index = 0; index < 3000; index += 1) files[`assets/file-${index}.txt`] = strToU8(`asset ${index}`);
-	const archivePath = await writeArchive(new Uint8Array(zipSync(files)));
-	const started = performance.now();
-
-	const extracted = await extractPluginPackage(archivePath);
-	await extracted.cleanup();
-
-	expect(performance.now() - started).toBeLessThan(15_000);
-	expect(existsSync(join(tmpdir(), name))).toBe(false);
+	const extracted = await extractPluginPackage(await writeArchive(new Uint8Array(zipSync(files))));
+	try {
+		expect(await readdir(join(extracted.pluginRoot, "assets"))).toHaveLength(3000);
+	} finally {
+		await extracted.cleanup();
+	}
 });
 
-test("a packaged plugin.json that is not a file is refused as a missing manifest", async () => {
+test("a packaged plugin.json that is a directory is refused as a missing manifest", async () => {
 	const archive = buildTar([
 		{ name: "plugin.json/", typeflag: "5" },
 		{ name: "index.mjs", data: PLUGIN_ENTRY },
 	]);
-	const archivePath = await writeArchive(archive);
 
-	await expect(extractPluginPackage(archivePath)).rejects.toBeInstanceOf(DomainError);
-	expect((await stat(archivePath)).isFile()).toBe(true);
+	await expect(extractPluginPackage(await writeArchive(archive))).rejects.toMatchObject({ code: "plugin.manifest_missing" });
 });

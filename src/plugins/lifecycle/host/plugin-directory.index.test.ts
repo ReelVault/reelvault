@@ -2,12 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isPluginDirectoryName, PluginDirectoryIndex } from "./plugin-directory.index";
+import { removeTree } from "@/utils/directory.utils";
+import { isPluginDirectoryName, PluginDirectoryIndex } from "./plugin-directory.indexer";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 });
 
 async function writePlugin(pluginsDirectory: string, directoryName: string, id: string): Promise<void> {

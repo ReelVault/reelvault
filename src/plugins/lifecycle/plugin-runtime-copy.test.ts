@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clearPluginRuntimes, materializePluginRuntime, pluginRuntimeRoot, removePluginRuntime } from "./plugin-runtime-copy";
+import { removeTree } from "@/utils/directory.utils";
+import { clearPluginRuntimes, materializePluginRuntime, pluginRuntimeRoot, removePluginRuntime } from "./plugin-runtime.service";
 
 const temporaryDirectories: string[] = [];
 
@@ -23,7 +25,7 @@ describe("plugin runtime copy", () => {
 	});
 
 	afterEach(async () => {
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 	});
 
 	test("pluginRuntimeRoot nests the .runtime directory under the plugins root", () => {
@@ -76,11 +78,15 @@ describe("plugin runtime copy", () => {
 	test("clearPluginRuntimes wipes every materialized runtime", async () => {
 		const pluginDir = join(pluginsDirectory, "pkg");
 		await writeTree(pluginDir, { "index.mjs": "export default {};\n" });
-		await materializePluginRuntime(pluginDir, pluginRuntimeRoot(pluginsDirectory));
+		const first = await materializePluginRuntime(pluginDir, pluginRuntimeRoot(pluginsDirectory));
+		const second = await materializePluginRuntime(pluginDir, pluginRuntimeRoot(pluginsDirectory));
+		// Bun.file().exists() is false for directories, so the check uses the filesystem.
+		expect([existsSync(first), existsSync(second)]).toEqual([true, true]);
 
 		await clearPluginRuntimes(pluginRuntimeRoot(pluginsDirectory));
 
-		await expect(Bun.file(pluginRuntimeRoot(pluginsDirectory)).exists()).resolves.toBeFalse();
+		expect([existsSync(first), existsSync(second)]).toEqual([false, false]);
+		expect(existsSync(pluginRuntimeRoot(pluginsDirectory))).toBeFalse();
 	});
 
 	test("removePluginRuntime removes one runtime and tolerates a missing path", async () => {

@@ -1,5 +1,5 @@
-import { canReserveStreamingSession } from "./session-capacity";
-import type { SessionStore } from "./session-store";
+import type { SessionStore } from "./session.store";
+import { canReserveStreamingSession } from "./session-capacity.policy";
 
 /**
  * Tracks slots reserved for sessions that are queued/starting but don't have

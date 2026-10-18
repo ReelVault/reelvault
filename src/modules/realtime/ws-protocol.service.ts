@@ -1,15 +1,15 @@
 import type { PlaybackCommand } from "@reelvault/sdk/common";
 import { PlaybackCommandSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
-import { profilesRepository } from "@/database/repositories/profiles.repository";
-import { env } from "@/env";
+import { env } from "@/config/env.config";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
-import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access";
-import { DomainError } from "@/utils/errors";
+import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
+import { DomainError } from "@/utils/domain.errors";
 import { safeParseJson } from "@/utils/file.utils";
-import { InMemoryRateLimiter } from "@/utils/in-memory-rate-limiter";
+import { InMemoryRateLimiter } from "@/utils/in-memory.limiter";
 import { isProfileUnlocked } from "@/utils/profile-unlock.utils";
 import { isRecord } from "@/utils/type.utils";
+import { realtimeAccess } from "./realtime.ports";
 import { realtimeService } from "./realtime.service";
 import type { RealtimeSocket } from "./realtime.types";
 
@@ -57,7 +57,7 @@ async function checkPlaybackSessionOwnership(
 	}
 
 	if (userId) {
-		const sessionProfile = await profilesRepository.findByPrimaryIdCached(access.profileId);
+		const sessionProfile = await realtimeAccess().findProfile(access.profileId);
 		if (sessionProfile?.userId === userId) {
 			// Account ownership is not enough for a PIN-protected profile: only a
 			// connection already unlocked for that exact profile may control it.
@@ -84,7 +84,7 @@ export const wsProtocol = {
 	 * another user's profile-scoped events.
 	 */
 	async assertHandshakeProfile(userId: string, queryProfileId: string, unlockToken: string | undefined): Promise<void> {
-		const requested = await profilesRepository.findByPrimaryIdCached(queryProfileId);
+		const requested = await realtimeAccess().findProfile(queryProfileId);
 		if (!requested || requested.userId !== userId) {
 			throw new DomainError("forbidden", "Profile does not belong to the current user", { code: "profile.not_owned" });
 		}

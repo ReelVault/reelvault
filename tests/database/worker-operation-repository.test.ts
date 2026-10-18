@@ -1,86 +1,13 @@
-import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { sql } from "drizzle-orm";
-import { databaseFactory } from "@/database/database";
-import { workerJobRepository } from "@/database/repositories/worker.repository";
-import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
+import { describe, expect, test } from "bun:test";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { useTestDatabase } from "../helpers/test-database.helper";
 
-const client = databaseFactory.getClient();
+// Migrated schema per test: the tables come from the real migrations, not hand-written DDL.
+const db = useTestDatabase();
 
-beforeAll(async () => {
-	await client.run(
-		sql.raw(`
-			CREATE TABLE IF NOT EXISTS worker_operations (
-				id TEXT PRIMARY KEY NOT NULL,
-				type TEXT NOT NULL,
-				status TEXT NOT NULL DEFAULT 'pending',
-				reference_type TEXT,
-				reference_id TEXT,
-				cancel_requested INTEGER NOT NULL DEFAULT 0,
-				total_items INTEGER NOT NULL DEFAULT 0,
-				pending_items INTEGER NOT NULL DEFAULT 0,
-				running_items INTEGER NOT NULL DEFAULT 0,
-				completed_items INTEGER NOT NULL DEFAULT 0,
-				failed_items INTEGER NOT NULL DEFAULT 0,
-				cancelled_items INTEGER NOT NULL DEFAULT 0,
-				progress_percent INTEGER,
-				error TEXT,
-				started_at INTEGER,
-				completed_at INTEGER,
-				retention_until INTEGER,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-	);
-	await client.run(
-		sql.raw(`
-			CREATE TABLE IF NOT EXISTS worker_jobs (
-				id TEXT PRIMARY KEY NOT NULL,
-				worker_id TEXT NOT NULL,
-				operation_id TEXT,
-				depends_on_job_id TEXT,
-				dedupe_key TEXT,
-				reference_type TEXT,
-				reference_id TEXT,
-				data TEXT NOT NULL,
-				status TEXT NOT NULL DEFAULT 'pending',
-				priority INTEGER NOT NULL DEFAULT 0,
-				attempts INTEGER NOT NULL DEFAULT 0,
-				max_attempts INTEGER NOT NULL DEFAULT 3,
-				backoff_type TEXT NOT NULL DEFAULT 'exponential',
-				backoff_delay_ms INTEGER NOT NULL DEFAULT 1000,
-				lease_until INTEGER,
-				runner_id TEXT,
-				claim_token TEXT,
-				progress_percent INTEGER,
-				result TEXT,
-				error TEXT,
-				started_at INTEGER,
-				run_at INTEGER NOT NULL,
-				completed_at INTEGER,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-	);
-	await client.run(
-		sql.raw(`
-			CREATE TABLE IF NOT EXISTS worker_job_dependencies (
-				task_id TEXT NOT NULL,
-				depends_on_task_id TEXT NOT NULL,
-				PRIMARY KEY (task_id, depends_on_task_id)
-			)
-		`),
-	);
-});
-
-beforeEach(async () => {
-	await client.run(sql.raw("DELETE FROM worker_job_dependencies"));
-	await client.run(sql.raw("DELETE FROM worker_jobs"));
-	await client.run(sql.raw("DELETE FROM worker_operations"));
-});
-
-describe("worker operation read model", () => {
+describe("worker operation read model: task transitions aggregate into the operation", () => {
 	test("aggregates every task transition and cleans the retained group", async () => {
 		await workerOperationRepository.create({ id: "operation-1", type: "test" });
 		await enqueue("operation-1", "worker-a", "task-1");
@@ -147,11 +74,11 @@ describe("worker operation read model", () => {
 		expect(await workerOperationRepository.findById("operation-1")).toBeUndefined();
 		expect(await workerJobRepository.findItem("task-1")).toBeUndefined();
 		expect(await workerJobRepository.findItem("task-2")).toBeUndefined();
-		expect(client.all(sql.raw("SELECT * FROM worker_job_dependencies"))).toEqual([]);
+		expect(await db.client().select().from(schema.workerJobs)).toEqual([]);
 	});
 });
 
-describe("worker operation read model", () => {
+describe("worker operation read model: cancelled status, empty operations and retention", () => {
 	test("derives cancelled status and recovers an expired lease without counters", async () => {
 		await workerOperationRepository.create({ id: "operation-2", type: "test" });
 		await enqueue("operation-2", "worker-b", "task-3", 1);
@@ -214,11 +141,11 @@ describe("worker operation read model", () => {
 
 		await workerJobRepository.trim("worker-d", "completed", 0);
 		expect(await workerJobRepository.findItem("task-ungrouped")).toBeUndefined();
-		expect(await workerJobRepository.findItem("task-grouped")).toBeDefined();
+		expect(await workerJobRepository.findItem("task-grouped")).toMatchObject({ status: "completed" });
 	});
 });
 
-describe("worker operation read model", () => {
+describe("worker operation read model: dependency ordering", () => {
 	test("does not claim a dependent task before its prerequisite completes", async () => {
 		await workerOperationRepository.create({ id: "operation-sequence", type: "test" });
 		await enqueue("operation-sequence", "worker-sequence", "task-prerequisite");
@@ -287,7 +214,7 @@ describe("worker operation read model", () => {
 	});
 });
 
-describe("worker operation read model", () => {
+describe("worker operation read model: dependency validation and stale claim tokens", () => {
 	test("requires the same operation and rejects self and missing dependencies", async () => {
 		await workerOperationRepository.create({ id: "operation-dependencies", type: "test" });
 		await workerOperationRepository.create({ id: "operation-other", type: "test" });

@@ -1,5 +1,5 @@
 import type { PluginLifecycleState, PluginLoadPhase, PluginStatus } from "@reelvault/sdk/plugin";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { pickDefined } from "@/utils/type.utils";
 
 export interface PluginStatusInput {

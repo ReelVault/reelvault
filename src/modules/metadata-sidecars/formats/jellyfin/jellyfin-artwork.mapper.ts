@@ -1,6 +1,13 @@
+import type { SidecarArtwork } from "@/modules/metadata-sidecars/sidecar.types";
+import {
+	readXmlAttr,
+	readXmlChildObject,
+	readXmlObjects,
+	readXmlText,
+	readXmlTexts,
+	readXmlValue,
+} from "@/modules/metadata-sidecars/xml/xml-value.reader";
 import { PathUtils } from "@/utils/path.utils";
-import type { SidecarArtwork } from "../../sidecar.types";
-import { readXmlAttr, readXmlChildObject, readXmlObjects, readXmlText, readXmlTexts, readXmlValue } from "../../xml/xml-value.reader";
 
 const REMOTE_URL_REGEX = /^[a-z][a-z0-9+.-]*:\/\//i;
 

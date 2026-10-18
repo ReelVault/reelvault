@@ -2,10 +2,10 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { databaseFactory } from "@/database/database";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
-import { installSessionStub, prepareSecuritySuite, send } from "./security-harness";
+import { serverConfig } from "@/config/server/server.config";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { DomainError } from "@/utils/domain.errors";
+import { installSessionStub, prepareSecuritySuite, send } from "./security.helper";
 
 /**
  * Database backups are addressed by file name. Download, delete and restore must never

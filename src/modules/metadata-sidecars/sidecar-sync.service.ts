@@ -1,11 +1,10 @@
-import { librariesRepository } from "@/database/repositories/libraries.repository";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { groupBy } from "@/utils/array.utils";
-import { errorMessage } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { errorMessage } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { detach, PromiseUtils } from "@/utils/promise.utils";
-import { runSafely } from "@/utils/safe-execute";
+import { runSafely } from "@/utils/safe-execute.utils";
+import { sidecarStorage } from "./sidecar.ports";
 import { SidecarMetadataStorageService } from "./sidecar-metadata-storage.service";
 import { sidecarMetadataWriter } from "./sidecar-metadata-writer.runtime";
 
@@ -61,12 +60,12 @@ class SidecarSyncService {
 
 	async syncForMetadata(metadataId: string): Promise<void> {
 		await runSafely(this, "syncForMetadata", async () => {
-			const mediaFiles = await mediaRepository.findRootsByMetadataId(metadataId);
+			const mediaFiles = await sidecarStorage().findRootMediaFiles(metadataId);
 			if (mediaFiles.length === 0) return;
 
 			const byLibrary = groupBy(mediaFiles, (mediaFile) => mediaFile.libraryId);
 			for (const [libraryId, libraryMediaFiles] of byLibrary) {
-				const library = await librariesRepository.findWithPaths(libraryId);
+				const library = await sidecarStorage().findLibraryWithPaths(libraryId);
 				if (!library) continue;
 
 				await this.storage.saveLibraryMedia(

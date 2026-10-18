@@ -1,28 +1,25 @@
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
-import { type ApplicationContext, type TaskSchedulingOptions, toDomainError } from "@/application/context";
-import { mediaFileRefreshService } from "@/application/media/media-files/refresh-media-file.operation";
-import { librariesRepository } from "@/database/repositories/libraries.repository";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { scanFindingsRepository } from "@/database/repositories/scan-findings.repository";
-import { type ScanCheckpoint, scanStateRepository } from "@/database/repositories/scan-state.repository";
+import { serverConfig } from "@/config/server/server.config";
+import { LIBRARY_SCAN_PRIORITY, MINUTE } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { scannerService } from "@/modules/scanner/scanner.service";
-import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { serverConfig } from "@/server.config";
-import { LIBRARY_SCAN_PRIORITY, MINUTE } from "@/server.constants";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { KeyedMutex } from "@/utils/concurrency";
-import { assertFound } from "@/utils/errors";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { throwIfAborted } from "@/utils/cancellation.utils";
+import { KeyedMutex } from "@/utils/concurrency.utils";
+import { assertFound, toDomainError } from "@/utils/domain.errors";
 import { PromiseUtils } from "@/utils/promise.utils";
+import type { ApplicationContext, TaskSchedulingOptions } from "@/utils/task-context.types";
 import { mapLibraryType } from "@/utils/type.utils";
-import { batchChunks } from "@/workers/utils/batch-chunker";
+import type { MediaFileIngestData } from "@/workers/definitions/media/media-file-ingest/media-file-ingest.types";
+import { enqueueManyMediaFileIngest, enqueueMediaFileIngest } from "@/workers/definitions/media/media-file-ingest.worker";
+import { enqueueMediaFileRefreshBatch } from "@/workers/definitions/media/media-file-refresh-batch.service";
+import { batchChunks } from "@/workers/utils/batch-chunker.utils";
 import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import { ENQUEUE_BATCH_SIZE } from "@/workers/worker.constants";
+import { type ScanCheckpoint, workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
-import { enqueueManyMediaFileIngest, enqueueMediaFileIngest, type MediaFileIngestData } from "../media/media-file-ingest.worker";
-import { enqueueMediaFileRefreshBatch } from "../media/media-file-refresh-batch";
 
 export interface LibraryScanData {
 	libraryId: string;
@@ -77,26 +74,26 @@ export interface LibraryScanTaskDependencies {
 }
 
 const defaultDependencies: LibraryScanTaskDependencies = {
-	findLibrary: (libraryId) => librariesRepository.findWithPaths(libraryId),
+	findLibrary: (libraryId) => workerDependencies().libraries.findWithPaths(libraryId),
 	scanPaths: (libraryId, type, paths, signal) => scannerService.scanPaths(libraryId, type, paths, signal),
 	enqueueMediaFileIngest: (data, options) => enqueueMediaFileIngest(data, options ?? {}),
-	enqueueMediaFileRefresh: (mediaFileId, options) => mediaFileRefreshService.queue(mediaFileId, options),
+	enqueueMediaFileRefresh: (mediaFileId, options) => workerDependencies().services.mediaFileRefresh.queue(mediaFileId, options),
 	enqueueMediaFileIngestBatch: (entries, options) => enqueueManyMediaFileIngest(entries, options ?? {}),
 	enqueueMediaFileRefreshBatch: async (mediaFileIds, options, signal) => {
 		throwIfAborted(signal);
-		const targets = await mediaRepository.findIdentitiesByIds(mediaFileIds);
+		const targets = await workerDependencies().media.findIdentitiesByIds(mediaFileIds);
 
 		return enqueueMediaFileRefreshBatch(targets, options ?? {});
 	},
 	publishScanStarted: (input) => pluginEventBus.publish("library.scan.started", input),
 	emitScanCompleted: (input) => pluginEventBus.emit("library.scan.completed", input),
 	notifyScanCompleted: (input) => realtimeService.broadcast("library:scan:completed", input),
-	loadCheckpoint: (libraryId) => scanStateRepository.get(libraryId),
-	saveCheckpoint: (libraryId, checkpoint) => scanStateRepository.set(libraryId, checkpoint),
-	updateCheckpointCursors: (libraryId, cursors) => scanStateRepository.setCursors(libraryId, cursors),
-	deleteCheckpoint: (libraryId) => scanStateRepository.delete(libraryId),
+	loadCheckpoint: (libraryId) => workerDependencies().scanState.get(libraryId),
+	saveCheckpoint: (libraryId, checkpoint) => workerDependencies().scanState.set(libraryId, checkpoint),
+	updateCheckpointCursors: (libraryId, cursors) => workerDependencies().scanState.setCursors(libraryId, cursors),
+	deleteCheckpoint: (libraryId) => workerDependencies().scanState.delete(libraryId),
 	pruneScanFindings: (libraryId, scannedFilePaths, scannedRoots) =>
-		scanFindingsRepository.pruneStale(libraryId, scannedFilePaths, scannedRoots),
+		workerDependencies().scanFindings.pruneStale(libraryId, scannedFilePaths, scannedRoots),
 };
 
 export interface LibraryScanOrchestration {

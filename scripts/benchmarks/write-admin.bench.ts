@@ -1,16 +1,17 @@
-import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, task } from "benchkit";
-import { adminLogsService } from "@/application/admin/admin-logs.service";
-import { serverConfig } from "@/server.config";
+import { adminLogsService } from "@/app/admin/admin-logs.service";
+import { serverConfig } from "@/config/server/server.config";
+import { removeTree } from "@/utils/directory.utils";
 import { isRecord } from "@/utils/type.utils";
-import { subnetIp, workerCookie } from "./lib/identity";
-import { preloadUnreadNotificationIds } from "./lib/notifications";
-import { jsonRequest } from "./lib/request";
-import { toScenarioEntries } from "./lib/scenarios";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { subnetIp, workerCookie } from "./lib/identity.utils";
+import { preloadUnreadNotificationIds } from "./lib/notifications.utils";
+import { jsonRequest } from "./lib/request.utils";
+import { toScenarioEntries } from "./lib/scenarios.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * Admin + account write endpoints — the mutation surfaces no other suite
@@ -228,7 +229,7 @@ if (!args.help) {
 				serverConfig.paths.logs = originalLogs;
 			}
 		} finally {
-			await rm(directory, { recursive: true, force: true });
+			await removeTree(directory);
 		}
 
 		return { ok: true };

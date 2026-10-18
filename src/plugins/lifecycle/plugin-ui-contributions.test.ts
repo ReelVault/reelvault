@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PluginUiManifest } from "@reelvault/sdk/plugin";
-import { applyUiOverrides, listUiContributions } from "./plugin-ui-contributions";
+import { applyUiOverrides, listUiContributions } from "./plugin-ui-contributions.utils";
 
 const manifest: PluginUiManifest = {
 	name: "Requests",

@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
+import { eq } from "drizzle-orm";
+import { pluginRepositoriesRepository } from "@/app/repositories/plugin-repositories.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub";
+import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginCatalogService } from "./plugin-catalog.service";
+
+// Repositories, their order and the install status run against the migrated test database.
+// Stubbed: `fetchManifest`, the network read of one repository's manifest, and
+// `getInstalledRecords`, the install state read from the plugin directory.
+const db = useTestDatabase();
 
 const sha = (digit: string): string => `sha256-${digit.repeat(64)}`;
 
@@ -12,89 +20,71 @@ const FLOORED_ENTRY = {
 	version: "2.0.0",
 	category: "other",
 	minServerVersion: "9.9.9",
-	downloadUrl: "https://example.com/gated-2.0.0.zip",
+	// A host that never resolves: a broken gate fails fast instead of downloading anything.
+	downloadUrl: "https://plugins.invalid/gated-2.0.0.zip",
 	checksum: sha("0"),
 };
 
+const activeStubs: MethodStub[] = [];
+
+afterEach(() => {
+	for (const stub of activeStubs.toReversed()) stub.restore();
+	activeStubs.length = 0;
+});
+
+/** Creates a repository; `list` sorts by creation time, so each one gets its own timestamp from `index`. */
+async function seedRepository(name: string, index: number, enabled = true): Promise<string> {
+	const row = await pluginRepositoriesRepository.create({ name, url: `https://example.com/${name}.json`, enabled });
+	await db
+		.client()
+		.update(schema.pluginRepositories)
+		.set({ createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)) })
+		.where(eq(schema.pluginRepositories.id, row.id));
+
+	return row.id;
+}
+
+function catalogEntry(id: string, version: string) {
+	return { id, name: id, version, category: "other" };
+}
+
+function installedRecord(id: string, version: string, pinned = false) {
+	return {
+		id,
+		record: { directory: `/plugins/${id}`, integrity: sha("1"), installedAt: "2026-01-01T00:00:00.000Z", source: "test", version, pinned },
+	};
+}
+
 describe("pluginCatalogService.installFromCatalog min-server-version gate", () => {
-	const activeStubs: MethodStub[] = [];
-
-	afterEach(() => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-		activeStubs.length = 0;
-	});
-
-	test("refuses the install with plugin.server_too_old before downloading anything", async () => {
+	test("refuses an install that needs a newer server before any download starts", async () => {
+		const repositoryId = await seedRepository("repo-1", 0);
 		activeStubs.push(
-			stubMethod(pluginRepositoriesRepository, "findById", async () => ({
-				id: "repo-1",
-				name: "Test Repo",
-				url: "https://example.com/catalog.json",
-				enabled: true,
-				tokenEncrypted: null,
-				lastRefreshedAt: null,
-				lastError: null,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			})),
-			stubMethod(pluginCatalogService, "fetchManifest", async () => ({
-				manifest: { apiVersion: 1, name: "Test", plugins: [FLOORED_ENTRY] },
-				fetchedAt: Date.now(),
-			})),
+			stubMethod(pluginCatalogService, "fetchManifest", () =>
+				Promise.resolve({ manifest: { apiVersion: 1, name: "Test", plugins: [FLOORED_ENTRY] }, fetchedAt: Date.now() }),
+			),
 		);
 
-		let downloadCalled = false;
-		activeStubs.push(
-			stubMethod(pluginManager, "getInstalledRecords", async () => []),
-			stubMethod(pluginManager, "installFromDirectory", () => {
-				downloadCalled = true;
-
-				return Promise.reject(new Error("install must not run"));
-			}),
-		);
-
-		let caught: unknown;
-		try {
-			await pluginCatalogService.installFromCatalog({ repositoryId: "repo-1", pluginId: "org.reelvault.gated" });
-		} catch (error) {
-			caught = error;
-		}
-
-		expect(caught).toBeInstanceOf(Error);
-		expect((caught as { code?: string }).code).toBe("plugin.server_too_old");
-		expect((caught as Error).message).toContain("9.9.9");
-		expect(downloadCalled).toBe(false);
+		await expect(pluginCatalogService.installFromCatalog({ repositoryId, pluginId: "org.reelvault.gated" })).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.server_too_old",
+		});
 	});
 });
 
 describe("pluginCatalogService.getCatalog", () => {
-	const activeStubs: MethodStub[] = [];
-
-	afterEach(() => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-		activeStubs.length = 0;
-	});
-
 	test("fetches enabled repository manifests concurrently and keeps repository order", async () => {
-		const rows = ["repo-a", "repo-b", "repo-c"].map((id, index) => ({
-			id,
-			name: `Repo ${index}`,
-			url: `https://example.com/${id}.json`,
-			enabled: true,
-			tokenEncrypted: null,
-			lastRefreshedAt: null,
-			lastError: null,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		}));
+		await seedRepository("repo-a", 0);
+		await seedRepository("repo-b", 1);
+		await seedRepository("repo-c", 2);
+		await seedRepository("repo-off", 3, false);
 		let inFlight = 0;
 		let maxInFlight = 0;
+		const fetched: string[] = [];
 
 		activeStubs.push(
-			stubMethod(pluginRepositoriesRepository, "count", () => Promise.resolve(rows.length)),
-			stubMethod(pluginRepositoriesRepository, "list", () => Promise.resolve(rows)),
 			stubMethod(pluginManager, "getInstalledRecords", () => Promise.resolve([])),
-			stubMethod(pluginCatalogService, "fetchManifest", async (row: { id: string }) => {
+			stubMethod(pluginCatalogService, "fetchManifest", async (row: { name: string }) => {
+				fetched.push(row.name);
 				inFlight++;
 				maxInFlight = Math.max(maxInFlight, inFlight);
 				await new Promise((resolve) => {
@@ -103,11 +93,7 @@ describe("pluginCatalogService.getCatalog", () => {
 				inFlight--;
 
 				return {
-					manifest: {
-						apiVersion: 1,
-						name: row.id,
-						plugins: [{ id: `plugin-${row.id}`, name: "Plugin", version: "1.0.0", category: "other" }],
-					},
+					manifest: { apiVersion: 1, name: row.name, plugins: [catalogEntry(`plugin-${row.name}`, "1.0.0")] },
 					fetchedAt: Date.now(),
 				};
 			}),
@@ -116,35 +102,22 @@ describe("pluginCatalogService.getCatalog", () => {
 		const { plugins } = await pluginCatalogService.getCatalog();
 
 		expect(plugins.map((entry) => entry.id)).toEqual(["plugin-repo-a", "plugin-repo-b", "plugin-repo-c"]);
-		// Serial fetching would peak at one in-flight manifest.
+		// Serial fetching would peak at one in-flight manifest. The disabled repository is never fetched.
 		expect(maxInFlight).toBe(3);
+		expect(fetched.toSorted((a, b) => a.localeCompare(b))).toEqual(["repo-a", "repo-b", "repo-c"]);
 	});
+
 	test("reports a repository it cannot read by code, and keeps the others", async () => {
-		const rows = ["repo-ok", "repo-down"].map((id) => ({
-			id,
-			name: id,
-			url: `https://example.com/${id}.json`,
-			enabled: true,
-			tokenEncrypted: null,
-			lastRefreshedAt: null,
-			lastError: null,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		}));
+		await seedRepository("repo-ok", 0);
+		const downId = await seedRepository("repo-down", 1);
 
 		activeStubs.push(
-			stubMethod(pluginRepositoriesRepository, "count", () => Promise.resolve(rows.length)),
-			stubMethod(pluginRepositoriesRepository, "list", () => Promise.resolve(rows)),
 			stubMethod(pluginManager, "getInstalledRecords", () => Promise.resolve([])),
-			stubMethod(pluginCatalogService, "fetchManifest", (row: { id: string }) =>
-				row.id === "repo-down"
+			stubMethod(pluginCatalogService, "fetchManifest", (row: { name: string }) =>
+				row.name === "repo-down"
 					? Promise.reject(new Error("connection refused"))
 					: Promise.resolve({
-							manifest: {
-								apiVersion: 1,
-								name: row.id,
-								plugins: [{ id: "plugin-ok", name: "Plugin", version: "1.0.0", category: "other" }],
-							},
+							manifest: { apiVersion: 1, name: row.name, plugins: [catalogEntry("plugin-ok", "1.0.0")] },
 							fetchedAt: Date.now(),
 						}),
 			),
@@ -154,38 +127,49 @@ describe("pluginCatalogService.getCatalog", () => {
 
 		expect(catalog.plugins.map((entry) => entry.id)).toEqual(["plugin-ok"]);
 		expect(catalog.unavailableRepositories).toEqual([
-			{ repositoryId: "repo-down", repositoryName: "repo-down", errorCode: "plugin.repository_unavailable" },
+			{ repositoryId: downId, repositoryName: "repo-down", errorCode: "plugin.repository_unavailable" },
 		]);
 	});
 });
 
 describe("pluginCatalogService.updatablePluginIds", () => {
-	const activeStubs: MethodStub[] = [];
-
-	afterEach(() => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-		activeStubs.length = 0;
-	});
-
 	test("lists only the plugins that an enabled repository offers in a newer version", async () => {
+		await seedRepository("repo-main", 0);
 		activeStubs.push(
-			stubMethod(pluginCatalogService, "getCatalog", () =>
+			stubMethod(pluginManager, "getInstalledRecords", () =>
+				Promise.resolve([
+					installedRecord("org.reelvault.newer", "1.0.0"),
+					installedRecord("org.reelvault.current", "1.0.0"),
+					installedRecord("org.reelvault.pinned", "1.0.0", true),
+				]),
+			),
+			stubMethod(pluginCatalogService, "fetchManifest", () =>
 				Promise.resolve({
-					plugins: [
-						{ id: "org.reelvault.newer", status: "update-available" },
-						{ id: "org.reelvault.current", status: "installed" },
-						{ id: "org.reelvault.fresh", status: "available" },
-					],
-					unavailableRepositories: [],
+					manifest: {
+						apiVersion: 1,
+						name: "Main",
+						plugins: [
+							catalogEntry("org.reelvault.newer", "2.0.0"),
+							catalogEntry("org.reelvault.current", "1.0.0"),
+							catalogEntry("org.reelvault.pinned", "2.0.0"),
+							catalogEntry("org.reelvault.fresh", "1.0.0"),
+						],
+					},
+					fetchedAt: Date.now(),
 				}),
 			),
 		);
 
+		// A pinned plugin keeps its installed version, so it is never offered as an update.
 		await expect(pluginCatalogService.updatablePluginIds()).resolves.toEqual(new Set(["org.reelvault.newer"]));
 	});
 
-	test("offers no update when the catalog cannot be read", async () => {
-		activeStubs.push(stubMethod(pluginCatalogService, "getCatalog", () => Promise.reject(new Error("offline"))));
+	test("offers no update when the repository cannot be read", async () => {
+		await seedRepository("repo-main", 0);
+		activeStubs.push(
+			stubMethod(pluginManager, "getInstalledRecords", () => Promise.resolve([installedRecord("org.reelvault.newer", "1.0.0")])),
+			stubMethod(pluginCatalogService, "fetchManifest", () => Promise.reject(new Error("offline"))),
+		);
 
 		await expect(pluginCatalogService.updatablePluginIds()).resolves.toEqual(new Set());
 	});

@@ -1,240 +1,202 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { stubMethod } from "../../../tests/helpers/method-stub";
-import type { SidecarArtworkWriter } from "./saver/sidecar-artwork.exporter";
-import type { SidecarMetadataWriter } from "./sidecar.types";
+import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { eq } from "drizzle-orm";
+import sharp from "sharp";
+import { DatabaseSidecarSnapshotResolver } from "@/app/sidecars/sidecar-snapshot.resolver";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { removeTree } from "@/utils/directory.utils";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { metadataSidecarsService } from "./metadata-sidecars.service";
 import { SidecarMetadataStorageService } from "./sidecar-metadata-storage.service";
 
-/** Replaces a method on the live singleton for one test.
- * Works on real repositories AND on the minimal facades other test files
- * install with bun's process-global mock.module(...). */
+const db = useTestDatabase();
 
-const activeStubs: Array<{ restore(): void }> = [];
+function firstRow<T>(rows: T[]): T {
+	const row = rows[0];
+	if (!row) throw new Error("Expected a row");
 
-afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
-});
-
-function recordingWriter() {
-	const calls: string[] = [];
-	const writeResult = () => Promise.resolve({ documentPath: "", writtenFiles: [] });
-	const writer: SidecarMetadataWriter = {
-		saveMovie: (input) => {
-			calls.push(`movie:${input.metadataId}:${input.movieDirectory}:${input.flavor ?? "reelvault"}`);
-
-			return writeResult();
-		},
-		saveSeries: (input) => {
-			calls.push(`series:${input.metadataId}:${input.seriesDirectory}:${input.flavor ?? "reelvault"}`);
-
-			return writeResult();
-		},
-		saveSeason: (input) => {
-			calls.push(`season:${input.seasonId}:${input.seasonDirectory}:${input.flavor ?? "reelvault"}`);
-
-			return writeResult();
-		},
-		saveEpisode: (input) => {
-			calls.push(`episode:${input.episodeId}:${input.episodeDirectory}:${input.flavor ?? "reelvault"}`);
-
-			return writeResult();
-		},
-	};
-
-	return { calls, writer };
+	return row;
 }
 
-function recordingArtwork(): SidecarArtworkWriter & { calls: string[] } {
-	const calls: string[] = [];
+function createStorageService(): SidecarMetadataStorageService {
+	return new SidecarMetadataStorageService(metadataSidecarsService.createSidecarWriter(new DatabaseSidecarSnapshotResolver()));
+}
 
-	return {
-		calls,
-		saveTitleArtwork: (input) => {
-			calls.push(`title:${input.metadataId}:${input.directory}`);
+async function movieIdFor(metadataId: string): Promise<string> {
+	const movie = firstRow(
+		await db.client().select({ id: schema.movies.id }).from(schema.movies).where(eq(schema.movies.stableKey, metadataId)),
+	);
 
-			return Promise.resolve([]);
-		},
-		saveSeasonArtwork: (input) => {
-			calls.push(`season:${input.directory}:${input.seasonNumber}`);
+	return movie.id;
+}
 
-			return Promise.resolve([]);
-		},
-		saveEpisodeArtwork: (input) => {
-			calls.push(`episode:${input.directory}:${input.videoBaseName}`);
+/** Writes a webp source, persists it as an image, and links it to the metadata as the poster. */
+async function seedPoster(metadataId: string, sourcePath: string): Promise<void> {
+	await Bun.write(
+		sourcePath,
+		await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 200, g: 10, b: 10 } } })
+			.webp()
+			.toBuffer(),
+	);
+	const client = db.client();
+	const image = firstRow(
+		await client
+			.insert(schema.images)
+			.values({ stableKey: crypto.randomUUID(), localPath: sourcePath, contentType: "image/webp" })
+			.returning({ id: schema.images.id }),
+	);
+	await client.insert(schema.metadataImages).values({ metadataId, imageId: image.id, imageType: "poster" });
+}
 
-			return Promise.resolve([]);
-		},
-	};
+/** Seeds a series with one season and two episodes, under fixed ids the media inputs refer to. */
+async function seedSeries(): Promise<void> {
+	const client = db.client();
+	await client.insert(schema.metadata).values({
+		id: "series-1",
+		stableKey: "series-1",
+		title: "Show",
+		type: "tv_show",
+		releaseDate: "2019-01-01",
+	});
+	await client
+		.insert(schema.seasons)
+		.values({ id: "season-1", metadataId: "series-1", stableKey: "season-1", seasonNumber: 1, name: "Season One" });
+	await client.insert(schema.episodes).values([
+		{ id: "episode-1", seasonId: "season-1", stableKey: "episode-1", episodeNumber: 1, title: "Dulcinea" },
+		{ id: "episode-2", seasonId: "season-1", stableKey: "episode-2", episodeNumber: 2, title: "Second" },
+	]);
 }
 
 describe("SidecarMetadataStorageService", () => {
-	test("writes a movie sidecar for database_and_sidecar libraries", async () => {
-		const { calls, writer } = recordingWriter();
+	test("writes a movie document next to the video for sidecar libraries", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-storage-"));
+		try {
+			const movieDirectory = join(root, "movie");
+			await mkdir(movieDirectory);
+			const mediaFilePath = join(movieDirectory, "movie.mkv");
+			await insertMovieMediaFile(db.client(), mediaFilePath, "metadata-1");
 
-		await new SidecarMetadataStorageService(writer, recordingArtwork()).saveLibraryMedia(
-			{ metadataStorageMode: "database_and_sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
-			[{ filePath: "/media/movie/movie.mkv", metadataId: "metadata-1", movieId: "movie-1", episodeId: null }],
-		);
+			await createStorageService().saveLibraryMedia(
+				{ metadataStorageMode: "database_and_sidecar", sidecarFlavor: "reelvault", paths: [{ path: root, metadataStorageMode: null }] },
+				[{ filePath: mediaFilePath, metadataId: "metadata-1", movieId: await movieIdFor("metadata-1"), episodeId: null }],
+			);
 
-		expect(calls).toEqual(["movie:metadata-1:/media/movie:reelvault"]);
+			expect(await readdir(movieDirectory)).toEqual(["movie.reelvault.nfo"]);
+			expect(await metadataSidecarsService.readDocument(join(movieDirectory, "movie.reelvault.nfo"))).toMatchObject({
+				title: "metadata-1",
+			});
+		} finally {
+			await removeTree(root);
+		}
 	});
 
-	test("skips files in database-only paths without any writer calls", async () => {
-		const { calls, writer } = recordingWriter();
+	test("writes no sidecar for files in database-only paths", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-storage-"));
+		try {
+			const movieDirectory = join(root, "movie");
+			await mkdir(movieDirectory);
+			const mediaFilePath = join(movieDirectory, "movie.mkv");
+			await insertMovieMediaFile(db.client(), mediaFilePath, "metadata-1");
 
-		await new SidecarMetadataStorageService(writer, recordingArtwork()).saveLibraryMedia(
-			{ metadataStorageMode: "database", paths: [{ path: "/media", metadataStorageMode: null }] },
-			[
-				{ filePath: "/media/movie/movie.mkv", metadataId: "metadata-1", movieId: "movie-1", episodeId: null },
-				{ filePath: "/media/movie/other.mkv", metadataId: "metadata-1", movieId: "movie-1", episodeId: null },
-			],
-		);
+			await createStorageService().saveLibraryMedia(
+				{ metadataStorageMode: "database", paths: [{ path: root, metadataStorageMode: null }] },
+				[{ filePath: mediaFilePath, metadataId: "metadata-1", movieId: await movieIdFor("metadata-1"), episodeId: null }],
+			);
 
-		expect(calls).toEqual([]);
+			expect(await readdir(movieDirectory)).toEqual([]);
+		} finally {
+			await removeTree(root);
+		}
 	});
 
-	test("writes series/season sidecars once per directory for episode files", async () => {
-		const { calls, writer } = recordingWriter();
-		const episodes = await import("@/database/repositories/episodes.repository");
-		const seasons = await import("@/database/repositories/seasons.repository");
-		activeStubs.push(
-			stubMethod(episodes.episodesRepository, "findRecordsByIds", ({ ids }: { ids: string[] }) =>
-				Promise.resolve(
-					ids.map((id) => ({
-						id,
-						seasonId: "season-1",
-						title: "Dulcinea",
-						episodeNumber: 1,
-						airDate: null,
-						overview: null,
-						imageId: null,
-					})),
-				),
-			),
-			stubMethod(seasons.seasonsRepository, "findByIds", () =>
-				Promise.resolve([
-					{
-						id: "season-1",
-						seasonNumber: 1,
-						name: "Season One",
-						airDate: null,
-						overview: null,
-						status: null,
-						imageId: null,
-					},
-				]),
-			),
-		);
+	test("writes the series, season and episode documents into their folders", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-storage-"));
+		try {
+			const showDirectory = join(root, "show");
+			const seasonDirectory = join(showDirectory, "Season 01");
+			await mkdir(seasonDirectory, { recursive: true });
+			await seedSeries();
 
-		await new SidecarMetadataStorageService(writer, recordingArtwork()).saveLibraryMedia(
-			{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
-			[
-				{ filePath: "/media/show/Season 01/s01e01.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-1" },
-				{ filePath: "/media/show/Season 01/s01e02.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-2" },
-			],
-		);
+			await createStorageService().saveLibraryMedia(
+				{ metadataStorageMode: "sidecar", paths: [{ path: root, metadataStorageMode: null }] },
+				[
+					{ filePath: join(seasonDirectory, "s01e01.mkv"), metadataId: "series-1", movieId: null, episodeId: "episode-1" },
+					{ filePath: join(seasonDirectory, "s01e02.mkv"), metadataId: "series-1", movieId: null, episodeId: "episode-2" },
+				],
+			);
 
-		expect(calls).toContain("series:metadata-1:/media/show:reelvault");
-		expect(calls).toContain("season:season-1:/media/show/Season 01:reelvault");
-		expect(calls.filter((call) => call.startsWith("series:"))).toHaveLength(1);
-		expect(calls.filter((call) => call.startsWith("season:"))).toHaveLength(1);
-		expect(calls.filter((call) => call.startsWith("episode:episode-1"))).toHaveLength(1);
-		expect(calls.filter((call) => call.startsWith("episode:episode-2"))).toHaveLength(1);
+			expect((await readdir(showDirectory)).toSorted()).toEqual(["Season 01", "tvshow.reelvault.nfo"]);
+			expect((await readdir(seasonDirectory)).toSorted()).toEqual([
+				"s01e01.reelvault.nfo",
+				"s01e02.reelvault.nfo",
+				"season01-reelvault.nfo",
+			]);
+			expect(await metadataSidecarsService.readDocument(join(showDirectory, "tvshow.reelvault.nfo"))).toMatchObject({ title: "Show" });
+			expect(await metadataSidecarsService.readDocument(join(seasonDirectory, "s01e01.reelvault.nfo"))).toMatchObject({
+				title: "Dulcinea",
+			});
+		} finally {
+			await removeTree(root);
+		}
 	});
 
-	test("skips media files whose episode row disappeared mid-scan", async () => {
-		const { calls, writer } = recordingWriter();
-		const episodes = await import("@/database/repositories/episodes.repository");
-		activeStubs.push(stubMethod(episodes.episodesRepository, "findRecordsByIds", () => Promise.resolve([])));
+	test("skips media files whose episode row is gone and writes nothing for them", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-storage-"));
+		try {
+			const seasonDirectory = join(root, "show", "Season 01");
+			await mkdir(seasonDirectory, { recursive: true });
 
-		await new SidecarMetadataStorageService(writer, recordingArtwork()).saveLibraryMedia(
-			{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
-			[{ filePath: "/media/show/Season 01/s01e01.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-404" }],
-		);
+			await createStorageService().saveLibraryMedia(
+				{ metadataStorageMode: "sidecar", paths: [{ path: root, metadataStorageMode: null }] },
+				[{ filePath: join(seasonDirectory, "s01e01.mkv"), metadataId: "series-1", movieId: null, episodeId: "episode-404" }],
+			);
 
-		expect(calls).toEqual([]);
-	});
-});
-
-describe("SidecarMetadataStorageService", () => {
-	test("resolves episodes and seasons with one batched lookup each", async () => {
-		const { writer } = recordingWriter();
-		const episodes = await import("@/database/repositories/episodes.repository");
-		const seasons = await import("@/database/repositories/seasons.repository");
-		const episodeLookups: string[][] = [];
-		const seasonLookups: string[][] = [];
-		activeStubs.push(
-			stubMethod(episodes.episodesRepository, "findRecordsByIds", ({ ids }: { ids: string[] }) => {
-				episodeLookups.push(ids);
-
-				return Promise.resolve(
-					ids.map((id) => ({
-						id,
-						seasonId: id.endsWith("1") ? "season-1" : "season-2",
-						title: id,
-						episodeNumber: 1,
-						airDate: null,
-						overview: null,
-						imageId: null,
-					})),
-				);
-			}),
-			stubMethod(seasons.seasonsRepository, "findByIds", ({ ids }: { ids: string[] }) => {
-				seasonLookups.push(ids);
-
-				return Promise.resolve(
-					ids.map((id) => ({
-						id,
-						seasonNumber: 1,
-						name: id,
-						airDate: null,
-						overview: null,
-						status: null,
-						imageId: null,
-					})),
-				);
-			}),
-		);
-
-		await new SidecarMetadataStorageService(writer, recordingArtwork()).saveLibraryMedia(
-			{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
-			[
-				{ filePath: "/media/show/Season 01/s01e01.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-1" },
-				{ filePath: "/media/show/Season 01/s01e02.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-2" },
-				{ filePath: "/media/show/Season 02/s02e01.mkv", metadataId: "metadata-1", movieId: null, episodeId: "episode-3" },
-			],
-		);
-
-		expect(episodeLookups).toHaveLength(1);
-		expect(episodeLookups[0]?.toSorted()).toEqual(["episode-1", "episode-2", "episode-3"]);
-		expect(seasonLookups).toHaveLength(1);
-		expect(seasonLookups[0]?.toSorted()).toEqual(["season-1", "season-2"]);
+			expect(await readdir(seasonDirectory)).toEqual([]);
+		} finally {
+			await removeTree(root);
+		}
 	});
 
-	test("threads the library flavor into the writer and exports artwork beside the documents", async () => {
-		const { calls, writer } = recordingWriter();
-		const artwork = recordingArtwork();
+	test("writes kodi-named documents and exports the poster beside them for kodi libraries", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-storage-"));
+		try {
+			const movieDirectory = join(root, "movie");
+			await mkdir(movieDirectory);
+			const mediaFilePath = join(movieDirectory, "movie.mkv");
+			await insertMovieMediaFile(db.client(), mediaFilePath, "metadata-1");
+			await seedPoster("metadata-1", join(root, "poster-source.webp"));
 
-		await new SidecarMetadataStorageService(writer, artwork).saveLibraryMedia(
-			{
-				metadataStorageMode: "sidecar",
-				sidecarFlavor: "kodi",
-				paths: [{ path: "/media", metadataStorageMode: null }],
-			},
-			[{ filePath: "/media/movie/movie.mkv", metadataId: "metadata-1", movieId: "movie-1", episodeId: null }],
-		);
+			await createStorageService().saveLibraryMedia(
+				{ metadataStorageMode: "sidecar", sidecarFlavor: "kodi", paths: [{ path: root, metadataStorageMode: null }] },
+				[{ filePath: mediaFilePath, metadataId: "metadata-1", movieId: await movieIdFor("metadata-1"), episodeId: null }],
+			);
 
-		expect(calls).toEqual(["movie:metadata-1:/media/movie:kodi"]);
-		expect(artwork.calls).toEqual([`title:metadata-1:/media/movie`]);
+			expect((await readdir(movieDirectory)).toSorted()).toEqual(["movie.nfo", "poster.jpg"]);
+			expect((await sharp(join(movieDirectory, "poster.jpg")).metadata()).format).toBe("jpeg");
+		} finally {
+			await removeTree(root);
+		}
 	});
 
-	test("defaults the flavor to reelvault for libraries predating the field", async () => {
-		const { calls, writer } = recordingWriter();
+	test("writes reelvault-named documents for a library that predates the flavor field", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-storage-"));
+		try {
+			const movieDirectory = join(root, "movie");
+			await mkdir(movieDirectory);
+			const mediaFilePath = join(movieDirectory, "movie.mkv");
+			await insertMovieMediaFile(db.client(), mediaFilePath, "metadata-1");
 
-		await new SidecarMetadataStorageService(writer, recordingArtwork()).saveLibraryMedia(
-			{ metadataStorageMode: "sidecar", paths: [{ path: "/media", metadataStorageMode: null }] },
-			[{ filePath: "/media/movie/movie.mkv", metadataId: "metadata-1", movieId: "movie-1", episodeId: null }],
-		);
+			await createStorageService().saveLibraryMedia(
+				{ metadataStorageMode: "sidecar", paths: [{ path: root, metadataStorageMode: null }] },
+				[{ filePath: mediaFilePath, metadataId: "metadata-1", movieId: await movieIdFor("metadata-1"), episodeId: null }],
+			);
 
-		expect(calls).toEqual(["movie:metadata-1:/media/movie:reelvault"]);
+			expect(await readdir(movieDirectory)).toEqual(["movie.reelvault.nfo"]);
+		} finally {
+			await removeTree(root);
+		}
 	});
 });

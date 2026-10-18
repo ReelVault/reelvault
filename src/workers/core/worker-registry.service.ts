@@ -1,10 +1,10 @@
 import type { WorkerDefinition } from "@reelvault/sdk/common";
-import { serverConfig } from "@/server.config";
-import { resourceAllocator } from "@/system/resource-allocator";
+import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { resourceAllocator } from "@/system/resource-allocator.service";
 import { serverRescueService } from "@/system/server-rescue.service";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 
 export class WorkerRegistryService {
 	readonly serviceName = "WorkerRegistryService";

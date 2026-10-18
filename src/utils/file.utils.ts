@@ -1,8 +1,8 @@
-import { chmod, rename, stat, unlink } from "node:fs/promises";
+import { chmod, rename } from "node:fs/promises";
 import { file as bunFile, write as bunWrite } from "bun";
-import { FS_STAT_TIMEOUT_MS } from "@/server.constants";
-import { DomainError, isMissingFile } from "./errors";
-import { createLogger } from "./logger";
+import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
+import { DomainError, isMissingFile } from "./domain.errors";
+import { createLogger } from "./logger.utils";
 import { PathUtils } from "./path.utils";
 import { PromiseTimeoutError, PromiseUtils } from "./promise.utils";
 import { isFiniteNumber, normalizeLower } from "./type.utils";
@@ -40,14 +40,17 @@ function errorCode(error: unknown): string | undefined {
  * @example createTempPath("/data/file.json") → "/data/file.json.<uuid>.tmp"
  * @example createTempPath("/data/file.json", ".source.tmp") → "/data/file.json.<uuid>.source.tmp"
  */
-export const createTempPath = (base: string, suffix = ".tmp"): string =>
-	`${base}.${crypto.randomUUID()}${suffix.startsWith(".") ? suffix : `.${suffix}`}`;
+export function createTempPath(base: string, suffix = ".tmp"): string {
+	return `${base}.${crypto.randomUUID()}${suffix.startsWith(".") ? suffix : `.${suffix}`}`;
+}
 
 /**
  * Change-detection signature (size + floored mtime) for cache keys that must
  * invalidate when a file is replaced in place.
  */
-export const fileStatSignature = (stats: { size: number; mtimeMs: number }): string => `${stats.size}:${Math.floor(stats.mtimeMs)}`;
+export function fileStatSignature(stats: { size: number; mtimeMs: number }): string {
+	return `${stats.size}:${Math.floor(stats.mtimeMs)}`;
+}
 
 const DEFAULT_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 15_000;
@@ -78,7 +81,9 @@ async function readJsonFile(path: string, options?: ReadJsonOptions | number): P
 	try {
 		const maxSize = typeof options === "number" ? options : options?.maxSize;
 		if (maxSize !== undefined) {
-			const stats = await stat(path).catch(() => null);
+			const stats = await bunFile(path)
+				.stat()
+				.catch(() => null);
 			if (!stats) return null;
 
 			if (stats.size > maxSize) {
@@ -109,7 +114,7 @@ async function readJsonFile(path: string, options?: ReadJsonOptions | number): P
 export const FileUtils = {
 	async getStats(path: string) {
 		try {
-			return await stat(path);
+			return await bunFile(path).stat();
 		} catch {
 			return null;
 		}
@@ -126,7 +131,7 @@ export const FileUtils = {
 	 */
 	async existence(path: string): Promise<"exists" | "missing" | "unavailable"> {
 		try {
-			await PromiseUtils.withTimeout(stat(path), FS_STAT_TIMEOUT_MS, `stat ${path}`);
+			await PromiseUtils.withTimeout(bunFile(path).stat(), FS_STAT_TIMEOUT_MS, `stat ${path}`);
 
 			return "exists";
 		} catch (error) {
@@ -193,7 +198,7 @@ export const FileUtils = {
 		}
 
 		try {
-			await unlink(path);
+			await bunFile(path).delete();
 
 			return true;
 		} catch {
@@ -252,9 +257,11 @@ export const FileUtils = {
 			} else {
 				logger.error("Download error", error, { filePath: destination });
 			}
-			await unlink(temporaryPath).catch(() => {
-				// Temporary file already removed — nothing to clean.
-			});
+			await bunFile(temporaryPath)
+				.delete()
+				.catch(() => {
+					// Temporary file already removed — nothing to clean.
+				});
 
 			return false;
 		}

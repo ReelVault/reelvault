@@ -1,8 +1,8 @@
 import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { DomainError } from "@/utils/errors";
-import type { MemoryCache } from "@/utils/memory-cache";
+import { DomainError } from "@/utils/domain.errors";
+import type { MemoryCache } from "@/utils/memory.cache";
 
 const IPV4_MAPPED_IPV6_REGEX = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/;
 const IPV6_ZONE_ID_REGEX = /^%.*$/;

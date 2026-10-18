@@ -1,6 +1,6 @@
 import type { MetadataImageOption } from "@reelvault/sdk/common";
 import { createHash } from "./crypto.utils";
-import { MemoryCache } from "./memory-cache";
+import { MemoryCache } from "./memory.cache";
 import { PathUtils } from "./path.utils";
 import { normalizeLower } from "./type.utils";
 

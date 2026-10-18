@@ -6,7 +6,7 @@
  * library layout (movies/series, categorized/basic) warm and cold — cold means
  * a corpus larger than the parse memo cache, so every name is parsed fresh.
  *
- * Usage: bun run scripts/benchmark.ts recognition [--iterations 200] [--rows 20000]
+ * Usage: bun run scripts/benchmark.script.ts recognition [--iterations 200] [--rows 20000]
  */
 
 import { bench, group, main, suiteArgs } from "benchkit";

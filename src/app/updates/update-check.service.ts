@@ -1,0 +1,225 @@
+import type { AdminUpdateRelease } from "@reelvault/sdk/common";
+import { SERVER_VERSION } from "@/config/version.constants";
+import { resolveWebVersion } from "@/system/web-dist.utils";
+import { DomainError, errorCodeOf, errorMessage } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
+import { detach } from "@/utils/promise.utils";
+import { isNewerVersion, isValidSemver } from "@/utils/semver.utils";
+import { isRecord } from "@/utils/type.utils";
+import { guardedFetch } from "@/utils/url-guard.utils";
+
+const SERVER_RELEASES_URL = "https://api.github.com/repos/ReelVault/reelvault/releases/latest";
+const WEB_RELEASES_URL = "https://api.github.com/repos/ReelVault/website/releases/latest";
+/** Unauthenticated GitHub allows 60 requests/h per IP — a TTL keeps us far below. */
+const CHECK_TTL_MS = 6 * 60 * 60_000;
+const REQUEST_TIMEOUT_MS = 15_000;
+const TAG_V_PREFIX_REGEX = /^v/;
+
+export interface UpdateCheckState {
+	serverLatest: AdminUpdateRelease | null;
+	webLatest: AdminUpdateRelease | null;
+	serverUpdateAvailable: boolean;
+	webRequiresServerUpdate: boolean;
+	webUpdateAvailable: boolean;
+	lastCheckedAt: string | null;
+	serverLastError: string | null;
+	webLastError: string | null;
+}
+
+type ReleaseFetcher = (url: string) => Promise<Response>;
+
+function toRelease(payload: unknown): AdminUpdateRelease | null {
+	if (!isRecord(payload)) return null;
+
+	const tagName = payload.tag_name;
+	const version = typeof tagName === "string" ? tagName.replace(TAG_V_PREFIX_REGEX, "") : "";
+	if (!version) return null;
+
+	const rawAssets = payload.assets;
+	const assets = Array.isArray(rawAssets) ? rawAssets : [];
+	const mappedAssets = assets.flatMap((asset) => {
+		if (!isRecord(asset)) return [];
+		if (typeof asset.name !== "string" || typeof asset.browser_download_url !== "string") return [];
+
+		return [{ name: asset.name, url: asset.browser_download_url, size: typeof asset.size === "number" ? asset.size : 0 }];
+	});
+
+	const releaseName = payload.name;
+	const htmlUrl = payload.html_url;
+	const publishedAt = payload.published_at;
+	const body = payload.body;
+
+	return {
+		version,
+		name: typeof releaseName === "string" && releaseName.length > 0 ? releaseName : `ReelVault ${version}`,
+		url: typeof htmlUrl === "string" ? htmlUrl : "",
+		publishedAt: typeof publishedAt === "string" ? publishedAt : null,
+		notes: typeof body === "string" && body.length > 0 ? body : null,
+		minServerVersion: null,
+		assets: mappedAssets,
+	};
+}
+
+/** Optional per-release compatibility manifest shipped with web releases. */
+async function toWebRelease(payload: unknown, fetcher: ReleaseFetcher): Promise<AdminUpdateRelease | null> {
+	const release = toRelease(payload);
+	if (!release) return null;
+
+	const manifestAsset = release.assets.find((asset) => asset.name === "release.json");
+	if (!manifestAsset) return release;
+
+	try {
+		const response = await fetcher(manifestAsset.url);
+		if (!response.ok)
+			throw new DomainError("internal", `Compatibility manifest download failed with HTTP ${response.status}`, {
+				code: "update.check_failed",
+			});
+
+		const manifest: unknown = await response.json();
+		if (isRecord(manifest) && typeof manifest.minServerVersion === "string") {
+			const min = manifest.minServerVersion.replace(TAG_V_PREFIX_REGEX, "");
+			if (!isValidSemver(min))
+				throw new DomainError("internal", `Compatibility manifest has an invalid minServerVersion: ${manifest.minServerVersion}`, {
+					code: "update.check_failed",
+				});
+
+			release.minServerVersion = min;
+		}
+	} catch {
+		// A missing or broken manifest degrades to "no compatibility constraint".
+	}
+
+	return release;
+}
+
+export class UpdateCheckService {
+	readonly serviceName = "UpdateCheckService";
+	readonly logger = createLogger("UpdateCheckService");
+
+	private readonly fetcher: ReleaseFetcher;
+	private cachedServer: AdminUpdateRelease | null = null;
+	private cachedWeb: AdminUpdateRelease | null = null;
+	private cachedAt = 0;
+	private serverLastError: string | null = null;
+	private webLastError: string | null = null;
+	private inFlight: Promise<void> | null = null;
+
+	constructor(
+		fetcher: ReleaseFetcher = (url) =>
+			guardedFetch(url, { headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+	) {
+		this.fetcher = fetcher;
+	}
+
+	/**
+	 * Fetches both component releases when the cache is stale. Failures are
+	 * kept per source and logged — an unreachable GitHub must never break boot
+	 * or a status read (expected anomaly → warn + degrade).
+	 */
+	async checkLatest(force = false): Promise<void> {
+		if (force) {
+			this.inFlight ??= this.fetchLatest();
+			try {
+				await this.inFlight;
+			} finally {
+				this.inFlight = null;
+			}
+
+			return;
+		}
+
+		if (this.cachedAt > 0 && Date.now() - this.cachedAt < CHECK_TTL_MS) return;
+
+		// A stale status read must never wait on GitHub — a hung fetch once kept
+		// the dashboard update card spinning for the full request timeout. Kick
+		// one shared refresh and serve the last known state right away.
+		this.inFlight ??= this.trackRefresh();
+	}
+
+	private async trackRefresh(): Promise<void> {
+		try {
+			await this.fetchLatest();
+		} finally {
+			this.inFlight = null;
+		}
+	}
+
+	getState(): UpdateCheckState {
+		const webVersion = resolveWebVersion();
+		const minServer = this.cachedWeb?.minServerVersion ?? null;
+
+		return {
+			serverLatest: this.cachedServer,
+			webLatest: this.cachedWeb,
+			serverUpdateAvailable: this.cachedServer ? isNewerVersion(this.cachedServer.version, SERVER_VERSION) : false,
+			webUpdateAvailable: this.cachedWeb && webVersion ? isNewerVersion(this.cachedWeb.version, webVersion) : false,
+			webRequiresServerUpdate: minServer !== null && isNewerVersion(minServer, SERVER_VERSION),
+			lastCheckedAt: this.cachedAt > 0 ? new Date(this.cachedAt).toISOString() : null,
+			serverLastError: this.serverLastError,
+			webLastError: this.webLastError,
+		};
+	}
+
+	private async fetchLatest(): Promise<void> {
+		const [serverResult, webResult] = await Promise.allSettled([this.fetchServerRelease(), this.fetchWebRelease()]);
+
+		if (serverResult.status === "fulfilled") {
+			this.cachedServer = serverResult.value;
+			this.serverLastError = null;
+		} else {
+			this.serverLastError = errorCodeOf(serverResult.reason, "update.check_failed");
+			this.logger.warn("Server release check failed — keeping previous state", {
+				reason: this.serverLastError,
+				error: errorMessage(serverResult.reason),
+			});
+		}
+
+		if (webResult.status === "fulfilled") {
+			this.cachedWeb = webResult.value;
+			this.webLastError = null;
+		} else {
+			this.webLastError = errorCodeOf(webResult.reason, "update.check_failed");
+			this.logger.warn("Web release check failed — keeping previous state", {
+				reason: this.webLastError,
+				error: errorMessage(webResult.reason),
+			});
+		}
+
+		this.cachedAt = Date.now();
+		this.logger.info("Update check completed", {
+			serverVersion: SERVER_VERSION,
+			serverLatest: this.cachedServer?.version ?? null,
+			webVersion: resolveWebVersion(),
+			webLatest: this.cachedWeb?.version ?? null,
+		});
+	}
+
+	private async fetchServerRelease(): Promise<AdminUpdateRelease | null> {
+		return await this.fetchRelease(SERVER_RELEASES_URL, toRelease);
+	}
+
+	private async fetchWebRelease(): Promise<AdminUpdateRelease | null> {
+		return await this.fetchRelease(WEB_RELEASES_URL, (payload) => toWebRelease(payload, this.fetcher));
+	}
+
+	private async fetchRelease(
+		url: string,
+		mapPayload: (payload: unknown) => AdminUpdateRelease | null | Promise<AdminUpdateRelease | null>,
+	): Promise<AdminUpdateRelease | null> {
+		const response = await this.fetcher(url);
+		if (!response.ok) throw new DomainError("internal", `HTTP ${response.status}`, { code: "update.check_failed" });
+
+		const payload: unknown = await response.json();
+		const release = await mapPayload(payload);
+		if (!release) throw new DomainError("internal", "Release payload was missing a usable tag name", { code: "update.check_failed" });
+
+		return release;
+	}
+}
+
+export const updateCheckService = new UpdateCheckService();
+
+/** Kick a first check in the background without ever blocking or failing boot. */
+export function scheduleStartupUpdateCheck(): void {
+	detach(updateCheckService.checkLatest());
+}

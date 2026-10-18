@@ -1,4 +1,4 @@
-import { SystemSettingsCreator } from "../system-settings.utils";
+import { SystemSettingsCreator } from "@/config/system-settings.utils";
 
 export type FfmpegHwaccelOption = "auto" | "none" | "nvenc" | "vaapi" | "qsv" | "amf" | "videotoolbox";
 type FfmpegPresetOption = "auto" | "ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow" | "slower" | "veryslow";

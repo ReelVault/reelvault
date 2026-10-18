@@ -1,4 +1,4 @@
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 
 const logger = createLogger("FFmpegProcessTracker");
@@ -50,13 +50,9 @@ class FFmpegProcessTracker {
 	private pendingStreaming = 0;
 
 	constructor() {
-		const killAllHandler = () => {
-			this.killAll();
-		};
-
-		process.on("exit", killAllHandler);
-		process.on("SIGINT", killAllHandler);
-		process.on("SIGTERM", killAllHandler);
+		// Last-resort kill on every exit path. Signals belong to Shutdown, which closes
+		// streaming sessions gracefully first; killing here on SIGINT/SIGTERM skipped that.
+		process.on("exit", () => this.killAll());
 	}
 
 	/**

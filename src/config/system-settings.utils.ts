@@ -1,5 +1,5 @@
 import type { SettingDefinition, SettingGroup, SettingMeta } from "./system-settings.types";
-import { createValueCodecs } from "./value-codecs";
+import { createValueCodecs } from "./value-codecs.utils";
 
 interface SettingBuilder {
 	string(key: string, defaultValue: string): SettingDefinition<string>;

@@ -1,28 +1,23 @@
 import type { CreatePlaybackSession, PlaybackDecision, PlaybackSession } from "@reelvault/sdk/common";
-import { systemSettingsService } from "@/application/admin/system-settings.service";
-import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
-import { mediaRepository as defaultMediaRepository } from "@/database/repositories/media-files.repository";
-import { playbackRepository } from "@/database/repositories/playback.repository";
-import { profilePreferencesRepository as defaultProfilePreferencesRepository } from "@/database/repositories/profile-preferences.repository";
-import { profileStreamPrefsRepository } from "@/database/repositories/profile-stream-prefs.repository";
+import { serverConstants } from "@/config/server/server.constants";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
-import { serverConstants } from "@/server.constants";
-import { assertFound, DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { resolveSessionSelection, type SessionSelectionInput } from "@/modules/streaming/decisions/session-selection.resolver";
+import type { SessionAccessInfo } from "@/modules/streaming/runtime/session-state/session.store";
+import type { StreamInitData } from "@/modules/streaming/runtime/stream.initializer";
+import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
+import { type StreamingProgressSnapshot, streamingStorage, streamingWorker } from "@/modules/streaming/streaming.ports";
+import type { PlaybackSessionInput, SessionReleaseOutcome, TerminatedSessionEntry } from "@/modules/streaming/streaming.types";
+import { assertFound, DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
-import { runSafely } from "@/utils/safe-execute";
-import { enqueueStreamInit as defaultEnqueueStreamInit } from "@/workers/definitions/streaming/stream-initialization.worker";
-import { workerService as defaultWorkerService } from "@/workers/worker.service";
-import { resolveSessionSelection, type SessionSelectionInput } from "../decisions/session-selection.resolver";
-import type { SessionAccessInfo } from "../runtime/session-state/session-store";
-import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
-import type { PlaybackSessionInput, SessionReleaseOutcome, TerminatedSessionEntry } from "../streaming.types";
-import { PlaybackSessionIdempotencyRegistry } from "./playback-session-idempotency";
+import { runSafely } from "@/utils/safe-execute.utils";
+import { PlaybackSessionIdempotencyRegistry } from "./playback-session.registry";
 import { SessionCreationGuard } from "./session-creation.guard";
 import { type PlaybackSessionStartedEvent, publishSessionStarted } from "./session-events.publisher";
-import { findSameTitleSession } from "./session-reclaim";
+import { findSameTitleSession } from "./session-reclaim.resolver";
 import { assertSafeId, parseCapabilities, toPlaybackSessionInput } from "./session-request.mapper";
-import { isAdminTerminationReason, resolveSessionAccess } from "./stream-access";
+import { isAdminTerminationReason, resolveSessionAccess } from "./stream-access.guard";
 
 export type PlaybackSessionCandidate = SessionSelectionInput["file"] & {
 	id: string;
@@ -56,30 +51,45 @@ export interface ServiceDependencies {
 	profilePreferencesRepository: {
 		getEffective(input: { profileId: string }): Promise<SessionSelectionInput["preferences"]>;
 	};
-	profileStreamPrefsRepository: Pick<typeof profileStreamPrefsRepository, "find">;
-	playbackRepository: Pick<typeof playbackRepository, "findProgressUpdateData" | "hasActiveTitleProgress">;
-	systemSettings: Pick<typeof systemSettingsService, "get">;
+	profileStreamPrefsRepository: {
+		findForTitle(profileId: string, metadataId: string): Promise<SessionSelectionInput["perTitlePreferences"] | undefined>;
+	};
+	playbackRepository: {
+		findProgressUpdateData(fileId: string, profileId: string): Promise<StreamingProgressSnapshot>;
+		hasActiveTitleProgress(profileId: string, metadataId: string, thresholdSeconds: number): Promise<boolean>;
+	};
+	systemSettings: Pick<typeof systemSettingsStore, "get">;
 	workerService: {
 		createOperation(input: { type: string; reference?: { type: string; id: string } }): Promise<{ id: string }>;
 		removeOperation(id: string): Promise<void> | void;
 	};
-	enqueueStreamInit: (
-		data: Parameters<typeof defaultEnqueueStreamInit>[0],
-		options?: Parameters<typeof defaultEnqueueStreamInit>[1],
-	) => Promise<{ operationId?: string | null }>;
+	enqueueStreamInit: (data: StreamInitData, options?: { operationId?: string | undefined }) => Promise<{ operationId?: string | null }>;
 	runtime: SessionLifecycleRuntime;
 	publisher: (event: PlaybackSessionStartedEvent) => void;
 	assertEnvironment: typeof assertFFMpegAvailable;
 }
 
 const defaultDependencies: ServiceDependencies = {
-	mediaRepository: defaultMediaRepository,
-	profilePreferencesRepository: defaultProfilePreferencesRepository,
-	profileStreamPrefsRepository,
-	playbackRepository,
-	systemSettings: systemSettingsService,
-	workerService: defaultWorkerService,
-	enqueueStreamInit: defaultEnqueueStreamInit,
+	mediaRepository: {
+		findForPlaybackSession: (mediaFileId) => streamingStorage().findForPlaybackSession(mediaFileId),
+	},
+	profilePreferencesRepository: {
+		getEffective: (input) => streamingStorage().getEffectivePreferences(input.profileId),
+	},
+	profileStreamPrefsRepository: {
+		findForTitle: (profileId, metadataId) => streamingStorage().findStreamPreferences({ profileId, metadataId }),
+	},
+	playbackRepository: {
+		findProgressUpdateData: (fileId, profileId) => streamingStorage().findProgressUpdateData(fileId, profileId),
+		hasActiveTitleProgress: (profileId, metadataId, thresholdSeconds) =>
+			streamingStorage().hasActiveTitleProgress(profileId, metadataId, thresholdSeconds),
+	},
+	systemSettings: systemSettingsStore,
+	workerService: {
+		createOperation: (input) => streamingWorker().createOperation(input),
+		removeOperation: (id) => streamingWorker().removeOperation(id),
+	},
+	enqueueStreamInit: (data, options) => streamingWorker().enqueueStreamInit(data, options),
 	runtime: streamingRuntimeService,
 	publisher: publishSessionStarted,
 	assertEnvironment: assertFFMpegAvailable,
@@ -189,10 +199,7 @@ export class SessionLifecycleService {
 		const profileSessions = runtime.listSessionsForProfile(profileId);
 		if (profileSessions.length === 0) return false;
 
-		const summaries = await liveSessionsRepository.findMediaSummaries([
-			mediaFileId,
-			...profileSessions.map((session) => session.mediaFileId),
-		]);
+		const summaries = await streamingStorage().findMediaSummaries([mediaFileId, ...profileSessions.map((session) => session.mediaFileId)]);
 		const titleOf = new Map(summaries.map((summary) => [summary.mediaFileId, summary.metadataId]));
 		const older = findSameTitleSession(profileSessions, titleOf, mediaFileId);
 		if (!older) return false;
@@ -325,7 +332,7 @@ export class SessionLifecycleService {
 				: false);
 		const perTitlePreferences =
 			hasActiveTitleProgress && progressData.mediaFile
-				? await this.dependencies.profileStreamPrefsRepository.find(profileId, progressData.mediaFile.metadataId)
+				? ((await this.dependencies.profileStreamPrefsRepository.findForTitle(profileId, progressData.mediaFile.metadataId)) ?? null)
 				: null;
 
 		return {

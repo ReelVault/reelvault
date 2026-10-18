@@ -1,20 +1,20 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { notificationsService } from "@/application/notifications/notifications.service";
-import { databaseFactory } from "@/database/database";
-import { twoFactorRepository } from "@/database/repositories/two-factor.repository";
-import { twoFactors, users } from "@/database/schemas/auth.schema";
-import { libraries } from "@/database/schemas/libraries.schema";
-import { mediaFiles } from "@/database/schemas/media-files.schema";
-import { metadata } from "@/database/schemas/metadata.schema";
-import { movies } from "@/database/schemas/movies.schema";
-import { notifications } from "@/database/schemas/notifications.schema";
-import { profiles } from "@/database/schemas/profiles.schema";
-import { watchedHistory } from "@/database/schemas/watched-history.schema";
-import { watchlist } from "@/database/schemas/watchlist.schema";
-import { env } from "@/env";
+import { notificationsService } from "@/app/notifications/notifications.service";
+import { twoFactorRepository } from "@/app/repositories/two-factor.repository";
+import { env } from "@/config/env.config";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { twoFactors, users } from "@/integrations/drizzle-orm/schemas/auth.schema";
+import { libraries } from "@/integrations/drizzle-orm/schemas/libraries.schema";
+import { mediaFiles } from "@/integrations/drizzle-orm/schemas/media-files.schema";
+import { metadata } from "@/integrations/drizzle-orm/schemas/metadata.schema";
+import { movies } from "@/integrations/drizzle-orm/schemas/movies.schema";
+import { notifications } from "@/integrations/drizzle-orm/schemas/notifications.schema";
+import { profiles } from "@/integrations/drizzle-orm/schemas/profiles.schema";
+import { watchedHistory } from "@/integrations/drizzle-orm/schemas/watched-history.schema";
+import { watchlist } from "@/integrations/drizzle-orm/schemas/watchlist.schema";
 import { PROFILE_UNLOCK_COOKIE, profilePinFingerprint, signProfileUnlock } from "@/utils/profile-unlock.utils";
-import { installSessionStub, prepareSecuritySuite, send } from "./security-harness";
+import { installSessionStub, prepareSecuritySuite, send } from "./security.helper";
 
 /**
  * Two ordinary accounts, each with its own profiles, and the rows those profiles own:

@@ -1,6 +1,6 @@
 import type { Subprocess } from "bun";
 import { buildDirectStreamOutputArgs } from "@/integrations/ffmpeg/ffmpeg.direct-stream-args";
-import type { StreamStartInput } from "../../streaming.types";
+import type { StreamStartInput } from "@/modules/streaming/streaming.types";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**

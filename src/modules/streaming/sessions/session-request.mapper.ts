@@ -1,9 +1,9 @@
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { DEFAULT_BROWSER_CAPABILITIES } from "@reelvault/sdk/common";
-import { DomainError } from "@/utils/errors";
-import { HDR_TRANSFER_ALLOWLIST } from "../decisions/codec-maps";
-import type { PlaybackSessionInput } from "../streaming.types";
-import { normalizeStringList } from "../utils/string-list.utils";
+import { HDR_TRANSFER_ALLOWLIST } from "@/modules/streaming/decisions/codec-maps.constants";
+import type { PlaybackSessionInput } from "@/modules/streaming/streaming.types";
+import { normalizeStringList } from "@/modules/streaming/utils/string-list.utils";
+import { DomainError } from "@/utils/domain.errors";
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 

@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
+import { removeTree } from "@/utils/directory.utils";
 import { findIgnoredLocalAssets } from "./ignored-assets.diagnostics";
 
 test("ignored asset diagnostics reports logos and banners only", async () => {
@@ -19,6 +20,6 @@ test("ignored asset diagnostics reports logos and banners only", async () => {
 			{ path: join(root, "nested", "banner.jpg"), fileName: "banner.jpg", reason: "unsupported-artwork-type" },
 		]);
 	} finally {
-		await rm(root, { force: true, recursive: true });
+		await removeTree(root);
 	}
 });

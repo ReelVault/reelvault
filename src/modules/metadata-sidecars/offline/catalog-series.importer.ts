@@ -1,9 +1,22 @@
 import type { Database } from "bun:sqlite";
+import type { OfflineRebuildIssue } from "@/modules/metadata-sidecars/offline-rebuild.types";
 import { PathUtils } from "@/utils/path.utils";
-import type { OfflineRebuildIssue } from "../offline-rebuild-report";
 import { parseEpisode } from "./catalog-episode.parser";
-import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.common";
+import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.utils";
 import { type CatalogDirectoryNode, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
+
+/** Two files that name the same season and episode: the first one is imported, the rest are recorded. */
+const DUPLICATE_EPISODE_REASON = "season and episode number already imported; file skipped";
+
+function hasEpisodeNumber(database: Database, seasonId: string, episodeNumber: number): boolean {
+	return (
+		database
+			.query<{ id: string }, [string, number]>(
+				"SELECT id FROM episodes WHERE season_id = ? AND type = 'regular' AND episode_number = ? LIMIT 1",
+			)
+			.get(seasonId, episodeNumber) !== null
+	);
+}
 
 export class CatalogSeriesImporter extends CatalogImporter {
 	protected buildImportOptions(
@@ -34,6 +47,10 @@ export class CatalogSeriesImporter extends CatalogImporter {
 						"INSERT OR IGNORE INTO seasons (id, stable_key, metadata_id, season_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
 						[seasonId, seasonId, metadataId, episode.season, now, now],
 					);
+					if (hasEpisodeNumber(database, seasonId, episode.number)) {
+						skipped.push({ path: videoPath, reason: DUPLICATE_EPISODE_REASON });
+						continue;
+					}
 					const episodeId = crypto.randomUUID();
 					database.run(
 						"INSERT INTO episodes (id, stable_key, season_id, type, episode_number, title, created_at, updated_at) VALUES (?, ?, ?, 'regular', ?, ?, ?, ?)",

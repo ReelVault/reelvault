@@ -1,15 +1,12 @@
 import type { WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk/common";
-import { adminFailureNotificationService } from "@/application/admin/admin-failure-notification.service";
-import { type WorkerItem, workerJobRepository } from "@/database/repositories/worker.repository";
-import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
-import { type WorkerExecutionRecord, workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";
+import { MINUTE } from "@/config/server/server.constants";
 import { realtimeService } from "@/modules/realtime/realtime.service";
-import { MINUTE } from "@/server.constants";
-import { errorMessage } from "@/utils/errors";
+import { errorMessage } from "@/utils/domain.errors";
 import { safeParseJson } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
-import { getRetryDelay } from "../utils/worker-policy.utils";
+import { getRetryDelay } from "@/workers/utils/worker-policy.utils";
+import { type WorkerExecutionRecord, type WorkerItem, workerDependencies } from "@/workers/worker.ports";
 
 interface ActiveExecution {
 	workerId: string;
@@ -158,8 +155,8 @@ export class WorkerExecutionPoolService {
 
 				exec.lastProgressWriteAt = now;
 				await Promise.all([
-					workerJobRepository.updateProgress(item.id, percent, item.claimToken ?? undefined),
-					item.operationId ? workerOperationRepository.updateProgress(item.operationId, percent) : undefined,
+					workerDependencies().jobs.updateProgress(item.id, percent, item.claimToken ?? undefined),
+					item.operationId ? workerDependencies().operations.updateProgress(item.operationId, percent) : undefined,
 				]);
 				// Same 1s throttle as the DB write — a small WS frame instead of the
 				// client polling operations every few seconds.
@@ -183,7 +180,7 @@ export class WorkerExecutionPoolService {
 	): Promise<void> {
 		if (await this.handleAbortAfterCompletion(item, exec, startedAt, durationMs)) return;
 
-		await workerJobRepository.complete(item.id, this.runnerId, JSON.stringify(result ?? null), item.claimToken ?? undefined);
+		await workerDependencies().jobs.complete(item.id, this.runnerId, JSON.stringify(result ?? null), item.claimToken ?? undefined);
 		await this.recordScheduleExecution(item.workerId, {
 			status: "completed",
 			startedAt,
@@ -221,7 +218,7 @@ export class WorkerExecutionPoolService {
 				retryAt: runAt.toISOString(),
 				error: errorMsg,
 			});
-			await workerJobRepository.retry(item.id, this.runnerId, runAt, errorMsg, item.claimToken ?? undefined);
+			await workerDependencies().jobs.retry(item.id, this.runnerId, runAt, errorMsg, item.claimToken ?? undefined);
 		} else {
 			this.logger.error("Worker task permanently failed", {
 				workerId: item.workerId,
@@ -230,7 +227,7 @@ export class WorkerExecutionPoolService {
 				error: errorMsg,
 			});
 			await Promise.all([
-				workerJobRepository.fail(item.id, this.runnerId, errorMsg, item.claimToken ?? undefined),
+				workerDependencies().jobs.fail(item.id, this.runnerId, errorMsg, item.claimToken ?? undefined),
 				this.recordScheduleExecution(item.workerId, {
 					status: "failed",
 					startedAt,
@@ -239,7 +236,7 @@ export class WorkerExecutionPoolService {
 					error: errorMsg,
 				}),
 			]);
-			adminFailureNotificationService.notifyWorkerFailed(item.workerId, errorMsg);
+			workerDependencies().services.adminFailureNotifications.notifyWorkerFailed(item.workerId, errorMsg);
 		}
 	}
 
@@ -293,19 +290,19 @@ export class WorkerExecutionPoolService {
 		const claimToken = exec.item.claimToken ?? undefined;
 		try {
 			if (exec.abortReason === "cancel") {
-				await workerJobRepository.cancelRunning(id, claimToken);
+				await workerDependencies().jobs.cancelRunning(id, claimToken);
 
 				return;
 			}
 
 			if (exec.abortReason === "timeout") {
-				await workerJobRepository.fail(id, this.runnerId, "Execution timed out and did not stop after the grace period", claimToken);
+				await workerDependencies().jobs.fail(id, this.runnerId, "Execution timed out and did not stop after the grace period", claimToken);
 
 				return;
 			}
 
 			if (exec.abortReason === "rescue" || exec.abortReason === "shutdown") {
-				await workerJobRepository.requeueRunning(id, this.runnerId, `Requeued after ${exec.abortReason} force-release`, claimToken);
+				await workerDependencies().jobs.requeueRunning(id, this.runnerId, `Requeued after ${exec.abortReason} force-release`, claimToken);
 			}
 		} catch (error) {
 			this.logger.warn("Failed to finalize an abandoned worker execution", {
@@ -335,14 +332,14 @@ export class WorkerExecutionPoolService {
 
 		if (controllerSignalAborted && (reason === "rescue" || reason === "shutdown")) {
 			const note = errorMsg ? `Requeued by ${reason}: ${errorMsg}` : `Requeued by ${reason}`;
-			await workerJobRepository.requeueRunning(item.id, this.runnerId, note, item.claimToken ?? undefined);
+			await workerDependencies().jobs.requeueRunning(item.id, this.runnerId, note, item.claimToken ?? undefined);
 
 			return true;
 		}
 
 		if (controllerSignalAborted && reason === "cancel") {
 			await Promise.all([
-				workerJobRepository.cancelRunning(item.id, item.claimToken ?? undefined),
+				workerDependencies().jobs.cancelRunning(item.id, item.claimToken ?? undefined),
 				this.recordScheduleExecution(item.workerId, {
 					status: "cancelled",
 					startedAt,
@@ -363,7 +360,7 @@ export class WorkerExecutionPoolService {
 	 * only loses "last run" stats — it must not trigger a retry. */
 	private async recordScheduleExecution(workerId: string, record: WorkerExecutionRecord): Promise<void> {
 		try {
-			await workerSchedulesRepository.updateExecution(workerId, record);
+			await workerDependencies().schedules.updateExecution(workerId, record);
 		} catch (error) {
 			this.logger.warn("Worker schedule update failed — task result unaffected", { workerId, error: errorMessage(error) });
 		}

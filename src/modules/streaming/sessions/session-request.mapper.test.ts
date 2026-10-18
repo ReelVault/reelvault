@@ -1,14 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { CreatePlaybackSession } from "@reelvault/sdk/common";
+import { type CreatePlaybackSession, DEFAULT_BROWSER_CAPABILITIES } from "@reelvault/sdk/common";
 import { assertSafeId, parseCapabilities, toPlaybackSessionInput } from "./session-request.mapper";
 
 describe("session request mapper", () => {
-	test("assertSafeId accepts safe ids and rejects path-like input", () => {
-		expect(() => assertSafeId("abc_123-XYZ")).not.toThrow();
-		expect(() => assertSafeId("session-1", "sessionId")).not.toThrow();
-		expect(() => assertSafeId("../etc/passwd")).toThrow("Invalid fileId");
-		expect(() => assertSafeId("bad id")).toThrow("Invalid fileId");
-		expect(() => assertSafeId("")).toThrow("Invalid fileId");
+	test("assertSafeId rejects path-like, spaced and empty ids as invalid", () => {
+		expect(() => assertSafeId("../etc/passwd")).toThrow(expect.objectContaining({ category: "validation", code: "stream.id_invalid" }));
+		expect(() => assertSafeId("bad id")).toThrow(expect.objectContaining({ category: "validation", code: "stream.id_invalid" }));
+		expect(() => assertSafeId("")).toThrow(expect.objectContaining({ category: "validation", code: "stream.id_invalid" }));
 	});
 
 	test("parseCapabilities splits, deduplicates and sorts codec lists", () => {
@@ -22,8 +20,8 @@ describe("session request mapper", () => {
 
 	test("parseCapabilities falls back to browser defaults for empty lists", () => {
 		const capabilities = parseCapabilities({});
-		expect(capabilities.videoCodecs.length).toBeGreaterThan(0);
-		expect(capabilities.audioCodecs.length).toBeGreaterThan(0);
+		expect(capabilities.videoCodecs).toEqual(DEFAULT_BROWSER_CAPABILITIES.videoCodecs);
+		expect(capabilities.audioCodecs).toEqual(DEFAULT_BROWSER_CAPABILITIES.audioCodecs);
 		expect(parseCapabilities({ videoCodecs: "", maxBitrate: 8000 }).maxBitrate).toBe(8000);
 	});
 

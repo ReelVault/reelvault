@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { locateLocalNfoChain } from "./local-nfo-locator";
+import { removeTreeSync } from "@/utils/directory.utils";
+import { locateLocalNfoChain } from "./local-nfo.locator";
 
 const root = join(tmpdir(), `reelvault-nfo-locator-${process.pid}`);
 const movieDir = join(root, "Backrooms (2026)");
@@ -21,17 +22,20 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-	rmSync(root, { recursive: true, force: true });
+	removeTreeSync(root);
 });
 
 describe("locateLocalNfoChain", () => {
 	test("finds basename.nfo before movie.nfo next to a film", async () => {
-		writeFileSync(join(movieDir, "backrooms.2026.nfo"), "x");
+		const dir = join(root, "Basename Film (2026)");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "basename.2026.mkv"), "x");
+		writeFileSync(join(dir, "basename.2026.nfo"), "x");
+		writeFileSync(join(dir, "movie.nfo"), "x");
 
-		const chain = await locateLocalNfoChain(join(movieDir, "backrooms.2026.mkv"), "movie");
+		const chain = await locateLocalNfoChain(join(dir, "basename.2026.mkv"), "movie");
 
-		expect(chain.movieDocument).toBe(join(movieDir, "backrooms.2026.nfo"));
-		rmSync(join(movieDir, "backrooms.2026.nfo"));
+		expect(chain.movieDocument).toBe(join(dir, "basename.2026.nfo"));
 	});
 
 	test("falls back to movie.nfo", async () => {
@@ -58,7 +62,7 @@ describe("locateLocalNfoChain", () => {
 
 		expect(chain.seasonDocument).toBe(join(seasonTwoDir, "season.nfo"));
 		expect(chain.seriesDocument).toBe(join(seriesDir, "tvshow.nfo"));
-		rmSync(seasonTwoDir, { recursive: true, force: true });
+		removeTreeSync(seasonTwoDir);
 	});
 
 	test("returns empty entries when no sidecars exist", async () => {
@@ -78,7 +82,7 @@ describe("locateLocalNfoChain", () => {
 		// A standard .nfo still wins over the app's snapshot.
 		writeFileSync(join(dir, "movie.nfo"), "x");
 		expect((await locateLocalNfoChain(join(dir, "own.format.mkv"), "movie")).movieDocument).toBe(join(dir, "movie.nfo"));
-		rmSync(dir, { recursive: true, force: true });
+		removeTreeSync(dir);
 	});
 
 	test("reads reelvault series, season and episode snapshots", async () => {
@@ -95,6 +99,6 @@ describe("locateLocalNfoChain", () => {
 		expect(chain.episodeDocument).toBe(join(season, "E01.reelvault.nfo"));
 		expect(chain.seasonDocument).toBe(join(season, "season01-reelvault.nfo"));
 		expect(chain.seriesDocument).toBe(join(series, "tvshow.reelvault.nfo"));
-		rmSync(series, { recursive: true, force: true });
+		removeTreeSync(series);
 	});
 });

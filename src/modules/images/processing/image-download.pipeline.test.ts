@@ -139,13 +139,19 @@ describe("ImageDownloadPipeline", () => {
 	test("rejects formats outside the content-type allowlist", async () => {
 		const { pipeline } = createPipeline({ metadataFormat: "dng" });
 
-		await expect(pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster")).rejects.toThrow("Unsupported image format: dng");
+		await expect(pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster")).rejects.toMatchObject({
+			category: "validation",
+			code: "images.download_failed",
+		});
 	});
 
 	test("throws an InternalError and cleans up temporaries when the optimized write fails", async () => {
 		const { pipeline, spies } = createPipeline({ writeSucceeds: false });
 
-		await expect(pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster")).rejects.toThrow("Cannot write optimized image");
+		await expect(pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster")).rejects.toMatchObject({
+			category: "internal",
+			code: "image.write_failed",
+		});
 		expect(spies.deleted.filter((path) => path.endsWith(".tmp"))).toHaveLength(2);
 	});
 

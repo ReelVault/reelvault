@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
-import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
-import { metadataProviderSettingsRepository } from "@/database/repositories/metadata-provider-settings.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";
 import { providerService } from "./provider.service";
 
+const db = useTestDatabase();
 const plugin: ReelVaultPlugin = { setup: async () => undefined };
 const manifest: PluginManifest = {
 	id: "provider-link-test-plugin",
@@ -45,16 +45,7 @@ function registerProviders(providers: MetadataProvider[]): void {
 	metadataProviderSettingsService.invalidateCache();
 }
 
-const originalList = metadataProviderSettingsRepository.list;
-
-beforeEach(() => {
-	// Settings lookups would otherwise hit the un-migrated test DB; these tests
-	// only need "no persisted overrides".
-	metadataProviderSettingsRepository.list = () => Promise.resolve([]);
-});
-
 afterEach(() => {
-	metadataProviderSettingsRepository.list = originalList;
 	pluginRegistry.clear();
 	metadataProviderSettingsService.invalidateCache();
 });
@@ -200,7 +191,7 @@ test("discover returns the first provider with items and caches only positive re
 	expect(calls).toEqual(["a", "b", "a"]);
 });
 
-test("discover logs a failed provider and falls through to the next one", async () => {
+test("discover falls through a failing provider to the next one", async () => {
 	const calls: string[] = [];
 	registerProviders([
 		createProvider("a-provider", {
@@ -299,34 +290,28 @@ test("a library's provider order is part of the aggregated lookup key, so a reor
 		});
 	registerProviders([provider("order-a"), provider("order-b")]);
 	const identity = { title: "Order Movie", type: "movie" as const, year: 2002 };
-	const libraryId = "lib-provider-order";
-	let rows: Array<{ providerId: string; priority: number; enabled: boolean }> = [];
-	const stubs = [
-		stubMethod(libraryProviderSettingsRepository, "listForLibrary", () => Promise.resolve(rows)),
-		stubMethod(libraryProviderSettingsRepository, "replaceForLibrary", () => Promise.resolve()),
-	];
-	const applyOrder = async (next: typeof rows) => {
-		rows = next;
-		await metadataProviderSettingsService.setLibraryOverrides(libraryId, next);
-	};
-	try {
-		await applyOrder([
-			{ providerId: "order-a", priority: 1, enabled: true },
-			{ providerId: "order-b", priority: 2, enabled: true },
-		]);
-		await providerService.fetchAggregatedDetails("movie", identity, { libraryId, language: "pl" });
-		const fetchedBefore = fetched.length;
+	const [library] = await db
+		.client()
+		.insert(schema.libraries)
+		.values({ name: "Order library", type: "movies" })
+		.returning({ id: schema.libraries.id });
+	if (!library) throw new Error("The library should be inserted");
+	const libraryId = library.id;
 
-		await applyOrder([
-			{ providerId: "order-a", priority: 2, enabled: true },
-			{ providerId: "order-b", priority: 1, enabled: true },
-		]);
-		await providerService.fetchAggregatedDetails("movie", identity, { libraryId, language: "pl" });
+	await metadataProviderSettingsService.setLibraryOverrides(libraryId, [
+		{ providerId: "order-a", priority: 1, enabled: true },
+		{ providerId: "order-b", priority: 2, enabled: true },
+	]);
+	await providerService.fetchAggregatedDetails("movie", identity, { libraryId, language: "pl" });
+	const fetchedBefore = fetched.length;
 
-		expect(fetched.length).toBeGreaterThan(fetchedBefore);
-	} finally {
-		for (const stub of stubs) stub.restore();
-	}
+	await metadataProviderSettingsService.setLibraryOverrides(libraryId, [
+		{ providerId: "order-a", priority: 2, enabled: true },
+		{ providerId: "order-b", priority: 1, enabled: true },
+	]);
+	await providerService.fetchAggregatedDetails("movie", identity, { libraryId, language: "pl" });
+
+	expect(fetched.length).toBeGreaterThan(fetchedBefore);
 });
 
 test("fetchDetailsByProvider passes the requested metadata language to the provider", async () => {

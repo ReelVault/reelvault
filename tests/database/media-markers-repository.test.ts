@@ -1,13 +1,16 @@
-import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { sql } from "drizzle-orm";
-import { databaseFactory } from "@/database/database";
-import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { mediaMarkersRepository } from "@/app/repositories/media-markers.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { insertMovieMediaFile } from "../helpers/media.fixture";
+import { useTestDatabase } from "../helpers/test-database.helper";
 
-const client = databaseFactory.getClient();
+const db = useTestDatabase();
 
-interface MarkerRow {
+type FileKey = "alpha" | "beta" | "gamma";
+
+interface MarkerFixture {
 	id: string;
-	mediaFileId: string;
+	file: FileKey;
 	type: "intro" | "credits" | "recap" | "chapter" | "highlight";
 	label: string | null;
 	source: "automatic" | "manual" | "plugin";
@@ -15,42 +18,37 @@ interface MarkerRow {
 }
 
 // Created in this order, so the repository's createdAt ordering is the id order.
-const FIXTURES: MarkerRow[] = [
-	{ id: "m1", mediaFileId: "file-alpha", type: "intro", label: "Opening", source: "automatic", pluginId: null },
-	{ id: "m2", mediaFileId: "file-alpha", type: "credits", label: "Closing credits", source: "manual", pluginId: null },
-	{ id: "m3", mediaFileId: "file-beta", type: "intro", label: null, source: "plugin", pluginId: "skip-plugin" },
-	{ id: "m4", mediaFileId: "file-gamma", type: "recap", label: "Previously 50% recap", source: "automatic", pluginId: null },
-	{ id: "m5", mediaFileId: "file-gamma", type: "highlight", label: "Dragon 500", source: "manual", pluginId: null },
+const FIXTURES: MarkerFixture[] = [
+	{ id: "m1", file: "alpha", type: "intro", label: "Opening", source: "automatic", pluginId: null },
+	{ id: "m2", file: "alpha", type: "credits", label: "Closing credits", source: "manual", pluginId: null },
+	{ id: "m3", file: "beta", type: "intro", label: null, source: "plugin", pluginId: "skip-plugin" },
+	{ id: "m4", file: "gamma", type: "recap", label: "Previously 50% recap", source: "automatic", pluginId: null },
+	{ id: "m5", file: "gamma", type: "highlight", label: "Dragon 500", source: "manual", pluginId: null },
 ];
 
-beforeAll(async () => {
-	await client.run(
-		sql.raw(`
-			CREATE TABLE IF NOT EXISTS media_markers (
-				id TEXT PRIMARY KEY NOT NULL,
-				media_file_id TEXT NOT NULL,
-				type TEXT NOT NULL,
-				start_seconds REAL NOT NULL,
-				end_seconds REAL NOT NULL,
-				label TEXT,
-				source TEXT NOT NULL DEFAULT 'manual',
-				plugin_id TEXT,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-	);
-});
+let fileIds: Record<FileKey, string>;
 
 beforeEach(async () => {
-	await client.run(sql.raw("DELETE FROM media_markers"));
-
-	for (const [index, row] of FIXTURES.entries()) {
-		await client.run(sql`
-			INSERT INTO media_markers (id, media_file_id, type, start_seconds, end_seconds, label, source, plugin_id, created_at, updated_at)
-			VALUES (${row.id}, ${row.mediaFileId}, ${row.type}, 0, 10, ${row.label}, ${row.source}, ${row.pluginId}, ${index}, ${index})
-		`);
-	}
+	const client = db.client();
+	fileIds = {
+		alpha: await insertMovieMediaFile(client, "/movies/alpha.mkv", "meta-alpha"),
+		beta: await insertMovieMediaFile(client, "/movies/beta.mkv", "meta-beta"),
+		gamma: await insertMovieMediaFile(client, "/movies/gamma.mkv", "meta-gamma"),
+	};
+	await client.insert(schema.mediaMarkers).values(
+		FIXTURES.map((row, index) => ({
+			id: row.id,
+			mediaFileId: fileIds[row.file],
+			type: row.type,
+			startSeconds: 0,
+			endSeconds: 10,
+			label: row.label,
+			source: row.source,
+			pluginId: row.pluginId,
+			createdAt: new Date(index * 1000),
+			updatedAt: new Date(index * 1000),
+		})),
+	);
 });
 
 const idsOf = (markers: Array<{ id: string }>) => markers.map((marker) => marker.id);
@@ -74,7 +72,7 @@ describe("mediaMarkersRepository.findAll filters", () => {
 	});
 
 	test("q matches the media file id, the plugin id and the type", async () => {
-		expect(idsOf(await mediaMarkersRepository.findAll({ q: "beta" }))).toEqual(["m3"]);
+		expect(idsOf(await mediaMarkersRepository.findAll({ q: fileIds.beta }))).toEqual(["m3"]);
 		expect(idsOf(await mediaMarkersRepository.findAll({ q: "skip-plugin" }))).toEqual(["m3"]);
 		expect(idsOf(await mediaMarkersRepository.findAll({ q: "highlight" }))).toEqual(["m5"]);
 	});

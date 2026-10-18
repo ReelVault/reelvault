@@ -1,7 +1,7 @@
 import type { CreateSubtitleRequest, Subtitle, SubtitleType } from "@reelvault/sdk/common";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { serializeDate } from "@/utils/time.utils";
-import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
+import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
 
 export function resolveSubtitleType(body: Pick<Partial<CreateSubtitleRequest>, "sourcePath" | "streamIndex" | "type">): SubtitleType {
 	const hasSourcePath = body.sourcePath !== undefined;

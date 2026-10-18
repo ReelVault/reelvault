@@ -1,77 +1,82 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sleep } from "bun";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { recognitionService } from "@/modules/recognition/recognition.service";
-import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
+import { videoParser } from "@/modules/scanner/probe/video-parser.service";
+import { CancellationError } from "@/utils/cancellation.utils";
 import { FileUtils } from "@/utils/file.utils";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { videoParser } from "../probe/video-parser.service";
-import { mediaFileProcessor } from "./media-file-processor";
+import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { createMediaFileProcessor, type MetadataCheckInput, type MetadataMatch, type MetadataMatcher } from "./media-file.processor";
 
-const activeStubs: Array<{ restore(): void }> = [];
-let checkMetadataCalls: Array<Record<string, unknown>> = [];
-
-beforeEach(() => {
-	activeStubs.length = 0;
-	checkMetadataCalls = [];
-	// The lazy getter builds a real MetadataProcess (import cycle — AGENTS.md);
-	// seeding the cache field keeps the fake in place for the whole test.
-	Reflect.set(mediaFileProcessor, "metadataProcessInstance", {
-		checkMetadata: (input: Record<string, unknown>) => {
-			checkMetadataCalls.push(input);
-
-			return Promise.resolve({ metadataId: "meta-1", movieId: "mov-1", episodeId: null });
-		},
-	});
-});
-
-afterEach(() => {
-	for (const stub of activeStubs.toReversed()) stub.restore();
-
-	Reflect.deleteProperty(mediaFileProcessor, "metadataProcessInstance");
-});
-
-function stubRecognition(
-	result: { type: "movie" | "tv_show"; identity: { title: string; year?: number } & Record<string, unknown> } | undefined,
-) {
-	activeStubs.push(
-		stubMethod(recognitionService, "recognize", () => result),
-		stubMethod(pluginHookBus, "runBeforeMediaRecognition", (candidate: unknown) => candidate),
-	);
-}
+// Recognition parses the real file names and the duplicate check reads the test database.
+// Stubbed: ffprobe (external process), file stats (the paths are not on disk) and metadata
+// resolution, which reaches the processor through its matcher.
+const db = useTestDatabase();
+const stubs: MethodStub[] = [];
+let checkMetadataCalls: MetadataCheckInput[] = [];
+let resolveMetadata: (input: MetadataCheckInput) => Promise<MetadataMatch | undefined> = () => Promise.resolve(undefined);
 
 const validProbe: FFProbeResult = { streams: [], format: { duration: "90.000" } };
 
-function stubHappyPaths() {
-	activeStubs.push(
-		stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)),
+const metadataMatcher: MetadataMatcher = {
+	checkMetadata(input) {
+		checkMetadataCalls.push(input);
+
+		return resolveMetadata(input);
+	},
+};
+
+function stubMetadata(resolve: (episode: number | undefined) => MetadataMatch | undefined): void {
+	resolveMetadata = (input) => Promise.resolve(resolve((input.parsed as { episode?: number }).episode));
+}
+
+function stubPhysicalFile(): void {
+	stubs.push(
 		stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
 		stubMethod(videoParser, "probe", () => Promise.resolve(validProbe)),
 	);
 }
 
-describe("mediaFileProcessor.process", () => {
+beforeEach(() => {
+	checkMetadataCalls = [];
+	stubMetadata(() => ({ metadataId: "meta-1", movieId: "mov-1", episodeId: null }));
+});
+
+afterEach(() => {
+	// Reverse order: a method stubbed twice must unwind to its original implementation.
+	for (const stub of stubs.splice(0).toReversed()) stub.restore();
+});
+
+const mediaFileProcessor = createMediaFileProcessor(metadataMatcher);
+
+describe("mediaFileProcessor.process skip outcomes", () => {
 	test("rejects an empty filePath", async () => {
-		await expect(mediaFileProcessor.process("movie", "")).rejects.toThrow("filePath is required");
+		await expect(mediaFileProcessor.process("movie", "")).rejects.toMatchObject({
+			category: "validation",
+			code: "media_file.path_required",
+		});
 	});
 
 	test("propagates an already-aborted signal", async () => {
 		const controller = new AbortController();
 		controller.abort();
 
-		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv", true, { signal: controller.signal })).rejects.toThrow();
+		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv", true, { signal: controller.signal })).rejects.toBeInstanceOf(
+			CancellationError,
+		);
 	});
 
-	test("returns null when the file is already registered", async () => {
-		activeStubs.push(stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve("existing-id")));
+	test("returns null when the file is already registered and leaves it untouched", async () => {
+		await insertMovieMediaFile(db.client(), "/media/Movie (2020)/movie.mkv");
 
-		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv")).resolves.toBeNull();
+		await expect(mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv")).resolves.toBeNull();
+		expect(checkMetadataCalls).toEqual([]);
 	});
 
-	test("reports recognition_failed when recognition finds no structure", async () => {
-		stubRecognition(undefined);
-		activeStubs.push(stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)));
+	test("reports recognition_failed when no recognizer claims the file", async () => {
+		stubs.push(stubMethod(recognitionService, "recognize", () => null));
 
 		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv")).resolves.toEqual({
 			skipReason: "recognition_failed",
@@ -79,59 +84,48 @@ describe("mediaFileProcessor.process", () => {
 		});
 	});
 
-	test("reports type_mismatch on a library type mismatch", async () => {
-		stubRecognition({ type: "movie", identity: { title: "Movie", year: 2020 } });
-		activeStubs.push(stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)));
-
-		await expect(mediaFileProcessor.process("tv_show", "/media/movie.mkv")).resolves.toEqual({
+	test("reports type_mismatch when a recognized movie is filed under a TV library", async () => {
+		await expect(mediaFileProcessor.process("tv_show", "/media/Movie (2020)/movie.mkv")).resolves.toEqual({
 			skipReason: "type_mismatch",
 			fileName: "movie.mkv",
 		});
 	});
 
 	test("reports no_metadata_match when metadata resolution yields no id", async () => {
-		stubRecognition({ type: "movie", identity: { title: "Movie", year: 2020 } });
-		stubHappyPaths();
-		Reflect.set(mediaFileProcessor, "metadataProcessInstance", {
-			checkMetadata: (input: Record<string, unknown>) => {
-				checkMetadataCalls.push(input);
+		stubPhysicalFile();
+		stubMetadata(() => undefined);
 
-				return Promise.resolve({ metadataId: null, movieId: null, episodeId: null });
-			},
-		});
-
-		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv")).resolves.toEqual({
+		await expect(mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv")).resolves.toEqual({
 			skipReason: "no_metadata_match",
 			fileName: "movie.mkv",
 		});
 	});
 
 	test("reports probe_failed when the probe yields no technical data", async () => {
-		stubRecognition({ type: "movie", identity: { title: "Movie", year: 2020 } });
-		stubHappyPaths();
-		activeStubs.push(stubMethod(videoParser, "probe", () => Promise.resolve(null)));
+		stubs.push(
+			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
+			stubMethod(videoParser, "probe", () => Promise.resolve(null)),
+		);
 
-		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv")).resolves.toEqual({
+		await expect(mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv")).resolves.toEqual({
 			skipReason: "probe_failed",
 			fileName: "movie.mkv",
 		});
 	});
+});
 
-	test("maps a recognized movie with probe data and chapter markers", async () => {
-		stubRecognition({ type: "movie", identity: { title: "Movie", year: 2020 } });
-		stubHappyPaths();
-		const probe: FFProbeResult = {
-			streams: [],
-			format: { duration: "90.000" },
-			chapters: [
-				{
-					start_time: "00:00:00.000",
-					end_time: "00:01:30.000",
-					tags: { title: "Intro" },
-				},
-			],
-		};
-		activeStubs.push(stubMethod(videoParser, "probe", () => Promise.resolve(probe)));
+describe("mediaFileProcessor.process processed movies", () => {
+	test("maps a recognized movie with probe data, file stats and chapter markers", async () => {
+		stubPhysicalFile();
+		stubs.push(
+			stubMethod(videoParser, "probe", () =>
+				Promise.resolve({
+					streams: [],
+					format: { duration: "90.000" },
+					chapters: [{ start_time: "00:00:00.000", end_time: "00:01:30.000", tags: { title: "Intro" } }],
+				}),
+			),
+		);
 
 		const result = await mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv");
 
@@ -150,11 +144,10 @@ describe("mediaFileProcessor.process", () => {
 		expect(checkMetadataCalls[0]).toMatchObject({ type: "movie", parsed: { title: "Movie", year: 2020 } });
 	});
 
-	test("deduplicates concurrent processing of the same file", async () => {
-		stubRecognition({ type: "movie", identity: { title: "Movie", year: 2020 } });
-		stubHappyPaths();
+	test("concurrent calls for the same file share one processing run", async () => {
+		stubPhysicalFile();
 		let releaseProbe: ((value: FFProbeResult | null) => void) | undefined;
-		activeStubs.push(
+		stubs.push(
 			stubMethod(videoParser, "probe", () => {
 				if (releaseProbe) return Promise.resolve(null);
 
@@ -164,49 +157,22 @@ describe("mediaFileProcessor.process", () => {
 			}),
 		);
 
-		const first = mediaFileProcessor.process("movie", "/media/movie.mkv");
+		const first = mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv");
+		// Yield once so the first run reaches the probe and holds the in-flight slot.
 		await sleep(0);
-		const second = mediaFileProcessor.process("movie", "/media/movie.mkv");
+		const second = mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv");
 		releaseProbe?.(null);
 
 		const [firstResult, secondResult] = await Promise.all([first, second]);
 		expect(firstResult).toBe(secondResult);
+		expect(checkMetadataCalls).toHaveLength(1);
 	});
 });
 
-describe("mediaFileProcessor multi-episode files", () => {
-	const activeMultiStubs: Array<{ restore(): void }> = [];
-
-	beforeEach(() => {
-		activeMultiStubs.length = 0;
-		checkMetadataCalls = [];
-	});
-
-	afterEach(() => {
-		for (const stub of activeMultiStubs.toReversed()) stub.restore();
-
-		Reflect.deleteProperty(mediaFileProcessor, "metadataProcessInstance");
-	});
-
-	function stubEpisodeMetadata() {
-		Reflect.set(mediaFileProcessor, "metadataProcessInstance", {
-			checkMetadata: (input: Record<string, unknown>) => {
-				checkMetadataCalls.push(input);
-				const episode = (input.parsed as { episode: number }).episode;
-
-				return Promise.resolve({ metadataId: "meta-1", movieId: null, episodeId: `ep-${episode}` });
-			},
-		});
-	}
-
+describe("mediaFileProcessor.process multi-episode files", () => {
 	test("resolves one metadata target per episode in a range file", async () => {
-		stubRecognition({ type: "tv_show", identity: { title: "Show", type: "episode", season: 1, episode: 1, episodeEnd: 3 } });
-		activeMultiStubs.push(
-			stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)),
-			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
-			stubMethod(videoParser, "probe", () => Promise.resolve(validProbe)),
-		);
-		stubEpisodeMetadata();
+		stubPhysicalFile();
+		stubMetadata((episode) => ({ metadataId: "meta-1", movieId: null, episodeId: `ep-${episode}` }));
 
 		const result = await mediaFileProcessor.process("tv_show", "/media/Show/Season 1/Show.S01E01-E03.mkv");
 		const processed = result && !("skipReason" in result) ? result : undefined;
@@ -219,14 +185,25 @@ describe("mediaFileProcessor multi-episode files", () => {
 		expect(checkMetadataCalls.map((call) => (call.parsed as { episode: number }).episode)).toEqual([1, 2, 3]);
 	});
 
+	test("a failing episode does not stop the other episodes of the file", async () => {
+		stubPhysicalFile();
+		resolveMetadata = (input) => {
+			const episode = (input.parsed as { episode: number }).episode;
+			if (episode === 2) return Promise.reject(new Error("provider timeout"));
+
+			return Promise.resolve({ metadataId: "meta-1", movieId: null, episodeId: `ep-${episode}` });
+		};
+
+		const result = await mediaFileProcessor.process("tv_show", "/media/Show/Season 1/Show.S01E01-E03.mkv");
+		const processed = result && !("skipReason" in result) ? result : undefined;
+
+		expect(processed?.episodeId).toBe("ep-1");
+		expect(processed?.additionalTargets).toEqual([{ metadataId: "meta-1", movieId: null, episodeId: "ep-3" }]);
+	});
+
 	test("treats an absurd range as a single episode", async () => {
-		stubRecognition({ type: "tv_show", identity: { title: "Show", type: "episode", season: 1, episode: 1, episodeEnd: 99 } });
-		activeMultiStubs.push(
-			stubMethod(mediaRepository, "findIdByFilePath", () => Promise.resolve(undefined)),
-			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
-			stubMethod(videoParser, "probe", () => Promise.resolve(validProbe)),
-		);
-		stubEpisodeMetadata();
+		stubPhysicalFile();
+		stubMetadata((episode) => ({ metadataId: "meta-1", movieId: null, episodeId: `ep-${episode}` }));
 
 		const result = await mediaFileProcessor.process("tv_show", "/media/Show/Season 1/Show.S01E01-E99.mkv");
 		const processed = result && !("skipReason" in result) ? result : undefined;

@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveValidationFailure, validatePluginPackage } from "./plugin-package-validation";
+import { removeTree } from "@/utils/directory.utils";
+import { archiveValidationFailure, validatePluginPackage } from "./plugin-package.validator";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 });
 
 const DEFAULT_FILES: Record<string, string> = { "index.mjs": "export default {};" };

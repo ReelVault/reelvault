@@ -1,4 +1,4 @@
-import { MemoryCache } from "@/utils/memory-cache";
+import { MemoryCache } from "@/utils/memory.cache";
 import type { auth } from "./better-auth.config";
 
 /**

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
-import { PlaylistFileCache } from "./playlist.cache";
+import { PlaylistFileCache, type PlaylistFileReadResult } from "./playlist.cache";
 
 const dir = join(tmpdir(), `reelvault-playlist-cache-${Date.now()}`);
 const playlistPath = join(dir, "playlist.m3u8");
@@ -18,9 +18,18 @@ seg_1.m4s
 `;
 
 async function writePlaylist(body: string) {
+	// Each describe block removes the directory in its afterAll, so every write recreates it.
+	await mkdir(dir, { recursive: true });
 	await writeFile(playlistPath, body);
 	// Each rewrite changes the body length, so the (mtime, size) cache key can
 	// never collide across writes — no waiting for a fresh mtime needed.
+}
+
+/** A failed read fails the test here, so the assertions after it cannot be skipped. */
+function expectOk(result: PlaylistFileReadResult): Extract<PlaylistFileReadResult, { ok: true }> {
+	if (!result.ok) throw new Error("expected the playlist read to succeed");
+
+	return result;
 }
 
 describe("playlist file cache", () => {
@@ -43,72 +52,74 @@ describe("playlist file cache", () => {
 		await writePlaylist(playlistBody);
 		const cache = new PlaylistFileCache();
 
-		const first = await cache.read("s1", playlistPath, 4);
-		const second = await cache.read("s1", playlistPath, 4);
+		const first = expectOk(await cache.read("s1", playlistPath, 4));
+		const second = expectOk(await cache.read("s1", playlistPath, 4));
 
-		expect(first.ok && first.analysis.segments).toHaveLength(2);
-		if (first.ok && second.ok) expect(second.playlist).toBe(first.playlist);
+		expect(first.analysis.segments).toHaveLength(2);
+		expect(second.playlist).toBe(first.playlist);
 	});
 
-	test("re-parses after the playlist was rewritten and does not cache a mid-read swap", async () => {
+	test("re-parses after each rewrite of the playlist", async () => {
 		await writePlaylist(playlistBody);
 		const cache = new PlaylistFileCache();
 		await cache.read("s1", playlistPath, 4);
 
 		const longerBody = `${playlistBody}#EXTINF:4.0,\nseg_2.m4s\n`;
 		await writePlaylist(longerBody);
+		const refreshed = expectOk(await cache.read("s1", playlistPath, 4));
+		expect(refreshed.analysis.segments).toHaveLength(3);
 
-		const refreshed = await cache.read("s1", playlistPath, 4);
-		expect(refreshed.ok && refreshed.analysis.segments).toHaveLength(3);
-
-		// Content swap between stat and read: old (mtime,size) must not end up in the cache with new content.
 		await writePlaylist(`${longerBody}#EXTINF:4.0,\nseg_3.m4s\n`);
-		const afterSwap = await cache.read("s1", playlistPath, 4);
-		expect(afterSwap.ok && afterSwap.analysis.segments).toHaveLength(4);
+		const afterNextRewrite = expectOk(await cache.read("s1", playlistPath, 4));
+		expect(afterNextRewrite.analysis.segments).toHaveLength(4);
 	});
 
 	test("a changed segment duration invalidates the cached parse", async () => {
 		await writePlaylist(playlistBody);
 		const cache = new PlaylistFileCache();
 
-		const first = await cache.read("s1", playlistPath, 4);
-		const second = await cache.read("s1", playlistPath, 2);
+		const first = expectOk(await cache.read("s1", playlistPath, 4));
+		const second = expectOk(await cache.read("s1", playlistPath, 2));
 
-		if (first.ok && second.ok) expect(second.playlist).not.toBe(first.playlist);
+		expect(second.playlist).not.toBe(first.playlist);
 	});
 
 	test("rewrites the init segment URI onto the segments route", async () => {
 		await writePlaylist(["#EXTM3U", '#EXT-X-MAP:URI="init.mp4"', "#EXTINF:4.0,", "seg_0.m4s"].join("\n"));
 		const cache = new PlaylistFileCache();
 
-		const result = await cache.read("s1", playlistPath, 4);
+		const result = expectOk(await cache.read("s1", playlistPath, 4));
+		const text = await result.playlist.text();
 
-		expect(result.ok).toBe(true);
-		if (result.ok) {
-			const text = await result.playlist.text();
-			expect(text).toContain('#EXT-X-MAP:URI="segments/init.mp4"');
-			expect(text).not.toContain('#EXT-X-MAP:URI="init.mp4"');
-		}
+		expect(text).toContain('#EXT-X-MAP:URI="segments/init.mp4"');
+		expect(text).not.toContain('#EXT-X-MAP:URI="init.mp4"');
 	});
+});
 
-	test("bounds cache size by evicting the oldest entries and invalidate forces a re-read", async () => {
+describe("playlist file cache eviction and invalidation", () => {
+	test("evicts the least recently used session once maxEntries is reached", async () => {
 		await writePlaylist(playlistBody);
 		const cache = new PlaylistFileCache({ maxEntries: 2 });
+		const s1 = expectOk(await cache.read("s1", playlistPath, 4));
+		const s2 = expectOk(await cache.read("s2", playlistPath, 4));
+		await cache.read("s1", playlistPath, 4); // s1 is now the most recently used
+		await cache.read("s3", playlistPath, 4); // evicts s2, the least recently used
 
-		const first = await cache.read("s1", playlistPath, 4);
-		const second = await cache.read("s2", playlistPath, 4);
-		await cache.read("s1", playlistPath, 4); // s1 touched, s2 is now oldest
-		await cache.read("s3", playlistPath, 4); // evicts s2
+		const s1Again = expectOk(await cache.read("s1", playlistPath, 4));
+		const s2Again = expectOk(await cache.read("s2", playlistPath, 4));
 
-		const firstAgain = await cache.read("s1", playlistPath, 4);
-		const secondAgain = await cache.read("s2", playlistPath, 4);
-		if (first.ok && firstAgain.ok) expect(firstAgain.playlist).toBe(first.playlist);
-		if (second.ok && secondAgain.ok) expect(secondAgain.playlist).not.toBe(second.playlist);
+		expect(s1Again.playlist).toBe(s1.playlist);
+		expect(s2Again.playlist).not.toBe(s2.playlist);
+	});
+
+	test("invalidate forces the next read of a session to re-parse", async () => {
+		await writePlaylist(playlistBody);
+		const cache = new PlaylistFileCache();
+		const first = expectOk(await cache.read("s1", playlistPath, 4));
 
 		cache.invalidate("s1");
-		const afterInvalidate = await cache.read("s1", playlistPath, 4);
-		if (first.ok && afterInvalidate.ok) expect(afterInvalidate.playlist).not.toBe(first.playlist);
+		const afterInvalidate = expectOk(await cache.read("s1", playlistPath, 4));
 
-		cache.clear();
+		expect(afterInvalidate.playlist).not.toBe(first.playlist);
 	});
 });

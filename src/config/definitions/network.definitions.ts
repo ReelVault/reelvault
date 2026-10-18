@@ -1,5 +1,5 @@
-import { env } from "@/env";
-import { SystemSettingsCreator } from "../system-settings.utils";
+import { env } from "@/config/env.config";
+import { SystemSettingsCreator } from "@/config/system-settings.utils";
 
 function parseInitialOrigins(value?: string): string[] {
 	if (!value) return [];

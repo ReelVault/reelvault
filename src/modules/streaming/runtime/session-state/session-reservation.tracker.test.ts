@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "bun";
-import { createMockPlaybackDecision } from "../../streaming.test-utils";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { SessionStore } from "./session.store";
 import { SessionReservationTracker } from "./session-reservation.tracker";
-import { SessionStore } from "./session-store";
 
 function registration(store: SessionStore, id: string) {
 	store.register({

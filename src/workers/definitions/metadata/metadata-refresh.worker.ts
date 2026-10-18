@@ -1,7 +1,8 @@
-import { metadataRefreshService } from "@/application/catalog/metadata/metadata-refresh.runtime";
-import { type ApplicationContext, withDomainError } from "@/application/context";
-import { serverConfig } from "@/server.config";
-import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body-cache";
+import { serverConfig } from "@/config/server/server.config";
+import { withDomainError } from "@/utils/domain.errors";
+import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
+import type { ApplicationContext } from "@/utils/task-context.types";
+import { workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -29,7 +30,7 @@ export async function refreshMetadataTask(data: MetadataRefreshData, context: Ap
 	return await withDomainError(`Metadata refresh failed: ${data.metadataId}`, async () => {
 		context.signal?.throwIfAborted();
 
-		const result = await metadataRefreshService.refresh(data.metadataId, {
+		const result = await workerDependencies().services.metadataRefresh.refresh(data.metadataId, {
 			correlationId: context.correlationId,
 			operationId: context.operationId,
 			signal: context.signal,

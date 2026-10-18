@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { toJobContract, toOperationContract } from "@/workers/utils/worker-stats.mapper";
 
 describe("worker operation contract mapping", () => {
-	test("serializes operation dates and calculated metrics", () => {
+	test("serializes operation timestamps as ISO strings and leaves out unset dates", () => {
 		const createdAt = new Date("2026-08-02T10:00:00.000Z");
 		const operation = {
 			id: "operation-1",
@@ -27,12 +27,15 @@ describe("worker operation contract mapping", () => {
 			updatedAt: createdAt,
 		};
 
-		expect(toOperationContract(operation)).toMatchObject({
+		const contract = toOperationContract(operation);
+
+		expect(contract).toMatchObject({
 			id: "operation-1",
-			progressPercent: 20,
-			etaMs: 1_000,
 			startedAt: createdAt.toISOString(),
+			createdAt: createdAt.toISOString(),
 		});
+		// completedAt is null on the row; the contract leaves the key out instead of sending null.
+		expect(contract).not.toHaveProperty("completedAt");
 	});
 });
 

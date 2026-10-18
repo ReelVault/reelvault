@@ -25,4 +25,4 @@ noOrphans = true
 bun = true
 
 [test]
-preload = ["./tests/setup.ts"]
+preload = ["./tests/test.preload.ts"]

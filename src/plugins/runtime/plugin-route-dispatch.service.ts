@@ -1,5 +1,5 @@
 import type { PluginRouteAccess } from "@reelvault/sdk/plugin";
-import { usersRepository } from "@/database/repositories/users.repository";
+import { pluginUserData } from "@/app/plugins/plugin-data.service";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { PluginRouteValidationError, pluginRoutesRegistry } from "@/plugins/runtime/plugin.routes";
 
@@ -60,7 +60,7 @@ class PluginRouteDispatchService {
 		if (routeAccess === "admin") {
 			if (userContext.role === "admin") return undefined;
 
-			const user = await usersRepository.findById(userContext.id);
+			const user = await pluginUserData.findById(userContext.id);
 			if (user?.role !== "admin") {
 				return { type: "forbidden", message: "Admin role required for this plugin route" };
 			}

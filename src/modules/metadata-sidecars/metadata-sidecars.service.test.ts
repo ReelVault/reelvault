@@ -1,23 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
+import { DatabaseSidecarSnapshotResolver } from "@/app/sidecars/sidecar-snapshot.resolver";
+import { removeTree } from "@/utils/directory.utils";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { metadataSidecarsService } from "./metadata-sidecars.service";
-import type { SidecarSnapshotDocument } from "./sidecar.types";
 
-const snapshot: SidecarSnapshotDocument = {
-	reelvaultSchemaVersion: 1,
-	title: "Arrival",
-	identifiers: {},
-	providerIds: {},
-	genres: [],
-	keywords: [],
-	productionCompanies: [],
-	cast: [],
-	crew: [],
-	ratings: [],
-};
+const db = useTestDatabase();
 
 describe("metadataSidecarsService", () => {
 	test("findIgnoredAssets reports unsupported artwork under a library root", async () => {
@@ -35,7 +27,7 @@ describe("metadataSidecarsService", () => {
 				{ path: join(root, "nested", "clearlogo.png"), fileName: "clearlogo.png", reason: "unsupported-artwork-type" },
 			]);
 		} finally {
-			await rm(root, { force: true, recursive: true });
+			await removeTree(root);
 		}
 	});
 
@@ -50,43 +42,45 @@ describe("metadataSidecarsService", () => {
 			expect(await metadataSidecarsService.readDocument(documentPath)).toMatchObject({ mediaKind: "movie", title: "Arrival" });
 			expect(await metadataSidecarsService.readDocument(unknownPath)).toBeNull();
 		} finally {
-			await rm(directory, { force: true, recursive: true });
+			await removeTree(directory);
 		}
 	});
 
-	test("createSidecarWriter writes reelvault documents through the shared registry", async () => {
+	test("createSidecarWriter saves a movie as movie.reelvault.nfo by default", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-service-writer-"));
 		try {
-			const writer = metadataSidecarsService.createSidecarWriter({
-				metadata: async () => snapshot,
-				season: async () => snapshot,
-				episode: async () => snapshot,
-			});
+			await insertMovieMediaFile(db.client(), join(directory, "Movie.mkv"), "metadata-1");
+			const writer = metadataSidecarsService.createSidecarWriter(new DatabaseSidecarSnapshotResolver());
 
 			const result = await writer.saveMovie({ metadataId: "metadata-1", movieDirectory: directory });
 
 			expect(result.writtenFiles).toEqual([join(directory, "movie.reelvault.nfo")]);
 			expect(await readdir(directory)).toEqual(["movie.reelvault.nfo"]);
+			expect(await metadataSidecarsService.readDocument(join(directory, "movie.reelvault.nfo"))).toMatchObject({
+				mediaKind: "movie",
+				title: "metadata-1",
+			});
 		} finally {
-			await rm(directory, { force: true, recursive: true });
+			await removeTree(directory);
 		}
 	});
 
-	test("createSidecarWriter writes kodi-flavored documents through the shared registry", async () => {
+	test("createSidecarWriter saves a movie as movie.nfo in the kodi flavor", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-service-writer-"));
 		try {
-			const writer = metadataSidecarsService.createSidecarWriter({
-				metadata: async () => snapshot,
-				season: async () => snapshot,
-				episode: async () => snapshot,
-			});
+			await insertMovieMediaFile(db.client(), join(directory, "Movie.mkv"), "metadata-1");
+			const writer = metadataSidecarsService.createSidecarWriter(new DatabaseSidecarSnapshotResolver());
 
 			const result = await writer.saveMovie({ metadataId: "metadata-1", movieDirectory: directory, flavor: "kodi" });
 
 			expect(result.writtenFiles).toEqual([join(directory, "movie.nfo")]);
 			expect(await readdir(directory)).toEqual(["movie.nfo"]);
+			expect(await metadataSidecarsService.readDocument(join(directory, "movie.nfo"))).toMatchObject({
+				mediaKind: "movie",
+				title: "metadata-1",
+			});
 		} finally {
-			await rm(directory, { force: true, recursive: true });
+			await removeTree(directory);
 		}
 	});
 });

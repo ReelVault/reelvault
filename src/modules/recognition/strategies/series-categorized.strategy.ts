@@ -1,5 +1,5 @@
-import type { PathContext, RecognitionResult, RecognitionStrategy } from "../recognition.types";
-import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "../utils/recognition.utils";
+import type { PathContext, RecognitionResult, RecognitionStrategy } from "@/modules/recognition/recognition.types";
+import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
 
 /** Season folder (number captured) or `Specials` (season 0). */
 const SEASON_FOLDER_PATTERN = /^(?:(?:Season|Sezon|S)\s*(\d+)|Specials$)/i;

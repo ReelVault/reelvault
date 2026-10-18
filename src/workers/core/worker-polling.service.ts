@@ -1,9 +1,9 @@
-import { workerJobRepository } from "@/database/repositories/worker.repository";
-import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { createLogger } from "@/utils/logger";
+import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
-import { getWorkerRuntime } from "./worker-runtime";
+import { workerDependencies } from "@/workers/worker.ports";
+import { getWorkerRuntime } from "./worker.runtime";
 
 /** Upper bound for the idle-poll backoff (see scheduleNextPoll). */
 const IDLE_BACKOFF_CAP_MS = 15_000;
@@ -161,7 +161,7 @@ export class WorkerPollingService {
 			const maxGlobalPool = systemResourcesService.getWorkerPoolMaxConcurrent();
 			if (runtime.pool.totalRunningCount >= maxGlobalPool) return;
 
-			const pendingWorkerIds = await workerJobRepository.findPendingWorkerIds(now);
+			const pendingWorkerIds = await workerDependencies().jobs.findPendingWorkerIds(now);
 			if (pendingWorkerIds.length === 0) {
 				this.emptyPolls++;
 
@@ -195,7 +195,7 @@ export class WorkerPollingService {
 
 				// One transaction claims every runnable job for this worker — the
 				// sequential claimNext re-ran recover/candidates/counts per job.
-				const claimedItems = await workerJobRepository.claimNextBatch(
+				const claimedItems = await workerDependencies().jobs.claimNextBatch(
 					{
 						workerId,
 						runnerId: this.runnerId,

@@ -1,17 +1,17 @@
-import { FileUtils, readFile } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { isRecord } from "@/utils/type.utils";
+import type { SidecarFormatAdapter } from "@/modules/metadata-sidecars/formats/sidecar-format.adapter";
 import type {
 	CanonicalSidecarDocument,
 	SidecarFormatInput,
 	SidecarFormatOutput,
 	SidecarSnapshotDocument,
 	SidecarWriteResult,
-} from "../../sidecar.types";
-import { assertXmlDocumentSize, readXmlDocument } from "../../xml/xml-document.reader";
-import { readXmlObject, readXmlText } from "../../xml/xml-value.reader";
-import { writeXmlDocument, writeXmlIfChanged } from "../../xml/xml-writer";
-import type { SidecarFormatAdapter } from "../sidecar-format.adapter";
+} from "@/modules/metadata-sidecars/sidecar.types";
+import { writeXmlDocument, writeXmlIfChanged } from "@/modules/metadata-sidecars/xml/xml.writer";
+import { assertXmlDocumentSize, readXmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
+import { readXmlObject, readXmlText } from "@/modules/metadata-sidecars/xml/xml-value.reader";
+import { FileUtils, readFile } from "@/utils/file.utils";
+import { PathUtils } from "@/utils/path.utils";
+import { isRecord } from "@/utils/type.utils";
 
 const SNAPSHOT_VERSION = 1;
 

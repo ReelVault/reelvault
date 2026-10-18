@@ -1,8 +1,7 @@
 import type { WorkerJob as WorkerJobContract, WorkerOperation as WorkerOperationContract, WorkerQueueStats } from "@reelvault/sdk/common";
-import type { WorkerItemStats, WorkerItemSummary } from "@/database/repositories/worker.repository";
-import type { WorkerOperation } from "@/database/repositories/worker-operation.repository";
 import { safeParseJson } from "@/utils/file.utils";
 import { pickDefined } from "@/utils/type.utils";
+import type { WorkerItemStats, WorkerItemSummary, WorkerOperation } from "@/workers/worker.ports";
 
 export function toJobContract(item: WorkerItemSummary, dependsOnTaskIds: string[] = []): WorkerJobContract {
 	return {

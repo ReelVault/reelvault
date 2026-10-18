@@ -1,18 +1,13 @@
-import {
-	type ImageOwnerTarget,
-	type ImageProcess,
-	imageRepository,
-	type PersistedImageInput,
-} from "@/database/repositories/images.repository";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { errorMessage } from "@/utils/errors";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { type ImageOwnerTarget, type ImageProcess, imagesStorage, type PersistedImageInput } from "@/modules/images/images.ports";
+import { throwIfAborted } from "@/utils/cancellation.utils";
+import { errorMessage } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { BatchGarbageCollector } from "@/utils/mem.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { runSafely } from "@/utils/safe-execute";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { runSafely } from "@/utils/safe-execute.utils";
 import type { UploadedImage } from "./image-upload.service";
 import { type ImageDownloadPipeline, imageDownloadPipeline } from "./processing/image-download.pipeline";
 
@@ -35,16 +30,16 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	getMetadataTarget: (metadataId, type) => imageRepository.getMetadataTarget(metadataId, type),
-	replaceMetadataImage: (metadataId, type, image) => imageRepository.replaceMetadataImage(metadataId, type, image),
-	getSeasonTarget: (metadataId, seasonId) => imageRepository.getSeasonTarget(metadataId, seasonId),
-	replaceSeasonImage: (metadataId, seasonId, image) => imageRepository.replaceSeasonImage(metadataId, seasonId, image),
-	getEpisodeTarget: (metadataId, episodeId) => imageRepository.getEpisodeTarget(metadataId, episodeId),
-	replaceEpisodeImage: (metadataId, episodeId, image) => imageRepository.replaceEpisodeImage(metadataId, episodeId, image),
-	getPersonTarget: (personId) => imageRepository.getPersonTarget(personId),
-	replacePersonImage: (personId, image) => imageRepository.replacePersonImage(personId, image),
-	getProfileAvatarTarget: (profileId) => imageRepository.getProfileAvatarTarget(profileId),
-	replaceProfileAvatar: (profileId, image) => imageRepository.replaceProfileAvatar(profileId, image),
+	getMetadataTarget: (metadataId, type) => imagesStorage().getMetadataTarget(metadataId, type),
+	replaceMetadataImage: (metadataId, type, image) => imagesStorage().replaceMetadataImage(metadataId, type, image),
+	getSeasonTarget: (metadataId, seasonId) => imagesStorage().getSeasonTarget(metadataId, seasonId),
+	replaceSeasonImage: (metadataId, seasonId, image) => imagesStorage().replaceSeasonImage(metadataId, seasonId, image),
+	getEpisodeTarget: (metadataId, episodeId) => imagesStorage().getEpisodeTarget(metadataId, episodeId),
+	replaceEpisodeImage: (metadataId, episodeId, image) => imagesStorage().replaceEpisodeImage(metadataId, episodeId, image),
+	getPersonTarget: (personId) => imagesStorage().getPersonTarget(personId),
+	replacePersonImage: (personId, image) => imagesStorage().replacePersonImage(personId, image),
+	getProfileAvatarTarget: (profileId) => imagesStorage().getProfileAvatarTarget(profileId),
+	replaceProfileAvatar: (profileId, image) => imagesStorage().replaceProfileAvatar(profileId, image),
 	fileExists: (path) => FileUtils.exists(path),
 	getSharpConcurrency: () => systemResourcesService.getSharpConcurrency(),
 	downloadAndPrepare: (url, target, variant, imageType, signal) =>

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import sharp from "sharp";
+import { serverConfig } from "@/config/server/server.config";
 import { optimizeImage, reencodeImage } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
-import { serverConfig } from "@/server.config";
 
 const options: SharpImageOptions = {
 	width: 128,

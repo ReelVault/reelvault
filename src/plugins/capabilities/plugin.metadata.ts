@@ -1,15 +1,15 @@
 import type { MetadataItem } from "@reelvault/sdk/common";
 import type { MetadataAvailability, ProviderMediaType } from "@reelvault/sdk/plugin";
-import { metadataRepository } from "@/database/repositories/metadata.repository";
-import { QueryFields } from "@/database/utils/fields";
-import { createLogger } from "@/utils/logger";
+import { pluginMetadataData } from "@/app/plugins/plugin-data.service";
+import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { createLogger } from "@/utils/logger.utils";
 
 class PluginMetadataService {
 	readonly serviceName = "PluginMetadataService";
 	readonly logger = createLogger("PluginMetadataService");
 
 	async get(metadataId: string): Promise<MetadataItem | null> {
-		const metadata = await metadataRepository.findById({
+		const metadata = await pluginMetadataData.findById({
 			primaryId: metadataId,
 			fields: QueryFields.parse({ fields: "id,type,title,originalTitle,overview,tagline,releaseDate,status,providers" }),
 		});
@@ -43,7 +43,7 @@ class PluginMetadataService {
 		externalIds: readonly string[],
 		type: ProviderMediaType,
 	): Promise<MetadataAvailability[]> {
-		const rows = await metadataRepository.findByProviderExternalIds({
+		const rows = await pluginMetadataData.findByProviderExternalIds({
 			providerName: providerId,
 			entityType: type,
 			externalIds,

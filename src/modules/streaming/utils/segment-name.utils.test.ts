@@ -37,11 +37,11 @@ describe("segment name utils", () => {
 		expect(parseSegmentName("seg_-5.m4s", 4)).toEqual({ index: 0, startTime: 0 });
 	});
 
-	test("handles zero duration without breaking startTime math", () => {
+	test("parseSegmentName keeps startTime at zero for a zero-duration segment", () => {
 		expect(parseSegmentName("seg_5.m4s", 0)).toEqual({ index: 5, startTime: 0 });
 	});
 
-	test("handles decimal segment durations", () => {
+	test("parseSegmentName computes startTime for decimal segment durations", () => {
 		expect(parseSegmentName("seg_3.m4s", 1.5)).toEqual({ index: 3, startTime: 4.5 });
 	});
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type ScanAndEnqueueOptions, scanAndEnqueueTask } from "./scan-and-enqueue";
+import { type ScanAndEnqueueOptions, scanAndEnqueueTask } from "./scan-and-enqueue.service";
 
 interface TestItem {
 	imageId: string;

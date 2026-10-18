@@ -1,12 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { metadataRefreshService } from "@/application/catalog/metadata/metadata-refresh.runtime";
-import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body-cache";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { metadataRefreshService } from "@/app/catalog/metadata/refresh/metadata-refresh.runtime";
+import { getCachedResponseBody, invalidateResponseBodies, responseCacheKey, setCachedResponseBody } from "@/utils/response-body.cache";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { refreshMetadataTask } from "./metadata-refresh.worker";
 
 const stubs: Array<{ restore(): void }> = [];
 afterEach(() => {
 	for (const stub of stubs.splice(0)) stub.restore();
+	// The response-body cache is process-global; drop the entries this file wrote.
+	invalidateResponseBodies();
 });
 
 const listKey = responseCacheKey({ pathWithQuery: "/v1/metadata?page=1", cookie: "", profileId: "", auth: "", apiKey: "" });
@@ -21,5 +23,5 @@ test("a metadata refresh flushes cached catalog lists but leaves unrelated respo
 	await refreshMetadataTask({ metadataId: "m1" });
 
 	expect(getCachedResponseBody(listKey)).toBeUndefined();
-	expect(getCachedResponseBody(unrelatedKey)).toBeDefined();
+	expect(getCachedResponseBody(unrelatedKey)).toEqual(body);
 });

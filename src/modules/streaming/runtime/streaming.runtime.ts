@@ -1,11 +1,10 @@
-import { liveSessionsRepository } from "@/database/repositories/live-sessions.repository";
 import { realtimeService } from "@/modules/realtime/realtime.service";
-import { pluginEventBus } from "@/plugins/runtime/plugin.events";
+import { playlistService } from "@/modules/streaming/playlist/playlist.service";
+import { streamingStorage, streamingWorker } from "@/modules/streaming/streaming.ports";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { toMap } from "@/utils/array.utils";
 import { detach } from "@/utils/promise.utils";
-import { workerService } from "@/workers/worker.service";
-import { playlistService } from "../playlist/playlist.service";
-import { endedSessionHistory } from "./ended-session-history";
+import { endedSessionHistory } from "./ended-session.history";
 import { recordInterruptedSession } from "./interrupted-session.recorder";
 import { streamingManager } from "./streaming.manager";
 
@@ -21,7 +20,7 @@ export function registerStreamingLifecycle(): void {
 
 	lifecycleRegistered = true;
 	streamingManager.configureLifecycleCallbacks({
-		cancelOperation: async (operationId) => await workerService.cancelOperation(operationId),
+		cancelOperation: async (operationId) => await streamingWorker().cancelOperation(operationId),
 		onSessionStarted: ({ sessionId, mediaFileId, profileId }) => {
 			pluginEventBus.publish("playback.session.started", { sessionId, mediaFileId });
 			// Per-session/per-profile, not a global broadcast — other users must
@@ -64,7 +63,7 @@ export async function listMinePlaybackSessions(profileId: string | undefined) {
 	const sessions = streamingManager.listSessionsForProfile(profileId);
 	if (sessions.length === 0) return { data: [] };
 
-	const mediaSummaries = await liveSessionsRepository.findMediaSummaries(sessions.map((session) => session.mediaFileId));
+	const mediaSummaries = await streamingStorage().findMediaSummaries(sessions.map((session) => session.mediaFileId));
 	const mediaMap = toMap(mediaSummaries, (media) => media.mediaFileId);
 
 	return {

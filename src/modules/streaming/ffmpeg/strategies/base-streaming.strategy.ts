@@ -4,13 +4,13 @@ import { buildHlsOutputPath, segmentStartNumber } from "@/integrations/ffmpeg/ff
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { probeBudgetForFormat } from "@/integrations/ffprobe/ffprobe.probe-budgets";
-import { DomainError } from "@/utils/errors";
+import { transcodeProgressMonitor } from "@/modules/streaming/runtime/transcode-progress.monitor";
+import type { StreamingStrategy, StreamStartInput } from "@/modules/streaming/streaming.types";
+import { PLAYLIST_FILE_NAME, SEGMENT_OUTPUT_PATTERN } from "@/modules/streaming/utils/segment-name.utils";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
-import { transcodeProgressMonitor } from "../../runtime/transcode-progress.monitor";
-import type { StreamingStrategy, StreamStartInput } from "../../streaming.types";
-import { PLAYLIST_FILE_NAME, SEGMENT_OUTPUT_PATTERN } from "../../utils/segment-name.utils";
 
 /**
  * Shared plumbing for streaming strategies: the ffmpeg builder chain, progress
@@ -18,7 +18,7 @@ import { PLAYLIST_FILE_NAME, SEGMENT_OUTPUT_PATTERN } from "../../utils/segment-
  * their own input/output arguments.
  */
 export abstract class BaseStreamingStrategy implements StreamingStrategy {
-	protected readonly logger: ReturnType<typeof createLogger>;
+	readonly logger: ReturnType<typeof createLogger>;
 	protected readonly config: TranscodeConfig;
 
 	constructor(config: TranscodeConfig) {

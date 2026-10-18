@@ -1,7 +1,7 @@
 import type { OutgoingNotification, PluginNotificationChannel } from "@reelvault/sdk/plugin";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { serverConfig } from "@/config/server/server.config";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
 const logger = createLogger("NotificationChannels");

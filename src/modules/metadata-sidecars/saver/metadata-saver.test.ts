@@ -1,18 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KodiFormatAdapter } from "../formats/kodi/kodi-format.adapter";
-import { ReelVaultFormatAdapter } from "../formats/reelvault/reelvault-format.adapter";
-import { InMemorySidecarFormatRegistry } from "../formats/sidecar-format.registry";
-import type { SidecarSnapshotDocument, SidecarSnapshotResolver } from "../sidecar.types";
-import { RegistrySidecarMetadataWriter } from "./metadata-saver";
+import { DatabaseSidecarSnapshotResolver } from "@/app/sidecars/sidecar-snapshot.resolver";
+import { KodiFormatAdapter } from "@/modules/metadata-sidecars/formats/kodi/kodi-format.adapter";
+import { ReelVaultFormatAdapter } from "@/modules/metadata-sidecars/formats/reelvault/reelvault-format.adapter";
+import { InMemorySidecarFormatRegistry } from "@/modules/metadata-sidecars/formats/sidecar-format.registry";
+import type { SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
+import { removeTree } from "@/utils/directory.utils";
+import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { RegistrySidecarMetadataWriter } from "./metadata-saver.writer";
 
-const snapshot: SidecarSnapshotDocument = {
+const db = useTestDatabase();
+
+const prebuiltSnapshot: SidecarSnapshotDocument = {
 	reelvaultSchemaVersion: 1,
-	title: "Offline Movie",
-	identifiers: { tmdb: "1" },
-	providerIds: { tmdb: "1" },
+	title: "Prebuilt",
+	identifiers: {},
+	providerIds: {},
 	genres: [],
 	keywords: [],
 	productionCompanies: [],
@@ -21,130 +27,103 @@ const snapshot: SidecarSnapshotDocument = {
 	ratings: [],
 };
 
-function recordingResolver(): SidecarSnapshotResolver & {
-	metadataCalls: () => number;
-	seasonCalls: () => number;
-	episodeCalls: () => number;
-} {
-	let metadata = 0;
-	let season = 0;
-	let episode = 0;
-
-	return {
-		metadata: () => {
-			metadata++;
-
-			return Promise.resolve(snapshot);
-		},
-		season: () => {
-			season++;
-
-			return Promise.resolve(snapshot);
-		},
-		episode: () => {
-			episode++;
-
-			return Promise.resolve(snapshot);
-		},
-		metadataCalls: () => metadata,
-		seasonCalls: () => season,
-		episodeCalls: () => episode,
-	};
-}
-
-function createWriter(
-	snapshots: SidecarSnapshotResolver,
-	flavors: Array<"reelvault" | "kodi"> = ["reelvault"],
-): RegistrySidecarMetadataWriter {
+function createWriter(flavors: Array<"reelvault" | "kodi"> = ["reelvault"]): RegistrySidecarMetadataWriter {
 	const registry = new InMemorySidecarFormatRegistry();
 	if (flavors.includes("reelvault")) registry.register(new ReelVaultFormatAdapter());
 
 	if (flavors.includes("kodi")) registry.register(new KodiFormatAdapter());
 
-	return new RegistrySidecarMetadataWriter(registry, snapshots);
+	return new RegistrySidecarMetadataWriter(registry, new DatabaseSidecarSnapshotResolver());
 }
 
 describe("RegistrySidecarMetadataWriter", () => {
 	test("saveMovie writes the reelvault movie document next to the video", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-saver-"));
 		try {
-			const snapshots = recordingResolver();
-			const result = await createWriter(snapshots).saveMovie({ metadataId: "metadata-1", movieDirectory: directory });
+			await insertMovieMediaFile(db.client(), join(directory, "Movie.mkv"), "metadata-1");
+
+			const result = await createWriter().saveMovie({ metadataId: "metadata-1", movieDirectory: directory });
 
 			expect(result.documentPath).toBe(join(directory, "movie.reelvault.nfo"));
 			expect(result.writtenFiles).toEqual([join(directory, "movie.reelvault.nfo")]);
-			expect(snapshots.metadataCalls()).toBe(1);
-			expect(await readFile(result.documentPath, "utf8")).toContain("Offline Movie");
+			expect(await new ReelVaultFormatAdapter().read({ documentPath: result.documentPath })).toMatchObject({
+				mediaKind: "movie",
+				title: "metadata-1",
+			});
 		} finally {
-			await rm(directory, { force: true, recursive: true });
+			await removeTree(directory);
 		}
 	});
 
-	test("saveSeason and saveEpisode use a prebuilt snapshot without re-fetching", async () => {
+	test("saveSeason and saveEpisode write a prebuilt snapshot without looking the rows up", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-saver-"));
 		try {
-			const snapshots = recordingResolver();
-			const writer = createWriter(snapshots);
-			const seasonResult = await writer.saveSeason({ seasonId: "season-1", seasonDirectory: directory, seasonNumber: 2, snapshot });
+			const writer = createWriter();
+
+			const seasonResult = await writer.saveSeason({
+				seasonId: "season-missing",
+				seasonDirectory: directory,
+				seasonNumber: 2,
+				snapshot: prebuiltSnapshot,
+			});
 			const episodeResult = await writer.saveEpisode({
-				episodeId: "episode-1",
+				episodeId: "episode-missing",
 				episodeDirectory: directory,
 				videoBaseName: "s01e01",
-				snapshot,
+				snapshot: prebuiltSnapshot,
 			});
 
 			expect(seasonResult.documentPath).toBe(join(directory, "season02-reelvault.nfo"));
 			expect(episodeResult.documentPath).toBe(join(directory, "s01e01.reelvault.nfo"));
-			expect(snapshots.metadataCalls()).toBe(0);
-			expect(snapshots.seasonCalls()).toBe(0);
-			expect(snapshots.episodeCalls()).toBe(0);
+			expect(await readFile(seasonResult.documentPath, "utf8")).toContain("Prebuilt");
+			expect(await readFile(episodeResult.documentPath, "utf8")).toContain("Prebuilt");
 		} finally {
-			await rm(directory, { force: true, recursive: true });
+			await removeTree(directory);
 		}
 	});
 
-	test("saveEpisode falls back to the resolver when no snapshot is given", async () => {
+	test("saveEpisode looks the episode up when no snapshot is given", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-saver-"));
 		try {
-			const snapshots = recordingResolver();
-
-			await createWriter(snapshots).saveEpisode({ episodeId: "episode-1", episodeDirectory: directory, videoBaseName: "s01e01" });
-
-			expect(snapshots.episodeCalls()).toBe(1);
+			await expect(
+				createWriter().saveEpisode({ episodeId: "episode-missing", episodeDirectory: directory, videoBaseName: "s01e01" }),
+			).rejects.toMatchObject({ category: "not_found", code: "episode.not_found" });
 		} finally {
-			await rm(directory, { force: true, recursive: true });
+			await removeTree(directory);
 		}
 	});
 
 	test("saveMovie with the kodi flavor writes the standard movie.nfo document", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-saver-"));
 		try {
-			const snapshots = recordingResolver();
-			const result = await createWriter(snapshots, ["kodi"]).saveMovie({
+			await insertMovieMediaFile(db.client(), join(directory, "Movie.mkv"), "metadata-1");
+
+			const result = await createWriter(["kodi"]).saveMovie({
 				metadataId: "metadata-1",
 				movieDirectory: directory,
 				flavor: "kodi",
 			});
 
 			expect(result.documentPath).toBe(join(directory, "movie.nfo"));
-			const contents = await readFile(result.documentPath, "utf8");
-			expect(contents).toContain("<movie>");
-			expect(contents).toContain("<title>Offline Movie</title>");
+			expect(await readFile(result.documentPath, "utf8")).toContain("<title>metadata-1</title>");
 		} finally {
-			await rm(directory, { force: true, recursive: true });
+			await removeTree(directory);
 		}
 	});
 
 	test("throws when no adapter is registered for the requested flavor", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-saver-"));
 		try {
-			const registry = new InMemorySidecarFormatRegistry();
+			await insertMovieMediaFile(db.client(), join(directory, "Movie.mkv"), "metadata-1");
+			const writer = new RegistrySidecarMetadataWriter(new InMemorySidecarFormatRegistry(), new DatabaseSidecarSnapshotResolver());
 
-			await expect(
-				new RegistrySidecarMetadataWriter(registry, recordingResolver()).saveMovie({ metadataId: "m", movieDirectory: directory }),
-			).rejects.toThrow("Sidecar format adapter is not registered for writing: reelvault");
+			await expect(writer.saveMovie({ metadataId: "metadata-1", movieDirectory: directory })).rejects.toMatchObject({
+				category: "internal",
+				code: "sidecar.adapter_not_registered",
+			});
+			expect(await readdir(directory)).toEqual([]);
 		} finally {
-			await rm(directory, { force: true, recursive: true });
+			await removeTree(directory);
 		}
 	});
 });

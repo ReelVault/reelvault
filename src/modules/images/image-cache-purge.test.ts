@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { serverConfig } from "@/config/server/server.config";
 import { imageMaintenanceService } from "@/modules/images/image-maintenance.service";
-import { serverConfig } from "@/server.config";
-import { DirUtils } from "@/utils/directory.utils";
+import { DirUtils, removeTree } from "@/utils/directory.utils";
 
 let testImagesDir: string;
 let originalImagesPath: string;
@@ -20,7 +20,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	serverConfig.paths.images = originalImagesPath;
-	await rm(testImagesDir, { recursive: true, force: true });
+	await removeTree(testImagesDir);
 });
 
 test("removes the optimized copies and keeps the originals", async () => {

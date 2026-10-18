@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "bun";
-import { SessionSeeker } from "../../seeking/session-seeker";
-import { createMockPlaybackDecision } from "../../streaming.test-utils";
-import { SessionReaper } from "./session-reaper";
+import { SessionSeeker } from "@/modules/streaming/seeking/session.seeker";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { SessionReaper } from "./session.reaper";
+import { SessionStore } from "./session.store";
 import { SessionReservationTracker } from "./session-reservation.tracker";
-import { SessionStore } from "./session-store";
 
 function registration(store: SessionStore, id: string) {
 	store.register({

@@ -1,15 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mediaArtifactsRepository } from "@/database/repositories/media-artifacts.repository";
-import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
+import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
 import { FileUtils } from "@/utils/file.utils";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginArtifactsService } from "./plugin.artifacts";
 
+const PLUGIN_ID = "org.reelvault.test";
+const db = useTestDatabase();
 const activeStubs: Array<{ restore(): void }> = [];
+let mediaFileId = "";
 
-beforeEach(() => {
+beforeEach(async () => {
 	activeStubs.length = 0;
 	mediaArtifactsService.invalidateByteTotals();
+	mediaFileId = await insertMovieMediaFile(db.client(), "/media/movie.mkv", "meta-1");
 });
 
 afterEach(() => {
@@ -20,67 +25,36 @@ function bytes(text: string): Uint8Array {
 	return new TextEncoder().encode(text);
 }
 
+function writeChapters(text: string) {
+	return pluginArtifactsService.write(PLUGIN_ID, { mediaFileId, kind: "chapters", contentType: "text/vtt", content: bytes(text) });
+}
+
 describe("pluginArtifactsService.write — per-plugin quota", () => {
 	test("rejects writes above the per-plugin storage quota", async () => {
-		activeStubs.push(
-			stubMethod(mediaArtifactsRepository, "findByPluginId", () =>
-				Promise.resolve([{ storageKey: "mf-1/existing" }, { storageKey: "mf-1/older" }]),
-			),
-			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 300 * 1024 * 1024, mtimeMs: 0 })),
-		);
+		await writeChapters("WEBVTT 1");
+		await writeChapters("WEBVTT 2");
+		// The stored files now report 300 MB each, so the next write is over the quota.
+		activeStubs.push(stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 300 * 1024 * 1024, mtimeMs: 0 })));
+		mediaArtifactsService.invalidateByteTotals();
 
-		await expect(
-			pluginArtifactsService.write("org.reelvault.test", {
-				mediaFileId: "mf-1",
-				kind: "chapters",
-				contentType: "text/vtt",
-				content: bytes("WEBVTT"),
-			}),
-		).rejects.toMatchObject({ code: "plugin.artifact.quota_exceeded" });
+		await expect(writeChapters("WEBVTT 3")).rejects.toMatchObject({ code: "plugin.artifact.quota_exceeded" });
 	});
 });
 
 describe("pluginArtifactsService delegation", () => {
-	test("lists artifacts from the shared store", async () => {
-		activeStubs.push(
-			stubMethod(mediaArtifactsRepository, "findByMediaFileId", () =>
-				Promise.resolve([
-					{
-						id: "a-1",
-						mediaFileId: "mf-1",
-						pluginId: "org.reelvault.test",
-						kind: "chapters",
-						contentType: "application/json",
-						storageKey: "mf-1/a-1",
-						createdAt: new Date("2021-06-01T12:00:00Z"),
-					},
-				]),
-			),
-		);
+	test("lists the stored artifacts with their download url", async () => {
+		const written = await writeChapters("WEBVTT");
 
-		const artifacts = await pluginArtifactsService.list("mf-1");
+		const artifacts = await pluginArtifactsService.list(mediaFileId);
 
-		expect(artifacts).toEqual([expect.objectContaining({ id: "a-1", url: "/v1/media-files/mf-1/artifacts/a-1" })]);
+		expect(artifacts).toEqual([expect.objectContaining({ id: written.id, url: `/v1/media-files/${mediaFileId}/artifacts/${written.id}` })]);
 	});
 
 	test("removeForPlugin drops every artifact of that plugin owner", async () => {
-		const deleteCalls: Array<{ ids?: string[] }> = [];
-		activeStubs.push(
-			stubMethod(mediaArtifactsRepository, "findByPluginId", () =>
-				Promise.resolve([
-					{ id: "a-1", storageKey: "mf-1/a-1" },
-					{ id: "a-2", storageKey: "mf-1/a-2" },
-				]),
-			),
-			stubMethod(mediaArtifactsRepository, "delete", (params: { ids?: string[] }) => {
-				deleteCalls.push(params);
+		await writeChapters("WEBVTT 1");
+		await writeChapters("WEBVTT 2");
 
-				return Promise.resolve();
-			}),
-			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
-		);
-
-		expect(await pluginArtifactsService.removeForPlugin("org.reelvault.test")).toBe(2);
-		expect(deleteCalls).toEqual([{ ids: ["a-1", "a-2"] }]);
+		expect(await pluginArtifactsService.removeForPlugin(PLUGIN_ID)).toBe(2);
+		expect(await pluginArtifactsService.list(mediaFileId)).toEqual([]);
 	});
 });

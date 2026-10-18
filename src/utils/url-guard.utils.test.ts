@@ -69,7 +69,10 @@ describe("guardedFetch", () => {
 	}
 
 	test("requires https unless the caller opts into more schemes", async () => {
-		await expect(guardedFetch("http://1.1.1.1/file")).rejects.toThrow("Only https downloads are allowed");
+		await expect(guardedFetch("http://1.1.1.1/file")).rejects.toMatchObject({
+			category: "validation",
+			code: "download.unsupported_protocol",
+		});
 
 		const calls = stubFetch(() => new Response("ok"));
 		await guardedFetch("http://1.1.1.1/file", { allowedProtocols: ["http:", "https:"] });
@@ -96,24 +99,28 @@ describe("guardedFetch", () => {
 	});
 
 	test("applies the extra host predicate before any request", async () => {
+		const policyError = new Error("blocked by policy");
 		const calls = stubFetch(() => new Response("ok"));
 
 		await expect(
 			guardedFetch("https://1.1.1.1/", {
 				assertHostAllowed: () => {
-					throw new Error("blocked by policy");
+					throw policyError;
 				},
 			}),
-		).rejects.toThrow("blocked by policy");
+		).rejects.toBe(policyError);
 		expect(calls).toHaveLength(0);
 	});
 
 	test("rejects credentials embedded in the URL", async () => {
-		await expect(guardedFetch("https://user:pass@1.1.1.1/")).rejects.toThrow("must not contain credentials");
+		await expect(guardedFetch("https://user:pass@1.1.1.1/")).rejects.toMatchObject({
+			category: "validation",
+			code: "download.invalid_url",
+		});
 	});
 
 	test("rejects hosts that resolve to non-public addresses", async () => {
-		await expect(guardedFetch("https://127.0.0.1/")).rejects.toThrow("resolves to a non-public address");
+		await expect(guardedFetch("https://127.0.0.1/")).rejects.toMatchObject({ category: "validation", code: "download.host_blocked" });
 	});
 
 	test("strips credential headers on cross-origin redirects", async () => {
@@ -133,7 +140,10 @@ describe("guardedFetch", () => {
 	test("enforces the redirect limit", async () => {
 		const calls = stubFetch(() => new Response(null, { status: 302, headers: { location: "/again" } }));
 
-		await expect(guardedFetch("https://1.1.1.1/start", { maxRedirects: 1 })).rejects.toThrow("Too many download redirects");
+		await expect(guardedFetch("https://1.1.1.1/start", { maxRedirects: 1 })).rejects.toMatchObject({
+			category: "validation",
+			code: "download.too_many_redirects",
+		});
 		expect(calls).toHaveLength(2);
 	});
 });

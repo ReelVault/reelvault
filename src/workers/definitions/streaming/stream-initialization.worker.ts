@@ -1,5 +1,5 @@
-import { type StreamInitData, streamInitializer } from "@/modules/streaming/runtime/stream-initializer";
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
+import { type StreamInitData, streamInitializer } from "@/modules/streaming/runtime/stream.initializer";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 

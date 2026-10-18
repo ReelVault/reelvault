@@ -52,7 +52,7 @@ describe("array.utils", () => {
 			expect(m.get("a")).toBe("Alice");
 		});
 
-		it("handles empty arrays", () => {
+		it("toMap returns an empty map for an empty list", () => {
 			const m = toMap([], (i: { id: string }) => i.id);
 			expect(m.size).toBe(0);
 		});
@@ -77,7 +77,7 @@ describe("array.utils", () => {
 			]);
 		});
 
-		it("handles remainders gracefully", () => {
+		it("chunk keeps the short final chunk when items do not divide evenly", () => {
 			const items = [1, 2, 3, 4, 5];
 			expect(chunk(items, 2)).toEqual([[1, 2], [3, 4], [5]]);
 		});
@@ -121,7 +121,7 @@ describe("array.utils", () => {
 			]);
 		});
 
-		it("handles empty arrays", () => {
+		it("groupBy returns no groups for an empty list", () => {
 			const grouped = groupBy([], (item: { id: string }) => item.id);
 			expect(grouped.size).toBe(0);
 		});

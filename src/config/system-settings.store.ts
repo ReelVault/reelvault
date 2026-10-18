@@ -1,5 +1,6 @@
+import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
-import { isSystemSettingKey, SYSTEM_SETTINGS, type SystemSettingKey, type SystemSettingValue } from "./system-settings.definition";
+import { isSystemSettingKey, SYSTEM_SETTINGS, type SystemSettingKey, type SystemSettingValue } from "./system-settings.definitions";
 import type { SettingDefinition } from "./system-settings.types";
 
 /**
@@ -53,7 +54,7 @@ class SystemSettingsStore {
 
 	private definition<K extends SystemSettingKey = SystemSettingKey>(key: string): SettingDefinition<SystemSettingValue<K>> {
 		if (!isSystemSettingKey(key)) {
-			throw new Error(`Unknown system setting key: ${key}`);
+			throw new DomainError("internal", `Unknown system setting key: ${key}`, { code: "settings.unknown_key" });
 		}
 
 		return SYSTEM_SETTINGS[key];

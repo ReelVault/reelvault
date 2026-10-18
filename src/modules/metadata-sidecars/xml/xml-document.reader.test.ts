@@ -2,10 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readXmlDocument } from "./xml-document.reader";
 
 describe("readXmlDocument", () => {
-	test("parses a normal sidecar document with predefined entities", async () => {
+	test("parses a normal sidecar document and decodes predefined entities", async () => {
 		const document = await readXmlDocument("<movie><title>Hello &amp; World</title></movie>");
-		expect(document).not.toBeNull();
-		expect(document?.values).toBeDefined();
+		expect(document?.values).toEqual({ movie: { title: "Hello & World" } });
 	});
 
 	test("rejects documents declaring a DTD or custom entity", async () => {

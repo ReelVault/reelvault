@@ -1,24 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { file } from "bun";
-import { SegmentLookup, type SegmentWaitContext } from "./segment-lookup";
+import { SegmentLookup, type SegmentWaitContext } from "./segment.lookup";
 
-function createHarness(
-	options: { existing?: boolean; waitOutcome?: "ok" | "timeout" | "abort"; initialWaitMs?: number; seekWaitMs?: number } = {},
-) {
+/**
+ * The file-system calls (exists, waitForFile, readFile) are the process boundary, so
+ * the harness supplies them. The wait ladder and the error mapping are the real lookup's.
+ */
+function createHarness(options: { existing?: boolean; waitOutcome?: "ok" | "timeout" } = {}) {
 	const calls: Array<{ path: string; timeoutMs: number }> = [];
+	const waitError = new Error("timeout");
 	const fileToken = file("/dev/null");
 	const lookup = new SegmentLookup({
-		initialWaitMs: options.initialWaitMs ?? 8_000,
-		seekWaitMs: options.seekWaitMs ?? 10_000,
+		initialWaitMs: 8_000,
+		seekWaitMs: 10_000,
 		exists: async () => options.existing ?? false,
 		waitForFile: (path: string, timeoutMs: number) => {
 			calls.push({ path, timeoutMs });
-			if (options.waitOutcome === "timeout") throw new Error("timeout");
-
-			if (options.waitOutcome === "abort") {
-				const abortError = Object.assign(new Error("aborted"), { aborted: true });
-				throw abortError;
-			}
+			if (options.waitOutcome === "timeout") throw waitError;
 		},
 		readFile: (path: string) => {
 			if (path.endsWith("enoent")) {
@@ -30,7 +28,7 @@ function createHarness(
 		},
 	});
 
-	return { lookup, calls, fileToken };
+	return { lookup, calls, fileToken, waitError };
 }
 
 function createContext(overrides: Partial<SegmentWaitContext> = {}): SegmentWaitContext {
@@ -65,9 +63,10 @@ describe("segment lookup", () => {
 	test("reports init segments as failed generation instead of seeking", async () => {
 		const { lookup } = createHarness({ waitOutcome: "timeout" });
 
-		await expect(lookup.find(createContext({ segment: "init.mp4", filePath: "/tmp/session-1/init.mp4" }))).rejects.toThrow(
-			"init segment was not generated in time",
-		);
+		await expect(lookup.find(createContext({ segment: "init.mp4", filePath: "/tmp/session-1/init.mp4" }))).rejects.toMatchObject({
+			category: "not_found",
+			code: "init_segment_not_found",
+		});
 	});
 
 	test("keeps waiting while a seek is in progress, then gives up", async () => {
@@ -89,7 +88,7 @@ describe("segment lookup", () => {
 		});
 	});
 
-	test("signals an implicit seek for far-future segments", async () => {
+	test("returns no file for a far-future segment, so the caller starts an implicit seek", async () => {
 		const { lookup } = createHarness({ waitOutcome: "timeout" });
 
 		const result = await lookup.find(createContext());
@@ -116,16 +115,19 @@ describe("segment lookup", () => {
 	});
 
 	test("rethrows when the request is aborted during the wait", async () => {
-		const { lookup } = createHarness({ waitOutcome: "timeout" });
+		const { lookup, waitError } = createHarness({ waitOutcome: "timeout" });
 		const controller = new AbortController();
 		controller.abort();
 
-		await expect(lookup.find(createContext({ signal: controller.signal }))).rejects.toThrow("timeout");
+		await expect(lookup.find(createContext({ signal: controller.signal }))).rejects.toBe(waitError);
 	});
 
 	test("maps ENOENT reads to a request timeout (segment removed by seek restart)", async () => {
 		const { lookup } = createHarness({ existing: true });
 
-		await expect(lookup.find(createContext({ filePath: "/tmp/session-1/seg_5.m4s/enoent" }))).rejects.toThrow("removed by a seek restart");
+		await expect(lookup.find(createContext({ filePath: "/tmp/session-1/seg_5.m4s/enoent" }))).rejects.toMatchObject({
+			category: "timeout",
+			code: "stream.segment_removed",
+		});
 	});
 });

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { symmetricEncrypt } from "better-auth/crypto";
-import { env } from "@/env";
-import { countEncryptedBackupCodes } from "./backup-codes";
+import { env } from "@/config/env.config";
+import { countEncryptedBackupCodes } from "./backup-codes.reader";
 
 describe("countEncryptedBackupCodes", () => {
-	test("counts the codes in a list encrypted under the auth secret, without reading them", async () => {
+	test("counts the codes in a list encrypted under the auth secret", async () => {
 		const encrypted = await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET, data: JSON.stringify(["aaaaa-bbbbb", "ccccc-ddddd"]) });
 
 		await expect(countEncryptedBackupCodes(encrypted)).resolves.toBe(2);

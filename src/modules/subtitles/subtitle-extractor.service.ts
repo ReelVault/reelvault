@@ -1,14 +1,14 @@
 import { rename } from "node:fs/promises";
 import { file } from "bun";
+import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { createTempPath, FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
-import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
+import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
 import type { SubtitleContent } from "./subtitle-content.resolver";
 import { subtitleVttPath } from "./subtitle-path.utils";
 

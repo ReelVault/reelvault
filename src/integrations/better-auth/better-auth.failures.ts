@@ -1,5 +1,5 @@
 import { isAPIError } from "better-auth/api";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
 
 /** better-auth error `code`s mapped onto the API's stable error codes. */

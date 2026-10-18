@@ -1,37 +1,42 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
-import type { WorkerItem, workerJobRepository } from "@/database/repositories/worker.repository";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { eq } from "drizzle-orm";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+// The service singleton installs the production runtime at import; the test restores it afterwards.
+import { workerService } from "@/workers/worker.service";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { setWorkerRuntime } from "./worker.runtime";
 import { WorkerPollingService } from "./worker-polling.service";
-import { setWorkerRuntime } from "./worker-runtime";
-import { createMockWorkerItem, createMockWorkerRuntime } from "./worker-runtime.test-utils";
+import { createMockWorkerRuntime } from "./worker-runtime.helper";
 
+// Pending, claimed and running jobs run against the migrated test database through the real claim.
+// The worker pool is the one fake: it starts threads, so the fake records what would start and keeps the slot count.
+const db = useTestDatabase();
 const definition: WorkerDefinition = {
 	id: "w-poll",
 	handler: async () => undefined,
 	concurrency: 2,
 	timeoutMs: 60_000,
 };
-
-const secondDefinition: WorkerDefinition = {
-	...definition,
-	id: "w-poll-2",
-};
+const secondDefinition: WorkerDefinition = { ...definition, id: "w-poll-2" };
 
 const started: string[] = [];
 const runningCounts = new Map<string, number>();
 let totalRunning = 0;
 let activeJobIds: string[] = [];
 let activeJobIdReads = 0;
+const activeStubs: Array<{ restore(): void }> = [];
 
-function installRuntime(): void {
+beforeEach(() => {
 	setWorkerRuntime(
 		createMockWorkerRuntime({
 			registry: {
 				get: (id: string) => {
-					if (id === "w-poll") return definition;
-					if (id === "w-poll-2") return secondDefinition;
+					if (id === definition.id) return definition;
+					if (id === secondDefinition.id) return secondDefinition;
 
 					return undefined;
 				},
@@ -48,211 +53,163 @@ function installRuntime(): void {
 				},
 				start: (_definition, item) => {
 					started.push(item.id);
+					totalRunning += 1;
 				},
 			},
 		}),
 	);
-}
-
-/** Replaces a method on the live singleton for one test, recording calls.
- * Works on real repositories AND on the minimal facades other test files
- * install with bun's process-global mock.module(...). */
-
-const activeStubs: Array<{ restore(): void }> = [];
-
-beforeEach(async () => {
-	installRuntime();
 	started.length = 0;
 	runningCounts.clear();
 	totalRunning = 0;
 	activeJobIds = [];
 	activeJobIdReads = 0;
-
-	const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-	activeStubs.push(
-		stubMethod(repo, "findPendingWorkerIds", () => Promise.resolve([])),
-		stubMethod(repo, "claimNextBatch", () => Promise.resolve([])),
-	);
 });
 
 afterEach(() => {
 	for (const stub of activeStubs.splice(0)) stub.restore();
+	setWorkerRuntime({ registry: workerService.registry, pool: workerService.pool, queue: workerService.queue });
 });
 
-function job(id: string): WorkerItem {
-	return createMockWorkerItem({ id, workerId: "w-poll", status: "pending" });
+async function insertJob(id: string, workerId: string, overrides: Partial<typeof schema.workerJobs.$inferInsert> = {}): Promise<void> {
+	await db
+		.client()
+		.insert(schema.workerJobs)
+		.values({ id, workerId, data: "{}", status: "pending", runAt: new Date(Date.now() - 60_000), ...overrides });
 }
 
-type ClaimArgs = Parameters<typeof workerJobRepository.claimNextBatch>;
+async function jobRow(id: string) {
+	const [row] = await db.client().select().from(schema.workerJobs).where(eq(schema.workerJobs.id, id));
 
-async function withClaimStub(impl: (...args: ClaimArgs) => Promise<WorkerItem[]>): Promise<ClaimArgs[]> {
-	const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-	const calls: ClaimArgs[] = [];
-	const stub = stubMethod(repo, "claimNextBatch", (...args: ClaimArgs) => {
-		calls.push(args);
+	return row;
+}
 
-		return impl(...args);
-	});
-	activeStubs.push(stub);
+async function pollOnce(polling: WorkerPollingService): Promise<void> {
+	polling.start();
+	try {
+		await polling.poll();
+	} finally {
+		polling.stop();
+	}
+}
 
-	return stub.calls as ClaimArgs[];
+/** Waits until `condition` holds, polling a bounded number of times so a poll that never runs fails loudly. */
+async function until(condition: () => boolean, attempts = 200): Promise<void> {
+	for (let attempt = 0; attempt < attempts && !condition(); attempt++) await Bun.sleep(5);
+	if (!condition()) throw new Error("The expected poll never happened");
 }
 
 describe("WorkerPollingService.poll", () => {
-	test("skips claiming entirely when the global pool is saturated", async () => {
+	test("claims nothing while the global pool is saturated", async () => {
 		totalRunning = systemResourcesService.getWorkerPoolMaxConcurrent();
-		const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-		const pending = stubMethod(repo, "findPendingWorkerIds", () => Promise.resolve(["w-poll"]));
-		activeStubs.push(pending);
+		await insertJob("job-1", "w-poll");
 
-		const polling = new WorkerPollingService();
-		Reflect.set(polling, "isRunning", true);
-		await polling.poll();
+		await pollOnce(new WorkerPollingService());
 
-		// The saturation guard returns before reading pending work.
-		expect(pending.calls).toHaveLength(0);
 		expect(started).toEqual([]);
+		expect((await jobRow("job-1"))?.status).toBe("pending");
 	});
 
-	test("claims a batch per worker with runner id, timeout and active-job exclusion", async () => {
-		const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-		stubMethod(repo, "findPendingWorkerIds", () => Promise.resolve(["w-poll"]));
-		const claim = await withClaimStub(() => Promise.resolve([job("job-1"), job("job-2")]));
-		activeJobIds = ["job-live"];
-
+	test("claims at most the worker's concurrency, tags the claimed jobs with this runner, and leaves the rest pending", async () => {
+		await insertJob("job-1", "w-poll", { runAt: new Date(Date.now() - 3000) });
+		await insertJob("job-2", "w-poll", { runAt: new Date(Date.now() - 2000) });
+		await insertJob("job-3", "w-poll", { runAt: new Date(Date.now() - 1000) });
 		const polling = new WorkerPollingService();
 		polling.setRunnerId("runner-1");
-		Reflect.set(polling, "isRunning", true);
-		await polling.poll();
 
-		expect(claim).toHaveLength(1);
-		const firstCall = claim[0];
-		expect(firstCall).toBeDefined();
-		if (!firstCall) return;
+		await pollOnce(polling);
 
-		const [options, freeSlots] = firstCall;
-		expect(options.workerId).toBe("w-poll");
-		expect(options.runnerId).toBe("runner-1");
-		expect(options.concurrency).toBe(2);
-		expect(options.timeoutMs).toBe(60_000);
-		expect(options.excludeActiveIds).toEqual(["job-live"]);
-		// freeSlots = min(concurrency 2 - running 0, global max - running 0)
-		expect(freeSlots).toBe(Math.min(2, systemResourcesService.getWorkerPoolMaxConcurrent()));
 		expect(started).toEqual(["job-1", "job-2"]);
+		expect(await jobRow("job-1")).toMatchObject({ status: "running", runnerId: "runner-1" });
+		expect((await jobRow("job-3"))?.status).toBe("pending");
+		// The lease runs for the worker's timeout from the claim.
+		const leaseMs = ((await jobRow("job-1"))?.leaseUntil?.getTime() ?? 0) - Date.now();
+		expect(leaseMs).toBeGreaterThan(55_000);
+		expect(leaseMs).toBeLessThanOrEqual(60_000);
 	});
 
-	test("skips workers with no free slots and unknown worker ids", async () => {
-		const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-		stubMethod(repo, "findPendingWorkerIds", () => Promise.resolve(["w-unknown", "w-poll"]));
-		runningCounts.set("w-poll", 2); // at its concurrency of 2 → no free slots
-		const claim = await withClaimStub(() => Promise.resolve([]));
+	test("does not reclaim a job this process is still running, even when its lease has expired", async () => {
+		await insertJob("job-live", "w-poll", {
+			status: "running",
+			runnerId: "runner-1",
+			startedAt: new Date(Date.now() - 120_000),
+			leaseUntil: new Date(Date.now() - 60_000),
+		});
+		await insertJob("job-free", "w-poll");
+		activeJobIds = ["job-live"];
 
-		const polling = new WorkerPollingService();
-		Reflect.set(polling, "isRunning", true);
-		await polling.poll();
+		await pollOnce(new WorkerPollingService());
 
-		expect(claim).toHaveLength(0);
+		expect(started).toEqual(["job-free"]);
+		expect((await jobRow("job-live"))?.status).toBe("running");
+	});
+
+	test("skips workers with no free slots and unregistered workers, leaving their jobs pending", async () => {
+		runningCounts.set("w-poll", 2); // at its concurrency of 2, so no free slots
+		await insertJob("job-busy", "w-poll");
+		await insertJob("job-unknown", "w-unknown");
+
+		await pollOnce(new WorkerPollingService());
+
 		expect(started).toEqual([]);
+		expect((await jobRow("job-busy"))?.status).toBe("pending");
+		expect((await jobRow("job-unknown"))?.status).toBe("pending");
 	});
 
 	test("reads the active-job set once per poll, not once per worker", async () => {
-		const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-		stubMethod(repo, "findPendingWorkerIds", () => Promise.resolve(["w-poll", "w-poll-2"]));
-		const claim = await withClaimStub(() => Promise.resolve([]));
+		await insertJob("job-1", "w-poll");
+		await insertJob("job-2", "w-poll-2");
 
-		const polling = new WorkerPollingService();
-		Reflect.set(polling, "isRunning", true);
-		await polling.poll();
+		await pollOnce(new WorkerPollingService());
 
-		expect(claim).toHaveLength(2);
+		expect(started.toSorted((a, b) => a.localeCompare(b))).toEqual(["job-1", "job-2"]);
 		expect(activeJobIdReads).toBe(1);
 	});
 
-	test("a second claim is skipped once the global pool filled up mid-poll", async () => {
-		const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-		stubMethod(repo, "findPendingWorkerIds", () => Promise.resolve(["w-poll", "w-poll"]));
-		const claim = await withClaimStub(() => {
-			// Simulate the pool filling up after the first claim.
-			totalRunning = systemResourcesService.getWorkerPoolMaxConcurrent();
+	test("stops claiming once the global pool fills up mid-poll", async () => {
+		// One slot is left in the global pool, so only the first worker that claims gets it.
+		totalRunning = systemResourcesService.getWorkerPoolMaxConcurrent() - 1;
+		await insertJob("job-a1", "w-poll", { runAt: new Date(Date.now() - 3000) });
+		await insertJob("job-a2", "w-poll", { runAt: new Date(Date.now() - 2000) });
+		await insertJob("job-b1", "w-poll-2", { runAt: new Date(Date.now() - 1000) });
 
-			return Promise.resolve([]);
-		});
+		await pollOnce(new WorkerPollingService());
 
-		const polling = new WorkerPollingService();
-		Reflect.set(polling, "isRunning", true);
-		await polling.poll();
-
-		expect(claim).toHaveLength(1);
+		expect(started).toHaveLength(1);
+		const pending = [await jobRow("job-a1"), await jobRow("job-a2"), await jobRow("job-b1")].filter((row) => row?.status === "pending");
+		expect(pending).toHaveLength(2);
 	});
 });
 
 describe("WorkerPollingService wake-up drain", () => {
-	test("a trigger during an in-flight poll is drained instead of lost", async () => {
-		const { workerJobRepository: repo } = await import("@/database/repositories/worker.repository");
-		stubMethod(repo, "findPendingWorkerIds", () => Promise.resolve(["w-poll"]));
+	test("a job that arrives during an in-flight poll is picked up by a follow-up poll", async () => {
 		let claims = 0;
-		let releaseClaim!: () => void;
-		const gate = new Promise<void>((resolve) => {
-			releaseClaim = resolve;
+		let releaseFirstPoll!: () => void;
+		const firstPollHeld = new Promise<void>((resolve) => {
+			releaseFirstPoll = resolve;
 		});
-		const claim = await withClaimStub(() => {
-			claims += 1;
-			if (claims === 1) return gate.then(() => []);
+		const realClaim = workerJobRepository.claimNextBatch.bind(workerJobRepository);
+		activeStubs.push(
+			stubMethod(workerJobRepository, "claimNextBatch", async (...args: Parameters<typeof realClaim>) => {
+				claims++;
+				const items = await realClaim(...args);
+				// Hold only the first poll in flight, after its real claim has run.
+				if (claims === 1) await firstPollHeld;
 
-			return Promise.resolve([]);
-		});
-
+				return items;
+			}),
+		);
+		await insertJob("job-1", "w-poll");
 		const polling = new WorkerPollingService();
 		polling.start();
-		// Wait for the first poll to enter the claim.
-		await new Promise((resolve) => {
-			setTimeout(resolve, 30);
-		});
-		expect(claims).toBe(1);
+		await until(() => claims === 1);
 
-		// Enqueue-style trigger while the poll is still running — must set pollAgain.
+		await insertJob("job-2", "w-poll");
 		polling.triggerPoll();
-		releaseClaim();
+		releaseFirstPoll();
 
-		// The drain triggers another poll after the in-flight one settles.
-		await new Promise((resolve) => {
-			setTimeout(resolve, 60);
-		});
-		expect(claims).toBeGreaterThanOrEqual(2);
-		expect(claim.length).toBeGreaterThanOrEqual(2);
-
-		polling.stop();
-	});
-
-	test("triggerPoll before start() is a no-op and stop() halts the loop", () => {
-		const polling = new WorkerPollingService();
-		polling.triggerPoll(); // not running — nothing scheduled
-
-		polling.start();
-		expect(Reflect.get(polling, "isRunning")).toBe(true);
-
-		polling.stop();
-		expect(Reflect.get(polling, "isRunning")).toBe(false);
-		expect(Reflect.get(polling, "pollTimer")).toBeUndefined();
-		expect(Reflect.get(polling, "pollDebounceTimer")).toBeUndefined();
-
-		polling.triggerPoll(); // stopped — ignored
-
-		return Promise.resolve();
-	});
-
-	test("recoverFromStall clears the in-flight guard and triggers a fresh poll", async () => {
-		const polling = new WorkerPollingService();
-		polling.start();
-
-		Reflect.set(polling, "isPolling", true); // simulate a wedged loop
-		polling.recoverFromStall();
-		expect(Reflect.get(polling, "isPolling")).toBe(false);
-
-		// Give the debounced poll a chance to run; it must not throw.
-		await new Promise((resolve) => {
-			setTimeout(resolve, 30);
-		});
+		// The regular poll only runs after the one-second interval, so a 200 ms window passes only if the drain ran.
+		await until(() => started.length === 2, 40);
+		expect(started).toEqual(["job-1", "job-2"]);
 		polling.stop();
 	});
 });

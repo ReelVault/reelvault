@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PlaybackDecision } from "@reelvault/sdk/common";
-import { StreamInitializer, type StreamInitializerDependencies } from "./stream-initializer";
+import { StreamInitializer, type StreamInitializerDependencies } from "./stream.initializer";
 
 const decision: PlaybackDecision = {
 	mode: "direct-stream",
@@ -42,10 +42,11 @@ describe("StreamInitializer", () => {
 	});
 
 	test("releases the reservation before discarding the session after a start failure", async () => {
+		const startError = new Error("ffmpeg failed");
 		const calls: string[] = [];
 		const initializer = new StreamInitializer(
 			dependencies({
-				startSession: () => Promise.reject(new Error("ffmpeg failed")),
+				startSession: () => Promise.reject(startError),
 				discardSession: () => {
 					calls.push("discard");
 
@@ -57,7 +58,7 @@ describe("StreamInitializer", () => {
 
 		await expect(
 			initializer.initialize({ sessionId: "session-1", mediaFileId: "media-1", filePath: "/media/movie.mkv", decision }, {}),
-		).rejects.toThrow("ffmpeg failed");
+		).rejects.toMatchObject({ category: "internal", cause: startError });
 
 		// discardSession() no-ops while the reservation is pending — release must run first.
 		expect(calls).toEqual(["release", "discard"]);

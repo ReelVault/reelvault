@@ -13,9 +13,13 @@ describe("resolveSubtitleType", () => {
 	});
 
 	test("rejects neither, both, and a type that contradicts the source", () => {
-		expect(() => resolveSubtitleType({})).toThrow("exactly one");
-		expect(() => resolveSubtitleType({ sourcePath: "/a.srt", streamIndex: 2 })).toThrow("exactly one");
-		expect(() => resolveSubtitleType({ streamIndex: 2, type: "external" })).toThrow("does not match");
+		expect(() => resolveSubtitleType({})).toThrow(expect.objectContaining({ category: "validation", code: "subtitle.source_invalid" }));
+		expect(() => resolveSubtitleType({ sourcePath: "/a.srt", streamIndex: 2 })).toThrow(
+			expect.objectContaining({ category: "validation", code: "subtitle.source_invalid" }),
+		);
+		expect(() => resolveSubtitleType({ streamIndex: 2, type: "external" })).toThrow(
+			expect.objectContaining({ category: "validation", code: "subtitle.type_mismatch" }),
+		);
 	});
 });
 

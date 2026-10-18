@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
-import { systemSettingsService } from "@/application/admin/system-settings.service";
-import { DomainError } from "@/utils/errors";
-import { MemoryCache } from "@/utils/memory-cache";
+import { systemSettingsStore } from "@/config/system-settings.store";
+import { DomainError } from "@/utils/domain.errors";
+import { MemoryCache } from "@/utils/memory.cache";
 import { normalizeLower } from "@/utils/type.utils";
 import { guardedFetch, isPublicAddress } from "@/utils/url-guard.utils";
 
@@ -37,7 +37,7 @@ export function isHostAllowed(hostname: string, allowedList: string): boolean {
  * shared guard itself.
  */
 function assertPluginHostAllowed(hostname: string): void {
-	const allowedList = systemSettingsService.get(SETTING_ALLOWED_DOMAINS);
+	const allowedList = systemSettingsStore.get(SETTING_ALLOWED_DOMAINS);
 	if (!isHostAllowed(hostname, allowedList)) {
 		throw new DomainError("forbidden", `Destination host '${hostname}' is not on the plugins.http.allowedDomains allowlist`, {
 			code: "plugin.http.host_not_allowed",

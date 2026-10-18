@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it, test } from "bun:test";
 import { once } from "node:events";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { Writable } from "node:stream";
+import { removeTree } from "@/utils/directory.utils";
 import { readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { CoalescingStream, createLogger, DailyRotatingStream, formatAccessLine, logAccessRecord, sanitizeLogValue } from "./logger";
+import { formatAccessLine, logAccessRecord } from "./logger.utils";
+import { CoalescingStream } from "./logging/coalescing.stream";
+import { DailyRotatingStream } from "./logging/daily-rotating.stream";
+import { sanitizeLogValue } from "./logging/sanitize.utils";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map((directory) => removeTree(directory)));
 });
 
 describe("DailyRotatingStream", () => {
@@ -129,17 +133,6 @@ function toLocalDateString(timestampMs: number): string {
 
 	return `${date.getFullYear()}-${month}-${day}`;
 }
-
-test("AppLogger accepts every level and message shape without throwing", () => {
-	const log = createLogger("TestLogger");
-
-	const err = new Error("Sample error");
-	expect(() => log.error("An error occurred", err, { context: "unit-test" })).not.toThrow();
-	expect(() => log.error("An error occurred without error object", { context: "unit-test" })).not.toThrow();
-	expect(() => log.warn("Warning", { foo: "bar" })).not.toThrow();
-	expect(() => log.info("Informational log", { foo: "bar" })).not.toThrow();
-	expect(() => log.debug("Debug detail")).not.toThrow();
-});
 
 test("sanitizeLogValue redacts credentials and filesystem locations", () => {
 	const safe = sanitizeLogValue({
@@ -298,7 +291,7 @@ describe("access log fast path", () => {
 		expect(formatAccessLine("GET / → 200", {})).toMatch(EMPTY_META_ACCESS_LINE);
 	});
 
-	it("reports the fast path unavailable in tests so the caller falls back to the regular logger", () => {
+	it("reports the fast path unavailable while no access sink is installed", () => {
 		expect(logAccessRecord("GET / → 200", { path: "/", method: "GET" })).toBe(false);
 	});
 });

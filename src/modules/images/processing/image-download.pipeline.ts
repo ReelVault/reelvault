@@ -1,17 +1,17 @@
 import { copyFile, rename } from "node:fs/promises";
-import type { ImageOwnerTarget, PersistedImageInput } from "@/database/repositories/images.repository";
+import { serverConfig } from "@/config/server/server.config";
 import { getImageMetadata, type OptimizedImageResult, optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
-import { serverConfig } from "@/server.config";
+import type { ImageOwnerTarget, PersistedImageInput } from "@/modules/images/images.ports";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createHash } from "@/utils/crypto.utils";
 import { DirUtils } from "@/utils/directory.utils";
-import { DomainError, errorMessage } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { createTempPath, FileUtils } from "@/utils/file.utils";
 import { createImageStableKey, createImageStoragePath } from "@/utils/image-storage.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
-import { getContentType } from "./content-types";
+import { getContentType } from "./content-types.utils";
 
 interface ServiceDependencies {
 	download: typeof FileUtils.download;

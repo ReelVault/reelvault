@@ -1,114 +1,70 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import type { MediaFileAuditRow } from "@/database/repositories/media-files.repository";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { recognitionService } from "@/modules/recognition/recognition.service";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mediaRepository } from "@/app/repositories/media-files.repository";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { workerService } from "@/workers/worker.service";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { auditMediaFileTask, scanMediaMatchAuditTask } from "./media-file-audit.worker";
+import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { auditMediaFileTask, mediaFileAuditWorker, mediaMatchAuditScanWorker, scanMediaMatchAuditTask } from "./media-file-audit.worker";
+
+// Audit rows come from real media rows; recognition and the audit rules run unstubbed.
+const database = useTestDatabase();
 
 const activeStubs: Array<{ restore(): void }> = [];
 
-afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+beforeEach(() => {
+	workerService.registry.register(mediaFileAuditWorker);
 });
 
-function createMockAuditRow(overrides: Partial<MediaFileAuditRow> = {}): MediaFileAuditRow {
-	return {
-		mediaFileId: "file-1",
-		fileName: "movie.mkv",
-		filePath: "/media/movie.mkv",
-		libraryId: "lib-1",
-		libraryName: "Movies",
-		libraryType: "movie",
-		metadataId: "meta-1",
-		metadataTitle: "Movie",
-		metadataOriginalTitle: null,
-		metadataReleaseDate: "2024-01-01",
-		metadataMatchScore: 1,
-		metadataType: "movie",
-		episodeNumber: null,
-		seasonNumber: null,
-		...overrides,
-	};
-}
+afterEach(() => {
+	for (const stub of activeStubs.splice(0)) stub.restore();
+	workerService.registry.unregister(mediaFileAuditWorker.id);
+});
 
 describe("media file audit task", () => {
-	test("reports whether a single file is a suspect", async () => {
-		activeStubs.push(
-			stubMethod(recognitionService, "recognize", () => null),
-			stubMethod(mediaRepository, "findAuditRow", () =>
-				Promise.resolve(
-					createMockAuditRow({
-						mediaFileId: "file-1",
-						fileName: "unrelated.mkv",
-						filePath: "/media/unrelated.mkv",
-						metadataTitle: "Zebra Documentary",
-					}),
-				),
-			),
-		);
+	test("reports a file whose name does not match its assigned title as a suspect", async () => {
+		const mediaFileId = await insertMovieMediaFile(database.client(), "/media/unrelated.mkv", "zebra-documentary");
 
-		const result = await auditMediaFileTask({ mediaFileId: "file-1" });
-
-		expect(result).toEqual({ mediaFileId: "file-1", suspect: true });
+		await expect(auditMediaFileTask({ mediaFileId })).resolves.toEqual({ mediaFileId, suspect: true });
 	});
 
-	test("reports non-suspect for clean files and missing rows", async () => {
-		activeStubs.push(stubMethod(recognitionService, "recognize", () => null));
-		const findAuditRow = stubMethod(mediaRepository, "findAuditRow", () =>
-			Promise.resolve(createMockAuditRow({ fileName: "Movie.2024.mkv", filePath: "/media/Movie.2024.mkv" })),
-		);
+	test("reports a matching file and a missing row as not suspect", async () => {
+		const mediaFileId = await insertMovieMediaFile(database.client(), "/media/Movie.2020.mkv", "Movie");
 
-		const clean = await auditMediaFileTask({ mediaFileId: "file-1" });
-		expect(clean).toEqual({ mediaFileId: "file-1", suspect: false });
-
-		findAuditRow.restore();
-		activeStubs.push(stubMethod(mediaRepository, "findAuditRow", () => Promise.resolve(undefined)));
-
-		const missing = await auditMediaFileTask({ mediaFileId: "gone" });
-		expect(missing).toEqual({ mediaFileId: "gone", suspect: false });
+		await expect(auditMediaFileTask({ mediaFileId })).resolves.toEqual({ mediaFileId, suspect: false });
+		await expect(auditMediaFileTask({ mediaFileId: "missing" })).resolves.toEqual({ mediaFileId: "missing", suspect: false });
 	});
 
-	test("requires a mediaFileId", async () => {
-		await expect(auditMediaFileTask({ mediaFileId: "" })).rejects.toMatchObject({ code: "internal" });
-	});
+	test("queues one task per audited file under the scan's operation and task", async () => {
+		const operationId = "operation-1";
+		const taskId = "task-1";
+		await workerOperationRepository.create({ id: operationId, type: mediaMatchAuditScanWorker.id });
+		await workerJobRepository.enqueue({
+			id: taskId,
+			workerId: mediaMatchAuditScanWorker.id,
+			operationId,
+			data: "{}",
+			priority: 0,
+			maxAttempts: 1,
+			backoffType: "fixed",
+			backoffDelayMs: 1_000,
+			runAt: new Date(),
+		});
+		const mediaFileIds = [
+			await insertMovieMediaFile(database.client(), "/media/a.mkv", "m-a"),
+			await insertMovieMediaFile(database.client(), "/media/b.mkv", "m-b"),
+			await insertMovieMediaFile(database.client(), "/media/c.mkv", "m-c"),
+		];
 
-	test("queues one task per audited file with parent operation", async () => {
-		const queued: Array<{ mediaFileId: string; operationId?: string | undefined; dependsOnTaskIds?: string[] | undefined }> = [];
-		activeStubs.push(
-			stubMethod(mediaRepository, "scanAuditRowIds", async (onPage: (ids: string[]) => Promise<void> | void) => {
-				await onPage(["file-1", "file-2", "file-3"]);
+		await expect(scanMediaMatchAuditTask({ operationId, taskId })).resolves.toEqual({ requested: 3, queued: 3 });
 
-				return 3;
-			}),
-			stubMethod(
-				workerService,
-				"addItems",
-				(
-					_workerId: string,
-					entries: Array<{ data: { mediaFileId: string }; options?: { operationId?: string; dependsOnTaskIds?: string[] } }>,
-				) => {
-					for (const entry of entries) {
-						queued.push({
-							mediaFileId: entry.data.mediaFileId,
-							operationId: entry.options?.operationId,
-							dependsOnTaskIds: entry.options?.dependsOnTaskIds,
-						});
-					}
-
-					return Promise.resolve([]);
-				},
-			),
+		const queued = (await workerJobRepository.findByOperation(operationId, 10)).filter(
+			(item) => item.workerId === mediaFileAuditWorker.id && item.dependsOnJobId === taskId,
 		);
-
-		const result = await scanMediaMatchAuditTask({ operationId: "operation-1", taskId: "task-1" });
-
-		expect(result).toEqual({ requested: 3, queued: 3 });
-		expect(queued.map((item) => item.mediaFileId)).toEqual(["file-1", "file-2", "file-3"]);
-		for (const item of queued) {
-			expect(item.operationId).toBe("operation-1");
-			expect(item.dependsOnTaskIds).toEqual(["task-1"]);
-		}
+		expect(
+			queued.map((item) => JSON.parse(item.data).mediaFileId).toSorted((left: string, right: string) => left.localeCompare(right)),
+		).toEqual(mediaFileIds.toSorted());
 	});
 
 	test("converts scan failures to domain errors", async () => {

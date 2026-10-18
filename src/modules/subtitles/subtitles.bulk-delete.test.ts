@@ -1,29 +1,27 @@
-import { afterEach, expect, test } from "bun:test";
-import { DomainError } from "@/utils/errors";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { expect, test } from "bun:test";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { subtitlesService } from "./subtitles.service";
 
-const stubs: Array<{ restore(): void }> = [];
-afterEach(() => {
-	for (const stub of stubs.splice(0)) stub.restore();
-});
+const db = useTestDatabase();
 
-test("bulk delete removes each subtitle once and reports a failed one by its code, never its message", async () => {
-	const remove = stubMethod(subtitlesService, "delete", (id: string) =>
-		id === "sub-missing"
-			? Promise.reject(new DomainError("not_found", "Subtitle /data/subs/x.srt is gone", { code: "subtitle.not_found" }))
-			: Promise.resolve({ success: true }),
-	);
-	stubs.push(remove);
+test("bulk delete removes each subtitle once and reports a missing one by its code", async () => {
+	const client = db.client();
+	const mediaFileId = await insertMovieMediaFile(client, "/media/movie.mkv", "meta-1");
+	await client.insert(schema.subtitles).values([
+		{ id: "sub-1", mediaFileId, language: "eng", format: "subrip", type: "embedded", streamIndex: 2 },
+		{ id: "sub-2", mediaFileId, language: "pol", format: "subrip", type: "embedded", streamIndex: 3 },
+	]);
 
 	const outcome = await subtitlesService.bulkDelete(["sub-1", "sub-missing", "sub-1", "sub-2"]);
 
-	expect(remove.calls).toEqual([["sub-1"], ["sub-missing"], ["sub-2"]]);
 	expect(outcome).toEqual({
 		results: [
 			{ id: "sub-1", ok: true },
-			{ id: "sub-missing", ok: false, code: "subtitle.not_found" },
+			{ id: "sub-missing", ok: false, code: "entity.not_found" },
 			{ id: "sub-2", ok: true },
 		],
 	});
+	expect(await client.select({ id: schema.subtitles.id }).from(schema.subtitles)).toEqual([]);
 });

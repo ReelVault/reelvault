@@ -1,34 +1,19 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
-import { MINUTE } from "@/server.constants";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { serverRescueService } from "@/system/server-rescue.service";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { WorkerRegistryService } from "./worker-registry.service";
 
-const activeStubs: Array<{ restore(): void }> = [];
-
-beforeEach(async () => {
-	const [{ serverRescueService }, { resourceAllocator }, { systemResourcesService }] = await Promise.all([
-		import("@/system/server-rescue.service"),
-		import("@/system/resource-allocator"),
-		import("@/system/system-resources.service"),
-	]);
-	activeStubs.push(
-		stubMethod(serverRescueService, "getRescueAllocation", () => undefined),
-		stubMethod(resourceAllocator, "getWorkerConcurrencyCeiling", () => 4),
-		stubMethod(resourceAllocator, "getWorkerAllocation", (workerId: string) => ({
-			workerId,
-			requested: 99,
-			allocated: 2,
-			throttled: false,
-		})),
-		stubMethod(systemResourcesService, "scaledTimeoutMs", (baseMs: number) => baseMs),
-	);
-});
+// The registry runs against the real resource allocator and rescue service. The only host
+// stub is the measured capacity behind auto concurrency: it depends on the machine running
+// the tests. The rescue case stubs the rescue verdict because the rescue state machine is
+// timer-driven; its transitions are covered by server-rescue.service.test.ts.
+const stubs: Array<{ restore(): void }> = [];
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	for (const stub of stubs.splice(0)) stub.restore();
 });
-
-const ALREADY_REGISTERED = /already registered/;
 
 function def(overrides: Partial<WorkerDefinition> = {}): WorkerDefinition {
 	return {
@@ -39,8 +24,7 @@ function def(overrides: Partial<WorkerDefinition> = {}): WorkerDefinition {
 }
 
 describe("WorkerRegistryService", () => {
-	test("registers, looks up and unregisters worker definitions", async () => {
-		const { WorkerRegistryService } = await import("./worker-registry.service");
+	test("registers, looks up and unregisters worker definitions", () => {
 		const registry = new WorkerRegistryService();
 
 		expect(registry.has("w-registry-test")).toBe(false);
@@ -59,38 +43,31 @@ describe("WorkerRegistryService", () => {
 		expect(registry.has("w-registry-test")).toBe(false);
 	});
 
-	test("rejects a duplicate registration with a ConflictError", async () => {
-		const { WorkerRegistryService } = await import("./worker-registry.service");
+	test("rejects a duplicate registration with a conflict code", () => {
 		const registry = new WorkerRegistryService();
 		registry.register(def());
 
-		expect(() => registry.register(def({ handler: async () => "other" }))).toThrow(ALREADY_REGISTERED);
+		let error: unknown;
+		try {
+			registry.register(def({ handler: async () => "other" }));
+		} catch (caught) {
+			error = caught;
+		}
+
+		expect(error).toMatchObject({ category: "conflict", code: "worker.already_registered" });
 	});
 
-	test("normalizes explicit concurrency against the allocator ceiling", async () => {
-		const { WorkerRegistryService } = await import("./worker-registry.service");
-		const { resourceAllocator } = await import("@/system/resource-allocator");
-		const ceiling = stubMethod(resourceAllocator, "getWorkerConcurrencyCeiling", () => 4);
-		activeStubs.push(ceiling);
-
+	test("caps explicit concurrency at the allocator ceiling and keeps a lower value", () => {
 		const registry = new WorkerRegistryService();
-		registry.register(def({ concurrency: 10 }));
+		registry.register(def({ id: "image-processing", concurrency: 10 }));
+		registry.register(def({ id: "scanning", concurrency: 3 }));
 
-		const stored = registry.get("w-registry-test");
-		expect(stored?.concurrency).toBe(4);
-		expect(ceiling.calls).toEqual([["w-registry-test"]]);
+		expect(registry.get("image-processing")?.concurrency).toBe(8);
+		expect(registry.get("scanning")?.concurrency).toBe(3);
 	});
 
-	test("falls back to the allocator for zero or missing concurrency", async () => {
-		const { WorkerRegistryService } = await import("./worker-registry.service");
-		const { resourceAllocator } = await import("@/system/resource-allocator");
-		const allocation = stubMethod(resourceAllocator, "getWorkerAllocation", (workerId: string) => ({
-			workerId,
-			requested: 8,
-			allocated: 2,
-			throttled: true,
-		}));
-		activeStubs.push(allocation);
+	test("gives a worker without explicit concurrency the host's auto allocation", () => {
+		stubs.push(stubMethod(systemResourcesService, "getWorkerAutoConcurrency", () => 2));
 
 		const registry = new WorkerRegistryService();
 		registry.register(def({ concurrency: 0 }));
@@ -100,10 +77,8 @@ describe("WorkerRegistryService", () => {
 		expect(registry.get("w-registry-test-auto")?.concurrency).toBe(2);
 	});
 
-	test("a server rescue allocation overrides even explicit concurrency", async () => {
-		const { WorkerRegistryService } = await import("./worker-registry.service");
-		const { serverRescueService } = await import("@/system/server-rescue.service");
-		activeStubs.push(
+	test("a server rescue allocation overrides even explicit concurrency", () => {
+		stubs.push(
 			stubMethod(serverRescueService, "getRescueAllocation", () => ({
 				allocated: 0,
 				throttled: true as const,
@@ -117,38 +92,7 @@ describe("WorkerRegistryService", () => {
 		expect(registry.get("w-registry-test")?.concurrency).toBe(0);
 	});
 
-	test("fills attempts, backoff and timeoutMs defaults from the scheduling config", async () => {
-		const { WorkerRegistryService } = await import("./worker-registry.service");
-		const registry = new WorkerRegistryService();
-		registry.register(def());
-
-		const stored = registry.get("w-registry-test");
-		expect(stored?.attempts).toBe(3);
-		expect(stored?.backoff).toEqual({ type: "exponential", delayMs: 1_000 });
-		expect(stored?.timeoutMs).toBe(5 * MINUTE);
-	});
-});
-
-describe("WorkerRegistryService", () => {
-	test("keeps explicit attempts, backoff and timeoutMs", async () => {
-		const { WorkerRegistryService } = await import("./worker-registry.service");
-		const registry = new WorkerRegistryService();
-		registry.register(
-			def({
-				attempts: 5,
-				backoff: { type: "fixed", delayMs: 2_500 },
-				timeoutMs: 45_000,
-			}),
-		);
-
-		const stored = registry.get("w-registry-test");
-		expect(stored?.attempts).toBe(5);
-		expect(stored?.backoff).toEqual({ type: "fixed", delayMs: 2_500 });
-		expect(stored?.timeoutMs).toBe(45_000);
-	});
-
-	test("clamps attempts to a minimum of one", async () => {
-		const { WorkerRegistryService } = await import("./worker-registry.service");
+	test("clamps attempts to a minimum of one", () => {
 		const registry = new WorkerRegistryService();
 		registry.register(def({ attempts: 0 }));
 

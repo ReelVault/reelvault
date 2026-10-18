@@ -1,10 +1,9 @@
-import { pluginStorageRepository } from "@/database/repositories/plugin-storage.repository";
-import { KeyedMutex } from "@/utils/concurrency";
-import { createLogger } from "@/utils/logger";
-import { assertStorageKey, serializeStorageValue } from "./plugin.storage.validation";
+import { pluginStorageData } from "@/app/plugins/plugin-data.service";
+import { KeyedMutex } from "@/utils/concurrency.utils";
+import { createLogger } from "@/utils/logger.utils";
+import { assertStorageKey, serializeStorageValue } from "./plugin.storage.validator";
 
 /** Property access keeps the repository off array-iterator name matching in static analysis. */
-const storageRepository = { plugin: pluginStorageRepository };
 
 /** Hard cap on keys returned by `list` so a plugin cannot pull an unbounded result set into memory. */
 const MAX_STORAGE_KEYS = 10_000;
@@ -18,7 +17,7 @@ class PluginStorageService {
 
 	async get(pluginId: string, key: string): Promise<unknown> {
 		assertStorageKey(key);
-		const value = await storageRepository.plugin.find(pluginId, key);
+		const value = await pluginStorageData.findValue(pluginId, key);
 		if (value === undefined) return undefined;
 
 		const parsed: unknown = JSON.parse(value);
@@ -29,7 +28,7 @@ class PluginStorageService {
 	async set(pluginId: string, key: string, value: unknown): Promise<void> {
 		assertStorageKey(key);
 		const serialized = serializeStorageValue(value);
-		await storageRepository.plugin.set(pluginId, key, serialized);
+		await pluginStorageData.set(pluginId, key, serialized);
 	}
 
 	async update(pluginId: string, key: string, updater: (current: unknown) => unknown): Promise<unknown> {
@@ -46,12 +45,12 @@ class PluginStorageService {
 
 	async delete(pluginId: string, key: string): Promise<void> {
 		assertStorageKey(key);
-		await storageRepository.plugin.delete(pluginId, key);
+		await pluginStorageData.delete(pluginId, key);
 	}
 
 	/** Keys of this plugin, optionally filtered by prefix (no values — cheap enumeration). */
 	async list(pluginId: string, prefix?: string): Promise<string[]> {
-		const keys = await storageRepository.plugin.findKeysByPlugin(pluginId);
+		const keys = await pluginStorageData.findKeysByPlugin(pluginId);
 
 		return keys
 			.filter((key) => !prefix || key.startsWith(prefix))
@@ -60,7 +59,7 @@ class PluginStorageService {
 	}
 
 	async removeForPlugin(pluginId: string): Promise<void> {
-		await storageRepository.plugin.deleteForPlugin(pluginId);
+		await pluginStorageData.deleteForPlugin(pluginId);
 	}
 }
 

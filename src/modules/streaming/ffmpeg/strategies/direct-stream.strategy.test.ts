@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TranscodeConfig } from "@reelvault/sdk/common";
 import { spawn } from "bun";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { createMockPlaybackDecision } from "../../streaming.test-utils";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { removeTreeSync } from "@/utils/directory.utils";
 import { DirectStreamStrategy } from "./direct-stream.strategy";
 
 const config: TranscodeConfig = {
@@ -18,10 +19,10 @@ const config: TranscodeConfig = {
 };
 
 describe("direct-stream strategy", () => {
-	test("refuses to start without an input file", () => {
+	test("refuses to start without an input file", async () => {
 		const strategy = new DirectStreamStrategy(config);
 
-		expect(
+		await expect(
 			strategy.startSession({
 				sessionId: "s1",
 				inputPath: "/nonexistent/input.mkv",
@@ -29,7 +30,7 @@ describe("direct-stream strategy", () => {
 				decision: createMockPlaybackDecision({ mode: "direct-stream" }),
 				startTime: 0,
 			}),
-		).rejects.toThrow("Input file does not exist");
+		).rejects.toMatchObject({ category: "not_found", code: "media_file.missing" });
 	});
 });
 
@@ -105,7 +106,7 @@ describe("direct-stream strategy output paths", () => {
 			);
 		} finally {
 			await fakeProcess.exited;
-			rmSync(root, { recursive: true, force: true });
+			removeTreeSync(root);
 		}
 	});
 });

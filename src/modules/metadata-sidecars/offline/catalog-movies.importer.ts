@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
+import type { OfflineRebuildIssue } from "@/modules/metadata-sidecars/offline-rebuild.types";
 import { PathUtils } from "@/utils/path.utils";
-import type { OfflineRebuildIssue } from "../offline-rebuild-report";
-import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.common";
+import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.utils";
 import { type CatalogDirectoryNode, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
 
 export class CatalogMoviesImporter extends CatalogImporter {

@@ -1,4 +1,4 @@
-import { DomainError, isMissingFile } from "@/utils/errors";
+import { DomainError, isMissingFile } from "@/utils/domain.errors";
 import { FileUtils, readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";

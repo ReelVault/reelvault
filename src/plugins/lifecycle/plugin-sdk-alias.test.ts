@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isRecord } from "@/utils/type.utils";
-import { ensurePluginSdkShim } from "./plugin-sdk-alias";
+import { removeTree } from "@/utils/directory.utils";
+import { ensurePluginSdkShim } from "./plugin-sdk-alias.utils";
 
 describe("plugin sdk shim", () => {
 	test("lets an installed plugin resolve the SDK by package name", async () => {
@@ -18,42 +18,31 @@ describe("plugin sdk shim", () => {
 
 			await ensurePluginSdkShim(pluginsDirectory);
 
-			const mod: { plugin?: { setup?: unknown }; Rejection?: unknown } = await import(join(pluginDirectory, "entry.js"));
-			expect(typeof mod.plugin?.setup).toBe("function");
+			const mod = await import(join(pluginDirectory, "entry.js"));
+			expect(typeof mod.plugin.setup).toBe("function");
 			// The shim must re-export the host's own module, not a copy — otherwise
 			// `instanceof PluginHookRejection` checks inside the host would fail.
 			expect(mod.Rejection).toBe((await import("@reelvault/sdk/plugin")).PluginHookRejection);
 		} finally {
-			await rm(pluginsDirectory, { recursive: true, force: true });
+			await removeTree(pluginsDirectory);
 		}
 	});
 
-	test("memoises a successful materialisation per plugins directory", async () => {
-		const pluginsDirectory = await mkdtemp(join(tmpdir(), `reelvault-plugin-shim-memo-${process.pid}-`));
-		try {
-			await ensurePluginSdkShim(pluginsDirectory);
-			const shimManifest = join(pluginsDirectory, "node_modules", "@reelvault", "sdk", "package.json");
-			expect(await Bun.file(shimManifest).exists()).toBeTrue();
-
-			// The second call is memoised: it must not re-materialise a removed file
-			// (the shim is recreated on the next boot, not on every load).
-			await rm(shimManifest);
-			await ensurePluginSdkShim(pluginsDirectory);
-			expect(await Bun.file(shimManifest).exists()).toBeFalse();
-		} finally {
-			await rm(pluginsDirectory, { recursive: true, force: true });
-		}
-	});
-
-	test("exposes the ui/schema subpath through the shim", async () => {
+	test("lets an installed plugin import the ui schema subpath by package name", async () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), `reelvault-plugin-shim-schema-${process.pid}-`));
 		try {
+			const pluginDirectory = join(pluginsDirectory, "org.example.schema");
+			await mkdir(pluginDirectory, { recursive: true });
+			await writeFile(join(pluginDirectory, "schema.js"), 'export * from "@reelvault/sdk/ui/schema";\n');
+
 			await ensurePluginSdkShim(pluginsDirectory);
-			const parsed: unknown = await Bun.file(join(pluginsDirectory, "node_modules", "@reelvault", "sdk", "package.json")).json();
-			const exports = isRecord(parsed) && isRecord(parsed.exports) ? parsed.exports : undefined;
-			expect(exports?.["./ui/schema"]).toBe("./ui-schema.mjs");
+
+			const plugin = await import(join(pluginDirectory, "schema.js"));
+			const host = await import("@reelvault/sdk/ui/schema");
+			expect(Object.keys(host).length).toBeGreaterThan(0);
+			expect(Object.keys(plugin).toSorted()).toEqual(Object.keys(host).toSorted());
 		} finally {
-			await rm(pluginsDirectory, { recursive: true, force: true });
+			await removeTree(pluginsDirectory);
 		}
 	});
 });

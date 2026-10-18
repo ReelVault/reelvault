@@ -1,7 +1,7 @@
+import type { PathContext, RecognitionResult, RecognitionStrategy } from "@/modules/recognition/recognition.types";
+import { YEAR_FOLDER_PATTERN } from "@/modules/recognition/utils/recognition.constants";
+import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { GENERIC_FOLDER_NAMES } from "@/utils/release-tags.constants";
-import type { PathContext, RecognitionResult, RecognitionStrategy } from "../recognition.types";
-import { YEAR_FOLDER_PATTERN } from "../utils/recognition.constants";
-import { parseFileName } from "../utils/recognition.utils";
 
 export class MoviesCategorizedStrategy implements RecognitionStrategy {
 	recognize(ctx: PathContext): RecognitionResult | null {

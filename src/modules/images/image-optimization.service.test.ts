@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
 import sharp from "sharp";
+import { CancellationError } from "@/utils/cancellation.utils";
 import { imageOptimizationService } from "./image-optimization.service";
 
 describe("ImageOptimizationService", () => {
@@ -38,7 +39,7 @@ describe("ImageOptimizationService", () => {
 		}
 	});
 
-	it("does not run sharp optimization when the request is already aborted", async () => {
+	it("rejects with a cancellation error when the request is already aborted", async () => {
 		const sourcePath = join(tmpdir(), `reelvault-image-optimization-${crypto.randomUUID()}.png`);
 
 		const engine = sharp({
@@ -50,7 +51,9 @@ describe("ImageOptimizationService", () => {
 		try {
 			const controller = new AbortController();
 			controller.abort();
-			expect(imageOptimizationService.getOptimizedImage(sourcePath, { width: 160 }, undefined, controller.signal)).rejects.toThrow();
+			await expect(
+				imageOptimizationService.getOptimizedImage(sourcePath, { width: 160 }, undefined, controller.signal),
+			).rejects.toBeInstanceOf(CancellationError);
 		} finally {
 			await rm(sourcePath, { force: true });
 		}

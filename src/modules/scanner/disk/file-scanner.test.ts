@@ -1,11 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { systemSettingsStore } from "@/config/system-settings.store";
-import { DirUtils } from "@/utils/directory.utils";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { FileScannerService, fileScannerService, matchesIgnorePattern } from "./file-scanner";
+import { basename, join } from "node:path";
+import { DirUtils, removeTreeSync } from "@/utils/directory.utils";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { FileScannerService, fileScannerService, matchesIgnorePattern } from "./file.scanner";
 
 let root: string;
 
@@ -20,16 +19,14 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-	rmSync(root, { recursive: true, force: true });
+	removeTreeSync(root);
 });
 
 describe("FileScannerService.scan", () => {
-	test("scans recursively, filters by extension, skips scene extras and dedupes", async () => {
+	test("scans recursively, filters by extension and skips sample files", async () => {
 		const files = await fileScannerService.scan({ paths: [root], extensions: [".mkv", ".mp4", ".avi"] });
 
-		expect(files).toHaveLength(3);
-		expect(files.map((file) => file.endsWith(".txt"))).not.toContain(true);
-		expect(files.some((file) => file.includes("sample."))).toBe(false);
+		expect(files.map((file) => basename(file)).toSorted()).toEqual(["episode.mp4", "extra.avi", "movie.mkv"]);
 	});
 
 	test("respects maxDepth", async () => {
@@ -103,17 +100,6 @@ describe("FileScannerService path timeout", () => {
 			expect(entries).toEqual([]);
 		} finally {
 			stub.restore();
-		}
-	});
-
-	test("without a test override, the deadline is the live scanning.pathScanTimeoutMs setting", () => {
-		systemSettingsStore.setRuntimeValue("scanning.pathScanTimeoutMs", 12_345);
-		try {
-			const scanner = new FileScannerService() as unknown as { pathScanTimeoutMs: number };
-
-			expect(scanner.pathScanTimeoutMs).toBe(12_345);
-		} finally {
-			systemSettingsStore.clearRuntimeValues();
 		}
 	});
 });

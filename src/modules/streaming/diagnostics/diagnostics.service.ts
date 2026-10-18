@@ -1,13 +1,13 @@
 import type { PlaybackDiagnostics, TranscodeProgressResponse } from "@reelvault/sdk/common";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { serverConfig } from "@/server.config";
-import { assertFound } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
-import { calculateBufferProgress } from "../buffer/hls-buffer";
-import { defaultFindForStreamingDuration, defaultRequireSession } from "../contracts";
-import { selectDefaultOrFirstStream } from "../decisions/stream-preferences";
-import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
-import type { HlsBufferAnalysis, RequireSession } from "../streaming.types";
+import { serverConfig } from "@/config/server/server.config";
+import { calculateBufferProgress } from "@/modules/streaming/buffer/hls-buffer.utils";
+import { defaultFindForStreamingDuration, defaultRequireSession } from "@/modules/streaming/contracts.utils";
+import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences.resolver";
+import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
+import { streamingStorage } from "@/modules/streaming/streaming.ports";
+import type { HlsBufferAnalysis, RequireSession } from "@/modules/streaming/streaming.types";
+import { assertFound } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 
 export interface DiagnosticsMediaFile {
 	id: string;
@@ -45,7 +45,7 @@ export interface DiagnosticsMediaFile {
 export interface ServiceDependencies {
 	requireSession: RequireSession;
 	findForStreamingDiagnostics: (fileId: string) => Promise<DiagnosticsMediaFile | null | undefined>;
-	findForStreamingDuration: (fileId: string) => Promise<{ id: string; duration: number | null } | null | undefined>;
+	findForStreamingDuration: (fileId: string) => Promise<{ duration: number | null } | undefined>;
 	getBuffer: (sessionId: string) => Promise<HlsBufferAnalysis | null>;
 	getSessionDiagnostics: (sessionId: string) => ReturnType<typeof streamingRuntimeService.getDiagnostics>;
 	isSessionActive: (sessionId: string) => boolean;
@@ -89,7 +89,7 @@ function toBufferProgress(analysis: HlsBufferAnalysis, active: boolean, duration
 
 const defaultDependencies: ServiceDependencies = {
 	requireSession: defaultRequireSession,
-	findForStreamingDiagnostics: (fileId) => mediaRepository.findForStreamingDiagnostics(fileId),
+	findForStreamingDiagnostics: (fileId) => streamingStorage().findForStreamingDiagnostics(fileId),
 	findForStreamingDuration: defaultFindForStreamingDuration,
 	getBuffer: async (sessionId) => await streamingRuntimeService.getBuffer(sessionId).catch(() => null),
 	getSessionDiagnostics: (sessionId) => streamingRuntimeService.getDiagnostics(sessionId),

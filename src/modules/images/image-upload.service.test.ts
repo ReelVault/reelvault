@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { rm, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
+import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { serverConfig } from "@/server.config";
+import { removeTree } from "@/utils/directory.utils";
 import { imageUploadService } from "./image-upload.service";
 
 describe("ImageUploadService", () => {
@@ -69,27 +70,27 @@ describe("ImageUploadService", () => {
 			expect((await stat(result.localPath)).isFile()).toBe(true);
 		} finally {
 			serverConfig.paths.images = previousImagesPath;
-			await rm(testRoot, { recursive: true, force: true });
+			await removeTree(testRoot);
 		}
 	});
 
-	it("rejects payloads whose magic bytes are not a supported raster image", () => {
+	it("rejects payloads whose magic bytes are not a supported raster image", async () => {
 		const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4"/></svg>', "utf8");
 
-		expect(
+		await expect(
 			imageUploadService.upload(new File([svg], "poster.svg", { type: "image/svg+xml" }), {
 				ownerType: "metadata",
 				ownerId: "metadata-1",
 				variant: "poster",
 			}),
-		).rejects.toThrow("not a supported raster image");
+		).rejects.toMatchObject({ category: "validation", code: "images.unsupported_format" });
 
-		expect(
+		await expect(
 			imageUploadService.upload(new File([Buffer.from("definitely not an image")], "fake.png", { type: "image/png" }), {
 				ownerType: "metadata",
 				ownerId: "metadata-1",
 				variant: "poster",
 			}),
-		).rejects.toThrow("not a supported raster image");
+		).rejects.toMatchObject({ category: "validation", code: "images.unsupported_format" });
 	});
 });

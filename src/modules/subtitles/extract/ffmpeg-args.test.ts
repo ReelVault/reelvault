@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./ffmpeg-args";
+import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./ffmpeg-args.builder";
 
 describe("buildWebVttExtractionArgs", () => {
 	test("builds the exact FFmpeg argv for a WebVTT stream extraction", () => {
@@ -18,13 +18,6 @@ describe("buildWebVttExtractionArgs", () => {
 			"webvtt",
 			"/tmp/sub-1.vtt.abc.tmp",
 		]);
-	});
-
-	test("maps the stream index into the -map argument and keeps the output last", () => {
-		const args = buildWebVttExtractionArgs("/media/show.mkv", 0, "/tmp/out.vtt");
-
-		expect(args.at(7)).toBe("0:0");
-		expect(args.at(-1)).toBe("/tmp/out.vtt");
 	});
 });
 

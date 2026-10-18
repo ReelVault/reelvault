@@ -1,66 +1,75 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { assertSessionOwnershipById } from "@/modules/streaming/sessions/session-access.guard";
-import { sessionLifecycleService } from "@/modules/streaming/sessions/session-lifecycle.service";
-import { stubMethod } from "../helpers/method-stub";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
 
 /**
  * A playback session belongs to the profile that started it. The guard used by the
  * stream and playback routes must refuse any other profile, refuse unknown sessions as
- * not found, and report a session an administrator ended with its own code.
+ * not found, and report a session an administrator ended with its own code. Sessions
+ * live in the real streaming runtime; no process is started.
  */
 
-const activeStubs: Array<{ restore(): void }> = [];
-afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
-});
+const decision = createMockPlaybackDecision({ mode: "direct-stream", videoTranscode: false, audioTranscode: false, reason: "test" });
+const openedSessionIds: string[] = [];
 
-function stubSessions(
-	sessions: Record<string, { mediaFileId: string; profileId: string }>,
-	terminated: Record<string, { reason: string }> = {},
-) {
-	activeStubs.push(
-		stubMethod(sessionLifecycleService, "getSessionAccess", (sessionId: string) => sessions[sessionId]),
-		stubMethod(sessionLifecycleService, "getTerminatedSession", (sessionId: string) => terminated[sessionId]),
-	);
+/** Registers a session for a fresh profile and media file, so no test shares state with another. */
+function openSession(): { sessionId: string; profileId: string } {
+	const sessionId = `session-${crypto.randomUUID()}`;
+	const profileId = `profile-${crypto.randomUUID()}`;
+	openedSessionIds.push(sessionId);
+	streamingManager.registerSession(sessionId, {
+		mediaFileId: `media-${crypto.randomUUID()}`,
+		profileId,
+		decision,
+		inputPath: "/media/guard.mkv",
+	});
+
+	return { sessionId, profileId };
 }
+
+afterEach(async () => {
+	await Promise.all(openedSessionIds.splice(0).map(async (sessionId) => await streamingManager.discardSession(sessionId)));
+});
 
 describe("assertSessionOwnershipById", () => {
 	test("the profile that started the session gets it back", () => {
-		stubSessions({ "s-1": { mediaFileId: "mf-1", profileId: "profile-a" } });
+		const { sessionId, profileId } = openSession();
 
-		expect(assertSessionOwnershipById("s-1", "profile-a")).toMatchObject({ mediaFileId: "mf-1", profileId: "profile-a" });
+		expect(assertSessionOwnershipById(sessionId, profileId)).toMatchObject({ profileId });
 	});
 
 	test("another profile is refused as not owned, whichever id it presents", () => {
-		stubSessions({ "s-1": { mediaFileId: "mf-1", profileId: "profile-a" } });
+		const { sessionId, profileId } = openSession();
 
-		for (const other of ["profile-b", "", "PROFILE-A", "profile-a "]) {
-			expect(() => assertSessionOwnershipById("s-1", other)).toThrow();
+		for (const other of ["profile-b", "", profileId.toUpperCase(), `${profileId} `]) {
+			expect(() => assertSessionOwnershipById(sessionId, other)).toThrow(expect.objectContaining({ code: "stream.session_not_owned" }));
 		}
-		expect(() => assertSessionOwnershipById("s-1", "profile-b")).toThrow(expect.objectContaining({ code: "stream.session_not_owned" }));
 	});
 
 	test("a request without any profile is refused as not owned", () => {
-		stubSessions({ "s-1": { mediaFileId: "mf-1", profileId: "profile-a" } });
+		const { sessionId } = openSession();
 
-		expect(() => assertSessionOwnershipById("s-1", undefined)).toThrow(expect.objectContaining({ code: "stream.session_not_owned" }));
+		expect(() => assertSessionOwnershipById(sessionId, undefined)).toThrow(expect.objectContaining({ code: "stream.session_not_owned" }));
 	});
 
 	test("an unknown session is refused as not found", () => {
-		stubSessions({});
-
-		let thrown: unknown;
-		try {
-			assertSessionOwnershipById("missing", "profile-a");
-		} catch (error) {
-			thrown = error;
-		}
-		expect(thrown).toMatchObject({ category: "not_found" });
+		expect(() => assertSessionOwnershipById(`missing-${crypto.randomUUID()}`, "profile-a")).toThrow(
+			expect.objectContaining({ code: "stream.session_not_found" }),
+		);
 	});
 
-	test("a session an administrator terminated says so with its own code", () => {
-		stubSessions({}, { "s-2": { reason: "admin_terminated" } });
+	test("a session that ended by client release reads as not found, not as still active", async () => {
+		const { sessionId, profileId } = openSession();
+		expect(await streamingManager.releaseSession(sessionId, "client-release")).toBe("released");
 
-		expect(() => assertSessionOwnershipById("s-2", "profile-a")).toThrow(expect.objectContaining({ code: "stream.session_terminated" }));
+		expect(() => assertSessionOwnershipById(sessionId, profileId)).toThrow(expect.objectContaining({ code: "stream.session_not_found" }));
+	});
+
+	test("a session an administrator terminated says so with its own code", async () => {
+		const { sessionId, profileId } = openSession();
+		expect(await streamingManager.releaseSession(sessionId, "admin-terminated")).toBe("released");
+
+		expect(() => assertSessionOwnershipById(sessionId, profileId)).toThrow(expect.objectContaining({ code: "stream.session_terminated" }));
 	});
 });

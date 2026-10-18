@@ -1,16 +1,17 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { stubMethod } from "../../../tests/helpers/method-stub";
-import { DatabaseSidecarSnapshotResolver, episodeSnapshot, seasonSnapshot } from "./sidecar-snapshot-resolver";
+import { describe, expect, test } from "bun:test";
+import { DatabaseSidecarSnapshotResolver } from "@/app/sidecars/sidecar-snapshot.resolver";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { episodeSnapshot, seasonSnapshot } from "./sidecar-snapshot.builder";
 
-/** Replaces a method on the live singleton for one test.
- * Works on real repositories AND on the minimal facades other test files
- * install with bun's process-global mock.module(...). */
+const db = useTestDatabase();
 
-const activeStubs: Array<{ restore(): void }> = [];
+function firstRow<T>(rows: T[]): T {
+	const row = rows[0];
+	if (!row) throw new Error("Expected the insert to return a row");
 
-afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
-});
+	return row;
+}
 
 describe("seasonSnapshot / episodeSnapshot builders", () => {
 	test("season snapshot uses the stored name and slices the year from the air date", () => {
@@ -60,19 +61,53 @@ describe("seasonSnapshot / episodeSnapshot builders", () => {
 });
 
 describe("DatabaseSidecarSnapshotResolver", () => {
-	test("throws NotFoundError for missing metadata/season/episode rows", async () => {
-		const resolver = new DatabaseSidecarSnapshotResolver();
-		const metadata = await import("@/database/repositories/metadata.repository");
-		const seasons = await import("@/database/repositories/seasons.repository");
-		const episodes = await import("@/database/repositories/episodes.repository");
-		activeStubs.push(
-			stubMethod(metadata.metadataRepository, "findById", () => Promise.resolve(undefined)),
-			stubMethod(seasons.seasonsRepository, "findByPrimaryId", () => Promise.resolve(undefined)),
-			stubMethod(episodes.episodesRepository, "findByPrimaryId", () => Promise.resolve(undefined)),
+	test("resolves a stored season and episode into snapshots", async () => {
+		const client = db.client();
+		const metadata = firstRow(
+			await client
+				.insert(schema.metadata)
+				.values({ id: "series-1", stableKey: "series-1", title: "Series", type: "tv_show", releaseDate: "2019-01-01" })
+				.returning({ id: schema.metadata.id }),
+		);
+		const season = firstRow(
+			await client
+				.insert(schema.seasons)
+				.values({
+					metadataId: metadata.id,
+					stableKey: "season-1",
+					seasonNumber: 1,
+					name: "Season One",
+					airDate: "2019-03-15",
+					overview: "The beginning",
+					status: "released",
+				})
+				.returning({ id: schema.seasons.id }),
+		);
+		const episode = firstRow(
+			await client
+				.insert(schema.episodes)
+				.values({ seasonId: season.id, stableKey: "episode-1", episodeNumber: 1, title: "Pilot", airDate: "2019-03-15" })
+				.returning({ id: schema.episodes.id }),
 		);
 
-		await expect(resolver.metadata("m-404")).rejects.toThrow("m-404");
-		await expect(resolver.season("s-404")).rejects.toThrow("s-404");
-		await expect(resolver.episode("e-404")).rejects.toThrow("e-404");
+		const resolver = new DatabaseSidecarSnapshotResolver();
+
+		expect(await resolver.season(season.id)).toMatchObject({
+			title: "Season One",
+			seasonNumber: 1,
+			releaseDate: "2019-03-15",
+			year: 2019,
+			overview: "The beginning",
+			status: "released",
+		});
+		expect(await resolver.episode(episode.id)).toMatchObject({ title: "Pilot", episodeNumber: 1, releaseDate: "2019-03-15", year: 2019 });
+	});
+
+	test("throws not_found for metadata, season and episode ids with no row", async () => {
+		const resolver = new DatabaseSidecarSnapshotResolver();
+
+		await expect(resolver.metadata("m-404")).rejects.toMatchObject({ category: "not_found", code: "metadata.not_found" });
+		await expect(resolver.season("s-404")).rejects.toMatchObject({ category: "not_found", code: "season.not_found" });
+		await expect(resolver.episode("e-404")).rejects.toMatchObject({ category: "not_found", code: "episode.not_found" });
 	});
 });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { loadBuiltInWorkers } from "./built-in-workers";
-import { canonicalWorkerId, UNCATEGORIZED_WORKER_IDS } from "./worker-ids";
+import { canonicalWorkerId, UNCATEGORIZED_WORKER_IDS } from "../config/worker-ids.utils";
+import { loadBuiltInWorkers } from "./built-in.loader";
 
 describe("worker id categories", () => {
 	test("every registered worker id is categorized or explicitly uncategorized", async () => {

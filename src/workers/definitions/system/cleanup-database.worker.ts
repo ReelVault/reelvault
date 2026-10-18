@@ -1,11 +1,9 @@
-import { databaseFactory } from "@/database/database";
-import { adminAuditRepository } from "@/database/repositories/admin-audit.repository";
-import { interruptedPlaybackSessionRepository } from "@/database/repositories/interrupted-playback-session.repository";
-import { watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
-import { serverConfig } from "@/server.config";
-import { daysAgo, MINUTE } from "@/server.constants";
+import { serverConfig } from "@/config/server/server.config";
+import { daysAgo, MINUTE } from "@/config/server/server.constants";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { workerOperationsService } from "@/workers/core/worker-operations.service";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 export const cleanupDatabaseWorker = createWorkerDefinition(
@@ -24,9 +22,9 @@ export const cleanupDatabaseWorker = createWorkerDefinition(
 		const historyRetentionDays = serverConfig.database.watchedHistoryRetentionDays;
 		if (historyRetentionDays > 0) {
 			const cutoff = daysAgo(historyRetentionDays);
-			prunedHistoryCount = await watchedHistoryRepository.pruneOlderThan(cutoff);
+			prunedHistoryCount = await workerDependencies().watchedHistory.pruneOlderThan(cutoff);
 			// Interrupted sessions follow the same retention as the rest of the play history.
-			prunedHistoryCount += await interruptedPlaybackSessionRepository.pruneOlderThan(cutoff);
+			prunedHistoryCount += await workerDependencies().interruptedPlayback.pruneOlderThan(cutoff);
 		}
 
 		// Audit rows carry JSON snapshots and previously grew unbounded; default
@@ -34,7 +32,7 @@ export const cleanupDatabaseWorker = createWorkerDefinition(
 		let prunedAuditCount = 0;
 		const auditRetentionDays = serverConfig.database.auditRetentionDays;
 		if (auditRetentionDays > 0) {
-			prunedAuditCount = await adminAuditRepository.pruneOlderThan(daysAgo(auditRetentionDays));
+			prunedAuditCount = await workerDependencies().adminAudit.pruneOlderThan(daysAgo(auditRetentionDays));
 		}
 
 		// Keep planner statistics fresh: stale stats made the paginated browse and

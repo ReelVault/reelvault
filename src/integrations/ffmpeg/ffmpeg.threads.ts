@@ -1,4 +1,4 @@
-import { systemResourcesService } from "@/system/system-resources.service";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { clamp } from "@/utils/math.utils";
 
 /** Hard ceiling for the adaptive (unconfigured) per-process thread budget. */

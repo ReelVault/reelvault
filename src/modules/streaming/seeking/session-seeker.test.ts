@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "bun";
-import { SessionStore } from "../runtime/session-state/session-store";
-import { createMockPlaybackDecision } from "../streaming.test-utils";
-import { SessionSeeker } from "./session-seeker";
+import { SessionStore } from "@/modules/streaming/runtime/session-state/session.store";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { SessionSeeker } from "./session.seeker";
 
 const decision = createMockPlaybackDecision({ mode: "transcode", durationSeconds: 600 });
 
@@ -15,25 +15,22 @@ function registeredSession(store: SessionStore, id: string, startTime: number) {
 		inputPath: `/media/${id}.mkv`,
 		tempDir: `/tmp/transcodes/${id}`,
 	});
-	if (startTime > 0 || id === "s1") {
-		const proc = spawn(["true"]);
-		store.attachProcess(id, proc, startTime);
-	}
+	store.attachProcess(id, spawn(["true"]), startTime);
 }
 
 describe("session seeker", () => {
-	test("rejects seeks for unknown sessions", () => {
+	test("rejects seeks for unknown sessions", async () => {
 		const store = new SessionStore();
 		const seeker = new SessionSeeker(store, 1, () => Promise.resolve(0));
 
-		expect(
+		await expect(
 			seeker.seekTo("missing", 10, decision, 4, {
 				getBufferedSeekStart: async () => null,
 				keepAlive: () => {
 					/* intentionally empty */
 				},
 			}),
-		).rejects.toThrow("Session not found");
+		).rejects.toMatchObject({ category: "not_found", code: "stream.session_not_found" });
 	});
 
 	test("reuses the buffer when the position is already buffered", async () => {
@@ -51,7 +48,7 @@ describe("session seeker", () => {
 		expect(keepAliveIds).toEqual(["s1"]);
 	});
 
-	test("clamps to the duration minus EOF guard, aligns to a segment and executes", async () => {
+	test("aligns the seek offset down to a segment boundary and executes it", async () => {
 		const store = new SessionStore();
 		registeredSession(store, "s1", 0);
 		const executed: Array<{ sessionId: string; offset: number }> = [];
@@ -70,6 +67,28 @@ describe("session seeker", () => {
 
 		expect(result.startTime).toBe(120);
 		expect(executed).toEqual([{ sessionId: "s1", offset: 120 }]);
+	});
+
+	test("clamps a seek past the duration to the EOF guard before aligning it", async () => {
+		const store = new SessionStore();
+		registeredSession(store, "s1", 0);
+		const executed: number[] = [];
+		const seeker = new SessionSeeker(store, 1, (_sessionId, offset) => {
+			executed.push(offset);
+
+			return Promise.resolve(offset);
+		});
+
+		const result = await seeker.seekTo("s1", 900, decision, 4, {
+			getBufferedSeekStart: async () => null,
+			keepAlive: () => {
+				/* intentionally empty */
+			},
+		});
+
+		// 900 clamps to 599 (duration minus the 1 s EOF guard), which aligns down to 596.
+		expect(result.startTime).toBe(596);
+		expect(executed).toEqual([596]);
 	});
 
 	test("negative positions clamp to zero", async () => {

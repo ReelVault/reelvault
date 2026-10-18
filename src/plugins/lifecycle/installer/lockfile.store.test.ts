@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTree } from "@/utils/directory.utils";
 import { type InstalledPluginRecord, PluginLockfileStore } from "./lockfile.store";
 
 const temporaryDirectories: string[] = [];
@@ -27,7 +28,7 @@ describe("PluginLockfileStore", () => {
 	});
 
 	afterEach(async () => {
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 	});
 
 	test("reading a missing lockfile yields an empty registry", async () => {
@@ -48,9 +49,10 @@ describe("PluginLockfileStore", () => {
 	test("writeRecord appends and refuses to overwrite without replace", async () => {
 		await store.writeRecord("org.reelvault.a", createRecord("org.reelvault.a"), { replace: false });
 
-		await expect(store.writeRecord("org.reelvault.a", createRecord("org.reelvault.a"), { replace: false })).rejects.toThrow(
-			"already exists in plugins.lock.json",
-		);
+		await expect(store.writeRecord("org.reelvault.a", createRecord("org.reelvault.a"), { replace: false })).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.already_installed",
+		});
 
 		const upgraded = { ...createRecord("org.reelvault.a"), version: "2.0.0" };
 		await store.writeRecord("org.reelvault.a", upgraded, { replace: true });
@@ -60,20 +62,22 @@ describe("PluginLockfileStore", () => {
 	test("rejects a corrupt lockfile instead of starting fresh", async () => {
 		await writeFile(join(pluginsDirectory, "plugins.lock.json"), '{"version":1,"plugins":"nope"}');
 
-		await expect(store.read()).rejects.toThrow("Invalid plugins.lock.json");
+		await expect(store.read()).rejects.toMatchObject({ category: "validation", code: "plugin.lockfile_invalid" });
 	});
 
 	test("resolveInstalledDirectory rejects unsafe directory entries but allows a manual directory name", () => {
-		expect(() => store.resolveInstalledDirectory("../escape", createRecord("../escape"))).toThrow(
-			"unsafe plugins.lock.json directory entry",
+		expect(() => store.resolveInstalledDirectory("../escape", createRecord("org.reelvault.a"))).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.lockfile_entry_unsafe" }),
 		);
 		expect(() => store.resolveInstalledDirectory("nested/path", createRecord("nested/path"))).toThrow(
-			"unsafe plugins.lock.json directory entry",
+			expect.objectContaining({ category: "validation", code: "plugin.lockfile_entry_unsafe" }),
 		);
 		expect(() => store.resolveInstalledDirectory("org.reelvault.a", createRecord("../escape"))).toThrow(
-			"unsafe plugins.lock.json directory entry",
+			expect.objectContaining({ category: "validation", code: "plugin.lockfile_entry_unsafe" }),
 		);
-		expect(() => store.resolveInstalledDirectory("org.reelvault.a", createRecord(".."))).toThrow("escapes the plugins directory");
+		expect(() => store.resolveInstalledDirectory("org.reelvault.a", createRecord(".."))).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.directory_escape" }),
+		);
 
 		// A manually dropped package may live in a directory named differently from
 		// the plugin id — that is valid as long as it stays a plain basename.

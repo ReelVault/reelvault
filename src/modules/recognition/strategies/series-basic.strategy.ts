@@ -1,6 +1,6 @@
+import type { PathContext, RecognitionResult, RecognitionStrategy } from "@/modules/recognition/recognition.types";
+import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
 import { GENERIC_FOLDER_NAMES } from "@/utils/release-tags.constants";
-import type { PathContext, RecognitionResult, RecognitionStrategy } from "../recognition.types";
-import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "../utils/recognition.utils";
 
 export class SeriesBasicStrategy implements RecognitionStrategy {
 	recognize(ctx: PathContext): RecognitionResult | null {

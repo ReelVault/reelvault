@@ -1,5 +1,5 @@
 import { which } from "bun";
-import { DependencyError } from "./dependency-error";
+import { DependencyError } from "./dependency.errors";
 
 /**
  * The binary for a given configured name cannot move while the process runs —

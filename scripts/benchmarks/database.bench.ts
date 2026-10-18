@@ -1,14 +1,15 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bench, fixture, group, main, measure, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
 import { asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { DatabaseFactory } from "@/database/database";
-import { schema } from "@/database/schema";
+import { DatabaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { removeTree } from "@/utils/directory.utils";
 import { isRecord } from "@/utils/type.utils";
-import { benchDb } from "./lib/db-fixture";
-import { seedCatalog } from "./lib/seed";
+import { benchDb } from "./lib/db.fixture";
+import { seedCatalog } from "./lib/seed.utils";
 
 export const meta = { description: "Database & FTS5 query engine (real migrations, FTS5 search, pagination, joins)" };
 
@@ -413,7 +414,7 @@ if (!args.help) {
 
 		optimizeDb.factory.shutdown();
 		analyzeDb.factory.shutdown();
-		await Promise.all([rm(optimizeDb.dir, { recursive: true, force: true }), rm(analyzeDb.dir, { recursive: true, force: true })]);
+		await Promise.all([removeTree(optimizeDb.dir), removeTree(analyzeDb.dir)]);
 
 		return { ok: optimizePlan === analyzePlan };
 	});

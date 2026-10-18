@@ -44,9 +44,11 @@ describe("plugin ROUTES registry", () => {
 			handler: () => ({ body: {} }),
 		};
 		registry.register("org.example.one", [route]);
-		expect(() => registry.register("org.example.one", [{ ...route, path: "/status/:other" }])).toThrow("conflicts");
+		expect(() => registry.register("org.example.one", [{ ...route, path: "/status/:other" }])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.route_conflict" }),
+		);
 		// Different plugins can register the same route paths independently
-		expect(() => registry.register("org.example.two", [route])).not.toThrow();
+		registry.register("org.example.two", [route]);
 
 		const resolved = registry.resolve("org.example.one", "GET", "/status/1");
 		if (!resolved) throw new Error("Plugin HTTP route was not resolved");
@@ -68,6 +70,6 @@ describe("plugin ROUTES registry", () => {
 					handler: () => ({ body: {} }),
 				},
 			]),
-		).toThrow("access");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.route_access_invalid" }));
 	});
 });

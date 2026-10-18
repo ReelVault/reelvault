@@ -10,24 +10,20 @@ describe("ReelVaultPathPolicy", () => {
 	});
 
 	test("rejects an episode base name containing path separators or traversal", () => {
-		expect(() => ReelVaultPathPolicy.episode("/media/show", "../evil")).toThrow();
-		expect(() => ReelVaultPathPolicy.episode("/media/show", "a/b")).toThrow();
-		expect(() => ReelVaultPathPolicy.episode("/media/show", "a\\b")).toThrow();
-		expect(() => ReelVaultPathPolicy.episode("/media/show", "")).toThrow();
+		const invalid = expect.objectContaining({ category: "validation", code: "sidecar.path_invalid" });
+		expect(() => ReelVaultPathPolicy.episode("/media/show", "../evil")).toThrow(invalid);
+		expect(() => ReelVaultPathPolicy.episode("/media/show", "a/b")).toThrow(invalid);
+		expect(() => ReelVaultPathPolicy.episode("/media/show", "a\\b")).toThrow(invalid);
+		expect(() => ReelVaultPathPolicy.episode("/media/show", "")).toThrow(invalid);
 	});
 });
 
 describe("KodiPathPolicy", () => {
-	test("builds the standard NFO names read back by Kodi, Plex and Jellyfin", () => {
+	test("builds the standard NFO names Kodi, Plex and Jellyfin look for", () => {
 		expect(KodiPathPolicy.movie("/media/movie")).toBe("/media/movie/movie.nfo");
 		expect(KodiPathPolicy.series("/media/show")).toBe("/media/show/tvshow.nfo");
 		expect(KodiPathPolicy.season("/media/show", 3)).toBe("/media/show/season03.nfo");
 		expect(KodiPathPolicy.episode("/media/show", "Show.S01E01")).toBe("/media/show/Show.S01E01.nfo");
-	});
-
-	test("rejects an episode base name containing path separators or traversal", () => {
-		expect(() => KodiPathPolicy.episode("/media/show", "../evil")).toThrow();
-		expect(() => KodiPathPolicy.episode("/media/show", "a/b")).toThrow();
 	});
 });
 

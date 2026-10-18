@@ -1,41 +1,47 @@
 import cors from "@elysiajs/cors";
 import Elysia from "elysia";
-import { apiRouter } from "./api/routes";
-import { systemSettingsService } from "./application/admin/system-settings.service";
-import { firstRunSetupService } from "./application/auth/setup/first-run-setup.service";
-import { libraryWatcherService } from "./application/libraries/watching/library-watcher.service";
-import { scheduleStartupUpdateCheck } from "./application/updates/update-check.service";
-import { updateHistoryService } from "./application/updates/update-history.service";
-import { updateInstallService } from "./application/updates/update-install.service";
-import { databaseFactory } from "./database/database";
-import { env } from "./env";
+import { systemSettingsService } from "./app/admin/system-settings.service";
+import { firstRunSetupService } from "./app/auth/setup/first-run-setup.service";
+import { clientIpMiddleware } from "./app/http/middleware/client-ip.middleware";
+import { compressionMiddleware } from "./app/http/middleware/compression.middleware";
+import { domainErrorsMiddleware } from "./app/http/middleware/domain-errors.middleware";
+import { openapiMiddleware } from "./app/http/middleware/openapi.middleware";
+import { rateLimitMiddleware } from "./app/http/middleware/rate-limit.middleware";
+import { requestDedupMiddleware } from "./app/http/middleware/request-dedup.middleware";
+import { requestLoggerMiddleware } from "./app/http/middleware/request-logger.middleware";
+import { responseCacheMiddleware } from "./app/http/middleware/response-cache.middleware";
+import { securityHeadersMiddleware } from "./app/http/middleware/security.middleware";
+import { apiRouter } from "./app/http/routes/api.routes";
+import { webStaticPlugin } from "./app/http/web/web-static.plugin";
+import { libraryWatcherService } from "./app/libraries/watching/library-watcher.service";
+import { notificationsService } from "./app/notifications/notifications.service";
+import { scheduleStartupUpdateCheck } from "./app/updates/update-check.service";
+import { updateHistoryService } from "./app/updates/update-history.service";
+import { updateInstallService } from "./app/updates/update-install.service";
+import { wireIntegrationPorts } from "./app/wiring/integration-ports";
+import { wireModulePorts } from "./app/wiring/module-ports";
+import { wireSystemPorts } from "./app/wiring/system-ports";
+import { wireWorkerPorts } from "./app/wiring/worker-ports";
+import { env } from "./config/env.config";
+import { serverConfig } from "./config/server/server.config";
+import { RECOMMENDED_FFMPEG_MAJOR } from "./config/server/server.constants";
+import { systemResourcesService } from "./config/system-resources.service";
+import { SERVER_VERSION } from "./config/version.constants";
+import { databaseFactory } from "./integrations/drizzle-orm/database.factory";
 import { initializeFfmpegCapabilities, missingAudioFilters } from "./integrations/ffmpeg/ffmpeg.capabilities";
 import { assertFFMpegAvailable } from "./integrations/ffmpeg/ffmpeg.environment";
 import { assertFFProbeAvailable } from "./integrations/ffprobe/ffprobe.environment";
-import { clientIpMiddleware } from "./middleware/client-ip.middleware";
-import { compressionMiddleware } from "./middleware/compression.middleware";
-import { domainErrorsMiddleware } from "./middleware/domain-errors.middleware";
-import { openapiMiddleware } from "./middleware/openapi.middleware";
-import { rateLimitMiddleware } from "./middleware/rate-limit.middleware";
-import { requestDedupMiddleware } from "./middleware/request-dedup.middleware";
-import { requestLoggerMiddleware } from "./middleware/request-logger.middleware";
-import { responseCacheMiddleware } from "./middleware/response-cache.middleware";
-import { securityHeadersMiddleware } from "./middleware/security.middleware";
 import { downloadsService } from "./modules/downloads/downloads.service";
 import { registerStreamingLifecycle } from "./modules/streaming/runtime/streaming.runtime";
+import { registerPluginNotificationSink } from "./plugins/lifecycle/host/plugin-host.factory";
 import { pluginManager } from "./plugins/lifecycle/plugin.manager";
-import { serverConfig } from "./server.config";
-import { RECOMMENDED_FFMPEG_MAJOR } from "./server.constants";
-import { Shutdown, setActiveShutdown } from "./shutdown";
-import { resourceAllocator } from "./system/resource-allocator";
+import { resourceAllocator } from "./system/resource-allocator.service";
+import { cleanupStartupDirectories, ensureDataDirectories } from "./system/server-data.utils";
 import { serverRescueService } from "./system/server-rescue.service";
-import { systemResourcesService } from "./system/system-resources.service";
-import { isOriginAllowed, isUsableOriginEntry } from "./utils/http.utils";
-import { logger, setLogLevel } from "./utils/logger";
-import { cleanupStartupDirectories, ensureDataDirectories } from "./utils/server-data.utils";
-import { SERVER_VERSION } from "./version";
-import { webStaticPlugin } from "./web/web-static.plugin";
-import { loadBuiltInWorkers } from "./workers/built-in-workers";
+import { Shutdown, setActiveShutdown } from "./system/shutdown.service";
+import { flushLogs, logger, setLogLevel } from "./utils/logger.utils";
+import { isOriginAllowed, isUsableOriginEntry } from "./utils/origin-trust.utils";
+import { loadBuiltInWorkers } from "./workers/built-in.loader";
 import { scheduledTasksService } from "./workers/scheduled-tasks.service";
 import { workerService } from "./workers/worker.service";
 
@@ -56,6 +62,13 @@ async function setupServer(): Promise<void> {
 		logger.info("Applying database migrations...");
 		const { applied } = databaseFactory.migrate();
 		logger.info("Database migrations applied", { appliedMigrations: applied });
+		// Modules read their data through ports; wire them before any module runs.
+		wireModulePorts();
+		// Workers take their stores the same way, before the scheduler or any pool starts.
+		wireWorkerPorts();
+		wireSystemPorts();
+		// Auth and provider sync write through app repositories, so they are wired before any user or provider write.
+		wireIntegrationPorts();
 		// Runs left open by the previous process: a server run that restarted into its target version succeeded.
 		await updateHistoryService.settleRunsAfterStart(SERVER_VERSION);
 
@@ -94,6 +107,11 @@ async function setupServer(): Promise<void> {
 		}
 
 		logger.info("Loading plugins...");
+		registerPluginNotificationSink({
+			create: async (notification, options) => await notificationsService.create(notification, options),
+			createForAdministrators: async (notification, options) => await notificationsService.createForAdministrators(notification, options),
+		});
+
 		await pluginManager.loadPlugins();
 
 		logger.info("Loading queue service...");
@@ -129,6 +147,7 @@ async function setupServer(): Promise<void> {
 		scheduleStartupUpdateCheck();
 	} catch (error) {
 		logger.error("Failed to start server", error);
+		await flushLogs();
 		process.exit(1);
 	}
 }
@@ -212,6 +231,7 @@ try {
 		logger.fatal(
 			`Port ${env.APP_PORT} is already in use on ${serverConfig.network.host}. Stop the other process or set APP_PORT to a free port.`,
 		);
+		await flushLogs();
 		process.exit(1);
 	}
 

@@ -1,6 +1,6 @@
-import type { SessionAccessInfo } from "../runtime/session-state/session-store";
+import type { SessionAccessInfo } from "@/modules/streaming/runtime/session-state/session.store";
 import { sessionLifecycleService } from "./session-lifecycle.service";
-import { assertActiveStreamAccess, assertSessionOwnership, resolveSessionAccess } from "./stream-access";
+import { assertActiveStreamAccess, assertSessionOwnership, resolveSessionAccess } from "./stream-access.guard";
 
 /**
  * Resolves a live session and asserts it belongs to the active profile. This is

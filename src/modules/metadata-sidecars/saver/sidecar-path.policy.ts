@@ -1,6 +1,6 @@
-import { DomainError } from "@/utils/errors";
+import type { SidecarFlavor } from "@/modules/metadata-sidecars/sidecar.types";
+import { DomainError } from "@/utils/domain.errors";
 import { PathUtils } from "@/utils/path.utils";
-import type { SidecarFlavor } from "../sidecar.types";
 
 const PATH_SEPARATOR_REGEX = /[/\\]/;
 

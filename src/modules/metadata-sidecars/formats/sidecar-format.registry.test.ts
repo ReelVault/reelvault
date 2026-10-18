@@ -13,16 +13,19 @@ function createAdapter(id: string, canRead: boolean): SidecarFormatAdapter {
 
 test("sidecar format registry returns the first compatible reader", async () => {
 	const registry = new InMemorySidecarFormatRegistry();
-	const preferredAdapter = createAdapter("reelvault", true);
-	registry.register(preferredAdapter);
-	registry.register(createAdapter("jellyfin", true));
+	registry.register(createAdapter("reelvault", false));
+	const compatibleAdapter = createAdapter("jellyfin", true);
+	registry.register(compatibleAdapter);
+	registry.register(createAdapter("kodi", true));
 
-	expect(await registry.findReader({ documentPath: "/library/movie.nfo" })).toBe(preferredAdapter);
+	expect(await registry.findReader({ documentPath: "/library/movie.nfo" })).toBe(compatibleAdapter);
 });
 
 test("sidecar format registry rejects duplicate adapter IDs", () => {
 	const registry = new InMemorySidecarFormatRegistry();
 	registry.register(createAdapter("jellyfin", true));
 
-	expect(() => registry.register(createAdapter("jellyfin", true))).toThrow("already registered");
+	expect(() => registry.register(createAdapter("jellyfin", true))).toThrow(
+		expect.objectContaining({ category: "conflict", code: "sidecar.adapter_already_registered" }),
+	);
 });

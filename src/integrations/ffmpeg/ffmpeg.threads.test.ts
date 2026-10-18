@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { resolveStreamingThreads } from "./ffmpeg.threads";
 
 const spies: Array<{ mockRestore(): void }> = [];

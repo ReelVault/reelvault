@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clampSeekOffsetToDuration } from "./playback-budgets";
+import { clampSeekOffsetToDuration } from "./playback-budgets.utils";
 
 describe("clampSeekOffsetToDuration", () => {
 	test("rejects non-positive and non-finite offsets", () => {

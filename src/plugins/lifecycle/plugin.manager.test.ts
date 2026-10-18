@@ -1,630 +1,307 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PluginRuntime } from "@reelvault/sdk/plugin";
-import { DomainError } from "@/utils/errors";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { serverConfig } from "@/config/server/server.config";
+import { removeTree } from "@/utils/directory.utils";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { PluginManager } from "./manager/plugin-manager.service";
-import type { PluginConfig } from "./plugin.config";
-import type { InstalledPluginRecord, PluginInstaller } from "./plugin.installer";
-import type { PluginLoader } from "./plugin.loader";
-import { type PluginRegistry, pluginRegistry } from "./plugin.registry";
-import { pluginUiSettingsService } from "./plugin-ui-settings.service";
+import { pluginRegistry } from "./plugin.registry";
 
-process.env.NODE_ENV ??= "test";
-process.env.APP_PORT ??= "3030";
-process.env.ROOT_DIR ??= join(tmpdir(), `reelvault-tests-${process.pid}`);
+/**
+ * Plugins here are real packages: a manifest and an entry module loaded from disk.
+ * The entry records what happens to it in a global log, and a test makes a plugin
+ * fail by listing its `id@version` in the failure sets. Nothing inside the manager is stubbed.
+ */
+const CONTROL_KEY = "__reelvaultPluginManagerTest";
 
-function createManagerFixture(activeStubs: Array<{ restore(): void }>) {
-	const manager = new PluginManager();
-	const loader: PluginLoader = Reflect.get(manager, "loader");
-	const installer: PluginInstaller = Reflect.get(manager, "installer");
-	const config: PluginConfig = Reflect.get(manager, "config");
-	const registry: PluginRegistry = Reflect.get(manager, "registry");
-	activeStubs.push(
-		stubMethod(installer, "refreshIntegrity", () => Promise.resolve([])),
-		stubMethod(installer, "setDisabled", () => Promise.resolve()),
-		stubMethod(installer, "uninstall", () => Promise.resolve({})),
-		stubMethod(installer, "list", () => Promise.resolve([])),
-		stubMethod(installer, "confirmUpgrade", () => Promise.resolve(false)),
-		stubMethod(installer, "rollbackUpgrade", () => Promise.resolve(undefined)),
-		stubMethod(loader, "loadAll", () => Promise.resolve()),
-		stubMethod(loader, "load", () => Promise.resolve()),
-		stubMethod(loader, "unloadPlugin", () => Promise.resolve()),
-		stubMethod(loader, "unloadAll", () => Promise.resolve()),
-		stubMethod(loader, "reloadPlugin", () => Promise.resolve()),
-		stubMethod(loader, "prepareUninstall", () => Promise.resolve()),
-		stubMethod(loader, "removePluginData", () => Promise.resolve()),
-		stubMethod(pluginUiSettingsService, "reset", () => Promise.resolve()),
-		stubMethod(loader, "findDirectoryNameForPluginId", (pluginId: string) =>
-			Promise.resolve(pluginId === "org.reelvault.m" ? "m-dir" : undefined),
-		),
-	);
-
-	return { manager, loader, installer, config, registry };
+interface PluginControl {
+	events: string[];
+	failSetup: Set<string>;
+	failUnload: Set<string>;
 }
 
-/** A lockfile entry whose directory is the plugin id's last segment, mirroring the fixture plugin. */
-function installedRecord(id: string, version: string): { id: string; record: InstalledPluginRecord } {
-	return {
-		id,
-		record: {
-			directory: id.split(".").at(-1) ?? id,
-			integrity: "sha256-test",
-			installedAt: "2026-10-09T10:00:00.000Z",
-			source: "upload",
-			version,
+/** Config definitions as the loader reads them from a plugin's default export. */
+const REQUIRED_API_KEY_CONFIG = `config: {
+		fields: {},
+		descriptors: [{ name: "apiKey", type: "secret", label: "API key", required: true }],
+		parse(value) {
+			return { apiKey: value.apiKey ?? "" };
 		},
-	};
+	},`;
+
+const API_KEY_AND_THEME_CONFIG = `config: {
+		fields: {},
+		descriptors: [
+			{ name: "apiKey", type: "secret", label: "API key", required: true },
+			{ name: "theme", type: "string", label: "Theme" },
+		],
+		parse(value) {
+			return { apiKey: value.apiKey ?? "", theme: value.theme ?? "dark" };
+		},
+	},`;
+
+const LOCALE_CONFIG = `config: {
+		fields: {},
+		descriptors: [{ name: "language", type: "string", label: "Language" }],
+		parse(value) {
+			if (!/^[a-z]{2}-[A-Z]{2}$/.test(String(value.language ?? ""))) {
+				throw new Error("Plugin configuration 'language' does not match the expected format");
+			}
+			return value;
+		},
+	},`;
+
+function resetControl(): void {
+	(globalThis as Record<string, unknown>)[CONTROL_KEY] = {
+		events: [],
+		failSetup: new Set(),
+		failUnload: new Set(),
+	} satisfies PluginControl;
 }
 
-function createLoadedRuntime(id: string): PluginRuntime {
-	return {
-		manifest: { id, name: id, version: "1.0.0", entry: "./index.mjs", capabilities: ["eventHandler"] },
-		plugin: { setup: async () => undefined },
-		state: "discovered",
-		providerIds: [],
-		subtitleProviderIds: [],
-		analyzerIds: [],
-		jobNames: [],
-	};
+function readControl(): PluginControl {
+	return (globalThis as Record<string, unknown>)[CONTROL_KEY] as PluginControl;
 }
 
-const temporaryDirectories: string[] = [];
+useTestDatabase();
 
-async function writeFixturePlugin(): Promise<void> {
-	const { serverConfig } = await import("@/server.config");
-	const pluginDirectory = join(serverConfig.paths.plugins, "m-dir");
-	await mkdir(pluginDirectory, { recursive: true });
+let sourcesRoot = "";
+
+beforeEach(async () => {
+	resetControl();
+	await removeTree(serverConfig.paths.plugins);
+	await mkdir(serverConfig.paths.plugins, { recursive: true });
+	sourcesRoot = await mkdtemp(join(tmpdir(), "reelvault-manager-sources-"));
+});
+
+afterEach(async () => {
+	pluginRegistry.clear();
+	await removeTree(sourcesRoot);
+	await removeTree(serverConfig.paths.plugins);
+	(globalThis as Record<string, unknown>)[CONTROL_KEY] = undefined;
+});
+
+interface PackageOptions {
+	name?: string;
+	/** Extra members of the default export, such as a `config` definition. */
+	exportMembers?: string;
+}
+
+/** A plugin source directory with a manifest and an entry module. The directory is outside the plugins root. */
+async function writePackage(id: string, version: string, options: PackageOptions = {}): Promise<string> {
+	const directory = join(sourcesRoot, `${id}-${version}-${crypto.randomUUID()}`);
+	await mkdir(directory, { recursive: true });
 	await writeFile(
-		join(pluginDirectory, "plugin.json"),
+		join(directory, "plugin.json"),
 		JSON.stringify({
-			id: "org.reelvault.m",
-			name: "Manager fixture",
-			version: "3.1.0",
+			id,
+			name: options.name ?? `Manager ${id}`,
+			version,
 			entry: "./index.mjs",
 			capabilities: ["eventHandler"],
 		}),
 	);
+	await writeFile(join(directory, "index.mjs"), entrySource(id, version, options.exportMembers ?? ""));
+
+	return directory;
 }
 
-/** Mirrors the real loader: unloading removes the runtime from the registry. */
-function stubUnloadThroughRegistry(activeStubs: Array<{ restore(): void }>, loader: PluginLoader, registry: PluginRegistry): void {
-	activeStubs.push(
-		stubMethod(loader, "unloadPlugin", (pluginId: string) => {
-			registry.unregister(pluginId);
+function entrySource(id: string, version: string, exportMembers: string): string {
+	const key = JSON.stringify(`${id}@${version}`);
+	const name = JSON.stringify(id);
+	const control = JSON.stringify(CONTROL_KEY);
 
-			return Promise.resolve();
-		}),
-	);
+	return `const control = () => globalThis[${control}];
+export default {
+	${exportMembers}
+	setup() {
+		control().events.push("setup:" + ${name});
+		if (control().failSetup.has(${key})) throw new Error("setup failed for " + ${key});
+	},
+	onUnload() {
+		control().events.push("unload:" + ${name});
+		if (control().failUnload.has(${key})) throw new Error("onUnload failed for " + ${key});
+	},
+};
+`;
 }
 
-describe("PluginManager lifecycle orchestration", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
+/** The plugin's directory under the plugins root, as the installer named it. */
+async function installedDirectory(manager: PluginManager, pluginId: string): Promise<string> {
+	const directoryName = await manager.getPluginDirectoryName(pluginId);
+	if (!directoryName) throw new Error(`No installed directory for ${pluginId}`);
 
-	beforeEach(() => {
-		activeStubs = [];
+	return join(serverConfig.paths.plugins, directoryName);
+}
+
+async function storedConfig(manager: PluginManager, pluginId: string): Promise<Record<string, unknown>> {
+	return JSON.parse(await readFile(join(await installedDirectory(manager, pluginId), "config.json"), "utf8"));
+}
+
+/** A fresh manager instance, as after a server restart: the in-memory registry is empty. */
+function restartedManager(): PluginManager {
+	pluginRegistry.clear();
+
+	return new PluginManager();
+}
+
+describe("PluginManager enable and disable", () => {
+	test("disabling a plugin unloads it, and the disabled state survives a restart", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.toggle", "1.0.0"), { source: "test" });
+		readControl().events.length = 0;
+
+		await manager.setEnabled("org.reelvault.toggle", false);
+		expect(readControl().events).toEqual(["unload:org.reelvault.toggle"]);
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.toggle", state: "disabled" })]);
+
+		readControl().events.length = 0;
+		const afterRestart = restartedManager();
+		await afterRestart.loadPlugins();
+
+		expect(readControl().events).toEqual([]);
+		expect(afterRestart.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.toggle", state: "disabled" })]);
 	});
 
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
+	test("enabling a disabled plugin loads it again", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.reenable", "1.0.0"), { source: "test" });
+		await manager.setEnabled("org.reelvault.reenable", false);
+		readControl().events.length = 0;
 
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+		await manager.setEnabled("org.reelvault.reenable", true);
+
+		expect(readControl().events).toEqual(["setup:org.reelvault.reenable"]);
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.reenable", state: "enabled" })]);
 	});
 
-	test("loadPlugins verifies integrity first, tolerating a failed check", async () => {
-		const { manager, loader, installer } = createManagerFixture(activeStubs);
-		const calls: string[] = [];
-		const verifyStub = stubMethod(installer, "refreshIntegrity", () => {
-			calls.push("verify");
+	test("disabling a plugin that is not installed is rejected", async () => {
+		const manager = new PluginManager();
 
-			return Promise.resolve([]);
+		await expect(manager.setEnabled("org.reelvault.unknown", false)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.not_installed",
 		});
-		const loadAllStub = stubMethod(loader, "loadAll", () => {
-			calls.push("loadAll");
-
-			return Promise.resolve();
-		});
-		activeStubs.push(verifyStub, loadAllStub);
-
-		await manager.loadPlugins();
-		expect(calls).toEqual(["verify", "loadAll"]);
-
-		calls.length = 0;
-		const failingVerify = stubMethod(installer, "refreshIntegrity", () => {
-			calls.push("verify");
-
-			return Promise.reject(new Error("lockfile corrupt"));
-		});
-		activeStubs.push(failingVerify);
-
-		await manager.loadPlugins();
-		expect(calls).toEqual(["verify", "loadAll"]);
 	});
 
-	test("setEnabled persists the flag before loading or unloading", async () => {
-		const { manager, loader, installer, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		const calls: string[] = [];
-		const setDisabledStub = stubMethod(installer, "setDisabled", (_pluginId: string, disabled: boolean) => {
-			calls.push(`setDisabled:${disabled}`);
+	test("disabling an already disabled plugin changes nothing", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.idempotent", "1.0.0"), { source: "test" });
+		await manager.setEnabled("org.reelvault.idempotent", false);
+		readControl().events.length = 0;
 
-			return Promise.resolve();
-		});
-		const findStub = stubMethod(loader, "findDirectoryNameForPluginId", () => Promise.resolve("m-dir"));
-		const loadStub = stubMethod(loader, "load", (dirName: string) => {
-			calls.push(`load:${dirName}`);
+		await manager.setEnabled("org.reelvault.idempotent", false);
 
-			return Promise.resolve();
-		});
-		const unloadStub = stubMethod(loader, "unloadPlugin", (pluginId: string) => {
-			calls.push(`unload:${pluginId}`);
+		expect(readControl().events).toEqual([]);
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.idempotent", state: "disabled" })]);
+	});
 
-			return Promise.resolve();
-		});
-		activeStubs.push(setDisabledStub, findStub, loadStub, unloadStub);
+	test("enabling a plugin whose setup fails leaves it failed, not disabled", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.broken", "1.0.0"), { source: "test" });
+		await manager.setEnabled("org.reelvault.broken", false);
+		readControl().failSetup.add("org.reelvault.broken@1.0.0");
 
-		await manager.setEnabled("org.reelvault.m", true);
-		expect(calls).toEqual(["setDisabled:false", "load:m-dir"]);
+		await expect(manager.setEnabled("org.reelvault.broken", true)).rejects.toThrow("setup failed for org.reelvault.broken@1.0.0");
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.broken", state: "failed" })]);
+	});
 
-		calls.length = 0;
-		await manager.setEnabled("org.reelvault.m", false);
-		expect(calls).toEqual(["setDisabled:true", "unload:org.reelvault.m"]);
+	test("disabling a plugin whose onUnload throws still reports it disabled and surfaces the error", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.stuck", "1.0.0"), { source: "test" });
+		readControl().failUnload.add("org.reelvault.stuck@1.0.0");
+
+		await expect(manager.setEnabled("org.reelvault.stuck", false)).rejects.toThrow("onUnload failed for org.reelvault.stuck@1.0.0");
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.stuck", state: "disabled" })]);
+	});
+
+	test("reloading a disabled plugin leaves it unloaded", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.sleeping", "1.0.0"), { source: "test" });
+		await manager.setEnabled("org.reelvault.sleeping", false);
+		readControl().events.length = 0;
+
+		await manager.reload("org.reelvault.sleeping");
+
+		expect(readControl().events).toEqual([]);
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.sleeping", state: "disabled" })]);
+	});
+
+	test("uninstalling removes the package and its disabled state", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.gone", "1.0.0"), { source: "test" });
+		const directory = await installedDirectory(manager, "org.reelvault.gone");
+		await manager.setEnabled("org.reelvault.gone", false);
+
+		await manager.uninstall("org.reelvault.gone");
+
+		expect(manager.getStatus()).toEqual([]);
+		expect(existsSync(directory)).toBe(false);
 	});
 });
 
-describe("PluginManager lifecycle orchestration", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
+describe("PluginManager startup", () => {
+	test("loadPlugins loads enabled plugins and leaves disabled ones unloaded", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.on", "1.0.0"), { source: "test" });
+		await manager.installFromDirectory(await writePackage("org.reelvault.off", "1.0.0"), { source: "test" });
+		await manager.setEnabled("org.reelvault.off", false);
 
-	beforeEach(() => {
-		activeStubs = [];
-	});
+		const afterRestart = restartedManager();
+		await afterRestart.loadPlugins();
 
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-	});
-
-	test("setEnabled still loads when the plugin has no lockfile record", async () => {
-		const { manager, loader, installer } = createManagerFixture(activeStubs);
-		const calls: string[] = [];
-		const setDisabledStub = stubMethod(installer, "setDisabled", () => {
-			calls.push("setDisabled");
-
-			return Promise.reject(new Error("not installed"));
-		});
-		const findStub = stubMethod(loader, "findDirectoryNameForPluginId", () => Promise.resolve("m-dir"));
-		const loadStub = stubMethod(loader, "load", (dirName: string) => {
-			calls.push(`load:${dirName}`);
-
-			return Promise.resolve();
-		});
-		activeStubs.push(setDisabledStub, findStub, loadStub);
-
-		await manager.setEnabled("org.reelvault.m", true);
-		expect(calls).toEqual(["setDisabled", "load:m-dir"]);
-	});
-
-	test("disable captures the runtime status and exposes it as disabled", async () => {
-		const { manager, loader, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		registry.enable("org.reelvault.m");
-		stubUnloadThroughRegistry(activeStubs, loader, registry);
-
-		await manager.setEnabled("org.reelvault.m", false);
-
-		expect(manager.getStatus()).toEqual([
-			expect.objectContaining({
-				id: "org.reelvault.m",
-				name: "org.reelvault.m",
-				state: "disabled",
-				providers: 0,
-				subtitleProviders: 0,
-				jobs: 0,
-			}),
+		expect(afterRestart.getStatus()).toEqual([
+			expect.objectContaining({ id: "org.reelvault.on", state: "enabled" }),
+			expect.objectContaining({ id: "org.reelvault.off", state: "disabled" }),
 		]);
 	});
 
-	test("disable of an unknown plugin is rejected", async () => {
-		const { manager } = createManagerFixture(activeStubs);
+	test("loadPlugins shows a disabled plugin with its manifest name and the lockfile version", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.named", "3.1.0", { name: "Named fixture" }), { source: "test" });
+		await manager.setEnabled("org.reelvault.named", false);
 
-		await expect(manager.setEnabled("org.reelvault.unknown", false)).rejects.toThrow("is not installed");
-	});
+		const afterRestart = restartedManager();
+		await afterRestart.loadPlugins();
 
-	test("disable stays idempotent for an already-disabled plugin", async () => {
-		const { manager, loader, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		stubUnloadThroughRegistry(activeStubs, loader, registry);
-		await manager.setEnabled("org.reelvault.m", false);
-
-		await manager.setEnabled("org.reelvault.m", false);
-
-		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.m", state: "disabled" })]);
-	});
-
-	test("enable clears the disabled status even when loading fails", async () => {
-		const { manager, loader, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		stubUnloadThroughRegistry(activeStubs, loader, registry);
-		await manager.setEnabled("org.reelvault.m", false);
-		const failingLoad = stubMethod(loader, "load", () => Promise.reject(new Error("broken build")));
-		activeStubs.push(failingLoad);
-
-		await expect(manager.setEnabled("org.reelvault.m", true)).rejects.toThrow("broken build");
-		expect(manager.getStatus()).toEqual([]);
-	});
-});
-
-describe("PluginManager lifecycle orchestration", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
-
-	beforeEach(() => {
-		activeStubs = [];
-	});
-
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-	});
-
-	test("disable records the disabled status even when unloading throws", async () => {
-		const { manager, loader, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		activeStubs.push(
-			stubMethod(loader, "unloadPlugin", (pluginId: string) => {
-				registry.unregister(pluginId);
-
-				return Promise.reject(new Error("onDisable blew up"));
-			}),
-		);
-
-		await expect(manager.setEnabled("org.reelvault.m", false)).rejects.toThrow("onDisable blew up");
-		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.m", state: "disabled" })]);
-	});
-
-	test("reload leaves disabled plugins unloaded", async () => {
-		const { manager, loader, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		stubUnloadThroughRegistry(activeStubs, loader, registry);
-		await manager.setEnabled("org.reelvault.m", false);
-		const reloadStub = stubMethod(loader, "reloadPlugin", (_pluginId: string) => Promise.resolve());
-		activeStubs.push(reloadStub);
-
-		await manager.reload("org.reelvault.m");
-
-		expect(reloadStub.calls).toEqual([]);
-		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.m", state: "disabled" })]);
-	});
-
-	test("uninstall removes the disabled status", async () => {
-		const { manager, loader, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		stubUnloadThroughRegistry(activeStubs, loader, registry);
-		await manager.setEnabled("org.reelvault.m", false);
-
-		await manager.uninstall("org.reelvault.m");
-
-		expect(manager.getStatus()).toEqual([]);
-	});
-
-	test("installFromDirectory keeps a disabled plugin disabled when it is upgraded", async () => {
-		const { manager, installer } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		const record: InstalledPluginRecord = {
-			directory: "m-dir",
-			integrity: "sha256-x",
-			installedAt: "2026-09-20T00:00:00.000Z",
-			source: "fixture",
-			version: "1.0.0",
-			disabled: true,
-		};
-		const setDisabled = stubMethod(installer, "setDisabled", () => Promise.resolve());
-		activeStubs.push(
-			stubMethod(installer, "list", () => Promise.resolve([{ id: "org.reelvault.m", record }])),
-			stubMethod(installer, "install", () =>
-				Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: installedRecord("org.reelvault.m", "2.0.0").record }),
-			),
-			setDisabled,
-		);
-
-		await manager.installFromDirectory("/sources/m", {});
-
-		expect(setDisabled.calls).toEqual([["org.reelvault.m", true]]);
-		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.m", state: "disabled" })]);
-	});
-});
-
-describe("PluginManager lifecycle orchestration", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
-
-	beforeEach(() => {
-		activeStubs = [];
-	});
-
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-	});
-
-	test("installFromDirectory leaves a previously enabled plugin enabled", async () => {
-		const { manager, installer } = createManagerFixture(activeStubs);
-		const setDisabled = stubMethod(installer, "setDisabled", () => Promise.resolve());
-		activeStubs.push(
-			stubMethod(installer, "install", () => Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: {} })),
-			setDisabled,
-		);
-
-		await manager.installFromDirectory("/sources/m", {});
-
-		expect(setDisabled.calls).toEqual([]);
-		expect(manager.getStatus()).toEqual([]);
-	});
-
-	test("loadPlugins seeds disabled statuses from the lockfile", async () => {
-		const { manager, installer } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		const record: InstalledPluginRecord = {
-			directory: "m-dir",
-			integrity: "sha256-x",
-			installedAt: "2026-09-20T00:00:00.000Z",
-			source: "fixture",
-			version: "1.0.0",
-			disabled: true,
-		};
-		const listStub = stubMethod(installer, "list", () => Promise.resolve([{ id: "org.reelvault.m", record }]));
-		activeStubs.push(listStub);
-
-		await manager.loadPlugins();
-
-		expect(manager.getStatus()).toEqual([
-			expect.objectContaining({ id: "org.reelvault.m", name: "Manager fixture", version: "3.1.0", state: "disabled" }),
+		expect(afterRestart.getStatus()).toEqual([
+			expect.objectContaining({ id: "org.reelvault.named", name: "Named fixture", version: "3.1.0", state: "disabled" }),
 		]);
 	});
 
-	test("loadPlugins falls back to the lockfile identity when a disabled manifest is unreadable", async () => {
-		const { manager, installer } = createManagerFixture(activeStubs);
-		const record: InstalledPluginRecord = {
-			directory: "missing-dir",
-			integrity: "sha256-x",
-			installedAt: "2026-09-20T00:00:00.000Z",
-			source: "fixture",
-			version: "2.4.1",
-			disabled: true,
-		};
-		const listStub = stubMethod(installer, "list", () => Promise.resolve([{ id: "org.reelvault.gone", record }]));
-		activeStubs.push(listStub);
+	test("loadPlugins falls back to the lockfile identity when a disabled plugin's manifest is unreadable", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.unreadable", "2.4.1"), { source: "test" });
+		await manager.setEnabled("org.reelvault.unreadable", false);
+		const directory = await installedDirectory(manager, "org.reelvault.unreadable");
+		await rm(join(directory, "plugin.json"));
 
-		await manager.loadPlugins();
+		const afterRestart = restartedManager();
+		await afterRestart.loadPlugins();
 
-		expect(manager.getStatus()).toEqual([
-			expect.objectContaining({ id: "org.reelvault.gone", name: "org.reelvault.gone", version: "2.4.1", state: "disabled" }),
+		expect(afterRestart.getStatus()).toEqual([
+			expect.objectContaining({ id: "org.reelvault.unreadable", name: "org.reelvault.unreadable", version: "2.4.1", state: "disabled" }),
 		]);
 	});
 
-	test("reloadAll unloads everything before loading again", async () => {
-		const { manager, loader } = createManagerFixture(activeStubs);
-		const calls: string[] = [];
-		const unloadAllStub = stubMethod(loader, "unloadAll", () => {
-			calls.push("unloadAll");
-
-			return Promise.resolve();
-		});
-		const loadAllStub = stubMethod(loader, "loadAll", () => {
-			calls.push("loadAll");
-
-			return Promise.resolve();
-		});
-		activeStubs.push(unloadAllStub, loadAllStub);
+	test("reloadAll unloads every plugin before loading it again", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.cycle", "1.0.0"), { source: "test" });
+		readControl().events.length = 0;
 
 		await manager.reloadAll();
-		expect(calls).toEqual(["unloadAll", "loadAll"]);
+
+		expect(readControl().events).toEqual(["unload:org.reelvault.cycle", "setup:org.reelvault.cycle"]);
 	});
 });
 
-describe("PluginManager lifecycle orchestration", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
+describe("PluginManager install and upgrade", () => {
+	test("installing a fresh plugin activates it", async () => {
+		const manager = new PluginManager();
 
-	beforeEach(() => {
-		activeStubs = [];
-	});
-
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-	});
-
-	test("getPluginDirectoryName resolves through the loader index", async () => {
-		const { manager } = createManagerFixture(activeStubs);
-
-		await expect(manager.getPluginDirectoryName("org.reelvault.m")).resolves.toBe("m-dir");
-		await expect(manager.getPluginDirectoryName("org.reelvault.unknown")).resolves.toBeUndefined();
-	});
-
-	test("uninstall removes the package before the plugin data and tolerates a missing installer record", async () => {
-		const { manager, loader, installer } = createManagerFixture(activeStubs);
-		const calls: string[] = [];
-		const prepareStub = stubMethod(loader, "prepareUninstall", (pluginId: string) => {
-			calls.push(`prepare:${pluginId}`);
-
-			return Promise.resolve();
-		});
-		const removeDataStub = stubMethod(loader, "removePluginData", (pluginId: string) => {
-			calls.push(`removeData:${pluginId}`);
-
-			return Promise.resolve();
-		});
-		const installerStub = stubMethod(installer, "uninstall", () => {
-			calls.push("installer");
-
-			return Promise.reject(new DomainError("validation", "not installed"));
-		});
-		activeStubs.push(prepareStub, removeDataStub, installerStub);
-
-		await manager.uninstall("org.reelvault.m");
-		expect(calls).toEqual(["prepare:org.reelvault.m", "installer", "removeData:org.reelvault.m"]);
-	});
-
-	test("uninstall rethrows unexpected installer failures without touching plugin data", async () => {
-		const { manager, loader, installer } = createManagerFixture(activeStubs);
-		const failingStub = stubMethod(installer, "uninstall", () => Promise.reject(new Error("disk on fire")));
-		const removeDataStub = stubMethod(loader, "removePluginData", () => Promise.resolve());
-		activeStubs.push(failingStub, removeDataStub);
-
-		await expect(manager.uninstall("org.reelvault.m")).rejects.toThrow("disk on fire");
-		// The package is still installed, so its data must survive the failure.
-		expect(removeDataStub.calls).toEqual([]);
-	});
-
-	test("installFromDirectory reports a reloaded upgrade that fails as failed when nothing can be rolled back", async () => {
-		const { manager, loader, installer, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		activeStubs.push(
-			stubMethod(installer, "list", () => Promise.resolve([installedRecord("org.reelvault.m", "1.0.0")])),
-			stubMethod(installer, "install", () =>
-				Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: installedRecord("org.reelvault.m", "2.0.0").record }),
-			),
-			stubMethod(loader, "reloadPlugin", () => Promise.reject(new Error("reload blew up"))),
-		);
-
-		const result = await manager.installFromDirectory("/sources/m", { source: "catalog:repo:org.reelvault.m@2.0.0" });
-
-		expect(result).toMatchObject({
-			pluginId: "org.reelvault.m",
-			version: "2.0.0",
-			previousVersion: "1.0.0",
-			direction: "upgrade",
-			state: "failed",
-			error: "reload blew up",
-			errorCode: "plugin.load_failed",
-		});
-	});
-});
-
-describe("PluginManager lifecycle orchestration", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
-
-	beforeEach(() => {
-		activeStubs = [];
-	});
-
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-	});
-
-	test("installFromDirectory rolls an upgrade back when the new version does not load", async () => {
-		const { manager, loader, installer, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.m"), []);
-		const loadStub = stubMethod(loader, "load", () => Promise.resolve());
-		const rollbackStub = stubMethod(installer, "rollbackUpgrade", () =>
-			Promise.resolve(installedRecord("org.reelvault.m", "1.0.0").record),
-		);
-		activeStubs.push(
-			stubMethod(installer, "list", () => Promise.resolve([installedRecord("org.reelvault.m", "1.0.0")])),
-			stubMethod(installer, "install", () =>
-				Promise.resolve({ id: "org.reelvault.m", directory: "/plugins/m", record: installedRecord("org.reelvault.m", "2.0.0").record }),
-			),
-			stubMethod(loader, "reloadPlugin", () => Promise.reject(new Error("bad entry"))),
-			loadStub,
-			rollbackStub,
-		);
-
-		const result = await manager.installFromDirectory("/sources/m", {});
-
-		expect(result).toMatchObject({
-			version: "1.0.0",
-			previousVersion: "1.0.0",
-			direction: "upgrade",
-			state: "rolled_back",
-			error: "bad entry",
-		});
-		expect(rollbackStub.calls).toEqual([["org.reelvault.m"]]);
-		expect(loadStub.calls).toEqual([["m"]]);
-	});
-
-	test("enabling an upgrade that does not load rolls back to the previous version", async () => {
-		const { manager, loader, installer } = createManagerFixture(activeStubs);
-		let attempts = 0;
-		const loadStub = stubMethod(loader, "load", () => {
-			attempts += 1;
-
-			return attempts === 1 ? Promise.reject(new Error("new build is broken")) : Promise.resolve();
-		});
-		const rollbackStub = stubMethod(installer, "rollbackUpgrade", () =>
-			Promise.resolve({
-				directory: "m-dir",
-				integrity: "sha256-old",
-				installedAt: "2026-09-20T00:00:00.000Z",
-				source: "upload",
-				version: "1.0.0",
-			}),
-		);
-		activeStubs.push(loadStub, rollbackStub);
-
-		await expect(manager.setEnabled("org.reelvault.m", true)).rejects.toMatchObject({
-			code: "plugin.upgrade_rolled_back",
-			params: { pluginId: "org.reelvault.m", version: "1.0.0" },
-		});
-		expect(rollbackStub.calls).toEqual([["org.reelvault.m"]]);
-		expect(loadStub.calls).toEqual([["m-dir"], ["m-dir"]]);
-	});
-
-	test("enabling a plugin without an upgrade to undo rethrows the load failure", async () => {
-		const { manager, loader } = createManagerFixture(activeStubs);
-		activeStubs.push(stubMethod(loader, "load", () => Promise.reject(new Error("broken"))));
-
-		await expect(manager.setEnabled("org.reelvault.m", true)).rejects.toThrow("broken");
-	});
-});
-
-describe("PluginManager lifecycle orchestration", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
-
-	beforeEach(() => {
-		activeStubs = [];
-	});
-
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-	});
-
-	test("installFromDirectory activates a fresh install", async () => {
-		const { manager, loader, installer, registry } = createManagerFixture(activeStubs);
-		const loadStub = stubMethod(loader, "load", () => Promise.resolve());
-		activeStubs.push(
-			stubMethod(installer, "install", () =>
-				Promise.resolve({
-					id: "org.reelvault.fresh",
-					directory: "/plugins/fresh",
-					record: installedRecord("org.reelvault.fresh", "1.0.0").record,
-				}),
-			),
-			loadStub,
-		);
-
-		const result = await manager.installFromDirectory("/sources/new", {});
+		const result = await manager.installFromDirectory(await writePackage("org.reelvault.fresh", "1.0.0"), { source: "test" });
 
 		expect(result).toMatchObject({
 			pluginId: "org.reelvault.fresh",
@@ -633,68 +310,122 @@ describe("PluginManager lifecycle orchestration", () => {
 			state: "enabled",
 			upgraded: false,
 		});
-		expect(loadStub.calls).toEqual([["fresh"]]);
-		expect(registry.get("org.reelvault.fresh")).toBeUndefined();
+		expect(readControl().events).toEqual(["setup:org.reelvault.fresh"]);
 	});
 
-	test("getStatus merges live and failed plugin statuses", () => {
-		const { manager, registry } = createManagerFixture(activeStubs);
-		registry.register(createLoadedRuntime("org.reelvault.ok"), []);
-		registry.enable("org.reelvault.ok");
-		registry.register(createLoadedRuntime("org.reelvault.aaa"), []);
-		registry.enable("org.reelvault.aaa");
-		registry.recordFailure({ id: "org.reelvault.bad", name: "bad", version: "1.0.0" }, new Error("boom"));
-		registry.recordFailure({ id: "org.reelvault.worse", name: "aardvark", version: "1.0.0" }, new Error("boom"));
+	test("upgrading a disabled plugin keeps it disabled and unloaded", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.stays-off", "1.0.0"), { source: "test" });
+		await manager.setEnabled("org.reelvault.stays-off", false);
+		readControl().events.length = 0;
 
-		// Working plugins first, failed ones trailing — alphabetical within each group.
-		expect(manager.getStatus()).toEqual([
-			expect.objectContaining({ id: "org.reelvault.aaa", state: "enabled" }),
-			expect.objectContaining({ id: "org.reelvault.ok", state: "enabled" }),
-			expect.objectContaining({ id: "org.reelvault.worse", state: "failed" }),
-			expect.objectContaining({ id: "org.reelvault.bad", state: "failed" }),
-		]);
+		await manager.installFromDirectory(await writePackage("org.reelvault.stays-off", "2.0.0"), { source: "test" });
+
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.stays-off", version: "2.0.0", state: "disabled" })]);
+		expect(readControl().events).toEqual([]);
 	});
 
-	test("getInstalledRecords delegates to the installer lockfile listing", async () => {
-		const { manager, installer } = createManagerFixture(activeStubs);
-		const record: InstalledPluginRecord = {
-			directory: "org.reelvault.m",
-			integrity: "sha256-x",
-			installedAt: "2026-09-20T00:00:00.000Z",
-			source: "fixture",
+	test("upgrading an enabled plugin loads the new version", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.moving", "1.0.0"), { source: "test" });
+		readControl().events.length = 0;
+
+		await manager.installFromDirectory(await writePackage("org.reelvault.moving", "2.0.0"), { source: "test" });
+
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.moving", version: "2.0.0", state: "enabled" })]);
+		expect(readControl().events).toContain("setup:org.reelvault.moving");
+	});
+
+	test("an upgrade whose new version fails to load is rolled back to the previous version", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.reverted", "1.0.0"), { source: "test" });
+		readControl().failSetup.add("org.reelvault.reverted@2.0.0");
+
+		const result = await manager.installFromDirectory(await writePackage("org.reelvault.reverted", "2.0.0"), { source: "test" });
+
+		expect(result).toMatchObject({
+			pluginId: "org.reelvault.reverted",
 			version: "1.0.0",
-		};
-		const listStub = stubMethod(installer, "list", () => Promise.resolve([{ id: "org.reelvault.m", record }]));
-		activeStubs.push(listStub);
+			previousVersion: "1.0.0",
+			direction: "upgrade",
+			state: "rolled_back",
+			error: "setup failed for org.reelvault.reverted@2.0.0",
+		});
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.reverted", version: "1.0.0", state: "enabled" })]);
+	});
 
-		await expect(manager.getInstalledRecords()).resolves.toEqual([{ id: "org.reelvault.m", record }]);
+	test("enabling an upgrade that does not load restores the disabled version it replaced and keeps it disabled", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.undo", "1.0.0"), { source: "test" });
+		await manager.setEnabled("org.reelvault.undo", false);
+		await manager.installFromDirectory(await writePackage("org.reelvault.undo", "2.0.0"), { source: "test" });
+		readControl().failSetup.add("org.reelvault.undo@2.0.0");
+
+		await expect(manager.setEnabled("org.reelvault.undo", true)).rejects.toMatchObject({
+			code: "plugin.upgrade_rolled_back",
+			params: { pluginId: "org.reelvault.undo", version: "1.0.0" },
+		});
+		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.undo", version: "1.0.0", state: "disabled" })]);
+	});
+
+	test("enabling a plugin with no upgrade to undo rethrows the load failure", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.no-undo", "1.0.0"), { source: "test" });
+		await manager.setEnabled("org.reelvault.no-undo", false);
+		readControl().failSetup.add("org.reelvault.no-undo@1.0.0");
+
+		await expect(manager.setEnabled("org.reelvault.no-undo", true)).rejects.toThrow("setup failed for org.reelvault.no-undo@1.0.0");
 	});
 });
 
-describe("PluginManager config details", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
+describe("PluginManager status and integrity", () => {
+	test("getStatus lists working plugins before failed ones, whatever their names", async () => {
+		const manager = new PluginManager();
+		readControl().failSetup.add("org.reelvault.zz-failing@1.0.0");
+		await manager.installFromDirectory(await writePackage("org.reelvault.zz-failing", "1.0.0", { name: "Aardvark" }), { source: "test" });
+		await manager.installFromDirectory(await writePackage("org.reelvault.aa-working", "1.0.0", { name: "Zebra" }), { source: "test" });
 
-	beforeEach(() => {
-		activeStubs = [];
+		expect(manager.getStatus().map((status) => [status.id, status.state])).toEqual([
+			["org.reelvault.aa-working", "enabled"],
+			["org.reelvault.zz-failing", "failed"],
+		]);
 	});
 
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
+	test("getPackageDetails reports the installed record and the declared capabilities", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.details", "3.1.0"), { source: "test" });
 
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+		await expect(manager.getPackageDetails("org.reelvault.details")).resolves.toMatchObject({
+			capabilities: ["eventHandler"],
+			source: "test",
+			integrityOk: true,
+			cspDisabled: false,
+			pinned: false,
+		});
 	});
 
-	test("getPluginConfigDetails infers fields, redacts secrets, and never echoes secret defaults", async () => {
-		const { manager, config } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		const loadStub = stubMethod(config, "load", () => Promise.resolve({ apiKey: "secret-value", debug: true, retries: 2, theme: "dark" }));
-		activeStubs.push(loadStub);
+	test("a package edited after install is reported as not ok at the boot that notices it", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.tampered", "1.0.0"), { source: "test" });
+		const directory = await installedDirectory(manager, "org.reelvault.tampered");
+		await writeFile(join(directory, "index.mjs"), "export default { setup() {} };\n");
 
-		const details = await manager.getPluginConfigDetails("org.reelvault.m");
+		const afterRestart = restartedManager();
+		await afterRestart.loadPlugins();
 
-		expect(details).toMatchObject({ id: "org.reelvault.m", name: "Manager fixture", version: "3.1.0" });
+		await expect(afterRestart.getPackageDetails("org.reelvault.tampered")).resolves.toMatchObject({ integrityOk: false });
+	});
+});
+
+describe("PluginManager config", () => {
+	test("getPluginConfigDetails infers fields from the stored values and never echoes a secret", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.infer", "3.1.0"), { source: "test" });
+		await manager.savePluginConfig("org.reelvault.infer", { apiKey: "secret-value", debug: true, retries: 2, theme: "dark" });
+
+		const details = await manager.getPluginConfigDetails("org.reelvault.infer");
+
+		expect(details).toMatchObject({ id: "org.reelvault.infer", version: "3.1.0" });
 		expect(details.config).toEqual({ debug: true, retries: 2, theme: "dark" });
 		expect(details.fields).toEqual([
 			{ name: "apiKey", type: "secret", label: "Api Key", hasValue: true },
@@ -704,184 +435,74 @@ describe("PluginManager config details", () => {
 		]);
 	});
 
-	test("getPackageDetails reports the installed record and the declared capabilities", async () => {
-		const { manager, installer } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		activeStubs.push(
-			stubMethod(installer, "list", () =>
-				Promise.resolve([
-					{
-						id: "org.reelvault.m",
-						record: { directory: "m-dir", integrity: "abc", installedAt: "2026-10-09T10:00:00.000Z", source: "upload", version: "3.1.0" },
-					},
-				]),
-			),
-		);
-
-		await expect(manager.getPackageDetails("org.reelvault.m")).resolves.toEqual({
-			capabilities: ["eventHandler"],
-			installedAt: "2026-10-09T10:00:00.000Z",
-			source: "upload",
-			integrityOk: true,
-			cspDisabled: false,
-			pinned: false,
-		});
-	});
-
-	test("getPackageDetails reports a package that failed the integrity check as not ok", async () => {
-		const { manager, installer } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		activeStubs.push(
-			stubMethod(installer, "list", () =>
-				Promise.resolve([
-					{ id: "org.reelvault.m", record: { directory: "m-dir", integrity: "abc", installedAt: "x", source: "upload", version: "3.1.0" } },
-				]),
-			),
-		);
-		const integrityIssues: Set<string> = Reflect.get(manager, "integrityIssues");
-		integrityIssues.add("org.reelvault.m");
-
-		await expect(manager.getPackageDetails("org.reelvault.m")).resolves.toMatchObject({ integrityOk: false });
-	});
-
 	test("getPluginConfigDetails reports an unset secret as having no value", async () => {
-		const { manager, config } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		const loadStub = stubMethod(config, "load", () => Promise.resolve({ apiKey: "   " }));
-		activeStubs.push(loadStub);
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.unset", "1.0.0"), { source: "test" });
+		await manager.savePluginConfig("org.reelvault.unset", { apiKey: "   " });
 
-		const details = await manager.getPluginConfigDetails("org.reelvault.m");
+		const details = await manager.getPluginConfigDetails("org.reelvault.unset");
 
 		expect(details.fields).toContainEqual({ name: "apiKey", type: "secret", label: "Api Key", hasValue: false });
 	});
-});
 
-describe("PluginManager config details", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
+	test("savePluginConfig writes the patch, reloads the plugin and returns the refreshed details", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.saved", "1.0.0"), { source: "test" });
+		readControl().events.length = 0;
 
-	beforeEach(() => {
-		activeStubs = [];
+		const details = await manager.savePluginConfig("org.reelvault.saved", { theme: "light" });
+
+		expect(details.config).toEqual({ theme: "light" });
+		expect(await storedConfig(manager, "org.reelvault.saved")).toEqual({ theme: "light" });
+		expect(readControl().events).toEqual(["unload:org.reelvault.saved", "setup:org.reelvault.saved"]);
 	});
 
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-	});
-
-	function stubRequiredApiKey(registry: PluginRegistry) {
-		return stubMethod(registry, "getConfigDefinition", () => ({
-			fields: {},
-			descriptors: [{ name: "apiKey", type: "secret", label: "API key", required: true }],
-			parse: (value: Record<string, unknown>) => ({ apiKey: value.apiKey ?? "" }),
-		}));
-	}
-
-	test("savePluginConfig persists the patch, reloads, and returns refreshed details", async () => {
-		const { manager, config, loader } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		const saveStub = stubMethod(config, "save", (_pluginName: string, _updated: Record<string, unknown>) => {
-			return Promise.resolve({ theme: "light" });
+	test("savePluginConfig maps a value the plugin rejects to a validation error naming the field and writes nothing", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.locale", "1.0.0", { exportMembers: LOCALE_CONFIG }), {
+			source: "test",
 		});
-		const loadStub = stubMethod(config, "load", () => Promise.resolve({ theme: "dark" }));
-		const reloadStub = stubMethod(loader, "reloadPlugin", (_pluginId: string) => Promise.resolve());
-		activeStubs.push(saveStub, loadStub, reloadStub);
 
-		const details = await manager.savePluginConfig("org.reelvault.m", { theme: "light" });
+		const error = await manager.savePluginConfig("org.reelvault.locale", { language: "not a locale" }).catch((reason: unknown) => reason);
 
-		expect(saveStub.calls).toEqual([["m-dir", { theme: "light" }, undefined, []]]);
-		expect(details.config).toEqual({ theme: "dark" });
-		expect(reloadStub.calls).toEqual([["org.reelvault.m"]]);
+		expect(error).toMatchObject({ category: "validation", code: "plugin.config_invalid", params: { field: "language" } });
+		expect(existsSync(join(await installedDirectory(manager, "org.reelvault.locale"), "config.json"))).toBe(false);
 	});
 
-	test("savePluginConfig maps SDK config validation failures to a ValidationError", async () => {
-		const { manager, config, registry } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		const loadStub = stubMethod(config, "load", () => Promise.resolve({ language: "en-US" }));
-		const definitionStub = stubMethod(registry, "getConfigDefinition", () => ({
-			fields: {},
-			descriptors: [],
-			parse: () => {
-				throw new Error("Plugin configuration 'language' does not match the expected format");
-			},
-		}));
-		activeStubs.push(loadStub, definitionStub);
+	test("savePluginConfig refuses to save a required secret that is still blank and writes nothing", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.required", "1.0.0", { exportMembers: REQUIRED_API_KEY_CONFIG }), {
+			source: "test",
+		});
 
-		const error = await manager.savePluginConfig("org.reelvault.m", { language: "not a locale" }).catch((reason: unknown) => reason);
+		const error = await manager.savePluginConfig("org.reelvault.required", { apiKey: "   " }).catch((reason: unknown) => reason);
 
-		expect(error).toMatchObject({ category: "validation" });
-		expect(error).toMatchObject({ code: "plugin.config_invalid", params: { field: "language" } });
+		expect(error).toMatchObject({ category: "validation", code: "plugin.config_invalid", params: { field: "apiKey" } });
+		expect(existsSync(join(await installedDirectory(manager, "org.reelvault.required"), "config.json"))).toBe(false);
 	});
 
-	test("savePluginConfig refuses to save a required field that is still blank", async () => {
-		const { manager, config, registry } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		activeStubs.push(
-			stubMethod(config, "load", () => Promise.resolve({})),
-			stubRequiredApiKey(registry),
-		);
+	test("a required secret saved with a value is accepted, reported as present and never returned", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.filled", "1.0.0", { exportMembers: REQUIRED_API_KEY_CONFIG }), {
+			source: "test",
+		});
 
-		const error = await manager.savePluginConfig("org.reelvault.m", { apiKey: "   " }).catch((reason: unknown) => reason);
+		await manager.savePluginConfig("org.reelvault.filled", { apiKey: "key" });
 
-		expect(error).toMatchObject({ category: "validation" });
-		expect(error).toMatchObject({ code: "plugin.config_invalid", params: { field: "apiKey" } });
+		const details = await manager.getPluginConfigDetails("org.reelvault.filled");
+		expect(details.fields).toContainEqual(expect.objectContaining({ name: "apiKey", type: "secret", hasValue: true }));
+		expect(details.config).not.toHaveProperty("apiKey");
 	});
 
-	test("savePluginConfig accepts the form once the required field is filled in", async () => {
-		const { manager, config, registry, loader } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		const save = stubMethod(config, "save", () => Promise.resolve({ apiKey: "key" }));
-		activeStubs.push(
-			stubMethod(config, "load", () => Promise.resolve({})),
-			stubMethod(loader, "reloadPlugin", () => Promise.resolve()),
-			save,
-			stubRequiredApiKey(registry),
-		);
+	test("a partial save keeps a required secret that was stored earlier", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.kept", "1.0.0", { exportMembers: API_KEY_AND_THEME_CONFIG }), {
+			source: "test",
+		});
+		await manager.savePluginConfig("org.reelvault.kept", { apiKey: "stored" });
 
-		await manager.savePluginConfig("org.reelvault.m", { apiKey: "key" });
+		await manager.savePluginConfig("org.reelvault.kept", { theme: "light" });
 
-		expect(save.calls).toHaveLength(1);
-	});
-});
-
-describe("PluginManager config details", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
-
-	beforeEach(() => {
-		activeStubs = [];
-	});
-
-	afterEach(async () => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-		pluginRegistry.clear();
-		await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
-	});
-
-	function stubRequiredApiKey(registry: PluginRegistry) {
-		return stubMethod(registry, "getConfigDefinition", () => ({
-			fields: {},
-			descriptors: [{ name: "apiKey", type: "secret", label: "API key", required: true }],
-			parse: (value: Record<string, unknown>) => ({ apiKey: value.apiKey ?? "" }),
-		}));
-	}
-
-	test("a stored value satisfies the requirement when the patch leaves the secret out", async () => {
-		const { manager, config, registry, loader } = createManagerFixture(activeStubs);
-		await writeFixturePlugin();
-		const save = stubMethod(config, "save", () => Promise.resolve({}));
-		activeStubs.push(
-			stubMethod(config, "load", () => Promise.resolve({ apiKey: "stored" })),
-			stubMethod(loader, "reloadPlugin", () => Promise.resolve()),
-			save,
-			stubRequiredApiKey(registry),
-		);
-
-		await manager.savePluginConfig("org.reelvault.m", { theme: "light" });
-
-		expect(save.calls).toHaveLength(1);
+		expect(await storedConfig(manager, "org.reelvault.kept")).toEqual({ apiKey: "stored", theme: "light" });
 	});
 });

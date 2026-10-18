@@ -1,33 +1,29 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { which } from "bun";
+import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { serverConfig } from "@/server.config";
 import { assertFFProbeAvailable } from "./ffprobe.environment";
 
 describe("FFprobe integration", () => {
-	// Real-binary probe — skipped where ffprobe is absent.
-	const hasFfprobe = Boolean(which(serverConfig.ffprobe.path));
+	test("the ffprobe binary it locates runs and reports its version", async () => {
+		const proc = Bun.spawn([assertFFProbeAvailable(), "-version"], { stdout: "pipe", stderr: "ignore" });
 
-	test.skipIf(!hasFfprobe)("checks availability and executes through the integration boundary", () => {
-		expect(Boolean(which(serverConfig.ffprobe.path))).toBe(true);
-		expect(assertFFProbeAvailable()).toBeTruthy();
+		expect(await new Response(proc.stdout).text()).toStartWith("ffprobe version");
+		expect(await proc.exited).toBe(0);
 	});
 
 	test("respects custom ffprobe.path setting", () => {
-		const originalPath = serverConfig.ffprobe.path;
-		try {
-			systemSettingsStore.setRuntimeValue("ffprobe.path", "non-existent-ffprobe-binary");
-			expect(serverConfig.ffprobe.path).toBe("non-existent-ffprobe-binary");
-			expect(Boolean(which(serverConfig.ffprobe.path))).toBe(false);
-			expect(() => assertFFProbeAvailable()).toThrow("Missing required media tools");
-		} finally {
-			systemSettingsStore.setRuntimeValue("ffprobe.path", originalPath);
-		}
+		systemSettingsStore.setRuntimeValue("ffprobe.path", "non-existent-ffprobe-binary");
+
+		expect(serverConfig.ffprobe.path).toBe("non-existent-ffprobe-binary");
+		expect(Boolean(which(serverConfig.ffprobe.path))).toBe(false);
+		expect(() => assertFFProbeAvailable()).toThrow(expect.objectContaining({ category: "internal", code: "media_tools.missing" }));
 	});
 
-	test("allows custom finder in assertFFProbeAvailable", () => {
+	test("resolves the configured binary through the finder it is given", () => {
 		const path = assertFFProbeAvailable((cmd) => `/custom/bin/${cmd}`);
-		expect(path).toContain("/custom/bin/");
+
+		expect(path).toBe(`/custom/bin/${serverConfig.ffprobe.path}`);
 	});
 });
 

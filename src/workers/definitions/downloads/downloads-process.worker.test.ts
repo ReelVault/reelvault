@@ -1,37 +1,24 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { workerService } from "@/workers/worker.service";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { downloadsProcessWorker, enqueueDownloadsProcess } from "./downloads-process.worker";
 
-describe("downloadsProcessWorker", () => {
-	test("defines the correct worker properties", () => {
-		expect(downloadsProcessWorker.id).toBe("downloads-process");
-		expect(typeof downloadsProcessWorker.handler).toBe("function");
-	});
+useTestDatabase();
 
-	test("enqueueDownloadsProcess delegates to workerService.addItem", async () => {
-		const { createMockWorkerItem } = await import("@/workers/core/worker-runtime.test-utils");
-		const { workerService } = await import("@/workers/worker.service");
-		const originalAddItem = workerService.addItem;
-		const calls: Array<{ workerId: string; data: unknown; options: unknown }> = [];
+beforeEach(() => {
+	workerService.registry.register(downloadsProcessWorker);
+});
 
-		workerService.addItem = mock((workerId, data, options) => {
-			calls.push({ workerId, data, options });
+afterEach(() => {
+	workerService.registry.unregister(downloadsProcessWorker.id);
+});
 
-			return Promise.resolve(createMockWorkerItem({ id: "job-123" }));
-		});
+describe("enqueueDownloadsProcess", () => {
+	test("enqueuing the same download twice keeps one active job", async () => {
+		const first = await enqueueDownloadsProcess("download-abc");
+		const second = await enqueueDownloadsProcess("download-abc");
 
-		try {
-			await enqueueDownloadsProcess("download-abc");
-			expect(calls).toHaveLength(1);
-			expect(calls[0]).toEqual({
-				workerId: "downloads-process",
-				data: { downloadId: "download-abc" },
-				options: {
-					dedupeKey: "download-abc",
-					reference: { type: "download", id: "download-abc" },
-				},
-			});
-		} finally {
-			workerService.addItem = originalAddItem;
-		}
+		expect(second.id).toBe(first.id);
+		expect(await workerService.findActiveItem(downloadsProcessWorker.id, "download-abc")).toMatchObject({ id: first.id });
 	});
 });

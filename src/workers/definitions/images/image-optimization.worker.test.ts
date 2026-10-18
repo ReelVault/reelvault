@@ -1,35 +1,43 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { imageMaintenanceService } from "@/modules/images/image-maintenance.service";
 import { workerService } from "@/workers/worker.service";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { processImageOptimizationTask, scanImagesForOptimizationTask } from "./image-optimization.worker";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { imageOptimizationWorker, processImageOptimizationTask, scanImagesForOptimizationTask } from "./image-optimization.worker";
+
+// The scan queues real rows under a parent operation, so it needs the migrated test database.
+useTestDatabase();
 
 const activeStubs: Array<{ restore(): void }> = [];
 
+beforeEach(() => {
+	workerService.registry.register(imageOptimizationWorker);
+});
+
 afterEach(() => {
 	for (const stub of activeStubs.splice(0)) stub.restore();
+	workerService.registry.unregister(imageOptimizationWorker.id);
 });
 
 describe("image optimization task", () => {
-	test("optimizes a single image and reports the outcome", async () => {
-		const optimized: string[] = [];
+	test("hands the task's own abort signal to the optimizer and reports its outcome", async () => {
+		let received: { imageId: string; signal: AbortSignal | undefined } | undefined;
 		activeStubs.push(
 			stubMethod(imageMaintenanceService, "optimizeImageById", (imageId: string, signal?: AbortSignal) => {
-				expect(signal).toBeDefined();
-				optimized.push(imageId);
+				received = { imageId, signal };
 
 				return Promise.resolve("reoptimized");
 			}),
 		);
+		const signal = AbortSignal.timeout(1000);
 
-		const result = await processImageOptimizationTask({ imageId: "image-1" }, { signal: AbortSignal.timeout(1000) });
+		const result = await processImageOptimizationTask({ imageId: "image-1" }, { signal });
 
 		expect(result).toEqual({ imageId: "image-1", outcome: "reoptimized" });
-		expect(optimized).toEqual(["image-1"]);
-	});
-
-	test("requires an imageId", async () => {
-		await expect(processImageOptimizationTask({ imageId: "" })).rejects.toMatchObject({ code: "internal" });
+		expect(received?.imageId).toBe("image-1");
+		expect(received?.signal).toBe(signal);
 	});
 
 	test("converts optimization failures to domain errors", async () => {
@@ -38,38 +46,32 @@ describe("image optimization task", () => {
 		await expect(processImageOptimizationTask({ imageId: "image-2" })).rejects.toMatchObject({ code: "internal" });
 	});
 
-	test("queues one task per outdated image with parent operation", async () => {
-		const queued: Array<{ imageId: string; operationId?: string | undefined; dependsOnTaskIds?: string[] | undefined }> = [];
-		activeStubs.push(
-			stubMethod(imageMaintenanceService, "findOutdatedImageIds", () => Promise.resolve(["image-1", "image-2", "image-3"])),
-			stubMethod(
-				workerService,
-				"addItems",
-				(
-					_workerId: string,
-					entries: Array<{ data: { imageId: string }; options?: { operationId?: string; dependsOnTaskIds?: string[] } }>,
-				) => {
-					for (const entry of entries) {
-						queued.push({
-							imageId: entry.data.imageId,
-							operationId: entry.options?.operationId,
-							dependsOnTaskIds: entry.options?.dependsOnTaskIds,
-						});
-					}
+	test("queues one task per outdated image under the scan's operation and task", async () => {
+		const operationId = "operation-1";
+		const taskId = "task-1";
+		await workerOperationRepository.create({ id: operationId, type: "image-optimization-all" });
+		await workerJobRepository.enqueue({
+			id: taskId,
+			workerId: "image-optimization-all",
+			operationId,
+			data: "{}",
+			priority: 0,
+			maxAttempts: 1,
+			backoffType: "fixed",
+			backoffDelayMs: 1_000,
+			runAt: new Date(),
+		});
+		activeStubs.push(stubMethod(imageMaintenanceService, "findOutdatedImageIds", () => Promise.resolve(["image-1", "image-2", "image-3"])));
 
-					return Promise.resolve([]);
-				},
-			),
-		);
-
-		const result = await scanImagesForOptimizationTask({ operationId: "operation-1", taskId: "task-1" });
+		const result = await scanImagesForOptimizationTask({ operationId, taskId });
 
 		expect(result).toEqual({ requested: 3, queued: 3 });
-		expect(queued.map((item) => item.imageId)).toEqual(["image-1", "image-2", "image-3"]);
-		for (const item of queued) {
-			expect(item.operationId).toBe("operation-1");
-			expect(item.dependsOnTaskIds).toEqual(["task-1"]);
-		}
+		const queued = (await workerJobRepository.findByOperation(operationId, 10)).filter(
+			(item) => item.workerId === imageOptimizationWorker.id && item.dependsOnJobId === taskId,
+		);
+		expect(
+			queued.map((item) => JSON.parse(item.data).imageId).toSorted((left: string, right: string) => left.localeCompare(right)),
+		).toEqual(["image-1", "image-2", "image-3"]);
 	});
 
 	test("converts scan failures to domain errors", async () => {

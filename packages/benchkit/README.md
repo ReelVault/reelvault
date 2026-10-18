@@ -6,7 +6,7 @@ from `scripts/` so it can later be lifted into a standalone package.
 
 **Bun-first.** Zero imports from `@/` — that is the package's hard boundary.
 Everything that knows the database schema, ReelVault routes or seeding stays on
-the application side (`scripts/benchmarks/*.bench.ts`, `scripts/benchmarks/lib/server.ts`).
+the application side (`scripts/benchmarks/*.bench.ts`, `scripts/benchmarks/lib/server.launcher.ts`).
 
 ## Usage in this repo
 

@@ -1,11 +1,11 @@
 import type { StreamSeekResponse } from "@reelvault/sdk/common";
-import { assertFound, DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { defaultFindForStreamingDuration, defaultRequireSession } from "@/modules/streaming/contracts.utils";
+import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
+import type { RequireSession } from "@/modules/streaming/streaming.types";
+import { clampSeekOffsetToDuration } from "@/modules/streaming/utils/playback-budgets.utils";
+import { assertFound, DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
-import { defaultFindForStreamingDuration, defaultRequireSession } from "../contracts";
-import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
-import type { RequireSession } from "../streaming.types";
-import { clampSeekOffsetToDuration } from "../utils/playback-budgets";
 
 interface ServiceDependencies {
 	requireSession: RequireSession;

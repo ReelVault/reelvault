@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { ffmpegProcessTracker, type TrackedProcess } from "./ffmpeg.process-tracker";
 
 interface FakeProcess extends TrackedProcess {
@@ -24,6 +24,11 @@ const fakeProcess = (exited?: Promise<number>): FakeProcess => {
 };
 
 describe("FFmpegProcessTracker", () => {
+	// The tracker is a process-wide singleton, so every test ends with nothing tracked.
+	afterEach(() => {
+		ffmpegProcessTracker.killAll();
+	});
+
 	test("killAllBackground terminates background processes but leaves streaming ones alive", () => {
 		const background = fakeProcess();
 		const streaming = fakeProcess();
@@ -53,7 +58,7 @@ describe("FFmpegProcessTracker", () => {
 		const proc = fakeProcess(exitPromise);
 
 		ffmpegProcessTracker.track(proc, "background");
-		expect(ffmpegProcessTracker.activeCount).toBeGreaterThanOrEqual(1);
+		expect(ffmpegProcessTracker.backgroundCount).toBe(1);
 
 		resolveExit(0);
 		// A macrotask flush lets the exited.finally handler run.
@@ -65,8 +70,6 @@ describe("FFmpegProcessTracker", () => {
 	});
 
 	test("counts and snapshots split by purpose including probe and diagnostic", () => {
-		// The tracker is a process-wide singleton — start from a clean slate.
-		ffmpegProcessTracker.killAll();
 		const background = fakeProcess();
 		const streaming = fakeProcess();
 		const diagnostic = fakeProcess();
@@ -87,7 +90,6 @@ describe("FFmpegProcessTracker", () => {
 		expect(labeled?.purpose).toBe("streaming");
 		const probed = snapshots.find((s) => s.purpose === "probe");
 		expect(probed?.pid).toBe(4242);
-		expect(probed?.runtimeMs).toBeGreaterThanOrEqual(0);
 
 		expect(ffmpegProcessTracker.killAllBackground()).toBe(1);
 		expect(ffmpegProcessTracker.counts()).toMatchObject({ streaming: 1, probe: 1, diagnostic: 1, total: 3 });

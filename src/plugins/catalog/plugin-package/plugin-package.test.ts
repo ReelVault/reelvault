@@ -1,0 +1,368 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { lstatSync, readFileSync, statSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { strToU8, zipSync } from "fflate";
+import { assertChecksumMatches } from "@/utils/crypto.utils";
+import { removeTree } from "@/utils/directory.utils";
+import { downloadArchive } from "./download.fetcher";
+import { extractPluginPackage } from "./extract.extractor";
+import { createTarStreamExtractor } from "./tar.extractor";
+
+const pluginFailure = {
+	checksum: false,
+	code: "plugin.checksum_mismatch",
+	message: "Plugin package checksum does not match the catalog manifest",
+};
+
+const temporaryDirectories: string[] = [];
+const cleanups: Array<() => Promise<void>> = [];
+
+afterEach(async () => {
+	await Promise.all(cleanups.splice(0).map(async (cleanup) => await cleanup().catch(() => undefined)));
+	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
+});
+
+describe("plugin package utils", () => {
+	test("extracts a zipball with a repository wrapper directory and locates the plugin", async () => {
+		const archivePath = await writeArchive(
+			new Uint8Array(
+				zipSync({
+					"reelvault-plugins-main/org.example.zipped/plugin.json": strToU8(JSON.stringify({ id: "org.example.zipped" })),
+					"reelvault-plugins-main/org.example.zipped/index.mjs": strToU8("export default { setup() {} };\n"),
+				}),
+			),
+		);
+
+		const extracted = await extractPluginPackage(archivePath);
+		deferCleanup(extracted.cleanup);
+
+		expect(extracted.pluginRoot.endsWith("org.example.zipped")).toBe(true);
+	});
+
+	test("extracts a gzipped tarball with ustar prefix paths", async () => {
+		// A directory name over 100 characters forces the ustar prefix/name split.
+		const pluginDirectory = `${"directory-with-a-very-long-name-".repeat(3)}x`;
+		const tar = buildTar([
+			{ path: `${pluginDirectory}/plugin.json`, data: strToU8(JSON.stringify({ id: "org.example.tarred" })) },
+			{ path: `${pluginDirectory}/index.mjs`, data: strToU8("export default { setup() {} };\n") },
+		]);
+		const archivePath = await writeArchive(Uint8Array.from(Bun.gzipSync(tar)));
+
+		const extracted = await extractPluginPackage(archivePath);
+		deferCleanup(extracted.cleanup);
+
+		expect(extracted.pluginRoot.endsWith("x")).toBe(true);
+	});
+
+	test("rejects zip entries escaping the extraction root", async () => {
+		const archivePath = await writeArchive(Uint8Array.from(zipSync({ "../evil.txt": strToU8("nope") })));
+		await expect(extractPluginPackage(archivePath)).rejects.toMatchObject({ category: "validation", code: "plugin.package_path_unsafe" });
+	});
+
+	test("creates in-tree tar symlinks and rejects out-of-tree ones", async () => {
+		const inTree = buildTar([
+			{
+				path: "plugin-dir/plugin.json",
+				data: strToU8(
+					JSON.stringify({
+						id: "org.test.linked",
+						name: "Linked",
+						version: "1.0.0",
+						entry: "./target.mjs",
+						capabilities: ["metadataProvider"],
+					}),
+				),
+			},
+			{ path: "plugin-dir/launcher.sh", data: strToU8("#!/bin/sh\necho ok"), mode: "0000755" },
+			{ path: "plugin-dir/target.mjs", data: strToU8("export {}") },
+			{ path: "plugin-dir/node_modules/.bin/tool", linkTo: "../../target.mjs" },
+		]);
+		const extracted = await extractPluginPackage(await writeArchive(Uint8Array.from(Bun.gzipSync(inTree))));
+		const treeDirectory = extracted.pluginRoot;
+		const created = lstatSync(join(treeDirectory, "node_modules", ".bin", "tool"));
+		expect(created.isSymbolicLink()).toBe(true);
+		expect(readFileSync(join(treeDirectory, "node_modules", ".bin", "tool"), "utf8")).toContain("export");
+		const mode = statSync(join(treeDirectory, "launcher.sh")).mode;
+		expect(mode & 0o111).toBeGreaterThan(0);
+
+		const escaping = buildTar([{ path: "plugin-dir/link.mjs", linkTo: "../../../../../evil.mjs" }]);
+		await expect(extractPluginPackage(await writeArchive(Uint8Array.from(Bun.gzipSync(escaping))))).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_symlink_invalid",
+		});
+	});
+
+	test("rejects a package without a plugin.json manifest", async () => {
+		const archivePath = await writeArchive(Uint8Array.from(zipSync({ "random/file.txt": strToU8("content") })));
+		await expect(extractPluginPackage(archivePath)).rejects.toMatchObject({ category: "validation", code: "plugin.manifest_missing" });
+	});
+
+	test("rejects a zip whose actual inflated size exceeds the uncompressed cap", async () => {
+		// Highly compressible entries: the compressed archive is tiny, the inflated
+		// tree is not. The cap must be enforced on real output, not headers.
+		const archivePath = await writeArchive(
+			Uint8Array.from(
+				zipSync({ "org.example.bomb/plugin.json": strToU8("{}"), "org.example.bomb/big.bin": strToU8("0".repeat(64 * 1024)) }),
+			),
+		);
+		await expect(extractPluginPackage(archivePath, 1024)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_unpacked_too_large",
+		});
+	});
+
+	test("rejects a gzipped tarball whose actual inflated size exceeds the uncompressed cap", async () => {
+		const tar = buildTar([
+			{ path: "org.example.bomb/plugin.json", data: strToU8("{}") },
+			{ path: "org.example.bomb/big.bin", data: strToU8("0".repeat(64 * 1024)) },
+		]);
+		const archivePath = await writeArchive(Uint8Array.from(Bun.gzipSync(tar)));
+		await expect(extractPluginPackage(archivePath, 1024)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_unpacked_too_large",
+		});
+	});
+});
+
+describe("plugin package utils", () => {
+	test("compares checksums in constant time and rejects mismatches", () => {
+		const checksumA = `sha256-${"a".repeat(64)}`;
+		const checksumB = `sha256-${"b".repeat(64)}`;
+		assertChecksumMatches(checksumA, checksumA, pluginFailure);
+		expect(() => assertChecksumMatches(checksumA, checksumB, pluginFailure)).toThrow(
+			expect.objectContaining({ code: "plugin.checksum_mismatch" }),
+		);
+	});
+
+	test("downloads an archive over HTTP, hashing the exact bytes", async () => {
+		const payload = zipSync({ "org.example.served/plugin.json": strToU8("{}") });
+		const server = Bun.serve({
+			port: 0,
+			fetch: () => new Response(payload, { headers: { "content-type": "application/zip" } }),
+		});
+		try {
+			const downloaded = await downloadArchive(`http://127.0.0.1:${server.port}/package.zip`, {
+				fetcher: (url, init) => fetch(url, init),
+			});
+			deferCleanup(downloaded.cleanup);
+			const expected = `sha256-${new Bun.CryptoHasher("sha256").update(payload).digest("hex")}`;
+			expect(downloaded.checksum).toBe(expected);
+			expect(downloaded.size).toBe(payload.byteLength);
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test("rejects a non-https download URL before any request is made", async () => {
+		await expect(downloadArchive("http://127.0.0.1/package.zip")).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.download_failed",
+		});
+	});
+
+	test("enforces the download size cap mid-stream", async () => {
+		const server = Bun.serve({
+			port: 0,
+			fetch: () =>
+				new Response(
+					new ReadableStream({
+						start(controller) {
+							controller.enqueue(new Uint8Array(1024).fill(1));
+							controller.enqueue(new Uint8Array(2048).fill(1));
+							controller.close();
+						},
+					}),
+				),
+		});
+		try {
+			await expect(
+				downloadArchive(`http://127.0.0.1:${server.port}/big.bin`, { maxBytes: 1024, fetcher: (url, init) => fetch(url, init) }),
+			).rejects.toMatchObject({ category: "validation", code: "plugin.package_too_large" });
+		} finally {
+			await server.stop(true);
+		}
+	});
+
+	test("extracts a plain (uncompressed) tar archive", async () => {
+		const tar = buildTar([{ path: "org.example.plain/plugin.json", data: strToU8('{"id":"org.example.plain"}') }]);
+		const extracted = await extractPluginPackage(await writeArchive(tar));
+		deferCleanup(extracted.cleanup);
+
+		expect(extracted.pluginRoot.endsWith("org.example.plain")).toBe(true);
+	});
+
+	test("extracts a zip larger than one stream chunk", async () => {
+		// Incompressible payload — the compressed archive itself spans several reads.
+		const payload = crypto.getRandomValues(new Uint8Array(400 * 1024));
+		const archivePath = await writeArchive(
+			new Uint8Array(
+				zipSync({
+					"org.example.streamed/plugin.json": strToU8('{"id":"org.example.streamed"}'),
+					"org.example.streamed/data.bin": payload,
+				}),
+			),
+		);
+
+		const extracted = await extractPluginPackage(archivePath);
+		deferCleanup(extracted.cleanup);
+
+		expect(readFileSync(join(extracted.pluginRoot, "data.bin")).byteLength).toBe(payload.byteLength);
+	});
+});
+
+describe("plugin package utils", () => {
+	test("extracts a tar archive fed in arbitrary chunk sizes", async () => {
+		const payload = strToU8("A".repeat(1500));
+		const longDirectory = `${"chunked-directory-".repeat(6)}x`;
+		const tar = buildTar([
+			{ path: `${longDirectory}/plugin.json`, data: strToU8('{"id":"org.example.chunked"}'), longName: true },
+			{ path: `${longDirectory}/data.bin`, data: payload },
+			{ path: `${longDirectory}/sub`, directory: true },
+			{ path: `${longDirectory}/link.mjs`, linkTo: "data.bin" },
+		]);
+
+		for (const chunkSize of [1, 3, 7, 511, 512, 513, 1024, 4096]) {
+			const workRoot = await mkdtemp(join(tmpdir(), "reelvault-tar-chunks-"));
+			temporaryDirectories.push(workRoot);
+			const extractor = createTarStreamExtractor(workRoot, 1024 * 1024);
+			for (let offset = 0; offset < tar.byteLength; offset += chunkSize) {
+				extractor.push(tar.subarray(offset, Math.min(offset + chunkSize, tar.byteLength)));
+			}
+			extractor.finish();
+
+			expect(readFileSync(join(workRoot, longDirectory, "plugin.json"), "utf8")).toBe('{"id":"org.example.chunked"}');
+			expect(readFileSync(join(workRoot, longDirectory, "data.bin"))).toEqual(Buffer.from(payload));
+			expect(statSync(join(workRoot, longDirectory, "sub")).isDirectory()).toBe(true);
+			expect(lstatSync(join(workRoot, longDirectory, "link.mjs")).isSymbolicLink()).toBe(true);
+		}
+	});
+
+	test("rejects a tar stream that ends mid-entry", async () => {
+		const workRoot = await mkdtemp(join(tmpdir(), "reelvault-tar-truncated-"));
+		temporaryDirectories.push(workRoot);
+		const tar = buildTar([{ path: "plugin-dir/data.bin", data: strToU8("X".repeat(2048)) }]);
+		const extractor = createTarStreamExtractor(workRoot, 1024 * 1024);
+
+		extractor.push(tar.subarray(0, 512 + 700)); // header plus a partial data block
+
+		expect(() => extractor.finish()).toThrow(expect.objectContaining({ category: "validation", code: "plugin.archive_truncated" }));
+	});
+});
+
+async function writeArchive(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+	const directory = await mkdtemp(join(tmpdir(), "reelvault-plugin-pkg-test-"));
+	temporaryDirectories.push(directory);
+	const archivePath = join(directory, "package.bin");
+	await Bun.write(archivePath, new Blob([bytes]));
+
+	return archivePath;
+}
+
+function deferCleanup(cleanup: () => Promise<void>): void {
+	cleanups.push(cleanup);
+}
+
+interface TarEntry {
+	path: string;
+	data?: Uint8Array;
+	linkTo?: string;
+	mode?: string;
+	/** Emit a GNU long-name (`L`) header so the reader must stitch the path across blocks. */
+	longName?: boolean;
+	/** Emit a directory (`5`) entry. */
+	directory?: boolean;
+}
+
+/** Minimal ustar writer — enough to exercise the reader, including long names via the prefix field. */
+function buildTar(entries: TarEntry[]): Uint8Array<ArrayBuffer> {
+	const blocks: Uint8Array[] = [];
+	for (const entry of entries) {
+		if (entry.longName) {
+			const nameBytes = new TextEncoder().encode(entry.path);
+			blocks.push(buildTarHeader({ name: "./@LongLink", size: nameBytes.byteLength, type: "L" }));
+			blocks.push(padToBlock(nameBytes));
+		}
+
+		const { name, prefix } = splitTarPath(entry.longName ? "long-name-placeholder" : entry.path);
+		const data = entry.data;
+		const type = tarTypeForEntry(entry);
+		blocks.push(
+			buildTarHeader({
+				name,
+				prefix,
+				size: data?.byteLength ?? 0,
+				type,
+				...(entry.linkTo !== undefined ? { linkTo: entry.linkTo } : {}),
+				...(entry.mode !== undefined ? { mode: entry.mode } : {}),
+			}),
+		);
+		if (data) blocks.push(padToBlock(data));
+	}
+
+	blocks.push(new Uint8Array(1024));
+	const total = blocks.reduce((sum, block) => sum + block.byteLength, 0);
+	const tar = new Uint8Array(total);
+	let offset = 0;
+	for (const block of blocks) {
+		tar.set(block, offset);
+		offset += block.byteLength;
+	}
+
+	return tar;
+}
+
+function tarTypeForEntry(entry: TarEntry): "5" | "2" | "0" {
+	if (entry.directory) return "5";
+	if (entry.linkTo) return "2";
+
+	return "0";
+}
+
+function buildTarHeader(options: {
+	name: string;
+	prefix?: string;
+	size?: number;
+	type?: string;
+	linkTo?: string;
+	mode?: string;
+}): Uint8Array {
+	const header = new Uint8Array(512);
+	const encoder = new TextEncoder();
+	header.set(encoder.encode(options.name).subarray(0, 100), 0);
+	header.set(encoder.encode(options.mode ?? "0000644"), 100);
+	header.set(encoder.encode("0000000"), 108);
+	header.set(encoder.encode("0000000"), 116);
+	header.set(encoder.encode(`${(options.size ?? 0).toString(8).padStart(11, "0")}\0`), 124);
+	header.set(encoder.encode("00000000000"), 136);
+	header.set(encoder.encode(options.type ?? "0"), 156);
+	if (options.linkTo) header.set(encoder.encode(options.linkTo).subarray(0, 100), 157);
+	header.set(encoder.encode("ustar\0"), 257);
+	header.set(encoder.encode("00"), 263);
+	header.set(encoder.encode(options.prefix ?? ""), 345);
+	header.set(encoder.encode("        "), 148);
+	let checksum = 0;
+	for (const byte of header) checksum += byte;
+
+	header.set(encoder.encode(`${checksum.toString(8).padStart(6, "0")}\0 `), 148);
+
+	return header;
+}
+
+function splitTarPath(path: string): { name: string; prefix: string } {
+	if (path.length <= 100) return { name: path, prefix: "" };
+
+	// Prefer the latest split that keeps the name within 100 bytes; fall back to
+	// the first separator so the name never has to be truncated.
+	const split = Math.max(path.lastIndexOf("/", path.length - 100), path.indexOf("/"));
+
+	return { name: path.slice(split + 1), prefix: path.slice(0, split) };
+}
+
+function padToBlock(data: Uint8Array): Uint8Array {
+	const padded = new Uint8Array(Math.ceil(data.byteLength / 512) * 512);
+	padded.set(data);
+
+	return padded;
+}

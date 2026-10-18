@@ -9,7 +9,7 @@
  * reach; `--strict` fails the run while any target is exceeded.
  *
  * Usage:
- *   bun run scripts/benchmark.ts query-count [--rows 5000]
+ *   bun run scripts/benchmark.script.ts query-count [--rows 5000]
  *
  * Add new cases here when an optimization lands; extend the shared seeder
  * (lib/seed.ts) instead of inlining seed SQL.
@@ -18,26 +18,26 @@
 import { main, printTable, suiteArgs, task } from "benchkit";
 import type { SidecarArtworkWriter } from "@/modules/metadata-sidecars/saver/sidecar-artwork.exporter";
 import type { SidecarMetadataWriter } from "@/modules/metadata-sidecars/sidecar.types";
-import { seedCatalog } from "./lib/seed";
+import { seedCatalog } from "./lib/seed.utils";
 
 // Statement counting must be enabled before the ambient factory is constructed,
 // and static imports are hoisted — so the database module is imported dynamically.
 // The repositories resolve `databaseFactory` from this same module instance.
 process.env.APP_SLOW_QUERY_LOG = "true";
-const { databaseFactory } = await import("@/database/database");
-const { librariesRepository } = await import("@/database/repositories/libraries.repository");
-const { collectionRepository } = await import("@/database/repositories/collections.repository");
-const { mediaRepository } = await import("@/database/repositories/media-files.repository");
-const { metadataRepository } = await import("@/database/repositories/metadata.repository");
-const { playbackRepository } = await import("@/database/repositories/playback.repository");
-const { watchedHistoryRepository } = await import("@/database/repositories/watched-history.repository");
-const { workerOperationRepository } = await import("@/database/repositories/worker-operation.repository");
-const { sessionsRepository } = await import("@/database/repositories/sessions.repository");
-const { adminAuditRepository } = await import("@/database/repositories/admin-audit.repository");
-const { playbackViewService } = await import("@/application/media/playback-view.service");
+const { databaseFactory } = await import("@/integrations/drizzle-orm/database.factory");
+const { librariesRepository } = await import("@/app/repositories/libraries.repository");
+const { collectionRepository } = await import("@/app/repositories/collections.repository");
+const { mediaRepository } = await import("@/app/repositories/media-files.repository");
+const { metadataRepository } = await import("@/app/repositories/metadata.repository");
+const { playbackRepository } = await import("@/app/repositories/playback.repository");
+const { watchedHistoryRepository } = await import("@/app/repositories/watched-history.repository");
+const { workerOperationRepository } = await import("@/app/repositories/worker-operation.repository");
+const { sessionsRepository } = await import("@/app/repositories/sessions.repository");
+const { adminAuditRepository } = await import("@/app/repositories/admin-audit.repository");
+const { playbackViewService } = await import("@/app/media/playback-view.service");
 const { SidecarMetadataStorageService } = await import("@/modules/metadata-sidecars/sidecar-metadata-storage.service");
-const { playbackProgressService } = await import("@/modules/streaming/progress/playback-progress.service");
-const { librariesService } = await import("@/application/libraries/libraries.service");
+const { playbackProgressService } = await import("@/app/playback/playback-progress.service");
+const { librariesService } = await import("@/app/libraries/libraries.service");
 
 export const meta = { description: "Statement-count audit (queries per operation, targets gate --strict)" };
 

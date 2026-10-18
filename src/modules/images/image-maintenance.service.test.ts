@@ -1,17 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { imageRepository } from "@/database/repositories/images.repository";
+import { serverConfig } from "@/config/server/server.config";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
 import { imageMaintenanceService } from "@/modules/images/image-maintenance.service";
-import { serverConfig } from "@/server.config";
-import { DirUtils } from "@/utils/directory.utils";
+import { DirUtils, removeTree } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 
 describe("ImageMaintenanceService", () => {
+	const db = useTestDatabase();
 	let testImagesDir: string;
 	let originalImagesPath: string;
 
@@ -27,7 +29,7 @@ describe("ImageMaintenanceService", () => {
 
 	afterEach(async () => {
 		serverConfig.paths.images = originalImagesPath;
-		await rm(testImagesDir, { recursive: true, force: true });
+		await removeTree(testImagesDir);
 	});
 
 	test("purgeOrphanedImages deletes unreferenced image files and old tmp files", async () => {
@@ -38,23 +40,22 @@ describe("ImageMaintenanceService", () => {
 		await FileUtils.write(validPath, new Uint8Array([1, 2, 3]));
 		await FileUtils.write(orphanPath, new Uint8Array([4, 5, 6]));
 		await FileUtils.write(oldTmpPath, new Uint8Array([7, 8, 9]));
+		await db
+			.client()
+			.insert(schema.images)
+			.values({
+				id: "img-valid-1",
+				stableKey: "stable-valid",
+				localPath: PathUtils.normalize(validPath),
+				contentType: "image/webp",
+			});
 
-		const originalFindAll = imageRepository.findAllImageStorageIdentifiers;
-		imageRepository.findAllImageStorageIdentifiers = async () => ({
-			localPaths: new Set([PathUtils.normalize(validPath)]),
-			imageIds: new Set(["img-valid-1"]),
-		});
+		const result = await imageMaintenanceService.purgeOrphanedImages({ minAgeMs: 0 });
 
-		try {
-			const result = await imageMaintenanceService.purgeOrphanedImages({ minAgeMs: 0 });
-
-			expect(result.deletedCount).toBe(2);
-			expect(await FileUtils.exists(validPath)).toBe(true);
-			expect(await FileUtils.exists(orphanPath)).toBe(false);
-			expect(await FileUtils.exists(oldTmpPath)).toBe(false);
-		} finally {
-			imageRepository.findAllImageStorageIdentifiers = originalFindAll;
-		}
+		expect(result.deletedCount).toBe(2);
+		expect(await FileUtils.exists(validPath)).toBe(true);
+		expect(await FileUtils.exists(orphanPath)).toBe(false);
+		expect(await FileUtils.exists(oldTmpPath)).toBe(false);
 	});
 
 	test("reoptimizing a source in place invalidates its cached version stamp", async () => {
@@ -67,28 +68,20 @@ describe("ImageMaintenanceService", () => {
 			.png({ compressionLevel: 0 })
 			.toBuffer();
 		await FileUtils.write(sourcePath, png);
-
-		const originalFindCandidate = imageRepository.findImageOptimizationCandidate;
-		const originalMarkVersion = imageRepository.markImageOptimizationVersion;
-		imageRepository.findImageOptimizationCandidate = async () => ({
+		await db.client().insert(schema.images).values({
 			id: "img-1",
+			stableKey: "stable-reoptimize",
 			localPath: sourcePath,
+			contentType: "image/png",
 			width: 256,
 			height: 256,
-			fileSize: null,
 		});
-		imageRepository.markImageOptimizationVersion = async () => undefined;
 
-		try {
-			const versionBefore = await sourceVersionCache.read(sourcePath);
+		const versionBefore = await sourceVersionCache.read(sourcePath);
 
-			const outcome = await imageMaintenanceService.optimizeImageById("img-1");
-			expect(outcome).toBe("reoptimized");
+		const outcome = await imageMaintenanceService.optimizeImageById("img-1");
+		expect(outcome).toBe("reoptimized");
 
-			expect(await sourceVersionCache.read(sourcePath)).not.toBe(versionBefore);
-		} finally {
-			imageRepository.findImageOptimizationCandidate = originalFindCandidate;
-			imageRepository.markImageOptimizationVersion = originalMarkVersion;
-		}
+		expect(await sourceVersionCache.read(sourcePath)).not.toBe(versionBefore);
 	});
 });

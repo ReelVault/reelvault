@@ -1,29 +1,30 @@
-import { chmod, cp, mkdir, rename, rm, stat } from "node:fs/promises";
+import { cp, mkdir, rename } from "node:fs/promises";
 import type { PluginInstallDirection } from "@reelvault/sdk/common";
-import { file, write } from "bun";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { DirUtils } from "@/utils/directory.utils";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
-import { clamp } from "@/utils/math.utils";
+import { DirUtils, removeTree } from "@/utils/directory.utils";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
-import { SERVER_VERSION } from "@/version";
-import { isPluginDirectoryName } from "./host/plugin-directory.index";
-import { calculateDirectoryIntegrity, MUTABLE_CONFIG_FILENAME } from "./installer/directory-hash";
+import { isPluginDirectoryName } from "./host/plugin-directory.indexer";
+import { activateStagedPackage } from "./installer/activate.service";
 import {
-	type InstalledPluginRecord,
-	LOCKFILE_NAME,
-	type PluginLockfile,
-	PluginLockfileStore,
-	type PluginPreviousInstall,
-} from "./installer/lockfile.store";
-import { assertNoSymbolicLinks } from "./installer/symlink-guard";
-import { loadPluginManifest, resolvePluginEntry } from "./plugin.manifest";
-
-/** SHA-256 over large blobs — CPU+disk bound, so concurrency scales with measured capacity. */
-const VERIFICATION_CONCURRENCY = () => clamp(Math.ceil(systemResourcesService.getMetrics().capacity / 2), 1, 8);
+	assertPackageDirectory,
+	assertSeparateDirectories,
+	loadInstallableManifest,
+	verificationConcurrency,
+} from "./installer/checks.guard";
+import {
+	backupMutableConfig,
+	discardConfigBackup,
+	preserveMutableConfig,
+	restoreUninstalledConfig,
+} from "./installer/config-backup.service";
+import { calculateDirectoryIntegrity } from "./installer/directory-hash.utils";
+import { type InstalledPluginRecord, LOCKFILE_NAME, type PluginLockfile, PluginLockfileStore } from "./installer/lockfile.store";
+import { buildInstallRecord, restoredRecord } from "./installer/records.mapper";
+import { assertNoSymbolicLinks } from "./installer/symlink.guard";
+import { loadPluginManifest } from "./plugin.manifest";
 
 const logger = createLogger("PluginInstaller");
 
@@ -52,6 +53,26 @@ export interface InstallOptions {
 	source?: string;
 }
 
+interface InstallResult {
+	id: string;
+	directory: string;
+	record: InstalledPluginRecord;
+}
+
+/** A package copied into staging and checked, waiting to be swapped in. */
+interface StagedInstall {
+	pluginsDirectory: string;
+	stagingDirectory: string;
+	targetName: string;
+	targetDirectory: string;
+	manifest: { id: string; version: string };
+	recordedSource: string;
+	isUpgrade: boolean;
+}
+
+/** An admin choice stored on a lockfile record. */
+type AdminFlag = "disabled" | "cspDisabled" | "pinned";
+
 export class PluginInstaller {
 	private readonly pluginsDirectory: string;
 	private readonly lockfileStore: PluginLockfileStore;
@@ -61,26 +82,13 @@ export class PluginInstaller {
 		this.lockfileStore = new PluginLockfileStore(pluginsDirectory);
 	}
 
-	async install(
-		sourceDirectory: string,
-		options: InstallOptions = {},
-	): Promise<{ id: string; directory: string; record: InstalledPluginRecord }> {
+	async install(sourceDirectory: string, options: InstallOptions = {}): Promise<InstallResult> {
 		const source = PathUtils.resolve(sourceDirectory);
 		const pluginsDirectory = PathUtils.resolve(this.pluginsDirectory);
 		assertSeparateDirectories(source, pluginsDirectory);
-		await assertSourceDirectory(source);
-		await assertNoSymbolicLinks(source, VERIFICATION_CONCURRENCY());
+		await assertPackageDirectory(source);
 
-		const manifest = await loadPluginManifest(source);
-		if (manifest.minServerVersion && isNewerVersion(manifest.minServerVersion, SERVER_VERSION)) {
-			throw new DomainError(
-				"validation",
-				`Plugin ${manifest.id} ${manifest.version} requires server ${manifest.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
-				{ code: "plugin.server_too_old" },
-			);
-		}
-		await assertFile(resolvePluginEntry(source, manifest), "Plugin entrypoint");
-
+		const manifest = await loadInstallableManifest(source);
 		const targetName = await this.resolveInstalledDirectoryName(manifest.id);
 		const targetDirectory = PathUtils.join(pluginsDirectory, targetName);
 		const targetExists = await DirUtils.exists(targetDirectory);
@@ -96,72 +104,71 @@ export class PluginInstaller {
 		await mkdir(this.pluginsDirectory, { recursive: true });
 		const stagingDirectory = PathUtils.join(pluginsDirectory, `.install-${manifest.id}-${crypto.randomUUID()}`);
 		try {
-			await cp(source, stagingDirectory, { recursive: true, verbatimSymlinks: true, errorOnExist: true });
-			await assertNoSymbolicLinks(stagingDirectory, VERIFICATION_CONCURRENCY());
-
-			const installedManifest = await loadPluginManifest(stagingDirectory);
-			if (installedManifest.id !== manifest.id || installedManifest.version !== manifest.version) {
-				throw new DomainError("validation", "Plugin manifest changed while the package was being installed", {
-					code: "plugin.manifest_changed",
-				});
-			}
+			await stagePackage(source, stagingDirectory, manifest);
 
 			// An upgrade replaces the whole package directory, but admin-entered
 			// settings (API keys, toggles) live in `config.json` inside that
 			// directory and must survive. Carry the previous file into the staged
-			// build before the old directory is renamed aside.
-			if (isUpgrade) {
-				await preserveMutableConfig(targetDirectory, stagingDirectory);
-			}
+			// build before the old directory is renamed aside. A fresh install of a
+			// plugin that was uninstalled gets its configuration back from the backup
+			// taken then.
+			if (isUpgrade) await preserveMutableConfig(targetDirectory, stagingDirectory);
+			else await restoreUninstalledConfig(pluginsDirectory, manifest.id, stagingDirectory);
 
-			// A fresh install of a plugin that was uninstalled gets its configuration back from the backup taken then.
-			if (!isUpgrade) {
-				await restoreUninstalledConfig(pluginsDirectory, manifest.id, stagingDirectory);
-			}
-
-			const previousRecord = isUpgrade ? (await this.lockfileStore.read()).plugins[manifest.id] : undefined;
-			// An upgrade keeps the package it replaces as a rollback point (`previous`). Without a lockfile record there is nothing to roll back to.
-			const backupDirectory = isUpgrade ? PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`) : undefined;
-
-			const record = buildInstallRecord({
+			return await this.commitStagedInstall({
+				pluginsDirectory,
+				stagingDirectory,
+				targetName,
 				targetDirectory,
-				version: manifest.version,
-				integrity: await calculateDirectoryIntegrity(stagingDirectory),
-				source: options.source ?? source,
-				previousRecord,
-				backupDirectory,
+				manifest,
+				recordedSource: options.source ?? source,
+				isUpgrade,
 			});
-
-			await activateStagedPackage({ stagingDirectory, targetDirectory, backupDirectory });
-
-			try {
-				await this.lockfileStore.writeRecord(manifest.id, record, { replace: isUpgrade });
-			} catch (error) {
-				await rm(targetDirectory, { recursive: true, force: true });
-				if (backupDirectory) await rename(backupDirectory, targetDirectory);
-
-				throw error;
-			}
-
-			// The replaced package stays as the rollback point. Only the one it replaced is dropped: a second upgrade before the first is confirmed.
-			if (backupDirectory && !record.previous) {
-				await rm(backupDirectory, { recursive: true, force: true });
-			}
-			if (previousRecord?.previous) {
-				await rm(PathUtils.join(pluginsDirectory, previousRecord.previous.backupDirectory), { recursive: true, force: true });
-			}
-
-			if (!isUpgrade) {
-				await discardConfigBackup(pluginsDirectory, manifest.id);
-			}
-
-			await this.removeDuplicateDirectories(manifest.id, targetName);
-
-			return { id: manifest.id, directory: targetDirectory, record };
 		} catch (error) {
-			await rm(stagingDirectory, { recursive: true, force: true });
+			await removeTree(stagingDirectory);
 			throw error;
 		}
+	}
+
+	/**
+	 * Swaps the staged package into place and records it. A failed record write
+	 * puts the package it replaced back, and the replaced package stays as the
+	 * rollback point of an upgrade.
+	 */
+	private async commitStagedInstall(staged: StagedInstall): Promise<InstallResult> {
+		const { pluginsDirectory, stagingDirectory, targetName, targetDirectory, manifest, recordedSource, isUpgrade } = staged;
+		const previousRecord = isUpgrade ? (await this.lockfileStore.read()).plugins[manifest.id] : undefined;
+		// An upgrade keeps the package it replaces as a rollback point (`previous`). Without a lockfile record there is nothing to roll back to.
+		const backupDirectory = isUpgrade ? PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`) : undefined;
+
+		const record = buildInstallRecord({
+			targetDirectory,
+			version: manifest.version,
+			integrity: await calculateDirectoryIntegrity(stagingDirectory),
+			source: recordedSource,
+			previousRecord,
+			backupDirectory,
+		});
+
+		await activateStagedPackage({ stagingDirectory, targetDirectory, backupDirectory });
+
+		try {
+			await this.lockfileStore.writeRecord(manifest.id, record, { replace: isUpgrade });
+		} catch (error) {
+			await removeTree(targetDirectory);
+			if (backupDirectory) await rename(backupDirectory, targetDirectory);
+
+			throw error;
+		}
+
+		// Only the package this upgrade replaced is dropped: a second upgrade before the first is confirmed.
+		if (backupDirectory && !record.previous) await removeTree(backupDirectory);
+		if (previousRecord?.previous) await removeTree(PathUtils.join(pluginsDirectory, previousRecord.previous.backupDirectory));
+		if (!isUpgrade) await discardConfigBackup(pluginsDirectory, manifest.id);
+
+		await this.removeDuplicateDirectories(manifest.id, targetName);
+
+		return { id: manifest.id, directory: targetDirectory, record };
 	}
 
 	/**
@@ -207,7 +214,7 @@ export class PluginInstaller {
 			if (manifestId !== pluginId) continue;
 
 			try {
-				await rm(directory, { recursive: true, force: true });
+				await removeTree(directory);
 				logger.warn("Removed a duplicate plugin directory for the same plugin id", { pluginId, directory: dirName });
 			} catch (error) {
 				logger.warn("Could not remove a duplicate plugin directory", { pluginId, directory: dirName, error });
@@ -228,7 +235,7 @@ export class PluginInstaller {
 		Reflect.deleteProperty(confirmed, "previous");
 		lockfile.plugins[pluginId] = confirmed;
 		await this.lockfileStore.write(lockfile);
-		await rm(PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory), { recursive: true, force: true });
+		await removeTree(PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory));
 
 		return true;
 	}
@@ -257,18 +264,9 @@ export class PluginInstaller {
 			throw error;
 		}
 		await preserveMutableConfig(failed, current);
-		await rm(failed, { recursive: true, force: true });
+		await removeTree(failed);
 
-		const restored: InstalledPluginRecord = {
-			directory: record.directory,
-			integrity: record.previous.integrity,
-			installedAt: record.previous.installedAt,
-			source: record.previous.source,
-			version: record.previous.version,
-			...(record.previous.disabled !== undefined ? { disabled: record.previous.disabled } : {}),
-			...(record.previous.cspDisabled !== undefined ? { cspDisabled: record.previous.cspDisabled } : {}),
-			...(record.previous.pinned !== undefined ? { pinned: record.previous.pinned } : {}),
-		};
+		const restored = restoredRecord(record.previous, record.directory);
 		lockfile.plugins[pluginId] = restored;
 		await this.lockfileStore.write(lockfile);
 
@@ -325,10 +323,9 @@ export class PluginInstaller {
 	private async hashInstalledPlugins(): Promise<Array<{ plugin: InstalledPlugin; integrity: string }>> {
 		const plugins = await this.list();
 
-		return await PromiseUtils.mapConcurrent(plugins, VERIFICATION_CONCURRENCY(), async (plugin) => {
+		return await PromiseUtils.mapConcurrent(plugins, verificationConcurrency(), async (plugin) => {
 			const directory = this.lockfileStore.resolveInstalledDirectory(plugin.id, plugin.record);
-			await assertSourceDirectory(directory);
-			await assertNoSymbolicLinks(directory, VERIFICATION_CONCURRENCY());
+			await assertPackageDirectory(directory);
 
 			return { plugin, integrity: await calculateDirectoryIntegrity(directory) };
 		});
@@ -336,50 +333,16 @@ export class PluginInstaller {
 
 	/** Admin choice: keep the installed version, so the catalog offers no update for it. */
 	async setPinned(pluginId: string, pinned: boolean): Promise<void> {
-		const lockfile = await this.lockfileStore.read();
-		const record = lockfile.plugins[pluginId];
-		if (!record)
-			throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
-				code: "plugin.not_installed",
-				params: { plugin: pluginId },
-			});
-
-		if (record.pinned === pinned) return;
-
-		await this.lockfileStore.write({ ...lockfile, plugins: { ...lockfile.plugins, [pluginId]: { ...record, pinned } } });
+		await this.setAdminFlag(pluginId, "pinned", pinned);
 	}
 
 	/** Admin choice: whether the plugin's manifest may extend the content security policy. */
 	async setCspDisabled(pluginId: string, disabled: boolean): Promise<void> {
-		const lockfile = await this.lockfileStore.read();
-		const record = lockfile.plugins[pluginId];
-		if (!record)
-			throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
-				code: "plugin.not_installed",
-				params: { plugin: pluginId },
-			});
-
-		if (record.cspDisabled === disabled) return;
-
-		await this.lockfileStore.write({ ...lockfile, plugins: { ...lockfile.plugins, [pluginId]: { ...record, cspDisabled: disabled } } });
+		await this.setAdminFlag(pluginId, "cspDisabled", disabled);
 	}
 
 	async setDisabled(pluginId: string, disabled: boolean): Promise<void> {
-		const lockfile = await this.lockfileStore.read();
-		const record = lockfile.plugins[pluginId];
-		if (!record)
-			throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
-				code: "plugin.not_installed",
-				params: { plugin: pluginId },
-			});
-
-		if (record.disabled === disabled) return;
-
-		const updatedLockfile: PluginLockfile = {
-			...lockfile,
-			plugins: { ...lockfile.plugins, [pluginId]: { ...record, disabled } },
-		};
-		await this.lockfileStore.write(updatedLockfile);
+		await this.setAdminFlag(pluginId, "disabled", disabled);
 	}
 
 	async getDisabledIds(): Promise<Set<string>> {
@@ -394,12 +357,7 @@ export class PluginInstaller {
 
 	async uninstall(pluginId: string): Promise<InstalledPluginRecord> {
 		const lockfile = await this.lockfileStore.read();
-		const record = lockfile.plugins[pluginId];
-		if (!record)
-			throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
-				code: "plugin.not_installed",
-				params: { plugin: pluginId },
-			});
+		const record = requireRecord(lockfile, pluginId);
 
 		const directory = this.lockfileStore.resolveInstalledDirectory(pluginId, record);
 		const updatedLockfile: PluginLockfile = { ...lockfile, plugins: { ...lockfile.plugins } };
@@ -408,155 +366,49 @@ export class PluginInstaller {
 
 		try {
 			await backupMutableConfig(directory, this.pluginsDirectory, pluginId);
-			await rm(directory, { recursive: true, force: true });
+			await removeTree(directory);
 		} catch (error) {
 			await this.lockfileStore.write(lockfile);
 			throw error;
 		}
 
 		if (record.previous) {
-			await rm(PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory), { recursive: true, force: true });
+			await removeTree(PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory));
 		}
 
 		return record;
 	}
-}
 
-interface InstallRecordInput {
-	targetDirectory: string;
-	version: string;
-	integrity: string;
-	source: string;
-	previousRecord: InstalledPluginRecord | undefined;
-	backupDirectory: string | undefined;
-}
+	private async setAdminFlag(pluginId: string, flag: AdminFlag, value: boolean): Promise<void> {
+		const lockfile = await this.lockfileStore.read();
+		const record = requireRecord(lockfile, pluginId);
+		if (record[flag] === value) return;
 
-/** Lockfile record for a freshly staged package. An upgrade keeps the admin's CSP and pin choices and its rollback point. */
-function buildInstallRecord(input: InstallRecordInput): InstalledPluginRecord {
-	const { targetDirectory, version, integrity, source, previousRecord, backupDirectory } = input;
-
-	return {
-		directory: PathUtils.getFileName(targetDirectory),
-		integrity,
-		installedAt: new Date().toISOString(),
-		source,
-		// The admin's CSP choice follows the plugin across an upgrade.
-		...(previousRecord?.cspDisabled !== undefined ? { cspDisabled: previousRecord.cspDisabled } : {}),
-		...(previousRecord?.pinned !== undefined ? { pinned: previousRecord.pinned } : {}),
-		version,
-		...(previousRecord && backupDirectory ? { previous: toPreviousInstall(previousRecord, backupDirectory) } : {}),
-	};
-}
-
-/** Swaps the staged package into place. An upgrade moves the old package aside first and restores it if the swap fails. */
-async function activateStagedPackage(paths: {
-	stagingDirectory: string;
-	targetDirectory: string;
-	backupDirectory: string | undefined;
-}): Promise<void> {
-	const { stagingDirectory, targetDirectory, backupDirectory } = paths;
-
-	if (backupDirectory) {
-		// Move the old installation aside; both renames are same-directory
-		// so they are atomic on one filesystem. Restored on any failure below.
-		await rename(targetDirectory, backupDirectory);
-	}
-
-	try {
-		await rename(stagingDirectory, targetDirectory);
-	} catch (error) {
-		if (backupDirectory) await rename(backupDirectory, targetDirectory);
-
-		throw error;
+		await this.lockfileStore.write({ ...lockfile, plugins: { ...lockfile.plugins, [pluginId]: { ...record, [flag]: value } } });
 	}
 }
 
-function toPreviousInstall(record: InstalledPluginRecord, backupDirectory: string): PluginPreviousInstall {
-	return {
-		version: record.version,
-		integrity: record.integrity,
-		installedAt: record.installedAt,
-		source: record.source,
-		...(record.disabled !== undefined ? { disabled: record.disabled } : {}),
-		...(record.cspDisabled !== undefined ? { cspDisabled: record.cspDisabled } : {}),
-		...(record.pinned !== undefined ? { pinned: record.pinned } : {}),
-		backupDirectory: PathUtils.getFileName(backupDirectory),
-	};
-}
-
-async function assertSourceDirectory(directory: string): Promise<void> {
-	const source = await stat(directory).catch(() => {
-		// intentionally empty
-	});
-	if (!source?.isDirectory())
-		throw new DomainError("validation", `Plugin source directory does not exist: ${directory}`, { code: "plugin.source_missing" });
-}
-
-/**
- * Copies the admin-owned `config.json` from an existing installation into a
- * staged upgrade so a same-version rebuild does not wipe API keys or settings.
- * A missing config (fresh install / never configured) is a no-op.
- */
-async function preserveMutableConfig(fromDirectory: string, toDirectory: string): Promise<void> {
-	const sourcePath = PathUtils.join(fromDirectory, MUTABLE_CONFIG_FILENAME);
-	if (!(await file(sourcePath).exists())) return;
-
-	const targetPath = PathUtils.join(toDirectory, MUTABLE_CONFIG_FILENAME);
-	await write(targetPath, file(sourcePath));
-	await chmod(targetPath, 0o600).catch(() => {
-		// Non-POSIX filesystems may not support chmod — the copy still succeeded.
-	});
-}
-
-/** Uninstalled configurations wait here until the same plugin is installed again. Dot-directory, so it is never a plugin. */
-const CONFIG_BACKUP_DIRECTORY = ".config-backups";
-
-function configBackupPath(pluginsDirectory: string, pluginId: string): string {
-	return PathUtils.join(pluginsDirectory, CONFIG_BACKUP_DIRECTORY, `${pluginId}.json`);
-}
-
-async function backupMutableConfig(fromDirectory: string, pluginsDirectory: string, pluginId: string): Promise<void> {
-	const sourcePath = PathUtils.join(fromDirectory, MUTABLE_CONFIG_FILENAME);
-	if (!(await file(sourcePath).exists())) return;
-
-	const backupPath = configBackupPath(pluginsDirectory, pluginId);
-	await mkdir(PathUtils.join(pluginsDirectory, CONFIG_BACKUP_DIRECTORY), { recursive: true });
-	await write(backupPath, file(sourcePath));
-	await chmod(backupPath, 0o600).catch(() => {
-		// Non-POSIX filesystems may not support chmod — the copy still succeeded.
-	});
-}
-
-async function restoreUninstalledConfig(pluginsDirectory: string, pluginId: string, toDirectory: string): Promise<void> {
-	const backupPath = configBackupPath(pluginsDirectory, pluginId);
-	if (!(await file(backupPath).exists())) return;
-
-	const targetPath = PathUtils.join(toDirectory, MUTABLE_CONFIG_FILENAME);
-	await write(targetPath, file(backupPath));
-	await chmod(targetPath, 0o600).catch(() => {
-		// Non-POSIX filesystems may not support chmod — the copy still succeeded.
-	});
-}
-
-async function discardConfigBackup(pluginsDirectory: string, pluginId: string): Promise<void> {
-	await rm(configBackupPath(pluginsDirectory, pluginId), { force: true });
-}
-
-async function assertFile(path: string, name: string): Promise<void> {
-	const metadata = await stat(path).catch(() => {
-		// intentionally empty
-	});
-	if (!metadata?.isFile()) throw new DomainError("validation", `${name} does not exist: ${path}`, { code: "plugin.entry_missing" });
-}
-
-function assertSeparateDirectories(source: string, pluginsDirectory: string): void {
-	if (isWithinDirectory(source, pluginsDirectory) || isWithinDirectory(pluginsDirectory, source)) {
-		throw new DomainError("validation", "Plugin source directory must not overlap with the destination plugins directory", {
-			code: "plugin.source_overlaps_plugins_directory",
+function requireRecord(lockfile: PluginLockfile, pluginId: string): InstalledPluginRecord {
+	const record = lockfile.plugins[pluginId];
+	if (!record) {
+		throw new DomainError("validation", `Plugin ${pluginId} is not installed`, {
+			code: "plugin.not_installed",
+			params: { plugin: pluginId },
 		});
 	}
+
+	return record;
 }
 
-function isWithinDirectory(path: string, directory: string): boolean {
-	return PathUtils.resolve(path) === PathUtils.resolve(directory) || PathUtils.isSubpath(path, directory);
+/** Copies the source into staging and checks the copy is the same, symlink-free plugin. */
+async function stagePackage(source: string, stagingDirectory: string, manifest: { id: string; version: string }): Promise<void> {
+	await cp(source, stagingDirectory, { recursive: true, verbatimSymlinks: true, errorOnExist: true });
+	await assertNoSymbolicLinks(stagingDirectory, verificationConcurrency());
+
+	const installedManifest = await loadPluginManifest(stagingDirectory);
+	if (installedManifest.id !== manifest.id || installedManifest.version !== manifest.version) {
+		throw new DomainError("validation", "Plugin manifest changed while the package was being installed", {
+			code: "plugin.manifest_changed",
+		});
+	}
 }

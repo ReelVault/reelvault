@@ -1,5 +1,5 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
 import { buildHlsMuxerArgs, buildMetadataStripArgs, buildStreamMapArgs } from "./ffmpeg.hls-muxer";
 import { resolveStreamingThreads } from "./ffmpeg.threads";
 

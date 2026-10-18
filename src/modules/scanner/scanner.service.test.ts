@@ -1,146 +1,232 @@
-import { describe, expect, test } from "bun:test";
-import type { RemovalAssessment } from "./disk/removal-guard";
-import { ScannerService } from "./scanner.service";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { eq } from "drizzle-orm";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { removeTree } from "@/utils/directory.utils";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { scannerService } from "./scanner.service";
 
-interface DepsOverrides {
-	diskFiles?: string[];
-	dbRows?: Array<{ id: string; filePath: string; size: number; sourceMtimeMs: number }>;
-	assessment?: Partial<RemovalAssessment>;
+const db = useTestDatabase();
+const stubs: Array<{ restore(): void }> = [];
+
+type TestClient = ReturnType<typeof db.client>;
+
+interface IngestedStats {
+	size: number;
+	sourceMtimeMs: number;
 }
 
-function createService(overrides: DepsOverrides = {}) {
-	const diskFiles = overrides.diskFiles ?? [];
-	const dbRows = overrides.dbRows ?? [];
-	const cleanupCalls: string[][] = [];
-	const service = new ScannerService({
-		findStatsPage: (libraryId: string, cursor: string | undefined, limit: number) => {
-			expect(libraryId).toBe("lib-1");
-			const start = cursor ? dbRows.findIndex((row) => row.id === cursor) + 1 : 0;
+interface Show {
+	libraryId: string;
+	metadataId: string;
+	seasonId: string;
+}
 
-			return Promise.resolve(dbRows.slice(start, start + limit));
-		},
-		discover: () =>
-			Promise.resolve({
-				filesOnDisk: diskFiles,
-				statsByPath: new Map(diskFiles.map((filePath) => [filePath, { size: 100, mtimeMs: 500 }])),
-			}),
-		guard: {
-			assess: ({ candidates }: { candidates: string[] }) =>
-				Promise.resolve({
-					removedFiles: candidates,
-					storageUnavailable: false,
-					massRemoval: false,
-					skipRemovals: false,
-					...overrides.assessment,
-				}),
-		},
-		cleaner: {
-			cleanup: (_libraryId: string, removedFiles: string[]) => {
-				cleanupCalls.push(removedFiles);
+let workDir = "";
+let libraryRoot = "";
 
-				return Promise.resolve();
-			},
-		},
+beforeEach(async () => {
+	workDir = await mkdtemp(join(tmpdir(), "reelvault-scanner-"));
+	libraryRoot = join(workDir, "library");
+	await mkdir(libraryRoot);
+	// External plugin handlers are the boundary: the removal path emits into them.
+	stubs.push(stubMethod(pluginEventBus, "emit", () => Promise.resolve()));
+});
+
+afterEach(async () => {
+	for (const stub of stubs.splice(0)) stub.restore();
+	await removeTree(workDir);
+});
+
+function first<T>(rows: T[]): T {
+	const row = rows[0];
+	if (!row) throw new Error("Expected the insert to return a row");
+
+	return row;
+}
+
+async function writeVideo(name: string): Promise<string> {
+	const filePath = join(libraryRoot, name);
+	await writeFile(filePath, "video");
+
+	return filePath;
+}
+
+/** The size and mtime a row holds once its file was ingested, as the scanner stats them. */
+async function ingestedStats(filePath: string): Promise<IngestedStats> {
+	const fileStat = await stat(filePath);
+
+	return { size: fileStat.size, sourceMtimeMs: Math.floor(fileStat.mtimeMs) };
+}
+
+async function insertRow(client: TestClient, filePath: string, metadataId: string, stats?: IngestedStats): Promise<string> {
+	const mediaFileId = await insertMovieMediaFile(client, filePath, metadataId);
+	if (stats) await client.update(schema.mediaFiles).set(stats).where(eq(schema.mediaFiles.id, mediaFileId));
+
+	return mediaFileId;
+}
+
+async function libraryIdOf(client: TestClient, mediaFileId: string): Promise<string> {
+	const [row] = await client
+		.select({ libraryId: schema.mediaFiles.libraryId })
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.id, mediaFileId));
+	if (!row) throw new Error(`Media file ${mediaFileId} was not inserted`);
+
+	return row.libraryId;
+}
+
+async function remainingMediaIds(client: TestClient, libraryId: string): Promise<string[]> {
+	const rows = await client.select({ id: schema.mediaFiles.id }).from(schema.mediaFiles).where(eq(schema.mediaFiles.libraryId, libraryId));
+
+	return rows.map((row) => row.id).toSorted();
+}
+
+async function seedShow(client: TestClient): Promise<Show> {
+	const library = first(
+		await client.insert(schema.libraries).values({ name: "Shows", type: "tv_shows" }).returning({ id: schema.libraries.id }),
+	);
+	const metadata = first(
+		await client
+			.insert(schema.metadata)
+			.values({ id: "show-1", stableKey: "show-1", title: "Show", type: "tv_show", releaseDate: "2020-01-01" })
+			.returning({ id: schema.metadata.id }),
+	);
+	const season = first(
+		await client
+			.insert(schema.seasons)
+			.values({ stableKey: "show-1-s1", metadataId: metadata.id, seasonNumber: 1 })
+			.returning({ id: schema.seasons.id }),
+	);
+
+	return { libraryId: library.id, metadataId: metadata.id, seasonId: season.id };
+}
+
+async function insertEpisodeFile(client: TestClient, show: Show, filePath: string, episodeNumber: number): Promise<void> {
+	const episode = first(
+		await client
+			.insert(schema.episodes)
+			.values({ stableKey: `show-1-s1e${episodeNumber}`, seasonId: show.seasonId, episodeNumber })
+			.returning({ id: schema.episodes.id }),
+	);
+	await client.insert(schema.mediaFiles).values({
+		libraryId: show.libraryId,
+		metadataId: show.metadataId,
+		episodeId: episode.id,
+		filePath,
+		fileName: basename(filePath),
 	});
-
-	return { service, cleanupCalls };
 }
 
-const SCAN_ROOT = "/media/library";
+describe("ScannerService.scanPaths against the library rows", () => {
+	test("returns empty results and removes nothing when no paths are given", async () => {
+		const client = db.client();
+		const mediaFileId = await insertMovieMediaFile(client, join(libraryRoot, "a.mkv"), "movie-a");
+		const libraryId = await libraryIdOf(client, mediaFileId);
 
-describe("ScannerService.scanPaths", () => {
-	test("returns empty results without discovering anything when no paths are given", async () => {
-		const { service, cleanupCalls } = createService({
-			dbRows: [{ id: "row-1", filePath: "/media/library/a.mkv", size: 100, sourceMtimeMs: 500 }],
-		});
-
-		const result = await service.scanPaths("lib-1", "movie", []);
+		const result = await scannerService.scanPaths(libraryId, "movie", []);
 
 		expect(result).toEqual({ filePaths: [], newFilePaths: [], changedMediaFileIds: [], removedFilePaths: [] });
-		expect(cleanupCalls).toEqual([]);
+		expect(await remainingMediaIds(client, libraryId)).toEqual([mediaFileId]);
 	});
 
-	test("reports new, unchanged and removed files from the diff", async () => {
-		const { service } = createService({
-			diskFiles: [`${SCAN_ROOT}/a.mkv`, `${SCAN_ROOT}/b.mkv`],
-			dbRows: [
-				{ id: "row-b", filePath: `${SCAN_ROOT}/b.mkv`, size: 100, sourceMtimeMs: 500 },
-				{ id: "row-c", filePath: "/elsewhere/outside.mkv", size: 100, sourceMtimeMs: 500 },
-			],
-		});
+	test("reports only unknown files as new and leaves rows outside the scan roots alone", async () => {
+		const client = db.client();
+		const newFile = await writeVideo("a.mkv");
+		const knownFile = await writeVideo("b.mkv");
+		const knownId = await insertRow(client, knownFile, "movie-b", await ingestedStats(knownFile));
+		const outsideId = await insertRow(client, "/elsewhere/outside.mkv", "movie-outside");
+		const libraryId = await libraryIdOf(client, knownId);
 
-		const result = await service.scanPaths("lib-1", "movie", [SCAN_ROOT]);
+		const result = await scannerService.scanPaths(libraryId, "movie", [libraryRoot]);
 
-		expect(result.filePaths).toEqual([`${SCAN_ROOT}/a.mkv`, `${SCAN_ROOT}/b.mkv`]);
-		expect(result.newFilePaths).toEqual([`${SCAN_ROOT}/a.mkv`]);
-		// row-c is outside the scan roots — filtered before the removal guard.
+		expect(result.filePaths.toSorted()).toEqual([knownFile, newFile].toSorted());
+		expect(result.newFilePaths).toEqual([newFile]);
 		expect(result.changedMediaFileIds).toEqual([]);
+		expect(result.removedFilePaths).toEqual([]);
+		expect(await remainingMediaIds(client, libraryId)).toEqual([knownId, outsideId].toSorted());
 	});
 
-	test("flags changed files when size or mtime drift from the database", async () => {
-		const { service } = createService({
-			diskFiles: [`${SCAN_ROOT}/a.mkv`],
-			dbRows: [{ id: "row-a", filePath: `${SCAN_ROOT}/a.mkv`, size: 999, sourceMtimeMs: 500 }],
-		});
+	test.each([
+		["size", { size: 999 }],
+		["mtime", { sourceMtimeMs: 1 }],
+	])("flags a file whose %s drifted from the row it was ingested with", async (_field, drift) => {
+		const client = db.client();
+		const filePath = await writeVideo("a.mkv");
+		const mediaFileId = await insertRow(client, filePath, "movie-a", { ...(await ingestedStats(filePath)), ...drift });
+		const libraryId = await libraryIdOf(client, mediaFileId);
 
-		const result = await service.scanPaths("lib-1", "movie", [SCAN_ROOT]);
+		const result = await scannerService.scanPaths(libraryId, "movie", [libraryRoot]);
 
-		expect(result.changedMediaFileIds).toEqual(["row-a"]);
+		expect(result.changedMediaFileIds).toEqual([mediaFileId]);
 	});
 
-	test("cleans up removed files when the guard allows removals", async () => {
-		const { service, cleanupCalls } = createService({
-			diskFiles: [],
-			dbRows: [{ id: "row-a", filePath: `${SCAN_ROOT}/a.mkv`, size: 100, sourceMtimeMs: 500 }],
-		});
+	test("removes the row of a file that is gone while its library root is still reachable", async () => {
+		const client = db.client();
+		const survivingFile = await writeVideo("b.mkv");
+		const survivingId = await insertRow(client, survivingFile, "movie-b", await ingestedStats(survivingFile));
+		await insertRow(client, join(libraryRoot, "a.mkv"), "movie-a");
+		const libraryId = await libraryIdOf(client, survivingId);
 
-		await service.scanPaths("lib-1", "movie", [SCAN_ROOT]);
+		const result = await scannerService.scanPaths(libraryId, "movie", [libraryRoot]);
 
-		expect(cleanupCalls).toEqual([[`${SCAN_ROOT}/a.mkv`]]);
+		expect(result.removedFilePaths).toEqual([join(libraryRoot, "a.mkv")]);
+		expect(await remainingMediaIds(client, libraryId)).toEqual([survivingId]);
 	});
 
-	test("skips cleanup when the guard refuses removals", async () => {
-		const { service, cleanupCalls } = createService({
-			diskFiles: [],
-			dbRows: [{ id: "row-a", filePath: `${SCAN_ROOT}/a.mkv`, size: 100, sourceMtimeMs: 500 }],
-			assessment: { skipRemovals: true },
-		});
+	test("keeps every row when the scan finds drastically fewer files than the database", async () => {
+		const client = db.client();
+		const firstId = await insertRow(client, join(libraryRoot, "gone-1.mkv"), "movie-gone-1");
+		const libraryId = await libraryIdOf(client, firstId);
+		const ids = [firstId];
+		for (const index of [2, 3, 4, 5, 6]) {
+			ids.push(await insertRow(client, join(libraryRoot, `gone-${index}.mkv`), `movie-gone-${index}`));
+		}
+		const newFile = await writeVideo("new.mkv");
 
-		await service.scanPaths("lib-1", "movie", [SCAN_ROOT]);
+		const result = await scannerService.scanPaths(libraryId, "movie", [libraryRoot]);
 
-		expect(cleanupCalls).toEqual([]);
+		expect(result.newFilePaths).toEqual([newFile]);
+		expect(result.removedFilePaths).toEqual([]);
+		expect(await remainingMediaIds(client, libraryId)).toEqual(ids.toSorted());
 	});
+});
 
+describe("ScannerService.scanPaths range files", () => {
 	test("re-ingests a range file that owns fewer rows than its name spans", async () => {
-		const filePath = `${SCAN_ROOT}/Show.S01E01-E03.mkv`;
-		const { service } = createService({
-			diskFiles: [filePath],
-			dbRows: [{ id: "row-a", filePath, size: 100, sourceMtimeMs: 500 }],
-		});
+		const client = db.client();
+		const show = await seedShow(client);
+		const rangeFile = await writeVideo("Show.S01E01-E03.mkv");
+		await insertEpisodeFile(client, show, rangeFile, 1);
 
-		const result = await service.scanPaths("lib-1", "tv_show", [SCAN_ROOT]);
+		const result = await scannerService.scanPaths(show.libraryId, "tv_show", [libraryRoot]);
 
-		expect(result.newFilePaths).toEqual([filePath]);
+		expect(result.newFilePaths).toEqual([rangeFile]);
 	});
 
 	test("does not re-ingest a range file once every covered episode has a row", async () => {
-		const filePath = `${SCAN_ROOT}/Show.S01E01-E03.mkv`;
-		const dbRows = [1, 2, 3].map((index) => ({ id: `row-${index}`, filePath, size: 100, sourceMtimeMs: 500 }));
-		const { service } = createService({ diskFiles: [filePath], dbRows });
+		const client = db.client();
+		const show = await seedShow(client);
+		const rangeFile = await writeVideo("Show.S01E01-E03.mkv");
+		for (const episodeNumber of [1, 2, 3]) await insertEpisodeFile(client, show, rangeFile, episodeNumber);
 
-		const result = await service.scanPaths("lib-1", "tv_show", [SCAN_ROOT]);
+		const result = await scannerService.scanPaths(show.libraryId, "tv_show", [libraryRoot]);
 
 		expect(result.newFilePaths).toEqual([]);
 	});
 
 	test("does not re-ingest a range longer than the supported episode span", async () => {
-		const filePath = `${SCAN_ROOT}/Show.S01E01-E99.mkv`;
-		const { service } = createService({
-			diskFiles: [filePath],
-			dbRows: [{ id: "row-a", filePath, size: 100, sourceMtimeMs: 500 }],
-		});
+		const client = db.client();
+		const show = await seedShow(client);
+		const rangeFile = await writeVideo("Show.S01E01-E99.mkv");
+		await insertEpisodeFile(client, show, rangeFile, 1);
 
-		const result = await service.scanPaths("lib-1", "tv_show", [SCAN_ROOT]);
+		const result = await scannerService.scanPaths(show.libraryId, "tv_show", [libraryRoot]);
 
 		expect(result.newFilePaths).toEqual([]);
 	});

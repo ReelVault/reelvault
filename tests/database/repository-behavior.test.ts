@@ -1,92 +1,56 @@
-import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { sql } from "drizzle-orm";
-import { databaseFactory } from "@/database/database";
-import { userRatingsRepository } from "@/database/repositories/user-ratings.repository";
-import { watchlistRepository } from "@/database/repositories/watchlist.repository";
-import { workerSchedulesRepository } from "@/database/repositories/worker-schedules.repository";
-import { schema } from "@/database/schema";
+import { describe, expect, test } from "bun:test";
+import { userRatingsRepository } from "@/app/repositories/user-ratings.repository";
+import { watchlistRepository } from "@/app/repositories/watchlist.repository";
+import { workerSchedulesRepository } from "@/app/repositories/worker-schedules.repository";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { useTestDatabase } from "../helpers/test-database.helper";
 
-const client = databaseFactory.getClient();
+const db = useTestDatabase();
 
-beforeAll(async () => {
-	await client.run(
-		sql.raw(`
-			CREATE TABLE IF NOT EXISTS user_ratings (
-				id TEXT PRIMARY KEY NOT NULL,
-				profile_id TEXT NOT NULL,
-				metadata_id TEXT NOT NULL,
-				rating INTEGER NOT NULL,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-	);
-	await client.run(sql.raw("CREATE UNIQUE INDEX IF NOT EXISTS user_ratings_unique ON user_ratings (profile_id, metadata_id)"));
-	await client.run(
-		sql.raw(`
-			CREATE TABLE IF NOT EXISTS watchlist (
-				id TEXT PRIMARY KEY NOT NULL,
-				profile_id TEXT NOT NULL,
-				metadata_id TEXT NOT NULL,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-	);
-	await client.run(sql.raw("CREATE UNIQUE INDEX IF NOT EXISTS watchlist_unique ON watchlist (profile_id, metadata_id)"));
-	await client.run(
-		sql.raw(`
-			CREATE TABLE IF NOT EXISTS worker_schedules (
-				id TEXT PRIMARY KEY NOT NULL,
-				worker_id TEXT NOT NULL UNIQUE,
-				triggers TEXT NOT NULL,
-				is_enabled INTEGER NOT NULL DEFAULT 1,
-				next_run_at INTEGER,
-				last_run_at INTEGER,
-				last_completed_at INTEGER,
-				last_status TEXT,
-				last_duration_ms INTEGER,
-				last_error TEXT,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-	);
-});
-
-beforeEach(async () => {
-	await client.delete(schema.userRatings);
-	await client.delete(schema.watchlist);
-	await client.delete(schema.workerSchedules);
-});
+/** Seeds one user and profile per id, and one metadata row per id: the rows the junction tables point at. */
+async function seedProfilesAndMetadata(profileIds: string[], metadataIds: string[]): Promise<void> {
+	const client = db.client();
+	for (const id of profileIds) {
+		await client.insert(schema.users).values({ id: `user-${id}`, name: id, email: `${id}@example.com`, emailVerified: true });
+		await client.insert(schema.profiles).values({ id, userId: `user-${id}`, name: id });
+	}
+	for (const id of metadataIds) {
+		await client.insert(schema.metadata).values({ id, stableKey: id, title: id, type: "movie", releaseDate: "2020-01-01" });
+	}
+}
 
 describe("repository write behavior", () => {
 	test("updates an existing user rating", async () => {
-		await userRatingsRepository.upsert({ profileId: "profile", metadataId: "metadata", rating: 3 });
-		const updated = await userRatingsRepository.upsert({ profileId: "profile", metadataId: "metadata", rating: 9 });
+		await seedProfilesAndMetadata(["profile"], ["metadata"]);
+		await userRatingsRepository.upsert({ profileId: "profile", metadataId: "metadata", rating: 1 });
+		const updated = await userRatingsRepository.upsert({ profileId: "profile", metadataId: "metadata", rating: 2 });
 
-		expect(updated?.rating).toBe(9);
+		expect(updated?.rating).toBe(2);
 		expect(await userRatingsRepository.count()).toBe(1);
 	});
 
 	test("toggles a watchlist row using atomic writes", async () => {
+		await seedProfilesAndMetadata(["profile"], ["metadata"]);
+
 		expect(await watchlistRepository.toggle({ profileId: "profile", metadataId: "metadata" })).toEqual({ added: true });
 		expect(await watchlistRepository.toggle({ profileId: "profile", metadataId: "metadata" })).toEqual({ added: false });
 		expect(await watchlistRepository.count()).toBe(0);
 	});
 
-	test("handles nested and concurrent transactions without savepoint errors", async () => {
+	test("nested and concurrent transactions complete without savepoint errors", async () => {
+		await seedProfilesAndMetadata(["p1", "p2"], ["m1", "m2"]);
 		const task1 = databaseFactory.transaction(async () => {
-			await userRatingsRepository.upsert({ profileId: "p1", metadataId: "m1", rating: 5 });
+			await userRatingsRepository.upsert({ profileId: "p1", metadataId: "m1", rating: 1 });
 
 			// Nested transaction
 			await databaseFactory.transaction(async () => {
-				await userRatingsRepository.upsert({ profileId: "p1", metadataId: "m2", rating: 8 });
+				await userRatingsRepository.upsert({ profileId: "p1", metadataId: "m2", rating: 2 });
 			});
 		});
 
 		const task2 = databaseFactory.transaction(async () => {
-			await userRatingsRepository.upsert({ profileId: "p2", metadataId: "m1", rating: 10 });
+			await userRatingsRepository.upsert({ profileId: "p2", metadataId: "m1", rating: 2 });
 		});
 
 		await Promise.all([task1, task2]);
@@ -138,55 +102,44 @@ describe("repository write behavior", () => {
 	});
 });
 
-describe("repository write behavior", () => {
-	test("TableAccess generic returning and batch methods work correctly", async () => {
-		// insertReturning
+describe("TableAccess batch and returning methods", () => {
+	test("insertReturning hands back both rows, and the batch reads find them", async () => {
+		await seedProfilesAndMetadata(["p1"], ["m1", "m2"]);
 		const [row1, row2] = await watchlistRepository.insertReturning({
 			values: [
 				{ profileId: "p1", metadataId: "m1" },
 				{ profileId: "p1", metadataId: "m2" },
 			],
 		});
-		expect(row1).toBeDefined();
-		expect(row2).toBeDefined();
 		if (!(row1 && row2)) throw new Error("Expected inserted rows");
 
-		expect(row1.profileId).toBe("p1");
-		expect(row1.metadataId).toBe("m1");
-		expect(row2.metadataId).toBe("m2");
+		expect([row1.profileId, row1.metadataId, row2.metadataId]).toEqual(["p1", "m1", "m2"]);
+		expect(await watchlistRepository.findByIds({ ids: [row1.id, row2.id] })).toHaveLength(2);
+		expect(await watchlistRepository.findByColumnIn(watchlistRepository.table.metadataId, ["m1", "m2"])).toHaveLength(2);
+	});
 
-		// findByIds
-		const foundByIds = await watchlistRepository.findByIds({ ids: [row1.id, row2.id] });
-		expect(foundByIds).toHaveLength(2);
-
-		// findByColumnIn
-		const foundByCol = await watchlistRepository.findByColumnIn(watchlistRepository.table.metadataId, ["m1", "m2"]);
-		expect(foundByCol).toHaveLength(2);
-
-		// updateReturning
-		const [updatedRow] = await watchlistRepository.updateReturning({
-			primaryId: row1.id,
-			values: { metadataId: "m1-updated" },
+	test("update and delete variants return the affected rows", async () => {
+		await seedProfilesAndMetadata(["p1"], ["m1", "m2", "m3", "m4"]);
+		const [row1, row2] = await watchlistRepository.insertReturning({
+			values: [
+				{ profileId: "p1", metadataId: "m1" },
+				{ profileId: "p1", metadataId: "m2" },
+			],
 		});
-		expect(updatedRow?.metadataId).toBe("m1-updated");
+		if (!(row1 && row2)) throw new Error("Expected inserted rows");
 
-		// updateAndReturn
-		const updatedAndRead = await watchlistRepository.updateAndReturn({
-			primaryId: row1.id,
-			values: { metadataId: "m1-v2" },
-		});
-		expect(updatedAndRead?.metadataId).toBe("m1-v2");
+		const [updatedRow] = await watchlistRepository.updateReturning({ primaryId: row1.id, values: { metadataId: "m3" } });
+		expect(updatedRow?.metadataId).toBe("m3");
 
-		// deleteAndReturn
-		const deletedSingle = await watchlistRepository.deleteAndReturn({ primaryId: row1.id });
-		expect(deletedSingle?.id).toBe(row1.id);
+		const updatedAndRead = await watchlistRepository.updateAndReturn({ primaryId: row1.id, values: { metadataId: "m4" } });
+		expect(updatedAndRead?.metadataId).toBe("m4");
 
-		// deleteReturning
+		expect((await watchlistRepository.deleteAndReturn({ primaryId: row1.id }))?.id).toBe(row1.id);
 		const deletedBatch = await watchlistRepository.deleteReturning({ ids: [row2.id] });
-		expect(deletedBatch).toHaveLength(1);
-		expect(deletedBatch[0]?.id).toBe(row2.id);
+		expect(deletedBatch.map((row) => row.id)).toEqual([row2.id]);
+	});
 
-		// empty guards
+	test("batch reads given no ids return no rows", async () => {
 		expect(await watchlistRepository.findByIds({ ids: [] })).toEqual([]);
 		expect(await watchlistRepository.findByColumnIn(watchlistRepository.table.metadataId, [])).toEqual([]);
 	});

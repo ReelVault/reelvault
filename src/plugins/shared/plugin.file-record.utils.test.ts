@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { file as bunFile } from "bun";
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
+import { removeTree } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { contentByteSize, writeFileWithRollback } from "./plugin.file-record.utils";
@@ -10,7 +11,7 @@ import { contentByteSize, writeFileWithRollback } from "./plugin.file-record.uti
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map((directory) => removeTree(directory)));
 });
 
 describe("writeFileWithRollback", () => {
@@ -26,15 +27,16 @@ describe("writeFileWithRollback", () => {
 	});
 
 	test("deletes the just-written file when persist throws", async () => {
+		const insertError = new Error("db insert failed");
 		const dir = await mkdtemp(PathUtils.join(tmpdir(), "rv-file-record-"));
 		temporaryDirectories.push(dir);
 		const path = PathUtils.join(dir, "artifact.bin");
 
 		await expect(
 			writeFileWithRollback(path, new Uint8Array([9]), () => {
-				throw new Error("db insert failed");
+				throw insertError;
 			}),
-		).rejects.toThrow("db insert failed");
+		).rejects.toBe(insertError);
 
 		expect(await FileUtils.exists(path)).toBe(false);
 	});
@@ -63,7 +65,6 @@ describe("writeFileWithRollback", () => {
 		const dir = await mkdtemp(PathUtils.join(tmpdir(), "rv-file-record-"));
 		temporaryDirectories.push(dir);
 		const path = PathUtils.join(dir, "nested.bin");
-		await mkdir(dir, { recursive: true });
 
 		const value = { id: "row-1" } as const;
 		expect(await writeFileWithRollback(path, new Uint8Array([0]), async () => value)).toEqual(value);

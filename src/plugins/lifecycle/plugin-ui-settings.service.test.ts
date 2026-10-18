@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import type { PluginUiManifest } from "@reelvault/sdk/plugin";
-import { pluginUiOverridesRepository } from "@/database/repositories/plugin-ui-overrides.repository";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { PluginManifest, PluginRuntime, PluginUiManifest, ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import { pluginUiOverridesRepository } from "@/app/repositories/plugin-ui-overrides.repository";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginRegistry } from "./plugin.registry";
 import { pluginUiSettingsService } from "./plugin-ui-settings.service";
 
+useTestDatabase();
+
+const PLUGIN_ID = "requests";
+const plugin: ReelVaultPlugin = { setup: async () => undefined };
 const manifest: PluginUiManifest = {
 	name: "Requests",
 	version: "1.0.0",
@@ -12,35 +16,41 @@ const manifest: PluginUiManifest = {
 	dialogs: [{ id: "new", title: "New request", tag: "rv-new" }],
 };
 
-const stubs: Array<{ restore(): void }> = [];
-afterEach(() => {
-	for (const stub of stubs.splice(0)) stub.restore();
+/** Registers the plugin as the loader does, and sets its interface manifest when it has one. */
+function registerPlugin(uiManifest?: PluginUiManifest): void {
+	const pluginManifest: PluginManifest = { id: PLUGIN_ID, name: "Requests", version: "1.0.0", entry: "./dist/index.js", capabilities: [] };
+	const runtime: PluginRuntime = {
+		manifest: pluginManifest,
+		plugin,
+		state: "discovered",
+		providerIds: [],
+		subtitleProviderIds: [],
+		analyzerIds: [],
+		jobNames: [],
+	};
+	pluginRegistry.register(runtime, []);
+	if (uiManifest) pluginRegistry.setUiManifest(PLUGIN_ID, uiManifest);
+}
+
+/** The hidden keys stored for the plugin, read back from the overrides table. */
+async function storedKeys(): Promise<string[]> {
+	return [...((await pluginUiOverridesRepository.listAll()).get(PLUGIN_ID) ?? [])];
+}
+
+beforeEach(async () => {
+	pluginRegistry.clear();
+	registerPlugin(manifest);
+	// The service keeps the overrides in memory; reset drops that cache together with the rows.
+	await pluginUiSettingsService.reset(PLUGIN_ID);
 });
 
-/** In-memory stand-in for the overrides table, shared by the repository stubs. */
-function stubOverrides() {
-	const rows = new Map<string, Set<string>>();
-	stubs.push(
-		stubMethod(pluginUiOverridesRepository, "listAll", () => Promise.resolve(new Map([...rows].map(([id, keys]) => [id, new Set(keys)])))),
-		stubMethod(pluginUiOverridesRepository, "replaceForPlugin", (pluginId: string, keys: readonly string[]) => {
-			if (keys.length === 0) rows.delete(pluginId);
-			else rows.set(pluginId, new Set(keys));
-
-			return Promise.resolve();
-		}),
-		stubMethod(pluginRegistry, "get", (id: string) => (id === "requests" ? { id } : undefined)),
-		stubMethod(pluginRegistry, "getUiManifest", (id: string) => (id === "requests" ? manifest : undefined)),
-	);
-
-	return rows;
-}
+afterEach(() => {
+	pluginRegistry.clear();
+});
 
 describe("pluginUiSettingsService", () => {
 	test("lists every contribution as visible by default", async () => {
-		stubOverrides();
-		await pluginUiSettingsService.reset("requests");
-
-		const settings = await pluginUiSettingsService.get("requests");
+		const settings = await pluginUiSettingsService.get(PLUGIN_ID);
 
 		expect(settings.enabled).toBe(true);
 		expect(settings.contributions.map((item) => [item.key, item.enabled])).toEqual([
@@ -50,73 +60,54 @@ describe("pluginUiSettingsService", () => {
 	});
 
 	test("hides the chosen contributions and the whole UI via the master switch", async () => {
-		const rows = stubOverrides();
-
-		const partial = await pluginUiSettingsService.update("requests", { enabled: true, disabledKeys: ["dialog:new"] });
+		const partial = await pluginUiSettingsService.update(PLUGIN_ID, { enabled: true, disabledKeys: ["dialog:new"] });
 		expect(partial.contributions.find((item) => item.key === "dialog:new")?.enabled).toBe(false);
 		expect(partial.enabled).toBe(true);
 
-		const all = await pluginUiSettingsService.update("requests", { enabled: false, disabledKeys: [] });
+		const all = await pluginUiSettingsService.update(PLUGIN_ID, { enabled: false, disabledKeys: [] });
 		expect(all.enabled).toBe(false);
-		expect([...(rows.get("requests") ?? [])]).toEqual(["*"]);
+		expect(await storedKeys()).toEqual(["*"]);
 	});
 
-	test("rejects an unknown contribution key with a stable code", async () => {
-		stubOverrides();
-
-		let code: string | undefined;
-		try {
-			await pluginUiSettingsService.update("requests", { enabled: true, disabledKeys: ["page:ghost"] });
-		} catch (error) {
-			code = (error as { code?: string }).code;
-		}
-
-		expect(code).toBe("plugin_ui.unknown_contribution");
+	test("rejects an unknown contribution key with a stable code and stores nothing", async () => {
+		await expect(pluginUiSettingsService.update(PLUGIN_ID, { enabled: true, disabledKeys: ["page:ghost"] })).rejects.toMatchObject({
+			code: "plugin_ui.unknown_contribution",
+		});
+		expect(await storedKeys()).toEqual([]);
 	});
 
 	test("rejects an unknown plugin", async () => {
-		stubOverrides();
-
-		let code: string | undefined;
-		try {
-			await pluginUiSettingsService.get("missing");
-		} catch (error) {
-			code = (error as { code?: string }).code;
-		}
-
-		expect(code).toBe("plugin.not_found");
+		await expect(pluginUiSettingsService.get("missing")).rejects.toMatchObject({ code: "plugin.not_found" });
 	});
 
 	test("reset shows everything again", async () => {
-		stubOverrides();
-		await pluginUiSettingsService.update("requests", { enabled: false, disabledKeys: ["page:requests"] });
+		await pluginUiSettingsService.update(PLUGIN_ID, { enabled: false, disabledKeys: ["page:requests"] });
 
-		await pluginUiSettingsService.reset("requests");
+		await pluginUiSettingsService.reset(PLUGIN_ID);
 
-		const settings = await pluginUiSettingsService.get("requests");
+		const settings = await pluginUiSettingsService.get(PLUGIN_ID);
 		expect(settings.enabled).toBe(true);
 		expect(settings.contributions.every((item) => item.enabled)).toBe(true);
+		expect(await storedKeys()).toEqual([]);
 	});
 
 	test("drops switches for contributions an upgraded plugin no longer declares", async () => {
-		const rows = stubOverrides();
-		await pluginUiSettingsService.update("requests", { enabled: true, disabledKeys: ["page:requests", "dialog:new"] });
+		await pluginUiSettingsService.update(PLUGIN_ID, { enabled: true, disabledKeys: ["page:requests", "dialog:new"] });
 
-		stubs.push(
-			stubMethod(pluginRegistry, "getUiManifest", (id: string) => (id === "requests" ? { ...manifest, dialogs: undefined } : undefined)),
-		);
-		await pluginUiSettingsService.pruneStale("requests");
+		const upgraded: PluginUiManifest = { name: "Requests", version: "1.0.1", pages: manifest.pages };
+		pluginRegistry.setUiManifest(PLUGIN_ID, upgraded);
+		await pluginUiSettingsService.pruneStale(PLUGIN_ID);
 
-		expect([...(rows.get("requests") ?? [])]).toEqual(["page:requests"]);
+		expect(await storedKeys()).toEqual(["page:requests"]);
 	});
 
 	test("keeps every switch when the plugin has no interface manifest", async () => {
-		const rows = stubOverrides();
-		await pluginUiSettingsService.update("requests", { enabled: true, disabledKeys: ["page:requests"] });
+		await pluginUiSettingsService.update(PLUGIN_ID, { enabled: true, disabledKeys: ["page:requests"] });
 
-		stubs.push(stubMethod(pluginRegistry, "getUiManifest", () => undefined));
-		await pluginUiSettingsService.pruneStale("requests");
+		pluginRegistry.unregister(PLUGIN_ID);
+		registerPlugin();
+		await pluginUiSettingsService.pruneStale(PLUGIN_ID);
 
-		expect([...(rows.get("requests") ?? [])]).toEqual(["page:requests"]);
+		expect(await storedKeys()).toEqual(["page:requests"]);
 	});
 });

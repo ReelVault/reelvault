@@ -1,6 +1,6 @@
 import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 
-import { suiteServerFixture } from "./lib/server-fixture";
+import { suiteServerFixture } from "./lib/server.fixture";
 
 interface StaticScenarioContext {
 	baseUrl: string;

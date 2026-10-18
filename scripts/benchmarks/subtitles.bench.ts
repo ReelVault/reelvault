@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { $ } from "bun";
 
-import { adminHeaders } from "./lib/identity";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { adminHeaders } from "./lib/identity.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * Subtitles suite. Zero coverage before this existed. Fixtures:

@@ -1,7 +1,7 @@
 import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
-import { identityIndexFor, subnetIp } from "./lib/identity";
-import { toScenarioEntries } from "./lib/scenarios";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { identityIndexFor, subnetIp } from "./lib/identity.utils";
+import { toScenarioEntries } from "./lib/scenarios.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
 
 interface ScenarioContext {
 	baseUrl: string;
@@ -230,7 +230,7 @@ const adminWorkers: RequestBuilder = (context, workerIndex) =>
 	new Request(`${context.baseUrl}/v1/admin/workers`, adminHeaders(context, context.profileIdFor(workerIndex)));
 
 // Breadth over the admin surface that no other scenario touches — every route
-// here is a real GET in src/api/routes/admin (verified against the routers).
+// here is a real GET in src/app/http/routes/admin (verified against the routers).
 const ADMIN_BREADTH_PATHS: readonly string[] = [
 	"/v1/admin/settings",
 	"/v1/admin/users",

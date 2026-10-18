@@ -1,53 +1,47 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { databaseFactory } from "@/database/database";
-import { librariesRepository } from "@/database/repositories/libraries.repository";
-import { schema } from "@/database/schema";
-import { QueryFields } from "@/database/utils/fields";
-import { LIBRARIES_STUB_TABLE, LIBRARY_PATHS_STUB_TABLE, MEDIA_FILES_STUB_TABLE } from "../helpers/stub-tables";
+import { librariesRepository } from "@/app/repositories/libraries.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { useTestDatabase } from "../helpers/test-database.helper";
 
-const client = databaseFactory.getClient();
-
-const STUB_TABLES = [LIBRARIES_STUB_TABLE, LIBRARY_PATHS_STUB_TABLE, MEDIA_FILES_STUB_TABLE];
-
-function mediaFileRow(id: string, libraryId: string, size: number) {
-	return { id, libraryId, metadataId: "meta-1", fileName: `${id}.mkv`, filePath: `/${id}.mkv`, size };
-}
-
-beforeAll(async () => {
-	for (const statement of STUB_TABLES) await client.run(sql.raw(statement));
-});
+const testDatabase = useTestDatabase();
+const db = () => testDatabase.client();
 
 beforeEach(async () => {
-	await client.delete(schema.mediaFiles);
-	await client.delete(schema.libraryPaths);
-	await client.delete(schema.libraries);
+	// The fixture files point at movies that are not seeded; only the id join matters for the stats.
+	await db().run(sql.raw("PRAGMA foreign_keys = OFF"));
+	// The stats cache is process-wide, so an entry from an earlier test must not answer for this one.
 	librariesRepository.clearStatsCache();
 });
 
-afterAll(async () => {
-	await client.run(sql.raw("DROP TABLE IF EXISTS media_files"));
-	await client.run(sql.raw("DROP TABLE IF EXISTS libraries"));
-});
+function mediaFileRow(id: string, libraryId: string, size: number) {
+	// A file belongs to exactly one movie or episode (CHECK constraint), so each fixture file gets its own movie id.
+	return { id, libraryId, movieId: `movie-${id}`, metadataId: "meta-1", fileName: `${id}.mkv`, filePath: `/${id}.mkv`, size };
+}
 
 describe("library stats caching", () => {
 	test("aggregates media files once and serves the repeat read from the cache", async () => {
 		const fields = QueryFields.parse({ fields: "id,totalMediaFiles,totalSize" });
-		await client.insert(schema.libraries).values({ id: "lib-cache", name: "Cache", type: "movies", metadataStorageMode: "database" });
-		await client.insert(schema.mediaFiles).values([mediaFileRow("mf-1", "lib-cache", 100), mediaFileRow("mf-2", "lib-cache", 250)]);
+		await db().insert(schema.libraries).values({ id: "lib-cache", name: "Cache", type: "movies", metadataStorageMode: "database" });
+		await db()
+			.insert(schema.mediaFiles)
+			.values([mediaFileRow("mf-1", "lib-cache", 100), mediaFileRow("mf-2", "lib-cache", 250)]);
 
 		const first = await librariesRepository.findById({ primaryId: "lib-cache", fields });
 		expect(first).toMatchObject({ totalMediaFiles: 2, totalSize: 350 });
 
 		// The cached entry outlives this write, so the repeat read must not see it.
-		await client.insert(schema.mediaFiles).values(mediaFileRow("mf-3", "lib-cache", 999));
+		await db()
+			.insert(schema.mediaFiles)
+			.values(mediaFileRow("mf-3", "lib-cache", 999));
 		const second = await librariesRepository.findById({ primaryId: "lib-cache", fields });
 		expect(second).toMatchObject({ totalMediaFiles: 2, totalSize: 350 });
 	});
 
 	test("caches a zero entry for a library without media files", async () => {
 		const fields = QueryFields.parse({ fields: "id,totalMediaFiles,totalSize" });
-		await client.insert(schema.libraries).values({ id: "lib-empty", name: "Empty", type: "movies", metadataStorageMode: "database" });
+		await db().insert(schema.libraries).values({ id: "lib-empty", name: "Empty", type: "movies", metadataStorageMode: "database" });
 
 		const result = await librariesRepository.findById({ primaryId: "lib-empty", fields });
 		expect(result).toMatchObject({ totalMediaFiles: 0, totalSize: 0 });
@@ -55,18 +49,22 @@ describe("library stats caching", () => {
 
 	test("attributes per-path stats to the longest matching prefix (nested paths and win32 separators)", async () => {
 		const fields = QueryFields.parse({ fields: "id,paths.id,paths.path,paths.fileCount,paths.totalSize" });
-		await client.insert(schema.libraries).values({ id: "lib-multi", name: "Multi", type: "movies", metadataStorageMode: "database" });
-		await client.insert(schema.libraryPaths).values([
-			{ id: "lp-root", libraryId: "lib-multi", stableKey: "sk-1", path: "/media/a", isActive: true },
-			{ id: "lp-nested", libraryId: "lib-multi", stableKey: "sk-2", path: "/media/a/sub", isActive: true },
-			{ id: "lp-win", libraryId: "lib-multi", stableKey: "sk-3", path: "C:\\media\\win", isActive: true },
-		]);
-		await client.insert(schema.mediaFiles).values([
-			{ ...mediaFileRow("mf-1", "lib-multi", 10), filePath: "/media/a/root.mkv" },
-			{ ...mediaFileRow("mf-2", "lib-multi", 20), filePath: "/media/a/sub/nested.mkv" },
-			{ ...mediaFileRow("mf-3", "lib-multi", 40), filePath: "/media/outside.mkv" },
-			{ ...mediaFileRow("mf-4", "lib-multi", 50), filePath: "C:\\media\\win\\clip.mkv" },
-		]);
+		await db().insert(schema.libraries).values({ id: "lib-multi", name: "Multi", type: "movies", metadataStorageMode: "database" });
+		await db()
+			.insert(schema.libraryPaths)
+			.values([
+				{ id: "lp-root", libraryId: "lib-multi", stableKey: "sk-1", path: "/media/a", isActive: true },
+				{ id: "lp-nested", libraryId: "lib-multi", stableKey: "sk-2", path: "/media/a/sub", isActive: true },
+				{ id: "lp-win", libraryId: "lib-multi", stableKey: "sk-3", path: "C:\\media\\win", isActive: true },
+			]);
+		await db()
+			.insert(schema.mediaFiles)
+			.values([
+				{ ...mediaFileRow("mf-1", "lib-multi", 10), filePath: "/media/a/root.mkv" },
+				{ ...mediaFileRow("mf-2", "lib-multi", 20), filePath: "/media/a/sub/nested.mkv" },
+				{ ...mediaFileRow("mf-3", "lib-multi", 40), filePath: "/media/outside.mkv" },
+				{ ...mediaFileRow("mf-4", "lib-multi", 50), filePath: "C:\\media\\win\\clip.mkv" },
+			]);
 
 		const result = await librariesRepository.findById({ primaryId: "lib-multi", fields });
 		const paths = result?.paths ?? [];

@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { invalidateSessionCache } from "@/integrations/better-auth/better-auth.session-cache";
-import { installSessionStub, listApiRoutes, prepareSecuritySuite, send } from "./security-harness";
+import { installSessionStub, listApiRoutes, prepareSecuritySuite, send } from "./security.helper";
 
 /**
  * Load and size behaviour of the router: many requests in flight at once, and bodies far

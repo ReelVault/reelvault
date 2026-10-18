@@ -1,6 +1,7 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
+import type { SeekResult } from "@/modules/streaming/streaming.types";
+import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
-import type { SeekResult } from "../streaming.types";
 
 interface SeekWaiter {
 	resolve: (result: SeekResult) => void;
@@ -77,7 +78,7 @@ export class SeekScheduler {
 		for (const pending of this.pending.values()) {
 			if (pending.timer) clearTimeout(pending.timer);
 
-			for (const waiter of pending.waiters) waiter.reject(new Error(reason));
+			for (const waiter of pending.waiters) waiter.reject(new DomainError("internal", reason, { code: "stream.seek_cancelled" }));
 		}
 
 		this.pending.clear();

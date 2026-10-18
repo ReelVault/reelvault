@@ -1,4 +1,4 @@
-import { SystemSettingsCreator } from "../system-settings.utils";
+import { SystemSettingsCreator } from "@/config/system-settings.utils";
 
 const creator = SystemSettingsCreator("trickplay");
 

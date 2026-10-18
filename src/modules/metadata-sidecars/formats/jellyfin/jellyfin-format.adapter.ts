@@ -1,8 +1,8 @@
+import type { SidecarFormatAdapter } from "@/modules/metadata-sidecars/formats/sidecar-format.adapter";
+import type { SidecarFormatInput } from "@/modules/metadata-sidecars/sidecar.types";
 import { readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
-import type { SidecarFormatInput } from "../../sidecar.types";
-import type { SidecarFormatAdapter } from "../sidecar-format.adapter";
-import { loadJellyfinDocument } from "./jellyfin-common";
+import { loadJellyfinDocument } from "./jellyfin-common.utils";
 import { readJellyfinEpisodeDocument } from "./jellyfin-episode-document.reader";
 import { readJellyfinMovieDocument } from "./jellyfin-movie-document.reader";
 import { readJellyfinSeasonDocument } from "./jellyfin-season-document.reader";

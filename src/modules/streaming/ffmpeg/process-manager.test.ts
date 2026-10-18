@@ -1,13 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { stat } from "node:fs/promises";
+import { readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TranscodeConfig } from "@reelvault/sdk/common";
 import { $, spawn } from "bun";
-import { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
-import { SessionStore } from "../runtime/session-state/session-store";
-import { createMockPlaybackDecision } from "../streaming.test-utils";
-import { ProcessManager } from "./process-manager";
+import { SessionStore } from "@/modules/streaming/runtime/session-state/session.store";
+import { SessionReservationTracker } from "@/modules/streaming/runtime/session-state/session-reservation.tracker";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { ProcessManager } from "./process.manager";
 
 const root = join(tmpdir(), `reelvault-process-manager-${Date.now()}`);
 
@@ -58,18 +58,18 @@ describe("process manager", () => {
 				startTime: 0,
 				timelineStart: 0,
 			}),
-		).rejects.toThrow("Concurrent stream limit reached");
+		).rejects.toMatchObject({ category: "too_many_requests", code: "stream.limit_reached" });
 	});
 
-	test("ensureTempDirectory creates a clean directory", async () => {
+	test("ensureTempDirectory replaces leftover session files with an empty directory", async () => {
 		const store = createStore();
 		const manager = new ProcessManager(config, store, new SessionReservationTracker(store, 1));
 		const tempDir = join(root, "session-1");
-
+		await manager.ensureTempDirectory(tempDir);
+		await writeFile(join(tempDir, "stale-seg_0.m4s"), "old");
 		await manager.ensureTempDirectory(tempDir);
 
-		const stats = await stat(tempDir);
-		expect(stats.isDirectory()).toBe(true);
+		expect(await readdir(tempDir)).toEqual([]);
 	});
 
 	test("removeTempDirectory deletes an existing directory and tolerates a missing one", async () => {

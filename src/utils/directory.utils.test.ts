@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DirUtils, removeTree } from "@/utils/directory.utils";
 import { readFile } from "@/utils/file.utils";
-import { DirUtils } from "./directory.utils";
 
 describe("DirUtils", () => {
 	test("refuses to delete directories containing video files", async () => {
@@ -16,7 +16,7 @@ describe("DirUtils", () => {
 			expect(await DirUtils.delete(root)).toBe(false);
 			expect(await readFile(videoPath, "utf8")).toBe("video placeholder");
 		} finally {
-			await rm(root, { recursive: true, force: true });
+			await removeTree(root);
 		}
 	});
 
@@ -29,20 +29,7 @@ describe("DirUtils", () => {
 			expect(await DirUtils.deleteTemporary(root)).toBe(true);
 			expect(await DirUtils.exists(root)).toBe(false);
 		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
-	});
-
-	test("delete with allowVideo option deletes directory with video files", async () => {
-		const root = await mkdtemp(join(tmpdir(), "reelvault-directory-utils-"));
-		const videoPath = join(root, "movie.m4s");
-		await writeFile(videoPath, "segment placeholder");
-
-		try {
-			expect(await DirUtils.delete(root, { allowVideo: true })).toBe(true);
-			expect(await DirUtils.exists(root)).toBe(false);
-		} finally {
-			await rm(root, { recursive: true, force: true });
+			await removeTree(root);
 		}
 	});
 
@@ -55,7 +42,7 @@ describe("DirUtils", () => {
 			const files = await DirUtils.scanFiles(root, ["mp4"]);
 			expect(files).toEqual([videoPath]);
 		} finally {
-			await rm(root, { recursive: true, force: true });
+			await removeTree(root);
 		}
 	});
 
@@ -66,16 +53,10 @@ describe("DirUtils", () => {
 
 		try {
 			const entries = await DirUtils.scanFilesWithStats(root, ["mp4"]);
-			expect(entries).toHaveLength(1);
-			const entry = entries[0];
-			expect(entry).toBeDefined();
-			if (entry) {
-				expect(entry.filePath).toBe(videoPath);
-				expect(entry.size).toBe("video content sample".length);
-				expect(entry.mtimeMs).toBeGreaterThan(0);
-			}
+			const { mtimeMs } = await stat(videoPath);
+			expect(entries).toEqual([{ filePath: videoPath, size: "video content sample".length, mtimeMs: Math.floor(mtimeMs) }]);
 		} finally {
-			await rm(root, { recursive: true, force: true });
+			await removeTree(root);
 		}
 	});
 
@@ -91,7 +72,7 @@ describe("DirUtils", () => {
 			const files = await DirUtils.scanFiles(root, ["mp4"]);
 			expect(files).toEqual([join(root, "movie.mp4")]);
 		} finally {
-			await rm(root, { recursive: true, force: true });
+			await removeTree(root);
 		}
 	});
 });

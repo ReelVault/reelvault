@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,20 +16,21 @@ import {
 	task,
 } from "benchkit";
 import { sleep } from "bun";
-import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
+import { pluginRepositoriesRepository } from "@/app/repositories/plugin-repositories.repository";
+import { serverConfig } from "@/config/server/server.config";
 import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { materializePluginRuntime, pluginRuntimeRoot } from "@/plugins/lifecycle/plugin-runtime-copy";
-import { ensurePluginSdkShim } from "@/plugins/lifecycle/plugin-sdk-alias";
-import { PluginEventBus } from "@/plugins/runtime/plugin.events";
-import { serverConfig } from "@/server.config";
+import { materializePluginRuntime, pluginRuntimeRoot } from "@/plugins/lifecycle/plugin-runtime.service";
+import { ensurePluginSdkShim } from "@/plugins/lifecycle/plugin-sdk-alias.utils";
+import { PluginEventBus } from "@/system/extensions/plugin.events";
+import { removeTree } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
-import { contextHeaders, rotatingIdentity, workerCookie } from "./lib/identity";
-import { type NamedScenario, toScenarioEntries } from "./lib/scenarios";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { contextHeaders, rotatingIdentity, workerCookie } from "./lib/identity.utils";
+import { type NamedScenario, toScenarioEntries } from "./lib/scenarios.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * Plugin runtime suite. Installs the media-requests plugin from the sibling
@@ -366,7 +367,7 @@ if (!args.help) {
 				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
 			);
 		} finally {
-			await rm(directory, { recursive: true, force: true });
+			await removeTree(directory);
 		}
 
 		return { ok: true };
@@ -402,7 +403,7 @@ if (!args.help) {
 				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
 			);
 		} finally {
-			await rm(directory, { recursive: true, force: true });
+			await removeTree(directory);
 		}
 
 		return { ok: true };
@@ -440,7 +441,7 @@ if (!args.help) {
 			);
 			printMicroResults([sequential, parallel]);
 		} finally {
-			await rm(dir, { recursive: true, force: true });
+			await removeTree(dir);
 		}
 
 		return { ok: true };

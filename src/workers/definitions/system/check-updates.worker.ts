@@ -1,6 +1,6 @@
-import { updateNotificationService } from "@/application/updates/update-notification.service";
-import { MINUTE } from "@/server.constants";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { MINUTE } from "@/config/server/server.constants";
+import { throwIfAborted } from "@/utils/cancellation.utils";
+import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 export const checkUpdatesWorker = createWorkerDefinition(
@@ -12,7 +12,7 @@ export const checkUpdatesWorker = createWorkerDefinition(
 	}),
 	async ({ signal }) => {
 		throwIfAborted(signal);
-		const notified = await updateNotificationService.notifyIfUpdateAvailable(true);
+		const notified = await workerDependencies().services.updateNotifications.notifyIfUpdateAvailable(true);
 
 		return { success: true, notified };
 	},

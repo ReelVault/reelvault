@@ -15,8 +15,9 @@ describe("raceWithAbort abort handling", () => {
 		const probe = Promise.withResolvers<string>();
 		const racing = raceWithAbort(probe.promise, controller.signal);
 
-		controller.abort(new Error("cancelled"));
-		await expect(racing).rejects.toThrow("cancelled");
+		const cancelled = new Error("cancelled");
+		controller.abort(cancelled);
+		await expect(racing).rejects.toBe(cancelled);
 		expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
 
 		// A shared probe keeps running after one follower aborts — resolving late
@@ -26,9 +27,10 @@ describe("raceWithAbort abort handling", () => {
 
 	test("rejects immediately when the signal is already aborted", async () => {
 		const controller = new AbortController();
-		controller.abort(new Error("already gone"));
+		const gone = new Error("already gone");
+		controller.abort(gone);
 
-		await expect(raceWithAbort(Promise.resolve("probed"), controller.signal)).rejects.toThrow("already gone");
+		await expect(raceWithAbort(Promise.resolve("probed"), controller.signal)).rejects.toBe(gone);
 		expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
 	});
 });

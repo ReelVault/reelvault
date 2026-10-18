@@ -1,99 +1,109 @@
-import { describe, expect, test } from "bun:test";
-import type { OptimizedImage } from "./image-optimization.service";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import sharp from "sharp";
+import { serverConfig } from "@/config/server/server.config";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { DirUtils, removeTree } from "@/utils/directory.utils";
+import { FileUtils } from "@/utils/file.utils";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { ImagesService } from "./images.service";
 
-const OPTIMIZED_RESULT: OptimizedImage = {
-	file: new Blob([new Uint8Array([9])]),
-	contentType: "image/webp",
-	options: { width: 640, height: null, quality: 75 },
-};
+describe("ImagesService", () => {
+	const db = useTestDatabase();
+	const service = new ImagesService();
+	let testImagesDir: string;
+	let originalImagesPath: string;
 
-interface ServiceConfig {
-	row?: { localPath: string; contentType: string } | undefined;
-	fileExists?: boolean | undefined;
-	deletedRow?: { localPath: string } | undefined;
-}
+	beforeEach(async () => {
+		originalImagesPath = serverConfig.paths.images;
+		testImagesDir = await mkdtemp(join(tmpdir(), "reelvault-images-service-test-"));
+		serverConfig.paths.images = testImagesDir;
 
-function createService(config: ServiceConfig = {}) {
-	const spies = {
-		optimizedRequests: [] as Array<{ sourcePath: string; imageId: string | undefined }>,
-		deletedFiles: [] as string[],
-		optimizedResult: OPTIMIZED_RESULT,
-	};
-	const service = new ImagesService({
-		findForFileRead: async () => config.row,
-		deleteAndReturn: async () => config.deletedRow,
-		fileExists: async () => config.fileExists ?? true,
-		deleteFile: (path) => {
-			spies.deletedFiles.push(path);
-
-			return Promise.resolve(true);
-		},
-		getOptimizedImage: (sourcePath, _request, imageId) => {
-			spies.optimizedRequests.push({ sourcePath, imageId });
-
-			return Promise.resolve(spies.optimizedResult);
-		},
+		await DirUtils.create(join(testImagesDir, "posters"));
 	});
 
-	return { service, spies };
-}
+	afterEach(async () => {
+		serverConfig.paths.images = originalImagesPath;
+		await removeTree(testImagesDir);
+	});
 
-describe("ImagesService", () => {
+	// Each test uses its own image id: the repository caches file reads by id for the whole process.
+	async function seedImage(id: string, localPath: string, contentType: string): Promise<void> {
+		await db
+			.client()
+			.insert(schema.images)
+			.values({ id, stableKey: `stable-${id}`, localPath, contentType });
+	}
+
 	test("getById returns the file handle with the stored content type", async () => {
-		const { service } = createService({ row: { localPath: "/images/posters/a.webp", contentType: "image/webp" } });
+		const localPath = join(testImagesDir, "posters", "a.webp");
+		await FileUtils.write(localPath, new Uint8Array([1, 2, 3]));
+		await seedImage("image-handle", localPath, "image/webp");
 
-		const result = await service.getById("image-1");
+		const result = await service.getById("image-handle");
 
-		expect(result.localPath).toBe("/images/posters/a.webp");
+		expect(result.localPath).toBe(localPath);
 		expect(result.contentType).toBe("image/webp");
-		expect(result.file.name).toBe("/images/posters/a.webp");
+		expect(result.file.name).toBe(localPath);
 	});
 
 	test("getById throws NotFoundError when the row is missing", async () => {
-		const { service } = createService();
-
 		await expect(service.getById("missing")).rejects.toMatchObject({ category: "not_found" });
 	});
 
 	test("getById throws NotFoundError when the file is gone from disk", async () => {
-		const { service } = createService({ row: { localPath: "/images/posters/gone.webp", contentType: "image/webp" }, fileExists: false });
+		await seedImage("image-gone", join(testImagesDir, "posters", "gone.webp"), "image/webp");
 
-		await expect(service.getById("image-1")).rejects.toThrow("Image file not found: image-1");
+		await expect(service.getById("image-gone")).rejects.toMatchObject({ category: "not_found", code: "images.not_found" });
 	});
 
 	test("getOptimizedById passes the original file through when the query is empty", async () => {
-		const { service, spies } = createService({ row: { localPath: "/images/posters/a.webp", contentType: "image/webp" } });
+		const localPath = join(testImagesDir, "posters", "a.webp");
+		await FileUtils.write(localPath, new Uint8Array([1, 2, 3]));
+		await seedImage("image-passthrough", localPath, "image/webp");
 
-		const result = await service.getOptimizedById("image-1", {});
+		const result = await service.getOptimizedById("image-passthrough", {});
 
 		expect(result.options).toBeNull();
 		expect(result.contentType).toBe("image/webp");
-		expect(spies.optimizedRequests).toEqual([]);
+		expect(new Uint8Array(await result.file.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
 	});
 
-	test("getOptimizedById delegates to the optimization service when dimensions are requested", async () => {
-		const { service, spies } = createService({ row: { localPath: "/images/posters/a.webp", contentType: "image/webp" } });
+	test("getOptimizedById returns a scaled WebP when dimensions are requested", async () => {
+		const localPath = join(testImagesDir, "posters", "wide.png");
+		await FileUtils.write(
+			localPath,
+			await sharp({ create: { width: 1280, height: 720, channels: 3, background: "#305a5a" } })
+				.png()
+				.toBuffer(),
+		);
+		await seedImage("image-scaled", localPath, "image/png");
 
-		const result = await service.getOptimizedById("image-1", { width: 640 });
+		const result = await service.getOptimizedById("image-scaled", { width: 640 });
 
-		expect(result.options).toEqual({ width: 640, height: null, quality: 75 });
-		expect(spies.optimizedRequests).toEqual([{ sourcePath: "/images/posters/a.webp", imageId: "image-1" }]);
+		expect(result.options).toMatchObject({ width: 640 });
+		expect(result.contentType).toBe("image/webp");
+		expect((await sharp(await result.file.arrayBuffer()).metadata()).width).toBe(640);
 	});
 
-	test("delete removes the file of the deleted row", async () => {
-		const { service, spies } = createService({ deletedRow: { localPath: "/images/posters/dead.webp" } });
+	test("delete removes the row and the file it pointed to", async () => {
+		const localPath = join(testImagesDir, "posters", "dead.webp");
+		await FileUtils.write(localPath, new Uint8Array([1, 2, 3]));
+		await seedImage("image-deleted", localPath, "image/webp");
 
-		const result = await service.delete("image-1");
+		expect(await service.delete("image-deleted")).toEqual({ success: true });
 
-		expect(result).toEqual({ success: true });
-		expect(spies.deletedFiles).toEqual(["/images/posters/dead.webp"]);
+		expect(await FileUtils.exists(localPath)).toBe(false);
+		await expect(service.getById("image-deleted")).rejects.toMatchObject({ category: "not_found" });
 	});
 
 	test("delete throws NotFoundError when the row is missing and keeps files untouched", async () => {
-		const { service, spies } = createService();
+		const unrelated = join(testImagesDir, "posters", "keep.webp");
+		await FileUtils.write(unrelated, new Uint8Array([1, 2, 3]));
 
 		await expect(service.delete("missing")).rejects.toMatchObject({ category: "not_found" });
-		expect(spies.deletedFiles).toEqual([]);
+		expect(await FileUtils.exists(unrelated)).toBe(true);
 	});
 });

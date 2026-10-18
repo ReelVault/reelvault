@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { httpScenarioMetrics, runRequestScenario, runScenarioMatrix } from "./harness";
+import { httpScenarioMetrics, runRequestScenario, runScenarioMatrix } from "./harness.utils";
 
 const BOTH_LATENCY_LINE = / req\/s, p50 \d+\.\d{2}ms, p95 \d+\.\d{2}ms$/;
 

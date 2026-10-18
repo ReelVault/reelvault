@@ -1,45 +1,53 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { stubMethod } from "../../../tests/helpers/method-stub";
-import { setWorkerRuntime } from "./worker-runtime";
-import { createMockWorkerRuntime } from "./worker-runtime.test-utils";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { setWorkerRuntime } from "./worker.runtime";
+import { createMockWorkerRuntime, restoreWorkerRuntime } from "./worker-runtime.helper";
 import { WorkerWatchdogService } from "./worker-watchdog.service";
+
+// Orphan recovery runs against the migrated test database.
+useTestDatabase();
+
+const WORKER_ID = "watchdog-test";
+const HOUR_MS = 60 * 60 * 1000;
 
 const activeJobIds: string[] = [];
 
-function installRuntime(): void {
+function installRuntime(getActiveJobIds: () => string[] = () => [...activeJobIds]): void {
 	setWorkerRuntime(
 		createMockWorkerRuntime({
-			pool: { getActiveJobIds: () => [...activeJobIds] },
+			pool: { getActiveJobIds },
 		}),
 	);
 }
 
-/** Replaces a method on the live singleton for one test, recording calls.
- * Works on real repositories AND on the minimal facades other test files
- * install with bun's process-global mock.module(...). */
+/**
+ * Seeds one running job per id, each claimed by a runner whose lease ended an hour ago —
+ * the state a crashed runner leaves behind. Jobs have attempts left, so recovery requeues them.
+ */
+async function seedOrphanedJobs(ids: string[]): Promise<void> {
+	for (const id of ids) {
+		await workerJobRepository.enqueue({
+			id,
+			workerId: WORKER_ID,
+			data: "{}",
+			priority: 0,
+			maxAttempts: 3,
+			backoffType: "fixed",
+			backoffDelayMs: 1_000,
+			runAt: new Date(0),
+		});
+	}
 
-let recoverCalls: unknown[][] = [];
-let recoverResult: number | Error = 0;
-const activeStubs: Array<{ restore(): void }> = [];
+	await workerJobRepository.claimNextBatch(
+		{ workerId: WORKER_ID, runnerId: "dead-runner", concurrency: ids.length, timeoutMs: 1_000, now: new Date(Date.now() - HOUR_MS) },
+		ids.length,
+	);
+}
 
-beforeEach(async () => {
+beforeEach(() => {
 	installRuntime();
 	activeJobIds.length = 0;
-	recoverCalls = [];
-	recoverResult = 0;
-
-	const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-	activeStubs.push(
-		stubMethod(workerJobRepository, "recoverOrphanedRunning", (...args: unknown[]) => {
-			recoverCalls.push(args);
-
-			return recoverResult instanceof Error ? Promise.reject(recoverResult) : Promise.resolve(recoverResult);
-		}),
-	);
-});
-
-afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
 });
 
 function createWatchdog(lastPollAt: number, callbacks: { stall?: () => void; escalated?: () => void } = {}): WorkerWatchdogService {
@@ -53,11 +61,9 @@ function createWatchdog(lastPollAt: number, callbacks: { stall?: () => void; esc
 	return watchdog;
 }
 
+/** `checkHealth` is private and driven by the watchdog's timer; tests call it directly. */
 function checkHealth(watchdog: WorkerWatchdogService): void {
-	const fn = Reflect.get(watchdog, "checkHealth");
-	if (typeof fn === "function") {
-		Reflect.apply(fn, watchdog, []);
-	}
+	Reflect.apply(Reflect.get(watchdog, "checkHealth"), watchdog, []);
 }
 
 describe("WorkerWatchdogService.checkHealth", () => {
@@ -136,25 +142,22 @@ describe("WorkerWatchdogService.checkHealth", () => {
 
 describe("WorkerWatchdogService recovery visibility", () => {
 	test("getState counts the orphaned jobs requeued since start and dates the latest pass", async () => {
-		recoverResult = 3;
+		await seedOrphanedJobs([Bun.randomUUIDv7(), Bun.randomUUIDv7(), Bun.randomUUIDv7()]);
 		const watchdog = new WorkerWatchdogService();
+		const startedAt = Date.now();
 
 		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 0 });
 		expect(watchdog.getState().lastRecoveredAt).toBeUndefined();
 
-		await watchdog.recoverOrphaned();
+		expect(await watchdog.recoverOrphaned()).toBe(3);
 		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 3 });
-		expect(Date.parse(watchdog.getState().lastRecoveredAt ?? "")).not.toBeNaN();
+		expect(Date.parse(watchdog.getState().lastRecoveredAt ?? "")).toBeGreaterThanOrEqual(startedAt);
 	});
 
-	test("an empty or failed pass leaves the counters untouched", async () => {
+	test("an empty pass leaves the counters untouched", async () => {
 		const watchdog = new WorkerWatchdogService();
 
-		recoverResult = 0;
-		await watchdog.recoverOrphaned();
-		recoverResult = new Error("db down");
-		await watchdog.recoverOrphaned();
-
+		expect(await watchdog.recoverOrphaned()).toBe(0);
 		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 0 });
 		expect(watchdog.getState().lastRecoveredAt).toBeUndefined();
 	});
@@ -162,18 +165,35 @@ describe("WorkerWatchdogService recovery visibility", () => {
 
 describe("WorkerWatchdogService.recoverOrphaned", () => {
 	test("excludes jobs still claimed by the live pool", async () => {
-		activeJobIds.push("job-live-1", "job-live-2");
-		recoverResult = 4;
+		const live = Bun.randomUUIDv7();
+		const orphan = Bun.randomUUIDv7();
+		await seedOrphanedJobs([live, orphan]);
+		activeJobIds.push(live);
 		const watchdog = new WorkerWatchdogService();
 
-		expect(await watchdog.recoverOrphaned()).toBe(4);
-		expect(recoverCalls[0]?.[0]).toEqual({ excludeActiveIds: ["job-live-1", "job-live-2"] });
+		expect(await watchdog.recoverOrphaned()).toBe(1);
+		expect(await workerJobRepository.findItem(live)).toMatchObject({ status: "running" });
+		expect(await workerJobRepository.findItem(orphan)).toMatchObject({ status: "pending" });
 	});
 
-	test("survives repository failures with a zero count", async () => {
-		recoverResult = new Error("db down");
+	test("a failed pass requeues nothing and returns zero", async () => {
+		const orphans = [Bun.randomUUIDv7(), Bun.randomUUIDv7()];
+		await seedOrphanedJobs(orphans);
+		// The pool lookup fails before any repository call.
+		installRuntime(() => {
+			throw new Error("pool unavailable");
+		});
 		const watchdog = new WorkerWatchdogService();
 
 		expect(await watchdog.recoverOrphaned()).toBe(0);
+		for (const id of orphans) {
+			expect(await workerJobRepository.findItem(id)).toMatchObject({ status: "running" });
+		}
+		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 0 });
 	});
+});
+
+afterEach(() => {
+	activeJobIds.length = 0;
+	restoreWorkerRuntime();
 });

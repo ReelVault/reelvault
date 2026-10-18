@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { AddWorkerItemOptions, Logger, PlaybackDecision } from "@reelvault/sdk/common";
-import type { ApplicationContext } from "@/application/context";
-import type { WorkerItem } from "@/database/repositories/worker.repository";
-import type { StreamInitData } from "@/modules/streaming/runtime/stream-initializer";
-import { createMockWorkerItem } from "@/workers/core/worker-runtime.test-utils";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
+import type { Logger, PlaybackDecision } from "@reelvault/sdk/common";
+import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
+import type { StreamInitData } from "@/modules/streaming/runtime/stream.initializer";
+import type { ApplicationContext } from "@/utils/task-context.types";
+import { workerService } from "@/workers/worker.service";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { enqueueStreamInit, streamInitWorker } from "./stream-initialization.worker";
+
+// The enqueue test writes a real job row under an operation.
+useTestDatabase();
 
 const decision: PlaybackDecision = {
 	mode: "direct-stream",
@@ -29,25 +33,21 @@ function noopLogger(): Logger {
 	};
 }
 
-/** Replaces a method on the live singleton for one test, recording calls.
- * Works on real repositories AND on the minimal facades other test files
- * install with bun's process-global mock.module(...). */
-
 const activeStubs: Array<{ restore(): void }> = [];
 
-beforeEach(async () => {
-	const { streamInitializer } = await import("@/modules/streaming/runtime/stream-initializer");
-	activeStubs.push(stubMethod(streamInitializer, "initialize", () => Promise.resolve({ success: true, message: "initializer stubbed" })));
+beforeEach(() => {
+	workerService.registry.register(streamInitWorker);
 });
 
 afterEach(() => {
 	for (const stub of activeStubs.splice(0)) stub.restore();
+	workerService.registry.unregister(streamInitWorker.id);
 });
 
 describe("stream-initialization worker", () => {
 	test("delegates its handler to the stream initializer with the job context", async () => {
 		let receivedContext: ApplicationContext | undefined;
-		const { streamInitializer } = await import("@/modules/streaming/runtime/stream-initializer");
+		const { streamInitializer } = await import("@/modules/streaming/runtime/stream.initializer");
 		activeStubs.push(
 			stubMethod(streamInitializer, "initialize", (_data: StreamInitData, context: ApplicationContext) => {
 				receivedContext = context;
@@ -78,23 +78,18 @@ describe("stream-initialization worker", () => {
 		});
 	});
 
-	test("enqueues onto the stream-init worker with the session dedupe key", async () => {
-		const { workerService } = await import("@/workers/worker.service");
-		const item: WorkerItem = createMockWorkerItem({ id: "job-1", workerId: "stream-init" });
-		const addItemCalls: Array<[string, unknown, AddWorkerItemOptions]> = [];
-		const originalAddItem = Reflect.get(workerService, "addItem");
-		Reflect.set(workerService, "addItem", (workerId: string, itemData: unknown, options: AddWorkerItemOptions) => {
-			addItemCalls.push([workerId, itemData, options]);
-
-			return Promise.resolve(item);
-		});
-		activeStubs.push({ restore: () => Reflect.set(workerService, "addItem", originalAddItem) });
-
+	test("enqueues onto the stream-init worker keyed by session and referencing the media file", async () => {
+		await workerOperationRepository.create({ id: "operation-1", type: "stream-init" });
 		const data = { sessionId: "session-1", mediaFileId: "media-1", filePath: "/media/movie.mkv", decision };
-		await expect(enqueueStreamInit(data, { operationId: "operation-1" })).resolves.toBe(item);
 
-		expect(addItemCalls).toEqual([
-			["stream-init", data, { operationId: "operation-1", dedupeKey: "session-1", reference: { type: "media-file", id: "media-1" } }],
-		]);
+		const item = await enqueueStreamInit(data, { operationId: "operation-1" });
+
+		expect(item).toMatchObject({
+			workerId: streamInitWorker.id,
+			operationId: "operation-1",
+			dedupeKey: "session-1",
+			referenceType: "media-file",
+			referenceId: "media-1",
+		});
 	});
 });

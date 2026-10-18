@@ -1,10 +1,10 @@
 import { main, printHttpResults, runScenarioMatrix, type ScenarioMatrixEntry, suiteArgs, task } from "benchkit";
-import { subnetIp } from "./lib/identity";
+import { subnetIp } from "./lib/identity.utils";
 
 /**
  * HTTP scenarios against an EXTERNAL server seeded with real data:
  *   RV_BENCH_EMAIL / RV_BENCH_PASSWORD  (or RV_BENCH_COOKIE for a raw cookie header)
- *   bun run scripts/benchmark.ts real-data -- --baseUrl http://127.0.0.1:3037
+ *   bun run scripts/benchmark.script.ts real-data -- --baseUrl http://127.0.0.1:3037
  * Without --baseUrl the suite is a no-op (it never spawns a fixture).
  */
 

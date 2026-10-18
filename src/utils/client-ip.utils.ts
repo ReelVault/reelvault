@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
 import { trimAndFilter } from "@/utils/array.utils";
 
 /**

@@ -1,6 +1,6 @@
-import type { CanonicalSidecarDocument, SidecarFormatInput } from "../../sidecar.types";
-import type { XmlDocument } from "../../xml/xml-document.reader";
-import { readTitleDocument } from "./jellyfin-common";
+import type { CanonicalSidecarDocument, SidecarFormatInput } from "@/modules/metadata-sidecars/sidecar.types";
+import type { XmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
+import { readTitleDocument } from "./jellyfin-common.utils";
 
 export async function readJellyfinMovieDocument(
 	input: SidecarFormatInput,

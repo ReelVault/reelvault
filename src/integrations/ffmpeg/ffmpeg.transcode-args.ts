@@ -1,8 +1,10 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
-import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { clamp } from "@/utils/math.utils";
-import { getEffectiveHwaccel, hardwareDecodeArgs, type ToneMapConfig } from "./ffmpeg.capabilities";
+import { hardwareDecodeArgs } from "./capabilities/hwaccel.utils";
+import type { ToneMapConfig } from "./capabilities/tone-mapping.resolver";
+import { getEffectiveHwaccel } from "./ffmpeg.capabilities";
 
 export function buildTranscodeAudioArgs(decision: PlaybackDecision): string[] {
 	if (!decision.audioTranscode) return ["-c:a", "copy"];

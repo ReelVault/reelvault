@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { getEffectiveHwaccel, getFfmpegCapabilities, initializeFfmpegCapabilities, parseEncoderNames } from "./ffmpeg.capabilities";
-import { ffMpegService } from "./ffmpeg.service";
+import { parseEncoderNames } from "./capabilities/probe.utils";
+import { getFfmpegCapabilities, initializeFfmpegCapabilities } from "./ffmpeg.capabilities";
 
 const ENCODER_NAME_REGEX = /^[a-z0-9_]+$/;
 
@@ -51,25 +51,18 @@ describe("FFmpeg Capabilities & HW Transcoding Abstraction", () => {
 		expect(parseEncoderNames("").size).toBe(0);
 	});
 
-	// The remaining tests probe the real binary — skipped where it is absent.
-	const hasFfmpeg = ffMpegService.isAvailable();
-
-	it.skipIf(!hasFfmpeg)("initializes capabilities and detects filters and encoders", async () => {
+	it("detects the installed ffmpeg's version, filters and encoders", async () => {
 		const caps = await initializeFfmpegCapabilities();
-		expect(caps.version).toBeDefined();
-		expect(caps.version).not.toBe("unavailable");
-		expect(caps.version).not.toContain("Copyright");
-		expect(caps.filters.size).toBeGreaterThan(0);
-		expect(caps.encoders.size).toBeGreaterThan(0);
 
-		const hw = getEffectiveHwaccel();
-		expect(hw).toBeDefined();
-		expect(["none", "nvenc", "vaapi", "qsv", "videotoolbox"]).toContain(hw.type);
-		expect(hw.h264Encoder).toBeDefined();
+		expect(["unavailable", "unknown"]).not.toContain(caps.version);
+		expect(caps.version).not.toContain("Copyright");
+		expect(caps.filters.has("scale")).toBe(true);
+		expect(caps.encoders.has("aac")).toBe(true);
 	});
 
-	it.skipIf(!hasFfmpeg)("returns cached capabilities via getFfmpegCapabilities", () => {
-		const caps = getFfmpegCapabilities();
-		expect(caps.version).not.toBe("unavailable");
+	it("serves the initialized capabilities from the cache", async () => {
+		const initialized = await initializeFfmpegCapabilities();
+
+		expect(getFfmpegCapabilities()).toBe(initialized);
 	});
 });

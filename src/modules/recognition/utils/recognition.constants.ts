@@ -29,7 +29,9 @@ export const EPISODE_FILE_PATTERN =
 	// a `_001`-style suffix marks a duplicate/part of the same title, not an
 	// episode (dot/space/hyphen separators still produce episodes). The `(?!\d)`
 	// range tail keeps `01-1080p` from reading as the range `01-10`. Seasons
-	// allow three digits so release-group spellings such as `S012E03`
-	// (season 12) resolve instead of falling back to a movie; episodes keep the
-	// original two-digit cap so `E100` still truncates to `E10`.
-	/(?:s(?<season>\d{1,3})e(?<episode>\d{1,2})(?:[-_. ]{1,2}e?(?<range_end>\d{1,2})(?!\d))?|(?<season_alt>\d{1,2})x(?<episode_alt>\d{1,2})(?:[-_. ]{1,2}e?(?<range_end_alt>\d{1,2})(?!\d))?|(?:^|[\s.-])(?:e|ep|odcinek)?[\s.-]*(?<episode_only>\d{1,3})(?:[-_. ]{1,2}e?(?<range_end_only>\d{1,3})(?!\d))?(?:[\s._-]|$))/i;
+	// allow three digits (`S012E03`, season 12). Episodes allow four digits
+	// (`S01E1000`, One Piece); a bare number reaches four digits only after an
+	// `E`/`EP`/`odcinek` prefix or a dash (`One.Piece.E1000`, `One Piece - 1000`),
+	// so a year such as `Blade.Runner.2049` stays a non-episode. The `(?!\d)`
+	// after an episode refuses a five-digit run instead of truncating it.
+	/(?:s(?<season>\d{1,3})e(?<episode>\d{1,4})(?!\d)(?:[-_. ]{1,2}e?(?<range_end>\d{1,3})(?!\d))?|(?<season_alt>\d{1,2})x(?<episode_alt>\d{1,2})(?:[-_. ]{1,2}e?(?<range_end_alt>\d{1,2})(?!\d))?|(?:^|[\s.-])(?:e|ep|odcinek)?[\s.-]*(?<episode_only>(?<=(?:^|[\s.-])(?:e|ep|odcinek)[\s.-]*|-[\s.-]*)\d{1,4}|\d{1,3})(?:[-_. ]{1,2}e?(?<range_end_only>\d{1,3})(?!\d))?(?:[\s._-]|$))/i;

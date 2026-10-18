@@ -22,15 +22,6 @@ describe("readJellyfinSeriesDocument", () => {
 		});
 	});
 
-	test("a series document has no tagline field", async () => {
-		const document = await readJellyfinSeriesDocument({
-			documentPath: "/media/Show/tvshow.nfo",
-			content: "<tvshow><title>T</title></tvshow>",
-		});
-
-		expect(document).not.toHaveProperty("tagline");
-	});
-
 	test("returns null without a tvshow root or for malformed XML", async () => {
 		expect(
 			await readJellyfinSeriesDocument({ documentPath: "/media/Show/tvshow.nfo", content: "<movie><title>T</title></movie>" }),

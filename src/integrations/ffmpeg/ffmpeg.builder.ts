@@ -1,6 +1,6 @@
 import { type Subprocess, spawn } from "bun";
-import { serverConfig } from "@/server.config";
-import { createLogger } from "@/utils/logger";
+import { serverConfig } from "@/config/server/server.config";
+import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 import { FfmpegOperationLog, type FfmpegOperationLogOptions } from "./ffmpeg.operation-log";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";

@@ -1,5 +1,5 @@
-import type { PathContext, RecognitionResult, RecognitionStrategy } from "../recognition.types";
-import { parseFileName } from "../utils/recognition.utils";
+import type { PathContext, RecognitionResult, RecognitionStrategy } from "@/modules/recognition/recognition.types";
+import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 
 export class MoviesBasicStrategy implements RecognitionStrategy {
 	recognize(ctx: PathContext): RecognitionResult | null {

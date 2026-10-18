@@ -1,8 +1,52 @@
 import { describe, expect, test } from "bun:test";
-import type { HlsBufferAnalysis } from "../streaming.types";
+import { eq } from "drizzle-orm";
+import { mediaRepository } from "@/app/repositories/media-files.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import type { HlsBufferAnalysis } from "@/modules/streaming/streaming.types";
+import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { DiagnosticsService, type ServiceDependencies } from "./diagnostics.service";
 
-function createService(
+const db = useTestDatabase();
+
+/** One movie file with a video and two audio streams, as the library stores them after a probe. */
+async function seedMediaFile(duration: number | null): Promise<string> {
+	const client = db.client();
+	const mediaFileId = await insertMovieMediaFile(client, "/media/movie.mkv", "movie-1");
+	await client
+		.update(schema.mediaFiles)
+		.set({ formatName: "matroska", duration, size: 1_000_000, bitRate: 5_000_000 })
+		.where(eq(schema.mediaFiles.id, mediaFileId));
+	await client.insert(schema.mediaFileVideoStreams).values({
+		mediaFileId,
+		index: 0,
+		isDefault: true,
+		codecName: "h264",
+		profile: "high",
+		width: 1920,
+		height: 1080,
+		pixelFormat: "yuv420p",
+		frameRate: "24/1",
+	});
+	await client.insert(schema.mediaFileAudioStreams).values([
+		{
+			mediaFileId,
+			index: 1,
+			isDefault: true,
+			codecName: "aac",
+			channels: 2,
+			channelLayout: "stereo",
+			language: "pol",
+			title: "Polski",
+			bitRate: 192000,
+		},
+		{ mediaFileId, index: 2, isDefault: false, codecName: "ac3", channels: 6, language: "eng" },
+	]);
+
+	return mediaFileId;
+}
+
+async function createService(
 	options: {
 		bufferComplete?: boolean | undefined;
 		sessionActive?: boolean | undefined;
@@ -11,39 +55,7 @@ function createService(
 		duration?: number | null | undefined;
 	} = {},
 ) {
-	const file = {
-		id: "file-1",
-		fileName: "movie.mkv",
-		formatName: "matroska",
-		size: 1_000_000,
-		duration: options.duration === undefined ? 600 : options.duration,
-		bitRate: 5_000_000,
-		videoStreams: [
-			{
-				index: 0,
-				isDefault: true,
-				codecName: "h264",
-				width: 1920,
-				height: 1080,
-				profile: "high",
-				pixelFormat: "yuv420p",
-				frameRate: "24/1",
-			},
-		],
-		audioStreams: [
-			{
-				index: 1,
-				isDefault: true,
-				codecName: "aac",
-				channels: 2,
-				channelLayout: "stereo",
-				language: "pol",
-				title: "Polski",
-				bitRate: 192000,
-			},
-			{ index: 2, isDefault: false, codecName: "ac3", channels: 6, language: "eng" },
-		],
-	};
+	const mediaFileId = await seedMediaFile(options.duration === undefined ? 600 : options.duration);
 	const buffer: HlsBufferAnalysis | null =
 		options.buffer === null
 			? null
@@ -59,9 +71,11 @@ function createService(
 					ranges: [],
 				};
 	const dependencies: ServiceDependencies = {
-		requireSession: () => ({ mediaFileId: "file-1", profileId: "profile-1" }),
-		findForStreamingDiagnostics: async () => file,
-		findForStreamingDuration: async () => ({ id: "file-1", duration: file.duration }),
+		// The live transcode session (ffmpeg process, playlist, session store) is the process boundary.
+		// The library rows behind it are real.
+		requireSession: () => ({ mediaFileId, profileId: "profile-1" }),
+		findForStreamingDiagnostics: (fileId) => mediaRepository.findForStreamingDiagnostics(fileId),
+		findForStreamingDuration: (fileId) => mediaRepository.findForStreamingDuration(fileId),
 		getBuffer: async () => buffer,
 		getSessionDiagnostics: () =>
 			options.sessionDiagnostics === undefined
@@ -93,16 +107,16 @@ function createService(
 		segmentDurationSeconds: 4,
 	};
 
-	return { service: new DiagnosticsService(dependencies), file };
+	return { service: new DiagnosticsService(dependencies), mediaFileId };
 }
 
 describe("diagnostics service", () => {
 	test("maps the source, session and buffer into a diagnostics response", async () => {
-		const { service } = createService();
+		const { service, mediaFileId } = await createService();
 
 		const diagnostics = await service.getDiagnostics("s1");
 
-		expect(diagnostics.mediaFileId).toBe("file-1");
+		expect(diagnostics.mediaFileId).toBe(mediaFileId);
 		expect(diagnostics.source).toMatchObject({
 			container: "matroska",
 			bitrateKbps: 5000,
@@ -133,7 +147,7 @@ describe("diagnostics service", () => {
 	});
 
 	test("completed buffer reports a completed state", async () => {
-		const { service } = createService({ bufferComplete: true, sessionActive: false });
+		const { service } = await createService({ bufferComplete: true, sessionActive: false });
 
 		const diagnostics = await service.getDiagnostics("s1");
 
@@ -142,7 +156,7 @@ describe("diagnostics service", () => {
 	});
 
 	test("missing session diagnostics yield a null session and default audio stream", async () => {
-		const { service } = createService({ sessionDiagnostics: null, sessionActive: false });
+		const { service } = await createService({ sessionDiagnostics: null, sessionActive: false });
 
 		const diagnostics = await service.getDiagnostics("s1");
 
@@ -153,20 +167,21 @@ describe("diagnostics service", () => {
 	});
 
 	test("a missing buffer analysis reports no buffer section", async () => {
-		const { service } = createService({ buffer: null });
+		const { service } = await createService({ buffer: null });
 
 		const diagnostics = await service.getDiagnostics("s1");
 
 		expect(diagnostics.buffer).toBeNull();
 	});
 
-	test("getTranscodeProgress reports transcoding vs completed state", async () => {
-		const { service } = createService({ bufferComplete: true });
+	test("transcode progress reports a completed state once the buffer is complete", async () => {
+		const { service, mediaFileId } = await createService({ bufferComplete: true });
+
 		const progress = await service.getTranscodeProgress("s1");
 
 		expect(progress).toMatchObject({
 			sessionId: "s1",
-			mediaFileId: "file-1",
+			mediaFileId,
 			state: "completed",
 			active: true,
 			segments: 3,
@@ -175,13 +190,18 @@ describe("diagnostics service", () => {
 			duration: 600,
 			remainingSeconds: 479.56,
 		});
-
-		const pending = await service.getTranscodeProgress("s1");
-		expect(pending.mediaFileId).toBe("file-1");
 	});
 
-	test("transcode progress handles an unknown duration", async () => {
-		const { service } = createService({ duration: null });
+	test("transcode progress reports a transcoding state while the buffer is still filling", async () => {
+		const { service } = await createService({ bufferComplete: false });
+
+		const progress = await service.getTranscodeProgress("s1");
+
+		expect(progress).toMatchObject({ state: "transcoding", active: true, transcodedUntil: 120.44, remainingSeconds: 479.56 });
+	});
+
+	test("transcode progress reports no remaining time or percentage for an unknown duration", async () => {
+		const { service } = await createService({ duration: null });
 
 		const progress = await service.getTranscodeProgress("s1");
 

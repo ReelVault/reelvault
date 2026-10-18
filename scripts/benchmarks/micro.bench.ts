@@ -13,19 +13,22 @@ import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { bench, benchmarkAsync, compare, group, main, measureAsync, printMicroResults, printTable, suiteArgs, task } from "benchkit";
 import { hash as bunHash, CryptoHasher } from "bun";
-import { buildJsonResponse } from "@/api/utils/etag.utils";
+import { buildJsonResponse } from "@/app/http/utils/etag.utils";
+import { env } from "@/config/env.config";
+import { RATE_LIMIT_OVERRIDE_CAP_MULTIPLIER, TUNABLE_RATE_LIMIT_BUCKETS, tunedRouteMax } from "@/config/rate-limit-overrides.utils";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { env } from "@/env";
-import { RATE_LIMIT_OVERRIDE_CAP_MULTIPLIER, TUNABLE_RATE_LIMIT_BUCKETS, tunedRouteMax } from "@/middleware/rate-limit-overrides";
 import { parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
+import { resolveWebDistRoot } from "@/system/web-dist.utils";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
 import { EventLoopMonitor } from "@/utils/event-loop-monitor.utils";
-import { getPathname, getTrustedOriginPatterns, matchesIfNoneMatch } from "@/utils/http.utils";
-import { boundedLevenshtein, splitToSet, stripDiacritics, writeBigramCodes } from "@/utils/media-match.utils";
+import { getPathname, matchesIfNoneMatch } from "@/utils/http.utils";
+import { writeBigramCodes } from "@/utils/media-match/bigram.utils";
+import { boundedLevenshtein } from "@/utils/media-match/fuzzy.matcher";
+import { splitToSet, stripDiacritics } from "@/utils/media-match/normalize.utils";
+import { getTrustedOriginPatterns } from "@/utils/origin-trust.utils";
 import { profilePinFingerprint } from "@/utils/profile-unlock.utils";
 import { deriveSecretKey } from "@/utils/secret-crypto.utils";
 import { parseColonSeparatedSeconds } from "@/utils/time.utils";
-import { resolveWebDistRoot } from "@/web/web-dist";
 
 export const meta = {
 	description: "A/B implementation pairs (cache keys, LRU touch, parsers, hashing, compression) — informs, never auto-adopts",

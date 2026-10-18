@@ -1,98 +1,88 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { stubMethod } from "../../../tests/helpers/method-stub";
-import { enqueueWithOperation } from "./worker-operation-enqueue";
+import { describe, expect, test } from "bun:test";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { enqueueWithOperation } from "./worker-operation.service";
 import { workerOperationsService } from "./worker-operations.service";
 
-const createdOperations: string[] = [];
-const removedOperations: string[] = [];
-const cancelledOperations: string[] = [];
+// Operations and jobs are written to the migrated test database; nothing here is stubbed.
+useTestDatabase();
 
-const activeStubs: Array<{ restore(): void }> = [];
-
-beforeEach(async () => {
-	createdOperations.length = 0;
-	removedOperations.length = 0;
-	cancelledOperations.length = 0;
-
-	const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-	activeStubs.push(
-		stubMethod(workerOperationsService, "create", () => {
-			const id = `op-${createdOperations.length + 1}`;
-			createdOperations.push(id);
-
-			return Promise.resolve({ id });
-		}),
-		stubMethod(workerOperationsService, "remove", (id: string) => {
-			removedOperations.push(id);
-
-			return Promise.resolve();
-		}),
-		stubMethod(workerJobRepository, "cancelPendingByOperation", (operationId: string) => {
-			cancelledOperations.push(operationId);
-
-			return Promise.resolve(0);
-		}),
-	);
-});
-
-afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
-});
+/** Inserts one pending job under the operation, as a batch enqueue does before it fails. */
+function insertJob(operationId: string) {
+	return workerJobRepository.enqueue({
+		id: Bun.randomUUIDv7(),
+		workerId: "w-enqueue",
+		operationId,
+		data: "{}",
+		priority: 0,
+		maxAttempts: 1,
+		backoffType: "exponential",
+		backoffDelayMs: 1_000,
+		runAt: new Date(),
+	});
+}
 
 describe("enqueueWithOperation failure cleanup", () => {
 	test("cancels partially inserted jobs and removes the created operation when the enqueue fails", async () => {
 		const failure = new Error("batch insert failed midway");
+		let operationId = "";
+		let jobId = "";
 
 		await expect(
-			enqueueWithOperation({ type: "test-worker" }, () => {
+			enqueueWithOperation({ type: "test-worker" }, async (id) => {
+				operationId = id;
+				jobId = (await insertJob(id)).id;
+
 				throw failure;
 			}),
-		).rejects.toThrow(failure);
+		).rejects.toBe(failure);
 
-		expect(createdOperations).toEqual(["op-1"]);
-		expect(cancelledOperations).toEqual(["op-1"]);
-		expect(removedOperations).toEqual(["op-1"]);
+		expect(await workerOperationRepository.findById(operationId)).toBeUndefined();
+		expect(await workerJobRepository.findItem(jobId)).toMatchObject({ status: "cancelled" });
 	});
 
-	test("keeps a caller-supplied operation untouched when the enqueue fails", async () => {
+	test("keeps a caller-supplied operation and its jobs untouched when the enqueue fails", async () => {
+		const failure = new Error("nope");
+		const operation = await workerOperationsService.create({ type: "test-worker" });
+		let jobId = "";
+
 		await expect(
 			enqueueWithOperation(
 				{ type: "test-worker" },
-				() => {
-					throw new Error("nope");
-				},
-				{ operationId: "op-supplied" },
-			),
-		).rejects.toThrow("nope");
+				async (id) => {
+					jobId = (await insertJob(id)).id;
 
-		expect(createdOperations).toEqual([]);
-		expect(cancelledOperations).toEqual([]);
-		expect(removedOperations).toEqual([]);
+					throw failure;
+				},
+				{ operationId: operation.id },
+			),
+		).rejects.toBe(failure);
+
+		expect(await workerOperationRepository.findById(operation.id)).toBeDefined();
+		expect(await workerJobRepository.findItem(jobId)).toMatchObject({ status: "pending" });
 	});
 
-	test("does not cancel or remove anything when the enqueue succeeds", async () => {
-		const result = await enqueueWithOperation({ type: "test-worker" }, (operationId) => Promise.resolve(`queued:${operationId}`));
+	test("returns the enqueue result with its operation id and keeps the operation on success", async () => {
+		const { operationId, result } = await enqueueWithOperation({ type: "test-worker" }, async (id) => {
+			await insertJob(id);
 
-		expect(result).toEqual({ operationId: "op-1", result: "queued:op-1" });
-		expect(cancelledOperations).toEqual([]);
-		expect(removedOperations).toEqual([]);
+			return `queued:${id}`;
+		});
+
+		expect(result).toBe(`queued:${operationId}`);
+		expect(await workerOperationRepository.findById(operationId)).toBeDefined();
 	});
 
 	test("removes a fresh operation whose enqueue deduped onto another one", async () => {
-		const result = await enqueueWithOperation({ type: "test-worker" }, () => Promise.resolve("winner-op"), {
-			isAttached: (enqueuedOperationId, operationId) => enqueuedOperationId === operationId,
+		const winner = await workerOperationsService.create({ type: "test-worker" });
+
+		const { operationId, result } = await enqueueWithOperation({ type: "test-worker" }, async () => winner.id, {
+			isAttached: (result, operationId) => result === operationId,
 		});
 
-		expect(result).toEqual({ operationId: "op-1", result: "winner-op" });
-		expect(removedOperations).toEqual(["op-1"]);
-		expect(cancelledOperations).toEqual([]);
-	});
-
-	test("keeps the fresh operation when the enqueue attached to it", async () => {
-		await enqueueWithOperation({ type: "test-worker" }, (operationId) => Promise.resolve(operationId), {
-			isAttached: (enqueuedOperationId, operationId) => enqueuedOperationId === operationId,
-		});
-
-		expect(removedOperations).toEqual([]);
+		expect(result).toBe(winner.id);
+		expect(await workerOperationRepository.findById(operationId)).toBeUndefined();
+		expect(await workerOperationRepository.findById(winner.id)).toBeDefined();
 	});
 });

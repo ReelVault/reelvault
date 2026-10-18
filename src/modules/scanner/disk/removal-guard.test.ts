@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { RemovalGuard } from "./removal-guard";
+import { RemovalGuard } from "./removal.guard";
 
 function createGuard(existence: (path: string) => Promise<"exists" | "missing" | "unavailable">) {
 	return new RemovalGuard({ existence, getIoConcurrency: () => 4 });
@@ -134,7 +134,7 @@ describe("RemovalGuard", () => {
 		expect(assessment.skipRemovals).toBeTrue();
 	});
 
-	test("allows removals when every configured root is reachable", async () => {
+	test("removes a missing file when its configured root is reachable", async () => {
 		existingPaths.add("/media/movies");
 
 		const assessment = await guard.assess({
@@ -145,6 +145,7 @@ describe("RemovalGuard", () => {
 			filesOnDiskCount: 9,
 		});
 
+		expect(assessment.removedFiles).toEqual(["/media/movies/a.mkv"]);
 		expect(assessment.storageUnavailable).toBeFalse();
 		expect(assessment.skipRemovals).toBeFalse();
 	});
@@ -155,6 +156,6 @@ describe("RemovalGuard", () => {
 
 		await expect(
 			guard.assess({ libraryId: "lib-1", candidates: ["/media/a.mkv"], existingCount: 10, filesOnDiskCount: 8, signal: controller.signal }),
-		).rejects.toThrow();
+		).rejects.toMatchObject({ name: "AbortError" });
 	});
 });

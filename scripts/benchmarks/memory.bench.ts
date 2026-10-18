@@ -13,16 +13,16 @@ import {
 	type TaskMetrics,
 	task,
 } from "benchkit";
-import { authHeaders, identityIndexFor, workerCookie } from "./lib/identity";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { authHeaders, identityIndexFor, workerCookie } from "./lib/identity.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * RSS-under-load suite: replays a realistic read mix and a write mix against
  * the managed server while sampling the server process's resident set size.
  * Catches unbounded-growth regressions (caches, session maps, buffers) that
  * per-request latency suites never surface. The trend detector lives in
- * scripts/memory-check.ts; this suite records the load-bearing numbers
+ * scripts/memory-check.script.ts; this suite records the load-bearing numbers
  * (start/peak/end RSS per phase) alongside throughput.
  */
 

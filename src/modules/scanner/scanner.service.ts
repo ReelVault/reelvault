@@ -1,17 +1,16 @@
 import { sleep } from "bun";
-import { toDomainError } from "@/application/context";
-import { databaseFactory } from "@/database/database";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { collectKeysetPages } from "@/database/utils/keyset-pages";
+import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { episodeRangeSpan, parseFileName } from "@/modules/recognition/utils/recognition.utils";
+import { type ScanStatsRow, scannerStorage } from "@/modules/scanner/scanner.ports";
 import { toMap } from "@/utils/array.utils";
-import { createLogger } from "@/utils/logger";
+import { throwIfAborted } from "@/utils/cancellation.utils";
+import { toDomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { runSafely } from "@/utils/safe-execute";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
-import { fileScannerService } from "./disk/file-scanner";
-import { type RemovalGuard, removalGuard } from "./disk/removal-guard";
-import { type StaleArtifactCleaner, staleArtifactCleaner } from "./processing/stale-artifact-cleaner";
+import { runSafely } from "@/utils/safe-execute.utils";
+import { fileScannerService } from "./disk/file.scanner";
+import { type RemovalGuard, removalGuard } from "./disk/removal.guard";
+import { type StaleArtifactCleaner, staleArtifactCleaner } from "./processing/stale-artifact.cleaner";
 import type { LibraryScanResult, LibraryType } from "./scanner.types";
 import { filterPathsWithinRoots } from "./utils/scanner.utils";
 
@@ -43,13 +42,6 @@ function collectNewFiles(filesOnDisk: readonly string[], type: LibraryType, path
 	return newFiles;
 }
 
-interface ScanStatsRow {
-	id: string;
-	filePath: string;
-	size: number | null;
-	sourceMtimeMs: number | null;
-}
-
 interface ServiceDependencies {
 	findStatsPage: (libraryId: string, cursor: string | undefined, limit: number) => Promise<ScanStatsRow[]>;
 	discover: (
@@ -61,7 +53,7 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	findStatsPage: (libraryId, cursor, limit) => mediaRepository.findStatsByLibraryIdPage(libraryId, cursor, limit),
+	findStatsPage: (libraryId, cursor, limit) => scannerStorage().findStatsPage(libraryId, cursor, limit),
 	discover: async (paths, signal) => {
 		const scannedEntries = await fileScannerService.scanWithStats({ paths, signal });
 
@@ -199,7 +191,7 @@ export class ScannerService {
 				// A scan can add/remove many rows; refresh planner statistics so the
 				// paginated browse path keeps using the composite indexes. `optimize`
 				// re-analyses only the changed tables instead of the whole schema.
-				databaseFactory.optimize();
+				scannerStorage().optimizeDatabase();
 
 				return { filePaths: filesOnDisk, newFilePaths: newFiles, changedMediaFileIds: changedFiles, removedFilePaths };
 			},

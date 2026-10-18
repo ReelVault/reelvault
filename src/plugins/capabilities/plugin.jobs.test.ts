@@ -21,7 +21,6 @@ describe("plugin job clamps", () => {
 		registered.push(names);
 
 		const definition = workerService.getDefinitions().find((candidate) => candidate.id === names[0]);
-		expect(definition).toBeDefined();
 		expect(definition?.concurrency).toBeGreaterThanOrEqual(1);
 		expect(definition?.concurrency).toBeLessThanOrEqual(8);
 		// `timeoutMs` scales with measured hardware, so allow the 2x slow-core headroom.
@@ -35,7 +34,7 @@ describe("plugin job clamps", () => {
 		expect(names).toEqual(["org.reelvault.trickplay:generate"]);
 	});
 
-	test("leaves an unspecified concurrency for hardware-based allocation", async () => {
+	test("registers a job with a positive concurrency when none is declared", async () => {
 		const names = await pluginJobsService.register("org.reelvault.clamp", [{ name: "auto", handler: async () => undefined }]);
 		registered.push(names);
 

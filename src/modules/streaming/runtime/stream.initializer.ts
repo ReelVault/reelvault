@@ -1,0 +1,77 @@
+import type { PlaybackDecision } from "@reelvault/sdk/common";
+import { toDomainError } from "@/utils/domain.errors";
+import type { ApplicationContext } from "@/utils/task-context.types";
+import { streamingManager } from "./streaming.manager";
+
+export interface StreamInitData {
+	sessionId: string;
+	mediaFileId: string;
+	filePath: string;
+	decision: PlaybackDecision;
+}
+
+export interface StreamInitResult {
+	success: boolean;
+	message: string;
+}
+
+export interface StreamInitializerDependencies {
+	startSession(sessionId: string, filePath: string, decision: PlaybackDecision, startTime: number, operationId?: string): Promise<void>;
+	discardSession(sessionId: string): Promise<void>;
+	releaseSessionReservation(sessionId: string): void;
+}
+
+const defaultDependencies: StreamInitializerDependencies = {
+	startSession: (sessionId, filePath, decision, startTime, operationId) =>
+		streamingManager.startSession({ sessionId, inputPath: filePath, decision, startTime, operationId }),
+	discardSession: (sessionId) => streamingManager.discardSession(sessionId),
+	releaseSessionReservation: (sessionId) => streamingManager.releaseSessionReservation(sessionId),
+};
+
+export class StreamInitializer {
+	private readonly dependencies: StreamInitializerDependencies;
+
+	constructor(dependencies: StreamInitializerDependencies = defaultDependencies) {
+		this.dependencies = dependencies;
+	}
+
+	async initialize(data: StreamInitData, context: ApplicationContext): Promise<StreamInitResult> {
+		try {
+			context.signal?.throwIfAborted();
+			context.logger?.debug("Starting session", {
+				sessionId: data.sessionId,
+				mediaFileId: data.mediaFileId,
+				mode: data.decision.mode,
+			});
+
+			let failure: ReturnType<typeof toDomainError> | undefined;
+			try {
+				await this.dependencies.startSession(data.sessionId, data.filePath, data.decision, 0, context.correlationId);
+				context.signal?.throwIfAborted();
+			} catch (error) {
+				failure = toDomainError(error, `Stream initialization failed: ${data.sessionId}`);
+			}
+
+			try {
+				this.dependencies.releaseSessionReservation(data.sessionId);
+			} catch (releaseError) {
+				failure ??= toDomainError(releaseError, `Stream reservation cleanup failed: ${data.sessionId}`);
+			}
+
+			// discardSession() no-ops while the reservation is pending — releasing it must run first, or the access entry leaks forever.
+			try {
+				await this.dependencies.discardSession(data.sessionId);
+			} catch (discardError) {
+				failure ??= toDomainError(discardError, `Stream cleanup failed: ${data.sessionId}`);
+			}
+
+			if (failure) throw failure;
+
+			return { success: true, message: `Session started for ${data.sessionId}` };
+		} catch (error) {
+			throw toDomainError(error, `Stream initialization failed: ${data.sessionId}`);
+		}
+	}
+}
+
+export const streamInitializer = new StreamInitializer();

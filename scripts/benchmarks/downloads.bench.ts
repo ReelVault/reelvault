@@ -1,9 +1,9 @@
 import { fmtMb, fmtMs, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { sleep } from "bun";
 
-import { authHeaders } from "./lib/identity";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { authHeaders } from "./lib/identity.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * Downloads suite. Zero coverage before this existed: enqueue → ffmpeg

@@ -1,116 +1,123 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
-import { workerService } from "@/workers/worker.service";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { enqueueTrickplayGenerationForLibrary } from "./trickplay-generate.worker";
+import type { WorkerDefinition } from "@reelvault/sdk";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { getWorkerRuntime, setWorkerRuntime } from "@/workers/core/worker.runtime";
+import { WorkerQueueService } from "@/workers/core/worker-queue.service";
+import { createMockWorkerRuntime } from "@/workers/core/worker-runtime.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { enqueueTrickplayGenerationForLibrary, trickplayGenerateWorker } from "./trickplay-generate.worker";
 
-const activeStubs: Array<{ restore(): void }> = [];
+// Operations and jobs run against the migrated test database through the real queue. The worker
+// runtime's registry is the only fake: it decides which worker ids exist. The worker pool never runs anything.
+const db = useTestDatabase();
+const definition: WorkerDefinition = { id: trickplayGenerateWorker.id, handler: async () => undefined };
+// The service singleton installs the production runtime at import; restore it so other files keep it.
+const previousRuntime = getWorkerRuntime();
 
 beforeEach(() => {
-	activeStubs.length = 0;
+	setWorkerRuntime({
+		...createMockWorkerRuntime({ registry: { get: (id: string) => (id === definition.id ? definition : undefined) } }),
+		queue: new WorkerQueueService(),
+	});
 });
 
 afterEach(() => {
-	for (const stub of activeStubs.toReversed()) stub.restore();
+	setWorkerRuntime(previousRuntime);
 });
 
-interface CapturedEnqueue {
-	operationId?: string;
-	dedupeKey?: string;
-	reference?: { type: string; id: string };
+async function operationRows() {
+	return await db.client().select().from(schema.workerOperations);
 }
 
-function stubOperationCreation(): { created: string[] } {
-	const created: string[] = [];
-	activeStubs.push(
-		stubMethod(workerService, "createOperation", (input: { type: string }) => {
-			const id = `op-${created.length + 1}`;
-			created.push(id);
-
-			return Promise.resolve({ id, type: input.type });
-		}),
-	);
-
-	return { created };
+async function jobRows() {
+	return await db.client().select().from(schema.workerJobs);
 }
 
 describe("enqueueTrickplayGenerationForLibrary", () => {
-	test("creates a library operation and attaches the first job to it", async () => {
-		const { created } = stubOperationCreation();
-		const removed: string[] = [];
-		const enqueued: CapturedEnqueue[] = [];
-		activeStubs.push(
-			stubMethod(workerOperationRepository, "findActiveByReference", () => Promise.resolve(undefined)),
-			stubMethod(workerService, "addItem", (_workerId: string, _data: unknown, options: CapturedEnqueue) => {
-				enqueued.push(options);
-
-				return Promise.resolve({ id: "job-1", operationId: options.operationId });
-			}),
-			stubMethod(workerService, "removeOperation", (id: string) => {
-				removed.push(id);
-
-				return Promise.resolve();
-			}),
-		);
-
+	test("opens a library operation and attaches the file's job to it", async () => {
 		const item = await enqueueTrickplayGenerationForLibrary("mf-1", "library-a");
 
-		expect(created).toEqual(["op-1"]);
-		expect(enqueued).toEqual([{ operationId: "op-1", dedupeKey: "mf-1", reference: { type: "media-file", id: "mf-1" } }]);
-		expect(removed).toHaveLength(0);
-		expect(item).toMatchObject({ operationId: "op-1" });
+		const [operation] = await operationRows();
+		expect(operation).toMatchObject({ type: trickplayGenerateWorker.id, referenceType: "library", referenceId: "library-a" });
+		if (!operation) throw new Error("Expected the enqueue to open an operation");
+		expect(item.operationId).toBe(operation.id);
+		expect(await jobRows()).toMatchObject([
+			{
+				workerId: trickplayGenerateWorker.id,
+				operationId: operation.id,
+				dedupeKey: "mf-1",
+				referenceType: "media-file",
+				referenceId: "mf-1",
+			},
+		]);
 	});
 
-	test("joins the active library operation instead of creating a new one", async () => {
-		const { created } = stubOperationCreation();
-		const enqueued: CapturedEnqueue[] = [];
-		activeStubs.push(
-			stubMethod(workerOperationRepository, "findActiveByReference", () => Promise.resolve({ id: "op-active" })),
-			stubMethod(workerService, "addItem", (_workerId: string, _data: unknown, options: CapturedEnqueue) => {
-				enqueued.push(options);
+	test("attaches later files of the same library to the open operation", async () => {
+		const first = await enqueueTrickplayGenerationForLibrary("mf-2a", "library-b");
+		const second = await enqueueTrickplayGenerationForLibrary("mf-2b", "library-b");
 
-				return Promise.resolve({ id: "job-2", operationId: options.operationId });
-			}),
-		);
-
-		await enqueueTrickplayGenerationForLibrary("mf-2", "library-b");
-
-		expect(created).toHaveLength(0);
-		expect(enqueued).toEqual([{ operationId: "op-active", dedupeKey: "mf-2", reference: { type: "media-file", id: "mf-2" } }]);
+		expect(await operationRows()).toHaveLength(1);
+		expect(second.operationId).toBe(first.operationId);
+		expect((await jobRows()).map((job) => job.operationId)).toEqual([first.operationId, first.operationId]);
 	});
 
-	test("removes the fresh operation when the job dedupes onto another operation", async () => {
-		stubOperationCreation();
-		const removed: string[] = [];
-		activeStubs.push(
-			stubMethod(workerOperationRepository, "findActiveByReference", () => Promise.resolve(undefined)),
-			stubMethod(workerService, "addItem", () => Promise.resolve({ id: "job-3", operationId: "op-elsewhere" })),
-			stubMethod(workerService, "removeOperation", (id: string) => {
-				removed.push(id);
+	test("opens a new operation once the library's last one has finished", async () => {
+		await db.client().insert(schema.workerOperations).values({
+			id: "op-done",
+			type: trickplayGenerateWorker.id,
+			status: "completed",
+			referenceType: "library",
+			referenceId: "library-e",
+		});
 
-				return Promise.resolve();
-			}),
-		);
+		const item = await enqueueTrickplayGenerationForLibrary("mf-5", "library-e");
 
-		await enqueueTrickplayGenerationForLibrary("mf-3", "library-c");
-
-		expect(removed).toEqual(["op-1"]);
+		const fresh = (await operationRows()).find((row) => row.id === item.operationId);
+		expect(item.operationId).not.toBe("op-done");
+		expect(fresh).toMatchObject({ status: "pending", referenceType: "library", referenceId: "library-e" });
 	});
 
-	test("removes the fresh operation and rethrows when the enqueue fails", async () => {
-		stubOperationCreation();
-		const removed: string[] = [];
-		activeStubs.push(
-			stubMethod(workerOperationRepository, "findActiveByReference", () => Promise.resolve(undefined)),
-			stubMethod(workerService, "addItem", () => Promise.reject(new Error("enqueue failed"))),
-			stubMethod(workerService, "removeOperation", (id: string) => {
-				removed.push(id);
+	test("drops the fresh operation when the file's job already exists under another operation", async () => {
+		await db.client().insert(schema.workerOperations).values({ id: "op-elsewhere", type: trickplayGenerateWorker.id });
+		await db.client().insert(schema.workerJobs).values({
+			id: "job-existing",
+			workerId: trickplayGenerateWorker.id,
+			operationId: "op-elsewhere",
+			dedupeKey: "mf-3",
+			data: "{}",
+			status: "pending",
+			runAt: new Date(),
+		});
 
-				return Promise.resolve();
-			}),
-		);
+		const item = await enqueueTrickplayGenerationForLibrary("mf-3", "library-c");
 
-		await expect(enqueueTrickplayGenerationForLibrary("mf-4", "library-d")).rejects.toThrow("enqueue failed");
-		expect(removed).toEqual(["op-1"]);
+		expect(item).toMatchObject({ id: "job-existing", operationId: "op-elsewhere" });
+		expect((await operationRows()).map((row) => row.id)).toEqual(["op-elsewhere"]);
+		expect(await jobRows()).toHaveLength(1);
+	});
+
+	test("files enqueued at the same time share one library operation", async () => {
+		// Both calls start before either finishes its lookup. The per-library lock is what keeps them to one operation.
+		const items = await Promise.all([
+			enqueueTrickplayGenerationForLibrary("mf-6a", "library-d"),
+			enqueueTrickplayGenerationForLibrary("mf-6b", "library-d"),
+		]);
+
+		const [operation] = await operationRows();
+		if (!operation) throw new Error("Expected the enqueues to open an operation");
+		expect(await operationRows()).toHaveLength(1);
+		expect(items.map((item) => item.operationId)).toEqual([operation.id, operation.id]);
+		expect(await jobRows()).toHaveLength(2);
+	});
+
+	test("removes the fresh operation and rethrows when the enqueue is refused", async () => {
+		// With no registered worker the real queue refuses the job, and the operation it opened must not be left behind.
+		setWorkerRuntime({ ...createMockWorkerRuntime({ registry: { get: () => undefined } }), queue: new WorkerQueueService() });
+
+		await expect(enqueueTrickplayGenerationForLibrary("mf-7", "library-f")).rejects.toMatchObject({
+			category: "not_found",
+			code: "worker.not_found",
+		});
+		expect(await operationRows()).toEqual([]);
 	});
 });

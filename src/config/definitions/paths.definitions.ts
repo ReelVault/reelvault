@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { env } from "@/env";
-import { SystemSettingsCreator } from "../system-settings.utils";
+import { env } from "@/config/env.config";
+import { SystemSettingsCreator } from "@/config/system-settings.utils";
 
 const creator = SystemSettingsCreator("system");
 

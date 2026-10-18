@@ -1,15 +1,14 @@
-import { type ApplicationContext, toDomainError } from "@/application/context";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
+import { serverConfig } from "@/config/server/server.config";
 import { mapChaptersToMarkers } from "@/modules/scanner/probe/chapters-to-markers.utils";
 import { mapMediaFileData } from "@/modules/scanner/probe/media-probe.mapper";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
-import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { serverConfig } from "@/server.config";
-import { assertFound } from "@/utils/errors";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { assertFound, toDomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
+import type { ApplicationContext } from "@/utils/task-context.types";
 import { enqueueTrickplayGenerationForLibrary } from "@/workers/definitions/media/trickplay-generate.worker";
+import { workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -27,7 +26,7 @@ export const mediaFileTechnicalRefreshWorker = createWorkerDefinition<{ mediaFil
 async function refreshMediaFileTechnicalData(mediaFileId: string, context: ApplicationContext = {}) {
 	try {
 		context.signal?.throwIfAborted();
-		const mediaFile = await mediaRepository.findForTechnicalRefresh(mediaFileId);
+		const mediaFile = await workerDependencies().media.findForTechnicalRefresh(mediaFileId);
 		assertFound(mediaFile, "MediaFile", mediaFileId);
 
 		const [probe, stats] = await Promise.all([
@@ -50,11 +49,11 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 
 		const data = mapMediaFileData(PathUtils.getFileName(mediaFile.filePath), probe);
 		const sourceMtimeMs = Math.floor(stats.mtimeMs);
-		const prevAudioKeys = mediaFile.audioStreams.map((s) => `${s.index}:${s.codecName}:${s.language ?? ""}`).join("|");
+		const previousAudioKeys = mediaFile.audioStreams.map((s) => `${s.index}:${s.codecName}:${s.language ?? ""}`).join("|");
 		const newAudioKeys = data.audioStreams.map((s) => `${s.index}:${s.codecName}:${s.language ?? ""}`).join("|");
-		const audioChanged = prevAudioKeys !== newAudioKeys;
+		const audioChanged = previousAudioKeys !== newAudioKeys;
 
-		await mediaRepository.replaceTechnicalData({
+		await workerDependencies().media.replaceTechnicalData({
 			mediaFileId,
 			data,
 			size: stats.size,
@@ -64,7 +63,7 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 		// Chapter-derived intro/credits/recap markers. Scoped replace touches only
 		// `source: "automatic"` rows — manual and plugin markers are never touched,
 		// and chapters disappearing from the file clears the automatic set.
-		await mediaMarkersRepository.replaceMarkersForMediaFile(
+		await workerDependencies().mediaMarkers.replaceMarkersForMediaFile(
 			mediaFileId,
 			mapChaptersToMarkers(probe.chapters ?? []).map((marker) => ({
 				type: marker.type,

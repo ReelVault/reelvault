@@ -1,0 +1,47 @@
+import {
+	CollectionWithRelationsSchema,
+	ProjectedResponseSchema,
+	SuccessResponseSchema,
+	UpdateCollectionOrderSchema,
+	UpdateCollectionSchema,
+} from "@reelvault/sdk/common";
+import { collectionsService } from "@/app/catalog/collections.service";
+import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { CollectionIdParams } from "@/app/http/schemas/route-params.schema";
+import { MINUTE } from "@/config/server/server.constants";
+import { adminShell } from "./admin-shell.routes";
+
+export const adminCollectionsRoutes = adminShell({ tags: ["Admin"] })
+	.model({
+		"admin.collection": ProjectedResponseSchema(CollectionWithRelationsSchema),
+		"admin.updateCollection": UpdateCollectionSchema,
+		"admin.updateCollectionOrder": UpdateCollectionOrderSchema,
+	})
+	.patch(
+		"/collections/:collectionId",
+		async ({ params, body, query, user, request }) =>
+			await collectionsService.update(params.collectionId, body, query, { actorUserId: user?.id, headers: request.headers }),
+		{
+			rateLimit: { name: "admin-collections-update", max: 30, windowMs: MINUTE },
+			params: CollectionIdParams,
+			body: "admin.updateCollection",
+			query: "fields.schema",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.collection" },
+			detail: { description: "Update a collection's display name or ordering mode." },
+		},
+	)
+	.put(
+		"/collections/:collectionId/order",
+		async ({ params, body, user, request }) =>
+			await collectionsService.updateManualOrder(params.collectionId, body.metadataIds, {
+				actorUserId: user?.id,
+				headers: request.headers,
+			}),
+		{
+			rateLimit: { name: "admin-collections-order", max: 30, windowMs: MINUTE },
+			params: CollectionIdParams,
+			body: "admin.updateCollectionOrder",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
+			detail: { description: "Persist a manually configured order of metadata items within a collection." },
+		},
+	);

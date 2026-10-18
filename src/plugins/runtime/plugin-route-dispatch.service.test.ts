@@ -1,11 +1,55 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { stubMethod } from "../../../tests/helpers/method-stub";
-import { PluginRouteValidationError, type ResolvedPluginRoute } from "./plugin.routes";
+import type { PluginHttpRequest, PluginHttpRoute, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import { Type } from "@sinclair/typebox";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { pluginRoutesRegistry } from "./plugin.routes";
 import { type PluginRouteDispatchInput, pluginRouteDispatchService } from "./plugin-route-dispatch.service";
+
+// Routes, plugin state and users run against the real registries and the migrated test database.
+// The plugin's own route handler is the only fake: it stands in for code a plugin directory would load.
+const db = useTestDatabase();
+const PLUGIN_ID = "org.reelvault.routed";
+const manifest: PluginManifest = { id: PLUGIN_ID, name: "Routed plugin", version: "1.0.0", entry: "./dist/index.js", capabilities: [] };
+const plugin: ReelVaultPlugin = { setup: async () => undefined };
+
+/** Requests the route handler received, in order. */
+const handled: PluginHttpRequest[] = [];
+
+function echoRoute(overrides: Partial<PluginHttpRoute> = {}): PluginHttpRoute {
+	return {
+		method: "GET",
+		path: "/items/:id",
+		handler: (request) => {
+			handled.push(request);
+
+			return Promise.resolve({ body: { ok: true } });
+		},
+		...overrides,
+	};
+}
+
+/** Registers the plugin with its routes, then enables or disables it. */
+function registerPlugin(routes: PluginHttpRoute[], state: "enabled" | "disabled" = "enabled"): void {
+	const runtime: PluginRuntime = {
+		manifest,
+		plugin,
+		state: "discovered",
+		providerIds: [],
+		subtitleProviderIds: [],
+		analyzerIds: [],
+		jobNames: [],
+	};
+	pluginRegistry.register(runtime, []);
+	if (state === "enabled") pluginRegistry.enable(PLUGIN_ID);
+	else pluginRegistry.disable(PLUGIN_ID);
+	pluginRoutesRegistry.register(PLUGIN_ID, routes);
+}
 
 function createInput(overrides: Partial<PluginRouteDispatchInput> = {}): PluginRouteDispatchInput {
 	return {
-		pluginId: "org.reelvault.routed",
+		pluginId: PLUGIN_ID,
 		method: "GET",
 		path: "/items/42",
 		query: { page: "2" },
@@ -15,163 +59,118 @@ function createInput(overrides: Partial<PluginRouteDispatchInput> = {}): PluginR
 	};
 }
 
-function createResolvedRoute(access?: "admin" | "user"): ResolvedPluginRoute {
-	return {
-		route: { method: "GET", path: "/items/:id", handler: async () => ({ body: null }), ...(access !== undefined ? { access } : {}) },
-		params: { id: "42" },
-	};
-}
+beforeEach(async () => {
+	await db
+		.client()
+		.insert(schema.users)
+		.values([
+			{ id: "user-1", name: "Admin", email: "admin@example.test", emailVerified: true, role: "admin" },
+			{ id: "user-2", name: "Member", email: "member@example.test", emailVerified: true, role: "user" },
+		]);
+});
+
+afterEach(() => {
+	pluginRegistry.clear();
+	pluginRoutesRegistry.unregisterPlugin(PLUGIN_ID);
+	handled.length = 0;
+});
 
 describe("pluginRouteDispatchService", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
-	let dispatchStub: { calls: unknown[][]; restore(): void };
-
-	beforeEach(async () => {
-		activeStubs = [];
-		const { pluginRoutesRegistry } = await import("./plugin.routes");
-		const { pluginRegistry } = await import("@/plugins/lifecycle/plugin.registry");
-		const { usersRepository } = await import("@/database/repositories/users.repository");
-		dispatchStub = stubMethod(pluginRoutesRegistry, "dispatch", () => ({ body: { ok: true } }));
-		activeStubs.push(
-			stubMethod(pluginRoutesRegistry, "resolve", (pluginId: string, method: string) =>
-				pluginId === "org.reelvault.routed" && method === "GET" ? createResolvedRoute() : undefined,
-			),
-			dispatchStub,
-			stubMethod(pluginRegistry, "get", (pluginId: string) => (pluginId === "org.reelvault.routed" ? { state: "enabled" } : undefined)),
-			stubMethod(usersRepository, "findById", (userId: string) =>
-				userId === "user-1" ? { id: userId, role: "admin" } : { id: userId, role: "user" },
-			),
-		);
-	});
-
-	afterEach(() => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
-
-		activeStubs = [];
-	});
-
-	test("returns not_found when no route resolves", async () => {
-		const { pluginRoutesRegistry } = await import("./plugin.routes");
-		activeStubs.push(stubMethod(pluginRoutesRegistry, "resolve", () => undefined));
+	test("returns not_found when no route matches the path", async () => {
+		registerPlugin([echoRoute()]);
 
 		await expect(pluginRouteDispatchService.dispatch(createInput({ path: "/missing" }))).resolves.toEqual({ type: "not_found" });
 	});
 
-	test("returns not_found when the plugin is registered but not enabled", async () => {
-		const { pluginRegistry } = await import("@/plugins/lifecycle/plugin.registry");
-		activeStubs.push(stubMethod(pluginRegistry, "get", () => ({ state: "disabled" })));
+	test("returns not_found without running the handler when the plugin is disabled", async () => {
+		registerPlugin([echoRoute()], "disabled");
 
 		await expect(pluginRouteDispatchService.dispatch(createInput())).resolves.toEqual({ type: "not_found" });
+		expect(handled).toEqual([]);
 	});
 
-	test("rejects unauthenticated callers before touching the route", async () => {
+	test("rejects unauthenticated callers before the route handler runs", async () => {
+		registerPlugin([echoRoute()]);
+
 		await expect(pluginRouteDispatchService.dispatch(createInput({ user: { id: "" } }))).resolves.toEqual({
 			type: "forbidden",
 			message: "Authentication required",
 		});
-		expect(dispatchStub.calls).toEqual([]);
+		expect(handled).toEqual([]);
 	});
 
-	test("user access is the default and requires no role check", async () => {
-		await expect(pluginRouteDispatchService.dispatch(createInput({ user: { id: "user-1", role: "user" } }))).resolves.toEqual({
+	test("a route without an access rule is open to any signed-in user", async () => {
+		registerPlugin([echoRoute()]);
+
+		await expect(pluginRouteDispatchService.dispatch(createInput({ user: { id: "user-2", role: "user" } }))).resolves.toMatchObject({
 			type: "success",
 			status: 200,
 			body: { ok: true },
-			headers: undefined,
+		});
+	});
+});
+
+describe("pluginRouteDispatchService access rules", () => {
+	test("admin routes trust an admin role on the request without a database lookup", async () => {
+		registerPlugin([echoRoute({ access: "admin" })]);
+
+		// user-2 is stored as a plain user, so only the request's own role can make this pass.
+		await expect(pluginRouteDispatchService.dispatch(createInput({ user: { id: "user-2", role: "admin" } }))).resolves.toMatchObject({
+			type: "success",
+			status: 200,
 		});
 	});
 
-	test("admin access passes for admin role without a database lookup", async () => {
-		const { pluginRoutesRegistry } = await import("./plugin.routes");
-		activeStubs.push(stubMethod(pluginRoutesRegistry, "resolve", () => createResolvedRoute("admin")));
+	test("admin routes check the stored role when the request role is not admin", async () => {
+		registerPlugin([echoRoute({ access: "admin" })]);
 
-		const result = await pluginRouteDispatchService.dispatch(createInput({ user: { id: "user-1", role: "admin" } }));
-
-		expect(result).toMatchObject({ type: "success", status: 200 });
+		// user-1 is stored as an admin.
+		await expect(pluginRouteDispatchService.dispatch(createInput({ user: { id: "user-1", role: "user" } }))).resolves.toMatchObject({
+			type: "success",
+		});
 	});
 
-	test("admin access falls back to the stored user role for non-admin request roles", async () => {
-		const { pluginRoutesRegistry } = await import("./plugin.routes");
-		activeStubs.push(stubMethod(pluginRoutesRegistry, "resolve", () => createResolvedRoute("admin")));
-
-		const result = await pluginRouteDispatchService.dispatch(createInput({ user: { id: "user-1", role: "user" } }));
-
-		expect(result).toMatchObject({ type: "success" });
-	});
-
-	test("admin access is refused when the stored user is not an admin", async () => {
-		const { pluginRoutesRegistry } = await import("./plugin.routes");
-		const { usersRepository } = await import("@/database/repositories/users.repository");
-		activeStubs.push(
-			stubMethod(pluginRoutesRegistry, "resolve", () => createResolvedRoute("admin")),
-			stubMethod(usersRepository, "findById", () => ({ id: "user-2", role: "user" })),
-		);
+	test("admin routes refuse a caller whose stored role is not admin", async () => {
+		registerPlugin([echoRoute({ access: "admin" })]);
 
 		await expect(pluginRouteDispatchService.dispatch(createInput({ user: { id: "user-2", role: "user" } }))).resolves.toEqual({
 			type: "forbidden",
 			message: "Admin role required for this plugin route",
 		});
+		expect(handled).toEqual([]);
 	});
 });
 
-describe("pluginRouteDispatchService", () => {
-	let activeStubs: Array<{ restore(): void }> = [];
-	let dispatchStub: { calls: unknown[][]; restore(): void };
+describe("pluginRouteDispatchService request handling", () => {
+	test("reports a body that breaks the route's schema as invalid_request without running the handler", async () => {
+		registerPlugin([echoRoute({ method: "POST", path: "/items", body: Type.Object({ count: Type.Number() }) })]);
 
-	beforeEach(async () => {
-		activeStubs = [];
-		const { pluginRoutesRegistry } = await import("./plugin.routes");
-		const { pluginRegistry } = await import("@/plugins/lifecycle/plugin.registry");
-		const { usersRepository } = await import("@/database/repositories/users.repository");
-		dispatchStub = stubMethod(pluginRoutesRegistry, "dispatch", () => ({ body: { ok: true } }));
-		activeStubs.push(
-			stubMethod(pluginRoutesRegistry, "resolve", (pluginId: string, method: string) =>
-				pluginId === "org.reelvault.routed" && method === "GET" ? createResolvedRoute() : undefined,
-			),
-			dispatchStub,
-			stubMethod(pluginRegistry, "get", (pluginId: string) => (pluginId === "org.reelvault.routed" ? { state: "enabled" } : undefined)),
-			stubMethod(usersRepository, "findById", (userId: string) =>
-				userId === "user-1" ? { id: userId, role: "admin" } : { id: userId, role: "user" },
-			),
-		);
+		await expect(
+			pluginRouteDispatchService.dispatch(createInput({ method: "POST", path: "/items", body: { bad: true } })),
+		).resolves.toMatchObject({ type: "invalid_request" });
+		expect(handled).toEqual([]);
 	});
 
-	afterEach(() => {
-		for (const stub of activeStubs.toReversed()) stub.restore();
+	test("rethrows an error the route handler throws", async () => {
+		const handlerFailure = new Error("handler exploded");
+		registerPlugin([echoRoute({ handler: () => Promise.reject(handlerFailure) })]);
 
-		activeStubs = [];
+		await expect(pluginRouteDispatchService.dispatch(createInput())).rejects.toBe(handlerFailure);
 	});
 
-	test("maps schema validation errors to invalid_request and rethrows anything else", async () => {
-		const { pluginRoutesRegistry } = await import("./plugin.routes");
-		activeStubs.push(
-			stubMethod(pluginRoutesRegistry, "dispatch", () => {
-				throw new PluginRouteValidationError("Plugin HTTP body did not match its schema");
-			}),
-		);
+	test("passes params, query, headers and the caller to the handler, defaulting the role to user", async () => {
+		registerPlugin([echoRoute()]);
 
-		await expect(pluginRouteDispatchService.dispatch(createInput({ body: { bad: true } }))).resolves.toEqual({
-			type: "invalid_request",
-			message: "Plugin HTTP body did not match its schema",
-		});
-
-		activeStubs.push(
-			stubMethod(pluginRoutesRegistry, "dispatch", () => {
-				throw new Error("handler exploded");
-			}),
-		);
-		await expect(pluginRouteDispatchService.dispatch(createInput({ body: { bad: true } }))).rejects.toThrow("handler exploded");
-	});
-
-	test("forwards params, query, headers, and a defaulted user to the route handler", async () => {
 		await pluginRouteDispatchService.dispatch(createInput({ headers: { "x-custom": "1" }, user: { id: "user-9" } }));
 
-		expect(dispatchStub.calls[0]?.[1]).toEqual({
-			params: { id: "42" },
-			query: { page: "2" },
-			headers: { "x-custom": "1" },
-			body: undefined,
-			user: { id: "user-9", role: "user", profileId: undefined },
-		});
+		expect(handled).toEqual([
+			{
+				params: { id: "42" },
+				query: { page: "2" },
+				headers: { "x-custom": "1" },
+				body: undefined,
+				user: { id: "user-9", role: "user", profileId: undefined },
+			},
+		]);
 	});
 });

@@ -23,7 +23,10 @@ describe("PromiseUtils.mapConcurrent", () => {
 	});
 
 	it("rejects an invalid concurrency value", async () => {
-		await expect(PromiseUtils.mapConcurrent([1], 0, async (value) => value)).rejects.toThrow("Concurrency must be a positive integer");
+		await expect(PromiseUtils.mapConcurrent([1], 0, async (value) => value)).rejects.toMatchObject({
+			category: "internal",
+			code: "concurrency.invalid",
+		});
 	});
 });
 
@@ -60,32 +63,35 @@ describe("PromiseUtils.waitForFile", () => {
 
 	it("rejects when file does not appear within timeout", async () => {
 		const nonExistentPath = join(tmpdir(), `reelvault-test-nonexistent-${Date.now()}.txt`);
-		await expect(PromiseUtils.waitForFile(nonExistentPath, 100, 20)).rejects.toThrow("Timeout waiting for file");
+		await expect(PromiseUtils.waitForFile(nonExistentPath, 100, 20)).rejects.toMatchObject({
+			category: "timeout",
+			code: "file.wait_timeout",
+		});
 	});
 });
 
 describe("PromiseUtils.waitForFile abort support", () => {
-	it("rejects immediately when the signal is already aborted", async () => {
+	it("rejects with the abort reason when the signal is already aborted", async () => {
 		const controller = new AbortController();
-		controller.abort();
+		const reason = new Error("Cancelled before the wait");
+		controller.abort(reason);
 
 		await expect(
 			PromiseUtils.waitForFile(join(tmpdir(), `reelvault-test-aborted-${Date.now()}.txt`), 1000, 20, controller.signal),
-		).rejects.toThrow();
+		).rejects.toBe(reason);
 	});
 
-	it("rejects and stops waiting when the signal aborts mid-wait", async () => {
+	it("rejects with the abort reason when the signal aborts mid-wait", async () => {
 		const controller = new AbortController();
+		const reason = new Error("Cancelled mid-wait");
 		const tempPath = join(tmpdir(), `reelvault-test-abort-midwait-${Date.now()}.txt`);
 
 		const waitPromise = PromiseUtils.waitForFile(tempPath, 10_000, 20, controller.signal);
 		await Bun.sleep(20);
-		controller.abort();
+		controller.abort(reason);
 
-		await expect(waitPromise).rejects.toThrow();
-		// The file must never be created — the wait must end because of the abort,
-		// not because the file appeared.
-		expect(await file(tempPath).exists()).toBe(false);
+		// Identity: a timeout or the file appearing would settle the wait with a different outcome.
+		await expect(waitPromise).rejects.toBe(reason);
 	});
 
 	it("resolves normally when no signal is aborted", async () => {
@@ -137,9 +143,10 @@ describe("PromiseUtils.createSemaphore", () => {
 	test("rejects immediately when signal is already aborted", async () => {
 		const sem = PromiseUtils.createSemaphore(1);
 		const controller = new AbortController();
-		controller.abort(new Error("Pre-aborted"));
+		const reason = new Error("Pre-aborted");
+		controller.abort(reason);
 
-		await expect(sem.acquire(controller.signal)).rejects.toThrow("Pre-aborted");
+		await expect(sem.acquire(controller.signal)).rejects.toBe(reason);
 		expect(sem.activeCount).toBe(0);
 	});
 
@@ -151,8 +158,9 @@ describe("PromiseUtils.createSemaphore", () => {
 		const queued = sem.acquire(controller.signal);
 		expect(sem.queuedCount).toBe(1);
 
-		controller.abort(new Error("Cancelled while waiting"));
-		await expect(queued).rejects.toThrow("Cancelled while waiting");
+		const cancelled = new Error("Cancelled while waiting");
+		controller.abort(cancelled);
+		await expect(queued).rejects.toBe(cancelled);
 
 		// The slot freed by release goes to a subsequent acquire, not the aborted one
 		let nextAcquired = false;
@@ -167,6 +175,7 @@ describe("PromiseUtils.createSemaphore", () => {
 	});
 
 	test("run executes and releases cleanly", async () => {
+		const boom = new Error("Boom");
 		const sem = PromiseUtils.createSemaphore(1);
 		const result = await sem.run(() => {
 			expect(sem.activeCount).toBe(1);
@@ -178,9 +187,9 @@ describe("PromiseUtils.createSemaphore", () => {
 
 		await expect(
 			sem.run(() => {
-				throw new Error("Boom");
+				throw boom;
 			}),
-		).rejects.toThrow("Boom");
+		).rejects.toBe(boom);
 		expect(sem.activeCount).toBe(0);
 	});
 });

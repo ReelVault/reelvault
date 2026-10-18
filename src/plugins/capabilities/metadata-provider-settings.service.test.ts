@@ -1,11 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
-import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
-import { metadataProviderSettingsRepository } from "@/database/repositories/metadata-provider-settings.repository";
+import { libraryProviderSettingsRepository } from "@/app/repositories/library-provider-settings.repository";
+import { metadataProviderSettingsRepository } from "@/app/repositories/metadata-provider-settings.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";
 
+const db = useTestDatabase();
 const plugin: ReelVaultPlugin = { setup: async () => undefined };
 const manifest: PluginManifest = {
 	id: "provider-priority-test-plugin",
@@ -28,24 +30,6 @@ function createProvider(id: string): MetadataProvider {
 	};
 }
 
-test("the per-library override cache is bounded: the oldest library is read again after 200 others", async () => {
-	let firstLibraryReads = 0;
-	const listForLibrary = stubMethod(libraryProviderSettingsRepository, "listForLibrary", (libraryId: string) => {
-		if (libraryId === "cap-library-0") firstLibraryReads += 1;
-
-		return Promise.resolve([]);
-	});
-	try {
-		await metadataProviderSettingsService.getLibraryOverrides("cap-library-0");
-		for (let index = 1; index <= 200; index += 1) await metadataProviderSettingsService.getLibraryOverrides(`cap-library-${index}`);
-		await metadataProviderSettingsService.getLibraryOverrides("cap-library-0");
-
-		expect(firstLibraryReads).toBe(2);
-	} finally {
-		listForLibrary.restore();
-	}
-});
-
 function registerProviders(providers: MetadataProvider[]): void {
 	const runtime: PluginRuntime = {
 		manifest,
@@ -60,103 +44,71 @@ function registerProviders(providers: MetadataProvider[]): void {
 	pluginRegistry.enable(manifest.id);
 }
 
-const originalList = metadataProviderSettingsRepository.list;
-const originalUpsert = metadataProviderSettingsRepository.upsert;
-const originalReorder = metadataProviderSettingsRepository.reorder;
+async function orderedIds(): Promise<string[]> {
+	return (await metadataProviderSettingsService.getOrderedProviders()).map((provider) => provider.id);
+}
 
 afterEach(() => {
-	metadataProviderSettingsRepository.list = originalList;
-	metadataProviderSettingsRepository.upsert = originalUpsert;
-	metadataProviderSettingsRepository.reorder = originalReorder;
 	metadataProviderSettingsService.invalidateCache();
 	pluginRegistry.clear();
 });
 
-test("orders enabled providers by priority and stable provider id", async () => {
-	registerProviders([createProvider("z-provider"), createProvider("a-provider"), createProvider("disabled-provider")]);
-	metadataProviderSettingsRepository.list = async () => [
-		{ providerId: "z-provider", priority: 20, enabled: true, createdAt: new Date(), updatedAt: new Date() },
-		{ providerId: "a-provider", priority: 20, enabled: true, createdAt: new Date(), updatedAt: new Date() },
-		{ providerId: "disabled-provider", priority: 1, enabled: false, createdAt: new Date(), updatedAt: new Date() },
-	];
-	metadataProviderSettingsService.invalidateCache();
+test("the per-library override cache is bounded: a cached override is served until 200 other libraries push it out", async () => {
+	const [library] = await db
+		.client()
+		.insert(schema.libraries)
+		.values({ name: "Cap library", type: "movies" })
+		.returning({ id: schema.libraries.id });
+	if (!library) throw new Error("The library should be inserted");
+	await libraryProviderSettingsRepository.replaceForLibrary(library.id, [{ providerId: "provider-a", priority: 1, enabled: true }]);
+	expect((await metadataProviderSettingsService.getLibraryOverrides(library.id)).get("provider-a")?.priority).toBe(1);
 
-	expect((await metadataProviderSettingsService.getOrderedProviders()).map((provider) => provider.id)).toEqual([
-		"a-provider",
-		"z-provider",
-	]);
+	// Written straight to the table, so the service keeps serving its cached copy.
+	await libraryProviderSettingsRepository.replaceForLibrary(library.id, [{ providerId: "provider-a", priority: 9, enabled: true }]);
+	expect((await metadataProviderSettingsService.getLibraryOverrides(library.id)).get("provider-a")?.priority).toBe(1);
+
+	for (let index = 0; index < 200; index += 1) await metadataProviderSettingsService.getLibraryOverrides(`cap-library-${index}`);
+
+	expect((await metadataProviderSettingsService.getLibraryOverrides(library.id)).get("provider-a")?.priority).toBe(9);
+});
+
+test("orders enabled providers by priority, equal priorities by provider id, and leaves out disabled ones", async () => {
+	registerProviders([createProvider("z-provider"), createProvider("a-provider"), createProvider("disabled-provider")]);
+	await metadataProviderSettingsRepository.upsert("z-provider", { priority: 20, enabled: true });
+	await metadataProviderSettingsRepository.upsert("a-provider", { priority: 20, enabled: true });
+	await metadataProviderSettingsRepository.upsert("disabled-provider", { priority: 1, enabled: false });
+
+	expect(await orderedIds()).toEqual(["a-provider", "z-provider"]);
 });
 
 test("invalidates the provider order cache after an update", async () => {
 	registerProviders([createProvider("provider-a"), createProvider("provider-b")]);
-	const settings = [
-		{ providerId: "provider-a", priority: 10, enabled: true, createdAt: new Date(), updatedAt: new Date() },
-		{ providerId: "provider-b", priority: 20, enabled: true, createdAt: new Date(), updatedAt: new Date() },
-	];
-	metadataProviderSettingsRepository.list = async () => settings;
-	metadataProviderSettingsRepository.upsert = (providerId, values) => {
-		const current = settings.find((setting) => setting.providerId === providerId);
-		if (!current) throw new Error("missing setting");
+	await metadataProviderSettingsRepository.upsert("provider-a", { priority: 10, enabled: true });
+	await metadataProviderSettingsRepository.upsert("provider-b", { priority: 20, enabled: true });
+	expect(await orderedIds()).toEqual(["provider-a", "provider-b"]);
 
-		Object.assign(current, values);
-
-		return Promise.resolve(current);
-	};
-	metadataProviderSettingsService.invalidateCache();
-
-	expect((await metadataProviderSettingsService.getOrderedProviders()).map((provider) => provider.id)).toEqual([
-		"provider-a",
-		"provider-b",
-	]);
 	await metadataProviderSettingsService.update("provider-b", { priority: 0 });
-	expect((await metadataProviderSettingsService.getOrderedProviders()).map((provider) => provider.id)).toEqual([
-		"provider-b",
-		"provider-a",
-	]);
+
+	expect(await orderedIds()).toEqual(["provider-b", "provider-a"]);
 });
 
-test("reorder persists sequential priorities and returns the refreshed order", async () => {
+test("reorder persists the new order and returns the refreshed order", async () => {
 	registerProviders([createProvider("provider-a"), createProvider("provider-b")]);
-	const settings = [
-		{ providerId: "provider-a", priority: 10, enabled: true, createdAt: new Date(), updatedAt: new Date() },
-		{ providerId: "provider-b", priority: 20, enabled: true, createdAt: new Date(), updatedAt: new Date() },
-	];
-	metadataProviderSettingsRepository.list = async () => settings;
-	metadataProviderSettingsRepository.reorder = async (providerIds) => {
-		await Promise.resolve(
-			providerIds.forEach((providerId, index) => {
-				const current = settings.find((setting) => setting.providerId === providerId);
-				if (current) current.priority = (index + 1) * 10;
-			}),
-		);
-	};
-	metadataProviderSettingsService.invalidateCache();
+	await metadataProviderSettingsRepository.upsert("provider-a", { priority: 10, enabled: true });
+	await metadataProviderSettingsRepository.upsert("provider-b", { priority: 20, enabled: true });
 
 	const result = await metadataProviderSettingsService.reorder(["provider-b", "provider-a"]);
 
 	expect(result.map((provider) => provider.id)).toEqual(["provider-b", "provider-a"]);
-	expect((await metadataProviderSettingsService.getOrderedProviders()).map((provider) => provider.id)).toEqual([
-		"provider-b",
-		"provider-a",
-	]);
+	expect((await metadataProviderSettingsRepository.list()).map((setting) => setting.providerId)).toEqual(["provider-b", "provider-a"]);
+	expect(await orderedIds()).toEqual(["provider-b", "provider-a"]);
 });
 
 test("rejects reordering unknown providers", async () => {
 	registerProviders([createProvider("provider-a")]);
 
-	await expect(metadataProviderSettingsService.reorder(["provider-a", "ghost-provider"])).rejects.toThrow("Unknown metadata providers");
-});
-
-test("the per-library override cache stays bounded", async () => {
-	const original = libraryProviderSettingsRepository.listForLibrary;
-	libraryProviderSettingsRepository.listForLibrary = () => Promise.resolve([]);
-	try {
-		for (let index = 0; index < 500; index++) await metadataProviderSettingsService.getLibraryOverrides(`library-${index}`);
-
-		const cache: Map<string, unknown> = Reflect.get(metadataProviderSettingsService, "cachedLibraryOverrides");
-		expect(cache.size).toBeLessThanOrEqual(200);
-	} finally {
-		libraryProviderSettingsRepository.listForLibrary = original;
-		metadataProviderSettingsService.invalidateCache();
-	}
+	await expect(metadataProviderSettingsService.reorder(["provider-a", "ghost-provider"])).rejects.toMatchObject({
+		category: "validation",
+		code: "metadata.providers_unknown",
+	});
 });

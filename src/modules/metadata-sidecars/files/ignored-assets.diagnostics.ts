@@ -1,9 +1,9 @@
 import { readdir } from "node:fs/promises";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { toIgnoredAsset } from "./local-artwork-selector";
-import type { IgnoredLocalAsset } from "./local-media-grouping";
+import { toIgnoredAsset } from "./local-artwork.selector";
+import type { IgnoredLocalAsset } from "./local-media.utils";
 
 /** Bounds so a pathological tree cannot exhaust memory or hang the request. */
 const MAX_DEPTH = 10;

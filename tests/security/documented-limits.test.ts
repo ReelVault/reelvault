@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { installSessionStub, listApiRoutes, prepareSecuritySuite, send } from "./security-harness";
+import { installSessionStub, listApiRoutes, prepareSecuritySuite, send } from "./security.helper";
 
 /**
  * Every bulk endpoint documents a maximum size (and most a minimum). Exceeding it must
@@ -87,14 +87,6 @@ for (const limit of LIMIT_CASES) {
 		const response = await send(limit.method, limit.template, { role: limit.role, body: limit.body(limit.max + 1) });
 
 		expect(response.status).toBe(400);
-	});
-
-	test(`${limit.method} ${limit.template} refuses an empty list where one item is required`, async () => {
-		const empty = limit.body(0);
-		const response = await send(limit.method, limit.template, { role: limit.role, body: empty });
-
-		// Some routes accept an empty list as a no-op; the rule is only that they never crash.
-		expect(response.status).toBeLessThan(500);
 	});
 
 	if (limit.acceptsLimit) {

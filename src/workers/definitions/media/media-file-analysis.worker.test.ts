@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { PluginMediaFile } from "@reelvault/sdk/common";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { analyzeMediaFileTask } from "./media-file-analysis.worker";
 
 const activeStubs: Array<{ restore(): void }> = [];

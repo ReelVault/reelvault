@@ -249,6 +249,190 @@
 	},
 	"overrides": [
 		{
+			"includes": ["src/app/**", "!src/app/http/**", "!**/*.routes.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["elysia", "elysia/**"],
+										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. Other app code takes plain data."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/modules/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/app/**"],
+										"message": "Modules are engines with no app dependency. app wires their ports at startup."
+									},
+									{
+										"group": ["@/plugins/**", "@/workers/**"],
+										"message": "Modules don't depend on plugins or workers. They receive commands through ports."
+									},
+									{
+										"group": ["drizzle-orm", "drizzle-orm/**", "@/integrations/drizzle-orm/database.*"],
+										"message": "Modules don't touch the database. app does the lookups and passes data in."
+									},
+									{
+										"group": ["better-auth", "better-auth/**", "elysia", "elysia/**"],
+										"message": "Modules don't depend on the auth or HTTP frameworks."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/plugins/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/app/repositories/**"],
+										"message": "Plugins never import repositories. They go through app services (src/app/plugins/plugin-data.service.ts)."
+									},
+									{
+										"group": ["drizzle-orm", "drizzle-orm/**", "@/integrations/drizzle-orm/database.*"],
+										"message": "Plugins don't touch the database. Data comes through app services."
+									},
+									{
+										"group": ["better-auth", "better-auth/**", "elysia", "elysia/**"],
+										"message": "Plugins don't depend on the auth or HTTP frameworks."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/workers/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/app/**", "@/plugins/**"],
+										"message": "Workers get their stores and services injected at startup. They don't import app or plugins."
+									},
+									{
+										"group": ["drizzle-orm", "drizzle-orm/**", "elysia", "elysia/**"],
+										"message": "Workers reach data through injected ports, not the query builder or HTTP framework."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/system/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/app/**", "@/plugins/**", "@/workers/**", "@/modules/**"],
+										"message": "System supervisors don't depend on features. Their collaborators arrive through system ports."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/integrations/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**"],
+										"message": "Integrations are external processes and services. They don't depend on app, features, plugins, workers or system. Collaborators arrive through ports."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/utils/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**", "@/integrations/**"],
+										"message": "utils holds helpers with no application dependencies. Move the code to the layer that uses it."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/config/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**", "@/integrations/**"],
+										"message": "config is read at boot and depends on utils only."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
 			"includes": ["tests/sdk/common-barrel.test.ts"],
 			"linter": {
 				"rules": {
@@ -296,7 +480,7 @@
 			}
 		},
 		{
-			"includes": ["src/database/schema.ts"],
+			"includes": ["src/integrations/drizzle-orm/database.schema.ts"],
 			"linter": {
 				"rules": {
 					"performance": {

@@ -1,9 +1,9 @@
+import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { spawnAndCollect } from "@/integrations/ffmpeg/ffmpeg.process-runner";
-import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils, fileStatSignature } from "@/utils/file.utils";
-import { MemoryCache } from "@/utils/memory-cache";
+import { MemoryCache } from "@/utils/memory.cache";
 import { isRecord } from "@/utils/type.utils";
 import type { FFProbeResult } from "./ffprobe.types";
 

@@ -1,21 +1,21 @@
 import { readdir } from "node:fs/promises";
-import { imageRepository } from "@/database/repositories/images.repository";
+import { serverConfig } from "@/config/server/server.config";
+import { MINUTE } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { imageCacheEviction } from "@/modules/images/cache/image-cache.eviction";
 import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
-import { serverConfig } from "@/server.config";
-import { MINUTE } from "@/server.constants";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { type ImageOptimizationCandidate, imagesStorage } from "@/modules/images/images.ports";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { DirUtils } from "@/utils/directory.utils";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { BatchGarbageCollector } from "@/utils/mem.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { runSafely } from "@/utils/safe-execute";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { runSafely } from "@/utils/safe-execute.utils";
 
 export type ImageOptimizationOutcome = "reoptimized" | "kept" | "missing" | "skipped";
 
@@ -28,13 +28,6 @@ export interface PurgeOrphanedImagesResult {
 export interface PurgeOptimizedCacheResult {
 	removedFiles: number;
 	freedBytes: number;
-}
-
-interface ImageOptimizationCandidate {
-	id: string;
-	localPath: string;
-	width: number | null;
-	height: number | null;
 }
 
 class ImageMaintenanceService {
@@ -81,7 +74,7 @@ class ImageMaintenanceService {
 				const minAgeMs = options.minAgeMs ?? 10 * MINUTE;
 				const now = Date.now();
 
-				const { localPaths, imageIds } = await imageRepository.findAllImageStorageIdentifiers();
+				const { localPaths, imageIds } = await imagesStorage().findAllImageStorageIdentifiers();
 				const imagesDir = serverConfig.paths.images;
 
 				if (!(await DirUtils.exists(imagesDir))) {
@@ -149,7 +142,7 @@ class ImageMaintenanceService {
 			async () => {
 				throwIfAborted(signal);
 
-				return await imageRepository.findOutdatedImageIds(serverConfig.images.currentOptimizationVersion);
+				return await imagesStorage().findOutdatedImageIds(serverConfig.images.currentOptimizationVersion);
 			},
 			{ errorMessage: "cannot list outdated images" },
 		);
@@ -162,7 +155,7 @@ class ImageMaintenanceService {
 			async () => {
 				throwIfAborted(signal);
 				const currentVersion = serverConfig.images.currentOptimizationVersion;
-				const image = await imageRepository.findImageOptimizationCandidate(imageId, currentVersion);
+				const image = await imagesStorage().findImageOptimizationCandidate(imageId, currentVersion);
 				if (!image) return "skipped" as const;
 
 				const outcome = await this.reoptimizeImage(image, currentVersion, signal);
@@ -181,7 +174,7 @@ class ImageMaintenanceService {
 	): Promise<"kept" | "missing" | "reoptimized"> {
 		const stats = await FileUtils.getStats(image.localPath);
 		if (!stats) {
-			await imageRepository.markImageOptimizationVersion(image.id, currentVersion);
+			await imagesStorage().markImageOptimizationVersion(image.id, currentVersion);
 
 			return "missing";
 		}
@@ -190,7 +183,7 @@ class ImageMaintenanceService {
 		const { data, info } = await optimizeImageWithInfo(image.localPath, variant, signal);
 
 		if (info.size >= stats.size) {
-			await imageRepository.markImageOptimizationVersion(image.id, currentVersion);
+			await imagesStorage().markImageOptimizationVersion(image.id, currentVersion);
 
 			return "kept";
 		}
@@ -204,7 +197,7 @@ class ImageMaintenanceService {
 			throw new DomainError("internal", `Cannot write optimized image: ${image.localPath}`, { code: "image.write_failed" });
 		}
 
-		await imageRepository.markImageOptimizationVersion(image.id, currentVersion, {
+		await imagesStorage().markImageOptimizationVersion(image.id, currentVersion, {
 			width: info.width,
 			height: info.height,
 			fileSize: info.size,

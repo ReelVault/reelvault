@@ -1,6 +1,6 @@
-import { MINUTE } from "@/server.constants";
+import { MINUTE } from "@/config/server/server.constants";
 import { FileUtils, fileStatSignature } from "@/utils/file.utils";
-import { MemoryCache } from "@/utils/memory-cache";
+import { MemoryCache } from "@/utils/memory.cache";
 
 interface ServiceDependencies {
 	getStats: (path: string) => Promise<{ size: number; mtimeMs: number } | null>;

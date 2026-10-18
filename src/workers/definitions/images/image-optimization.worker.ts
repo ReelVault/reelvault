@@ -1,7 +1,8 @@
-import { type ApplicationContext, withDomainError } from "@/application/context";
+import { MINUTE } from "@/config/server/server.constants";
 import { type ImageOptimizationOutcome, imageMaintenanceService } from "@/modules/images/image-maintenance.service";
-import { MINUTE } from "@/server.constants";
-import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue";
+import { DomainError, withDomainError } from "@/utils/domain.errors";
+import type { ApplicationContext } from "@/utils/task-context.types";
+import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -57,7 +58,8 @@ export function processImageOptimizationTask(
 ): Promise<ImageOptimizationResult> {
 	return withDomainError(`Image optimization failed: ${data.imageId}`, async () => {
 		context.signal?.throwIfAborted();
-		if (!data.imageId) throw new Error("Image optimization task requires an imageId");
+		if (!data.imageId)
+			throw new DomainError("internal", "Image optimization task requires an imageId", { code: "workers.image_optimization_id_missing" });
 
 		const outcome = await imageMaintenanceService.optimizeImageById(data.imageId, context.signal);
 

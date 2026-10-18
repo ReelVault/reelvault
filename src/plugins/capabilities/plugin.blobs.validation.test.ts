@@ -1,27 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { serverConfig } from "@/server.config";
-import { assertPluginBlobWrite } from "./plugin.blobs.validation";
+import { serverConfig } from "@/config/server/server.config";
+import { assertPluginBlobWrite } from "./plugin.blobs.validator";
 
 describe("plugin blob storage", () => {
-	test("accepts a bounded blob with explicit retention", () => {
-		expect(() =>
-			assertPluginBlobWrite(new Uint8Array([1]), { contentType: "application/octet-stream", expiresInMs: 60_000 }),
-		).not.toThrow();
+	test("refuses a blob without a content type", () => {
+		expect(() => assertPluginBlobWrite(new Uint8Array([1]), { contentType: "", expiresInMs: 1 })).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.blob.invalid_content_type" }),
+		);
 	});
 
-	test("rejects unbounded retention, invalid content type, and an oversized blob", () => {
-		expect(() => assertPluginBlobWrite(new Uint8Array([1]), { contentType: "", expiresInMs: 1 })).toThrow("content type");
+	test("refuses a retention longer than the configured maximum", () => {
 		expect(() =>
 			assertPluginBlobWrite(new Uint8Array([1]), {
 				contentType: "application/octet-stream",
 				expiresInMs: serverConfig.plugins.blobs.retentionMs + 1,
 			}),
-		).toThrow("retention");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.blob.invalid_retention" }));
+	});
+
+	test("refuses a blob larger than the configured maximum", () => {
 		expect(() =>
 			assertPluginBlobWrite(new Uint8Array(serverConfig.plugins.blobs.maxBlobBytes + 1), {
 				contentType: "application/octet-stream",
 				expiresInMs: 1,
 			}),
-		).toThrow("blob");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.blob.too_large" }));
 	});
 });

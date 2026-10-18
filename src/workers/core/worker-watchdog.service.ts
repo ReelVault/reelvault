@@ -1,14 +1,16 @@
-import { workerJobRepository } from "@/database/repositories/worker.repository";
-import { MINUTE } from "@/server.constants";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { createLogger } from "@/utils/logger";
+import { MINUTE } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
-import { getWorkerRuntime } from "./worker-runtime";
+import { workerDependencies } from "@/workers/worker.ports";
+import { getWorkerRuntime } from "./worker.runtime";
 
 const DEFAULT_WATCHDOG_INTERVAL_MS = 5_000;
 // A 15 s poll gap is normal on a loaded slow box (SQLite checkpoint, GC) —
 // scale the stall threshold with measured core speed.
-const watchdogTimeoutMs = () => systemResourcesService.scaledTimeoutMs(15_000);
+function watchdogTimeoutMs() {
+	return systemResourcesService.scaledTimeoutMs(15_000);
+}
 /** Consecutive stalled checks before the watchdog escalates beyond nudging polling. */
 const ESCALATE_AFTER_STALLS = 3;
 
@@ -122,7 +124,7 @@ export class WorkerWatchdogService {
 	async recoverOrphaned(): Promise<number> {
 		try {
 			const activeJobIds = getWorkerRuntime().pool.getActiveJobIds();
-			const count = await workerJobRepository.recoverOrphanedRunning({
+			const count = await workerDependencies().jobs.recoverOrphanedRunning({
 				excludeActiveIds: activeJobIds,
 				...(this.runnerId ? { currentRunnerId: this.runnerId } : {}),
 			});

@@ -1,6 +1,6 @@
-import { adminLogsService } from "@/application/admin/admin-logs.service";
-import { MINUTE } from "@/server.constants";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { MINUTE } from "@/config/server/server.constants";
+import { throwIfAborted } from "@/utils/cancellation.utils";
+import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 export const cleanupLogsWorker = createWorkerDefinition(
@@ -12,7 +12,7 @@ export const cleanupLogsWorker = createWorkerDefinition(
 	}),
 	async ({ signal }) => {
 		throwIfAborted(signal);
-		const result = await adminLogsService.purgeOldLogs(undefined, undefined, signal);
+		const result = await workerDependencies().services.adminLogs.purgeOldLogs(undefined, undefined, signal);
 
 		return { success: true, ...result };
 	},

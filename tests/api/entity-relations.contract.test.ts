@@ -1,17 +1,17 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
-import { databaseFactory } from "@/database/database";
-import { domainErrorsMiddleware } from "@/middleware/domain-errors.middleware";
-import { LIBRARIES_STUB_TABLE, LIBRARY_PATHS_STUB_TABLE, MEDIA_FILES_STUB_TABLE } from "../helpers/stub-tables";
+import { domainErrorsMiddleware } from "@/app/http/middleware/domain-errors.middleware";
+import { useTestDatabase } from "../helpers/test-database.helper";
 
-process.env.BETTER_AUTH_SECRET ??= "test-secret-with-at-least-32-characters";
 const [{ auth }, { mediaFilesRoutes }, { episodesRoutes }, { librariesRoutes }] = await Promise.all([
 	import("@/integrations/better-auth/better-auth.config"),
-	import("@/api/routes/v1/media-files.routes"),
-	import("@/api/routes/v1/episodes.routes"),
-	import("@/api/routes/v1/libraries.routes"),
+	import("@/app/http/routes/v1/media-files.routes"),
+	import("@/app/http/routes/v1/episodes.routes"),
+	import("@/app/http/routes/v1/libraries.routes"),
 ]);
+
+const testDatabase = useTestDatabase();
 
 const app = new Elysia().use(domainErrorsMiddleware).use(mediaFilesRoutes).use(episodesRoutes).use(librariesRoutes);
 
@@ -25,83 +25,30 @@ afterEach(() => {
 
 const NOW = "CAST(strftime('%s','now') AS INTEGER)";
 
-/** Drizzle `run` executes a single statement, so multi-statement scripts are arrays. */
-const STUB_TABLES = [
-	LIBRARIES_STUB_TABLE,
-	LIBRARY_PATHS_STUB_TABLE,
-	`CREATE TABLE IF NOT EXISTS library_provider_settings (
-		library_id TEXT NOT NULL, provider_id TEXT NOT NULL,
-		priority INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT true,
-		PRIMARY KEY (library_id, provider_id)
-	)`,
-	MEDIA_FILES_STUB_TABLE,
-	`CREATE TABLE IF NOT EXISTS media_file_video_streams (
-		media_file_id TEXT, "index" INTEGER, codec_name TEXT, codec_long_name TEXT, profile TEXT,
-		width INTEGER, height INTEGER, pixel_format TEXT, color_transfer TEXT, color_primaries TEXT,
-		color_space TEXT, dovi_profile INTEGER, frame_rate TEXT, bit_rate INTEGER, language TEXT,
-		title TEXT, is_default INTEGER, is_forced INTEGER,
-		PRIMARY KEY (media_file_id, "index")
-	)`,
-	`CREATE TABLE IF NOT EXISTS media_file_audio_streams (
-		media_file_id TEXT, "index" INTEGER, codec_name TEXT, codec_long_name TEXT, channels INTEGER,
-		channel_layout TEXT, sample_rate INTEGER, bit_rate INTEGER, language TEXT, title TEXT,
-		is_default INTEGER, is_forced INTEGER,
-		PRIMARY KEY (media_file_id, "index")
-	)`,
-	`CREATE TABLE IF NOT EXISTS subtitles (
-		id TEXT PRIMARY KEY, media_file_id TEXT, language TEXT, label TEXT, format TEXT, type TEXT,
-		file_path TEXT, stream_index INTEGER, is_default INTEGER, is_forced INTEGER,
-		created_at INTEGER, updated_at INTEGER
-	)`,
-	`CREATE TABLE IF NOT EXISTS movies (
-		id TEXT PRIMARY KEY, stable_key TEXT, metadata_id TEXT, created_at INTEGER, updated_at INTEGER
-	)`,
-	`CREATE TABLE IF NOT EXISTS seasons (
-		id TEXT PRIMARY KEY, stable_key TEXT, metadata_id TEXT, image_id TEXT,
-		season_number INTEGER, name TEXT, overview TEXT, air_date TEXT, status TEXT,
-		created_at INTEGER, updated_at INTEGER
-	)`,
-	`CREATE TABLE IF NOT EXISTS episodes (
-		id TEXT PRIMARY KEY, stable_key TEXT, season_id TEXT, image_id TEXT, type TEXT,
-		episode_number INTEGER, absolute_number INTEGER, title TEXT, overview TEXT, air_date TEXT,
-		created_at INTEGER, updated_at INTEGER
-	)`,
-];
-
+/** Rows the relation assertions read. Each test gets its own migrated database, so the seed runs before every test. */
 const SEED = [
-	`INSERT OR IGNORE INTO libraries (id, name, type, metadata_storage_mode, created_at, updated_at) VALUES
+	`INSERT INTO libraries (id, name, type, metadata_storage_mode, created_at, updated_at) VALUES
 		('lib-movies', 'Filmy', 'movies', 'database', ${NOW}, ${NOW}),
 		('lib-tv', 'Seriale', 'tv_shows', 'database', ${NOW}, ${NOW})`,
-	`INSERT OR IGNORE INTO library_paths (id, library_id, stable_key, path, is_active, metadata_storage_mode, created_at, updated_at) VALUES
+	`INSERT INTO library_paths (id, library_id, stable_key, path, is_active, metadata_storage_mode, created_at, updated_at) VALUES
 		('lp-1', 'lib-movies', 'sk-lp-1', '/media/filmy', 1, NULL, ${NOW}, ${NOW})`,
-	`INSERT OR IGNORE INTO media_files (id, library_id, metadata_id, movie_id, episode_id, file_path, file_name, format_name, is_default, is_enabled, created_at, updated_at) VALUES
-		('mf-library', 'lib-movies', 'meta-1', NULL, NULL, '/media/filmy/library.mkv', 'library.mkv', 'matroska', 1, 1, ${NOW}, ${NOW}),
+	`INSERT INTO media_files (id, library_id, metadata_id, movie_id, episode_id, file_path, file_name, format_name, is_default, is_enabled, created_at, updated_at) VALUES
+		('mf-library', 'lib-movies', 'meta-1', 'mov-2', NULL, '/media/filmy/library.mkv', 'library.mkv', 'matroska', 1, 1, ${NOW}, ${NOW}),
 		('mf-movie', 'lib-movies', 'meta-2', 'mov-1', NULL, '/media/filmy/movie.mkv', 'movie.mkv', 'matroska', 1, 1, ${NOW}, ${NOW}),
 		('mf-episode', 'lib-movies', 'meta-3', NULL, 'ep-1', '/media/filmy/episode.mkv', 'episode.mkv', 'matroska', 1, 1, ${NOW}, ${NOW})`,
-	`INSERT OR IGNORE INTO media_file_video_streams (media_file_id, "index", codec_name, width, height, is_default, is_forced) VALUES
+	`INSERT INTO media_file_video_streams (media_file_id, "index", codec_name, width, height, is_default, is_forced) VALUES
 		('mf-library', 0, 'h264', 1920, 1080, 1, 0)`,
-	`INSERT OR IGNORE INTO media_file_audio_streams (media_file_id, "index", codec_name, channels, is_default, is_forced) VALUES
+	`INSERT INTO media_file_audio_streams (media_file_id, "index", codec_name, channels, is_default, is_forced) VALUES
 		('mf-library', 0, 'aac', 2, 1, 0)`,
-	`INSERT OR IGNORE INTO subtitles (id, media_file_id, language, label, format, type, file_path, stream_index, is_default, is_forced, created_at, updated_at) VALUES
+	`INSERT INTO subtitles (id, media_file_id, language, label, format, type, file_path, stream_index, is_default, is_forced, created_at, updated_at) VALUES
 		('sub-1', 'mf-library', 'pl', 'Polski', 'srt', 'external', '/media/filmy/library.srt', NULL, 1, 0, ${NOW}, ${NOW})`,
-	`INSERT OR IGNORE INTO movies (id, stable_key, metadata_id, created_at, updated_at) VALUES
-		('mov-1', 'sk-mov-1', 'meta-2', ${NOW}, ${NOW})`,
-	`INSERT OR IGNORE INTO seasons (id, stable_key, metadata_id, image_id, season_number, name, overview, air_date, status, created_at, updated_at) VALUES
+	`INSERT INTO movies (id, stable_key, metadata_id, created_at, updated_at) VALUES
+		('mov-1', 'sk-mov-1', 'meta-2', ${NOW}, ${NOW}),
+		('mov-2', 'sk-mov-2', 'meta-1', ${NOW}, ${NOW})`,
+	`INSERT INTO seasons (id, stable_key, metadata_id, image_id, season_number, name, overview, air_date, status, created_at, updated_at) VALUES
 		('sea-1', 'sk-sea-1', 'meta-3', NULL, 1, 'Season 1', NULL, NULL, NULL, ${NOW}, ${NOW})`,
-	`INSERT OR IGNORE INTO episodes (id, stable_key, season_id, image_id, type, episode_number, absolute_number, title, overview, air_date, created_at, updated_at) VALUES
+	`INSERT INTO episodes (id, stable_key, season_id, image_id, type, episode_number, absolute_number, title, overview, air_date, created_at, updated_at) VALUES
 		('ep-1', 'sk-ep-1', 'sea-1', NULL, 'regular', 1, NULL, 'Pilot', NULL, NULL, ${NOW}, ${NOW})`,
-];
-
-const CLEANUP_ORDER = [
-	"media_file_video_streams",
-	"media_file_audio_streams",
-	"subtitles",
-	"media_files",
-	"library_paths",
-	"episodes",
-	"seasons",
-	"movies",
-	"libraries",
 ];
 
 /** Wraps a fake better-auth session payload so the mock matches auth.api.getSession's shape. */
@@ -117,16 +64,13 @@ async function getJson(path: string): Promise<{ status: number; body: Record<str
 
 /** The `/admin/media` honesty assertions: relation keys the SDK contract promises must reach the JSON payload. */
 describe("entity relations reach API payloads", () => {
-	beforeAll(async () => {
-		const client = databaseFactory.getClient();
-		for (const statement of STUB_TABLES) await client.run(sql.raw(statement));
-
-		for (const table of CLEANUP_ORDER) await client.run(sql.raw(`DELETE FROM ${table}`));
-
+	beforeEach(async () => {
+		const client = testDatabase.client();
+		// The relation fixtures join by id only: parents such as metadata rows are not seeded, and some rows
+		// reference parents inserted later in SEED. CHECK constraints stay on, so every row is still valid.
+		await client.run(sql.raw("PRAGMA foreign_keys = OFF"));
 		for (const statement of SEED) await client.run(sql.raw(statement));
-	});
 
-	beforeEach(() => {
 		auth.api.getSession = fakeGetSession({
 			user: {
 				id: "user-1",
@@ -143,17 +87,11 @@ describe("entity relations reach API payloads", () => {
 		auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
 	});
 
-	afterAll(async () => {
-		const client = databaseFactory.getClient();
-		for (const table of CLEANUP_ORDER) await client.run(sql.raw(`DROP TABLE IF EXISTS ${table}`));
-	});
-
 	test("media-files list items carry library + streams + subtitles relations", async () => {
 		const { status, body } = await getJson("/media-files?page=1&limit=10");
 		expect(status).toBe(200);
 
 		const libraryFile = (body.data as Array<Record<string, unknown>>).find((file) => file.id === "mf-library");
-		expect(libraryFile).toBeDefined();
 		expect(libraryFile?.library).toMatchObject({ id: "lib-movies", name: "Filmy", type: "movies" });
 		expect(Array.isArray(libraryFile?.videoStreams) && libraryFile?.videoStreams.length === 1).toBe(true);
 		expect(Array.isArray(libraryFile?.audioStreams) && libraryFile?.audioStreams.length === 1).toBe(true);
@@ -174,7 +112,6 @@ describe("entity relations reach API payloads", () => {
 		expect(status).toBe(200);
 
 		const episode = (body.data as Array<Record<string, unknown>>).find((row) => row.id === "ep-1");
-		expect(episode).toBeDefined();
 		const mediaFiles = episode?.mediaFiles as Array<{ fileName: string }>;
 		expect(mediaFiles.map((file) => file.fileName)).toContain("episode.mkv");
 	});
@@ -184,7 +121,6 @@ describe("entity relations reach API payloads", () => {
 		expect(status).toBe(200);
 
 		const library = (body.data as Array<Record<string, unknown>>).find((row) => row.id === "lib-movies");
-		expect(library).toBeDefined();
 		const paths = library?.paths as Array<{ path: string }>;
 		expect(paths.map((entry) => entry.path)).toContain("/media/filmy");
 
@@ -192,7 +128,6 @@ describe("entity relations reach API payloads", () => {
 		const withFiles = await getJson("/libraries?page=1&limit=10&fields=id,mediaFiles");
 		expect(withFiles.status).toBe(200);
 		const libraryWithFiles = (withFiles.body.data as Array<Record<string, unknown>>).find((row) => row.id === "lib-movies");
-		expect(libraryWithFiles).toBeDefined();
 		const mediaFiles = libraryWithFiles?.mediaFiles as Array<{ fileName: string }>;
 		expect(mediaFiles.map((file) => file.fileName)).toContain("library.mkv");
 	});

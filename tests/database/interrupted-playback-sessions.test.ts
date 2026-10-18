@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseFactory, databaseFactory } from "@/database/database";
-import { interruptedPlaybackSessionRepository } from "@/database/repositories/interrupted-playback-session.repository";
-import { watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
-import { schema } from "@/database/schema";
+import { interruptedPlaybackSessionRepository } from "@/app/repositories/interrupted-playback-session.repository";
+import { watchedHistoryRepository } from "@/app/repositories/watched-history.repository";
+import { DAY, MINUTE } from "@/config/server/server.constants";
+import { DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { recordInterruptedSession } from "@/modules/streaming/runtime/interrupted-session.recorder";
-import { DAY, MINUTE } from "@/server.constants";
+import { removeTreeSync } from "@/utils/directory.utils";
 
 const NOW = Date.now();
 const HOUR = 60 * MINUTE;
@@ -26,7 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	for (const spy of spies.splice(0)) spy.mockRestore();
-	for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+	for (const dir of tempDirs.splice(0)) removeTreeSync(dir);
 });
 
 /** One user, profile, library, title and media file: the rows every play refers to. */

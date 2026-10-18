@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { MemoryCache } from "@/utils/memory-cache";
+import { MemoryCache } from "@/utils/memory.cache";
 
 /**
  * Stateless proof that a PIN-protected profile was unlocked by this client.

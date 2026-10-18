@@ -1,11 +1,11 @@
 import type { PluginMediaFile } from "@reelvault/sdk/common";
 import type { MediaAnalysis, MediaAnalyzer } from "@reelvault/sdk/plugin";
-import { createLogger } from "@/utils/logger";
-import { PluginEntityTable } from "./plugin-entity-table";
+import { createLogger } from "@/utils/logger.utils";
+import { PluginEntityTable } from "./plugin-entity.registry";
 
 /** Runs every registered analyzer against a media file, isolating per-analyzer failures. */
 export class MediaAnalysisFanout {
-	private readonly logger = createLogger("MediaAnalysisFanout");
+	readonly logger = createLogger("MediaAnalysisFanout");
 	private readonly table = new PluginEntityTable<MediaAnalyzer>("Media analyzer");
 
 	assertRegisterable(analyzers: readonly MediaAnalyzer[]): void {

@@ -1,14 +1,25 @@
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
-import { Glob } from "bun";
-import { FS_STAT_TIMEOUT_MS } from "@/server.constants";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { isMissingFile } from "./errors";
-import { createLogger } from "./logger";
-import { MemoryCache } from "./memory-cache";
+import { rmSync } from "node:fs";
+import { mkdir, readdir, rm } from "node:fs/promises";
+import { file as bunFile, Glob } from "bun";
+import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { isMissingFile } from "./domain.errors";
+import { createLogger } from "./logger.utils";
+import { MemoryCache } from "./memory.cache";
 import { PathUtils } from "./path.utils";
 import { PromiseTimeoutError, PromiseUtils } from "./promise.utils";
 
 const logger = createLogger("DirUtils");
+
+/** Removes a file or directory tree; a missing path is not an error. */
+export function removeTree(path: string): Promise<void> {
+	return rm(path, { recursive: true, force: true });
+}
+
+/** Synchronous counterpart of `removeTree`; a missing path is not an error. */
+export function removeTreeSync(path: string): void {
+	rmSync(path, { recursive: true, force: true });
+}
 
 export interface ScannedFileEntry {
 	filePath: string;
@@ -19,7 +30,7 @@ export interface ScannedFileEntry {
 export const DirUtils = {
 	async exists(path: string): Promise<boolean> {
 		try {
-			const stats = await PromiseUtils.withTimeout(stat(path), FS_STAT_TIMEOUT_MS, `stat ${path}`);
+			const stats = await PromiseUtils.withTimeout(bunFile(path).stat(), FS_STAT_TIMEOUT_MS, `stat ${path}`);
 
 			return stats.isDirectory();
 		} catch (error) {
@@ -53,7 +64,7 @@ export const DirUtils = {
 				return false;
 			}
 
-			await rm(path, { recursive: true, force: true });
+			await removeTree(path);
 
 			return true;
 		} catch (error) {
@@ -110,7 +121,7 @@ export const DirUtils = {
 			systemResourcesService.getIoConcurrency(),
 			async (fullPath) => {
 				try {
-					const fileStat = await stat(fullPath);
+					const fileStat = await bunFile(fullPath).stat();
 					results.push({
 						filePath: fullPath,
 						size: fileStat.size,

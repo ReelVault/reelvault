@@ -1,8 +1,8 @@
 import type { TaskTrigger } from "@reelvault/sdk/common";
 import type { BackoffType } from "@reelvault/sdk/plugin";
-import { MINUTE } from "@/server.constants";
-import { DomainError } from "@/utils/errors";
-import { MemoryCache } from "@/utils/memory-cache";
+import { MINUTE } from "@/config/server/server.constants";
+import { DomainError } from "@/utils/domain.errors";
+import { MemoryCache } from "@/utils/memory.cache";
 
 export function getRetryDelay({
 	attempts,

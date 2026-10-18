@@ -1,7 +1,7 @@
 import type { PluginHttpMethod, PluginHttpRequest, PluginHttpResponse, PluginHttpRoute } from "@reelvault/sdk/plugin";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { DomainError, errorMessage } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
 
 const PLUGIN_HTTP_METHODS: ReadonlySet<string> = new Set<PluginHttpMethod>(["DELETE", "GET", "PATCH", "POST", "PUT"]);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { batchChunks } from "./batch-chunker";
+import { batchChunks } from "./batch-chunker.utils";
 
 function collect<T>(items: readonly T[], size: number, startCursor?: number): Array<{ items: T[]; nextCursor: number }> {
 	return startCursor === undefined ? [...batchChunks(items, size)] : [...batchChunks(items, size, startCursor)];

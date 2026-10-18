@@ -1,3 +1,4 @@
+import { removeTree } from "@/utils/directory.utils";
 /**
  * Ingest pipeline benchmark.
  *
@@ -8,17 +9,17 @@
  *   2. `auditMediaFileRow` — the per-row recognition + fuzzy ranking the audit
  *      report runs over every media file.
  *
- * Usage: bun run scripts/benchmark.ts ingest [--rows 50000] [--iterations 20]
+ * Usage: bun run scripts/benchmark.script.ts ingest [--rows 50000] [--iterations 20]
  */
 
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bench, benchmarkAsync, group, main, printMicroResults, suiteArgs, task } from "benchkit";
 import { $ } from "bun";
-import { auditMediaFileRow } from "@/application/media/media-files/media-file-audit";
-import { databaseFactory } from "@/database/database";
-import type { MediaFileAuditRow } from "@/database/repositories/media-files.repository";
+import { auditMediaFileRow } from "@/app/media/media-files/media-file-audit.utils";
+import type { MediaFileAuditRow } from "@/app/repositories/media-files.repository";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { ScannerService } from "@/modules/scanner/scanner.service";
 
 export const meta = { description: "Ingest pipeline (scanner diff/guard over N files, per-row audit recognition+fuzzy rank)" };
@@ -143,7 +144,7 @@ if (!args.help) {
 
 			printMicroResults(probeResults, "Real ffprobe (per probe call)");
 		} finally {
-			await rm(root, { recursive: true, force: true });
+			await removeTree(root);
 		}
 	});
 }

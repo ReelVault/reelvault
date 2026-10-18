@@ -1,52 +1,47 @@
 import { describe, expect, test } from "bun:test";
 import { type SubtitleContent, SubtitleContentResolver } from "./subtitle-content.resolver";
 
-interface Overrides {
-	externalContent?: SubtitleContent | null;
-	embeddedContent?: SubtitleContent | null;
-}
+const CONTROLLER = new AbortController();
 
-function createResolver(overrides: Overrides = {}) {
-	const calls = { external: 0, embedded: 0 };
+/**
+ * The provider's content store and the ffmpeg extraction are the process boundaries. Each fake
+ * returns a body that names the path it came from, so the assertions read the routing outcome.
+ */
+function createResolver(overrides: { externalContent?: SubtitleContent | null; embeddedContent?: SubtitleContent | null } = {}) {
 	let capturedSignal: AbortSignal | undefined;
 	const resolver = new SubtitleContentResolver({
-		getExternalContent: (id) => {
-			calls.external++;
-
-			return Promise.resolve(
-				overrides.externalContent !== undefined ? overrides.externalContent : { contentType: "text/plain", file: new Blob([id]) },
-			);
-		},
+		getExternalContent: (id) =>
+			Promise.resolve(
+				overrides.externalContent !== undefined
+					? overrides.externalContent
+					: { contentType: "text/plain", file: new Blob([`external:${id}`]) },
+			),
 		extractEmbeddedContent: (id, mediaFilePath, streamIndex, format, signal) => {
-			calls.embedded++;
 			capturedSignal = signal;
 
 			return Promise.resolve(
 				overrides.embeddedContent !== undefined
 					? overrides.embeddedContent
-					: { contentType: "text/vtt", file: new Blob([`${id}:${mediaFilePath}:${streamIndex}:${format}`]) },
+					: { contentType: "text/vtt", file: new Blob([`embedded:${id}:${mediaFilePath}:${streamIndex}:${format}`]) },
 			);
 		},
 	});
 
-	return { resolver, calls, capturedSignal: () => capturedSignal };
+	return { resolver, capturedSignal: () => capturedSignal };
 }
-
-const CONTROLLER = new AbortController();
 
 describe("SubtitleContentResolver", () => {
 	test("resolves external subtitles through the provider content store", async () => {
-		const { resolver, calls } = createResolver();
+		const { resolver } = createResolver();
 
 		const content = await resolver.resolve("sub-1", { type: "external", mediaFileId: "file-1", streamIndex: null, format: "srt" });
 
-		expect(content.file).toBeInstanceOf(Blob);
-		expect(calls.external).toBe(1);
-		expect(calls.embedded).toBe(0);
+		expect(content.contentType).toBe("text/plain");
+		expect(await content.file.text()).toBe("external:sub-1");
 	});
 
-	test("resolves embedded subtitles through the extractor with the cached info and signal", async () => {
-		const { resolver, calls, capturedSignal } = createResolver();
+	test("resolves embedded subtitles through the extractor with the cached info and the request signal", async () => {
+		const { resolver, capturedSignal } = createResolver();
 
 		const content = await resolver.resolve(
 			"sub-2",
@@ -55,23 +50,26 @@ describe("SubtitleContentResolver", () => {
 		);
 
 		expect(content.contentType).toBe("text/vtt");
-		expect(calls.embedded).toBe(1);
-		expect(calls.external).toBe(0);
+		expect(await content.file.text()).toBe("embedded:sub-2:/media/movie.mkv:3:subrip");
 		expect(capturedSignal()).toBe(CONTROLLER.signal);
 	});
 
-	test("throws not found when the provider has no external content", () => {
+	test("throws not found when the provider has no external content", async () => {
 		const { resolver } = createResolver({ externalContent: null });
 
-		expect(resolver.resolve("sub-3", { type: "external", mediaFileId: "file-1", streamIndex: null, format: "srt" })).rejects.toThrow(
-			"Subtitle content not found: sub-3",
-		);
+		await expect(
+			resolver.resolve("sub-3", { type: "external", mediaFileId: "file-1", streamIndex: null, format: "srt" }),
+		).rejects.toMatchObject({
+			category: "not_found",
+			code: "entity.not_found",
+			params: { entityType: "Subtitle content", entityId: "sub-3" },
+		});
 	});
 
-	test("throws not found when extraction of an embedded track fails", () => {
+	test("throws not found when extraction of an embedded track fails", async () => {
 		const { resolver } = createResolver({ embeddedContent: null });
 
-		expect(
+		await expect(
 			resolver.resolve("sub-4", {
 				type: "embedded",
 				mediaFileId: "file-1",
@@ -79,25 +77,28 @@ describe("SubtitleContentResolver", () => {
 				format: "subrip",
 				mediaFilePath: "/media/a.mkv",
 			}),
-		).rejects.toMatchObject({ category: "not_found" });
+		).rejects.toMatchObject({ category: "not_found", code: "entity.not_found" });
 	});
 
-	test("throws not found for an embedded subtitle without a media file path", () => {
-		const { resolver, calls } = createResolver();
+	test("throws not found for an embedded subtitle without a media file path", async () => {
+		const { resolver } = createResolver();
 
-		expect(resolver.resolve("sub-5", { type: "embedded", mediaFileId: "file-1", streamIndex: 3, format: "subrip" })).rejects.toThrow(
-			"Subtitle content for sub-5 was not found",
-		);
-		expect(calls.embedded).toBe(0);
-	});
-
-	test("throws not found for an unknown subtitle type", () => {
-		const { resolver, calls } = createResolver();
-
-		expect(resolver.resolve("sub-6", { type: "weird", mediaFileId: "file-1", streamIndex: null, format: "srt" })).rejects.toMatchObject({
+		await expect(
+			resolver.resolve("sub-5", { type: "embedded", mediaFileId: "file-1", streamIndex: 3, format: "subrip" }),
+		).rejects.toMatchObject({
 			category: "not_found",
+			code: "subtitle.not_found",
 		});
-		expect(calls.external).toBe(0);
-		expect(calls.embedded).toBe(0);
+	});
+
+	test("throws not found for an unknown subtitle type instead of falling back to a provider", async () => {
+		const { resolver } = createResolver();
+
+		await expect(
+			resolver.resolve("sub-6", { type: "weird", mediaFileId: "file-1", streamIndex: null, format: "srt" }),
+		).rejects.toMatchObject({
+			category: "not_found",
+			code: "subtitle.not_found",
+		});
 	});
 });

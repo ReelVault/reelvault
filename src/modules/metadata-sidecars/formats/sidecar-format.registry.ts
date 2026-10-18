@@ -1,5 +1,5 @@
-import { DomainError } from "@/utils/errors";
-import type { SidecarFormatInput } from "../sidecar.types";
+import type { SidecarFormatInput } from "@/modules/metadata-sidecars/sidecar.types";
+import { DomainError } from "@/utils/domain.errors";
 import type { SidecarFormatAdapter } from "./sidecar-format.adapter";
 
 export interface SidecarFormatRegistry {

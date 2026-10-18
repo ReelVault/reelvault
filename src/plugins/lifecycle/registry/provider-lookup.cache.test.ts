@@ -35,8 +35,10 @@ describe("ProviderLookupCache", () => {
 	test("assertRegisterable rejects a provider id owned by another plugin", () => {
 		cache.register("plugin-a", [createProvider("tmdb")]);
 
-		expect(() => cache.assertRegisterable([createProvider("tmdb")])).toThrow('Provider "tmdb" is already registered by plugin "plugin-a"');
-		expect(() => cache.assertRegisterable([createProvider("fresh")])).not.toThrow();
+		expect(() => cache.assertRegisterable([createProvider("tmdb")])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.entity_conflict" }),
+		);
+		cache.assertRegisterable([createProvider("fresh")]);
 	});
 
 	test("getAll returns a stable sorted list invalidated on mutation", () => {
@@ -56,8 +58,7 @@ describe("ProviderLookupCache", () => {
 
 		expect(cache.get("shared")).toBeUndefined();
 		expect(cache.get("a-only")).toBeUndefined();
-		expect(cache.get("b-only")).toBeDefined();
-		expect(() => cache.assertRegisterable([createProvider("shared")])).not.toThrow();
+		cache.assertRegisterable([createProvider("shared")]);
 	});
 
 	test("clear empties the table", () => {

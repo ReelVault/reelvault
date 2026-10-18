@@ -1,4 +1,4 @@
-import type { TaskSchedulingOptions } from "@/application/context";
+import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 
 /**
  * Shared mapping from a worker's orchestration context (`{ operationId,

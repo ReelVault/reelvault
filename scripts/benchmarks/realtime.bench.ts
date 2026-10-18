@@ -2,9 +2,9 @@ import { fmtMs, main, printTable, suiteArgs, summarizeLatencies, task } from "be
 import { sleep } from "bun";
 import { isRecord } from "@/utils/type.utils";
 
-import { createPlaybackSession, deletePlaybackSession } from "./lib/playback";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { createPlaybackSession, deletePlaybackSession } from "./lib/playback.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * Realtime WebSocket suite. Zero coverage before this existed. Bun's WebSocket

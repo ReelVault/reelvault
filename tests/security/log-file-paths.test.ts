@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { serverConfig } from "@/server.config";
-import { installSessionStub, prepareSecuritySuite, send } from "./security-harness";
+import { serverConfig } from "@/config/server/server.config";
+import { installSessionStub, prepareSecuritySuite, send } from "./security.helper";
 
 /**
  * Admin log downloads and deletions take a `fileId` from the query string. The
@@ -26,8 +26,11 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-	if (existsSync(sentinelPath)) writeFileSync(sentinelPath, SENTINEL_CONTENT);
+	rmSync(sentinelPath, { force: true });
 });
+
+/** A whitespace-only id names no file; it must be refused, never resolved to the active log. */
+const WHITESPACE_ID = "%20";
 
 const TRAVERSAL_VALUES = [
 	`../${token}`,
@@ -41,9 +44,15 @@ const TRAVERSAL_VALUES = [
 	`reelvault.log/../../${token}`,
 	`reelvault.log%00../${token}`,
 	`%2e%2e`,
-	`%20`,
+	WHITESPACE_ID,
 	`.`,
 ];
+
+async function errorCode(response: Response): Promise<unknown> {
+	const body = (await response.json()) as { code?: unknown };
+
+	return body.code;
+}
 
 test("log downloads never serve a file outside the logs directory", async () => {
 	const findings: string[] = [];
@@ -72,12 +81,27 @@ test("log deletions never remove a file outside the logs directory", async () =>
 	expect(readFileSync(sentinelPath, "utf8")).toBe(SENTINEL_CONTENT);
 });
 
-test("a blank or dot-only log file id is refused as a bad request, not a server error", async () => {
-	for (const value of ["%20%20", "."]) {
-		const response = await send("DELETE", `/v1/admin/logs?fileId=${value}`, { role: "admin" });
+test("a dot-only log file id is refused as an invalid path with a stable code", async () => {
+	const response = await send("DELETE", "/v1/admin/logs?fileId=.", { role: "admin" });
 
-		expect(response.status).toBeGreaterThanOrEqual(400);
-		expect(response.status).toBeLessThan(500);
+	expect(response.status).toBe(400);
+	expect(await errorCode(response)).toBe("admin.log_path_invalid");
+});
+
+test("a whitespace-only log file id is refused and leaves the active log untouched", async () => {
+	const activeLog = serverConfig.paths.logFile;
+	const original = existsSync(activeLog) ? readFileSync(activeLog) : undefined;
+	writeFileSync(activeLog, "line one\nline two\n");
+
+	try {
+		const response = await send("DELETE", `/v1/admin/logs?fileId=${WHITESPACE_ID}`, { role: "admin" });
+
+		expect(response.status).toBe(400);
+		expect(await errorCode(response)).toBe("admin.log_path_invalid");
+		expect(readFileSync(activeLog, "utf8")).toBe("line one\nline two\n");
+	} finally {
+		if (original) writeFileSync(activeLog, original);
+		else rmSync(activeLog, { force: true });
 	}
 });
 
@@ -88,13 +112,18 @@ test("deleting a log file that no longer exists answers 404, not a server error"
 });
 
 test("a missing main log file reads as an empty log for the list and the dashboard, not as a failure", async () => {
-	const mainLog = join(serverConfig.paths.logs, "reelvault.log");
+	const mainLog = serverConfig.paths.logFile;
+	const original = existsSync(mainLog) ? readFileSync(mainLog) : undefined;
 	rmSync(mainLog, { force: true });
 
-	const list = await send("GET", "/v1/admin/logs", { role: "admin" });
-	const dashboard = await send("GET", "/v1/admin/dashboard-view", { role: "admin" });
+	try {
+		const list = await send("GET", "/v1/admin/logs", { role: "admin" });
+		const dashboard = await send("GET", "/v1/admin/dashboard-view", { role: "admin" });
 
-	expect(list.status).toBeLessThan(500);
-	expect(dashboard.status).toBeLessThan(500);
-	expect(dashboard.status).not.toBe(500);
+		expect(list.status).toBe(200);
+		expect(((await list.json()) as { data: unknown[] }).data).toEqual([]);
+		expect(dashboard.status).toBe(200);
+	} finally {
+		if (original) writeFileSync(mainLog, original);
+	}
 });

@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { invalidateSessionCache } from "@/integrations/better-auth/better-auth.session-cache";
-import { installSessionStub, listApiRoutes, prepareSecuritySuite, type RouteEntry, sendWithin } from "./security-harness";
+import { installSessionStub, listApiRoutes, prepareSecuritySuite, type RouteEntry, sendWithin } from "./security.helper";
 
 /**
  * Authorization matrix over every registered `/v1` route. The route table is read

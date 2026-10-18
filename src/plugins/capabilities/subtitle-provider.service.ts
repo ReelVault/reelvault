@@ -6,14 +6,13 @@ import type {
 } from "@reelvault/sdk/common";
 import type { SubtitleDownload } from "@reelvault/sdk/plugin";
 import { file } from "bun";
-import { subtitleProviderSettingsRepository } from "@/database/repositories/subtitle-provider-settings.repository";
-import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
+import { pluginSubtitleData, pluginSubtitleSettingsData } from "@/app/plugins/plugin-data.service";
+import { serverConfig } from "@/config/server/server.config";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { normalizeLower } from "@/utils/type.utils";
@@ -38,7 +37,7 @@ class SubtitleProviderService {
 
 	/** Ids of the subtitle providers the admin has switched off. */
 	async disabledProviderIds(): Promise<Set<string>> {
-		return new Set(await subtitleProviderSettingsRepository.listDisabledIds());
+		return new Set(await pluginSubtitleSettingsData.listDisabledIds());
 	}
 
 	async setEnabled(providerId: string, enabled: boolean): Promise<void> {
@@ -46,7 +45,7 @@ class SubtitleProviderService {
 			throw new DomainError("not_found", `Subtitle provider ${providerId} was not found`, { code: "plugin.subtitle.provider_not_found" });
 		}
 
-		await subtitleProviderSettingsRepository.setEnabled(providerId, enabled);
+		await pluginSubtitleSettingsData.setEnabled(providerId, enabled);
 	}
 
 	async search(request: SubtitleProviderSearchRequest): Promise<SubtitleProviderSearchResponse[]> {
@@ -75,7 +74,7 @@ class SubtitleProviderService {
 		const provider = pluginManager.getSubtitleProvider(providerId);
 		if (!provider)
 			throw new DomainError("not_found", `Subtitle provider ${providerId} was not found`, { code: "plugin.subtitle.provider_not_found" });
-		if (await subtitleProviderSettingsRepository.isDisabled(providerId)) {
+		if (await pluginSubtitleSettingsData.isDisabled(providerId)) {
 			throw new DomainError("conflict", `Subtitle provider ${providerId} is turned off`, { code: "plugin.subtitle.provider_disabled" });
 		}
 
@@ -94,7 +93,7 @@ class SubtitleProviderService {
 		await this.ensureStorageDirectory();
 
 		return await writeFileWithRollback(storagePath, download.content, async () => {
-			const existing = await subtitlesRepository.findExternalByMediaFileAndLanguage({
+			const existing = await pluginSubtitleData.findExternalByMediaFileAndLanguage({
 				mediaFileId: request.mediaFileId,
 				language: download.language,
 			});
@@ -110,21 +109,21 @@ class SubtitleProviderService {
 			};
 
 			if (existing) {
-				await subtitlesRepository.update({ primaryId: existing.id, values });
+				await pluginSubtitleData.update({ primaryId: existing.id, values });
 				await this.deleteOwnedFile(existing.filePath);
 
 				return existing.id;
 			}
 
 			const id = crypto.randomUUID();
-			await subtitlesRepository.insert({ values: { id, mediaFileId: request.mediaFileId, isDefault: false, ...values } });
+			await pluginSubtitleData.insert({ values: { id, mediaFileId: request.mediaFileId, isDefault: false, ...values } });
 
 			return id;
 		});
 	}
 
 	async getContent(subtitleId: string): Promise<{ contentType: string; file: Blob } | null> {
-		const subtitle = await subtitlesRepository.findByPrimaryId({ primaryId: subtitleId });
+		const subtitle = await pluginSubtitleData.findByPrimaryId({ primaryId: subtitleId });
 		if (subtitle?.type !== "external" || !subtitle.filePath || !this.isOwnedPath(subtitle.filePath)) return null;
 
 		const subtitleFile = file(subtitle.filePath);

@@ -8,29 +8,33 @@ interface Harness {
 	eviction: ImageCacheEviction;
 	entries: Map<string, { mtimeMs: number }>;
 	deleted: string[];
+	/** Listed in the directory, but without stats. */
+	unreadable: Set<string>;
 }
 
 function createHarness(): Harness {
 	const entries = new Map<string, { mtimeMs: number }>();
 	const deleted: string[] = [];
+	const unreadable = new Set<string>();
 	const eviction = new ImageCacheEviction({
-		listDirectory: async () => [...entries.keys()].map((path) => PathUtils.getFileName(path)),
-		getStats: async (path) => entries.get(path) ?? null,
+		listDirectory: async () => [...entries.keys(), ...unreadable].map((path) => PathUtils.getFileName(path)),
+		getStats: async (path) => (unreadable.has(path) ? null : (entries.get(path) ?? null)),
 		deleteFile: (path) => {
 			deleted.push(path);
 			entries.delete(path);
+			unreadable.delete(path);
 
 			return Promise.resolve(true);
 		},
 		getIoConcurrency: () => 4,
 	});
 
-	return { eviction, entries, deleted };
+	return { eviction, entries, deleted, unreadable };
 }
 
-function fillEntries(harness: Harness, count: number, firstMtimeMs: number): void {
+function fillEntries(entries: Map<string, { mtimeMs: number }>, count: number, firstMtimeMs: number): void {
 	for (let index = 0; index < count; index++) {
-		harness.entries.set(`${CACHE_DIR}/entry-${index}.webp`, { mtimeMs: firstMtimeMs + index });
+		entries.set(`${CACHE_DIR}/entry-${index}.webp`, { mtimeMs: firstMtimeMs + index });
 	}
 }
 
@@ -58,9 +62,9 @@ describe("ImageCacheEviction", () => {
 		expect(scans).toBe(0);
 	});
 
-	test("scans on the recheck interval and keeps entries when the directory is under the cap", async () => {
+	test("keeps every entry while the directory is at the cap", async () => {
 		const harness = createHarness();
-		fillEntries(harness, 5_000, 1);
+		fillEntries(harness.entries, 5_000, 1);
 
 		await sweepDue(harness);
 
@@ -70,7 +74,7 @@ describe("ImageCacheEviction", () => {
 
 	test("evicts the oldest entries beyond the cap and keeps the newest ones", async () => {
 		const harness = createHarness();
-		fillEntries(harness, 5_020, 1);
+		fillEntries(harness.entries, 5_020, 1);
 
 		await sweepDue(harness);
 
@@ -81,20 +85,21 @@ describe("ImageCacheEviction", () => {
 		expect(harness.deleted).toHaveLength(20);
 	});
 
-	test("treats a missing stat as the oldest possible entry", async () => {
+	test("treats an entry without stats as the oldest possible entry", async () => {
 		const harness = createHarness();
-		fillEntries(harness, 5_000, 10);
-		harness.entries.set(`${CACHE_DIR}/unreadable.webp`, { mtimeMs: 5 });
+		fillEntries(harness.entries, 5_000, 10);
+		const unreadableFile = `${CACHE_DIR}/unreadable.webp`;
+		harness.unreadable.add(unreadableFile);
 
 		await sweepDue(harness);
 
-		expect(harness.deleted).toContain(`${CACHE_DIR}/unreadable.webp`);
+		expect(harness.deleted).toEqual([unreadableFile]);
 		expect(harness.entries.size).toBe(5_000);
 	});
 
 	test("resets the write counter after a sweep so the next scan waits again", async () => {
 		const harness = createHarness();
-		fillEntries(harness, 5_001, 1);
+		fillEntries(harness.entries, 5_001, 1);
 
 		await sweepDue(harness);
 		expect(harness.deleted).toHaveLength(1);
@@ -120,7 +125,7 @@ describe("ImageCacheEviction", () => {
 			getIoConcurrency: () => 4,
 		});
 
-		fillEntries({ eviction, entries, deleted: [] }, 5_001, 1);
+		fillEntries(entries, 5_001, 1);
 		// First sweep reconciles pre-existing files (stats expected).
 		for (let writes = 0; writes < 500; writes++) await eviction.evictIfDue(CACHE_DIR);
 		expect(statCalls).toBeGreaterThan(0);

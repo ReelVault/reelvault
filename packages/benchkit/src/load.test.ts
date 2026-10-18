@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { sleep } from "bun";
-import { runLoadWindow } from "./load";
+import { runLoadWindow } from "./load.utils";
 
 describe("runLoadWindow", () => {
-	test("discards warmup samples and bounds the run to the deadline", async () => {
+	test("counts only post-warmup requests in the run totals", async () => {
 		let calls = 0;
 		const run = await runLoadWindow({
 			concurrency: 2,

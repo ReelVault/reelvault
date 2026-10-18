@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
+import { removeTree } from "@/utils/directory.utils";
 import { PluginConfig } from "./plugin.config";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 });
 
 describe("plugin configuration", () => {
@@ -74,7 +75,9 @@ describe("plugin configuration", () => {
 		const pluginsDirectory = await createPluginsDirectory();
 		const config = new PluginConfig(pluginsDirectory);
 
-		expect(() => config.resolvePluginDirectory("../outside")).toThrow("invalid directory name");
+		expect(() => config.resolvePluginDirectory("../outside")).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.config_directory_invalid" }),
+		);
 	});
 
 	test("writes the config file with owner-only permissions", async () => {

@@ -2,16 +2,16 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InstallCatalogPluginResponse, PluginValidationResult } from "@reelvault/sdk/common";
-import { pluginRepositoriesRepository } from "@/database/repositories/plugin-repositories.repository";
-import { env } from "@/env";
+import { pluginCatalogRepositoryData } from "@/app/plugins/plugin-data.service";
+import { env } from "@/config/env.config";
+import { SERVER_VERSION } from "@/config/version.constants";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { assertChecksumMatches } from "@/utils/crypto.utils";
-import { DomainError, errorCodeOf, toErrorCode } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { DomainError, errorCodeOf, toErrorCode } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
-import { SERVER_VERSION } from "@/version";
 import {
 	isHttpsUrl,
 	OFFICIAL_PLUGIN_REPOSITORY,
@@ -21,21 +21,26 @@ import {
 	type PluginCatalogVersionEntry,
 	parsePluginCatalogManifest,
 	resolveCatalogCandidate,
-} from "./catalog-manifest";
-import { downloadArchive, extractPluginPackage } from "./plugin-package.utils";
-import { archiveValidationFailure, validatePluginPackage } from "./plugin-package-validation";
+} from "./catalog-manifest.utils";
+import { downloadArchive } from "./plugin-package/download.fetcher";
+import { extractPluginPackage } from "./plugin-package/extract.extractor";
+import { archiveValidationFailure, validatePluginPackage } from "./plugin-package.validator";
 
 const CACHE_TTL_MS = 15 * 60_000;
 const MANIFEST_TIMEOUT_MS = 20_000;
 /** The lockfile provenance format for catalog installs (vs. absolute paths for manual installs). */
-const catalogSource = (repositoryId: string, pluginId: string, version: string): string => `catalog:${repositoryId}:${pluginId}@${version}`;
+function catalogSource(repositoryId: string, pluginId: string, version: string): string {
+	return `catalog:${repositoryId}:${pluginId}@${version}`;
+}
 
-const toVersionView = (entry: PluginCatalogVersionEntry): PluginCatalogVersionView => ({
-	version: entry.version,
-	...(entry.date ? { date: entry.date } : {}),
-	...(entry.changelog ? { changelog: entry.changelog } : {}),
-	...(entry.minServerVersion ? { minServerVersion: entry.minServerVersion } : {}),
-});
+function toVersionView(entry: PluginCatalogVersionEntry): PluginCatalogVersionView {
+	return {
+		version: entry.version,
+		...(entry.date ? { date: entry.date } : {}),
+		...(entry.changelog ? { changelog: entry.changelog } : {}),
+		...(entry.minServerVersion ? { minServerVersion: entry.minServerVersion } : {}),
+	};
+}
 
 export interface PluginRepositoryView {
 	id: string;
@@ -101,7 +106,15 @@ export interface InstallCatalogPluginInput {
 	version?: string;
 }
 
-type RepositoryRow = Awaited<ReturnType<typeof pluginRepositoriesRepository.list>>[number];
+type RepositoryRow = Awaited<ReturnType<typeof pluginCatalogRepositoryData.list>>[number];
+type ExtractedPluginPackage = Awaited<ReturnType<typeof extractPluginPackage>>;
+
+async function requireRepository(id: string): Promise<RepositoryRow> {
+	const row = await pluginCatalogRepositoryData.findById(id);
+	if (!row) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+
+	return row;
+}
 
 interface CachedManifest {
 	manifest: PluginCatalogManifest;
@@ -109,12 +122,12 @@ interface CachedManifest {
 }
 
 class PluginCatalogService {
-	private readonly logger = createLogger("PluginCatalogService");
+	readonly logger = createLogger("PluginCatalogService");
 	private readonly cache = new Map<string, CachedManifest>();
 
 	async listRepositories(): Promise<PluginRepositoryView[]> {
 		await this.ensureOfficialRepository();
-		const rows = await pluginRepositoriesRepository.list();
+		const rows = await pluginCatalogRepositoryData.list();
 
 		return rows.map((row) => this.toView(row));
 	}
@@ -123,7 +136,7 @@ class PluginCatalogService {
 		if (!isHttpsUrl(values.url))
 			throw new DomainError("validation", "Repository URL must be an https URL", { code: "plugin.repository_url_invalid" });
 
-		const row = await pluginRepositoriesRepository.create({
+		const row = await pluginCatalogRepositoryData.create({
 			name: values.name,
 			url: values.url,
 			tokenEncrypted: values.token ? encryptSecret(values.token, env.BETTER_AUTH_SECRET) : null,
@@ -135,18 +148,14 @@ class PluginCatalogService {
 				reason: error instanceof Error ? error.message : String(error),
 			});
 		});
-		const created = await pluginRepositoriesRepository.findById(row.id);
-		if (!created) throw new DomainError("not_found", `Plugin repository not found: ${row.id}`, { code: "plugin.repository_not_found" });
-
-		return this.toView(created);
+		return this.toView(await requireRepository(row.id));
 	}
 
 	async updateRepository(
 		id: string,
 		values: { name?: string; url?: string; token?: string | null; enabled?: boolean },
 	): Promise<PluginRepositoryView> {
-		const existing = await pluginRepositoriesRepository.findById(id);
-		if (!existing) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		await requireRepository(id);
 
 		if (values.url !== undefined && !isHttpsUrl(values.url))
 			throw new DomainError("validation", "Repository URL must be an https URL", { code: "plugin.repository_url_invalid" });
@@ -159,7 +168,7 @@ class PluginCatalogService {
 			tokenEncrypted = encryptSecret(values.token, env.BETTER_AUTH_SECRET);
 		}
 
-		const updated = await pluginRepositoriesRepository.update(id, {
+		const updated = await pluginCatalogRepositoryData.update(id, {
 			...(values.name !== undefined ? { name: values.name } : {}),
 			...(values.url !== undefined ? { url: values.url } : {}),
 			...(tokenEncrypted !== undefined ? { tokenEncrypted } : {}),
@@ -173,22 +182,16 @@ class PluginCatalogService {
 	}
 
 	async deleteRepository(id: string): Promise<void> {
-		const existing = await pluginRepositoriesRepository.findById(id);
-		if (!existing) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		await requireRepository(id);
 
-		await pluginRepositoriesRepository.delete(id);
+		await pluginCatalogRepositoryData.delete(id);
 		this.cache.delete(id);
 	}
 
 	async refreshRepository(id: string): Promise<PluginRepositoryView> {
-		const existing = await pluginRepositoriesRepository.findById(id);
-		if (!existing) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+		await this.fetchManifest(await requireRepository(id), { force: true });
 
-		await this.fetchManifest(existing, { force: true });
-		const refreshed = await pluginRepositoriesRepository.findById(id);
-		if (!refreshed) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
-
-		return this.toView(refreshed);
+		return this.toView(await requireRepository(id));
 	}
 
 	/** Installed plugins that an enabled repository offers in a newer version. A failing catalog offers none. */
@@ -207,7 +210,7 @@ class PluginCatalogService {
 	/** Aggregated catalog across all enabled repositories, annotated with install state. */
 	async getCatalog(): Promise<PluginCatalogView> {
 		await this.ensureOfficialRepository();
-		const rows = (await pluginRepositoriesRepository.list()).filter((row) => row.enabled);
+		const rows = (await pluginCatalogRepositoryData.list()).filter((row) => row.enabled);
 		const records = await pluginManager.getInstalledRecords();
 		const installed = new Map(records.map((record) => [record.id, record.record.version]));
 		// A pinned plugin keeps its installed version: the catalog reports it as installed, never as updatable.
@@ -260,9 +263,7 @@ class PluginCatalogService {
 	}
 
 	async installFromCatalog(input: InstallCatalogPluginInput): Promise<InstallCatalogPluginResponse> {
-		const row = await pluginRepositoriesRepository.findById(input.repositoryId);
-		if (!row)
-			throw new DomainError("not_found", `Plugin repository not found: ${input.repositoryId}`, { code: "plugin.repository_not_found" });
+		const row = await requireRepository(input.repositoryId);
 
 		const { manifest } = await this.fetchManifest(row, { force: false });
 
@@ -289,7 +290,7 @@ class PluginCatalogService {
 
 		const token = this.tokenFor(row);
 		const download = await downloadArchive(candidate.downloadUrl, token ? { token } : {});
-		let extracted: Awaited<ReturnType<typeof extractPluginPackage>> | undefined;
+		let extracted: ExtractedPluginPackage | undefined;
 		try {
 			assertChecksumMatches(download.checksum, candidate.checksum, {
 				checksum: false,
@@ -311,7 +312,7 @@ class PluginCatalogService {
 
 	async installFromArchive(archive: Blob, options: { source?: string } = {}): Promise<InstallCatalogPluginResponse> {
 		const temporaryPath = join(tmpdir(), `reelvault-plugin-upload-${crypto.randomUUID()}.bin`);
-		let extracted: Awaited<ReturnType<typeof extractPluginPackage>> | undefined;
+		let extracted: ExtractedPluginPackage | undefined;
 		try {
 			await Bun.write(temporaryPath, archive);
 			extracted = await extractPluginPackage(temporaryPath);
@@ -328,7 +329,7 @@ class PluginCatalogService {
 	/** Dry run of an uploaded archive: reports what installing it would do and installs nothing. */
 	async validateArchive(archive: Blob): Promise<PluginValidationResult> {
 		const temporaryPath = join(tmpdir(), `reelvault-plugin-validate-${crypto.randomUUID()}.bin`);
-		let extracted: Awaited<ReturnType<typeof extractPluginPackage>> | undefined;
+		let extracted: ExtractedPluginPackage | undefined;
 		try {
 			await Bun.write(temporaryPath, archive);
 			try {
@@ -360,9 +361,9 @@ class PluginCatalogService {
 
 	/** Seeds the official repository so a fresh server's catalog is never empty. */
 	private async ensureOfficialRepository(): Promise<void> {
-		if ((await pluginRepositoriesRepository.count()) > 0) return;
+		if ((await pluginCatalogRepositoryData.count()) > 0) return;
 
-		await pluginRepositoriesRepository.createIfAbsent({
+		await pluginCatalogRepositoryData.createIfAbsent({
 			name: OFFICIAL_PLUGIN_REPOSITORY.name,
 			url: OFFICIAL_PLUGIN_REPOSITORY.url,
 		});
@@ -405,11 +406,11 @@ class PluginCatalogService {
 
 			const cachedManifest = { manifest, fetchedAt: Date.now() };
 			this.cache.set(row.id, cachedManifest);
-			await pluginRepositoriesRepository.update(row.id, { lastRefreshedAt: new Date(), lastError: null });
+			await pluginCatalogRepositoryData.update(row.id, { lastRefreshedAt: new Date(), lastError: null });
 
 			return cachedManifest;
 		} catch (error) {
-			await pluginRepositoriesRepository.update(row.id, { lastError: errorCodeOf(error, PLUGIN_REPOSITORY_UNAVAILABLE) });
+			await pluginCatalogRepositoryData.update(row.id, { lastError: errorCodeOf(error, PLUGIN_REPOSITORY_UNAVAILABLE) });
 			// A previously-good cache keeps the catalog usable while the upstream is down.
 			if (cached) return cached;
 

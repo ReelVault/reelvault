@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ENDED_SESSION_HISTORY_LIMIT, type EndedLiveSession, EndedSessionHistory } from "./ended-session-history";
+import { ENDED_SESSION_HISTORY_LIMIT, type EndedLiveSession, EndedSessionHistory } from "./ended-session.history";
 
 function endedSession(index: number): EndedLiveSession {
 	return {

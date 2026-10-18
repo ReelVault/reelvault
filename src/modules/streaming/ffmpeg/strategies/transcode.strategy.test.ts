@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TranscodeConfig } from "@reelvault/sdk/common";
-import { createMockPlaybackDecision } from "../../streaming.test-utils";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
 import { TranscodeStrategy } from "./transcode.strategy";
 
 const config: TranscodeConfig = {
@@ -12,10 +12,10 @@ const config: TranscodeConfig = {
 };
 
 describe("transcode strategy", () => {
-	test("refuses to start without an input file", () => {
+	test("refuses to start without an input file", async () => {
 		const strategy = new TranscodeStrategy(config);
 
-		expect(
+		await expect(
 			strategy.startSession({
 				sessionId: "s1",
 				inputPath: "/nonexistent/input.mkv",
@@ -23,6 +23,6 @@ describe("transcode strategy", () => {
 				decision: createMockPlaybackDecision({ mode: "transcode" }),
 				startTime: 0,
 			}),
-		).rejects.toThrow("Input file does not exist");
+		).rejects.toMatchObject({ category: "not_found", code: "media_file.missing" });
 	});
 });

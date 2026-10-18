@@ -1,16 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createMockPlaybackDecision } from "../streaming.test-utils";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
 import { streamingManager } from "./streaming.manager";
 
 const sessionIds: string[] = [];
 
 const decision = createMockPlaybackDecision({ mode: "direct-stream", videoTranscode: false, audioTranscode: false, reason: "test" });
 
-afterEach(() => {
-	for (const sessionId of sessionIds.splice(0))
-		streamingManager.discardSession(sessionId).catch(() => {
-			/* intentionally empty */
-		});
+afterEach(async () => {
+	await Promise.all(sessionIds.splice(0).map((sessionId) => streamingManager.discardSession(sessionId)));
 });
 
 describe("streaming session isolation", () => {
@@ -70,7 +67,7 @@ describe("streaming session isolation", () => {
 		expect(await streamingManager.releaseSession("never-existed", "client-release")).toBe("unknown");
 	});
 
-	test("discarding a creating session removes it; started sessions are kept", () => {
+	test("discarding a creating session removes it", async () => {
 		const sessionId = "session-discard-creating";
 		sessionIds.push(sessionId);
 		streamingManager.registerSession(sessionId, {
@@ -80,9 +77,8 @@ describe("streaming session isolation", () => {
 			inputPath: "/media/d.mkv",
 		});
 
-		streamingManager.discardSession(sessionId).catch(() => {
-			/* intentionally empty */
-		});
+		await streamingManager.discardSession(sessionId);
+
 		expect(streamingManager.getSessionAccess(sessionId)).toBeUndefined();
 	});
 });

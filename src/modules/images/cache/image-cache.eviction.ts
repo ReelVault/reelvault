@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 

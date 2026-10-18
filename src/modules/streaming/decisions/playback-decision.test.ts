@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decidePlaybackMode } from "./playback-decision";
+import { decidePlaybackMode } from "./playback-decision.resolver";
 
 describe("streaming quality decision", () => {
 	test("keeps the selected audio stream index in the playback decision", () => {

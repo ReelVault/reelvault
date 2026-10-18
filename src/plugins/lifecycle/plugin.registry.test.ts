@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type {
 	ConfigDefinition,
 	MediaAnalyzer,
@@ -12,10 +10,6 @@ import type {
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
 import { PluginRegistry } from "./plugin.registry";
-
-process.env.NODE_ENV ??= "test";
-process.env.APP_PORT ??= "3030";
-process.env.ROOT_DIR ??= join(tmpdir(), `reelvault-tests-${process.pid}`);
 
 const plugin: ReelVaultPlugin = { setup: async () => undefined };
 
@@ -100,8 +94,12 @@ describe("plugin registry", () => {
 		const provider = createProvider("tmdb");
 		registry.register(createRuntime("first", [provider]), [provider]);
 
-		expect(() => registry.register(createRuntime("first"), [])).toThrow('Plugin "first"');
-		expect(() => registry.register(createRuntime("second", [createProvider("tmdb")]), [createProvider("tmdb")])).toThrow('Provider "tmdb"');
+		expect(() => registry.register(createRuntime("first"), [])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.already_registered" }),
+		);
+		expect(() => registry.register(createRuntime("second", [createProvider("tmdb")]), [createProvider("tmdb")])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.entity_conflict" }),
+		);
 	});
 
 	it("does not partially register providers when validation fails", () => {
@@ -109,7 +107,9 @@ describe("plugin registry", () => {
 		registry.register(createRuntime("first", [provider]), [provider]);
 		const duplicate = createProvider("tmdb");
 
-		expect(() => registry.register(createRuntime("second", [duplicate]), [duplicate])).toThrow('Provider "tmdb"');
+		expect(() => registry.register(createRuntime("second", [duplicate]), [duplicate])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.entity_conflict" }),
+		);
 		expect(registry.get("second")).toBeUndefined();
 		expect(registry.getProviders()).toHaveLength(1);
 	});
@@ -186,7 +186,9 @@ describe("plugin registry", () => {
 		registry.advance("lifecycle", "validated", "config");
 		registry.advance("lifecycle", "resolved", "entry");
 
-		expect(() => registry.advance("lifecycle", "resolved", "entry")).toThrow("cannot transition from resolved to resolved");
+		expect(() => registry.advance("lifecycle", "resolved", "entry")).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.state_invalid" }),
+		);
 	});
 
 	it("removes all resources when a plugin is unregistered", () => {
@@ -358,7 +360,7 @@ describe("plugin registry ui manifests", () => {
 		registry.enable("org.example.other");
 
 		expect(() => registry.setUiManifest("org.example.other", { ...uiManifest, name: "Other" })).toThrow(
-			'both declare the custom element "rv-example-public"',
+			expect.objectContaining({ category: "validation", code: "plugin.element_conflict" }),
 		);
 	});
 });

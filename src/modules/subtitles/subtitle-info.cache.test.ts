@@ -1,97 +1,82 @@
 import { describe, expect, test } from "bun:test";
-import { type SubtitleContentInfo, SubtitleInfoCache } from "./subtitle-info.cache";
+import { eq } from "drizzle-orm";
+import { subtitlesRepository } from "@/app/repositories/subtitles.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { SubtitleInfoCache } from "./subtitle-info.cache";
 
-interface Overrides {
-	rows?: Map<string, { type: string; mediaFileId: string; streamIndex: number | null; format: string }>;
-	mediaPaths?: Map<string, string>;
-	missingMedia?: Set<string>;
-}
+const db = useTestDatabase();
 
-function createCache(overrides: Overrides = {}) {
-	const rows = overrides.rows ?? new Map();
-	const mediaPaths = overrides.mediaPaths ?? new Map();
-	const missingMedia = overrides.missingMedia ?? new Set();
-	const calls = { findSubtitle: 0, findMediaFilePath: 0 };
-	const cache = new SubtitleInfoCache({
-		findSubtitle: (id) => {
-			calls.findSubtitle++;
+/** One embedded and one external subtitle on a movie file, read back through the real repositories. */
+async function seedSubtitles(): Promise<string> {
+	const client = db.client();
+	const mediaFileId = await insertMovieMediaFile(client, "/media/movie.mkv", "meta-1");
+	await client.insert(schema.subtitles).values([
+		{ id: "sub-1", mediaFileId, language: "eng", format: "subrip", type: "embedded", streamIndex: 2 },
+		{ id: "sub-2", mediaFileId, language: "pol", format: "srt", type: "external", filePath: "/subs/movie.pl.srt" },
+	]);
 
-			return Promise.resolve(rows.get(id));
-		},
-		findMediaFilePath: (mediaFileId) => {
-			calls.findMediaFilePath++;
-			if (missingMedia.has(mediaFileId)) return Promise.resolve(null);
-
-			return Promise.resolve(mediaPaths.get(mediaFileId) ?? null);
-		},
-	});
-
-	return { cache, calls };
+	return mediaFileId;
 }
 
 describe("SubtitleInfoCache", () => {
 	test("loads embedded info together with the media file path", async () => {
-		const { cache } = createCache({
-			rows: new Map([["sub-1", { type: "embedded", mediaFileId: "file-1", streamIndex: 2, format: "subrip" }]]),
-			mediaPaths: new Map([["file-1", "/media/movie.mkv"]]),
-		});
+		const mediaFileId = await seedSubtitles();
 
-		expect(await cache.getOrSet("sub-1")).toEqual({
+		expect(await new SubtitleInfoCache().getOrSet("sub-1")).toEqual({
 			type: "embedded",
-			mediaFileId: "file-1",
+			mediaFileId,
 			streamIndex: 2,
 			format: "subrip",
 			mediaFilePath: "/media/movie.mkv",
 		});
 	});
 
-	test("loads external info without touching the media file repository", async () => {
-		const { cache, calls } = createCache({
-			rows: new Map([["sub-2", { type: "external", mediaFileId: "file-1", streamIndex: null, format: "srt" }]]),
-		});
+	test("loads external info without a media file path", async () => {
+		await seedSubtitles();
 
-		const info: SubtitleContentInfo = await cache.getOrSet("sub-2");
+		const info = await new SubtitleInfoCache().getOrSet("sub-2");
 
+		expect(info).toMatchObject({ type: "external", format: "srt" });
 		expect(info.mediaFilePath).toBeUndefined();
-		expect(calls.findMediaFilePath).toBe(0);
 	});
 
-	test("throws not found for a missing subtitle", () => {
-		const { cache } = createCache();
+	test("throws not found for a missing subtitle", async () => {
+		await seedSubtitles();
 
-		expect(cache.getOrSet("missing")).rejects.toThrow("Subtitle not found: missing");
-		expect(cache.getOrSet("missing")).rejects.toMatchObject({ category: "not_found" });
+		await expect(new SubtitleInfoCache().getOrSet("missing")).rejects.toMatchObject({
+			category: "not_found",
+			code: "entity.not_found",
+			params: { entityType: "Subtitle", entityId: "missing" },
+		});
 	});
 
-	test("throws not found when an embedded subtitle has no media file", () => {
-		const { cache } = createCache({
-			rows: new Map([["sub-3", { type: "embedded", mediaFileId: "gone", streamIndex: 1, format: "subrip" }]]),
-			missingMedia: new Set(["gone"]),
+	test("throws not found when the media file for an embedded subtitle disappears before its path is read", async () => {
+		const mediaFileId = await seedSubtitles();
+		// The second read is injected as a miss: the row can vanish between the two reads, which the foreign-key cascade does not cover.
+		const cache = new SubtitleInfoCache({
+			findSubtitle: (id) => subtitlesRepository.findByPrimaryId({ primaryId: id }),
+			findMediaFilePath: () => Promise.resolve(null),
 		});
 
-		expect(cache.getOrSet("sub-3")).rejects.toThrow("Media file not found: gone");
+		await expect(cache.getOrSet("sub-1")).rejects.toMatchObject({
+			category: "not_found",
+			code: "entity.not_found",
+			params: { entityType: "Media file", entityId: mediaFileId },
+		});
 	});
 
-	test("loads each subtitle once for repeated reads", async () => {
-		const { cache, calls } = createCache({
-			rows: new Map([["sub-4", { type: "external", mediaFileId: "file-1", streamIndex: null, format: "srt" }]]),
-		});
+	test("serves repeated reads from the cache until the subtitle is invalidated", async () => {
+		await seedSubtitles();
+		const cache = new SubtitleInfoCache();
 
-		await cache.getOrSet("sub-4");
-		await cache.getOrSet("sub-4");
+		expect((await cache.getOrSet("sub-2")).format).toBe("srt");
 
-		expect(calls.findSubtitle).toBe(1);
-	});
+		await db.client().update(schema.subtitles).set({ format: "vtt" }).where(eq(schema.subtitles.id, "sub-2"));
+		expect((await cache.getOrSet("sub-2")).format).toBe("srt");
 
-	test("reloads after an invalidation", async () => {
-		const { cache, calls } = createCache({
-			rows: new Map([["sub-5", { type: "external", mediaFileId: "file-1", streamIndex: null, format: "srt" }]]),
-		});
-
-		await cache.getOrSet("sub-5");
-		cache.invalidate("sub-5");
-		await cache.getOrSet("sub-5");
-
-		expect(calls.findSubtitle).toBe(2);
+		cache.invalidate("sub-2");
+		expect((await cache.getOrSet("sub-2")).format).toBe("vtt");
 	});
 });

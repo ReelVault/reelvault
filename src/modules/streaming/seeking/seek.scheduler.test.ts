@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sleep } from "bun";
-import { createMockPlaybackDecision } from "../streaming.test-utils";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
 import { SeekScheduler } from "./seek.scheduler";
 
 const decision = createMockPlaybackDecision({ mode: "transcode" });
@@ -70,11 +70,13 @@ describe("seek scheduler", () => {
 
 	test("cancelAll rejects every pending seek", async () => {
 		const scheduler = new SeekScheduler(50, async (_sessionId, offset) => offset);
-		const pending = scheduler.schedule("s1", 10, decision);
+		const first = scheduler.schedule("s1", 10, decision);
+		const second = scheduler.schedule("s2", 20, decision);
 
 		scheduler.cancelAll("shutting down");
 
-		await expect(pending).rejects.toThrow("shutting down");
+		await expect(first).rejects.toMatchObject({ category: "internal", code: "stream.seek_cancelled" });
+		await expect(second).rejects.toMatchObject({ category: "internal", code: "stream.seek_cancelled" });
 	});
 
 	test("isSeeking is true only while the executor runs", async () => {

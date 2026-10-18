@@ -10,10 +10,10 @@ import {
 	task,
 } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { contextHeaders, rotatingIdentity, subnetIp } from "./lib/identity";
-import { createPlaybackSession } from "./lib/playback";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { contextHeaders, rotatingIdentity, subnetIp } from "./lib/identity.utils";
+import { createPlaybackSession } from "./lib/playback.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * Playback-session CONTROL-PLANE suite (no media segments — ffmpeg data-plane

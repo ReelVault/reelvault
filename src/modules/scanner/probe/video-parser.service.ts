@@ -1,10 +1,10 @@
+import { systemResourcesService } from "@/config/system-resources.service";
 import { ffProbeService } from "@/integrations/ffprobe/ffprobe.service";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { createLogger } from "@/utils/logger";
+import { throwIfAborted } from "@/utils/cancellation.utils";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 
 class VideoParser {
 	readonly serviceName = "VideoParser";

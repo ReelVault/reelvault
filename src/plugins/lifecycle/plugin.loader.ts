@@ -1,44 +1,38 @@
 import { pathToFileURL } from "node:url";
-import type { ConfigDefinition, PluginLoadPhase, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
+import type { ConfigDefinition, PluginLoadPhase, ReelVaultPlugin } from "@reelvault/sdk/plugin";
 import { isConfigDefinition } from "@reelvault/sdk/plugin";
+import { serverConfig } from "@/config/server/server.config";
 import { realtimeService } from "@/modules/realtime/realtime.service";
+import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
+import { pluginBlobsService } from "@/plugins/capabilities/plugin.blobs";
+import { pluginStorageService } from "@/plugins/capabilities/plugin.storage";
+import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
-import { serverConfig } from "@/server.config";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { hasEntry } from "@/utils/array.utils";
 import { DirUtils } from "@/utils/directory.utils";
-import { DomainError, errorMessage } from "@/utils/errors";
+import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import { workerService } from "@/workers/worker.service";
-import { pluginArtifactsService } from "../capabilities/plugin.artifacts";
-import { pluginBlobsService } from "../capabilities/plugin.blobs";
-import { pluginStorageService } from "../capabilities/plugin.storage";
-import { pluginAccessBus } from "../runtime/plugin.access";
-import { pluginEventBus } from "../runtime/plugin.events";
 import { PluginScope } from "./host/plugin.scope";
-import { isPluginDirectoryName, PluginDirectoryIndex } from "./host/plugin-directory.index";
+import { isPluginDirectoryName, PluginDirectoryIndex } from "./host/plugin-directory.indexer";
 import { createPluginHost } from "./host/plugin-host.factory";
 import { PluginLockfileStore } from "./installer/lockfile.store";
+import { validatePluginUiManifest } from "./manifest/ui.validator";
 import type { PluginConfig } from "./plugin.config";
 import { PluginInstaller } from "./plugin.installer";
-import {
-	loadPluginManifest,
-	resolvePluginEntry,
-	resolvePluginUiSchemas,
-	validatePluginConfig,
-	validatePluginUiManifest,
-} from "./plugin.manifest";
+import { loadPluginManifest, resolvePluginEntry, resolvePluginUiSchemas, validatePluginConfig } from "./plugin.manifest";
 import type { PluginRegistry } from "./plugin.registry";
-import { clearPluginRuntimes, materializePluginRuntime, pluginRuntimeRoot } from "./plugin-runtime-copy";
-import { ensurePluginSdkShim } from "./plugin-sdk-alias";
-
-type LoadedPluginManifest = Awaited<ReturnType<typeof loadPluginManifest>>;
+import { buildPluginRuntime, isReelVaultPlugin, type LoadedPluginManifest, toLifecycleError } from "./plugin-loader.utils";
+import { clearPluginRuntimes, materializePluginRuntime, pluginRuntimeRoot } from "./plugin-runtime.service";
+import { ensurePluginSdkShim } from "./plugin-sdk-alias.utils";
 
 export class PluginLoader {
-	private readonly logger = createLogger("PluginLoader");
+	readonly logger = createLogger("PluginLoader");
 	private readonly config: PluginConfig;
 	private readonly registry: PluginRegistry;
 	private readonly pluginsDirectory: string;
@@ -336,9 +330,7 @@ export class PluginLoader {
 		if (trackedPluginId) {
 			this.registry.fail(trackedPluginId, err, configDefinition);
 			const phase = this.registry.get(trackedPluginId)?.failurePhase;
-			this.registry.unregister(trackedPluginId, true);
-			this.directoryIndex.delete(trackedPluginId);
-			this.pluginScopes.delete(trackedPluginId);
+			this.forget(trackedPluginId, true);
 
 			return phase;
 		}
@@ -353,6 +345,13 @@ export class PluginLoader {
 		return failurePhase;
 	}
 
+	/** Drops a plugin from the registry, the directory index and its scope. */
+	private forget(pluginId: string, preserveFailure = false): void {
+		this.registry.unregister(pluginId, preserveFailure);
+		this.directoryIndex.delete(pluginId);
+		this.pluginScopes.delete(pluginId);
+	}
+
 	async reloadPlugin(pluginId: string): Promise<void> {
 		const pluginName = (await this.findDirectoryNameForPluginId(pluginId)) ?? pluginId;
 
@@ -363,9 +362,7 @@ export class PluginLoader {
 	async unloadPlugin(pluginId: string): Promise<void> {
 		const runtime = this.registry.get(pluginId);
 		if (!runtime) {
-			this.registry.unregister(pluginId);
-			this.directoryIndex.delete(pluginId);
-			this.pluginScopes.delete(pluginId);
+			this.forget(pluginId);
 
 			return;
 		}
@@ -377,9 +374,7 @@ export class PluginLoader {
 				// A failed plugin's cleanup errors were already recorded in the registry.
 			}
 
-			this.registry.unregister(pluginId);
-			this.directoryIndex.delete(pluginId);
-			this.pluginScopes.delete(pluginId);
+			this.forget(pluginId);
 
 			return;
 		}
@@ -407,9 +402,7 @@ export class PluginLoader {
 		} catch (error) {
 			lifecycleError ??= toLifecycleError(error);
 		} finally {
-			this.registry.unregister(pluginId);
-			this.directoryIndex.delete(pluginId);
-			this.pluginScopes.delete(pluginId);
+			this.forget(pluginId);
 		}
 
 		this.logger.info(`Plugin ${pluginId} unloaded`);
@@ -467,34 +460,4 @@ export class PluginLoader {
 		]);
 		this.logger.info(`Plugin ${pluginId} data removed`);
 	}
-}
-
-/** Runtime record for a plugin whose setup() has finished, before it is registered. */
-function buildPluginRuntime(
-	manifest: LoadedPluginManifest,
-	plugin: ReelVaultPlugin,
-	configDefinition: ConfigDefinition | undefined,
-	scope: PluginScope,
-): PluginRuntime {
-	return {
-		manifest,
-		plugin,
-		...(configDefinition ? { configDefinition } : {}),
-		state: "initialized",
-		providerIds: scope.getProviderIds(),
-		subtitleProviderIds: scope.getSubtitleProviderIds(),
-		analyzerIds: scope.getAnalyzerIds(),
-		jobNames: scope.getJobNames(),
-	};
-}
-
-function isReelVaultPlugin(value: unknown): value is ReelVaultPlugin {
-	return typeof value === "object" && value !== null && "setup" in value && typeof value.setup === "function";
-}
-
-/** Preserves Error identity and wraps exotic throws so lifecycle failures stay throwable. */
-function toLifecycleError(error: unknown): Error {
-	if (error instanceof Error) return error;
-
-	return new Error("Plugin lifecycle hook failed", { cause: error });
 }

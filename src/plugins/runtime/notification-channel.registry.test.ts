@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { OutgoingNotification } from "@reelvault/sdk/plugin";
 import {
 	dispatchNotificationToChannels,
@@ -6,6 +6,8 @@ import {
 	registerNotificationChannel,
 	unregisterPluginNotificationChannels,
 } from "./notification-channel.registry";
+
+const PLUGIN_IDS = ["plugin-a", "plugin-b", "plugin-slow", "plugin-fast", "plugin-streak"];
 
 function channel(id: string, calls: OutgoingNotification[], failure?: Error) {
 	return {
@@ -21,31 +23,41 @@ function channel(id: string, calls: OutgoingNotification[], failure?: Error) {
 
 const sample = { id: "n-1", userId: "u-1", type: "test", title: "Hello" } as const;
 
+afterEach(() => {
+	// The channel registry is process-wide, so a failed test must not leave a channel behind.
+	for (const pluginId of PLUGIN_IDS) unregisterPluginNotificationChannels(pluginId);
+});
+
 describe("notification channel registry", () => {
 	test("dispatches to every registered channel with an isolated payload", async () => {
 		const seen: OutgoingNotification[] = [];
-		const unregister = registerNotificationChannel("plugin-a", channel("c1", seen));
+		registerNotificationChannel("plugin-a", {
+			id: "mutator",
+			deliver: (notification) => {
+				notification.title = "Changed by a channel";
+
+				return Promise.resolve();
+			},
+		});
+		registerNotificationChannel("plugin-b", channel("c1", seen));
 
 		await dispatchNotificationToChannels({ ...sample });
 
 		expect(seen).toHaveLength(1);
 		expect(seen[0]?.id).toBe("n-1");
-		unregister();
+		expect(seen[0]?.title).toBe("Hello");
 	});
 
 	test("one failing channel does not block the others", async () => {
 		const okSeen: OutgoingNotification[] = [];
 		const failing: OutgoingNotification[] = [];
-		const cleanups = [
-			registerNotificationChannel("plugin-a", channel("broken", failing, new Error("network down"))),
-			registerNotificationChannel("plugin-b", channel("working", okSeen)),
-		];
+		registerNotificationChannel("plugin-a", channel("broken", failing, new Error("network down")));
+		registerNotificationChannel("plugin-b", channel("working", okSeen));
 
 		await dispatchNotificationToChannels({ ...sample });
 
 		expect(failing).toHaveLength(1);
 		expect(okSeen).toHaveLength(1);
-		for (const cleanup of cleanups) cleanup();
 	});
 
 	test("unregister by plugin removes all of its channels", async () => {
@@ -58,7 +70,6 @@ describe("notification channel registry", () => {
 		await dispatchNotificationToChannels({ ...sample });
 
 		expect(seen).toHaveLength(1);
-		unregisterPluginNotificationChannels("plugin-b");
 	});
 
 	test("a slow channel does not hold up the channels after it", async () => {
@@ -78,22 +89,21 @@ describe("notification channel registry", () => {
 				return Promise.resolve();
 			},
 		};
-		const unregisterSlow = registerNotificationChannel("plugin-slow", slow);
-		const unregisterFast = registerNotificationChannel("plugin-fast", fast);
+		registerNotificationChannel("plugin-slow", slow);
+		registerNotificationChannel("plugin-fast", fast);
 
 		await dispatchNotificationToChannels({ ...sample });
 
 		expect(order).toEqual(["fast", "slow"]);
-		unregisterSlow();
-		unregisterFast();
 	});
 
 	test("rejects a duplicate channel id instead of silently overwriting it", () => {
 		const seen: OutgoingNotification[] = [];
-		const unregister = registerNotificationChannel("plugin-a", channel("c1", seen));
+		registerNotificationChannel("plugin-a", channel("c1", seen));
 
-		expect(() => registerNotificationChannel("plugin-a", channel("c1", seen))).toThrow("already registered");
-		unregister();
+		expect(() => registerNotificationChannel("plugin-a", channel("c1", seen))).toThrow(
+			expect.objectContaining({ category: "conflict", code: "plugin.notification_channel.duplicate" }),
+		);
 	});
 
 	test("reports a channel once per failing streak and again after it recovers", async () => {
@@ -102,14 +112,14 @@ describe("notification channel registry", () => {
 			id: "webhook",
 			deliver: () => (healthy ? Promise.resolve() : Promise.reject(new Error("503 from endpoint"))),
 		};
-		const unregister = registerNotificationChannel("plugin-streak", flaky);
-		const reports: string[] = [];
-		const stop = onNotificationChannelFailure((failure) => reports.push(`${failure.channelId}: ${failure.message}`));
+		registerNotificationChannel("plugin-streak", flaky);
+		const reports: Array<{ pluginId: string; channelId: string }> = [];
+		const stop = onNotificationChannelFailure((failure) => reports.push({ pluginId: failure.pluginId, channelId: failure.channelId }));
 
 		try {
 			await dispatchNotificationToChannels(sample);
 			await dispatchNotificationToChannels(sample);
-			expect(reports).toEqual(["webhook: 503 from endpoint"]);
+			expect(reports).toEqual([{ pluginId: "plugin-streak", channelId: "webhook" }]);
 
 			healthy = true;
 			await dispatchNotificationToChannels(sample);
@@ -120,7 +130,6 @@ describe("notification channel registry", () => {
 			expect(reports).toHaveLength(2);
 		} finally {
 			stop();
-			unregister();
 		}
 	});
 });

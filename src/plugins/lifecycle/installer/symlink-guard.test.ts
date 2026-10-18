@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertNoSymbolicLinks } from "./symlink-guard";
+import { removeTree } from "@/utils/directory.utils";
+import { assertNoSymbolicLinks } from "./symlink.guard";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 });
 
 describe("assertNoSymbolicLinks", () => {
@@ -27,7 +28,7 @@ describe("assertNoSymbolicLinks", () => {
 		await writeFile(join(root, "real.txt"), "content");
 		await symlink(join(root, "real.txt"), join(root, "linked.txt"));
 
-		await expect(assertNoSymbolicLinks(root, 4)).rejects.toThrow("must not contain symbolic links");
+		await expect(assertNoSymbolicLinks(root, 4)).rejects.toMatchObject({ category: "validation", code: "plugin.package_symlink_invalid" });
 	});
 
 	test("rejects a symbolic link nested in a subdirectory", async () => {
@@ -37,6 +38,6 @@ describe("assertNoSymbolicLinks", () => {
 		await writeFile(join(root, "assets", "real.txt"), "content");
 		await symlink(join(root, "assets", "real.txt"), join(root, "assets", "linked.txt"));
 
-		await expect(assertNoSymbolicLinks(root, 4)).rejects.toThrow("must not contain symbolic links");
+		await expect(assertNoSymbolicLinks(root, 4)).rejects.toMatchObject({ category: "validation", code: "plugin.package_symlink_invalid" });
 	});
 });

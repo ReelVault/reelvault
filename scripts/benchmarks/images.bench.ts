@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,8 +14,9 @@ import {
 	summarizeLatencies,
 	task,
 } from "benchkit";
-import { adminHeaders } from "./lib/identity";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { removeTree } from "@/utils/directory.utils";
+import { adminHeaders } from "./lib/identity.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
 
 /**
  * Image pipeline suite beyond the single ?w=342 GET in http.ts:
@@ -59,7 +60,7 @@ if (!args.help) {
 			];
 			printMicroResults(results, "Local artwork staging (20 MB file)");
 		} finally {
-			await rm(directory, { recursive: true, force: true });
+			await removeTree(directory);
 		}
 
 		return { ok: true };

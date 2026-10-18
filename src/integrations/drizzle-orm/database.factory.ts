@@ -1,0 +1,398 @@
+import { Database } from "bun:sqlite";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { existsSync, mkdirSync } from "node:fs";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate as runMigrations } from "drizzle-orm/bun-sqlite/migrator";
+import { env } from "@/config/env.config";
+import { DomainError } from "@/utils/domain.errors";
+import { clamp } from "@/utils/math.utils";
+import { getTotalMemoryKiB } from "@/utils/mem.utils";
+import { PathUtils } from "@/utils/path.utils";
+import { isRecord } from "@/utils/type.utils";
+import { MIGRATIONS_DIR } from "./constants/migrations.constants";
+import type { DatabaseTransaction, DatabaseType } from "./database.types";
+import { createQueuedWriteClient } from "./query/write-queue.utils";
+import { DatabaseQueryLogger, instrumentSqliteClient } from "./query-logger.logger";
+import { relations } from "./relations.schema";
+
+export interface DatabaseFactoryOptions {
+	/**
+	 * Counts executed statements so benchmarks/tests can assert query counts.
+	 * Off by default; dev mode and `APP_SLOW_QUERY_LOG=true` keep the previous
+	 * diagnostic behavior. Never enabled on the production path.
+	 */
+	queryStats?: boolean | undefined;
+	/** Test seam: override detected total RAM (KiB) for pragma sizing. */
+	totalMemoryKiB?: number | undefined;
+}
+
+/**
+ * Below this much installed RAM, temp B-trees spill to disk and `mmap_size` is
+ * capped. A fixed `temp_store = MEMORY` measured +61 MB RSS for a 2M-row
+ * GROUP BY (vs +3 MB with FILE) — an OOM risk on a 1-2 GB NAS/Raspberry Pi.
+ */
+const LOW_MEMORY_KIB = 2 * 1024 * 1024;
+
+interface TransactionContext {
+	depth: number;
+}
+
+export class DatabaseFactory {
+	public readonly sqlite: Database;
+	public readonly db: DatabaseType;
+	/**
+	 * Dedicated connection for top-level transactions. SQLite allows a single
+	 * writer: keeping transactions on their own connection prevents plain
+	 * statements from unrelated tasks from interleaving into an open transaction
+	 * (previously their writes were silently rolled back with it). WAL lets the
+	 * main connection keep reading while a transaction holds the write lock.
+	 */
+	private readonly path: string;
+	private readonly queryLogger: DatabaseQueryLogger;
+	private readonly memoryOverrideKiB: number | undefined;
+	private txSqlite: Database | null = null;
+	private txDb: DatabaseType | null = null;
+	private readonly als = new AsyncLocalStorage<TransactionContext>();
+	private transactionLock: Promise<void> = Promise.resolve();
+	/**
+	 * True while the current async context holds the write lock (a queued write
+	 * or a top-level transaction) — nested writes must run inline instead of
+	 * queueing on the lock they already own.
+	 */
+	private readonly writeLockStore = new AsyncLocalStorage<true>();
+	/** Main client with writes routed through `runWrite`; created lazily. */
+	private queuedClient: DatabaseType | null = null;
+
+	constructor(path = PathUtils.join(env.ROOT_DIR, env.DB_FILE_NAME), options: DatabaseFactoryOptions = {}) {
+		this.path = path;
+		this.memoryOverrideKiB = options.totalMemoryKiB;
+		this.queryLogger = new DatabaseQueryLogger({
+			// Dev always logs; production opts in via APP_SLOW_QUERY_LOG=true while
+			// diagnosing storage slowness (warn level, ≥100 ms statements only).
+			enabled: options.queryStats === true || env.NODE_ENV === "development" || env.APP_SLOW_QUERY_LOG === "true",
+			slowThresholdMs: 100,
+		});
+		// With secrets provided via env, nothing else creates ROOT_DIR before this
+		// constructor runs at import time — a missing directory would surface as a
+		// raw SQLITE_CANTOPEN crash instead of a boot-time recovery.
+		mkdirSync(PathUtils.getDirName(path), { recursive: true });
+		this.sqlite = new Database(path);
+		this.configureConnection(this.sqlite);
+		this.db = drizzle({ client: instrumentSqliteClient(this.sqlite, this.queryLogger), relations, logger: this.queryLogger });
+	}
+
+	/**
+	 * Applies every pending migration from `src/integrations/drizzle-orm/migrations`. Drizzle
+	 * records applied migrations in `__drizzle_migrations`, so this is
+	 * idempotent and safe to call on every boot. Must run before any repository
+	 * touches the schema (the server calls it first in `setupServer`).
+	 *
+	 * Returns the total number of migrations recorded as applied.
+	 */
+	migrate(migrationsFolder = MIGRATIONS_DIR): { applied: number } {
+		if (!existsSync(migrationsFolder)) {
+			throw new DomainError("internal", `Migrations directory not found: ${migrationsFolder}`, {
+				code: "database.migrations_folder_missing",
+			});
+		}
+
+		runMigrations(this.db, { migrationsFolder });
+		this.analyzeIfStatisticsMissing();
+		// Cheap stats refresh after schema/index changes; a no-op when the planner
+		// already has what it needs.
+		this.sqlite.run("PRAGMA optimize");
+
+		return { applied: this.countAppliedMigrations() };
+	}
+
+	/**
+	 * Without `sqlite_stat1` the planner guesses, and on the paginated browse
+	 * path it guessed wrong: it picked `metadata_type_title_idx` and sorted the
+	 * whole result with a TEMP B-TREE instead of walking `metadata_title_id_idx`
+	 * (measured 0.14 ms vs 0.04 ms at 5k rows, and the gap grows with the
+	 * catalog). Existing databases predate the composite indexes, so give them
+	 * statistics once; fresh databases are analyzed after seeding by the callers
+	 * that write bulk data. `PRAGMA optimize` on shutdown keeps them fresh.
+	 */
+	/**
+	 * Incremental planner-statistics refresh after a bulk write (e.g. a finished
+	 * library scan). `PRAGMA optimize` re-analyses only the tables whose contents
+	 * changed enough to matter and is a fast no-op otherwise — a full `ANALYZE`
+	 * scans every table and index synchronously and blocks the event loop for
+	 * seconds on a large catalog. Both connections are refreshed: bun:sqlite
+	 * caches prepared statements per connection, and the transaction connection
+	 * would otherwise keep a stale plan (observed as worker-claim cost growing
+	 * with backlog).
+	 */
+	optimize(): void {
+		this.sqlite.run("PRAGMA optimize");
+		this.txSqlite?.run("PRAGMA optimize");
+	}
+
+	/**
+	 * Refreshes planner statistics after a bulk write (e.g. a finished library
+	 * scan). Both connections are analyzed: bun:sqlite caches prepared statements
+	 * per connection, and ANALYZE on one connection does not make the other
+	 * re-plan, so a stale plan on the transaction connection would otherwise
+	 * persist (observed as worker-claim cost growing with backlog).
+	 */
+	analyze(): void {
+		this.sqlite.run("ANALYZE");
+		this.txSqlite?.run("ANALYZE");
+	}
+
+	/**
+	 * FTS5 `optimize` merges the segment b-trees accumulated by title updates and
+	 * deletes, so bm25 search does not walk an ever-growing segment list. Run by
+	 * the daily cleanup worker — not on shutdown, where the cost is unbounded.
+	 */
+	optimizeFts(): void {
+		this.sqlite.run("INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')");
+		this.sqlite.run("INSERT INTO people_fts(people_fts) VALUES('optimize')");
+		this.sqlite.run("INSERT INTO metadata_title_trigram(metadata_title_trigram) VALUES('optimize')");
+	}
+
+	private analyzeIfStatisticsMissing(): void {
+		const stats = this.sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_stat1'").get();
+		if (stats) return;
+
+		this.sqlite.run("ANALYZE");
+	}
+
+	private countAppliedMigrations(): number {
+		try {
+			const row: unknown = this.sqlite.query("SELECT count(*) AS count FROM __drizzle_migrations").get();
+			if (!isRecord(row) || typeof row.count !== "number") return 0;
+
+			return row.count;
+		} catch {
+			// No migrations folder content means the ledger was never created.
+			return 0;
+		}
+	}
+
+	getClient({ tx }: { tx?: DatabaseTransaction | undefined } = {}): DatabaseTransaction {
+		if (tx) return tx;
+
+		// Inside a transaction every statement belongs to it: the transaction
+		// connection sees its own uncommitted writes and never waits on itself.
+		if (this.als.getStore()) return this.getTransactionDrizzle();
+
+		this.queuedClient ??= createQueuedWriteClient(this.db, (write) => this.runWrite(write));
+
+		return this.queuedClient;
+	}
+
+	private getTransactionClient(): Database {
+		if (!this.txSqlite) {
+			this.txSqlite = new Database(this.path);
+			this.configureConnection(this.txSqlite);
+		}
+
+		return this.txSqlite;
+	}
+
+	private getTransactionDrizzle(): DatabaseType {
+		const client = this.getTransactionClient();
+		this.txDb ??= drizzle({ client: instrumentSqliteClient(client, this.queryLogger), relations, logger: this.queryLogger });
+
+		return this.txDb;
+	}
+
+	/** Statements executed since the last reset (benchmarks/audits only). */
+	getQueryStats(): { queryCount: number; slowQueryCount: number } {
+		return this.queryLogger.getStats();
+	}
+
+	resetQueryStats(): void {
+		this.queryLogger.resetStats();
+	}
+
+	async transaction<T>(callback: (tx: DatabaseTransaction) => Promise<T>, options: { immediate?: boolean } = {}): Promise<T> {
+		const currentStore = this.als.getStore();
+
+		if (currentStore) {
+			const depth = currentStore.depth + 1;
+			const savepoint = `sp_${depth}`;
+			const txClient = this.getTransactionClient();
+			txClient.run(`SAVEPOINT ${savepoint}`);
+
+			try {
+				const result = await this.als.run({ depth }, () => callback(this.getTransactionDrizzle()));
+				txClient.run(`RELEASE SAVEPOINT ${savepoint}`);
+
+				return result;
+			} catch (error) {
+				try {
+					txClient.run(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+					txClient.run(`RELEASE SAVEPOINT ${savepoint}`);
+				} catch {
+					// Savepoint may have been invalidated by SQLite
+				}
+
+				throw error;
+			}
+		}
+
+		const holdsWriteLock = this.writeLockStore.getStore() === true;
+		const releaseLock = holdsWriteLock ? undefined : await this.acquireWriteLock();
+		const txClient = this.getTransactionClient();
+
+		try {
+			// `immediate` takes the write lock up front so busy_timeout can wait for
+			// it. Use it for write-heavy transactions: a deferred BEGIN only locks on
+			// the first write, and SQLite refuses to upgrade a transaction that
+			// already read a snapshot once another connection wrote — failing
+			// immediately with SQLITE_BUSY_SNAPSHOT (this broke concurrent library
+			// scans). Queued writes share the same JS lock, so this is defense in
+			// depth rather than a requirement.
+			txClient.run(options.immediate ? "BEGIN IMMEDIATE" : "BEGIN");
+			try {
+				const result = await this.writeLockStore.run(true, () => this.als.run({ depth: 1 }, () => callback(this.getTransactionDrizzle())));
+				txClient.run("COMMIT");
+
+				return result;
+			} catch (error) {
+				try {
+					txClient.run("ROLLBACK");
+				} catch {
+					// Transaction may have already been rolled back by SQLite
+				}
+
+				throw error;
+			}
+		} finally {
+			releaseLock?.();
+		}
+	}
+
+	/**
+	 * Runs a standalone write under the same in-process lock as transactions.
+	 *
+	 * `bun:sqlite` is synchronous: a main-connection write that hits an open
+	 * transaction's write lock busy-waits ON the event loop (`busy_timeout`),
+	 * which also prevents that transaction's async callback from ever finishing —
+	 * a deadlock that froze the loop for seconds and tripped Server Rescue.
+	 * Queuing here instead makes the writer wait in JS, not in SQLite.
+	 *
+	 * Reentrant: a nested write (or a write inside a transaction) already owns
+	 * the lock and runs inline.
+	 */
+	async runWrite<T>(write: () => Promise<T>): Promise<T> {
+		if (this.writeLockStore.getStore()) return await write();
+
+		const releaseLock = await this.acquireWriteLock();
+
+		try {
+			return await this.writeLockStore.run(true, write);
+		} finally {
+			releaseLock();
+		}
+	}
+
+	/** Takes the next slot in the transaction/write chain. Callers MUST release. */
+	private async acquireWriteLock(): Promise<() => void> {
+		const previousLock = this.transactionLock;
+		let releaseLock!: () => void;
+		this.transactionLock = new Promise<void>((resolve) => {
+			releaseLock = resolve;
+		});
+
+		await previousLock;
+
+		return releaseLock;
+	}
+
+	/**
+	 * Runs `VACUUM INTO` in a short-lived child process on its own connection.
+	 * bun:sqlite is synchronous on the calling thread, so doing this in-process
+	 * froze the whole event loop (playback included) for the entire DB rewrite.
+	 */
+	async backup(targetPath: string): Promise<void> {
+		const escapedTarget = targetPath.replaceAll("'", "''");
+		const script = [
+			'import { Database } from "bun:sqlite";',
+			`const db = new Database(${JSON.stringify(this.path)});`,
+			"try {",
+			'	db.run("PRAGMA busy_timeout = 15000");',
+			`	db.run(${JSON.stringify(`VACUUM INTO '${escapedTarget}'`)});`,
+			"} finally {",
+			"	db.close();",
+			"}",
+		].join("\n");
+
+		const proc = Bun.spawn({
+			cmd: [process.execPath, "-e", script],
+			stdout: "ignore",
+			stderr: "pipe",
+		});
+		const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+		if (exitCode !== 0) {
+			// stderr stays in the message for the server log; the response carries only the code and exit status.
+			throw new DomainError("internal", `Database backup failed (exit ${exitCode}): ${stderr.trim()}`, {
+				code: "database.backup_failed",
+				params: { exitCode },
+			});
+		}
+	}
+
+	shutdown() {
+		try {
+			// SQLite's recommended shutdown hook: refreshes statistics for tables
+			// whose data changed enough to make the current stats misleading.
+			this.sqlite.run("PRAGMA optimize");
+		} catch {
+			// Never block shutdown on an optimization failure.
+		}
+
+		this.sqlite.close();
+		this.txSqlite?.close();
+	}
+
+	private configureConnection(connection: Database) {
+		connection.run("PRAGMA foreign_keys = ON");
+		connection.run("PRAGMA journal_mode = WAL");
+		connection.run("PRAGMA synchronous = NORMAL");
+		connection.run("PRAGMA busy_timeout = 5000");
+		// Page cache scales with the machine: ~1.25% of RAM, 16-128 MiB per
+		// connection (2 MiB read of /proc/meminfo is not needed — MemTotal only).
+		connection.run(`PRAGMA cache_size = -${this.resolvePageCacheKiB()}`);
+		connection.run(`PRAGMA mmap_size = ${this.resolveMmapSizeBytes()}`);
+		connection.run(`PRAGMA temp_store = ${this.resolveTempStore()}`);
+		connection.run("PRAGMA wal_autocheckpoint = 1000");
+		// Bound the -wal file after checkpoints during long write bursts
+		// (e.g. thousand-file library ingests).
+		connection.run("PRAGMA journal_size_limit = 67108864");
+	}
+
+	/** Total RAM in KiB, with the test override applied. */
+	private totalMemoryKiB(): number | undefined {
+		return this.memoryOverrideKiB ?? getTotalMemoryKiB();
+	}
+
+	/** 1.25% of total RAM in KiB, clamped to 16-128 MiB (per connection). */
+	private resolvePageCacheKiB(): number {
+		const minKiB = 16 * 1024;
+		const maxKiB = 128 * 1024;
+		const totalKiB = this.totalMemoryKiB();
+		if (!totalKiB) return maxKiB;
+
+		return clamp(Math.floor(totalKiB * 0.0125), minKiB, maxKiB);
+	}
+
+	/** Temp B-trees spill to disk on low-RAM hosts so a big sort cannot OOM them. */
+	private resolveTempStore(): "MEMORY" | "FILE" {
+		const totalKiB = this.totalMemoryKiB();
+
+		return totalKiB !== undefined && totalKiB > LOW_MEMORY_KIB ? "MEMORY" : "FILE";
+	}
+
+	/** 256 MiB of address space when RAM is plentiful, 64 MiB on small hosts. */
+	private resolveMmapSizeBytes(): number {
+		const totalKiB = this.totalMemoryKiB();
+
+		return totalKiB !== undefined && totalKiB > LOW_MEMORY_KIB ? 268_435_456 : 67_108_864;
+	}
+}
+
+export const databaseFactory = new DatabaseFactory();

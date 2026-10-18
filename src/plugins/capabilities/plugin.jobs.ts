@@ -1,10 +1,10 @@
 import type { PluginEnqueueOptions, PluginJobDefinition, PluginJobHandle } from "@reelvault/sdk/plugin";
-import { resourceAllocator } from "@/system/resource-allocator";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { resourceAllocator } from "@/system/resource-allocator.service";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
-import { enqueueWithOperation } from "@/workers/core/worker-operation-enqueue";
+import { enqueueWithOperation } from "@/workers/core/worker-operation.service";
 import { assertCronExpression } from "@/workers/utils/worker-policy.utils";
 import { workerService } from "@/workers/worker.service";
 

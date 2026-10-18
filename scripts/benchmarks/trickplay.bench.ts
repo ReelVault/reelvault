@@ -2,9 +2,9 @@ import { fmtMb, fmtMs, main, printTable, suiteArgs, summarizeLatencies, task } f
 import { sleep } from "bun";
 import { isRecord } from "@/utils/type.utils";
 
-import { adminHeaders } from "./lib/identity";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { adminHeaders } from "./lib/identity.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * Trickplay suite. Zero coverage before this existed: generation is one of the

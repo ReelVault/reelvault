@@ -1,12 +1,13 @@
-import { type ApplicationContext, withDomainError } from "@/application/context";
+import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { fileScannerService } from "@/modules/scanner/disk/file-scanner";
-import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { fileScannerService } from "@/modules/scanner/disk/file.scanner";
 import { trimAndFilter, unique } from "@/utils/array.utils";
 import { createHash } from "@/utils/crypto.utils";
+import { withDomainError } from "@/utils/domain.errors";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import type { ApplicationContext } from "@/utils/task-context.types";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 

@@ -1,10 +1,10 @@
-import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
-import { serverConfig } from "@/server.config";
-import { MINUTE } from "@/server.constants";
+import { serverConfig } from "@/config/server/server.config";
+import { MINUTE } from "@/config/server/server.constants";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 /**
@@ -27,7 +27,7 @@ export const cleanupOrphanSubtitlesWorker = createWorkerDefinition(
 		const files = await DirUtils.scanFilesWithStats(serverConfig.paths.subtitles, [".vtt"], 1, signal);
 		if (files.length === 0) return { success: true, deleted: 0 };
 
-		const subtitleIds = await subtitlesRepository.findAllIds();
+		const subtitleIds = await workerDependencies().subtitles.findAllIds();
 		const now = Date.now();
 		let deleted = 0;
 

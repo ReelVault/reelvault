@@ -1,11 +1,11 @@
+import { serverConfig } from "@/config/server/server.config";
 import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import { detectImageFormat } from "@/modules/images/image-format.utils";
-import { serverConfig } from "@/server.config";
 import { createHash } from "@/utils/crypto.utils";
 import { DirUtils } from "@/utils/directory.utils";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 
 type ImageUploadTarget =

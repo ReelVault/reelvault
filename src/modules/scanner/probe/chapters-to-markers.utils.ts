@@ -1,7 +1,7 @@
+import { serverConfig } from "@/config/server/server.config";
 import type { FFProbeChapter } from "@/integrations/ffprobe/ffprobe.types";
-import { serverConfig } from "@/server.config";
-import { stripDiacritics } from "@/utils/media-match.utils";
-import { MemoryCache } from "@/utils/memory-cache";
+import { stripDiacritics } from "@/utils/media-match/normalize.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { parseColonSeparatedSeconds } from "@/utils/time.utils";
 import { isFiniteNumber, normalizeLower } from "@/utils/type.utils";
 
@@ -24,7 +24,9 @@ const MIN_MARKER_SECONDS = 8;
 const MAX_MARKER_SECONDS = 15 * 60;
 const CHAPTER_WORD_SEPARATOR_RE = /[\s:,;·•\-–—()[\].]+/;
 
-const normalizeKeyword = (w: string): string => stripDiacritics(normalizeLower(w));
+function normalizeKeyword(w: string): string {
+	return stripDiacritics(normalizeLower(w));
+}
 
 const wordToTypeCache = new MemoryCache<Map<string, AutomaticMarkerType>>({
 	ttlMs: -1,

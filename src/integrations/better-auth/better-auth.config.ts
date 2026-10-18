@@ -2,13 +2,14 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { admin, openAPI, twoFactor } from "better-auth/plugins";
-import { databaseFactory } from "@/database/database";
-import { profilesRepository } from "@/database/repositories/profiles.repository";
-import { schema } from "@/database/schema";
-import { env } from "@/env";
-import { serverConfig } from "@/server.config";
+import { env } from "@/config/env.config";
+import { serverConfig } from "@/config/server/server.config";
+import { authUserCreated } from "@/integrations/better-auth/better-auth.ports";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { CLIENT_IP_HEADER } from "@/utils/client-ip.utils";
-import { getTrustedOriginPatterns, isOriginAllowed, normalizeHttpUrl } from "@/utils/http.utils";
+import { normalizeHttpUrl } from "@/utils/http.utils";
+import { getTrustedOriginPatterns, isOriginAllowed } from "@/utils/origin-trust.utils";
 import { isRecord } from "@/utils/type.utils";
 
 const publicUrl = env.APP_PUBLIC_URL ? normalizeHttpUrl(env.APP_PUBLIC_URL).toString() : undefined;
@@ -119,12 +120,7 @@ export const auth = betterAuth({
 		user: {
 			create: {
 				after: async (user) => {
-					await profilesRepository.insert({
-						values: {
-							userId: user.id,
-							name: user.name,
-						},
-					});
+					await authUserCreated().onUserCreated(user);
 				},
 			},
 		},

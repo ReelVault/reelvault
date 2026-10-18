@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { buildDirectStreamOutputArgs } from "@/integrations/ffmpeg/ffmpeg.direct-stream-args";
-import { buildAudioFilter, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
-import { getBufferedSeekStart, isPositionBuffered, parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
+import { getBufferedSeekStart, isPositionBuffered, parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer.utils";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
 
 const NO_TONEMAP = { method: "none" as const, algorithm: "bt2390" };
 
@@ -27,19 +27,20 @@ const decision: PlaybackDecision = {
 
 const activeStubs: Array<{ restore(): void }> = [];
 
+beforeEach(() => {
+	systemSettingsStore.clearRuntimeValues();
+	// Pin the measured CPU speed: slow CI runners score below the 0.5
+	// threshold, which flips the software lookahead from 10 to 5 and makes
+	// the argument assertions machine-dependent.
+	activeStubs.push(stubMethod(systemResourcesService, "getSpeedFactor", () => 1));
+});
+
+afterEach(() => {
+	for (const stub of activeStubs.splice(0)) stub.restore();
+	systemSettingsStore.clearRuntimeValues();
+});
+
 describe("HLS buffering", () => {
-	beforeEach(() => {
-		systemSettingsStore.clearRuntimeValues();
-		// Pin the measured CPU speed: slow CI runners score below the 0.5
-		// threshold, which flips the software lookahead from 10 to 5 and makes
-		// the argument assertions machine-dependent.
-		activeStubs.push(stubMethod(systemResourcesService, "getSpeedFactor", () => 1));
-	});
-
-	afterEach(() => {
-		for (const stub of activeStubs.splice(0)) stub.restore();
-	});
-
 	it("reports completed segments and preserves gaps between buffered ranges", () => {
 		const analysis = parseHlsBuffer(
 			["#EXTM3U", "#EXTINF:6.000,", "seg_0.m4s", "#EXTINF:6.000,", "seg_1.m4s", "#EXTINF:5.000,", "seg_3.m4s", "#EXT-X-ENDLIST"].join("\n"),
@@ -69,7 +70,9 @@ describe("HLS buffering", () => {
 		expect(args).toContain("independent_segments+temp_file+discont_start");
 		expect(args).toEqual(expect.arrayContaining(["-hls_segment_options", "movflags=+frag_discont"]));
 	});
+});
 
+describe("HLS buffering encoder selection", () => {
 	it("uses compatibility-focused H.264 settings and segment-aligned keyframes", () => {
 		// Pin the software encoder: on machines with detected NVENC the hardware
 		// path would otherwise change these expectations run-to-run.
@@ -91,42 +94,20 @@ describe("HLS buffering", () => {
 		);
 	});
 
-	it("selects hardware encoders when hwaccel is configured", () => {
-		try {
-			systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "nvenc");
-			const nvencArgs = buildTranscodeVideoArgs({ ...decision, mode: "transcode", videoTranscode: true }, config, undefined, NO_TONEMAP);
-			expect(nvencArgs).toContain("h264_nvenc");
+	it.each([
+		["nvenc", "h264_nvenc"],
+		["vaapi", "h264_vaapi"],
+		["qsv", "h264_qsv"],
+		["videotoolbox", "h264_videotoolbox"],
+	] as const)("selects the %s hardware H.264 encoder when hwaccel is configured", (hwaccel, encoder) => {
+		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", hwaccel);
+		const args = buildTranscodeVideoArgs({ ...decision, mode: "transcode", videoTranscode: true }, config, undefined, NO_TONEMAP);
 
-			systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "vaapi");
-			const vaapiArgs = buildTranscodeVideoArgs({ ...decision, mode: "transcode", videoTranscode: true }, config, undefined, NO_TONEMAP);
-			expect(vaapiArgs).toContain("h264_vaapi");
-
-			systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "qsv");
-			const qsvArgs = buildTranscodeVideoArgs({ ...decision, mode: "transcode", videoTranscode: true }, config, undefined, NO_TONEMAP);
-			expect(qsvArgs).toContain("h264_qsv");
-
-			systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "videotoolbox");
-			const vtArgs = buildTranscodeVideoArgs({ ...decision, mode: "transcode", videoTranscode: true }, config, undefined, NO_TONEMAP);
-			expect(vtArgs).toContain("h264_videotoolbox");
-		} finally {
-			systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "none");
-		}
+		expect(args).toContain(encoder);
 	});
 });
 
-describe("HLS buffering", () => {
-	beforeEach(() => {
-		systemSettingsStore.clearRuntimeValues();
-		// Pin the measured CPU speed: slow CI runners score below the 0.5
-		// threshold, which flips the software lookahead from 10 to 5 and makes
-		// the argument assertions machine-dependent.
-		activeStubs.push(stubMethod(systemResourcesService, "getSpeedFactor", () => 1));
-	});
-
-	afterEach(() => {
-		for (const stub of activeStubs.splice(0)) stub.restore();
-	});
-
+describe("HLS buffering stream output", () => {
 	it("normalizes transcoded audio timestamps after seeking", () => {
 		const args = buildTranscodeAudioArgs({
 			...decision,
@@ -135,11 +116,6 @@ describe("HLS buffering", () => {
 		});
 
 		expect(args).toContain("aresample=async=1:first_pts=0");
-	});
-
-	it("builds consistent audio filter for resampling and sync", () => {
-		const filter = buildAudioFilter();
-		expect(filter).toBe("aresample=async=1:first_pts=0");
 	});
 
 	it("adds hvc1 tag in direct stream when video codec is hevc", () => {
@@ -153,7 +129,7 @@ describe("HLS buffering", () => {
 		expect(args).toEqual(expect.arrayContaining(["-map", "-0:s"]));
 	});
 
-	it("applies configured x264 preset, CRF, lookahead and downscale filter in software transcode", () => {
+	it("applies the configured x264 preset and CRF in software transcode", () => {
 		systemSettingsStore.setRuntimeValue("ffmpeg.preset", "ultrafast");
 		systemSettingsStore.setRuntimeValue("ffmpeg.crf", 28);
 		// Pin the software encoder — see the compatibility test above.

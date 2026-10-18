@@ -1,6 +1,6 @@
+import type { SidecarRating, SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
+import type { XmlDocumentOutput } from "@/modules/metadata-sidecars/xml/xml.writer";
 import { PathUtils } from "@/utils/path.utils";
-import type { SidecarRating, SidecarSnapshotDocument } from "../../sidecar.types";
-import type { XmlDocumentOutput } from "../../xml/xml-writer";
 
 const SEASON_FILE_REGEX = /^season\d*\.nfo$/;
 

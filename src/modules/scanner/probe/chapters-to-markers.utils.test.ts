@@ -14,7 +14,7 @@ const ENGLISH_KEYWORDS: MarkerKeywords = {
 	recap: ["recap", "previously"],
 };
 
-describe("mapChaptersToMarkers (default English keywords)", () => {
+describe("mapChaptersToMarkers (English keyword lists)", () => {
 	test("classifies intro, credits and recap chapters", () => {
 		const markers = mapChaptersToMarkers(
 			[
@@ -53,8 +53,19 @@ describe("mapChaptersToMarkers (default English keywords)", () => {
 	});
 });
 
+describe("mapChaptersToMarkers (default keywords)", () => {
+	test("reads the configured default keyword lists when none are passed", () => {
+		const markers = mapChaptersToMarkers([
+			chapter("00:00:00.000", "00:01:30.000", "Intro"),
+			chapter("00:41:00.000", "00:43:10.000", "Ending"),
+		]);
+
+		expect(markers.map((marker) => marker.type)).toEqual(["intro", "credits"]);
+	});
+});
+
 describe("mapChaptersToMarkers (configured keywords)", () => {
-	test("keyword lists are fully configurable — any language works", () => {
+	test("keyword lists are fully configurable for any language", () => {
 		const arabic: MarkerKeywords = { intro: ["مقدمة"], credits: ["نهاية"], recap: [] };
 
 		const markers = mapChaptersToMarkers(

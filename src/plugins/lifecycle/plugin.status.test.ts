@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { pluginErrorCode } from "./plugin.status";
 
 describe("pluginErrorCode", () => {

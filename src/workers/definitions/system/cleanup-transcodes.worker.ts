@@ -1,6 +1,6 @@
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
-import { cleanupStartupDirectories } from "@/utils/server-data.utils";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { cleanupStartupDirectories } from "@/system/server-data.utils";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 export const cleanupTranscodesWorker = createWorkerDefinition(

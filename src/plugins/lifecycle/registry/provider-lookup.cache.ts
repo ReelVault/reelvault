@@ -1,5 +1,5 @@
 import type { MetadataProvider, ProviderStatus } from "@reelvault/sdk/plugin";
-import { PluginEntityTable } from "./plugin-entity-table";
+import { PluginEntityTable } from "./plugin-entity.registry";
 
 /**
  * Owns the metadata-provider table and its memoized sorted lookups. Providers

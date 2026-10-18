@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { percentile, summarizeLatencies } from "./stats";
+import { percentile, summarizeLatencies } from "./latency.utils";
 
 describe("percentile", () => {
 	test("returns 0 for an empty sample", () => {
@@ -10,7 +10,7 @@ describe("percentile", () => {
 		expect(percentile([4, 1, 3, 2], 50)).toBe(2);
 	});
 
-	test("nearest-rank: p100 is the max, p0 is the min", () => {
+	test("nearest-rank: p100 is the max, p1 is the min", () => {
 		expect(percentile([4, 1, 3, 2], 100)).toBe(4);
 		expect(percentile([4, 1, 3, 2], 1)).toBe(1);
 	});

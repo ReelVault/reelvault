@@ -1,5 +1,8 @@
 import { bench, main, suiteArgs } from "benchkit";
-import { fuzzyTitleDistance, generateQueryVariants, isSequelMismatch, pickBestMatch, rankCandidates } from "@/utils/media-match.utils";
+import { fuzzyTitleDistance } from "@/utils/media-match/fuzzy.matcher";
+import { generateQueryVariants } from "@/utils/media-match/query-variants.utils";
+import { pickBestMatch, rankCandidates } from "@/utils/media-match/ranking.utils";
+import { isSequelMismatch } from "@/utils/media-match/score.constants";
 
 export const meta = { description: "Title matching & ranking (rankCandidates, pickBestMatch, fuzzy distance, query variants)" };
 

@@ -1,5 +1,5 @@
 import type { Subprocess } from "bun";
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
 
 /** How long to wait for a SIGKILLed process to reap before giving up on the handle. */
 const KILL_EXIT_GRACE_MS = 10_000;

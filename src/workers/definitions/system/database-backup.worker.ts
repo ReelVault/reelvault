@@ -1,7 +1,7 @@
-import { databaseBackupService } from "@/application/admin/database-backup.service";
-import { serverConfig } from "@/server.config";
-import { MINUTE } from "@/server.constants";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
+import { serverConfig } from "@/config/server/server.config";
+import { MINUTE } from "@/config/server/server.constants";
+import { throwIfAborted } from "@/utils/cancellation.utils";
+import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 export const databaseBackupWorker = createWorkerDefinition(
@@ -13,7 +13,7 @@ export const databaseBackupWorker = createWorkerDefinition(
 	}),
 	async ({ signal }) => {
 		throwIfAborted(signal);
-		const backup = await databaseBackupService.createBackup();
+		const backup = await workerDependencies().services.databaseBackup.createBackup();
 
 		// Retention honours system.database.backupRetentionCount — the prune inside
 		// createBackup runs against the freshly written file, so the count check

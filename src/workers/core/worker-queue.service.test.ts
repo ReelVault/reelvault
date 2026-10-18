@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
-import type { EnqueueWorkerItemInput } from "@/database/repositories/worker.repository";
-import { stubMethod } from "../../../tests/helpers/method-stub";
-import { workerOperationsService } from "./worker-operations.service";
+import { eq } from "drizzle-orm";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { setWorkerRuntime } from "./worker.runtime";
 import { WorkerQueueService } from "./worker-queue.service";
-import { setWorkerRuntime } from "./worker-runtime";
-import { createMockWorkerRuntime } from "./worker-runtime.test-utils";
+import { createMockWorkerRuntime, restoreWorkerRuntime } from "./worker-runtime.helper";
+
+// Jobs and operations are written to the migrated test database; the only fake is the
+// worker runtime's registry, which says which worker ids exist and how they are configured.
+const db = useTestDatabase();
 
 const definition: WorkerDefinition = {
 	id: "w-queue",
@@ -14,339 +20,252 @@ const definition: WorkerDefinition = {
 	backoff: { type: "exponential", delayMs: 1_000 },
 };
 
-/** Replaces a method on the live singleton for one test, recording calls.
- * Works on real repositories AND on the minimal facades other test files
- * install with bun's process-global mock.module(...). */
-
-const activeStubs: Array<{ restore(): void }> = [];
-
-beforeEach(async () => {
+function registerDefinitions(definitions: WorkerDefinition[]): void {
 	setWorkerRuntime(
 		createMockWorkerRuntime({
 			registry: {
-				get: (id: string) => (id === "w-queue" ? definition : undefined),
-				has: (id: string) => id === "w-queue",
+				get: (id: string) => definitions.find((entry) => entry.id === id),
+				has: (id: string) => definitions.some((entry) => entry.id === id),
 			},
 		}),
 	);
+}
 
-	// Resolved through the live registry at test time — never at module load.
-	const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-	const repo = workerJobRepository;
-	activeStubs.push(
-		stubMethod(repo, "enqueue", (item: never) => Promise.resolve(item)),
-		stubMethod(repo, "enqueueMany", (items: never) => Promise.resolve(items)),
-		stubMethod(repo, "cancelPending", () => Promise.resolve(true)),
-		stubMethod(repo, "cancelRunning", () => Promise.resolve(true)),
-		stubMethod(repo, "cancelAllPending", () => Promise.resolve(0)),
-		stubMethod(repo, "purgeTerminalJobs", () => Promise.resolve(0)),
-		stubMethod(repo, "findItem", () => Promise.resolve(undefined)),
-		stubMethod(workerOperationsService, "create", () => Promise.resolve({ id: Bun.randomUUIDv7() })),
-		stubMethod(workerOperationsService, "remove", () => Promise.resolve()),
-	);
+beforeEach(() => {
+	registerDefinitions([definition]);
 });
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	restoreWorkerRuntime();
 });
 
+/** Counts enqueue notifications: the poller is nudged on every enqueue and on pending cancels. */
+function countNudges(queue: WorkerQueueService): () => number {
+	let nudges = 0;
+	queue.onEnqueue(() => {
+		nudges += 1;
+	});
+
+	return () => nudges;
+}
+
+async function claimOne(workerId: string) {
+	const [item] = await workerJobRepository.claimNextBatch(
+		{ workerId, runnerId: `runner-${workerId}`, concurrency: 1, timeoutMs: 60_000, now: new Date() },
+		1,
+	);
+
+	return item;
+}
+
 describe("WorkerQueueService.enqueue", () => {
-	test("rejects unregistered workers", () => {
+	test("rejects unregistered workers without writing a row", async () => {
 		const queue = new WorkerQueueService();
-		expect(queue.enqueue("nope", {})).rejects.toThrow('Worker "nope" is not registered');
+
+		await expect(queue.enqueue("nope", {})).rejects.toMatchObject({ category: "not_found", code: "worker.not_found" });
+		expect(await db.client().select().from(schema.workerJobs)).toEqual([]);
 	});
 
-	test("applies definition defaults for attempts and backoff", async () => {
+	test("stores the definition's attempts and backoff when the call sends none", async () => {
 		const queue = new WorkerQueueService();
-		const captured: EnqueueWorkerItemInput[] = [];
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const stub = stubMethod(workerJobRepository, "enqueue", (item: EnqueueWorkerItemInput) => {
-			captured.push(item);
 
-			return Promise.resolve(item);
+		const job = await queue.enqueue("w-queue", { file: "a.mkv" });
+
+		expect(await workerJobRepository.findItem(job.id)).toMatchObject({
+			maxAttempts: 5,
+			backoffType: "exponential",
+			backoffDelayMs: 1_000,
 		});
-
-		await queue.enqueue("w-queue", { file: "a.mkv" }, { dedupeKey: "d1", operationId: "op-1" });
-		stub.restore();
-
-		const item = captured[0];
-		if (!item) throw new Error("Expected captured item");
-
-		expect(item.maxAttempts).toBe(5);
-		expect(item.backoffType).toBe("exponential");
-		expect(item.backoffDelayMs).toBe(1_000);
-		expect(item.dedupeKey).toBe("d1");
-		expect(item.operationId).toBe("op-1");
-		expect(item.priority).toBe(0);
-		expect(JSON.parse(item.data)).toEqual({ file: "a.mkv" });
 	});
 
-	test("options override the definition and floors kick in", async () => {
+	test("stores the call's options over the definition, floors out-of-range values and keeps the reference", async () => {
 		const queue = new WorkerQueueService();
-		const captured: EnqueueWorkerItemInput[] = [];
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const stub = stubMethod(workerJobRepository, "enqueue", (item: EnqueueWorkerItemInput) => {
-			captured.push(item);
 
-			return Promise.resolve(item);
-		});
-
-		await queue.enqueue("w-queue", null, {
+		const job = await queue.enqueue("w-queue", null, {
 			attempts: 0, // floors at 1
 			backoff: { type: "fixed", delayMs: -5 }, // floors at 0
-			delayMs: -100, // negative delay → runAt ≈ now
+			delayMs: -100, // negative delay → runAt is not in the future
 			priority: -10,
-			dependsOnJobId: "job-9",
 			reference: { type: "library", id: "lib-1" },
 		});
-		stub.restore();
 
-		const item = captured[0];
-		if (!item) throw new Error("Expected captured item");
-
-		expect(item.maxAttempts).toBe(1);
-		expect(item.backoffType).toBe("fixed");
-		expect(item.backoffDelayMs).toBe(0);
-		expect(item.priority).toBe(-10);
-		expect(item.dependsOnJobId).toBe("job-9");
-		expect(item.referenceType).toBe("library");
-		expect(item.referenceId).toBe("lib-1");
-		expect(item.data).toBe("null");
-		expect(Date.now() - item.runAt.getTime()).toBeLessThan(5_000);
+		const stored = await workerJobRepository.findItem(job.id);
+		expect(stored).toMatchObject({
+			maxAttempts: 1,
+			backoffType: "fixed",
+			backoffDelayMs: 0,
+			priority: -10,
+			referenceType: "library",
+			referenceId: "lib-1",
+		});
+		expect(stored?.runAt.getTime()).toBeLessThanOrEqual(Date.now());
 	});
 });
 
-describe("WorkerQueueService.enqueue", () => {
-	test("falls back to the definition defaultPriority, options still win", async () => {
-		const prioritized: WorkerDefinition = { ...definition, defaultPriority: 100 };
-		setWorkerRuntime(
-			createMockWorkerRuntime({
-				registry: {
-					get: (id: string) => (id === "w-queue" ? prioritized : undefined),
-					has: (id: string) => id === "w-queue",
-				},
-			}),
-		);
-
+describe("WorkerQueueService.enqueue priority and dependencies", () => {
+	test("uses the definition's default priority unless the call sets one", async () => {
+		registerDefinitions([{ ...definition, defaultPriority: 100 }]);
 		const queue = new WorkerQueueService();
-		const captured: EnqueueWorkerItemInput[] = [];
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const stub = stubMethod(workerJobRepository, "enqueue", (item: EnqueueWorkerItemInput) => {
-			captured.push(item);
 
-			return Promise.resolve(item);
-		});
+		const defaulted = await queue.enqueue("w-queue", null, {});
+		const explicit = await queue.enqueue("w-queue", null, { priority: 5 });
 
-		await queue.enqueue("w-queue", null, {});
-		await queue.enqueue("w-queue", null, { priority: 5 });
-		stub.restore();
-
-		const [defaulted, explicit] = captured;
-		if (!(defaulted && explicit)) throw new Error("Expected two captured items");
-
-		expect(defaulted.priority).toBe(100);
-		expect(explicit.priority).toBe(5);
+		expect(await workerJobRepository.findItem(defaulted.id)).toMatchObject({ priority: 100 });
+		expect(await workerJobRepository.findItem(explicit.id)).toMatchObject({ priority: 5 });
 	});
 
-	test("dependsOnTaskIds falls back to the first task as the job dependency", async () => {
+	test("a job with several dependency ids depends on the first one", async () => {
 		const queue = new WorkerQueueService();
-		const captured: EnqueueWorkerItemInput[] = [];
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const stub = stubMethod(workerJobRepository, "enqueue", (item: EnqueueWorkerItemInput) => {
-			captured.push(item);
+		// Dependencies must live in the same operation, so both tasks share one.
+		await workerOperationRepository.create({ id: "op-deps", type: "test" });
+		const prerequisite = await queue.enqueue("w-queue", {}, { operationId: "op-deps" });
+		const second = await queue.enqueue("w-queue", {}, { operationId: "op-deps" });
 
-			return Promise.resolve(item);
-		});
+		const dependent = await queue.enqueue("w-queue", {}, { operationId: "op-deps", dependsOnTaskIds: [prerequisite.id, second.id] });
 
-		await queue.enqueue("w-queue", {}, { dependsOnTaskIds: ["task-1", "task-2"] });
-		stub.restore();
-
-		const item = captured[0];
-		if (!item) throw new Error("Expected captured item");
-
-		expect(item.dependsOnJobId).toBe("task-1");
-		expect(item.dependsOnTaskIds).toEqual(["task-1", "task-2"]);
-	});
-
-	test("removes the freshly created operation when the job dedupes to an existing one", async () => {
-		const queue = new WorkerQueueService();
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		// The repo returns the pre-existing active row (its own operation) on a dedupe.
-		const enqueue = stubMethod(workerJobRepository, "enqueue", () => Promise.resolve({ id: "job-existing", operationId: "op-existing" }));
-		const remove = stubMethod(workerOperationsService, "remove", () => Promise.resolve());
-
-		await queue.enqueue("w-queue", { data: 1 }, { dedupeKey: "d1" });
-		enqueue.restore();
-		const removed = remove.calls.map((call) => call[0]);
-		remove.restore();
-
-		expect(removed).toHaveLength(1);
-		expect(typeof removed[0]).toBe("string");
-	});
-
-	test("keeps the operation when the job is actually inserted", async () => {
-		const queue = new WorkerQueueService();
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const enqueue = stubMethod(workerJobRepository, "enqueue", (item: { operationId?: string }) =>
-			Promise.resolve({ id: "job-new", operationId: item.operationId }),
-		);
-		const remove = stubMethod(workerOperationsService, "remove", () => Promise.resolve());
-
-		await queue.enqueue("w-queue", { data: 1 });
-		enqueue.restore();
-		const removedCount = remove.calls.length;
-		remove.restore();
-
-		expect(removedCount).toBe(0);
+		expect(await workerJobRepository.findItem(dependent.id)).toMatchObject({ dependsOnJobId: prerequisite.id });
 	});
 });
 
-describe("WorkerQueueService.enqueue", () => {
-	test("enqueueMany builds one input per entry and skips empty batches", async () => {
+describe("WorkerQueueService.enqueue dedupe and batches", () => {
+	test("a job that dedupes to an existing active row does not leave its own operation behind", async () => {
 		const queue = new WorkerQueueService();
+
+		const first = await queue.enqueue("w-queue", { data: 1 }, { dedupeKey: "d1" });
+		const second = await queue.enqueue("w-queue", { data: 1 }, { dedupeKey: "d1" });
+
+		expect(second.id).toBe(first.id);
+		expect(await db.client().select().from(schema.workerOperations)).toEqual([expect.objectContaining({ id: first.operationId })]);
+	});
+
+	test("enqueueMany stores one row per entry with its own priority, and an empty batch writes nothing", async () => {
+		const queue = new WorkerQueueService();
+
 		expect(await queue.enqueueMany("w-queue", [])).toEqual([]);
+		expect(await db.client().select().from(schema.workerJobs)).toEqual([]);
 
-		let batchInputs: EnqueueWorkerItemInput[] = [];
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const stub = stubMethod(workerJobRepository, "enqueueMany", (items: EnqueueWorkerItemInput[]) => {
-			batchInputs = items;
+		const batch = await queue.enqueueMany("w-queue", [{ data: 1 }, { data: 2, options: { priority: 3 } }]);
 
-			return Promise.resolve(items);
-		});
-
-		await queue.enqueueMany("w-queue", [{ data: 1 }, { data: 2, options: { priority: 3 } }]);
-		stub.restore();
-
-		expect(batchInputs.length).toBe(2);
+		const stored = await Promise.all(batch.map((item) => workerJobRepository.findItem(item.id)));
+		expect(stored.map((item) => item?.priority).toSorted((a, b) => (a ?? 0) - (b ?? 0))).toEqual([0, 3]);
 	});
 });
 
 describe("WorkerQueueService cancellation", () => {
-	test("cancelJob routes pending items through cancelPending and nudges the poller", async () => {
+	test("cancelJob cancels a pending job and nudges the poller", async () => {
 		const queue = new WorkerQueueService();
-		let nudges = 0;
-		queue.onEnqueue(() => {
-			nudges += 1;
-		});
+		const nudges = countNudges(queue);
+		const job = await queue.enqueue("w-queue", {}, {});
 
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const repo = workerJobRepository;
-		const findItem = stubMethod(repo, "findItem", () => Promise.resolve({ id: "job-1", status: "pending" }));
-		const cancel = stubMethod(repo, "cancelPending", (_jobId: string) => Promise.resolve(true));
+		expect(await queue.cancelJob(job.id)).toBe(true);
 
-		expect(await queue.cancelJob("job-1")).toBe(true);
-		expect(cancel.calls[0]?.[0]).toBe("job-1");
-		expect(nudges).toBe(1);
-		findItem.restore();
-		cancel.restore();
+		expect(await workerJobRepository.findItem(job.id)).toMatchObject({ status: "cancelled" });
+		expect(nudges()).toBe(2); // one nudge from the enqueue, one from the cancel
 	});
 
-	test("cancelJob routes running items through cancelRunning without nudging", async () => {
+	test("cancelJob on a running job cancels it at once without nudging the poller", async () => {
 		const queue = new WorkerQueueService();
-		let nudges = 0;
-		queue.onEnqueue(() => {
-			nudges += 1;
-		});
+		const job = await queue.enqueue("w-queue", {}, {});
+		await claimOne("w-queue");
+		const nudges = countNudges(queue);
 
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const repo = workerJobRepository;
-		const findItem = stubMethod(repo, "findItem", () => Promise.resolve({ id: "job-1", status: "running" }));
-		const cancel = stubMethod(repo, "cancelRunning", (_jobId: string) => Promise.resolve(true));
+		expect(await queue.cancelJob(job.id)).toBe(true);
 
-		expect(await queue.cancelJob("job-1")).toBe(true);
-		expect(cancel.calls[0]?.[0]).toBe("job-1");
-		expect(nudges).toBe(0);
-		findItem.restore();
-		cancel.restore();
+		expect(await workerJobRepository.findItem(job.id)).toMatchObject({ status: "cancelled" });
+		expect(nudges()).toBe(0);
 	});
 
-	test("cancelJob returns false for unknown and terminal jobs", async () => {
+	test("cancelJob returns false for an unknown job and for a job that already completed", async () => {
 		const queue = new WorkerQueueService();
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const repo = workerJobRepository;
-		const responses = [undefined, { id: "job-1", status: "completed" }];
-		const findItem = stubMethod(repo, "findItem", () => Promise.resolve(responses.shift()));
+		const job = await queue.enqueue("w-queue", {}, {});
+		await claimOne("w-queue");
+		await workerJobRepository.complete(job.id, "runner-w-queue", JSON.stringify({ ok: true }));
 
 		expect(await queue.cancelJob("missing")).toBe(false);
-		expect(await queue.cancelJob("job-1")).toBe(false);
-		findItem.restore();
+		expect(await queue.cancelJob(job.id)).toBe(false);
+		expect(await workerJobRepository.findItem(job.id)).toMatchObject({ status: "completed" });
 	});
 
-	test("cancelAllPending nudges the poller only when something was cancelled", async () => {
+	test("cancelAllPending cancels every pending job of the worker and nudges only when something was cancelled", async () => {
 		const queue = new WorkerQueueService();
-		let nudges = 0;
-		queue.onEnqueue(() => {
-			nudges += 1;
-		});
+		await queue.enqueue("w-queue", {}, {});
+		await queue.enqueue("w-queue", {}, {});
+		const nudges = countNudges(queue);
 
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const repo = workerJobRepository;
-		let cancelledCount = 3;
-		const cancel = stubMethod(repo, "cancelAllPending", () => Promise.resolve(cancelledCount));
+		expect(await queue.cancelAllPending("w-queue")).toBe(2);
+		expect(nudges()).toBe(1);
 
-		expect(await queue.cancelAllPending("w-queue")).toBe(3);
-		expect(nudges).toBe(1);
-
-		cancelledCount = 0;
-		await queue.cancelAllPending("w-queue");
-		expect(nudges).toBe(1);
-		cancel.restore();
+		expect(await queue.cancelAllPending("w-queue")).toBe(0);
+		expect(nudges()).toBe(1);
 	});
 });
 
 describe("WorkerQueueService.purgeHistory", () => {
-	test("with dryRun it counts the standalone jobs and deletes nothing", async () => {
+	/** Purge only touches standalone jobs (no operation), so the fixtures are enqueued without one. */
+	async function standaloneJob(outcome: "completed" | "failed", createdDaysAgo: number): Promise<string> {
+		const id = `standalone-${outcome}-${createdDaysAgo}-${Bun.randomUUIDv7()}`;
+		await workerJobRepository.enqueue({
+			id,
+			workerId: `worker-${id}`,
+			data: "{}",
+			priority: 0,
+			maxAttempts: 1,
+			backoffType: "fixed",
+			backoffDelayMs: 0,
+			runAt: new Date(0),
+		});
+		const [claimed] = await workerJobRepository.claimNextBatch(
+			{ workerId: `worker-${id}`, runnerId: `runner-${id}`, concurrency: 1, timeoutMs: 60_000, now: new Date() },
+			1,
+		);
+		if (!claimed) throw new Error("Expected the fixture job to be claimable");
+		if (outcome === "completed") await workerJobRepository.complete(id, `runner-${id}`, JSON.stringify({ ok: true }));
+		else await workerJobRepository.fail(id, `runner-${id}`, "permanent");
+		await db
+			.client()
+			.update(schema.workerJobs)
+			.set({ createdAt: new Date(Date.now() - createdDaysAgo * 24 * 60 * 60 * 1000) })
+			.where(eq(schema.workerJobs.id, id));
+
+		return id;
+	}
+
+	test("with dryRun it counts the matching jobs and deletes nothing", async () => {
 		const queue = new WorkerQueueService();
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const count = stubMethod(workerJobRepository, "countTerminalJobs", (_opts?: { status?: string; cutoffDate?: Date }) =>
-			Promise.resolve(4),
-		);
-		const purge = stubMethod(workerJobRepository, "purgeTerminalJobs", (_opts?: { status?: string; cutoffDate?: Date }) =>
-			Promise.resolve(0),
-		);
+		const jobId = await standaloneJob("completed", 1);
 
-		const counted = await queue.purgeHistory({ status: "failed", dryRun: true });
-		count.restore();
-		purge.restore();
-
-		expect(counted).toBe(4);
-		expect(count.calls[0]?.[0]).toEqual({ status: "failed", cutoffDate: undefined });
-		expect(purge.calls).toEqual([]);
+		expect(await queue.purgeHistory({ status: "completed", dryRun: true })).toBe(1);
+		expect(await workerJobRepository.findItem(jobId)).toMatchObject({ status: "completed" });
 	});
 
-	test("converts olderThanDays into a cutoff date and passes the status through", async () => {
+	test("olderThanDays removes only the jobs created before the cutoff", async () => {
 		const queue = new WorkerQueueService();
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const purge = stubMethod(workerJobRepository, "purgeTerminalJobs", (_opts?: { status?: string; cutoffDate?: Date }) =>
-			Promise.resolve(0),
-		);
+		const oldJobId = await standaloneJob("completed", 10);
+		const recentJobId = await standaloneJob("completed", 1);
 
-		await queue.purgeHistory({ status: "failed", olderThanDays: 7 });
-		purge.restore();
+		expect(await queue.purgeHistory({ status: "completed", olderThanDays: 7 })).toBe(1);
 
-		const options = purge.calls[0]?.[0] as { cutoffDate?: Date; status?: string } | undefined;
-		if (!options?.cutoffDate) throw new Error("Expected options with cutoffDate");
-
-		expect(options.status).toBe("failed");
-		expect(options.cutoffDate).toBeInstanceOf(Date);
-		expect(Date.now() - options.cutoffDate.getTime()).toBeCloseTo(7 * 24 * 60 * 60 * 1000, -6);
+		expect(await workerJobRepository.findItem(oldJobId)).toBeUndefined();
+		expect(await workerJobRepository.findItem(recentJobId)).toMatchObject({ status: "completed" });
 	});
 
-	test("no cutoff when olderThanDays is missing or non-positive", async () => {
+	test("the status filter leaves jobs with other terminal statuses in place", async () => {
 		const queue = new WorkerQueueService();
-		const { workerJobRepository } = await import("@/database/repositories/worker.repository");
-		const purge = stubMethod(
-			workerJobRepository,
-			"purgeTerminalJobs",
-			(_opts?: { status?: string | undefined; cutoffDate?: Date | undefined }) => Promise.resolve(0),
-		);
+		const failedJobId = await standaloneJob("failed", 10);
+		const completedJobId = await standaloneJob("completed", 10);
 
-		await queue.purgeHistory({ status: "completed", olderThanDays: 0 });
-		await queue.purgeHistory();
-		purge.restore();
+		expect(await queue.purgeHistory({ status: "completed", olderThanDays: 7 })).toBe(1);
 
-		const first = purge.calls[0]?.[0] as { cutoffDate?: Date } | undefined;
-		expect(first?.cutoffDate).toBeUndefined();
-		expect(purge.calls[1]?.[0]).toEqual({ status: undefined, cutoffDate: undefined });
+		expect(await workerJobRepository.findItem(completedJobId)).toBeUndefined();
+		expect(await workerJobRepository.findItem(failedJobId)).toMatchObject({ status: "failed" });
+	});
+
+	test("without a positive olderThanDays every matching terminal job is removed", async () => {
+		const queue = new WorkerQueueService();
+		await standaloneJob("completed", 10);
+		await standaloneJob("completed", 1);
+
+		expect(await queue.purgeHistory({ status: "completed", olderThanDays: 0 })).toBe(2);
+		expect(await queue.purgeHistory()).toBe(0);
 	});
 });

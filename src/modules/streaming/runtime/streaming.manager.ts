@@ -1,28 +1,27 @@
-import type { PlaybackDecision, PlaybackMode, SessionLifecycleState, StreamingSession, TranscodeConfig } from "@reelvault/sdk/common";
-import {
-	type DetectedHwaccel,
-	getEffectiveHwaccel,
-	getToneMappingMethod,
-	type ToneMappingMethod,
-} from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import type { PlaybackDecision, SessionLifecycleState, StreamingSession, TranscodeConfig } from "@reelvault/sdk/common";
+import { serverConfig } from "@/config/server/server.config";
+import { getEffectiveHwaccel, getToneMappingMethod } from "@/integrations/ffmpeg/ffmpeg.capabilities";
+import { getBufferedSeekStart } from "@/modules/streaming/buffer/hls-buffer.utils";
+import { PlaylistWaiter } from "@/modules/streaming/buffer/playlist.waiter";
+import { ProcessManager } from "@/modules/streaming/ffmpeg/process.manager";
+import { playlistFileCache } from "@/modules/streaming/playlist/playlist.cache";
+import { SessionSeeker } from "@/modules/streaming/seeking/session.seeker";
+import { implicitSeekCoordinator } from "@/modules/streaming/segments/implicit-seek.coordinator";
+import type {
+	HlsBufferAnalysis,
+	SessionReleaseOutcome,
+	StreamingLifecycleCallbacks,
+	TerminatedSessionEntry,
+} from "@/modules/streaming/streaming.types";
+import { resolveSeekTimelineStart } from "@/modules/streaming/utils/seek-timeline.utils";
+import { PLAYLIST_FILE_NAME, parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { serializeDate } from "@/utils/time.utils";
-import { getBufferedSeekStart } from "../buffer/hls-buffer";
-import { PlaylistWaiter } from "../buffer/playlist-waiter";
-import { resolveStreamEncoders } from "../diagnostics/encoder-map";
-import { ProcessManager } from "../ffmpeg/process-manager";
-import { playlistFileCache } from "../playlist/playlist.cache";
-import { SessionSeeker } from "../seeking/session-seeker";
-import { implicitSeekCoordinator } from "../segments/implicit-seek.coordinator";
-import type { HlsBufferAnalysis, SessionReleaseOutcome, StreamingLifecycleCallbacks, TerminatedSessionEntry } from "../streaming.types";
-import { resolveSeekTimelineStart } from "../utils/seek-timeline.utils";
-import { PLAYLIST_FILE_NAME, parseSegmentName } from "../utils/segment-name.utils";
-import { SessionReaper } from "./session-state/session-reaper";
+import { SessionReaper } from "./session-state/session.reaper";
+import { SessionStore } from "./session-state/session.store";
 import { SessionReservationTracker } from "./session-state/session-reservation.tracker";
-import { SessionStore } from "./session-state/session-store";
+import { buildSessionDiagnostics, type StreamEnvironment, toProfileSessionView } from "./session-views.mapper";
 import { transcodeProgressMonitor } from "./transcode-progress.monitor";
 
 const noOpLifecycleCallbacks: StreamingLifecycleCallbacks = {
@@ -37,22 +36,6 @@ const noOpLifecycleCallbacks: StreamingLifecycleCallbacks = {
 	},
 };
 
-/**
- * FFmpeg environment a session was created with. Diagnostics must describe the
- * process that is actually running: an admin flipping `ffmpeg.hwaccel` or the
- * tone-mapping method mid-session must not rewrite what a stream reports.
- */
-interface StreamEnvironment {
-	hwaccel: DetectedHwaccel;
-	toneMapMethod: ToneMappingMethod;
-}
-
-/**
- * Runtime facade over the streaming sub-services. Owns no playback state
- * itself — `SessionStore` is the single source of truth. A session is one
- * entity for the whole viewing: seek/quality changes restart the FFmpeg
- * process inside it (`generation` bumps) and never recreate the session.
- */
 interface ManagerStartInput {
 	sessionId: string;
 	inputPath: string;
@@ -62,8 +45,14 @@ interface ManagerStartInput {
 	timelineStart?: number | undefined;
 }
 
+/**
+ * Runtime facade over the streaming sub-services. Owns no playback state
+ * itself — `SessionStore` is the single source of truth. A session is one
+ * entity for the whole viewing: seek/quality changes restart the FFmpeg
+ * process inside it (`generation` bumps) and never recreate the session.
+ */
 class StreamingManager {
-	private readonly logger = createLogger(this.constructor.name);
+	readonly logger = createLogger(this.constructor.name);
 	private readonly store = new SessionStore();
 	private readonly reservations: SessionReservationTracker;
 	private readonly processManager: ProcessManager;
@@ -317,33 +306,10 @@ class StreamingManager {
 
 	/** Active sessions owned by one profile — the remote-control page's list. */
 	listSessionsForProfile(profileId: string) {
-		return this.store.values().reduce<
-			Array<{
-				sessionId: string;
-				mediaFileId: string;
-				mode: PlaybackMode;
-				state: SessionLifecycleState;
-				startedAt: number;
-				lastActivity: number;
-				lastPositionSeconds?: number | null;
-				lastPaused?: boolean | null;
-			}>
-		>((acc, session) => {
-			if (session.profileId === profileId) {
-				acc.push({
-					sessionId: session.id,
-					mediaFileId: session.mediaFileId,
-					mode: session.mode,
-					state: session.state,
-					startedAt: session.createdAt,
-					lastActivity: session.lastActivity,
-					lastPositionSeconds: session.lastPositionSeconds ?? null,
-					lastPaused: session.lastPaused ?? null,
-				});
-			}
-
-			return acc;
-		}, []);
+		return this.store
+			.values()
+			.filter((session) => session.profileId === profileId)
+			.map((session) => toProfileSessionView(session));
 	}
 
 	async getBuffer(sessionId: string): Promise<HlsBufferAnalysis> {
@@ -376,32 +342,7 @@ class StreamingManager {
 		const session = this.store.get(sessionId);
 		if (!session) return null;
 
-		const environment = this.streamEnvironments.get(session);
-		const effectiveHw = environment?.hwaccel ?? getEffectiveHwaccel();
-		const { videoEncoder, audioEncoder } = resolveStreamEncoders(session.decision, effectiveHw);
-
-		return {
-			mode: session.mode,
-			operationId: session.operationId,
-			videoTranscode: session.decision.videoTranscode,
-			audioTranscode: session.decision.audioTranscode,
-			videoEncoder,
-			audioEncoder,
-			targetVideoBitrateKbps: session.decision.videoBitrateKbps ?? null,
-			hwaccel: effectiveHw.type,
-			tonemapped: session.decision.tonemap ?? false,
-			toneMapMethod: environment?.toneMapMethod ?? getToneMappingMethod(),
-			reasons: session.decision.reasons ?? { video: { code: "unknown" }, audio: { code: "unknown" } },
-			audioStreamIndex: session.decision.audioStreamIndex,
-			startTime: session.startTime,
-			startedAt: serializeDate(session.createdAt),
-			lastActivityAt: serializeDate(session.lastActivity),
-			processId: session.process?.pid ?? null,
-			processExitCode: session.process?.exitCode ?? null,
-			encodePositionSeconds: session.transcodePositionMs !== null ? Number((session.transcodePositionMs / 1000).toFixed(2)) : null,
-			encodePercent: session.transcodePercent,
-			encodeSpeed: session.transcodeSpeed,
-		};
+		return buildSessionDiagnostics(session, this.streamEnvironments.get(session));
 	}
 
 	getTerminatedSession(sessionId: string): TerminatedSessionEntry | undefined {
@@ -445,20 +386,12 @@ class StreamingManager {
 		const generation = session.generation;
 
 		await this.prepareSession(sessionId);
-
 		// Release claimed while the old process was being stopped — do not restart.
-		const afterPrepare = this.store.get(sessionId);
-		if (afterPrepare?.state !== "active" || afterPrepare.generation !== generation) {
-			throw new DomainError("not_found", `Session released during seek: ${sessionId}`, { code: "stream.session_released" });
-		}
+		this.assertSeekStillValid(sessionId, generation);
 
 		const timelineStart = await resolveSeekTimelineStart(decision.mode, session.inputPath, offset);
-
 		// Same check after the keyframe probe await — the release can win there too.
-		const beforeStart = this.store.get(sessionId);
-		if (beforeStart?.state !== "active" || beforeStart.generation !== generation) {
-			throw new DomainError("not_found", `Session released during seek: ${sessionId}`, { code: "stream.session_released" });
-		}
+		this.assertSeekStillValid(sessionId, generation);
 
 		await this.startSession({
 			sessionId,
@@ -470,6 +403,14 @@ class StreamingManager {
 		});
 
 		return timelineStart;
+	}
+
+	/** Throws when the session was released or restarted since `generation` was captured. */
+	private assertSeekStillValid(sessionId: string, generation: number): void {
+		const current = this.store.get(sessionId);
+		if (current?.state !== "active" || current.generation !== generation) {
+			throw new DomainError("not_found", `Session released during seek: ${sessionId}`, { code: "stream.session_released" });
+		}
 	}
 }
 

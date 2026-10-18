@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { CryptoHasher, password } from "bun";
-import { DomainError } from "./errors";
+import { DomainError } from "./domain.errors";
 
 interface Hasher {
 	update(data: string | Uint8Array): Hasher;

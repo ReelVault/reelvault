@@ -1,5 +1,5 @@
-import { pluginBlobsService } from "@/plugins/capabilities/plugin.blobs";
-import { MINUTE } from "@/server.constants";
+import { MINUTE } from "@/config/server/server.constants";
+import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 export const cleanupPluginBlobsWorker = createWorkerDefinition(
@@ -10,7 +10,7 @@ export const cleanupPluginBlobsWorker = createWorkerDefinition(
 		timeoutMs: MINUTE,
 	}),
 	async ({ signal }) => {
-		await pluginBlobsService.purgeExpired(signal);
+		await workerDependencies().services.pluginBlobs.purgeExpired(signal);
 
 		return { success: true };
 	},

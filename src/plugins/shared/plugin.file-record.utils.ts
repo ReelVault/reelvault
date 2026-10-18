@@ -1,5 +1,5 @@
 import { write } from "bun";
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
 import { DirUtils } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";

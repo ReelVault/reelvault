@@ -1,5 +1,5 @@
 import type { MediaIdentity } from "@reelvault/sdk/common";
-import { MemoryCache } from "@/utils/memory-cache";
+import { MemoryCache } from "@/utils/memory.cache";
 import { SCENE_NOISE } from "@/utils/release-tags.constants";
 import {
 	BRACKETED_YEAR_PATTERN,
@@ -18,7 +18,7 @@ const EXT_PATTERN = /\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|vob|ogv|divx|
 // `episodeMarker` captures the SxxExx / NxN marker with its optional range tail;
 // the numbers themselves are parsed by `extractSeasonEpisode`.
 const SERIES_PATTERN =
-	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?<episodeMarker>(?:s\d{1,3}e\d{1,2}|\d{1,2}x\d{1,2})(?:[-_. ]{1,2}e?\d{1,2}(?!\d))?)/i;
+	/^(?:(?<title>.+?)(?:[\s._(-]+)(?:(?<year>(?:19|20)\d{2})(?:-(?:19|20)?\d{2})?)?(?:\))?(?:[\s._(-]+)?)?(?<episodeMarker>(?:s\d{1,3}e\d{1,4}(?!\d)|\d{1,2}x\d{1,2})(?:[-_. ]{1,2}e?\d{1,3}(?!\d))?)/i;
 const DOT_UNDERSCORE_PATTERN = /[._]/g;
 /** Separators and an opening bracket left dangling in front of the year that was cut off. */
 const TITLE_TAIL_PATTERN = /[\s._([-]+$/;

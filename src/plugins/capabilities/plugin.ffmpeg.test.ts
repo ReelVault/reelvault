@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
+import { serverConfig } from "@/config/server/server.config";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { serverConfig } from "@/server.config";
 import { FileUtils } from "@/utils/file.utils";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginFfmpegService } from "./plugin.ffmpeg";
 
+const db = useTestDatabase();
 const activeStubs: Array<{ restore(): void }> = [];
 const OUTPUT_FILE_RE = /\.(webp|jpe?g)$/;
+const FAKE_FRAME_BYTES = [0x01, 0x02, 0x03];
+let mediaFileId = "";
 
 /** The service only stats/reads ffmpeg's output files, never decodes them —
  * the stub fakes a successful encode by writing bytes to every output path. */
@@ -20,7 +24,7 @@ function stubRunToCompletion(exitCode: number) {
 	activeStubs.push(
 		stubMethod(ffMpegService, "runToCompletion", (args: string[]) => {
 			for (const arg of args) {
-				if (OUTPUT_FILE_RE.test(arg)) writeFileSync(arg, Buffer.from([0x01, 0x02, 0x03]));
+				if (OUTPUT_FILE_RE.test(arg)) writeFileSync(arg, Buffer.from(FAKE_FRAME_BYTES));
 			}
 
 			return Promise.resolve({ exitCode, stdout: new Uint8Array(), stderr: exitCode === 0 ? "" : "mock failure" });
@@ -28,12 +32,10 @@ function stubRunToCompletion(exitCode: number) {
 	);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
 	activeStubs.length = 0;
-	activeStubs.push(
-		stubMethod(mediaRepository, "findByPrimaryId", () => Promise.resolve({ id: "mf-1", filePath: "/media/movie.mkv" })),
-		stubMethod(FileUtils, "exists", () => Promise.resolve(true)),
-	);
+	mediaFileId = await insertMovieMediaFile(db.client(), "/media/movie.mkv", "meta-1");
+	activeStubs.push(stubMethod(FileUtils, "exists", () => Promise.resolve(true)));
 });
 
 afterEach(() => {
@@ -42,27 +44,25 @@ afterEach(() => {
 
 describe("pluginFfmpegService.extractFrame", () => {
 	test("rejects an unknown media file", async () => {
-		activeStubs.push(stubMethod(mediaRepository, "findByPrimaryId", () => Promise.resolve(undefined)));
-
 		await expect(pluginFfmpegService.extractFrame({ mediaFileId: "missing", timeMs: 1_000, width: 320 })).rejects.toMatchObject({
 			code: "plugin.ffmpeg.media_not_found",
 		});
 	});
 
-	test("returns webp bytes for a successful extraction", async () => {
+	test("returns the encoded webp bytes for a successful extraction", async () => {
 		stubRunToCompletion(0);
 
-		const frame = await pluginFfmpegService.extractFrame({ mediaFileId: "mf-1", timeMs: 1_000, width: 320 });
+		const frame = await pluginFfmpegService.extractFrame({ mediaFileId, timeMs: 1_000, width: 320 });
 
 		expect(frame.contentType).toBe("image/webp");
-		expect(contentBytes(frame.content)).toBeGreaterThan(0);
+		expect(contentBytes(frame.content)).toBe(FAKE_FRAME_BYTES.length);
 	});
 
 	test("cleans the temp output and reports process failures", async () => {
 		stubRunToCompletion(1);
 		const tempDir = serverConfig.paths.transcodeTmp;
 
-		await expect(pluginFfmpegService.extractFrame({ mediaFileId: "mf-1", timeMs: 1_000, width: 320 })).rejects.toMatchObject({
+		await expect(pluginFfmpegService.extractFrame({ mediaFileId, timeMs: 1_000, width: 320 })).rejects.toMatchObject({
 			code: "plugin.ffmpeg.process_failed",
 		});
 
@@ -76,7 +76,7 @@ describe("pluginFfmpegService.extractSprite", () => {
 		stubRunToCompletion(0);
 
 		const sprite = await pluginFfmpegService.extractSprite({
-			mediaFileId: "mf-1",
+			mediaFileId,
 			timeMs: [1_000, 2_000],
 			width: 256,
 			height: 144,
@@ -94,7 +94,6 @@ describe("pluginFfmpegService.extractSprite", () => {
 	});
 
 	test("rejects an unknown media file before touching ffmpeg", async () => {
-		activeStubs.push(stubMethod(mediaRepository, "findByPrimaryId", () => Promise.resolve(undefined)));
 		activeStubs.push(stubMethod(ffMpegService, "runToCompletion", () => Promise.reject(new Error("ffmpeg must not run"))));
 
 		await expect(

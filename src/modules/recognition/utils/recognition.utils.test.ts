@@ -163,8 +163,30 @@ describe("episode marker delegation edge cases", () => {
 		expect(parseFileName("xS01E01.mkv")).toEqual({ title: "xS01E01", type: "movie", year: undefined });
 	});
 
-	test("truncates an over-long episode number exactly like the extractor", () => {
-		expect(parseFileName("Show.S1E100.mkv")).toMatchObject({ season: 1, episode: 10 });
+	test("reads a three-digit episode number in full", () => {
+		expect(parseFileName("Show.S1E100.mkv")).toMatchObject({ season: 1, episode: 100 });
+	});
+
+	test("reads a three-digit episode range in full", () => {
+		expect(parseFileName("Show.S1E100-E102.mkv")).toMatchObject({ season: 1, episode: 100, episodeEnd: 102 });
+	});
+
+	test("reads a four-digit episode number in full", () => {
+		expect(parseFileName("Show.S1E1000.mkv")).toMatchObject({ season: 1, episode: 1000 });
+	});
+
+	test("reads a bare four-digit episode after an E prefix or a dash (One Piece)", () => {
+		expect(extractSeasonEpisode("One.Piece.E1000.mkv")).toEqual({ episode: 1000 });
+		expect(extractSeasonEpisode("One Piece - 1000 - Title.mkv")).toEqual({ episode: 1000 });
+	});
+
+	test("does not read a bare year as an episode", () => {
+		expect(extractSeasonEpisode("Blade.Runner.2049.mkv")).toEqual({});
+	});
+
+	test("refuses a five-digit episode number instead of truncating it", () => {
+		expect(parseFileName("Show.S1E10000.mkv")).not.toHaveProperty("episode");
+		expect(extractSeasonEpisode("Show.S1E10000.mkv")).toEqual({});
 	});
 
 	test("prefers the marker over an earlier bare number", () => {

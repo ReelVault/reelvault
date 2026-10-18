@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
-import { FilesystemLocalFileScanner } from "./local-file-scanner";
+import { removeTree } from "@/utils/directory.utils";
+import { FilesystemLocalFileScanner } from "./local-file.scanner";
 
 test("local file scanner maps only supported movie artwork and reports logos", async () => {
 	const root = await mkdtemp(join(tmpdir(), "reelvault-sidecars-"));
@@ -29,17 +30,18 @@ test("local file scanner maps only supported movie artwork and reports logos", a
 			{ path: join(movieDirectory, "logo.png"), fileName: "logo.png", reason: "unsupported-artwork-type" },
 		]);
 	} finally {
-		await rm(root, { force: true, recursive: true });
+		await removeTree(root);
 	}
 });
 
 test("local file scanner rejects a path outside the library root", async () => {
 	const root = await mkdtemp(join(tmpdir(), "reelvault-sidecars-"));
 	try {
-		await expect(new FilesystemLocalFileScanner(root).inspectMovie(join(tmpdir(), "outside.mkv"))).rejects.toThrow(
-			"inside configured library root",
-		);
+		await expect(new FilesystemLocalFileScanner(root).inspectMovie(join(tmpdir(), "outside.mkv"))).rejects.toMatchObject({
+			category: "validation",
+			code: "sidecar.path_outside_library",
+		});
 	} finally {
-		await rm(root, { force: true, recursive: true });
+		await removeTree(root);
 	}
 });

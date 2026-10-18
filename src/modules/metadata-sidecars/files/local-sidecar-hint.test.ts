@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readSidecarMetadataHint } from "./local-sidecar-hint";
+import { removeTreeSync } from "@/utils/directory.utils";
+import { readSidecarMetadataHint } from "./local-sidecar.reader";
 
 const root = join(tmpdir(), `reelvault-nfo-hint-${process.pid}`);
 const movieDir = join(root, "Backrooms (2026)");
@@ -58,7 +59,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-	rmSync(root, { recursive: true, force: true });
+	removeTreeSync(root);
 });
 
 describe("readSidecarMetadataHint", () => {

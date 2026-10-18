@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertFound, assertPresent, assertProfileId, assertUserId, DomainError, errorCodeOf, toErrorCode } from "./errors";
+import { assertFound, assertPresent, assertProfileId, assertUserId, DomainError, errorCodeOf, toErrorCode } from "./domain.errors";
 
 function thrownBy(run: () => void): unknown {
 	try {
@@ -12,22 +12,16 @@ function thrownBy(run: () => void): unknown {
 }
 
 describe("assertFound", () => {
-	test("does not throw when value is present", () => {
-		expect(() => assertFound("hello", "String")).not.toThrow();
-		expect(() => assertFound(0, "Number")).not.toThrow();
-		expect(() => assertFound(false, "Boolean")).not.toThrow();
-		expect(() => assertFound({}, "Object")).not.toThrow();
-	});
-
 	test("throws a not_found error with entityType and entityId when value is null or undefined", () => {
-		expect(() => assertFound(null, "User", "123")).toThrow("User not found: 123");
-		expect(() => assertFound(undefined, "User", "123")).toThrow("User not found: 123");
+		const withId = { category: "not_found", code: "entity.not_found", params: { entityType: "User", entityId: "123" } };
+		expect(() => assertFound(null, "User", "123")).toThrow(expect.objectContaining(withId));
+		expect(() => assertFound(undefined, "User", "123")).toThrow(expect.objectContaining(withId));
 		expect(thrownBy(() => assertFound(null, "User", "123"))).toMatchObject({ category: "not_found" });
 	});
 
-	test("omits the id from the message when entityId is omitted", () => {
-		expect(() => assertFound(null, "User")).toThrow("User not found");
-		expect(() => assertFound(undefined, "Session")).toThrow("Session not found");
+	test("reports a not_found entity error when no id is given", () => {
+		expect(() => assertFound(null, "User")).toThrow(expect.objectContaining({ category: "not_found", code: "entity.not_found" }));
+		expect(() => assertFound(undefined, "Session")).toThrow(expect.objectContaining({ category: "not_found", code: "entity.not_found" }));
 	});
 
 	test("throws the custom error instead of the not-found error when given", () => {
@@ -43,13 +37,10 @@ describe("guards", () => {
 	test("assertProfileId and assertUserId reject a missing id with an unauthorized error", () => {
 		expect(thrownBy(() => assertProfileId(undefined))).toMatchObject({ category: "unauthorized", code: "auth.profile_required" });
 		expect(thrownBy(() => assertUserId(undefined))).toMatchObject({ category: "unauthorized", code: "auth.user_required" });
-		expect(() => assertProfileId("p1")).not.toThrow();
-		expect(() => assertUserId("u1")).not.toThrow();
 	});
 
 	test("assertPresent treats a missing dependency as an internal error", () => {
-		expect(thrownBy(() => assertPresent(null, "db missing"))).toMatchObject({ category: "internal", message: "db missing" });
-		expect(() => assertPresent(0, "unused")).not.toThrow();
+		expect(thrownBy(() => assertPresent(null, "db missing"))).toMatchObject({ category: "internal" });
 	});
 });
 

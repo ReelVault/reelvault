@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { apiKeysService } from "@/application/admin/api-keys.service";
-import { databaseFactory } from "@/database/database";
-import { apiKeys } from "@/database/schemas/api-keys.schema";
-import { users } from "@/database/schemas/auth.schema";
-import { prepareSecuritySuite, send } from "./security-harness";
+import { apiKeysService } from "@/app/admin/api-keys.service";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { apiKeys } from "@/integrations/drizzle-orm/schemas/api-keys.schema";
+import { users } from "@/integrations/drizzle-orm/schemas/auth.schema";
+import { prepareSecuritySuite, send } from "./security.helper";
 
 /**
  * API keys act as their creator for every request, so their lifecycle has to follow the
@@ -92,7 +92,7 @@ describe("API key lifecycle", () => {
 		expect([401, 403]).toContain((await callAdminAudit(key)).status);
 	});
 
-	test("a rotated key's old secret is refused at once and the new secret works", async () => {
+	test("a rotated key's old secret is refused at once and the new secret authenticates", async () => {
 		const adminId = await seedUser("admin");
 		const { id, key: oldKey } = await createKey(adminId, "full");
 		expect((await callAdminAudit(oldKey)).status).toBe(200);

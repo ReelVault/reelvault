@@ -1,16 +1,17 @@
+import type { CreateNotification } from "@reelvault/sdk/common";
 import type { PluginCapabilityName, PluginHost } from "@reelvault/sdk/plugin";
-import { notificationsService } from "@/application/notifications/notifications.service";
 import { realtimeService } from "@/modules/realtime/realtime.service";
+import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
+import { pluginBlobsService } from "@/plugins/capabilities/plugin.blobs";
+import { pluginFfmpegService } from "@/plugins/capabilities/plugin.ffmpeg";
+import { guardedPluginFetch } from "@/plugins/capabilities/plugin.http";
+import { pluginMarkersService } from "@/plugins/capabilities/plugin.markers";
+import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
+import { pluginMetadataService } from "@/plugins/capabilities/plugin.metadata";
+import { pluginStorageService } from "@/plugins/capabilities/plugin.storage";
+import { providerService } from "@/plugins/capabilities/provider.service";
+import { DomainError } from "@/utils/domain.errors";
 import { pickDefined } from "@/utils/type.utils";
-import { pluginArtifactsService } from "../../capabilities/plugin.artifacts";
-import { pluginBlobsService } from "../../capabilities/plugin.blobs";
-import { pluginFfmpegService } from "../../capabilities/plugin.ffmpeg";
-import { guardedPluginFetch } from "../../capabilities/plugin.http";
-import { pluginMarkersService } from "../../capabilities/plugin.markers";
-import { pluginMediaService } from "../../capabilities/plugin.media";
-import { pluginMetadataService } from "../../capabilities/plugin.metadata";
-import { pluginStorageService } from "../../capabilities/plugin.storage";
-import { providerService } from "../../capabilities/provider.service";
 import type { PluginScopeApi } from "./plugin.scope";
 
 /** Declares the capability, then runs the host action — the single gate every host method goes through. */
@@ -185,12 +186,38 @@ function buildAccessCapability(pluginId: string, scope: PluginScopeApi): PluginH
 	};
 }
 
+/**
+ * Delivers notifications raised by plugins. The application layer registers
+ * itself at boot (index.ts), so plugins never import `application/`.
+ */
+export interface PluginNotificationSink {
+	create(notification: CreateNotification, options: { sourcePluginId: string }): Promise<unknown>;
+	createForAdministrators(
+		notification: Omit<CreateNotification, "userId" | "profileId">,
+		options: { sourcePluginId: string },
+	): Promise<unknown>;
+}
+
+let notificationSink: PluginNotificationSink | undefined;
+
+export function registerPluginNotificationSink(sink: PluginNotificationSink): void {
+	notificationSink = sink;
+}
+
+function requireNotificationSink(): PluginNotificationSink {
+	if (!notificationSink) {
+		throw new DomainError("internal", "Plugin notification sink is not registered", { code: "plugin.notifications_unavailable" });
+	}
+
+	return notificationSink;
+}
+
 function buildNotificationsCapability(pluginId: string, scope: PluginScopeApi): PluginHost["notifications"] {
 	return {
 		create: async (notification) =>
 			withCapability(scope, "notification", async () => {
 				// Attribution + quota are host-enforced; the type stays plugin-authored for FE compatibility.
-				await notificationsService.create(
+				await requireNotificationSink().create(
 					{
 						userId: notification.userId,
 						type: notification.type,
@@ -207,7 +234,7 @@ function buildNotificationsCapability(pluginId: string, scope: PluginScopeApi): 
 			}),
 		createForAdmins: async (notification) =>
 			withCapability(scope, "notification", async () => {
-				await notificationsService.createForAdministrators(
+				await requireNotificationSink().createForAdministrators(
 					{
 						type: notification.type,
 						title: notification.title,

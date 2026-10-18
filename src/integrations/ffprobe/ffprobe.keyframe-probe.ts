@@ -1,5 +1,5 @@
 import { FileUtils, fileStatSignature } from "@/utils/file.utils";
-import { MemoryCache } from "@/utils/memory-cache";
+import { MemoryCache } from "@/utils/memory.cache";
 import { ffProbeService } from "./ffprobe.service";
 import type { FFProbePacket } from "./ffprobe.types";
 

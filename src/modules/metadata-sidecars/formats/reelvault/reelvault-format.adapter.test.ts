@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTree } from "@/utils/directory.utils";
 import { readFile } from "@/utils/file.utils";
 import { ReelVaultFormatAdapter } from "./reelvault-format.adapter";
 
@@ -33,6 +34,6 @@ test("ReelVault adapter writes its own NFO without changing a foreign movie.nfo"
 			identifiers: { imdb: "tt1905041" },
 		});
 	} finally {
-		await rm(directory, { force: true, recursive: true });
+		await removeTree(directory);
 	}
 });

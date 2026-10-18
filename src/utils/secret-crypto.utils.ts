@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
+import { DomainError } from "./domain.errors";
 
 /**
  * Symmetric encryption for secrets persisted in the database (e.g. plugin
@@ -44,11 +45,15 @@ export function encryptSecret(plaintext: string, masterSecret: string): string {
 
 export function decryptSecret(payload: string, masterSecret: string): string {
 	const parts = payload.split(PAYLOAD_SEPARATOR);
-	if (parts.length !== 4) throw new Error("Unsupported secret payload format");
+	if (parts.length !== 4) {
+		throw new DomainError("internal", "Unsupported secret payload format", { code: "secret.unsupported_payload" });
+	}
 
 	const [version, iv, encrypted, authTag] = parts;
 	if (version !== PAYLOAD_VERSION || !iv || !encrypted || !authTag) {
-		throw new Error(`Unsupported secret payload format: ${version ?? "empty"}`);
+		throw new DomainError("internal", `Unsupported secret payload format: ${version ?? "empty"}`, {
+			code: "secret.unsupported_payload",
+		});
 	}
 
 	const key = deriveSecretKey(masterSecret);

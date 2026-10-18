@@ -1,5 +1,5 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
-import { pluginEventBus } from "@/plugins/runtime/plugin.events";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
 
 export interface PlaybackSessionStartedEvent {
 	sessionId: string;

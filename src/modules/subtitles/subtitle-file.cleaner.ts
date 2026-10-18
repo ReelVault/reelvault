@@ -1,6 +1,6 @@
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { subtitleVttPath } from "./subtitle-path.utils";
 

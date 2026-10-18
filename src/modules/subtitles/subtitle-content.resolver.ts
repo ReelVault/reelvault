@@ -1,9 +1,9 @@
-import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
-import { assertFound, DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
-import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args";
+import { assertFound, DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
+import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
 import type { SubtitleContentInfo } from "./subtitle-info.cache";
+import { subtitleProviders } from "./subtitles.ports";
 
 export interface SubtitleContent {
 	contentType: string;
@@ -22,7 +22,7 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	getExternalContent: async (id) => await subtitleProviderService.getContent(id),
+	getExternalContent: async (id) => await subtitleProviders().getContent(id),
 	extractEmbeddedContent: (id, mediaFilePath, streamIndex, format, signal) =>
 		subtitleExtractorService.extractToVtt(id, mediaFilePath, streamIndex, format, signal),
 };

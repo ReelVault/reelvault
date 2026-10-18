@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fingerprintPlaybackSession, PlaybackSessionIdempotencyRegistry } from "./playback-session-idempotency";
+import { fingerprintPlaybackSession, PlaybackSessionIdempotencyRegistry } from "./playback-session.registry";
 
 describe("PlaybackSessionIdempotencyRegistry", () => {
 	test("normalizes codec order before fingerprinting", () => {
@@ -32,7 +32,12 @@ describe("PlaybackSessionIdempotencyRegistry", () => {
 	test("rejects reusing a key with different semantic input", async () => {
 		const registry = new PlaybackSessionIdempotencyRegistry();
 		const first = registry.execute("profile-1", "key-1", { mediaFileId: "file-1" }, async () => "session-1");
-		expect(() => registry.execute("profile-1", "key-1", { mediaFileId: "file-2" }, async () => "session-2")).toThrow("Idempotency-Key");
+		expect(() => registry.execute("profile-1", "key-1", { mediaFileId: "file-2" }, async () => "session-2")).toThrow(
+			expect.objectContaining({
+				category: "conflict",
+				code: "stream.idempotency_conflict",
+			}),
+		);
 		await expect(first).resolves.toBe("session-1");
 	});
 });

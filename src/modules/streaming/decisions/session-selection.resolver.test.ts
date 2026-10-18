@@ -33,7 +33,7 @@ describe("session selection resolver", () => {
 		expect(selection.audioStream?.index).toBe(1);
 		expect(selection.subtitle).toBeUndefined();
 		expect(selection.playbackPreferences.subtitlesEnabled).toBe(true);
-		expect(typeof selection.decision.mode).toBe("string");
+		expect(selection.decision.mode).toBe("direct-stream");
 	});
 
 	test("audio matching the preferred language suppresses full subtitles and picks forced ones", () => {

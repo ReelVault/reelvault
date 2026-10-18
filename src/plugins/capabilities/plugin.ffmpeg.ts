@@ -6,27 +6,28 @@ import type {
 	SpriteExtractionRequest,
 } from "@reelvault/sdk/plugin";
 import { file } from "bun";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { QueryFields } from "@/database/utils/fields";
-import { getEffectiveHwaccel, hardwareDecodeArgs } from "@/integrations/ffmpeg/ffmpeg.capabilities";
+import { pluginMediaData } from "@/app/plugins/plugin-data.service";
+import { serverConfig } from "@/config/server/server.config";
+import { FFMPEG_TIMEOUT_MS } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { hardwareDecodeArgs } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
+import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import {
 	buildFrameExtractionCommand,
 	buildSingleFrameExtractionCommand,
 	buildSpriteTileCommand,
 } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { serverConfig } from "@/server.config";
-import { FFMPEG_TIMEOUT_MS } from "@/server.constants";
-import { systemResourcesService } from "@/system/system-resources.service";
 import { DirUtils } from "@/utils/directory.utils";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { hardenAnalyseArgs, processFailureDetail } from "./ffmpeg/analyse-args.hardener";
-import { assertFrameExtractionRequest, assertSpriteExtractionRequest, contentTypeFor } from "./ffmpeg/request-validation";
+import { assertFrameExtractionRequest, assertSpriteExtractionRequest, contentTypeFor } from "./ffmpeg/request-validation.guard";
 
 class PluginFfmpegService {
 	readonly serviceName = "PluginFfmpegService";
@@ -241,7 +242,7 @@ class PluginFfmpegService {
 	}
 
 	private async requireMediaFile(mediaFileId: string) {
-		const mediaFile = await mediaRepository.findByPrimaryId({
+		const mediaFile = await pluginMediaData.findByPrimaryId({
 			primaryId: mediaFileId,
 			fields: QueryFields.parse({ fields: "id,filePath" }),
 		});

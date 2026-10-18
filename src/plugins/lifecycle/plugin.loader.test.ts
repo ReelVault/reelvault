@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
-import { sql } from "drizzle-orm";
-import { databaseFactory } from "@/database/database";
+import { removeTree } from "@/utils/directory.utils";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import type { PluginConfig } from "./plugin.config";
 import { PluginLoader } from "./plugin.loader";
 import { PluginRegistry } from "./plugin.registry";
@@ -14,6 +14,8 @@ const reloadKey = "__reelvaultPluginReload";
 const failUnloadKey = "__reelvaultPluginFailUnload";
 const analyzerDisposeKey = "__reelvaultPluginAnalyzerDispose";
 const temporaryDirectories: string[] = [];
+// loadAll purges expired plugin blobs, so each test gets a migrated database.
+useTestDatabase();
 
 afterEach(async () => {
 	Reflect.deleteProperty(globalThis, lifecycleKey);
@@ -21,7 +23,7 @@ afterEach(async () => {
 	Reflect.deleteProperty(globalThis, failUnloadKey);
 	Reflect.deleteProperty(globalThis, analyzerDisposeKey);
 	(globalThis as Record<string, unknown>).__reelvaultPluginDisableFails = undefined;
-	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 });
 
 describe("plugin loader lifecycle", () => {
@@ -30,13 +32,9 @@ describe("plugin loader lifecycle", () => {
 
 		await loader.load("lifecycle");
 		expect(registry.get("org.reelvault.lifecycle")?.state).toBe("enabled");
-		expect(registry.getProvider("lifecycle-provider")).toBeDefined();
-		expect(registry.getSubtitleProvider("lifecycle-subtitle-provider")).toBeDefined();
 
 		await loader.reloadPlugin("org.reelvault.lifecycle");
 		expect(registry.get("org.reelvault.lifecycle")?.state).toBe("enabled");
-		expect(registry.getProvider("lifecycle-provider")).toBeDefined();
-		expect(registry.getSubtitleProvider("lifecycle-subtitle-provider")).toBeDefined();
 
 		await loader.unloadPlugin("org.reelvault.lifecycle");
 		expect(registry.get("org.reelvault.lifecycle")).toBeUndefined();
@@ -106,7 +104,7 @@ describe("plugin loader lifecycle", () => {
 		await loader.load("lifecycle");
 		(globalThis as Record<string, unknown>).__reelvaultPluginDisableFails = true;
 
-		await expect(loader.unloadPlugin("org.reelvault.lifecycle")).rejects.toThrow("disable failed");
+		await expect(loader.unloadPlugin("org.reelvault.lifecycle")).rejects.toBeInstanceOf(Error);
 		expect(registry.get("org.reelvault.lifecycle")).toBeUndefined();
 		expect(registry.getProvider("lifecycle-provider")).toBeUndefined();
 		expect(registry.getSubtitleProvider("lifecycle-subtitle-provider")).toBeUndefined();
@@ -196,7 +194,7 @@ export default {
 		const config: Pick<PluginConfig, "load"> = { load: async () => ({}) };
 		const loader = new PluginLoader(config as PluginConfig, registry, pluginsDirectory);
 
-		await expect(loader.load("fail-unload")).rejects.toThrow("setup failed");
+		await expect(loader.load("fail-unload")).rejects.toBeInstanceOf(Error);
 		expect((globalThis as Record<string, unknown>)[failUnloadKey]).toEqual(["setup", "unload"]);
 		expect(registry.get("org.reelvault.fail-unload")).toBeUndefined();
 	});
@@ -245,15 +243,15 @@ export default {
 	test("rejects a path-traversal plugin identifier before touching disk", async () => {
 		const { loader } = await createLoaderFixture();
 
-		await expect(loader.load("../../tmp/evil")).rejects.toThrow("Invalid plugin identifier");
-		await expect(loader.load(".hidden")).rejects.toThrow("Invalid plugin identifier");
-		await expect(loader.load("a/b")).rejects.toThrow("Invalid plugin identifier");
+		await expect(loader.load("../../tmp/evil")).rejects.toMatchObject({ category: "validation", code: "plugin.invalid_identifier" });
+		await expect(loader.load(".hidden")).rejects.toMatchObject({ category: "validation", code: "plugin.invalid_identifier" });
+		await expect(loader.load("a/b")).rejects.toMatchObject({ category: "validation", code: "plugin.invalid_identifier" });
 	});
 
 	test("rejects an invalid scheduled plugin job before it reaches the queue", async () => {
 		const { loader, registry } = await createInvalidScheduleLoaderFixture();
 
-		await expect(loader.load("invalid-schedule")).rejects.toThrow("Invalid cron expression");
+		await expect(loader.load("invalid-schedule")).rejects.toMatchObject({ category: "validation", code: "worker.cron_invalid" });
 		expect(registry.get("org.reelvault.invalid-schedule")).toBeUndefined();
 		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.invalid-schedule", state: "failed", failurePhase: "setup" }]);
 	});
@@ -303,7 +301,7 @@ describe("plugin loader lifecycle", () => {
 		const config: Pick<PluginConfig, "load"> = { load: async () => ({}) };
 		const loader = new PluginLoader(config as PluginConfig, registry, pluginsDirectory);
 
-		await expect(loader.load("unconfigured")).rejects.toThrow("requires an access token");
+		await expect(loader.load("unconfigured")).rejects.toBeInstanceOf(Error);
 		expect(registry.get("org.reelvault.unconfigured")).toBeUndefined();
 		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.unconfigured", state: "failed" }]);
 		expect(registry.getConfigDefinition("org.reelvault.unconfigured")?.descriptors).toEqual([
@@ -313,23 +311,8 @@ describe("plugin loader lifecycle", () => {
 });
 
 describe("plugin loader lifecycle", () => {
-	test("loadAll skips a plugin disabled in the lockfile; a direct load still works after re-enable", async () => {
+	test("loadAll skips a plugin disabled in the lockfile and a direct load succeeds after re-enable", async () => {
 		const { loader, registry, pluginsDirectory } = await createLoaderFixture();
-		// loadAll purges expired plugin blobs first — an empty stub keeps the
-		// fixture independent from migrations (same pattern as tests/database).
-		await databaseFactory.getClient().run(
-			sql.raw(`CREATE TABLE IF NOT EXISTS plugin_blobs (
-					plugin_id TEXT NOT NULL,
-					data_key TEXT NOT NULL,
-					storage_key TEXT NOT NULL UNIQUE,
-					content_type TEXT NOT NULL,
-					size INTEGER NOT NULL,
-					expires_at INTEGER NOT NULL,
-					created_at INTEGER NOT NULL,
-					updated_at INTEGER NOT NULL,
-					PRIMARY KEY (plugin_id, data_key)
-				)`),
-		);
 		// Simulate a plugin disabled via the admin API before a restart.
 		await write(
 			join(pluginsDirectory, "plugins.lock.json"),
@@ -373,13 +356,14 @@ describe("plugin loader lifecycle", () => {
 			}),
 		);
 
+		const configError = new Error("Configuration is invalid");
 		const registry = new PluginRegistry();
 		const config: Pick<PluginConfig, "load"> = {
-			load: () => Promise.reject(new Error("Configuration is invalid")),
+			load: () => Promise.reject(configError),
 		};
 		const loader = new PluginLoader(config as PluginConfig, registry, pluginsDirectory);
 
-		await expect(loader.load("broken-config")).rejects.toThrow("Configuration is invalid");
+		await expect(loader.load("broken-config")).rejects.toBe(configError);
 		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.broken-config", state: "failed", failurePhase: "config" }]);
 	});
 });

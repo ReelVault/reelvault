@@ -4,8 +4,8 @@ import {
 	SUBTITLE_COLOR_OPTIONS,
 	SUBTITLE_POSITION_OPTIONS,
 	SUBTITLE_SIZE_OPTIONS,
-} from "../profile-preferences.definitions";
-import { SystemSettingsCreator } from "../system-settings.utils";
+} from "@/config/profile-preferences.definitions";
+import { SystemSettingsCreator } from "@/config/system-settings.utils";
 
 const creator = SystemSettingsCreator("playback_defaults");
 // Administrative quota — belongs with the other system-level knobs, not the

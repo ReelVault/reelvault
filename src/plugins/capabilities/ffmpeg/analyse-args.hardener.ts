@@ -1,6 +1,7 @@
-import { getEffectiveHwaccel, hardwareDecodeArgs } from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
+import { serverConfig } from "@/config/server/server.config";
+import { hardwareDecodeArgs } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
+import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
+import { DomainError } from "@/utils/domain.errors";
 import { PathUtils } from "@/utils/path.utils";
 
 /** Flags that read a caller-supplied local file outside the media input. */

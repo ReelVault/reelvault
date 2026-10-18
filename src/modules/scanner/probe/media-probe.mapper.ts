@@ -1,6 +1,6 @@
 import type { CreateMediaFile } from "@reelvault/sdk/common";
 import type { FFProbeResult, FFProbeStream, FfprobeAudioStream, VideoStream } from "@/integrations/ffprobe/ffprobe.types";
-import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences";
+import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences.resolver";
 import { escapeRegex } from "@/utils/http.utils";
 import {
 	EDITION_TAGS,

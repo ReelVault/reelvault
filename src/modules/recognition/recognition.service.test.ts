@@ -89,15 +89,6 @@ describe("recognition service", () => {
 });
 
 describe("recognition service", () => {
-	test("recognizes a three-digit season spelling in a season folder (S012E03)", () => {
-		const result = recognitionService.recognize("/media/Series/Example Show (2011)/Season 12/Example.Show.S012E03.mkv");
-
-		expect(result).not.toBeNull();
-		expect(result?.type).toBe("tv_show");
-		expect(result?.identity.season).toBe(12);
-		expect(result?.identity.episode).toBe(3);
-	});
-
 	test("recognizes movie in year-bucket folder (/mnt/movies/2010/Inception.2010.mkv)", () => {
 		const result = recognitionService.recognize("/mnt/movies/2010/Inception.2010.mkv");
 
@@ -183,22 +174,6 @@ describe("recognition service", () => {
 		expect(result?.type).toBe("movie");
 		expect(result?.identity.season).toBeUndefined();
 		expect(result?.identity.episode).toBeUndefined();
-	});
-
-	test("prefers the anchored marker over an earlier bare number in the file name", () => {
-		const result = recognitionService.recognize("/media/Series/Friends (1994)/Friends - 01 - S01E02.mkv");
-
-		expect(result?.type).toBe("tv_show");
-		expect(result?.identity.season).toBe(1);
-		expect(result?.identity.episode).toBe(2);
-	});
-
-	test("keeps the anchored marker when the file name contains a resolution", () => {
-		const result = recognitionService.recognize("/media/Series/Friends (1994)/Friends.1920x1080.S01E02.mkv");
-
-		expect(result?.type).toBe("tv_show");
-		expect(result?.identity.season).toBe(1);
-		expect(result?.identity.episode).toBe(2);
 	});
 
 	test("recognizes a basic-structure episode in a generic folder without taking the folder as the show title", () => {

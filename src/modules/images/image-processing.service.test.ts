@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { PersistedImageInput } from "@/database/repositories/images.repository";
 import { ImageProcessingService } from "./image-processing.service";
 import type { UploadedImage } from "./image-upload.service";
+import type { PersistedImageInput } from "./images.ports";
 
 const PERSISTED: PersistedImageInput = {
 	localPath: "/images/posters/persisted.webp",
@@ -247,14 +247,14 @@ describe("ImageProcessingService", () => {
 		expect(spies.replaced).toEqual([{ owner: "m1", stableKey: "v1:local:stable" }]);
 	});
 
-	test("processMetadata rethrows when the signal is already aborted", async () => {
+	test("processMetadata fails as an internal error when the signal is already aborted", async () => {
 		const { service, spies } = createService();
 		const controller = new AbortController();
 		controller.abort();
 
 		await expect(
 			service.processMetadata("m1", [{ type: "poster", url: "https://x/poster.jpg" }], false, controller.signal),
-		).rejects.toThrow();
+		).rejects.toMatchObject({ category: "internal" });
 		expect(spies.downloads).toEqual([]);
 	});
 

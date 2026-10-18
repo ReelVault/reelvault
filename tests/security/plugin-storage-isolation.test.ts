@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { serverConfig } from "@/config/server/server.config";
 import { pluginStorageService } from "@/plugins/capabilities/plugin.storage";
-import { serverConfig } from "@/server.config";
-import { prepareSecuritySuite } from "./security-harness";
+import { prepareSecuritySuite } from "./security.helper";
 
 /**
  * Plugin key-value storage is keyed by (plugin id, key). The plugin id is bound by the

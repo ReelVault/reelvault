@@ -17,21 +17,21 @@ import type {
 	PluginUiManifest,
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
-import { serverConfig } from "@/server.config";
-import { DomainError, errorMessage } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { serverConfig } from "@/config/server/server.config";
+import { guardedPluginFetch } from "@/plugins/capabilities/plugin.http";
+import { type PluginJobBatchItem, type PluginJobBatchOptions, pluginJobsService } from "@/plugins/capabilities/plugin.jobs";
+import { assertDeclaredPluginCapabilities } from "@/plugins/lifecycle/plugin.manifest";
+import { removePluginRuntime } from "@/plugins/lifecycle/plugin-runtime.service";
+import { PluginEntityTable } from "@/plugins/lifecycle/registry/plugin-entity.registry";
+import { registerNotificationChannel, unregisterPluginNotificationChannels } from "@/plugins/runtime/notification-channel.registry";
+import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
+import { pluginRoutesRegistry } from "@/plugins/runtime/plugin.routes";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { pluginHookBus } from "@/system/extensions/plugin.hooks";
+import { DomainError, errorMessage } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { scheduledTasksService } from "@/workers/scheduled-tasks.service";
-import { guardedPluginFetch } from "../../capabilities/plugin.http";
-import { type PluginJobBatchItem, type PluginJobBatchOptions, pluginJobsService } from "../../capabilities/plugin.jobs";
-import { registerNotificationChannel, unregisterPluginNotificationChannels } from "../../runtime/notification-channel.registry";
-import { pluginAccessBus } from "../../runtime/plugin.access";
-import { pluginEventBus } from "../../runtime/plugin.events";
-import { pluginHookBus } from "../../runtime/plugin.hooks";
-import { pluginRoutesRegistry } from "../../runtime/plugin.routes";
-import { assertDeclaredPluginCapabilities } from "../plugin.manifest";
-import { removePluginRuntime } from "../plugin-runtime-copy";
-import { PluginEntityTable } from "../registry/plugin-entity-table";
 
 export interface PluginScopeApi {
 	useCapability(name: PluginCapabilityName): void;
@@ -60,7 +60,7 @@ export interface PluginScopeApi {
 export type PluginEventHandlerErased = (payload: never) => void | Promise<void>;
 
 export class PluginScope {
-	private readonly logger = createLogger("PluginScope");
+	readonly logger = createLogger("PluginScope");
 	private readonly providers = new PluginEntityTable<MetadataProvider>("provider");
 	private readonly subtitleProviders = new PluginEntityTable<SubtitleProvider>("subtitle provider");
 	private readonly analyzers = new PluginEntityTable<MediaAnalyzer>("media analyzer");

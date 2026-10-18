@@ -1,10 +1,10 @@
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { findIgnoredLocalAssets } from "./files/ignored-assets.diagnostics";
 import { JellyfinFormatAdapter } from "./formats/jellyfin/jellyfin-format.adapter";
 import { KodiFormatAdapter } from "./formats/kodi/kodi-format.adapter";
 import { ReelVaultFormatAdapter } from "./formats/reelvault/reelvault-format.adapter";
 import { InMemorySidecarFormatRegistry, type SidecarFormatRegistry } from "./formats/sidecar-format.registry";
-import { RegistrySidecarMetadataWriter } from "./saver/metadata-saver";
+import { RegistrySidecarMetadataWriter } from "./saver/metadata-saver.writer";
 import type { CanonicalSidecarDocument, SidecarMetadataWriter, SidecarSnapshotResolver } from "./sidecar.types";
 
 class MetadataSidecarsService {

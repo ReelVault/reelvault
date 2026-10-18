@@ -1,9 +1,10 @@
-import { librariesService } from "@/application/libraries/libraries.service";
-import { systemResourcesService } from "@/system/system-resources.service";
-import { createLogger } from "@/utils/logger";
-import { MemoryCache } from "@/utils/memory-cache";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { assertFound } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { metadataSidecarsService } from "./metadata-sidecars.service";
+import { sidecarStorage } from "./sidecar.ports";
 
 /** Assets found by a recursive library-root walk — same shape as one root's result. */
 type IgnoredAssets = Awaited<ReturnType<typeof metadataSidecarsService.findIgnoredAssets>>;
@@ -19,7 +20,8 @@ class SidecarAssetsService {
 
 	async getIgnoredAssets(libraryId: string): Promise<IgnoredAssets> {
 		return await this.cache.getOrSet(libraryId, async () => {
-			const library = await librariesService.getById(libraryId, { fields: "id,paths.path" });
+			const library = await sidecarStorage().findLibraryPaths(libraryId);
+			assertFound(library, "Library", libraryId);
 			const assets = await PromiseUtils.mapConcurrent(
 				library.paths,
 				systemResourcesService.getIoConcurrency(),

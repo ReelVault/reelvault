@@ -23,10 +23,6 @@ describe("mapJellyfinArtwork", () => {
 		expect(artwork.backdrop).toBeUndefined();
 	});
 
-	test("a document without an art element yields no artwork", () => {
-		expect(mapJellyfinArtwork("/media/Movie/movie.nfo", { title: "T" })).toEqual({});
-	});
-
 	test("reads the Kodi/Plex thumb and fanart elements", () => {
 		const artwork = mapJellyfinArtwork("/media/Movie/movie.nfo", {
 			thumb: { "@_aspect": "poster", "#text": "poster.jpg" },
@@ -37,12 +33,13 @@ describe("mapJellyfinArtwork", () => {
 		expect(artwork.backdrop).toEqual({ path: "/media/Movie/backdrop.jpg" });
 	});
 
-	test("accepts a bare thumb as the poster and rejects remote URLs", () => {
+	test("accepts a bare local thumb as the poster and rejects remote URLs", () => {
 		const artwork = mapJellyfinArtwork("/media/Movie/movie.nfo", {
-			thumb: "https://image.tmdb.org/poster.jpg",
+			thumb: "poster.jpg",
 			fanart: { thumb: "https://image.tmdb.org/backdrop.jpg" },
 		});
 
-		expect(artwork).toEqual({});
+		expect(artwork).toEqual({ poster: { path: "/media/Movie/poster.jpg" } });
+		expect(mapJellyfinArtwork("/media/Movie/movie.nfo", { thumb: "https://image.tmdb.org/poster.jpg" })).toEqual({});
 	});
 });

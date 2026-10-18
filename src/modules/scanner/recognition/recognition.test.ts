@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { pluginHookBus } from "@/plugins/runtime/plugin.hooks";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { recognizeWithPluginHooks } from "../recognition/recognition";
+import { recognizeWithPluginHooks } from "@/modules/scanner/recognition/recognition.service";
+import { pluginHookBus } from "@/system/extensions/plugin.hooks";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
 
 const MEDIA_PATH = "/library/Example Movie (2024)/Example Movie (2024).mkv";
 
@@ -21,7 +21,7 @@ describe("recognition plugin hooks", () => {
 		}
 	});
 
-	test("rejects an invalid transformed candidate before metadata lookup", async () => {
+	test("returns null when a plugin transforms the candidate into an invalid one", async () => {
 		const stub = stubMethod(pluginHookBus, "runBeforeMediaRecognition", (candidate: Record<string, unknown>) => ({
 			...candidate,
 			title: "",

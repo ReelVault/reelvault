@@ -7,144 +7,64 @@ import type {
 } from "@reelvault/sdk/common";
 import type {
 	ExternalIdentifiers,
-	MetadataProvider,
 	ProviderDiscoveryRequest,
 	ProviderDiscoveryResult,
-	ProviderEpisodeResult,
 	ProviderImageResult,
 	ProviderMediaType,
 	ProviderMetadataResult,
-	ProviderPersonResult,
 	ProviderResultGenre,
 	ProviderSearchRequest,
 	ProviderSearchResponse,
-	ProviderSearchResult,
 	ProviderSeasonResult,
 } from "@reelvault/sdk/plugin";
-import { systemSettingsStore } from "@/config/system-settings.store";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { serverConfig } from "@/server.config";
-import { hasEntry, isNotNullish } from "@/utils/array.utils";
-import { DomainError, errorMessage } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
-import { isAcceptableMatch, rankCandidates, type ScoredCandidate } from "@/utils/media-match.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
-import { normalizeLower } from "@/utils/type.utils";
-import { type AggregatedMetadata, mergeProviderMetadata, type ProviderContribution } from "./metadata-aggregator";
+import { createLogger } from "@/utils/logger.utils";
+import type { AggregatedMetadata } from "./metadata-aggregator.service";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";
-import { ProviderResultCaches } from "./provider/inflight-cache";
+import { discover, fetchImagesByProvider, fetchPerson, getGenres } from "./provider/catalog.service";
 import {
-	discoveryCacheKey,
-	isExternalIdentifierAwareProvider,
-	matchesExternalIdentifiers,
-	normalizeMetadataDetails,
-	trimNameAndOverview,
-} from "./provider/match-ranking";
-import { type SearchCandidate, searchWithVariants } from "./provider/query-variants";
+	fetchAggregatedDetails,
+	fetchAggregatedDetailsByProvider,
+	fetchDetails,
+	fetchDetailsByLocalIdentifiers,
+	fetchDetailsByProvider,
+	resolveDetails,
+} from "./provider/details.service";
+import { ProviderResultCaches } from "./provider/inflight.cache";
+import { fetchEpisodeFromLinks, fetchSeasonByProvider, fetchSeasonFromLinks } from "./provider/links.service";
+import type {
+	ProviderDetails,
+	ProviderEpisodeDetails,
+	ProviderLink,
+	ProviderPersonDetails,
+	ProviderSeasonDetails,
+} from "./provider/provider.types";
+import { search, searchProviders } from "./provider/search.service";
+import type { ProviderServiceState } from "./provider/shared.utils";
 
-export interface ProviderDetails {
-	provider: string;
-	metadata: ProviderMetadataResult;
-	matchScore?: number | undefined;
-}
-
-export interface ProviderSeasonDetails {
-	provider: string;
-	metadata: ProviderSeasonResult;
-}
-
-export interface ProviderEpisodeDetails {
-	provider: string;
-	metadata: ProviderEpisodeResult;
-}
-
-export interface ProviderPersonDetails {
-	provider: string;
-	metadata: ProviderPersonResult;
-}
-interface AcceptedMatch {
-	provider: MetadataProvider;
-	index: number;
-	bestMatch: ScoredCandidate<SearchCandidate>;
-}
-/** A metadata provider plus that provider's own id for the entity (not the title's primary id). */
-interface ProviderLink {
-	providerId: string;
-	externalId: string;
-}
-
-/** Minimal cache surface used by first-provider lookups — only positive results are ever stored. */
-interface ProviderResultCache<TResult> {
-	get(key: string): TResult | null;
-	set(key: string, value: TResult): void;
-}
-
-/** Thrown inside getOrSet loaders to signal "no match" without caching the null result. */
-class NoMatchError extends Error {
-	constructor() {
-		super("No metadata provider match found");
-		this.name = "NoMatchError";
-	}
-}
+export type { ProviderDetails, ProviderEpisodeDetails, ProviderPersonDetails, ProviderSeasonDetails } from "./provider/provider.types";
 
 class ProviderService {
 	readonly serviceName = "ProviderService";
+
 	readonly logger = createLogger("ProviderService");
 
-	private caches = new ProviderResultCaches();
+	private readonly state: ProviderServiceState = { logger: this.logger, caches: new ProviderResultCaches() };
 
 	/**
 	 * Replaces the result caches. Their TTL is read when they are built, so a changed
 	 * `plugins.providers.detailsCacheTtlMs` takes effect only through fresh caches.
 	 */
 	resetCaches(): void {
-		this.caches = new ProviderResultCaches();
-	}
-
-	/**
-	 * Derived from the ordered providers on every call so priority/enabled changes
-	 * invalidate provider-scoped caches. The registry generation is appended so a
-	 * reload/upgrade of a provider with the same id cannot serve stale results
-	 * under the previous implementation's key.
-	 */
-	/** Cache-key prefix: the ordered provider ids (per-library overrides included when a library is given) + registry generation. */
-	private async getProviderKey(libraryId?: string): Promise<string> {
-		const providers = await metadataProviderSettingsService.getOrderedProviders(libraryId);
-
-		return `${providers.map((provider) => provider.id).join(",")}#${pluginRegistry.getGeneration()}`;
+		this.state.caches = new ProviderResultCaches();
 	}
 
 	async search(request: MetadataProviderSearchRequest): Promise<MetadataProviderSearchResponse[]> {
-		const { type, title, year } = request;
-		const providerId = request.providerId?.trim();
-		const externalId = request.externalId?.trim();
-		if (providerId || externalId) {
-			if (!(providerId && externalId))
-				throw new DomainError("validation", "Searching by id requires both providerId and externalId", {
-					code: "provider.search_id_incomplete",
-				});
-
-			return await this.searchByProviderExternalId(type, providerId, externalId);
-		}
-
-		const query = title?.trim();
-		if (!query)
-			throw new DomainError("validation", "Provide a title or a providerId + externalId pair to search", {
-				code: "provider.search_query_missing",
-			});
-
-		const grouped = await this.searchProviders({ type, query, year });
-
-		return grouped.map((group) => ({
-			providerId: group.providerId,
-			results: group.results.map((item) => ({
-				externalId: item.externalId,
-				title: item.title,
-				releaseDate: item.releaseDate,
-				...(item.posterPath ? { posterPath: item.posterPath } : {}),
-			})),
-		}));
+		return await search(
+			request,
+			(...args) => this.searchProviders(...args),
+			(...args) => this.fetchDetailsByProvider(...args),
+		);
 	}
 
 	/**
@@ -153,100 +73,12 @@ class ProviderService {
 	 * popularity. Shared by the HTTP search endpoint and the plugin capability.
 	 */
 	async searchProviders(request: ProviderSearchRequest): Promise<ProviderSearchResponse[]> {
-		const query = request.query.trim();
-		if (!query) return [];
-
-		this.publishSearchRequested(request.type, query, request.year);
-		const providers = await this.resolveProviders(request.providerId);
-
-		const results = await PromiseUtils.mapConcurrent(
-			providers,
-			serverConfig.plugins.providers.concurrency,
-			async (provider): Promise<ProviderSearchResponse | null> => {
-				const ranked = await this.rankProviderResults(
-					provider,
-					{ type: request.type, query, year: request.year, language: undefined },
-					(error) => this.logger.error(`Provider ${provider.id} failed`, error),
-				);
-				if (!ranked) return null;
-
-				return { providerId: provider.id, results: ranked.map((candidate) => candidate.item) };
-			},
-		);
-
-		return results.filter((result) => isNotNullish(result));
-	}
-
-	/**
-	 * Runs one provider's title search through the query variants and returns its
-	 * ranked candidates, or null when the provider fails or yields no results.
-	 * `onError` keeps each caller's logging level/context intact.
-	 */
-	private async rankProviderResults(
-		provider: MetadataProvider,
-		search: { type: ProviderMediaType; query: string; year: number | undefined; language: string | undefined },
-		onError: (error: unknown) => void,
-	): Promise<Array<ScoredCandidate<ProviderSearchResult>> | null> {
-		const { type, query, year, language } = search;
-		try {
-			const results = await searchWithVariants(
-				(searchQuery) => (language ? provider.search(type, searchQuery, year, { language }) : provider.search(type, searchQuery, year)),
-				query,
-				year,
-			);
-			if (results.length === 0) return null;
-
-			return rankCandidates(results, query, year);
-		} catch (error) {
-			onError(error);
-
-			return null;
-		}
-	}
-
-	/**
-	 * Exact lookup of an id in one provider's own namespace — works with every
-	 * plugin, since `getDetails` is a required provider method. The id is passed
-	 * through verbatim: no provider names or id formats are known to the server.
-	 */
-	private async searchByProviderExternalId(
-		type: ProviderMediaType,
-		providerId: string,
-		externalId: string,
-	): Promise<MetadataProviderSearchResponse[]> {
-		const enabled = await metadataProviderSettingsService.getOrderedProviders();
-		const enabledIds = new Set(enabled.map((p) => p.id));
-		if (!enabledIds.has(providerId)) {
-			throw new DomainError("validation", `Provider ${providerId} is not registered or is disabled`, {
-				code: "provider.unavailable",
-				params: { provider: providerId },
-			});
-		}
-
-		const metadata = await this.fetchDetailsByProvider(providerId, type, externalId);
-		if (!metadata) return [];
-
-		return [
-			{
-				providerId,
-				results: [
-					{
-						externalId: metadata.externalId,
-						title: metadata.title,
-						releaseDate: metadata.releaseDate,
-						...(metadata.posterPath ? { posterPath: metadata.posterPath } : {}),
-					},
-				],
-			},
-		];
+		return await searchProviders(this.state, request);
 	}
 
 	/** Deduplicates concurrent detail lookups for the same title/year so a burst of requests only hits providers once. */
 	async fetchDetails(type: "movie" | "tv_show", parsed: MediaIdentity): Promise<ProviderDetails[]> {
-		const providerKey = await this.getProviderKey();
-		const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}`;
-
-		return await this.caches.details.getOrSet(key, () => this.fetchDetailsOnce(type, parsed));
+		return await fetchDetails(this.state, type, parsed);
 	}
 
 	/**
@@ -260,58 +92,7 @@ class ProviderService {
 		parsed: MediaIdentity,
 		options?: { libraryId?: string | undefined; language?: string | undefined },
 	): Promise<AggregatedMetadata | null> {
-		// A library's own provider order and metadata language change the result, so both belong in the key.
-		const providerKey = await this.getProviderKey(options?.libraryId);
-		const libraryScope = options?.libraryId ? `:l:${options.libraryId}` : "";
-		const language = options?.language;
-		const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}${libraryScope}:${language ?? ""}`;
-
-		try {
-			return await this.caches.aggregatedDetails.getOrSet(key, async () => {
-				this.publishSearchRequested(type, parsed.title, parsed.year);
-				const accepted = await this.collectAcceptedMatches(type, parsed, options?.libraryId, language);
-				if (accepted.length === 0) throw new NoMatchError();
-
-				const contributions = await PromiseUtils.mapConcurrent(
-					accepted,
-					serverConfig.plugins.providers.concurrency,
-					async (candidate): Promise<ProviderContribution | null> => {
-						try {
-							const metadata = await candidate.provider.getDetails(
-								type,
-								candidate.bestMatch.item.externalId,
-								language ? { language } : undefined,
-							);
-							if (!metadata) return null;
-
-							return {
-								providerId: candidate.provider.id,
-								externalId: metadata.externalId,
-								matchScore: Math.min(1, Number(candidate.bestMatch.score.toFixed(3))),
-								metadata: normalizeMetadataDetails(metadata),
-							};
-						} catch (error) {
-							this.logger.warn("Metadata provider details fetch failed during aggregation", {
-								providerId: candidate.provider.id,
-								priorityIndex: candidate.index,
-								error: errorMessage(error),
-							});
-
-							return null;
-						}
-					},
-				);
-
-				const ordered = contributions.filter((contribution) => isNotNullish(contribution));
-				if (ordered.length === 0) throw new NoMatchError();
-
-				return mergeProviderMetadata(ordered);
-			});
-		} catch (error) {
-			if (error instanceof NoMatchError) return null;
-
-			throw error;
-		}
+		return await fetchAggregatedDetails(this.state, type, parsed, options);
 	}
 
 	/**
@@ -328,18 +109,7 @@ class ProviderService {
 		externalId: string,
 		options: { language?: string | undefined } = {},
 	): Promise<ProviderMetadataResult | undefined> {
-		const provider = pluginRegistry.getProvider(providerId);
-		if (!provider) return undefined;
-
-		try {
-			const metadata = await provider.getDetails(type, externalId, options.language ? { language: options.language } : undefined);
-
-			return metadata ? normalizeMetadataDetails(metadata) : undefined;
-		} catch (error) {
-			this.logger.error(`Provider ${provider.id} failed`, error);
-
-			return undefined;
-		}
+		return await fetchDetailsByProvider(this.state, providerId, type, externalId, options);
 	}
 
 	/**
@@ -352,68 +122,14 @@ class ProviderService {
 		externalId: string,
 		options: { language?: string | undefined } = {},
 	): Promise<AggregatedMetadata | null> {
-		const key = `by-id:${providerId}:${type}:${externalId}:${options.language ?? ""}`;
-
-		try {
-			return await this.caches.aggregatedDetails.getOrSet(key, async () => {
-				const metadata = await this.fetchDetailsByProvider(providerId, type, externalId, options);
-				if (!metadata) throw new NoMatchError();
-
-				return mergeProviderMetadata([{ providerId, externalId: metadata.externalId, matchScore: 1, metadata }]);
-			});
-		} catch (error) {
-			if (error instanceof NoMatchError) return null;
-
-			throw error;
-		}
+		return await fetchAggregatedDetailsByProvider(this.state, { providerId, type, externalId }, options, (...args) =>
+			this.fetchDetailsByProvider(...args),
+		);
 	}
 
 	/** Resolves a title to the best matching provider's full metadata (no aggregation). */
 	async resolveDetails(type: ProviderMediaType, title: string, year?: number): Promise<ProviderMetadataResult | null> {
-		const details = await this.fetchDetails(type, { title, type, year });
-
-		return details[0]?.metadata ?? null;
-	}
-
-	/** Ordered enabled providers, optionally narrowed to one provider id. */
-	private async resolveProviders(providerId?: string): Promise<MetadataProvider[]> {
-		const allProviders = await metadataProviderSettingsService.getOrderedProviders();
-
-		return providerId ? allProviders.filter((provider) => provider.id === providerId) : allProviders;
-	}
-
-	/**
-	 * Walks providers in priority order and returns the first result `isPositive`
-	 * accepts, caching it under `cacheKey`. A provider without the capability
-	 * (fetchOne resolves to undefined) is skipped; a provider that throws is
-	 * reported through `onError` and skipped. Negative results are never cached,
-	 * so a temporarily down provider recovers on the next call.
-	 */
-	private async firstProviderResult<TResult>(
-		providerId: string | undefined,
-		slot: { cacheKey: string; cache: ProviderResultCache<TResult> },
-		fetchOne: (provider: MetadataProvider) => Promise<TResult | undefined>,
-		isPositive: (result: TResult) => boolean,
-		onError: (provider: MetadataProvider, error: unknown) => void,
-	): Promise<TResult | null> {
-		const { cacheKey, cache } = slot;
-		const cached = cache.get(cacheKey);
-		if (cached) return cached;
-
-		for (const provider of await this.resolveProviders(providerId)) {
-			try {
-				const result = await fetchOne(provider);
-				if (result !== undefined && isPositive(result)) {
-					cache.set(cacheKey, result);
-
-					return result;
-				}
-			} catch (error) {
-				onError(provider, error);
-			}
-		}
-
-		return null;
+		return await resolveDetails(type, title, year, (...args) => this.fetchDetails(...args));
 	}
 
 	/**
@@ -423,183 +139,21 @@ class ProviderService {
 	 * miss is retried on the next call so a temporarily down provider recovers.
 	 */
 	async discover(request: ProviderDiscoveryRequest): Promise<ProviderDiscoveryResult | null> {
-		const cacheKey = discoveryCacheKey(request);
-
-		return await this.firstProviderResult(
-			request.providerId,
-			{ cacheKey, cache: this.caches.discovery },
-			async (provider) => {
-				const page = await provider.discover?.(request);
-
-				return page ? { providerId: provider.id, ...page } : undefined;
-			},
-			(result) => result.items.length > 0,
-			(provider, error) =>
-				this.logger.warn("Metadata provider discovery failed, trying next provider", {
-					providerId: provider.id,
-					category: request.category,
-					error: errorMessage(error),
-				}),
-		);
+		return await discover(this.state, request);
 	}
 
 	/** Genre catalogue from the first enabled provider that exposes it. */
 	async getGenres(type: ProviderMediaType, providerId?: string): Promise<ProviderResultGenre[]> {
-		const cacheKey = `genres:${providerId ?? "*"}:${type}`;
-		const genres = await this.firstProviderResult(
-			providerId,
-			{ cacheKey, cache: this.caches.genres },
-			(provider) => Promise.resolve(provider.getGenres?.(type)),
-			(result) => result.length > 0,
-			(provider, error) =>
-				this.logger.warn("Metadata provider genre lookup failed, trying next provider", {
-					providerId: provider.id,
-					type,
-					error: errorMessage(error),
-				}),
-		);
-
-		return genres ?? [];
+		return await getGenres(this.state, type, providerId);
 	}
 
 	async fetchDetailsByLocalIdentifiers(type: ProviderMediaType, identifiers: ExternalIdentifiers): Promise<ProviderDetails[]> {
-		if (!hasEntry(identifiers)) return [];
-
-		const providers = (await metadataProviderSettingsService.getOrderedProviders()).filter((candidate) =>
-			isExternalIdentifierAwareProvider(candidate),
-		);
-		const allIdentifierValues = Object.values(identifiers);
-		const identifierSet = new Set(allIdentifierValues);
-
-		// Query every identifier-aware provider in parallel (bounded by configured
-		// concurrency), then pick the first hit in the original priority order —
-		// the network lookups no longer block on each other, but provider
-		// priority still decides the winner.
-		const results = await PromiseUtils.mapConcurrent(providers, serverConfig.plugins.providers.concurrency, async (provider) => {
-			try {
-				const metadata = await provider.getDetailsByExternalIds(type, identifiers);
-				if (!(metadata && matchesExternalIdentifiers(provider.id, metadata, identifiers, identifierSet))) return null;
-
-				return { provider: provider.id, metadata: normalizeMetadataDetails(metadata) } satisfies ProviderDetails;
-			} catch (error) {
-				this.logger.warn("Metadata provider identifier lookup failed", {
-					providerId: provider.id,
-					error: errorMessage(error),
-				});
-
-				return null;
-			}
-		});
-
-		const firstMatch = results.find((result) => isNotNullish(result));
-
-		return firstMatch ? [firstMatch] : [];
+		return await fetchDetailsByLocalIdentifiers(this.state, type, identifiers);
 	}
 
 	/** Fetches selectable artwork from one provider without changing persisted metadata. */
 	async fetchImagesByProvider(providerId: string, type: "movie" | "tv_show", externalId: string): Promise<ProviderImageResult[]> {
-		const provider = pluginRegistry.getProvider(providerId);
-		if (!provider?.getImages) return [];
-
-		try {
-			return (await provider.getImages(type, externalId)).filter((image) => Boolean(image.url));
-		} catch (error) {
-			this.logger.error(`Provider ${providerId} image lookup failed`, error);
-
-			return [];
-		}
-	}
-
-	/**
-	 * Searches every enabled provider in parallel (bounded by configured
-	 * concurrency) and returns the confident matches sorted by provider priority.
-	 */
-	private async collectAcceptedMatches(
-		type: "movie" | "tv_show",
-		parsed: MediaIdentity,
-		libraryId?: string,
-		language?: string,
-	): Promise<AcceptedMatch[]> {
-		const providers = await metadataProviderSettingsService.getOrderedProviders(libraryId);
-		if (providers.length === 0) return [];
-
-		const indexed = providers.map((provider, index) => ({ provider, index }));
-		const searchResults = await PromiseUtils.mapConcurrent(
-			indexed,
-			serverConfig.plugins.providers.concurrency,
-			async ({ provider, index }): Promise<AcceptedMatch | null> => {
-				const ranked = await this.rankProviderResults(provider, { type, query: parsed.title, year: parsed.year, language }, (error) =>
-					this.logger.warn("Metadata provider failed, trying next provider", {
-						providerId: provider.id,
-						priorityIndex: index,
-						error: errorMessage(error),
-					}),
-				);
-				if (!ranked) return null;
-
-				const best = ranked[0];
-				const runnerUp = ranked[1];
-				const acceptable = best != null && isAcceptableMatch(best, runnerUp, systemSettingsStore.get("metadata.minMatchScore"));
-
-				if (!acceptable) {
-					this.logger.debug("No confident metadata match, skipping provider", {
-						providerId: provider.id,
-						priorityIndex: index,
-						title: parsed.title,
-						year: parsed.year,
-						topCandidate: best?.item.title,
-						topCandidateScore: best?.score,
-					});
-
-					return null;
-				}
-
-				return { provider, index, bestMatch: best };
-			},
-		);
-
-		return searchResults.filter((result) => isNotNullish(result)).toSorted((left, right) => left.index - right.index);
-	}
-
-	private async fetchDetailsOnce(type: "movie" | "tv_show", parsed: MediaIdentity): Promise<ProviderDetails[]> {
-		this.publishSearchRequested(type, parsed.title, parsed.year);
-		const accepted = await this.collectAcceptedMatches(type, parsed);
-
-		for (const candidate of accepted) {
-			const provider = candidate.provider;
-			try {
-				const metadata = await provider.getDetails(type, candidate.bestMatch.item.externalId);
-				if (!metadata) continue;
-
-				if (candidate.index > 0 || candidate.bestMatch.score < 0.8) {
-					this.logger.debug("Metadata provider match selected", {
-						providerId: provider.id,
-						priority: await metadataProviderSettingsService.getPriority(provider.id),
-						priorityIndex: candidate.index,
-						matchedTitle: candidate.bestMatch.item.title,
-						score: candidate.bestMatch.score,
-						titleScore: candidate.bestMatch.titleScore,
-						yearScore: candidate.bestMatch.yearScore,
-					});
-				}
-
-				return [
-					{
-						provider: provider.id,
-						metadata: normalizeMetadataDetails(metadata),
-						matchScore: Math.min(1, Number(candidate.bestMatch.score.toFixed(3))),
-					} satisfies ProviderDetails,
-				];
-			} catch (error) {
-				this.logger.warn("Metadata provider details fetch failed, trying next provider", {
-					providerId: provider.id,
-					priorityIndex: candidate.index,
-					error: errorMessage(error),
-				});
-			}
-		}
-
-		return [];
+		return await fetchImagesByProvider(this.state, providerId, type, externalId);
 	}
 
 	/**
@@ -609,11 +163,7 @@ class ProviderService {
 	 * cannot address all of them. Results are ordered by provider priority.
 	 */
 	async fetchSeasonFromLinks(links: readonly ProviderLink[], seasonNumber: number, language?: string): Promise<ProviderSeasonDetails[]> {
-		return await this.fetchFromLinksCached(this.caches.season, "season", `${seasonNumber}:${language ?? ""}`, links, (ordered) =>
-			this.fetchFromProviderLinks(ordered, (provider, externalId) =>
-				provider.getSeasonDetails(externalId, seasonNumber, language ? { language } : undefined),
-			),
-		);
+		return await fetchSeasonFromLinks(this.state, links, seasonNumber, language);
 	}
 
 	async fetchEpisodeFromLinks(
@@ -622,30 +172,7 @@ class ProviderService {
 		episodeNumber: number,
 		language?: string,
 	): Promise<ProviderEpisodeDetails[]> {
-		return await this.fetchFromLinksCached(
-			this.caches.episode,
-			"episode",
-			`${seasonNumber}:${episodeNumber}:${language ?? ""}`,
-			links,
-			(ordered) =>
-				this.fetchFromProviderLinks(ordered, (provider, externalId) =>
-					provider.getEpisodeDetails(externalId, seasonNumber, episodeNumber, language ? { language } : undefined),
-				),
-		);
-	}
-
-	/** Orders links by priority, keys the result on the link set and delegates the fetch to the caller's loader. */
-	private async fetchFromLinksCached<TDetails>(
-		cache: { getOrSet(key: string, loader: () => Promise<TDetails[]>): Promise<TDetails[]> },
-		prefix: "season" | "episode",
-		keySuffix: string,
-		links: readonly ProviderLink[],
-		load: (ordered: readonly ProviderLink[]) => Promise<TDetails[]>,
-	): Promise<TDetails[]> {
-		const ordered = await this.orderLinksByPriority(links);
-		const key = `${prefix}:${ordered.map((link) => `${link.providerId}:${link.externalId}`).join(",")}:${keySuffix}`;
-
-		return await cache.getOrSet(key, () => load(ordered));
+		return await fetchEpisodeFromLinks(this.state, links, seasonNumber, episodeNumber, language);
 	}
 
 	/**
@@ -654,102 +181,11 @@ class ProviderService {
 	 * too, so repeated misses don't re-hit the provider.
 	 */
 	async fetchSeasonByProvider(providerId: string, externalId: string, seasonNumber: number): Promise<ProviderSeasonResult | null> {
-		if (!pluginRegistry.getProvider(providerId)) return null;
-
-		const key = `season-direct:${await this.getProviderKey()}:${providerId}:${externalId}:${seasonNumber}`;
-		const cached = this.caches.season.get(key);
-		if (cached) return cached[0]?.metadata ?? null;
-
-		const details = await this.fetchFromProviderLinks([{ providerId, externalId }], (provider, linkExternalId) =>
-			provider.getSeasonDetails(linkExternalId, seasonNumber),
-		);
-		this.caches.season.set(key, details);
-
-		return details[0]?.metadata ?? null;
+		return await fetchSeasonByProvider(this.state, providerId, externalId, seasonNumber);
 	}
 
 	async fetchPerson(externalId: string): Promise<ProviderPersonDetails[]> {
-		const providerKey = await this.getProviderKey();
-		const key = `${providerKey}:${externalId}`;
-
-		return await this.caches.person.getOrSet(key, () =>
-			this.fetchFromEveryProvider(async (provider) => {
-				if (typeof provider.getPersonDetails === "function") {
-					return await provider.getPersonDetails(externalId);
-				}
-
-				return null;
-			}),
-		);
-	}
-
-	/** Orders provider links by configured priority; links without a setting keep their relative order at the end. */
-	private async orderLinksByPriority(links: readonly ProviderLink[]): Promise<ProviderLink[]> {
-		const orderedIds = (await metadataProviderSettingsService.getOrderedProviders()).map((provider) => provider.id);
-		const position = new Map(orderedIds.map((id, index) => [id, index] as const));
-
-		return [...links].toSorted(
-			(left, right) =>
-				(position.get(left.providerId) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.providerId) ?? Number.MAX_SAFE_INTEGER),
-		);
-	}
-
-	/** Like {@link fetchFromEveryProvider}, but each provider is queried with its own external id. */
-	private async fetchFromProviderLinks<TMetadata extends { name?: string | undefined; overview?: string | undefined }>(
-		links: readonly ProviderLink[],
-		fetchOne: (provider: MetadataProvider, externalId: string) => Promise<TMetadata | null | undefined>,
-	): Promise<Array<{ provider: string; metadata: TMetadata }>> {
-		return await this.fetchFromProviders(
-			links.map((link) => ({
-				providerId: link.providerId,
-				provider: pluginRegistry.getProvider(link.providerId),
-				externalId: link.externalId,
-			})),
-			(provider, entry) => fetchOne(provider, entry.externalId),
-		);
-	}
-
-	/**
-	 * Calls `fetchOne` against every registered provider in parallel and returns
-	 * the name/overview-trimmed results from providers that resolved to a value.
-	 * A provider that throws, or resolves to `null`/`undefined` (no data for
-	 * that provider), is simply omitted rather than failing the whole call.
-	 */
-	private async fetchFromEveryProvider<TMetadata extends { name?: string; overview?: string }>(
-		fetchOne: (provider: ReturnType<typeof pluginRegistry.getProviders>[number]) => Promise<TMetadata | null | undefined>,
-	): Promise<Array<{ provider: string; metadata: TMetadata }>> {
-		const providers = await metadataProviderSettingsService.getOrderedProviders();
-
-		return await this.fetchFromProviders(
-			providers.map((provider) => ({ providerId: provider.id, provider })),
-			(provider) => fetchOne(provider),
-		);
-	}
-
-	/** Shared concurrency/try-catch/trim/filter core for provider fan-out fetches. */
-	private async fetchFromProviders<
-		TEntry extends { providerId: string; provider: MetadataProvider | undefined },
-		TMetadata extends { name?: string | undefined; overview?: string | undefined },
-	>(
-		entries: readonly TEntry[],
-		fetchOne: (provider: MetadataProvider, entry: TEntry) => Promise<TMetadata | null | undefined>,
-	): Promise<Array<{ provider: string; metadata: TMetadata }>> {
-		const results = await PromiseUtils.mapConcurrent(entries, serverConfig.plugins.providers.concurrency, async (entry) => {
-			const provider = entry.provider;
-			if (!provider) return null;
-
-			try {
-				const metadata = await fetchOne(provider, entry);
-
-				return metadata ? { provider: entry.providerId, metadata: trimNameAndOverview(metadata) } : null;
-			} catch (error) {
-				this.logger.error(`Provider ${entry.providerId} failed`, error);
-
-				return null;
-			}
-		});
-
-		return results.filter((result) => isNotNullish(result));
+		return await fetchPerson(this.state, externalId);
 	}
 
 	getAll(): MetadataProviderStatus[] {
@@ -766,10 +202,6 @@ class ProviderService {
 
 	async updateConfiguration(providerId: string, values: { priority?: number; enabled?: boolean }): Promise<MetadataProviderConfiguration> {
 		return await metadataProviderSettingsService.update(providerId, values);
-	}
-
-	private publishSearchRequested(type: "movie" | "tv_show", title: string, year?: number): void {
-		pluginEventBus.publish("metadata.search.requested", { type, title, year });
 	}
 }
 

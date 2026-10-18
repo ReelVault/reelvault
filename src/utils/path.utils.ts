@@ -1,6 +1,6 @@
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { serverConfig } from "@/server.config";
 
 // The settings store clones array values on every read, so the extension list
 // identity never matches. Key the Set off the store revision instead.

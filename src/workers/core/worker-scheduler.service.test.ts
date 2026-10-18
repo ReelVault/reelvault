@@ -1,19 +1,29 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
-import { MINUTE } from "@/server.constants";
-import { stubMethod } from "../../../tests/helpers/method-stub";
-import { setWorkerRuntime } from "./worker-runtime";
-import { createMockWorkerItem, createMockWorkerRuntime } from "./worker-runtime.test-utils";
+import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { workerSchedulesRepository } from "@/app/repositories/worker-schedules.repository";
+import { MINUTE } from "@/config/server/server.constants";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { setWorkerRuntime } from "./worker.runtime";
+import { WorkerQueueService } from "./worker-queue.service";
+import { createMockWorkerRuntime, restoreWorkerRuntime } from "./worker-runtime.helper";
 import { WorkerSchedulerService } from "./worker-scheduler.service";
 
-/** Replaces a method on the live singleton for one test, recording calls.
- * Works on real repositories AND on the minimal facades other test files
- * install with bun's process-global mock.module(...). */
+// Schedules, queued jobs, operations and last-run records run against the migrated test database.
+// Worker definitions are fixtures injected through the runtime registry, and the pool (running
+// worker threads) stays a no-op. Stubbed: the job stats aggregate, which is cached process-wide
+// for 5 s with no invalidation, so a real read would return whatever ran last.
+const db = useTestDatabase();
 
 // Anchor chosen away from daily-trigger times and on a clean interval boundary
 // (epoch minute 3_000_000 is divisible by 30, 10, 15, 60).
 const ANCHOR_MINUTE = 3_000_000;
 const ANCHOR = new Date(ANCHOR_MINUTE * MINUTE);
+
+let defs: WorkerDefinition[] = [];
+const activeStubs: Array<{ restore(): void }> = [];
 
 function def(id: string, overrides: Partial<WorkerDefinition> = {}): WorkerDefinition {
 	return {
@@ -24,174 +34,97 @@ function def(id: string, overrides: Partial<WorkerDefinition> = {}): WorkerDefin
 	};
 }
 
-let defs: WorkerDefinition[] = [];
-/** Simulated persistence for the scheduler's deadlines (getAllSchedules/setNextRunAt stubs). */
-const scheduleRows = new Map<string, { workerId: string; triggers: unknown[]; isEnabled: boolean; nextRunAt?: Date }>();
-const nextRunAtCalls: Array<{ workerId: string; nextRunAt: Date | null }> = [];
-const enqueued: Array<{ workerId: string; dedupeKey: string }> = [];
-const operationRemovals: string[] = [];
-let manualActiveJob: { id: string } | undefined;
-let enqueueError: Error | undefined;
+/** Queued jobs as (worker, dedupe key), ordered by worker so assertions don't depend on insert order. */
+async function queuedJobs(): Promise<Array<{ workerId: string; dedupeKey: string | null }>> {
+	const rows = await db.client().select().from(schema.workerJobs);
 
-const activeStubs: Array<{ restore(): void }> = [];
+	return rows.map((job) => ({ workerId: job.workerId, dedupeKey: job.dedupeKey })).toSorted((a, b) => a.workerId.localeCompare(b.workerId));
+}
 
-beforeEach(async () => {
+async function nextRunOf(workerId: string): Promise<Date | null | undefined> {
+	return (await workerSchedulesRepository.getSchedule(workerId))?.nextRunAt;
+}
+
+beforeEach(() => {
 	defs = [];
-	scheduleRows.clear();
-	nextRunAtCalls.length = 0;
-	enqueued.length = 0;
-	operationRemovals.length = 0;
-	manualActiveJob = undefined;
-	enqueueError = undefined;
-
-	setWorkerRuntime(
-		createMockWorkerRuntime({
+	setWorkerRuntime({
+		...createMockWorkerRuntime({
 			registry: {
 				getAll: () => defs,
 				get: (id: string) => defs.find((d) => d.id === id),
 				has: (id: string) => defs.some((d) => d.id === id),
 			},
-			pool: {
-				cancelAllForWorker: () => 0,
-			},
-			queue: {
-				enqueue: (workerId, _data, options) => {
-					if (enqueueError) throw enqueueError;
-
-					enqueued.push({ workerId, dedupeKey: options?.dedupeKey ?? "" });
-
-					return Promise.resolve(createMockWorkerItem({ id: "job-1" }));
-				},
-				findActive: () => Promise.resolve(manualActiveJob ? createMockWorkerItem(manualActiveJob) : undefined),
-				cancelAllPending: () => Promise.resolve(0),
-			},
 		}),
-	);
-
-	const schedules = await import("@/database/repositories/worker-schedules.repository");
-	const schedulesRepo = schedules.workerSchedulesRepository;
-	activeStubs.push(
-		stubMethod(schedulesRepo, "getAllTriggers", () => Promise.resolve(new Map())),
-		stubMethod(schedulesRepo, "setEnabled", (workerId: string, enabled: boolean) => {
-			const row = scheduleRows.get(workerId) ?? { workerId, triggers: [], isEnabled: true };
-			scheduleRows.set(workerId, { ...row, isEnabled: enabled });
-
-			return Promise.resolve();
-		}),
-		stubMethod(schedulesRepo, "setTriggers", () => Promise.resolve()),
-		stubMethod(schedulesRepo, "getAllSchedules", () => Promise.resolve(new Map(scheduleRows))),
-		stubMethod(schedulesRepo, "setNextRunAt", (workerId: string, nextRunAt: Date | null) => {
-			nextRunAtCalls.push({ workerId, nextRunAt });
-			if (!nextRunAt) return Promise.resolve();
-
-			const row = scheduleRows.get(workerId) ?? { workerId, triggers: [], isEnabled: true };
-			scheduleRows.set(workerId, { ...row, nextRunAt });
-
-			return Promise.resolve();
-		}),
-		stubMethod(schedulesRepo, "setNextRunAtMany", (entries: Array<{ workerId: string; nextRunAt: Date | null }>) => {
-			for (const entry of entries) {
-				nextRunAtCalls.push(entry);
-				if (!entry.nextRunAt) continue;
-
-				const row = scheduleRows.get(entry.workerId) ?? { workerId: entry.workerId, triggers: [], isEnabled: true };
-				scheduleRows.set(entry.workerId, { ...row, nextRunAt: entry.nextRunAt });
-			}
-
-			return Promise.resolve();
-		}),
-	);
-
-	const workerRepo = await import("@/database/repositories/worker.repository");
-	activeStubs.push(
-		stubMethod(workerRepo.workerJobRepository, "getStats", () => Promise.resolve([])),
-		// enqueueWithOperation cancels partially inserted jobs when the enqueue
-		// throws — the scheduler's rejection test goes through that path.
-		stubMethod(workerRepo.workerJobRepository, "cancelPendingByOperation", () => Promise.resolve(0)),
-	);
-
-	const operations = await import("./worker-operations.service");
-	activeStubs.push(
-		stubMethod(operations.workerOperationsService, "create", () => Promise.resolve({ id: "op-1" })),
-		stubMethod(operations.workerOperationsService, "remove", (id: string) => {
-			operationRemovals.push(id);
-
-			return Promise.resolve(undefined);
-		}),
-	);
+		queue: new WorkerQueueService(),
+	});
 });
 
 afterEach(() => {
 	for (const stub of activeStubs.splice(0)) stub.restore();
+	restoreWorkerRuntime();
 });
 
 describe("WorkerSchedulerService.evaluateTriggers", () => {
-	test("fires startup triggers once on the first evaluation", async () => {
+	test("fires a startup trigger once, on the first evaluation", async () => {
 		defs = [def("w-startup", { defaultTriggers: [{ id: "t1", type: "startup" }] }), def("w-plain")];
 
 		const scheduler = new WorkerSchedulerService();
 		await scheduler.evaluateTriggers(ANCHOR);
 
-		expect(enqueued).toEqual([{ workerId: "w-startup", dedupeKey: `startup:${ANCHOR_MINUTE}` }]);
+		expect(await queuedJobs()).toEqual([{ workerId: "w-startup", dedupeKey: `startup:${ANCHOR_MINUTE}` }]);
 
 		// A later minute must not re-fire the startup trigger.
 		await scheduler.evaluateTriggers(new Date((ANCHOR_MINUTE + 1) * MINUTE));
-		expect(enqueued).toHaveLength(1);
+		expect(await queuedJobs()).toHaveLength(1);
 	});
 
-	test("arms a deadline on first sight without firing immediately", async () => {
+	test("arms a deadline on first sight without firing it", async () => {
 		defs = [def("w-daily", { defaultTriggers: [{ id: "t2", type: "daily", timeOfDay: timeOfDayAt(ANCHOR_MINUTE + 3) }] })];
 
-		const scheduler = new WorkerSchedulerService();
-		await scheduler.evaluateTriggers(ANCHOR);
-		expect(enqueued).toHaveLength(0);
-		// The deadline was persisted (initialization), not yet consumed.
-		expect(nextRunAtCalls).toContainEqual({ workerId: "w-daily", nextRunAt: expect.any(Date) });
+		await new WorkerSchedulerService().evaluateTriggers(ANCHOR);
+
+		expect(await queuedJobs()).toEqual([]);
+		expect(await nextRunOf("w-daily")).toEqual(new Date((ANCHOR_MINUTE + 3) * MINUTE));
 	});
 
-	test("fires an overdue persisted deadline exactly once after downtime", async () => {
+	test("fires an overdue deadline once after downtime and re-arms it past now", async () => {
 		defs = [def("w-interval", { defaultTriggers: [{ id: "t3", type: "interval", intervalMinutes: 30 }] })];
 		// Deadline from before a long outage — well past due at the anchor.
 		const overdue = new Date((ANCHOR_MINUTE - 60) * MINUTE);
-		scheduleRows.set("w-interval", { workerId: "w-interval", triggers: [], isEnabled: true, nextRunAt: overdue });
+		await workerSchedulesRepository.setNextRunAt("w-interval", overdue);
 
-		const scheduler = new WorkerSchedulerService();
-		await scheduler.evaluateTriggers(ANCHOR);
+		await new WorkerSchedulerService().evaluateTriggers(ANCHOR);
 
-		// Exactly one catch-up run (no minute replay flood), then the deadline
-		// advanced past `now`.
-		expect(enqueued).toEqual([{ workerId: "w-interval", dedupeKey: `schedule:w-interval:${overdue.getTime()}` }]);
-		const advanced = nextRunAtCalls.at(-1);
-		expect(advanced?.workerId).toBe("w-interval");
-		expect(advanced?.nextRunAt?.getTime()).toBeGreaterThan(ANCHOR.getTime());
+		// Exactly one catch-up run (no minute replay flood), then the next boundary after `now`.
+		expect(await queuedJobs()).toEqual([{ workerId: "w-interval", dedupeKey: `schedule:w-interval:${overdue.getTime()}` }]);
+		expect(await nextRunOf("w-interval")).toEqual(new Date((ANCHOR_MINUTE + 30) * MINUTE));
 	});
 
-	test("a failed scheduled enqueue keeps the deadline due for the next tick", async () => {
-		defs = [def("w-interval", { defaultTriggers: [{ id: "t3b", type: "interval", intervalMinutes: 30 }] })];
+	test("a schedule whose payload cannot be stored keeps its deadline due for the next tick", async () => {
+		// A payload that cannot be serialized makes the real enqueue reject.
+		defs = [def("w-broken", { schedule: { cron: "0 4 * * *", data: { attempt: 1n } } })];
 		const overdue = new Date((ANCHOR_MINUTE - 60) * MINUTE);
-		scheduleRows.set("w-interval", { workerId: "w-interval", triggers: [], isEnabled: true, nextRunAt: overdue });
-		enqueueError = new Error("queue down");
+		await workerSchedulesRepository.setNextRunAt("w-broken", overdue);
 
-		const scheduler = new WorkerSchedulerService();
-		await scheduler.evaluateTriggers(ANCHOR);
+		await new WorkerSchedulerService().evaluateTriggers(ANCHOR);
 
-		// Nothing was enqueued and the deadline was not advanced, so the next tick retries.
-		expect(enqueued).toEqual([]);
-		expect(nextRunAtCalls).toEqual([]);
+		// Nothing was queued and the deadline was not advanced, so the next tick retries.
+		expect(await queuedJobs()).toEqual([]);
+		expect(await nextRunOf("w-broken")).toEqual(overdue);
 	});
 
-	test("does not rewrite null deadlines for trigger-less workers every tick", async () => {
+	test("a worker without triggers gets no deadline and no schedule row", async () => {
 		defs = [def("w-plain")];
 
 		const scheduler = new WorkerSchedulerService();
 		await scheduler.evaluateTriggers(ANCHOR);
 		await scheduler.evaluateTriggers(new Date((ANCHOR_MINUTE + 1) * MINUTE));
 
-		// Nothing to arm and nothing to clear — a null write would only bump updatedAt.
-		expect(nextRunAtCalls).toEqual([]);
+		expect(await workerSchedulesRepository.getSchedule("w-plain")).toBeUndefined();
+		expect(await queuedJobs()).toEqual([]);
 	});
 
-	test("fires the due minute once and not twice within it", async () => {
+	test("fires the due minute once, however often the pass runs within it", async () => {
 		defs = [def("w-interval", { defaultTriggers: [{ id: "t4", type: "interval", intervalMinutes: 30 }] })];
 
 		const scheduler = new WorkerSchedulerService();
@@ -201,36 +134,36 @@ describe("WorkerSchedulerService.evaluateTriggers", () => {
 		await scheduler.evaluateTriggers(ANCHOR);
 		await scheduler.evaluateTriggers(new Date(ANCHOR.getTime() + 20_000)); // same minute, 20 s later
 
-		expect(enqueued).toEqual([{ workerId: "w-interval", dedupeKey: `schedule:w-interval:${ANCHOR_MINUTE * MINUTE}` }]);
+		expect(await queuedJobs()).toEqual([{ workerId: "w-interval", dedupeKey: `schedule:w-interval:${ANCHOR.getTime()}` }]);
 	});
 });
 
 describe("WorkerSchedulerService pause and resume", () => {
 	test("a paused worker fires neither its startup trigger nor an overdue deadline", async () => {
 		defs = [def("w-paused", { defaultTriggers: [{ id: "t4", type: "startup" }] })];
-		scheduleRows.set("w-paused", {
-			workerId: "w-paused",
-			triggers: [],
-			isEnabled: false,
-			nextRunAt: new Date((ANCHOR_MINUTE - 60) * MINUTE),
-		});
+		await workerSchedulesRepository.setEnabled("w-paused", false);
+		await workerSchedulesRepository.setNextRunAt("w-paused", new Date((ANCHOR_MINUTE - 60) * MINUTE));
 
 		await new WorkerSchedulerService().evaluateTriggers(ANCHOR);
 
-		expect(enqueued).toHaveLength(0);
+		expect(await queuedJobs()).toEqual([]);
 	});
 
 	test("resuming re-arms the deadline from now instead of replaying the paused period", async () => {
 		defs = [def("w-resumed", { defaultTriggers: [{ id: "t5", type: "interval", intervalMinutes: 30 }] })];
-		scheduleRows.set("w-resumed", { workerId: "w-resumed", triggers: [], isEnabled: false, nextRunAt: new Date(0) });
+		await workerSchedulesRepository.setEnabled("w-resumed", false);
+		await workerSchedulesRepository.setNextRunAt("w-resumed", new Date(0));
 
 		const before = Date.now();
 		const state = await new WorkerSchedulerService().setScheduleEnabled("w-resumed", true);
 
-		expect(state.enabled).toBe(true);
-		expect(Date.parse(state.nextRunAt ?? "")).toBeGreaterThan(before);
-		expect(scheduleRows.get("w-resumed")?.isEnabled).toBe(true);
-		expect(enqueued).toHaveLength(0);
+		// The new deadline is the next interval boundary after now, not the stale one from the paused period.
+		const resumedAt = Date.parse(state.nextRunAt ?? "");
+		expect(state).toMatchObject({ workerId: "w-resumed", enabled: true });
+		expect(resumedAt).toBeGreaterThan(before);
+		expect(resumedAt).toBeLessThanOrEqual(before + 30 * MINUTE);
+		expect((await nextRunOf("w-resumed"))?.getTime()).toBe(resumedAt);
+		expect(await queuedJobs()).toEqual([]);
 	});
 
 	test("pausing stores the flag and reports no next run", async () => {
@@ -239,17 +172,18 @@ describe("WorkerSchedulerService pause and resume", () => {
 		const state = await new WorkerSchedulerService().setScheduleEnabled("w-off", false);
 
 		expect(state).toEqual({ workerId: "w-off", enabled: false, nextRunAt: null });
-		expect(scheduleRows.get("w-off")?.isEnabled).toBe(false);
+		expect((await workerSchedulesRepository.getSchedule("w-off"))?.isEnabled).toBe(false);
 	});
 
 	test("an unknown worker cannot be paused", async () => {
-		await expect(new WorkerSchedulerService().setScheduleEnabled("missing", false)).rejects.toThrow('Worker "missing" was not found');
+		await expect(new WorkerSchedulerService().setScheduleEnabled("missing", false)).rejects.toMatchObject({ code: "worker.not_found" });
 	});
 
 	test("paused workers summarise without a next run", async () => {
 		defs = [def("w-off-summary"), def("w-on-summary", { defaultTriggers: [{ id: "t6", type: "interval", intervalMinutes: 30 }] })];
-		scheduleRows.set("w-off-summary", { workerId: "w-off-summary", triggers: [], isEnabled: false, nextRunAt: ANCHOR });
-		scheduleRows.set("w-on-summary", { workerId: "w-on-summary", triggers: [], isEnabled: true, nextRunAt: ANCHOR });
+		await workerSchedulesRepository.setEnabled("w-off-summary", false);
+		await workerSchedulesRepository.setNextRunAt("w-off-summary", ANCHOR);
+		await workerSchedulesRepository.setNextRunAt("w-on-summary", ANCHOR);
 
 		const summaries = await new WorkerSchedulerService().listWorkerSummaries();
 		const byId = new Map(summaries.map((summary) => [summary.id, summary]));
@@ -261,110 +195,115 @@ describe("WorkerSchedulerService pause and resume", () => {
 });
 
 describe("WorkerSchedulerService trigger management", () => {
-	test("custom triggers override the definition defaults", async () => {
+	test("custom triggers replace the definition defaults and re-arm the deadline", async () => {
 		defs = [def("w-x", { defaultTriggers: [{ id: "t5", type: "startup" }] })];
 		const scheduler = new WorkerSchedulerService();
 
 		await scheduler.updateWorkerTriggers("w-x", [{ id: "c1", type: "daily", timeOfDay: "04:30" }]);
 		expect(scheduler.getTriggersForWorker("w-x")).toEqual([{ id: "c1", type: "daily", timeOfDay: "04:30" }]);
-		// Trigger changes recompute the persisted deadline for the new trigger set.
-		expect(nextRunAtCalls.at(-1)?.workerId).toBe("w-x");
-		expect(nextRunAtCalls.at(-1)?.nextRunAt).toBeInstanceOf(Date);
+
+		// The stored deadline is the next local 04:30, which is in the future.
+		const armed = await nextRunOf("w-x");
+		expect([armed?.getHours(), armed?.getMinutes()]).toEqual([4, 30]);
+		expect(armed?.getTime()).toBeGreaterThan(Date.now());
 
 		// The custom trigger replaced the startup default — no startup firing anymore.
 		await scheduler.evaluateTriggers(ANCHOR);
-		expect(enqueued).toHaveLength(0);
+		expect(await queuedJobs()).toEqual([]);
 	});
 
-	test("updateWorkerTriggers validates trigger shapes before persisting", async () => {
+	test("updateWorkerTriggers refuses malformed triggers and stores none of them", async () => {
 		defs = [def("w-y")];
-		const schedules = await import("@/database/repositories/worker-schedules.repository");
-		const schedulesRepo = schedules.workerSchedulesRepository;
-		const persist = stubMethod(schedulesRepo, "setTriggers", () => Promise.resolve());
-		activeStubs.push(persist);
 		const scheduler = new WorkerSchedulerService();
 
-		await expect(scheduler.updateWorkerTriggers("w-y", [{ id: "bad", type: "daily" }])).rejects.toThrow("timeOfDay");
-		await expect(scheduler.updateWorkerTriggers("w-y", [{ id: "bad", type: "weekly", timeOfDay: "04:30", dayOfWeek: 7 }])).rejects.toThrow(
-			"dayOfWeek",
-		);
-		await expect(scheduler.updateWorkerTriggers("w-y", [{ id: "bad", type: "interval", intervalMinutes: 0 }])).rejects.toThrow(
-			"intervalMinutes",
-		);
-		await expect(scheduler.updateWorkerTriggers("missing", [])).rejects.toThrow('Worker "missing" was not found');
+		await expect(scheduler.updateWorkerTriggers("w-y", [{ id: "bad", type: "daily" }])).rejects.toMatchObject({
+			code: "worker.schedule_time_invalid",
+		});
+		await expect(
+			scheduler.updateWorkerTriggers("w-y", [{ id: "bad", type: "weekly", timeOfDay: "04:30", dayOfWeek: 7 }]),
+		).rejects.toMatchObject({ code: "worker.schedule_day_invalid" });
+		await expect(scheduler.updateWorkerTriggers("w-y", [{ id: "bad", type: "interval", intervalMinutes: 0 }])).rejects.toMatchObject({
+			code: "worker.schedule_interval_invalid",
+		});
+		await expect(scheduler.updateWorkerTriggers("missing", [])).rejects.toMatchObject({ code: "worker.not_found" });
 
-		expect(persist.calls).toHaveLength(0);
+		expect(await workerSchedulesRepository.getSchedule("w-y")).toBeUndefined();
 
 		await scheduler.updateWorkerTriggers("w-y", [{ id: "ok", type: "interval", intervalMinutes: 15 }]);
-		expect(persist.calls[0]?.[0]).toBe("w-y");
+		expect((await workerSchedulesRepository.getSchedule("w-y"))?.triggers).toEqual([{ id: "ok", type: "interval", intervalMinutes: 15 }]);
 		expect(scheduler.getTriggersForWorker("w-y")).toEqual([{ id: "ok", type: "interval", intervalMinutes: 15 }]);
 	});
 });
 
 describe("WorkerSchedulerService.runWorkerManually", () => {
-	test("enqueues with manual dedupe key and high priority", async () => {
+	test("enqueues a manual run under the manual dedupe key at the highest priority", async () => {
 		defs = [def("w-manual")];
-		const scheduler = new WorkerSchedulerService();
 
-		const result = await scheduler.runWorkerManually("w-manual", { force: true });
+		const result = await new WorkerSchedulerService().runWorkerManually("w-manual", { force: true });
 
-		expect(result).toMatchObject({ success: true, jobId: "job-1", operationId: "op-1" });
+		const [job] = await db.client().select().from(schema.workerJobs);
+		expect(job).toMatchObject({
+			id: result.jobId,
+			workerId: "w-manual",
+			dedupeKey: "manual:w-manual",
+			priority: -10,
+			status: "pending",
+			operationId: result.operationId,
+		});
+		const operations = await db.client().select().from(schema.workerOperations);
+		expect(operations).toEqual([expect.objectContaining({ id: result.operationId, type: "w-manual" })]);
 	});
 
 	test("rejects a second manual run while one is active", async () => {
 		defs = [def("w-manual")];
-		manualActiveJob = { id: "active-1" };
-
 		const scheduler = new WorkerSchedulerService();
-		await expect(scheduler.runWorkerManually("w-manual")).rejects.toThrow("already has a pending or running manual task");
+		await scheduler.runWorkerManually("w-manual");
+
+		await expect(scheduler.runWorkerManually("w-manual")).rejects.toMatchObject({
+			category: "conflict",
+			code: "worker.manual_task_active",
+		});
+		expect(await queuedJobs()).toHaveLength(1);
 	});
 
-	test("cleans up the operation when the enqueue is rejected", async () => {
+	test("removes the operation when the payload cannot be stored", async () => {
 		defs = [def("w-manual")];
-		enqueueError = new Error("queue down");
 
-		const scheduler = new WorkerSchedulerService();
-		await expect(scheduler.runWorkerManually("w-manual")).rejects.toThrow("queue down");
-		expect(operationRemovals).toEqual(["op-1"]);
+		// A payload that cannot be serialized makes the real enqueue reject.
+		await expect(new WorkerSchedulerService().runWorkerManually("w-manual", { attempt: 1n })).rejects.toBeInstanceOf(TypeError);
+
+		expect(await queuedJobs()).toEqual([]);
+		expect(await db.client().select().from(schema.workerOperations)).toEqual([]);
 	});
 });
 
 describe("WorkerSchedulerService.runWorkerCategoryManually", () => {
-	test("runs every member of the category and skips workers with an active manual task", async () => {
+	test("runs each category member without a pending manual task, in id order", async () => {
 		defs = [
 			def("w-b", { category: "database_optimization" }),
 			def("w-a", { category: "database_optimization" }),
 			def("w-other", { category: "system" }),
 			def("w-busy", { category: "database_optimization" }),
 		];
-		manualActiveJob = { id: "active-1" }; // dedupe hit for every manual run
-
 		const scheduler = new WorkerSchedulerService();
+		await scheduler.runWorkerManually("w-busy");
+
 		const result = await scheduler.runWorkerCategoryManually("database_optimization");
 
-		// Sorted deterministically, category-filtered, and each busy member skipped.
-		expect(result).toEqual({
-			success: true,
-			started: [],
-			skipped: [
-				{ workerId: "w-a", reason: "already_pending_or_running" },
-				{ workerId: "w-b", reason: "already_pending_or_running" },
-				{ workerId: "w-busy", reason: "already_pending_or_running" },
-			],
-		});
-
-		manualActiveJob = undefined;
-		const second = await scheduler.runWorkerCategoryManually("database_optimization");
-		expect(second.started.map((s) => s.workerId)).toEqual(["w-a", "w-b", "w-busy"]);
-		expect(second.skipped).toEqual([]);
-		expect(enqueued.map((e) => e.dedupeKey)).toEqual(["manual:w-a", "manual:w-b", "manual:w-busy"]);
+		// Sorted deterministically, category-filtered, and the busy member skipped.
+		expect(result.started.map((entry) => entry.workerId)).toEqual(["w-a", "w-b"]);
+		expect(result.skipped).toEqual([{ workerId: "w-busy", reason: "already_pending_or_running" }]);
+		expect(await queuedJobs()).toEqual([
+			{ workerId: "w-a", dedupeKey: "manual:w-a" },
+			{ workerId: "w-b", dedupeKey: "manual:w-b" },
+			{ workerId: "w-busy", dedupeKey: "manual:w-busy" },
+		]);
 	});
 
 	test("returns an empty result for a category without registered members", async () => {
 		defs = [def("w-plain")];
-		const scheduler = new WorkerSchedulerService();
 
-		const result = await scheduler.runWorkerCategoryManually("file_cleanup");
+		const result = await new WorkerSchedulerService().runWorkerCategoryManually("file_cleanup");
 
 		expect(result).toEqual({ success: true, started: [], skipped: [] });
 	});
@@ -373,36 +312,25 @@ describe("WorkerSchedulerService.runWorkerCategoryManually", () => {
 describe("WorkerSchedulerService.listWorkerSummaries", () => {
 	test("merges definitions, live stats and last execution info", async () => {
 		defs = [def("w-sum", { name: "Summarized", concurrency: 3, timeoutMs: 5_000 })];
-		const workerRepo = await import("@/database/repositories/worker.repository");
-		const statsStub = stubMethod(workerRepo.workerJobRepository, "getStats", () =>
-			Promise.resolve([
-				{ workerId: "w-sum", status: "pending", count: 2 },
-				{ workerId: "w-sum", status: "running", count: 1 },
-				{ workerId: "w-sum", status: "completed", count: 10 },
-				{ workerId: "w-sum", status: "failed", count: 1 },
-			]),
-		);
-		const schedules = await import("@/database/repositories/worker-schedules.repository");
-		const allSchedules = stubMethod(schedules.workerSchedulesRepository, "getAllSchedules", () =>
-			Promise.resolve(
-				new Map([
-					[
-						"w-sum",
-						{
-							workerId: "w-sum",
-							lastRunAt: new Date("2026-01-01T00:00:00.000Z"),
-							lastStatus: "completed",
-							lastCompletedAt: new Date("2026-01-01T00:01:00.000Z"),
-							lastDurationMs: 60_000,
-						},
-					],
+		// Stats are a process-wide cached aggregate, so this test feeds the aggregate rows directly.
+		activeStubs.push(
+			stubMethod(workerJobRepository, "getStats", () =>
+				Promise.resolve([
+					{ workerId: "w-sum", status: "pending", count: 2 },
+					{ workerId: "w-sum", status: "running", count: 1 },
+					{ workerId: "w-sum", status: "completed", count: 10 },
+					{ workerId: "w-sum", status: "failed", count: 1 },
 				]),
 			),
 		);
-		activeStubs.push(statsStub, allSchedules);
+		await workerSchedulesRepository.updateExecution("w-sum", {
+			status: "completed",
+			startedAt: new Date("2026-01-01T00:00:00.000Z"),
+			completedAt: new Date("2026-01-01T00:01:00.000Z"),
+			durationMs: 60_000,
+		});
 
-		const scheduler = new WorkerSchedulerService();
-		const summaries = await scheduler.listWorkerSummaries();
+		const summaries = await new WorkerSchedulerService().listWorkerSummaries();
 
 		expect(summaries).toHaveLength(1);
 		expect(summaries[0]).toMatchObject({

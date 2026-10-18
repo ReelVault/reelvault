@@ -1,9 +1,9 @@
 import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
-import { subnetIp, workerCookie } from "./lib/identity";
-import { preloadUnreadNotificationIds } from "./lib/notifications";
-import { jsonRequest } from "./lib/request";
-import { toScenarioEntries } from "./lib/scenarios";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { subnetIp, workerCookie } from "./lib/identity.utils";
+import { preloadUnreadNotificationIds } from "./lib/notifications.utils";
+import { jsonRequest } from "./lib/request.utils";
+import { toScenarioEntries } from "./lib/scenarios.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
 
 /**
  * Mutation/write endpoint suite — the least-measured shared path before this

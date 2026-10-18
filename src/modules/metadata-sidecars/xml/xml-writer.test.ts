@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { writeXmlDocument } from "./xml.writer";
 import { readXmlDocument } from "./xml-document.reader";
-import { readXmlObject, readXmlText } from "./xml-value.reader";
-import { writeXmlDocument } from "./xml-writer";
+import { readXmlChildObject, readXmlObject, readXmlText, readXmlTexts } from "./xml-value.reader";
 
 describe("writeXmlDocument", () => {
 	test("escapes values and produces a readable document", async () => {
@@ -14,11 +14,16 @@ describe("writeXmlDocument", () => {
 		expect(catalog ? readXmlText(catalog, "title") : undefined).toBe("A < B & C");
 	});
 
-	test("nests objects and suppresses empty nodes", async () => {
+	test("nests objects as repeated child elements and writes empty objects self-closed", async () => {
 		const output = await writeXmlDocument({ rootName: "movie", values: { title: "T", empty: {}, tags: { tag: ["a", "b"] } } });
 
 		expect(output).toContain("<empty/>");
 		expect(output).toContain("<tag>a</tag>");
-		expect(await readXmlDocument(output)).not.toBeNull();
+		expect(output).toContain("<tag>b</tag>");
+
+		const document = await readXmlDocument(output);
+		const movie = document ? readXmlObject(document, "movie") : undefined;
+		const tags = movie ? readXmlChildObject(movie, "tags") : undefined;
+		expect(tags ? readXmlTexts(tags, "tag") : undefined).toEqual(["a", "b"]);
 	});
 });

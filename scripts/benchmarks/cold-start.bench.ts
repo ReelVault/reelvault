@@ -1,7 +1,7 @@
 import { bench, fmtMs, main, printTable, suiteArgs, summarizeLatencies, task, waitForHealth } from "benchkit";
 import { spawn } from "bun";
 
-import { type ManagedServer, repoRoot, serverEnv, startBenchmarkServer } from "./lib/server";
+import { type ManagedServer, repoRoot, serverEnv, startBenchmarkServer } from "./lib/server.launcher";
 
 /**
  * Cold-start suite. Two views of startup cost:

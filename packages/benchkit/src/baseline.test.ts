@@ -6,8 +6,8 @@ import {
 	compareWithBaseline,
 	mannWhitneyZ,
 	type TaskBaselineEntry,
-} from "./baseline";
-import { metric, type TaskMetrics } from "./metrics";
+} from "./baseline.utils";
+import { metric, type TaskMetrics } from "./metrics.utils";
 
 function entry(file: string, name: string, samples: number[]): BenchBaselineEntry {
 	return { kind: "bench", file, name, samples, p50Ms: samples.toSorted((a, b) => a - b)[Math.floor(samples.length / 2)] ?? 0 };
@@ -43,7 +43,7 @@ describe("compareBaselineEntry", () => {
 		expect(compareBaselineEntry(current, baseline).verdict).toBe("slower");
 	});
 
-	test("tiny delta → unchanged even when significant", () => {
+	test("a delta under the 3% practical threshold is unchanged", () => {
 		const current = entry("db", "browse", [10.05, 10.05, 10.06, 10.05, 10.05, 10.04, 10.05, 10.05, 10.05, 10.05]);
 		expect(compareBaselineEntry(current, baseline).verdict).toBe("unchanged");
 	});

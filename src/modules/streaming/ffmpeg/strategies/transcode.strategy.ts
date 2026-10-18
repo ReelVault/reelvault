@@ -1,11 +1,11 @@
 import type { Subprocess } from "bun";
+import { serverConfig } from "@/config/server/server.config";
 import { getEffectiveHwaccel, resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { buildHlsMuxerArgs, buildMetadataStripArgs, buildStreamMapArgs } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { resolveStreamingThreads } from "@/integrations/ffmpeg/ffmpeg.threads";
 import { buildHwaccelInputArgs, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
-import { serverConfig } from "@/server.config";
-import type { StreamStartInput } from "../../streaming.types";
+import type { StreamStartInput } from "@/modules/streaming/streaming.types";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
 /**

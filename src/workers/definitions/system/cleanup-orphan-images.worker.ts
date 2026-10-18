@@ -1,5 +1,5 @@
+import { MINUTE } from "@/config/server/server.constants";
 import { imageMaintenanceService } from "@/modules/images/image-maintenance.service";
-import { MINUTE } from "@/server.constants";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 export const cleanupOrphanImagesWorker = createWorkerDefinition(

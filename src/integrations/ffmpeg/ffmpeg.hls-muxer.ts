@@ -1,5 +1,5 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
 import { PathUtils } from "@/utils/path.utils";
 
 /**

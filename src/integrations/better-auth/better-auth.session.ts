@@ -1,5 +1,5 @@
 import { makeSignature } from "better-auth/crypto";
-import { env } from "@/env";
+import { env } from "@/config/env.config";
 import { PROFILE_UNLOCK_COOKIE, profilePinFingerprint, signProfileUnlock } from "@/utils/profile-unlock.utils";
 import { auth } from "./better-auth.config";
 

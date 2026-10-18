@@ -1,32 +1,44 @@
-import { afterEach, expect, test } from "bun:test";
-import { trickplayRepository } from "@/database/repositories/trickplay.repository";
-import { stubMethod } from "../../../tests/helpers/method-stub";
-import { trickplayService } from "./trickplay.service";
+import { expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
+import { trickplayAdminService } from "@/app/trickplay/trickplay-admin.service";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 
-const activeStubs: Array<{ restore(): void }> = [];
+const db = useTestDatabase();
 
-afterEach(() => {
-	for (const stub of activeStubs.toReversed()) stub.restore();
-	activeStubs.length = 0;
-});
+/** Seeds one movie title with `fileCount` media files, each with a duration so regeneration picks it up; returns their ids in repository order. */
+async function seedTitle(metadataId: string, fileCount: number): Promise<string[]> {
+	const client = db.client();
+	const firstId = await insertMovieMediaFile(client, `/media/${metadataId}-1.mkv`, metadataId);
+	const [first] = await client.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.id, firstId));
+	if (!first) throw new Error("The seeded media file should exist");
 
-const filesByTitle: Record<string, string[]> = {
-	"t-1": ["a", "b"],
-	"t-2": ["c", "d"],
-	"t-3": ["e"],
-};
+	for (let index = 2; index <= fileCount; index++) {
+		await client.insert(schema.mediaFiles).values({
+			libraryId: first.libraryId,
+			metadataId,
+			movieId: first.movieId,
+			filePath: `/media/${metadataId}-${index}.mkv`,
+			fileName: `${metadataId}-${index}.mkv`,
+		});
+	}
+	await client.update(schema.mediaFiles).set({ duration: 1200 }).where(eq(schema.mediaFiles.metadataId, metadataId));
+
+	const rows = await client
+		.select({ id: schema.mediaFiles.id })
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.metadataId, metadataId));
+
+	return rows.map((row) => row.id).toSorted();
+}
 
 test("a regeneration over several titles keeps scope order and stops at the cap in total", async () => {
-	const calls: Array<{ id: string; limit: number }> = [];
-	activeStubs.push(
-		stubMethod(trickplayRepository, "findMediaFileIdsForRegeneration", (scope: { id: string }, _force: boolean, limit: number) => {
-			calls.push({ id: scope.id, limit });
+	const first = await seedTitle("t-1", 2);
+	const second = await seedTitle("t-2", 2);
+	await seedTitle("t-3", 1);
 
-			return Promise.resolve((filesByTitle[scope.id] ?? []).slice(0, limit));
-		}),
-	);
-
-	const ids = await trickplayService.findMediaFileIdsForRegenerations(
+	const ids = await trickplayAdminService.findMediaFileIdsForRegenerations(
 		[
 			{ kind: "title", id: "t-1" },
 			{ kind: "title", id: "t-2" },
@@ -36,21 +48,16 @@ test("a regeneration over several titles keeps scope order and stops at the cap 
 		3,
 	);
 
-	expect(ids).toEqual(["a", "b", "c"]);
-	// The third title is never asked for: the cap was already reached by the first two.
-	expect(calls).toEqual([
-		{ id: "t-1", limit: 3 },
-		{ id: "t-2", limit: 1 },
-	]);
+	// The third title is never reached: the cap is spent by the first title and one file of the second.
+	expect(ids).toEqual([...first, ...second.slice(0, 1)]);
 });
 
 test("the matching count of several titles is the sum over the scopes", async () => {
-	const counts: Record<string, number> = { "t-1": 2, "t-2": 5 };
-	activeStubs.push(
-		stubMethod(trickplayRepository, "countForRegeneration", (scope: { id: string }) => Promise.resolve(counts[scope.id] ?? 0)),
-	);
+	await seedTitle("t-1", 2);
+	await seedTitle("t-2", 3);
+	await seedTitle("t-3", 1);
 
-	const total = await trickplayService.countForRegenerations(
+	const total = await trickplayAdminService.countForRegenerations(
 		[
 			{ kind: "title", id: "t-1" },
 			{ kind: "title", id: "t-2" },
@@ -58,5 +65,5 @@ test("the matching count of several titles is the sum over the scopes", async ()
 		true,
 	);
 
-	expect(total).toBe(7);
+	expect(total).toBe(5);
 });

@@ -1,10 +1,9 @@
 import type { CreateMediaMarker, MediaMarker } from "@reelvault/sdk/common";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
-import { toPublicMarker } from "@/database/utils/media-marker.mapper";
-import { pluginEventBus } from "@/plugins/runtime/plugin.events";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { pluginMarkerData, pluginMediaData } from "@/app/plugins/plugin-data.service";
+import { toPublicMarker } from "@/integrations/drizzle-orm/utils/media-marker.mapper";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 
 class PluginMarkersService {
 	readonly serviceName = "PluginMarkersService";
@@ -13,16 +12,16 @@ class PluginMarkersService {
 	async list(pluginId: string, mediaFileId: string): Promise<MediaMarker[]> {
 		// Scoped to the calling plugin: a plugin must not observe other plugins'
 		// or manually created markers (set/clear are scoped the same way).
-		const markers = await mediaMarkersRepository.findByMediaFileIdAndPlugin(mediaFileId, pluginId);
+		const markers = await pluginMarkerData.findByMediaFileIdAndPlugin(mediaFileId, pluginId);
 
 		return markers.map((item) => toPublicMarker(item));
 	}
 
 	async setMarkers(pluginId: string, mediaFileId: string, markers: readonly CreateMediaMarker[]): Promise<MediaMarker[]> {
-		const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
+		const mediaFileExists = await pluginMediaData.isExists({ primaryId: mediaFileId });
 		if (!mediaFileExists) throw new DomainError("not_found", `Media file ${mediaFileId} was not found`, { code: "media_file.not_found" });
 
-		const saved = await mediaMarkersRepository.replaceMarkersForMediaFile(mediaFileId, markers, {
+		const saved = await pluginMarkerData.replaceMarkersForMediaFile(mediaFileId, markers, {
 			pluginId,
 			source: "plugin",
 		});
@@ -40,7 +39,7 @@ class PluginMarkersService {
 	async clearMarkers(pluginId: string, mediaFileId: string): Promise<void> {
 		// Clear only the calling plugin's markers — other plugins' and manually
 		// created markers must survive (scoped replace, same as setMarkers).
-		await mediaMarkersRepository.replaceMarkersForMediaFile(mediaFileId, [], { pluginId, source: "plugin" });
+		await pluginMarkerData.replaceMarkersForMediaFile(mediaFileId, [], { pluginId, source: "plugin" });
 		pluginEventBus.publish("media.markers.updated", {
 			mediaFileId,
 			markerCount: 0,

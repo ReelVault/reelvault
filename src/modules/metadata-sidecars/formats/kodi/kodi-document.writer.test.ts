@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SidecarSnapshotDocument } from "../../sidecar.types";
+import type { SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
 import { buildKodiDocument } from "./kodi-document.writer";
 
 function snapshot(overrides: Partial<SidecarSnapshotDocument> = {}): SidecarSnapshotDocument {

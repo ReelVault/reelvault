@@ -1,5 +1,5 @@
 import { realtimeService } from "@/modules/realtime/realtime.service";
-import { BoundedMap } from "../utils/bounded-map";
+import { BoundedMap } from "@/modules/streaming/utils/bounded-map.utils";
 
 const IMPLICIT_SEEK_COOLDOWN_MS = 10_000;
 /** Bound the per-session cooldown map — entries older than the cooldown are stale. */

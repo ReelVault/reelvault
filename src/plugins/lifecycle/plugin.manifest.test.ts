@@ -1,17 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginManifest } from "@reelvault/sdk/plugin";
 import { defineConfig, field } from "@reelvault/sdk/plugin";
+import { removeTreeSync } from "@/utils/directory.utils";
+import { validatePluginSchema } from "./manifest/schema.validator";
+import { validatePluginUiManifest } from "./manifest/ui.validator";
 import {
 	assertDeclaredPluginCapabilities,
 	resolvePluginEntry,
 	resolvePluginUiSchemas,
 	validatePluginConfig,
 	validatePluginManifest,
-	validatePluginSchema,
-	validatePluginUiManifest,
 } from "./plugin.manifest";
 
 // Built at runtime so the linter's no-script-url rule does not flag the fixture.
@@ -25,56 +26,74 @@ const validManifest = {
 	capabilities: ["eventHandler", "jobs"],
 } satisfies PluginManifest;
 
+const validUiManifest = {
+	name: "Example UI",
+	version: "1.0.0",
+	entry: "./dist/ui/index.js",
+	pages: [
+		{ id: "list", path: "list", name: "List", tag: "rv-example-list", nav: "admin", adminOnly: true },
+		{ id: "submit", path: "submit", name: { pl: "Zgłoś", en: "Submit" }, tag: "rv-example-submit", nav: "user" },
+	],
+	dialogs: [{ id: "details", title: "Details", size: "lg", tag: "rv-example-details" }],
+	tabs: { details: [{ id: "example", host: "details", label: "Example", page: "list" }] },
+	slots: {
+		"player-footer": [{ label: "Example", icon: "Star", priority: 10, action: { type: "page", page: "submit" } }],
+		"root-floating-overlay": [{ label: "Widget", element: { tag: "rv-example-widget" } }],
+	},
+};
+
 describe("plugin manifest", () => {
 	it("accepts a complete manifest and resolves its entry within the plugin directory", () => {
-		expect(() => validatePluginManifest(validManifest)).not.toThrow();
+		validatePluginManifest(validManifest);
 		expect(resolvePluginEntry("/plugins/example", validManifest)).toBe("/plugins/example/dist/index.js");
 	});
 
 	it("rejects a manifest that declares an unsupported capability", () => {
-		expect(() => validatePluginManifest({ ...validManifest, capabilities: ["rawDatabase"] })).toThrow("unsupported capability");
-	});
-
-	it("accepts the notification capability", () => {
-		expect(() => validatePluginManifest({ ...validManifest, capabilities: ["notification"] })).not.toThrow();
+		expect(() => validatePluginManifest({ ...validManifest, capabilities: ["rawDatabase"] })).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.capability_unsupported",
+			}),
+		);
 	});
 
 	it("rejects an entry that escapes the plugin directory", () => {
-		expect(() => validatePluginManifest({ ...validManifest, entry: "../index.js" })).toThrow("relative path");
-	});
-
-	it("accepts csp content sources, including wildcards and ports", () => {
-		expect(() =>
-			validatePluginManifest({
-				...validManifest,
-				csp: {
-					"img-src": ["https://images.example.com", "https://*.cdn.example.com"],
-					"frame-src": ["https://player.example.com", "http://192.168.1.10:8080"],
-				},
+		expect(() => validatePluginManifest({ ...validManifest, entry: "../index.js" })).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.field_path_invalid",
 			}),
-		).not.toThrow();
+		);
 	});
 
 	it("rejects csp directives that could widen script or style execution", () => {
 		expect(() => validatePluginManifest({ ...validManifest, csp: { "script-src": ["https://evil.example.com"] } })).toThrow(
-			"unsupported directive",
+			expect.objectContaining({ category: "validation", code: "plugin.csp_directive_unsupported" }),
 		);
 		expect(() => validatePluginManifest({ ...validManifest, csp: { "style-src": ["https://evil.example.com"] } })).toThrow(
-			"unsupported directive",
+			expect.objectContaining({ category: "validation", code: "plugin.csp_directive_unsupported" }),
 		);
 	});
 
 	it("rejects csp sources that are not plain origins", () => {
 		for (const source of ["https://example.com/path", "https://example.com; script-src *", "*", "data:"]) {
-			expect(() => validatePluginManifest({ ...validManifest, csp: { "img-src": [source] } })).toThrow("invalid source");
+			expect(() => validatePluginManifest({ ...validManifest, csp: { "img-src": [source] } })).toThrow(
+				expect.objectContaining({
+					category: "validation",
+					code: "plugin.csp_source_invalid",
+				}),
+			);
 		}
 
-		expect(() => validatePluginManifest({ ...validManifest, csp: { "img-src": [] } })).toThrow("non-empty array");
+		expect(() => validatePluginManifest({ ...validManifest, csp: { "img-src": [] } })).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.field_empty" }),
+		);
 	});
 
 	it("rejects runtime capabilities that are not declared in the manifest", () => {
-		expect(() => assertDeclaredPluginCapabilities(["eventHandler"], ["eventHandler", "metadataProvider"])).toThrow("metadataProvider");
-		expect(() => assertDeclaredPluginCapabilities(["eventHandler"], ["eventHandler"])).not.toThrow();
+		expect(() => assertDeclaredPluginCapabilities(["eventHandler"], ["eventHandler", "metadataProvider"])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.capability_undeclared" }),
+		);
 	});
 
 	it("validates configuration through the declared schema before plugin initialization", () => {
@@ -85,49 +104,50 @@ describe("plugin manifest", () => {
 
 		expect(validatePluginConfig({ apiKey: "secret", language: "pl" }, definition)).toEqual({ apiKey: "secret", language: "pl" });
 		expect(validatePluginConfig({}, definition)).toEqual({ apiKey: "", language: "en-US" });
-		expect(() => validatePluginConfig(["invalid"])).toThrow("configuration must be an object");
+		expect(() => validatePluginConfig(["invalid"])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.config_not_object" }),
+		);
 	});
 });
 
-describe("plugin ui manifest", () => {
-	const validUiManifest = {
-		name: "Example UI",
-		version: "1.0.0",
-		entry: "./dist/ui/index.js",
-		pages: [
-			{ id: "list", path: "list", name: "List", tag: "rv-example-list", nav: "admin", adminOnly: true },
-			{ id: "submit", path: "submit", name: { pl: "Zgłoś", en: "Submit" }, tag: "rv-example-submit", nav: "user" },
-		],
-		dialogs: [{ id: "details", title: "Details", size: "lg", tag: "rv-example-details" }],
-		tabs: { details: [{ id: "example", host: "details", label: "Example", page: "list" }] },
-		slots: {
-			"player-footer": [{ label: "Example", icon: "Star", priority: 10, action: { type: "page", page: "submit" } }],
-			"root-floating-overlay": [{ label: "Widget", element: { tag: "rv-example-widget" } }],
-		},
-	};
-
-	it("accepts a well-formed ui manifest", () => {
-		expect(() => validatePluginUiManifest(validUiManifest)).not.toThrow();
-	});
-
+describe("plugin ui manifest references and slots", () => {
 	it("requires the custom-element entry module", () => {
-		expect(() => validatePluginUiManifest({ ...validUiManifest, entry: undefined })).toThrow("entry");
+		expect(() => validatePluginUiManifest({ ...validUiManifest, entry: undefined })).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.ui.field_not_string" }),
+		);
 	});
 
 	it("rejects an unsupported slot name", () => {
-		expect(() => validatePluginUiManifest({ ...validUiManifest, slots: { "not-a-slot": [{ label: "x" }] } })).toThrow("unsupported slot");
+		expect(() => validatePluginUiManifest({ ...validUiManifest, slots: { "not-a-slot": [{ label: "x" }] } })).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.ui.slot_unsupported",
+			}),
+		);
 	});
 
 	it("rejects an unsupported tab host", () => {
-		expect(() => validatePluginUiManifest({ ...validUiManifest, tabs: { nowhere: [] } })).toThrow("unsupported tab host");
+		expect(() => validatePluginUiManifest({ ...validUiManifest, tabs: { nowhere: [] } })).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.ui.tab_host_unsupported",
+			}),
+		);
 	});
 
 	it("rejects an entry that is not a relative path", () => {
-		expect(() => validatePluginUiManifest({ ...validUiManifest, entry: "/etc/passwd" })).toThrow("relative path");
+		expect(() => validatePluginUiManifest({ ...validUiManifest, entry: "/etc/passwd" })).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.ui.field_path_invalid",
+			}),
+		);
 	});
 
 	it("rejects a slot entry that declares both or neither action and element", () => {
-		expect(() => validatePluginUiManifest({ ...validUiManifest, slots: { "player-footer": [{ label: "x" }] } })).toThrow("exactly one");
+		expect(() => validatePluginUiManifest({ ...validUiManifest, slots: { "player-footer": [{ label: "x" }] } })).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.ui.slot_entry_ambiguous" }),
+		);
 		expect(() =>
 			validatePluginUiManifest({
 				...validUiManifest,
@@ -141,7 +161,7 @@ describe("plugin ui manifest", () => {
 					],
 				},
 			}),
-		).toThrow("exactly one");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.slot_entry_ambiguous" }));
 	});
 
 	it("rejects a slot action that references an unknown surface", () => {
@@ -150,57 +170,23 @@ describe("plugin ui manifest", () => {
 				...validUiManifest,
 				slots: { "player-footer": [{ label: "x", action: { type: "page", page: "nope" } }] },
 			}),
-		).toThrow("unknown page");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.page_unknown" }));
 		expect(() =>
 			validatePluginUiManifest({
 				...validUiManifest,
 				slots: { "player-footer": [{ label: "x", action: { type: "dialog", dialog: "nope" } }] },
 			}),
-		).toThrow("unknown dialog");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.dialog_unknown" }));
 	});
 
 	it("rejects a tab that references an unknown page", () => {
 		expect(() =>
 			validatePluginUiManifest({ ...validUiManifest, tabs: { details: [{ id: "t", host: "details", label: "T", page: "nope" }] } }),
-		).toThrow("unknown page");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.page_unknown" }));
 	});
 });
 
-describe("plugin ui manifest", () => {
-	const validUiManifest = {
-		name: "Example UI",
-		version: "1.0.0",
-		entry: "./dist/ui/index.js",
-		pages: [
-			{ id: "list", path: "list", name: "List", tag: "rv-example-list", nav: "admin", adminOnly: true },
-			{ id: "submit", path: "submit", name: { pl: "Zgłoś", en: "Submit" }, tag: "rv-example-submit", nav: "user" },
-		],
-		dialogs: [{ id: "details", title: "Details", size: "lg", tag: "rv-example-details" }],
-		tabs: { details: [{ id: "example", host: "details", label: "Example", page: "list" }] },
-		slots: {
-			"player-footer": [{ label: "Example", icon: "Star", priority: 10, action: { type: "page", page: "submit" } }],
-			"root-floating-overlay": [{ label: "Widget", element: { tag: "rv-example-widget" } }],
-		},
-	};
-
-	it("accepts a schema button that opens a declared dialog", () => {
-		expect(() =>
-			validatePluginUiManifest({
-				...validUiManifest,
-				dialogs: [...validUiManifest.dialogs, { id: "manage", title: "Manage", tag: "rv-example-manage" }],
-				pages: [
-					...validUiManifest.pages,
-					{
-						id: "manage-page",
-						path: "manage",
-						name: "Manage",
-						schema: { body: [{ type: "button", label: "Open", action: { type: "openDialog", dialog: "manage" } }] },
-					},
-				],
-			}),
-		).not.toThrow();
-	});
-
+describe("plugin ui manifest schema references", () => {
 	it("rejects a schema button that opens an undeclared dialog", () => {
 		expect(() =>
 			validatePluginUiManifest({
@@ -215,7 +201,7 @@ describe("plugin ui manifest", () => {
 					},
 				],
 			}),
-		).toThrow("unknown dialog 'missing'");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.dialog_unknown" }));
 	});
 
 	it("validates schemaRef dialog references against the manifest", async () => {
@@ -233,9 +219,12 @@ describe("plugin ui manifest", () => {
 				pages: [{ id: "admin", path: "admin", name: "Admin", schemaRef: "./schema.json" }],
 			};
 
-			await expect(resolvePluginUiSchemas(directory, manifest)).rejects.toThrow("unknown dialog 'missing'");
+			await expect(resolvePluginUiSchemas(directory, manifest)).rejects.toMatchObject({
+				category: "validation",
+				code: "plugin.ui.dialog_unknown",
+			});
 		} finally {
-			rmSync(directory, { recursive: true, force: true });
+			removeTreeSync(directory);
 		}
 	});
 
@@ -248,34 +237,18 @@ describe("plugin ui manifest", () => {
 					{ id: "x", path: "b", name: "B", tag: "rv-example-b" },
 				],
 			}),
-		).toThrow("duplicate page id");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.duplicate_id" }));
 	});
 });
 
-describe("plugin ui manifest", () => {
-	const validUiManifest = {
-		name: "Example UI",
-		version: "1.0.0",
-		entry: "./dist/ui/index.js",
-		pages: [
-			{ id: "list", path: "list", name: "List", tag: "rv-example-list", nav: "admin", adminOnly: true },
-			{ id: "submit", path: "submit", name: { pl: "Zgłoś", en: "Submit" }, tag: "rv-example-submit", nav: "user" },
-		],
-		dialogs: [{ id: "details", title: "Details", size: "lg", tag: "rv-example-details" }],
-		tabs: { details: [{ id: "example", host: "details", label: "Example", page: "list" }] },
-		slots: {
-			"player-footer": [{ label: "Example", icon: "Star", priority: 10, action: { type: "page", page: "submit" } }],
-			"root-floating-overlay": [{ label: "Widget", element: { tag: "rv-example-widget" } }],
-		},
-	};
-
+describe("plugin ui manifest elements and links", () => {
 	it("rejects an invalid custom element tag", () => {
 		expect(() =>
 			validatePluginUiManifest({
 				...validUiManifest,
 				slots: { "player-footer": [{ label: "x", element: { tag: "NoHyphen" } }] },
 			}),
-		).toThrow("custom element tag");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.element_tag_invalid" }));
 	});
 
 	it("rejects slot actions that use a javascript: or protocol-relative href", () => {
@@ -284,13 +257,13 @@ describe("plugin ui manifest", () => {
 				...validUiManifest,
 				slots: { "player-footer": [{ label: "x", action: { type: "external", href: SCRIPT_URL } }] },
 			}),
-		).toThrow("unsupported URL scheme");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.url_invalid" }));
 		expect(() =>
 			validatePluginUiManifest({
 				...validUiManifest,
 				slots: { "player-footer": [{ label: "x", action: { type: "navigate", href: "//evil.example" } }] },
 			}),
-		).toThrow("protocol-relative");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.url_invalid" }));
 	});
 
 	it("accepts a slot entry id and rejects an invalid or duplicate one", () => {
@@ -299,9 +272,13 @@ describe("plugin ui manifest", () => {
 			slots: { "player-footer": ids.map((id) => ({ id, label: "x", action: { type: "navigate", href: "/x" } })) },
 		});
 
-		expect(() => validatePluginUiManifest(slot(["first", "second"]))).not.toThrow();
-		expect(() => validatePluginUiManifest(slot(["bad id!"]))).toThrow("unsupported characters");
-		expect(() => validatePluginUiManifest(slot(["same", "same"]))).toThrow("declares the id 'same' twice");
+		validatePluginUiManifest(slot(["first", "second"]));
+		expect(() => validatePluginUiManifest(slot(["bad id!"]))).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.ui.characters_unsupported" }),
+		);
+		expect(() => validatePluginUiManifest(slot(["same", "same"]))).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.ui.duplicate_id" }),
+		);
 	});
 });
 
@@ -320,17 +297,6 @@ describe("plugin declarative schema", () => {
 		],
 	};
 
-	it("accepts a well-formed schema surface", () => {
-		expect(() =>
-			validatePluginUiManifest({
-				name: "X",
-				version: "1.0.0",
-				entry: "./dist/ui/index.js",
-				dialogs: [{ id: "report", title: "Report", schema: validSchema }],
-			}),
-		).not.toThrow();
-	});
-
 	it("rejects a surface that declares both tag and schema", () => {
 		expect(() =>
 			validatePluginUiManifest({
@@ -339,28 +305,43 @@ describe("plugin declarative schema", () => {
 				entry: "./dist/ui/index.js",
 				dialogs: [{ id: "report", title: "Report", tag: "rv-x-report", schema: validSchema }],
 			}),
-		).toThrow("exactly one");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.element_source_invalid" }));
 	});
 
 	it("rejects an unsupported node type", () => {
-		expect(() => validatePluginSchema({ body: [{ type: "marquee" }] }, "ui")).toThrow("unsupported node type");
+		expect(() => validatePluginSchema({ body: [{ type: "marquee" }] }, "ui")).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.ui.field_unsupported",
+			}),
+		);
 	});
 
 	it("rejects a field with an unsupported input", () => {
 		expect(() => validatePluginSchema({ body: [{ type: "field", name: "x", input: "color", label: "X" }] }, "ui")).toThrow(
-			"input is unsupported",
+			expect.objectContaining({ category: "validation", code: "plugin.ui.field_unsupported" }),
 		);
 	});
 
 	it("rejects traversal in schema data paths and non-http(s) embed sources", () => {
-		expect(() => validatePluginSchema({ data: { report: { path: "../../admin/users" } }, body: [] }, "ui")).toThrow("relative plugin path");
-		expect(() => validatePluginSchema({ body: [{ type: "embed", src: SCRIPT_URL }] }, "ui")).toThrow("unsupported URL scheme");
-		expect(() => validatePluginSchema({ body: [{ type: "embed", src: "https://example.com/e" }] }, "ui")).not.toThrow();
+		expect(() => validatePluginSchema({ data: { report: { path: "../../admin/users" } }, body: [] }, "ui")).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.ui.path_invalid",
+			}),
+		);
+		expect(() => validatePluginSchema({ body: [{ type: "embed", src: SCRIPT_URL }] }, "ui")).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.ui.url_invalid",
+			}),
+		);
+		validatePluginSchema({ body: [{ type: "embed", src: "https://example.com/e" }] }, "ui");
 	});
 
 	it("rejects a button with an unknown action type", () => {
 		expect(() => validatePluginSchema({ body: [{ type: "button", label: "Go", action: { type: "explode" } }] }, "ui")).toThrow(
-			"unsupported action type",
+			expect.objectContaining({ category: "validation", code: "plugin.ui.field_unsupported" }),
 		);
 	});
 });

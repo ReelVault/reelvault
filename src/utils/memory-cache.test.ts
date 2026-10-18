@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { MemoryCache } from "./memory-cache";
+import { MemoryCache } from "./memory.cache";
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
 	let resolve!: (value: T) => void;
@@ -75,14 +75,15 @@ test("getOrSetMany accepts an entries array return value from the loader", async
 	expect(result.get("b")).toBe(2);
 });
 
-test("getOrSetMany rejects and caches nothing when the loader throws", () => {
+test("getOrSetMany rejects and caches nothing when the loader throws", async () => {
+	const batchError = new Error("batch failed");
 	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1 });
 
-	expect(
+	await expect(
 		cache.getOrSetMany(["a", "b"], () => {
-			throw new Error("batch failed");
+			throw batchError;
 		}),
-	).rejects.toThrow("batch failed");
+	).rejects.toBe(batchError);
 
 	expect(cache.has("a")).toBe(false);
 	expect(cache.has("b")).toBe(false);
@@ -145,7 +146,7 @@ test("getOrSetMany dedupes two concurrent batch calls sharing a missing key", as
 	expect(loaderCalls).toBe(1);
 });
 
-test("getOrSetMany with an unresolved key from the loader does not produce an unhandled rejection", async () => {
+test("getOrSetMany leaves no pending load for a key the loader omits", async () => {
 	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1 });
 
 	// "b" is requested but never returned by the loader, and nothing separately
@@ -202,6 +203,7 @@ test("getOrRun keeps independent keys independent", async () => {
 });
 
 test("getOrRun propagates a failure to every waiter without poisoning the next run", async () => {
+	const optimizeError = new Error("optimize failed");
 	const cache = new MemoryCache<string>({ ttlMs: -1, maxSize: -1 });
 	let runs = 0;
 	const gate = deferred<string>();
@@ -215,10 +217,10 @@ test("getOrRun propagates a failure to every waiter without poisoning the next r
 	const second = cache.getOrRun("key-1", loader);
 	first.catch(() => undefined);
 	second.catch(() => undefined);
-	gate.reject(new Error("optimize failed"));
+	gate.reject(optimizeError);
 
-	await expect(first).rejects.toThrow("optimize failed");
-	await expect(second).rejects.toThrow("optimize failed");
+	await expect(first).rejects.toBe(optimizeError);
+	await expect(second).rejects.toBe(optimizeError);
 	expect(runs).toBe(1);
 	expect(cache.stats().pendingLoads).toBe(0);
 

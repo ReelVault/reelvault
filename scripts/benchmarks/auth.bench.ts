@@ -1,7 +1,7 @@
 import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
-import { subnetIp, workerCookie } from "./lib/identity";
-import { BENCH_USER, type ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { subnetIp, workerCookie } from "./lib/identity.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import { BENCH_USER, type ManagedServer } from "./lib/server.launcher";
 
 export const meta = { description: "Auth & session validation (public vs authed derive delta, login throughput)" };
 

@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readJellyfinEpisodeDocument } from "@/modules/metadata-sidecars/formats/jellyfin/jellyfin-episode-document.reader";
+import { readJellyfinMovieDocument } from "@/modules/metadata-sidecars/formats/jellyfin/jellyfin-movie-document.reader";
+import type { SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
+import { removeTree } from "@/utils/directory.utils";
 import { readFile } from "@/utils/file.utils";
-import type { SidecarSnapshotDocument } from "../../sidecar.types";
-import { readJellyfinEpisodeDocument } from "../jellyfin/jellyfin-episode-document.reader";
-import { readJellyfinMovieDocument } from "../jellyfin/jellyfin-movie-document.reader";
 import { KodiFormatAdapter } from "./kodi-format.adapter";
 
 const adapter = new KodiFormatAdapter();
@@ -36,7 +37,7 @@ describe("KodiFormatAdapter", () => {
 	const directories: string[] = [];
 
 	afterEach(async () => {
-		for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
+		for (const directory of directories.splice(0)) await removeTree(directory);
 	});
 
 	test("writes a standard movie.nfo that the Jellyfin reader reads back without loss", async () => {
@@ -55,7 +56,7 @@ describe("KodiFormatAdapter", () => {
 		expect(document?.genres).toEqual(["Horror", "Sci-Fi"]);
 	});
 
-	test("round-trips episode placement numbers through <episodedetails>", async () => {
+	test("writes an <episodedetails> document the Jellyfin reader reads back as an episode", async () => {
 		const directory = await tempDirectory();
 		const documentPath = join(directory, "Show.S01E03.nfo");
 

@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
+import { removeTree } from "@/utils/directory.utils";
 import { JellyfinFormatAdapter } from "./jellyfin-format.adapter";
 
 test("Jellyfin movie adapter recognizes and reads a movie document", async () => {
@@ -25,7 +26,7 @@ test("Jellyfin movie adapter recognizes and reads a movie document", async () =>
 			artwork: { poster: { path: join(directory, "folder.jpg") }, backdrop: { path: join(directory, "backdrop.jpg") } },
 		});
 	} finally {
-		await rm(directory, { force: true, recursive: true });
+		await removeTree(directory);
 	}
 });
 
@@ -41,7 +42,7 @@ test("Jellyfin movie adapter drops malformed identifiers and external artwork pa
 		const document = await new JellyfinFormatAdapter().read({ documentPath });
 		expect(document).toMatchObject({ identifiers: {}, artwork: {} });
 	} finally {
-		await rm(directory, { force: true, recursive: true });
+		await removeTree(directory);
 	}
 });
 
@@ -53,7 +54,7 @@ test("Jellyfin movie adapter rejects malformed XML", async () => {
 	try {
 		expect(await new JellyfinFormatAdapter().read({ documentPath })).toBeNull();
 	} finally {
-		await rm(directory, { force: true, recursive: true });
+		await removeTree(directory);
 	}
 });
 
@@ -71,7 +72,7 @@ test("Jellyfin adapter reads series and episode documents", async () => {
 		expect(await adapter.read({ documentPath: seriesPath })).toMatchObject({ mediaKind: "series", title: "The Expanse" });
 		expect(await adapter.read({ documentPath: episodePath })).toMatchObject({ mediaKind: "episode", title: "Dulcinea" });
 	} finally {
-		await rm(directory, { force: true, recursive: true });
+		await removeTree(directory);
 	}
 });
 

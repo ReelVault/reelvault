@@ -1,7 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import type { ProcessedMediaFileWithMarkers } from "@/modules/scanner/scanner.types";
-import { ingestMediaFileTask, type MediaFileIngestTaskDependencies } from "./media-file-ingest.worker";
+import type { MediaFileIngestTaskDependencies } from "./media-file-ingest/media-file-ingest.types";
+import { ingestMediaFileTask } from "./media-file-ingest.worker";
+
+// Trickplay follows system settings; pin both flags so the expected side effects do not depend on defaults.
+beforeEach(() => {
+	systemSettingsStore.setRuntimeValue("trickplay.enabled", true);
+	systemSettingsStore.setRuntimeValue("trickplay.autoOnRefresh", true);
+});
+
+afterEach(() => systemSettingsStore.clearRuntimeValues());
 
 function createMockLibrary(overrides: Partial<LibraryWithRelations> = {}): LibraryWithRelations {
 	return {

@@ -39,8 +39,8 @@ describe("secureRandomInt", () => {
 		expect(secureRandomInt(7, 7)).toBe(7);
 	});
 
-	test("rejects invalid ranges", () => {
-		expect(() => secureRandomInt(5, 1)).toThrow();
-		expect(() => secureRandomInt(1.5, 3)).toThrow();
+	test("rejects inverted and non-integer ranges with a RangeError", () => {
+		expect(() => secureRandomInt(5, 1)).toThrow(RangeError);
+		expect(() => secureRandomInt(1.5, 3)).toThrow(RangeError);
 	});
 });

@@ -1,5 +1,5 @@
-import { serverConfig } from "@/server.config";
-import { createBinaryAvailability } from "../binary-lookup.utils";
+import { serverConfig } from "@/config/server/server.config";
+import { createBinaryAvailability } from "@/integrations/binary-lookup.utils";
 
 export const assertFFProbeAvailable = createBinaryAvailability(
 	() => serverConfig.ffprobe.path,

@@ -5,7 +5,7 @@ set -eu
 
 bunx --bun drizzle-kit generate --name verify_no_drift
 
-drift="$(git status --porcelain -- src/database/migrations)"
+drift="$(git status --porcelain -- src/integrations/drizzle-orm/migrations)"
 if [ -n "$drift" ]; then
 	echo "Schema drift detected — run 'bun run db:generate --name \"...\"' and commit the migration:" >&2
 	echo "$drift" >&2

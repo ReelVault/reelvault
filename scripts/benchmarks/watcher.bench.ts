@@ -1,11 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fmtMs, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { sleep } from "bun";
-import { LibraryWatcherService } from "@/application/libraries/watching/library-watcher.service";
+import { LibraryWatcherService } from "@/app/libraries/watching/library-watcher.service";
+import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { librariesRepository } from "@/database/repositories/libraries.repository";
+import { removeTreeSync } from "@/utils/directory.utils";
 
 /**
  * Library watcher suite. Zero coverage before this existed: fs.watch feeds a
@@ -111,7 +112,7 @@ if (!args.help) {
 			);
 		} finally {
 			service.stopAllWatchers();
-			rmSync(root, { recursive: true, force: true });
+			removeTreeSync(root);
 		}
 	});
 }

@@ -1,33 +1,26 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { serverConfig } from "@/config/server/server.config";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
-import { serverConfig } from "@/server.config";
-import { createMockWorkerItem } from "@/workers/core/worker-runtime.test-utils";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { enqueueImageProcessing, processImageTask } from "./image-processing.worker";
+import { workerService } from "@/workers/worker.service";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { enqueueImageProcessing, imageProcessingWorker, processImageTask } from "./image-processing.worker";
+
+// The enqueue test reads the queued row back from the migrated test database.
+useTestDatabase();
 
 const activeStubs: Array<{ restore(): void }> = [];
 
+beforeEach(() => {
+	workerService.registry.register(imageProcessingWorker);
+});
+
 afterEach(() => {
 	for (const stub of activeStubs.splice(0)) stub.restore();
+	workerService.registry.unregister(imageProcessingWorker.id);
 });
 
 describe("image-processing worker", () => {
-	let restoreAddItem: (() => void) | undefined;
-
-	beforeEach(async () => {
-		const { workerService } = await import("@/workers/worker.service");
-		const original = Reflect.get(workerService, "addItem");
-		Reflect.set(workerService, "addItem", () => Promise.resolve(createMockWorkerItem({ workerId: "image-processing" })));
-		restoreAddItem = () => {
-			Reflect.set(workerService, "addItem", original);
-		};
-	});
-
-	afterEach(() => {
-		restoreAddItem?.();
-		restoreAddItem = undefined;
-	});
-
 	test("processes image targets through one task per entity type", async () => {
 		const calls: string[] = [];
 		activeStubs.push(
@@ -78,40 +71,30 @@ describe("image-processing worker", () => {
 		expect(calls).toEqual(["person", "metadata", "season:season-1", "episode:episode-1"]);
 	});
 
-	test("enqueues with a per-entity dedupe key, reference and configured priority", async () => {
-		const { workerService } = await import("@/workers/worker.service");
-		const calls: Array<{
-			workerId: string;
-			data: unknown;
-			options: { dedupeKey?: string; reference?: { type: string; id: string }; priority?: number };
-		}> = [];
-		const original = Reflect.get(workerService, "addItem");
-		Reflect.set(
-			workerService,
-			"addItem",
-			(workerId: string, data: unknown, options: { dedupeKey?: string; reference?: { type: string; id: string }; priority?: number }) => {
-				calls.push({ workerId, data, options });
-
-				return Promise.resolve(createMockWorkerItem({ workerId }));
-			},
-		);
-		restoreAddItem = () => {
-			Reflect.set(workerService, "addItem", original);
-		};
-
-		await enqueueImageProcessing({ kind: "season", metadataId: "metadata-1", seasonId: "season-1", seasonNumber: "2", urls: "url" });
-		await enqueueImageProcessing({ kind: "person", personId: "person-1", urls: "url" });
-
+	test("enqueues each entity under its own dedupe key, reference and configured priority", async () => {
 		const priorities = serverConfig.workers.definitions.imageProcessing.priorities;
-		expect(calls.map((call) => call.workerId)).toEqual(["image-processing", "image-processing"]);
-		expect(calls[0]?.options).toEqual({
+
+		const season = await enqueueImageProcessing({
+			kind: "season",
+			metadataId: "metadata-1",
+			seasonId: "season-1",
+			seasonNumber: "2",
+			urls: "url",
+		});
+		const person = await enqueueImageProcessing({ kind: "person", personId: "person-1", urls: "url" });
+
+		expect(season).toMatchObject({
+			workerId: imageProcessingWorker.id,
 			dedupeKey: "image-processing_season:season-1",
-			reference: { type: "season", id: "season-1" },
+			referenceType: "season",
+			referenceId: "season-1",
 			priority: priorities.season,
 		});
-		expect(calls[1]?.options).toEqual({
+		expect(person).toMatchObject({
+			workerId: imageProcessingWorker.id,
 			dedupeKey: "image-processing_person:person-1",
-			reference: { type: "person", id: "person-1" },
+			referenceType: "person",
+			referenceId: "person-1",
 			priority: priorities.person,
 		});
 	});

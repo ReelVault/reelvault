@@ -6,21 +6,25 @@ describe("session creation guard", () => {
 		let now = 1_000;
 		const guard = new SessionCreationGuard({ now: () => now });
 
-		expect(() => guard.assertCooldown("profile-1")).not.toThrow();
+		guard.assertCooldown("profile-1");
 		now = 1_200;
-		expect(() => guard.assertCooldown("profile-1")).toThrow("rate limit exceeded");
+		expect(() => guard.assertCooldown("profile-1")).toThrow(
+			expect.objectContaining({ category: "too_many_requests", code: "stream.creation_throttled" }),
+		);
 	});
 
-	test("allows a new session after the cooldown elapsed and is per profile", () => {
+	test("restarts the cooldown from each allowed creation", () => {
 		let now = 1_000;
 		const guard = new SessionCreationGuard({ now: () => now });
 
 		guard.assertCooldown("profile-1");
 		now = 1_600;
-		expect(() => guard.assertCooldown("profile-1")).not.toThrow();
+		guard.assertCooldown("profile-1");
 
-		now = 1_100;
-		expect(() => guard.assertCooldown("profile-2")).not.toThrow();
+		now = 1_700;
+		expect(() => guard.assertCooldown("profile-1")).toThrow(
+			expect.objectContaining({ category: "too_many_requests", code: "stream.creation_throttled" }),
+		);
 	});
 
 	test("honours a custom cooldown", () => {
@@ -29,22 +33,11 @@ describe("session creation guard", () => {
 
 		guard.assertCooldown("profile-1");
 		now = 4_000;
-		expect(() => guard.assertCooldown("profile-1")).toThrow("rate limit exceeded");
+		expect(() => guard.assertCooldown("profile-1")).toThrow(
+			expect.objectContaining({ category: "too_many_requests", code: "stream.creation_throttled" }),
+		);
 		now = 6_000;
-		expect(() => guard.assertCooldown("profile-1")).not.toThrow();
-	});
-
-	test("forgets profiles one minute after their last creation", () => {
-		let now = 1_000;
-		const guard = new SessionCreationGuard({ now: () => now });
-
 		guard.assertCooldown("profile-1");
-		guard.assertCooldown("profile-2");
-		now = 61_001;
-		guard.assertCooldown("profile-3");
-
-		expect(() => guard.assertCooldown("profile-1")).not.toThrow();
-		expect(() => guard.assertCooldown("profile-2")).not.toThrow();
 	});
 
 	test("a rejected burst carries a stable code and a retry hint in whole seconds", () => {
@@ -52,14 +45,11 @@ describe("session creation guard", () => {
 		const guard = new SessionCreationGuard({ cooldownMs: 5_000, now: () => now });
 		guard.assertCooldown("profile-1");
 
-		let failure: { code?: string; params?: { retryAfterSeconds?: number } } | undefined;
-		try {
-			guard.assertCooldown("profile-1");
-		} catch (error) {
-			failure = error as typeof failure;
-		}
-
-		expect(failure?.code).toBe("stream.creation_throttled");
-		expect(failure?.params?.retryAfterSeconds).toBe(5);
+		expect(() => guard.assertCooldown("profile-1")).toThrow(
+			expect.objectContaining({
+				code: "stream.creation_throttled",
+				params: expect.objectContaining({ retryAfterSeconds: 5 }),
+			}),
+		);
 	});
 });

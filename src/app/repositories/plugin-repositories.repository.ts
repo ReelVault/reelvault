@@ -1,0 +1,82 @@
+import { asc, eq } from "drizzle-orm";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { DomainError } from "@/utils/domain.errors";
+
+class PluginRepositoriesRepository {
+	readonly table = schema.pluginRepositories;
+
+	async list() {
+		return await databaseFactory.getClient().select().from(this.table).orderBy(asc(this.table.createdAt));
+	}
+
+	async findById(id: string) {
+		const [entry] = await databaseFactory.getClient().select().from(this.table).where(eq(this.table.id, id)).limit(1);
+
+		return entry;
+	}
+
+	async count(): Promise<number> {
+		const rows = await databaseFactory.getClient().select({ id: this.table.id }).from(this.table).limit(1);
+
+		return rows.length;
+	}
+
+	async create(values: { name: string; url: string; tokenEncrypted?: string | null; enabled?: boolean }) {
+		const [entry] = await databaseFactory
+			.getClient()
+			.insert(this.table)
+			.values({
+				name: values.name,
+				url: values.url,
+				tokenEncrypted: values.tokenEncrypted ?? null,
+				enabled: values.enabled ?? true,
+			})
+			.returning();
+		if (!entry) throw new DomainError("internal", "Plugin repository insert returned no row", { code: "plugin.repository_save_failed" });
+
+		return entry;
+	}
+
+	/**
+	 * Idempotent seed: inserts only when the URL is not present yet. Unlike
+	 * `create`, a concurrent duplicate (unique `url`) is a no-op instead of a
+	 * constraint error — used for the built-in official repository, which two
+	 * parallel first requests used to race into a 500.
+	 */
+	async createIfAbsent(values: { name: string; url: string }): Promise<void> {
+		await databaseFactory
+			.getClient()
+			.insert(this.table)
+			.values({ name: values.name, url: values.url, tokenEncrypted: null, enabled: true })
+			.onConflictDoNothing();
+	}
+
+	async update(
+		id: string,
+		values: Partial<{
+			name: string;
+			url: string;
+			tokenEncrypted: string | null;
+			enabled: boolean;
+			lastRefreshedAt: Date | null;
+			lastError: string | null;
+		}>,
+	) {
+		const [entry] = await databaseFactory
+			.getClient()
+			.update(this.table)
+			.set({ ...values, updatedAt: new Date() })
+			.where(eq(this.table.id, id))
+			.returning();
+		if (!entry) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
+
+		return entry;
+	}
+
+	async delete(id: string): Promise<void> {
+		await databaseFactory.getClient().delete(this.table).where(eq(this.table.id, id));
+	}
+}
+
+export const pluginRepositoriesRepository = new PluginRepositoriesRepository();

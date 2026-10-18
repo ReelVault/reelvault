@@ -1,13 +1,13 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
-import { defaultRequireSession } from "../contracts";
-import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
-import type { SeekResult } from "../streaming.types";
-import { INIT_SEGMENT_FILE_NAME, isSegmentFile } from "../utils/segment-name.utils";
+import { serverConfig } from "@/config/server/server.config";
+import { defaultRequireSession } from "@/modules/streaming/contracts.utils";
+import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
+import type { SeekResult } from "@/modules/streaming/streaming.types";
+import { INIT_SEGMENT_FILE_NAME, isSegmentFile } from "@/modules/streaming/utils/segment-name.utils";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { implicitSeekCoordinator } from "./implicit-seek.coordinator";
-import { SegmentLookup, type SegmentWaitContext } from "./segment-lookup";
+import { SegmentLookup, type SegmentWaitContext } from "./segment.lookup";
 
 function assertSafeSegment(segment: string): void {
 	if (!isSegmentFile(segment)) {

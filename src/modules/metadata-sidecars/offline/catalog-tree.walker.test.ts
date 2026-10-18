@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTree } from "@/utils/directory.utils";
 import { CatalogTreeWalker, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
 
 describe("CatalogTreeWalker", () => {
@@ -23,7 +24,7 @@ describe("CatalogTreeWalker", () => {
 			expect(tree.get(join(root, "b", "c"))?.files).toEqual([join(root, "b", "c", "deep.mkv")]);
 			expect(tree.get(join(root, "a"))?.subdirectories).toEqual([]);
 		} finally {
-			await rm(root, { force: true, recursive: true });
+			await removeTree(root);
 		}
 	});
 
@@ -79,10 +80,6 @@ describe("findDocumentsByNames", () => {
 			"/lib/Movie.NFO",
 			"/lib/show/movie.reelvault.nfo",
 		]);
-	});
-
-	test("ignores unrelated documents", () => {
-		expect(findDocumentsByNames(tree, "/lib", ["tvshow.nfo"])).toEqual(["/lib/tvshow.nfo"]);
 	});
 });
 

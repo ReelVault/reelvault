@@ -1,6 +1,6 @@
-import { workerJobRepository } from "@/database/repositories/worker.repository";
-import { MINUTE } from "@/server.constants";
-import { getWorkerRuntime } from "@/workers/core/worker-runtime";
+import { MINUTE } from "@/config/server/server.constants";
+import { getWorkerRuntime } from "@/workers/core/worker.runtime";
+import { workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
@@ -38,9 +38,9 @@ export const cleanupWorkerHistoryWorker = createWorkerDefinition(
 			if (failed !== undefined) keepFailed.set(definition.id, failed);
 		}
 
-		if (keepCompleted.size > 0) await workerJobRepository.trimMany("completed", keepCompleted);
+		if (keepCompleted.size > 0) await workerDependencies().jobs.trimMany("completed", keepCompleted);
 
-		if (keepFailed.size > 0) await workerJobRepository.trimMany("failed", keepFailed);
+		if (keepFailed.size > 0) await workerDependencies().jobs.trimMany("failed", keepFailed);
 
 		return result;
 	},

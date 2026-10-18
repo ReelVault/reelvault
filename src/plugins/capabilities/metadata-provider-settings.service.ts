@@ -1,15 +1,11 @@
 import type { LibraryProviderPriority, MetadataProviderConfiguration } from "@reelvault/sdk/common";
 import type { MetadataProvider } from "@reelvault/sdk/plugin";
-import { libraryProviderSettingsRepository } from "@/database/repositories/library-provider-settings.repository";
-import {
-	type MetadataProviderSetting,
-	metadataProviderSettingsRepository,
-} from "@/database/repositories/metadata-provider-settings.repository";
+import { type MetadataProviderSetting, pluginProviderSettingsData } from "@/app/plugins/plugin-data.service";
+import { serverConfig } from "@/config/server/server.config";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { serverConfig } from "@/server.config";
 import { toMap } from "@/utils/array.utils";
-import { assertFound, DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { assertFound, DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 
 /** Upper bound on cached per-library override sets (oldest entry is dropped first). */
 const LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES = 200;
@@ -49,7 +45,7 @@ class MetadataProviderSettingsService {
 
 	/** Saves the full override set for one library (empty list clears overrides). */
 	async setLibraryOverrides(libraryId: string, priorities: LibraryProviderPriority[]): Promise<void> {
-		await libraryProviderSettingsRepository.replaceForLibrary(libraryId, priorities);
+		await pluginProviderSettingsData.replaceLibraryPriorities(libraryId, priorities);
 		this.cachedLibraryOverrides.delete(libraryId);
 	}
 
@@ -57,7 +53,7 @@ class MetadataProviderSettingsService {
 		const cached = this.cachedLibraryOverrides.get(libraryId);
 		if (cached && cached.expiresAt > Date.now()) return cached.values;
 
-		const rows = await libraryProviderSettingsRepository.listForLibrary(libraryId);
+		const rows = await pluginProviderSettingsData.listLibraryPriorities(libraryId);
 		const values = new Map<string, LibraryProviderPriority>(
 			rows.map((row) => [row.providerId, { providerId: row.providerId, priority: row.priority, enabled: row.enabled }]),
 		);
@@ -91,7 +87,7 @@ class MetadataProviderSettingsService {
 	async update(providerId: string, values: { priority?: number; enabled?: boolean }): Promise<MetadataProviderConfiguration> {
 		const provider = pluginRegistry.getProviderStatus().find((item) => item.id === providerId);
 		assertFound(provider, "Metadata provider", providerId);
-		await metadataProviderSettingsRepository.upsert(providerId, values);
+		await pluginProviderSettingsData.upsertMetadataProviderSetting(providerId, values);
 		this.invalidateCache();
 		const updated = (await this.list()).find((item) => item.id === providerId);
 		assertFound(updated, "Metadata provider", providerId);
@@ -108,7 +104,7 @@ class MetadataProviderSettingsService {
 				params: { providers: unknown.join(", ") },
 			});
 
-		await metadataProviderSettingsRepository.reorder(providerIds);
+		await pluginProviderSettingsData.reorderMetadataProviders(providerIds);
 		this.invalidateCache();
 
 		return this.list();
@@ -123,7 +119,7 @@ class MetadataProviderSettingsService {
 	private async getSettings(): Promise<Map<string, MetadataProviderSetting>> {
 		if (this.cachedSettings && this.cachedSettings.expiresAt > Date.now()) return this.cachedSettings.values;
 
-		const persistedSettings = await metadataProviderSettingsRepository.list();
+		const persistedSettings = await pluginProviderSettingsData.listMetadataProviderSettings();
 
 		const values = toMap(persistedSettings, (setting) => setting.providerId);
 		this.cachedSettings = { expiresAt: Date.now() + serverConfig.plugins.providers.settingsCacheTtlMs, values };

@@ -1,13 +1,14 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { file } from "bun";
+import { removeTree } from "@/utils/directory.utils";
 import { CatalogSchemaBuilder } from "./catalog-schema.builder";
 
 describe("CatalogSchemaBuilder", () => {
-	test("applies every migration directory's SQL in sorted order", async () => {
+	test("replays each listed migration's SQL in order and skips directories without one", async () => {
 		const migrationsRoot = await mkdtemp(join(tmpdir(), "reelvault-migrations-"));
 		await mkdir(join(migrationsRoot, "20260101_first"), { recursive: true });
 		await mkdir(join(migrationsRoot, "20260102_second"), { recursive: true });
@@ -41,7 +42,7 @@ describe("CatalogSchemaBuilder", () => {
 			expect(rows).toEqual([{ label: "from-first" }, { label: "from-second" }]);
 			database.close();
 		} finally {
-			await rm(migrationsRoot, { force: true, recursive: true });
+			await removeTree(migrationsRoot);
 		}
 	});
 });

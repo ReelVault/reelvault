@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { systemSettingsService } from "@/application/admin/system-settings.service";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { isPublicAddress } from "@/utils/url-guard.utils";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { guardedPluginFetch, isHostAllowed } from "./plugin.http";
 
 describe("isHostAllowed", () => {
@@ -70,19 +70,25 @@ describe("guardedPluginFetch", () => {
 	});
 
 	it("rejects local hosts before any request", async () => {
-		await expect(guardedPluginFetch("http://localhost/x")).rejects.toThrow("local host is not allowed");
+		await expect(guardedPluginFetch("http://localhost/x")).rejects.toMatchObject({
+			category: "forbidden",
+			code: "plugin.http.private_address",
+		});
 	});
 
 	it("enforces the plugins.http.allowedDomains allowlist", async () => {
-		const stub = stubMethod(systemSettingsService, "get", () => "allowed.example");
+		const stub = stubMethod(systemSettingsStore, "get", () => "allowed.example");
 		try {
-			await expect(guardedPluginFetch("http://evil.example/x")).rejects.toThrow("not on the plugins.http.allowedDomains allowlist");
+			await expect(guardedPluginFetch("http://evil.example/x")).rejects.toMatchObject({
+				category: "forbidden",
+				code: "plugin.http.host_not_allowed",
+			});
 		} finally {
 			stub.restore();
 		}
 	});
 
-	it("pins allowlisted http hosts to their vetted address", async () => {
+	it("allows plain http to a public address", async () => {
 		const calls: string[] = [];
 		globalThis.fetch = ((input: RequestInfo | URL) => {
 			if (input instanceof URL) calls.push(input.href);

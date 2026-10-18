@@ -1,10 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
-import type { ScanCheckpoint } from "@/database/repositories/scan-state.repository";
-import { LIBRARY_SCAN_PRIORITY } from "@/server.constants";
-import { workerService } from "@/workers/worker.service";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { enqueueLibraryScan, type LibraryScanTaskDependencies, scanLibraryTask } from "./library-scan.worker";
+import type { ScanCheckpoint } from "@/app/repositories/scan-state.repository";
+import { LIBRARY_SCAN_PRIORITY } from "@/config/server/server.constants";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { setWorkerRuntime } from "@/workers/core/worker.runtime";
+import { createMockWorkerRuntime, restoreWorkerRuntime } from "@/workers/core/worker-runtime.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { enqueueLibraryScan, type LibraryScanTaskDependencies, libraryScanWorker, scanLibraryTask } from "./library-scan.worker";
+
+// Queued jobs are written to the migrated test database and read back. The worker runtime is
+// the only fake: its registry says which worker ids exist.
+const db = useTestDatabase();
 
 interface TestHarness {
 	dependencies: LibraryScanTaskDependencies;
@@ -12,6 +18,7 @@ interface TestHarness {
 	checkpoints: Map<string, ScanCheckpoint>;
 	ingested: string[];
 	refreshed: string[];
+	enqueueFailure: Error;
 }
 
 function createHarness(options?: {
@@ -34,6 +41,7 @@ function createHarness(options?: {
 		paths: [],
 		mediaFiles: [],
 	};
+	const enqueueFailure = new Error("aborted mid-enqueue");
 	let ingestCalls = 0;
 	const dependencies: LibraryScanTaskDependencies = {
 		findLibrary: () => Promise.resolve(library),
@@ -45,7 +53,7 @@ function createHarness(options?: {
 		enqueueMediaFileIngest: (data) => {
 			ingestCalls += 1;
 			if (options?.failIngestAt !== undefined && ingestCalls > options.failIngestAt) {
-				return Promise.reject(new Error("aborted mid-enqueue"));
+				return Promise.reject(enqueueFailure);
 			}
 
 			ingested.push(data.filePath);
@@ -79,20 +87,30 @@ function createHarness(options?: {
 		},
 	};
 
-	return { dependencies, events, checkpoints, ingested, refreshed };
+	return { dependencies, events, checkpoints, ingested, refreshed, enqueueFailure };
 }
 
-describe("library scan queue priority", () => {
-	test("a library scan enqueues ahead of bulk background work", async () => {
-		const addItem = stubMethod(workerService, "addItem", () => Promise.resolve({ id: "task-1", operationId: "op-1" }));
-		try {
-			await enqueueLibraryScan({ libraryId: "library-1" });
+afterEach(() => {
+	restoreWorkerRuntime();
+});
 
-			expect(addItem.calls[0]?.[2]).toMatchObject({ priority: LIBRARY_SCAN_PRIORITY });
-			expect(LIBRARY_SCAN_PRIORITY).toBeLessThan(0);
-		} finally {
-			addItem.restore();
-		}
+describe("library scan queue priority", () => {
+	test("a library scan is stored as a pending job at the library scan priority, deduped per library", async () => {
+		setWorkerRuntime(createMockWorkerRuntime({ registry: { get: (id) => (id === libraryScanWorker.id ? libraryScanWorker : undefined) } }));
+
+		const task = await enqueueLibraryScan({ libraryId: "library-1" });
+
+		const jobs = await db.client().select().from(schema.workerJobs);
+		expect(jobs).toHaveLength(1);
+		expect(jobs[0]).toMatchObject({
+			id: task.taskId,
+			workerId: "library-scan",
+			status: "pending",
+			priority: LIBRARY_SCAN_PRIORITY,
+			dedupeKey: "library-1:all",
+			referenceType: "library",
+			referenceId: "library-1",
+		});
 	});
 });
 
@@ -172,7 +190,7 @@ describe("library scan application task", () => {
 	});
 });
 
-describe("library scan application task", () => {
+describe("library scan removals and interruption", () => {
 	test("reports the files the scan removed", async () => {
 		const { dependencies } = createHarness({
 			scanResult: {
@@ -206,7 +224,7 @@ describe("library scan application task", () => {
 
 		await expect(
 			scanLibraryTask({ libraryId: "library-1", paths: ["/media"] }, { correlationId: "scan-3" }, first.dependencies),
-		).rejects.toThrow("aborted mid-enqueue");
+		).rejects.toMatchObject({ code: "internal", cause: first.enqueueFailure });
 		expect(first.events).toContain("completed:errors=1");
 		// The checkpoint survives the abort and signals the interruption to the
 		// next scan, which recomputes the workload from disk.
@@ -234,7 +252,7 @@ describe("library scan application task", () => {
 	});
 });
 
-describe("library scan application task", () => {
+describe("library scan enqueue progress", () => {
 	test("reports the enqueue progress after each saved chunk", async () => {
 		const { dependencies, ingested, refreshed } = createHarness({
 			scanResult: {

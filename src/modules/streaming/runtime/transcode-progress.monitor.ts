@@ -1,10 +1,10 @@
 import type { StreamingSession } from "@reelvault/sdk/common";
-import { workerOperationRepository } from "@/database/repositories/worker-operation.repository";
 import type { FFmpegProgress } from "@/integrations/ffmpeg/ffmpeg.builder";
-import { createLogger } from "@/utils/logger";
+import { streamingStorage } from "@/modules/streaming/streaming.ports";
+import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { parseColonSeparatedSeconds } from "@/utils/time.utils";
-import type { SessionStore } from "./session-state/session-store";
+import type { SessionStore } from "./session-state/session.store";
 
 const logger = createLogger("TranscodeProgressMonitor");
 
@@ -19,10 +19,10 @@ export interface TranscodeProgressMonitorDependencies {
 }
 
 const defaultDependencies: TranscodeProgressMonitorDependencies = {
-	attachStreamOperation: (operationId) => workerOperationRepository.markStreamAttached(operationId),
-	updateOperationProgress: (operationId, percent) => workerOperationRepository.updateProgress(operationId, percent),
-	completeStreamOperation: (operationId) => workerOperationRepository.completeStreamSlot(operationId),
-	releaseStreamOperation: (operationId) => workerOperationRepository.releaseStreamSlot(operationId),
+	attachStreamOperation: (operationId) => streamingStorage().markStreamAttached(operationId),
+	updateOperationProgress: (operationId, percent) => streamingStorage().updateOperationProgress(operationId, percent),
+	completeStreamOperation: (operationId) => streamingStorage().completeStreamOperation(operationId),
+	releaseStreamOperation: (operationId) => streamingStorage().releaseStreamOperation(operationId),
 };
 
 /**

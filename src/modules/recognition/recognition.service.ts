@@ -1,4 +1,4 @@
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "./recognition.types";
 import { MoviesBasicStrategy } from "./strategies/movies-basic.strategy";

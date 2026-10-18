@@ -11,10 +11,10 @@ import {
 	task,
 } from "benchkit";
 import sharp from "sharp";
-import { subnetIp } from "./lib/identity";
-import { toScenarioResult } from "./lib/scenario-result";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { subnetIp } from "./lib/identity.utils";
+import { toScenarioResult } from "./lib/scenario-result.mapper";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 const ROUTE_FILE_MAX_MB = 18;
 

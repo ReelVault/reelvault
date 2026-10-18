@@ -1,4 +1,4 @@
-import { createValueCodecs } from "./value-codecs";
+import { createValueCodecs } from "./value-codecs.utils";
 
 export const PROFILE_THEME_OPTIONS = ["system", "light", "dark"] as const;
 

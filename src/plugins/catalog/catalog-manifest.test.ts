@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type PluginCatalogEntry, parsePluginCatalogManifest, resolveCatalogCandidate } from "./catalog-manifest";
+import { type PluginCatalogEntry, parsePluginCatalogManifest, resolveCatalogCandidate } from "./catalog-manifest.utils";
 
 const VALID_ENTRY = {
 	id: "org.reelvault.tmdb",
@@ -38,23 +38,27 @@ describe("plugin catalog manifest", () => {
 	});
 
 	test("rejects an unsupported apiVersion", () => {
-		expect(() => parsePluginCatalogManifest(JSON.stringify({ apiVersion: 2, name: "x", plugins: [] }))).toThrow("apiVersion");
+		expect(() => parsePluginCatalogManifest(JSON.stringify({ apiVersion: 2, name: "x", plugins: [] }))).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.catalog_api_version_unsupported" }),
+		);
 	});
 
 	test("rejects invalid JSON", () => {
-		expect(() => parsePluginCatalogManifest("{not json")).toThrow("not valid JSON");
+		expect(() => parsePluginCatalogManifest("{not json")).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.catalog_not_json" }),
+		);
 	});
 
 	test("rejects an entry with a bad identifier", () => {
 		expect(() =>
 			parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, id: "../escape" }] })),
-		).toThrow("identifier");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_id_invalid" }));
 	});
 
 	test("rejects an entry with a malformed checksum", () => {
 		expect(() =>
 			parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, checksum: "sha256-tooshort" }] })),
-		).toThrow("checksum");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
 
 	test("rejects an entry with a non-https download URL", () => {
@@ -62,13 +66,13 @@ describe("plugin catalog manifest", () => {
 			parsePluginCatalogManifest(
 				JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, downloadUrl: "file:///etc/passwd" }] }),
 			),
-		).toThrow("https");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
 
 	test("rejects an unknown category", () => {
 		expect(() =>
 			parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, category: "games" }] })),
-		).toThrow("category");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_category_invalid" }));
 	});
 
 	test.each([["javascript", "alert(1)"].join(":"), "data:text/html,<script>", "//evil.example.com", "file:///etc/passwd"])(
@@ -76,7 +80,7 @@ describe("plugin catalog manifest", () => {
 		(homepage) => {
 			expect(() =>
 				parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, homepage }] })),
-			).toThrow("homepage");
+			).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 		},
 	);
 
@@ -85,7 +89,7 @@ describe("plugin catalog manifest", () => {
 			parsePluginCatalogManifest(
 				JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, iconUrl: "data:image/png;base64,AAAA" }] }),
 			),
-		).toThrow("iconUrl");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
 
 	test("parses a valid version history with dates and changelogs", () => {
@@ -108,7 +112,7 @@ describe("plugin catalog manifest", () => {
 			parsePluginCatalogManifest(
 				JSON.stringify({ apiVersion: 1, name: "x", plugins: [entryWithVersions([{ ...validVersion("1.1.0"), version: "latest" }])] }),
 			),
-		).toThrow("semantic version");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
 });
 
@@ -122,7 +126,7 @@ describe("plugin catalog manifest", () => {
 					plugins: [entryWithVersions([{ ...validVersion("1.1.0"), downloadUrl: "http://example.com/tmdb-1.1.0.zip" }])],
 				}),
 			),
-		).toThrow("https");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
 
 	test("rejects a history entry with a malformed checksum", () => {
@@ -130,25 +134,25 @@ describe("plugin catalog manifest", () => {
 			parsePluginCatalogManifest(
 				JSON.stringify({ apiVersion: 1, name: "x", plugins: [entryWithVersions([{ ...validVersion("1.1.0"), checksum: "md5-abc" }])] }),
 			),
-		).toThrow("checksum");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
 
 	test("rejects duplicate versions within the history and against the top level", () => {
 		const duplicated = [validVersion("1.1.0"), validVersion("1.1.0", "2")];
 		expect(() =>
 			parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [entryWithVersions(duplicated)] })),
-		).toThrow("duplicate");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_version_duplicate" }));
 
 		const shadowingLatest = [validVersion("1.2.0"), validVersion("1.1.0", "2")];
 		expect(() =>
 			parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [entryWithVersions(shadowingLatest)] })),
-		).toThrow("duplicate");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_version_duplicate" }));
 	});
 
 	test("rejects more versions than the per-plugin limit", () => {
 		const versions = Array.from({ length: 51 }, (_, index) => validVersion(`0.0.${index + 1}`, `${(index % 9) + 1}`));
 		expect(() => parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [entryWithVersions(versions)] }))).toThrow(
-			"more than",
+			expect.objectContaining({ category: "validation", code: "plugin.catalog_versions_too_many" }),
 		);
 	});
 
@@ -157,7 +161,7 @@ describe("plugin catalog manifest", () => {
 			parsePluginCatalogManifest(
 				JSON.stringify({ apiVersion: 1, name: "x", plugins: [entryWithVersions([{ ...validVersion("1.1.0"), date }])] }),
 			),
-		).toThrow("date");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
 });
 
@@ -226,7 +230,7 @@ describe("minServerVersion", () => {
 	test("rejects a non-semantic minServerVersion on the entry and on a history entry", () => {
 		expect(() =>
 			parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, minServerVersion: "next" }] })),
-		).toThrow("semantic version");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 		expect(() =>
 			parsePluginCatalogManifest(
 				JSON.stringify({
@@ -235,6 +239,6 @@ describe("minServerVersion", () => {
 					plugins: [entryWithVersions([{ ...validVersion("1.1.0"), minServerVersion: "soon" }])],
 				}),
 			),
-		).toThrow("semantic version");
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
 });

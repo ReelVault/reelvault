@@ -1,31 +1,20 @@
-import type { MetadataStorageMode } from "@reelvault/sdk/common";
-import { episodesRepository } from "@/database/repositories/episodes.repository";
-import { seasonsRepository } from "@/database/repositories/seasons.repository";
-import { QueryFields } from "@/database/utils/fields";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { isNotNullish, toMap, unique } from "@/utils/array.utils";
-import { KeyedMutex } from "@/utils/concurrency";
-import { createLogger } from "@/utils/logger";
+import { KeyedMutex } from "@/utils/concurrency.utils";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { type SidecarArtworkWriter, sidecarArtworkExporter } from "./saver/sidecar-artwork.exporter";
+import {
+	type SidecarEpisodeRecord,
+	type SidecarSeasonRecord,
+	type SidecarStorageLibrary,
+	type SidecarStorageMediaFile,
+	sidecarStorage,
+} from "./sidecar.ports";
 import type { SidecarFlavor, SidecarMetadataWriter } from "./sidecar.types";
-import { type EpisodeRecord, episodeSnapshot, type SeasonRecord, seasonSnapshot } from "./sidecar-snapshot-resolver";
+import { episodeSnapshot, seasonSnapshot } from "./sidecar-snapshot.builder";
 import { prepareStorageRoots, resolveMetadataStorageMode, resolveSeriesDirectory, usesSidecars } from "./sidecar-storage.utils";
-
-export interface SidecarStorageLibrary {
-	metadataStorageMode: MetadataStorageMode;
-	/** Target NFO dialect; libraries predate the field, so treat missing as the native flavor. */
-	sidecarFlavor?: SidecarFlavor | null;
-	paths: Array<{ path: string; metadataStorageMode: MetadataStorageMode | null }>;
-}
-
-export interface SidecarStorageMediaFile {
-	filePath: string;
-	metadataId: string;
-	movieId: string | null;
-	episodeId: string | null;
-}
 
 interface MovieSaveTarget {
 	readonly mediaFile: SidecarStorageMediaFile;
@@ -35,15 +24,15 @@ interface MovieSaveTarget {
 
 interface EpisodeSaveTarget {
 	readonly mediaFile: SidecarStorageMediaFile;
-	readonly episode: EpisodeRecord;
-	readonly season: SeasonRecord;
+	readonly episode: SidecarEpisodeRecord;
+	readonly season: SidecarSeasonRecord;
 }
 
 type SaveTarget = MovieSaveTarget | EpisodeSaveTarget;
 
 interface SeriesRows {
-	episodesById: Map<string, EpisodeRecord>;
-	seasonsById: Map<string, SeasonRecord>;
+	episodesById: Map<string, SidecarEpisodeRecord>;
+	seasonsById: Map<string, SidecarSeasonRecord>;
 }
 
 /** State shared by every target of one `saveLibraryMedia` run: write dedupe keys and per-key serialization. */
@@ -68,25 +57,13 @@ async function loadSeriesRows(sidecarFiles: SidecarStorageMediaFile[]): Promise<
 	const episodeIds = unique(sidecarFiles.map((mediaFile) => mediaFile.episodeId).filter((episodeId) => isNotNullish(episodeId)));
 	const episodesById =
 		episodeIds.length > 0
-			? toMap(
-					await episodesRepository.findRecordsByIds({
-						ids: episodeIds,
-						fields: QueryFields.parse({ fields: "id,seasonId,title,episodeNumber,airDate,overview,imageId" }),
-					}),
-					(episode) => episode.id,
-				)
-			: new Map<string, EpisodeRecord>();
+			? toMap(await sidecarStorage().findEpisodeRecords(episodeIds), (episode) => episode.id)
+			: new Map<string, SidecarEpisodeRecord>();
 	const seasonIds = unique([...episodesById.values()].map((episode) => episode.seasonId));
 	const seasonsById =
 		seasonIds.length > 0
-			? toMap(
-					await seasonsRepository.findByIds({
-						ids: seasonIds,
-						fields: QueryFields.parse({ fields: "id,seasonNumber,name,airDate,overview,status,imageId" }),
-					}),
-					(season) => season.id,
-				)
-			: new Map<string, SeasonRecord>();
+			? toMap(await sidecarStorage().findSeasonRecords(seasonIds), (season) => season.id)
+			: new Map<string, SidecarSeasonRecord>();
 	return { episodesById, seasonsById };
 }
 
@@ -203,7 +180,7 @@ export class SidecarMetadataStorageService {
 		});
 	}
 
-	private async saveSeasonOnce(season: SeasonRecord, episodeDirectory: string, scope: SaveScope): Promise<void> {
+	private async saveSeasonOnce(season: SidecarSeasonRecord, episodeDirectory: string, scope: SaveScope): Promise<void> {
 		const seasonKey = `${season.id}:${episodeDirectory}`;
 		if (scope.savedSeasons.has(seasonKey)) return;
 

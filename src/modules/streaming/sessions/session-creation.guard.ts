@@ -1,6 +1,6 @@
-import { MINUTE } from "@/server.constants";
-import { DomainError } from "@/utils/errors";
-import { BoundedMap } from "../utils/bounded-map";
+import { MINUTE } from "@/config/server/server.constants";
+import { BoundedMap } from "@/modules/streaming/utils/bounded-map.utils";
+import { DomainError } from "@/utils/domain.errors";
 
 const DEFAULT_COOLDOWN_MS = 500;
 const SWEEP_INTERVAL_MS = 30_000;

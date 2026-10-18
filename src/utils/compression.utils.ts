@@ -1,6 +1,6 @@
 import { brotliCompress, constants, deflate, gzip } from "node:zlib";
-import { serverConfig } from "@/server.config";
-import { MemoryCache } from "@/utils/memory-cache";
+import { serverConfig } from "@/config/server/server.config";
+import { MemoryCache } from "@/utils/memory.cache";
 
 type CompressionEncoding = "br" | "gzip" | "deflate";
 type NegotiatedEncoding = CompressionEncoding | "none";

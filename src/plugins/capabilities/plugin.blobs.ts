@@ -1,24 +1,17 @@
 import type { PluginBlob, PluginBlobMetadata, PluginBlobWriteOptions } from "@reelvault/sdk/plugin";
 import { file } from "bun";
-import { databaseFactory } from "@/database/database";
-import { pluginBlobsRepository } from "@/database/repositories/plugin-storage.repository";
-import type { DatabaseTransaction, InferTable } from "@/database/types";
+import { type PluginBlobRow, type PluginBlobTransaction, pluginBlobData } from "@/app/plugins/plugin-data.service";
+import { serverConfig } from "@/config/server/server.config";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
-import { serverConfig } from "@/server.config";
-import { KeyedMutex } from "@/utils/concurrency";
-import { DomainError } from "@/utils/errors";
+import { KeyedMutex } from "@/utils/concurrency.utils";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { isExpired } from "@/utils/time.utils";
-import { assertPluginBlobWrite } from "./plugin.blobs.validation";
-import { assertStorageKey } from "./plugin.storage.validation";
-
-/** Property access keeps the repositories off array-iterator name matching in static analysis. */
-const repositories = { blobs: pluginBlobsRepository };
-
-type PluginBlobRow = InferTable<"pluginBlobs">;
+import { assertPluginBlobWrite } from "./plugin.blobs.validator";
+import { assertStorageKey } from "./plugin.storage.validator";
 
 class PluginBlobsService {
 	readonly serviceName = "PluginBlobsService";
@@ -48,11 +41,11 @@ class PluginBlobsService {
 			await this.ensureStorageDirectory();
 
 			let current: PluginBlobRow | undefined;
-			await databaseFactory.transaction(async (tx) => {
-				current = await repositories.blobs.find(pluginId, key, tx);
+			await pluginBlobData.transaction(async (tx) => {
+				current = await pluginBlobData.findEntry(pluginId, key, tx);
 				await this.assertWithinPluginQuota(pluginId, size, current, tx);
 				await writeFileWithRollback(this.storagePath(storageKey), content, () =>
-					repositories.blobs.set(
+					pluginBlobData.set(
 						{
 							pluginId,
 							key,
@@ -78,7 +71,7 @@ class PluginBlobsService {
 		assertStorageKey(key);
 
 		return await this.operationQueue.runExclusive(pluginId, async (): Promise<PluginBlob | undefined> => {
-			const entry = await repositories.blobs.find(pluginId, key);
+			const entry = await pluginBlobData.findEntry(pluginId, key);
 			if (!entry) return undefined;
 
 			if (isExpired(entry.expiresAt)) {
@@ -89,7 +82,7 @@ class PluginBlobsService {
 
 			const content = file(this.storagePath(entry.storageKey));
 			if (!(await content.exists())) {
-				await repositories.blobs.delete(pluginId, key);
+				await pluginBlobData.delete(pluginId, key);
 
 				return undefined;
 			}
@@ -101,7 +94,7 @@ class PluginBlobsService {
 	async delete(pluginId: string, key: string): Promise<void> {
 		assertStorageKey(key);
 		await this.operationQueue.runExclusive(pluginId, async () => {
-			const entry = await repositories.blobs.find(pluginId, key);
+			const entry = await pluginBlobData.findEntry(pluginId, key);
 			if (entry) await this.deleteEntry(entry);
 		});
 	}
@@ -114,11 +107,11 @@ class PluginBlobsService {
 			const pageSize = serverConfig.database.queryChunkSize;
 			let afterKey: string | undefined;
 			for (;;) {
-				const page = await repositories.blobs.findByPlugin(pluginId, { afterKey, limit: pageSize });
+				const page = await pluginBlobData.findByPlugin(pluginId, { afterKey, limit: pageSize });
 				if (page.length === 0) break;
 
 				const keys = page.map((entry) => entry.key);
-				await repositories.blobs.deleteByKeys(pluginId, keys);
+				await pluginBlobData.deleteByKeys(pluginId, keys);
 				await PromiseUtils.mapConcurrent(page, serverConfig.plugins.blobs.cleanupConcurrency, (entry) =>
 					FileUtils.delete(this.storagePath(entry.storageKey)),
 				);
@@ -135,7 +128,7 @@ class PluginBlobsService {
 		const pageSize = serverConfig.database.queryChunkSize;
 		// Each page's `deleteEntry` removes its rows, so repeated calls make progress.
 		for (;;) {
-			const entries = await repositories.blobs.findExpired(new Date(), pageSize);
+			const entries = await pluginBlobData.findExpired(new Date(), pageSize);
 			if (entries.length === 0) break;
 
 			await PromiseUtils.mapConcurrent(
@@ -143,7 +136,7 @@ class PluginBlobsService {
 				serverConfig.plugins.blobs.cleanupConcurrency,
 				(entry) =>
 					this.operationQueue.runExclusive(entry.pluginId, async () => {
-						const current = await repositories.blobs.find(entry.pluginId, entry.key);
+						const current = await pluginBlobData.findEntry(entry.pluginId, entry.key);
 						if (current?.storageKey === entry.storageKey) await this.deleteEntry(current);
 					}),
 				signal,
@@ -159,9 +152,9 @@ class PluginBlobsService {
 		pluginId: string,
 		newEntrySize: number,
 		replacing: PluginBlobRow | undefined,
-		tx: DatabaseTransaction,
+		tx: PluginBlobTransaction,
 	): Promise<void> {
-		const totalSize = (await repositories.blobs.sumSizeByPlugin(pluginId, tx)) - (replacing?.size ?? 0) + newEntrySize;
+		const totalSize = (await pluginBlobData.sumSizeByPlugin(pluginId, tx)) - (replacing?.size ?? 0) + newEntrySize;
 		if (totalSize > serverConfig.plugins.blobs.maxStorageBytes) {
 			throw new DomainError("validation", `Plugin blob storage must not exceed ${serverConfig.plugins.blobs.maxStorageBytes} bytes`, {
 				code: "plugin.blobs_quota_exceeded",
@@ -171,12 +164,12 @@ class PluginBlobsService {
 	}
 
 	private async removeExpiredForPluginKey(pluginId: string, key: string): Promise<void> {
-		const entry = await repositories.blobs.find(pluginId, key);
+		const entry = await pluginBlobData.findEntry(pluginId, key);
 		if (entry && isExpired(entry.expiresAt)) await this.deleteEntry(entry);
 	}
 
 	private async deleteEntry(entry: PluginBlobRow): Promise<void> {
-		await repositories.blobs.delete(entry.pluginId, entry.key);
+		await pluginBlobData.delete(entry.pluginId, entry.key);
 		await FileUtils.delete(this.storagePath(entry.storageKey));
 	}
 

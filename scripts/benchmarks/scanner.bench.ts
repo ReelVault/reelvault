@@ -1,11 +1,12 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bench, fixture, main, suiteArgs } from "benchkit";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
-import { fileScannerService, matchesIgnorePattern } from "@/modules/scanner/disk/file-scanner";
-import { findSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles";
+import { fileScannerService, matchesIgnorePattern } from "@/modules/scanner/disk/file.scanner";
+import { findSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles.utils";
 import { filterPathsWithinRoots } from "@/modules/scanner/utils/scanner.utils";
+import { removeTree } from "@/utils/directory.utils";
 import { PathUtils } from "@/utils/path.utils";
 
 export const meta = { description: "File scanner & recognition (directory walk, diff, parseFileName caching)" };
@@ -41,7 +42,7 @@ if (!args.help) {
 	const tree = fixture("scanner-tree", async ({ onCleanup }) => {
 		const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-scanner-"));
 		onCleanup(() => {
-			return rm(root, { recursive: true, force: true });
+			return removeTree(root);
 		});
 		console.log(`[scanner] generating directory structure with ${DIRECTORY_COUNT * FILES_PER_DIR} files...`);
 
@@ -100,7 +101,7 @@ if (!args.help) {
 	// the listing must not be re-read per episode.
 	const subtitlesTree = fixture("subtitles-tree", async ({ onCleanup }) => {
 		const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-subs-"));
-		onCleanup(() => rm(root, { recursive: true, force: true }));
+		onCleanup(() => removeTree(root));
 		const directory = join(root, "Season 01");
 		await mkdir(directory, { recursive: true });
 

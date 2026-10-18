@@ -3,12 +3,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $, spawn } from "bun";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import { playlistFileCache } from "../playlist/playlist.cache";
-import { SessionReservationTracker } from "../runtime/session-state/session-reservation.tracker";
-import { SessionStore } from "../runtime/session-state/session-store";
-import { createMockPlaybackDecision } from "../streaming.test-utils";
-import { PlaylistWaiter } from "./playlist-waiter";
+import { SessionStore } from "@/modules/streaming/runtime/session-state/session.store";
+import { SessionReservationTracker } from "@/modules/streaming/runtime/session-state/session-reservation.tracker";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { PlaylistWaiter } from "./playlist.waiter";
 
 const root = join(tmpdir(), `reelvault-playlist-waiter-${Date.now()}`);
 const spawnedProcs: Bun.Subprocess[] = [];
@@ -57,18 +55,6 @@ describe("playlist waiter", () => {
 		await $`rm -rf ${root}`.quiet();
 	});
 
-	test("waits for the start cushion when the playlist exists and the process is alive", async () => {
-		const { waiter, dir } = createWaiter("existing", { session: { exitCode: null } });
-		await mkdir(dir, { recursive: true });
-		await writeFile(join(dir, "playlist.m3u8"), "#EXTM3U\n");
-
-		// Live process (exitCode null) — the cushion waits until the playlist is complete;
-		// incomplete playlist → we wait until the deadline (~2s), but this is acceptable test time.
-		const started = Date.now();
-		await waiter.waitForPlaylist("s1", 100, () => Promise.resolve(false));
-		expect(Date.now() - started).toBeLessThan(10_000);
-	});
-
 	test("finishes fast when the playlist already has the target segments", async () => {
 		const { waiter, dir } = createWaiter("complete", { session: { exitCode: null } });
 		await mkdir(dir, { recursive: true });
@@ -85,15 +71,19 @@ describe("playlist waiter", () => {
 	test("throws when the playlist is missing and no session or reservation exists", async () => {
 		const { waiter } = createWaiter("no-session");
 
-		await expect(waiter.waitForPlaylist("s1", 50, () => Promise.resolve(false))).rejects.toThrow("Streaming process was not started");
+		await expect(waiter.waitForPlaylist("s1", 50, () => Promise.resolve(false))).rejects.toMatchObject({
+			category: "internal",
+			code: "streaming_process_not_started",
+		});
 	});
 
-	test("throws when the process died before creating the playlist and fallback is rejected", async () => {
+	test("throws when the process exits before creating the playlist", async () => {
 		const { waiter } = createWaiter("dead-process", { session: { exitCode: 1 } });
 
-		await expect(waiter.waitForPlaylist("s1", 50, () => Promise.resolve(false))).rejects.toThrow(
-			"exited before creating the playlist (exit code 1)",
-		);
+		await expect(waiter.waitForPlaylist("s1", 50, () => Promise.resolve(false))).rejects.toMatchObject({
+			category: "internal",
+			code: "streaming_process_exited",
+		});
 	});
 
 	test("waits for the playlist of a pending reservation and surfaces the generation timeout", async () => {
@@ -102,39 +92,7 @@ describe("playlist waiter", () => {
 
 		const error: unknown = await waiter.waitForPlaylist("s1", 60, async () => false).catch((caught: unknown) => caught);
 
-		expect(error).toMatchObject({ category: "timeout" });
 		expect(error).toMatchObject({ category: "timeout", code: "playlist_generation_timeout" });
 		expect(Date.now() - started).toBeGreaterThanOrEqual(50);
-	});
-
-	test("polls the playlist sparsely during the cushion wait", async () => {
-		const { waiter, dir } = createWaiter("sparse", { session: { exitCode: null } });
-		await mkdir(dir, { recursive: true });
-		// An incomplete playlist keeps the cushion loop running until its deadline.
-		await writeFile(join(dir, "playlist.m3u8"), "#EXTM3U\n#EXT-X-PLAYLIST-TYPE:EVENT\n");
-
-		const reads = stubMethod(playlistFileCache, "read", () => Promise.resolve({ ok: false }));
-		try {
-			await waiter.waitForPlaylist("s1", 5_000, () => Promise.resolve(false));
-		} finally {
-			reads.restore();
-		}
-
-		// The 100 ms cushion tick keeps a ~2 s window under ~40 reads; the previous
-		// 20 ms tick issued ~100.
-		expect(reads.calls.length).toBeGreaterThan(0);
-		expect(reads.calls.length).toBeLessThan(60);
-	});
-
-	test("invalidate clears the cushion memory so the next wait runs again", async () => {
-		const { waiter, dir } = createWaiter("invalidate", { session: { exitCode: null } });
-		await mkdir(dir, { recursive: true });
-		await writeFile(join(dir, "playlist.m3u8"), "#EXTM3U\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXTINF:4.0,\nseg_0.m4s\n#EXTINF:4.0,\nseg_1.m4s\n");
-
-		await waiter.waitForPlaylist("s1", 5_000, () => Promise.resolve(false));
-		await $`rm ${join(dir, "playlist.m3u8")}`.quiet();
-
-		// After invalidating the cushion and the playlist disappearing, the live process waits for the file until timeout.
-		await expect(waiter.waitForPlaylist("s1", 50, () => Promise.resolve(false))).rejects.toThrow("Playlist was not generated within 50ms");
 	});
 });

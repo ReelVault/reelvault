@@ -1,0 +1,108 @@
+import { serverConfig } from "@/config/server/server.config";
+import { MINUTE } from "@/config/server/server.constants";
+import { BoundedMap } from "@/modules/streaming/utils/bounded-map.utils";
+import { normalizeStringList } from "@/modules/streaming/utils/string-list.utils";
+import { DomainError } from "@/utils/domain.errors";
+import { detach } from "@/utils/promise.utils";
+import { normalizeLower } from "@/utils/type.utils";
+
+interface Entry<T> {
+	fingerprint: string;
+	promise: Promise<T>;
+	expiresAt: number | undefined;
+}
+
+const PENDING_ENTRY_TTL_MS = MINUTE;
+const SWEEP_INTERVAL_MS = 15_000;
+const DEFAULT_MAX_ENTRIES = 1_000;
+
+/**
+ * Single-node idempotency registry for session creation. The streaming registry,
+ * worker and HLS files are local to this process as well, so this deliberately
+ * does not claim to provide cross-node guarantees.
+ */
+export class PlaybackSessionIdempotencyRegistry<T = unknown> {
+	private readonly entries: BoundedMap<Entry<T>>;
+	private lastSweepAt = 0;
+
+	constructor(maxEntries = DEFAULT_MAX_ENTRIES) {
+		this.entries = new BoundedMap({ maxEntries });
+	}
+
+	execute(profileId: string, idempotencyKey: string, body: Record<string, unknown>, create: () => Promise<T>): Promise<T> {
+		this.removeExpiredEntriesIfDue();
+
+		const key = `${profileId}:${idempotencyKey}`;
+		const fingerprint = fingerprintPlaybackSession(body);
+		const existing = this.entries.get(key);
+		if (existing) {
+			if (existing.fingerprint !== fingerprint) {
+				throw new DomainError("conflict", "Idempotency-Key was already used with different playback session settings", {
+					code: "stream.idempotency_conflict",
+				});
+			}
+
+			return existing.promise;
+		}
+
+		const { promise, resolve, reject } = Promise.withResolvers<T>();
+		const entry: Entry<T> = { fingerprint, promise, expiresAt: Date.now() + PENDING_ENTRY_TTL_MS };
+		this.entries.set(key, entry);
+
+		detach(
+			(async () => {
+				try {
+					resolve(await create());
+				} catch (error) {
+					reject(error);
+				} finally {
+					entry.expiresAt = Date.now() + serverConfig.stream.completedRequestTtlMs;
+					this.removeExpiredEntriesIfDue();
+				}
+			})(),
+		);
+
+		return promise;
+	}
+
+	private removeExpiredEntriesIfDue(): void {
+		const now = Date.now();
+		if (this.entries.size <= 100 && now - this.lastSweepAt < SWEEP_INTERVAL_MS) return;
+
+		this.lastSweepAt = now;
+		this.entries.prune((entry, sweepNow) => entry.expiresAt !== undefined && entry.expiresAt <= sweepNow);
+	}
+}
+
+export function fingerprintPlaybackSession(body: Record<string, unknown>): string {
+	const mediaFileId = normalizeString(body.mediaFileId);
+	const videoCodecs = normalizeCodecs(body.videoCodecs).join(",");
+	const audioCodecs = normalizeCodecs(body.audioCodecs).join(",");
+	const maxBitrate = fingerprintValue(body.maxBitrate);
+	const audioStreamIndex = fingerprintValue(body.audioStreamIndex);
+	const audioLanguage = normalizeString(body.audioLanguage);
+	const subtitleLanguage = normalizeString(body.subtitleLanguage);
+	const subtitlesEnabled = fingerprintValue(body.subtitlesEnabled);
+	const forcedSubtitlesOnly = fingerprintValue(body.forcedSubtitlesOnly);
+
+	return `${mediaFileId}|${videoCodecs}|${audioCodecs}|${maxBitrate}|${audioStreamIndex}|${audioLanguage}|${subtitleLanguage}|${subtitlesEnabled}|${forcedSubtitlesOnly}`;
+}
+
+/** Stringifies scalar fingerprint fields; non-scalar values collapse to the empty sentinel. */
+function fingerprintValue(value: unknown): string {
+	if (typeof value === "string") return value;
+
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+
+	return "";
+}
+
+function normalizeCodecs(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+
+	return normalizeStringList(value);
+}
+
+function normalizeString(value: unknown): string {
+	return typeof value === "string" ? normalizeLower(value) : "";
+}

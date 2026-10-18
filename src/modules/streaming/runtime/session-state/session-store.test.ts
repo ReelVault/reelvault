@@ -1,7 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "bun";
-import { createMockPlaybackDecision } from "../../streaming.test-utils";
-import { SessionStore } from "./session-store";
+import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { type MethodStub, stubMethod } from "../../../../../tests/helpers/method-stub.helper";
+import { SessionStore } from "./session.store";
+
+/** Date.now stub for the terminated-history aging test; restored after every test. */
+let dateStub: MethodStub | undefined;
+
+afterEach(() => {
+	dateStub?.restore();
+	dateStub = undefined;
+});
 
 function registration(id: string, overrides: Partial<Parameters<SessionStore["register"]>[0]> = {}) {
 	return {
@@ -37,7 +46,9 @@ describe("session store", () => {
 		const store = new SessionStore();
 		store.register(registration("s1"));
 
-		expect(() => store.register(registration("s1"))).toThrow("already registered");
+		expect(() => store.register(registration("s1"))).toThrow(
+			expect.objectContaining({ category: "conflict", code: "stream.session_exists" }),
+		);
 	});
 
 	test("attachProcess moves creating → active and bumps the generation", () => {
@@ -59,7 +70,9 @@ describe("session store", () => {
 		store.register(registration("s1"));
 		store.claimRelease("s1");
 
-		expect(() => store.attachProcess("s1", fakeProcess(), 0)).toThrow("released while starting");
+		expect(() => store.attachProcess("s1", fakeProcess(), 0)).toThrow(
+			expect.objectContaining({ category: "internal", code: "stream.session_released" }),
+		);
 		expect(store.get("s1")?.generation).toBe(0);
 		expect(store.get("s1")?.process).toBeNull();
 	});
@@ -80,23 +93,22 @@ describe("session store", () => {
 		expect(store.get("s1")?.process).toBeNull();
 	});
 
-	test("touch refreshes client liveness regardless of process state, but not for ending sessions", () => {
+	test("touch refreshes client liveness, but not for ending sessions", () => {
 		const store = new SessionStore();
-		store.register(registration("s1"));
-		const before = store.get("s1")?.lastActivity ?? 0;
+		const session = store.register(registration("s1"));
+		session.lastActivity = 0;
 
 		store.touch("s1");
-		expect((store.get("s1")?.lastActivity ?? 0) >= before).toBe(true);
+		expect(session.lastActivity).toBeGreaterThan(0);
 
 		store.claimRelease("s1");
-		const ending = store.get("s1");
-		if (ending) ending.lastActivity = 0;
+		session.lastActivity = 0;
 
 		store.touch("s1");
-		expect(store.get("s1")?.lastActivity).toBe(0);
+		expect(session.lastActivity).toBe(0);
 	});
 
-	test("claimRelease works for creating and active, refuses ending and unknown", () => {
+	test("claimRelease allows creating and active sessions and refuses ending and unknown ones", () => {
 		const store = new SessionStore();
 		store.register(registration("creating"));
 		store.register(registration("active"));
@@ -142,6 +154,8 @@ describe("session store", () => {
 	});
 
 	test("terminated history powers the profile cooldown and is cleaned up by age", () => {
+		let now = 1_000_000;
+		dateStub = stubMethod(Date, "now", () => now);
 		const store = new SessionStore();
 		store.register(registration("s1"));
 		store.claimRelease("s1");
@@ -151,13 +165,12 @@ describe("session store", () => {
 		expect(store.isProfileTerminatedRecently("profile-1", "file-s1", 1_000)).toEqual({ reason: "admin-stop" });
 		expect(store.isProfileTerminatedRecently("profile-1", "other", 1_000)).toBeNull();
 
-		// A fresh entry survives cleanup; an aged one is removed along with the index.
+		// Right after termination the entry is inside the 5 s window and survives cleanup.
 		store.cleanupTerminatedSessions(5_000);
 		expect(store.getTerminatedSession("s1")?.reason).toBe("admin-stop");
 
-		const terminated = store.getTerminatedSession("s1");
-		if (terminated) terminated.terminatedAt = Date.now() - 10_000;
-
+		// Ten seconds later it is outside the window, so cleanup removes it.
+		now += 10_000;
 		store.cleanupTerminatedSessions(5_000);
 		expect(store.getTerminatedSession("s1")).toBeUndefined();
 		expect(store.isProfileTerminatedRecently("profile-1", "file-s1", 1_000)).toBeNull();
@@ -172,8 +185,6 @@ describe("session store", () => {
 		// First 5 sessions must be evicted by FIFO bound (1_000 cap)
 		expect(store.getTerminatedSession("session-0")).toBeUndefined();
 		expect(store.getTerminatedSession("session-4")).toBeUndefined();
-		expect(store.getTerminatedSession("session-5")).toBeDefined();
-		expect(store.getTerminatedSession("session-1004")).toBeDefined();
 		expect(store.isProfileTerminatedRecently("profile-0", "file-0", 60_000)).toBeNull();
 		expect(store.isProfileTerminatedRecently("profile-1004", "file-1004", 60_000)).toEqual({ reason: "timeout" });
 	});

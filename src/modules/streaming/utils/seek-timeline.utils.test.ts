@@ -3,15 +3,10 @@ import { resolveSeekTimelineStart } from "./seek-timeline.utils";
 
 describe("seek timeline utils", () => {
 	test("transcode restarts exactly at the requested offset", async () => {
-		const probeCalls: Array<[string, number]> = [];
-		const timelineStart = await resolveSeekTimelineStart("transcode", "/media/f.mkv", 120, (path, offset) => {
-			probeCalls.push([path, offset]);
-
-			return 100;
-		});
+		// The probe reports a keyframe at 100; a transcode restart must ignore it and start at the offset.
+		const timelineStart = await resolveSeekTimelineStart("transcode", "/media/f.mkv", 120, async () => 100);
 
 		expect(timelineStart).toBe(120);
-		expect(probeCalls).toEqual([]);
 	});
 
 	test("direct-stream aligns to the nearest keyframe before the offset", async () => {

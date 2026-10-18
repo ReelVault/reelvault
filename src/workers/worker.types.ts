@@ -1,4 +1,5 @@
 import type { AddWorkerItemOptions, WorkerCategory, WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk";
+import type { BackoffConfig } from "@/config/server/workers.config";
 
 export type WorkerEnqueueOptions = Pick<AddWorkerItemOptions, "operationId" | "dependsOnTaskIds" | "dependsOnJobId" | "priority">;
 
@@ -8,11 +9,6 @@ export interface WorkerOperationJobsQuery {
 	q?: string | undefined;
 	page?: number | undefined;
 	limit?: number | undefined;
-}
-
-export interface BackoffConfig {
-	readonly type: "fixed" | "exponential";
-	readonly delayMs: number;
 }
 
 export function createWorkerDefinition<TData, TResult = unknown>(

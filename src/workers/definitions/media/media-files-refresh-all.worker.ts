@@ -1,10 +1,11 @@
-import { type ApplicationContext, withDomainError } from "@/application/context";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { serverConfig } from "@/server.config";
-import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue";
+import { serverConfig } from "@/config/server/server.config";
+import { withDomainError } from "@/utils/domain.errors";
+import type { ApplicationContext } from "@/utils/task-context.types";
+import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
+import { workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
-import { enqueueMediaFileRefreshBatch } from "./media-file-refresh-batch";
+import { enqueueMediaFileRefreshBatch } from "./media-file-refresh-batch.service";
 
 export interface MediaFilesRefreshAllResult {
 	requested: number;
@@ -17,7 +18,7 @@ export interface MediaFilesRefreshAllTaskDependencies {
 }
 
 const defaultDependencies: MediaFilesRefreshAllTaskDependencies = {
-	scanAll: (onPage) => mediaRepository.scanAllIdentities(onPage),
+	scanAll: (onPage) => workerDependencies().media.scanAllIdentities(onPage),
 	enqueueBatch: enqueueMediaFileRefreshBatch,
 };
 

@@ -16,23 +16,21 @@ import type {
 	SubtitleType,
 	UpdateSubtitleRequest,
 } from "@reelvault/sdk/common";
-import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
-import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
-import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { serverConfig } from "@/server.config";
+import { serverConfig } from "@/config/server/server.config";
 import { DirUtils } from "@/utils/directory.utils";
-import { assertFound, DomainError, errorCodeOf } from "@/utils/errors";
+import { assertFound, DomainError, errorCodeOf } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { invalidateResponseBodies } from "@/utils/response-body-cache";
-import { runSafely } from "@/utils/safe-execute";
+import { invalidateResponseBodies } from "@/utils/response-body.cache";
+import { runSafely } from "@/utils/safe-execute.utils";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
 import { type SubtitleContent, type SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
 import { type SubtitleFileCleaner, subtitleFileCleaner } from "./subtitle-file.cleaner";
 import { type SubtitleInfoCache, subtitleInfoCache } from "./subtitle-info.cache";
 import { detectUploadedSubtitleFormat } from "./subtitle-upload.utils";
+import { subtitleProviders, subtitlesStorage } from "./subtitles.ports";
 
 interface ServiceDependencies {
 	findPage: (query?: PaginationQuery & SubtitleFilters & SubtitleSorting) => Promise<PaginatedResponse<SubtitleEntity>>;
@@ -51,15 +49,15 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	findPage: (query) => subtitlesRepository.findPage(query),
-	findByMediaFileId: (mediaFileId) => subtitlesRepository.findByMediaFileId(mediaFileId),
-	findById: async (id) => await subtitlesRepository.findByPrimaryId({ primaryId: id }),
-	createRow: (body, type) => subtitlesRepository.createAndRead(body, type),
-	updateRow: (id, body) => subtitlesRepository.updateAndRead(id, body),
-	deleteRow: (id) => subtitlesRepository.deleteAndReturn(id),
-	getProviderStatus: () => pluginManager.getSubtitleProviderStatus(),
-	searchProviders: (body) => subtitleProviderService.search(body),
-	downloadSubtitle: (providerId, body) => subtitleProviderService.download(providerId, body),
+	findPage: (query) => subtitlesStorage().findPage(query),
+	findByMediaFileId: (mediaFileId) => subtitlesStorage().findByMediaFileId(mediaFileId),
+	findById: async (id) => await subtitlesStorage().findById(id),
+	createRow: (body, type) => subtitlesStorage().createRow(body, type),
+	updateRow: (id, body) => subtitlesStorage().updateRow(id, body),
+	deleteRow: (id) => subtitlesStorage().deleteRow(id),
+	getProviderStatus: () => subtitleProviders().getProviderStatus(),
+	searchProviders: (body) => subtitleProviders().search(body),
+	downloadSubtitle: (providerId, body) => subtitleProviders().download(providerId, body),
 	infoCache: subtitleInfoCache,
 	contentResolver: subtitleContentResolver,
 	fileCleaner: subtitleFileCleaner,
@@ -98,7 +96,7 @@ export class SubtitlesService {
 
 	async getProviders(): Promise<SubtitleProviderInfo[]> {
 		return await runSafely(this, "getProviders", async () => {
-			const disabled = await subtitleProviderService.disabledProviderIds();
+			const disabled = await subtitleProviders().disabledProviderIds();
 
 			return this.dependencies.getProviderStatus().map((provider) => ({ ...provider, enabled: !disabled.has(provider.id) }));
 		});
@@ -107,7 +105,7 @@ export class SubtitlesService {
 	/** Turns a subtitle provider on or off; an off provider is not searched and cannot be downloaded from. */
 	async setProviderEnabled(providerId: string, enabled: boolean): Promise<SubtitleProviderInfo> {
 		return await runSafely(this, "setProviderEnabled", async () => {
-			await subtitleProviderService.setEnabled(providerId, enabled);
+			await subtitleProviders().setEnabled(providerId, enabled);
 			const updated = (await this.getProviders()).find((provider) => provider.id === providerId);
 			assertFound(updated, "Subtitle provider", providerId);
 

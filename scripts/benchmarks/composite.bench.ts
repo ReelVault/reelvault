@@ -1,7 +1,7 @@
 import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
-import { contextHeaders, rotatingIdentity } from "./lib/identity";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { contextHeaders, rotatingIdentity } from "./lib/identity.utils";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 /**
  * Frontend page-open SEQUENCES, measured as one sample per page visit — the

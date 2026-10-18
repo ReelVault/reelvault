@@ -2,13 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calculateDirectoryIntegrity } from "./directory-hash";
+import { removeTree } from "@/utils/directory.utils";
+import { calculateDirectoryIntegrity } from "./directory-hash.utils";
 
 const temporaryDirectories: string[] = [];
 const SHA256_PREFIX_REGEX = /^sha256-/;
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
 });
 
 async function createPackage(): Promise<string> {
@@ -61,6 +62,9 @@ describe("calculateDirectoryIntegrity", () => {
 		const pkg = await createPackage();
 		await symlink(join(pkg, "plugin.json"), join(pkg, "linked.mjs"));
 
-		await expect(calculateDirectoryIntegrity(pkg)).rejects.toThrow("unsupported filesystem entry");
+		await expect(calculateDirectoryIntegrity(pkg)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_entry_unsupported",
+		});
 	});
 });

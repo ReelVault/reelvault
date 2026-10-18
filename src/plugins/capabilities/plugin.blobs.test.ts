@@ -1,164 +1,158 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { databaseFactory } from "@/database/database";
-import { pluginBlobsRepository } from "@/database/repositories/plugin-storage.repository";
-import { FileUtils } from "@/utils/file.utils";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { describe, expect, test } from "bun:test";
+import { file } from "bun";
+import { eq } from "drizzle-orm";
+import { serverConfig } from "@/config/server/server.config";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { PathUtils } from "@/utils/path.utils";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginBlobsService } from "./plugin.blobs";
 
-const activeStubs: Array<{ restore(): void }> = [];
+// Blobs are written to the migrated test database and to the test blob root, so the
+// tests read back rows and files. Nothing is stubbed.
+const db = useTestDatabase();
 
-beforeEach(() => {
-	activeStubs.length = 0;
-});
-
-afterEach(() => {
-	for (const stub of activeStubs.toReversed()) stub.restore();
-});
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const PLUGIN = "org.reelvault.test";
 
 function bytes(text: string): Uint8Array {
 	return new TextEncoder().encode(text);
 }
 
-function blobRow(overrides: Record<string, unknown> = {}) {
-	return {
-		pluginId: "org.reelvault.test",
-		key: "settings.json",
-		storageKey: "stored-1",
-		contentType: "application/json",
-		size: 6,
-		createdAt: new Date("2020-01-01T00:00:00Z"),
-		updatedAt: new Date("2020-01-01T00:00:00Z"),
-		expiresAt: new Date(Date.now() + 60_000),
-		...overrides,
-	};
+async function storedBlobs() {
+	return await db.client().select().from(schema.pluginBlobs);
+}
+
+function blobPath(storageKey: string): string {
+	return PathUtils.join(serverConfig.paths.pluginBlobs, storageKey);
+}
+
+/** Pushes a stored blob into the past so the next read treats it as expired. */
+async function expireBlob(key: string): Promise<void> {
+	await db
+		.client()
+		.update(schema.pluginBlobs)
+		.set({ expiresAt: new Date(Date.now() - 1_000) })
+		.where(eq(schema.pluginBlobs.key, key));
 }
 
 describe("pluginBlobsService.put", () => {
-	test("writes the blob file and returns metadata with ISO timestamps", async () => {
-		const setValues: Array<Record<string, unknown>> = [];
-		activeStubs.push(
-			stubMethod(pluginBlobsRepository, "find", () => Promise.resolve(undefined)),
-			stubMethod(pluginBlobsRepository, "sumSizeByPlugin", () => Promise.resolve(0)),
-			stubMethod(pluginBlobsRepository, "set", (values: Record<string, unknown>) => {
-				setValues.push(values);
-
-				return Promise.resolve(undefined);
-			}),
-			stubMethod(databaseFactory, "transaction", (callback: (tx: unknown) => Promise<unknown>) => callback({})),
-		);
-
-		const metadata = await pluginBlobsService.put("org.reelvault.test", "settings.json", bytes('{"a":1}'), {
+	test("stores the bytes and the row, and returns metadata with ISO timestamps", async () => {
+		const metadata = await pluginBlobsService.put(PLUGIN, "settings.json", bytes('{"a":1}'), {
 			contentType: "application/json",
 			expiresInMs: 60_000,
 		});
 
-		expect(metadata).toMatchObject({
-			key: "settings.json",
-			contentType: "application/json",
-			size: 7,
-		});
-		expect(metadata.createdAt).not.toBeNull();
-		expect(metadata.expiresAt).not.toBeNull();
-		expect(setValues).toHaveLength(1);
-		expect(setValues[0]).toMatchObject({
-			pluginId: "org.reelvault.test",
-			key: "settings.json",
-			contentType: "application/json",
-			size: 7,
-		});
+		expect(metadata).toMatchObject({ key: "settings.json", contentType: "application/json", size: 7 });
+		expect(metadata.createdAt).toMatch(ISO_TIMESTAMP);
+		expect(metadata.expiresAt).toMatch(ISO_TIMESTAMP);
+		const [row] = await storedBlobs();
+		expect(row).toMatchObject({ pluginId: PLUGIN, key: "settings.json", contentType: "application/json", size: 7 });
+		expect(await file(blobPath(row?.storageKey ?? "")).text()).toBe('{"a":1}');
 	});
 
-	test("rejects the write when the plugin storage quota is exhausted", async () => {
-		activeStubs.push(
-			stubMethod(pluginBlobsRepository, "find", () => Promise.resolve(undefined)),
-			stubMethod(pluginBlobsRepository, "sumSizeByPlugin", () => Promise.resolve(100 * 1024 * 1024)),
-			stubMethod(databaseFactory, "transaction", (callback: (tx: unknown) => Promise<unknown>) => callback({})),
-		);
+	test("rejects a write that would exceed the plugin quota and stores nothing", async () => {
+		// The quota is summed from the rows, so a row already at the limit is enough.
+		await db
+			.client()
+			.insert(schema.pluginBlobs)
+			.values({
+				pluginId: PLUGIN,
+				key: "existing.bin",
+				storageKey: "existing-blob",
+				contentType: "application/octet-stream",
+				size: serverConfig.plugins.blobs.maxStorageBytes,
+				expiresAt: new Date(Date.now() + 60_000),
+			});
 
 		await expect(
-			pluginBlobsService.put("org.reelvault.test", "settings.json", bytes("x"), { contentType: "text/plain", expiresInMs: 60_000 }),
-		).rejects.toThrow("must not exceed");
+			pluginBlobsService.put(PLUGIN, "settings.json", bytes("x"), { contentType: "text/plain", expiresInMs: 60_000 }),
+		).rejects.toMatchObject({ category: "validation", code: "plugin.blobs_quota_exceeded" });
+		expect((await storedBlobs()).map((row) => row.key)).toEqual(["existing.bin"]);
 	});
 
-	test("replaces an expired entry found under the same key", async () => {
-		const expiredRow = blobRow({ expiresAt: new Date(Date.now() - 1_000) });
-		const deleted: string[] = [];
-		activeStubs.push(
-			stubMethod(pluginBlobsRepository, "find", () => Promise.resolve(expiredRow)),
-			stubMethod(pluginBlobsRepository, "sumSizeByPlugin", () => Promise.resolve(0)),
-			stubMethod(pluginBlobsRepository, "delete", (pluginId: string, key: string) => {
-				deleted.push(`${pluginId}:${key}`);
+	test("replaces an entry under the same key and removes the file it replaced", async () => {
+		await pluginBlobsService.put(PLUGIN, "settings.json", bytes("first"), { contentType: "text/plain", expiresInMs: 60_000 });
+		const [before] = await storedBlobs();
 
-				return Promise.resolve();
-			}),
-			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
-			stubMethod(pluginBlobsRepository, "set", () => Promise.resolve(undefined)),
-			stubMethod(databaseFactory, "transaction", (callback: (tx: unknown) => Promise<unknown>) => callback({})),
-		);
+		await pluginBlobsService.put(PLUGIN, "settings.json", bytes("fresh"), { contentType: "text/plain", expiresInMs: 60_000 });
 
-		const metadata = await pluginBlobsService.put("org.reelvault.test", "settings.json", bytes("fresh"), {
+		const rows = await storedBlobs();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ key: "settings.json", size: 5 });
+		expect(await file(blobPath(before?.storageKey ?? "")).exists()).toBe(false);
+		expect(await file(blobPath(rows[0]?.storageKey ?? "")).text()).toBe("fresh");
+	});
+
+	test("replaces an expired entry under the same key and removes the expired file", async () => {
+		await pluginBlobsService.put(PLUGIN, "settings.json", bytes("old"), { contentType: "text/plain", expiresInMs: 60_000 });
+		const [expired] = await storedBlobs();
+		await expireBlob("settings.json");
+
+		const metadata = await pluginBlobsService.put(PLUGIN, "settings.json", bytes("fresh"), {
 			contentType: "text/plain",
 			expiresInMs: 60_000,
 		});
 
 		expect(metadata.size).toBe(5);
-		expect(deleted).toEqual(["org.reelvault.test:settings.json"]);
+		const rows = await storedBlobs();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.storageKey).not.toBe(expired?.storageKey);
+		expect(await file(blobPath(expired?.storageKey ?? "")).exists()).toBe(false);
 	});
 });
 
 describe("pluginBlobsService.get", () => {
-	test("returns undefined and deletes an expired entry", async () => {
-		const expiredRow = blobRow({ expiresAt: new Date(Date.now() - 1_000) });
-		const deletedRows: Array<[string, string]> = [];
-		activeStubs.push(
-			stubMethod(pluginBlobsRepository, "find", () => Promise.resolve(expiredRow)),
-			stubMethod(pluginBlobsRepository, "delete", (pluginId: string, key: string) => {
-				deletedRows.push([pluginId, key]);
+	test("returns the stored content and metadata for a live entry", async () => {
+		await pluginBlobsService.put(PLUGIN, "settings.json", bytes("live"), { contentType: "text/plain", expiresInMs: 60_000 });
 
-				return Promise.resolve();
-			}),
-			stubMethod(FileUtils, "delete", () => Promise.resolve(true)),
-		);
+		const blob = await pluginBlobsService.get(PLUGIN, "settings.json");
 
-		await expect(pluginBlobsService.get("org.reelvault.test", "settings.json")).resolves.toBeUndefined();
-		expect(deletedRows).toEqual([["org.reelvault.test", "settings.json"]]);
+		expect(blob).toMatchObject({ key: "settings.json", contentType: "text/plain", size: 4 });
+		expect(await blob?.content.text()).toBe("live");
+	});
+
+	test("returns undefined and deletes an expired entry with its file", async () => {
+		await pluginBlobsService.put(PLUGIN, "settings.json", bytes("stale"), { contentType: "text/plain", expiresInMs: 60_000 });
+		const [row] = await storedBlobs();
+		await expireBlob("settings.json");
+
+		await expect(pluginBlobsService.get(PLUGIN, "settings.json")).resolves.toBeUndefined();
+
+		expect(await storedBlobs()).toEqual([]);
+		expect(await file(blobPath(row?.storageKey ?? "")).exists()).toBe(false);
+	});
+
+	test("returns undefined and drops the row when its file is missing on disk", async () => {
+		await pluginBlobsService.put(PLUGIN, "settings.json", bytes("gone"), { contentType: "text/plain", expiresInMs: 60_000 });
+		const [row] = await storedBlobs();
+		await file(blobPath(row?.storageKey ?? "")).delete();
+
+		await expect(pluginBlobsService.get(PLUGIN, "settings.json")).resolves.toBeUndefined();
+
+		expect(await storedBlobs()).toEqual([]);
 	});
 
 	test("returns undefined for an unknown key", async () => {
-		activeStubs.push(stubMethod(pluginBlobsRepository, "find", () => Promise.resolve(undefined)));
-
-		await expect(pluginBlobsService.get("org.reelvault.test", "settings.json")).resolves.toBeUndefined();
+		await expect(pluginBlobsService.get(PLUGIN, "missing.json")).resolves.toBeUndefined();
 	});
 });
 
 describe("pluginBlobsService.delete", () => {
 	test("removes the row and the stored file when the entry exists", async () => {
-		const deletedRows: Array<[string, string]> = [];
-		const deletedFiles: string[] = [];
-		activeStubs.push(
-			stubMethod(pluginBlobsRepository, "find", () => Promise.resolve(blobRow())),
-			stubMethod(pluginBlobsRepository, "delete", (pluginId: string, key: string) => {
-				deletedRows.push([pluginId, key]);
+		await pluginBlobsService.put(PLUGIN, "settings.json", bytes("bye"), { contentType: "text/plain", expiresInMs: 60_000 });
+		const [row] = await storedBlobs();
 
-				return Promise.resolve();
-			}),
-			stubMethod(FileUtils, "delete", (path: string) => {
-				deletedFiles.push(path);
+		await pluginBlobsService.delete(PLUGIN, "settings.json");
 
-				return Promise.resolve(true);
-			}),
-		);
-
-		await pluginBlobsService.delete("org.reelvault.test", "settings.json");
-
-		expect(deletedRows).toEqual([["org.reelvault.test", "settings.json"]]);
-		expect(deletedFiles).toHaveLength(1);
-		expect(deletedFiles[0]?.endsWith("stored-1")).toBe(true);
+		expect(await storedBlobs()).toEqual([]);
+		expect(await file(blobPath(row?.storageKey ?? "")).exists()).toBe(false);
 	});
 
 	test("is a no-op for an unknown key", async () => {
-		activeStubs.push(stubMethod(pluginBlobsRepository, "find", () => Promise.resolve(undefined)));
+		await pluginBlobsService.put(PLUGIN, "other.json", bytes("kept"), { contentType: "text/plain", expiresInMs: 60_000 });
 
-		await expect(pluginBlobsService.delete("org.reelvault.test", "settings.json")).resolves.toBeUndefined();
+		await expect(pluginBlobsService.delete(PLUGIN, "missing.json")).resolves.toBeUndefined();
+
+		expect((await storedBlobs()).map((row) => row.key)).toEqual(["other.json"]);
 	});
 });

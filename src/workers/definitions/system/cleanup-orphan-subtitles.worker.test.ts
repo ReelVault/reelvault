@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Logger } from "@reelvault/sdk/common";
-import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
+import { subtitlesRepository } from "@/app/repositories/subtitles.repository";
 import { DirUtils } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { cleanupOrphanSubtitlesWorker } from "./cleanup-orphan-subtitles.worker";
 
 const HOUR_MS = 3_600_000;

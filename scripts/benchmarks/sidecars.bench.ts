@@ -1,16 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bench, fixture, fmtMs, group, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import sharp from "sharp";
-import { imageRepository } from "@/database/repositories/images.repository";
+import { imageRepository } from "@/app/repositories/images.repository";
 import { JellyfinFormatAdapter } from "@/modules/metadata-sidecars/formats/jellyfin/jellyfin-format.adapter";
 import { ReelVaultFormatAdapter } from "@/modules/metadata-sidecars/formats/reelvault/reelvault-format.adapter";
-import { SqliteOfflineCatalogRebuildService } from "@/modules/metadata-sidecars/offline-catalog-rebuild";
+import { SqliteOfflineCatalogRebuildService } from "@/modules/metadata-sidecars/offline-catalog-rebuild.service";
 import { SidecarArtworkExporter } from "@/modules/metadata-sidecars/saver/sidecar-artwork.exporter";
 import type { SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
+import { writeXmlDocument } from "@/modules/metadata-sidecars/xml/xml.writer";
 import { readXmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
-import { writeXmlDocument } from "@/modules/metadata-sidecars/xml/xml-writer";
+import { removeTreeSync } from "@/utils/directory.utils";
 
 export const meta = { description: "Sidecar formats (XML round-trip, adapter file I/O, offline catalog rebuild)" };
 
@@ -74,7 +75,7 @@ if (!args.help) {
 	const rootFixture = fixture("sidecars-root", ({ onCleanup }) => {
 		const root = mkdtempSync(join(tmpdir(), "reelvault-benchmark-sidecars-"));
 		onCleanup(() => {
-			rmSync(root, { recursive: true, force: true });
+			removeTreeSync(root);
 		});
 		mkdirSync(join(root, "adapter"), { recursive: true });
 
@@ -146,7 +147,7 @@ if (!args.help) {
 				imageRepository.findMetadataImagePath = originalFindMetadataImagePath;
 			}
 		} finally {
-			rmSync(directory, { recursive: true, force: true });
+			removeTreeSync(directory);
 		}
 
 		return { ok: true };

@@ -1,0 +1,83 @@
+import { DomainError } from "@/utils/domain.errors";
+
+/** Result shared by every scan/refresh trigger endpoint. */
+export interface DedupedEnqueue {
+	success: true;
+	operationId: string;
+	status: "pending";
+}
+
+interface DedupeTarget {
+	workerId: string;
+	dedupeKey: string;
+}
+
+/**
+ * Shared "skip when an equivalent task is already active, else enqueue under a
+ * tracked operation" flow behind every scan/refresh trigger.
+ *
+ * `targets` are checked in order — an active task for any of them short-circuits
+ * the enqueue. `enqueue` must return the created task; a task without its
+ * operation id attached is treated as an internal inconsistency.
+ */
+export async function enqueueDeduped(options: {
+	targets: DedupeTarget[];
+	type: string;
+	reference: { type: string; id: string };
+	/** Human-readable trigger name for the inconsistency error, e.g. `"library scan"`. */
+	label: string;
+	enqueue: (operationId: string) => Promise<{ operationId?: string | null | undefined }>;
+	/** Called when an equivalent task is already active and this enqueue was skipped. */
+	onDeduped?: ((operationId: string) => Promise<void> | void) | undefined;
+}): Promise<DedupedEnqueue> {
+	// Lazy import: worker.service pulls the whole worker graph, and this helper
+	// is imported from application services that the worker graph also imports.
+	const { workerService } = await import("@/workers/worker.service");
+
+	const findActiveTarget = async (): Promise<DedupedEnqueue | undefined> => {
+		for (const { workerId, dedupeKey } of options.targets) {
+			const existing = await workerService.findActiveItem(workerId, dedupeKey);
+			if (existing) {
+				if (!existing.operationId)
+					throw new DomainError("internal", `Active ${options.label} has no operation`, { code: "worker.enqueue_failed" });
+
+				await options.onDeduped?.(existing.operationId);
+
+				return { success: true, operationId: existing.operationId, status: "pending" };
+			}
+		}
+
+		return undefined;
+	};
+
+	const activeTarget = await findActiveTarget();
+	if (activeTarget) return activeTarget;
+
+	try {
+		const { result: operationId } = await workerService.enqueueUnderOperation(
+			{ type: options.type, reference: options.reference },
+			async (enqueuedOperationId) => {
+				const enqueued = await options.enqueue(enqueuedOperationId);
+				if (!enqueued.operationId)
+					throw new DomainError("internal", `${options.label} operation was not attached to its task`, { code: "worker.enqueue_failed" });
+
+				return enqueued.operationId;
+			},
+			// A dedupe hit attaches to the winning operation; the fresh operation
+			// this helper created owns no jobs and must not linger `pending`.
+			{ isAttached: (enqueuedOperationId, attachedOperationId) => enqueuedOperationId === attachedOperationId },
+		);
+
+		return { success: true, operationId, status: "pending" };
+	} catch (error) {
+		// The pre-check above races the insert: two concurrent triggers can both
+		// pass it and one loses at the DB level. Any active equivalent task —
+		// including one created by the losing trigger's winner — means the caller's
+		// intent is already satisfied; otherwise the trigger is genuinely
+		// un-serviceable right now, which is a conflict, not a 500.
+		const racedTarget = await findActiveTarget();
+		if (racedTarget) return racedTarget;
+
+		throw new DomainError("conflict", `Could not enqueue ${options.label}`, { cause: error, code: "worker.enqueue_failed" });
+	}
+}

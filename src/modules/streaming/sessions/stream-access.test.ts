@@ -1,29 +1,32 @@
 import { describe, expect, test } from "bun:test";
-import { assertActiveStreamAccess, resolveSessionAccess } from "./stream-access";
+import { assertActiveStreamAccess, resolveSessionAccess } from "./stream-access.guard";
 
 describe("stream access guard", () => {
 	test("requires a valid session and active profile before checking the media", async () => {
 		const check = async () => null;
-		await expect(assertActiveStreamAccess({ mediaFileId: "file", check })).rejects.toThrow("Session expired or invalid");
+		await expect(assertActiveStreamAccess({ mediaFileId: "file", check })).rejects.toMatchObject({
+			category: "unauthorized",
+			code: "stream.session_expired",
+		});
 		await expect(assertActiveStreamAccess({ userId: "user", mediaFileId: "file", check })).rejects.toMatchObject({
 			code: "auth.profile_required",
 			category: "unauthorized",
 		});
 	});
 
-	test("passes the current user and profile to the access policy", async () => {
-		let received: { userId: string; profileId: string; mediaFileId: string } | undefined;
-		await assertActiveStreamAccess({
-			userId: "user",
-			profileId: "profile",
-			mediaFileId: "file",
-			check: (input) => {
-				received = input;
-
-				return Promise.resolve(null);
-			},
-		});
-		expect(received).toEqual({ userId: "user", profileId: "profile", mediaFileId: "file" });
+	test("surfaces a policy denial as forbidden with the policy's own code", async () => {
+		// The denial depends on the profile the guard forwards, so this also proves the identity reaches the policy.
+		await expect(
+			assertActiveStreamAccess({
+				userId: "user",
+				profileId: "profile",
+				mediaFileId: "file",
+				check: (input) =>
+					Promise.resolve(
+						input.profileId === "profile" ? { code: "stream.region_blocked", message: "Not available in your region" } : null,
+					),
+			}),
+		).rejects.toMatchObject({ category: "forbidden", code: "stream.region_blocked" });
 	});
 });
 
@@ -47,7 +50,7 @@ describe("resolveSessionAccess", () => {
 				() => undefined,
 				() => ({ reason: "inactivity-timeout" }),
 			),
-		).toThrow("Playback session not found");
+		).toThrow(expect.objectContaining({ category: "not_found", code: "stream.session_not_found" }));
 	});
 
 	test("treats an admin-terminated session as forbidden with a distinct code", () => {
@@ -57,6 +60,6 @@ describe("resolveSessionAccess", () => {
 				() => undefined,
 				() => ({ reason: "admin-stop" }),
 			),
-		).toThrow("terminated");
+		).toThrow(expect.objectContaining({ category: "forbidden", code: "stream.session_terminated" }));
 	});
 });

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -17,14 +17,15 @@ import {
 	task,
 } from "benchkit";
 import { sleep } from "bun";
-import { parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer";
+import { parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer.utils";
 import { playlistFileCache } from "@/modules/streaming/playlist/playlist.cache";
+import { removeTree } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
-import { authHeaders, subnetIp } from "./lib/identity";
-import { createPlaybackSession, deletePlaybackSession, parseSegmentNames } from "./lib/playback";
-import { toScenarioResult } from "./lib/scenario-result";
-import type { ManagedServer } from "./lib/server";
-import { suiteServerFixture } from "./lib/server-fixture";
+import { authHeaders, subnetIp } from "./lib/identity.utils";
+import { createPlaybackSession, deletePlaybackSession, parseSegmentNames } from "./lib/playback.utils";
+import { toScenarioResult } from "./lib/scenario-result.mapper";
+import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 async function fetchPlaylistSegments(server: ManagedServer, sessionId: string): Promise<string[]> {
 	const response = await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}/playlist`, {
@@ -322,7 +323,7 @@ if (!args.help) {
 			});
 			printMicroResults([raw, cached]);
 		} finally {
-			await rm(dir, { recursive: true, force: true });
+			await removeTree(dir);
 		}
 
 		return { ok: true };

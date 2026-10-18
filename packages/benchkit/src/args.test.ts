@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { parseBenchmarkArgs, suiteArgs } from "./args";
+import { describe, expect, spyOn, test } from "bun:test";
+import { parseBenchmarkArgs, suiteArgs } from "./args.parser";
 
 function withArgv(argv: string[], run: () => void): void {
 	const original = process.argv;
@@ -12,10 +12,6 @@ function withArgv(argv: string[], run: () => void): void {
 }
 
 describe("parseBenchmarkArgs", () => {
-	afterEach(() => {
-		process.exitCode = undefined;
-	});
-
 	test("applies defaults with no arguments", () => {
 		withArgv([], () => {
 			const args = parseBenchmarkArgs();
@@ -55,9 +51,9 @@ describe("parseBenchmarkArgs", () => {
 	});
 
 	test("bare --json means the default path and never swallows the target", () => {
-		withArgv(["--strict", "matching"], () => {
+		withArgv(["--json", "matching"], () => {
 			const args = parseBenchmarkArgs();
-			expect(args.strict).toBe(true);
+			expect(args.json).toBe(true);
 			expect(args.target).toBe("matching");
 		});
 	});
@@ -73,10 +69,19 @@ describe("parseBenchmarkArgs", () => {
 	});
 
 	test("unknown flags warn and request help", () => {
-		withArgv(["--nope"], () => {
-			const args = parseBenchmarkArgs();
-			expect(args.help).toBe(true);
+		const warnings: string[] = [];
+		const spy = spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+			warnings.push(args.map(String).join(" "));
 		});
+		try {
+			withArgv(["--nope"], () => {
+				const args = parseBenchmarkArgs();
+				expect(args.help).toBe(true);
+			});
+		} finally {
+			spy.mockRestore();
+		}
+		expect(warnings).toEqual(["Unknown flag: --nope"]);
 	});
 });
 

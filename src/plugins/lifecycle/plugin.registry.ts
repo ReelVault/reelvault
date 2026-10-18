@@ -7,24 +7,20 @@ import type {
 	PluginLoadPhase,
 	PluginManifest,
 	PluginRuntime,
-	PluginSlotContribution,
-	PluginSlotName,
 	PluginStatus,
-	PluginTabContribution,
-	PluginTabHostName,
 	PluginUiManifest,
 	ProviderStatus,
 	SubtitleProvider,
 	SubtitleProviderStatus,
 } from "@reelvault/sdk/plugin";
-import { PLUGIN_SLOT_NAMES, PLUGIN_TAB_HOST_NAMES } from "@reelvault/sdk/plugin";
-import { DomainError, errorMessage } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { DomainError, errorMessage } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { createPluginStatus, pluginErrorCode } from "./plugin.status";
-import { applyUiOverrides, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions";
+import { applyUiOverrides, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions.utils";
 import { MediaAnalysisFanout } from "./registry/media-analysis.fanout";
-import { PluginEntityTable } from "./registry/plugin-entity-table";
+import { PluginEntityTable } from "./registry/plugin-entity.registry";
 import { ProviderLookupCache } from "./registry/provider-lookup.cache";
+import { collectUiManifestTags, filterUiManifestForRole } from "./registry/ui-manifest.utils";
 
 interface FailedPlugin {
 	id: string;
@@ -51,8 +47,15 @@ const ADVANCE_TRANSITIONS: Record<PluginRuntime["state"], "validated" | "resolve
 	unloaded: undefined,
 };
 
+function alreadyRegistered(pluginId: string): DomainError {
+	return new DomainError("validation", `Plugin "${pluginId}" is already registered`, {
+		code: "plugin.already_registered",
+		params: { plugin: pluginId },
+	});
+}
+
 export class PluginRegistry {
-	private readonly logger: Logger = createLogger("PluginRegistry");
+	readonly logger: Logger = createLogger("PluginRegistry");
 	private readonly plugins = new Map<string, PluginRuntime>();
 	private readonly subtitleProviders = new PluginEntityTable<SubtitleProvider>("Subtitle provider");
 	private readonly providerLookup = new ProviderLookupCache();
@@ -67,11 +70,7 @@ export class PluginRegistry {
 	private cspCache: { generation: number; directives: Record<string, string[]> } | null = null;
 
 	begin(manifest: PluginManifest): void {
-		if (this.plugins.has(manifest.id))
-			throw new DomainError("validation", `Plugin "${manifest.id}" is already registered`, {
-				code: "plugin.already_registered",
-				params: { plugin: manifest.id },
-			});
+		if (this.plugins.has(manifest.id)) throw alreadyRegistered(manifest.id);
 
 		this.plugins.set(manifest.id, {
 			manifest,
@@ -111,10 +110,7 @@ export class PluginRegistry {
 		const pluginId = runtime.manifest.id;
 		const existing = this.plugins.get(pluginId);
 		if (existing && (existing.plugin || !PRE_ACTIVATION_STATES.has(existing.state))) {
-			throw new DomainError("validation", `Plugin "${pluginId}" is already registered`, {
-				code: "plugin.already_registered",
-				params: { plugin: pluginId },
-			});
+			throw alreadyRegistered(pluginId);
 		}
 
 		this.providerLookup.assertRegisterable(providers);
@@ -401,94 +397,6 @@ export class PluginRegistry {
 
 		return runtime;
 	}
-}
-
-/**
- * Drops admin-only surfaces from a manifest for non-admin callers, together
- * with the tabs and slot actions that reference them. Keeping this in one place
- * guarantees the host never receives a contribution pointing at a hidden page.
- */
-function filterUiManifestForRole(manifest: PluginUiManifest): PluginUiManifest {
-	const pages = manifest.pages?.filter((page) => !page.adminOnly);
-	const pageIds = new Set((pages ?? []).map((page) => page.id));
-	const dialogs = manifest.dialogs?.filter((dialog) => !dialog.adminOnly);
-	const dialogIds = new Set((dialogs ?? []).map((dialog) => dialog.id));
-
-	return {
-		...manifest,
-		...(manifest.pages ? { pages } : {}),
-		...(manifest.dialogs ? { dialogs } : {}),
-		...(manifest.tabs ? { tabs: filterTabsForRole(manifest.tabs, pageIds) } : {}),
-		...(manifest.slots ? { slots: filterSlotsForRole(manifest.slots, pageIds, dialogIds) } : {}),
-	};
-}
-
-function filterTabsForRole(
-	tabs: Partial<Record<PluginTabHostName, PluginTabContribution[]>>,
-	pageIds: ReadonlySet<string>,
-): Partial<Record<PluginTabHostName, PluginTabContribution[]>> {
-	const result: Partial<Record<PluginTabHostName, PluginTabContribution[]>> = {};
-	for (const host of PLUGIN_TAB_HOST_NAMES) {
-		const contributions = tabs[host];
-		if (!contributions) continue;
-
-		result[host] = contributions.filter((tab) => !tab.adminOnly && pageIds.has(tab.page));
-	}
-
-	return result;
-}
-
-function filterSlotsForRole(
-	slots: Partial<Record<PluginSlotName, PluginSlotContribution[]>>,
-	pageIds: ReadonlySet<string>,
-	dialogIds: ReadonlySet<string>,
-): Partial<Record<PluginSlotName, PluginSlotContribution[]>> {
-	const result: Partial<Record<PluginSlotName, PluginSlotContribution[]>> = {};
-	for (const slot of PLUGIN_SLOT_NAMES) {
-		const contributions = slots[slot];
-		if (!contributions) continue;
-
-		result[slot] = contributions.filter((contribution) => slotContributionIsVisible(contribution, pageIds, dialogIds));
-	}
-
-	return result;
-}
-
-function slotContributionIsVisible(
-	contribution: PluginSlotContribution,
-	pageIds: ReadonlySet<string>,
-	dialogIds: ReadonlySet<string>,
-): boolean {
-	if (contribution.adminOnly) return false;
-
-	const action = contribution.action;
-	if (!action) return true;
-
-	if (action.type === "page") return pageIds.has(action.page);
-
-	if (action.type === "dialog") return dialogIds.has(action.dialog);
-
-	return true;
-}
-
-/** Every custom element tag a plugin UI manifest registers. */
-function collectUiManifestTags(manifest: PluginUiManifest): Set<string> {
-	const tags = new Set<string>();
-	for (const page of manifest.pages ?? []) {
-		if (page.tag) tags.add(page.tag);
-	}
-
-	for (const dialog of manifest.dialogs ?? []) {
-		if (dialog.tag) tags.add(dialog.tag);
-	}
-
-	for (const contributions of Object.values(manifest.slots ?? {})) {
-		for (const contribution of contributions) {
-			if (contribution.element?.tag) tags.add(contribution.element.tag);
-		}
-	}
-
-	return tags;
 }
 
 export const pluginRegistry = new PluginRegistry();

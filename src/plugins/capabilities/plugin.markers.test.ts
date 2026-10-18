@@ -1,83 +1,127 @@
-import { describe, expect, it, spyOn } from "bun:test";
-import type { CreateMediaMarker } from "@reelvault/sdk/common";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { mediaMarkersRepository } from "@/database/repositories/media-markers.repository";
-import { pluginEventBus } from "@/plugins/runtime/plugin.events";
+import { describe, expect, test } from "bun:test";
+import type { PluginEventMap } from "@reelvault/sdk/plugin";
+import { mediaMarkersRepository } from "@/app/repositories/media-markers.repository";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginMarkersService } from "./plugin.markers";
 
-function markerRow(m: CreateMediaMarker, idx: number, pluginId: string, mediaFileId: string) {
-	return {
-		id: `marker_${idx}`,
-		mediaFileId,
-		type: m.type,
-		startSeconds: m.startSeconds,
-		endSeconds: m.endSeconds,
-		label: m.label ?? null,
-		source: "plugin" as const,
-		pluginId,
-		createdAt: new Date("2026-08-17T00:00:00.000Z"),
-		updatedAt: new Date("2026-08-17T00:00:00.000Z"),
-	};
+const db = useTestDatabase();
+
+/** Media file `mf-1` holding two plugins' markers and one manual marker. */
+async function seedMarkers(): Promise<void> {
+	const client = db.client();
+	await client.insert(schema.libraries).values({ id: "lib-1", name: "Movies", type: "movies" });
+	await client
+		.insert(schema.metadata)
+		.values({ id: "meta-1", stableKey: "movie-heat", title: "Heat", type: "movie", releaseDate: "1995-12-15" });
+	await client.insert(schema.movies).values({ id: "movie-1", stableKey: "movie-heat", metadataId: "meta-1" });
+	await client.insert(schema.mediaFiles).values({
+		id: "mf-1",
+		libraryId: "lib-1",
+		metadataId: "meta-1",
+		movieId: "movie-1",
+		fileName: "Heat.mkv",
+		filePath: "/media/heat.mkv",
+		size: 1_000,
+		duration: 3_600,
+		isDefault: true,
+	});
+	await client.insert(schema.mediaMarkers).values([
+		{
+			mediaFileId: "mf-1",
+			type: "intro",
+			startSeconds: 0,
+			endSeconds: 10,
+			label: "Old intro",
+			source: "plugin",
+			pluginId: "intro-skipper",
+		},
+		{
+			mediaFileId: "mf-1",
+			type: "credits",
+			startSeconds: 1400,
+			endSeconds: 1460,
+			label: "Recap credits",
+			source: "plugin",
+			pluginId: "recap",
+		},
+		{ mediaFileId: "mf-1", type: "intro", startSeconds: 5, endSeconds: 20, label: "Manual intro", source: "manual", pluginId: null },
+	]);
 }
 
-describe("PluginMarkersService", () => {
-	it("throws NotFoundError for a missing media file without touching markers", async () => {
-		const isExistsSpy = spyOn(mediaRepository, "isExists").mockResolvedValue(false);
-		const replaceSpy = spyOn(mediaMarkersRepository, "replaceMarkersForMediaFile").mockResolvedValue([]);
+async function storedMarkers(): Promise<Array<{ label: string | null; pluginId: string | null }>> {
+	const markers = await mediaMarkersRepository.findByMediaFileId("mf-1");
 
-		try {
-			await expect(pluginMarkersService.setMarkers("intro-skipper", "mf_missing", [])).rejects.toThrow("mf_missing");
-			expect(replaceSpy).not.toHaveBeenCalled();
-		} finally {
-			isExistsSpy.mockRestore();
-			replaceSpy.mockRestore();
-		}
+	return markers
+		.map((marker) => ({ label: marker.label, pluginId: marker.pluginId }))
+		.toSorted((a, b) => (a.label ?? "").localeCompare(b.label ?? ""));
+}
+
+/** Resolves with the next `media.markers.updated` payload the event bus delivers. */
+function nextMarkersUpdate(): Promise<PluginEventMap["media.markers.updated"]> {
+	return new Promise((resolve) => {
+		const unsubscribe = pluginEventBus.on("markers-test", "media.markers.updated", (payload) => {
+			unsubscribe();
+			resolve(payload);
+		});
+	});
+}
+
+const introSkipperMarkers = [
+	{ type: "intro", startSeconds: 15.5, endSeconds: 90, label: "Opening" },
+	{ type: "credits", startSeconds: 1400, endSeconds: 1460, label: "End Credits" },
+] as const;
+
+describe("PluginMarkersService.setMarkers", () => {
+	test("refuses to store markers for a media file that does not exist", async () => {
+		await expect(pluginMarkersService.setMarkers("intro-skipper", "mf-missing", introSkipperMarkers)).rejects.toMatchObject({
+			category: "not_found",
+			code: "media_file.not_found",
+		});
 	});
 
-	it("replaces markers scoped to the calling plugin and publishes media.markers.updated", async () => {
-		const input: CreateMediaMarker[] = [
-			{ type: "intro", startSeconds: 15.5, endSeconds: 90.0, label: "Opening" },
-			{ type: "credits", startSeconds: 1400.0, endSeconds: 1460.0, label: "End Credits" },
-		];
-		const mediaFileId = "mf_test_123";
-		const pluginId = "intro-skipper";
+	test("replaces only the calling plugin's markers and keeps other plugins' and manual markers", async () => {
+		await seedMarkers();
 
-		const isExistsSpy = spyOn(mediaRepository, "isExists").mockResolvedValue(true);
-		const replaceSpy = spyOn(mediaMarkersRepository, "replaceMarkersForMediaFile").mockResolvedValue(
-			input.map((m, idx) => markerRow(m, idx, pluginId, mediaFileId)),
-		);
-		const publishSpy = spyOn(pluginEventBus, "publish").mockReturnValue(undefined);
+		await pluginMarkersService.setMarkers("intro-skipper", "mf-1", introSkipperMarkers);
 
-		try {
-			const result = await pluginMarkersService.setMarkers(pluginId, mediaFileId, input);
-
-			expect(replaceSpy).toHaveBeenCalledWith(mediaFileId, input, { pluginId, source: "plugin" });
-			expect(publishSpy).toHaveBeenCalledWith("media.markers.updated", { mediaFileId, markerCount: 2 });
-			// Rows map through toPublicMarker: Date fields become ISO strings.
-			expect(result[0]?.createdAt).toBe("2026-08-17T00:00:00.000Z");
-			expect(result.every((m) => m.pluginId === pluginId && m.source === "plugin")).toBeTrue();
-		} finally {
-			isExistsSpy.mockRestore();
-			replaceSpy.mockRestore();
-			publishSpy.mockRestore();
-		}
+		expect(await storedMarkers()).toEqual([
+			{ label: "End Credits", pluginId: "intro-skipper" },
+			{ label: "Manual intro", pluginId: null },
+			{ label: "Opening", pluginId: "intro-skipper" },
+			{ label: "Recap credits", pluginId: "recap" },
+		]);
 	});
 
-	it("clearMarkers replaces only the calling plugin's markers and publishes an empty update", async () => {
-		const mediaFileId = "mf_test_123";
-		const pluginId = "intro-skipper";
+	test("publishes media.markers.updated with the number of saved markers", async () => {
+		await seedMarkers();
+		const update = nextMarkersUpdate();
 
-		const replaceSpy = spyOn(mediaMarkersRepository, "replaceMarkersForMediaFile").mockResolvedValue([]);
-		const publishSpy = spyOn(pluginEventBus, "publish").mockReturnValue(undefined);
+		await pluginMarkersService.setMarkers("intro-skipper", "mf-1", introSkipperMarkers);
 
-		try {
-			await pluginMarkersService.clearMarkers(pluginId, mediaFileId);
+		await expect(update).resolves.toMatchObject({ mediaFileId: "mf-1", markerCount: 2 });
+	});
+});
 
-			expect(replaceSpy).toHaveBeenCalledWith(mediaFileId, [], { pluginId, source: "plugin" });
-			expect(publishSpy).toHaveBeenCalledWith("media.markers.updated", { mediaFileId, markerCount: 0 });
-		} finally {
-			replaceSpy.mockRestore();
-			publishSpy.mockRestore();
-		}
+describe("PluginMarkersService.clearMarkers", () => {
+	test("removes only the calling plugin's markers", async () => {
+		await seedMarkers();
+
+		await pluginMarkersService.clearMarkers("intro-skipper", "mf-1");
+
+		expect(await storedMarkers()).toEqual([
+			{ label: "Manual intro", pluginId: null },
+			{ label: "Recap credits", pluginId: "recap" },
+		]);
+	});
+
+	test("publishes media.markers.updated reporting zero markers", async () => {
+		await seedMarkers();
+		const update = nextMarkersUpdate();
+
+		await pluginMarkersService.clearMarkers("intro-skipper", "mf-1");
+
+		await expect(update).resolves.toMatchObject({ mediaFileId: "mf-1", markerCount: 0 });
 	});
 });

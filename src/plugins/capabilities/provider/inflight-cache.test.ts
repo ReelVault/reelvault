@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { ProviderResultCaches } from "./inflight-cache";
+import { ProviderResultCaches } from "./inflight.cache";
 
 describe("ProviderResultCaches", () => {
-	test("exposes seven independent provider-scoped caches", () => {
+	test("keeps each provider-scoped cache independent of the others", () => {
 		const caches = new ProviderResultCaches();
 
 		caches.details.set("a", []);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compileOnlyFilter } from "./runner";
+import { compileOnlyFilter } from "./bench.runner";
 
 describe("compileOnlyFilter", () => {
 	test("returns undefined without a pattern", () => {
@@ -8,12 +8,12 @@ describe("compileOnlyFilter", () => {
 	});
 
 	test("matches unit names case-insensitively", () => {
-		const re = compileOnlyFilter("mark-read");
+		const re = compileOnlyFilter("MARK-READ");
 		expect(re?.test("write: mark-read burst")).toBe(true);
 		expect(re?.test("write: endpoints")).toBe(false);
 	});
 
 	test("rejects invalid regex patterns", () => {
-		expect(() => compileOnlyFilter("(")).toThrow();
+		expect(() => compileOnlyFilter("(")).toThrow(SyntaxError);
 	});
 });

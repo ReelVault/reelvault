@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { PlaybackDecision } from "@reelvault/sdk/common";
-import { isSoftwareFallbackEligible } from "./software-fallback";
+import { isSoftwareFallbackEligible } from "./software-fallback.policy";
 
 const decision: PlaybackDecision = {
 	mode: "transcode",

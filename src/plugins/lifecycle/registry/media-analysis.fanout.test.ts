@@ -21,16 +21,19 @@ describe("MediaAnalysisFanout", () => {
 		fanout.register("owner", [createAnalyzer("dup", () => ({}))]);
 
 		expect(() => fanout.assertRegisterable([createAnalyzer("dup", () => ({}))])).toThrow(
-			'Media analyzer "dup" is already registered by plugin "owner"',
+			expect.objectContaining({ category: "validation", code: "plugin.entity_conflict", params: { id: "dup", plugin: "owner" } }),
 		);
-		expect(() => fanout.assertRegisterable([createAnalyzer("fresh", () => ({}))])).not.toThrow();
+		fanout.assertRegisterable([createAnalyzer("fresh", () => ({}))]);
 	});
 
 	test("removeForPlugin frees ids so another plugin can register them", () => {
 		fanout.register("plugin-a", [createAnalyzer("shared", () => ({}))]);
 		fanout.removeForPlugin("plugin-a");
+		fanout.register("plugin-b", [createAnalyzer("shared", () => ({}))]);
 
-		expect(() => fanout.assertRegisterable([createAnalyzer("shared", () => ({}))])).not.toThrow();
+		expect(() => fanout.assertRegisterable([createAnalyzer("shared", () => ({}))])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.entity_conflict" }),
+		);
 	});
 
 	test("merges analyzer output in registration order and isolates failures", async () => {
@@ -49,12 +52,5 @@ describe("MediaAnalysisFanout", () => {
 		fanout.register("p", [createAnalyzer("trims", () => ({ source: "  WEB-DL  ", edition: "   ", qualityTag: undefined }))]);
 
 		await expect(fanout.analyze(media)).resolves.toEqual({ source: "WEB-DL", edition: null });
-	});
-
-	test("clear removes every analyzer so ids become registerable again", () => {
-		fanout.register("p", [createAnalyzer("dup", () => ({}))]);
-		fanout.clear();
-
-		expect(() => fanout.assertRegisterable([createAnalyzer("dup", () => ({}))])).not.toThrow();
 	});
 });

@@ -1,8 +1,8 @@
 import type { PlaybackArtifact, PlaybackArtifactWrite } from "@reelvault/sdk/common";
-import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
+import { serverConfig } from "@/config/server/server.config";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 
 /**
  * Plugin-facing facade over the shared media-artifacts store. Core generators

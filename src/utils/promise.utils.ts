@@ -1,8 +1,8 @@
 import { watch } from "node:fs/promises";
 import { file } from "bun";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { DomainError } from "./errors";
+import { DomainError } from "./domain.errors";
 
 const logger = createLogger("PromiseUtils");
 
@@ -45,7 +45,8 @@ export const PromiseUtils = {
 		signal?: AbortSignal,
 	): Promise<R[]> {
 		const resolvedConcurrency = typeof concurrency === "function" ? concurrency() : concurrency;
-		if (!Number.isInteger(resolvedConcurrency) || resolvedConcurrency < 1) throw new Error("Concurrency must be a positive integer");
+		if (!Number.isInteger(resolvedConcurrency) || resolvedConcurrency < 1)
+			throw new DomainError("internal", "Concurrency must be a positive integer", { code: "concurrency.invalid" });
 
 		if (items.length === 0) return [];
 

@@ -1,0 +1,57 @@
+import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
+import { eq, type SQL } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
+import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { selectFirstByIdPrepared } from "@/integrations/drizzle-orm/query/table-access/by-id.reader";
+import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
+import type { TableAccessBase, TableSelect } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
+
+/** Params of a repository read by primary id. */
+export interface PrimaryIdReadParams<F extends string> {
+	primaryId: string;
+	fields?: FieldsConfig<F> | undefined;
+	tx?: DatabaseTransaction | undefined;
+}
+
+/** Params of a repository first-row read with optional field projection. */
+export interface FindFirstReadParams<F extends string> {
+	where?: SQL | undefined;
+	fields?: FieldsConfig<F> | undefined;
+	tx?: DatabaseTransaction | undefined;
+}
+
+/**
+ * Delegates a by-id read to the repository's own first-row reader (`loadFirst`)
+ * so a monkey-patched `findFirst`/`findByPrimaryId` still intercepts the read.
+ * The repository passes its method through the lazy getter, keeping the seam.
+ */
+export async function selectByPrimaryId<F extends string, TRow>(
+	access: { primaryKeyColumn: SQLiteColumn },
+	loadFirst: (params: FindFirstReadParams<F>) => Promise<TRow | undefined>,
+	{ primaryId, fields, tx }: PrimaryIdReadParams<F>,
+): Promise<TRow | undefined> {
+	return await loadFirst({ where: eq(access.primaryKeyColumn, primaryId), fields, tx });
+}
+
+/**
+ * Shared body of projected by-id reads: select the requested columns, then
+ * apply the field mask (same pairing as the table-access `findById`). The
+ * overload pair carries the projected type to callers while the implementation
+ * stays unknown-typed, the same pattern as the table-access helpers.
+ */
+export function selectByIdWithFields<TTable extends DatabaseTables, F extends string>(
+	access: TableAccessBase<TTable>,
+	params: PrimaryIdReadParams<F>,
+): Promise<SelectFields<TableSelect<TTable>, F> | undefined>;
+export async function selectByIdWithFields(
+	access: TableAccessBase<DatabaseTables>,
+	{ primaryId, fields, tx }: PrimaryIdReadParams<string>,
+): Promise<unknown> {
+	if (!fields?.fields.length) return await selectFirstByIdPrepared(access, { primaryId, tx });
+
+	const row = await selectFirstWithFields(access, { where: eq(access.primaryKeyColumn, primaryId), tx, fields });
+	if (!row) return undefined;
+
+	return QueryFields.apply(row, fields);
+}

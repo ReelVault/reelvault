@@ -1,165 +1,40 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import type { SubtitleProvider } from "@reelvault/sdk/plugin";
-import { subtitleProviderSettingsRepository } from "@/database/repositories/subtitle-provider-settings.repository";
-import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
-import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
-import { pluginMetadataService } from "@/plugins/capabilities/plugin.metadata";
-import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
-import { serverConfig } from "@/server.config";
-import { stubMethod } from "../../../tests/helpers/method-stub";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { PluginManifest, PluginRuntime, ReelVaultPlugin, SubtitleProvider } from "@reelvault/sdk/plugin";
+import { eq } from "drizzle-orm";
+import { subtitleProviderSettingsRepository } from "@/app/repositories/subtitle-provider-settings.repository";
+import { serverConfig } from "@/config/server/server.config";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { subtitleProviderService } from "./subtitle-provider.service";
 
-interface StoredSubtitle {
-	id: string;
-	mediaFileId: string;
-	language: string;
-	label?: string | undefined;
-	format: string;
-	type: "external";
-	filePath: string;
-	isDefault: boolean;
-	isForced: boolean;
-	streamIndex: null;
-}
-
-let storedSubtitle: StoredSubtitle | undefined;
-const providers: SubtitleProvider[] = [];
+// Media, metadata, subtitle rows and provider switches run against the migrated test database, and
+// the stored subtitle files are real files in the core subtitle directory. The providers are plain
+// objects registered the way the plugin loader registers them: their search and download functions
+// stand in for the external services, and nothing else is faked.
+const db = useTestDatabase();
+const PLUGIN_ID = "org.reelvault.subtitles";
+const manifest: PluginManifest = { id: PLUGIN_ID, name: "Subtitles plugin", version: "1.0.0", entry: "./dist/index.js", capabilities: [] };
+const plugin: ReelVaultPlugin = { setup: async () => undefined };
 const generatedPaths: string[] = [];
-const activeStubs: Array<{ restore(): void }> = [];
+let mediaFileId = "";
 
-beforeEach(() => {
-	activeStubs.push(stubMethod(subtitleProviderSettingsRepository, "listDisabledIds", () => Promise.resolve([])));
-	activeStubs.push(stubMethod(subtitleProviderSettingsRepository, "isDisabled", () => Promise.resolve(false)));
-	storedSubtitle = undefined;
-	providers.splice(0);
-	generatedPaths.splice(0);
-	activeStubs.push(
-		stubMethod(subtitlesRepository, "findExternalByMediaFileAndLanguage", () => Promise.resolve(storedSubtitle)),
-		stubMethod(subtitlesRepository, "findByPrimaryId", ({ primaryId }: { primaryId: string }) =>
-			Promise.resolve(storedSubtitle?.id === primaryId ? storedSubtitle : undefined),
-		),
-		stubMethod(subtitlesRepository, "insert", ({ values }: { values: StoredSubtitle }) => {
-			storedSubtitle = values;
-
-			return Promise.resolve();
-		}),
-		stubMethod(subtitlesRepository, "update", ({ primaryId, values }: { primaryId: string; values: Partial<StoredSubtitle> }) => {
-			if (storedSubtitle?.id === primaryId) storedSubtitle = { ...storedSubtitle, ...values };
-
-			return Promise.resolve();
-		}),
-		stubMethod(pluginMediaService, "get", async (mediaFileId: string) =>
-			mediaFileId === "media-1" ? { id: "media-1", metadataId: "metadata-1", fileName: "example.mkv", available: true } : null,
-		),
-		stubMethod(pluginMetadataService, "get", async (metadataId: string) =>
-			metadataId === "metadata-1"
-				? {
-						id: "metadata-1",
-						type: "movie" as const,
-						title: "Example Movie",
-						releaseDate: "2024-01-01",
-						externalIds: [{ providerId: "example", entityType: "movie" as const, externalId: "example-1" }],
-					}
-				: null,
-		),
-		stubMethod(pluginManager, "getSubtitleProviders", () => providers),
-		stubMethod(pluginManager, "getSubtitleProvider", (providerId: string) => providers.find((provider) => provider.id === providerId)),
-	);
+beforeEach(async () => {
+	mediaFileId = await insertMovieMediaFile(db.client(), "/media/Example Movie (2024)/example.mkv", "metadata-1");
+	await db
+		.client()
+		.update(schema.metadata)
+		.set({ title: "Example Movie", releaseDate: "2024-01-01" })
+		.where(eq(schema.metadata.id, "metadata-1"));
 });
 
 afterEach(async () => {
-	for (const stub of activeStubs.toReversed()) stub.restore();
-
-	activeStubs.length = 0;
-	await Promise.all(generatedPaths.map(async (path) => await rm(path, { force: true })));
-});
-
-describe("subtitle provider service", () => {
-	test("passes public metadata to healthy providers and isolates provider failures", async () => {
-		providers.push(
-			createProvider("healthy", async ({ media, languages }) => [
-				{ id: "candidate-1", language: languages?.[0] ?? "en", label: media.title, format: "vtt" },
-			]),
-		);
-		providers.push(
-			createProvider(
-				"broken",
-				() =>
-					new Promise(() => {
-						throw new Error("Provider unavailable");
-					}),
-			),
-		);
-
-		await expect(subtitleProviderService.search({ mediaFileId: "media-1", languages: ["pl"] })).resolves.toEqual([
-			{ providerId: "healthy", results: [{ id: "candidate-1", language: "pl", label: "Example Movie", format: "vtt" }] },
-		]);
-	});
-
-	test("limits concurrent subtitle provider searches", async () => {
-		const stats = { active: 0, maxActive: 0 };
-		const makeProvider = (index: number) =>
-			createProvider(`provider-${index}`, async () => {
-				stats.active += 1;
-				stats.maxActive = Math.max(stats.maxActive, stats.active);
-				await new Promise((resolve) => {
-					setTimeout(resolve, 5);
-				});
-				stats.active -= 1;
-
-				return [];
-			});
-		for (let index = 0; index < 20; index += 1) providers.push(makeProvider(index));
-
-		await subtitleProviderService.search({ mediaFileId: "media-1", languages: ["pl"] });
-		expect(stats.maxActive).toBeLessThanOrEqual(8);
-	});
-
-	test("stores a validated download below the core subtitle directory and serves it without exposing its path", async () => {
-		providers.push(
-			createProvider(
-				"provider-1",
-				async () => [{ id: "candidate-1", language: "pl", format: "vtt" }],
-				async () => ({
-					id: "candidate-1",
-					language: "pl",
-					label: "Polish",
-					format: ".VTT",
-					content: new TextEncoder().encode("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n"),
-				}),
-			),
-		);
-
-		const subtitleId = await subtitleProviderService.download("provider-1", { mediaFileId: "media-1", subtitleId: "candidate-1" });
-		expect(storedSubtitle).toMatchObject({ id: subtitleId, mediaFileId: "media-1", language: "pl", format: "vtt", type: "external" });
-		if (!storedSubtitle) throw new Error("Downloaded subtitle was not persisted");
-
-		generatedPaths.push(storedSubtitle.filePath);
-		expect(storedSubtitle.filePath).toStartWith(`${serverConfig.paths.subtitles}/`);
-
-		const content = await subtitleProviderService.getContent(subtitleId);
-		if (!content) throw new Error("Downloaded subtitle content was not found");
-
-		expect(content.contentType).toBe("text/vtt");
-		expect(await content.file.text()).toContain("Hello");
-	});
-
-	test("does not serve a database path outside the core subtitle directory", async () => {
-		storedSubtitle = {
-			id: "subtitle-1",
-			mediaFileId: "media-1",
-			language: "pl",
-			format: "vtt",
-			type: "external",
-			filePath: "/tmp/untrusted-subtitle.vtt",
-			isDefault: false,
-			isForced: false,
-			streamIndex: null,
-		};
-
-		await expect(subtitleProviderService.getContent("subtitle-1")).resolves.toBeNull();
-	});
+	pluginRegistry.clear();
+	await Promise.all(generatedPaths.splice(0).map(async (path) => await rm(path, { force: true })));
 });
 
 function createProvider(
@@ -177,35 +52,190 @@ function createProvider(
 	};
 }
 
-test("a provider that is switched off is not searched", async () => {
-	let offSearched = false;
-	activeStubs.push(stubMethod(subtitleProviderSettingsRepository, "listDisabledIds", () => Promise.resolve(["off"])));
-	providers.push(
-		createProvider("on", async () => [{ id: "candidate-1", language: "pl", label: "Example Movie", format: "vtt" }]),
-		createProvider("off", () => {
-			offSearched = true;
+/** Registers the plugin and its providers, then enables the plugin, as the plugin loader does. */
+function registerProviders(providers: SubtitleProvider[]): void {
+	const runtime: PluginRuntime = {
+		manifest,
+		plugin,
+		state: "discovered",
+		providerIds: [],
+		subtitleProviderIds: providers.map((provider) => provider.id),
+		analyzerIds: [],
+		jobNames: [],
+	};
+	pluginRegistry.register(runtime, [], [], providers);
+	pluginRegistry.enable(PLUGIN_ID);
+}
 
-			return Promise.resolve([]);
-		}),
-	);
+async function storedSubtitles() {
+	return await db.client().select().from(schema.subtitles);
+}
 
-	const results = await subtitleProviderService.search({ mediaFileId: "media-1", languages: ["pl"] });
+describe("subtitle provider search", () => {
+	test("passes the title to healthy providers and isolates a provider that fails", async () => {
+		registerProviders([
+			createProvider("healthy", async ({ media, languages }) => [
+				{ id: "candidate-1", language: languages?.[0] ?? "en", label: media.title, format: "vtt" },
+			]),
+			createProvider("broken", () => Promise.reject(new Error("Provider unavailable"))),
+		]);
 
-	expect(results.map((result) => result.providerId)).toEqual(["on"]);
-	expect(offSearched).toBe(false);
-});
+		await expect(subtitleProviderService.search({ mediaFileId, languages: ["pl"] })).resolves.toEqual([
+			{ providerId: "healthy", results: [{ id: "candidate-1", language: "pl", label: "Example Movie", format: "vtt" }] },
+		]);
+	});
 
-test("a download from a provider that is switched off is refused", async () => {
-	activeStubs.push(stubMethod(subtitleProviderSettingsRepository, "isDisabled", () => Promise.resolve(true)));
-	providers.push(createProvider("off", async () => []));
+	test("limits concurrent provider searches to the configured concurrency", async () => {
+		const stats = { active: 0, maxActive: 0 };
+		registerProviders(
+			Array.from({ length: 20 }, (_, index) =>
+				createProvider(`provider-${index}`, async () => {
+					stats.active += 1;
+					stats.maxActive = Math.max(stats.maxActive, stats.active);
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5);
+					});
+					stats.active -= 1;
 
-	await expect(subtitleProviderService.download("off", { mediaFileId: "media-1", subtitleId: "candidate-1" })).rejects.toMatchObject({
-		code: "plugin.subtitle.provider_disabled",
+					return [];
+				}),
+			),
+		);
+
+		await subtitleProviderService.search({ mediaFileId, languages: ["pl"] });
+
+		expect(stats.maxActive).toBe(serverConfig.plugins.subtitles.providerConcurrency);
+	});
+
+	test("a provider that is switched off is not searched", async () => {
+		registerProviders([
+			createProvider("on", async () => [{ id: "candidate-1", language: "pl", label: "Example Movie", format: "vtt" }]),
+			createProvider("off", async () => [{ id: "candidate-2", language: "pl", label: "Example Movie", format: "vtt" }]),
+		]);
+		await subtitleProviderService.setEnabled("off", false);
+
+		const results = await subtitleProviderService.search({ mediaFileId, languages: ["pl"] });
+
+		expect(results.map((result) => result.providerId)).toEqual(["on"]);
 	});
 });
 
-test("switching an unknown subtitle provider is refused", async () => {
-	await expect(subtitleProviderService.setEnabled("missing", false)).rejects.toMatchObject({
-		code: "plugin.subtitle.provider_not_found",
+describe("subtitle provider downloads", () => {
+	const subtitleDownload = (text: string) => ({
+		id: "candidate-1",
+		language: "pl",
+		label: "Polish",
+		format: ".VTT",
+		content: new TextEncoder().encode(`WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n${text}\n`),
+	});
+
+	test("stores a validated download under the core subtitle directory and serves its content", async () => {
+		registerProviders([
+			createProvider(
+				"provider-1",
+				async () => [{ id: "candidate-1", language: "pl", format: "vtt" }],
+				async () => subtitleDownload("Hello"),
+			),
+		]);
+
+		const subtitleId = await subtitleProviderService.download("provider-1", { mediaFileId, subtitleId: "candidate-1" });
+
+		const [row] = await db.client().select().from(schema.subtitles).where(eq(schema.subtitles.id, subtitleId));
+		expect(row).toMatchObject({ mediaFileId, language: "pl", label: "Polish", format: "vtt", type: "external" });
+		if (!row?.filePath) throw new Error("Downloaded subtitle was not stored with a file");
+
+		generatedPaths.push(row.filePath);
+		expect(row.filePath).toStartWith(`${serverConfig.paths.subtitles}/`);
+
+		const content = await subtitleProviderService.getContent(subtitleId);
+		if (!content) throw new Error("Downloaded subtitle content was not found");
+
+		expect(content.contentType).toBe("text/vtt");
+		expect(await content.file.text()).toContain("Hello");
+	});
+
+	test("a second download in the same language replaces the stored file in place", async () => {
+		let version = 0;
+		registerProviders([
+			createProvider(
+				"provider-1",
+				async () => [],
+				() => {
+					version += 1;
+
+					return Promise.resolve(subtitleDownload(`version ${version}`));
+				},
+			),
+		]);
+		const firstId = await subtitleProviderService.download("provider-1", { mediaFileId, subtitleId: "candidate-1" });
+		const [first] = await storedSubtitles();
+
+		const secondId = await subtitleProviderService.download("provider-1", { mediaFileId, subtitleId: "candidate-1" });
+
+		const stored = await storedSubtitles();
+		expect(secondId).toBe(firstId);
+		expect(stored).toHaveLength(1);
+		if (!(first?.filePath && stored[0]?.filePath)) throw new Error("Expected both downloads to store a file");
+		generatedPaths.push(first.filePath, stored[0].filePath);
+		expect(stored[0].filePath).not.toBe(first.filePath);
+		expect(await Bun.file(first.filePath).exists()).toBe(false);
+		expect(await (await subtitleProviderService.getContent(firstId))?.file.text()).toContain("version 2");
+	});
+
+	test("refuses a download larger than the size limit and stores nothing", async () => {
+		registerProviders([
+			createProvider(
+				"provider-1",
+				async () => [],
+				async () => ({
+					id: "candidate-1",
+					language: "pl",
+					format: "vtt",
+					content: new Uint8Array(serverConfig.plugins.subtitles.maxSizeBytes + 1),
+				}),
+			),
+		]);
+
+		await expect(subtitleProviderService.download("provider-1", { mediaFileId, subtitleId: "candidate-1" })).rejects.toMatchObject({
+			code: "plugin.subtitle.too_large",
+		});
+		expect(await storedSubtitles()).toEqual([]);
+	});
+
+	test("does not serve a stored file outside the core subtitle directory", async () => {
+		// The file exists, so only the directory check can refuse it.
+		const outsidePath = join(tmpdir(), `untrusted-${crypto.randomUUID()}.vtt`);
+		await Bun.write(outsidePath, "WEBVTT\n");
+		generatedPaths.push(outsidePath);
+		await db.client().insert(schema.subtitles).values({
+			id: "subtitle-1",
+			mediaFileId,
+			language: "pl",
+			format: "vtt",
+			type: "external",
+			filePath: outsidePath,
+			streamIndex: null,
+		});
+
+		await expect(subtitleProviderService.getContent("subtitle-1")).resolves.toBeNull();
+	});
+
+	test("a download from a provider that is switched off is refused", async () => {
+		registerProviders([createProvider("off", async () => [])]);
+		await subtitleProviderService.setEnabled("off", false);
+
+		await expect(subtitleProviderService.download("off", { mediaFileId, subtitleId: "candidate-1" })).rejects.toMatchObject({
+			code: "plugin.subtitle.provider_disabled",
+		});
+		expect(await storedSubtitles()).toEqual([]);
+	});
+});
+
+describe("subtitle provider switches", () => {
+	test("switching an unknown subtitle provider is refused and stores no switch", async () => {
+		await expect(subtitleProviderService.setEnabled("missing", false)).rejects.toMatchObject({
+			code: "plugin.subtitle.provider_not_found",
+		});
+		expect(await subtitleProviderSettingsRepository.listDisabledIds()).toEqual([]);
 	});
 });

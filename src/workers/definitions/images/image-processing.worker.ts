@@ -1,7 +1,7 @@
-import { type ApplicationContext, toDomainError } from "@/application/context";
+import { serverConfig } from "@/config/server/server.config";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
+import { DomainError, toDomainError } from "@/utils/domain.errors";
+import type { ApplicationContext } from "@/utils/task-context.types";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 

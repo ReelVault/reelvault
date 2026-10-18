@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { FfmpegOperationLog } from "@/integrations/ffmpeg/ffmpeg.operation-log";
+import { removeTree } from "@/utils/directory.utils";
 import { readFile } from "@/utils/file.utils";
-import { currentLogDate } from "@/utils/logger";
+import { currentLogDate } from "@/utils/logging/file-archive.utils";
 import { PathUtils } from "@/utils/path.utils";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+	await Promise.all(temporaryDirectories.splice(0).map((directory) => removeTree(directory)));
 });
 
 describe("FfmpegOperationLog", () => {

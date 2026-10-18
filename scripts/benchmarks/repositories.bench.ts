@@ -1,14 +1,14 @@
 import { bench, main, suiteArgs } from "benchkit";
-import { databaseFactory } from "@/database/database";
-import { episodesRepository } from "@/database/repositories/episodes.repository";
-import { librariesRepository } from "@/database/repositories/libraries.repository";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { metadataRepository } from "@/database/repositories/metadata.repository";
-import { moviesRepository } from "@/database/repositories/movies.repository";
-import { peopleRepository } from "@/database/repositories/people.repository";
-import { playbackRepository } from "@/database/repositories/playback.repository";
-import { watchedHistoryRepository } from "@/database/repositories/watched-history.repository";
-import { seedCatalog } from "./lib/seed";
+import { episodesRepository } from "@/app/repositories/episodes.repository";
+import { librariesRepository } from "@/app/repositories/libraries.repository";
+import { mediaRepository } from "@/app/repositories/media-files.repository";
+import { metadataRepository } from "@/app/repositories/metadata.repository";
+import { moviesRepository } from "@/app/repositories/movies.repository";
+import { peopleRepository } from "@/app/repositories/people.repository";
+import { playbackRepository } from "@/app/repositories/playback.repository";
+import { watchedHistoryRepository } from "@/app/repositories/watched-history.repository";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { seedCatalog } from "./lib/seed.utils";
 
 export const meta = {
 	description: "Repository read paths on an isolated DB (metadata list/detail/similar, watched-history, projected lists)",

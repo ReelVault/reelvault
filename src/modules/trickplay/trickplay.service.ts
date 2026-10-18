@@ -1,20 +1,14 @@
-import type { TrickplayRegenerationReport, TrickplayStats } from "@reelvault/sdk/common";
 import { file } from "bun";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { type TrickplayRegenerationScope, trickplayRepository } from "@/database/repositories/trickplay.repository";
-import { QueryFields } from "@/database/utils/fields";
+import { serverConfig } from "@/config/server/server.config";
+import { FFMPEG_TIMEOUT_MS } from "@/config/server/server.constants";
 import { buildSpriteExtractionCommand } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { CORE_ARTIFACTS_OWNER } from "@/modules/artifacts/artifacts.constants";
-import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes, writeCoreArtifact } from "@/modules/artifacts/artifacts-budget.utils";
-import { mediaArtifactsService } from "@/modules/artifacts/media-artifacts.service";
-import { summarizeRegenerationOutcomes } from "@/modules/trickplay/trickplay-regeneration.report";
-import { serverConfig } from "@/server.config";
-import { FFMPEG_TIMEOUT_MS } from "@/server.constants";
+import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes } from "@/modules/artifacts/artifacts-budget.utils";
+import { trickplayStorage } from "@/modules/trickplay/trickplay.ports";
 import { chunk } from "@/utils/array.utils";
 import { DirUtils } from "@/utils/directory.utils";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
 
@@ -121,17 +115,15 @@ class TrickplayService {
 			return { mediaFileId, frames: 0, sprites: 0, skipped: "disabled" };
 		}
 
-		const mediaFile = await mediaRepository.findByPrimaryId({
-			primaryId: mediaFileId,
-			fields: QueryFields.parse({ fields: "id,filePath,duration" }),
-		});
+		const storage = trickplayStorage();
+		const source = await storage.findSource(mediaFileId);
 
-		if (!mediaFile?.filePath)
+		if (!source?.filePath)
 			throw new DomainError("not_found", `Trickplay generation failed: media file '${mediaFileId}' not found`, {
 				code: "media_file_not_found",
 			});
 
-		const durationSeconds = mediaFile.duration ?? 0;
+		const durationSeconds = source.duration ?? 0;
 		if (durationSeconds <= 0) return { mediaFileId, frames: 0, sprites: 0, skipped: "no-duration" };
 
 		// Stop before touching the previous generation when even dropping this
@@ -158,7 +150,7 @@ class TrickplayService {
 
 		const job: TrickplayJob = {
 			mediaFileId,
-			filePath: mediaFile.filePath,
+			filePath: source.filePath,
 			tempDir,
 			layout,
 			frameCount,
@@ -173,13 +165,13 @@ class TrickplayService {
 			// Idempotent regeneration: remove the PREVIOUS generation before writing
 			// the new sprites. Deleting after the loop (as before) removed the
 			// sprites we just wrote, leaving the VTT pointing at missing artifacts.
-			await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER);
+			await storage.removePreviews(mediaFileId);
 
 			let sprites: TrickplaySprite[];
 			try {
 				sprites = await this.extractSprites(job, chunks);
 
-				await writeCoreArtifact({
+				await storage.writeArtifact({
 					mediaFileId,
 					kind: "trickplay",
 					contentType: CONTENT_TYPE_VTT,
@@ -188,7 +180,7 @@ class TrickplayService {
 			} catch (error) {
 				// Remove partial sprites so a failed generation leaves no artifact
 				// rows/files without their VTT behind.
-				await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER).catch(() => {
+				await storage.removePreviews(mediaFileId).catch(() => {
 					// best-effort cleanup
 				});
 
@@ -213,9 +205,10 @@ class TrickplayService {
 
 	/** Whether dropping this file's own artifacts would still leave core storage over budget. */
 	private async exceedsArtifactBudget(mediaFileId: string): Promise<boolean> {
+		const storage = trickplayStorage();
 		const budgetBytes = await resolveCoreArtifactsBudgetBytes();
-		const storedBytes = await mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER);
-		const existingBytes = await mediaArtifactsService.getMediaFileStoredBytes(mediaFileId, CORE_ARTIFACTS_OWNER);
+		const storedBytes = await storage.storedBytes();
+		const existingBytes = await storage.mediaFileStoredBytes(mediaFileId);
 		if (storedBytes - existingBytes < budgetBytes) return false;
 
 		this.logger.warn("Trickplay generation skipped: artifact storage budget exhausted", {
@@ -263,7 +256,7 @@ class TrickplayService {
 			// The artifact write streams the BunFile straight to its storage
 			// path (no full buffer through JS) and deletes the temp source
 			// afterwards — writeFileWithRollback owns that cleanup.
-			const written = await writeCoreArtifact({
+			const written = await trickplayStorage().writeArtifact({
 				mediaFileId: job.mediaFileId,
 				kind: "trickplay",
 				contentType: CONTENT_TYPE_WEBP,
@@ -273,80 +266,6 @@ class TrickplayService {
 		}
 
 		return sprites;
-	}
-
-	/** Media files that have no core-generated trickplay artifacts yet. */
-	findMediaFileIdsMissingTrickplay(limit = 2000): Promise<string[]> {
-		return trickplayRepository.findMediaFileIdsMissingTrickplay(limit);
-	}
-
-	/** Media files of a regeneration scope, capped at `limit`; the caller reports how many matched beyond the cap. */
-	findMediaFileIdsForRegeneration(scope: TrickplayRegenerationScope, force: boolean, limit: number): Promise<string[]> {
-		return trickplayRepository.findMediaFileIdsForRegeneration(scope, force, limit);
-	}
-
-	countForRegeneration(scope: TrickplayRegenerationScope, force: boolean): Promise<number> {
-		return trickplayRepository.countForRegeneration(scope, force);
-	}
-
-	/** Media files of several scopes, in scope order and capped at `limit` in total. */
-	async findMediaFileIdsForRegenerations(scopes: readonly TrickplayRegenerationScope[], force: boolean, limit: number): Promise<string[]> {
-		const ids: string[] = [];
-		for (const scope of scopes) {
-			if (ids.length >= limit) break;
-
-			ids.push(...(await trickplayRepository.findMediaFileIdsForRegeneration(scope, force, limit - ids.length)));
-		}
-
-		return ids;
-	}
-
-	/** How many media files the scopes match in total, before the cap. */
-	async countForRegenerations(scopes: readonly TrickplayRegenerationScope[], force: boolean): Promise<number> {
-		const counts = await Promise.all(scopes.map((scope) => trickplayRepository.countForRegeneration(scope, force)));
-
-		return counts.reduce((sum, count) => sum + count, 0);
-	}
-
-	/** Outcome counts of one regeneration operation, with the jobs the storage budget skipped on their own line. */
-	async regenerationReport(operationId: string): Promise<TrickplayRegenerationReport> {
-		return summarizeRegenerationOutcomes(operationId, await trickplayRepository.countRegenerationOutcomes(operationId));
-	}
-
-	/** Coverage counts plus the core artifact storage usage/budget for the admin page. */
-	/**
-	 * Removes the core trickplay previews of each media file. A file without previews, or an unknown id,
-	 * counts as nothing removed rather than an error, so a bulk request can name files it did not check.
-	 */
-	async deletePreviews(
-		mediaFileIds: readonly string[],
-		options: { dryRun?: boolean | undefined } = {},
-	): Promise<{ mediaFiles: number; artifacts: number }> {
-		let mediaFiles = 0;
-		let artifacts = 0;
-		for (const mediaFileId of new Set(mediaFileIds)) {
-			const deleted = options.dryRun
-				? await mediaArtifactsService.countByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER)
-				: await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER);
-			if (deleted > 0) {
-				mediaFiles++;
-				artifacts += deleted;
-			}
-		}
-
-		if (!options.dryRun) trickplayRepository.clearStatsCache();
-
-		return { mediaFiles, artifacts };
-	}
-
-	async stats(): Promise<TrickplayStats> {
-		const [counts, storageBytes, storageBudgetBytes] = await Promise.all([
-			trickplayRepository.stats(),
-			mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER),
-			resolveCoreArtifactsBudgetBytes(),
-		]);
-
-		return { ...counts, storageBytes, storageBudgetBytes };
 	}
 }
 

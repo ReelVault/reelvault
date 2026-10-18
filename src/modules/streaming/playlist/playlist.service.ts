@@ -1,8 +1,8 @@
-import { serverConfig } from "@/server.config";
-import { DomainError, errorMessage, isMissingFile } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
-import { streamingManager as streamingRuntimeService } from "../runtime/streaming.manager";
-import { PLAYLIST_FILE_NAME } from "../utils/segment-name.utils";
+import { serverConfig } from "@/config/server/server.config";
+import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
+import { PLAYLIST_FILE_NAME } from "@/modules/streaming/utils/segment-name.utils";
+import { DomainError, errorMessage, isMissingFile } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
 import { type PlaylistFileCache, playlistFileCache } from "./playlist.cache";
 
 interface ServiceDependencies {

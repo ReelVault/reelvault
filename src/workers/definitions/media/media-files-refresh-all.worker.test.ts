@@ -3,7 +3,7 @@ import type { MediaFilesRefreshAllTaskDependencies } from "./media-files-refresh
 import { refreshAllMediaFilesTask } from "./media-files-refresh-all.worker";
 
 describe("media-files-refresh-all worker", () => {
-	test("queues technical and metadata refresh for all media files in batch", async () => {
+	test("hands every media file in the scan to the batch enqueue as one batch", async () => {
 		const batches: Array<Array<{ id: string; metadataId: string }>> = [];
 		const dependencies: MediaFilesRefreshAllTaskDependencies = {
 			scanAll: async (onPage) => {

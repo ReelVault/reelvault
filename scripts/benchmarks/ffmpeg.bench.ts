@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
@@ -6,6 +6,7 @@ import { fmtMs, main, printTable, suiteArgs, task } from "benchkit";
 import { $ } from "bun";
 import { DirectStreamStrategy } from "@/modules/streaming/ffmpeg/strategies/direct-stream.strategy";
 import { TranscodeStrategy } from "@/modules/streaming/ffmpeg/strategies/transcode.strategy";
+import { removeTree } from "@/utils/directory.utils";
 
 const config: TranscodeConfig = {
 	maxSessions: 4,
@@ -81,7 +82,7 @@ if (!args.help) {
 
 			printTable("FFmpeg Strategy Runtime Results", ["scenario", "elapsed", "playlist size", "segments"], rows);
 		} finally {
-			await rm(root, { recursive: true, force: true });
+			await removeTree(root);
 		}
 	});
 }

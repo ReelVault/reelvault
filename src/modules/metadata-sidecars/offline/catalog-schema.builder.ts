@@ -1,9 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { readdir } from "node:fs/promises";
-import { MIGRATIONS_DIR } from "@/database/database";
+import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
 import { trimAndFilter } from "@/utils/array.utils";
 import { FileUtils, readFile } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 
 interface ServiceDependencies {

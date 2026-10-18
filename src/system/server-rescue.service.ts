@@ -1,9 +1,9 @@
+import { serverConfig } from "@/config/server/server.config";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
-import { realtimeService } from "@/modules/realtime/realtime.service";
-import { serverConfig } from "@/server.config";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { detach } from "@/utils/promise.utils";
+import { systemAdminBroadcast } from "./system.ports";
 
 export type RescueState = "healthy" | "rescuing";
 
@@ -99,6 +99,12 @@ class ServerRescueService {
 	private engageTimes: number[] = [];
 	private actions?: RescueActions | undefined;
 	private isInitialized = false;
+	private readonly sampleLagMs: () => number;
+
+	/** `sampleLagMs` reports the worst event-loop lag since the previous check; by default it drains the lag sampler. */
+	constructor(sampleLagMs?: () => number) {
+		this.sampleLagMs = sampleLagMs ?? (() => this.takeMaxLagSinceCheck());
+	}
 
 	registerPressureProvider(provider: () => SystemPressure): void {
 		this.pressureProvider = provider;
@@ -200,10 +206,17 @@ class ServerRescueService {
 		this.lagSamplerTimer.unref();
 	}
 
-	/** `now` is injectable so tests can drive the state machine without fake timers. */
-	private runCheck(now: number = Date.now()): void {
+	/** Drains the worst lag the sampler saw since the last check. */
+	private takeMaxLagSinceCheck(): number {
 		const lagMs = this.maxLagSinceCheck;
 		this.maxLagSinceCheck = 0;
+
+		return lagMs;
+	}
+
+	/** `now` and the lag sample are injectable so tests can drive the state machine without fake timers. */
+	private runCheck(now: number = Date.now()): void {
+		const lagMs = this.sampleLagMs();
 
 		if (!serverConfig.rescue.enabled) {
 			if (this.state === "rescuing") this.exitRescue(now, "rescue disabled in system settings");
@@ -342,7 +355,7 @@ class ServerRescueService {
 		detach(
 			(async () => {
 				try {
-					await realtimeService.sendToAdmins("system.rescue_state", this.getState());
+					await systemAdminBroadcast().publishRescueState(this.getState());
 				} catch (error) {
 					this.logger.error("Failed to broadcast rescue state", error);
 				}

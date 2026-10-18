@@ -1,9 +1,9 @@
+import { serverConfig } from "@/config/server/server.config";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
-import { serverConfig } from "@/server.config";
-import { KeyedMutex } from "@/utils/concurrency";
-import { DomainError } from "@/utils/errors";
+import { KeyedMutex } from "@/utils/concurrency.utils";
+import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
 
@@ -14,7 +14,7 @@ export const PLUGIN_CONFIG_UNREADABLE = "plugin.config_unreadable";
 const CONFIG_FILE_MODE = 0o600;
 
 export class PluginConfig {
-	private readonly logger = createLogger("PluginConfig");
+	readonly logger = createLogger("PluginConfig");
 	private readonly pluginsDirectory: string;
 	/** Serialises read-merge-write per plugin so concurrent saves cannot drop fields. */
 	private readonly saveMutex = new KeyedMutex();

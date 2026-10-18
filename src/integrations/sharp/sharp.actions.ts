@@ -1,9 +1,9 @@
 import type { ImageQuality } from "@reelvault/sdk/common";
 import type { Sharp } from "sharp";
-import { serverConfig } from "@/server.config";
-import { systemResourcesService } from "@/system/system-resources.service";
+import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { throwIfAborted } from "@/workers/utils/worker-cancellation";
 import type { SharpImageOptions } from "./sharp.types";
 
 type SharpFactory = typeof import("sharp").default;

@@ -1,8 +1,8 @@
 import { spawn, which } from "bun";
+import { serverConfig } from "@/config/server/server.config";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
 import { killFfmpegProcessGracefully } from "./ffmpeg.process";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
@@ -62,7 +62,7 @@ class FFmpegService {
 		const process = spawn({ cmd: [serverConfig.ffmpeg.path, ...args], stdout: stdoutMode, stderr: "pipe" });
 		if (stdoutMode === "pipe" && !process.stdout) {
 			process.kill("SIGKILL");
-			throw new Error("FFmpeg execution could not start");
+			throw new DomainError("internal", "FFmpeg execution could not start", { code: "ffmpeg.start_failed" });
 		}
 
 		ffmpegProcessTracker.track(process, options.purpose ?? "background");
@@ -183,7 +183,9 @@ async function collectStdout(
 			totalBytes += value.byteLength;
 			if (totalBytes > maxOutputBytes) {
 				kill();
-				throw new Error(`FFmpeg stdout exceeded the maximum output size of ${maxOutputBytes} bytes`);
+				throw new DomainError("internal", `FFmpeg stdout exceeded the maximum output size of ${maxOutputBytes} bytes`, {
+					code: "ffmpeg.output_limit_exceeded",
+				});
 			}
 
 			chunks.push(value);

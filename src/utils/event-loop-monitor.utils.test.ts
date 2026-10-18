@@ -27,14 +27,16 @@ describe("EventLoopMonitor", () => {
 		}
 	});
 
-	test("resets the window on read — consecutive reads measure fresh windows", async () => {
+	test("each read reports only the window since the previous read", async () => {
 		const monitor = new EventLoopMonitor(20);
 		try {
 			monitor.read();
-			await Bun.sleep(100);
-			expect(Number.isFinite(monitor.read())).toBe(true);
-			await Bun.sleep(100);
-			expect(Number.isFinite(monitor.read())).toBe(true);
+			Bun.sleepSync(300); // one long stall inside the first window
+			await Bun.sleep(25); // let the probe timer observe the stall
+			expect(monitor.read()).toBeGreaterThan(0.5);
+
+			await Bun.sleep(300); // a calm window
+			expect(monitor.read()).toBeLessThan(0.25);
 		} finally {
 			monitor.stop();
 		}

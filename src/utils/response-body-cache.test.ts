@@ -7,8 +7,9 @@ import {
 	invalidateResponseBodiesForPathPrefixes,
 	responseCacheKey,
 	setCachedResponseBody,
-} from "./response-body-cache";
+} from "./response-body.cache";
 
+// `expiresAt` comes from the clock, so a test keeps the entry it stores and compares against that same object.
 function entry(): CachedResponseBody {
 	return { etag: "e", body: "{}", expiresAt: Date.now() + 60_000, encoded: new Map() };
 }
@@ -28,19 +29,15 @@ describe("catalog list flushes", () => {
 		"/v1/collections?limit=20",
 	];
 
-	test("the shared catalog prefixes cover people, companies, genres, keywords and collections", () => {
-		expect(CATALOG_LIST_PATH_PREFIXES).toEqual(
-			expect.arrayContaining(["/v1/people", "/v1/companies", "/v1/genres", "/v1/keywords", "/v1/collections"]),
-		);
-	});
-
 	test("a catalog flush drops those lists and keeps unrelated responses", () => {
-		for (const path of [...catalogLists, "/v1/profiles"]) setCachedResponseBody(cacheKey(path), entry());
+		const profiles = entry();
+		for (const path of catalogLists) setCachedResponseBody(cacheKey(path), entry());
+		setCachedResponseBody(cacheKey("/v1/profiles"), profiles);
 
 		invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
 
 		for (const path of catalogLists) expect(getCachedResponseBody(cacheKey(path))).toBeUndefined();
-		expect(getCachedResponseBody(cacheKey("/v1/profiles"))).toBeDefined();
+		expect(getCachedResponseBody(cacheKey("/v1/profiles"))).toEqual(profiles);
 	});
 });
 
@@ -49,23 +46,25 @@ describe("invalidateResponseBodiesForPathPrefixes", () => {
 		const metadataKey = cacheKey("/v1/test-prefix/metadata?page=1");
 		const librariesKey = cacheKey("/v1/test-prefix/libraries");
 		const settingsKey = cacheKey("/v1/test-prefix/admin/settings");
+		const settings = entry();
 		setCachedResponseBody(metadataKey, entry());
 		setCachedResponseBody(librariesKey, entry());
-		setCachedResponseBody(settingsKey, entry());
+		setCachedResponseBody(settingsKey, settings);
 
 		invalidateResponseBodiesForPathPrefixes(["/v1/test-prefix/metadata", "/v1/test-prefix/libraries"]);
 
 		expect(getCachedResponseBody(metadataKey)).toBeUndefined();
 		expect(getCachedResponseBody(librariesKey)).toBeUndefined();
-		expect(getCachedResponseBody(settingsKey)).toBeDefined();
+		expect(getCachedResponseBody(settingsKey)).toEqual(settings);
 	});
 
 	test("is a no-op for an empty prefix list", () => {
-		const key = cacheKey("/v1/test-prefix/keep");
-		setCachedResponseBody(key, entry());
+		const key = cacheKey("/v1/profiles");
+		const stored = entry();
+		setCachedResponseBody(key, stored);
 
 		invalidateResponseBodiesForPathPrefixes([]);
 
-		expect(getCachedResponseBody(key)).toBeDefined();
+		expect(getCachedResponseBody(key)).toEqual(stored);
 	});
 });

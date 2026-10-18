@@ -1,11 +1,8 @@
 import { statfs } from "node:fs/promises";
-import type { PlaybackArtifact, PlaybackArtifactWrite } from "@reelvault/sdk/common";
-import { serverConfig } from "@/server.config";
-import { DomainError } from "@/utils/errors";
+import { serverConfig } from "@/config/server/server.config";
+import { DomainError } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
-import { MemoryCache } from "@/utils/memory-cache";
-import { CORE_ARTIFACTS_OWNER } from "./artifacts.constants";
-import { mediaArtifactsService } from "./media-artifacts.service";
+import { MemoryCache } from "@/utils/memory.cache";
 
 const GIBIBYTE = 1024 * 1024 * 1024;
 /** Auto budget (`coreMaxStorageGb = 0`): share of the artifacts volume capacity. */
@@ -78,11 +75,4 @@ export async function assertCoreArtifactsBudget(bytesAfterWrite: number, incomin
 			minimumFreeBytes: MIN_FREE_BYTES,
 		});
 	}
-}
-
-/** Writes a built-in (non-plugin) playback artifact under the core artifacts budget. */
-export async function writeCoreArtifact(artifact: PlaybackArtifactWrite): Promise<PlaybackArtifact> {
-	return await mediaArtifactsService.write(CORE_ARTIFACTS_OWNER, artifact, {
-		assertWithinQuota: (_ownerId, bytesAfterWrite, incomingBytes) => assertCoreArtifactsBudget(bytesAfterWrite, incomingBytes),
-	});
 }

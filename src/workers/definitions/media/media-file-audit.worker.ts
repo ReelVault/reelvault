@@ -1,9 +1,9 @@
 import type { MediaFileAuditResponse } from "@reelvault/sdk/common";
-import { type ApplicationContext, withDomainError } from "@/application/context";
-import { auditMediaFileRow, buildMediaFileAuditReport } from "@/application/media/media-files/media-file-audit";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { serverConfig } from "@/server.config";
-import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue";
+import { serverConfig } from "@/config/server/server.config";
+import { DomainError, withDomainError } from "@/utils/domain.errors";
+import type { ApplicationContext } from "@/utils/task-context.types";
+import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
+import { workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -49,7 +49,7 @@ export const mediaFileAuditReportWorker = createWorkerDefinition<Record<string, 
 	async ({ signal }) => {
 		signal.throwIfAborted();
 
-		return await buildMediaFileAuditReport();
+		return await workerDependencies().services.mediaAudit.buildReport();
 	},
 );
 
@@ -70,12 +70,12 @@ export function enqueueMediaFileAuditReport(options: WorkerEnqueueOptions = {}) 
 export function auditMediaFileTask(data: MediaFileAuditData, context: ApplicationContext = {}): Promise<MediaFileAuditResult> {
 	return withDomainError(`Media file audit failed: ${data.mediaFileId}`, async () => {
 		context.signal?.throwIfAborted();
-		if (!data.mediaFileId) throw new Error("Media file audit task requires a mediaFileId");
+		if (!data.mediaFileId)
+			throw new DomainError("internal", "Media file audit task requires a mediaFileId", { code: "workers.media_file_audit_id_missing" });
 
-		const row = await mediaRepository.findAuditRow(data.mediaFileId);
-		if (!row) return { mediaFileId: data.mediaFileId, suspect: false };
+		const suspect = await workerDependencies().services.mediaAudit.isSuspect(data.mediaFileId);
 
-		return { mediaFileId: data.mediaFileId, suspect: auditMediaFileRow(row) !== null };
+		return { mediaFileId: data.mediaFileId, suspect };
 	});
 }
 
@@ -84,7 +84,7 @@ export function scanMediaMatchAuditTask(context: ApplicationContext = {}): Promi
 		scanAndEnqueueTask<string, MediaFileAuditData>({
 			context,
 			label: "Media match audit tasks queued",
-			scanPages: (onPage) => mediaRepository.scanAuditRowIds(onPage),
+			scanPages: (onPage) => workerDependencies().media.scanAuditRowIds(onPage),
 			toData: (mediaFileId) => ({ mediaFileId }),
 			enqueueItem: (data, options) => enqueueMediaFileAudit(data, options),
 			enqueueMany: (items, options) => enqueueMediaFileAuditMany(items, options),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { findSameTitleSession } from "./session-reclaim";
+import { findSameTitleSession } from "./session-reclaim.resolver";
 
 const titleOf = new Map([
 	["file-a", "title-1"],

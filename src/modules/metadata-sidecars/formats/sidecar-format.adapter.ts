@@ -1,4 +1,9 @@
-import type { CanonicalSidecarDocument, SidecarFormatInput, SidecarFormatOutput, SidecarWriteResult } from "../sidecar.types";
+import type {
+	CanonicalSidecarDocument,
+	SidecarFormatInput,
+	SidecarFormatOutput,
+	SidecarWriteResult,
+} from "@/modules/metadata-sidecars/sidecar.types";
 
 export interface SidecarFormatAdapter {
 	readonly id: string;

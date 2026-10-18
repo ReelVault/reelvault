@@ -1,6 +1,6 @@
 import type { XMLParser } from "fast-xml-parser";
 import type { SyntaxValidator } from "fast-xml-validator";
-import { DomainError } from "@/utils/errors";
+import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
 
 export interface XmlDocument {

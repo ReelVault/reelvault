@@ -1,12 +1,9 @@
 import type { PluginMediaFile } from "@reelvault/sdk/common";
 import type { PluginMediaRevision } from "@reelvault/sdk/plugin";
-import { eq, isNotNull } from "drizzle-orm";
-import { databaseFactory } from "@/database/database";
-import { mediaRepository } from "@/database/repositories/media-files.repository";
-import { schema } from "@/database/schema";
-import { QueryFields } from "@/database/utils/fields";
+import { pluginMediaData } from "@/app/plugins/plugin-data.service";
+import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { groupBy } from "@/utils/array.utils";
-import { createLogger } from "@/utils/logger";
+import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 
 const MAX_LIST_MEDIA_LIMIT = 10_000;
@@ -27,7 +24,7 @@ class PluginMediaService {
 	readonly logger = createLogger("PluginMediaService");
 
 	async get(mediaFileId: string): Promise<PluginMediaFile | null> {
-		const mediaFile = await mediaRepository.findByPrimaryId({
+		const mediaFile = await pluginMediaData.findByPrimaryId({
 			primaryId: mediaFileId,
 			fields: QueryFields.parse({ fields: "id,metadataId,fileName,filePath,duration" }),
 		});
@@ -44,7 +41,7 @@ class PluginMediaService {
 	}
 
 	async getRevision(mediaFileId: string): Promise<PluginMediaRevision | null> {
-		const mediaFile = await mediaRepository.findForPlaybackSession(mediaFileId);
+		const mediaFile = await pluginMediaData.findForPlaybackSession(mediaFileId);
 		if (!mediaFile) return null;
 
 		return {
@@ -59,21 +56,7 @@ class PluginMediaService {
 	}
 
 	async listEpisodeFilesBySeason(): Promise<Map<string, PluginEpisodeMediaFile[]>> {
-		const rows = await databaseFactory
-			.getClient()
-			.select({
-				mediaFileId: schema.mediaFiles.id,
-				filePath: schema.mediaFiles.filePath,
-				fileName: schema.mediaFiles.fileName,
-				duration: schema.mediaFiles.duration,
-				episodeId: schema.episodes.id,
-				seasonId: schema.episodes.seasonId,
-				episodeNumber: schema.episodes.episodeNumber,
-				title: schema.episodes.title,
-			})
-			.from(schema.mediaFiles)
-			.innerJoin(schema.episodes, eq(schema.mediaFiles.episodeId, schema.episodes.id))
-			.where(isNotNull(schema.mediaFiles.episodeId));
+		const rows = await pluginMediaData.findEpisodeFileRows();
 
 		return groupBy(
 			rows,
@@ -96,23 +79,8 @@ class PluginMediaService {
 		// memory for a plugin. Callers page with offset for the rest.
 		const requestedLimit = options?.limit ?? MAX_LIST_MEDIA_LIMIT;
 		const limit = clamp(requestedLimit, 1, MAX_LIST_MEDIA_LIMIT);
-		const offset = options?.offset !== undefined ? Math.max(0, options.offset) : undefined;
-		const rows = await databaseFactory
-			.getClient()
-			.select({
-				mediaFileId: schema.mediaFiles.id,
-				filePath: schema.mediaFiles.filePath,
-				fileName: schema.mediaFiles.fileName,
-				duration: schema.mediaFiles.duration,
-				movieId: schema.mediaFiles.movieId,
-				episodeId: schema.mediaFiles.episodeId,
-				metadataTitle: schema.metadata.title,
-			})
-			.from(schema.mediaFiles)
-			.leftJoin(schema.metadata, eq(schema.mediaFiles.metadataId, schema.metadata.id))
-			.orderBy(schema.mediaFiles.id)
-			.limit(limit)
-			.offset(offset ?? 0);
+		const offset = options?.offset !== undefined ? Math.max(0, options.offset) : 0;
+		const rows = await pluginMediaData.findFileRowsPage({ limit, offset });
 
 		return rows.map((row) => ({
 			mediaFileId: row.mediaFileId,

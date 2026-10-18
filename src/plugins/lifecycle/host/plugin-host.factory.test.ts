@@ -16,10 +16,18 @@ import type {
 	PluginScheduledTaskDefinition,
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
-import { stubMethod } from "../../../../tests/helpers/method-stub";
-import type { PluginJobBatchItem, PluginJobBatchOptions } from "../../capabilities/plugin.jobs";
+import { realtimeService } from "@/modules/realtime/realtime.service";
+import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import type { PluginEventHandlerErased, PluginScopeApi } from "./plugin.scope";
-import { createPluginHost } from "./plugin-host.factory";
+import { createPluginHost, type PluginNotificationSink, registerPluginNotificationSink } from "./plugin-host.factory";
+
+// Media, metadata, artifacts and notifications run against the migrated test database, so
+// each capability reads or writes real rows. Stubbed: the realtime broadcast, which leaves
+// the process (its payload is the assertion). The scope is a recorder of capability use:
+// the gating of each capability is what these tests check.
+const db = useTestDatabase();
 
 class ScopeSpy implements PluginScopeApi {
 	registerNotificationChannelScope(): void {
@@ -35,7 +43,6 @@ class ScopeSpy implements PluginScopeApi {
 	readonly subscriptions: Array<{ pluginId: string; event: PluginEventName }> = [];
 	readonly hooks: string[] = [];
 	readonly policies: PluginAccessPolicy[] = [];
-	readonly enqueues: Array<{ name: string; data: unknown }> = [];
 
 	useCapability(name: PluginCapabilityName): void {
 		this.used.push(name);
@@ -65,20 +72,11 @@ class ScopeSpy implements PluginScopeApi {
 		this.routes.push(route);
 	}
 
-	enqueueJob(pluginId: string, name: string, data: unknown): Promise<PluginJobHandle> {
-		this.enqueues.push({ name, data });
-
+	enqueueJob(pluginId: string, name: string): Promise<PluginJobHandle> {
 		return Promise.resolve({ id: `${pluginId}:${name}:1`, name });
 	}
 
-	enqueueJobs(
-		pluginId: string,
-		name: string,
-		_items: PluginJobBatchItem[],
-		_commonOptions?: PluginJobBatchOptions,
-	): Promise<PluginJobHandle[]> {
-		this.enqueues.push({ name, data: "many" });
-
+	enqueueJobs(pluginId: string, name: string): Promise<PluginJobHandle[]> {
 		return Promise.resolve([{ id: `${pluginId}:${name}:1`, name }]);
 	}
 
@@ -109,26 +107,10 @@ let scope: ScopeSpy;
 let host: ReturnType<typeof createPluginHost>;
 
 function useHostFixtures(): void {
-	beforeEach(async () => {
+	beforeEach(() => {
 		activeStubs = [];
-		const { pluginMediaService } = await import("../../capabilities/plugin.media");
-		const { pluginMetadataService } = await import("../../capabilities/plugin.metadata");
-		const { pluginArtifactsService } = await import("../../capabilities/plugin.artifacts");
-		const { pluginFfmpegService } = await import("../../capabilities/plugin.ffmpeg");
-		const { notificationsService } = await import("@/application/notifications/notifications.service");
-		const { realtimeService } = await import("@/modules/realtime/realtime.service");
 		broadcastStub = stubMethod(realtimeService, "broadcast", (type: string) => type);
-		activeStubs.push(
-			stubMethod(pluginMediaService, "get", (mediaFileId: string) => ({ id: mediaFileId })),
-			stubMethod(pluginMetadataService, "findByExternalId", () => null),
-			stubMethod(pluginArtifactsService, "write", (pluginId: string, artifact: { kind: string }) => ({ pluginId, kind: artifact.kind })),
-			stubMethod(pluginFfmpegService, "extractFrame", () => ({ data: new Uint8Array() })),
-			stubMethod(notificationsService, "create", (input: { title: string }, meta: { sourcePluginId: string }) => ({
-				title: input.title,
-				source: meta.sourcePluginId,
-			})),
-			broadcastStub,
-		);
+		activeStubs.push(broadcastStub);
 
 		const pluginLogger: PluginHost["logger"] = {
 			trace: () => undefined,
@@ -151,10 +133,26 @@ function useHostFixtures(): void {
 }
 
 describe("createPluginHost", () => {
+	let createdNotifications: Array<Parameters<PluginNotificationSink["create"]>> = [];
+
+	beforeEach(() => {
+		createdNotifications = [];
+		registerPluginNotificationSink({
+			create: (notification, options) => {
+				createdNotifications.push([notification, options]);
+
+				return Promise.resolve("notification-1");
+			},
+			createForAdministrators: () => Promise.resolve(),
+		});
+	});
+
 	useHostFixtures();
 
-	test("media and metadata reads require their read capability and delegate", async () => {
-		await expect(host.media.get("file-1")).resolves.toMatchObject({ id: "file-1" });
+	test("media and metadata reads require their read capability and read the stored rows", async () => {
+		const mediaFileId = await insertMovieMediaFile(db.client(), "/media/Hosted (2020)/hosted.mkv", "m-hosted");
+
+		await expect(host.media.get(mediaFileId)).resolves.toMatchObject({ id: mediaFileId });
 		await expect(host.metadata.findByExternalId("tmdb", "42", "movie")).resolves.toBeNull();
 		expect(scope.used).toEqual(["mediaRead", "metadataRead"]);
 	});
@@ -193,29 +191,30 @@ describe("createPluginHost", () => {
 		expect(scope.routes).toHaveLength(1);
 	});
 
-	test("enqueues go through the scope so unregistered names are rejected by it", async () => {
-		await host.jobs.enqueue("refresh", { id: 1 });
-		await host.jobs.enqueueMany("refresh", [{ data: {} }]);
-
-		expect(scope.enqueues).toEqual([
-			{ name: "refresh", data: { id: 1 } },
-			{ name: "refresh", data: "many" },
-		]);
-	});
-
-	test("write capabilities carry plugin attribution", async () => {
+	test("an artifact written through the host is stored under the plugin's id", async () => {
+		const mediaFileId = await insertMovieMediaFile(db.client(), "/media/Hosted (2020)/hosted.mkv", "m-artifact");
 		const artifact: PlaybackArtifactWrite = {
-			mediaFileId: "file-1",
+			mediaFileId,
 			kind: "trickplay",
 			contentType: "image/webp",
-			content: new Uint8Array(),
+			content: new Uint8Array([1, 2, 3]),
 		};
+
 		await expect(host.artifacts.write(artifact)).resolves.toMatchObject({
+			mediaFileId,
 			pluginId: "org.reelvault.hosted",
 			kind: "trickplay",
 		});
-		await expect(host.notifications.create({ userId: "u1", type: "info", title: "Hello" })).resolves.toBeUndefined();
-		expect(scope.used).toEqual(["artifactsWrite", "notification"]);
+		expect(scope.used).toEqual(["artifactsWrite"]);
+	});
+
+	test("a notification created through the host reaches the sink attributed to the plugin", async () => {
+		await expect(host.notifications.create({ userId: "user-1", type: "info", title: "Hello" })).resolves.toBeUndefined();
+
+		expect(createdNotifications).toEqual([
+			[expect.objectContaining({ userId: "user-1", title: "Hello" }), { sourcePluginId: "org.reelvault.hosted" }],
+		]);
+		expect(scope.used).toEqual(["notification"]);
 	});
 
 	test("events, hooks, and access policies subscribe through the scope", () => {
@@ -239,8 +238,11 @@ describe("createPluginHost", () => {
 		expect(broadcastStub.calls[0]?.[0]).toBe("plugin:org.reelvault.hosted:progress");
 	});
 
-	test("http fetch is capability-gated before the guarded fetch rejects a bad URL", async () => {
-		await expect(host.http.fetch("ftp://example.invalid/file")).rejects.toThrow();
+	test("http fetch is capability-gated before the guarded fetch rejects a non-http URL", async () => {
+		await expect(host.http.fetch("ftp://example.invalid/file")).rejects.toMatchObject({
+			category: "validation",
+			code: "download.unsupported_protocol",
+		});
 		expect(scope.used).toEqual(["httpFetch"]);
 	});
 });

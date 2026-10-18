@@ -1,10 +1,13 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { subtitlesRepository } from "@/database/repositories/subtitles.repository";
-import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub";
-import { findSidecarSubtitles, importSidecarSubtitles, parseSidecarSubtitleName } from "./sidecar-subtitles";
+import { eq } from "drizzle-orm";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { removeTree } from "@/utils/directory.utils";
+import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { findSidecarSubtitles, importSidecarSubtitles, parseSidecarSubtitleName } from "./sidecar-subtitles.utils";
 
 describe("parseSidecarSubtitleName", () => {
 	test("accepts an exact-base subtitle without language", () => {
@@ -48,7 +51,7 @@ describe("findSidecarSubtitles", () => {
 	});
 
 	afterAll(async () => {
-		await rm(dir, { recursive: true, force: true });
+		await removeTree(dir);
 	});
 
 	test("collects matching sidecars with languages and formats, sorted by path", async () => {
@@ -76,9 +79,9 @@ describe("importSidecarSubtitles", () => {
 	});
 });
 
-describe("importSidecarSubtitles (batch probe + bulk insert)", () => {
+describe("importSidecarSubtitles against stored subtitles", () => {
+	const db = useTestDatabase();
 	let dir: string;
-	const stubs: MethodStub[] = [];
 
 	beforeAll(async () => {
 		dir = await mkdtemp(join(tmpdir(), "rv-sidecar-import-"));
@@ -88,56 +91,61 @@ describe("importSidecarSubtitles (batch probe + bulk insert)", () => {
 		await writeFile(join(dir, "Movie.pl.forced.srt"), "x");
 	});
 
-	afterEach(() => {
-		for (const stub of stubs) stub.restore();
-
-		stubs.length = 0;
-	});
-
 	afterAll(async () => {
-		await rm(dir, { recursive: true, force: true });
+		await removeTree(dir);
 	});
 
-	test("probes once and bulk-inserts deduplicated missing languages", async () => {
-		const probe = stubMethod(subtitlesRepository, "findExternalLanguagesByMediaFile", () => Promise.resolve(new Set<string>()));
-		const insert = stubMethod(subtitlesRepository, "insertReturning", ({ values }: { values: unknown }) =>
-			Promise.resolve(Array.isArray(values) ? values : [values]),
-		);
-		stubs.push(probe, insert);
+	async function storedSubtitles(mediaFileId: string) {
+		return await db.client().select().from(schema.subtitles).where(eq(schema.subtitles.mediaFileId, mediaFileId));
+	}
 
-		const imported = await importSidecarSubtitles("media-1", join(dir, "Movie.mkv"));
+	test("stores one external row per missing language and keeps the first file for a language", async () => {
+		const mediaFileId = await insertMovieMediaFile(db.client(), join(dir, "Movie.mkv"));
 
-		expect(imported).toBe(2);
-		expect(probe.calls).toHaveLength(1);
-		expect(insert.calls).toEqual([
-			[
-				expect.objectContaining({
-					onConflict: "doNothing",
-					values: [expect.objectContaining({ language: "en", format: "ass" }), expect.objectContaining({ language: "pl", format: "srt" })],
-				}),
-			],
+		expect(await importSidecarSubtitles(mediaFileId, join(dir, "Movie.mkv"))).toBe(2);
+
+		const rows = await storedSubtitles(mediaFileId);
+		expect(
+			rows.toSorted((a, b) => a.language.localeCompare(b.language)).map((row) => [row.language, row.format, row.type, row.isForced]),
+		).toEqual([
+			["en", "ass", "external", false],
+			["pl", "srt", "external", true],
 		]);
 	});
 
-	test("skips languages that already have an external row", async () => {
-		const probe = stubMethod(subtitlesRepository, "findExternalLanguagesByMediaFile", () => Promise.resolve(new Set(["pl"])));
-		const insert = stubMethod(subtitlesRepository, "insertReturning", ({ values }: { values: unknown }) =>
-			Promise.resolve(Array.isArray(values) ? values : [values]),
-		);
-		stubs.push(probe, insert);
+	test("keeps an existing external row for a language and imports only the rest", async () => {
+		const mediaFileId = await insertMovieMediaFile(db.client(), join(dir, "Movie.mkv"));
+		await db.client().insert(schema.subtitles).values({
+			mediaFileId,
+			language: "pl",
+			format: "srt",
+			type: "external",
+			filePath: "/elsewhere/Movie.pl.srt",
+		});
 
-		const imported = await importSidecarSubtitles("media-1", join(dir, "Movie.mkv"));
+		expect(await importSidecarSubtitles(mediaFileId, join(dir, "Movie.mkv"))).toBe(1);
 
-		expect(imported).toBe(1);
-		expect(insert.calls).toEqual([[expect.objectContaining({ values: [expect.objectContaining({ language: "en" })] })]]);
+		const rows = await storedSubtitles(mediaFileId);
+		expect(rows.find((row) => row.language === "pl")?.filePath).toBe("/elsewhere/Movie.pl.srt");
+		expect(rows.map((row) => row.language).toSorted()).toEqual(["en", "pl"]);
 	});
 
-	test("does not insert when every language is already imported", async () => {
-		const probe = stubMethod(subtitlesRepository, "findExternalLanguagesByMediaFile", () => Promise.resolve(new Set(["en", "pl"])));
-		const insert = stubMethod(subtitlesRepository, "insertReturning", () => Promise.resolve([]));
-		stubs.push(probe, insert);
+	test("imports nothing when every language already has an external row", async () => {
+		const mediaFileId = await insertMovieMediaFile(db.client(), join(dir, "Movie.mkv"));
+		await db
+			.client()
+			.insert(schema.subtitles)
+			.values([
+				{ mediaFileId, language: "en", format: "srt", type: "external", filePath: "/elsewhere/Movie.en.srt" },
+				{ mediaFileId, language: "pl", format: "srt", type: "external", filePath: "/elsewhere/Movie.pl.srt" },
+			]);
 
-		expect(await importSidecarSubtitles("media-1", join(dir, "Movie.mkv"))).toBe(0);
-		expect(insert.calls).toHaveLength(0);
+		expect(await importSidecarSubtitles(mediaFileId, join(dir, "Movie.mkv"))).toBe(0);
+
+		const rows = await storedSubtitles(mediaFileId);
+		expect(rows.toSorted((a, b) => a.language.localeCompare(b.language)).map((row) => row.filePath)).toEqual([
+			"/elsewhere/Movie.en.srt",
+			"/elsewhere/Movie.pl.srt",
+		]);
 	});
 });

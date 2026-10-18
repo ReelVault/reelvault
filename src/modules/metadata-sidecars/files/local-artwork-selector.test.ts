@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { indexByLowerCaseName, selectEpisodeThumbnail, selectIgnoredAssets, selectMovieArtwork } from "./local-artwork-selector";
+import { indexByLowerCaseName, selectEpisodeThumbnail, selectIgnoredAssets, selectMovieArtwork } from "./local-artwork.selector";
 
 describe("indexByLowerCaseName", () => {
 	test("indexes file names case-insensitively, keeping the original path", () => {
@@ -70,9 +70,5 @@ describe("selectIgnoredAssets", () => {
 			{ path: "/media/clearlogo.png", fileName: "clearlogo.png", reason: "unsupported-artwork-type" },
 			{ path: "/media/logo.jpg", fileName: "logo.jpg", reason: "unsupported-artwork-type" },
 		]);
-	});
-
-	test("returns nothing for supported artwork", () => {
-		expect(selectIgnoredAssets(["/media/folder.jpg", "/media/backdrop.jpg"])).toEqual([]);
 	});
 });

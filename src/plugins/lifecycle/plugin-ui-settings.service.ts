@@ -1,10 +1,10 @@
 import type { PluginUiSettings, UpdatePluginUiSettingsBody } from "@reelvault/sdk/common";
-import { pluginUiOverridesRepository } from "@/database/repositories/plugin-ui-overrides.repository";
-import { DomainError } from "@/utils/errors";
-import { createLogger } from "@/utils/logger";
-import { runSafely } from "@/utils/safe-execute";
+import { pluginUiOverrideData } from "@/app/plugins/plugin-data.service";
+import { DomainError } from "@/utils/domain.errors";
+import { createLogger } from "@/utils/logger.utils";
+import { runSafely } from "@/utils/safe-execute.utils";
 import { pluginRegistry } from "./plugin.registry";
-import { listUiContributions, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions";
+import { listUiContributions, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions.utils";
 
 /**
  * Administrator switches for what a plugin adds to the web UI. Only deviations
@@ -19,7 +19,7 @@ class PluginUiSettingsService {
 	private hiddenByPlugin: Map<string, Set<string>> | undefined;
 
 	async getHiddenByPlugin(): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
-		this.hiddenByPlugin ??= await pluginUiOverridesRepository.listAll();
+		this.hiddenByPlugin ??= await pluginUiOverrideData.listAll();
 
 		return this.hiddenByPlugin;
 	}
@@ -55,7 +55,7 @@ class PluginUiSettingsService {
 			const hidden = new Set(body.disabledKeys);
 			if (!body.enabled) hidden.add(PLUGIN_UI_MASTER_KEY);
 
-			await pluginUiOverridesRepository.replaceForPlugin(pluginId, [...hidden]);
+			await pluginUiOverrideData.replaceForPlugin(pluginId, [...hidden]);
 			this.hiddenByPlugin = undefined;
 
 			return await this.get(pluginId);
@@ -75,13 +75,13 @@ class PluginUiSettingsService {
 		const kept = [...hidden].filter((key) => key === PLUGIN_UI_MASTER_KEY || known.has(key));
 		if (kept.length === hidden.size) return;
 
-		await pluginUiOverridesRepository.replaceForPlugin(pluginId, kept);
+		await pluginUiOverrideData.replaceForPlugin(pluginId, kept);
 		this.hiddenByPlugin = undefined;
 	}
 
 	/** Shows the plugin's whole UI again. Also called when the plugin is uninstalled. */
 	async reset(pluginId: string): Promise<void> {
-		await pluginUiOverridesRepository.replaceForPlugin(pluginId, []);
+		await pluginUiOverrideData.replaceForPlugin(pluginId, []);
 		this.hiddenByPlugin = undefined;
 	}
 
