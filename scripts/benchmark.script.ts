@@ -2,29 +2,47 @@ import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDiscovery, suiteArgs } from "benchkit";
-import { removeTreeSync } from "@/utils/directory.utils";
 
 process.env.NODE_ENV = "production";
 
 // Isolate in-process suites from the developer's real data directory. The
 // module-level `databaseFactory` reads ROOT_DIR/DB_FILE_NAME at import time, so
 // this must run before any suite module (and therefore the database) is loaded.
-// Only ROOT_DIR is overridden: the default DB_FILE_NAME ("reelvault.sqlite") is
-// what the spawned-server benchmark helper expects. Managers that spawn their own
-// server set ROOT_DIR themselves.
+// Static imports hoist above these assignments, so any module reaching
+// `env.config` is imported dynamically below — a static `@/` import here would
+// evaluate the environment first and silently revert the run to `.env` (real
+// data directory, development mode). Only ROOT_DIR is overridden: the default
+// DB_FILE_NAME ("reelvault.sqlite") is what the spawned-server benchmark helper
+// expects. Managers that spawn their own server set ROOT_DIR themselves.
 const benchmarkRoot = mkdtempSync(join(tmpdir(), "reelvault-benchmark-"));
 process.env.ROOT_DIR = benchmarkRoot;
+
+// Honesty flags are parsed before env.config is first evaluated, so the process
+// — and every spawned server, which inherits process.env — sees them.
+const args = suiteArgs();
+if (args.noCache) process.env.REELVAULT_BENCH_DISABLE_CACHES = "true";
+if (args.noDedup) process.env.REELVAULT_BENCH_DISABLE_DEDUP = "true";
+
+const { removeTreeSync } = await import("@/utils/directory.utils");
 process.on("exit", () => {
 	removeTreeSync(benchmarkRoot);
 });
+
+// Fail loudly when some import captured the environment before isolation ran:
+// the run would otherwise migrate, seed and measure the real database.
+const { env } = await import("@/config/env.config");
+if (env.ROOT_DIR !== benchmarkRoot) {
+	throw new Error(`[benchmark] ROOT_DIR was captured as "${env.ROOT_DIR}" instead of "${benchmarkRoot}"`);
+}
+if (env.NODE_ENV !== "production") {
+	throw new Error(`[benchmark] NODE_ENV was captured as "${env.NODE_ENV}" instead of "production"`);
+}
 
 const benchDir = join(import.meta.dir, "benchmarks");
 const files = readdirSync(benchDir)
 	.filter((file) => file.endsWith(".bench.ts"))
 	.toSorted()
 	.map((file) => join(benchDir, file));
-
-const args = suiteArgs();
 
 let jsonPath: string | undefined;
 if (args.json === true) {

@@ -20,11 +20,12 @@ import type { SidecarArtworkWriter } from "@/modules/metadata-sidecars/saver/sid
 import type { SidecarMetadataWriter } from "@/modules/metadata-sidecars/sidecar.types";
 import { seedCatalog } from "./lib/seed.utils";
 
-// Statement counting must be enabled before the ambient factory is constructed,
-// and static imports are hoisted — so the database module is imported dynamically.
-// The repositories resolve `databaseFactory` from this same module instance.
-process.env.APP_SLOW_QUERY_LOG = "true";
+// Statement counting is enabled right after the factory import: late enabling
+// counts statements without the timing proxy, and the runner evaluates
+// env.config before suites load, so an env flag set here could no longer reach
+// the logger (tests construct their own factory with `queryStats: true`).
 const { databaseFactory } = await import("@/integrations/drizzle-orm/database.factory");
+databaseFactory.enableQueryStats();
 const { librariesRepository } = await import("@/app/repositories/libraries.repository");
 const { collectionRepository } = await import("@/app/repositories/collections.repository");
 const { mediaRepository } = await import("@/app/repositories/media-files.repository");
@@ -38,6 +39,12 @@ const { playbackViewService } = await import("@/app/media/playback-view.service"
 const { SidecarMetadataStorageService } = await import("@/modules/metadata-sidecars/sidecar-metadata-storage.service");
 const { playbackProgressService } = await import("@/app/playback/playback-progress.service");
 const { librariesService } = await import("@/app/libraries/libraries.service");
+const { wireModulePorts } = await import("@/app/wiring/module-ports");
+
+// The sidecar case drives SidecarMetadataStorageService, which reads through
+// module ports wired by the composition root at boot; wire the same
+// implementations here so the counted statements match the server.
+wireModulePorts();
 
 export const meta = { description: "Statement-count audit (queries per operation, targets gate --strict)" };
 

@@ -199,6 +199,15 @@ export class DatabaseFactory {
 		return this.txDb;
 	}
 
+	/**
+	 * Enables per-statement counting after construction (statement-count audits:
+	 * the `query-count` suite). The timing proxy is only wired at construction,
+	 * so this counts statements without distorting the measured milliseconds.
+	 */
+	enableQueryStats(): void {
+		this.queryLogger.setEnabled(true);
+	}
+
 	/** Statements executed since the last reset (benchmarks/audits only). */
 	getQueryStats(): { queryCount: number; slowQueryCount: number } {
 		return this.queryLogger.getStats();

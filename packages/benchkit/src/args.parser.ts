@@ -21,6 +21,8 @@ export interface BenchmarkArgs {
 	keepServer: boolean;
 	/** Send `Cache-Control: no-cache` so responses bypass the server-side body cache (cold path). */
 	noCache: boolean;
+	/** Run with in-flight request/load coalescing off (every concurrent request does its own work). */
+	noDedup: boolean;
 	/** Write machine-readable results here; `true` means the runner's default path (`--json[=path]`). */
 	json?: string | boolean | undefined;
 	/** Only run units whose name matches this regex (`--only`, case-insensitive). */
@@ -51,7 +53,7 @@ export const DEFAULT_UPLOAD_SIZE_MB = 25;
 
 const FLAG_NAMES = new Set(["url", "concurrency", "duration", "warmup", "iterations", "rows", "size-mb", "target"]);
 /** Flags that take no value unless given inline as `--flag=value`. */
-const BOOLEAN_FLAGS = new Set(["strict", "json", "save-baseline", "compare-baseline", "keep-server", "no-cache"]);
+const BOOLEAN_FLAGS = new Set(["strict", "json", "save-baseline", "compare-baseline", "keep-server", "no-cache", "no-dedup"]);
 const TRAILING_SLASH_REGEX = /\/$/;
 
 export function printUsage(scriptName: string, extra = ""): void {
@@ -70,6 +72,7 @@ export function printUsage(scriptName: string, extra = ""): void {
   --compare-baseline[=path]
                          compare against a baseline and print verdicts; with --strict a "slower" verdict fails
   --no-cache             bypass the server-side response body cache (cold path)
+  --no-dedup             disable in-flight request/load coalescing (worst-case concurrent work)
   --json[=path]          write machine-readable results (default path: benchmark-results/benchkit-latest.json)
   --strict               exit non-zero when an audit/comparison unit reports a failure${extra}`);
 }
@@ -137,6 +140,12 @@ function applyFlag(args: BenchmarkArgs, key: string, value: string | undefined, 
 		return;
 	}
 
+	if (key === "no-dedup") {
+		args.noDedup = true;
+
+		return;
+	}
+
 	if (key === "json") {
 		args.json = value ?? true;
 
@@ -199,6 +208,7 @@ export function parseBenchmarkArgs(extraFlags: ReadonlySet<string> = new Set()):
 		sizeMb: DEFAULT_UPLOAD_SIZE_MB,
 		keepServer: false,
 		noCache: false,
+		noDedup: false,
 		strict: false,
 		flags: {},
 		help: false,

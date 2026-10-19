@@ -1,7 +1,14 @@
+import { env } from "@/config/env.config";
 import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
 import { type MemoryCacheStats, registerNamedCache, unregisterNamedCache } from "@/utils/memory-cache/cache-registry.registry";
 import { detach } from "@/utils/promise.utils";
+
+// Benchmark honesty escape hatches (see env.config): with caches disabled every
+// cache reports a miss and drops writes; with dedup disabled concurrent loads
+// are not coalesced. Both default off; `bun run benchmark` sets them.
+const storageDisabled = env.REELVAULT_BENCH_DISABLE_CACHES === "true";
+const dedupDisabled = env.REELVAULT_BENCH_DISABLE_DEDUP === "true";
 
 interface MemoryCacheOptions<T, K extends string> {
 	/**
@@ -91,6 +98,8 @@ export class MemoryCache<T, K extends string = string> {
 	}
 
 	has(key: K): boolean {
+		if (storageDisabled) return false;
+
 		const entry = this.cache.get(key);
 		if (!entry) return false;
 
@@ -108,6 +117,12 @@ export class MemoryCache<T, K extends string = string> {
 	 * `null`, which broke negative caching (a cached "not found" was re-queried).
 	 */
 	private lookup(key: K): { hit: false } | { hit: true; value: T } {
+		if (storageDisabled) {
+			this.misses++;
+
+			return { hit: false };
+		}
+
 		const entry = this.cache.get(key);
 		if (!entry) {
 			this.misses++;
@@ -131,6 +146,8 @@ export class MemoryCache<T, K extends string = string> {
 	}
 
 	set(key: K, value: T): void {
+		if (storageDisabled) return;
+
 		const now = Date.now();
 		this.sweepIfDue(now);
 		this.remove(key); // reset position if the key already existed; overwriting isn't an eviction
@@ -253,6 +270,8 @@ export class MemoryCache<T, K extends string = string> {
 
 	/** Shares one in-flight load per key; the key leaves `pending` once the load settles. */
 	private trackLoad(key: K, load: () => Promise<T>): Promise<T> {
+		if (dedupDisabled) return load();
+
 		const promise = (async () => {
 			try {
 				return await load();
@@ -415,23 +434,25 @@ export class MemoryCache<T, K extends string = string> {
 			return settled;
 		})();
 
-		for (const key of keys) {
-			const perKeyPromise = (async () => {
-				const loadedMap = await batchPromise;
-				const value = loadedMap.get(key);
-				if (value === undefined)
-					throw new DomainError("internal", `getOrSetMany: loader did not return a value for key "${key}"`, {
-						code: "memory_cache.loader_value_missing",
-					});
+		if (!dedupDisabled) {
+			for (const key of keys) {
+				const perKeyPromise = (async () => {
+					const loadedMap = await batchPromise;
+					const value = loadedMap.get(key);
+					if (value === undefined)
+						throw new DomainError("internal", `getOrSetMany: loader did not return a value for key "${key}"`, {
+							code: "memory_cache.loader_value_missing",
+						});
 
-				return value;
-			})();
-			// Nobody may ever await this specific per-key promise (e.g. no concurrent
-			// getOrSet() call arrives for this key), which would otherwise surface as
-			// an unhandled rejection when the key is missing from the loader result.
-			// allSettled observes the rejection without altering it for other awaiters.
-			detach(Promise.allSettled([perKeyPromise]));
-			this.pending.set(key, perKeyPromise);
+					return value;
+				})();
+				// Nobody may ever await this specific per-key promise (e.g. no concurrent
+				// getOrSet() call arrives for this key), which would otherwise surface as
+				// an unhandled rejection when the key is missing from the loader result.
+				// allSettled observes the rejection without altering it for other awaiters.
+				detach(Promise.allSettled([perKeyPromise]));
+				this.pending.set(key, perKeyPromise);
+			}
 		}
 
 		try {

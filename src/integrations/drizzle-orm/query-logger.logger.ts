@@ -10,7 +10,7 @@ export interface QueryLoggerOptions {
 }
 
 export class DatabaseQueryLogger implements Logger {
-	private readonly enabled: boolean;
+	private enabled: boolean;
 	private readonly slowThresholdMs: number;
 	private queryCount = 0;
 	private slowQueryCount = 0;
@@ -22,6 +22,15 @@ export class DatabaseQueryLogger implements Logger {
 
 	isEnabled(): boolean {
 		return this.enabled;
+	}
+
+	/**
+	 * Enables counting after construction (statement-count audits). Timing
+	 * instrumentation is wired into the sqlite client only at construction, so a
+	 * late enable counts statements without the logging proxy's distortion.
+	 */
+	setEnabled(enabled: boolean): void {
+		this.enabled = enabled;
 	}
 
 	// Called by Drizzle right before a statement executes; used for counting only.

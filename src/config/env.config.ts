@@ -175,6 +175,13 @@ const envSchema = Type.Object({
 	REELVAULT_AUTH_RATE_LIMIT_ENABLED: choice(["true", "false"], { default: "true" }),
 	// Per-account login throttle (attempts per 5 minutes, default 10).
 	REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS: Type.Integer({ exclusiveMinimum: 0, default: 10 }),
+	// Benchmark honesty: every MemoryCache reports a miss and drops writes, so
+	// `bun run benchmark --no-cache` measures uncached work (set by the runner).
+	REELVAULT_BENCH_DISABLE_CACHES: choice(["true", "false"], { default: "false" }),
+	// Benchmark honesty: in-flight coalescing (request-dedup middleware and
+	// MemoryCache pending loads) is skipped, so concurrent identical requests
+	// each do their own work (set by `bun run benchmark --no-dedup`).
+	REELVAULT_BENCH_DISABLE_DEDUP: choice(["true", "false"], { default: "false" }),
 
 	ROOT_DIR: Type.String({ minLength: 1, default: DEFAULT_ROOT_DIR }),
 	DB_FILE_NAME: Type.String({ minLength: 1, default: "reelvault.sqlite" }),

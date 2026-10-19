@@ -1,8 +1,13 @@
 import { hash as bunHash } from "bun";
 import { Elysia } from "elysia";
+import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
 import { getResponseStatus, pathWithQuery, readRequestCredentials } from "@/utils/http.utils";
 import { serializedBodyCache } from "./response-cache.middleware";
+
+// Benchmark honesty escape hatch: with dedup disabled every request does its
+// own work instead of joining an identical in-flight response.
+const dedupDisabledByEnv = env.REELVAULT_BENCH_DISABLE_DEDUP === "true";
 
 interface DedupContext {
 	_dedupKey?: string | undefined;
@@ -81,7 +86,7 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 	.macro({
 		deduplicate: (_options: { enabled?: boolean } = {}) => ({
 			async beforeHandle(context: { request: Request } & DedupContext): Promise<Response | undefined> {
-				if (_options.enabled === false || !serverConfig.requestDedup.enabled) return undefined;
+				if (_options.enabled === false || dedupDisabledByEnv || !serverConfig.requestDedup.enabled) return undefined;
 
 				if (!(context.request.method === "GET" || context.request.method === "HEAD")) return undefined;
 

@@ -1,4 +1,19 @@
 import type { Database } from "bun:sqlite";
+import { isRecord } from "@/utils/type.utils";
+
+/**
+ * Suites run against a fresh migrated database in the run's temp ROOT_DIR.
+ * Seeding a database that already holds catalog rows silently mixes runs (or
+ * aborts halfway on a UNIQUE violation and leaves the rest unseeded), so refuse
+ * loudly — the fix is to go through `bun run benchmark`, which gives every run
+ * its own root directory.
+ */
+function assertFreshDatabase(db: Database): void {
+	const row = db.query("SELECT count(*) AS n FROM metadata").get();
+	if (isRecord(row) && typeof row.n === "number" && row.n > 0) {
+		throw new Error(`[bench] seedCatalog expects a fresh database, but metadata already holds ${row.n} rows`);
+	}
+}
 
 export interface CatalogSeedOptions {
 	/** Catalog rows (metadata + movie + media file per row). */
@@ -47,6 +62,7 @@ export interface CatalogSeedOptions {
  * Returns the base timestamp the rows were seeded with.
  */
 export function seedCatalog(db: Database, options: CatalogSeedOptions): number {
+	assertFreshDatabase(db);
 	const now = Math.floor(Date.now() / 1000);
 
 	db.run("PRAGMA foreign_keys = OFF");
