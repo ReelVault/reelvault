@@ -33,6 +33,7 @@ import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { mediaService } from "@/app/media/media-files/media-files.service";
 import { MINUTE } from "@/config/server/server.constants";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
+import { DomainError } from "@/utils/domain.errors";
 
 export const mediaFilesRoutes = new Elysia({
 	prefix: "/media-files",
@@ -52,7 +53,15 @@ export const mediaFilesRoutes = new Elysia({
 	.guard({ auth: true })
 	.get(
 		"/audit",
-		async ({ status, user, request }) => status(202, await mediaService.queueAudit({ actorUserId: user?.id, headers: request.headers })),
+		async ({ status, user, request }) => {
+			// State-changing GET: browsers send this header cross-site, so refuse it
+			// instead of letting a link/navigation queue a server-wide sweep.
+			if (request.headers.get("sec-fetch-site") === "cross-site") {
+				throw new DomainError("forbidden", "Cross-site requests cannot queue the media audit", { code: "media.audit_cross_site" });
+			}
+
+			return status(202, await mediaService.queueAudit({ actorUserId: user?.id, headers: request.headers }));
+		},
 		{
 			adminOnly: true,
 			rateLimit: {

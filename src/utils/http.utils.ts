@@ -65,8 +65,38 @@ export function getPathname(url: string): string {
 	if (start === -1) return "/";
 
 	const end = url.indexOf("?", start);
+	const raw = end === -1 ? url.slice(start) : url.slice(start, end);
 
-	return end === -1 ? url.slice(start) : url.slice(start, end);
+	return normalizeDotSegments(raw);
+}
+
+/**
+ * Collapses `.`/`..` segments (percent-encoded included). Elysia resolves these
+ * before route matching, so classification and exemptions must see the same
+ * path the router will.
+ */
+function normalizeDotSegments(pathname: string): string {
+	if (!pathname.includes(".")) return pathname;
+
+	const segments: string[] = [];
+	for (const segment of pathname.split("/")) {
+		let decoded = segment;
+		try {
+			decoded = decodeURIComponent(segment);
+		} catch {
+			// Malformed escape: keep the raw segment, which matches no dot rule.
+		}
+
+		if (decoded === ".") continue;
+		if (decoded === "..") {
+			segments.pop();
+			continue;
+		}
+
+		segments.push(segment);
+	}
+
+	return segments.join("/") || "/";
 }
 
 /**
