@@ -1,14 +1,14 @@
-import { readdir } from "node:fs/promises";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import type { SidecarArtworkReference } from "@/modules/metadata-sidecars/sidecar.types";
 import { extractSeasonEpisode } from "@/modules/recognition/utils/recognition.utils";
 import { isNotNullish } from "@/utils/array.utils";
-import { DomainError, errorMessage } from "@/utils/domain.errors";
+import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { indexByLowerCaseName, selectEpisodeThumbnail, selectIgnoredAssets, selectMovieArtwork } from "./local-artwork.selector";
+import { listDirectoryEntries } from "./local-directory.listing";
 import type { LocalEpisodeFile, LocalMovieFolder, LocalSeasonGroup, LocalSeriesGroup } from "./local-media.utils";
 import { readSeasonNumber } from "./local-season.utils";
 
@@ -44,15 +44,13 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 	async inspectSeries(seriesPath: string): Promise<LocalSeriesGroup> {
 		this.assertWithinRoot(seriesPath);
 		const seriesDirectory = PathUtils.resolve(seriesPath);
-		const entries = await readdir(seriesDirectory, { withFileTypes: true }).catch((error) => {
+		const entries = await listDirectoryEntries(seriesDirectory);
+		if (!entries) {
 			// An unreadable series directory (EACCES on a NAS mount) must be
 			// distinguishable from an empty one — otherwise sidecar metadata
 			// silently vanishes.
-			logger.warn("Series directory unreadable — treated as empty", { seriesDirectory, error: errorMessage(error) });
+			logger.warn("Series directory unreadable — treated as empty", { seriesDirectory });
 
-			return null;
-		});
-		if (!entries) {
 			return {
 				seriesDirectory,
 				seasonGroups: [],
@@ -64,8 +62,8 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 		const directories: string[] = [];
 		for (const e of entries) {
 			const fullPath = PathUtils.join(seriesDirectory, e.name);
-			if (e.isFile()) files.push(fullPath);
-			else if (e.isDirectory()) directories.push(fullPath);
+			if (e.isFile) files.push(fullPath);
+			else if (e.isDirectory) directories.push(fullPath);
 		}
 
 		const index = indexByLowerCaseName(files);
@@ -112,16 +110,16 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 }
 
 async function readFiles(directory: string): Promise<string[]> {
-	const entries = await readdir(directory, { withFileTypes: true }).catch((error) => {
-		logger.warn("Directory unreadable — treated as empty", { directory, error: errorMessage(error) });
+	const entries = await listDirectoryEntries(directory);
+	if (!entries) {
+		logger.warn("Directory unreadable — treated as empty", { directory });
 
-		return null;
-	});
-	if (!entries) return [];
+		return [];
+	}
 
 	const result: string[] = [];
 	for (const entry of entries) {
-		if (entry.isFile()) result.push(PathUtils.join(directory, entry.name));
+		if (entry.isFile) result.push(PathUtils.join(directory, entry.name));
 	}
 
 	return result;

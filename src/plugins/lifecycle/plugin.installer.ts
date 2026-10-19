@@ -1,5 +1,6 @@
 import { cp, mkdir, rename } from "node:fs/promises";
 import type { PluginInstallDirection } from "@reelvault/sdk/common";
+import { resolvePluginDirectoryName } from "@/plugins/lifecycle/host/plugin-directory.resolver";
 import { DirUtils, removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
@@ -183,23 +184,9 @@ export class PluginInstaller {
 	 */
 	private async resolveInstalledDirectoryName(pluginId: string): Promise<string> {
 		const lockfile = await this.lockfileStore.read();
-		const record = lockfile.plugins[pluginId];
-		if (record && isPluginDirectoryName(record.directory) && PathUtils.getFileName(record.directory) === record.directory) {
-			if (await DirUtils.exists(PathUtils.join(this.pluginsDirectory, record.directory))) return record.directory;
-		}
+		const resolved = await resolvePluginDirectoryName(pluginId, lockfile, this.pluginsDirectory);
 
-		for (const dirName of await DirUtils.listDirs(this.pluginsDirectory)) {
-			if (!isPluginDirectoryName(dirName)) continue;
-
-			try {
-				const manifest = await loadPluginManifest(PathUtils.join(this.pluginsDirectory, dirName));
-				if (manifest.id === pluginId) return dirName;
-			} catch {
-				// Not a loadable plugin directory — ignore.
-			}
-		}
-
-		return pluginId;
+		return resolved ?? pluginId;
 	}
 
 	/** Best-effort removal of other directories carrying the same plugin id. */

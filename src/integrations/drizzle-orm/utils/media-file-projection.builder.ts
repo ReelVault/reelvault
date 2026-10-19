@@ -18,27 +18,11 @@ import {
 } from "@/integrations/drizzle-orm/utils/relation-json.utils";
 import { groupBy } from "@/utils/array.utils";
 
-const mediaFileColumns = {
-	id: schema.mediaFiles.id,
-	libraryId: schema.mediaFiles.libraryId,
-	metadataId: schema.mediaFiles.metadataId,
-	movieId: schema.mediaFiles.movieId,
-	episodeId: schema.mediaFiles.episodeId,
-	filePath: schema.mediaFiles.filePath,
-	fileName: schema.mediaFiles.fileName,
-	formatName: schema.mediaFiles.formatName,
-	duration: schema.mediaFiles.duration,
-	size: schema.mediaFiles.size,
-	bitRate: schema.mediaFiles.bitRate,
-	source: schema.mediaFiles.source,
-	edition: schema.mediaFiles.edition,
-	qualityTag: schema.mediaFiles.qualityTag,
-	isDefault: schema.mediaFiles.isDefault,
-	isEnabled: schema.mediaFiles.isEnabled,
-	sourceMtimeMs: schema.mediaFiles.sourceMtimeMs,
-	createdAt: schema.mediaFiles.createdAt,
-	updatedAt: schema.mediaFiles.updatedAt,
-} as const;
+/**
+ * The media file columns, straight from the schema: a hand-kept list of them
+ * silently dropped every column added to the table later.
+ */
+const mediaFileColumns = getTableColumns(schema.mediaFiles);
 
 type MediaFileRelation = "libraryId" | "movieId" | "episodeId";
 
@@ -146,16 +130,15 @@ export async function findFirstWithMediaFiles<F extends string, TRow extends { i
 	return rows[0];
 }
 
-const mediaFileRowColumns = getTableColumns(schema.mediaFiles);
-const mediaFileRowKeys = Object.keys(mediaFileRowColumns);
-const mediaFileRevive = { booleanKeys: booleanKeysOf(mediaFileRowColumns), dateKeys: dateKeysOf(mediaFileRowColumns) };
+const mediaFileRowKeys = Object.keys(mediaFileColumns);
+const mediaFileRevive = { booleanKeys: booleanKeysOf(mediaFileColumns), dateKeys: dateKeysOf(mediaFileColumns) };
 
 /**
  * One parent row's media files as a JSON array. `ORDER BY rowid` keeps the
  * insertion order the batched read produced through the foreign-key index.
  */
 export function mediaFilesJsonArray(relationColumn: SQLiteColumn, parentIdColumn: SQLiteColumn): SQL<string> {
-	const { selectList, pairs } = aliasedColumns(mediaFileRowColumns, "");
+	const { selectList, pairs } = aliasedColumns(mediaFileColumns, "");
 	const from = sql`${schema.mediaFiles} WHERE ${relationColumn} = ${parentIdColumn}`;
 
 	return orderedJsonArray(selectList, pairs, from, sql`${schema.mediaFiles}.rowid`);

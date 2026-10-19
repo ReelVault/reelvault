@@ -6,6 +6,7 @@ import { realtimeService } from "@/modules/realtime/realtime.service";
 import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
 import { pluginBlobsService } from "@/plugins/capabilities/plugin.blobs";
 import { pluginStorageService } from "@/plugins/capabilities/plugin.storage";
+import { resolvePluginDirectoryName } from "@/plugins/lifecycle/host/plugin-directory.resolver";
 import { PluginLockfileStore } from "@/plugins/lifecycle/installer/lockfile.store";
 import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
@@ -20,7 +21,7 @@ import { PromiseUtils } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import { workerService } from "@/workers/worker.service";
 import { PluginScope } from "./host/plugin.scope";
-import { isPluginDirectoryName, PluginDirectoryIndex } from "./host/plugin-directory.indexer";
+import { PluginDirectoryIndex } from "./host/plugin-directory.indexer";
 import { createPluginHost } from "./host/plugin-host.factory";
 import { validatePluginUiManifest } from "./manifest/ui.validator";
 import type { PluginConfig } from "./plugin.config";
@@ -60,13 +61,11 @@ export class PluginLoader {
 		// The lockfile records where the installer actually put the plugin; a
 		// manifest scan can also see stale duplicate directories with the same id.
 		const lockfile = await this.lockfileStore.read();
-		const record = lockfile.plugins[pluginId];
-		if (record && isPluginDirectoryName(record.directory) && PathUtils.getFileName(record.directory) === record.directory) {
-			if (await DirUtils.exists(PathUtils.join(this.pluginsDirectory, record.directory))) {
-				this.directoryIndex.set(pluginId, record.directory);
+		const resolved = await resolvePluginDirectoryName(pluginId, lockfile, this.pluginsDirectory);
+		if (resolved) {
+			this.directoryIndex.set(pluginId, resolved);
 
-				return record.directory;
-			}
+			return resolved;
 		}
 
 		return await this.directoryIndex.resolve(pluginId, this.pluginsDirectory);

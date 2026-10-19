@@ -1,37 +1,16 @@
-import { readdir } from "node:fs/promises";
+import { listDirectoryEntries } from "@/modules/metadata-sidecars/files/local-directory.listing";
 import { subtitlesStorage } from "@/modules/subtitles/subtitles.ports";
 import { FileUtils } from "@/utils/file.utils";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
-import { MemoryCache } from "@/utils/memory.cache";
 import { PathUtils } from "@/utils/path.utils";
 
 export const SIDECAR_SUBTITLE_EXTENSIONS = new Set(["srt", "ass", "ssa"]);
 
-/**
- * Season packs import one subtitle set per episode from the same directory;
- * re-reading the listing per episode is pure overhead. Short TTL: a subtitle
- * dropped in mid-scan is picked up by the next scan/refresh (imports are
- * idempotent).
- */
-const DIRECTORY_LISTING_TTL_MS = 5_000;
-const directoryListingCache = new MemoryCache<string[]>({
-	ttlMs: DIRECTORY_LISTING_TTL_MS,
-	maxSize: 64,
-	name: "sidecar-subtitle-listings",
-});
-
 async function readDirectoryEntries(directory: string): Promise<string[]> {
-	const cached = directoryListingCache.get(directory);
-	if (cached) return cached;
+	const entries = await listDirectoryEntries(directory);
+	if (!entries) return [];
 
-	try {
-		const entries = await readdir(directory);
-		directoryListingCache.set(directory, entries);
-
-		return entries;
-	} catch {
-		return [];
-	}
+	return entries.map((entry) => entry.name);
 }
 
 export interface SidecarSubtitleCandidate {
