@@ -136,8 +136,12 @@ class MetadataService {
 		return await deleteMany(this.state, metadataIds, options, context, (...args) => this.delete(...args));
 	}
 
-	async delete(metadataId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
-		return await deleteOne(this.state, metadataId, context);
+	async delete(
+		metadataId: string,
+		context?: AdminAuditContext,
+		options: { force?: boolean | undefined } = {},
+	): Promise<{ success: boolean }> {
+		return await deleteOne(this.state, metadataId, context, options);
 	}
 
 	async deleteOrphans(context?: AdminAuditContext): Promise<{ count: number }> {

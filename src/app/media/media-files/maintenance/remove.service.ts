@@ -11,7 +11,11 @@ import { runSafely } from "@/utils/safe-execute.utils";
 import type { getById } from "../queries.reader";
 import type { MediaServiceState, WithoutState } from "../shared.utils";
 
-type DeleteOne = (mediaFileId: string, context?: AdminAuditContext) => Promise<{ success: boolean }>;
+type DeleteOne = (
+	mediaFileId: string,
+	context?: AdminAuditContext,
+	options?: { force?: boolean | undefined },
+) => Promise<{ success: boolean }>;
 
 /**
  * Removes the listed media file records one after another; each id reports its own outcome. Files a stream is playing are
@@ -34,7 +38,7 @@ export async function deleteMany(
 			});
 		}
 
-		return await runBulkItems(ids, (id) => deleteOneFn(id, context), "media.delete_failed");
+		return await runBulkItems(ids, (id) => deleteOneFn(id, context, { force: options.force === true }), "media.delete_failed");
 	});
 }
 
@@ -43,10 +47,22 @@ export async function deleteOne(
 	mediaFileId: string,
 	context: AdminAuditContext | undefined,
 	getOne: (...args: WithoutState<typeof getById>) => ReturnType<typeof getById>,
+	options: { force?: boolean | undefined } = {},
 ): Promise<{ success: boolean }> {
 	return await runSafely(state, "delete", async () => {
 		// getById already asserts existence (404) — no redundant second check needed.
 		const mediaFile = await getOne(mediaFileId, { fields: "id" });
+		// The same protection the bulk path enforces: deleting the record ends playback.
+		if (options.force !== true) {
+			const activeStreams = streamingManager.getAllActiveSessions().filter((session) => session.mediaFileId === mediaFileId).length;
+			if (activeStreams > 0) {
+				throw new DomainError("conflict", "Delete is blocked while a stream is playing this file", {
+					code: "media.delete_blocked_active_streams",
+					params: { activeStreams },
+				});
+			}
+		}
+
 		const cleanup = await mediaRepository.deleteAndGetCleanup(mediaFileId);
 		await runMediaCleanup(cleanup);
 

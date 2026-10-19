@@ -38,7 +38,7 @@ export async function deleteMany(
 			});
 		}
 
-		return await runBulkItems(ids, (id) => deleteOneOf(id, context), "metadata.delete_failed");
+		return await runBulkItems(ids, (id) => deleteOneOf(id, context, { force: options.force === true }), "metadata.delete_failed");
 	});
 }
 
@@ -46,10 +46,23 @@ export async function deleteOne(
 	state: MetadataServiceState,
 	metadataId: string,
 	context?: AdminAuditContext,
+	options: { force?: boolean | undefined } = {},
 ): Promise<{ success: boolean }> {
 	return await runSafely(state, "delete", async () => {
 		const metadata = await metadataRepository.findByIdForRead(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
+		// The same protection the bulk path enforces: deleting the title ends its streams.
+		if (options.force !== true) {
+			const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds([metadataId]));
+			const activeStreams = streamingManager.getAllActiveSessions().filter((session) => linkedFileIds.has(session.mediaFileId)).length;
+			if (activeStreams > 0) {
+				throw new DomainError("conflict", "Delete is blocked while a stream is playing this title", {
+					code: "metadata.delete_blocked_active_streams",
+					params: { activeStreams },
+				});
+			}
+		}
+
 		const cleanup = await metadataRepository.deleteAndGetCleanup(metadataId);
 		await runMediaCleanup(cleanup);
 		invalidateReadCaches();

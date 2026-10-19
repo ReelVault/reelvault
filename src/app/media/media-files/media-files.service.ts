@@ -145,8 +145,12 @@ class MediaService {
 		return await deleteMany(this.state, mediaFileIds, options, context, (...args) => this.delete(...args));
 	}
 
-	async delete(mediaFileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
-		return await deleteOne(this.state, mediaFileId, context, (...args) => this.getById(...args));
+	async delete(
+		mediaFileId: string,
+		context?: AdminAuditContext,
+		options: { force?: boolean | undefined } = {},
+	): Promise<{ success: boolean }> {
+		return await deleteOne(this.state, mediaFileId, context, (...args) => this.getById(...args), options);
 	}
 }
 
