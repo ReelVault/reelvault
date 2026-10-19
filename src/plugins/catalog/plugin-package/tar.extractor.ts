@@ -1,7 +1,8 @@
 import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DomainError } from "@/utils/domain.errors";
-import { assertSafeDestination, invalidSymlink, isInsideRoot, unpackedTooLarge } from "./shared.utils";
+import { PathUtils } from "@/utils/path.utils";
+import { assertSafeDestination, invalidSymlink, unpackedTooLarge } from "./shared.utils";
 
 const TAR_BLOCK_SIZE = 512;
 
@@ -199,7 +200,7 @@ function beginSymlink(reader: TarReader, entry: TarEntry): void {
 	if (target.startsWith("/")) throw invalidSymlink(name, "an absolute symlink");
 
 	const resolved = resolve(dirname(linkPath), target);
-	if (!isInsideRoot(reader.workRoot, resolved)) throw invalidSymlink(name, "an out-of-tree symlink");
+	if (!PathUtils.isSubpath(resolved, reader.workRoot)) throw invalidSymlink(name, "an out-of-tree symlink");
 
 	reader.symlinks.push({ linkPath, target });
 	reader.payload = { kind: "discard", remaining: entry.size, padding: entry.padding };

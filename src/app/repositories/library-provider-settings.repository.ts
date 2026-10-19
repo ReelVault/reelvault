@@ -2,6 +2,7 @@ import type { LibraryProviderPriority } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { libraryProviderSettings } from "@/integrations/drizzle-orm/schemas/library-provider-settings.schema";
+import { toMap } from "@/utils/array.utils";
 
 export interface LibraryProviderSettingRow {
 	libraryId: string;
@@ -27,7 +28,7 @@ class LibraryProviderSettingsRepository {
 	/** Replaces the whole override set for one library in a single transaction. */
 	async replaceForLibrary(libraryId: string, priorities: LibraryProviderPriority[]): Promise<void> {
 		// Input order wins on duplicates: the table's PK is (library_id, provider_id).
-		const unique = [...new Map(priorities.map((item) => [item.providerId, item])).values()];
+		const unique = [...toMap(priorities, (item) => item.providerId).values()];
 
 		await databaseFactory.transaction(async (tx) => {
 			await tx.delete(libraryProviderSettings).where(eq(libraryProviderSettings.libraryId, libraryId));

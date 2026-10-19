@@ -4,10 +4,10 @@ import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { InFlightMap } from "@/utils/concurrency.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { createTempPath, FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
+import { createInFlightCache } from "@/utils/memory.cache";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
 import type { SubtitleContent } from "./subtitle-content.resolver";
@@ -37,7 +37,7 @@ export class SubtitleExtractorService {
 	readonly logger = createLogger("SubtitleExtractorService");
 
 	private readonly dependencies: ServiceDependencies;
-	private readonly inFlightExtractions = new InFlightMap<SubtitleContent | null>();
+	private readonly inFlightExtractions = createInFlightCache<SubtitleContent | null>();
 	// Each extraction spawns an FFmpeg — concurrency derives from measured CPU capacity.
 	private readonly extractionSemaphore = PromiseUtils.createSemaphore(() => this.dependencies.getConcurrency());
 
@@ -81,7 +81,7 @@ export class SubtitleExtractorService {
 		// The shared extraction runs on its own lifetime — an aborted requester must
 		// not cancel ffmpeg out from under other clients waiting on the same track.
 		// The result is cached on disk either way, so completing is always useful.
-		return await this.inFlightExtractions.run(
+		return await this.inFlightExtractions.getOrRun(
 			subtitleId,
 			async () =>
 				await this.extractionSemaphore.run(async () => await this.runExtraction(subtitleId, mediaFilePath, streamIndex, cacheFilePath)),
@@ -136,7 +136,7 @@ export class SubtitleExtractorService {
 
 	/** Resolves once an in-flight extraction for this subtitle settles (delete coordination). */
 	async waitForInFlight(subtitleId: string): Promise<void> {
-		await this.inFlightExtractions.peek(subtitleId)?.catch(() => {
+		await this.inFlightExtractions.peekPending(subtitleId)?.catch(() => {
 			// Settled extraction failures are surfaced through the original caller.
 		});
 	}

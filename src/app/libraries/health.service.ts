@@ -12,6 +12,7 @@ import type { AdminAuditContext } from "@/app/repositories/admin-audit.repositor
 import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { readCompletedOperationResult } from "@/app/repositories/worker-jobs/result.reader";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
+import { toMap } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
 import {
@@ -93,7 +94,7 @@ export async function getLibraryErrorsCheckStatus(state: LibrariesServiceState, 
 export async function getLibraryHealth(state: LibrariesServiceState): Promise<LibraryHealthResponse> {
 	return await runSafely(state, "getHealth", async () => {
 		const { data: libraries } = await librariesRepository.findPage({ limit: MAX_HEALTH_LIBRARIES });
-		const unwatchable = new Map(libraryWatcherService.getUnwatchablePaths().map((failure) => [failure.pathId, failure]));
+		const unwatchable = toMap(libraryWatcherService.getUnwatchablePaths(), (failure) => failure.pathId);
 		const lastScans = await workerOperationRepository.findLatestLibraryScanTimes(libraries.map((library) => library.id));
 
 		const data: LibraryHealth[] = [];

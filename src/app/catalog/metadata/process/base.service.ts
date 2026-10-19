@@ -23,7 +23,7 @@ export async function ensureBaseMetadata(state: MetadataProcessState, input: Bas
 	const { type, providerName, providerMetadata, matchScore, providers } = input;
 	const key = `${providerName}:${type}:${providerMetadata.externalId}`;
 
-	return await state.baseMetadataProcesses.run(key, () =>
+	return await state.baseMetadataProcesses.getOrRun(key, () =>
 		createFromProvider({ type, providerName, providerMetadata, matchScore, providers }),
 	);
 }
@@ -78,7 +78,7 @@ async function enqueueBaseMetadataImages(
 ): Promise<void> {
 	if (!base.created) return;
 
-	await state.imageEnqueueProcesses.run(base.metadataId, async () => {
+	await state.imageEnqueueProcesses.getOrRun(base.metadataId, async () => {
 		await state.enqueueImages(
 			{
 				kind: "metadata",

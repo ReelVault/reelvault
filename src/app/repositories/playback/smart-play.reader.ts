@@ -11,7 +11,7 @@ import {
 	type RelationJsonKeys,
 	relationJsonArrayOver,
 } from "@/integrations/drizzle-orm/utils/relation-json.utils";
-import { groupBy, toMap } from "@/utils/array.utils";
+import { groupBy, toMap, unique } from "@/utils/array.utils";
 import {
 	type EpisodeRow,
 	episodeKeys,
@@ -222,7 +222,7 @@ export async function findSmartPlayBatchData(metadataIds: readonly string[], pro
 	const watchlistedEntries = smartPlay
 		? parseJsonRelationArray<SmartPlayWatchlistRow>(smartPlay.watchlistedIds ?? "[]", watchlistKeys, noRevive)
 		: [];
-	const watchlistedIds = new Set(watchlistedEntries.map((entry) => entry.metadataId));
+	const watchlistedIds = new Set(unique(watchlistedEntries, (entry) => entry.metadataId));
 
 	const mediaFilesByMetadataId = groupBy(mediaFiles, (file) => file.metadataId);
 	const progressByMetadataId = groupBy(progressRows, (progress) => progress.metadataId);

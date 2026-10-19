@@ -16,10 +16,10 @@ import type {
 	SkippedMediaFile,
 } from "@/modules/scanner/scanner.types";
 import { CancellationError, throwIfAborted } from "@/utils/cancellation.utils";
-import { InFlightMap } from "@/utils/concurrency.utils";
 import { DomainError, toDomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
+import { createInFlightCache } from "@/utils/memory.cache";
 import { PathUtils } from "@/utils/path.utils";
 import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 
@@ -65,7 +65,7 @@ class MediaFileProcessor {
 	readonly logger = createLogger("MediaFileProcessor");
 
 	private readonly metadataMatcher: MetadataMatcher;
-	private readonly processingFiles = new InFlightMap<ProcessedMediaFileWithMarkers | SkippedMediaFile | null>();
+	private readonly processingFiles = createInFlightCache<ProcessedMediaFileWithMarkers | SkippedMediaFile | null>();
 
 	constructor(metadataMatcher: MetadataMatcher) {
 		this.metadataMatcher = metadataMatcher;
@@ -98,7 +98,7 @@ class MediaFileProcessor {
 		skipExistingLookup = false,
 		options: ProcessRunOptions = {},
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
-		return await this.processingFiles.run(filePath, () => this.processOnce(libraryType, filePath, skipExistingLookup, options));
+		return await this.processingFiles.getOrRun(filePath, () => this.processOnce(libraryType, filePath, skipExistingLookup, options));
 	}
 
 	/**

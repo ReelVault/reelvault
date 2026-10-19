@@ -6,6 +6,7 @@ import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { toMap } from "@/utils/array.utils";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 
 /** Upper bound on cached per-library override sets (oldest entry is dropped first). */
 const LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES = 200;
@@ -14,9 +15,15 @@ class MetadataProviderSettingsService {
 	readonly serviceName = "MetadataProviderSettingsService";
 	readonly logger = createLogger("MetadataProviderSettingsService");
 
-	private cachedSettings?: { expiresAt: number; values: Map<string, MetadataProviderSetting> } | undefined;
 	private cachedOrdered?: { source: MetadataProvider[]; values: MetadataProvider[] } | undefined;
-	private readonly cachedLibraryOverrides = new Map<string, { expiresAt: number; values: Map<string, LibraryProviderPriority> }>();
+	private readonly cachedSettings = new MemoryCache<Map<string, MetadataProviderSetting>>({
+		ttlMs: serverConfig.plugins.providers.settingsCacheTtlMs,
+		maxSize: 1,
+	});
+	private readonly cachedLibraryOverrides = new MemoryCache<Map<string, LibraryProviderPriority>>({
+		ttlMs: serverConfig.plugins.providers.settingsCacheTtlMs,
+		maxSize: LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES,
+	});
 
 	async getOrderedProviders(libraryId?: string): Promise<MetadataProvider[]> {
 		const source = pluginRegistry.getProviders();
@@ -50,21 +57,13 @@ class MetadataProviderSettingsService {
 	}
 
 	async getLibraryOverrides(libraryId: string): Promise<Map<string, LibraryProviderPriority>> {
-		const cached = this.cachedLibraryOverrides.get(libraryId);
-		if (cached && cached.expiresAt > Date.now()) return cached.values;
+		return await this.cachedLibraryOverrides.getOrSet(libraryId, async () => {
+			const rows = await pluginProviderSettingsData.listLibraryPriorities(libraryId);
 
-		const rows = await pluginProviderSettingsData.listLibraryPriorities(libraryId);
-		const values = new Map<string, LibraryProviderPriority>(
-			rows.map((row) => [row.providerId, { providerId: row.providerId, priority: row.priority, enabled: row.enabled }]),
-		);
-		if (this.cachedLibraryOverrides.size >= LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES) {
-			const oldest = this.cachedLibraryOverrides.keys().next().value;
-			if (oldest !== undefined) this.cachedLibraryOverrides.delete(oldest);
-		}
-
-		this.cachedLibraryOverrides.set(libraryId, { expiresAt: Date.now() + serverConfig.plugins.providers.settingsCacheTtlMs, values });
-
-		return values;
+			return new Map<string, LibraryProviderPriority>(
+				rows.map((row) => [row.providerId, { providerId: row.providerId, priority: row.priority, enabled: row.enabled }]),
+			);
+		});
 	}
 
 	async getPriority(providerId: string): Promise<number> {
@@ -111,20 +110,17 @@ class MetadataProviderSettingsService {
 	}
 
 	invalidateCache(): void {
-		this.cachedSettings = undefined;
 		this.cachedOrdered = undefined;
+		this.cachedSettings.clear();
 		this.cachedLibraryOverrides.clear();
 	}
 
 	private async getSettings(): Promise<Map<string, MetadataProviderSetting>> {
-		if (this.cachedSettings && this.cachedSettings.expiresAt > Date.now()) return this.cachedSettings.values;
+		return await this.cachedSettings.getOrSet("settings", async () => {
+			const persistedSettings = await pluginProviderSettingsData.listMetadataProviderSettings();
 
-		const persistedSettings = await pluginProviderSettingsData.listMetadataProviderSettings();
-
-		const values = toMap(persistedSettings, (setting) => setting.providerId);
-		this.cachedSettings = { expiresAt: Date.now() + serverConfig.plugins.providers.settingsCacheTtlMs, values };
-
-		return values;
+			return toMap(persistedSettings, (setting) => setting.providerId);
+		});
 	}
 }
 

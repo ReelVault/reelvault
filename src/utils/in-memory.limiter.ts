@@ -45,6 +45,23 @@ export class InMemoryRateLimiter {
 		return this.buckets.has(key);
 	}
 
+	/**
+	 * The state of a key without consuming from it: how many hits it already
+	 * took, how many are left, and when its window ends. Undefined when the key
+	 * was never used or its window has passed.
+	 */
+	peek(key: string, max: number, now = Date.now()): { count: number; remaining: number; resetMs: number } | undefined {
+		const current = this.buckets.get(key);
+		if (!current) return undefined;
+		if (now - current.startedAt >= current.windowMs) return undefined;
+
+		return {
+			count: current.count,
+			remaining: Math.max(0, max - current.count),
+			resetMs: current.windowMs - (now - current.startedAt),
+		};
+	}
+
 	/** Forgets one key, e.g. after a successful login so earlier typos do not count against the next sign-in. */
 	reset(key: string): void {
 		this.buckets.delete(key);

@@ -1,7 +1,7 @@
 import { chmod, rename } from "node:fs/promises";
 import { file as bunFile, write as bunWrite } from "bun";
 import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
-import { DomainError, isMissingFile } from "./domain.errors";
+import { DomainError, fsErrorCode, isMissingFile } from "./domain.errors";
 import { createLogger } from "./logger.utils";
 import { PathUtils } from "./path.utils";
 import { PromiseTimeoutError, PromiseUtils } from "./promise.utils";
@@ -25,13 +25,6 @@ export async function readFile(path: string, options?: BufferEncoding | { encodi
 }
 
 const logger = createLogger("FileUtils");
-
-/** Reads the POSIX error code from a thrown fs error without a type assertion. */
-function errorCode(error: unknown): string | undefined {
-	if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") return error.code;
-
-	return undefined;
-}
 
 /**
  * Creates a deterministic temp file path for atomic writes (tmp+rename).
@@ -139,7 +132,7 @@ export const FileUtils = {
 			// "missing" — the removal guard purges records on that basis.
 			if (error instanceof PromiseTimeoutError) return "unavailable";
 
-			const code = errorCode(error);
+			const code = fsErrorCode(error);
 
 			return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unavailable";
 		}

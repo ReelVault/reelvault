@@ -22,6 +22,7 @@ import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { resourceAllocator } from "@/system/resource-allocator.service";
 import { serverRescueService } from "@/system/server-rescue.service";
+import { toMap } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger, setLogLevel } from "@/utils/logger.utils";
 import { invalidateResponseBodies } from "@/utils/response-body.cache";
@@ -91,7 +92,7 @@ class SystemSettingsService {
 
 	async getAll(): Promise<Record<SettingGroup, SystemSettingItemView[]>> {
 		await this.ensureInitialized();
-		const rowsByKey = new Map((await systemSettingsRepository.list()).map((row) => [row.key, row]));
+		const rowsByKey = toMap(await systemSettingsRepository.list(), (row) => row.key);
 
 		const grouped: Record<SettingGroup, SystemSettingItemView[]> = {
 			resources: [],

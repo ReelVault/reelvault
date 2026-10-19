@@ -5,6 +5,7 @@ import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
+import { toMap } from "@/utils/array.utils";
 
 const schedules = schema.workerSchedules;
 
@@ -30,7 +31,7 @@ class WorkerSchedulesRepository {
 	async getAllSchedules(): Promise<Map<string, typeof schedules.$inferSelect>> {
 		const rows = await this.readAllRows();
 
-		return new Map(rows.map((row) => [row.workerId, row]));
+		return toMap(rows, (row) => row.workerId);
 	}
 
 	private async readAllRows(): Promise<Array<typeof schedules.$inferSelect>> {

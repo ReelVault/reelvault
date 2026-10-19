@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import { dirname, join } from "node:path";
 import { Writable } from "node:stream";
-import { archiveExistingFile, archiveTarget, currentLogDate, formatDate } from "./file-archive.utils";
+import { formatDateOnly } from "@/utils/time.utils";
+import { archiveExistingFile, archiveTarget, currentLogDate } from "./file-archive.utils";
 
 type LogDateProvider = () => string;
 
@@ -161,5 +162,5 @@ function nextDayBoundaryMs(dateString: string): number {
 }
 
 function currentLogDateFromTimestamp(timestamp: number): string {
-	return formatDate(new Date(timestamp));
+	return formatDateOnly(new Date(timestamp));
 }

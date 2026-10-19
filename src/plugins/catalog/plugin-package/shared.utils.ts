@@ -1,10 +1,6 @@
-import { resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { DomainError } from "@/utils/domain.errors";
-
-/** True when `target` lies strictly below `root`. */
-export function isInsideRoot(root: string, target: string): boolean {
-	return target.startsWith(`${root}${sep}`);
-}
+import { PathUtils } from "@/utils/path.utils";
 
 export function unsafeEntryPath(entryPath: string): DomainError {
 	return new DomainError("validation", `Plugin package contains an unsafe entry path: ${entryPath}`, {
@@ -36,7 +32,7 @@ export function assertSafeDestination(workRoot: string, entryPath: string): stri
 	}
 
 	const target = resolve(workRoot, normalized);
-	if (target !== workRoot && !isInsideRoot(workRoot, target)) throw unsafeEntryPath(entryPath);
+	if (target !== workRoot && !PathUtils.isSubpath(target, workRoot)) throw unsafeEntryPath(entryPath);
 
 	return target;
 }

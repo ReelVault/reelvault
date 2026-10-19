@@ -55,9 +55,17 @@ export class DomainError extends Error {
 	}
 }
 
+/** The POSIX error code of a thrown filesystem error ("ENOENT", "EACCES", …), or undefined. */
+export function fsErrorCode(error: unknown): string | undefined {
+	if (!isRecord(error)) return undefined;
+	const code = error.code;
+
+	return typeof code === "string" ? code : undefined;
+}
+
 /** Type guard for Node.js `ENOENT` errors — replaces scattered `(error as { code?: string }).code === "ENOENT"` casts. */
 export function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
-	return isRecord(error) && error.code === "ENOENT";
+	return fsErrorCode(error) === "ENOENT";
 }
 
 /** Extracts a human-readable message from any thrown value (server logs only). */

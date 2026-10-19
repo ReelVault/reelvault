@@ -2,10 +2,10 @@ import type { MetadataImageOption } from "@reelvault/sdk/common";
 import { createHash } from "./crypto.utils";
 import { MemoryCache } from "./memory.cache";
 import { PathUtils } from "./path.utils";
-import { normalizeLower } from "./type.utils";
+import { normalizeCase, normalizeLower } from "./type.utils";
 
 export function normalizeComponent(value: string): string {
-	return value.trim().normalize("NFKC").toLocaleLowerCase("en-US");
+	return normalizeCase(value, "NFKC");
 }
 
 // Native Buffer hex codec — faster than a manual TextEncoder/byte-array/join loop.

@@ -4,7 +4,7 @@ import { workerOperationRepository } from "@/app/repositories/worker-operation.r
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import { unique } from "@/utils/array.utils";
+import { toMap, unique } from "@/utils/array.utils";
 import type { WorkerItem } from "./shared.types";
 import { applyOperationCounts, items, RELEASE_CLAIM, runningJobWhere, toOperationCounts } from "./shared.types";
 
@@ -64,7 +64,7 @@ export async function cascadeCancel(tx: DatabaseTransaction, parentIds: string[]
 
 	// A diamond-shaped dependency graph reaches a job from two levels; the UPDATE
 	// runs once, so count each id once as well.
-	const uniqueAffected = [...new Map(affected.map((row) => [row.id, row])).values()];
+	const uniqueAffected = [...toMap(affected, (row) => row.id).values()];
 
 	await forEachChunked(uniqueAffected, (chunkRows) =>
 		tx

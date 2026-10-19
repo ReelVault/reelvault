@@ -5,6 +5,7 @@ import { type DatabaseFactory, databaseFactory } from "@/integrations/drizzle-or
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { PathUtils } from "@/utils/path.utils";
 
 export interface ScanFindingInput {
 	libraryId: string;
@@ -181,7 +182,7 @@ export class ScanFindingsRepository {
 		const seen = new Set(scannedFilePaths);
 		const stalePaths: string[] = [];
 		for (const finding of findings) {
-			const withinScannedRoot = scannedRoots.some((root) => finding.filePath.startsWith(root.endsWith("/") ? root : `${root}/`));
+			const withinScannedRoot = scannedRoots.some((root) => PathUtils.isSubpath(finding.filePath, root));
 			if (withinScannedRoot && !seen.has(finding.filePath)) {
 				stalePaths.push(finding.filePath);
 			}

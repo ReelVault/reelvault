@@ -70,7 +70,7 @@ export function assembleRelations(
 ): Map<string, LoadedMediaFileRelations> {
 	const { videoStreams, audioStreams, subtitles, libraries } = loaded;
 
-	const librariesById = new Map(libraries.map((library) => [library.id, library] as const));
+	const librariesById = toMap(libraries, (library) => library.id);
 	const libraryIdByMediaFileId = toMap(
 		mediaFileRows,
 		(mediaFile) => mediaFile.id,

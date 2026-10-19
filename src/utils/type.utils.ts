@@ -16,9 +16,19 @@ export function pickDefined(obj: Record<string, unknown>): Record<string, unknow
 	return result;
 }
 
+/**
+ * Folds a string for case-insensitive comparison: trimmed and lowercased, with
+ * an optional Unicode normalization form applied in between.
+ */
+export function normalizeCase(value: string, form?: "NFC" | "NFD" | "NFKC" | "NFKD"): string {
+	const trimmed = value.trim();
+
+	return (form === undefined ? trimmed : trimmed.normalize(form)).toLowerCase();
+}
+
 /** Trims whitespace and lowercases a string — the standard normalization for case-insensitive comparisons. */
 export function normalizeLower(value: string): string {
-	return value.trim().toLowerCase();
+	return normalizeCase(value);
 }
 
 /** Maps a library type string (`"movies"` / `"tv"`) to the canonical media type. */

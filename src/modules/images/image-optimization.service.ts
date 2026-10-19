@@ -4,12 +4,12 @@ import { serverConfig } from "@/config/server/server.config";
 import { optimizeImage } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { InFlightMap } from "@/utils/concurrency.utils";
 import { createHash } from "@/utils/crypto.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
+import { createInFlightCache } from "@/utils/memory.cache";
 import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { imageCacheEviction } from "./cache/image-cache.eviction";
@@ -30,7 +30,7 @@ class ImageOptimizationService {
 
 	// Coalesces concurrent identical optimizations: while one variant is being
 	// computed, every other request for the same cache path awaits its promise.
-	private readonly inflight = new InFlightMap<OptimizedImage>();
+	private readonly inflight = createInFlightCache<OptimizedImage>();
 
 	async getOptimizedImage(sourcePath: string, request: ImageQuery, imageId?: string, signal?: AbortSignal): Promise<OptimizedImage> {
 		const options = parseImageRequest(request, serverConfig.images);
@@ -44,7 +44,7 @@ class ImageOptimizationService {
 			return { file: cachedFile, contentType: CONTENT_TYPE, options };
 		}
 
-		return await this.inflight.run(cachePath, () => this.optimizeAndCache(cacheDir, cachePath, sourcePath, options, signal));
+		return await this.inflight.getOrRun(cachePath, () => this.optimizeAndCache(cacheDir, cachePath, sourcePath, options, signal));
 	}
 
 	private async optimizeAndCache(

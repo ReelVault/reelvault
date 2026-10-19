@@ -1,7 +1,7 @@
 import type { Logger } from "@reelvault/sdk/common";
 import type { CreatedProviderMetadata } from "@/app/catalog/metadata/providers/metadata-create.utils";
 import type { SidecarMetadataHint } from "@/modules/metadata-sidecars/files/local-sidecar.reader";
-import type { InFlightMap } from "@/utils/concurrency.utils";
+import type { MemoryCache } from "@/utils/memory.cache";
 import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 import type { ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 
@@ -25,6 +25,6 @@ export interface TvProcessOptions {
 export interface MetadataProcessState {
 	readonly logger: Logger;
 	readonly enqueueImages: EnqueueImages;
-	readonly baseMetadataProcesses: InFlightMap<CreatedProviderMetadata>;
-	readonly imageEnqueueProcesses: InFlightMap<void>;
+	readonly baseMetadataProcesses: MemoryCache<CreatedProviderMetadata>;
+	readonly imageEnqueueProcesses: MemoryCache<void>;
 }

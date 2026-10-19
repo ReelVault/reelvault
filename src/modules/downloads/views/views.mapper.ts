@@ -1,4 +1,5 @@
 import { type DownloadRecord, downloadsStorage } from "@/modules/downloads/downloads.ports";
+import { toMap } from "@/utils/array.utils";
 import { toErrorCode } from "@/utils/domain.errors";
 
 export interface DownloadJobView {
@@ -21,7 +22,11 @@ export interface DownloadJobView {
 export async function metadataIdsOf(rows: readonly DownloadRecord[]): Promise<Map<string, string>> {
 	const identities = await downloadsStorage().findMediaIdentities([...new Set(rows.map((row) => row.mediaFileId))]);
 
-	return new Map(identities.map((identity): [string, string] => [identity.id, identity.metadataId]));
+	return toMap(
+		identities,
+		(identity) => identity.id,
+		(identity) => identity.metadataId,
+	);
 }
 
 /** The view of one row, with the title its media file belongs to. */

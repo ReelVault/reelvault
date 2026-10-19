@@ -1,4 +1,5 @@
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { trimAndFilter } from "@/utils/array.utils";
 
 const WHOLE_NUMBER_PATTERN = /^[1-9][0-9]*$/;
 
@@ -34,10 +35,7 @@ export interface RateLimitOverrideIssues {
 
 /** Splits `name=max,name=max` into trimmed entries; empty entries are ignored. */
 function splitEntries(raw: string): string[] {
-	return raw
-		.split(",")
-		.map((entry) => entry.trim())
-		.filter(Boolean);
+	return trimAndFilter(raw.split(","));
 }
 
 let cachedOverridesRevision = -1;

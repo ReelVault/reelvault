@@ -14,6 +14,7 @@ import { safeParseJson } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
+import { formatDateOnly } from "@/utils/time.utils";
 
 /** Largest audit export; a wider one is refused, so an export never silently drops entries. */
 export const AUDIT_EXPORT_MAX_ENTRIES = 10_000;
@@ -109,7 +110,7 @@ class AdminAuditService {
 			}
 
 			const entries = result.data.map(toAuditEntry);
-			const filename = `audit-${new Date().toISOString().slice(0, 10)}.${format}`;
+			const filename = `audit-${formatDateOnly(new Date(), "utc")}.${format}`;
 			if (format === "jsonl") {
 				const lines = entries.map((entry) => JSON.stringify(entry));
 

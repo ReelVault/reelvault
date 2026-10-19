@@ -138,7 +138,9 @@ export class MemoryCache<T, K extends string = string> {
 
 		this.hits++;
 
-		// LRU touch: move the entry to the end of the Map's insertion order
+		// LRU touch: move the entry to the end of the Map's insertion order.
+		// The weight budget evicts the oldest entry too, so the order matters
+		// even without an entry-count limit.
 		this.cache.delete(key);
 		this.cache.set(key, entry);
 
@@ -204,6 +206,14 @@ export class MemoryCache<T, K extends string = string> {
 		if (inFlight) return inFlight;
 
 		return this.trackLoad(key, loader);
+	}
+
+	/**
+	 * The in-flight promise for `key`, or undefined — lets a caller await the
+	 * settlement of a running load without starting one.
+	 */
+	peekPending(key: K): Promise<T> | undefined {
+		return this.pending.get(key);
 	}
 
 	/**
@@ -473,4 +483,13 @@ export class MemoryCache<T, K extends string = string> {
 			// onEvict must never break cache invariants
 		}
 	}
+}
+
+/**
+ * A cache that only coalesces concurrent loads: it never keeps a value, so it
+ * needs neither a TTL nor an eviction limit. `getOrRun` shares one in-flight
+ * load per key; `peekPending` awaits its settlement.
+ */
+export function createInFlightCache<T>(): MemoryCache<T> {
+	return new MemoryCache<T>({ ttlMs: -1, maxSize: -1 });
 }

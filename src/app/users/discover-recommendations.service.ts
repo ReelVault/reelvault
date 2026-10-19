@@ -1,7 +1,7 @@
 import type { MetadataWithRelation } from "@reelvault/sdk";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { DAY } from "@/config/server/server.constants";
-import { toMap } from "@/utils/array.utils";
+import { toMap, unique } from "@/utils/array.utils";
 
 /** Recency decay half-life in days: a seed from 130 days ago has ~50% weight. */
 export const RECENCY_HALF_LIFE_DAYS = 130;
@@ -170,7 +170,7 @@ export function applyDiversityFilter<T extends { id: string }>(
 	// If diversity filter left us short (e.g. catalogue is dominated by one genre),
 	// fill remaining slots from ranked items not yet included.
 	if (result.length < limit) {
-		const included = new Set(result.map((i) => i.id));
+		const included = new Set(unique(result, (i) => i.id));
 		for (const item of ranked) {
 			if (result.length >= limit) break;
 
