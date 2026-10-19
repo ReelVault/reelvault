@@ -6,6 +6,7 @@ import type { ToneMapConfig } from "./capabilities/tone-mapping.resolver";
 import { buildHwaccelInputArgs, buildToneMapFilterChain, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "./ffmpeg.transcode-args";
 
 const VAAPI_TONEMAP_UPLOAD_PATTERN = /^tonemapx=.*,format=nv12,hwupload$/;
+const LIBX264_HEIGHT_CAP_PATTERN = /trunc\(min\(max\(iw\/a\\,ih\)\\,min\(\d+\/a\\,\d+\)\)/;
 
 const config: TranscodeConfig = {
 	maxSessions: 5,
@@ -126,6 +127,27 @@ describe("buildTranscodeVideoArgs", () => {
 		const vfIndex = args.indexOf("-vf");
 		expect(args[vfIndex + 1]).toStartWith("setparams=color_primaries=bt709");
 		expect(args).not.toContain("tonemapx");
+	});
+
+	test("libx264 caps the height against the source aspect ratio", () => {
+		const args = buildTranscodeVideoArgs(sdrDecision, config, hw("none"), toneMap("none"));
+		const vf = args[args.indexOf("-vf") + 1] ?? "";
+
+		// The height branch must be min(widthCap / a, heightCap). Dividing by the
+		// height cap instead collapses to a constant and disables the cap entirely.
+		expect(vf).toMatch(LIBX264_HEIGHT_CAP_PATTERN);
+	});
+
+	test("libx264 sizes the GOP from the source frame rate", () => {
+		const gopOf = (sourceFps?: number) => {
+			const args = buildTranscodeVideoArgs({ ...sdrDecision, sourceFps }, config, hw("none"), toneMap("none"));
+
+			return args[args.indexOf("-g") + 1];
+		};
+
+		expect(gopOf()).toBe("144"); // no fps → 24 fps assumed → one 6 s segment
+		expect(gopOf(24)).toBe("144");
+		expect(gopOf(60)).toBe("360"); // clamped to 2.5 segments
 	});
 });
 

@@ -118,10 +118,10 @@ export function buildHwaccelInputArgs(
  * boundaries — it fires at every `hlsSegmentDuration` seconds regardless of GOP.
  */
 function buildHlsGopArgs(hlsSegmentDuration: number, sourceFps?: number | null): string[] {
-	// framesPerHlsSegment assumes a 24 fps source. For higher frame rates size
+	// framesPerHlsSegment is the assumed 24 fps source. For higher frame rates size
 	// the GOP from the real fps (clamped to 1-2.5 segments of frames) so 60 fps
 	// sources don't keyframe 2.5× more often than the segment boundaries need.
-	const assumedFps = serverConfig.stream.framesPerHlsSegment / hlsSegmentDuration;
+	const assumedFps = serverConfig.stream.framesPerHlsSegment;
 	const fps = sourceFps && sourceFps > 0 ? sourceFps : assumedFps;
 	const gop = Math.round(hlsSegmentDuration * clamp(fps, assumedFps, assumedFps * 2.5));
 
@@ -287,7 +287,7 @@ function buildSoftwareVideoArgs(decision: PlaybackDecision, toneMapChain: string
 		"-x264opts:0",
 		`subme=0:me_range=16:rc_lookahead=${lookahead}:me=hex:open_gop=0`,
 		"-vf",
-		`${toneMapChain ? `${toneMapChain},` : ""}setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,scale=trunc(min(max(iw\\,ih*a)\\,min(${resolutionCap}\\,${resolutionHeightCap}*a))/2)*2:trunc(min(max(iw/a\\,ih)\\,min(${resolutionCap}/${resolutionHeightCap}\\,${resolutionHeightCap}))/2)*2,format=yuv420p`,
+		`${toneMapChain ? `${toneMapChain},` : ""}setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,scale=trunc(min(max(iw\\,ih*a)\\,min(${resolutionCap}\\,${resolutionHeightCap}*a))/2)*2:trunc(min(max(iw/a\\,ih)\\,min(${resolutionCap}/a\\,${resolutionHeightCap}))/2)*2,format=yuv420p`,
 		"-pix_fmt",
 		"yuv420p",
 		...gopArgs,
