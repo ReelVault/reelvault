@@ -5,8 +5,6 @@ CREATE INDEX `media_artifacts_media_file_kind_idx` ON `media_artifacts` (`media_
 CREATE INDEX `media_files_created_at_id_idx` ON `media_files` (`created_at`,`id`);--> statement-breakpoint
 CREATE INDEX `media_files_file_name_id_idx` ON `media_files` (`file_name`,`id`);--> statement-breakpoint
 CREATE INDEX `media_markers_created_at_id_idx` ON `media_markers` (`created_at`,`id`);--> statement-breakpoint
-CREATE INDEX `metadata_budget_id_idx` ON `metadata` (`budget`,`id`);--> statement-breakpoint
-CREATE INDEX `metadata_revenue_id_idx` ON `metadata` (`revenue`,`id`);--> statement-breakpoint
 CREATE INDEX `metadata_type_title_id_idx` ON `metadata` (`type`,`title`,`id`);--> statement-breakpoint
 CREATE INDEX `metadata_type_created_id_idx` ON `metadata` (`type`,`created_at`,`id`);--> statement-breakpoint
 CREATE INDEX `metadata_cast_metadata_sort_idx` ON `metadata_cast` (`metadata_id`,`sort_order`);--> statement-breakpoint

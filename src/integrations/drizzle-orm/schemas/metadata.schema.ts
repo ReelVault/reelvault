@@ -73,10 +73,6 @@ export const metadata = sqliteTable(
 		index("metadata_popularity_id_idx").on(t.popularity, t.id),
 		index("metadata_match_score_id_idx").on(t.matchScore, t.id),
 		index("metadata_updated_at_id_idx").on(t.updatedAt, t.id),
-		// The budget and revenue sorts had no index at all, so a browse on them
-		// sorted the whole filtered set.
-		index("metadata_budget_id_idx").on(t.budget, t.id),
-		index("metadata_revenue_id_idx").on(t.revenue, t.id),
 		// The typed browse (type filter + title sort) needs the id in the index:
 		// (type, title) alone leaves the tiebreaker to a temp B-tree.
 		index("metadata_type_title_id_idx").on(t.type, t.title, t.id),

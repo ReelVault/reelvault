@@ -1,7 +1,7 @@
 {
 	"version": "7",
 	"dialect": "sqlite",
-	"id": "298b22d0-decf-4de1-a286-3cafe114e09c",
+	"id": "67d96a3d-5dcc-44a3-9efa-c0b494280344",
 	"prevIds": ["da938c08-eb2c-4790-975d-0920c6198407"],
 	"ddl": [
 		{
@@ -8748,42 +8748,6 @@
 			"where": null,
 			"origin": "manual",
 			"name": "metadata_updated_at_id_idx",
-			"entityType": "indexes",
-			"table": "metadata"
-		},
-		{
-			"columns": [
-				{
-					"value": "budget",
-					"isExpression": false
-				},
-				{
-					"value": "id",
-					"isExpression": false
-				}
-			],
-			"isUnique": false,
-			"where": null,
-			"origin": "manual",
-			"name": "metadata_budget_id_idx",
-			"entityType": "indexes",
-			"table": "metadata"
-		},
-		{
-			"columns": [
-				{
-					"value": "revenue",
-					"isExpression": false
-				},
-				{
-					"value": "id",
-					"isExpression": false
-				}
-			],
-			"isUnique": false,
-			"where": null,
-			"origin": "manual",
-			"name": "metadata_revenue_id_idx",
 			"entityType": "indexes",
 			"table": "metadata"
 		},
