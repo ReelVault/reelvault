@@ -1,5 +1,4 @@
 import { MINUTE } from "@/config/server/server.constants";
-import { throwIfAborted } from "@/utils/cancellation.utils";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
 
@@ -10,9 +9,7 @@ export const cleanupOrphanMediaFilesWorker = defineMaintenanceWorker({
 	category: "file_cleanup",
 	timeoutMs: 5 * MINUTE,
 	trigger: { id: "clean-orphan-media-daily", type: "daily", timeOfDay: "03:45" },
-	run: async ({ signal, logger }) => {
-		throwIfAborted(signal);
-
+	run: async ({ logger }) => {
 		const orphanedIds = await workerDependencies().media.findOrphanedMediaFileIds();
 		if (orphanedIds.length === 0) {
 			return { deletedCount: 0, orphanedIds: [] };

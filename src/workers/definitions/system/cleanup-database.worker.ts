@@ -1,7 +1,6 @@
 import { serverConfig } from "@/config/server/server.config";
 import { daysAgo, MINUTE } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { throwIfAborted } from "@/utils/cancellation.utils";
 import { workerOperationsService } from "@/workers/core/worker-operations.service";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
@@ -11,8 +10,7 @@ export const cleanupDatabaseWorker = defineMaintenanceWorker({
 	category: "database_optimization",
 	timeoutMs: MINUTE,
 	trigger: { id: "clean-db-daily", type: "daily", timeOfDay: "02:00" },
-	run: async ({ signal }) => {
-		throwIfAborted(signal);
+	run: async () => {
 		const deletedCount = await workerOperationsService.cleanupExpired();
 
 		// 0 keeps the full play history — pruning is opt-in via the retention setting.

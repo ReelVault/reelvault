@@ -1,5 +1,4 @@
 import { MINUTE } from "@/config/server/server.constants";
-import { throwIfAborted } from "@/utils/cancellation.utils";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
 
@@ -8,8 +7,7 @@ export const cleanupMetricsWorker = defineMaintenanceWorker({
 	category: "database_optimization",
 	timeoutMs: MINUTE,
 	trigger: { id: "clean-metrics-daily", type: "daily", timeOfDay: "02:15" },
-	run: async ({ signal }) => {
-		throwIfAborted(signal);
+	run: async () => {
 		// Each row carries its own retention_until (created_at + 24 h); deleting by
 		// that column honours the schema's retention promise instead of a separate
 		// fixed window — a hard-coded 30-day cutoff kept ~90k stale rows alive.

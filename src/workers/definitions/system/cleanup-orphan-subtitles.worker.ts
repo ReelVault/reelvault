@@ -1,6 +1,5 @@
 import { serverConfig } from "@/config/server/server.config";
 import { MINUTE } from "@/config/server/server.constants";
-import { throwIfAborted } from "@/utils/cancellation.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -21,7 +20,6 @@ export const cleanupOrphanSubtitlesWorker = defineMaintenanceWorker({
 	timeoutMs: 120_000,
 	trigger: { id: "clean-orphan-subtitles-daily", type: "daily", timeOfDay: "03:45" },
 	run: async ({ signal }) => {
-		throwIfAborted(signal);
 		const files = await DirUtils.scanFilesWithStats(serverConfig.paths.subtitles, [".vtt"], 1, signal);
 		if (files.length === 0) return { success: true, deleted: 0 };
 
@@ -30,8 +28,6 @@ export const cleanupOrphanSubtitlesWorker = defineMaintenanceWorker({
 		let deleted = 0;
 
 		for (const file of files) {
-			throwIfAborted(signal);
-
 			const subtitleId = PathUtils.getFileNameWithoutExt(file.filePath);
 			if (subtitleIds.has(subtitleId)) continue;
 			if (now - file.mtimeMs < ORPHAN_MIN_AGE_MS) continue;
