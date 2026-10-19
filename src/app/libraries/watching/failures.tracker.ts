@@ -10,29 +10,22 @@ const WATCHER_FAILURE_NOTIFICATION_TYPE = "library_watcher_unavailable";
  * the notifications/repository graph out of this service's module cycle.
  */
 export async function notifyAdminsOfWatcherFailure(failure: WatcherFailureInfo): Promise<void> {
-	const [{ notificationsService }, { usersRepository }] = await Promise.all([
-		import("@/app/notifications/notifications.service"),
-		import("@/app/repositories/users.repository"),
-	]);
-	const admins = await usersRepository.findAllAdministrators();
+	const { notificationsService } = await import("@/app/notifications/notifications.service");
 	const fallbackMinutes = serverConfig.scanning.watcherFallbackIntervalMinutes;
 	const message =
 		fallbackMinutes > 0
 			? `ReelVault could not watch this library path (${failure.reason}). It will be rescanned automatically every ${fallbackMinutes} minutes until it recovers.`
 			: `ReelVault could not watch this library path (${failure.reason}). New files may not appear until a scan runs.`;
-	for (const admin of admins) {
-		await notificationsService.create(
-			{
-				userId: admin.id,
-				type: WATCHER_FAILURE_NOTIFICATION_TYPE,
-				title: `Real-time watching unavailable for ${failure.path}`,
-				message,
-				data: { libraryId: failure.libraryId, pathId: failure.pathId, path: failure.path, reason: failure.reason },
-				link: "/admin/libraries",
-			},
-			{ skipOwnershipCheck: true },
-		);
-	}
+	await notificationsService.createForAdministrators(
+		{
+			type: WATCHER_FAILURE_NOTIFICATION_TYPE,
+			title: `Real-time watching unavailable for ${failure.path}`,
+			message,
+			data: { libraryId: failure.libraryId, pathId: failure.pathId, path: failure.path, reason: failure.reason },
+			link: "/admin/libraries",
+		},
+		{ skipOwnershipCheck: true },
+	);
 }
 
 /** Records a path the watcher cannot cover and notifies admins once per episode. */

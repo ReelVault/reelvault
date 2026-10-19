@@ -42,7 +42,7 @@ class NotificationsService {
 
 	async create(
 		notification: CreateNotification,
-		options?: { skipOwnershipCheck?: boolean; sourcePluginId?: string | undefined },
+		options?: { skipOwnershipCheck?: boolean | undefined; sourcePluginId?: string | undefined },
 	): Promise<string> {
 		return await runSafely(this, "create", async () => {
 			if (!options?.skipOwnershipCheck) {
@@ -380,12 +380,13 @@ class NotificationsService {
 
 	/**
 	 * Sends the same notification to every administrator. A recipient that fails does not stop the others; the
-	 * first failure is rethrown once every administrator has been tried.
+	 * first failure is rethrown once every administrator has been tried. Returns how many administrators were
+	 * notified.
 	 */
 	async createForAdministrators(
 		notification: Omit<CreateNotification, "userId" | "profileId">,
-		options?: { sourcePluginId?: string | undefined },
-	): Promise<void> {
+		options?: { sourcePluginId?: string | undefined; skipOwnershipCheck?: boolean | undefined },
+	): Promise<number> {
 		const admins = await usersRepository.findAllAdministrators();
 		let firstFailure: Error | undefined;
 		for (const admin of admins) {
@@ -396,6 +397,8 @@ class NotificationsService {
 			}
 		}
 		if (firstFailure) throw firstFailure;
+
+		return admins.length;
 	}
 }
 

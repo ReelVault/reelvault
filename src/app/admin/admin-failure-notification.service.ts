@@ -1,5 +1,4 @@
 import { notificationsService } from "@/app/notifications/notifications.service";
-import { usersRepository } from "@/app/repositories/users.repository";
 import { HOUR } from "@/config/server/server.constants";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
@@ -66,24 +65,20 @@ class AdminFailureNotificationService {
 		detach(
 			(async () => {
 				try {
-					const admins = await usersRepository.findAllAdministrators();
-					for (const admin of admins) {
-						await notificationsService.create(
-							{
-								userId: admin.id,
-								type: entry.type,
-								title: entry.titleKey,
-								data: entry.data,
-								link: entry.link,
-							},
-							{ skipOwnershipCheck: true },
-						);
-					}
+					const recipients = await notificationsService.createForAdministrators(
+						{
+							type: entry.type,
+							title: entry.titleKey,
+							data: entry.data,
+							link: entry.link,
+						},
+						{ skipOwnershipCheck: true },
+					);
 
 					this.logger.info("Notified administrators about a failure", {
 						type: entry.type,
 						dedupKey: entry.dedupKey,
-						recipients: admins.length,
+						recipients,
 					});
 				} catch (error) {
 					this.logger.warn("Could not notify administrators about a failure", { type: entry.type, error });

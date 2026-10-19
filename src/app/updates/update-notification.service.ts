@@ -1,7 +1,6 @@
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { notificationsService } from "@/app/notifications/notifications.service";
 import { notificationsRepository } from "@/app/repositories/notifications.repository";
-import { usersRepository } from "@/app/repositories/users.repository";
 import type { UpdateComponent } from "@/app/updates/update-environment.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
@@ -45,20 +44,16 @@ class UpdateNotificationService {
 		const alreadyNotified = await notificationsRepository.existsForVersion(UPDATE_NOTIFICATION_TYPE, release.version, component);
 		if (alreadyNotified) return false;
 
-		const admins = await usersRepository.findAllAdministrators();
-		for (const admin of admins) {
-			await notificationsService.create(
-				{
-					userId: admin.id,
-					type: UPDATE_NOTIFICATION_TYPE,
-					title: TITLE_KEYS[component],
-					data: { version: release.version, component, releaseUrl: release.url },
-					link: "/admin/updates",
-				},
-				{ skipOwnershipCheck: true },
-			);
-		}
-		this.logger.info("Notified administrators about a new release", { component, version: release.version, recipients: admins.length });
+		const recipients = await notificationsService.createForAdministrators(
+			{
+				type: UPDATE_NOTIFICATION_TYPE,
+				title: TITLE_KEYS[component],
+				data: { version: release.version, component, releaseUrl: release.url },
+				link: "/admin/updates",
+			},
+			{ skipOwnershipCheck: true },
+		);
+		this.logger.info("Notified administrators about a new release", { component, version: release.version, recipients });
 
 		return true;
 	}
