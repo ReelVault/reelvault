@@ -107,8 +107,13 @@ class PlaybackProgressService {
 			assertFound(mediaFile, "MediaFile", fileId);
 
 			const duration = mediaFile.duration ?? 0;
-			const position = normalizePlaybackPosition(body.position, duration);
-			const completed = isCompleted(position, duration);
+			// "Mark watched" writes MAX_SAFE_INTEGER; a file with no known duration
+			// cannot satisfy the ratio check, so honor the explicit intent instead of
+			// storing a bogus position and leaving the row incomplete.
+			const requestedPosition = body.position ?? 0;
+			const explicitComplete = requestedPosition >= Number.MAX_SAFE_INTEGER && duration <= 0;
+			const position = explicitComplete ? 0 : normalizePlaybackPosition(requestedPosition, duration);
+			const completed = explicitComplete || isCompleted(position, duration);
 			const audioStreamIndex = body.audioStreamIndex !== undefined ? body.audioStreamIndex : existingProgress?.audioStreamIndex;
 			const subtitleId = body.subtitleId !== undefined ? body.subtitleId : existingProgress?.subtitleId;
 			const completesTitle = completed && !existingProgress?.completed;
