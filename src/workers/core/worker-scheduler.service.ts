@@ -8,9 +8,10 @@ import type {
 	WorkerSummary,
 } from "@reelvault/sdk/common";
 import { MINUTE } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { detach } from "@/utils/promise.utils";
+import { detach, PromiseUtils } from "@/utils/promise.utils";
 import { pickDefined } from "@/utils/type.utils";
 import { computeNextRunAt } from "@/workers/utils/worker-policy.utils";
 import { applyStats } from "@/workers/utils/worker-stats.mapper";
@@ -108,15 +109,15 @@ export class WorkerSchedulerService {
 		const isPaused = (workerId: string) => scheduleRows.get(workerId)?.isEnabled === false;
 
 		if (isStartup) {
-			for (const def of definitions) {
-				if (isPaused(def.id)) continue;
+			const startupWorkers = definitions.filter((def) => {
+				if (isPaused(def.id)) return false;
 
-				const triggers = this.getTriggersForWorker(def.id);
-				if (triggers.some((t) => t.type === "startup")) {
-					this.logger.info("Triggering worker on startup", { workerId: def.id });
-					await this.enqueueScheduled(def.id, `startup:${currentMinute}`, def.schedule?.data);
-				}
-			}
+				return this.getTriggersForWorker(def.id).some((t) => t.type === "startup");
+			});
+			await PromiseUtils.mapConcurrent(startupWorkers, systemResourcesService.getIoConcurrency(), async (def) => {
+				this.logger.info("Triggering worker on startup", { workerId: def.id });
+				await this.enqueueScheduled(def.id, `startup:${currentMinute}`, def.schedule?.data);
+			});
 		}
 
 		// Deadline-based scheduling: every worker carries a persisted nextRunAt.
@@ -124,6 +125,7 @@ export class WorkerSchedulerService {
 		// replay, no flood), then advances past `now`. Deadlines are armed and
 		// advanced in one batched write after the loop instead of one per worker.
 		const deadlineUpdates: Array<{ workerId: string; nextRunAt: Date | null }> = [];
+		const dueWorkers: Array<{ def: WorkerDefinition; dedupeKey: string; due: Date }> = [];
 		for (const def of definitions) {
 			if (isPaused(def.id)) continue;
 
@@ -146,15 +148,26 @@ export class WorkerSchedulerService {
 			if (due.getTime() > now.getTime()) continue;
 
 			this.logger.debug("Triggering scheduled worker", { workerId: def.id, dueAt: due.toISOString() });
-			const queued = await this.enqueueScheduled(
-				def.id,
-				`schedule:${def.id}:${due.getTime()}`,
-				def.schedule?.data,
-				def.schedule?.operationId,
-			);
+			dueWorkers.push({ def, dedupeKey: `schedule:${def.id}:${due.getTime()}`, due });
+		}
+
+		// The due workers are enqueued side by side: each one costs a dedupe
+		// lookup and an operation + job insert, and running them one after
+		// another delayed the last worker by the whole sum.
+		const queued = await PromiseUtils.mapConcurrent(
+			dueWorkers,
+			systemResourcesService.getIoConcurrency(),
+			async (entry) =>
+				await this.enqueueScheduled(entry.def.id, entry.dedupeKey, entry.def.schedule?.data, entry.def.schedule?.operationId),
+		);
+
+		for (const [index, entry] of dueWorkers.entries()) {
 			// Keep the deadline due when the enqueue failed: advancing it would
 			// silently skip the whole period with only a warning in the log.
-			if (queued) deadlineUpdates.push({ workerId: def.id, nextRunAt: computeNextRunAt(triggers, cron, now) });
+			if (!queued[index]) continue;
+
+			const triggers = this.getTriggersForWorker(entry.def.id);
+			deadlineUpdates.push({ workerId: entry.def.id, nextRunAt: computeNextRunAt(triggers, entry.def.schedule?.cron, now) });
 		}
 
 		await workerDependencies().schedules.setNextRunAtMany(deadlineUpdates);

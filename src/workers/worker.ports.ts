@@ -115,7 +115,8 @@ export interface WorkerJobStore {
 	}>;
 	findPendingWorkerIds(now?: Date): Promise<string[]>;
 	claimNextBatch(input: ClaimNextInput, max: number): Promise<WorkerItem[]>;
-	updateProgress(id: string, progressPercent: number, claimToken?: string): Promise<void>;
+	/** Records the progress on the job row and on its operation, in one transaction. */
+	updateProgress(id: string, progressPercent: number, claimToken?: string, operationId?: string): Promise<void>;
 	complete(id: string, runnerId: string, result: string, claimToken?: string): Promise<boolean>;
 	retry(id: string, runnerId: string, runAt: Date, error: string, claimToken?: string): Promise<boolean>;
 	fail(id: string, runnerId: string, error: string, claimToken?: string): Promise<boolean>;

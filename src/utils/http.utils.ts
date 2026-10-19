@@ -71,6 +71,20 @@ export function getPathname(url: string): string {
 }
 
 /**
+ * The raw pathname of a request URL: no query string and no dot-segment
+ * normalization. The static file server resolves its own segments and refuses
+ * the ones that climb out of the web root, so it must see the path as sent.
+ */
+export function getRequestPathname(url: string): string {
+	const start = url.indexOf("/", 8);
+	if (start === -1) return "/";
+
+	const end = url.indexOf("?", start);
+
+	return end === -1 ? url.slice(start) : url.slice(start, end);
+}
+
+/**
  * Collapses `.`/`..` segments (percent-encoded included). Elysia resolves these
  * before route matching, so classification and exemptions must see the same
  * path the router will.

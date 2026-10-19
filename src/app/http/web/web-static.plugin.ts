@@ -4,7 +4,7 @@ import { file as bunFile } from "bun";
 import { Elysia } from "elysia";
 import { NotFoundError } from "elysia/error";
 import { isWebApiPath } from "@/app/http/utils/route-classification.utils";
-import { getPathname, matchesIfNoneMatch } from "@/utils/http.utils";
+import { getPathname, getRequestPathname, matchesIfNoneMatch } from "@/utils/http.utils";
 import { byteRangeResponse } from "@/utils/http-range.utils";
 import { contentTypeForPath, MIME_TYPES } from "@/utils/mime.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -146,7 +146,7 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 	if (!root) throw new NotFoundError();
 
 	const segments: string[] = [];
-	for (const rawSegment of new URL(request.url).pathname.split("/")) {
+	for (const rawSegment of getRequestPathname(request.url).split("/")) {
 		if (rawSegment.length === 0) continue;
 
 		let decoded: string;

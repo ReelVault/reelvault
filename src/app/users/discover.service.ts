@@ -114,10 +114,16 @@ class DiscoverService {
 		const recentlyAddedShows = recentlyAdded.get("tv_show") ?? [];
 		const recentlyAddedAll = [...recentlyAddedMovies, ...recentlyAddedShows];
 
-		// Hydrate recommendation items that are not already in recentlyAdded.
+		// Hydrate the recommendation and trending items that are not already in
+		// recentlyAdded — in one read, so the two lists do not fetch the same
+		// titles twice.
 		const recentlyAddedMap = toMap(recentlyAddedAll, (m) => m.id);
 		const missingRecIds = recommendationIds.filter((id) => !recentlyAddedMap.has(id));
-		const missingEnriched = missingRecIds.length > 0 ? await metadataRepository.findManyByIdsWithRelations(missingRecIds) : [];
+		const missingTrendingIds = trendingRaw
+			.map((row) => row.metadataId)
+			.filter((id): id is string => Boolean(id) && !recentlyAddedMap.has(id));
+		const missingIds = [...new Set([...missingRecIds, ...missingTrendingIds])];
+		const missingEnriched = missingIds.length > 0 ? await metadataRepository.findManyByIdsWithRelations(missingIds) : [];
 		const enrichedMap = toMap([...recentlyAddedAll, ...missingEnriched], (m) => m.id);
 		const hydratedRecs: MetadataWithRelation[] = recommendationIds.map((id) => enrichedMap.get(id)).filter((v) => isNotNullish(v));
 

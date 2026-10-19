@@ -134,12 +134,20 @@ async function claimRunnableItems(tx: DatabaseTransaction, input: ClaimNextInput
 	return claimedItems;
 }
 
-export async function updateProgress(id: string, progressPercent: number, claimToken?: string): Promise<void> {
-	await databaseFactory
-		.getClient()
-		.update(items)
-		.set({ progressPercent, updatedAt: new Date() })
-		.where(and(eq(items.id, id), ...(claimToken ? [eq(items.claimToken, claimToken)] : [])));
+/**
+ * Records a task's progress on its job row and on the operation that groups it.
+ * Both rows move in one transaction: two independent writes let a crash between
+ * them leave the operation's progress behind the job's.
+ */
+export async function updateProgress(id: string, progressPercent: number, claimToken?: string, operationId?: string): Promise<void> {
+	await databaseFactory.transaction(async (tx) => {
+		await tx
+			.update(items)
+			.set({ progressPercent, updatedAt: new Date() })
+			.where(and(eq(items.id, id), ...(claimToken ? [eq(items.claimToken, claimToken)] : [])));
+
+		if (operationId) await workerOperationRepository.updateProgress(operationId, progressPercent, tx);
+	});
 }
 
 export async function complete(id: string, runnerId: string, result: string, claimToken?: string): Promise<boolean> {

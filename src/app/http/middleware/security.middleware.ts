@@ -7,6 +7,14 @@ import { getPathname } from "@/utils/http.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import { appendCspSources } from "./csp.utils";
 
+/**
+ * The web-UI policy with the plugins' sources merged in. The registry hands out
+ * the same directives object until a plugin changes, so the merged policy is
+ * cached against it — merging means splitting the policy into directives and
+ * re-serializing it, which is pure overhead on every static response.
+ */
+let mergedWebUiPolicy: { directives: Record<string, string[]>; policy: string } | undefined;
+
 export const securityHeadersMiddleware = new Elysia({ name: "SecurityHeaders" }).onAfterHandle({ as: "global" }, ({ request, set }) => {
 	if (request.method === "OPTIONS") return;
 
@@ -30,7 +38,14 @@ export const securityHeadersMiddleware = new Elysia({ name: "SecurityHeaders" })
 	else if (isOpenApiUi) contentSecurityPolicy = serverConfig.security.openApiContentSecurityPolicy;
 	else if (isWebUi) {
 		// Loaded plugins may contribute content sources (artwork CDNs, players).
-		contentSecurityPolicy = appendCspSources(serverConfig.security.webUiContentSecurityPolicy, pluginRegistry.getCspDirectives());
+		const directives = pluginRegistry.getCspDirectives();
+		if (mergedWebUiPolicy?.directives !== directives) {
+			mergedWebUiPolicy = {
+				directives,
+				policy: appendCspSources(serverConfig.security.webUiContentSecurityPolicy, directives),
+			};
+		}
+		contentSecurityPolicy = mergedWebUiPolicy.policy;
 	}
 
 	set.headers["Content-Security-Policy"] = contentSecurityPolicy;

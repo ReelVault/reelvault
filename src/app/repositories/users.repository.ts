@@ -51,6 +51,13 @@ const overrides = {
 		return { total, data };
 	},
 
+	/** Whether any account exists — the first-run check needs a yes/no answer, not a total. */
+	async hasAny(): Promise<boolean> {
+		const [row] = await getUsersRepository().selectMany({ limit: 1 });
+
+		return row !== undefined;
+	},
+
 	/** Administrators with a second factor enrolled: the accounts that can still sign in while enforcement is on. */
 	async countAdministratorsWithTwoFactor(): Promise<number> {
 		return await getUsersRepository().count({ where: and(eq(users.table.role, "admin"), eq(users.table.twoFactorEnabled, true)) });

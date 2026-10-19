@@ -41,7 +41,9 @@ class FirstRunSetupService {
 	}
 
 	async isRequired(): Promise<boolean> {
-		return (await usersRepository.count()) === 0;
+		// A yes/no answer, not a total: the count scanned the whole users table
+		// for every status poll.
+		return !(await usersRepository.hasAny());
 	}
 
 	async registerUser(input: CreateUserInput): Promise<Response> {

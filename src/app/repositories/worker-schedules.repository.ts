@@ -6,16 +6,9 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { toMap } from "@/utils/array.utils";
+import type { WorkerExecutionRecord } from "@/workers/worker.ports";
 
 const schedules = schema.workerSchedules;
-
-export interface WorkerExecutionRecord {
-	status: "completed" | "failed" | "cancelled";
-	startedAt?: Date | undefined;
-	completedAt: Date;
-	durationMs: number;
-	error?: string | undefined;
-}
 
 class WorkerSchedulesRepository {
 	async getAllTriggers(): Promise<Map<string, TaskTrigger[]>> {

@@ -12,8 +12,10 @@ import type { AdminAuditContext } from "@/app/repositories/admin-audit.repositor
 import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { readCompletedOperationResult } from "@/app/repositories/worker-jobs/result.reader";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { toMap } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
+import { PromiseUtils } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import {
 	createLibraryErrorsCheckDedupeKey,
@@ -97,17 +99,27 @@ export async function getLibraryHealth(state: LibrariesServiceState): Promise<Li
 		const unwatchable = toMap(libraryWatcherService.getUnwatchablePaths(), (failure) => failure.pathId);
 		const lastScans = await workerOperationRepository.findLatestLibraryScanTimes(libraries.map((library) => library.id));
 
+		// The path stats are independent, so they run side by side: a server with
+		// many library paths stat-ed them one after another, and a stat on a NAS
+		// can take a while.
+		const allPaths = libraries.flatMap((library) => library.paths.map((libraryPath) => ({ libraryId: library.id, libraryPath })));
+		const pathStats = await PromiseUtils.mapConcurrent(allPaths, systemResourcesService.getIoConcurrency(), async (entry) => ({
+			...entry,
+			...(await describePath(entry.libraryPath.path)),
+		}));
+		const statsByPathId = toMap(pathStats, (entry) => entry.libraryPath.id);
+
 		const data: LibraryHealth[] = [];
 		for (const library of libraries) {
 			const paths: LibraryPathHealth[] = [];
 			for (const libraryPath of library.paths) {
-				const { exists, isDirectory } = await describePath(libraryPath.path);
+				const stat = statsByPathId.get(libraryPath.id);
 				const failure = unwatchable.get(libraryPath.id);
 				paths.push({
 					pathId: libraryPath.id,
 					path: libraryPath.path,
-					exists,
-					isDirectory,
+					exists: stat?.exists ?? false,
+					isDirectory: stat?.isDirectory ?? false,
 					watchStatus: failure ? "unwatchable" : "watching",
 					...(failure
 						? { unwatchableCode: unwatchableCodeOf(failure.reason), unwatchableSince: new Date(failure.since).toISOString() }

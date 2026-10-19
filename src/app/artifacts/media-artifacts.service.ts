@@ -1,4 +1,5 @@
-import type { PlaybackArtifact, PlaybackArtifactWrite } from "@reelvault/sdk/common";
+import type { PlaybackArtifact, PlaybackArtifactKind, PlaybackArtifactWrite } from "@reelvault/sdk/common";
+import { playbackArtifactKinds } from "@reelvault/sdk/common";
 import { file } from "bun";
 import { mediaArtifactsRepository } from "@/app/repositories/media-artifacts.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
@@ -31,6 +32,11 @@ const VALID_ARTIFACT_KINDS = new Set(["trickplay", "chapters", "preview", "wavef
  */
 export interface ArtifactWriteOptions {
 	assertWithinQuota?: ((ownerId: string, bytesAfterWrite: number, incomingBytes: number) => void | Promise<void>) | undefined;
+}
+
+/** The stored artifact kinds; a plugin may ask for a kind the store does not know. */
+function toArtifactKind(kind: string): PlaybackArtifactKind | undefined {
+	return playbackArtifactKinds.find((candidate) => candidate === kind);
 }
 
 /**
@@ -163,17 +169,63 @@ class MediaArtifactsService {
 
 	/** Artifacts `deleteByMediaFileIdAndKind` would remove with the same filters; nothing is removed. */
 	async countByMediaFileIdAndKind(mediaFileId: string, kind: string, ownerId?: string): Promise<number> {
-		const artifacts = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
+		const artifactKind = toArtifactKind(kind);
+		if (!artifactKind) return 0;
 
-		return artifacts.filter((a) => a.kind === kind && (ownerId === undefined || a.pluginId === ownerId)).length;
+		return await mediaArtifactsRepository.countByMediaFileIdAndKind(mediaFileId, artifactKind, ownerId);
 	}
 
 	async deleteByMediaFileIdAndKind(mediaFileId: string, kind: string, ownerId?: string): Promise<number> {
-		const artifacts = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
+		const artifactKind = toArtifactKind(kind);
+		if (!artifactKind) return 0;
+
 		// When scoped, an owner may only delete its own artifacts of that kind.
-		const matching = artifacts.filter((a) => a.kind === kind && (ownerId === undefined || a.pluginId === ownerId));
+		const matching = await mediaArtifactsRepository.findByMediaFileIdAndKind(mediaFileId, artifactKind, ownerId);
 		if (matching.length === 0) return 0;
 
+		await this.deleteArtifacts(matching);
+
+		return matching.length;
+	}
+
+	/**
+	 * Removes the artifacts of several files in one read and one delete batch —
+	 * a bulk request over many files used to read and delete them file by file.
+	 * Returns how many artifacts were removed and which files carried them.
+	 */
+	async deleteByMediaFileIdsAndKind(
+		mediaFileIds: readonly string[],
+		kind: string,
+		ownerId?: string,
+	): Promise<{ artifacts: number; mediaFileIds: string[] }> {
+		const artifactKind = toArtifactKind(kind);
+		if (!artifactKind) return { artifacts: 0, mediaFileIds: [] };
+
+		const matching = await mediaArtifactsRepository.findByMediaFileIdsAndKind(mediaFileIds, artifactKind, ownerId);
+		if (matching.length === 0) return { artifacts: 0, mediaFileIds: [] };
+
+		await this.deleteArtifacts(matching);
+
+		return { artifacts: matching.length, mediaFileIds: [...new Set(matching.map((artifact) => artifact.mediaFileId))] };
+	}
+
+	/** Which of the given files carry artifacts of that kind, and how many — one read, not a row read per file. */
+	async countByMediaFileIdsAndKind(
+		mediaFileIds: readonly string[],
+		kind: string,
+		ownerId?: string,
+	): Promise<{ artifacts: number; mediaFileIds: string[] }> {
+		if (mediaFileIds.length === 0) return { artifacts: 0, mediaFileIds: [] };
+
+		const artifactKind = toArtifactKind(kind);
+		if (!artifactKind) return { artifacts: 0, mediaFileIds: [] };
+
+		const matching = await mediaArtifactsRepository.findByMediaFileIdsAndKind(mediaFileIds, artifactKind, ownerId);
+
+		return { artifacts: matching.length, mediaFileIds: [...new Set(matching.map((artifact) => artifact.mediaFileId))] };
+	}
+
+	private async deleteArtifacts(matching: Array<{ id: string; storageKey: string; pluginId: string }>): Promise<void> {
 		await forEachChunked(
 			matching.map((artifact) => artifact.id),
 			async (ids) => {
@@ -184,8 +236,6 @@ class MediaArtifactsService {
 
 		// Stored bytes shrank — the cached totals are stale.
 		for (const artifact of matching) this.ownerByteTotals.delete(artifact.pluginId);
-
-		return matching.length;
 	}
 
 	async findFile(mediaFileId: string, artifactId: string): Promise<{ artifact: PlaybackArtifact; file: Blob } | null> {

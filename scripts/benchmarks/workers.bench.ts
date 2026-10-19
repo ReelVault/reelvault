@@ -284,6 +284,10 @@ if (!args.help) {
 	// single-job end-to-end latency. Started last because polling keeps running
 	// afterwards.
 	task("workers: runtime loop (bench-noop)", async () => {
+		// The runtime loop drives the real pool, poller, registry and watchdog, so
+		// the worker ports have to be wired like the server wires them at boot.
+		const { wireWorkerPorts } = await import("@/app/wiring/worker-ports");
+		wireWorkerPorts();
 		const { workerService } = await import("@/workers/worker.service");
 
 		const BATCH = 100;

@@ -166,10 +166,10 @@ export class WorkerExecutionPoolService {
 				if (percent < 100 && now - (exec.lastProgressWriteAt ?? 0) < PROGRESS_WRITE_MIN_INTERVAL_MS) return;
 
 				exec.lastProgressWriteAt = now;
-				await Promise.all([
-					workerDependencies().jobs.updateProgress(item.id, percent, item.claimToken ?? undefined),
-					item.operationId ? workerDependencies().operations.updateProgress(item.operationId, percent) : undefined,
-				]);
+				// The job row and the operation row move together: two independent
+				// writes let a crash between them leave the operation's progress
+				// behind the job's.
+				await workerDependencies().jobs.updateProgress(item.id, percent, item.claimToken ?? undefined, item.operationId ?? undefined);
 				// Same 1s throttle as the DB write — a small WS frame instead of the
 				// client polling operations every few seconds.
 				realtimeService.broadcastToAdmins("worker:progress", {
