@@ -1,20 +1,15 @@
-import { systemResourcesService } from "@/config/system-resources.service";
 import { ffProbeService } from "@/integrations/ffprobe/ffprobe.service";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
 
 class VideoParser {
 	readonly serviceName = "VideoParser";
 	readonly logger = createLogger("VideoParser");
 
-	private readonly semaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getFfprobeConcurrency());
-
 	async probe(filePath: string, signal?: AbortSignal): Promise<FFProbeResult | null> {
 		throwIfAborted(signal);
-		await this.semaphore.acquire(signal);
 		const fileName = PathUtils.getFileName(filePath);
 		const startedAt = performance.now();
 		this.logger.debug("Probing file", { fileName });
@@ -35,8 +30,6 @@ class VideoParser {
 			});
 
 			return null;
-		} finally {
-			this.semaphore.release();
 		}
 	}
 }

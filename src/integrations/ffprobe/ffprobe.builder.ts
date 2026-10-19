@@ -4,6 +4,7 @@ import { spawnAndCollect } from "@/integrations/ffmpeg/ffmpeg.process-runner";
 import { DomainError } from "@/utils/domain.errors";
 import { FileUtils, fileStatSignature } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
+import { PromiseUtils } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import type { FFProbeResult } from "./ffprobe.types";
 
@@ -12,6 +13,11 @@ const ffprobeCache = new MemoryCache<FFProbeResult>({
 	name: "ffprobe",
 	maxSize: systemResourcesService.getRamScaledCacheEntries(100, 250, 2000),
 });
+
+// One probe-process budget for every ffprobe caller (scanner, keyframe seek,
+// capability checks). Acquired inside the cached loader, so a caller that aborts
+// while a shared probe runs does not release the slot the process still holds.
+const probeSemaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getFfprobeConcurrency());
 
 function isFFProbeResult(value: unknown): value is FFProbeResult {
 	return isRecord(value) && Array.isArray(value.streams) && isRecord(value.format);
@@ -94,47 +100,52 @@ export class FFProbeBuilder {
 	}
 
 	private async probe(filePath: string, args: string[]): Promise<FFProbeResult> {
-		const {
-			exitCode,
-			stdout: output,
-			stderr: errorOutput,
-			timedOut,
-		} = await spawnAndCollect({
-			cmd: [serverConfig.ffprobe.path, ...args, filePath],
-			timeoutMs: serverConfig.ffprobe.timeoutMs,
-			purpose: "probe",
-			maxBuffer: serverConfig.ffprobe.maxOutputBytes,
-		});
-
+		await probeSemaphore.acquire();
 		try {
-			if (timedOut) {
-				throw new DomainError("timeout", `FFprobe timed out after ${serverConfig.ffprobe.timeoutMs}ms`, { code: "ffprobe_timeout" });
-			}
+			const {
+				exitCode,
+				stdout: output,
+				stderr: errorOutput,
+				timedOut,
+			} = await spawnAndCollect({
+				cmd: [serverConfig.ffprobe.path, ...args, filePath],
+				timeoutMs: serverConfig.ffprobe.timeoutMs,
+				purpose: "probe",
+				maxBuffer: serverConfig.ffprobe.maxOutputBytes,
+			});
 
-			if (exitCode !== 0) {
-				const details = errorOutput.trim();
-				throw new DomainError("internal", `FFprobe exited with code ${exitCode}${details ? `: ${details}` : ""}`, {
-					code: "ffprobe_exit_error",
+			try {
+				if (timedOut) {
+					throw new DomainError("timeout", `FFprobe timed out after ${serverConfig.ffprobe.timeoutMs}ms`, { code: "ffprobe_timeout" });
+				}
+
+				if (exitCode !== 0) {
+					const details = errorOutput.trim();
+					throw new DomainError("internal", `FFprobe exited with code ${exitCode}${details ? `: ${details}` : ""}`, {
+						code: "ffprobe_exit_error",
+					});
+				}
+
+				const parsed: unknown = JSON.parse(output);
+				if (!isFFProbeResult(parsed))
+					throw new DomainError("internal", "ffprobe returned no usable data", { code: "ffprobe_invalid_output" });
+
+				return parsed;
+			} catch (error) {
+				if (error instanceof DomainError && (error.category === "timeout" || error.category === "internal")) throw error;
+
+				let msg: string;
+				if (error instanceof Error) msg = error.message;
+				else if (typeof error === "string") msg = error;
+				else msg = "Unknown error";
+
+				throw new DomainError("internal", `FFprobe execution failed: ${msg}`, {
+					code: "ffprobe_execution_failed",
+					details: error instanceof Error ? error : new Error(msg),
 				});
 			}
-
-			const parsed: unknown = JSON.parse(output);
-			if (!isFFProbeResult(parsed))
-				throw new DomainError("internal", "ffprobe returned no usable data", { code: "ffprobe_invalid_output" });
-
-			return parsed;
-		} catch (error) {
-			if (error instanceof DomainError && (error.category === "timeout" || error.category === "internal")) throw error;
-
-			let msg: string;
-			if (error instanceof Error) msg = error.message;
-			else if (typeof error === "string") msg = error;
-			else msg = "Unknown error";
-
-			throw new DomainError("internal", `FFprobe execution failed: ${msg}`, {
-				code: "ffprobe_execution_failed",
-				details: error instanceof Error ? error : new Error(msg),
-			});
+		} finally {
+			probeSemaphore.release();
 		}
 	}
 }

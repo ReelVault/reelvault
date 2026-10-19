@@ -4,7 +4,7 @@ import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
-import { killFfmpegProcessGracefully } from "./ffmpeg.process";
+import { killFfmpegProcessGracefully, waitForExitWithTimeout } from "./ffmpeg.process";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
 
 export interface FfmpegRunOptions {
@@ -67,12 +67,34 @@ class FFmpegService {
 
 		ffmpegProcessTracker.track(process, options.purpose ?? "background");
 
+		// A process stuck in an uninterruptible state (stalled network mount) never
+		// reaps after SIGKILL; bound the wait so the caller and its semaphore slot
+		// are not held forever.
+		let rejectUnreaped: ((error: DomainError) => void) | undefined;
+		const unreaped = new Promise<never>((_resolve, reject) => {
+			rejectUnreaped = reject;
+		});
+		const boundReap = () => {
+			detach(
+				(async () => {
+					try {
+						if (await waitForExitWithTimeout(process)) return;
+					} catch {
+						// A failed exit read counts as unreaped.
+					}
+
+					rejectUnreaped?.(new DomainError("timeout", "FFmpeg did not exit after SIGKILL", { code: "ffmpeg.kill_timeout" }));
+				})(),
+			);
+		};
+
 		const abort = () => {
 			try {
 				process.kill("SIGKILL");
 			} catch {
 				// Ignore kill error
 			}
+			boundReap();
 		};
 		signal?.addEventListener("abort", abort, { once: true });
 
@@ -90,6 +112,7 @@ class FFmpegService {
 								}
 							})(),
 						);
+						boundReap();
 					}, timeoutMs)
 				: undefined;
 		timeoutTimer?.unref();
@@ -101,10 +124,9 @@ class FFmpegService {
 							process.kill("SIGKILL");
 						})
 					: Promise.resolve(new Uint8Array(0));
-			const [exitCode, stdout, stderr] = await Promise.all([
-				process.exited,
-				stdoutPromise,
-				collectStderrTail(process.stderr, maxStderrBytes),
+			const [exitCode, stdout, stderr] = await Promise.race([
+				Promise.all([process.exited, stdoutPromise, collectStderrTail(process.stderr, maxStderrBytes)]),
+				unreaped,
 			]);
 			if (signal?.aborted) throw signal.reason ?? new Error("FFmpeg execution was cancelled");
 
