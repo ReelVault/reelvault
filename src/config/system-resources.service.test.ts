@@ -134,6 +134,12 @@ describe("SystemResourcesService per-worker and memory budgets", () => {
 		expect(new SystemResourcesService({ cores: () => 4, speedFactor: () => 1.0 }).getImageEffort()).toBe(5);
 	});
 
+	test("software transcode cap grows with capacity and stops at four", () => {
+		expect(new SystemResourcesService({ cores: () => 1, speedFactor: () => 1 }).getSoftwareTranscodeConcurrency()).toBe(2);
+		expect(new SystemResourcesService({ cores: () => 4, speedFactor: () => 1 }).getSoftwareTranscodeConcurrency()).toBe(4);
+		expect(new SystemResourcesService({ cores: () => 16, speedFactor: () => 1 }).getSoftwareTranscodeConcurrency()).toBe(4);
+	});
+
 	test("worker auto-concurrency scales with capacity, not thread count", () => {
 		// capacity = 4 (4 cores × 1.0).
 		const service = new SystemResourcesService({ cores: () => 4, speedFactor: () => 1.0 });

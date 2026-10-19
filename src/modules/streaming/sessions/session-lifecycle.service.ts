@@ -1,12 +1,15 @@
 import type { CreatePlaybackSession, PlaybackDecision, PlaybackSession } from "@reelvault/sdk/common";
 import { serverConstants } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import {
 	type PlaybackSelection,
 	resolveSessionSelection,
 	type SessionSelectionInput,
 } from "@/modules/streaming/decisions/session-selection.resolver";
+import { usesSoftwareVideoEncode } from "@/modules/streaming/ffmpeg/software-fallback.policy";
 import type { SessionAccessInfo } from "@/modules/streaming/runtime/session-state/session.store";
 import type { StreamInitData } from "@/modules/streaming/runtime/stream.initializer";
 import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
@@ -32,6 +35,8 @@ export interface SessionLifecycleRuntime {
 	listSessionsForProfile(profileId: string): Array<{ sessionId: string; mediaFileId: string }>;
 	getTerminatedSession(sessionId: string): TerminatedSessionEntry | undefined;
 	reserveSession(sessionId: string, userId?: string): boolean;
+	tryReserveSoftwareTranscode(sessionId: string, limit: number): boolean;
+	releaseSoftwareTranscode(sessionId: string): void;
 	explainCapacityLimit(userId?: string): { scope: "user" | "server"; limit: number; active: number };
 	registerSession(
 		sessionId: string,
@@ -157,6 +162,13 @@ export class SessionLifecycleService {
 		);
 	}
 
+	/** Configured cap, or the CPU-derived automatic one when the setting is 0. */
+	private softwareTranscodeLimit(): number {
+		const configured = this.dependencies.systemSettings.get("stream.maxSoftwareTranscodes");
+
+		return configured > 0 ? configured : systemResourcesService.getSoftwareTranscodeConcurrency();
+	}
+
 	/** Reserves the session's slot. At the limit, a same-title session of the profile may give up its slot first. */
 	private async reserveSlot(sessionId: string, profileId: string, mediaFileId: string, userId?: string): Promise<void> {
 		const { runtime } = this.dependencies;
@@ -205,7 +217,7 @@ export class SessionLifecycleService {
 		userId?: string,
 	): Promise<PlaybackSession> {
 		return await runSafely(this, "createPlaybackSession", async () => {
-			const { workerService, enqueueStreamInit, runtime, publisher } = this.dependencies;
+			const { runtime } = this.dependencies;
 			this.dependencies.assertEnvironment();
 			assertSafeId(fileId);
 			if (!profileId)
@@ -213,11 +225,8 @@ export class SessionLifecycleService {
 					code: "auth.profile_required",
 				});
 
-			const { file, decision, videoCodec, audioStream, subtitle, playbackPreferences } = await this.selectPlayback(
-				fileId,
-				profileId,
-				capabilitiesQuery,
-			);
+			const selected = await this.selectPlayback(fileId, profileId, capabilitiesQuery);
+			const { decision } = selected;
 
 			this.logger.info(`Playback decision: ${decision.mode}`, {
 				fileId,
@@ -227,66 +236,98 @@ export class SessionLifecycleService {
 			});
 
 			const sessionId = crypto.randomUUID();
-			await this.reserveSlot(sessionId, profileId, file.id, userId);
+			const softwareTranscode = usesSoftwareVideoEncode(decision, getEffectiveHwaccel().type);
+			const softwareLimit = softwareTranscode ? this.softwareTranscodeLimit() : 0;
+			if (softwareTranscode && !runtime.tryReserveSoftwareTranscode(sessionId, softwareLimit)) {
+				throw new DomainError("too_many_requests", "Concurrent software transcode limit reached. Try again when another stream ends.", {
+					code: "stream.transcode_limit_reached",
+					params: { limit: softwareLimit, retryAfterSeconds: serverConstants.stream.sessionLimitRetryAfterSeconds },
+				});
+			}
 
-			// One entity for the whole viewing: the decision/input are bound here and
-			// every later seek restarts the process inside this session, never recreates it.
-			let createdOperationId: string | undefined;
-			let sessionOperationId: string;
 			try {
-				runtime.registerSession(sessionId, {
-					mediaFileId: file.id,
-					profileId,
-					decision,
-					inputPath: file.filePath,
-					durationMs: isNullish(file.duration) ? null : file.duration * 1000,
-				});
-				await runtime.prepareSession(sessionId);
-				const operation = await workerService.createOperation({
-					type: "streaming-session",
-					reference: { type: "media-file", id: file.id },
-				});
-				createdOperationId = operation.id;
-				const task = await enqueueStreamInit(
-					{ sessionId, mediaFileId: file.id, filePath: file.filePath, decision },
-					{ operationId: operation.id },
-				);
-				if (!task.operationId)
-					throw new DomainError("internal", "Streaming operation was not attached to its task", { code: "stream.start_failed" });
-
-				sessionOperationId = task.operationId;
-				runtime.setSessionOperation(sessionId, task.operationId);
-
-				publisher({
-					sessionId,
-					userId,
-					profileId,
-					mediaFileId: file.id,
-					mode: decision.mode,
-					videoCodec,
-					audioCodec: audioStream?.codecName ?? null,
-					videoBitrateKbps: decision.videoBitrateKbps ?? (file.bitRate ? Math.round(file.bitRate / 1000) : null),
-					audioStreamIndex: audioStream?.index ?? null,
-					startedAt: new Date().toISOString(),
-				});
-
-				return {
-					operationId: sessionOperationId,
-					mode: decision.mode,
-					sessionId,
-					reasons: decision.reasons ?? { video: { code: "unknown" }, audio: { code: "unknown" } },
-					audioStreamIndex: audioStream?.index ?? null,
-					...subtitleFields(subtitle, playbackPreferences),
-					heartbeatIntervalMs: serverConstants.stream.heartbeatIntervalMs,
-				};
-			} catch (error) {
-				if (createdOperationId) await workerService.removeOperation(createdOperationId);
-
-				runtime.releaseSessionReservation(sessionId);
-				await runtime.discardSession(sessionId);
-				throw error;
+				return await this.createSessionEntity({ sessionId, profileId, userId, selected });
+			} finally {
+				// Registration turns the reservation into an active session; on any
+				// earlier failure this drops the pending slot.
+				if (softwareTranscode) runtime.releaseSoftwareTranscode(sessionId);
 			}
 		});
+	}
+
+	/**
+	 * Creates the session row, operation and enqueue after the software-transcode
+	 * slot was reserved. One entity spans the whole viewing: later seeks restart
+	 * FFmpeg inside it instead of recreating it.
+	 */
+	private async createSessionEntity({
+		sessionId,
+		profileId,
+		userId,
+		selected,
+	}: {
+		sessionId: string;
+		profileId: string;
+		userId: string | undefined;
+		selected: Awaited<ReturnType<SessionLifecycleService["selectPlayback"]>>;
+	}): Promise<PlaybackSession> {
+		const { workerService, enqueueStreamInit, runtime, publisher } = this.dependencies;
+		const { file, decision, videoCodec, audioStream, subtitle, playbackPreferences } = selected;
+		await this.reserveSlot(sessionId, profileId, file.id, userId);
+
+		let createdOperationId: string | undefined;
+		try {
+			runtime.registerSession(sessionId, {
+				mediaFileId: file.id,
+				profileId,
+				decision,
+				inputPath: file.filePath,
+				durationMs: isNullish(file.duration) ? null : file.duration * 1000,
+			});
+			await runtime.prepareSession(sessionId);
+			const operation = await workerService.createOperation({
+				type: "streaming-session",
+				reference: { type: "media-file", id: file.id },
+			});
+			createdOperationId = operation.id;
+			const task = await enqueueStreamInit(
+				{ sessionId, mediaFileId: file.id, filePath: file.filePath, decision },
+				{ operationId: operation.id },
+			);
+			if (!task.operationId)
+				throw new DomainError("internal", "Streaming operation was not attached to its task", { code: "stream.start_failed" });
+
+			runtime.setSessionOperation(sessionId, task.operationId);
+
+			publisher({
+				sessionId,
+				userId,
+				profileId,
+				mediaFileId: file.id,
+				mode: decision.mode,
+				videoCodec,
+				audioCodec: audioStream?.codecName ?? null,
+				videoBitrateKbps: decision.videoBitrateKbps ?? (file.bitRate ? Math.round(file.bitRate / 1000) : null),
+				audioStreamIndex: audioStream?.index ?? null,
+				startedAt: new Date().toISOString(),
+			});
+
+			return {
+				operationId: task.operationId,
+				mode: decision.mode,
+				sessionId,
+				reasons: decision.reasons ?? { video: { code: "unknown" }, audio: { code: "unknown" } },
+				audioStreamIndex: audioStream?.index ?? null,
+				...subtitleFields(subtitle, playbackPreferences),
+				heartbeatIntervalMs: serverConstants.stream.heartbeatIntervalMs,
+			};
+		} catch (error) {
+			if (createdOperationId) await workerService.removeOperation(createdOperationId);
+
+			runtime.releaseSessionReservation(sessionId);
+			await runtime.discardSession(sessionId);
+			throw error;
+		}
 	}
 
 	/** Loads the file and the viewer's saved state, then picks the decision, codecs and tracks to play with. */

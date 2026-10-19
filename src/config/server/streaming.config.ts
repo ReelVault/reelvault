@@ -49,6 +49,9 @@ export const streamingConfig = {
 		get maxSessionsPerUser() {
 			return systemSettingsStore.get("stream.maxSessionsPerUser");
 		},
+		get maxSoftwareTranscodes() {
+			return systemSettingsStore.get("stream.maxSoftwareTranscodes");
+		},
 		get maxPerStreamBandwidthKbps() {
 			return systemSettingsStore.get("stream.maxPerStreamBandwidthKbps");
 		},

@@ -119,6 +119,7 @@ export class ProcessManager {
 		// Persist the fallback so diagnostics/live-activity report the software
 		// decision and a later retry is not considered eligible again.
 		this.store.setDecision(sessionId, { ...session.decision, forceSoftware: true });
+		this.store.markSoftwareVideoSession(sessionId);
 		this.logger.warn("Hardware encode failed before the first segment — retrying with the software encoder", {
 			sessionId,
 			exitCode: session.process?.exitCode,

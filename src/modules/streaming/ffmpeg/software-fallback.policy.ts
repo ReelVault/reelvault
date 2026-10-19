@@ -8,3 +8,8 @@ import type { PlaybackDecision } from "@reelvault/sdk/common";
 export function isSoftwareFallbackEligible(decision: PlaybackDecision, hwaccelType: string): boolean {
 	return decision.mode === "transcode" && decision.videoTranscode && !decision.forceSoftware && hwaccelType !== "none";
 }
+
+/** Whether the session's video is encoded on the CPU (including a software fallback). */
+export function usesSoftwareVideoEncode(decision: PlaybackDecision, hwaccelType: string): boolean {
+	return decision.videoTranscode && (decision.forceSoftware === true || hwaccelType === "none");
+}

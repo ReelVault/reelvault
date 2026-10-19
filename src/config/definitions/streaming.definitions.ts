@@ -46,6 +46,9 @@ export const STREAMING_SETTINGS_DEFINITIONS = {
 
 	"stream.maxSessions": creator.number("stream.maxSessions", 1, 100, 5),
 	"stream.maxSessionsPerUser": creator.number("stream.maxSessionsPerUser", 1, 100, 3),
+	// 0 = automatic from measured CPU capacity. Applies only to software video
+	// transcodes; hardware transcodes and direct-stream remuxes are not capped.
+	"stream.maxSoftwareTranscodes": creator.number("stream.maxSoftwareTranscodes", 0, 100, 0),
 	"stream.maxPerStreamBandwidthKbps": creator.number("stream.maxPerStreamBandwidthKbps", 0, Number.MAX_SAFE_INTEGER, 0),
 	"stream.hlsSegmentDurationSeconds": creator.number("stream.hlsSegmentDurationSeconds", 1, 30, 6, { unit: "s", restartRequired: true }),
 	// 90 s = 6× heartbeat (10 s) — covers hidden-tab timer throttling (~1/min)

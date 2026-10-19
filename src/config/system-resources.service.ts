@@ -15,6 +15,7 @@ import {
 	ramScaled,
 	relationQueryConcurrency,
 	SLOW_CORE_FACTOR,
+	softwareTranscodeConcurrency,
 	trickplayConcurrency,
 	workerAutoConcurrency,
 } from "./system-resources/budgets.utils";
@@ -194,6 +195,11 @@ export class SystemResourcesService {
 	/** media-file-ingest tasks each run an ffprobe plus catalog writes. */
 	getIngestConcurrency(): number {
 		return ingestConcurrency(this.getMetrics().capacity);
+	}
+
+	/** Software video transcodes that may run at once before HTTP loses its cores. */
+	getSoftwareTranscodeConcurrency(): number {
+		return softwareTranscodeConcurrency(this.getMetrics().capacity);
 	}
 
 	/** Heavy chunked relation queries fan out per metadata id, sized from measured capacity. */

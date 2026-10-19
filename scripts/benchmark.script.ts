@@ -10,6 +10,8 @@ interface HardwareProfile {
 	readonly cores: number;
 	readonly speedFactor: number;
 	readonly totalMemoryKiB: number;
+	/** Small boxes have no usable hardware encoder; force FFmpeg onto the CPU. */
+	readonly softwareEncoding?: boolean | undefined;
 }
 
 /**
@@ -20,9 +22,9 @@ interface HardwareProfile {
  * budgets.
  */
 const HARDWARE_PROFILES: Readonly<Record<string, HardwareProfile>> = {
-	"low-end": { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024 },
-	rpi: { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024 },
-	"old-laptop": { cores: 2, speedFactor: 0.5, totalMemoryKiB: 4 * 1024 * 1024 },
+	"low-end": { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024, softwareEncoding: true },
+	rpi: { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024, softwareEncoding: true },
+	"old-laptop": { cores: 2, speedFactor: 0.5, totalMemoryKiB: 4 * 1024 * 1024, softwareEncoding: true },
 	modern: { cores: 8, speedFactor: 1.2, totalMemoryKiB: 16 * 1024 * 1024 },
 };
 
@@ -38,6 +40,8 @@ function applyHardwareProfile(name: string | boolean | undefined): void {
 	process.env.REELVAULT_BENCH_CORES = String(profile.cores);
 	process.env.REELVAULT_BENCH_SPEED_FACTOR = String(profile.speedFactor);
 	process.env.REELVAULT_BENCH_TOTAL_MEMORY_KIB = String(profile.totalMemoryKiB);
+	if (profile.softwareEncoding) process.env.REELVAULT_BENCH_FORCE_SOFTWARE = "true";
+	else delete process.env.REELVAULT_BENCH_FORCE_SOFTWARE;
 
 	const cpuCount = Math.min(profile.cores, availableParallelism());
 	const cpuList = Array.from({ length: cpuCount }, (_, index) => index).join(",");

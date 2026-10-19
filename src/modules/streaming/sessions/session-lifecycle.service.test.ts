@@ -78,6 +78,7 @@ function createService(
 		terminatedByAdmin?: boolean;
 		reserveResults?: boolean[];
 		profileSessions?: Array<{ sessionId: string; mediaFileId: string }>;
+		softwareTranscodeLimitReached?: boolean;
 	} = {},
 ) {
 	const calls = {
@@ -103,6 +104,10 @@ function createService(
 		runtime: {
 			isProfileTerminatedRecently: () => (options.terminatedByAdmin ? { reason: "admin-stop" } : null),
 			reserveSession: () => (options.reserveResults ? (options.reserveResults.shift() ?? true) : !options.reserveFails),
+			tryReserveSoftwareTranscode: () => options.softwareTranscodeLimitReached !== true,
+			releaseSoftwareTranscode: () => {
+				// The mock never counts transcodes.
+			},
 			listSessionsForProfile: () => options.profileSessions ?? [],
 			explainCapacityLimit: () => ({ scope: "server" as const, limit: 2, active: 2 }),
 			registerSession: (sessionId: string) => {
@@ -184,6 +189,20 @@ describe("session lifecycle service", () => {
 			params: { scope: "server", limit: 2 },
 		});
 
+		expect(calls.registered).toEqual([]);
+	});
+
+	test("refuses another software transcode once the capacity cap is reached", async () => {
+		await seedViewer();
+		const mediaFileId = await seedMovieFile();
+		const { service, calls } = createService({ softwareTranscodeLimitReached: true });
+
+		await expect(service.createPlaybackSession({ mediaFileId, videoCodecs: ["vp9"] }, "profile-1", "idem-transcode")).rejects.toMatchObject(
+			{
+				category: "too_many_requests",
+				code: "stream.transcode_limit_reached",
+			},
+		);
 		expect(calls.registered).toEqual([]);
 	});
 

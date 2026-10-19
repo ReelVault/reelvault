@@ -147,6 +147,7 @@ function seedBenchSettings(rootDir: string): void {
 	const upsert = database.prepare("INSERT OR REPLACE INTO system_settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)");
 	upsert.run("network.rateLimit.globalMax", "1000000", now, now);
 	upsert.run("network.rateLimit.routeMultiplier", "10000", now, now);
+	if (process.env.REELVAULT_BENCH_FORCE_SOFTWARE === "true") upsert.run("ffmpeg.hwaccel", "none", now, now);
 	database.close();
 }
 

@@ -340,16 +340,18 @@ async function raiseSessionCaps(server: ManagedServer): Promise<void> {
 
 async function runConcurrentStartup(server: ManagedServer): Promise<void> {
 	await raiseSessionCaps(server);
-	const rows: Array<[string, string, string, string, string]> = [];
+	const rows: Array<[string, string, string, string, string, string, string]> = [];
 	let workerBase = 10;
 	for (const concurrency of [1, 2, 4]) {
 		const firstWorker = workerBase;
 		workerBase += concurrency;
-		const sessions = await Promise.all(
+		const attempts = await Promise.allSettled(
 			Array.from({ length: concurrency }, (_, index) =>
 				createSession(server, firstWorker + index, `concurrent-${concurrency}`, TRANSCODE_CAPS),
 			),
 		);
+		const sessions = attempts.flatMap((attempt) => (attempt.status === "fulfilled" ? [attempt.value] : []));
+		const rejected = attempts.length - sessions.length;
 		const samples = await Promise.all(
 			sessions.map(async (session) => {
 				try {
@@ -359,11 +361,19 @@ async function runConcurrentStartup(server: ManagedServer): Promise<void> {
 				}
 			}),
 		);
-		const playlistMs = Math.max(...samples.map((sample) => sample.playlistMs));
-		const segmentMs = Math.max(...samples.map((sample) => sample.segmentMs));
+		const playlistMs = samples.length > 0 ? Math.max(...samples.map((sample) => sample.playlistMs)) : 0;
+		const segmentMs = samples.length > 0 ? Math.max(...samples.map((sample) => sample.segmentMs)) : 0;
 		const bytes = samples.reduce((total, sample) => total + sample.bytes, 0);
 
-		rows.push([String(concurrency), sessions[0]?.mode ?? "unknown", fmtMs(playlistMs), fmtMs(segmentMs), fmtMb(bytes)]);
+		rows.push([
+			String(concurrency),
+			String(sessions.length),
+			String(rejected),
+			sessions[0]?.mode ?? "unknown",
+			fmtMs(playlistMs),
+			fmtMs(segmentMs),
+			fmtMb(bytes),
+		]);
 		// Release is asynchronous on the server; let the reservations clear before
 		// the next concurrency level starts.
 		await sleep(200);
@@ -371,7 +381,7 @@ async function runConcurrentStartup(server: ManagedServer): Promise<void> {
 
 	printTable(
 		"Concurrent software transcodes (first segment, lower is better)",
-		["sessions", "decision", "max playlist", "max first segment", "total bytes"],
+		["requested", "started", "rejected", "decision", "max playlist", "max first segment", "total bytes"],
 		rows,
 	);
 }

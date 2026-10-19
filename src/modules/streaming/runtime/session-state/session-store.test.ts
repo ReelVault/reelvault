@@ -42,6 +42,21 @@ describe("session store", () => {
 		expect(store.attachedCount()).toBe(0);
 	});
 
+	test("caps software video transcodes across pending and registered sessions", () => {
+		const store = new SessionStore();
+		const decision = createMockPlaybackDecision({ mode: "transcode", videoTranscode: true, audioTranscode: false, reason: "test" });
+
+		expect(store.tryReserveSoftwareTranscode("pending", 1)).toBe(true);
+		expect(store.tryReserveSoftwareTranscode("other", 1)).toBe(false);
+		store.register(registration("pending", { decision, softwareVideoTranscode: true }));
+		expect(store.tryReserveSoftwareTranscode("other", 1)).toBe(false);
+
+		store.delete("pending");
+		expect(store.tryReserveSoftwareTranscode("other", 1)).toBe(true);
+		store.releaseSoftwareTranscode("other");
+		expect(store.countSoftwareVideoTranscodes()).toBe(0);
+	});
+
 	test("register refuses a duplicate id", () => {
 		const store = new SessionStore();
 		store.register(registration("s1"));

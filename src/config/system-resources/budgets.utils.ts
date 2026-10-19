@@ -52,6 +52,7 @@ const CAPS = {
 	ffprobeConcurrency: 3,
 	heavySubprocess: 2,
 	trickplay: 4,
+	softwareTranscode: 4,
 } as const;
 
 // A single ffprobe/ffmpeg/sharp subprocess burns a whole core; budget how many
@@ -155,6 +156,15 @@ export function trickplayConcurrency(backgroundBudgetCores: number): number {
 /** media-file-ingest tasks each run an ffprobe plus catalog writes. */
 export function ingestConcurrency(capacity: number): number {
 	return clamp(Math.floor(capacity / 2), 1, 3);
+}
+
+/**
+ * Concurrent software video transcodes. Each one burns a full CPU budget, and
+ * on a slow box four of them starve HTTP and the database. Hardware transcodes
+ * and direct-stream remuxes are not counted by this limit.
+ */
+export function softwareTranscodeConcurrency(capacity: number): number {
+	return clamp(Math.floor(capacity) + 1, 1, CAPS.softwareTranscode);
 }
 
 /** Heavy chunked relation queries fan out per metadata id — catalog reads,

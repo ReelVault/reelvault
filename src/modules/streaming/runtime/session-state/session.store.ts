@@ -15,6 +15,8 @@ export interface SessionRegistration {
 	readonly decision: PlaybackDecision;
 	readonly inputPath: string;
 	readonly tempDir: string;
+	/** Video is encoded on the CPU (hardware encoding unavailable or forced off). */
+	readonly softwareVideoTranscode?: boolean | undefined;
 	/** Source duration in ms — denominator of the ffmpeg encode percent. */
 	readonly durationMs?: number | null | undefined;
 }
@@ -38,6 +40,9 @@ export class SessionStore {
 	private readonly terminatedSessionsByProfileFile = new Map<string, Set<string>>();
 	/** Played media time and furthest position per session, summed from its heartbeat positions (feeds interrupted-session records). */
 	private readonly playedTime = new Map<string, { playedSeconds: number; furthestPosition: number; position: number; at: number }>();
+	/** Sessions whose video is CPU-encoded, plus slots reserved before registration. */
+	private readonly softwareVideoSessions = new WeakSet<StreamingSession>();
+	private readonly pendingSoftwareTranscodes = new Set<string>();
 
 	// ─── Entities ───────────────────────────────────────────────────────────
 
@@ -67,6 +72,8 @@ export class SessionStore {
 			transcodeSpeed: null,
 		};
 		this.sessions.set(session.id, session);
+		this.pendingSoftwareTranscodes.delete(session.id);
+		if (registration.softwareVideoTranscode === true) this.softwareVideoSessions.add(session);
 
 		return session;
 	}
@@ -130,6 +137,9 @@ export class SessionStore {
 	}
 
 	delete(sessionId: string): void {
+		const session = this.sessions.get(sessionId);
+		if (session) this.softwareVideoSessions.delete(session);
+		this.pendingSoftwareTranscodes.delete(sessionId);
 		this.sessions.delete(sessionId);
 		this.playedTime.delete(sessionId);
 	}
@@ -137,8 +147,39 @@ export class SessionStore {
 	clear(): void {
 		this.sessions.clear();
 		this.playedTime.clear();
+		this.pendingSoftwareTranscodes.clear();
 		this.terminatedSessions.clear();
 		this.terminatedSessionsByProfileFile.clear();
+	}
+
+	/** Reserves a software-transcode slot before the session exists; false at the cap. */
+	tryReserveSoftwareTranscode(sessionId: string, limit: number): boolean {
+		if (this.pendingSoftwareTranscodes.has(sessionId)) return true;
+		if (this.countSoftwareVideoTranscodes() >= limit) return false;
+
+		this.pendingSoftwareTranscodes.add(sessionId);
+
+		return true;
+	}
+
+	releaseSoftwareTranscode(sessionId: string): void {
+		this.pendingSoftwareTranscodes.delete(sessionId);
+	}
+
+	/** Active plus reserved software video transcodes. */
+	countSoftwareVideoTranscodes(): number {
+		let count = this.pendingSoftwareTranscodes.size;
+		for (const session of this.sessions.values()) {
+			if (this.softwareVideoSessions.has(session)) count++;
+		}
+
+		return count;
+	}
+
+	/** A hardware session that fell back to the CPU encoder still consumes a software slot. */
+	markSoftwareVideoSession(sessionId: string): void {
+		const session = this.sessions.get(sessionId);
+		if (session) this.softwareVideoSessions.add(session);
 	}
 
 	/**

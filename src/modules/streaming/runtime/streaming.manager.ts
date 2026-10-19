@@ -4,6 +4,7 @@ import { getEffectiveHwaccel, getToneMappingMethod } from "@/integrations/ffmpeg
 import { getBufferedSeekStart } from "@/modules/streaming/buffer/hls-buffer.utils";
 import { PlaylistWaiter } from "@/modules/streaming/buffer/playlist.waiter";
 import { ProcessManager } from "@/modules/streaming/ffmpeg/process.manager";
+import { usesSoftwareVideoEncode } from "@/modules/streaming/ffmpeg/software-fallback.policy";
 import { playlistFileCache } from "@/modules/streaming/playlist/playlist.cache";
 import { SessionSeeker } from "@/modules/streaming/seeking/session.seeker";
 import { implicitSeekCoordinator } from "@/modules/streaming/segments/implicit-seek.coordinator";
@@ -260,9 +261,19 @@ class StreamingManager {
 			decision: access.decision,
 			inputPath: access.inputPath,
 			tempDir: PathUtils.join(this.config.tempRootDir, sessionId),
+			softwareVideoTranscode: usesSoftwareVideoEncode(access.decision, getEffectiveHwaccel().type),
 			durationMs: access.durationMs ?? null,
 		});
 		this.streamEnvironments.set(session, { hwaccel: getEffectiveHwaccel(), toneMapMethod: getToneMappingMethod() });
+	}
+
+	/** Reserve a software-transcode slot before the session exists; false at the capacity cap. */
+	tryReserveSoftwareTranscode(sessionId: string, limit: number): boolean {
+		return this.store.tryReserveSoftwareTranscode(sessionId, limit);
+	}
+
+	releaseSoftwareTranscode(sessionId: string): void {
+		this.store.releaseSoftwareTranscode(sessionId);
 	}
 
 	getSessionAccess(sessionId: string): { mediaFileId: string; profileId: string } | undefined {

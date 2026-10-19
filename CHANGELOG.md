@@ -635,6 +635,12 @@ The browse and collections rows are the combined result of every change above; t
 
 # v1.3.2
 
+### Features
+
+#### Playback
+
+- **Software-transcode capacity cap** — software video transcodes are now capped from measured CPU capacity (2 on the smallest tier, 4 at the top), leaving cores for HTTP; hardware transcodes and direct-stream remuxes are unaffected. `stream.maxSoftwareTranscodes` overrides the cap (`0` = automatic).
+
 ### Fixes
 
 #### Playback & streaming
