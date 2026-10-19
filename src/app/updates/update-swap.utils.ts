@@ -44,9 +44,24 @@ export function swapIntoPlace(root: string, stagedDir: string, component: Update
 	}
 	writeFileSync(join(previous, componentMarkerName(component)), replacedVersion);
 
-	for (const name of componentNames(component)) {
-		const source = join(stagedDir, name);
-		if (existsSync(source)) renameSync(source, join(root, name));
+	const moved: string[] = [];
+	try {
+		for (const name of componentNames(component)) {
+			const source = join(stagedDir, name);
+			if (!existsSync(source)) continue;
+			renameSync(source, join(root, name));
+			moved.push(name);
+		}
+	} catch (error) {
+		// A failure mid-swap must not leave the install root without its server.
+		for (const name of moved) removeTreeSync(join(root, name));
+
+		for (const name of componentNames(component)) {
+			const backup = join(previous, name);
+			if (existsSync(backup)) renameSync(backup, join(root, name));
+		}
+
+		throw error;
 	}
 }
 
