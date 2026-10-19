@@ -1,5 +1,5 @@
 import type { PluginUiSettings, UpdatePluginUiSettingsBody } from "@reelvault/sdk/common";
-import { recordUpdateAudit } from "@/app/admin/admin-audit.service";
+import { auditedChange } from "@/app/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
 import type { AdminServiceState } from "../shared.utils";
@@ -7,22 +7,6 @@ import type { AdminServiceState } from "../shared.utils";
 /** Compact audit view of a plugin's UI switches: master flag plus the hidden keys. */
 function summarizeUiSettings(settings: PluginUiSettings): { enabled: boolean; disabledKeys: string[] } {
 	return { enabled: settings.enabled, disabledKeys: settings.contributions.filter((item) => !item.enabled).map((item) => item.key) };
-}
-
-function auditUiChange(
-	state: AdminServiceState,
-	pluginId: string,
-	before: PluginUiSettings,
-	after: PluginUiSettings,
-	context: AdminAuditContext | undefined,
-): void {
-	recordUpdateAudit(state.logger, {
-		resourceType: "plugin_ui_settings",
-		resourceId: pluginId,
-		before: summarizeUiSettings(before),
-		after: summarizeUiSettings(after),
-		context,
-	});
 }
 
 export function getPluginUiSettings(pluginId: string): Promise<PluginUiSettings> {
@@ -36,10 +20,16 @@ export async function updatePluginUiSettings(
 	context?: AdminAuditContext,
 ): Promise<PluginUiSettings> {
 	const before = await pluginUiSettingsService.get(pluginId);
-	const after = await pluginUiSettingsService.update(pluginId, body);
-	auditUiChange(state, pluginId, before, after, context);
 
-	return after;
+	return await auditedChange({
+		logger: state.logger,
+		resourceType: "plugin_ui_settings",
+		resourceId: pluginId,
+		before: summarizeUiSettings(before),
+		change: async () => await pluginUiSettingsService.update(pluginId, body),
+		after: summarizeUiSettings,
+		context,
+	});
 }
 
 export async function resetPluginUiSettings(
@@ -48,9 +38,18 @@ export async function resetPluginUiSettings(
 	context?: AdminAuditContext,
 ): Promise<PluginUiSettings> {
 	const before = await pluginUiSettingsService.get(pluginId);
-	await pluginUiSettingsService.reset(pluginId);
-	const after = await pluginUiSettingsService.get(pluginId);
-	auditUiChange(state, pluginId, before, after, context);
 
-	return after;
+	return await auditedChange({
+		logger: state.logger,
+		resourceType: "plugin_ui_settings",
+		resourceId: pluginId,
+		before: summarizeUiSettings(before),
+		change: async () => {
+			await pluginUiSettingsService.reset(pluginId);
+
+			return await pluginUiSettingsService.get(pluginId);
+		},
+		after: summarizeUiSettings,
+		context,
+	});
 }

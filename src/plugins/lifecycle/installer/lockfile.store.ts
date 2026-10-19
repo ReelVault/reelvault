@@ -43,6 +43,8 @@ export interface PluginLockfile {
 /** Owns read/write access to `plugins.lock.json` and validates its directory entries. */
 export class PluginLockfileStore {
 	private readonly pluginsDirectory: string;
+	/** The parsed lockfile, keyed by the file's (size, mtime) — the file was read on every lookup. */
+	private cached: { signature: string; lockfile: PluginLockfile } | undefined;
 
 	constructor(pluginsDirectory: string) {
 		this.pluginsDirectory = pluginsDirectory;
@@ -50,13 +52,27 @@ export class PluginLockfileStore {
 
 	async read(): Promise<PluginLockfile> {
 		const lockfilePath = this.lockfilePath();
+		const stats = await FileUtils.getStats(lockfilePath);
+		// The timestamp keeps its sub-millisecond precision: a lockfile rewritten
+		// in the same millisecond (an install right after another one) must not
+		// read as unchanged.
+		const signature = stats ? `${stats.size}:${stats.mtimeMs}` : "missing";
+		if (this.cached?.signature === signature) return this.cached.lockfile;
+
 		try {
 			const parsed: unknown = JSON.parse(await readFile(lockfilePath, "utf8"));
 			if (!isPluginLockfile(parsed)) throw new DomainError("validation", `Invalid ${LOCKFILE_NAME}`, { code: "plugin.lockfile_invalid" });
 
+			this.cached = { signature, lockfile: parsed };
+
 			return parsed;
 		} catch (error) {
-			if (isMissingFile(error)) return { version: LOCKFILE_VERSION, plugins: {} };
+			if (isMissingFile(error)) {
+				const empty: PluginLockfile = { version: LOCKFILE_VERSION, plugins: {} };
+				this.cached = { signature, lockfile: empty };
+
+				return empty;
+			}
 
 			throw error;
 		}
@@ -64,6 +80,8 @@ export class PluginLockfileStore {
 
 	async write(lockfile: PluginLockfile): Promise<void> {
 		await FileUtils.writeAtomic(this.lockfilePath(), `${JSON.stringify(lockfile, null, 2)}\n`);
+		// The file changed — the next read takes it from disk again.
+		this.cached = undefined;
 	}
 
 	async writeRecord(pluginId: string, record: InstalledPluginRecord, options: { replace: boolean }): Promise<void> {

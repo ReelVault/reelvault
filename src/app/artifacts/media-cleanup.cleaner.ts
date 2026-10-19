@@ -4,7 +4,7 @@ import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { mediaArtifactsService } from "./media-artifacts.service";
 
-interface MediaCleanupPlan {
+export interface MediaCleanupPlan {
 	artifactStorageKeys: readonly string[];
 	subtitleFilePaths: ReadonlyArray<string | null | undefined>;
 	subtitleIds?: readonly string[] | undefined;

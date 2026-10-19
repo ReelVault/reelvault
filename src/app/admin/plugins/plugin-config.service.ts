@@ -1,5 +1,5 @@
 import type { PluginConfigDetails, PluginConfigExport } from "@reelvault/sdk/common";
-import { recordUpdateAudit } from "@/app/admin/admin-audit.service";
+import { auditedChange } from "@/app/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { DomainError } from "@/utils/domain.errors";
@@ -18,16 +18,16 @@ async function changePluginConfig(
 	change: (before: PluginConfigDetails) => Promise<PluginConfigDetails>,
 ): Promise<PluginConfigDetails> {
 	const before = await pluginManager.getPluginConfigDetails(pluginId);
-	const after = await change(before);
-	recordUpdateAudit(state.logger, {
+
+	return await auditedChange({
+		logger: state.logger,
 		resourceType: "plugin_config",
 		resourceId: pluginId,
 		before: before.config,
-		after: after.config,
+		change: async () => await change(before),
+		after: (details) => details.config,
 		context,
 	});
-
-	return after;
 }
 
 export async function updatePluginConfig(

@@ -215,6 +215,37 @@ export function recordUpdateAudit(logger: Logger, entry: Omit<AdminAuditRecord, 
 	recordAuditSafe({ ...entry, action: "update" }, logger);
 }
 
+interface AuditedChangeParams<TChange, TAfter = TChange> {
+	logger: Logger;
+	resourceType: string;
+	resourceId: string;
+	/** The snapshot before the change. */
+	before: unknown;
+	/** The change itself; returns the state after it. */
+	change: () => Promise<TChange>;
+	/** What the audit records as the state after the change — the change's result by default. */
+	after?: ((result: TChange) => TAfter) | undefined;
+	context?: AdminAuditContext | undefined;
+}
+
+/**
+ * A change with an audit entry: the before snapshot, the change, and the audit
+ * record of the result. The admin settings services all follow this shape, and
+ * each of them wrote the three steps out again.
+ */
+export async function auditedChange<TChange, TAfter = TChange>(params: AuditedChangeParams<TChange, TAfter>): Promise<TChange> {
+	const result = await params.change();
+	recordUpdateAudit(params.logger, {
+		resourceType: params.resourceType,
+		resourceId: params.resourceId,
+		before: params.before,
+		after: params.after ? params.after(result) : result,
+		context: params.context,
+	});
+
+	return result;
+}
+
 /**
  * Fields projection for an update's "before" audit snapshot: the fields being
  * written plus whatever the caller asked the "after" snapshot to contain.

@@ -75,13 +75,29 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 	if (value.csp !== undefined) validatePluginCsp(value.csp);
 }
 
-export async function loadPluginManifest(pluginDir: string): Promise<PluginManifest> {
+/**
+ * The parsed manifest of a plugin directory, keyed by the file's (size, mtime).
+ *
+ * The manifest is read and validated on every admin request that shows a
+ * plugin, so the parse is cached until the file changes. The timestamp keeps
+ * its sub-millisecond precision: a manifest rewritten in the same millisecond
+ * (the version bump of an upgrade) must not read as unchanged.
+ */
+const manifestCache = new Map<string, { signature: string; manifest: PluginManifest }>();
+
+export async function loadPluginManifest(pluginDir: string, options?: { fresh?: boolean | undefined }): Promise<PluginManifest> {
 	const manifestPath = PathUtils.join(pluginDir, "plugin.json");
+	const stats = await FileUtils.getStats(manifestPath);
+	const signature = stats ? `${stats.size}:${stats.mtimeMs}` : "missing";
+	const cached = manifestCache.get(manifestPath);
+	if (!options?.fresh && cached?.signature === signature) return cached.manifest;
+
 	const manifest = await FileUtils.readJson<unknown>(manifestPath);
 	if (!manifest)
 		throw new DomainError("validation", `Plugin is missing a valid plugin.json: ${manifestPath}`, { code: "plugin.manifest_missing" });
 
 	validatePluginManifest(manifest);
+	manifestCache.set(manifestPath, { signature, manifest });
 
 	return manifest;
 }

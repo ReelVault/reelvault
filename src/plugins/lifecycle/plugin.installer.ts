@@ -409,7 +409,9 @@ async function stagePackage(source: string, stagingDirectory: string, manifest: 
 	await cp(source, stagingDirectory, { recursive: true, verbatimSymlinks: true, errorOnExist: true });
 	await assertNoSymbolicLinks(stagingDirectory, verificationConcurrency());
 
-	const installedManifest = await loadPluginManifest(stagingDirectory);
+	// The staged copy is compared against the manifest the install started
+	// with — a cached read would hide a manifest that changed meanwhile.
+	const installedManifest = await loadPluginManifest(stagingDirectory, { fresh: true });
 	if (installedManifest.id !== manifest.id || installedManifest.version !== manifest.version) {
 		throw new DomainError("validation", "Plugin manifest changed while the package was being installed", {
 			code: "plugin.manifest_changed",

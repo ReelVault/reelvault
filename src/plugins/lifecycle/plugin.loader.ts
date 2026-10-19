@@ -6,6 +6,7 @@ import { realtimeService } from "@/modules/realtime/realtime.service";
 import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
 import { pluginBlobsService } from "@/plugins/capabilities/plugin.blobs";
 import { pluginStorageService } from "@/plugins/capabilities/plugin.storage";
+import { PluginLockfileStore } from "@/plugins/lifecycle/installer/lockfile.store";
 import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
@@ -21,7 +22,6 @@ import { workerService } from "@/workers/worker.service";
 import { PluginScope } from "./host/plugin.scope";
 import { isPluginDirectoryName, PluginDirectoryIndex } from "./host/plugin-directory.indexer";
 import { createPluginHost } from "./host/plugin-host.factory";
-import { PluginLockfileStore } from "./installer/lockfile.store";
 import { validatePluginUiManifest } from "./manifest/ui.validator";
 import type { PluginConfig } from "./plugin.config";
 import { PluginInstaller } from "./plugin.installer";
@@ -39,12 +39,15 @@ export class PluginLoader {
 	private readonly runtimeRoot: string;
 	private readonly directoryIndex = new PluginDirectoryIndex();
 	private readonly pluginScopes = new Map<string, PluginScope>();
+	/** One lockfile store: a new one per lookup re-read the file from disk. */
+	private readonly lockfileStore: PluginLockfileStore;
 
 	constructor(config: PluginConfig, registry: PluginRegistry, pluginsDirectory = serverConfig.paths.plugins) {
 		this.config = config;
 		this.registry = registry;
 		this.pluginsDirectory = pluginsDirectory;
 		this.runtimeRoot = pluginRuntimeRoot(pluginsDirectory);
+		this.lockfileStore = new PluginLockfileStore(pluginsDirectory);
 	}
 
 	/** Materialised module-graph directory of a currently loaded plugin, if any. */
@@ -56,7 +59,7 @@ export class PluginLoader {
 	async findDirectoryNameForPluginId(pluginId: string): Promise<string | undefined> {
 		// The lockfile records where the installer actually put the plugin; a
 		// manifest scan can also see stale duplicate directories with the same id.
-		const lockfile = await new PluginLockfileStore(this.pluginsDirectory).read();
+		const lockfile = await this.lockfileStore.read();
 		const record = lockfile.plugins[pluginId];
 		if (record && isPluginDirectoryName(record.directory) && PathUtils.getFileName(record.directory) === record.directory) {
 			if (await DirUtils.exists(PathUtils.join(this.pluginsDirectory, record.directory))) {

@@ -1,5 +1,4 @@
-import { recordAuditSafe } from "@/app/admin/admin-audit.service";
-import { runMediaCleanup } from "@/app/artifacts/media-cleanup.cleaner";
+import { deleteWithArtifacts } from "@/app/artifacts/delete-with-artifacts";
 import { runBulkItems } from "@/app/catalog/catalog.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { librariesRepository } from "@/app/repositories/libraries.repository";
@@ -65,23 +64,20 @@ export async function deleteOne(
 		}
 
 		const cleanup = await mediaRepository.deleteAndGetCleanup(mediaFileId);
-		await runMediaCleanup(cleanup);
-
-		// File counts/sizes in the library stats cache changed, and cached list
-		// bodies may still embed the deleted row.
-		librariesRepository.clearStatsCache();
-		invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
-
-		recordAuditSafe(
-			{
-				action: "delete",
-				resourceType: "media_file",
-				resourceId: mediaFileId,
-				before: mediaFile,
-				context,
+		await deleteWithArtifacts({
+			cleanup,
+			resourceType: "media_file",
+			resourceId: mediaFileId,
+			before: mediaFile,
+			// File counts/sizes in the library stats cache changed, and cached list
+			// bodies may still embed the deleted row.
+			invalidate: () => {
+				librariesRepository.clearStatsCache();
+				invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
 			},
-			state.logger,
-		);
+			context,
+			logger: state.logger,
+		});
 
 		return { success: true };
 	});

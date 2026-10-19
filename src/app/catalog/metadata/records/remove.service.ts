@@ -1,5 +1,5 @@
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
-import { runMediaCleanup } from "@/app/artifacts/media-cleanup.cleaner";
+import { deleteWithArtifacts } from "@/app/artifacts/delete-with-artifacts";
 import { runBulkItems } from "@/app/catalog/catalog.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
@@ -65,19 +65,15 @@ export async function deleteOne(
 		}
 
 		const cleanup = await metadataRepository.deleteAndGetCleanup(metadataId);
-		await runMediaCleanup(cleanup);
-		invalidateReadCaches();
-
-		recordAuditSafe(
-			{
-				action: "delete",
-				resourceType: "metadata",
-				resourceId: metadataId,
-				before: metadata,
-				context,
-			},
-			state.logger,
-		);
+		await deleteWithArtifacts({
+			cleanup,
+			resourceType: "metadata",
+			resourceId: metadataId,
+			before: metadata,
+			invalidate: invalidateReadCaches,
+			context,
+			logger: state.logger,
+		});
 
 		return { success: true };
 	});

@@ -12,7 +12,7 @@ import type {
 	UpdateLibrary,
 } from "@reelvault/sdk/common";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
-import { runMediaCleanup } from "@/app/artifacts/media-cleanup.cleaner";
+import { deleteWithArtifacts } from "@/app/artifacts/delete-with-artifacts";
 import { libraryWatcherService } from "@/app/libraries/watching/library-watcher.service";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { librariesRepository } from "@/app/repositories/libraries.repository";
@@ -194,21 +194,18 @@ export async function deleteLibrary(
 		ingestLibraryCache.delete(libraryId);
 
 		const cleanup = await librariesRepository.deleteWithDependents(libraryId);
-		await runMediaCleanup(cleanup);
-
-		recordAuditSafe(
-			{
-				action: "delete",
-				resourceType: "library",
-				resourceId: libraryId,
-				before: library,
-				context,
+		await deleteWithArtifacts({
+			cleanup,
+			resourceType: "library",
+			resourceId: libraryId,
+			before: library,
+			invalidate: async () => {
+				invalidateResponseBodiesForPathPrefixes(LIBRARY_LIST_PATH_PREFIXES);
+				await libraryWatcherService.syncWatchers();
 			},
-			state.logger,
-		);
-
-		invalidateResponseBodiesForPathPrefixes(LIBRARY_LIST_PATH_PREFIXES);
-		await libraryWatcherService.syncWatchers();
+			context,
+			logger: state.logger,
+		});
 
 		return { success: true };
 	});
