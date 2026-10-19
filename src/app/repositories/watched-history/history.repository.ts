@@ -35,6 +35,23 @@ export async function recordPlay(
 	});
 }
 
+/** Records many plays that end now in one insert (bulk "mark watched"). */
+export async function recordPlays(inputs: Array<CreateWatchedHistory & { profileId: string }>, tx?: DatabaseTransaction): Promise<void> {
+	if (inputs.length === 0) return;
+
+	const now = new Date();
+	await watchedHistory.insert({
+		values: inputs.map((input) => ({
+			profileId: input.profileId,
+			mediaFileId: input.mediaFileId,
+			durationWatched: input.durationWatched,
+			isFullWatch: input.isFullWatch,
+			watchedAt: now,
+		})),
+		tx,
+	});
+}
+
 /** True when this profile already has a full-watch row for the file — manual "mark watched" is idempotent. */
 export async function hasFullWatch(profileId: string, mediaFileId: string): Promise<boolean> {
 	return await watchedHistory.isExists({

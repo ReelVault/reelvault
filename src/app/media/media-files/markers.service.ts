@@ -12,7 +12,7 @@ import { mediaMarkersRepository } from "@/app/repositories/media-markers.reposit
 import { toPublicMarker } from "@/integrations/drizzle-orm/utils/media-marker.mapper";
 import { DomainError, notFoundError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import type { MediaServiceState, WithoutState } from "./shared.utils";
+import type { MediaServiceState } from "./shared.utils";
 import { assertMediaFileExists } from "./shared.utils";
 
 /** Every marker matching the filters as NDJSON; an export past the cap is refused rather than cut short. */
@@ -31,31 +31,43 @@ export async function exportMarkers(state: MediaServiceState, query: MediaMarker
 }
 
 /**
- * Replaces the markers of every media file the NDJSON names, one file at a time. Every file is checked
- * before the first marker is written, so an unknown file refuses the whole import.
+ * Replaces the markers of every media file the NDJSON names in one pass. Every file and every range is
+ * checked before the first marker is written, so an unknown file or an invalid range refuses the whole
+ * import (the old per-file loop could stop halfway).
  */
 export async function importMarkers(
 	state: MediaServiceState,
 	text: string,
 	context: AdminAuditContext | undefined,
-	setMarkersOne: (...args: WithoutState<typeof setMarkers>) => ReturnType<typeof setMarkers>,
 ): Promise<{ mediaFiles: number; markers: number }> {
 	return await runSafely(state, "importMarkers", async () => {
 		const grouped = groupMarkersByMediaFile(parseMarkersNdjson(text));
 		const mediaFileIds = [...grouped.keys()];
-		const exists = await Promise.all(mediaFileIds.map((mediaFileId) => mediaRepository.isExists({ primaryId: mediaFileId })));
-		const missing = mediaFileIds.find((_, index) => !exists[index]);
+
+		const existing = await mediaRepository.findExistingIds(mediaFileIds);
+		const missing = mediaFileIds.find((mediaFileId) => !existing.has(mediaFileId));
 		if (missing !== undefined) {
 			throw new DomainError("validation", `The marker import names an unknown media file: ${missing}`, {
 				code: "media.markers_import_unknown_file",
 				params: { mediaFileId: missing },
 			});
 		}
-
+		const snapshots = await mediaMarkersRepository.replaceMarkersForMediaFiles(grouped);
 		let markers = 0;
 		for (const [mediaFileId, items] of grouped) {
-			await setMarkersOne(mediaFileId, items, undefined, context);
 			markers += items.length;
+			const snapshot = snapshots.get(mediaFileId);
+			recordAuditSafe(
+				{
+					action: "update",
+					resourceType: "media_markers",
+					resourceId: mediaFileId,
+					before: (snapshot?.before ?? []).map((item) => toPublicMarker(item)),
+					after: (snapshot?.after ?? []).map((item) => toPublicMarker(item)),
+					context,
+				},
+				state.logger,
+			);
 		}
 
 		return { mediaFiles: grouped.size, markers };

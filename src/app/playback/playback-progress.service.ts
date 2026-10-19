@@ -2,7 +2,6 @@ import type {
 	BatchSmartPlayResponse,
 	ContinueWatchingItem,
 	MetadataPlaybackProgress,
-	MetadataType,
 	StreamPrefs,
 	UpdatePlaybackProgress,
 	WatchStateBulk,
@@ -26,11 +25,14 @@ import { runSafely } from "@/utils/safe-execute.utils";
 import { buildContinueWatching } from "./continue-watching.builder";
 import { computePlaybackProgress, computeSmartPlay } from "./playback-progress.aggregator";
 import { PlaybackProgressPublisher } from "./playback-progress.publisher";
+import { selectNextEpisodeFileInSeries } from "./smart-play.resolver";
 
 export type PlaybackProgressRepo = Pick<
 	typeof defaultPlaybackRepository,
 	| "findProgressUpdateData"
+	| "findWatchStateBulkData"
 	| "upsertProgress"
+	| "upsertProgressBulk"
 	| "findMediaFileWithMetadata"
 	| "findContinueWatchingData"
 	| "findPlaybackProgressAndSmartPlayData"
@@ -43,11 +45,24 @@ export type PlaybackProgressRepo = Pick<
 	| "dismissContinueWatching"
 >;
 
-export type WatchedHistoryRepo = Pick<typeof defaultWatchedHistoryRepository, "recordPlay">;
+export type WatchedHistoryRepo = Pick<typeof defaultWatchedHistoryRepository, "recordPlay" | "recordPlays">;
 export type WatchlistRepo = Pick<typeof defaultWatchlistRepository, "findWatchlistedIds" | "remove">;
 
 /** Hard cap for the batch smart-play endpoint (guards giant query strings). */
 const MAX_BATCH_IDS = 50;
+
+/** One file prepared for the bulk watch-state write. */
+interface BulkWatchUpdate {
+	fileId: string;
+	metadataId: string;
+	duration: number;
+	position: number;
+	completed: boolean;
+	audioStreamIndex: number | null;
+	subtitleId: string | null;
+	/** A play row is written only when the file was not already marked watched. */
+	recordsPlay: boolean;
+}
 
 export type ProfileStreamPrefsRepo = Pick<typeof defaultProfileStreamPrefsRepository, "upsert" | "findForTitle" | "findByMediaFile">;
 
@@ -215,36 +230,116 @@ class PlaybackProgressService {
 	}
 
 	/**
-	 * Marks files watched (each goes through the single-update path, so completion and
-	 * watch history match) or unwatched (their progress rows are removed). Every id is
-	 * checked before anything is written, so an unknown id changes nothing.
+	 * Marks files watched (finished, exactly as the single update would) or
+	 * unwatched (their progress rows are removed). Every id is checked before
+	 * anything is written, so an unknown id changes nothing. The watched path
+	 * writes all rows and their history entries in one transaction: a 500-id
+	 * batch is a handful of statements, not one round trip per file.
 	 */
 	async setWatchStateBulk(body: WatchStateBulk, profileId?: string): Promise<WatchStateBulkResult> {
 		return await runSafely(this, "setWatchStateBulk", async () => {
-			const { playbackRepository } = this.dependencies;
 			assertProfileId(profileId);
-
 			const fileIds = unique(body.mediaFileIds);
-			const existing = await playbackRepository.findExistingMediaFileIds(fileIds);
-			const missing = fileIds.find((fileId) => !existing.has(fileId));
-			if (missing !== undefined) {
-				throw new DomainError("not_found", `MediaFile not found: ${missing}`, {
-					code: "entity.not_found",
-					params: { entityType: "MediaFile", entityId: missing },
-				});
-			}
 
-			if (body.watched) {
-				for (const fileId of fileIds) {
-					await this.updatePlaybackProgress(fileId, { position: Number.MAX_SAFE_INTEGER }, profileId);
-				}
-			} else {
-				await playbackRepository.deleteProgressForFiles(profileId, fileIds);
-			}
+			if (body.watched) await this.applyBulkWatchState(fileIds, profileId);
+			else await this.applyBulkUnwatchState(fileIds, profileId);
+
 			invalidateProfileResponseBodies(profileId);
 
 			return { updated: fileIds.length };
 		});
+	}
+
+	/** The watched half of {@link setWatchStateBulk}: one read, one transaction, one title check per title. */
+	private async applyBulkWatchState(fileIds: string[], profileId: string): Promise<void> {
+		const { playbackRepository, watchedHistoryRepository, runTransaction, publisher } = this.dependencies;
+		const updates = await this.prepareBulkWatchUpdates(fileIds, profileId);
+
+		await runTransaction(async (tx) => {
+			await playbackRepository.upsertProgressBulk({ profileId, rows: updates, tx });
+			await watchedHistoryRepository.recordPlays(
+				updates
+					.filter((update) => update.recordsPlay)
+					.map((update) => ({
+						profileId,
+						mediaFileId: update.fileId,
+						durationWatched: update.position,
+						isFullWatch: true,
+					})),
+				tx,
+			);
+		});
+
+		for (const update of updates) {
+			publisher.publishUpdate({
+				profileId,
+				mediaFileId: update.fileId,
+				position: update.position,
+				duration: update.duration,
+				completed: update.completed,
+				audioStreamIndex: update.audioStreamIndex,
+				subtitleId: update.subtitleId,
+			});
+		}
+
+		// One title check per affected title instead of one per file.
+		const touchedTitles = unique(updates.filter((update) => update.recordsPlay).map((update) => update.metadataId));
+		for (const metadataId of touchedTitles) {
+			await this.removeWatchedTitleFromWatchlist(profileId, metadataId);
+		}
+		// A finished title changes recommendations, insights and "wrapped".
+		if (touchedTitles.length > 0) invalidateProfileCaches(profileId);
+	}
+
+	/** Files and the profile's saved rows in one read; the first unknown id throws `entity.not_found`. */
+	private async prepareBulkWatchUpdates(fileIds: string[], profileId: string): Promise<BulkWatchUpdate[]> {
+		const rows = await this.dependencies.playbackRepository.findWatchStateBulkData(profileId, fileIds);
+		const rowsById = new Map(rows.map((row) => [row.id, row] as const));
+
+		const updates: BulkWatchUpdate[] = [];
+		for (const fileId of fileIds) {
+			const row = rowsById.get(fileId);
+			if (!row) {
+				throw new DomainError("not_found", `MediaFile not found: ${fileId}`, {
+					code: "entity.not_found",
+					params: { entityType: "MediaFile", entityId: fileId },
+				});
+			}
+
+			// "Mark watched" writes MAX_SAFE_INTEGER; a file with no known duration
+			// cannot satisfy the ratio check, so the explicit intent stores position
+			// 0 instead of a bogus value (the single-update rule).
+			const duration = row.duration ?? 0;
+			const explicitComplete = duration <= 0;
+			const position = explicitComplete ? 0 : normalizePlaybackPosition(Number.MAX_SAFE_INTEGER, duration);
+			updates.push({
+				fileId,
+				metadataId: row.metadataId,
+				duration,
+				position,
+				completed: explicitComplete || isCompleted(position, duration),
+				audioStreamIndex: row.audioStreamIndex,
+				subtitleId: row.subtitleId,
+				recordsPlay: row.completed !== true,
+			});
+		}
+
+		return updates;
+	}
+
+	/** The unwatched half of {@link setWatchStateBulk}: precheck every id, then one delete. */
+	private async applyBulkUnwatchState(fileIds: string[], profileId: string): Promise<void> {
+		const { playbackRepository } = this.dependencies;
+		const existing = await playbackRepository.findExistingMediaFileIds(fileIds);
+		const missing = fileIds.find((fileId) => !existing.has(fileId));
+		if (missing !== undefined) {
+			throw new DomainError("not_found", `MediaFile not found: ${missing}`, {
+				code: "entity.not_found",
+				params: { entityType: "MediaFile", entityId: missing },
+			});
+		}
+
+		await playbackRepository.deleteProgressForFiles(profileId, fileIds);
 	}
 
 	/** `scope: "file"` resets only this file; `"title"` resets every file of its title (all versions, all episodes of a series). */
@@ -273,27 +368,36 @@ class PlaybackProgressService {
 		return computeSmartPlay(data);
 	}
 
+	/**
+	 * Progress and smart play of one title, plus — when the caller names the
+	 * episode it is showing — the file of the episode that follows it. The
+	 * follow-up comes from the same load, so the playback view needs no second
+	 * read for its "next episode" suggestion.
+	 */
 	async getPlaybackOverview(
 		metadataId: string,
 		profileId?: string,
-		metadataType?: MetadataType,
-	): Promise<{ progress: MetadataPlaybackProgress; smartPlay: SmartPlay }> {
+		currentEpisode?: { id: string; seasonId: string },
+	): Promise<{ progress: MetadataPlaybackProgress; smartPlay: SmartPlay; nextEpisodeFileId: string | null }> {
 		return await runSafely(this, "getPlaybackOverview", async () => {
 			const data = await this.loadTitleProgressData(metadataId, profileId, (resolvedProfileId) =>
-				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId, metadataType),
+				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId),
 			);
 
 			return {
 				progress: computePlaybackProgress(data),
 				smartPlay: computeSmartPlay(data),
+				nextEpisodeFileId: currentEpisode
+					? selectNextEpisodeFileInSeries(data.episodes, data.seasons, data.mediaFiles, currentEpisode)
+					: null,
 			};
 		});
 	}
 
-	async getPlaybackProgress(metadataId: string, profileId?: string, metadataType?: MetadataType): Promise<MetadataPlaybackProgress> {
+	async getPlaybackProgress(metadataId: string, profileId?: string): Promise<MetadataPlaybackProgress> {
 		return await runSafely(this, "getPlaybackProgress", async () => {
 			const data = await this.loadTitleProgressData(metadataId, profileId, (resolvedProfileId) =>
-				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId, metadataType),
+				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId),
 			);
 
 			return computePlaybackProgress(data);
@@ -347,12 +451,15 @@ class PlaybackProgressService {
 			const ids = unique(trimAndFilter(metadataIds)).slice(0, MAX_BATCH_IDS);
 			if (ids.length === 0) return { suggestions: [] };
 
-			const [batch, watchlisted] = await Promise.all([
-				this.dependencies.playbackRepository.findSmartPlayBatchData(ids, profileId).catch(() => []),
-				this.dependencies.watchlistRepository.findWatchlistedIds(profileId, ids).catch(() => new Set<string>()),
-			]);
+			// The batch statement carries the watchlist flags for the same id list.
+			// Only a failed batch falls back to the separate watchlist read, so an
+			// outage still reports flags for suggestion-less cards (previous behavior).
+			const batch = await this.dependencies.playbackRepository.findSmartPlayBatchData(ids, profileId).catch(() => null);
+			const watchlisted = batch
+				? new Set(batch.filter((entry) => entry.inWatchlist).map((entry) => entry.metadataId))
+				: await this.dependencies.watchlistRepository.findWatchlistedIds(profileId, ids).catch(() => new Set<string>());
 			const suggestionByMetadataId = new Map(
-				batch.map((entry) => [entry.metadataId, entry.data ? computeSmartPlay(entry.data).suggestion : null]),
+				(batch ?? []).map((entry) => [entry.metadataId, entry.data ? computeSmartPlay(entry.data).suggestion : null]),
 			);
 
 			return {

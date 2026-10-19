@@ -1,11 +1,12 @@
 import type { CreateMediaMarker, MediaMarkerFilters } from "@reelvault/sdk/common";
-import { and, asc, eq, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
-import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
+import { groupBy } from "@/utils/array.utils";
 
 const mediaMarkers = defineTableAccess("mediaMarkers", {
 	primaryKeyColumn: "id",
@@ -115,6 +116,75 @@ const overrides = {
 			);
 
 			return inserted.toSorted((a, b) => a.startSeconds - b.startSeconds);
+		});
+	},
+
+	/**
+	 * Replaces the markers of many files in one pass: one before-snapshot read,
+	 * one scoped delete per chunk and one insert per chunk, instead of a round
+	 * trip per file. Returns the per-file before/after snapshots for the caller's
+	 * audit entries; every file in `grouped` gets an entry, even when empty.
+	 */
+	async replaceMarkersForMediaFiles(
+		grouped: ReadonlyMap<string, readonly CreateMediaMarker[]>,
+		options?: { pluginId?: string; source?: "automatic" | "manual" | "plugin" },
+		tx?: DatabaseTransaction,
+	): Promise<Map<string, { before: Array<typeof mediaMarkers.table.$inferSelect>; after: Array<typeof mediaMarkers.table.$inferSelect> }>> {
+		const mediaFileIds = [...grouped.keys()];
+		if (mediaFileIds.length === 0) return new Map();
+
+		return await runInTransaction(tx, async (targetTx) => {
+			const client = databaseFactory.getClient({ tx: targetTx });
+			const before = await mapChunked(mediaFileIds, (chunkIds) =>
+				getMediaMarkersRepository().selectMany({
+					where: inArray(mediaMarkers.table.mediaFileId, chunkIds),
+					orderBy: asc(mediaMarkers.table.startSeconds),
+					tx: targetTx,
+				}),
+			);
+
+			// Scoped replace, like the single-file path: a producer only wipes its own rows.
+			await forEachChunked(mediaFileIds, (chunkIds) => {
+				let deleteWhere: SQL | undefined = inArray(mediaMarkers.table.mediaFileId, chunkIds);
+				if (options?.pluginId !== undefined) {
+					deleteWhere = and(deleteWhere, eq(mediaMarkers.table.pluginId, options.pluginId));
+				} else if (options?.source) {
+					deleteWhere = and(deleteWhere, eq(mediaMarkers.table.source, options.source));
+				}
+
+				return getMediaMarkersRepository().delete({ where: deleteWhere, tx: targetTx });
+			});
+
+			const records = [...grouped].flatMap(([mediaFileId, items]) =>
+				items.map((marker) => ({
+					mediaFileId,
+					type: marker.type,
+					startSeconds: marker.startSeconds,
+					endSeconds: marker.endSeconds,
+					label: marker.label ?? null,
+					source: marker.source ?? options?.source ?? "manual",
+					pluginId: marker.pluginId ?? options?.pluginId ?? null,
+				})),
+			);
+			const inserted =
+				records.length === 0
+					? []
+					: await mapChunked(records, (recordChunk) => client.insert(mediaMarkers.table).values(recordChunk).returning());
+
+			const beforeByFile = groupBy(before, (row) => row.mediaFileId);
+			const afterByFile = groupBy(inserted, (row) => row.mediaFileId);
+			const snapshots = new Map<
+				string,
+				{ before: Array<typeof mediaMarkers.table.$inferSelect>; after: Array<typeof mediaMarkers.table.$inferSelect> }
+			>();
+			for (const mediaFileId of mediaFileIds) {
+				snapshots.set(mediaFileId, {
+					before: beforeByFile.get(mediaFileId) ?? [],
+					after: (afterByFile.get(mediaFileId) ?? []).toSorted((a, b) => a.startSeconds - b.startSeconds),
+				});
+			}
+
+			return snapshots;
 		});
 	},
 

@@ -6,7 +6,7 @@ import type {
 } from "@reelvault/sdk/common";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { findGlobalAnalytics, findTopPlayedMedia, findTopWatchedMedia } from "./watched-history/analytics.reader";
-import { clearForProfile, hasFullWatch, isWatched, pruneOlderThan, recordPlay } from "./watched-history/history.repository";
+import { clearForProfile, hasFullWatch, isWatched, pruneOlderThan, recordPlay, recordPlays } from "./watched-history/history.repository";
 import { findInsightAggregates, findInsightRelations } from "./watched-history/insights.reader";
 import { findWatchedPage } from "./watched-history/listing.reader";
 
@@ -46,6 +46,11 @@ class WatchedHistoryRepository {
 	/** Records a play that ends now. */
 	recordPlay(input: CreateWatchedHistory & { profileId: string }, tx?: DatabaseTransaction) {
 		return recordPlay(input, tx);
+	}
+
+	/** Records many plays that end now in one insert (bulk "mark watched"). */
+	recordPlays(inputs: Array<CreateWatchedHistory & { profileId: string }>, tx?: DatabaseTransaction) {
+		return recordPlays(inputs, tx);
 	}
 
 	/** True when this profile already has a full-watch row for the file — manual "mark watched" is idempotent. */

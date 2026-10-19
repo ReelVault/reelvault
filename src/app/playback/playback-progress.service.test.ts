@@ -265,6 +265,35 @@ describe("playback progress service: resets and bulk changes", () => {
 		);
 	});
 
+	test("bulk watch keeps the saved track choices and records one play per newly finished file", async () => {
+		const cleared = stubMethod(discoverService, "clearCache", () => undefined);
+		stubs.push(cleared);
+		const fileA = await seedMovie();
+		const fileB = await seedSecondFile(fileA);
+		await seedProgress(fileA, { position: 100, audioStreamIndex: 2, subtitleId: "sub-pl" });
+
+		await createService().setWatchStateBulk({ mediaFileIds: [fileA, fileB], watched: true }, "profile-1");
+
+		expect(cleared.calls).toEqual([["profile-1"]]);
+
+		const progress = await storedProgress();
+		expect(progress.find((row) => row.mediaFileId === fileA)).toMatchObject({
+			position: 1000,
+			completed: true,
+			audioStreamIndex: 2,
+			subtitleId: "sub-pl",
+		});
+		const history = await selectWatchedHistory(db.client());
+		expect(history.map((row) => row.mediaFileId).toSorted()).toEqual([fileA, fileB].toSorted());
+		expect(history.every((row) => row.isFullWatch && row.durationWatched === 1000)).toBe(true);
+		expect(published.map((event) => event.mediaFileId).toSorted()).toEqual([fileA, fileB].toSorted());
+
+		// A second bulk of already-watched files must not add another play per file.
+		await createService().setWatchStateBulk({ mediaFileIds: [fileA, fileB], watched: true }, "profile-1");
+
+		expect(await selectWatchedHistory(db.client())).toHaveLength(2);
+	});
+
 	test("bulk rejects the whole request when one file is unknown and writes nothing", async () => {
 		const fileA = await seedMovie();
 		await seedProgress(fileA, { position: 100 });
@@ -393,6 +422,17 @@ describe("playback progress service: smart play batch", () => {
 		const result = await createService().getSmartPlayBatch(["meta-1", "meta-2", "  "], "profile-1");
 
 		expect(result.suggestions).toHaveLength(2);
+		expect(result.suggestions[0]).toEqual({ metadataId: "meta-1", suggestion: { type: "new", mediaFileId: fileId }, inWatchlist: true });
+		expect(result.suggestions[1]).toEqual({ metadataId: "meta-2", suggestion: null, inWatchlist: false });
+	});
+
+	test("reads watchlist flags from the batch statement instead of a separate watchlist query", async () => {
+		const fileId = await seedMovie();
+		await seedWatchlist("meta-1");
+		stubs.push(stubMethod(watchlistRepository, "findWatchlistedIds", () => Promise.reject(new Error("watchlist read must not run"))));
+
+		const result = await createService().getSmartPlayBatch(["meta-1", "meta-2"], "profile-1");
+
 		expect(result.suggestions[0]).toEqual({ metadataId: "meta-1", suggestion: { type: "new", mediaFileId: fileId }, inWatchlist: true });
 		expect(result.suggestions[1]).toEqual({ metadataId: "meta-2", suggestion: null, inWatchlist: false });
 	});

@@ -52,6 +52,30 @@ describe("MediaService marker import", () => {
 		expect(await markersOf(fileB)).toEqual([["recap", 5, 9]]);
 	});
 
+	test("refuses the whole import when a later line is invalid, and writes nothing", async () => {
+		const { fileA, fileB } = await seedTwoFiles();
+		await insertMediaMarkers(db.client(), {
+			id: "old-marker",
+			mediaFileId: fileA,
+			type: "recap",
+			startSeconds: 1,
+			endSeconds: 2,
+			source: "manual",
+		});
+		const text = [
+			JSON.stringify({ mediaFileId: fileB, type: "intro", startSeconds: 0, endSeconds: 30 }),
+			JSON.stringify({ mediaFileId: fileA, type: "credits", startSeconds: 100, endSeconds: 50 }),
+		].join("\n");
+
+		await expect(mediaService.importMarkers(text)).rejects.toMatchObject({
+			code: "media.markers_import_invalid",
+			params: { line: 2, reason: "end_before_start" },
+		});
+
+		expect(await markersOf(fileA)).toEqual([["recap", 1, 2]]);
+		expect(await markersOf(fileB)).toEqual([]);
+	});
+
 	test("refuses the whole import when a named file does not exist, and writes no marker", async () => {
 		const { fileA } = await seedTwoFiles();
 
