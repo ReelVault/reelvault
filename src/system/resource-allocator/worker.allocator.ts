@@ -3,37 +3,53 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { type CanonicalWorkerId, canonicalWorkerId } from "@/config/worker-ids.utils";
 import type { ResourceSnapshot, WorkerAllocation } from "./resource-allocator.types";
 
-const WORKER_WEIGHTS: Record<string, number> = {
-	"image-processing": 80,
-	"media-file-technical-refresh": 60,
-	"metadata-refresh": 40,
-	"media-file-analysis": 30,
-	scanning: 5,
-};
+interface WorkerResourceProfile {
+	/** Prioritisation weight under memory/CPU pressure (higher = kept longer). */
+	weight: number;
+	/** Absolute ceiling the admin or plugin setting can never exceed. */
+	maxConcurrency: number;
+	/** Admin-configured concurrency for this category (0 = derive automatically). */
+	userConcurrency: () => number;
+}
 
 const DEFAULT_WORKER_WEIGHT = 50;
 const DEFAULT_MAX_CONCURRENCY = 4;
 
-// User-defined per-worker concurrency getters — hoisted to module scope to
-// avoid rebuilding the map (and its closures) on every allocation check.
-const WORKER_USER_SETTINGS: Record<string, () => number> = {
-	"image-processing": () => serverConfig.workers.definitions.imageProcessing.concurrency,
-	"media-file-analysis": () => serverConfig.workers.definitions.mediaFileAnalysis.concurrency,
-	"media-file-technical-refresh": () => serverConfig.workers.definitions.mediaFileTechnicalRefresh.concurrency,
-	"metadata-refresh": () => serverConfig.workers.definitions.metadataRefresh.concurrency,
-	scanning: () => serverConfig.scanning.concurrency,
-};
-
-// These are ABSOLUTE MAXIMUMS — the admin cannot exceed these regardless of settings.
-// Set conservatively for older/slower CPUs (e.g. Xeon E5 in Proxmox containers).
-// Modern high-core-count machines can raise these via custom resource profiles.
-const WORKER_MAX_CONCURRENCY: Record<string, number> = {
-	"image-processing": 8,
-	"media-file-analysis": 6,
-	"media-file-technical-refresh": 6,
-	"metadata-refresh": 8,
-	scanning: 16,
-	transcode: 8,
+// One entry per resource category: weight, absolute concurrency ceiling and the
+// admin setting all live together, so adding a category touches this table only.
+// Ceilings are set conservatively for older/slower CPUs (e.g. Xeon E5 in
+// Proxmox containers); modern high-core machines raise them via profiles.
+const WORKER_RESOURCE_PROFILES: Partial<Record<CanonicalWorkerId, WorkerResourceProfile>> = {
+	"image-processing": {
+		weight: 80,
+		maxConcurrency: 8,
+		userConcurrency: () => serverConfig.workers.definitions.imageProcessing.concurrency,
+	},
+	"media-file-technical-refresh": {
+		weight: 60,
+		maxConcurrency: 6,
+		userConcurrency: () => serverConfig.workers.definitions.mediaFileTechnicalRefresh.concurrency,
+	},
+	"metadata-refresh": {
+		weight: 40,
+		maxConcurrency: 8,
+		userConcurrency: () => serverConfig.workers.definitions.metadataRefresh.concurrency,
+	},
+	"media-file-analysis": {
+		weight: 30,
+		maxConcurrency: 6,
+		userConcurrency: () => serverConfig.workers.definitions.mediaFileAnalysis.concurrency,
+	},
+	scanning: {
+		weight: 5,
+		maxConcurrency: 16,
+		userConcurrency: () => serverConfig.scanning.concurrency,
+	},
+	transcode: {
+		weight: DEFAULT_WORKER_WEIGHT,
+		maxConcurrency: 8,
+		userConcurrency: () => 0,
+	},
 };
 
 /** Absolute concurrency ceiling for a worker id (admin/plugin settings can never exceed it). */
@@ -42,13 +58,13 @@ export function workerConcurrencyCeiling(workerId: string): number {
 }
 
 function maxConcurrencyOf(canonicalId: CanonicalWorkerId | undefined): number {
-	return canonicalId ? (WORKER_MAX_CONCURRENCY[canonicalId] ?? DEFAULT_MAX_CONCURRENCY) : DEFAULT_MAX_CONCURRENCY;
+	return (canonicalId && WORKER_RESOURCE_PROFILES[canonicalId]?.maxConcurrency) ?? DEFAULT_MAX_CONCURRENCY;
 }
 
 /** Concurrency a worker may run at now: the admin's setting capped by the ceiling, else the automatic value under the current pressure. */
 export function computeWorkerAllocation(workerId: string, snapshot: ResourceSnapshot | undefined): WorkerAllocation {
 	const canonicalId = canonicalWorkerId(workerId);
-	const userSetting = canonicalId ? (WORKER_USER_SETTINGS[canonicalId]?.() ?? 0) : 0;
+	const userSetting = canonicalId ? (WORKER_RESOURCE_PROFILES[canonicalId]?.userConcurrency() ?? 0) : 0;
 
 	if (userSetting > 0) {
 		const allocated = Math.min(userSetting, maxConcurrencyOf(canonicalId));
@@ -78,7 +94,7 @@ function allocationUnderPressure(
 	snapshot: ResourceSnapshot | undefined,
 ): WorkerAllocation | undefined {
 	const pressure = snapshot?.pressure ?? "low";
-	const weight = canonicalId ? (WORKER_WEIGHTS[canonicalId] ?? DEFAULT_WORKER_WEIGHT) : DEFAULT_WORKER_WEIGHT;
+	const weight = (canonicalId && WORKER_RESOURCE_PROFILES[canonicalId]?.weight) ?? DEFAULT_WORKER_WEIGHT;
 
 	if (pressure === "critical") {
 		if (canonicalId === "transcode") {

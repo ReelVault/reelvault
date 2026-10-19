@@ -1,8 +1,8 @@
 import { MINUTE } from "@/config/server/server.constants";
 import { getWorkerRuntime } from "@/workers/core/worker.runtime";
+import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
-import { createWorkerDefinition } from "@/workers/worker.types";
 
 /** BullMQ-style semantics: `true` = keep none, number = keep N, false/undefined = no trim. */
 function resolveKeepCount(value: number | boolean | undefined): number | undefined {
@@ -11,14 +11,12 @@ function resolveKeepCount(value: number | boolean | undefined): number | undefin
 	return value === true ? 0 : Math.max(0, Math.floor(value));
 }
 
-export const cleanupWorkerHistoryWorker = createWorkerDefinition(
-	"clean-up-worker-history",
-	() => ({
-		category: "database_optimization",
-		concurrency: 1,
-		timeoutMs: MINUTE,
-	}),
-	async () => {
+export const cleanupWorkerHistoryWorker = defineMaintenanceWorker({
+	id: "clean-up-worker-history",
+	category: "database_optimization",
+	timeoutMs: MINUTE,
+	trigger: { id: "clean-worker-history-weekly", type: "weekly", dayOfWeek: 0, timeOfDay: "03:30" },
+	run: async () => {
 		const result = await workerService.purgeHistory({
 			status: "all_terminal",
 			olderThanDays: 7,
@@ -44,13 +42,4 @@ export const cleanupWorkerHistoryWorker = createWorkerDefinition(
 
 		return result;
 	},
-);
-
-cleanupWorkerHistoryWorker.defaultTriggers = [
-	{
-		id: "clean-worker-history-weekly",
-		type: "weekly",
-		dayOfWeek: 0,
-		timeOfDay: "03:30",
-	},
-];
+});

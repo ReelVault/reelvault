@@ -35,8 +35,12 @@ export interface SystemResourcesOverrides {
 
 /** Pure core of {@link SystemResourcesService.scaledTimeoutMs}: fast cores
  * keep the base, slow cores get up to 2× headroom. */
+export function timeoutMultiplierForFactor(speedFactor: number): number {
+	return clamp(2 - speedFactor, 1, 2);
+}
+
 export function scaleTimeoutMsForFactor(baseMs: number, speedFactor: number): number {
-	return Math.round(baseMs * clamp(2 - speedFactor, 1, 2));
+	return Math.round(baseMs * timeoutMultiplierForFactor(speedFactor));
 }
 
 const METRICS_TTL_MS = 1500;

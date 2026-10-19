@@ -1,7 +1,7 @@
 import { serverConfig } from "@/config/server/server.config";
+import { timeoutMultiplierForFactor } from "@/config/system-resources.service";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { createLogger } from "@/utils/logger.utils";
-import { clamp } from "@/utils/math.utils";
 import { detach } from "@/utils/promise.utils";
 import { systemAdminBroadcast } from "./system.ports";
 
@@ -231,7 +231,7 @@ class ServerRescueService {
 	 * SQLite bursts), so lag/sustain budgets get the same headroom formula as
 	 * `scaledTimeoutMs`: fast boxes keep the base, slow boxes get up to 2×. */
 	private slowCoreScale(): number {
-		return clamp(2 - this.speedFactorProvider(), 1, 2);
+		return timeoutMultiplierForFactor(this.speedFactorProvider());
 	}
 
 	/** ×`FLAP_THRESHOLD_STEP` per re-entry inside the flap window, capped; engage

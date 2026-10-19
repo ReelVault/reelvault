@@ -1,17 +1,15 @@
 import { serverConfig } from "@/config/server/server.config";
 import { MINUTE } from "@/config/server/server.constants";
 import { throwIfAborted } from "@/utils/cancellation.utils";
+import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { createWorkerDefinition } from "@/workers/worker.types";
 
-export const databaseBackupWorker = createWorkerDefinition(
-	"database-backup",
-	() => ({
-		category: "database_optimization",
-		concurrency: 1,
-		timeoutMs: 10 * MINUTE,
-	}),
-	async ({ signal }) => {
+export const databaseBackupWorker = defineMaintenanceWorker({
+	id: "database-backup",
+	category: "database_optimization",
+	timeoutMs: 10 * MINUTE,
+	trigger: { id: "database-backup-weekly", type: "weekly", dayOfWeek: 0, timeOfDay: "01:30" },
+	run: async ({ signal }) => {
 		throwIfAborted(signal);
 		const backup = await workerDependencies().services.databaseBackup.createBackup();
 
@@ -20,13 +18,4 @@ export const databaseBackupWorker = createWorkerDefinition(
 		// sees the complete set.
 		return { backupFileName: backup.fileName, sizeBytes: backup.sizeBytes, retention: serverConfig.database.backupRetentionCount };
 	},
-);
-
-databaseBackupWorker.defaultTriggers = [
-	{
-		id: "database-backup-weekly",
-		type: "weekly",
-		dayOfWeek: 0,
-		timeOfDay: "01:30",
-	},
-];
+});

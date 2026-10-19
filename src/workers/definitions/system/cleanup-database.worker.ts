@@ -3,17 +3,15 @@ import { daysAgo, MINUTE } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { workerOperationsService } from "@/workers/core/worker-operations.service";
+import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { createWorkerDefinition } from "@/workers/worker.types";
 
-export const cleanupDatabaseWorker = createWorkerDefinition(
-	"clean-up-database",
-	() => ({
-		category: "database_optimization",
-		concurrency: 1,
-		timeoutMs: MINUTE,
-	}),
-	async ({ signal }) => {
+export const cleanupDatabaseWorker = defineMaintenanceWorker({
+	id: "clean-up-database",
+	category: "database_optimization",
+	timeoutMs: MINUTE,
+	trigger: { id: "clean-db-daily", type: "daily", timeOfDay: "02:00" },
+	run: async ({ signal }) => {
 		throwIfAborted(signal);
 		const deletedCount = await workerOperationsService.cleanupExpired();
 
@@ -43,12 +41,4 @@ export const cleanupDatabaseWorker = createWorkerDefinition(
 
 		return { deletedOperationsCount: deletedCount, prunedHistoryCount, prunedAuditCount };
 	},
-);
-
-cleanupDatabaseWorker.defaultTriggers = [
-	{
-		id: "clean-db-daily",
-		type: "daily",
-		timeOfDay: "02:00",
-	},
-];
+});

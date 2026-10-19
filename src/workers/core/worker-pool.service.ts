@@ -18,10 +18,12 @@ interface ActiveExecution {
 	startedAt: number;
 	promise: Promise<void>;
 	/** Why the execution was aborted — decides whether the task is requeued, cancelled or retried. */
-	abortReason?: "cancel" | "rescue" | "shutdown" | "timeout" | undefined;
+	abortReason?: ExecutionAbortReason | undefined;
 	/** Last time updateProgress actually hit the database (throttle window anchor). */
 	lastProgressWriteAt?: number | undefined;
 }
+
+type ExecutionAbortReason = "cancel" | "rescue" | "shutdown" | "timeout";
 
 /** How long a handler may ignore the abort signal after a timeout before its slot is reclaimed. */
 const FORCE_RELEASE_GRACE_MS = 10_000;
@@ -85,9 +87,7 @@ export class WorkerExecutionPoolService {
 
 		exec.timeoutTimer = setTimeout(() => {
 			this.logger.warn("Worker task execution timed out, aborting", { workerId: exec.workerId, taskId: jobId, timeoutMs });
-			exec.abortReason = "timeout";
-			exec.controller.abort(new Error(`Execution timed out after ${timeoutMs}ms`));
-			this.scheduleForceRelease(exec, jobId, "timeout grace period");
+			this.abortExecution(exec, jobId, "timeout", `Execution timed out after ${timeoutMs}ms`, "timeout grace period");
 		}, timeoutMs);
 	}
 
@@ -257,6 +257,20 @@ export class WorkerExecutionPoolService {
 		if (exec.graceTimer) clearTimeout(exec.graceTimer);
 	}
 
+	/** Aborts a running execution and arms the grace timer that reclaims its slot if the handler ignores the abort. */
+	private abortExecution(
+		exec: ActiveExecution,
+		jobId: string,
+		reason: ExecutionAbortReason,
+		message: string,
+		forceReleaseReason: string,
+	): void {
+		this.clearTimers(exec);
+		exec.abortReason = reason;
+		exec.controller.abort(new Error(message));
+		this.scheduleForceRelease(exec, jobId, forceReleaseReason);
+	}
+
 	/**
 	 * Arm a safety-net timer that forcibly releases the slot if the handler
 	 * ignores the abort signal.  Used after timeout and explicit cancel.
@@ -374,25 +388,26 @@ export class WorkerExecutionPoolService {
 		const exec = this.running.get(jobId);
 		if (!exec) return false;
 
-		this.clearTimers(exec);
-		exec.abortReason = "cancel";
-		exec.controller.abort(new Error("Cancelled by user or system"));
-		this.scheduleForceRelease(exec, jobId, "cancel");
+		this.abortExecution(exec, jobId, "cancel", "Cancelled by user or system", "cancel");
 
 		return true;
 	}
 
 	cancelAllForWorker(workerId: string, options?: { requeue?: boolean }): number {
 		let count = 0;
+		const requeue = options?.requeue === true;
 		for (const [jobId, exec] of this.running) {
 			if (exec.workerId !== workerId) continue;
 
-			this.clearTimers(exec);
-			exec.abortReason = options?.requeue === true ? "rescue" : "cancel";
-			exec.controller.abort(new Error(`Cancelled worker "${workerId}" by user or system`));
 			// Without a force-release a handler that ignores the abort keeps the slot
 			// forever (rescue included), wedging the worker at 0 free concurrency.
-			this.scheduleForceRelease(exec, jobId, options?.requeue === true ? "rescue" : "cancel");
+			this.abortExecution(
+				exec,
+				jobId,
+				requeue ? "rescue" : "cancel",
+				`Cancelled worker "${workerId}" by user or system`,
+				requeue ? "rescue" : "cancel",
+			);
 			count++;
 		}
 
@@ -406,10 +421,7 @@ export class WorkerExecutionPoolService {
 
 	cancelAll(): void {
 		for (const [jobId, exec] of this.running) {
-			this.clearTimers(exec);
-			exec.abortReason = "shutdown";
-			exec.controller.abort(new Error("Worker engine shutting down"));
-			this.scheduleForceRelease(exec, jobId, "shutdown");
+			this.abortExecution(exec, jobId, "shutdown", "Worker engine shutting down", "shutdown");
 		}
 	}
 

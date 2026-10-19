@@ -1,27 +1,17 @@
 import { MINUTE } from "@/config/server/server.constants";
 import { throwIfAborted } from "@/utils/cancellation.utils";
+import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { createWorkerDefinition } from "@/workers/worker.types";
 
-export const cleanupLogsWorker = createWorkerDefinition(
-	"clean-up-logs",
-	() => ({
-		category: "file_cleanup",
-		concurrency: 1,
-		timeoutMs: MINUTE,
-	}),
-	async ({ signal }) => {
+export const cleanupLogsWorker = defineMaintenanceWorker({
+	id: "clean-up-logs",
+	category: "file_cleanup",
+	timeoutMs: MINUTE,
+	trigger: { id: "clean-logs-daily", type: "daily", timeOfDay: "03:00" },
+	run: async ({ signal }) => {
 		throwIfAborted(signal);
 		const result = await workerDependencies().services.adminLogs.purgeOldLogs(undefined, undefined, signal);
 
 		return { success: true, ...result };
 	},
-);
-
-cleanupLogsWorker.defaultTriggers = [
-	{
-		id: "clean-logs-daily",
-		type: "daily",
-		timeOfDay: "03:00",
-	},
-];
+});

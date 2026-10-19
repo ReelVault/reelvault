@@ -4,8 +4,8 @@ import { throwIfAborted } from "@/utils/cancellation.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
+import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { createWorkerDefinition } from "@/workers/worker.types";
 
 /**
  * Extracted `<subtitleId>.vtt` renditions are deleted together with their row;
@@ -15,14 +15,12 @@ import { createWorkerDefinition } from "@/workers/worker.types";
  */
 const ORPHAN_MIN_AGE_MS = 10 * MINUTE;
 
-export const cleanupOrphanSubtitlesWorker = createWorkerDefinition(
-	"clean-up-orphan-subtitles",
-	() => ({
-		category: "file_cleanup",
-		concurrency: 1,
-		timeoutMs: 120_000,
-	}),
-	async ({ signal }) => {
+export const cleanupOrphanSubtitlesWorker = defineMaintenanceWorker({
+	id: "clean-up-orphan-subtitles",
+	category: "file_cleanup",
+	timeoutMs: 120_000,
+	trigger: { id: "clean-orphan-subtitles-daily", type: "daily", timeOfDay: "03:45" },
+	run: async ({ signal }) => {
 		throwIfAborted(signal);
 		const files = await DirUtils.scanFilesWithStats(serverConfig.paths.subtitles, [".vtt"], 1, signal);
 		if (files.length === 0) return { success: true, deleted: 0 };
@@ -43,12 +41,4 @@ export const cleanupOrphanSubtitlesWorker = createWorkerDefinition(
 
 		return { success: true, deleted };
 	},
-);
-
-cleanupOrphanSubtitlesWorker.defaultTriggers = [
-	{
-		id: "clean-orphan-subtitles-daily",
-		type: "daily",
-		timeOfDay: "03:45",
-	},
-];
+});

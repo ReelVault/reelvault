@@ -1,16 +1,14 @@
 import { MINUTE } from "@/config/server/server.constants";
 import { throwIfAborted } from "@/utils/cancellation.utils";
+import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { createWorkerDefinition } from "@/workers/worker.types";
 
-export const cleanupMetricsWorker = createWorkerDefinition(
-	"clean-up-resource-metrics",
-	() => ({
-		category: "database_optimization",
-		concurrency: 1,
-		timeoutMs: MINUTE,
-	}),
-	async ({ signal }) => {
+export const cleanupMetricsWorker = defineMaintenanceWorker({
+	id: "clean-up-resource-metrics",
+	category: "database_optimization",
+	timeoutMs: MINUTE,
+	trigger: { id: "clean-metrics-daily", type: "daily", timeOfDay: "02:15" },
+	run: async ({ signal }) => {
 		throwIfAborted(signal);
 		// Each row carries its own retention_until (created_at + 24 h); deleting by
 		// that column honours the schema's retention promise instead of a separate
@@ -20,12 +18,4 @@ export const cleanupMetricsWorker = createWorkerDefinition(
 
 		return { deletedMetricsCount: deletedCount };
 	},
-);
-
-cleanupMetricsWorker.defaultTriggers = [
-	{
-		id: "clean-metrics-daily",
-		type: "daily",
-		timeOfDay: "02:15",
-	},
-];
+});

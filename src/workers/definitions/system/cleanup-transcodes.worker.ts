@@ -1,16 +1,14 @@
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { cleanupStartupDirectories } from "@/system/server-data.utils";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { createWorkerDefinition } from "@/workers/worker.types";
+import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
 
-export const cleanupTranscodesWorker = createWorkerDefinition(
-	"clean-up-transcodes",
-	() => ({
-		category: "file_cleanup",
-		concurrency: 1,
-		timeoutMs: 120_000,
-	}),
-	async ({ signal }) => {
+export const cleanupTranscodesWorker = defineMaintenanceWorker({
+	id: "clean-up-transcodes",
+	category: "file_cleanup",
+	timeoutMs: 120_000,
+	trigger: { id: "clean-trans-interval", type: "interval", intervalMinutes: 360 },
+	run: async ({ signal }) => {
 		throwIfAborted(signal);
 		// Deleting the tempDir of a live session breaks playback mid-stream (paused
 		// sessions keep their heartbeat alive far longer than this interval), so the
@@ -20,12 +18,4 @@ export const cleanupTranscodesWorker = createWorkerDefinition(
 
 		return { success: true };
 	},
-);
-
-cleanupTranscodesWorker.defaultTriggers = [
-	{
-		id: "clean-trans-interval",
-		type: "interval",
-		intervalMinutes: 360,
-	},
-];
+});
