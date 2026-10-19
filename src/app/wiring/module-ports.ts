@@ -9,9 +9,7 @@ import { interruptedPlaybackSessionRepository } from "@/app/repositories/interru
 import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { liveSessionsRepository } from "@/app/repositories/live-sessions.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
-import { playbackRepository } from "@/app/repositories/playback.repository";
 import { profilePreferencesRepository } from "@/app/repositories/profile-preferences.repository";
-import { profileStreamPrefsRepository } from "@/app/repositories/profile-stream-prefs.repository";
 import { profilesRepository } from "@/app/repositories/profiles.repository";
 import { resourceMetricsRepository } from "@/app/repositories/resource-metrics.repository";
 import { seasonsRepository } from "@/app/repositories/seasons.repository";
@@ -212,14 +210,11 @@ function registerStreamingStoragePorts(): void {
 		recordInterruptedSession: async (record) => {
 			await interruptedPlaybackSessionRepository.insert(record);
 		},
-		findForPlaybackSession: async (mediaFileId) => await mediaRepository.findForPlaybackSession(mediaFileId),
+		findPlaybackSessionData: async (mediaFileId, profileId, thresholdSeconds) =>
+			await mediaRepository.findPlaybackSessionData(mediaFileId, profileId, thresholdSeconds),
 		findForStreamingDiagnostics: async (mediaFileId) => await mediaRepository.findForStreamingDiagnostics(mediaFileId),
 		findForStreamingDuration: async (mediaFileId) => await mediaRepository.findForStreamingDuration(mediaFileId),
 		getEffectivePreferences: async (profileId) => await profilePreferencesRepository.getEffective({ profileId }),
-		findProgressUpdateData: async (mediaFileId, profileId) => await playbackRepository.findProgressUpdateData(mediaFileId, profileId),
-		hasActiveTitleProgress: async (profileId, metadataId, thresholdSeconds) =>
-			await playbackRepository.hasActiveTitleProgress(profileId, metadataId, thresholdSeconds),
-		findStreamPreferences: async (input) => await profileStreamPrefsRepository.findForTitle(input.profileId, input.metadataId),
 	});
 }
 

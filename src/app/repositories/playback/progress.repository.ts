@@ -1,8 +1,9 @@
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
+import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 
 /**
  * Fixed-shape playback queries (Faza 3 pilot). Inserts bind `id`/timestamps
@@ -146,25 +147,41 @@ export async function findExistingMediaFileIds(fileIds: readonly string[]): Prom
 	return new Set(rows.map((row) => row.id));
 }
 
-/** Whether any in-progress (not completed, position past `minPositionSeconds`) file of this title has watched progress. */
-export async function hasActiveTitleProgress(profileId: string, metadataId: string, minPositionSeconds: number): Promise<boolean> {
-	const row = await databaseFactory
-		.getClient()
-		.select({ id: schema.playbackProgress.mediaFileId })
-		.from(schema.playbackProgress)
-		.innerJoin(schema.mediaFiles, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
-		.where(
-			and(
-				eq(schema.playbackProgress.profileId, profileId),
-				eq(schema.mediaFiles.metadataId, metadataId),
-				eq(schema.playbackProgress.completed, false),
-				gte(schema.playbackProgress.position, minPositionSeconds),
-			),
-		)
-		.limit(1)
-		.then((rows) => rows[0]);
+/** One file as the bulk watch-state write reads it: duration, title and the profile's current progress. */
+export interface WatchStateBulkRow {
+	id: string;
+	duration: number | null;
+	metadataId: string;
+	completed: boolean | null;
+	audioStreamIndex: number | null;
+	subtitleId: string | null;
+}
 
-	return row !== undefined;
+/**
+ * Bulk watch-state source data: the files and the profile's progress in one
+ * statement per chunk instead of one read per file (the bulk endpoint accepts
+ * up to 500 ids). Rows exist only for known files, so this also serves the
+ * not-found precheck.
+ */
+export async function findWatchStateBulkData(profileId: string, fileIds: readonly string[]): Promise<WatchStateBulkRow[]> {
+	return await mapChunked([...fileIds], (chunkIds) =>
+		databaseFactory
+			.getClient()
+			.select({
+				id: schema.mediaFiles.id,
+				duration: schema.mediaFiles.duration,
+				metadataId: schema.mediaFiles.metadataId,
+				completed: schema.playbackProgress.completed,
+				audioStreamIndex: schema.playbackProgress.audioStreamIndex,
+				subtitleId: schema.playbackProgress.subtitleId,
+			})
+			.from(schema.mediaFiles)
+			.leftJoin(
+				schema.playbackProgress,
+				and(eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id), eq(schema.playbackProgress.profileId, profileId)),
+			)
+			.where(inArray(schema.mediaFiles.id, chunkIds)),
+	);
 }
 
 export async function upsertProgress({
@@ -201,6 +218,56 @@ export async function upsertProgress({
 		createdAt: now,
 		updatedAt: now,
 	});
+}
+
+/** Bulk variant of {@link upsertProgress}: one statement writes every file's row. */
+export async function upsertProgressBulk({
+	profileId,
+	rows,
+	tx,
+}: {
+	profileId: string;
+	rows: Array<{
+		fileId: string;
+		position: number;
+		duration: number;
+		completed: boolean;
+		audioStreamIndex: number | null;
+		subtitleId: string | null;
+	}>;
+	tx?: DatabaseTransaction | undefined;
+}): Promise<void> {
+	if (rows.length === 0) return;
+
+	const now = new Date();
+	await databaseFactory
+		.getClient({ tx })
+		.insert(schema.playbackProgress)
+		.values(
+			rows.map((row) => ({
+				id: Bun.randomUUIDv7(),
+				profileId,
+				mediaFileId: row.fileId,
+				position: row.position,
+				duration: row.duration,
+				completed: row.completed,
+				audioStreamIndex: row.audioStreamIndex,
+				subtitleId: row.subtitleId,
+				createdAt: now,
+				updatedAt: now,
+			})),
+		)
+		.onConflictDoUpdate({
+			target: [schema.playbackProgress.profileId, schema.playbackProgress.mediaFileId],
+			set: {
+				position: sql`excluded.position`,
+				duration: sql`excluded.duration`,
+				completed: sql`excluded.completed`,
+				audioStreamIndex: sql`excluded.audio_stream_index`,
+				subtitleId: sql`excluded.subtitle_id`,
+				updatedAt: sql`excluded.updated_at`,
+			},
+		});
 }
 
 export async function deleteProgress(profileId: string, fileId: string, tx?: DatabaseTransaction): Promise<void> {

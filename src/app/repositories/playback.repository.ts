@@ -1,4 +1,3 @@
-import type { MetadataType } from "@reelvault/sdk/common";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { findContinueWatchingData } from "./playback/continue-watching.reader";
 import {
@@ -10,8 +9,9 @@ import {
 	findMediaFileWithMetadata,
 	findProgressUpdateData,
 	findViewerProfilesByMetadataId,
-	hasActiveTitleProgress,
+	findWatchStateBulkData,
 	upsertProgress,
+	upsertProgressBulk,
 } from "./playback/progress.repository";
 import {
 	findPlaybackProgressAndSmartPlayData,
@@ -30,8 +30,8 @@ class PlaybackRepository {
 		return findProgressRows(metadataId, profileId);
 	}
 
-	findPlaybackProgressAndSmartPlayData(metadataId: string, profileId: string, metadataType?: MetadataType) {
-		return findPlaybackProgressAndSmartPlayData(metadataId, profileId, metadataType);
+	findPlaybackProgressAndSmartPlayData(metadataId: string, profileId: string) {
+		return findPlaybackProgressAndSmartPlayData(metadataId, profileId);
 	}
 
 	findSmartPlayData(metadataId: string, profileId: string) {
@@ -50,13 +50,17 @@ class PlaybackRepository {
 		return findProgressUpdateData(fileId, profileId);
 	}
 
-	/** Whether any in-progress file of this title has watched progress past `minPositionSeconds`. */
-	hasActiveTitleProgress(profileId: string, metadataId: string, minPositionSeconds: number): Promise<boolean> {
-		return hasActiveTitleProgress(profileId, metadataId, minPositionSeconds);
+	/** Bulk watch-state source data: files and the profile's progress in one statement per chunk. */
+	findWatchStateBulkData(profileId: string, fileIds: readonly string[]) {
+		return findWatchStateBulkData(profileId, fileIds);
 	}
 
 	upsertProgress(input: Parameters<typeof upsertProgress>[0]) {
 		return upsertProgress(input);
+	}
+
+	upsertProgressBulk(input: Parameters<typeof upsertProgressBulk>[0]) {
+		return upsertProgressBulk(input);
 	}
 
 	deleteProgress(profileId: string, fileId: string, tx?: DatabaseTransaction) {

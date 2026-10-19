@@ -17,16 +17,20 @@ export interface StreamingMediaSummary {
 	posterImageUpdatedAt: Date | null;
 }
 
-export interface StreamingProgressSnapshot {
-	mediaFile?: { metadataId: string } | null | undefined;
-	existingProgress?:
-		| {
-				completed: boolean;
-				position: number | null;
-				audioStreamIndex?: number | null | undefined;
-				subtitleId?: string | null | undefined;
-		  }
-		| undefined;
+export interface StreamingSessionProgress {
+	completed: boolean;
+	position: number | null;
+	audioStreamIndex: number | null;
+	subtitleId: string | null;
+}
+
+/** Everything a session start reads about one file and viewer, in one statement. */
+export interface StreamingPlaybackSessionData {
+	file: StreamingPlaybackFile;
+	existingProgress?: StreamingSessionProgress | undefined;
+	/** Whether any file of the title has in-progress playback past the resume threshold. */
+	titleHasActiveProgress: boolean;
+	perTitlePreferences: NonNullable<SessionSelectionInput["perTitlePreferences"]> | null;
 }
 
 export interface InterruptedPlaybackRecord {
@@ -53,16 +57,14 @@ export interface StreamingStoragePort {
 	/** Of the given operation ids, the ones that are still queued or running. */
 	findActiveOperations(operationIds: string[]): Promise<Set<string>>;
 	recordInterruptedSession(record: InterruptedPlaybackRecord): Promise<void>;
-	findForPlaybackSession(mediaFileId: string): Promise<StreamingPlaybackFile | null | undefined>;
+	findPlaybackSessionData(
+		mediaFileId: string,
+		profileId: string,
+		thresholdSeconds: number,
+	): Promise<StreamingPlaybackSessionData | undefined>;
 	findForStreamingDiagnostics(mediaFileId: string): Promise<DiagnosticsMediaFile | null | undefined>;
 	findForStreamingDuration(mediaFileId: string): Promise<{ duration: number | null } | undefined>;
 	getEffectivePreferences(profileId: string): Promise<SessionSelectionInput["preferences"]>;
-	findProgressUpdateData(mediaFileId: string, profileId: string): Promise<StreamingProgressSnapshot>;
-	hasActiveTitleProgress(profileId: string, metadataId: string, thresholdSeconds: number): Promise<boolean>;
-	findStreamPreferences(input: {
-		profileId: string;
-		metadataId: string;
-	}): Promise<SessionSelectionInput["perTitlePreferences"] | undefined>;
 }
 
 let storagePort: StreamingStoragePort | undefined;

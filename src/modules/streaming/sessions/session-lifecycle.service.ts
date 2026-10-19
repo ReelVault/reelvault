@@ -6,7 +6,7 @@ import { resolveSessionSelection, type SessionSelectionInput } from "@/modules/s
 import type { SessionAccessInfo } from "@/modules/streaming/runtime/session-state/session.store";
 import type { StreamInitData } from "@/modules/streaming/runtime/stream.initializer";
 import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
-import { type StreamingProgressSnapshot, streamingStorage, streamingWorker } from "@/modules/streaming/streaming.ports";
+import { type StreamingPlaybackSessionData, streamingStorage, streamingWorker } from "@/modules/streaming/streaming.ports";
 import type { PlaybackSessionInput, SessionReleaseOutcome, TerminatedSessionEntry } from "@/modules/streaming/streaming.types";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
@@ -18,12 +18,6 @@ import { type PlaybackSessionStartedEvent, publishSessionStarted } from "./sessi
 import { findSameTitleSession } from "./session-reclaim.resolver";
 import { assertSafeId, parseCapabilities, toPlaybackSessionInput } from "./session-request.mapper";
 import { isAdminTerminationReason, resolveSessionAccess } from "./stream-access.guard";
-
-export type PlaybackSessionCandidate = SessionSelectionInput["file"] & {
-	id: string;
-	filePath: string;
-	isEnabled: boolean;
-};
 
 export interface SessionLifecycleRuntime {
 	isProfileTerminatedRecently(profileId: string, mediaFileId: string, windowMs?: number): { reason: string } | null;
@@ -46,17 +40,14 @@ export interface SessionLifecycleRuntime {
 
 export interface ServiceDependencies {
 	mediaRepository: {
-		findForPlaybackSession(mediaFileId: string): Promise<PlaybackSessionCandidate | null | undefined>;
+		findPlaybackSessionData(
+			mediaFileId: string,
+			profileId: string,
+			thresholdSeconds: number,
+		): Promise<StreamingPlaybackSessionData | undefined>;
 	};
 	profilePreferencesRepository: {
 		getEffective(input: { profileId: string }): Promise<SessionSelectionInput["preferences"]>;
-	};
-	profileStreamPrefsRepository: {
-		findForTitle(profileId: string, metadataId: string): Promise<SessionSelectionInput["perTitlePreferences"] | undefined>;
-	};
-	playbackRepository: {
-		findProgressUpdateData(fileId: string, profileId: string): Promise<StreamingProgressSnapshot>;
-		hasActiveTitleProgress(profileId: string, metadataId: string, thresholdSeconds: number): Promise<boolean>;
 	};
 	systemSettings: Pick<typeof systemSettingsStore, "get">;
 	workerService: {
@@ -71,18 +62,11 @@ export interface ServiceDependencies {
 
 const defaultDependencies: ServiceDependencies = {
 	mediaRepository: {
-		findForPlaybackSession: (mediaFileId) => streamingStorage().findForPlaybackSession(mediaFileId),
+		findPlaybackSessionData: (mediaFileId, profileId, thresholdSeconds) =>
+			streamingStorage().findPlaybackSessionData(mediaFileId, profileId, thresholdSeconds),
 	},
 	profilePreferencesRepository: {
 		getEffective: (input) => streamingStorage().getEffectivePreferences(input.profileId),
-	},
-	profileStreamPrefsRepository: {
-		findForTitle: (profileId, metadataId) => streamingStorage().findStreamPreferences({ profileId, metadataId }),
-	},
-	playbackRepository: {
-		findProgressUpdateData: (fileId, profileId) => streamingStorage().findProgressUpdateData(fileId, profileId),
-		hasActiveTitleProgress: (profileId, metadataId, thresholdSeconds) =>
-			streamingStorage().hasActiveTitleProgress(profileId, metadataId, thresholdSeconds),
 	},
 	systemSettings: systemSettingsStore,
 	workerService: {
@@ -308,32 +292,23 @@ export class SessionLifecycleService {
 	/** Loads the file and the viewer's saved state, then picks the decision, codecs and tracks to play with. */
 	private async selectPlayback(fileId: string, profileId: string, capabilitiesQuery: PlaybackSessionInput) {
 		const { mediaRepository, profilePreferencesRepository, systemSettings } = this.dependencies;
-		const [file, preferences, progressData] = await Promise.all([
-			mediaRepository.findForPlaybackSession(fileId),
-			profilePreferencesRepository.getEffective({ profileId }),
-			this.dependencies.playbackRepository.findProgressUpdateData(fileId, profileId),
-		]);
-		assertFound(file, "MediaFile", fileId);
+		const preferences = await profilePreferencesRepository.getEffective({ profileId });
+		const thresholdSeconds = (preferences?.continueWatchingMinutes ?? 0) * 60;
+		const sessionData = await mediaRepository.findPlaybackSessionData(fileId, profileId, thresholdSeconds);
+		assertFound(sessionData, "MediaFile", fileId);
 
+		const { file } = sessionData;
 		if (!file.isEnabled) {
 			throw new DomainError("forbidden", "This media file is disabled and cannot be played", { code: "media_file.disabled" });
 		}
 
 		const capabilities = parseCapabilities(capabilitiesQuery);
 		const smartSelectionEnabled = systemSettings.get("stream.smartAudioTrackSelection");
-		const thresholdSeconds = (preferences?.continueWatchingMinutes ?? 0) * 60;
-		const existingProgress = progressData.existingProgress;
+		const existingProgress = sessionData.existingProgress;
 		const hasActiveProgress =
 			existingProgress !== undefined && !existingProgress.completed && (existingProgress.position ?? 0) >= thresholdSeconds;
-		const hasActiveTitleProgress =
-			hasActiveProgress ||
-			(profileId && progressData.mediaFile
-				? await this.dependencies.playbackRepository.hasActiveTitleProgress(profileId, progressData.mediaFile.metadataId, thresholdSeconds)
-				: false);
-		const perTitlePreferences =
-			hasActiveTitleProgress && progressData.mediaFile
-				? ((await this.dependencies.profileStreamPrefsRepository.findForTitle(profileId, progressData.mediaFile.metadataId)) ?? null)
-				: null;
+		const hasActiveTitleProgress = hasActiveProgress || sessionData.titleHasActiveProgress;
+		const perTitlePreferences = hasActiveTitleProgress ? sessionData.perTitlePreferences : null;
 
 		return {
 			file,

@@ -1,9 +1,25 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { metadataImageOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
-import { findSeasonsAndEpisodes, metadataIdsJsonTable, type PlaybackRelationClient } from "./seasons.reader";
+import {
+	booleanKeysOf,
+	dateKeysOf,
+	parseJsonRelationArray,
+	type RelationJsonKeys,
+	relationJsonArrayOver,
+} from "@/integrations/drizzle-orm/utils/relation-json.utils";
+import {
+	type EpisodeRow,
+	episodeKeys,
+	metadataIdsJsonTable,
+	noRevive,
+	type PlaybackRelationClient,
+	type SeasonRow,
+	seasonKeys,
+	seasonsAndEpisodesJson,
+} from "./seasons.reader";
 
 const preparedContinueWatchingProgress = createPreparedQuery((client: PlaybackRelationClient) =>
 	client
@@ -30,40 +46,67 @@ const preparedContinueWatchingProgress = createPreparedQuery((client: PlaybackRe
 		.prepare(),
 );
 
-const preparedContinueWatchingMetadata = createPreparedQuery((client: PlaybackRelationClient) =>
-	client
-		.select({ id: schema.metadata.id, title: schema.metadata.title, type: schema.metadata.type })
-		.from(schema.metadata)
-		.where(inArray(schema.metadata.id, metadataIdsJsonTable))
-		.prepare(),
-);
+const metadataColumns = {
+	id: schema.metadata.id,
+	title: schema.metadata.title,
+	type: schema.metadata.type,
+};
 
-const preparedContinueWatchingMediaFiles = createPreparedQuery((client: PlaybackRelationClient) =>
+const fileColumns = {
+	id: schema.mediaFiles.id,
+	metadataId: schema.mediaFiles.metadataId,
+	movieId: schema.mediaFiles.movieId,
+	episodeId: schema.mediaFiles.episodeId,
+	duration: schema.mediaFiles.duration,
+	isDefault: schema.mediaFiles.isDefault,
+	updatedAt: schema.mediaFiles.updatedAt,
+};
+
+const backdropColumns = {
+	metadataId: schema.metadataImages.metadataId,
+	imageId: schema.images.id,
+	imageUpdatedAt: schema.images.updatedAt,
+};
+
+export type ContinueWatchingMetadata = Pick<typeof schema.metadata.$inferSelect, "id" | "title" | "type">;
+export type ContinueWatchingFile = Pick<
+	typeof schema.mediaFiles.$inferSelect,
+	"id" | "metadataId" | "movieId" | "episodeId" | "duration" | "isDefault" | "updatedAt"
+>;
+export interface ContinueWatchingBackdrop {
+	metadataId: typeof schema.metadataImages.$inferSelect.metadataId;
+	imageId: typeof schema.images.$inferSelect.id;
+	imageUpdatedAt: typeof schema.images.$inferSelect.updatedAt;
+}
+
+const metadataKeys = Object.keys(metadataColumns);
+const fileKeys = Object.keys(fileColumns);
+const backdropKeys = Object.keys(backdropColumns);
+const fileRevive: RelationJsonKeys = { booleanKeys: booleanKeysOf(fileColumns), dateKeys: dateKeysOf(fileColumns) };
+const backdropRevive: RelationJsonKeys = { booleanKeys: booleanKeysOf(backdropColumns), dateKeys: dateKeysOf(backdropColumns) };
+
+/**
+ * The continue-watching dependent reads — title rows, media files, regular
+ * seasons/episodes and backdrops — are keyed by the same metadata id list, so
+ * they come back as JSON columns of one statement (four round trips → one).
+ * The arrays carry the columns the old statements returned; timestamps and the
+ * file's `isDefault` flag are revived after parsing.
+ */
+const preparedContinueWatchingDetails = createPreparedQuery((client: PlaybackRelationClient) =>
 	client
 		.select({
-			id: schema.mediaFiles.id,
-			metadataId: schema.mediaFiles.metadataId,
-			movieId: schema.mediaFiles.movieId,
-			episodeId: schema.mediaFiles.episodeId,
-			duration: schema.mediaFiles.duration,
-			isDefault: schema.mediaFiles.isDefault,
-			updatedAt: schema.mediaFiles.updatedAt,
+			metadataList: relationJsonArrayOver(metadataColumns, sql`${schema.metadata} WHERE ${schema.metadata.id} IN ${metadataIdsJsonTable}`),
+			mediaFiles: relationJsonArrayOver(
+				fileColumns,
+				sql`${schema.mediaFiles} WHERE ${schema.mediaFiles.metadataId} IN ${metadataIdsJsonTable}`,
+			),
+			...seasonsAndEpisodesJson(sql`IN ${metadataIdsJsonTable}`, true),
+			backdrops: relationJsonArrayOver(
+				backdropColumns,
+				sql`${schema.metadataImages} JOIN ${schema.images} ON ${metadataImageOn} WHERE ${schema.metadataImages.metadataId} IN ${metadataIdsJsonTable} AND ${schema.metadataImages.imageType} = 'backdrop'`,
+			),
 		})
-		.from(schema.mediaFiles)
-		.where(inArray(schema.mediaFiles.metadataId, metadataIdsJsonTable))
-		.prepare(),
-);
-
-const preparedContinueWatchingBackdrops = createPreparedQuery((client: PlaybackRelationClient) =>
-	client
-		.select({
-			metadataId: schema.metadataImages.metadataId,
-			imageId: schema.images.id,
-			imageUpdatedAt: schema.images.updatedAt,
-		})
-		.from(schema.metadataImages)
-		.innerJoin(schema.images, metadataImageOn)
-		.where(and(inArray(schema.metadataImages.metadataId, metadataIdsJsonTable), eq(schema.metadataImages.imageType, "backdrop")))
+		.from(sql`(SELECT 1)`)
 		.prepare(),
 );
 
@@ -88,20 +131,14 @@ export async function findContinueWatchingData(profileId: string, limit = 24) {
 		if (metadataIds.length >= maxMetadataIds) break;
 	}
 
-	const ids = JSON.stringify(metadataIds);
-	const [metadataList, mediaFiles, seasonsAndEpisodes, backdrops] = await Promise.all([
-		preparedContinueWatchingMetadata(client).execute({ ids }),
-		preparedContinueWatchingMediaFiles(client).execute({ ids }),
-		findSeasonsAndEpisodes(metadataIds, { regularOnly: true }),
-		preparedContinueWatchingBackdrops(client).execute({ ids }),
-	]);
+	const [details] = await preparedContinueWatchingDetails(client).execute({ ids: JSON.stringify(metadataIds) });
 
 	return {
 		progressRows,
-		metadataList,
-		mediaFiles,
-		seasons: seasonsAndEpisodes.seasons,
-		episodes: seasonsAndEpisodes.episodes,
-		backdrops,
+		metadataList: details ? parseJsonRelationArray<ContinueWatchingMetadata>(details.metadataList, metadataKeys, noRevive) : [],
+		mediaFiles: details ? parseJsonRelationArray<ContinueWatchingFile>(details.mediaFiles, fileKeys, fileRevive) : [],
+		seasons: details ? parseJsonRelationArray<SeasonRow>(details.seasons, seasonKeys, noRevive) : [],
+		episodes: details ? parseJsonRelationArray<EpisodeRow>(details.episodes, episodeKeys, noRevive) : [],
+		backdrops: details ? parseJsonRelationArray<ContinueWatchingBackdrop>(details.backdrops, backdropKeys, backdropRevive) : [],
 	};
 }

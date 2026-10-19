@@ -2,9 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
-import { playbackRepository } from "@/app/repositories/playback.repository";
 import { profilePreferencesRepository } from "@/app/repositories/profile-preferences.repository";
-import { profileStreamPrefsRepository } from "@/app/repositories/profile-stream-prefs.repository";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { workerService } from "@/workers/worker.service";
@@ -95,8 +93,6 @@ function createService(
 	const dependencies: ServiceDependencies = {
 		mediaRepository,
 		profilePreferencesRepository,
-		profileStreamPrefsRepository,
-		playbackRepository,
 		systemSettings: systemSettingsStore,
 		workerService,
 		enqueueStreamInit: (_data, enqueueOptions) => {

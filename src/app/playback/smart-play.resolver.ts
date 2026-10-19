@@ -1,5 +1,5 @@
 import type { SmartPlaySuggestion } from "@/modules/streaming/streaming.types";
-import { groupBy } from "@/utils/array.utils";
+import { groupBy, toMap } from "@/utils/array.utils";
 import { latestProgressByEpisode } from "./progress.utils";
 
 interface MediaFile {
@@ -14,6 +14,17 @@ interface Episode {
 	seasonNumber: number;
 	episodeNumber: number;
 	absoluteNumber?: number | null;
+}
+
+interface EpisodeWithSeason {
+	id: string;
+	seasonId: string;
+	episodeNumber: number;
+}
+
+interface Season {
+	id: string;
+	seasonNumber: number;
 }
 
 interface PlaybackProgress {
@@ -84,6 +95,65 @@ export function selectNextEpisodeFile<E extends { id: string }, F extends { id: 
 	const next = nextEpisodeAfter(orderedEpisodes, currentId);
 
 	return next ? selectPreferredMediaFile(mediaFilesFor(next)) : undefined;
+}
+
+/**
+ * Next-episode file after `current` for the playback view, computed from the
+ * smart-play source data of the show (so the view's own read can go): the
+ * immediate next episode in the current season, else the first playable episode
+ * of each later season in season order. Episodes are ordered by (seasonNumber,
+ * episodeNumber) — the old row read's order; episodes without files stay in it
+ * so the immediate next episode is still "no file" (which falls through to
+ * later seasons) rather than skipping ahead within the season.
+ */
+export function selectNextEpisodeFileInSeries(
+	episodes: readonly EpisodeWithSeason[],
+	seasons: readonly Season[],
+	mediaFiles: readonly MediaFile[],
+	current: { id: string; seasonId: string },
+): string | null {
+	const seasonNumberById = toMap(
+		seasons,
+		(season) => season.id,
+		(season) => season.seasonNumber,
+	);
+	const ordered: Array<{ episode: EpisodeWithSeason; seasonNumber: number }> = [];
+	for (const episode of episodes) {
+		const seasonNumber = seasonNumberById.get(episode.seasonId);
+		if (seasonNumber !== undefined) ordered.push({ episode, seasonNumber });
+	}
+
+	ordered.sort((left, right) => left.seasonNumber - right.seasonNumber || left.episode.episodeNumber - right.episode.episodeNumber);
+
+	const filesByEpisode = groupBy(mediaFiles, (mediaFile) => mediaFile.episodeId);
+	const filesOf = (episode: EpisodeWithSeason): readonly MediaFile[] => filesByEpisode.get(episode.id) ?? [];
+
+	const nextFile = selectNextEpisodeFile(
+		ordered.filter((entry) => entry.episode.seasonId === current.seasonId).map((entry) => entry.episode),
+		current.id,
+		filesOf,
+	);
+	if (nextFile) return nextFile.id;
+
+	// The current episode must be part of the show data for the later-season
+	// fallback: without it there is no season number to compare against.
+	const currentEntry = ordered.find((entry) => entry.episode.id === current.id);
+	if (!currentEntry) return null;
+
+	const firstEpisodeBySeason = new Map<number, EpisodeWithSeason>();
+	for (const entry of ordered) {
+		if (!firstEpisodeBySeason.has(entry.seasonNumber)) firstEpisodeBySeason.set(entry.seasonNumber, entry.episode);
+	}
+
+	for (const seasonNumber of [...firstEpisodeBySeason.keys()].toSorted((left, right) => left - right)) {
+		if (seasonNumber <= currentEntry.seasonNumber) continue;
+
+		const firstEpisode = firstEpisodeBySeason.get(seasonNumber);
+		const file = firstEpisode ? selectPreferredMediaFile(filesOf(firstEpisode)) : undefined;
+		if (file) return file.id;
+	}
+
+	return null;
 }
 
 export function selectMovieSmartPlay(mediaFiles: readonly MediaFile[], progress?: PlaybackProgress): SmartPlaySuggestion | undefined {

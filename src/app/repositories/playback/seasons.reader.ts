@@ -1,15 +1,20 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { type SQL, sql } from "drizzle-orm";
+import type { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
+import { type RelationJsonKeys, relationJsonArrayOver } from "@/integrations/drizzle-orm/utils/relation-json.utils";
 
 export type PlaybackRelationClient = ReturnType<typeof databaseFactory.getClient>;
 
 /** A JSON array bound as one parameter, expanded in SQL so one prepared statement serves every id list. */
 export const metadataIdsJsonTable = sql`(SELECT value FROM json_each(${sql.placeholder("ids")}))`;
 
-const episodeColumns = {
+export const seasonColumns = {
+	id: schema.seasons.id,
+	metadataId: schema.seasons.metadataId,
+	seasonNumber: schema.seasons.seasonNumber,
+};
+
+export const episodeColumns = {
 	id: schema.episodes.id,
 	seasonId: schema.episodes.seasonId,
 	episodeNumber: schema.episodes.episodeNumber,
@@ -18,47 +23,30 @@ const episodeColumns = {
 	episodeType: schema.episodes.episodeType,
 };
 
-function episodesOfSeasons(client: PlaybackRelationClient, regularOnly: boolean) {
-	return client
-		.select(episodeColumns)
-		.from(schema.episodes)
-		.innerJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
-		.where(
-			and(inArray(schema.seasons.metadataId, metadataIdsJsonTable), regularOnly ? eq(schema.episodes.episodeType, "regular") : undefined),
-		)
-		.prepare();
-}
+export type SeasonRow = Pick<typeof schema.seasons.$inferSelect, "id" | "metadataId" | "seasonNumber">;
+export type EpisodeRow = Pick<
+	typeof schema.episodes.$inferSelect,
+	"id" | "seasonId" | "episodeNumber" | "absoluteNumber" | "title" | "episodeType"
+>;
 
-const preparedSeasons = createPreparedQuery((client: PlaybackRelationClient) =>
-	client
-		.select({
-			id: schema.seasons.id,
-			metadataId: schema.seasons.metadataId,
-			seasonNumber: schema.seasons.seasonNumber,
-		})
-		.from(schema.seasons)
-		.where(inArray(schema.seasons.metadataId, metadataIdsJsonTable))
-		.prepare(),
-);
-
-const preparedEpisodes = createPreparedQuery((client: PlaybackRelationClient) => episodesOfSeasons(client, false));
-const preparedRegularEpisodes = createPreparedQuery((client: PlaybackRelationClient) => episodesOfSeasons(client, true));
+export const seasonKeys = Object.keys(seasonColumns);
+export const episodeKeys = Object.keys(episodeColumns);
+/** These projections carry no timestamp or boolean columns, so JSON needs no revival. */
+export const noRevive: RelationJsonKeys = { booleanKeys: [], dateKeys: [] };
 
 /**
- * Seasons + episodes of the given titles. `regularOnly` drops specials,
- * which the continue-watching view does not surface.
+ * Seasons and episodes as two `json_group_array` columns over one metadata scope,
+ * so a caller can carry them in the statement it already runs (`= ?` for a single
+ * id, `IN (json_each(?))` for a list).
  */
-export async function findSeasonsAndEpisodes(
-	metadataIds: readonly string[],
-	options?: { regularOnly?: boolean; tx?: DatabaseTransaction },
-) {
-	const client = databaseFactory.getClient({ tx: options?.tx });
-	const ids = JSON.stringify([...metadataIds]);
+export function seasonsAndEpisodesJson(metadataScope: SQL, regularOnly: boolean): { seasons: SQL<string>; episodes: SQL<string> } {
+	const regularFilter = regularOnly ? sql` AND ${schema.episodes.episodeType} = 'regular'` : sql``;
 
-	const [seasons, episodes] = await Promise.all([
-		preparedSeasons(client).execute({ ids }),
-		(options?.regularOnly ? preparedRegularEpisodes(client) : preparedEpisodes(client)).execute({ ids }),
-	]);
-
-	return { seasons, episodes };
+	return {
+		seasons: relationJsonArrayOver(seasonColumns, sql`${schema.seasons} WHERE ${schema.seasons.metadataId} ${metadataScope}`),
+		episodes: relationJsonArrayOver(
+			episodeColumns,
+			sql`${schema.episodes} JOIN ${schema.seasons} ON ${schema.seasons.id} = ${schema.episodes.seasonId} WHERE ${schema.seasons.metadataId} ${metadataScope}${regularFilter}`,
+		),
+	};
 }
