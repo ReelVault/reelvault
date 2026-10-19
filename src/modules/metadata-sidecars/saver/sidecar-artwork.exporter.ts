@@ -6,7 +6,7 @@ import { FileUtils, fileStatSignature } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { PathUtils } from "@/utils/path.utils";
-import { assertEpisodeBaseName, formatSeasonNumber } from "./sidecar-path.policy";
+import { assertEpisodeBaseName, seasonFileName } from "./sidecar-path.policy";
 
 const JPEG_QUALITY: ImageQuality = 85;
 
@@ -81,9 +81,7 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 	async saveSeasonArtwork({ imageId, directory, seasonNumber }: SeasonArtworkInput): Promise<readonly string[]> {
 		if (!imageId) return [];
 
-		return await this.exportAll(
-			this.exportImageFile(imageId, PathUtils.join(directory, `season${formatSeasonNumber(seasonNumber)}-poster.jpg`)),
-		);
+		return await this.exportAll(this.exportImageFile(imageId, PathUtils.join(directory, seasonFileName(seasonNumber, "-poster.jpg"))));
 	}
 
 	async saveEpisodeArtwork({ imageId, directory, videoBaseName }: EpisodeArtworkInput): Promise<readonly string[]> {

@@ -26,8 +26,13 @@ export function assertEpisodeBaseName(videoBaseName: string): string {
 	return videoBaseName;
 }
 
-export function formatSeasonNumber(seasonNumber: number): string {
+function formatSeasonNumber(seasonNumber: number): string {
 	return String(seasonNumber).padStart(2, "0");
+}
+
+/** Season-derived file name: `season01` with the given suffix (`.nfo`, `-poster.jpg`). */
+export function seasonFileName(seasonNumber: number, suffix: string): string {
+	return `season${formatSeasonNumber(seasonNumber)}${suffix}`;
 }
 
 interface SidecarFileNames {
@@ -46,7 +51,7 @@ function createSidecarPathPolicy(names: SidecarFileNames) {
 			return assertWithinDirectory(directory, PathUtils.join(directory, names.series));
 		},
 		season(directory: string, seasonNumber: number): string {
-			return assertWithinDirectory(directory, PathUtils.join(directory, `season${formatSeasonNumber(seasonNumber)}${names.seasonSuffix}`));
+			return assertWithinDirectory(directory, PathUtils.join(directory, seasonFileName(seasonNumber, names.seasonSuffix)));
 		},
 		episode(directory: string, videoBaseName: string): string {
 			return episodeDocumentPath(directory, videoBaseName, names.episodeSuffix);

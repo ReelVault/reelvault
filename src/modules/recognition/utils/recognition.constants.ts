@@ -21,9 +21,6 @@ export const BRACKETED_YEAR_PATTERN = /[([](?:19|20)\d{2}[)\]]/;
 /** Year-first movie names: `(1993) Jurassic Park` and `1993 - Jurassic Park`. */
 export const LEADING_YEAR_PATTERN = /^(?:\((?<parenYear>(?:19|20)\d{2})\)|(?<dashYear>(?:19|20)\d{2})\s+-)\s*(?<title>.+)$/;
 
-/** Matches SxxExx episode patterns (e.g. S01E02, S012E03). Captures: group 1 = season, group 2 = episode. */
-export const EPISODE_SXXEXX_PATTERN = /s(\d{1,3})e(\d{1,3})/i;
-
 export const EPISODE_FILE_PATTERN =
 	// The bare-number branch deliberately refuses `_` as its leading separator:
 	// a `_001`-style suffix marks a duplicate/part of the same title, not an

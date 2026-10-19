@@ -1,7 +1,8 @@
 import { readdir } from "node:fs/promises";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import type { SidecarArtworkReference } from "@/modules/metadata-sidecars/sidecar.types";
-import { EPISODE_SXXEXX_PATTERN } from "@/modules/recognition/utils/recognition.constants";
+import { extractSeasonEpisode } from "@/modules/recognition/utils/recognition.utils";
 import { isNotNullish } from "@/utils/array.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
@@ -95,7 +96,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 		return {
 			seasonNumber,
-			seasonDocument: index.get(`season${String(seasonNumber).padStart(2, "0")}.nfo`),
+			seasonDocument: index.get(seasonFileName(seasonNumber, ".nfo")),
 			poster: findSeasonPoster(seasonNumber, index),
 			episodes: episodeFiles,
 		};
@@ -128,18 +129,18 @@ async function readFiles(directory: string): Promise<string[]> {
 
 function toEpisodeFile(videoPath: string, index: ReadonlyMap<string, string>): LocalEpisodeFile {
 	const name = PathUtils.getFileNameWithoutExt(videoPath);
-	const episodeNumber = EPISODE_SXXEXX_PATTERN.exec(name)?.[2];
+	const episodeNumber = extractSeasonEpisode(name).episode;
 
 	return {
 		videoPath,
-		episodeNumber: episodeNumber ? Number(episodeNumber) : undefined,
+		episodeNumber,
 		documentPath: index.get(`${name}.nfo`.toLowerCase()),
 		thumbnail: selectEpisodeThumbnail(videoPath, index),
 	};
 }
 
 function findSeasonPoster(seasonNumber: number, index: ReadonlyMap<string, string>): SidecarArtworkReference | undefined {
-	const name = `season${String(seasonNumber).padStart(2, "0")}-poster.jpg`;
+	const name = seasonFileName(seasonNumber, "-poster.jpg");
 	const path = index.get(name) ?? index.get("folder.jpg");
 
 	return path ? { path } : undefined;

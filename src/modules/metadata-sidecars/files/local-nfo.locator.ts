@@ -1,3 +1,4 @@
+import { seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import { FileUtils } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { readSeasonNumber } from "./local-season.utils";
@@ -38,8 +39,8 @@ export async function locateLocalNfoChain(videoPath: string, kind: "movie" | "tv
 	}
 
 	const seasonNumber = readSeasonNumber(PathUtils.getFileName(directory));
-	const paddedSeasonName = seasonNumber === undefined ? undefined : `season${String(seasonNumber).padStart(2, "0")}.nfo`;
-	const paddedReelvaultSeasonName = seasonNumber === undefined ? undefined : `season${String(seasonNumber).padStart(2, "0")}-reelvault.nfo`;
+	const paddedSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, ".nfo");
+	const paddedReelvaultSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, "-reelvault.nfo");
 
 	return {
 		episodeDocument: await firstExisting([
