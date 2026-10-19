@@ -69,7 +69,7 @@ const overrides = {
 
 export const providersRepository = defineRepository(providers, overrides);
 
-/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+/** Methods dispatch through the singleton: the lint rule forbids referencing the const before its definition. */
 function getProvidersRepository() {
 	return providersRepository;
 }

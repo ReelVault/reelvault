@@ -1,9 +1,7 @@
 import type { CompanyFilters, CompanySorting, Metadata } from "@reelvault/sdk/common";
-import type { ProviderResultProductionCompany } from "@reelvault/sdk/plugin";
 import { desc, eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { defineNamedEntityRepository } from "@/integrations/drizzle-orm/query/named-entity-repository.factory";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
@@ -50,21 +48,4 @@ async function findMetadata({ companyId, limit }: { companyId: string; limit: nu
 	return rows.map((row) => row.metadata);
 }
 
-/**
- * Process companies for metadata (bulk operation)
- */
-async function process({
-	metadataId,
-	providerName,
-	providerCompanies,
-	tx,
-}: {
-	metadataId: string;
-	providerName: string;
-	providerCompanies?: ProviderResultProductionCompany[] | undefined;
-	tx?: DatabaseTransaction | undefined;
-}) {
-	await repository.process({ metadataId, providerName, items: providerCompanies, tx });
-}
-
-export const companiesRepository = { ...repository, findMetadata, process };
+export const companiesRepository = { ...repository, findMetadata };

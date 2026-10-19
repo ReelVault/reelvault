@@ -1,10 +1,12 @@
 import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
-import { eq, inArray, type SQL } from "drizzle-orm";
+import { eq, inArray, type SQL, sql } from "drizzle-orm";
+import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { hasEntry } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
+import { forEachChunked } from "./chunking.utils";
 import { selectFirst } from "./select.builder";
 import type { TableAccessBase, TableInsertValue, TableSelect, TableUpdateSet } from "./table-access.types";
 
@@ -256,4 +258,43 @@ export async function deleteAndReturn<TTable extends DatabaseTables>(
 	const [row] = await runDelete(repository, { primaryId, tx }, true);
 
 	return row;
+}
+
+/**
+ * Chunked `CASE ... WHEN id THEN value ... ELSE column END` update for provider
+ * syncs: one statement per chunk assigns per-row values, and rows that omit a
+ * field keep their stored value. Replaces one autocommit UPDATE per changed row.
+ */
+export async function updateManyFieldsById(options: {
+	table: SQLiteTable;
+	primaryKeyColumn: SQLiteColumn;
+	columns: Record<string, SQLiteColumn>;
+	updates: ReadonlyArray<{ id: string; values: Record<string, string | number | null | undefined> }>;
+	touchUpdatedAt?: boolean | undefined;
+}): Promise<void> {
+	const rows = options.updates.filter((update) => Object.keys(update.values).length > 0);
+	if (rows.length === 0) return;
+
+	const client = databaseFactory.getClient();
+	await forEachChunked(rows, async (chunk) => {
+		const set: Record<string, SQL | Date> = {};
+		if (options.touchUpdatedAt === true) set.updatedAt = new Date();
+		for (const [field, column] of Object.entries(options.columns)) {
+			const provided = chunk.filter((row) => row.values[field] !== undefined);
+			if (provided.length === 0) continue;
+
+			const cases = provided.map((row) => sql`WHEN ${row.id} THEN ${row.values[field]}`);
+			set[field] = sql`CASE ${options.primaryKeyColumn} ${sql.join(cases, sql` `)} ELSE ${column} END`;
+		}
+
+		await client
+			.update(options.table)
+			.set(set)
+			.where(
+				inArray(
+					options.primaryKeyColumn,
+					chunk.map((row) => row.id),
+				),
+			);
+	});
 }

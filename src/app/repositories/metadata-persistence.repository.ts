@@ -9,7 +9,6 @@ import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { metadataExternalIdsRepository } from "@/app/repositories/metadata-external-ids.repository";
 import { metadataMergeRepository } from "@/app/repositories/metadata-merge.repository";
 import { peopleRepository } from "@/app/repositories/people.repository";
-import { providersRepository } from "@/app/repositories/providers.repository";
 import { seasonsRepository } from "@/app/repositories/seasons.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -18,6 +17,28 @@ import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.u
 import { toMetadataValues } from "@/integrations/drizzle-orm/utils/metadata-values.mapper";
 import { createProviderStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { clamp, isValidRating } from "@/utils/math.utils";
+
+/** Relation surfaces a field lock can protect; each entry deletes that relation's rows for one title. */
+type LockedRelation = "cast" | "crew" | "genres" | "keywords" | "companies" | "collections" | "ratings";
+
+const RELATION_DELETES: Record<LockedRelation, (metadataId: string, tx: DatabaseTransaction) => Promise<unknown>> = {
+	cast: (metadataId, tx) => metadataRepository.deleteCast({ where: eq(schema.metadataCast.metadataId, metadataId), tx }),
+	crew: (metadataId, tx) => metadataRepository.deleteCrew({ where: eq(schema.metadataCrew.metadataId, metadataId), tx }),
+	genres: (metadataId, tx) => metadataRepository.deleteGenres({ where: eq(schema.metadataGenres.metadataId, metadataId), tx }),
+	keywords: (metadataId, tx) => metadataRepository.deleteKeywords({ where: eq(schema.metadataKeywords.metadataId, metadataId), tx }),
+	companies: (metadataId, tx) => metadataRepository.deleteCompanies({ where: eq(schema.metadataCompanies.metadataId, metadataId), tx }),
+	collections: (metadataId, tx) =>
+		metadataRepository.deleteCollections({ where: eq(schema.metadataCollections.metadataId, metadataId), tx }),
+	ratings: (metadataId, tx) => metadataRepository.deleteRatings({ where: eq(schema.metadataRatings.metadataId, metadataId), tx }),
+};
+
+const ALL_METADATA_RELATIONS: readonly LockedRelation[] = ["cast", "crew", "genres", "keywords", "companies", "collections", "ratings"];
+const CREDIT_RELATIONS: readonly LockedRelation[] = ["cast", "crew"];
+
+/** A lock on `companies` protects the studio alias too. */
+function isRelationLocked(locked: ReadonlySet<string>, relation: LockedRelation): boolean {
+	return relation === "companies" ? locked.has("companies") || locked.has("studios") : locked.has(relation);
+}
 
 class MetadataPersistenceRepository {
 	async createProviderMetadata({
@@ -115,32 +136,10 @@ class MetadataPersistenceRepository {
 				await metadataExternalIdsRepository.replace(metadataId, { [providerName]: metadata.externalId }, tx);
 
 				await metadataRepository.deleteProviders({ where: eq(schema.metadataProviders.metadataId, metadataId), tx });
-				const provider = await providersRepository.findOrCreateByIdentity({
-					name: providerName,
-					externalId: metadata.externalId,
-					entityType: type,
-					tx,
-				});
-				if (provider) {
-					await metadataRepository.insertProviders({ values: { metadataId, providerId: provider.id }, tx });
-				}
+				// Same link path the create/merge flows use — one provider identity scheme.
+				await metadataRepository.linkProviders(metadataId, type, [{ name: providerName, externalId: metadata.externalId }], tx);
 
-				const relationDeletes: Array<Promise<unknown>> = [];
-				if (!locked.has("cast"))
-					relationDeletes.push(metadataRepository.deleteCast({ where: eq(schema.metadataCast.metadataId, metadataId), tx }));
-				if (!locked.has("crew"))
-					relationDeletes.push(metadataRepository.deleteCrew({ where: eq(schema.metadataCrew.metadataId, metadataId), tx }));
-				if (!locked.has("genres"))
-					relationDeletes.push(metadataRepository.deleteGenres({ where: eq(schema.metadataGenres.metadataId, metadataId), tx }));
-				if (!locked.has("keywords"))
-					relationDeletes.push(metadataRepository.deleteKeywords({ where: eq(schema.metadataKeywords.metadataId, metadataId), tx }));
-				if (!(locked.has("companies") || locked.has("studios")))
-					relationDeletes.push(metadataRepository.deleteCompanies({ where: eq(schema.metadataCompanies.metadataId, metadataId), tx }));
-				if (!locked.has("collections"))
-					relationDeletes.push(metadataRepository.deleteCollections({ where: eq(schema.metadataCollections.metadataId, metadataId), tx }));
-				if (!locked.has("ratings"))
-					relationDeletes.push(metadataRepository.deleteRatings({ where: eq(schema.metadataRatings.metadataId, metadataId), tx }));
-				await Promise.all(relationDeletes);
+				await this.deleteUnlockedRelations(metadataId, locked, tx, ALL_METADATA_RELATIONS);
 
 				const personImages = await this.createMetadataRelations(metadataId, providerName, metadata, tx, locked);
 
@@ -165,16 +164,7 @@ class MetadataPersistenceRepository {
 		}
 
 		return await databaseFactory.transaction(async (tx) => {
-			const deletes: Array<Promise<unknown>> = [];
-			if (!isCastLocked) {
-				deletes.push(metadataRepository.deleteCast({ where: eq(schema.metadataCast.metadataId, metadataId), tx }));
-			}
-
-			if (!isCrewLocked) {
-				deletes.push(metadataRepository.deleteCrew({ where: eq(schema.metadataCrew.metadataId, metadataId), tx }));
-			}
-
-			await Promise.all(deletes);
+			await this.deleteUnlockedRelations(metadataId, lockedSet, tx, CREDIT_RELATIONS);
 
 			return await peopleRepository.processMetadataCredits({
 				metadataId,
@@ -200,40 +190,19 @@ class MetadataPersistenceRepository {
 		const isRatingsLocked = lockedSet.has("ratings");
 
 		await databaseFactory.transaction(async (tx) => {
-			const deletes: Array<Promise<unknown>> = [];
-			if (!isGenresLocked) {
-				deletes.push(metadataRepository.deleteGenres({ where: eq(schema.metadataGenres.metadataId, metadataId), tx }));
-			}
-
-			if (!isKeywordsLocked) {
-				deletes.push(metadataRepository.deleteKeywords({ where: eq(schema.metadataKeywords.metadataId, metadataId), tx }));
-			}
-
-			if (!isCompaniesLocked) {
-				deletes.push(metadataRepository.deleteCompanies({ where: eq(schema.metadataCompanies.metadataId, metadataId), tx }));
-			}
-
-			if (!isCollectionsLocked) {
-				deletes.push(metadataRepository.deleteCollections({ where: eq(schema.metadataCollections.metadataId, metadataId), tx }));
-			}
-
-			if (!isRatingsLocked) {
-				deletes.push(metadataRepository.deleteRatings({ where: eq(schema.metadataRatings.metadataId, metadataId), tx }));
-			}
-
-			await Promise.all(deletes);
+			await this.deleteUnlockedRelations(metadataId, lockedSet, tx, ["genres", "keywords", "companies", "collections", "ratings"]);
 
 			const processes: Array<Promise<unknown>> = [];
 			if (!isGenresLocked) {
-				processes.push(genreRepository.process({ metadataId, providerName, providerGenres: metadata.genres, tx }));
+				processes.push(genreRepository.process({ metadataId, providerName, items: metadata.genres, tx }));
 			}
 
 			if (!isKeywordsLocked) {
-				processes.push(keywordsRepository.process({ metadataId, providerName, keywordNames: metadata.keywords, tx }));
+				processes.push(keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx }));
 			}
 
 			if (!isCompaniesLocked) {
-				processes.push(companiesRepository.process({ metadataId, providerName, providerCompanies: metadata.productionCompanies, tx }));
+				processes.push(companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }));
 			}
 
 			if (!isCollectionsLocked) {
@@ -314,6 +283,18 @@ class MetadataPersistenceRepository {
 		});
 	}
 
+	/** Deletes the given relation rows unless a field lock protects them. */
+	private async deleteUnlockedRelations(
+		metadataId: string,
+		locked: ReadonlySet<string>,
+		tx: DatabaseTransaction,
+		relations: readonly LockedRelation[],
+	): Promise<void> {
+		await Promise.all(
+			relations.filter((relation) => !isRelationLocked(locked, relation)).map((relation) => RELATION_DELETES[relation](metadataId, tx)),
+		);
+	}
+
 	private async createMetadataRelations(
 		metadataId: string,
 		providerName: string,
@@ -322,16 +303,18 @@ class MetadataPersistenceRepository {
 		locked: ReadonlySet<string> = new Set(),
 	) {
 		const [, , , , personImages] = await Promise.all([
-			locked.has("collections")
+			isRelationLocked(locked, "collections")
 				? Promise.resolve()
 				: collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
-			locked.has("companies") || locked.has("studios")
+			isRelationLocked(locked, "companies")
 				? Promise.resolve()
-				: companiesRepository.process({ metadataId, providerName, providerCompanies: metadata.productionCompanies, tx }),
-			locked.has("genres") ? Promise.resolve() : genreRepository.process({ metadataId, providerName, providerGenres: metadata.genres, tx }),
-			locked.has("keywords")
+				: companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }),
+			isRelationLocked(locked, "genres")
 				? Promise.resolve()
-				: keywordsRepository.process({ metadataId, providerName, keywordNames: metadata.keywords, tx }),
+				: genreRepository.process({ metadataId, providerName, items: metadata.genres, tx }),
+			isRelationLocked(locked, "keywords")
+				? Promise.resolve()
+				: keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx }),
 			locked.has("cast") && locked.has("crew")
 				? Promise.resolve([])
 				: peopleRepository.processMetadataCredits({
@@ -341,7 +324,7 @@ class MetadataPersistenceRepository {
 						crew: locked.has("crew") ? undefined : metadata.crew,
 						tx,
 					}),
-			locked.has("ratings")
+			isRelationLocked(locked, "ratings")
 				? Promise.resolve()
 				: metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx }),
 		]);

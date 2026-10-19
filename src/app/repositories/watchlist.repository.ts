@@ -143,7 +143,7 @@ const overrides = {
 
 export const watchlistRepository = defineRepository(watchlist, overrides);
 
-/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+/** Methods dispatch through the singleton: the lint rule forbids referencing the const before its definition. */
 function getWatchlistRepository() {
 	return watchlistRepository;
 }

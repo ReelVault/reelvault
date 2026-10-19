@@ -25,9 +25,7 @@ const overrides = {
 	},
 
 	async findById(id: string): Promise<DownloadRow | undefined> {
-		const rows = await databaseFactory.getClient().select().from(downloads.table).where(eq(downloads.table.id, id)).limit(1);
-
-		return rows[0];
+		return await downloads.selectFirstById({ primaryId: id });
 	},
 
 	async findByProfile(profileId: string, limit = MAX_LIST_ROWS): Promise<DownloadRow[]> {
@@ -144,20 +142,13 @@ const overrides = {
 
 	/** True while the profile has this file waiting or running: a second copy of the same download would repeat the work. */
 	async hasActiveByProfileAndMedia(profileId: string, mediaFileId: string): Promise<boolean> {
-		const rows = await databaseFactory
-			.getClient()
-			.select({ id: downloads.table.id })
-			.from(downloads.table)
-			.where(
-				and(
-					eq(downloads.table.profileId, profileId),
-					eq(downloads.table.mediaFileId, mediaFileId),
-					inArray(downloads.table.status, ["pending", "processing"]),
-				),
-			)
-			.limit(1);
-
-		return rows.length > 0;
+		return await downloads.isExists({
+			where: and(
+				eq(downloads.table.profileId, profileId),
+				eq(downloads.table.mediaFileId, mediaFileId),
+				inArray(downloads.table.status, ["pending", "processing"]),
+			),
+		});
 	},
 
 	/** The profile's waiting downloads, oldest first: the next ones to start as running slots free up. */

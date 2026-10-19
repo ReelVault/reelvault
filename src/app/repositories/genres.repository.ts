@@ -1,7 +1,5 @@
 import type { GenreFilters, GenreSorting } from "@reelvault/sdk/common";
-import type { ProviderResultGenre } from "@reelvault/sdk/plugin";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { defineNamedEntityRepository } from "@/integrations/drizzle-orm/query/named-entity-repository.factory";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
@@ -34,21 +32,4 @@ const repository = defineNamedEntityRepository({
 	},
 });
 
-/**
- * Process genres for metadata (bulk operation)
- */
-async function process({
-	metadataId,
-	providerName,
-	providerGenres,
-	tx,
-}: {
-	metadataId: string;
-	providerName: string;
-	providerGenres?: ProviderResultGenre[] | undefined;
-	tx?: DatabaseTransaction | undefined;
-}) {
-	await repository.process({ metadataId, providerName, items: providerGenres, tx });
-}
-
-export const genreRepository = { ...repository, process };
+export const genreRepository = repository;

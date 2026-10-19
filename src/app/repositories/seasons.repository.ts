@@ -7,14 +7,13 @@ import type {
 	SeasonSorting,
 	SelectFields,
 } from "@reelvault/sdk/common";
-import { and, asc, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, ne, or, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { type FindFirstReadParams, type PrimaryIdReadParams, selectByPrimaryId } from "@/integrations/drizzle-orm/query/primary-id.reader";
-import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import {
@@ -22,6 +21,7 @@ import {
 	defineTableAccess,
 	parseFieldsForRead,
 } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { updateManyFieldsById } from "@/integrations/drizzle-orm/query/table-access/writes.writer";
 import { findOrCreateWithIdentityRecovery } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 
@@ -162,36 +162,24 @@ const overrides = {
 			values: Partial<Pick<typeof schema.seasons.$inferInsert, "name" | "overview" | "airDate" | "status">>;
 		}>,
 	): Promise<void> {
-		const rows = updates.filter((update) => Object.keys(update.values).length > 0);
-		if (rows.length === 0) return;
-
-		const client = databaseFactory.getClient();
-		await forEachChunked(rows, async (chunk) => {
-			const set: { name?: SQL; overview?: SQL; airDate?: SQL; status?: SQL; updatedAt: Date } = { updatedAt: new Date() };
-			for (const field of ["name", "overview", "airDate", "status"] as const) {
-				const provided = chunk.filter((row) => row.values[field] !== undefined);
-				if (provided.length === 0) continue;
-
-				const cases = provided.map((row) => sql`WHEN ${row.id} THEN ${row.values[field]}`);
-				set[field] = sql`CASE ${schema.seasons.id} ${sql.join(cases, sql` `)} ELSE ${schema.seasons[field]} END`;
-			}
-
-			await client
-				.update(schema.seasons)
-				.set(set)
-				.where(
-					inArray(
-						schema.seasons.id,
-						chunk.map((row) => row.id),
-					),
-				);
+		await updateManyFieldsById({
+			table: schema.seasons,
+			primaryKeyColumn: schema.seasons.id,
+			columns: {
+				name: schema.seasons.name,
+				overview: schema.seasons.overview,
+				airDate: schema.seasons.airDate,
+				status: schema.seasons.status,
+			},
+			updates,
+			touchUpdatedAt: true,
 		});
 	},
 };
 
 export const seasonsRepository = defineRepository(seasons, overrides);
 
-/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+/** Methods dispatch through the singleton: the lint rule forbids referencing the const before its definition. */
 function getSeasonsRepository() {
 	return seasonsRepository;
 }

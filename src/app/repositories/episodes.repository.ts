@@ -17,11 +17,12 @@ import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.par
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
-import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineTableAccess, parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
+import { updateManyFieldsById } from "@/integrations/drizzle-orm/query/table-access/writes.writer";
 import { findOrCreateWithIdentityRecovery } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
 import { findFirstWithMediaFiles, findManyWithMediaFiles } from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
@@ -258,14 +259,7 @@ class EpisodesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
-		const data = await this.selectFirst({ where, tx });
-
-		if (!data) return undefined;
-
-		const row = await findFirstWithMediaFiles(data, { fields, relation: "episodeId", tx });
-		if (!row) return undefined;
-
-		return QueryFields.apply<EpisodeWithRelations, F>(row, fields);
+		return await this.projectWithMediaFiles(await this.selectFirst({ where, tx }), { fields, tx });
 	}
 
 	/**
@@ -292,14 +286,20 @@ class EpisodesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
-		const data = await this.selectFirstById({ primaryId, tx });
+		return await this.projectWithMediaFiles(await this.selectFirstById({ primaryId, tx }), { fields, tx });
+	}
 
+	/** Single-row projection shared by the `where`- and primary-id reads: attaches media files, then applies `fields`. */
+	private async projectWithMediaFiles<F extends string>(
+		data: typeof schema.episodes.$inferSelect | undefined,
+		options: { fields?: FieldsConfig<F> | undefined; tx?: DatabaseTransaction | undefined },
+	): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
 		if (!data) return undefined;
 
-		const row = await findFirstWithMediaFiles(data, { fields, relation: "episodeId", tx });
+		const row = await findFirstWithMediaFiles(data, { fields: options.fields, relation: "episodeId", tx: options.tx });
 		if (!row) return undefined;
 
-		return QueryFields.apply<EpisodeWithRelations, F>(row, fields);
+		return QueryFields.apply<EpisodeWithRelations, F>(row, options.fields);
 	}
 
 	/**
@@ -313,29 +313,17 @@ class EpisodesRepository {
 			values: Partial<Pick<typeof schema.episodes.$inferInsert, "title" | "overview" | "airDate" | "absoluteNumber">>;
 		}>,
 	): Promise<void> {
-		const rows = updates.filter((update) => Object.keys(update.values).length > 0);
-		if (rows.length === 0) return;
-
-		const client = databaseFactory.getClient();
-		await forEachChunked(rows, async (chunk) => {
-			const set: { title?: SQL; overview?: SQL; airDate?: SQL; absoluteNumber?: SQL; updatedAt: Date } = { updatedAt: new Date() };
-			for (const field of ["title", "overview", "airDate", "absoluteNumber"] as const) {
-				const provided = chunk.filter((row) => row.values[field] !== undefined);
-				if (provided.length === 0) continue;
-
-				const cases = provided.map((row) => sql`WHEN ${row.id} THEN ${row.values[field]}`);
-				set[field] = sql`CASE ${schema.episodes.id} ${sql.join(cases, sql` `)} ELSE ${schema.episodes[field]} END`;
-			}
-
-			await client
-				.update(schema.episodes)
-				.set(set)
-				.where(
-					inArray(
-						schema.episodes.id,
-						chunk.map((row) => row.id),
-					),
-				);
+		await updateManyFieldsById({
+			table: schema.episodes,
+			primaryKeyColumn: schema.episodes.id,
+			columns: {
+				title: schema.episodes.title,
+				overview: schema.episodes.overview,
+				airDate: schema.episodes.airDate,
+				absoluteNumber: schema.episodes.absoluteNumber,
+			},
+			updates,
+			touchUpdatedAt: true,
 		});
 	}
 }

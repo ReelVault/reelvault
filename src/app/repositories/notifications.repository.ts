@@ -26,6 +26,22 @@ function recipientWhere(userId: string, profileId?: string): SQL | undefined {
 	return and(eq(schema.notifications.userId, userId), isNull(schema.notifications.profileId));
 }
 
+/** Recipient filter shared by the list and page queries: owner, read state, type and muted types. */
+function recipientConditions(input: {
+	userId: string;
+	profileId?: string | undefined;
+	unreadOnly?: boolean | undefined;
+	type?: string | undefined;
+	excludedTypes?: readonly string[] | undefined;
+}): SQL | undefined {
+	return and(
+		recipientWhere(input.userId, input.profileId),
+		input.unreadOnly ? isNull(schema.notifications.readAt) : undefined,
+		input.type ? eq(schema.notifications.type, input.type) : undefined,
+		excludedTypesWhere(input.excludedTypes ?? []),
+	);
+}
+
 /** Flips every matching notification to read (or unread), one state only. */
 async function setAllRead(where: SQL | undefined, read: boolean): Promise<void> {
 	const now = new Date();
@@ -90,8 +106,7 @@ const overrides = {
 	},
 
 	async findForRecipient(userId: string, profileId?: string, unreadOnly = false, limit = 50, excludedTypes: readonly string[] = []) {
-		const recipient = recipientWhere(userId, profileId);
-		const where = and(recipient, unreadOnly ? isNull(notifications.table.readAt) : undefined, excludedTypesWhere(excludedTypes));
+		const where = recipientConditions({ userId, profileId, unreadOnly, excludedTypes });
 
 		return await databaseFactory
 			.getClient()
@@ -120,13 +135,7 @@ const overrides = {
 		limit: number;
 		offset: number;
 	}): Promise<{ data: Array<typeof schema.notifications.$inferSelect>; total: number }> {
-		const conditions: Array<SQL | undefined> = [recipientWhere(userId, profileId)];
-		if (unreadOnly) conditions.push(isNull(schema.notifications.readAt));
-
-		if (type) conditions.push(eq(schema.notifications.type, type));
-		conditions.push(excludedTypesWhere(excludedTypes));
-
-		const where = and(...conditions);
+		const where = recipientConditions({ userId, profileId, unreadOnly, type, excludedTypes });
 		const client = databaseFactory.getClient();
 		const [total, rows] = await Promise.all([
 			client.$count(schema.notifications, where),
@@ -219,7 +228,7 @@ const overrides = {
 
 export const notificationsRepository = defineRepository(notifications, overrides);
 
-/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+/** Methods dispatch through the singleton: the lint rule forbids referencing the const before its definition. */
 function getNotificationsRepository() {
 	return notificationsRepository;
 }

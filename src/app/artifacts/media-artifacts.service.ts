@@ -229,13 +229,8 @@ class MediaArtifactsService {
 	/** Stored bytes for a single media file, used to decide whether regeneration can still fit. */
 	async getMediaFileStoredBytes(mediaFileId: string, ownerId: string): Promise<number> {
 		const artifacts = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
-		const sizes = await PromiseUtils.mapConcurrent(
-			artifacts.filter((artifact) => artifact.pluginId === ownerId),
-			serverConfig.plugins.artifacts.cleanupConcurrency,
-			(artifact) => FileUtils.getStats(this.storagePath(artifact.storageKey)),
-		);
 
-		return sizes.reduce((total, stats) => total + (stats?.size ?? 0), 0);
+		return await this.sumStoredBytes(artifacts.filter((artifact) => artifact.pluginId === ownerId));
 	}
 
 	/**
@@ -295,8 +290,12 @@ class MediaArtifactsService {
 
 	/** Stats every stored file of one owner (bounded parallel). */
 	private async computeOwnerByteTotal(ownerId: string): Promise<number> {
-		const existing = await mediaArtifactsRepository.findByPluginId(ownerId);
-		const sizes = await PromiseUtils.mapConcurrent(existing, serverConfig.plugins.artifacts.cleanupConcurrency, (artifact) =>
+		return await this.sumStoredBytes(await mediaArtifactsRepository.findByPluginId(ownerId));
+	}
+
+	/** Sums the on-disk size of the given artifact rows (bounded parallel). */
+	private async sumStoredBytes(artifacts: readonly MediaArtifactRow[]): Promise<number> {
+		const sizes = await PromiseUtils.mapConcurrent(artifacts, serverConfig.plugins.artifacts.cleanupConcurrency, (artifact) =>
 			FileUtils.getStats(this.storagePath(artifact.storageKey)),
 		);
 

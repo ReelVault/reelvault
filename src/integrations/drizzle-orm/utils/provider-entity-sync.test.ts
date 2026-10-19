@@ -46,7 +46,7 @@ test("stores one genre per unique trimmed name, skips blank names, and links the
 	await genreRepository.process({
 		metadataId,
 		providerName: "tmdb",
-		providerGenres: [
+		items: [
 			{ id: "g-1", name: "  Action " },
 			{ id: "g-2", name: "Action" },
 			{ id: "g-3", name: "   " },
@@ -76,7 +76,7 @@ test("links every provider row that resolves to the same genre", async () => {
 	await genreRepository.process({
 		metadataId,
 		providerName: "tmdb",
-		providerGenres: [
+		items: [
 			{ id: "g-1", name: "Action" },
 			{ id: "g-2", name: "Action" },
 		],

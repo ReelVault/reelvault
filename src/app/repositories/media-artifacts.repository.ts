@@ -37,7 +37,7 @@ const overrides = {
 
 export const mediaArtifactsRepository = defineRepository(mediaArtifacts, overrides);
 
-/** Methods dispatch through the singleton so tests can monkey-patch delegations. */
+/** Methods dispatch through the singleton: the lint rule forbids referencing the const before its definition. */
 function getMediaArtifactsRepository() {
 	return mediaArtifactsRepository;
 }
