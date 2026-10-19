@@ -13,11 +13,10 @@ import { Elysia, t } from "elysia";
 import { authService } from "@/app/auth/auth.service";
 import { sessionsService } from "@/app/auth/sessions.service";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
+import { assertAuthRequestOrigin } from "@/app/http/middleware/auth-origin.guard";
 import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { MINUTE } from "@/config/server/server.constants";
-import { DomainError } from "@/utils/domain.errors";
-import { isOriginAllowed } from "@/utils/origin-trust.utils";
 import { quickConnectRoutes } from "./quick-connect.routes";
 
 export const authRoutes = new Elysia({
@@ -26,20 +25,10 @@ export const authRoutes = new Elysia({
 })
 	.use(commonModel)
 	.use(rateLimitMiddleware)
+	// Declared before the child plugin: hooks apply only to routes registered
+	// after them, and quick-connect endpoints are state-changing auth requests.
+	.onBeforeHandle(({ request }) => assertAuthRequestOrigin(request))
 	.use(quickConnectRoutes)
-	.onBeforeHandle(({ request }) => {
-		// Origin check for state-changing auth requests. Better Auth's own
-		// origin/CSRF middleware never runs because `auth.api.*` bypasses its HTTP
-		// router, leaving SameSite alone as CSRF defense. Non-browser callers that
-		// omit Origin are unaffected.
-		const method = request.method.toUpperCase();
-		if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
-
-		const origin = request.headers.get("origin");
-		if (origin && !isOriginAllowed(origin)) {
-			throw new DomainError("forbidden", "Request origin is not allowed", { code: "auth.origin_denied" });
-		}
-	})
 	.model({
 		"auth.register.body": RegisterRequestSchema,
 		"auth.register.response": RegisterResponseSchema,

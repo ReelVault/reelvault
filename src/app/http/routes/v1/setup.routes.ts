@@ -1,6 +1,7 @@
 import { RegisterResponseSchema, SetupAdminRequestSchema, SetupStatusSchema } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { firstRunSetupService } from "@/app/auth/setup/first-run-setup.service";
+import { assertAuthRequestOrigin } from "@/app/http/middleware/auth-origin.guard";
 import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel } from "@/app/http/schemas/common.schema";
 import { MINUTE } from "@/config/server/server.constants";
@@ -11,6 +12,7 @@ export const setupRoutes = new Elysia({
 })
 	.use(commonModel)
 	.use(rateLimitMiddleware)
+	.onBeforeHandle(({ request }) => assertAuthRequestOrigin(request))
 	.model({
 		"setup.admin.body": SetupAdminRequestSchema,
 		"setup.status": SetupStatusSchema,

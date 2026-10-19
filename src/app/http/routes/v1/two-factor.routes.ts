@@ -1,6 +1,7 @@
 import { AuthUserSchema, TwoFactorBackupCodesStatusSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { twoFactorService } from "@/app/auth/two-factor.service";
+import { assertAuthRequestOrigin } from "@/app/http/middleware/auth-origin.guard";
 import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { MINUTE } from "@/config/server/server.constants";
@@ -17,6 +18,7 @@ export const twoFactorRoutes = new Elysia({
 })
 	.use(commonModel)
 	.use(rateLimitMiddleware)
+	.onBeforeHandle(({ request }) => assertAuthRequestOrigin(request))
 	.get("/backup-codes", async ({ request }) => await twoFactorService.countRemainingBackupCodes(request.headers), {
 		rateLimit: { name: "auth-two-factor-backup-codes", max: 30, windowMs: MANAGEMENT_WINDOW_MS },
 		response: { 200: TwoFactorBackupCodesStatusSchema },

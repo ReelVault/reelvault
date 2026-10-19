@@ -28,8 +28,14 @@ function extractSessionToken(headers: Headers): string | undefined {
 	if (!cookie) return undefined;
 
 	const match = SESSION_TOKEN_REGEX.exec(cookie);
+	if (!match?.[1]) return undefined;
 
-	return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+	// A malformed percent escape must read as "no session", not throw out of the derive.
+	try {
+		return decodeURIComponent(match[1]);
+	} catch {
+		return undefined;
+	}
 }
 
 /**
