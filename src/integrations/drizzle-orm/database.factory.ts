@@ -33,6 +33,16 @@ export interface DatabaseFactoryOptions {
  */
 const LOW_MEMORY_KIB = 2 * 1024 * 1024;
 
+/**
+ * Bun caches compiled statements per SQL text (an LRU of this many entries,
+ * default 20). The query layer builds SQL text dynamically — filter
+ * combinations, sorts and projections — so the hot working set of distinct
+ * texts runs well past 20, and every execution of an evicted text re-compiles
+ * its SQL. Sized to hold the working set with headroom; the `database` bench
+ * ("compiled-statement working set") measures the difference.
+ */
+Database.MAX_QUERY_CACHE_SIZE = 512;
+
 interface TransactionContext {
 	depth: number;
 }

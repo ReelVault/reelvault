@@ -418,6 +418,34 @@ if (!args.help) {
 
 		return { ok: optimizePlan === analyzePlan };
 	});
+
+	// ─── Bun compiled-statement cache: dynamic SQL working set ──────────────
+	// The query layer builds SQL text per request shape (filters, sorts,
+	// projections). Bun caches compiled statements per SQL text with capacity
+	// `Database.MAX_QUERY_CACHE_SIZE` (Bun default 20), latched when the first
+	// Database is constructed; database.factory raises it to 512 before opening
+	// the connection. A working set wider than the capacity re-compiles the
+	// evicted SQL on every round — a 48-shape sweep went 0.11 ms → 0.03 ms p50
+	// across that change while this control stayed put. Keep distinct- and
+	// control-sweep close; a growing gap means the working set again exceeds
+	// the cache.
+	task("database: compiled-statement working set", async () => {
+		const { db } = await database();
+		const shapes = 48;
+		const shapeIds = Array.from({ length: shapes }, (_, i) => `'meta-${String(i).padStart(7, "0")}'`);
+		const sweepDistinct = (): void => {
+			for (const id of shapeIds) db.query(`SELECT id FROM metadata WHERE id = ${id}`).get();
+		};
+		const repeated = db.query("SELECT id FROM metadata WHERE id = 'meta-0000000'");
+		const sweepRepeated = (): void => {
+			for (let i = 0; i < shapes; i++) repeated.get();
+		};
+
+		printMicroResults([
+			measure(`${shapes} distinct SQL shapes per sweep`, sweepDistinct, { iterations: 300 }),
+			measure(`${shapes} hits on one compiled statement`, sweepRepeated, { iterations: 300 }),
+		]);
+	});
 }
 
 await main(import.meta);

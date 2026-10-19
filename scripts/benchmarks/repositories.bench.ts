@@ -78,14 +78,10 @@ if (!args.help) {
 		{ warmup: 5, iterations: args.iterations },
 	);
 	bench(
-		"metadataRepository.findRecentlyAddedByType (movie, 20)",
-		async () => await metadataRepository.findRecentlyAddedByType("movie", 20),
+		"metadataRepository.findRecentlyAddedByTypes (movie+tv, 20)",
+		async () => await metadataRepository.findRecentlyAddedByTypes(["movie", "tv_show"], 20),
 		{ warmup: 5, iterations: args.iterations },
 	);
-	bench("metadataRepository.findTypeById (prepared shape)", async () => await metadataRepository.findTypeById(MOVIE_ID), {
-		warmup: 5,
-		iterations: args.iterations,
-	});
 	bench("metadataRepository.findRootsById (prepared shape)", async () => await metadataRepository.findRootsById(MOVIE_ID), {
 		warmup: 5,
 		iterations: args.iterations,
@@ -95,10 +91,6 @@ if (!args.help) {
 		async () => await playbackRepository.findProgressUpdateData(`mf-${MOVIE_ID}`, PROFILE_ID),
 		{ warmup: 5, iterations: args.iterations },
 	);
-	bench("metadataRepository.findNumberingModeById (prepared shape)", async () => await metadataRepository.findNumberingModeById(MOVIE_ID), {
-		warmup: 5,
-		iterations: args.iterations,
-	});
 	bench(
 		"playbackRepository.findMediaFileWithMetadata (prepared shape)",
 		async () => await playbackRepository.findMediaFileWithMetadata(`mf-${MOVIE_ID}`),

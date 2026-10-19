@@ -39,6 +39,7 @@ const { playbackViewService } = await import("@/app/media/playback-view.service"
 const { SidecarMetadataStorageService } = await import("@/modules/metadata-sidecars/sidecar-metadata-storage.service");
 const { playbackProgressService } = await import("@/app/playback/playback-progress.service");
 const { librariesService } = await import("@/app/libraries/libraries.service");
+const { loadRelations } = await import("@/app/repositories/metadata-relations.repository");
 const { wireModulePorts } = await import("@/app/wiring/module-ports");
 
 // The sidecar case drives SidecarMetadataStorageService, which reads through
@@ -53,6 +54,8 @@ const MOVIE_ID = "meta-0000001";
 const LIBRARY_ID = "lib-bench";
 const BATCH_SIZE = 50;
 const BATCH_IDS = Array.from({ length: BATCH_SIZE }, (_, i) => `meta-${String(i).padStart(7, "0")}`);
+/** A full 5000-title collection: the list relation reader runs 3 statements per `queryChunkSize` chunk. */
+const LARGE_IDS = Array.from({ length: 5000 }, (_, i) => `meta-${String(i).padStart(7, "0")}`);
 
 interface OperationCase {
 	name: string;
@@ -105,8 +108,9 @@ function repositoryOperationCases(): OperationCase[] {
 			run: () => metadataRepository.findPage({ limit: 24 }),
 		},
 		{
+			// Root row and all ten relations ride one prepared statement.
 			name: "metadataRepository.findById (movie detail)",
-			target: 2,
+			target: 1,
 			run: () => metadataRepository.findById({ primaryId: MOVIE_ID }),
 		},
 		{
@@ -115,20 +119,20 @@ function repositoryOperationCases(): OperationCase[] {
 			run: () => librariesRepository.findByIdForRead(LIBRARY_ID, { fields: "id,type" }),
 		},
 		{
-			// Internal scan paths read the library without the provider-priority
-			// overrides getById loads; findings add one query.
-			name: "librariesService.getScanFindings (existence + findings)",
-			target: 2,
+			// The findings statement carries the library-existence flag in its
+			// counts row, so the not-found check needs no round trip.
+			name: "librariesService.getScanFindings (findings + existence flag)",
+			target: 1,
 			run: () => librariesService.getScanFindings(LIBRARY_ID),
 		},
 		{
 			name: "collectionRepository.findPage (24, cold count)",
-			target: 6,
+			target: 4,
 			run: () => collectionRepository.findPage({ limit: 24 }),
 		},
 		{
 			name: "collectionRepository.findPage (24, warm count cache)",
-			target: 5,
+			target: 2,
 			warmup: () => collectionRepository.findPage({ limit: 24 }),
 			run: () => collectionRepository.findPage({ limit: 24 }),
 		},
@@ -170,6 +174,36 @@ function repositoryOperationCases(): OperationCase[] {
 			target: 6,
 			run: () => mediaRepository.findPage({ limit: 24 }),
 		},
+		{
+			// Single-row ids ride one JSON bundle statement (row + four relations)
+			// instead of the row plus four batched relation reads.
+			name: "mediaRepository.findByIdForRead (single row)",
+			target: 1,
+			run: () => mediaRepository.findByIdForRead("mf-episode-0-0-0"),
+		},
+		{
+			// Session start: the file, its relation bundle, the viewer's saved
+			// position, the title-level resume check and the per-title stream
+			// preferences ride one statement (the profile preferences read is
+			// cached and separate).
+			name: "mediaRepository.findPlaybackSessionData (session start)",
+			target: 1,
+			run: () => mediaRepository.findPlaybackSessionData("mf-meta-0000000", PROFILE_ID, 120),
+		},
+		{
+			// Discover's two "recently added" lists share one row read and one
+			// relation load; each type keeps its own ranking statement.
+			name: "metadataRepository.findRecentlyAddedByTypes (movie+tv, 50)",
+			target: 6,
+			run: () => metadataRepository.findRecentlyAddedByTypes(["movie", "tv_show"], 50),
+		},
+		{
+			// The batched list reader binds the id list as one JSON parameter, so
+			// the whole 5,000-id list runs as 3 prepared statements.
+			name: "loadRelations (5000 ids, batched list reader)",
+			target: 3,
+			run: () => loadRelations(LARGE_IDS),
+		},
 	];
 }
 
@@ -181,23 +215,43 @@ function playbackOperationCases(sidecar: SidecarFixture): OperationCase[] {
 			run: () => watchedHistoryRepository.findPage(PROFILE_ID, { limit: 50 }),
 		},
 		{
+			// The statement also carries the title row (type + numbering mode),
+			// so the row lookup costs no extra round trip.
 			name: "playbackRepository.findSmartPlayData (single id)",
-			target: 3,
+			target: 1,
 			run: () => playbackRepository.findSmartPlayData(MOVIE_ID, PROFILE_ID),
 		},
 		{
+			// The batch statement carries the media files, the profile's progress,
+			// the title rows, the seasons/episodes arrays for series ids and the
+			// watchlist flags, so a movie batch is one statement.
 			name: `playbackProgressService.getSmartPlayBatch (${BATCH_SIZE} ids)`,
-			target: 8,
+			target: 1,
 			run: () => playbackProgressService.getSmartPlayBatch(BATCH_IDS, PROFILE_ID),
 		},
 		{
+			// A batch containing a series used to run separate seasons/episodes and
+			// metadata statements; both now ride the batch statement.
+			name: "playbackProgressService.getSmartPlayBatch (series batch)",
+			target: 1,
+			run: () => playbackProgressService.getSmartPlayBatch(["show-0"], PROFILE_ID),
+		},
+		{
+			// The dependent reads — titles, files, regular seasons/episodes and
+			// backdrops — ride one statement over the same id list, so the page
+			// read and it remain.
 			name: "playbackRepository.findContinueWatchingData (12)",
-			target: 6,
+			target: 2,
 			run: () => playbackRepository.findContinueWatchingData(PROFILE_ID, 12),
 		},
 		{
+			// The context bundle reads the file, its relations, its markers, the
+			// root metadata row and the episode with its files in one statement;
+			// the overview carries its media+progress, seasons+episodes and the
+			// next-episode resolution in one; the preferences read remains — so
+			// 3 statements.
 			name: "playbackViewService.getPlaybackView (episode → next)",
-			target: 16,
+			target: 3,
 			run: () => playbackViewService.getPlaybackView("mf-episode-0-0-0", PROFILE_ID),
 		},
 		{

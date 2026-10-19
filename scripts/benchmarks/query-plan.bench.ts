@@ -157,6 +157,14 @@ function buildCases(rows: number, now: number): QueryCase[] {
 			sql: "SELECT playback_progress.id FROM playback_progress INNER JOIN media_files ON media_files.id = playback_progress.media_file_id WHERE playback_progress.profile_id = 'profile-1' ORDER BY playback_progress.updated_at DESC LIMIT 50",
 		},
 		{
+			// Playback-context bundle anchors: the file by primary key, its root
+			// metadata row and its episode by primary key, and its markers through
+			// the file index (the statement also carries the media relation JSON
+			// columns).
+			name: "playback context bundle (file + markers, index-hardening)",
+			sql: "SELECT media_files.id, metadata.id, episodes.id, (SELECT json_group_array(json_object('id', id, 'startSeconds', start_seconds)) FROM (SELECT media_markers.id AS id, media_markers.start_seconds AS start_seconds FROM media_markers WHERE media_markers.media_file_id = media_files.id ORDER BY media_markers.start_seconds)) AS markers FROM media_files LEFT JOIN metadata ON metadata.id = media_files.metadata_id LEFT JOIN episodes ON episodes.id = media_files.episode_id WHERE media_files.id = 'mf-1'",
+		},
+		{
 			name: "worker claim candidates",
 			sql: "SELECT id, worker_id, operation_id, depends_on_job_id, attempts, max_attempts, priority, run_at FROM worker_jobs WHERE worker_id = 'media-file-analysis' AND status = 'pending' AND run_at <= ? ORDER BY priority ASC, run_at ASC, created_at ASC LIMIT 20",
 			params: [now],

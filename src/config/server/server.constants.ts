@@ -138,7 +138,13 @@ export const serverConstants = {
 		busyTimeoutMs: 5_000,
 		filters: { maxValues: 500 },
 		fields: { maxLength: 2048, maxFields: 64, maxDepth: 4 },
-		queryChunkSize: 500,
+		/**
+		 * Bound-variable budget per chunked query. SQLite allows 32766 variables;
+		 * larger chunks cut the statement count for big id lists (a 5000-title
+		 * batch reader: 30 statements at 500, 9 at 2000) while staying far from
+		 * the limit.
+		 */
+		queryChunkSize: 2000,
 		relationQueryConcurrency: 4,
 	},
 	stream: {
