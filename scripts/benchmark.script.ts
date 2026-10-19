@@ -1,7 +1,8 @@
 import { mkdtempSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDiscovery, suiteArgs } from "benchkit";
+import { spawnSync, which } from "bun";
 
 process.env.NODE_ENV = "production";
 
@@ -37,8 +38,20 @@ function applyHardwareProfile(name: string | boolean | undefined): void {
 	process.env.REELVAULT_BENCH_CORES = String(profile.cores);
 	process.env.REELVAULT_BENCH_SPEED_FACTOR = String(profile.speedFactor);
 	process.env.REELVAULT_BENCH_TOTAL_MEMORY_KIB = String(profile.totalMemoryKiB);
+
+	const cpuCount = Math.min(profile.cores, availableParallelism());
+	const cpuList = Array.from({ length: cpuCount }, (_, index) => index).join(",");
+	let affinity = "";
+	if (cpuCount < availableParallelism() && process.platform === "linux" && which("taskset")) {
+		const probe = spawnSync({ cmd: ["taskset", "-c", cpuList, "true"], stdout: "ignore", stderr: "ignore" });
+		if (probe.exitCode === 0) {
+			process.env.REELVAULT_BENCH_CPU_AFFINITY = cpuList;
+			affinity = `, server pinned to CPUs ${cpuList}`;
+		}
+	}
+
 	console.log(
-		`[benchmark] hardware simulation: ${name} (${profile.cores} cores, speed factor ${profile.speedFactor}, ${Math.round(profile.totalMemoryKiB / 1024)} MiB RAM; budgets simulated, wall-clock runs on the host CPU)`,
+		`[benchmark] hardware simulation: ${name} (${profile.cores} cores, speed factor ${profile.speedFactor}, ${Math.round(profile.totalMemoryKiB / 1024)} MiB RAM${affinity}; budgets simulated, wall-clock still depends on host core speed)`,
 	);
 }
 

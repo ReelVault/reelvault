@@ -677,8 +677,14 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 	// when the server exits (SIGTERM shutdown path included).
 	const profileFlags = options.profileDir ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${options.profileDir}`] : [];
 	if (options.profileDir) console.log(`[server] CPU profiling enabled → ${options.profileDir}`);
+
+	// Optional CPU pinning for simulated low-end runs; the benchmark bootstrap
+	// probes taskset before setting this, so an unsupported host never reaches it.
+	const affinity = process.platform === "linux" ? process.env.REELVAULT_BENCH_CPU_AFFINITY?.trim() : undefined;
+	const affinityPrefix = affinity ? ["taskset", "-c", affinity] : [];
+
 	const serverProcess = spawnManagedProcess({
-		cmd: ["bun", ...profileFlags, "run", "src/index.ts"],
+		cmd: [...affinityPrefix, "bun", ...profileFlags, "run", "src/index.ts"],
 		cwd: repoRoot,
 		env: serverEnv(port, rootDir, webDist),
 		logPath: join(rootDir, "server.log"),
