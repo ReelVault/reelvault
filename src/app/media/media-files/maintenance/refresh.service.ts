@@ -1,6 +1,6 @@
-import type { BulkRefreshItem, FieldsQuery, MediaFileWithRelation, SelectFields, UpdateMediaFile } from "@reelvault/sdk/common";
+import type { FieldsQuery, MediaFileWithRelation, SelectFields, UpdateMediaFile } from "@reelvault/sdk/common";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/app/admin/admin-audit.service";
-import { runBulkItem } from "@/app/catalog/catalog.utils";
+import { runBulkItems } from "@/app/catalog/catalog.utils";
 import { mediaFileRefreshService } from "@/app/media/media-files/refresh-media-file.operation";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
@@ -77,14 +77,11 @@ export async function refreshMany(
 	context: AdminAuditContext | undefined,
 	refreshOne: (...args: WithoutState<typeof refresh>) => ReturnType<typeof refresh>,
 ) {
-	return await runSafely(state, "refreshMany", async () => {
-		const results: BulkRefreshItem[] = [];
-		for (const mediaFileId of new Set(mediaFileIds)) {
-			results.push(await runBulkItem(mediaFileId, () => refreshOne(mediaFileId, context), "media_file.refresh_failed"));
-		}
-
-		return { results };
-	});
+	return await runSafely(
+		state,
+		"refreshMany",
+		async () => await runBulkItems(mediaFileIds, (mediaFileId) => refreshOne(mediaFileId, context), "media_file.refresh_failed"),
+	);
 }
 
 export async function refreshAll(state: MediaServiceState, context?: AdminAuditContext) {

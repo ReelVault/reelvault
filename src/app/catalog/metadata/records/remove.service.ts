@@ -1,7 +1,6 @@
-import type { BulkRefreshItem } from "@reelvault/sdk/common";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { runMediaCleanup } from "@/app/artifacts/media-cleanup.cleaner";
-import { runBulkItem } from "@/app/catalog/catalog.utils";
+import { runBulkItems } from "@/app/catalog/catalog.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
@@ -39,12 +38,7 @@ export async function deleteMany(
 			});
 		}
 
-		const results: BulkRefreshItem[] = [];
-		for (const id of ids) {
-			results.push(await runBulkItem(id, () => deleteOneOf(id, context), "metadata.delete_failed"));
-		}
-
-		return { results };
+		return await runBulkItems(ids, (id) => deleteOneOf(id, context), "metadata.delete_failed");
 	});
 }
 

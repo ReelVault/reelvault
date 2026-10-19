@@ -6,12 +6,11 @@ import type {
 	LibraryPathHealth,
 } from "@reelvault/sdk/common";
 import { LibraryErrorsCheckResultSchema } from "@reelvault/sdk/common";
-import { Value } from "@sinclair/typebox/value";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { libraryWatcherService } from "@/app/libraries/watching/library-watcher.service";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { librariesRepository } from "@/app/repositories/libraries.repository";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { readCompletedOperationResult } from "@/app/repositories/worker-jobs/result.reader";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
@@ -83,11 +82,7 @@ export async function getLibraryErrorsCheckStatus(state: LibrariesServiceState, 
 
 		let result: LibraryErrorsCheckResult | null = null;
 		if (operation.status === "completed") {
-			const [job] = await workerJobRepository.findByOperation(operationId, 1);
-			if (job?.result) {
-				const parsed: unknown = JSON.parse(job.result);
-				if (Value.Check(LibraryErrorsCheckResultSchema, parsed)) result = parsed;
-			}
+			result = await readCompletedOperationResult(operationId, LibraryErrorsCheckResultSchema);
 		}
 
 		return { status: operation.status, progressPercent: operation.progressPercent, result };

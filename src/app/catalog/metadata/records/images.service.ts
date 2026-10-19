@@ -1,7 +1,7 @@
-import type { BulkRefreshItem, MetadataImageOption, SelectMetadataImage } from "@reelvault/sdk/common";
+import type { MetadataImageOption, SelectMetadataImage } from "@reelvault/sdk/common";
 import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
-import { fetchSeason, mapProviderLinks, runBulkItem } from "@/app/catalog/catalog.utils";
+import { fetchSeason, mapProviderLinks, runBulkItems } from "@/app/catalog/catalog.utils";
 import { resolveMetadataLanguage } from "@/app/catalog/metadata/providers/library-metadata-language.resolver";
 import { syncSeasonsAndEpisodes } from "@/app/catalog/metadata/refresh/season-sync.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
@@ -121,14 +121,11 @@ export async function uploadImage(
 
 /** Force-refreshes the artwork of the listed titles one after another; each id reports its own outcome. */
 export async function refreshImagesMany(state: MetadataServiceState, metadataIds: string[], refreshOne: RefreshImagesOne) {
-	return await runSafely(state, "refreshImagesMany", async () => {
-		const results: BulkRefreshItem[] = [];
-		for (const metadataId of new Set(metadataIds)) {
-			results.push(await runBulkItem(metadataId, () => refreshOne(metadataId, { force: true }), "metadata.refresh_images_failed"));
-		}
-
-		return { results };
-	});
+	return await runSafely(
+		state,
+		"refreshImagesMany",
+		async () => await runBulkItems(metadataIds, (metadataId) => refreshOne(metadataId, { force: true }), "metadata.refresh_images_failed"),
+	);
 }
 
 export async function refreshImages(

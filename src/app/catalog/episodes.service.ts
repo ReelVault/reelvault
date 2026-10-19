@@ -1,4 +1,4 @@
-import type { BulkRefreshItem, EpisodeFilters, EpisodeSorting, EpisodeWithRelations } from "@reelvault/sdk/common";
+import type { EpisodeFilters, EpisodeSorting, EpisodeWithRelations } from "@reelvault/sdk/common";
 import { episodesRepository } from "@/app/repositories/episodes.repository";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { seasonsRepository } from "@/app/repositories/seasons.repository";
@@ -8,7 +8,7 @@ import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.ser
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { findFirstProviderResult, invalidateCatalogLists, mapProviderLinks, runBulkItem } from "./catalog.utils";
+import { findFirstProviderResult, invalidateCatalogLists, mapProviderLinks, runBulkItems } from "./catalog.utils";
 import { DictionaryReadService } from "./dictionary-crud.service";
 
 class EpisodesService extends DictionaryReadService<EpisodeWithRelations, EpisodeFilters, EpisodeSorting, typeof episodesRepository> {
@@ -81,14 +81,11 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 
 	/** Refreshes the listed episodes one after another, so provider calls stay sequential; each id reports its own outcome. */
 	async refreshMany(episodeIds: string[]) {
-		return await runSafely(this, "refreshMany", async () => {
-			const results: BulkRefreshItem[] = [];
-			for (const episodeId of new Set(episodeIds)) {
-				results.push(await runBulkItem(episodeId, () => this.refresh(episodeId), "episode.refresh_failed"));
-			}
-
-			return { results };
-		});
+		return await runSafely(
+			this,
+			"refreshMany",
+			async () => await runBulkItems(episodeIds, (episodeId) => this.refresh(episodeId), "episode.refresh_failed"),
+		);
 	}
 }
 

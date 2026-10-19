@@ -64,3 +64,21 @@ export async function runBulkItem(id: string, refresh: () => Promise<unknown>, f
 		return { id, ok: false, code: errorCodeOf(error, fallbackCode) };
 	}
 }
+
+/**
+ * Runs a bulk action over `ids` one after another (order preserved, duplicates
+ * dropped): every item reports its own outcome and one failure never stops the
+ * rest. Returns the same `{ results }` envelope every bulk endpoint expects.
+ */
+export async function runBulkItems(
+	ids: readonly string[],
+	runOne: (id: string) => Promise<unknown>,
+	fallbackCode: string,
+): Promise<{ results: BulkRefreshItem[] }> {
+	const results: BulkRefreshItem[] = [];
+	for (const id of new Set(ids)) {
+		results.push(await runBulkItem(id, () => runOne(id), fallbackCode));
+	}
+
+	return { results };
+}

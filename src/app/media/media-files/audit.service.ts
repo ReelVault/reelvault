@@ -1,9 +1,8 @@
 import type { MediaFileAuditResponse, MediaFileAuditStatus } from "@reelvault/sdk/common";
 import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
-import { Value } from "@sinclair/typebox/value";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { readCompletedOperationResult } from "@/app/repositories/worker-jobs/result.reader";
 import { DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { enqueueMediaFileAuditReport } from "@/workers/definitions/media/media-file-audit.worker";
@@ -55,14 +54,8 @@ export async function getAuditStatus(state: MediaServiceState, operationId: stri
 			if (cached) {
 				result = cached;
 			} else {
-				const [job] = await workerJobRepository.findByOperation(operationId, 1);
-				if (job?.result) {
-					const parsed: unknown = JSON.parse(job.result);
-					if (Value.Check(MediaFileAuditResponseSchema, parsed)) {
-						result = parsed;
-						state.auditResultCache.set(operationId, parsed);
-					}
-				}
+				result = await readCompletedOperationResult(operationId, MediaFileAuditResponseSchema);
+				if (result) state.auditResultCache.set(operationId, result);
 			}
 		}
 
