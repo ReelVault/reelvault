@@ -12,6 +12,7 @@ import { loadPlugin, reloadAllPlugins, reloadPlugin, setPluginEnabled, uninstall
 import { getPackageDetails, type PluginPackageDetails } from "./package.reader";
 import { loadInstalledPlugins } from "./startup.service";
 import type { PluginManagerState } from "./state.utils";
+import { runLifecycle } from "./state.utils";
 import { getStatus } from "./status.reader";
 import { installFromDirectory } from "./upgrade.service";
 
@@ -74,12 +75,18 @@ export class PluginManager {
 
 	/** Admin choice: keep the installed version or allow catalog updates again. Persisted. */
 	async setPluginPinned(pluginId: string, pinned: boolean): Promise<void> {
-		await this.state.installer.setPinned(pluginId, pinned);
+		// Serialize with installs: an install snapshots the record and would
+		// otherwise overwrite a flag written in its read-modify-write window.
+		await runLifecycle(this.state, async () => {
+			await this.state.installer.setPinned(pluginId, pinned);
+		});
 	}
 
 	/** Admin choice: refuse or allow the CSP sources the plugin declares. Persisted and applied at once. */
 	async setPluginCspDisabled(pluginId: string, disabled: boolean): Promise<void> {
-		await this.state.installer.setCspDisabled(pluginId, disabled);
+		await runLifecycle(this.state, async () => {
+			await this.state.installer.setCspDisabled(pluginId, disabled);
+		});
 		this.state.registry.setCspDisabled(pluginId, disabled);
 	}
 

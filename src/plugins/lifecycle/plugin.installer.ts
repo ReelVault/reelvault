@@ -137,7 +137,11 @@ export class PluginInstaller {
 	 */
 	private async commitStagedInstall(staged: StagedInstall): Promise<InstallResult> {
 		const { pluginsDirectory, stagingDirectory, targetName, targetDirectory, manifest, recordedSource, isUpgrade } = staged;
-		const previousRecord = isUpgrade ? (await this.lockfileStore.read()).plugins[manifest.id] : undefined;
+		// The lockfile record decides whether the entry may be replaced — a record
+		// whose directory is missing must still be replaceable, or reinstall is
+		// refused with `plugin.already_installed` forever.
+		const existingRecord = (await this.lockfileStore.read()).plugins[manifest.id];
+		const previousRecord = isUpgrade ? existingRecord : undefined;
 		// An upgrade keeps the package it replaces as a rollback point (`previous`). Without a lockfile record there is nothing to roll back to.
 		const backupDirectory = isUpgrade ? PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`) : undefined;
 
@@ -153,7 +157,7 @@ export class PluginInstaller {
 		await activateStagedPackage({ stagingDirectory, targetDirectory, backupDirectory });
 
 		try {
-			await this.lockfileStore.writeRecord(manifest.id, record, { replace: isUpgrade });
+			await this.lockfileStore.writeRecord(manifest.id, record, { replace: existingRecord !== undefined });
 		} catch (error) {
 			await removeTree(targetDirectory);
 			if (backupDirectory) await rename(backupDirectory, targetDirectory);

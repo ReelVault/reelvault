@@ -329,7 +329,11 @@ class PluginCatalogService {
 	}
 
 	async uninstallPlugin(pluginId: string): Promise<void> {
-		const installed = (await pluginManager.getInstalledRecords()).some((record) => record.id === pluginId);
+		// Manually dropped plugin directories have no lockfile record but are loaded
+		// and listed; the lifecycle path removes their data without an installer record.
+		const installed =
+			(await pluginManager.getInstalledRecords()).some((record) => record.id === pluginId) ||
+			pluginManager.getStatus().some((status) => status.id === pluginId);
 		if (!installed)
 			throw new DomainError("not_found", `Plugin is not installed: ${pluginId}`, {
 				code: "plugin.not_installed",
