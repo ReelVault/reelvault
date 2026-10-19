@@ -33,7 +33,7 @@ function buildScanFixture(count: number) {
 		size: 1_000_000 + index,
 		sourceMtimeMs: 1_700_000_000_000 + index,
 	}));
-	const statsByPath = new Map(rows.map((row) => [row.filePath, { size: row.size, mtimeMs: row.sourceMtimeMs }]));
+	const statsByPath = new Map(rows.map((row) => [row.filePath, { filePath: row.filePath, size: row.size, mtimeMs: row.sourceMtimeMs }]));
 
 	return { rows, statsByPath };
 }
@@ -68,7 +68,6 @@ if (!args.help) {
 	databaseFactory.migrate();
 
 	const { rows, statsByPath } = buildScanFixture(args.rows);
-	const filesOnDisk = rows.map((row) => row.filePath);
 
 	const scanner = new ScannerService({
 		findStatsPage: (_libraryId, cursor, limit) => {
@@ -77,9 +76,12 @@ if (!args.help) {
 
 			return Promise.resolve(rows.slice(start, start + limit));
 		},
-		discover: () => Promise.resolve({ filesOnDisk, statsByPath }),
+		discover: () => Promise.resolve(statsByPath),
 		guard: { assess: () => Promise.resolve({ removedFiles: [], storageUnavailable: false, massRemoval: false, skipRemovals: false }) },
 		cleaner: { cleanup: () => Promise.resolve() },
+		optimizeDatabase: () => {
+			// This benchmark measures the in-memory diff, not planner maintenance.
+		},
 	});
 
 	console.log(`[ingest] scan diff over ${args.rows} files (no changes), audit over ${args.rows} rows...`);

@@ -2,8 +2,8 @@ import { sleep } from "bun";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { episodeRangeSpan, parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { type ScanStatsRow, scannerStorage } from "@/modules/scanner/scanner.ports";
-import { toMap } from "@/utils/array.utils";
 import { throwIfAborted } from "@/utils/cancellation.utils";
+import type { ScannedFileEntry } from "@/utils/directory.utils";
 import { toDomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -17,6 +17,9 @@ import { filterPathsWithinRoots } from "./utils/scanner.utils";
 /** Rows read per keyset page while diffing a library against disk. */
 const SCAN_DB_PAGE_SIZE = 5000;
 
+/** The new-file pass touches every discovered path; yield so it cannot hold the loop. */
+const SCAN_YIELD_INTERVAL = 5000;
+
 /**
  * One pass over the on-disk list: unknown paths are new, and a TV range file
  * that owns fewer rows than its name spans is re-ingested so the missing
@@ -24,19 +27,24 @@ const SCAN_DB_PAGE_SIZE = 5000;
  * the same capped span as the processor, so an over-long "range" treated as
  * scene noise is never re-read.
  */
-function collectNewFiles(filesOnDisk: readonly string[], type: LibraryType, pathCounts: ReadonlyMap<string, number>): string[] {
+async function collectNewFiles(
+	filesOnDisk: Iterable<string>,
+	type: LibraryType,
+	pathCounts: ReadonlyMap<string, number>,
+): Promise<string[]> {
 	const newFiles: string[] = [];
+	let processed = 0;
 	for (const filePath of filesOnDisk) {
 		const rowCount = pathCounts.get(filePath);
 		if (rowCount === undefined) {
 			newFiles.push(filePath);
-			continue;
+		} else if (type === "tv_show") {
+			const span = episodeRangeSpan(parseFileName(PathUtils.getFileName(filePath)));
+			if (span !== undefined && span > rowCount) newFiles.push(filePath);
 		}
 
-		if (type !== "tv_show") continue;
-
-		const span = episodeRangeSpan(parseFileName(PathUtils.getFileName(filePath)));
-		if (span !== undefined && span > rowCount) newFiles.push(filePath);
+		processed++;
+		if (processed % SCAN_YIELD_INTERVAL === 0) await sleep(0);
 	}
 
 	return newFiles;
@@ -44,23 +52,18 @@ function collectNewFiles(filesOnDisk: readonly string[], type: LibraryType, path
 
 interface ServiceDependencies {
 	findStatsPage: (libraryId: string, cursor: string | undefined, limit: number) => Promise<ScanStatsRow[]>;
-	discover: (
-		paths: string[],
-		signal?: AbortSignal,
-	) => Promise<{ filesOnDisk: string[]; statsByPath: Map<string, { size: number; mtimeMs: number }> }>;
+	discover: (paths: string[], signal?: AbortSignal) => Promise<Map<string, ScannedFileEntry>>;
 	guard: Pick<RemovalGuard, "assess">;
 	cleaner: Pick<StaleArtifactCleaner, "cleanup">;
+	optimizeDatabase: () => void;
 }
 
 const defaultDependencies: ServiceDependencies = {
 	findStatsPage: (libraryId, cursor, limit) => scannerStorage().findStatsPage(libraryId, cursor, limit),
-	discover: async (paths, signal) => {
-		const scannedEntries = await fileScannerService.scanWithStats({ paths, signal });
-
-		return { filesOnDisk: scannedEntries.map((entry) => entry.filePath), statsByPath: toMap(scannedEntries, (entry) => entry.filePath) };
-	},
+	discover: async (paths, signal) => await fileScannerService.scanWithStatsMap({ paths, signal }),
 	guard: removalGuard,
 	cleaner: staleArtifactCleaner,
+	optimizeDatabase: () => scannerStorage().optimizeDatabase(),
 };
 
 export class ScannerService {
@@ -130,10 +133,10 @@ export class ScannerService {
 					return { filePaths: [], newFilePaths: [], changedMediaFileIds: [], removedFilePaths: [] };
 				}
 
-				const { filesOnDisk, statsByPath } = await this.dependencies.discover(effectivePaths, signal);
+				const statsByPath = await this.dependencies.discover(effectivePaths, signal);
 				const { pathCounts, removedAll, changedFiles, existingCount } = await this.collectDatabaseStats(libraryId, statsByPath, signal);
 
-				const newFiles = collectNewFiles(filesOnDisk, type, pathCounts);
+				const newFiles = await collectNewFiles(statsByPath.keys(), type, pathCounts);
 
 				const removedCandidates = filterPathsWithinRoots(removedAll, effectivePaths);
 				throwIfAborted(signal);
@@ -143,14 +146,14 @@ export class ScannerService {
 					candidates: removedCandidates,
 					roots: effectivePaths,
 					existingCount,
-					filesOnDiskCount: filesOnDisk.length,
+					filesOnDiskCount: statsByPath.size,
 					signal,
 				});
 
 				if (massRemoval) {
 					this.logger.error(
 						"Refusing to remove library records — the scan found drastically fewer files than the database. Likely a transient storage failure.",
-						{ libraryId, existingRecords: existingCount, filesOnDisk: filesOnDisk.length, removalCandidates: removedFiles.length },
+						{ libraryId, existingRecords: existingCount, filesOnDisk: statsByPath.size, removalCandidates: removedFiles.length },
 					);
 				}
 
@@ -181,7 +184,7 @@ export class ScannerService {
 
 				this.logger.info("Library scan processing completed", {
 					libraryId,
-					discoveredFiles: filesOnDisk.length,
+					discoveredFiles: statsByPath.size,
 					newFiles: newFiles.length,
 					changedFiles: changedFiles.length,
 					removedFiles: removedFilePaths.length,
@@ -191,9 +194,11 @@ export class ScannerService {
 				// A scan can add/remove many rows; refresh planner statistics so the
 				// paginated browse path keeps using the composite indexes. `optimize`
 				// re-analyses only the changed tables instead of the whole schema.
-				scannerStorage().optimizeDatabase();
+				this.dependencies.optimizeDatabase();
 
-				return { filePaths: filesOnDisk, newFilePaths: newFiles, changedMediaFileIds: changedFiles, removedFilePaths };
+				// The worker still needs the full list for scan-finding pruning and
+				// its scanned count; build it once, after the diff, not alongside it.
+				return { filePaths: [...statsByPath.keys()], newFilePaths: newFiles, changedMediaFileIds: changedFiles, removedFilePaths };
 			},
 			{
 				customThrow: (error) => toDomainError(error, `Library scan failed: ${libraryId}`),

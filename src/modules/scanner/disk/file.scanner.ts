@@ -1,3 +1,4 @@
+import { sleep } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { DirUtils, type ScannedFileEntry } from "@/utils/directory.utils";
@@ -11,6 +12,9 @@ interface ScanOptions {
 	maxDepth?: number | undefined;
 	signal?: AbortSignal | undefined;
 }
+
+/** Resolve/dedupe is synchronous string work; yield so a 300k-file walk cannot hold the loop. */
+const DEDUPE_YIELD_INTERVAL = 5_000;
 
 /** Applies the defaults shared by `scan` and `scanWithStats`. */
 function resolveScanOptions(options: ScanOptions): {
@@ -47,16 +51,29 @@ export class FileScannerService {
 	}
 
 	async scan(options: ScanOptions): Promise<string[]> {
-		return await this.scanUnique(
+		const unique = await this.scanResolved(
 			options,
 			(path, extensions, maxDepth, signal) => DirUtils.scanFiles(path, extensions, maxDepth, signal),
 			(filePath) => filePath,
 			(_entry, resolvedPath) => resolvedPath,
 		);
+
+		return [...unique.values()];
 	}
 
 	async scanWithStats(options: ScanOptions): Promise<ScannedFileEntry[]> {
-		return await this.scanUnique(
+		const unique = await this.scanWithStatsMap(options);
+
+		return [...unique.values()];
+	}
+
+	/**
+	 * Stats keyed by resolved path. The library diff needs the map's membership
+	 * and stats, not a second array of entries plus a `Map` built from it — that
+	 * was three copies of every path on a large library.
+	 */
+	async scanWithStatsMap(options: ScanOptions): Promise<Map<string, ScannedFileEntry>> {
+		return await this.scanResolved(
 			options,
 			(path, extensions, maxDepth, signal) => DirUtils.scanFilesWithStats(path, extensions, maxDepth, signal),
 			(entry) => entry.filePath,
@@ -65,14 +82,35 @@ export class FileScannerService {
 	}
 
 	/** Shared scan → ignore-filter → resolve/dedupe pass for both scan shapes. */
-	private async scanUnique<T>(
+	private async scanResolved<T>(
 		options: ScanOptions,
 		scanRoot: (path: string, extensions: readonly string[], maxDepth: number, signal: AbortSignal | undefined) => Promise<T[]>,
 		pathOf: (entry: T) => string,
 		withResolvedPath: (entry: T, filePath: string) => T,
-	): Promise<T[]> {
+	): Promise<Map<string, T>> {
+		const scanned = await this.scanRoots(options, scanRoot, pathOf);
+		const unique = new Map<string, T>();
+		let processed = 0;
+		for (const entries of scanned) {
+			for (const entry of entries) {
+				const resolvedPath = PathUtils.resolve(pathOf(entry));
+				if (!unique.has(resolvedPath)) unique.set(resolvedPath, withResolvedPath(entry, resolvedPath));
+				processed++;
+				if (processed % DEDUPE_YIELD_INTERVAL === 0) await sleep(0);
+			}
+		}
+
+		return unique;
+	}
+
+	private async scanRoots<T>(
+		options: ScanOptions,
+		scanRoot: (path: string, extensions: readonly string[], maxDepth: number, signal: AbortSignal | undefined) => Promise<T[]>,
+		pathOf: (entry: T) => string,
+	): Promise<T[][]> {
 		const { paths, extensions, maxDepth, signal } = resolveScanOptions(options);
-		const scanned = await PromiseUtils.mapConcurrent(
+
+		return await PromiseUtils.mapConcurrent(
 			paths,
 			systemResourcesService.getScannerConcurrency(),
 			async (path) => {
@@ -106,20 +144,6 @@ export class FileScannerService {
 			},
 			signal,
 		);
-
-		const seen = new Set<string>();
-		const unique: T[] = [];
-		for (const entries of scanned) {
-			for (const entry of entries) {
-				const resolvedPath = PathUtils.resolve(pathOf(entry));
-				if (seen.has(resolvedPath)) continue;
-
-				seen.add(resolvedPath);
-				unique.push(withResolvedPath(entry, resolvedPath));
-			}
-		}
-
-		return unique;
 	}
 }
 

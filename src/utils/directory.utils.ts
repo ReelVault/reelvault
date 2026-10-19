@@ -11,6 +11,13 @@ import { PromiseTimeoutError, PromiseUtils } from "./promise.utils";
 
 const logger = createLogger("DirUtils");
 
+/**
+ * Paths held while stat-ing a directory walk. The walk used to collect every
+ * path first and stat them second, which doubled the peak for a large library;
+ * a batch keeps the same concurrency without the full path array.
+ */
+const STAT_BATCH_SIZE = 512;
+
 /** Removes a file or directory tree; a missing path is not an error. */
 export function removeTree(path: string): Promise<void> {
 	return rm(path, { recursive: true, force: true });
@@ -112,29 +119,54 @@ export const DirUtils = {
 		signal?: AbortSignal,
 		options?: { dot?: boolean | undefined },
 	): Promise<ScannedFileEntry[]> {
-		const filePaths = await DirUtils.scanFiles(basePath, extensions, maxDepth, signal, options);
-		if (filePaths.length === 0) return [];
-
+		const ioConcurrency = systemResourcesService.getIoConcurrency();
 		const results: ScannedFileEntry[] = [];
-		await PromiseUtils.mapConcurrent(
-			filePaths,
-			systemResourcesService.getIoConcurrency(),
-			async (fullPath) => {
-				try {
-					const fileStat = await bunFile(fullPath).stat();
-					results.push({
-						filePath: fullPath,
-						size: fileStat.size,
-						mtimeMs: Math.floor(fileStat.mtimeMs),
-					});
-				} catch {
-					// File vanished between listing and stat — skip it.
-				}
-			},
-			signal,
-		);
+		let batch: string[] = [];
 
-		return results;
+		const flush = async (): Promise<void> => {
+			if (batch.length === 0) return;
+
+			const paths = batch;
+			batch = [];
+			const entries = await PromiseUtils.mapConcurrent(
+				paths,
+				ioConcurrency,
+				async (fullPath) => {
+					try {
+						const fileStat = await bunFile(fullPath).stat();
+
+						return {
+							filePath: fullPath,
+							size: fileStat.size,
+							mtimeMs: Math.floor(fileStat.mtimeMs),
+						};
+					} catch {
+						// File vanished between listing and stat — skip it.
+						return null;
+					}
+				},
+				signal,
+			);
+			for (const entry of entries) {
+				if (entry) results.push(entry);
+			}
+		};
+
+		try {
+			for await (const fullPath of iterateGlob(basePath, extensions, maxDepth, signal, options)) {
+				batch.push(fullPath);
+				if (batch.length >= STAT_BATCH_SIZE) await flush();
+			}
+			await flush();
+
+			return results;
+		} catch (error) {
+			if (signal?.aborted) throw error;
+
+			logger.error("Scan directory error", error, { directoryPath: basePath, extensions, maxDepth });
+
+			return [];
+		}
 	},
 
 	async listDirs(basePath: string): Promise<string[]> {

@@ -57,6 +57,17 @@ describe("FileScannerService.scanWithStats", () => {
 		expect(entry.size).toBeGreaterThan(0);
 		expect(entry.mtimeMs).toBe(1_700_000_000_000);
 	});
+
+	test("merges every file when the walk spans multiple stat batches", async () => {
+		const batchRoot = join(root, "stat-batches");
+		mkdirSync(batchRoot, { recursive: true });
+		for (let index = 0; index < 513; index++) writeFileSync(join(batchRoot, `movie-${index}.mkv`), "x");
+
+		const entries = await fileScannerService.scanWithStats({ paths: [batchRoot], extensions: [".mkv"] });
+
+		expect(entries).toHaveLength(513);
+		expect(new Set(entries.map((entry) => entry.filePath)).size).toBe(513);
+	});
 });
 
 describe("matchesIgnorePattern", () => {
