@@ -1,4 +1,5 @@
 import type { StreamingSession } from "@reelvault/sdk/common";
+import type { Subprocess } from "bun";
 import type { FFmpegProgress } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import { createLogger } from "@/utils/logger.utils";
@@ -94,12 +95,20 @@ export class TranscodeProgressMonitor {
 	/**
 	 * ffmpeg exited. A natural EOF (exit 0, no signal) closes the operation as
 	 * completed at 100%; a kill (seek restart, release) leaves the slot with the
-	 * session — either a restart re-uses it or the reaper finalizes it.
+	 * session — either a restart re-uses it or the reaper finalizes it. `process`
+	 * is the handle that exited: a replaced process must not close the operation
+	 * of the one that replaced it.
 	 */
-	async onFfmpegExit(sessionId: string, exitCode: number | null, signalCode: NodeJS.Signals | number | null): Promise<void> {
+	async onFfmpegExit(
+		sessionId: string,
+		exitCode: number | null,
+		signalCode: NodeJS.Signals | number | null,
+		process?: Subprocess,
+	): Promise<void> {
 		const store = this.store;
 		const session = store?.get(sessionId);
 		if (!(store && session)) return;
+		if (process && session.process !== process) return;
 
 		if (exitCode !== 0 || signalCode != null) return;
 

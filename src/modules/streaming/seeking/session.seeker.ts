@@ -34,7 +34,13 @@ export class SessionSeeker {
 		// segment seeks pass through here before the buffered check and alignment.
 		const clampedOffset = clampSeekOffsetToDuration(offset, decision.durationSeconds);
 
-		const bufferedStart = await getBufferedSeekStart(sessionId, clampedOffset);
+		// The buffer may be mid-wipe: a seek/fallback restart in flight holds the
+		// session lock, so compute the buffered start only once it settles. A stale
+		// "reusedBuffer" answer would leave the client on segments being deleted.
+		const bufferedStart = await this.seekScheduler.runExclusive(
+			sessionId,
+			async () => await getBufferedSeekStart(sessionId, clampedOffset),
+		);
 		if (bufferedStart !== null) {
 			keepAlive(sessionId);
 			const result: SeekResult = {

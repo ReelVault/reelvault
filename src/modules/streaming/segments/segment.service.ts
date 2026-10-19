@@ -93,13 +93,15 @@ export class SegmentService {
 
 			this.logger.warn(`Segment missing ahead, triggering fast seek: ${segment}`, { sessionId });
 
-			if (!this.dependencies.implicitSeek.tryBegin(sessionId)) {
-				throw new DomainError("not_found", `Segment not found (implicit seek cooldown): ${segment}`, { code: "stream.segment_not_found" });
-			}
-
 			const decision = runtime.getSessionDecision(sessionId);
 			if (!decision)
 				throw new DomainError("timeout", "Streaming session is not ready yet. Try again in a moment.", { code: "stream.not_ready" });
+
+			// Consume the cooldown only when a seek actually starts: a not-ready
+			// session must not burn the token for the next request.
+			if (!this.dependencies.implicitSeek.tryBegin(sessionId)) {
+				throw new DomainError("not_found", `Segment not found (implicit seek cooldown): ${segment}`, { code: "stream.segment_not_found" });
+			}
 
 			const seekResult = await runtime.seekTo(sessionId, segmentInfo?.startTime ?? 0, decision);
 			this.dependencies.implicitSeek.announceSeeked({

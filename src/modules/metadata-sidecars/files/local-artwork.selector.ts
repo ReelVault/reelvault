@@ -47,7 +47,8 @@ function findArtwork(
 	allowNumberedBackdrops = false,
 ): SidecarArtworkReference | undefined {
 	for (const name of names) {
-		const path = files.get(name);
+		// The index is lowercased; episode basenames keep their original case.
+		const path = files.get(name.toLowerCase());
 		if (path) return { path };
 	}
 

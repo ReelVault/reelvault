@@ -9,7 +9,6 @@ const PTS_EPSILON = 0.001;
 // Scrubbing re-seeks around the same positions — cache probe results per 2 s
 // bucket so repeat seeks skip the ffprobe spawn entirely (misses cached too:
 // a 15 s window without keyframes is just as repeatable).
-const KEYFRAME_CACHE_BUCKET_SECONDS = 2;
 const keyframeCache = new MemoryCache<number>({ ttlMs: 30 * 60_000, maxSize: 2000, name: "keyframes" });
 
 /**
@@ -37,10 +36,11 @@ export async function findKeyframeBefore(filePath: string, target: number, signa
 	if (target <= 0) return null;
 
 	// The file's (size, mtime) signature keeps a replaced file from serving the
-	// previous content's keyframe buckets for the whole TTL.
+	// previous content's keyframe buckets for the whole TTL. Keyed by the exact
+	// target: a bucket-level key can hand a later keyframe to an earlier request.
 	const stats = await FileUtils.getStats(filePath);
 	const signature = stats ? fileStatSignature(stats) : "0";
-	const cacheKey = `${filePath}:${signature}:${Math.floor(target / KEYFRAME_CACHE_BUCKET_SECONDS)}`;
+	const cacheKey = `${filePath}:${signature}:${target}`;
 	const cached = await keyframeCache.getOrSet(cacheKey, async () => {
 		try {
 			const from = Math.max(0, target - PROBE_WINDOW_SECONDS);

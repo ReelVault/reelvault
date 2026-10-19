@@ -80,36 +80,40 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 		errorLogMessage: string;
 		operationId?: string | undefined;
 	}): Subprocess {
-		return (
-			ffMpegService
-				.create()
-				.inputArgs(inputArgs)
-				.input(inputPath)
-				.outputArgs(outputArgs)
-				// The worker operation id is what diagnostics/admin show; fall back to
-				// the session id only for sessions without an operation.
-				.withOperationLog({ operationId: operationId ?? sessionId, mode, inputPath })
-				.purpose("streaming")
-				.label(sessionId)
-				.onError((err) => {
-					// During a graceful stop ffmpeg reports broken pipes / unwritable
-					// outputs on stderr — noise unless the process died for real.
-					if (ffmpegProcessTracker.isIntentionalKill(sessionId))
-						this.logger.debug("FFmpeg reported stderr error during intentional stop", { sessionId });
-					else this.logger.error(errorLogMessage, err, { sessionId });
-				})
-				.onProgress((progress) => detach(transcodeProgressMonitor.onFfmpegProgress(sessionId, progress)))
-				.onExit((_, exitCode, signalCode, error) => {
-					const intentional = ffmpegProcessTracker.isIntentionalKill(sessionId);
-					ffmpegProcessTracker.clearIntentionalKill(sessionId);
+		// Held so the exit callback can hand the monitor the exact process: an exit
+		// from a replaced process must not close the operation of a newer one.
+		const handle: { process?: Subprocess } = {};
+		const subprocess = ffMpegService
+			.create()
+			.inputArgs(inputArgs)
+			.input(inputPath)
+			.outputArgs(outputArgs)
+			// The worker operation id is what diagnostics/admin show; fall back to
+			// the session id only for sessions without an operation.
+			.withOperationLog({ operationId: operationId ?? sessionId, mode, inputPath })
+			.purpose("streaming")
+			.label(sessionId)
+			.onError((err) => {
+				// During a graceful stop ffmpeg reports broken pipes / unwritable
+				// outputs on stderr — noise unless the process died for real.
+				if (ffmpegProcessTracker.isIntentionalKill(sessionId))
+					this.logger.debug("FFmpeg reported stderr error during intentional stop", { sessionId });
+				else this.logger.error(errorLogMessage, err, { sessionId });
+			})
+			.onProgress((progress) => detach(transcodeProgressMonitor.onFfmpegProgress(sessionId, progress)))
+			.onExit((_, exitCode, signalCode, error) => {
+				const intentional = ffmpegProcessTracker.isIntentionalKill(sessionId);
+				ffmpegProcessTracker.clearIntentionalKill(sessionId);
 
-					if (exitCode === 0) this.logger.debug("FFmpeg process completed successfully", { sessionId, mode });
-					else if (intentional || signalCode != null) this.logger.warn("FFmpeg process stopped", { sessionId, mode, exitCode, signalCode });
-					else this.logger.error("FFmpeg process exited with error", error, { sessionId, exitCode, signalCode });
+				if (exitCode === 0) this.logger.debug("FFmpeg process completed successfully", { sessionId, mode });
+				else if (intentional || signalCode != null) this.logger.warn("FFmpeg process stopped", { sessionId, mode, exitCode, signalCode });
+				else this.logger.error("FFmpeg process exited with error", error, { sessionId, exitCode, signalCode });
 
-					detach(transcodeProgressMonitor.onFfmpegExit(sessionId, exitCode, signalCode));
-				})
-				.run(buildHlsOutputPath(outputDir, PLAYLIST_FILE_NAME))
-		);
+				detach(transcodeProgressMonitor.onFfmpegExit(sessionId, exitCode, signalCode, handle.process));
+			})
+			.run(buildHlsOutputPath(outputDir, PLAYLIST_FILE_NAME));
+		handle.process = subprocess;
+
+		return subprocess;
 	}
 }

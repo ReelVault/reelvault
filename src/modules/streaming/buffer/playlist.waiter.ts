@@ -9,8 +9,15 @@ import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 
+/** Placeholder unregister used until `registerWaiter` replaces it synchronously (no await in between). */
+const noopUnregister = () => {
+	// intentionally empty
+};
+
 export class PlaylistWaiter {
 	private readonly cushionedSessions = new Set<string>();
+	/** In-flight playlist waits per session, so a release fails them instead of polling a deleted directory. */
+	private readonly waiters = new Map<string, Set<(error: DomainError) => void>>();
 	private readonly store: SessionStore;
 	private readonly reservations: SessionReservationTracker;
 	private readonly getFilePath: (sessionId: string, fileName: string) => string;
@@ -66,16 +73,23 @@ export class PlaylistWaiter {
 						// intentionally empty — promise never resolves (no exit event to handle)
 					});
 
+			let unregister = noopUnregister;
+			const cancelled = new Promise<never>((_resolve, reject) => {
+				unregister = this.registerWaiter(sessionId, reject);
+			});
+
 			try {
 				// fs.watch drives the wake-up; the tick below is only the fallback when
 				// no watcher can be created — keep it tight, it sits on playback start.
-				await Promise.race([PromiseUtils.waitForFile(playlistPath, timeoutMs, 25, signal), exitPromise]);
+				await Promise.race([PromiseUtils.waitForFile(playlistPath, timeoutMs, 25, signal), exitPromise, cancelled]);
 			} catch (error) {
 				if (error instanceof DomainError && error.category === "timeout") {
 					throw new DomainError("timeout", `Playlist was not generated within ${timeoutMs}ms`, { code: "playlist_generation_timeout" });
 				}
 
 				throw error;
+			} finally {
+				unregister();
 			}
 		}
 
@@ -119,14 +133,34 @@ export class PlaylistWaiter {
 			await sleep(100);
 		}
 
-		this.cushionedSessions.add(sessionId);
+		if (this.store.get(sessionId)) this.cushionedSessions.add(sessionId);
 	}
 
+	/** Fails every playlist wait of this session, so a release answers immediately instead of polling. */
 	invalidate(sessionId: string): void {
 		this.cushionedSessions.delete(sessionId);
+		const waiters = this.waiters.get(sessionId);
+		if (!waiters) return;
+
+		this.waiters.delete(sessionId);
+		for (const reject of waiters) {
+			reject(new DomainError("not_found", "Streaming session ended while waiting for its playlist", { code: "stream.session_not_found" }));
+		}
+	}
+
+	private registerWaiter(sessionId: string, reject: (error: DomainError) => void): () => void {
+		const waiters = this.waiters.get(sessionId) ?? new Set<(error: DomainError) => void>();
+		waiters.add(reject);
+		this.waiters.set(sessionId, waiters);
+
+		return () => {
+			waiters.delete(reject);
+			if (waiters.size === 0) this.waiters.delete(sessionId);
+		};
 	}
 
 	clear(): void {
 		this.cushionedSessions.clear();
+		this.waiters.clear();
 	}
 }
