@@ -5,6 +5,43 @@ import { runDiscovery, suiteArgs } from "benchkit";
 
 process.env.NODE_ENV = "production";
 
+interface HardwareProfile {
+	readonly cores: number;
+	readonly speedFactor: number;
+	readonly totalMemoryKiB: number;
+}
+
+/**
+ * Simulated hosts for runs on a fast development machine. `low-end` mirrors a
+ * Raspberry Pi 4 (4 slow cores, 2 GiB), `old-laptop` a dual-core 4 GiB machine,
+ * and `modern` a desktop with 8 cores and 16 GiB. The server reads the values
+ * from the environment, so spawned servers and in-process suites see the same
+ * budgets.
+ */
+const HARDWARE_PROFILES: Readonly<Record<string, HardwareProfile>> = {
+	"low-end": { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024 },
+	rpi: { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024 },
+	"old-laptop": { cores: 2, speedFactor: 0.5, totalMemoryKiB: 4 * 1024 * 1024 },
+	modern: { cores: 8, speedFactor: 1.2, totalMemoryKiB: 16 * 1024 * 1024 },
+};
+
+function applyHardwareProfile(name: string | boolean | undefined): void {
+	if (name === undefined) return;
+	if (typeof name !== "string") throw new Error("--hardware needs a profile name");
+
+	const profile = HARDWARE_PROFILES[name];
+	if (!profile) {
+		throw new Error(`Unknown --hardware profile "${name}". Use: ${Object.keys(HARDWARE_PROFILES).join(", ")}`);
+	}
+
+	process.env.REELVAULT_BENCH_CORES = String(profile.cores);
+	process.env.REELVAULT_BENCH_SPEED_FACTOR = String(profile.speedFactor);
+	process.env.REELVAULT_BENCH_TOTAL_MEMORY_KIB = String(profile.totalMemoryKiB);
+	console.log(
+		`[benchmark] hardware simulation: ${name} (${profile.cores} cores, speed factor ${profile.speedFactor}, ${Math.round(profile.totalMemoryKiB / 1024)} MiB RAM; budgets simulated, wall-clock runs on the host CPU)`,
+	);
+}
+
 // Isolate in-process suites from the developer's real data directory. The
 // module-level `databaseFactory` reads ROOT_DIR/DB_FILE_NAME at import time, so
 // this must run before any suite module (and therefore the database) is loaded.
@@ -17,9 +54,10 @@ process.env.NODE_ENV = "production";
 const benchmarkRoot = mkdtempSync(join(tmpdir(), "reelvault-benchmark-"));
 process.env.ROOT_DIR = benchmarkRoot;
 
-// Honesty flags are parsed before env.config is first evaluated, so the process
-// — and every spawned server, which inherits process.env — sees them.
-const args = suiteArgs();
+// Honesty and hardware flags are parsed before env.config is first evaluated,
+// so the process — and every spawned server, which inherits process.env — sees them.
+const args = suiteArgs(new Set(["hardware"]));
+applyHardwareProfile(args.flags.hardware);
 if (args.noCache) process.env.REELVAULT_BENCH_DISABLE_CACHES = "true";
 if (args.noDedup) process.env.REELVAULT_BENCH_DISABLE_DEDUP = "true";
 

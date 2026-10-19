@@ -190,6 +190,112 @@ async function controlPlaneCycle(server: ManagedServer, ledger: ControlPlaneLedg
 	}
 }
 
+interface SessionStartupSample {
+	label: string;
+	mode: string;
+	createMs: number;
+	playlistMs: number;
+	segmentMs: number;
+	bytes: number;
+	ok: boolean;
+}
+
+const TRANSCODE_CAPS = { videoCodecs: ["h264"], audioCodecs: ["aac"], maxBitrate: 500 } as const;
+const DIRECT_CAPS = { videoCodecs: ["h264"], audioCodecs: ["aac"] } as const;
+
+/** One create → playlist (first segment available) → first segment fetch cycle. */
+async function measureSessionStartup(
+	server: ManagedServer,
+	workerIndex: number,
+	label: string,
+	capabilities: { videoCodecs: readonly string[]; audioCodecs: readonly string[]; maxBitrate?: number | undefined },
+): Promise<SessionStartupSample> {
+	if (!server.sampleMediaId) throw new Error("Sample media unavailable");
+
+	// Keep every create above the per-profile cooldown even when the run seeds
+	// fewer identities than this task's six samples.
+	await sleep(CONTROL_PLANE_CREATE_COOLDOWN_MS);
+	const headers = controlPlaneHeaders(server, workerIndex);
+	const createStartedAt = performance.now();
+	const createResponse = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
+		method: "POST",
+		headers: {
+			...headers,
+			"content-type": "application/json",
+			"idempotency-key": `benchmark-startup-${label}-${workerIndex}-${Date.now()}`,
+		},
+		body: JSON.stringify({ mediaFileId: server.sampleMediaId, ...capabilities }),
+	});
+	const createMs = performance.now() - createStartedAt;
+	if (!createResponse.ok) throw new Error(`Startup session creation failed: HTTP ${createResponse.status}`);
+
+	const created: unknown = await createResponse.json();
+	if (typeof created !== "object" || created === null || !("sessionId" in created) || typeof created.sessionId !== "string") {
+		throw new Error("Startup session response is missing sessionId");
+	}
+
+	const sessionId = created.sessionId;
+	const mode = "mode" in created && typeof created.mode === "string" ? created.mode : "unknown";
+	try {
+		const playlistStartedAt = performance.now();
+		let segments: string[] = [];
+		while (performance.now() - playlistStartedAt < 30_000) {
+			const response = await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}/playlist`, { headers });
+			if (response.ok) {
+				segments = parseSegmentNames(await response.text());
+				if (segments.length > 0) break;
+			}
+			await sleep(50);
+		}
+		const playlistMs = performance.now() - playlistStartedAt;
+		const firstSegment = segments[0];
+		if (!firstSegment) throw new Error(`Startup playlist for ${label} produced no segments`);
+
+		const segmentStartedAt = performance.now();
+		const segmentResponse = await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}/segments/${firstSegment}`, { headers });
+		const bytes = (await segmentResponse.arrayBuffer()).byteLength;
+
+		return {
+			label,
+			mode,
+			createMs,
+			playlistMs,
+			segmentMs: performance.now() - segmentStartedAt,
+			bytes,
+			ok: segmentResponse.ok,
+		};
+	} finally {
+		await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}`, { method: "DELETE", headers });
+	}
+}
+
+async function runStartupComparison(server: ManagedServer): Promise<void> {
+	const rows: SessionStartupSample[] = [];
+	let workerIndex = 0;
+	for (const [label, capabilities] of [
+		["direct-stream", DIRECT_CAPS],
+		["software transcode", TRANSCODE_CAPS],
+	] as const) {
+		for (let round = 0; round < 3; round++) {
+			rows.push(await measureSessionStartup(server, workerIndex++, label, capabilities));
+		}
+	}
+
+	printTable(
+		"Startup: first segment (3 runs each, lower is better)",
+		["request", "decision", "create", "playlist", "first segment", "bytes", "ok"],
+		rows.map((row) => [
+			row.label,
+			row.mode,
+			fmtMs(row.createMs),
+			fmtMs(row.playlistMs),
+			fmtMs(row.segmentMs),
+			String(row.bytes),
+			row.ok ? "yes" : "no",
+		]),
+	);
+}
+
 async function runControlPlane(server: ManagedServer, durationMs: number): Promise<void> {
 	const settingsResponse = await fetch(`${server.baseUrl}/v1/admin/settings`, {
 		method: "PATCH",
@@ -325,6 +431,20 @@ if (!args.help) {
 		} finally {
 			await removeTree(dir);
 		}
+
+		return { ok: true };
+	});
+
+	task("streaming: startup (direct vs software transcode)", async () => {
+		const server = await serverFixture();
+		if (!server.sampleMediaId) {
+			console.error("Sample media unavailable — cannot measure playback startup");
+			process.exitCode = 1;
+
+			return { ok: false };
+		}
+
+		await runStartupComparison(server);
 
 		return { ok: true };
 	});

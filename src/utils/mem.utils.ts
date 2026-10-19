@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { totalmem } from "node:os";
 import { gc } from "bun";
+import { env } from "@/config/env.config";
 import { isFiniteNumber } from "./type.utils";
 
 const MEM_TOTAL_REGEX = /MemTotal:\s+(\d+)/;
@@ -106,6 +107,9 @@ export function readCgroupMemoryUsageKiB(): number | undefined {
 }
 
 export function getTotalMemoryKiB(): number | undefined {
+	const simulated = env.REELVAULT_BENCH_TOTAL_MEMORY_KIB;
+	if (simulated !== undefined) return simulated;
+
 	if (!cached) {
 		cached = true;
 		let total: number | undefined;

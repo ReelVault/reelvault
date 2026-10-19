@@ -74,6 +74,8 @@ export const BENCH_USER = { name: "Benchmark Admin", email: "benchmark@reelvault
 const STARTUP_TIMEOUT_MS = 120_000;
 const HEALTH_POLL_MS = 300;
 const SAMPLE_MEDIA_SECONDS = 30;
+/** Synthetic source bitrate so the startup benchmark can force a bitrate-capped transcode. */
+const SAMPLE_MEDIA_BITRATE = 4_000_000;
 const BENCHMARK_IMAGE_ID = "img-benchmark";
 /** Every Nth seeded title becomes a tv_show with seasons/episodes. */
 const TV_SHOW_CYCLE = 8;
@@ -496,9 +498,9 @@ async function registerSampleMedia(rootDir: string, samplePath: string): Promise
 		.run(now, now);
 	database
 		.prepare(
-			"INSERT INTO media_files (id, library_id, metadata_id, movie_id, file_path, file_name, duration, file_size, is_default, created_at, updated_at) VALUES ('mf-sample', 'lib-benchmark', 'meta-sample', 'movie-sample', ?, 'sample.mp4', ?, ?, 1, ?, ?)",
+			"INSERT INTO media_files (id, library_id, metadata_id, movie_id, file_path, file_name, duration, file_size, bit_rate, is_default, created_at, updated_at) VALUES ('mf-sample', 'lib-benchmark', 'meta-sample', 'movie-sample', ?, 'sample.mp4', ?, ?, ?, 1, ?, ?)",
 		)
-		.run(samplePath, SAMPLE_MEDIA_SECONDS, (await file(samplePath).stat()).size, now, now);
+		.run(samplePath, SAMPLE_MEDIA_SECONDS, (await file(samplePath).stat()).size, SAMPLE_MEDIA_BITRATE, now, now);
 	database.close();
 
 	return "mf-sample";

@@ -73,6 +73,7 @@ export function printUsage(scriptName: string, extra = ""): void {
                          compare against a baseline and print verdicts; with --strict a "slower" verdict fails
   --no-cache             bypass the server-side response body cache (cold path)
   --no-dedup             disable in-flight request/load coalescing (worst-case concurrent work)
+  --hardware <profile>   simulate a host: low-end (RPi 4), old-laptop, modern
   --json[=path]          write machine-readable results (default path: benchmark-results/benchkit-latest.json)
   --strict               exit non-zero when an audit/comparison unit reports a failure${extra}`);
 }
@@ -208,8 +209,8 @@ let suiteArgsCache: BenchmarkArgs | undefined;
  * Process-wide memoized args: the bootstrap and every bench file share ONE
  * parse, so per-file re-parsing cannot double-warn or disagree about help.
  */
-export function suiteArgs(): BenchmarkArgs {
-	suiteArgsCache ??= parseBenchmarkArgs();
+export function suiteArgs(extraFlags?: ReadonlySet<string>): BenchmarkArgs {
+	suiteArgsCache ??= parseBenchmarkArgs(extraFlags);
 
 	return suiteArgsCache;
 }

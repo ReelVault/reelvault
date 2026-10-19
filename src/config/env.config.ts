@@ -182,6 +182,11 @@ const envSchema = Type.Object({
 	// MemoryCache pending loads) is skipped, so concurrent identical requests
 	// each do their own work (set by `bun run benchmark --no-dedup`).
 	REELVAULT_BENCH_DISABLE_DEDUP: choice(["true", "false"], { default: "false" }),
+	// Hardware simulation for benchmark runs (`bun run benchmark --hardware low-end`).
+	// Unset in production; the real host values are measured and detected.
+	REELVAULT_BENCH_CORES: optional(Type.Integer({ minimum: 1, maximum: 256 })),
+	REELVAULT_BENCH_SPEED_FACTOR: optional(Type.Number({ minimum: 0.01, maximum: 10 })),
+	REELVAULT_BENCH_TOTAL_MEMORY_KIB: optional(Type.Integer({ minimum: 131_072 })),
 
 	ROOT_DIR: Type.String({ minLength: 1, default: DEFAULT_ROOT_DIR }),
 	DB_FILE_NAME: Type.String({ minLength: 1, default: "reelvault.sqlite" }),

@@ -1,4 +1,5 @@
 import type { Logger } from "@reelvault/sdk/common";
+import { env } from "@/config/env.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { EventLoopMonitor } from "@/utils/event-loop-monitor.utils";
 import { createLogger } from "@/utils/logger.utils";
@@ -57,7 +58,16 @@ export class SystemResourcesService {
 	private readonly eventLoopMonitor = new EventLoopMonitor(1000);
 
 	constructor(overrides: SystemResourcesOverrides = {}) {
-		this.overrides = overrides;
+		const cores = env.REELVAULT_BENCH_CORES;
+		const speedFactor = env.REELVAULT_BENCH_SPEED_FACTOR;
+		const totalMemoryKiB = env.REELVAULT_BENCH_TOTAL_MEMORY_KIB;
+		const simulated: SystemResourcesOverrides = {
+			...(cores === undefined ? {} : { cores: () => cores }),
+			...(speedFactor === undefined ? {} : { speedFactor: () => speedFactor }),
+			...(totalMemoryKiB === undefined ? {} : { totalMemoryKiB: () => totalMemoryKiB }),
+		};
+		// Explicit test seams win over the benchmark environment.
+		this.overrides = { ...simulated, ...overrides };
 	}
 
 	// Lazy logger: instantiating services at module scope must not execute
