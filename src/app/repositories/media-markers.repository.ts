@@ -1,5 +1,5 @@
 import type { CreateMediaMarker, MediaMarkerFilters } from "@reelvault/sdk/common";
-import { and, asc, eq, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
@@ -40,7 +40,8 @@ const overrides = {
 		const where = markerListWhere(query);
 		const rows = await getMediaMarkersRepository().selectMany({
 			where,
-			orderBy: asc(mediaMarkers.table.createdAt),
+			// created_at is second-resolution — the id tiebreaker keeps offset pages stable.
+			orderBy: sql`${asc(mediaMarkers.table.createdAt)}, ${asc(mediaMarkers.table.id)}`,
 			limit: query.limit,
 			offset: query.offset,
 		});

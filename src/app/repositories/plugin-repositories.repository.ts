@@ -17,9 +17,7 @@ class PluginRepositoriesRepository {
 	}
 
 	async count(): Promise<number> {
-		const rows = await databaseFactory.getClient().select({ id: this.table.id }).from(this.table).limit(1);
-
-		return rows.length;
+		return await databaseFactory.getClient().$count(this.table);
 	}
 
 	async create(values: { name: string; url: string; tokenEncrypted?: string | null; enabled?: boolean }) {

@@ -41,7 +41,8 @@ class SessionsRepository {
 			})
 			.from(this.table)
 			.where(and(eq(this.table.userId, userId), gt(this.table.expiresAt, now)))
-			.orderBy(desc(this.table.createdAt))
+			// created_at is second-resolution — the id tiebreaker keeps offset pages stable.
+			.orderBy(desc(this.table.createdAt), desc(this.table.id))
 			.limit(limit)
 			.offset(offset);
 	}

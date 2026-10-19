@@ -279,7 +279,7 @@ async function rankSimilarIds(
 		})
 		.from(schema.metadata)
 		.where(candidateWhere)
-		.orderBy((t) => desc(t.score))
+		.orderBy((t) => sql`${desc(t.score)}, ${desc(t.id)}`)
 		.limit(limit + 1)
 		.offset(offset);
 

@@ -24,21 +24,25 @@ class LibraryProviderSettingsRepository {
 			.where(eq(libraryProviderSettings.libraryId, libraryId));
 	}
 
-	/** Replaces the whole override set for one library in a single delete+insert pass. */
+	/** Replaces the whole override set for one library in a single transaction. */
 	async replaceForLibrary(libraryId: string, priorities: LibraryProviderPriority[]): Promise<void> {
-		const client = databaseFactory.getClient();
-		await client.delete(libraryProviderSettings).where(eq(libraryProviderSettings.libraryId, libraryId));
+		// Input order wins on duplicates: the table's PK is (library_id, provider_id).
+		const unique = [...new Map(priorities.map((item) => [item.providerId, item])).values()];
 
-		if (priorities.length === 0) return;
+		await databaseFactory.transaction(async (tx) => {
+			await tx.delete(libraryProviderSettings).where(eq(libraryProviderSettings.libraryId, libraryId));
 
-		await client.insert(libraryProviderSettings).values(
-			priorities.map((item) => ({
-				libraryId,
-				providerId: item.providerId,
-				priority: item.priority,
-				enabled: item.enabled,
-			})),
-		);
+			if (unique.length === 0) return;
+
+			await tx.insert(libraryProviderSettings).values(
+				unique.map((item) => ({
+					libraryId,
+					providerId: item.providerId,
+					priority: item.priority,
+					enabled: item.enabled,
+				})),
+			);
+		});
 	}
 }
 

@@ -62,7 +62,11 @@ export async function cascadeCancel(tx: DatabaseTransaction, parentIds: string[]
 
 	if (affected.length === 0) return;
 
-	await forEachChunked(affected, (chunkRows) =>
+	// A diamond-shaped dependency graph reaches a job from two levels; the UPDATE
+	// runs once, so count each id once as well.
+	const uniqueAffected = [...new Map(affected.map((row) => [row.id, row])).values()];
+
+	await forEachChunked(uniqueAffected, (chunkRows) =>
 		tx
 			.update(items)
 			.set({ status: "cancelled", completedAt: now, updatedAt: now })
@@ -77,7 +81,7 @@ export async function cascadeCancel(tx: DatabaseTransaction, parentIds: string[]
 			),
 	);
 
-	await applyOperationCounts(toOperationCounts(affected), (operationId, amount) =>
+	await applyOperationCounts(toOperationCounts(uniqueAffected), (operationId, amount) =>
 		workerOperationRepository.markPendingJobsCancelled(operationId, now, tx, amount),
 	);
 }

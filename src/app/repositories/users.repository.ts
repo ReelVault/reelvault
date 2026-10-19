@@ -1,5 +1,5 @@
 import type { SelectFields, User } from "@reelvault/sdk/common";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { FindFirstReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
@@ -39,7 +39,13 @@ const overrides = {
 		);
 		const [total, data] = await Promise.all([
 			getUsersRepository().count({ where }),
-			getUsersRepository().selectMany({ where, orderBy: desc(users.table.createdAt), limit, offset }),
+			// created_at is second-resolution — the id tiebreaker keeps offset pages stable.
+			getUsersRepository().selectMany({
+				where,
+				orderBy: sql`${desc(users.table.createdAt)}, ${desc(users.table.id)}`,
+				limit,
+				offset,
+			}),
 		]);
 
 		return { total, data };
