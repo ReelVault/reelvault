@@ -141,6 +141,25 @@ class ServerRescueService {
 	}
 
 	shutdown(): void {
+		this.clearTimers();
+		this.isInitialized = false;
+		this.state = "healthy";
+		this.breachSince = null;
+		this.healthySince = null;
+		this.engageTimes = [];
+	}
+
+	/**
+	 * Re-reads `system.rescue.enabled` and arms or disarms the monitor. Called
+	 * when the setting changes at runtime — boot-time `init()` latches the flag.
+	 */
+	reschedule(): void {
+		this.clearTimers();
+		this.isInitialized = false;
+		this.init();
+	}
+
+	private clearTimers(): void {
 		if (this.lagSamplerTimer) {
 			clearTimeout(this.lagSamplerTimer);
 			this.lagSamplerTimer = undefined;
@@ -150,12 +169,6 @@ class ServerRescueService {
 			clearInterval(this.checkTimer);
 			this.checkTimer = undefined;
 		}
-
-		this.isInitialized = false;
-		this.state = "healthy";
-		this.breachSince = null;
-		this.healthySince = null;
-		this.engageTimes = [];
 	}
 
 	isThrottling(): boolean {

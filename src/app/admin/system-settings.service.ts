@@ -21,6 +21,7 @@ import { assertFFProbeAvailable } from "@/integrations/ffprobe/ffprobe.environme
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { resourceAllocator } from "@/system/resource-allocator.service";
+import { serverRescueService } from "@/system/server-rescue.service";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger, setLogLevel } from "@/utils/logger.utils";
 import { invalidateResponseBodies } from "@/utils/response-body.cache";
@@ -302,6 +303,7 @@ class SystemSettingsService {
 		let changesLogLevel = false;
 		let changesProviderCacheTtl = false;
 		let changesMonitoring = false;
+		let changesRescue = false;
 		for (const key of keys) {
 			// The watcher reads its fallback interval when arming timers, so a change
 			// must re-arm them; the same applies to the periodic rescan deadline.
@@ -322,6 +324,8 @@ class SystemSettingsService {
 			if (key === "plugins.providers.detailsCacheTtlMs") changesProviderCacheTtl = true;
 
 			if (key === "system.resources.monitoringIntervalMs" || key === "system.resources.monitoringEnabled") changesMonitoring = true;
+
+			if (key.startsWith("system.rescue.")) changesRescue = true;
 		}
 
 		// Profiles inherit these defaults; any cached response that embeds effective preferences is stale now.
@@ -333,6 +337,10 @@ class SystemSettingsService {
 		if (changesProviderCacheTtl) providerService.resetCaches();
 
 		if (changesMonitoring) resourceAllocator.rescheduleMonitoring();
+
+		// The monitor latches `system.rescue.enabled` when it arms; a change must
+		// arm or disarm it without a restart.
+		if (changesRescue) serverRescueService.reschedule();
 
 		if (needsWatcherSync) await libraryWatcherService.syncWatchers();
 
