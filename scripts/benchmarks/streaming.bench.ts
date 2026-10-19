@@ -203,18 +203,28 @@ interface SessionStartupSample {
 const TRANSCODE_CAPS = { videoCodecs: ["h264"], audioCodecs: ["aac"], maxBitrate: 500 } as const;
 const DIRECT_CAPS = { videoCodecs: ["h264"], audioCodecs: ["aac"] } as const;
 
-/** One create → playlist (first segment available) → first segment fetch cycle. */
-async function measureSessionStartup(
+interface CreatedSession {
+	sessionId: string;
+	headers: Record<string, string>;
+	createMs: number;
+	mode: string;
+}
+
+interface FirstSegmentSample {
+	playlistMs: number;
+	segmentMs: number;
+	bytes: number;
+	ok: boolean;
+}
+
+async function createSession(
 	server: ManagedServer,
 	workerIndex: number,
 	label: string,
 	capabilities: { videoCodecs: readonly string[]; audioCodecs: readonly string[]; maxBitrate?: number | undefined },
-): Promise<SessionStartupSample> {
+): Promise<CreatedSession> {
 	if (!server.sampleMediaId) throw new Error("Sample media unavailable");
 
-	// Keep every create above the per-profile cooldown even when the run seeds
-	// fewer identities than this task's six samples.
-	await sleep(CONTROL_PLANE_CREATE_COOLDOWN_MS);
 	const headers = controlPlaneHeaders(server, workerIndex);
 	const createStartedAt = performance.now();
 	const createResponse = await fetch(`${server.baseUrl}/v1/playback-sessions`, {
@@ -227,45 +237,68 @@ async function measureSessionStartup(
 		body: JSON.stringify({ mediaFileId: server.sampleMediaId, ...capabilities }),
 	});
 	const createMs = performance.now() - createStartedAt;
-	if (!createResponse.ok) throw new Error(`Startup session creation failed: HTTP ${createResponse.status}`);
+	if (!createResponse.ok) {
+		throw new Error(`Startup session creation failed: HTTP ${createResponse.status} ${await createResponse.text()}`);
+	}
 
 	const created: unknown = await createResponse.json();
 	if (typeof created !== "object" || created === null || !("sessionId" in created) || typeof created.sessionId !== "string") {
 		throw new Error("Startup session response is missing sessionId");
 	}
 
-	const sessionId = created.sessionId;
-	const mode = "mode" in created && typeof created.mode === "string" ? created.mode : "unknown";
-	try {
-		const playlistStartedAt = performance.now();
-		let segments: string[] = [];
-		while (performance.now() - playlistStartedAt < 30_000) {
-			const response = await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}/playlist`, { headers });
-			if (response.ok) {
-				segments = parseSegmentNames(await response.text());
-				if (segments.length > 0) break;
-			}
-			await sleep(50);
+	return {
+		sessionId: created.sessionId,
+		headers,
+		createMs,
+		mode: "mode" in created && typeof created.mode === "string" ? created.mode : "unknown",
+	};
+}
+
+async function waitForFirstSegment(server: ManagedServer, session: CreatedSession, label: string): Promise<FirstSegmentSample> {
+	const playlistStartedAt = performance.now();
+	let segments: string[] = [];
+	while (performance.now() - playlistStartedAt < 30_000) {
+		const response = await fetch(`${server.baseUrl}/v1/playback-sessions/${session.sessionId}/playlist`, { headers: session.headers });
+		if (response.ok) {
+			segments = parseSegmentNames(await response.text());
+			if (segments.length > 0) break;
 		}
-		const playlistMs = performance.now() - playlistStartedAt;
-		const firstSegment = segments[0];
-		if (!firstSegment) throw new Error(`Startup playlist for ${label} produced no segments`);
+		await sleep(50);
+	}
+	const playlistMs = performance.now() - playlistStartedAt;
+	const firstSegment = segments[0];
+	if (!firstSegment) throw new Error(`Startup playlist for ${label} produced no segments`);
 
-		const segmentStartedAt = performance.now();
-		const segmentResponse = await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}/segments/${firstSegment}`, { headers });
-		const bytes = (await segmentResponse.arrayBuffer()).byteLength;
+	const segmentStartedAt = performance.now();
+	const segmentResponse = await fetch(`${server.baseUrl}/v1/playback-sessions/${session.sessionId}/segments/${firstSegment}`, {
+		headers: session.headers,
+	});
+	const bytes = (await segmentResponse.arrayBuffer()).byteLength;
 
-		return {
-			label,
-			mode,
-			createMs,
-			playlistMs,
-			segmentMs: performance.now() - segmentStartedAt,
-			bytes,
-			ok: segmentResponse.ok,
-		};
+	return { playlistMs, segmentMs: performance.now() - segmentStartedAt, bytes, ok: segmentResponse.ok };
+}
+
+async function deleteSession(server: ManagedServer, session: CreatedSession): Promise<void> {
+	await fetch(`${server.baseUrl}/v1/playback-sessions/${session.sessionId}`, { method: "DELETE", headers: session.headers });
+}
+
+/** One create → playlist (first segment available) → first segment fetch cycle. */
+async function measureSessionStartup(
+	server: ManagedServer,
+	workerIndex: number,
+	label: string,
+	capabilities: { videoCodecs: readonly string[]; audioCodecs: readonly string[]; maxBitrate?: number | undefined },
+): Promise<SessionStartupSample> {
+	// Keep every create above the per-profile cooldown even when the run seeds
+	// fewer identities than this task's six samples.
+	await sleep(CONTROL_PLANE_CREATE_COOLDOWN_MS);
+	const session = await createSession(server, workerIndex, label, capabilities);
+	try {
+		const first = await waitForFirstSegment(server, session, label);
+
+		return { label, mode: session.mode, createMs: session.createMs, ...first };
 	} finally {
-		await fetch(`${server.baseUrl}/v1/playback-sessions/${sessionId}`, { method: "DELETE", headers });
+		await deleteSession(server, session);
 	}
 }
 
@@ -296,15 +329,55 @@ async function runStartupComparison(server: ManagedServer): Promise<void> {
 	);
 }
 
-async function runControlPlane(server: ManagedServer, durationMs: number): Promise<void> {
-	const settingsResponse = await fetch(`${server.baseUrl}/v1/admin/settings`, {
+async function raiseSessionCaps(server: ManagedServer): Promise<void> {
+	const response = await fetch(`${server.baseUrl}/v1/admin/settings`, {
 		method: "PATCH",
 		headers: { "content-type": "application/json", cookie: server.cookie, "x-forwarded-for": "10.79.0.1" },
 		body: JSON.stringify({ "stream.maxSessions": 32, "stream.maxSessionsPerUser": 32 }),
 	});
-	if (!settingsResponse.ok) {
-		throw new Error(`Failed to raise session caps for control-plane phase: HTTP ${settingsResponse.status}`);
+	if (!response.ok) throw new Error(`Failed to raise session caps: HTTP ${response.status}`);
+}
+
+async function runConcurrentStartup(server: ManagedServer): Promise<void> {
+	await raiseSessionCaps(server);
+	const rows: Array<[string, string, string, string, string]> = [];
+	let workerBase = 10;
+	for (const concurrency of [1, 2, 4]) {
+		const firstWorker = workerBase;
+		workerBase += concurrency;
+		const sessions = await Promise.all(
+			Array.from({ length: concurrency }, (_, index) =>
+				createSession(server, firstWorker + index, `concurrent-${concurrency}`, TRANSCODE_CAPS),
+			),
+		);
+		const samples = await Promise.all(
+			sessions.map(async (session) => {
+				try {
+					return await waitForFirstSegment(server, session, `concurrent-${concurrency}`);
+				} finally {
+					await deleteSession(server, session);
+				}
+			}),
+		);
+		const playlistMs = Math.max(...samples.map((sample) => sample.playlistMs));
+		const segmentMs = Math.max(...samples.map((sample) => sample.segmentMs));
+		const bytes = samples.reduce((total, sample) => total + sample.bytes, 0);
+
+		rows.push([String(concurrency), sessions[0]?.mode ?? "unknown", fmtMs(playlistMs), fmtMs(segmentMs), fmtMb(bytes)]);
+		// Release is asynchronous on the server; let the reservations clear before
+		// the next concurrency level starts.
+		await sleep(200);
 	}
+
+	printTable(
+		"Concurrent software transcodes (first segment, lower is better)",
+		["sessions", "decision", "max playlist", "max first segment", "total bytes"],
+		rows,
+	);
+}
+
+async function runControlPlane(server: ManagedServer, durationMs: number): Promise<void> {
+	await raiseSessionCaps(server);
 
 	for (const concurrency of CONTROL_PLANE_CONCURRENCIES) {
 		// One unmeasured cycle: cold ffmpeg spawn and cold caches must not skew p50.
@@ -445,6 +518,7 @@ if (!args.help) {
 		}
 
 		await runStartupComparison(server);
+		await runConcurrentStartup(server);
 
 		return { ok: true };
 	});
