@@ -9,7 +9,7 @@ import { serverConstants } from "@/config/server/server.constants";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { getOrSetSession } from "@/integrations/better-auth/better-auth.session-cache";
 import { DomainError } from "@/utils/domain.errors";
-import { getPathname } from "@/utils/http.utils";
+import { getNormalizedPathname } from "@/utils/http.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { isProfileUnlocked } from "@/utils/profile-unlock.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
@@ -49,7 +49,7 @@ const PLUGIN_UI_MANIFEST_PATH = `${serverConstants.security.pluginUiRoutePrefix}
 function isPublicGet(request: Request): boolean {
 	if (request.method !== "GET") return false;
 
-	const path = getPathname(request.url);
+	const path = getNormalizedPathname(request);
 	if (isImageAssetPath(path)) return true;
 
 	// The SPA's own asset bundle: a page load pulls dozens of hashed chunks,

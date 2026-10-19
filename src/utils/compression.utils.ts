@@ -1,6 +1,30 @@
 import { brotliCompress, constants, deflate, gzip } from "node:zlib";
 import { serverConfig } from "@/config/server/server.config";
+import { SLOW_CORE_FACTOR } from "@/config/system-resources/budgets.utils";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { MemoryCache } from "@/utils/memory.cache";
+
+/**
+ * On slow cores brotli quality 4 spends noticeably more CPU for a modest size
+ * win. The 24-item catalog payload goes 0.08 → 0.05 ms while growing 0.4 → 0.5
+ * KB, and a 617 KB details payload goes 1.16 → 0.77 ms for 15 → 17 KB.
+ */
+const SLOW_BROTLI_QUALITY = 2;
+const SLOW_BROTLI_LGWIN = 16;
+
+export function resolveBrotliParams(speedFactor: number): { quality: number; lgwin: number } {
+	if (speedFactor < SLOW_CORE_FACTOR) return { quality: SLOW_BROTLI_QUALITY, lgwin: SLOW_BROTLI_LGWIN };
+
+	return { quality: serverConfig.compression.brotliQuality, lgwin: serverConfig.compression.brotliLgwin };
+}
+
+let brotliParams: { quality: number; lgwin: number } | undefined;
+
+function currentBrotliParams(): { quality: number; lgwin: number } {
+	brotliParams ??= resolveBrotliParams(systemResourcesService.getSpeedFactor());
+
+	return brotliParams;
+}
 
 type CompressionEncoding = "br" | "gzip" | "deflate";
 type NegotiatedEncoding = CompressionEncoding | "none";
@@ -87,12 +111,13 @@ export function compressBuffer(input: Buffer, encoding: CompressionEncoding): Pr
 	return new Promise((resolve, reject) => {
 		const cb = (error: Error | null, result: Buffer) => (error ? reject(error) : resolve(toResponseBytes(result)));
 		if (encoding === "br") {
+			const params = currentBrotliParams();
 			brotliCompress(
 				input,
 				{
 					params: {
-						[constants.BROTLI_PARAM_QUALITY]: serverConfig.compression.brotliQuality,
-						[constants.BROTLI_PARAM_LGWIN]: serverConfig.compression.brotliLgwin,
+						[constants.BROTLI_PARAM_QUALITY]: params.quality,
+						[constants.BROTLI_PARAM_LGWIN]: params.lgwin,
 					},
 				},
 				cb,

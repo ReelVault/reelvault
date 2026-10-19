@@ -739,6 +739,8 @@ The browse and collections rows are the combined result of every change above; t
 
 #### HTTP, caching & resource usage
 
+- **Reduced per-request middleware overhead** — normalized pathnames and credential headers are memoized for the life of a request, and a cache miss no longer rebuilds the same response-cache key after the handler.
+- **Adaptive brotli compression** — cores below the slow-core threshold use quality 2 and a 64 KB window instead of quality 4/256 KB. Bodies grow by roughly 10–25% while compression CPU falls; a 617 KB details payload went from 1.16 to 0.77 ms.
 - **Reduced response-body copying** — compressed responses now reuse the existing byte buffer. Copying a 64 KB body improved from 0.88 to 0.015 ms, with identical compressed output.
 - **Improved compressed endpoint throughput** — per-profile details and playback views showed higher throughput in the measured runs after eliminating redundant body copies; results varied by endpoint and remained within the benchmark's approximately ±10% run-to-run spread.
 - **Reduced asset request overhead** — static application assets no longer trigger unnecessary session and profile resolution. CPU time for 4,000 authenticated asset requests fell from 773 to 740 ms.

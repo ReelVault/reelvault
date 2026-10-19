@@ -58,10 +58,15 @@ function resolveProfileId(context: object): string | undefined {
 	return typeof id === "string" ? id : undefined;
 }
 
-function cacheKeyFor(request: Request, resolvedProfileId?: string): string {
-	const credentials = readRequestCredentials(request);
+/** One key per request: a cache miss used to build the same key again after the handler. */
+const cacheKeys = new WeakMap<Request, { key: string; profileId: string | undefined }>();
 
-	return responseCacheKey({
+function cacheKeyFor(request: Request, resolvedProfileId?: string): string {
+	const cachedKey = cacheKeys.get(request);
+	if (cachedKey && cachedKey.profileId === resolvedProfileId) return cachedKey.key;
+
+	const credentials = readRequestCredentials(request);
+	const key = responseCacheKey({
 		pathWithQuery: pathWithQuery(request.url),
 		cookie: credentials.cookie,
 		profileId: resolvedProfileId ?? credentials.headerProfileId,
@@ -70,6 +75,9 @@ function cacheKeyFor(request: Request, resolvedProfileId?: string): string {
 		// keys of different accounts would share the same cached private body.
 		apiKey: credentials.apiKey,
 	});
+	cacheKeys.set(request, { key, profileId: resolvedProfileId });
+
+	return key;
 }
 
 /**

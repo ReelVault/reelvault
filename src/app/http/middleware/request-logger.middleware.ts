@@ -1,5 +1,5 @@
 import { Elysia, ElysiaCustomStatusResponse } from "elysia";
-import { getPathname, getResponseStatus } from "@/utils/http.utils";
+import { getNormalizedPathname, getResponseStatus } from "@/utils/http.utils";
 import { createLogger, logAccessRecord } from "@/utils/logger.utils";
 
 const logger = createLogger("RequestLogger");
@@ -13,6 +13,7 @@ interface LogContext {
 	request: Request;
 	set: { status?: number | string };
 	requestId?: string;
+	requestPath?: string;
 	requestStartedAt?: number;
 }
 
@@ -31,9 +32,9 @@ export function responseStatus(responseValue: unknown, set: { status?: number | 
 }
 
 function extractLogMeta(context: LogContext & Partial<AuthContext>, extra?: Record<string, unknown>): Record<string, unknown> {
-	const { request, requestId, requestStartedAt, user, profile } = context;
+	const { request, requestId, requestPath, requestStartedAt, user, profile } = context;
 	const method = request.method;
-	const path = getPathname(request.url);
+	const path = requestPath ?? getNormalizedPathname(request);
 	const durationMs = Math.round(performance.now() - (requestStartedAt ?? performance.now()));
 	const meta: Record<string, unknown> = { requestId, path, method, durationMs, ...extra };
 	if (user?.id) meta.userId = user.id;
@@ -76,6 +77,7 @@ export const requestLoggerMiddleware = new Elysia({ name: "RequestLogger" })
 
 		return {
 			requestId,
+			requestPath: getNormalizedPathname(request),
 			requestStartedAt: performance.now(),
 		};
 	})

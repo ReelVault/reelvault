@@ -71,6 +71,23 @@ export function getPathname(url: string): string {
 }
 
 /**
+ * Normalized pathname for one live request. Auth, rate limiting, security
+ * headers and the access log all ask for it; caching per Request avoids
+ * re-slicing and re-normalizing the same URL in each middleware.
+ */
+const normalizedPathnameCache = new WeakMap<Request, string>();
+
+export function getNormalizedPathname(request: Request): string {
+	const cached = normalizedPathnameCache.get(request);
+	if (cached !== undefined) return cached;
+
+	const pathname = getPathname(request.url);
+	normalizedPathnameCache.set(request, pathname);
+
+	return pathname;
+}
+
+/**
  * The raw pathname of a request URL: no query string and no dot-segment
  * normalization. The static file server resolves its own segments and refuses
  * the ones that climb out of the web root, so it must see the path as sent.
@@ -163,12 +180,20 @@ export interface RequestCredentials {
 	apiKey: string;
 }
 
+const credentialsCache = new WeakMap<Request, RequestCredentials>();
+
 /** Reads the credential headers request keys are scoped by; missing headers become empty segments. */
 export function readRequestCredentials(request: Request): RequestCredentials {
-	return {
+	const cached = credentialsCache.get(request);
+	if (cached) return cached;
+
+	const credentials: RequestCredentials = {
 		authorization: request.headers.get("authorization") ?? "",
 		cookie: request.headers.get("cookie") ?? "",
 		headerProfileId: request.headers.get("x-profile-id") ?? "",
 		apiKey: request.headers.get("x-api-key") ?? "",
 	};
+	credentialsCache.set(request, credentials);
+
+	return credentials;
 }

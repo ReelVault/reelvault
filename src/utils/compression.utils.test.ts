@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
-import { compressBuffer, negotiateEncoding } from "./compression.utils";
+import { serverConfig } from "@/config/server/server.config";
+import { SLOW_CORE_FACTOR } from "@/config/system-resources/budgets.utils";
+import { compressBuffer, negotiateEncoding, resolveBrotliParams } from "./compression.utils";
 
 describe("negotiateEncoding", () => {
 	test("prefers brotli regardless of header order", () => {
@@ -44,6 +46,16 @@ describe("negotiateEncoding", () => {
 		const oversized = `${"x-unknown, ".repeat(64)}deflate`;
 		expect(negotiateEncoding(oversized)).toBe("deflate");
 		expect(negotiateEncoding(oversized)).toBe("deflate");
+	});
+});
+
+describe("resolveBrotliParams", () => {
+	test("uses faster brotli settings on slow cores", () => {
+		expect(resolveBrotliParams(SLOW_CORE_FACTOR - 0.1)).toEqual({ quality: 2, lgwin: 16 });
+		expect(resolveBrotliParams(SLOW_CORE_FACTOR)).toEqual({
+			quality: serverConfig.compression.brotliQuality,
+			lgwin: serverConfig.compression.brotliLgwin,
+		});
 	});
 });
 

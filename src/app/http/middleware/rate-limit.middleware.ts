@@ -3,7 +3,7 @@ import { isImageAssetPath, isPluginUiPath } from "@/app/http/utils/route-classif
 import { serverConfig } from "@/config/server/server.config";
 import { getRequestClientIp } from "@/utils/client-ip.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { getPathname } from "@/utils/http.utils";
+import { getNormalizedPathname } from "@/utils/http.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory.limiter";
 import { isRecord } from "@/utils/type.utils";
 import { tunedRouteMax } from "../../../config/rate-limit-overrides.utils";
@@ -54,7 +54,7 @@ function getClientIp(request: Request, server: RateLimitContext["server"]): stri
 export function isExemptFromGlobalLimit(request: Request): boolean {
 	if (request.method === "OPTIONS") return true;
 
-	const pathname = getPathname(request.url);
+	const pathname = getNormalizedPathname(request);
 	if (pathname === "/v1/health" || pathname.startsWith("/v1/health/")) return true;
 
 	if (isImageAssetPath(pathname)) return true;

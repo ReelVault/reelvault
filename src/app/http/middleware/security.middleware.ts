@@ -3,7 +3,7 @@ import { isImageAssetPath, isPluginUiPath, isWebApiPath } from "@/app/http/utils
 import { serverConfig } from "@/config/server/server.config";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { resolveWebDistRoot } from "@/system/web-dist.utils";
-import { getPathname } from "@/utils/http.utils";
+import { getNormalizedPathname } from "@/utils/http.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import { appendCspSources } from "./csp.utils";
 
@@ -18,7 +18,7 @@ let mergedWebUiPolicy: { directives: Record<string, string[]>; policy: string } 
 export const securityHeadersMiddleware = new Elysia({ name: "SecurityHeaders" }).onAfterHandle({ as: "global" }, ({ request, set }) => {
 	if (request.method === "OPTIONS") return;
 
-	const path = getPathname(request.url);
+	const path = getNormalizedPathname(request);
 	const isOpenApiUi = path === serverConfig.api.openapi.path;
 	// Plugin UI bundles are embedded cross-origin by the host website; the
 	// default `frame-ancestors 'none'` / `X-Frame-Options: DENY` would block them.
