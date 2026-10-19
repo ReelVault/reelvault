@@ -226,7 +226,9 @@ class StreamingManager {
 		const session = this.store.get(sessionId);
 		if (session) {
 			await this.processManager.stopRunningProcess(sessionId, session, 300);
-			this.reservations.forceReserve(sessionId);
+			// The release path is not serialized by the seeker lock: if it completed
+			// during the await, re-reserving would leak a reservation nothing releases.
+			if (this.store.get(sessionId)) this.reservations.forceReserve(sessionId);
 			// The temp dir is wiped+recreated by ProcessManager.startSession.
 		}
 

@@ -83,7 +83,7 @@ export class SessionReservationTracker {
 			if (userActive >= perUserLimit) return { scope: "user", limit: perUserLimit, active: userActive };
 		}
 
-		return { scope: "server", limit: this.maxSessions, active: this.reservedIds.size };
+		return { scope: "server", limit: this.maxSessions, active: this.store.attachedCount() + this.countReservedNotActive() };
 	}
 
 	release(sessionId: string): void {
