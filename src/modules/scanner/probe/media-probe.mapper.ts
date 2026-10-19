@@ -30,6 +30,15 @@ function resolveQualityTag(width: number | undefined): string | null {
 	return RESOLUTION_BUCKETS.find((bucket) => width >= bucket.minWidth)?.label ?? null;
 }
 
+/**
+ * Only real subtitle streams become subtitle rows. Attached pictures (MKV cover
+ * art), font attachments and data tracks are skipped — `isUsableVideoStream`
+ * excludes them, so they would otherwise fall into the subtitle branch.
+ */
+function isSubtitleStream(stream: FFProbeStream): boolean {
+	return stream.codec_type === "subtitle";
+}
+
 export function mapMediaFileData(fileName: string, probe: FFProbeResult): MediaFileTechnicalData & MediaFileTagData {
 	const technicalData = mapMediaProbe(probe);
 	const normalizedFileName = normalizeForMatching(fileName);
@@ -80,7 +89,7 @@ export function mapMediaProbe(tech: FFProbeResult): MediaFileTechnicalData {
 				...mapSharedStreamFields(stream),
 				isCommentary: stream.disposition?.comment === 1,
 			});
-		} else {
+		} else if (isSubtitleStream(stream)) {
 			subtitles.push({
 				language: stream.tags?.language ?? "und",
 				label: stream.tags?.title ?? null,
