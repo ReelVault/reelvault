@@ -41,13 +41,6 @@ export class PluginEventBus {
 		if (handlers.size === 0) this.handlersByEvent.delete(event);
 	}
 
-	offPlugin(pluginId: string): void {
-		for (const [event, handlers] of this.handlersByEvent) {
-			handlers.offPlugin(pluginId);
-			if (handlers.size === 0) this.handlersByEvent.delete(event);
-		}
-	}
-
 	/** Fire-and-forget publish; failures are logged rather than surfaced to the caller. */
 	publish<TEvent extends PluginEventName>(event: TEvent, payload: PluginEventInput<TEvent>): void {
 		detach(this.emitLogged(event, payload));

@@ -1,6 +1,3 @@
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { InstallCatalogPluginResponse, PluginValidationResult } from "@reelvault/sdk/common";
 import { pluginCatalogRepositoryData } from "@/app/plugins/plugin-data.service";
 import { env } from "@/config/env.config";
@@ -23,7 +20,7 @@ import {
 	resolveCatalogCandidate,
 } from "./catalog-manifest.utils";
 import { downloadArchive } from "./plugin-package/download.fetcher";
-import { extractPluginPackage } from "./plugin-package/extract.extractor";
+import { withExtractedArchive, withExtractedPackageFile } from "./plugin-package/extract.extractor";
 import { archiveValidationFailure, validatePluginPackage } from "./plugin-package.validator";
 
 const CACHE_TTL_MS = 15 * 60_000;
@@ -107,7 +104,6 @@ export interface InstallCatalogPluginInput {
 }
 
 type RepositoryRow = Awaited<ReturnType<typeof pluginCatalogRepositoryData.list>>[number];
-type ExtractedPluginPackage = Awaited<ReturnType<typeof extractPluginPackage>>;
 
 async function requireRepository(id: string): Promise<RepositoryRow> {
 	const row = await pluginCatalogRepositoryData.findById(id);
@@ -290,61 +286,46 @@ class PluginCatalogService {
 
 		const token = this.tokenFor(row);
 		const download = await downloadArchive(candidate.downloadUrl, token ? { token } : {});
-		let extracted: ExtractedPluginPackage | undefined;
 		try {
 			assertChecksumMatches(download.checksum, candidate.checksum, {
 				checksum: false,
 				code: "plugin.checksum_mismatch",
 				message: "Plugin package checksum does not match the catalog manifest",
 			});
-			extracted = await extractPluginPackage(download.filePath);
-			const result = await pluginManager.installFromDirectory(extracted.pluginRoot, {
-				source: catalogSource(row.id, candidate.id, candidate.version),
-			});
-			this.logger.info(`Installed plugin ${candidate.id}@${candidate.version} from repository ${row.name} (${result.state})`);
 
-			return result;
+			return await withExtractedPackageFile(download.filePath, async (pluginRoot) => {
+				const result = await pluginManager.installFromDirectory(pluginRoot, {
+					source: catalogSource(row.id, candidate.id, candidate.version),
+				});
+				this.logger.info(`Installed plugin ${candidate.id}@${candidate.version} from repository ${row.name} (${result.state})`);
+
+				return result;
+			});
 		} finally {
-			await extracted?.cleanup();
 			await download.cleanup();
 		}
 	}
 
 	async installFromArchive(archive: Blob, options: { source?: string } = {}): Promise<InstallCatalogPluginResponse> {
-		const temporaryPath = join(tmpdir(), `reelvault-plugin-upload-${crypto.randomUUID()}.bin`);
-		let extracted: ExtractedPluginPackage | undefined;
-		try {
-			await Bun.write(temporaryPath, archive);
-			extracted = await extractPluginPackage(temporaryPath);
-			const result = await pluginManager.installFromDirectory(extracted.pluginRoot, { source: options.source ?? "upload" });
+		return await withExtractedArchive(archive, { tempPrefix: "reelvault-plugin-upload" }, async (pluginRoot) => {
+			const result = await pluginManager.installFromDirectory(pluginRoot, { source: options.source ?? "upload" });
 			this.logger.info(`Installed plugin ${result.pluginId}@${result.version} from uploaded archive (${result.state})`);
 
 			return result;
-		} finally {
-			await extracted?.cleanup();
-			await rm(temporaryPath, { force: true });
-		}
+		});
 	}
 
 	/** Dry run of an uploaded archive: reports what installing it would do and installs nothing. */
 	async validateArchive(archive: Blob): Promise<PluginValidationResult> {
-		const temporaryPath = join(tmpdir(), `reelvault-plugin-validate-${crypto.randomUUID()}.bin`);
-		let extracted: ExtractedPluginPackage | undefined;
-		try {
-			await Bun.write(temporaryPath, archive);
-			try {
-				extracted = await extractPluginPackage(temporaryPath);
-			} catch (error) {
-				return archiveValidationFailure(error);
-			}
+		return await withExtractedArchive(
+			archive,
+			{ tempPrefix: "reelvault-plugin-validate", onExtractError: archiveValidationFailure },
+			async (pluginRoot) => {
+				const installed = (await pluginManager.getInstalledRecords()).map(({ id, record }) => ({ id, version: record.version }));
 
-			const installed = (await pluginManager.getInstalledRecords()).map(({ id, record }) => ({ id, version: record.version }));
-
-			return await validatePluginPackage(extracted.pluginRoot, installed);
-		} finally {
-			await extracted?.cleanup();
-			await rm(temporaryPath, { force: true });
-		}
+				return await validatePluginPackage(pluginRoot, installed);
+			},
+		);
 	}
 
 	async uninstallPlugin(pluginId: string): Promise<void> {

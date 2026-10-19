@@ -1,6 +1,8 @@
 import type { PluginUiSurfaceKind } from "@reelvault/sdk/common";
 import type {
+	PluginDialogContribution,
 	PluginLocalizedText,
+	PluginPageContribution,
 	PluginSlotContribution,
 	PluginSlotName,
 	PluginTabContribution,
@@ -99,16 +101,29 @@ export function listUiContributions(manifest: PluginUiManifest): PluginUiContrib
 	return result;
 }
 
-/**
- * Removes the contributions listed in `hiddenKeys` together with everything
- * that would dangle without them: tabs and slot actions pointing at a hidden
- * page or dialog, and a search provider's `itemPage`.
- */
-export function applyUiOverrides(manifest: PluginUiManifest, hiddenKeys: ReadonlySet<string>): PluginUiManifest {
-	if (hiddenKeys.size === 0) return manifest;
+/** Predicates that decide which declarations a filtered manifest keeps. */
+export interface UiManifestFilter {
+	keepPage?: ((page: PluginPageContribution) => boolean) | undefined;
+	keepDialog?: ((dialog: PluginDialogContribution) => boolean) | undefined;
+	keepTab?: ((tab: PluginTabContribution) => boolean) | undefined;
+	/** Receives the contribution and its stable key (the same key `listUiContributions` reports). */
+	keepSlot?: ((contribution: PluginSlotContribution, key: string) => boolean) | undefined;
+	dropSearchProvider?: boolean | undefined;
+	dropPlaybackPreRoll?: boolean | undefined;
+	/** Also drops a search provider whose `itemPage` was filtered out. */
+	pruneSearchProviderItemPage?: boolean | undefined;
+}
 
-	const pages = manifest.pages?.filter((page) => !hiddenKeys.has(`page:${page.id}`));
-	const dialogs = manifest.dialogs?.filter((dialog) => !hiddenKeys.has(`dialog:${dialog.id}`));
+/**
+ * The one walk over the four manifest surfaces shared by admin overrides and
+ * role filtering. After applying the caller's predicates it removes everything
+ * that would dangle: tabs and slot actions pointing at a hidden page or dialog,
+ * and the search provider's `itemPage` when pruning is enabled. Presence of the
+ * `pages`/`dialogs` keys mirrors the input — an absent surface stays absent.
+ */
+export function filterUiManifest(manifest: PluginUiManifest, filter: UiManifestFilter): PluginUiManifest {
+	const pages = manifest.pages?.filter((page) => filter.keepPage?.(page) ?? true);
+	const dialogs = manifest.dialogs?.filter((dialog) => filter.keepDialog?.(dialog) ?? true);
 	const pageIds = new Set((pages ?? []).map((page) => page.id));
 	const dialogIds = new Set((dialogs ?? []).map((dialog) => dialog.id));
 
@@ -121,7 +136,7 @@ export function applyUiOverrides(manifest: PluginUiManifest, hiddenKeys: Readonl
 		const tabs: Partial<Record<PluginTabHostName, PluginTabContribution[]>> = {};
 		for (const host of PLUGIN_TAB_HOST_NAMES) {
 			const contributions = manifest.tabs[host];
-			if (contributions) tabs[host] = contributions.filter((tab) => !hiddenKeys.has(tabKey(tab)) && pageIds.has(tab.page));
+			if (contributions) tabs[host] = contributions.filter((tab) => (filter.keepTab?.(tab) ?? true) && pageIds.has(tab.page));
 		}
 
 		result.tabs = tabs;
@@ -135,7 +150,7 @@ export function applyUiOverrides(manifest: PluginUiManifest, hiddenKeys: Readonl
 
 			const keys = slotKeys(slot, contributions);
 			slots[slot] = contributions.filter((contribution, index) => {
-				if (hiddenKeys.has(keys[index] ?? "")) return false;
+				if (!(filter.keepSlot?.(contribution, keys[index] ?? `slot:${slot}:${index}`) ?? true)) return false;
 
 				const action = contribution.action;
 				if (action?.type === "page") return pageIds.has(action.page);
@@ -147,12 +162,31 @@ export function applyUiOverrides(manifest: PluginUiManifest, hiddenKeys: Readonl
 		result.slots = slots;
 	}
 
-	if (hiddenKeys.has("searchProvider")) result.searchProvider = undefined;
-	else if (result.searchProvider?.itemPage && !pageIds.has(result.searchProvider.itemPage)) {
+	if (filter.dropSearchProvider) result.searchProvider = undefined;
+	else if (filter.pruneSearchProviderItemPage && result.searchProvider?.itemPage && !pageIds.has(result.searchProvider.itemPage)) {
 		result.searchProvider = { ...result.searchProvider, itemPage: undefined };
 	}
 
-	if (hiddenKeys.has("playbackPreRoll")) result.playbackPreRoll = undefined;
+	if (filter.dropPlaybackPreRoll) result.playbackPreRoll = undefined;
 
 	return result;
+}
+
+/**
+ * Removes the contributions listed in `hiddenKeys` together with everything
+ * that would dangle without them: tabs and slot actions pointing at a hidden
+ * page or dialog, and a search provider's `itemPage`.
+ */
+export function applyUiOverrides(manifest: PluginUiManifest, hiddenKeys: ReadonlySet<string>): PluginUiManifest {
+	if (hiddenKeys.size === 0) return manifest;
+
+	return filterUiManifest(manifest, {
+		keepPage: (page) => !hiddenKeys.has(`page:${page.id}`),
+		keepDialog: (dialog) => !hiddenKeys.has(`dialog:${dialog.id}`),
+		keepTab: (tab) => !hiddenKeys.has(tabKey(tab)),
+		keepSlot: (_contribution, key) => !hiddenKeys.has(key),
+		dropSearchProvider: hiddenKeys.has("searchProvider"),
+		dropPlaybackPreRoll: hiddenKeys.has("playbackPreRoll"),
+		pruneSearchProviderItemPage: true,
+	});
 }

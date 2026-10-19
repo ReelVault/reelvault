@@ -16,17 +16,21 @@ interface PluginEntityEntry<T> {
 /**
  * Id-keyed table of plugin-contributed entities (metadata providers, subtitle
  * providers, media analyzers) with per-plugin ownership, duplicate rejection
- * and memoized insertion-order views. A single owner of this bookkeeping keeps
- * the "registered by another plugin" diagnostics identical everywhere.
+ * and memoized views. A single owner of this bookkeeping keeps the
+ * "registered by another plugin" diagnostics identical everywhere. Entities are
+ * exposed in insertion order unless `sortById` is set (provider lookups are
+ * id-sorted).
  */
 export class PluginEntityTable<T extends { id: string; name: string; version: string }> {
 	private readonly label: string;
+	private readonly sortById: boolean;
 	private readonly entries = new Map<string, PluginEntityEntry<T>>();
 	private allCache: T[] | null = null;
 	private statusCache: PluginEntityStatus[] | null = null;
 
-	constructor(label: string) {
+	constructor(label: string, options: { sortById?: boolean } = {}) {
 		this.label = label;
+		this.sortById = options.sortById === true;
 	}
 
 	/** Pre-flight duplicate check so a multi-entity registration stays all-or-nothing. */
@@ -86,20 +90,26 @@ export class PluginEntityTable<T extends { id: string; name: string; version: st
 		return this.entries.get(id)?.entity;
 	}
 
-	/** Insertion-ordered snapshot (memoized) — registration order is behavior for analyzers and search fan-out. */
+	/** Snapshot (memoized) — insertion order is behavior for analyzers and search fan-out. */
 	getAll(): T[] {
-		this.allCache ??= [...this.entries.values()].map((entry) => entry.entity);
+		if (this.allCache) return this.allCache;
+
+		const all = [...this.entries.values()].map((entry) => entry.entity);
+		this.allCache = this.sortById ? all.toSorted((left, right) => left.id.localeCompare(right.id)) : all;
 
 		return this.allCache;
 	}
 
 	getStatuses(): PluginEntityStatus[] {
-		this.statusCache ??= [...this.entries.values()].map(({ pluginId, entity }) => ({
+		if (this.statusCache) return this.statusCache;
+
+		const statuses = [...this.entries.values()].map(({ pluginId, entity }) => ({
 			id: entity.id,
 			name: entity.name,
 			version: entity.version,
 			pluginId: pluginId ?? "unknown",
 		}));
+		this.statusCache = this.sortById ? statuses.toSorted((left, right) => left.id.localeCompare(right.id)) : statuses;
 
 		return this.statusCache;
 	}

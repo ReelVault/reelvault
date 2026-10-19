@@ -19,7 +19,6 @@ import { createPluginStatus, pluginErrorCode } from "./plugin.status";
 import { applyUiOverrides, PLUGIN_UI_MASTER_KEY } from "./plugin-ui-contributions.utils";
 import { MediaAnalysisFanout } from "./registry/media-analysis.fanout";
 import { PluginEntityTable } from "./registry/plugin-entity.registry";
-import { ProviderLookupCache } from "./registry/provider-lookup.cache";
 import { collectUiManifestTags, filterUiManifestForRole } from "./registry/ui-manifest.utils";
 
 interface FailedPlugin {
@@ -58,7 +57,7 @@ export class PluginRegistry {
 	readonly logger: Logger = createLogger("PluginRegistry");
 	private readonly plugins = new Map<string, PluginRuntime>();
 	private readonly subtitleProviders = new PluginEntityTable<SubtitleProvider>("Subtitle provider");
-	private readonly providerLookup = new ProviderLookupCache();
+	private readonly providers = new PluginEntityTable<MetadataProvider>("Provider", { sortById: true });
 	private readonly mediaAnalysis = new MediaAnalysisFanout();
 	private readonly failures = new Map<string, FailedPlugin>();
 	private readonly uiManifests = new Map<string, PluginUiManifest>();
@@ -113,7 +112,7 @@ export class PluginRegistry {
 			throw alreadyRegistered(pluginId);
 		}
 
-		this.providerLookup.assertRegisterable(providers);
+		this.providers.assertRegisterable(providers);
 		this.mediaAnalysis.assertRegisterable(analyzers);
 		this.subtitleProviders.assertRegisterable(subtitleProviders);
 
@@ -124,7 +123,7 @@ export class PluginRegistry {
 		this.plugins.set(pluginId, runtime);
 		this.failures.delete(pluginId);
 		this.generation += 1;
-		this.providerLookup.register(pluginId, providers);
+		this.providers.register(pluginId, providers);
 		this.mediaAnalysis.register(pluginId, analyzers);
 		this.subtitleProviders.register(pluginId, subtitleProviders);
 	}
@@ -198,7 +197,7 @@ export class PluginRegistry {
 		this.generation += 1;
 		this.plugins.delete(pluginId);
 		this.uiManifests.delete(pluginId);
-		this.providerLookup.removeForPlugin(pluginId);
+		this.providers.removeForPlugin(pluginId);
 		this.mediaAnalysis.removeForPlugin(pluginId);
 		this.subtitleProviders.removeForPlugin(pluginId);
 		this.logger.info("Plugin unregistered", { pluginId });
@@ -294,15 +293,15 @@ export class PluginRegistry {
 	}
 
 	getProvider(providerId: string): MetadataProvider | undefined {
-		return this.providerLookup.get(providerId);
+		return this.providers.get(providerId);
 	}
 
 	getProviders(): MetadataProvider[] {
-		return this.providerLookup.getAll();
+		return this.providers.getAll();
 	}
 
 	getProviderStatus(): ProviderStatus[] {
-		return this.providerLookup.getStatuses();
+		return this.providers.getStatuses();
 	}
 
 	getSubtitleProvider(providerId: string): SubtitleProvider | undefined {
@@ -324,7 +323,7 @@ export class PluginRegistry {
 	clear(): void {
 		this.plugins.clear();
 		this.subtitleProviders.clear();
-		this.providerLookup.clear();
+		this.providers.clear();
 		this.mediaAnalysis.clear();
 		this.failures.clear();
 		this.uiManifests.clear();

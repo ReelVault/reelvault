@@ -44,12 +44,6 @@ export class PluginHookBus {
 		return this.beforeMediaRecognitionHooks.register(pluginId, handler);
 	}
 
-	offPlugin(pluginId: string): void {
-		this.beforeArtifactCreateHooks.offPlugin(pluginId);
-		this.beforeMediaRecognitionHooks.offPlugin(pluginId);
-		this.beforeMetadataSaveHooks.offPlugin(pluginId);
-	}
-
 	async runBeforeArtifactCreate(candidate: ArtifactCreationCandidate): Promise<ArtifactCreationCandidate> {
 		const transformed = await this.runChain(this.beforeArtifactCreateHooks.all(), candidate, "beforeArtifactCreate");
 		validateArtifactCandidate(candidate, transformed);

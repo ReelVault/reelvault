@@ -1,4 +1,4 @@
-import { mkdtemp, readdir } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTree } from "@/utils/directory.utils";
@@ -68,6 +68,48 @@ export async function extractPluginPackage(
 	} catch (error) {
 		await removeTree(workRoot);
 		throw error;
+	}
+}
+
+/**
+ * Extracts the package at `archivePath` and always removes the extraction root
+ * afterwards. `run` sees the plugin root. An extraction failure is returned
+ * through `onExtractError` when given (dry-run validation), otherwise thrown;
+ * failures of `run` itself always propagate.
+ */
+export async function withExtractedPackageFile<T>(
+	archivePath: string,
+	run: (pluginRoot: string) => Promise<T>,
+	onExtractError?: (error: unknown) => T,
+): Promise<T> {
+	let extracted: ExtractedPackage;
+	try {
+		extracted = await extractPluginPackage(archivePath);
+	} catch (error) {
+		if (onExtractError) return onExtractError(error);
+		throw error;
+	}
+
+	try {
+		return await run(extracted.pluginRoot);
+	} finally {
+		await extracted.cleanup();
+	}
+}
+
+/** Writes `archive` to a temp file and runs it through {@link withExtractedPackageFile}; the temp file is always removed. */
+export async function withExtractedArchive<T>(
+	archive: Blob,
+	options: { tempPrefix: string; onExtractError?: ((error: unknown) => T) | undefined },
+	run: (pluginRoot: string) => Promise<T>,
+): Promise<T> {
+	const temporaryPath = join(tmpdir(), `${options.tempPrefix}-${crypto.randomUUID()}.bin`);
+	try {
+		await Bun.write(temporaryPath, archive);
+
+		return await withExtractedPackageFile(temporaryPath, run, options.onExtractError);
+	} finally {
+		await rm(temporaryPath, { force: true });
 	}
 }
 

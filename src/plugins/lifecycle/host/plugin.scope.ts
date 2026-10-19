@@ -23,7 +23,7 @@ import { type PluginJobBatchItem, type PluginJobBatchOptions, pluginJobsService 
 import { assertDeclaredPluginCapabilities } from "@/plugins/lifecycle/plugin.manifest";
 import { removePluginRuntime } from "@/plugins/lifecycle/plugin-runtime.service";
 import { PluginEntityTable } from "@/plugins/lifecycle/registry/plugin-entity.registry";
-import { registerNotificationChannel, unregisterPluginNotificationChannels } from "@/plugins/runtime/notification-channel.registry";
+import { registerNotificationChannel } from "@/plugins/runtime/notification-channel.registry";
 import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
 import { pluginRoutesRegistry } from "@/plugins/runtime/plugin.routes";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
@@ -333,7 +333,6 @@ export class PluginScope {
 		if (this.pluginId) {
 			pluginRoutesRegistry.unregisterPlugin(this.pluginId);
 			await scheduledTasksService.unregisterByPlugin(this.pluginId);
-			unregisterPluginNotificationChannels(this.pluginId);
 		}
 
 		if (this.jobNames.size > 0) {

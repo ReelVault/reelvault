@@ -27,10 +27,6 @@ export class PluginHandlerTable<THandler> {
 		if (handlers.size === 0) this.handlersByPlugin.delete(pluginId);
 	}
 
-	offPlugin(pluginId: string): void {
-		this.handlersByPlugin.delete(pluginId);
-	}
-
 	all(): THandler[] {
 		return [...this.handlersByPlugin.values()].flatMap((set) => [...set]);
 	}

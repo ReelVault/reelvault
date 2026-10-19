@@ -47,16 +47,20 @@ function registerProvider(provider = createProvider()): void {
 }
 
 describe("provider events", () => {
+	const unsubscribers: Array<() => void> = [];
+
 	afterEach(() => {
-		pluginEventBus.offPlugin("event-observer");
+		for (const unsubscribe of unsubscribers.splice(0)) unsubscribe();
 		pluginRegistry.clear();
 	});
 
 	it("publishes each actual metadata search request", async () => {
 		const received: Array<{ type: "movie" | "tv_show"; title: string; year?: number | undefined }> = [];
-		pluginEventBus.on("event-observer", "metadata.search.requested", (payload) => {
-			received.push(payload);
-		});
+		unsubscribers.push(
+			pluginEventBus.on("event-observer", "metadata.search.requested", (payload) => {
+				received.push(payload);
+			}),
+		);
 		registerProvider();
 
 		await providerService.search({ type: "movie", title: "The Example", year: 2024 });

@@ -6,7 +6,7 @@ describe("plugin event bus", () => {
 		const bus = new PluginEventBus();
 		const received: Array<{ mediaFileId: string; payloadVersion: number; correlationId: string; eventId: string; occurredAt: string }> = [];
 
-		bus.on("first", "media.file.ready", (payload) => {
+		const unsubscribeFirst = bus.on("first", "media.file.ready", (payload) => {
 			received.push(payload);
 		});
 		bus.on("broken", "media.file.ready", () => {
@@ -32,7 +32,7 @@ describe("plugin event bus", () => {
 		]);
 		expect(Object.isFrozen(received[0])).toBeTrue();
 
-		bus.offPlugin("first");
+		unsubscribeFirst();
 		await bus.emit("media.file.ready", { libraryId: "library", mediaFileId: "next", metadataId: "metadata" });
 		expect(received).toHaveLength(1);
 	});

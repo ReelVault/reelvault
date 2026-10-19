@@ -32,14 +32,9 @@ export async function disabledStatusFromRecord(
 	pluginId: string,
 	record: InstalledPluginRecord,
 ): Promise<PluginStatus> {
-	try {
-		const manifest = await loadPluginManifest(state.config.resolvePluginDirectory(record.directory));
-		if (manifest.id === pluginId) return disabledStatus(manifest);
-	} catch {
-		// A missing or broken manifest falls back to the lockfile identity below.
-	}
-
-	return disabledStatus({ id: pluginId, name: pluginId, version: record.version });
+	return (
+		(await manifestStatus(state, pluginId, record.directory)) ?? disabledStatus({ id: pluginId, name: pluginId, version: record.version })
+	);
 }
 
 /** Status of a loaded plugin, read from the registry before it is unloaded. */
@@ -58,6 +53,11 @@ export async function statusFromManifest(
 	pluginId: string,
 	directoryName: string,
 ): Promise<PluginStatus | undefined> {
+	return await manifestStatus(state, pluginId, directoryName);
+}
+
+/** Manifest-derived disabled status; undefined when the manifest is unreadable or belongs to another plugin. */
+async function manifestStatus(state: PluginManagerState, pluginId: string, directoryName: string): Promise<PluginStatus | undefined> {
 	try {
 		const manifest = await loadPluginManifest(state.config.resolvePluginDirectory(directoryName));
 		if (manifest.id !== pluginId) return undefined;

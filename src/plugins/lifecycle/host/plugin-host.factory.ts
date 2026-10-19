@@ -21,18 +21,22 @@ const withCapability = <T>(scope: PluginScopeApi, capability: PluginCapabilityNa
 	return run();
 };
 
+/** Register-style host methods: declare the capability, add the entity, settle with a resolved promise. */
+function registerCapability(scope: PluginScopeApi, capability: PluginCapabilityName, register: () => void): Promise<void> {
+	return withCapability(scope, capability, () => {
+		register();
+
+		return Promise.resolve();
+	});
+}
+
 function buildMediaCapability(scope: PluginScopeApi): PluginHost["media"] {
 	return {
 		get: async (mediaFileId) => withCapability(scope, "mediaRead", () => pluginMediaService.get(mediaFileId)),
 		getRevision: async (mediaFileId) => withCapability(scope, "mediaRead", () => pluginMediaService.getRevision(mediaFileId)),
 		listEpisodeFilesBySeason: async () => withCapability(scope, "mediaRead", () => pluginMediaService.listEpisodeFilesBySeason()),
 		listAllMediaFiles: async (options) => withCapability(scope, "mediaRead", () => pluginMediaService.listAllMediaFiles(options)),
-		registerAnalyzer: (analyzer) =>
-			withCapability(scope, "mediaAnalyzer", () => {
-				scope.addAnalyzer(analyzer);
-
-				return Promise.resolve();
-			}),
+		registerAnalyzer: (analyzer) => registerCapability(scope, "mediaAnalyzer", () => scope.addAnalyzer(analyzer)),
 	};
 }
 
@@ -65,12 +69,7 @@ function buildFfmpegCapability(scope: PluginScopeApi): PluginHost["ffmpeg"] {
 
 function buildProvidersCapability(scope: PluginScopeApi): PluginHost["providers"] {
 	return {
-		register: (provider) =>
-			withCapability(scope, "metadataProvider", () => {
-				scope.addProvider(provider);
-
-				return Promise.resolve();
-			}),
+		register: (provider) => registerCapability(scope, "metadataProvider", () => scope.addProvider(provider)),
 		list: () => withCapability(scope, "providerAccess", () => Promise.resolve(providerService.getAll())),
 		search: async (request) => withCapability(scope, "providerAccess", () => providerService.searchProviders(request)),
 		getDetails: async (providerId, type, externalId) =>
@@ -90,23 +89,13 @@ function buildProvidersCapability(scope: PluginScopeApi): PluginHost["providers"
 
 function buildSubtitlesCapability(scope: PluginScopeApi): PluginHost["subtitles"] {
 	return {
-		register: (provider) =>
-			withCapability(scope, "subtitleProvider", () => {
-				scope.addSubtitleProvider(provider);
-
-				return Promise.resolve();
-			}),
+		register: (provider) => registerCapability(scope, "subtitleProvider", () => scope.addSubtitleProvider(provider)),
 	};
 }
 
 function buildJobsCapability(pluginId: string, scope: PluginScopeApi): PluginHost["jobs"] {
 	return {
-		register: (definition) =>
-			withCapability(scope, "jobs", () => {
-				scope.addJob(definition);
-
-				return Promise.resolve();
-			}),
+		register: (definition) => registerCapability(scope, "jobs", () => scope.addJob(definition)),
 		enqueue: async (name, data, options) => withCapability(scope, "jobs", () => scope.enqueueJob(pluginId, name, data, options)),
 		enqueueMany: async (name, items, commonOptions) =>
 			withCapability(scope, "jobs", () => scope.enqueueJobs(pluginId, name, items, commonOptions)),
@@ -116,23 +105,13 @@ function buildJobsCapability(pluginId: string, scope: PluginScopeApi): PluginHos
 function buildTasksCapability(scope: PluginScopeApi): PluginHost["tasks"] {
 	return {
 		// Scheduled tasks execute arbitrary code on cron triggers — same trust level as job handlers.
-		register: (task) =>
-			withCapability(scope, "jobs", () => {
-				scope.addScheduledTask(task);
-
-				return Promise.resolve();
-			}),
+		register: (task) => registerCapability(scope, "jobs", () => scope.addScheduledTask(task)),
 	};
 }
 
 function buildRoutesCapability(scope: PluginScopeApi): PluginHost["routes"] {
 	return {
-		register: (route) =>
-			withCapability(scope, "httpRoute", () => {
-				scope.addHttpRoute(route);
-
-				return Promise.resolve();
-			}),
+		register: (route) => registerCapability(scope, "httpRoute", () => scope.addHttpRoute(route)),
 	};
 }
 
