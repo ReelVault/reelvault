@@ -13,8 +13,10 @@ export async function setPluginEnabled(state: PluginManagerState, pluginId: stri
 	await runLifecycle(state, async () => {
 		try {
 			await state.installer.setDisabled(pluginId, !enabled);
-		} catch {
-			// Non-installer plugins have no lockfile entry — unload/load only.
+		} catch (error) {
+			// Non-installer plugins have no lockfile entry — unload/load only; any
+			// other failure (unreadable lockfile, I/O) must surface.
+			if (!(error instanceof DomainError && error.code === "plugin.not_installed")) throw error;
 		}
 
 		if (enabled) await enablePlugin(state, pluginId);

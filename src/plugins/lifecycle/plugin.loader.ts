@@ -439,7 +439,8 @@ export class PluginLoader {
 	 */
 	async prepareUninstall(pluginId: string): Promise<void> {
 		// Capture job ids before unloading so in-flight handlers can be drained first.
-		const jobNames = this.pluginScopes.get(pluginId)?.getJobNames() ?? [];
+		// Namespaced worker ids only — raw job names could match core workers.
+		const jobNames = this.pluginScopes.get(pluginId)?.getRegisteredJobIds() ?? [];
 		await this.unloadPlugin(pluginId);
 		try {
 			await workerService.drainWorkers(jobNames, serverConfig.plugins.lifecycle.unloadTimeoutMs);

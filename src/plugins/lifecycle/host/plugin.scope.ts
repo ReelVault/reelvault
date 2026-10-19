@@ -66,7 +66,10 @@ export class PluginScope {
 	private readonly analyzers = new PluginEntityTable<MediaAnalyzer>("media analyzer");
 	private readonly jobs: PluginJobDefinition[] = [];
 	private readonly httpRoutes: PluginHttpRoute[] = [];
+	/** Raw plugin-declared job names (duplicate checks and enqueue guards). */
 	private readonly jobNames = new Set<string>();
+	/** Namespaced worker ids registered for this scope — the only ids teardown may unregister. */
+	private readonly registeredJobIds = new Set<string>();
 	private readonly routeKeys = new Set<string>();
 	private readonly unsubscribers: Array<() => void> = [];
 	private readonly usedCapabilities = new Set<PluginCapabilityName>();
@@ -206,7 +209,7 @@ export class PluginScope {
 		this.pluginId = pluginId;
 		if (this.jobs.length > 0) {
 			const names = await pluginJobsService.register(pluginId, this.jobs);
-			for (const name of names) this.jobNames.add(name);
+			for (const name of names) this.registeredJobIds.add(name);
 		}
 
 		// Task ids are colon-namespaced so `unregisterByPlugin` always reclaims them on reload.
@@ -286,8 +289,14 @@ export class PluginScope {
 		return this.subtitleProviders.getAll().map((provider) => provider.id);
 	}
 
+	/** Raw plugin-declared job names — duplicate checks, enqueue guards and status counts. */
 	getJobNames(): string[] {
 		return [...this.jobNames];
+	}
+
+	/** Namespaced worker ids registered for this scope — the only ids teardown may drain or unregister. */
+	getRegisteredJobIds(): string[] {
+		return [...this.registeredJobIds];
 	}
 
 	setUiManifest(manifest: PluginUiManifest): void {
@@ -335,8 +344,8 @@ export class PluginScope {
 			await scheduledTasksService.unregisterByPlugin(this.pluginId);
 		}
 
-		if (this.jobNames.size > 0) {
-			await pluginJobsService.unregister([...this.jobNames]);
+		if (this.registeredJobIds.size > 0) {
+			await pluginJobsService.unregister([...this.registeredJobIds]);
 		}
 
 		await PromiseUtils.mapConcurrent(
