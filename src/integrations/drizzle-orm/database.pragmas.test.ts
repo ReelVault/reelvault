@@ -40,4 +40,16 @@ describe("database connection pragmas", () => {
 		expect(pragmaValue(factory, "temp_store")).toBe(2); // 2 = MEMORY
 		expect(pragmaValue(factory, "mmap_size")).toBe(268_435_456);
 	});
+
+	test("refreshes planner statistics without leaving the analyze sample limit behind", async () => {
+		const factory = createFactory(8 * 1_024 * 1_024); // 8 GiB
+		factory.migrate();
+		factory.sqlite.run("DELETE FROM sqlite_stat1");
+
+		await factory.analyzeChunked();
+
+		const stats = factory.sqlite.query("SELECT count(*) AS count FROM sqlite_stat1").get() as Record<string, unknown> | null;
+		expect(stats?.count).toBeGreaterThan(0);
+		expect(pragmaValue(factory, "analysis_limit")).toBe(0);
+	});
 });

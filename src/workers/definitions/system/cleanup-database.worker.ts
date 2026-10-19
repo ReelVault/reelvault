@@ -33,9 +33,10 @@ export const cleanupDatabaseWorker = defineMaintenanceWorker({
 
 		// Keep planner statistics fresh: stale stats made the paginated browse and
 		// worker-claim queries pick a type index + TEMP B-TREE sort instead of the
-		// composite indexes, degrading with catalog/backlog size.
-		databaseFactory.analyze();
-		databaseFactory.optimizeFts();
+		// composite indexes, degrading with catalog/backlog size. Both run table by
+		// table with a yield in between so maintenance never freezes HTTP.
+		await databaseFactory.analyzeChunked();
+		await databaseFactory.optimizeFts();
 
 		return { deletedOperationsCount: deletedCount, prunedHistoryCount, prunedAuditCount };
 	},

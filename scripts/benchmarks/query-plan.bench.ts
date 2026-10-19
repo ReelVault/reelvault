@@ -9,11 +9,12 @@
  * Usage:
  *   bun run scripts/benchmark.script.ts query-plan [--rows 5000] [--strict]
  *
- * `--strict` exits non-zero when a query is flagged. Two cases are marked
- * `knownStructural`: they sort by a computed expression (year+genre browse and
+ * `--strict` exits non-zero when a query is flagged. Some cases are accepted:
+ * two `knownStructural` sorts use a computed expression (year+genre browse and
  * the similar-titles score) where no index can serve the ORDER BY and both
- * consumers are cached — they are printed but do not fail the gate, so a new
- * flag is always a regression.
+ * consumers are cached, and the rare budget sort is a `knownTradeoff` — an index
+ * there costs every catalog insert more than it saves. Accepted cases are
+ * printed but do not fail the gate, so a new flag is always a regression.
  * Plans are machine/SQLite-version specific — compare runs from the same box.
  */
 
@@ -33,6 +34,8 @@ interface QueryCase {
 	params?: ReadonlyArray<string | number>;
 	/** Flag is expected and accepted (computed sort, cached consumer) — does not fail --strict. */
 	knownStructural?: boolean;
+	/** Unindexed on purpose: the write cost outweighs the rare read — does not fail --strict. */
+	knownTradeoff?: boolean;
 }
 
 interface PlanRow {
@@ -43,7 +46,7 @@ interface PlanResult {
 	name: string;
 	detail: string;
 	flags: string[];
-	knownStructural: boolean;
+	accepted: boolean;
 }
 
 /** A plan line is a full table scan when it says `SCAN <table>` with no index. */
@@ -111,6 +114,7 @@ function buildCases(rows: number, now: number): QueryCase[] {
 		},
 		{
 			name: "metadata sort by budget (index-hardening)",
+			knownTradeoff: true,
 			sql: `SELECT ${metadataColumns} FROM metadata WHERE ${hasMedia} ORDER BY budget, id LIMIT 24`,
 		},
 		{
@@ -266,7 +270,7 @@ if (!args.help) {
 				name: queryCase.name,
 				detail: planRows.map((row) => row.detail.trim()).join(" | "),
 				flags: planFlags(planRows),
-				knownStructural: queryCase.knownStructural ?? false,
+				accepted: (queryCase.knownStructural ?? false) || (queryCase.knownTradeoff ?? false),
 			});
 		}
 
@@ -277,20 +281,17 @@ if (!args.help) {
 		);
 
 		const flagged = results.filter((result) => result.flags.length > 0);
-		const unexpected = flagged.filter((result) => !result.knownStructural);
+		const unexpected = flagged.filter((result) => !result.accepted);
 		if (flagged.length > 0) {
-			console.log(
-				`\n[query-plan] ${flagged.length}/${results.length} queries flagged (${flagged.length - unexpected.length} known structural):`,
-			);
-			for (const result of flagged)
-				console.log(`  - ${result.name}: ${result.flags.join(", ")}${result.knownStructural ? " [known]" : ""}`);
+			console.log(`\n[query-plan] ${flagged.length}/${results.length} queries flagged (${flagged.length - unexpected.length} accepted):`);
+			for (const result of flagged) console.log(`  - ${result.name}: ${result.flags.join(", ")}${result.accepted ? " [accepted]" : ""}`);
 		} else {
 			console.log(`\n[query-plan] all ${results.length} queries use index-supported plans.`);
 		}
 
 		return {
 			ok: unexpected.length === 0,
-			data: { flagged: flagged.length, knownStructural: flagged.length - unexpected.length, total: results.length },
+			data: { flagged: flagged.length, accepted: flagged.length - unexpected.length, total: results.length },
 		};
 	});
 }

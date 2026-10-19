@@ -21,6 +21,30 @@ function statRowCount(factory: DatabaseFactory): number {
 	return isRecord(row) && typeof row.n === "number" ? row.n : -1;
 }
 
+/**
+ * Runs `work` while sampling how long the event loop is blocked. A synchronous
+ * statement shows up as one long gap; a chunked runner shows the longest single
+ * chunk. The final gap is charged to the last tick so a sync call is not
+ * under-reported.
+ */
+async function measureStall<T>(work: () => T | Promise<T>): Promise<{ result: T; totalMs: number; maxStallMs: number }> {
+	const intervalMs = 5;
+	let last = performance.now();
+	let maxStall = 0;
+	const timer = setInterval(() => {
+		const now = performance.now();
+		maxStall = Math.max(maxStall, now - last - intervalMs);
+		last = now;
+	}, intervalMs);
+	const startedAt = performance.now();
+	const result = await work();
+	const totalMs = performance.now() - startedAt;
+	clearInterval(timer);
+	maxStall = Math.max(maxStall, performance.now() - last - intervalMs);
+
+	return { result, totalMs, maxStallMs: Math.max(0, maxStall) };
+}
+
 if (!args.help) {
 	const factoryFixture = benchDb({
 		label: "db",
@@ -438,22 +462,36 @@ if (!args.help) {
 		const optimizeStats = statRowCount(optimizeDb.factory);
 
 		const analyzeDb = await build();
-		const analyzeStart = performance.now();
-		analyzeDb.factory.sqlite.run("ANALYZE");
-		const analyzeMs = performance.now() - analyzeStart;
+		const fullAnalyze = await measureStall(() => {
+			analyzeDb.factory.sqlite.run("ANALYZE");
+		});
 		const analyzePlan = planOf(analyzeDb.factory);
 		const analyzeStats = statRowCount(analyzeDb.factory);
 
+		const chunkedDb = await build();
+		const chunkedAnalyze = await measureStall(async () => {
+			await chunkedDb.factory.analyzeChunked();
+		});
+		const chunkedPlan = planOf(chunkedDb.factory);
+		const chunkedStats = statRowCount(chunkedDb.factory);
+
 		console.log(`\n[database] statistics refresh @ ${rows} rows:`);
-		console.log(`  PRAGMA optimize: ${optimizeMs.toFixed(1)}ms, sqlite_stat1 rows ${optimizeStats}`);
-		console.log(`  ANALYZE:         ${analyzeMs.toFixed(1)}ms, sqlite_stat1 rows ${analyzeStats}`);
+		console.log(`  PRAGMA optimize:       ${optimizeMs.toFixed(1)}ms, sqlite_stat1 rows ${optimizeStats}`);
+		console.log(
+			`  full ANALYZE:          ${fullAnalyze.totalMs.toFixed(1)}ms, max loop stall ${fullAnalyze.maxStallMs.toFixed(1)}ms, sqlite_stat1 rows ${analyzeStats}`,
+		);
+		console.log(
+			`  chunked + sample:      ${chunkedAnalyze.totalMs.toFixed(1)}ms, max loop stall ${chunkedAnalyze.maxStallMs.toFixed(1)}ms, sqlite_stat1 rows ${chunkedStats}`,
+		);
 		console.log(`  browse plan (optimize): ${optimizePlan}`);
+		console.log(`  browse plan (chunked):  ${chunkedPlan}`);
 
 		optimizeDb.factory.shutdown();
 		analyzeDb.factory.shutdown();
-		await Promise.all([removeTree(optimizeDb.dir), removeTree(analyzeDb.dir)]);
+		chunkedDb.factory.shutdown();
+		await Promise.all([removeTree(optimizeDb.dir), removeTree(analyzeDb.dir), removeTree(chunkedDb.dir)]);
 
-		return { ok: optimizePlan === analyzePlan };
+		return { ok: optimizePlan === analyzePlan && analyzePlan === chunkedPlan };
 	});
 
 	// ─── Bun compiled-statement cache: dynamic SQL working set ──────────────

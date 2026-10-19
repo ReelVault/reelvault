@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, mkdirSync } from "node:fs";
+import { sleep } from "bun";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate as runMigrations } from "drizzle-orm/bun-sqlite/migrator";
 import { env } from "@/config/env.config";
@@ -32,6 +33,27 @@ export interface DatabaseFactoryOptions {
  * GROUP BY (vs +3 MB with FILE) — an OOM risk on a 1-2 GB NAS/Raspberry Pi.
  */
 const LOW_MEMORY_KIB = 2 * 1024 * 1024;
+
+/**
+ * SQLite samples an index instead of walking every row when `ANALYZE` runs with
+ * a limit set. A full analyze holds the event loop for seconds on a large
+ * catalog; 1,000 rows per index keeps the statistics representative while
+ * bounding the synchronous statement. Reset to 0 afterwards so an explicit
+ * full analyze elsewhere is unaffected.
+ */
+const ANALYZE_SAMPLE_ROWS = 1_000;
+
+/** Statements that merge the FTS5 segment b-trees. Kept together so the chunked runner stays in sync. */
+const FTS_OPTIMIZE_STATEMENTS: readonly string[] = [
+	"INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')",
+	"INSERT INTO people_fts(people_fts) VALUES('optimize')",
+	"INSERT INTO metadata_title_trigram(metadata_title_trigram) VALUES('optimize')",
+];
+
+/** SQLite identifiers are double-quoted; an embedded quote is doubled. */
+function quoteIdentifier(identifier: string): string {
+	return `"${identifier.replaceAll('"', '""')}"`;
+}
 
 /**
  * Bun caches compiled statements per SQL text (an LRU of this many entries,
@@ -145,21 +167,73 @@ export class DatabaseFactory {
 	 * per connection, and ANALYZE on one connection does not make the other
 	 * re-plan, so a stale plan on the transaction connection would otherwise
 	 * persist (observed as worker-claim cost growing with backlog).
+	 *
+	 * The sample limit bounds each index walk; callers that can yield use
+	 * `analyzeChunked()` instead of holding the loop for every table at once.
 	 */
 	analyze(): void {
-		this.sqlite.run("ANALYZE");
-		this.txSqlite?.run("ANALYZE");
+		this.analyzeConnection(this.sqlite);
+		if (this.txSqlite) this.analyzeConnection(this.txSqlite);
+	}
+
+	/**
+	 * Table-by-table variant for the daily maintenance worker: one statement per
+	 * table under the write lock, with a yield between tables. A large catalog
+	 * therefore blocks the loop for the longest single table, not for the whole
+	 * schema. Statistics still land on both connections so prepared statements
+	 * re-plan.
+	 */
+	async analyzeChunked(): Promise<void> {
+		for (const table of this.listAnalyzableTables()) {
+			await this.runWrite(() => {
+				const analyze = (connection: Database): void => {
+					this.analyzeConnection(connection, quoteIdentifier(table));
+				};
+				analyze(this.sqlite);
+				if (this.txSqlite) analyze(this.txSqlite);
+
+				return Promise.resolve();
+			});
+			await sleep(0);
+		}
+	}
+
+	private analyzeConnection(connection: Database, table?: string): void {
+		connection.run(`PRAGMA analysis_limit = ${ANALYZE_SAMPLE_ROWS}`);
+		try {
+			connection.run(table ? `ANALYZE ${table}` : "ANALYZE");
+		} finally {
+			connection.run("PRAGMA analysis_limit = 0");
+		}
+	}
+
+	/** User tables (including FTS shadow tables) that a full `ANALYZE` would visit. */
+	private listAnalyzableTables(): string[] {
+		const rows = this.sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
+		const tables: string[] = [];
+		for (const row of rows) {
+			if (isRecord(row) && typeof row.name === "string") tables.push(row.name);
+		}
+
+		return tables;
 	}
 
 	/**
 	 * FTS5 `optimize` merges the segment b-trees accumulated by title updates and
 	 * deletes, so bm25 search does not walk an ever-growing segment list. Run by
 	 * the daily cleanup worker — not on shutdown, where the cost is unbounded.
+	 * Each index is merged under the write lock with a yield between them; an FTS
+	 * merge is a write and must not wait behind SQLite's own busy handler.
 	 */
-	optimizeFts(): void {
-		this.sqlite.run("INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')");
-		this.sqlite.run("INSERT INTO people_fts(people_fts) VALUES('optimize')");
-		this.sqlite.run("INSERT INTO metadata_title_trigram(metadata_title_trigram) VALUES('optimize')");
+	async optimizeFts(): Promise<void> {
+		for (const statement of FTS_OPTIMIZE_STATEMENTS) {
+			await this.runWrite(() => {
+				this.sqlite.run(statement);
+
+				return Promise.resolve();
+			});
+			await sleep(0);
+		}
 	}
 
 	private analyzeIfStatisticsMissing(): void {
