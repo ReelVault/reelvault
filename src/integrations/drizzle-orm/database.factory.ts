@@ -61,9 +61,22 @@ function quoteIdentifier(identifier: string): string {
  * combinations, sorts and projections — so the hot working set of distinct
  * texts runs well past 20, and every execution of an evicted text re-compiles
  * its SQL. Sized to hold the working set with headroom; the `database` bench
- * ("compiled-statement working set") measures the difference.
+ * ("compiled-statement working set") measures the difference. Small hosts keep
+ * a smaller cache: 128 entries at 1 GiB, 512 at 8 GiB and above.
  */
-Database.MAX_QUERY_CACHE_SIZE = 512;
+const QUERY_CACHE_ENTRIES_PER_GIB = 64;
+const QUERY_CACHE_MIN_ENTRIES = 128;
+const QUERY_CACHE_MAX_ENTRIES = 512;
+
+export function queryCacheEntriesForMemoryKiB(totalKiB: number | undefined): number {
+	if (!totalKiB) return QUERY_CACHE_MAX_ENTRIES;
+
+	const gib = totalKiB / 1024 / 1024;
+
+	return clamp(Math.floor(gib * QUERY_CACHE_ENTRIES_PER_GIB), QUERY_CACHE_MIN_ENTRIES, QUERY_CACHE_MAX_ENTRIES);
+}
+
+Database.MAX_QUERY_CACHE_SIZE = queryCacheEntriesForMemoryKiB(getTotalMemoryKiB());
 
 interface TransactionContext {
 	depth: number;

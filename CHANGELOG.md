@@ -747,6 +747,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Improved profile cache invalidation** — insight caches are indexed by profile, avoiding full cache-key scans after watchlist, rating and playback changes.
 - **Improved per-profile response caching** — details and playback-view cache keys now include the caller's credentials, preventing unrelated sessions from sharing cached responses.
 - **Improved image cache eviction** — rewriting a cached file now moves it to the newest position, preventing frequently updated files from being evicted as old entries.
+- **Bounded in-memory caches by installed RAM** — the seven provider result caches now share one total entry budget (1,400 entries at 4 GiB, capped at 4,200) instead of each taking the full per-cache limit, and Bun's compiled-statement cache scales from 128 entries at 1 GiB to 512 at 8 GiB and above.
 - **Reduced worker scheduling overhead** — due jobs are enqueued concurrently, and completed workers are removed from resource-tracking maps.
 - **Reduced bulk-delete overhead** — active session IDs are collected once and checked using set membership instead of copying the session list for every file.
 - **Improved server maintenance scheduling** — cleanup and full-text index merges yield between operations instead of blocking the event loop for an entire batch.

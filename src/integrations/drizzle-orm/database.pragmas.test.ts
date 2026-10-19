@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTreeSync } from "@/utils/directory.utils";
-import { DatabaseFactory } from "./database.factory";
+import { DatabaseFactory, queryCacheEntriesForMemoryKiB } from "./database.factory";
 
 const root = mkdtempSync(join(tmpdir(), "reelvault-pragmas-"));
 const created: DatabaseFactory[] = [];
@@ -39,6 +39,14 @@ describe("database connection pragmas", () => {
 		const factory = createFactory(32 * 1_024 * 1_024); // 32 GiB
 		expect(pragmaValue(factory, "temp_store")).toBe(2); // 2 = MEMORY
 		expect(pragmaValue(factory, "mmap_size")).toBe(268_435_456);
+	});
+
+	test("sizes the compiled-statement cache from installed memory", () => {
+		expect(queryCacheEntriesForMemoryKiB(1 * 1_024 * 1_024)).toBe(128);
+		expect(queryCacheEntriesForMemoryKiB(4 * 1_024 * 1_024)).toBe(256);
+		expect(queryCacheEntriesForMemoryKiB(8 * 1_024 * 1_024)).toBe(512);
+		expect(queryCacheEntriesForMemoryKiB(64 * 1_024 * 1_024)).toBe(512);
+		expect(queryCacheEntriesForMemoryKiB(undefined)).toBe(512);
 	});
 
 	test("refreshes planner statistics without leaving the analyze sample limit behind", async () => {

@@ -42,9 +42,11 @@ export const pluginConfig = {
 			get detailsCacheTtlMs() {
 				return systemSettingsStore.get("plugins.providers.detailsCacheTtlMs");
 			},
-			// ProviderDetails rows run 10-50 KB — scale with installed RAM.
+			// Total across ProviderResultCaches' seven caches. ProviderDetails rows
+			// run 10-50 KB, so this keeps the set around 42 MB at 4 GB and caps it
+			// near 126 MB instead of letting every cache hold the full per-cache limit.
 			get detailsCacheMaxSize() {
-				return systemResourcesService.getRamScaledCacheEntries(60, 200, 2000);
+				return systemResourcesService.getRamScaledCacheEntries(250, 1400, 4200);
 			},
 		},
 	},
