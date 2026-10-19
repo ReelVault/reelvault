@@ -1,7 +1,8 @@
+import { statSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bench, fixture, group, main, measure, measureAsync, printMicroResults, suiteArgs, task } from "benchkit";
+import { bench, fixture, fmtMb, fmtMs, group, main, measure, measureAsync, printMicroResults, printTable, suiteArgs, task } from "benchkit";
 import { asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { DatabaseFactory } from "@/integrations/drizzle-orm/database.factory";
@@ -27,6 +28,14 @@ function statRowCount(factory: DatabaseFactory): number {
  * chunk. The final gap is charged to the last tick so a sync call is not
  * under-reported.
  */
+function walBytes(dbPath: string): number {
+	try {
+		return statSync(`${dbPath}-wal`).size;
+	} catch {
+		return 0;
+	}
+}
+
 async function measureStall<T>(work: () => T | Promise<T>): Promise<{ result: T; totalMs: number; maxStallMs: number }> {
 	const intervalMs = 5;
 	let last = performance.now();
@@ -492,6 +501,54 @@ if (!args.help) {
 		await Promise.all([removeTree(optimizeDb.dir), removeTree(analyzeDb.dir), removeTree(chunkedDb.dir)]);
 
 		return { ok: optimizePlan === analyzePlan && analyzePlan === chunkedPlan };
+	});
+
+	// ─── WAL autocheckpoint under a write burst ────────────────────────────
+	// Small hosts write to SD cards and NAS shares where every checkpoint costs
+	// real milliseconds. Measure the write burst and the WAL left behind for the
+	// default, a larger auto-checkpoint interval, and no auto-checkpoint plus one
+	// passive checkpoint at the end.
+	task("database: WAL autocheckpoint under a write burst", async () => {
+		const rows = Math.min(args.rows, 5_000);
+		const updates = 2_000;
+		const build = async (): Promise<{ factory: DatabaseFactory; dir: string; dbPath: string }> => {
+			const dir = await mkdtemp(join(tmpdir(), "reelvault-benchmark-wal-"));
+			const dbPath = join(dir, "reelvault.sqlite");
+			const factory = new DatabaseFactory(dbPath);
+			factory.migrate();
+			seedCatalog(factory.sqlite, { rows, staggeredTimestamps: true });
+			factory.sqlite.run("PRAGMA wal_checkpoint(TRUNCATE)");
+
+			return { factory, dir, dbPath };
+		};
+		const variants = [
+			{ name: "auto 1000 (default)", autoCheckpoint: 1000, passive: false },
+			{ name: "auto 4000", autoCheckpoint: 4000, passive: false },
+			{ name: "no auto + passive", autoCheckpoint: 0, passive: true },
+		];
+		const results: Array<{ name: string; totalMs: number; maxStallMs: number; walBytes: number }> = [];
+
+		for (const variant of variants) {
+			const { factory, dir, dbPath } = await build();
+			factory.sqlite.run(`PRAGMA wal_autocheckpoint = ${variant.autoCheckpoint}`);
+			const update = factory.sqlite.prepare("UPDATE metadata SET popularity = COALESCE(popularity, 0) + 1 WHERE rowid = ?");
+			const burst = await measureStall(() => {
+				for (let index = 0; index < updates; index++) update.run((index % rows) + 1);
+			});
+			if (variant.passive) factory.sqlite.run("PRAGMA wal_checkpoint(PASSIVE)");
+			results.push({ name: variant.name, totalMs: burst.totalMs, maxStallMs: burst.maxStallMs, walBytes: walBytes(dbPath) });
+
+			factory.shutdown();
+			await removeTree(dir);
+		}
+
+		printTable(
+			`WAL write burst (${updates} updates, ${rows} rows)`,
+			["setting", "total", "max stall", "WAL after"],
+			results.map((result) => [result.name, fmtMs(result.totalMs), fmtMs(result.maxStallMs), fmtMb(result.walBytes)]),
+		);
+
+		return { ok: true };
 	});
 
 	// ─── Bun compiled-statement cache: dynamic SQL working set ──────────────
