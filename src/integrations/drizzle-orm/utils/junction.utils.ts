@@ -166,7 +166,9 @@ export function createProfileMetadataLink<TExtraColumns extends Record<string, C
 		(t) => [
 			uniqueIndex(`${tableName}_unique`).on(t.profileId, t.metadataId),
 			index(`${tableName}_metadata_idx`).on(t.metadataId),
-			index(`${tableName}_profile_created_idx`).on(t.profileId, t.createdAt),
+			// The list pages filter by profile and sort by created_at with the id as
+			// a tiebreaker, so the index has to carry all three in that order.
+			index(`${tableName}_profile_created_id_idx`).on(t.profileId, t.createdAt, t.id),
 			...(extraConfig?.(t) ?? []),
 		],
 	);

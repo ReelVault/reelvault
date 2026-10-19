@@ -26,6 +26,9 @@ export const seasons = sqliteTable(
 		uniqueIndex("seasons_unique").on(t.metadataId, t.seasonNumber),
 		uniqueIndex("seasons_stable_key_idx").on(t.stableKey),
 		index("seasons_image_idx").on(t.imageId),
+		// The list page sorts by season_number and appends the id as a tiebreaker;
+		// the composite covers both.
+		index("seasons_number_id_idx").on(t.seasonNumber, t.id),
 		check("seasons_number_check", sql`${t.seasonNumber} >= 0`),
 	],
 );

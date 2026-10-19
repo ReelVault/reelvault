@@ -23,6 +23,9 @@ export const people = sqliteTable(
 	(t) => [
 		index("people_name_idx").on(t.name),
 		index("people_popularity_idx").on(t.popularity),
+		// The list page sorts by name and appends the id as a tiebreaker; the
+		// composite covers both.
+		index("people_name_id_idx").on(t.name, t.id),
 		...DatabaseHelper.namedEntityImageIndexes("people", t),
 		check("people_gender_check", sql`${t.gender} IS NULL OR ${t.gender} IN ('male', 'female', 'other')`),
 		check(

@@ -102,6 +102,50 @@ function buildCases(rows: number, now: number): QueryCase[] {
 			sql: `SELECT ${metadataColumns} FROM metadata WHERE type = 'movie' AND ${hasMedia} ORDER BY COALESCE(sort_title, title) COLLATE NOCASE, id LIMIT 24`,
 		},
 		{
+			name: "metadata typed title browse (index-hardening)",
+			sql: `SELECT ${metadataColumns} FROM metadata WHERE type = 'movie' AND ${hasMedia} ORDER BY title, id LIMIT 24`,
+		},
+		{
+			name: "metadata typed newest browse (index-hardening)",
+			sql: `SELECT ${metadataColumns} FROM metadata WHERE type = 'movie' AND ${hasMedia} ORDER BY created_at DESC, id DESC LIMIT 24`,
+		},
+		{
+			name: "metadata sort by budget (index-hardening)",
+			sql: `SELECT ${metadataColumns} FROM metadata WHERE ${hasMedia} ORDER BY budget, id LIMIT 24`,
+		},
+		{
+			name: "watchlist page (index-hardening)",
+			sql: "SELECT id, metadata_id FROM watchlist WHERE profile_id = 'profile-1' ORDER BY created_at DESC, id DESC LIMIT 50",
+		},
+		{
+			name: "user ratings page (index-hardening)",
+			sql: "SELECT id, metadata_id FROM user_ratings WHERE profile_id = 'profile-1' ORDER BY created_at DESC, id DESC LIMIT 50",
+		},
+		{
+			name: "episodes page (index-hardening)",
+			sql: "SELECT id, episode_number FROM episodes ORDER BY episode_number, id LIMIT 50",
+		},
+		{
+			name: "seasons page (index-hardening)",
+			sql: "SELECT id, season_number FROM seasons ORDER BY season_number, id LIMIT 50",
+		},
+		{
+			name: "people page (index-hardening)",
+			sql: "SELECT id, name FROM people ORDER BY name, id LIMIT 50",
+		},
+		{
+			name: "media-files admin page (index-hardening)",
+			sql: "SELECT id, file_name FROM media_files ORDER BY created_at DESC, id DESC LIMIT 50",
+		},
+		{
+			name: "media markers page (index-hardening)",
+			sql: "SELECT id, start_seconds FROM media_markers ORDER BY created_at, id LIMIT 50",
+		},
+		{
+			name: "artifacts of one file by kind (index-hardening)",
+			sql: "SELECT id FROM media_artifacts WHERE media_file_id = 'mf-meta-0000001' AND kind = 'trickplay' AND plugin_id = 'core'",
+		},
+		{
 			name: "provider junction lookup by provider_id (index-hardening)",
 			sql: "SELECT metadataId FROM metadata_providers WHERE provider_id = 'provider-1'",
 		},

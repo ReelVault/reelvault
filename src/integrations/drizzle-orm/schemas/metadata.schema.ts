@@ -73,6 +73,15 @@ export const metadata = sqliteTable(
 		index("metadata_popularity_id_idx").on(t.popularity, t.id),
 		index("metadata_match_score_id_idx").on(t.matchScore, t.id),
 		index("metadata_updated_at_id_idx").on(t.updatedAt, t.id),
+		// The budget and revenue sorts had no index at all, so a browse on them
+		// sorted the whole filtered set.
+		index("metadata_budget_id_idx").on(t.budget, t.id),
+		index("metadata_revenue_id_idx").on(t.revenue, t.id),
+		// The typed browse (type filter + title sort) needs the id in the index:
+		// (type, title) alone leaves the tiebreaker to a temp B-tree.
+		index("metadata_type_title_id_idx").on(t.type, t.title, t.id),
+		// The same for the typed browse sorted by created_at.
+		index("metadata_type_created_id_idx").on(t.type, t.createdAt, t.id),
 		check("metadata_type_check", sql`${t.type} IN ('movie', 'tv_show')`),
 		check(
 			"metadata_numeric_values_check",
@@ -96,6 +105,9 @@ export const metadataCollections = sqliteTable(
 		// collection_id-only lookups (and the FK cascade) are served by the
 		// (collection_id, sort_order) composite.
 		index("metadata_collections_collection_sort_idx").on(t.collectionId, t.sortOrder),
+		// The collectionOrder browse takes MIN(sort_order) per title — the
+		// metadata_id side needs its own composite for that lookup.
+		index("metadata_collections_metadata_sort_idx").on(t.metadataId, t.sortOrder),
 	],
 );
 
@@ -137,6 +149,9 @@ export const metadataCast = sqliteTable(
 	(t) => [
 		primaryKey({ columns: [t.metadataId, t.personId, t.role] }),
 		index("metadata_cast_person_idx").on(t.personId),
+		// The castOrder browse takes MIN(sort_order) per title — the metadata_id
+		// side needs its own composite for that lookup.
+		index("metadata_cast_metadata_sort_idx").on(t.metadataId, t.sortOrder),
 		check("metadata_cast_sort_order_check", sql`${t.sortOrder} IS NULL OR ${t.sortOrder} >= -1`),
 	],
 );

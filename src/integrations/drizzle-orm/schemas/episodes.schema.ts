@@ -30,6 +30,9 @@ export const episodes = sqliteTable(
 		uniqueIndex("episodes_stable_key_idx").on(t.stableKey),
 		index("episodes_season_number_idx").on(t.seasonId, t.episodeNumber),
 		index("episodes_image_idx").on(t.imageId),
+		// The list page sorts by episode_number and appends the id as a
+		// tiebreaker; the composite covers both.
+		index("episodes_number_id_idx").on(t.episodeNumber, t.id),
 		check("episodes_type_check", sql`${t.episodeType} IN ('regular', 'special')`),
 		check("episodes_number_check", sql`${t.episodeNumber} >= 0`),
 	],

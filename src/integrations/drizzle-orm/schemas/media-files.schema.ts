@@ -57,6 +57,10 @@ export const mediaFiles = sqliteTable(
 		index("media_files_created_at_idx").on(t.createdAt),
 		// Admin media-files list can ORDER BY file_name — without this it full-scans + temp-sorts.
 		index("media_files_file_name_idx").on(t.fileName),
+		// The list pages append the id as an ORDER BY tiebreaker, so the sort
+		// column alone leaves the last term to a temp B-tree.
+		index("media_files_created_at_id_idx").on(t.createdAt, t.id),
+		index("media_files_file_name_id_idx").on(t.fileName, t.id),
 		check("media_files_single_target_check", sql`(${t.movieId} IS NULL) <> (${t.episodeId} IS NULL)`),
 		check(
 			"media_files_numeric_values_check",
