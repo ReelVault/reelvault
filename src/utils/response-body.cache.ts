@@ -14,7 +14,7 @@ export const RESPONSE_BODY_CACHE_MAX_BYTES = 512 * 1024;
 /** Server-side TTL cap regardless of the route's client-facing max-age. */
 const RESPONSE_BODY_CACHE_MAX_TTL_MS = 5 * 60_000;
 /** TTL of the short-lived aggregation bodies stored by withEtagResponse(). */
-const ETAG_BODY_CACHE_TTL_MS = 10_000;
+export const ETAG_BODY_CACHE_TTL_MS = 10_000;
 /**
  * Total byte budget across all cached bodies: RESPONSE_BODY_CACHE_BYTES_PER_GB for each GiB of
  * installed RAM, clamped to [MIN, MAX]. A catalog list page is ~22 KB, so a 30 GB box holds
@@ -42,16 +42,10 @@ const KEY_SEGMENT_SEPARATOR = "\u0000";
 /**
  * profileId → cached keys. invalidateProfileResponseBodies() runs on EVERY
  * progress/watchlist write (each stream heartbeat), so invalidation must be a
- * Set lookup, not a full cache scan.
+ * Set lookup, not a full cache scan. Route-level (`cache` macro) and
+ * withEtagResponse() bodies share the key format and this index.
  */
 const profileKeyIndex = new Map<string, Set<string>>();
-
-/**
- * Keys of withEtagResponse() entries. Their cache keys embed the profile id as
- * the last colon-separated segment, so per-profile invalidation scans this
- * short-lived subset instead of the whole cache.
- */
-const etagBodyKeys = new Set<string>();
 
 function removeFromProfileIndex(key: string): void {
 	const profileId = key.split(KEY_SEGMENT_SEPARATOR)[2];
@@ -77,10 +71,9 @@ const responseBodyCache = new MemoryCache<CachedResponseBody>({
 	// catalog list page each is only about 5–10% of the body (br ≈ 1.2 KB, gzip ≈ 2.2 KB at 22.5 KB).
 	weigh: (entry) => entry.body.length,
 	name: "api.responseBody",
-	// Keep the per-profile and etag-key indexes honest across LRU evictions.
+	// Keep the per-profile index honest across LRU evictions.
 	onEvict: (key) => {
 		removeFromProfileIndex(key);
-		etagBodyKeys.delete(key);
 	},
 });
 
@@ -131,16 +124,15 @@ export function setCachedResponseBody(key: string, entry: CachedResponseBody): v
 }
 
 /** Caches an uncompressed aggregation body unless it exceeds RESPONSE_BODY_CACHE_MAX_BYTES. */
-export function cacheEtagBody(key: string, body: string, etag: string): void {
+export function setEtagResponseBody(key: string, body: string, etag: string): void {
 	if (body.length > RESPONSE_BODY_CACHE_MAX_BYTES) return;
 
-	responseBodyCache.set(key, {
+	setCachedResponseBody(key, {
 		etag,
 		body,
 		expiresAt: Date.now() + ETAG_BODY_CACHE_TTL_MS,
 		encoded: new Map(),
 	});
-	etagBodyKeys.add(key);
 }
 
 let invalidationEpoch = 0;
@@ -160,7 +152,6 @@ export function invalidateResponseBodies(): void {
 	invalidationEpoch++;
 	responseBodyCache.clear();
 	profileKeyIndex.clear();
-	etagBodyKeys.clear();
 }
 
 /**
@@ -194,20 +185,13 @@ export function invalidateResponseBodiesForPathPrefixes(pathPrefixes: readonly s
 }
 
 /**
- * Drops cached bodies scoped to one profile without flushing the whole cache.
- * Response-cache keys index by profile id (O(1) per write); etag-body keys
- * embed it after a colon and live only 10s, so that one stays a scan over the
- * etag-key subset.
+ * Drops cached bodies scoped to one profile without flushing the whole cache:
+ * route-level and withEtagResponse() keys both index by profile id, so this is
+ * an O(1) lookup per write.
  */
 export function invalidateProfileResponseBodies(profileId: string): void {
 	for (const key of profileKeyIndex.get(profileId) ?? []) {
 		responseBodyCache.delete(key);
 	}
 	profileKeyIndex.delete(profileId);
-
-	for (const key of etagBodyKeys) {
-		// Etag keys embed the profile id as the last colon-separated segment; a
-		// substring match could delete unrelated keys.
-		if (key.split(":").at(-1) === profileId) responseBodyCache.delete(key);
-	}
 }

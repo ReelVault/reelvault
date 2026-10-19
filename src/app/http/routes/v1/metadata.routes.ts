@@ -142,9 +142,10 @@ export const metadataRoutes = new Elysia({
 		"/:metadataId/details-view",
 		async ({ params, profile, request, set }) =>
 			withEtagResponse(request, set, () => metadataService.getDetailsView(params.metadataId, profile?.id), {
-				// The details view runs ~17 queries; the cacheKey makes a repeat/304
-				// request skip the whole aggregation (cleared on metadata writes).
-				cacheKey: `metadata-details:${params.metadataId}:${profile?.id ?? "anon"}`,
+				// The details view runs ~17 queries; options enable the shared body
+				// cache, so a repeat/304 request skips the whole aggregation (cleared
+				// on metadata writes and per-profile progress writes).
+				profileId: profile?.id,
 			}),
 		{
 			params: MetadataIdParams,

@@ -54,7 +54,7 @@ describe("withEtagResponse", () => {
 
 	test("serves repeat requests from the body cache within the TTL", async () => {
 		let run = 0;
-		const options = { cacheKey: "profile-1:discover" };
+		const options = { profileId: "profile-1" };
 
 		const first = await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), options);
 		// Even though the producer would now return fresh data, the cached body is served.
@@ -83,7 +83,7 @@ describe("withEtagResponse body cache", () => {
 	test("cache hit keeps serving the compressed encoding for repeat requests", async () => {
 		let run = 0;
 		const payload = () => ({ text: "reelvault".repeat(400), run: ++run });
-		const options = { cacheKey: "profile-1:big" };
+		const options = { profileId: "profile-1" };
 
 		const first = await withEtagResponse(makeRequest({ "accept-encoding": "br" }), setHeaders(), () => Promise.resolve(payload()), options);
 		const second = await withEtagResponse(
@@ -104,7 +104,7 @@ describe("withEtagResponse body cache", () => {
 
 	test("304 revalidation answers from the cache without running the loader", async () => {
 		let run = 0;
-		const options = { cacheKey: "profile-1:revalidate" };
+		const options = { profileId: "profile-1" };
 
 		const first = await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), options);
 		const etag = first.headers.get("ETag") as string;
@@ -122,8 +122,8 @@ describe("withEtagResponse body cache", () => {
 
 	test("per-profile invalidation drops the cached aggregation for that profile only", async () => {
 		let run = 0;
-		const scoped = { cacheKey: "playback-view:mf-1:profile-1" };
-		const other = { cacheKey: "playback-view:mf-1:profile-2" };
+		const scoped = { profileId: "profile-1" };
+		const other = { profileId: "profile-2" };
 
 		await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), scoped);
 		await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), other);
@@ -139,7 +139,7 @@ describe("withEtagResponse body cache", () => {
 
 	test("oversized payloads are served but not cached", async () => {
 		let run = 0;
-		const options = { cacheKey: "profile-1:huge" };
+		const options = { profileId: "profile-1" };
 
 		const first = await withEtagResponse(
 			makeRequest(),

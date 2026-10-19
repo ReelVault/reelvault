@@ -1,8 +1,8 @@
 import { hash as bunHash } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
-import { matchesIfNoneMatch } from "@/utils/http.utils";
-import { cacheEtagBody, getCachedResponseBody } from "@/utils/response-body.cache";
+import { matchesIfNoneMatch, pathWithQuery, readRequestCredentials } from "@/utils/http.utils";
+import { getCachedResponseBody, responseCacheKey, setEtagResponseBody } from "@/utils/response-body.cache";
 
 /** Per-profile aggregation responses must be revalidated by the browser on every use. */
 const ETAG_CACHE_CONTROL = "private, no-cache";
@@ -78,21 +78,23 @@ export async function buildJsonResponse(options: JsonResponseOptions): Promise<R
  * returning a replacement Response from mapResponse is ignored when the
  * handler already returned one.
  *
- * Pass `cacheKey` for expensive aggregations to serve repeat requests from the
- * shared body cache (keyed per profile by the caller). Cached entries store
- * the UNCOMPRESSED body; the encoding is applied per response — do not
- * memoize compressed variants here: measured 2026-09-21, skipping the per-hit
- * compress lost the zlib threadpool pipelining and cost ~8.5% req/s at c=50
- * despite winning ~17% at c=10.
+ * Pass `options` for expensive aggregations to serve repeat requests from the
+ * shared body cache (keyed per request path and credentials, exactly like the
+ * response-cache middleware, so per-profile invalidation is the same O(1)
+ * lookup). Cached entries store the UNCOMPRESSED body; the encoding is applied
+ * per response — do not memoize compressed variants here: measured 2026-09-21,
+ * skipping the per-hit compress lost the zlib threadpool pipelining and cost
+ * ~8.5% req/s at c=50 despite winning ~17% at c=10.
  */
 export async function withEtagResponse<T>(
 	request: Request,
 	set: { headers: Record<string, unknown> },
 	load: () => Promise<T>,
-	options?: { cacheKey?: string },
+	options?: { profileId?: string | undefined },
 ): Promise<Response> {
 	const ifNoneMatch = request.headers.get("if-none-match");
 	const acceptEncoding = request.headers.get("accept-encoding") ?? "";
+	const cacheKey = options ? etagCacheKey(request, options.profileId) : undefined;
 
 	const respond = async (body: string, etag: string): Promise<Response> => {
 		set.headers.ETag = etag;
@@ -109,8 +111,8 @@ export async function withEtagResponse<T>(
 		});
 	};
 
-	if (options?.cacheKey) {
-		const cached = getCachedResponseBody(options.cacheKey);
+	if (cacheKey) {
+		const cached = getCachedResponseBody(cacheKey);
 		if (cached) return await respond(cached.body, cached.etag);
 	}
 
@@ -119,7 +121,20 @@ export async function withEtagResponse<T>(
 	const body = JSON.stringify(resolved);
 	const etag = jsonEtag(body);
 
-	if (options?.cacheKey) cacheEtagBody(options.cacheKey, body, etag);
+	if (cacheKey) setEtagResponseBody(cacheKey, body, etag);
 
 	return await respond(body, etag);
+}
+
+/** Credential-scoped body-cache key — the same format the response-cache middleware builds. */
+function etagCacheKey(request: Request, profileId: string | undefined): string {
+	const credentials = readRequestCredentials(request);
+
+	return responseCacheKey({
+		pathWithQuery: pathWithQuery(request.url),
+		cookie: credentials.cookie,
+		profileId: profileId ?? "",
+		auth: credentials.authorization,
+		apiKey: credentials.apiKey,
+	});
 }

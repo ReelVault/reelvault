@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 import { buildJsonResponse, jsonEtag } from "@/app/http/utils/etag.utils";
-import { getResponseStatus, pathWithQuery } from "@/utils/http.utils";
+import { getResponseStatus, pathWithQuery, readRequestCredentials } from "@/utils/http.utils";
 import {
 	type CachedResponseBody,
 	getCachedResponseBody,
@@ -59,14 +59,16 @@ function resolveProfileId(context: object): string | undefined {
 }
 
 function cacheKeyFor(request: Request, resolvedProfileId?: string): string {
+	const credentials = readRequestCredentials(request);
+
 	return responseCacheKey({
 		pathWithQuery: pathWithQuery(request.url),
-		cookie: request.headers.get("cookie") ?? "",
-		profileId: resolvedProfileId ?? request.headers.get("x-profile-id") ?? "",
-		auth: request.headers.get("authorization") ?? "",
+		cookie: credentials.cookie,
+		profileId: resolvedProfileId ?? credentials.headerProfileId,
+		auth: credentials.authorization,
 		// Machine keys are a distinct credential — without the segment two API
 		// keys of different accounts would share the same cached private body.
-		apiKey: request.headers.get("x-api-key") ?? "",
+		apiKey: credentials.apiKey,
 	});
 }
 

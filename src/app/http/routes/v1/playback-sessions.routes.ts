@@ -40,7 +40,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 			withEtagResponse(request, set, () => playbackViewService.getPlaybackView(params.mediaFileId, profile?.id), {
 				// Progress/user-state changes are invalidated per profile by
 				// invalidateProfileResponseBodies() on progress writes.
-				cacheKey: `playback-view:${params.mediaFileId}:${profile?.id ?? "anon"}`,
+				profileId: profile?.id,
 			}),
 		{
 			params: MediaFileIdParams,

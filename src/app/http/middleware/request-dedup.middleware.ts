@@ -1,7 +1,7 @@
 import { hash as bunHash } from "bun";
 import { Elysia } from "elysia";
 import { serverConfig } from "@/config/server/server.config";
-import { getResponseStatus, pathWithQuery } from "@/utils/http.utils";
+import { getResponseStatus, pathWithQuery, readRequestCredentials } from "@/utils/http.utils";
 import { serializedBodyCache } from "./response-cache.middleware";
 
 interface DedupContext {
@@ -87,17 +87,9 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 
 				if (trackedCount >= serverConfig.requestDedup.maxConcurrent) return undefined;
 
-				const auth = context.request.headers.get("authorization") ?? "";
-				const cookie = context.request.headers.get("cookie") ?? "";
-				// The active profile may arrive via this header (instead of the profile cookie)
-				// — without it, two profiles of the same user would share deduplicated
-				// responses that contain per-profile state.
-				const profileId = context.request.headers.get("x-profile-id") ?? "";
-				// Machine API keys are a distinct credential and carry no cookie: without
-				// the segment two keys would share one principal's response.
-				const apiKey = context.request.headers.get("x-api-key") ?? "";
+				const credentials = readRequestCredentials(context.request);
 				// GET and HEAD share a route but not a response contract — keep them apart.
-				const composed = `${context.request.method}:${pathWithQuery(context.request.url)}:${auth}:${cookie}:${profileId}:${apiKey}`;
+				const composed = `${context.request.method}:${pathWithQuery(context.request.url)}:${credentials.authorization}:${credentials.cookie}:${credentials.headerProfileId}:${credentials.apiKey}`;
 				// Raw keys win the A/B benchmark at realistic lengths and make
 				// collisions impossible; oversized keys hash instead so a bounded
 				// in-flight map can't be amplified into a memory sink.
