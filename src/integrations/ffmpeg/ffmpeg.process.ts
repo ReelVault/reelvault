@@ -27,15 +27,7 @@ export async function killFfmpegProcessGracefully(
 	if (!process.pid) return;
 
 	process.kill("SIGTERM");
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const exitedInTime = await Promise.race([
-		process.exited.then(() => true),
-		new Promise<boolean>((resolve) => {
-			timer = setTimeout(() => resolve(false), timeoutMs);
-			timer.unref();
-		}),
-	]);
-	clearTimeout(timer);
+	const exitedInTime = await waitForExitWithTimeout(process, timeoutMs);
 
 	if (!exitedInTime) {
 		// `process.killed` only means "a signal was sent" (it is true right after
