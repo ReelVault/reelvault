@@ -19,6 +19,7 @@ import {
 } from "@/app/repositories/metadata-filters.utils";
 import type { MoreLikeThisSource } from "@/app/repositories/metadata-recommendations.reader";
 import { getMoreLikeThis as recommendMoreLikeThis } from "@/app/repositories/metadata-recommendations.reader";
+import { loadMergedDetailRow } from "@/app/repositories/metadata-relations/relations.loader";
 import { loadRelations, withRelations } from "@/app/repositories/metadata-relations.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -45,9 +46,7 @@ import {
 	type MetadataSelectArgs,
 	type metadataColumns,
 	metadataTable,
-	preparedFindNumberingModeById,
 	preparedFindRootsById,
-	preparedFindTypeById,
 } from "./shared.utils";
 
 /** Distinct non-empty `status` values in the catalog, sorted, for the status filter. */
@@ -212,18 +211,6 @@ export async function findProviderDetails(metadataId: string) {
 	return await findById({ primaryId: metadataId, fields: QueryFields.parse({ fields: "id,type,primaryProviderId,providers" }) });
 }
 
-export async function findTypeById(metadataId: string) {
-	const [row] = await preparedFindTypeById(databaseFactory.getClient()).execute({ id: metadataId });
-
-	return row;
-}
-
-export async function findNumberingModeById(metadataId: string) {
-	const [row] = await preparedFindNumberingModeById(databaseFactory.getClient()).execute({ id: metadataId });
-
-	return row;
-}
-
 /**
  * Full flat metadata row with zero relation queries. findByIdForRead without
  * fields runs the detail-page relation load (collections/companies/genres/
@@ -361,6 +348,15 @@ export async function findById<F extends string>({
 	fields?: FieldsConfig<F> | undefined;
 	tx?: DatabaseTransaction | undefined;
 }): Promise<SelectFields<MetadataWithRelation, F> | undefined> {
+	// Default projection: the root row and every relation ride one prepared
+	// statement instead of `SELECT *` plus the merged relation read.
+	if (!fields?.fields.length) {
+		const merged = loadMergedDetailRow(databaseFactory.getClient({ tx }), primaryId);
+		if (!merged) return undefined;
+
+		return QueryFields.apply(withRelations(merged.metadata, merged.relationData), fields);
+	}
+
 	const metadata = await metadataTable.selectFirstById({ primaryId, tx });
 	if (!metadata) return undefined;
 
@@ -369,11 +365,12 @@ export async function findById<F extends string>({
 	return QueryFields.apply(withRelations(metadata, relations.get(metadata.id)), fields);
 }
 
-export function findRecentlyAddedByType(type: "movie" | "tv_show", limit: number) {
-	return findRecentlyAdded([type], limit);
-}
-
-export async function findRecentlyAdded(types: Array<"movie" | "tv_show">, limit: number): Promise<MetadataWithRelation[]> {
+/**
+ * Recently-added ids for one type: ranked by the latest media-file creation
+ * (the correlation is served by `media_files_metadata_created_idx`) and limited
+ * before the rows are fetched.
+ */
+async function rankRecentlyAddedIds(type: "movie" | "tv_show", limit: number): Promise<string[]> {
 	const client = databaseFactory.getClient();
 	// Rank ids by their latest media-file creation with a correlated MAX
 	// (`media_files_metadata_created_idx` serves the seek). The previous
@@ -391,25 +388,48 @@ export async function findRecentlyAdded(types: Array<"movie" | "tv_show">, limit
 		.from(schema.metadata)
 		.where(
 			and(
-				inArray(schema.metadata.type, types),
+				inArray(schema.metadata.type, [type]),
 				exists(client.select({ one: sql`1` }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, schema.metadata.id))),
 			),
 		)
 		.orderBy(desc(sql`latest_created_at`), desc(schema.metadata.id))
 		.limit(limit);
-	if (ranked.length === 0) return [];
 
-	const ids = ranked.map((row) => row.id);
+	return ranked.map((row) => row.id);
+}
+
+/**
+ * Recently-added titles for several types in one pass: each type ranks its own
+ * top ids, then one row read and one relation load hydrate all of them together.
+ * Discover asks for movies and shows per build, so the shared reads replace two
+ * full hydrations (10 → 6 statements, same order and payload).
+ */
+export async function findRecentlyAddedByTypes(
+	types: Array<"movie" | "tv_show">,
+	limit: number,
+): Promise<Map<"movie" | "tv_show", MetadataWithRelation[]>> {
+	const idGroups = await Promise.all(types.map(async (type) => await rankRecentlyAddedIds(type, limit)));
+	const ids = [...new Set(idGroups.flat())];
+	const result = new Map<"movie" | "tv_show", MetadataWithRelation[]>();
+	for (const type of types) result.set(type, []);
+	if (ids.length === 0) return result;
+
 	const rowsById = toMap(await metadataTable.selectMany({ where: inArray(schema.metadata.id, ids) }), (row) => row.id);
-	const rows = ids.flatMap((id) => {
-		const row = rowsById.get(id);
-
-		return row ? [row] : [];
-	});
-
 	const relations = await loadRelations(ids);
 
-	return rows.map((item) => withRelations(item, relations.get(item.id)));
+	for (const [index, type] of types.entries()) {
+		const group = idGroups[index] ?? [];
+		result.set(
+			type,
+			group.flatMap((id) => {
+				const row = rowsById.get(id);
+
+				return row ? [withRelations(row, relations.get(id))] : [];
+			}),
+		);
+	}
+
+	return result;
 }
 
 export async function getMoreLikeThis<F extends string>(args: {

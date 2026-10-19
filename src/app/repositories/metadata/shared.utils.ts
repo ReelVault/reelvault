@@ -99,29 +99,11 @@ export const metadataTable = defineTableAccess("metadata", {
 
 export const metadataColumns = getTableColumns(schema.metadata);
 
-// Fixed-shape PK reads for hot paths (Faza 3 pilot): one prepared query per
+// Fixed-shape PK read for hot paths (Faza 3 pilot): one prepared query per
 // connection, reused across calls.
-export const preparedFindTypeById = createPreparedQuery((client) =>
-	client
-		.select({ type: schema.metadata.type, numberingMode: schema.metadata.numberingMode })
-		.from(schema.metadata)
-		.where(eq(schema.metadata.id, sql.placeholder("id")))
-		.limit(1)
-		.prepare(),
-);
-
 export const preparedFindRootsById = createPreparedQuery((client) =>
 	client
 		.select()
-		.from(schema.metadata)
-		.where(eq(schema.metadata.id, sql.placeholder("id")))
-		.limit(1)
-		.prepare(),
-);
-
-export const preparedFindNumberingModeById = createPreparedQuery((client) =>
-	client
-		.select({ numberingMode: schema.metadata.numberingMode })
 		.from(schema.metadata)
 		.where(eq(schema.metadata.id, sql.placeholder("id")))
 		.limit(1)

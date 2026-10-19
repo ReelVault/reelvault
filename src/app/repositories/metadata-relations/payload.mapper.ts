@@ -111,7 +111,7 @@ function parseNestedPayload<T extends object>(
 	return items;
 }
 
-export function applyDetailRelations(target: MetadataRelationData, row: DetailRelationsRow): void {
+export function applyDetailRelations(target: MetadataRelationData, row: Omit<DetailRelationsRow, "metadataId">): void {
 	target.collections.push(...parsePayload<RelationItem<"collections">>(row.collections, collectionKeys, collectionDateKeys));
 	target.companies.push(...parsePayload<RelationItem<"companies">>(row.companies, companyKeys, companyDateKeys));
 	target.genres.push(...parsePayload<RelationItem<"genres">>(row.genres, genreKeys, genreDateKeys));

@@ -1,8 +1,8 @@
-import { inArray, type SQL, type SQLChunk, sql } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { eq, getTableColumns, inArray, type SQL, type SQLChunk, sql } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { metadataImageOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
+import { aliasedColumns, orderedJsonArray, relationJsonArray } from "@/integrations/drizzle-orm/utils/relation-json.utils";
 import {
 	castColumns,
 	collectionColumns,
@@ -25,31 +25,6 @@ import type { JsonRelationParams, RelationClient } from "./relations.types";
  * indexes — the per-relation round trips are gone.
  */
 export const idListSubquery = sql`(SELECT value FROM json_each(${sql.placeholder("ids")}))`;
-
-/** One relation as a JSON array — `[]` when the title has no rows for it. */
-function relationJsonArray(rows: SQL): SQL<string> {
-	return sql<string>`coalesce((${rows}), '[]')`;
-}
-
-/** Inner SELECT aliases every column to its DTO key so the outer json_object can read it. */
-function aliasedColumns(columns: Record<string, SQLiteColumn>, prefix: string): { selectList: SQL; pairs: SQLChunk[] } {
-	const selectParts: SQL[] = [];
-	const pairs: SQLChunk[] = [];
-	for (const [key, column] of Object.entries(columns)) {
-		const alias = `${prefix}${key}`;
-		selectParts.push(sql`${column} AS ${sql.identifier(alias)}`);
-		pairs.push(sql`${key}`, sql.identifier(alias));
-	}
-
-	return { selectList: sql.join(selectParts, sql`, `), pairs };
-}
-
-/** `json_group_array` over an ordered, aliased subquery — row order matches the junction index. */
-function orderedJsonArray(selectList: SQLChunk, pairs: SQLChunk[], from: SQLChunk, orderBy: SQLChunk): SQL<string> {
-	return relationJsonArray(
-		sql`SELECT json_group_array(json_object(${sql.join(pairs, sql`, `)})) FROM (SELECT ${selectList} FROM ${from} ORDER BY ${orderBy})`,
-	);
-}
 
 function namedRelationJson(params: JsonRelationParams): SQL<string> {
 	const { selectList, pairs } = aliasedColumns(params.data, "");
@@ -146,22 +121,36 @@ function lockedFieldsJson(): SQL<string> {
 	);
 }
 
+const detailRelationJson = {
+	collections: namedRelationJson(collectionRelation),
+	companies: namedRelationJson(companyRelation),
+	genres: namedRelationJson(genreRelation),
+	keywords: namedRelationJson(keywordRelation),
+	cast: castJson(),
+	crew: crewJson(),
+	images: imagesJson(),
+	rating: ratingJson(),
+	providers: namedRelationJson(providerRelation),
+	lockedFields: lockedFieldsJson(),
+};
+
 export const preparedDetailRelations = createPreparedQuery((client: RelationClient) =>
 	client
-		.select({
-			metadataId: schema.metadata.id,
-			collections: namedRelationJson(collectionRelation),
-			companies: namedRelationJson(companyRelation),
-			genres: namedRelationJson(genreRelation),
-			keywords: namedRelationJson(keywordRelation),
-			cast: castJson(),
-			crew: crewJson(),
-			images: imagesJson(),
-			rating: ratingJson(),
-			providers: namedRelationJson(providerRelation),
-			lockedFields: lockedFieldsJson(),
-		})
+		.select({ metadataId: schema.metadata.id, ...detailRelationJson })
 		.from(schema.metadata)
 		.where(inArray(schema.metadata.id, idListSubquery))
+		.prepare(),
+);
+
+/**
+ * Single-id detail read: the root row and every relation come back from one
+ * statement — the row the caller already needs anchors the correlated
+ * subqueries, so the separate `SELECT * FROM metadata` round trip is gone.
+ */
+export const preparedDetailRow = createPreparedQuery((client: RelationClient) =>
+	client
+		.select({ metadata: getTableColumns(schema.metadata), ...detailRelationJson })
+		.from(schema.metadata)
+		.where(eq(schema.metadata.id, sql.placeholder("id")))
 		.prepare(),
 );

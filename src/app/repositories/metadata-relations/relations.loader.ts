@@ -1,7 +1,8 @@
 import type { FieldsConfig } from "@reelvault/sdk/common";
+import type { schema } from "@/integrations/drizzle-orm/database.schema";
 import { preparedListGenres, preparedListImages, preparedListRatings } from "./batched.reader";
 import { loadJunctionRows, loadRelationRows, shouldLoadRelation } from "./explicit.reader";
-import { preparedDetailRelations } from "./json.reader";
+import { preparedDetailRelations, preparedDetailRow } from "./json.reader";
 import { applyDetailRelations, emptyRelationData } from "./payload.mapper";
 import type { DetailRelationsRow, MetadataRelationData, RelationClient } from "./relations.types";
 
@@ -26,7 +27,33 @@ export function loadMergedDetailRelations(
 	}
 }
 
-/** Default list projection: batched per-relation queries — faster for a page of ids than per-row correlated subqueries. */
+/**
+ * Single-id detail read: root row and every relation come back from one
+ * statement (`preparedDetailRow`). Callers that already hold the root row pass
+ * their ids to `loadMergedDetailRelations` instead.
+ */
+export function loadMergedDetailRow(
+	client: RelationClient,
+	metadataId: string,
+): { metadata: typeof schema.metadata.$inferSelect; relationData: MetadataRelationData } | undefined {
+	const row = preparedDetailRow(client).get({ id: metadataId });
+	if (!row) return undefined;
+
+	const relationData = emptyRelationData();
+	applyDetailRelations(relationData, row);
+	relationData.cast.sort((a, b) => a.sortOrder - b.sortOrder);
+
+	return { metadata: row.metadata, relationData };
+}
+
+/**
+ * Default list projection: batched per-relation queries — faster for a page of
+ * ids than per-row correlated subqueries. Measured against the merged JSON
+ * coroutine variant (the detail read's pattern): 0.03–0.04 ms vs 0.07 ms for
+ * 24 ids and 5.2 ms vs 12.5 ms for 5000 ids. Per-row correlated subqueries plus
+ * JSON parsing cost ~2x more than the three junction scans, so the list path
+ * keeps the three statements.
+ */
 export function loadBatchedListRelations(
 	relationsByMetadataId: Map<string, MetadataRelationData>,
 	client: RelationClient,

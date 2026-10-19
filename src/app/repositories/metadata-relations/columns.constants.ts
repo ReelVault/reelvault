@@ -2,6 +2,7 @@ import { getTableColumns } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pickColumns } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
+import { dateKeysOf } from "@/integrations/drizzle-orm/utils/relation-json.utils";
 
 export const collectionColumns = getTableColumns(schema.collections);
 
@@ -26,13 +27,6 @@ export const castColumns = {
 export const crewColumns = { job: schema.metadataCrew.job, department: schema.metadataCrew.department };
 
 export const ratingColumns = getTableColumns(schema.metadataRatings);
-
-/** Keys of integer `timestamp` columns, which drizzle maps to Date but JSON returns as seconds. */
-function dateKeysOf(columns: Record<string, SQLiteColumn>): string[] {
-	return Object.entries(columns)
-		.filter(([, column]) => column.dataType === "object date")
-		.map(([key]) => key);
-}
 
 export const collectionDateKeys = dateKeysOf(collectionColumns);
 
