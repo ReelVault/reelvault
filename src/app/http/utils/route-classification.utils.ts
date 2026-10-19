@@ -13,6 +13,11 @@ export function isImageAssetPath(pathname: string): boolean {
 	return pathname.startsWith(serverConstants.security.imageRoutePrefix);
 }
 
+/** The immutable asset bundle of the SPA served by the server itself. */
+export function isWebAssetPath(pathname: string): boolean {
+	return pathname.startsWith(serverConstants.security.webAssetRoutePrefix);
+}
+
 export function isPluginUiPath(pathname: string): boolean {
 	return pathname.startsWith(serverConstants.security.pluginUiRoutePrefix);
 }

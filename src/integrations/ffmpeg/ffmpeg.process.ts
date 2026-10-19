@@ -1,5 +1,7 @@
 import type { Subprocess } from "bun";
 import { serverConfig } from "@/config/server/server.config";
+import { DomainError } from "@/utils/domain.errors";
+import { detach } from "@/utils/promise.utils";
 
 /** How long to wait for a SIGKILLed process to reap before giving up on the handle. */
 const KILL_EXIT_GRACE_MS = 10_000;
@@ -43,4 +45,41 @@ export async function killFfmpegProcessGracefully(
 		// mount) would otherwise block session release and shutdown forever.
 		await waitForExitWithTimeout(process).catch(() => false);
 	}
+}
+
+export interface UnreapedProcessWatch {
+	/** Rejects when the process never reaped, so the wait on it is bounded. */
+	unreaped: Promise<never>;
+	/** Arms the watch: call it once the process was killed. */
+	boundReap: () => void;
+}
+
+/**
+ * Watches a killed process for an exit that never comes.
+ *
+ * A process stuck in an uninterruptible state (a stalled network mount) never
+ * reaps after SIGKILL, so a wait on it has to be bounded — otherwise the caller
+ * holds its semaphore slot (or its worker) forever.
+ */
+export function watchForUnreapedProcess(process: Subprocess, message: string): UnreapedProcessWatch {
+	let rejectUnreaped: ((error: DomainError) => void) | undefined;
+	const unreaped = new Promise<never>((_resolve, reject) => {
+		rejectUnreaped = reject;
+	});
+
+	const boundReap = () => {
+		detach(
+			(async () => {
+				try {
+					if (await waitForExitWithTimeout(process)) return;
+				} catch {
+					// A failed exit read counts as unreaped.
+				}
+
+				rejectUnreaped?.(new DomainError("timeout", message, { code: "ffmpeg.kill_timeout" }));
+			})(),
+		);
+	};
+
+	return { unreaped, boundReap };
 }

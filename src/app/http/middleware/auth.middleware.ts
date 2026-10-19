@@ -1,7 +1,7 @@
 import type { Profile, Session, User } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { apiKeysService } from "@/app/admin/api-keys.service";
-import { isImageAssetPath, isPluginUiPath } from "@/app/http/utils/route-classification.utils";
+import { isImageAssetPath, isPluginUiPath, isWebAssetPath } from "@/app/http/utils/route-classification.utils";
 import { profilesRepository } from "@/app/repositories/profiles.repository";
 import { usersRepository } from "@/app/repositories/users.repository";
 import { env } from "@/config/env.config";
@@ -51,6 +51,11 @@ function isPublicGet(request: Request): boolean {
 
 	const path = getPathname(request.url);
 	if (isImageAssetPath(path)) return true;
+
+	// The SPA's own asset bundle: a page load pulls dozens of hashed chunks,
+	// and they carry no user data — the session lookup they would trigger is
+	// pure overhead on every one of them.
+	if (isWebAssetPath(path)) return true;
 
 	// Plugin UI assets are static bundle files (secret-free) imported cross-origin
 	// as ESM modules — browsers omit credentials on those requests. The manifest

@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { file as bunFile } from "bun";
 import { Elysia } from "elysia";
 import { NotFoundError } from "elysia/error";
-import { apiRouter } from "@/app/http/routes/api.routes";
 import { isWebApiPath } from "@/app/http/utils/route-classification.utils";
 import { getPathname, matchesIfNoneMatch } from "@/utils/http.utils";
 import { byteRangeResponse } from "@/utils/http-range.utils";
@@ -136,14 +135,10 @@ function cacheControlFor(isHtmlEntry: boolean, relativePath: string) {
  * routes keep their JSON 404 envelope.
  */
 export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async ({ request, set }) => {
-	// The root wildcard outranks the API's own parameter+wildcard routes for GET,
-	// so unknown-looking /v1 paths would never reach their handlers. Re-run the
-	// API router for those paths; a real API response wins, a 404 keeps the JSON
-	// envelope this fallback exists to provide.
+	// An API path that reached the wildcard answered 404 inside the API router
+	// (the router owns the /v1 routes); it must keep the JSON error envelope
+	// instead of falling through to the SPA shell.
 	if (isWebApiPath(getPathname(request.url))) {
-		const apiResponse = await apiRouter.handle(request);
-		if (apiResponse.status !== 404) return apiResponse;
-
 		throw new NotFoundError();
 	}
 

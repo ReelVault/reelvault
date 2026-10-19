@@ -1,7 +1,5 @@
 import { spawn } from "bun";
-import { DomainError } from "@/utils/domain.errors";
-import { detach } from "@/utils/promise.utils";
-import { waitForExitWithTimeout } from "./ffmpeg.process";
+import { watchForUnreapedProcess } from "./ffmpeg.process";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
 
 export interface SpawnCollectResult {
@@ -35,23 +33,7 @@ export async function spawnAndCollect({ cmd, timeoutMs, purpose, maxBuffer }: Sp
 	const state = { timedOut: false };
 	// A process stuck in an uninterruptible state never reaps after SIGKILL;
 	// bound the wait instead of holding the caller's semaphore slot forever.
-	let rejectUnreaped: ((error: DomainError) => void) | undefined;
-	const unreaped = new Promise<never>((_resolve, reject) => {
-		rejectUnreaped = reject;
-	});
-	const boundReap = () => {
-		detach(
-			(async () => {
-				try {
-					if (await waitForExitWithTimeout(subprocess)) return;
-				} catch {
-					// A failed exit read counts as unreaped.
-				}
-
-				rejectUnreaped?.(new DomainError("timeout", "Process did not exit after SIGKILL", { code: "ffmpeg.kill_timeout" }));
-			})(),
-		);
-	};
+	const { unreaped, boundReap } = watchForUnreapedProcess(subprocess, "Process did not exit after SIGKILL");
 	const timer =
 		timeoutMs !== undefined
 			? setTimeout(() => {

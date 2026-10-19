@@ -1,5 +1,6 @@
 import type { Subprocess } from "bun";
 import type { DownloadQuality } from "@/integrations/drizzle-orm/constants/downloads.constants";
+import { killFfmpegProcessGracefully } from "@/integrations/ffmpeg/ffmpeg.process";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { buildDownloadOutputArgs, ffmpegTimeToSeconds } from "@/modules/downloads/download-quality.utils";
 import { downloadsStorage } from "@/modules/downloads/downloads.ports";
@@ -42,11 +43,21 @@ export function runFfmpeg(
 	const { downloadId, filePath, durationSeconds, quality, outputPath, options } = params;
 	const procRef: { current: Subprocess | undefined } = { current: undefined };
 	const killProc = () => {
-		try {
-			procRef.current?.kill();
-		} catch {
-			// intentionally empty
-		}
+		const running = procRef.current;
+		if (!running) return;
+
+		// SIGTERM first, SIGKILL after the grace period: a plain kill left ffmpeg
+		// alive on a stalled mount, so the cancelled download kept burning CPU
+		// and holding the disk.
+		detach(
+			(async () => {
+				try {
+					await killFfmpegProcessGracefully(running);
+				} catch {
+					// The kill is best-effort.
+				}
+			})(),
+		);
 	};
 	state.abortHandles.set(downloadId, killProc);
 	if (options.signal?.aborted) {

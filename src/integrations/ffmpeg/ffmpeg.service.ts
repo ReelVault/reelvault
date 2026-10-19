@@ -4,7 +4,7 @@ import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
-import { killFfmpegProcessGracefully, waitForExitWithTimeout } from "./ffmpeg.process";
+import { killFfmpegProcessGracefully, watchForUnreapedProcess } from "./ffmpeg.process";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
 
 export interface FfmpegRunOptions {
@@ -70,23 +70,7 @@ class FFmpegService {
 		// A process stuck in an uninterruptible state (stalled network mount) never
 		// reaps after SIGKILL; bound the wait so the caller and its semaphore slot
 		// are not held forever.
-		let rejectUnreaped: ((error: DomainError) => void) | undefined;
-		const unreaped = new Promise<never>((_resolve, reject) => {
-			rejectUnreaped = reject;
-		});
-		const boundReap = () => {
-			detach(
-				(async () => {
-					try {
-						if (await waitForExitWithTimeout(process)) return;
-					} catch {
-						// A failed exit read counts as unreaped.
-					}
-
-					rejectUnreaped?.(new DomainError("timeout", "FFmpeg did not exit after SIGKILL", { code: "ffmpeg.kill_timeout" }));
-				})(),
-			);
-		};
+		const { unreaped, boundReap } = watchForUnreapedProcess(process, "FFmpeg did not exit after SIGKILL");
 
 		const abort = () => {
 			try {

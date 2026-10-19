@@ -98,6 +98,12 @@ export const serverConstants = {
 			"default-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' https: http:; style-src 'self' 'unsafe-inline' https: http:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; font-src 'self' data: https: http:; connect-src 'self' https: http:; frame-src 'self' https: http:; frame-ancestors *; base-uri 'none'; form-action 'self' https: http:",
 		permissionsPolicy: "camera=(), microphone=(), geolocation=()",
 		imageRoutePrefix: "/v1/images/",
+		/**
+		 * Immutable assets of the SPA served by the server itself (APP_WEB_DIST).
+		 * A page load pulls dozens of them, and they carry no user data — the
+		 * session lookup they would trigger is pure overhead.
+		 */
+		webAssetRoutePrefix: "/assets/",
 		cacheControl: "no-store",
 		responseCache: {
 			defaultMaxAge: 60,
