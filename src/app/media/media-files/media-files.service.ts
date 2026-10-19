@@ -24,7 +24,7 @@ import { reassign } from "./maintenance/reassign.service";
 import { refresh, refreshAll, refreshMany, update } from "./maintenance/refresh.service";
 import { deleteMany, deleteOne } from "./maintenance/remove.service";
 import { deleteMarkers, exportMarkers, importMarkers, setMarkers } from "./markers.service";
-import { getAll, getArtifact, getById, listAllMarkers, listArtifacts, listMarkers } from "./queries.reader";
+import { getAll, getArtifact, getById, getPlaybackContext, listAllMarkers, listArtifacts, listMarkers } from "./queries.reader";
 import type { MediaFileScanResult } from "./scan.service";
 import { scan } from "./scan.service";
 import type { MediaServiceState } from "./shared.utils";
@@ -48,6 +48,11 @@ class MediaService {
 
 	async getById<F extends string>(mediaFileId: string, query?: FieldsQuery<F>): Promise<SelectFields<MediaFileWithRelation, F>> {
 		return await getById(this.state, mediaFileId, query);
+	}
+
+	/** File + markers + root metadata row in one statement, for the playback view. */
+	async getPlaybackContext(mediaFileId: string) {
+		return await getPlaybackContext(this.state, mediaFileId);
 	}
 
 	async listArtifacts(mediaFileId: string, options?: { skipExistsCheck?: boolean }): Promise<PlaybackArtifact[]> {
@@ -76,7 +81,7 @@ class MediaService {
 	 * before the first marker is written, so an unknown file refuses the whole import.
 	 */
 	async importMarkers(text: string, context?: AdminAuditContext): Promise<{ mediaFiles: number; markers: number }> {
-		return await importMarkers(this.state, text, context, (...args) => this.setMarkers(...args));
+		return await importMarkers(this.state, text, context);
 	}
 
 	async setMarkers(

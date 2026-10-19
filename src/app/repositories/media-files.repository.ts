@@ -7,9 +7,11 @@ import {
 	findForStreamingDuration,
 	findForSubtitleExtraction,
 	findForTechnicalRefresh,
+	findPlaybackSessionData,
 	scanAuditRowIds,
 	scanAuditRows,
 } from "./media-files/playback.reader";
+import { findPlaybackContext } from "./media-files/playback-context.reader";
 import { findEpisodeFileRowsForPlugins, findFileRowsPageForPlugins } from "./media-files/plugin-media.reader";
 import {
 	findByFilePath,
@@ -18,6 +20,7 @@ import {
 	findByPrimaryId,
 	findCleanupData,
 	findCleanupDataByMediaFileIds,
+	findExistingIds,
 	findIdByFilePath,
 	findIdentitiesByIds,
 	findIdentity,
@@ -51,6 +54,7 @@ import {
 	updateAndRead,
 } from "./media-files/writes.writer";
 
+export type { PlaybackContext } from "./media-files/playback-context.reader";
 export type { MediaFileAuditRow };
 
 /**
@@ -74,8 +78,10 @@ const overrides = {
 	reassign,
 	findIdByFilePath,
 	ping,
+	findExistingIds,
 	findForTechnicalRefresh,
 	findForPlaybackSession,
+	findPlaybackSessionData,
 	findForStreamingDuration,
 	findForStreamingDiagnostics,
 	findForSubtitleExtraction,
@@ -111,6 +117,7 @@ const overrides = {
 	findEpisodeFileRowsForPlugins,
 	findFileRowsPageForPlugins,
 	findIdsByMetadataIds,
+	findPlaybackContext,
 };
 
 export const mediaRepository = defineRepository(mediaFiles, overrides);

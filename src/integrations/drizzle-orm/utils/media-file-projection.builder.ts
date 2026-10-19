@@ -1,5 +1,5 @@
 import type { FieldsConfig } from "@reelvault/sdk/common";
-import { inArray, sql } from "drizzle-orm";
+import { eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
@@ -9,6 +9,13 @@ import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.par
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { pickColumns } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
+import {
+	aliasedColumns,
+	booleanKeysOf,
+	dateKeysOf,
+	orderedJsonArray,
+	parseJsonRelationArray,
+} from "@/integrations/drizzle-orm/utils/relation-json.utils";
 import { groupBy } from "@/utils/array.utils";
 
 const mediaFileColumns = {
@@ -137,4 +144,49 @@ export async function findFirstWithMediaFiles<F extends string, TRow extends { i
 	const rows = await findManyWithMediaFiles([row], options);
 
 	return rows[0];
+}
+
+const mediaFileRowColumns = getTableColumns(schema.mediaFiles);
+const mediaFileRowKeys = Object.keys(mediaFileRowColumns);
+const mediaFileRevive = { booleanKeys: booleanKeysOf(mediaFileRowColumns), dateKeys: dateKeysOf(mediaFileRowColumns) };
+
+/**
+ * One parent row's media files as a JSON array. `ORDER BY rowid` keeps the
+ * insertion order the batched read produced through the foreign-key index.
+ */
+export function mediaFilesJsonArray(relationColumn: SQLiteColumn, parentIdColumn: SQLiteColumn): SQL<string> {
+	const { selectList, pairs } = aliasedColumns(mediaFileRowColumns, "");
+	const from = sql`${schema.mediaFiles} WHERE ${relationColumn} = ${parentIdColumn}`;
+
+	return orderedJsonArray(selectList, pairs, from, sql`${schema.mediaFiles}.rowid`);
+}
+
+/**
+ * Single-id episode read: the episode row and its media files come back from
+ * one statement, replacing the row read plus the attachment query behind
+ * `findFirstWithMediaFiles`.
+ */
+export const preparedEpisodeWithMediaFiles = createPreparedQuery((client: MediaFileProjectionClient) =>
+	client
+		.select({
+			data: getTableColumns(schema.episodes),
+			mediaFiles: mediaFilesJsonArray(schema.mediaFiles.episodeId, schema.episodes.id),
+		})
+		.from(schema.episodes)
+		.where(eq(schema.episodes.id, sql.placeholder("id")))
+		.prepare(),
+);
+
+/** Row shape returned by {@link preparedEpisodeWithMediaFiles}. */
+export interface MergedEpisodeMediaFilesRow {
+	data: typeof schema.episodes.$inferSelect;
+	mediaFiles: string;
+}
+
+/** Reads the single-id episode bundle back into the `EpisodeWithRelations` shape. */
+export function parseEpisodeWithMediaFiles(row: MergedEpisodeMediaFilesRow): typeof schema.episodes.$inferSelect & WithMediaFiles {
+	return {
+		...row.data,
+		mediaFiles: parseJsonRelationArray<typeof schema.mediaFiles.$inferSelect>(row.mediaFiles, mediaFileRowKeys, mediaFileRevive),
+	};
 }

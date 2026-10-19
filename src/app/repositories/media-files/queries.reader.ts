@@ -27,12 +27,17 @@ import {
 	AUDIT_ROW_PAGE_SIZE,
 	assembleRelations,
 	audioStreamColumns,
+	canUseRelationBundle,
 	type LoadedMediaFileRelations,
 	libraryColumns,
 	mediaFileQueryMap,
 	mediaFiles,
+	parseMediaFileRelations,
+	parseMediaFileWithRelations,
 	preparedAudioStreams,
 	preparedLibraries,
+	preparedMediaFileRelations,
+	preparedMediaFileWithRelations,
 	preparedSubtitles,
 	preparedVideoStreams,
 	subtitleColumns,
@@ -146,6 +151,18 @@ export async function findIdentitiesByIds(
 	);
 }
 
+/** Which of the ids exist as media files — one read for bulk prechecks (chunked like every id list). */
+export async function findExistingIds(ids: readonly string[]): Promise<Set<string>> {
+	const uniqueIds = [...new Set(ids)];
+	if (uniqueIds.length === 0) return new Set();
+
+	const rows = await mapChunked(uniqueIds, (chunkIds) =>
+		databaseFactory.getClient().select({ id: schema.mediaFiles.id }).from(schema.mediaFiles).where(inArray(schema.mediaFiles.id, chunkIds)),
+	);
+
+	return new Set(rows.map((row) => row.id));
+}
+
 /**
  * Get a single media file by ID
  */
@@ -158,6 +175,16 @@ export async function findByPrimaryId<F extends string>({
 	fields?: FieldsConfig<F> | undefined;
 	tx?: DatabaseTransaction | undefined;
 }): Promise<SelectFields<MediaFileWithRelation, F> | undefined> {
+	// Single-row bundle: the row and its relations in one statement, so the
+	// default read costs one query instead of row read + relation read.
+	if (canUseRelationBundle(fields)) {
+		const [row] = await preparedMediaFileWithRelations(databaseFactory.getClient({ tx })).execute({ id: primaryId });
+		const merged = row ? parseMediaFileWithRelations(row) : undefined;
+		if (!merged) return undefined;
+
+		return QueryFields.apply<MediaFileWithRelation, F>(merged, fields);
+	}
+
 	const media = await mediaFiles.selectFirstById({ primaryId, tx });
 	if (!media) return undefined;
 
@@ -281,6 +308,16 @@ async function loadRelations<F extends string>(
 	const subtitleProjection = fields?.relations.subtitles?.length
 		? buildRelationProjection(fields.relations.subtitles, subtitleColumns, ["mediaFileId"])
 		: undefined;
+	// Single-row bundle: one statement replaces the four batched reads when the
+	// anchor is a single file and every relation is on the default projection.
+	const onlyRow = mediaFileRows.length === 1 ? mediaFileRows[0] : undefined;
+	if (onlyRow && canUseRelationBundle(fields)) {
+		const [row] = await preparedMediaFileRelations(client).execute({ id: onlyRow.id });
+		const relations = row ? parseMediaFileRelations(onlyRow, row) : undefined;
+
+		return relations ? new Map([[onlyRow.id, relations]]) : new Map();
+	}
+
 	// The relation bundle must be complete for every row (see LoadedMediaFileRelations):
 	// callers omit rows whose relations did not load, so `library` has to be fetched
 	// even when the field projection excludes it. Skipping it here made every

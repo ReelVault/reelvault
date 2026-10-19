@@ -24,7 +24,12 @@ import { defineTableAccess, parseFieldsForRead } from "@/integrations/drizzle-or
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { updateManyFieldsById } from "@/integrations/drizzle-orm/query/table-access/writes.writer";
 import { findOrCreateWithIdentityRecovery } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
-import { findFirstWithMediaFiles, findManyWithMediaFiles } from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
+import {
+	findFirstWithMediaFiles,
+	findManyWithMediaFiles,
+	parseEpisodeWithMediaFiles,
+	preparedEpisodeWithMediaFiles,
+} from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { unique } from "@/utils/array.utils";
 
@@ -286,6 +291,15 @@ class EpisodesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
+		// Default projection: row and media files ride one prepared statement. An
+		// explicit relation projection keeps the per-relation read with its columns.
+		if (!fields?.relations.mediaFiles?.length && QueryFields.includes(fields, "mediaFiles")) {
+			const [row] = await preparedEpisodeWithMediaFiles(databaseFactory.getClient({ tx })).execute({ id: primaryId });
+			if (!row) return undefined;
+
+			return QueryFields.apply<EpisodeWithRelations, F>(parseEpisodeWithMediaFiles(row), fields);
+		}
+
 		return await this.projectWithMediaFiles(await this.selectFirstById({ primaryId, tx }), { fields, tx });
 	}
 

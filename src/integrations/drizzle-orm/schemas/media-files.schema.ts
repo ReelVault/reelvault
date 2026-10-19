@@ -47,7 +47,7 @@ export const mediaFiles = sqliteTable(
 		// range instead of sorting a library page per poll.
 		index("media_files_library_id_idx").on(t.libraryId, t.id),
 		// (metadata_id, created_at) serves both plain metadata_id lookups and the
-		// max(created_at) GROUP BY metadata_id scan in findRecentlyAdded.
+		// max(created_at) GROUP BY metadata_id scan in findRecentlyAddedByTypes.
 		index("media_files_metadata_created_idx").on(t.metadataId, t.createdAt),
 		index("media_files_movie_idx").on(t.movieId),
 		index("media_files_episode_idx").on(t.episodeId),

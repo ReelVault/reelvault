@@ -1,19 +1,30 @@
-import type { CreateMediaFile, MediaFileFilters, MediaFileSorting, MediaFileWithRelation } from "@reelvault/sdk/common";
-import { getTableColumns, inArray, or, sql } from "drizzle-orm";
+import type { CreateMediaFile, FieldsConfig, MediaFileFilters, MediaFileSorting, MediaFileWithRelation } from "@reelvault/sdk/common";
+import { eq, getTableColumns, inArray, or, type SQL, type SQLChunk, sql } from "drizzle-orm";
+import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { MINUTE } from "@/config/server/server.constants";
 import type { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import {
+	aliasedColumns,
+	booleanKeysOf,
+	dateKeysOf,
+	jsonObjectRow,
+	orderedJsonArray,
+	parseJsonRelationArray,
+	parseJsonRelationObject,
+} from "@/integrations/drizzle-orm/utils/relation-json.utils";
 import { groupBy, toMap } from "@/utils/array.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 
 const logger = createLogger("MediaFilesRepository");
 
-type MediaRelationClient = ReturnType<typeof databaseFactory.getClient>;
+export type MediaRelationClient = ReturnType<typeof databaseFactory.getClient>;
 
 /**
  * Full-projection relation reads are fixed SQL: the id list travels as one JSON
@@ -127,6 +138,148 @@ export const libraryColumns = {
 	createdAt: schema.libraries.createdAt,
 	updatedAt: schema.libraries.updatedAt,
 };
+
+/**
+ * Single-row relation bundle: the whole graph of one media file as JSON in one
+ * statement, for reads anchored on a single id (`getById`, `findByFilePath`).
+ * Pages keep the four batched reads below — one scan per relation across the id
+ * list beats per-row correlated subqueries there (measured), while a single row
+ * has nothing to batch.
+ */
+const libraryTableColumns = getTableColumns(schema.libraries);
+
+function mediaRelationJsonArray(
+	columns: Record<string, SQLiteColumn>,
+	table: SQLiteTable,
+	where: SQLChunk,
+	orderBy: SQLChunk,
+): SQL<string> {
+	const { selectList, pairs } = aliasedColumns(columns, "");
+
+	return orderedJsonArray(selectList, pairs, sql`${table} WHERE ${where}`, orderBy);
+}
+
+export const mediaFileRelationsJson = {
+	videoStreams: mediaRelationJsonArray(
+		videoStreamColumns,
+		schema.mediaFileVideoStreams,
+		sql`${schema.mediaFileVideoStreams.mediaFileId} = ${schema.mediaFiles.id}`,
+		schema.mediaFileVideoStreams.index,
+	),
+	audioStreams: mediaRelationJsonArray(
+		audioStreamColumns,
+		schema.mediaFileAudioStreams,
+		sql`${schema.mediaFileAudioStreams.mediaFileId} = ${schema.mediaFiles.id}`,
+		schema.mediaFileAudioStreams.index,
+	),
+	subtitles: mediaRelationJsonArray(
+		subtitleColumns,
+		schema.subtitles,
+		sql`${schema.subtitles.mediaFileId} = ${schema.mediaFiles.id}`,
+		schema.subtitles.createdAt,
+	),
+	library: (() => {
+		const { selectList, pairs } = aliasedColumns(libraryTableColumns, "");
+		const from = sql`${schema.libraries} WHERE ${schema.libraries.id} = ${schema.mediaFiles.libraryId}`;
+
+		return jsonObjectRow(selectList, pairs, from);
+	})(),
+};
+
+export const preparedMediaFileRelations = createPreparedQuery((client: MediaRelationClient) =>
+	client
+		.select(mediaFileRelationsJson)
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.id, sql.placeholder("id")))
+		.prepare(),
+);
+
+/**
+ * Single-id media read: the row and its relation bundle in one statement
+ * (the episode bundle's shape), so `findByIdForRead`/`getById` cost one
+ * statement instead of a row read plus the relation read. The row rides as
+ * plain columns, so drizzle still maps its types; only the relations are JSON.
+ */
+export const preparedMediaFileWithRelations = createPreparedQuery((client: MediaRelationClient) =>
+	client
+		.select({ data: getTableColumns(schema.mediaFiles), ...mediaFileRelationsJson })
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.id, sql.placeholder("id")))
+		.prepare(),
+);
+
+/** Row shape returned by {@link preparedMediaFileWithRelations}. */
+export interface MergedMediaFileRelationsRow extends MediaFileRelationsRow {
+	data: typeof schema.mediaFiles.$inferSelect;
+}
+
+/** Reads the single-id bundle back into row + relations; `undefined` when the file's library row is gone. */
+export function parseMediaFileWithRelations(
+	row: MergedMediaFileRelationsRow,
+): (typeof schema.mediaFiles.$inferSelect & LoadedMediaFileRelations) | undefined {
+	const relations = parseMediaFileRelations(row.data, row);
+
+	return relations ? { ...row.data, ...relations } : undefined;
+}
+
+/**
+ * True when the default relation bundle can serve a read: every stream relation
+ * is requested and no relation has an explicit field projection. Shared by the
+ * single-id bundle and the one-row branch of `loadRelations`.
+ */
+export function canUseRelationBundle<F extends string>(fields?: FieldsConfig<F>): boolean {
+	const projected = Object.values(fields?.relations ?? {}).some((relation) => relation.length > 0);
+
+	return (
+		!projected &&
+		QueryFields.includes(fields, "videoStreams") &&
+		QueryFields.includes(fields, "audioStreams") &&
+		QueryFields.includes(fields, "subtitles")
+	);
+}
+
+export interface MediaFileRelationsRow {
+	videoStreams: string;
+	audioStreams: string;
+	subtitles: string;
+	library: string | null;
+}
+
+const videoStreamRevive = { booleanKeys: booleanKeysOf(videoStreamColumns), dateKeys: dateKeysOf(videoStreamColumns) };
+const audioStreamRevive = { booleanKeys: booleanKeysOf(audioStreamColumns), dateKeys: dateKeysOf(audioStreamColumns) };
+const subtitleRevive = { booleanKeys: booleanKeysOf(subtitleColumns), dateKeys: dateKeysOf(subtitleColumns) };
+const libraryRevive = { booleanKeys: booleanKeysOf(libraryTableColumns), dateKeys: dateKeysOf(libraryTableColumns) };
+
+/** Reads the single-row bundle back into DTO items; `undefined` when the file's library row is gone (logged, like `assembleRelations`). */
+export function parseMediaFileRelations(
+	mediaFile: { id: string; libraryId: string },
+	row: MediaFileRelationsRow,
+): LoadedMediaFileRelations | undefined {
+	const library = parseJsonRelationObject<MediaFileWithRelation["library"]>(row.library, Object.keys(libraryTableColumns), libraryRevive);
+	if (!library) {
+		logger.warn("Media file references a missing library — omitted from results", {
+			mediaFileId: mediaFile.id,
+			libraryId: mediaFile.libraryId,
+		});
+
+		return undefined;
+	}
+
+	return {
+		videoStreams: parseJsonRelationArray<typeof schema.mediaFileVideoStreams.$inferSelect>(
+			row.videoStreams,
+			Object.keys(videoStreamColumns),
+			videoStreamRevive,
+		),
+		audioStreams: parseJsonRelationArray<typeof schema.mediaFileAudioStreams.$inferSelect>(
+			row.audioStreams,
+			Object.keys(audioStreamColumns),
+			audioStreamRevive,
+		),
+		subtitles: parseJsonRelationArray<typeof schema.subtitles.$inferSelect>(row.subtitles, Object.keys(subtitleColumns), subtitleRevive),
+		library,
+	};
+}
 
 export const mediaFileAuditProjection = {
 	mediaFileId: schema.mediaFiles.id,

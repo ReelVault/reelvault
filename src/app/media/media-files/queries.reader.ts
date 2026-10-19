@@ -1,4 +1,5 @@
 import type {
+	EpisodeWithRelations,
 	FieldsQuery,
 	MediaFileFilters,
 	MediaFileSorting,
@@ -10,7 +11,7 @@ import type {
 	SelectFields,
 } from "@reelvault/sdk/common";
 import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
-import { mediaRepository } from "@/app/repositories/media-files.repository";
+import { mediaRepository, type PlaybackContext } from "@/app/repositories/media-files.repository";
 import { type MediaMarkerListQuery, mediaMarkersRepository } from "@/app/repositories/media-markers.repository";
 import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { toPublicMarker } from "@/integrations/drizzle-orm/utils/media-marker.mapper";
@@ -37,6 +38,29 @@ export async function getById<F extends string>(
 		assertFound(media, "MediaFile", mediaFileId);
 
 		return media;
+	});
+}
+
+/** Playback view payload: the file, its markers, its root metadata row and its episode, read in one statement. */
+export interface PlaybackContextData {
+	mediaFile: MediaFileWithRelation;
+	metadata: PlaybackContext["metadata"];
+	episode: EpisodeWithRelations | undefined;
+	markers: MediaMarker[];
+}
+
+/** The playback view's bootstrap read — one statement instead of file + markers + root metadata + episode. */
+export async function getPlaybackContext(state: MediaServiceState, mediaFileId: string): Promise<PlaybackContextData> {
+	return await runSafely(state, "getPlaybackContext", async () => {
+		const context = await mediaRepository.findPlaybackContext(mediaFileId);
+		assertFound(context, "MediaFile", mediaFileId);
+
+		return {
+			mediaFile: context.mediaFile,
+			metadata: context.metadata,
+			episode: context.episode,
+			markers: context.markers.map((item) => toPublicMarker(item)),
+		};
 	});
 }
 
