@@ -1,5 +1,5 @@
 import { trimAndFilter } from "@/utils/array.utils";
-import { isFiniteNumber } from "@/utils/type.utils";
+import { isFiniteNumber, parseBooleanToken } from "@/utils/type.utils";
 
 export interface ValueCodec<T> {
 	parse(raw: string): T | null;
@@ -28,13 +28,7 @@ export function createValueCodecs() {
 			serialize: (value) => String(value),
 		}),
 		boolean: (): ValueCodec<boolean> => ({
-			parse: (raw) => {
-				if (raw === "true" || raw === "1") return true;
-
-				if (raw === "false" || raw === "0") return false;
-
-				return null;
-			},
+			parse: (raw) => parseBooleanToken(raw) ?? null,
 			serialize: (value) => String(value),
 		}),
 		stringArray: (): ValueCodec<string[]> => ({

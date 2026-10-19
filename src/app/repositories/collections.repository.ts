@@ -21,6 +21,7 @@ import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.uti
 import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { type QueryMap, QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { QuerySorting } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
 import { cachedCount, filterSignature } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
 import { defineTableAccess, parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
@@ -89,7 +90,9 @@ class CollectionsRepository {
 		const where = QueryUtils.buildWhereConditions(filters, collectionQueryMap.filters);
 		const baseOrderBy = QueryUtils.buildOrderBy(sorting, collectionQueryMap.orderBy, collectionQueryMap.defaults);
 		// Tiebreaker keeps offset pagination deterministic for non-unique keys.
-		const orderBy = baseOrderBy ? sql`${baseOrderBy}, ${this.table.id}` : undefined;
+		const orderBy = baseOrderBy
+			? QuerySorting.withTiebreaker(baseOrderBy, this.table.id, QueryUtils.resolveSortOrder(sorting, collectionQueryMap.defaults))
+			: undefined;
 		const minItems = filters?.minItems ?? systemSettingsStore.get("collections.minimalToShow");
 
 		// Page ids come back already ordered/limited from SQL — the previous version

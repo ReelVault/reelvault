@@ -6,6 +6,7 @@ import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle
 import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { type QueryMap, QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { QuerySorting } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
 import { isNotNullish, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { mapChunked } from "./chunking.utils";
@@ -54,7 +55,9 @@ export async function findPageWithQueryMap<
 	// Append the primary key as a tiebreaker: most sort keys are non-unique
 	// (title/createdAt at second resolution), so equal keys would otherwise make
 	// offset pagination return overlapping/skipped rows.
-	const orderBy = baseOrderBy ? sql`${baseOrderBy}, ${access.primaryKeyColumn}` : undefined;
+	const orderBy = baseOrderBy
+		? QuerySorting.withTiebreaker(baseOrderBy, access.primaryKeyColumn, QueryUtils.resolveSortOrder(sorting, queryMap.defaults))
+		: undefined;
 	const pageParams = { where, orderBy, fields, limit: pagination.limit, offset: pagination.offset };
 	const countPromise = cachedCount(access.tableName, filterSignature(filters, queryMap.filters), () => access.count({ where }));
 	const [total, data] = await Promise.all([countPromise, findMany(pageParams)]);

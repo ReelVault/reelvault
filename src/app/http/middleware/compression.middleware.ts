@@ -119,7 +119,7 @@ export const compressionMiddleware = new Elysia({ name: "Compression" })
 			}
 		}
 
-		return new Response(Uint8Array.from(compressed), {
+		return new Response(compressed, {
 			status: getResponseStatus(set),
 			headers,
 		});

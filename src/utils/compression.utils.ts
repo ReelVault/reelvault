@@ -67,9 +67,25 @@ function parseAcceptEncoding(acceptEncoding: string): CompressionEncoding | null
 	return null;
 }
 
-export function compressBuffer(input: Buffer, encoding: CompressionEncoding): Promise<Buffer> {
+/**
+ * The bytes a compressed body lives in, ready to be handed to a Response.
+ *
+ * zlib returns a Buffer whose memory sits in a plain ArrayBuffer, so the
+ * response body can reuse it as a view instead of copying it. The narrowing
+ * keeps the type honest without an assertion; the copy is the fallback for the
+ * (never observed) SharedArrayBuffer case.
+ */
+export function toResponseBytes(buffer: Buffer): Buffer<ArrayBuffer> {
+	if (buffer.buffer instanceof ArrayBuffer) {
+		return Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+	}
+
+	return Buffer.from(buffer);
+}
+
+export function compressBuffer(input: Buffer, encoding: CompressionEncoding): Promise<Buffer<ArrayBuffer>> {
 	return new Promise((resolve, reject) => {
-		const cb = (error: Error | null, result: Buffer) => (error ? reject(error) : resolve(result));
+		const cb = (error: Error | null, result: Buffer) => (error ? reject(error) : resolve(toResponseBytes(result)));
 		if (encoding === "br") {
 			brotliCompress(
 				input,

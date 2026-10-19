@@ -4,6 +4,7 @@ import { authMiddleware } from "@/app/http/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
 import { healthService } from "@/app/server/health.service";
 import { MINUTE } from "@/config/server/server.constants";
+import { coerceBoolean } from "@/utils/type.utils";
 
 export const healthRoutes = new Elysia({
 	prefix: "/health",
@@ -39,7 +40,7 @@ export const healthRoutes = new Elysia({
 			// it is admin-only. Anonymous liveness probes get the cached result;
 			// the dedicated route limit still bounds request volume (the global
 			// limiter exempts /health).
-			const fresh = query.fresh === "true" && user?.role === "admin";
+			const fresh = coerceBoolean(query.fresh) && user?.role === "admin";
 			const result = await healthService.check({ fresh });
 			if (result.status === "degraded") {
 				return status(503, result);

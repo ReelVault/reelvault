@@ -260,7 +260,13 @@ export class WorkerExecutionPoolService {
 		if (this.running.get(jobId) === exec) {
 			this.running.delete(jobId);
 			const cur = this.runningCountByWorker.get(exec.workerId);
-			if (cur !== undefined) this.runningCountByWorker.set(exec.workerId, cur - 1);
+			if (cur !== undefined) {
+				// Drop the entry at zero: a worker id that never runs again would
+				// otherwise stay in the map forever, and the resource allocator
+				// reads this map on every monitoring tick.
+				if (cur <= 1) this.runningCountByWorker.delete(exec.workerId);
+				else this.runningCountByWorker.set(exec.workerId, cur - 1);
+			}
 
 			this.onSlotFreedCallback?.();
 		}

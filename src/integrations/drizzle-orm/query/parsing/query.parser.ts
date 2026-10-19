@@ -43,6 +43,14 @@ export const QueryUtils = {
 	},
 
 	/**
+	 * The sort direction a request resolves to: the explicit sortOrder wins,
+	 * then the default's, then ascending.
+	 */
+	resolveSortOrder(sorting: SortQuery | undefined, defaultSorting?: { sortOrder: SortOrder }): SortOrder {
+		return sorting?.sortOrder ?? defaultSorting?.sortOrder ?? "asc";
+	},
+
+	/**
 	 * Builds the ORDER BY clause.
 	 * Params passed in 'sorting' take priority; falls back to 'defaultSorting'.
 	 */
@@ -54,7 +62,7 @@ export const QueryUtils = {
 		if (!(sorting || defaultSorting)) return undefined;
 
 		const sortBy = sorting?.sortBy && isKeyOf(sorting.sortBy, map) ? sorting.sortBy : defaultSorting?.sortBy;
-		const sortOrder = sorting?.sortOrder ?? defaultSorting?.sortOrder ?? "asc";
+		const sortOrder = QueryUtils.resolveSortOrder(sorting, defaultSorting);
 		if (!isKeyOf(sortBy, map)) return undefined;
 
 		const column = map[sortBy];

@@ -107,6 +107,28 @@ describe("ImageCacheEviction", () => {
 		await harness.eviction.evictIfDue(CACHE_DIR);
 		expect(harness.deleted).toHaveLength(1);
 	});
+});
+
+describe("ImageCacheEviction steady-state eviction", () => {
+	test("keeps a rewritten file and evicts the next oldest one instead", async () => {
+		const harness = createHarness();
+		fillEntries(harness.entries, 5_000, 1);
+
+		// First sweep reconciles the directory and seeds the write order.
+		await sweepDue(harness);
+		expect(harness.deleted).toEqual([]);
+
+		// The oldest file is written again, then a new file pushes the tracked
+		// set past the cap.
+		harness.eviction.recordWrite(CACHE_DIR, "entry-0.webp");
+		harness.eviction.recordWrite(CACHE_DIR, "entry-5000.webp");
+		harness.entries.set(`${CACHE_DIR}/entry-5000.webp`, { mtimeMs: 2 });
+
+		await sweepDue(harness);
+
+		expect(harness.deleted).toEqual([`${CACHE_DIR}/entry-1.webp`]);
+		expect(harness.entries.has(`${CACHE_DIR}/entry-0.webp`)).toBeTrue();
+	});
 
 	test("steady-state sweeps evict by tracked write order without filesystem stats", async () => {
 		let statCalls = 0;

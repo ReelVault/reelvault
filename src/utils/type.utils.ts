@@ -37,11 +37,28 @@ export function isFiniteNumber(value: unknown): value is number {
 }
 
 /**
+ * The boolean a raw string carries, or undefined when the string is not a
+ * boolean at all: "true"/"1" → true, "false"/"0" → false.
+ *
+ * The single rule behind both the query-parameter coercion and the admin
+ * settings codec, so a flag cannot mean two different things depending on
+ * where it was written.
+ */
+export function parseBooleanToken(raw: string): boolean | undefined {
+	const normalized = raw.trim().toLowerCase();
+	if (normalized === "true" || normalized === "1") return true;
+	if (normalized === "false" || normalized === "0") return false;
+
+	return undefined;
+}
+
+/**
  * Coerces a query-parameter value (which may arrive as a string `"true"`/`"false"`
- * or as a boolean) into a boolean. Empty strings and `undefined` → `false`.
+ * or as a boolean) into a boolean. Unrecognized values and empty strings → `false`.
  */
 export function coerceBoolean(value: unknown): boolean {
-	if (typeof value === "string") return value.toLowerCase() === "true";
+	if (typeof value === "boolean") return value;
+	if (typeof value === "string") return parseBooleanToken(value) ?? false;
 
 	return Boolean(value);
 }

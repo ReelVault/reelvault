@@ -283,8 +283,7 @@ export const metadataQueryMap: QueryMap<MetadataRepositoryFilters, MetadataSorti
 		personIds: (value: string) => buildPersonFilter(QueryFiltering.parseCommaSeparated(value)),
 		fileIds: (value: string) => buildRelationFilter("file", QueryFiltering.parseCommaSeparated(value)),
 		hasMediaFiles: (value: boolean | string) => buildHasMediaFilesFilter(value),
-		missingTranslation: (value: boolean | string) =>
-			QueryFiltering.eq(schema.metadata.hasMissingTranslation, value === true || value === "true"),
+		missingTranslation: (value: boolean | string) => QueryFiltering.eq(schema.metadata.hasMissingTranslation, coerceBoolean(value)),
 		minDurationMinutes: (value: number) => buildDurationFilter("min", value),
 		maxDurationMinutes: (value: number) => buildDurationFilter("max", value),
 		watchedStatus: (value: ProfileScopedFilter) => buildWatchedStatusFilter(value),

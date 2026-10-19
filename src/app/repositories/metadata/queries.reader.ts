@@ -33,6 +33,7 @@ import {
 import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { QuerySorting } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { cachedCount, filterSignature } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
@@ -165,7 +166,9 @@ export async function findPage<F extends string>(
 	} else {
 		const baseOrderBy = QueryUtils.buildOrderBy(sorting, metadataQueryMap.orderBy, metadataQueryMap.defaults);
 		// Tiebreaker keeps offset pagination deterministic for non-unique keys.
-		orderBy = baseOrderBy ? sql`${baseOrderBy}, ${schema.metadata.id}` : undefined;
+		orderBy = baseOrderBy
+			? QuerySorting.withTiebreaker(baseOrderBy, schema.metadata.id, QueryUtils.resolveSortOrder(sorting, metadataQueryMap.defaults))
+			: undefined;
 	}
 
 	const requiredFields: Array<keyof typeof metadataColumns> | undefined = cursorMode ? ["createdAt"] : undefined;

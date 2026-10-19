@@ -250,7 +250,7 @@ export const metadataRoutes = new Elysia({
 		params: MetadataIdParams,
 		query: t.Composite([PaginationSchema, FieldsSchema]),
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "metadata.paginated.schema" },
-		cache: { maxAge: 60, private: true },
+		...cached({ maxAge: 60, private: true }),
 		detail: {
 			description: "Retrieve a list of metadata entries similar to the specified one, based on various shared attributes.",
 		},

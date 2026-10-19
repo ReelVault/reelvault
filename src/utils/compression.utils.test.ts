@@ -64,4 +64,12 @@ describe("compressBuffer", () => {
 		const compressed = await compressBuffer(payload, "deflate");
 		expect(inflateSync(compressed).equals(payload)).toBe(true);
 	});
+
+	test("the compressed bytes survive a Response body round trip", async () => {
+		const compressed = await compressBuffer(payload, "gzip");
+		const served = Buffer.from(await new Response(compressed).arrayBuffer());
+
+		expect(served.equals(compressed)).toBe(true);
+		expect(gunzipSync(served).equals(payload)).toBe(true);
+	});
 });

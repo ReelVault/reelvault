@@ -150,6 +150,43 @@ if (!args.help) {
 		console.log(`  filtered plan AFTER ANALYZE: ${planOf(filteredPlanSql)}`);
 	});
 
+	// ─── A/B: tiebreaker direction on a descending sort ────────────────────
+	// The API appends the primary key as an ORDER BY tiebreaker so offset
+	// pagination stays deterministic for non-unique sort keys. The tiebreaker
+	// has to follow the sort direction: a DESC sort with an ASC tiebreaker is a
+	// mixed-direction ORDER BY, which SQLite cannot serve from one index — it
+	// adds a temp B-tree for the last term and sorts the whole filtered set.
+	//
+	// The filtered shapes also show the index side of the same problem: a
+	// composite `(type, sortKey)` index cannot serve the id term, so the plan
+	// keeps the temp B-tree until the index carries the id as well.
+	task("database: descending tiebreaker direction", async () => {
+		const { db } = await database();
+		const planOf = (querySql: string): string =>
+			db
+				.query(`EXPLAIN QUERY PLAN ${querySql}`)
+				.all()
+				.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
+				.join(" | ");
+		const shapes = {
+			"filtered, mixed direction":
+				"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY created_at DESC, id ASC LIMIT 24 OFFSET 500",
+			"filtered, aligned direction":
+				"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY created_at DESC, id DESC LIMIT 24 OFFSET 500",
+			"unfiltered, mixed direction":
+				"SELECT id, title, popularity, release_date FROM metadata ORDER BY created_at DESC, id ASC LIMIT 24 OFFSET 500",
+			"unfiltered, aligned direction":
+				"SELECT id, title, popularity, release_date FROM metadata ORDER BY created_at DESC, id DESC LIMIT 24 OFFSET 500",
+			"default browse sort (title ASC, id ASC)":
+				"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY title ASC, id ASC LIMIT 24 OFFSET 500",
+		};
+		const results = Object.entries(shapes).map(([label, sqlText]) => measure(label, () => db.prepare(sqlText).all(), { iterations: 300 }));
+		printMicroResults(results);
+		for (const [label, sqlText] of Object.entries(shapes)) {
+			console.log(`  ${label}: ${planOf(sqlText)}`);
+		}
+	});
+
 	group("Results (lower is better)", () => {
 		bench("FTS5 metadata title search (bm25 rank)", async () => (await database()).ftsMetadataQuery.all("star*"), {
 			iterations: args.iterations,

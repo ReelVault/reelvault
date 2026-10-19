@@ -58,6 +58,10 @@ export class ImageCacheEviction {
 			this.tracked.set(cacheDir, names);
 		}
 
+		// Re-insert so a rewritten file moves to the newest slot: Set.add leaves an
+		// existing member in place, so a hot file rewritten after an early write
+		// would keep its old position and be evicted by the next sweep.
+		names.delete(fileName);
 		names.add(fileName);
 	}
 

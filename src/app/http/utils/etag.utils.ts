@@ -50,7 +50,7 @@ export async function buildJsonResponse(options: JsonResponseOptions): Promise<R
 	if (encoding && options.body.length >= serverConfig.compression.minSizeBytes) {
 		let compressed = options.encoded?.get(encoding);
 		if (!compressed) {
-			compressed = Uint8Array.from(await compressBuffer(Buffer.from(options.body), encoding));
+			compressed = await compressBuffer(Buffer.from(options.body), encoding);
 			options.encoded?.set(encoding, compressed);
 		}
 
