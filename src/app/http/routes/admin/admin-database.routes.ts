@@ -11,6 +11,7 @@ import { databaseBackupService } from "@/app/admin/database-backup.service";
 import { databaseMaintenanceService } from "@/app/admin/database-maintenance.service";
 import { databaseRestoreService } from "@/app/admin/database-restore.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { env } from "@/config/env.config";
 import { DATABASE_BACKUP_UPLOAD_MAX_SIZE, MINUTE } from "@/config/server/server.constants";
@@ -37,7 +38,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 					resourceId: backup.fileName,
 					summary: "origin: manual",
 					after: { sizeBytes: backup.sizeBytes },
-					context: { actorUserId: user?.id, headers: request.headers },
+					context: actorContext({ user, request }),
 				},
 				databaseRestoreLogger,
 			);
@@ -63,7 +64,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 					resourceId: backup.fileName,
 					summary: "origin: upload",
 					after: { sizeBytes: backup.sizeBytes },
-					context: { actorUserId: user?.id, headers: request.headers },
+					context: actorContext({ user, request }),
 				},
 				databaseRestoreLogger,
 			);
@@ -159,7 +160,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 						resourceType: "database_backup",
 						resourceId: params.fileName,
 						summary: "origin: manual",
-						context: { actorUserId: user?.id, headers: request.headers },
+						context: actorContext({ user, request }),
 					},
 					databaseRestoreLogger,
 				);

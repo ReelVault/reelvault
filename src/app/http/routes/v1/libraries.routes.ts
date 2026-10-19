@@ -25,6 +25,7 @@ import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware
 import { cached } from "@/app/http/middleware/response-cache.middleware";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { LibraryIdParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { librariesService } from "@/app/libraries/libraries.service";
 import { MINUTE } from "@/config/server/server.constants";
 import { sidecarAssetsService } from "@/modules/metadata-sidecars/sidecar-assets.service";
@@ -48,7 +49,7 @@ export const librariesRoutes = new Elysia({
 	.post(
 		"/check-errors",
 		async ({ body, status, user, request }) =>
-			status(202, await librariesService.checkErrors(body.libraryPaths, { actorUserId: user?.id, headers: request.headers })),
+			status(202, await librariesService.checkErrors(body.libraryPaths, actorContext({ user, request }))),
 		{
 			adminOnly: true,
 			rateLimit: {
@@ -100,20 +101,15 @@ export const librariesRoutes = new Elysia({
 			description: "Retrieve a paginated list of all media libraries defined in the system.",
 		},
 	})
-	.post(
-		"/",
-		async ({ body, query, user, request }) =>
-			await librariesService.create(body, query, { actorUserId: user?.id, headers: request.headers }),
-		{
-			adminOnly: true,
-			body: "libraries.create.body",
-			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "library.schema" },
-			detail: {
-				description: "Add a new media library with specified paths and content type.",
-			},
+	.post("/", async ({ body, query, user, request }) => await librariesService.create(body, query, actorContext({ user, request })), {
+		adminOnly: true,
+		body: "libraries.create.body",
+		query: "fields.schema",
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "library.schema" },
+		detail: {
+			description: "Add a new media library with specified paths and content type.",
 		},
-	)
+	})
 	.get(
 		"/:libraryId",
 		async ({ params, query }) => await librariesService.getById(params.libraryId, query, { siblings: query.siblings === true }),
@@ -127,22 +123,17 @@ export const librariesRoutes = new Elysia({
 			},
 		},
 	)
-	.post(
-		"/scan",
-		async ({ status, user, request }) => status(202, await librariesService.scanAll({ actorUserId: user?.id, headers: request.headers })),
-		{
-			adminOnly: true,
-			rateLimit: { name: "library-scan-all", max: 10, windowMs: MINUTE },
-			response: { ...ROUTE_ERRORS.ADMIN, 202: LibraryScanAllResponseSchema },
-			detail: {
-				description: "Queue a scan of every library. The scans run one after another, in library order.",
-			},
+	.post("/scan", async ({ status, user, request }) => status(202, await librariesService.scanAll(actorContext({ user, request }))), {
+		adminOnly: true,
+		rateLimit: { name: "library-scan-all", max: 10, windowMs: MINUTE },
+		response: { ...ROUTE_ERRORS.ADMIN, 202: LibraryScanAllResponseSchema },
+		detail: {
+			description: "Queue a scan of every library. The scans run one after another, in library order.",
 		},
-	)
+	})
 	.post(
 		"/:libraryId/scan/cancel",
-		async ({ params, user, request }) =>
-			await librariesService.cancelScans(params.libraryId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await librariesService.cancelScans(params.libraryId, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			rateLimit: { name: "library-scan-cancel", max: 30, windowMs: MINUTE },
@@ -213,7 +204,7 @@ export const librariesRoutes = new Elysia({
 	.patch(
 		"/:libraryId",
 		async ({ params, body, query, user, request }) =>
-			await librariesService.update(params.libraryId, body, query, { actorUserId: user?.id, headers: request.headers }),
+			await librariesService.update(params.libraryId, body, query, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: LibraryIdParams,
@@ -227,8 +218,7 @@ export const librariesRoutes = new Elysia({
 	)
 	.delete(
 		"/:libraryId",
-		async ({ params, user, request }) =>
-			await librariesService.delete(params.libraryId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await librariesService.delete(params.libraryId, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: LibraryIdParams,
@@ -241,7 +231,7 @@ export const librariesRoutes = new Elysia({
 	.post(
 		"/:libraryId/scan",
 		async ({ params, status, user, request }) =>
-			status(202, await librariesService.scan(params.libraryId, { actorUserId: user?.id, headers: request.headers })),
+			status(202, await librariesService.scan(params.libraryId, actorContext({ user, request }))),
 		{
 			adminOnly: true,
 			rateLimit: {
@@ -259,7 +249,7 @@ export const librariesRoutes = new Elysia({
 	.post(
 		"/:libraryId/paths/:pathId/scan",
 		async ({ params, status, user, request }) =>
-			status(202, await librariesService.scanPath(params.libraryId, params.pathId, { actorUserId: user?.id, headers: request.headers })),
+			status(202, await librariesService.scanPath(params.libraryId, params.pathId, actorContext({ user, request }))),
 		{
 			adminOnly: true,
 			rateLimit: {

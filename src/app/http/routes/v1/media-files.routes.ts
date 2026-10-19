@@ -29,6 +29,7 @@ import {
 	ROUTE_ERRORS,
 } from "@/app/http/schemas/common.schema";
 import { MediaFileArtifactParams, MediaFileIdParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { mediaService } from "@/app/media/media-files/media-files.service";
 import { MINUTE } from "@/config/server/server.constants";
@@ -60,7 +61,7 @@ export const mediaFilesRoutes = new Elysia({
 				throw new DomainError("forbidden", "Cross-site requests cannot queue the media audit", { code: "media.audit_cross_site" });
 			}
 
-			return status(202, await mediaService.queueAudit({ actorUserId: user?.id, headers: request.headers }));
+			return status(202, await mediaService.queueAudit(actorContext({ user, request })));
 		},
 		{
 			adminOnly: true,
@@ -92,26 +93,21 @@ export const mediaFilesRoutes = new Elysia({
 			description: "Retrieve a paginated list of media files with extensive filtering by library, metadata, and technical properties.",
 		},
 	})
-	.post(
-		"/refresh",
-		async ({ status, user, request }) => status(202, await mediaService.refreshAll({ actorUserId: user?.id, headers: request.headers })),
-		{
-			adminOnly: true,
-			rateLimit: {
-				name: "media-files-refresh-all",
-				max: 1,
-				windowMs: 5 * MINUTE,
-			},
-			response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
-			detail: {
-				description: "Queue a refresh of technical data and linked metadata for all media files.",
-			},
+	.post("/refresh", async ({ status, user, request }) => status(202, await mediaService.refreshAll(actorContext({ user, request }))), {
+		adminOnly: true,
+		rateLimit: {
+			name: "media-files-refresh-all",
+			max: 1,
+			windowMs: 5 * MINUTE,
 		},
-	)
+		response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
+		detail: {
+			description: "Queue a refresh of technical data and linked metadata for all media files.",
+		},
+	})
 	.post(
 		"/bulk-delete",
-		async ({ body, user, request }) =>
-			await mediaService.deleteMany(body.ids, { force: body.force }, { actorUserId: user?.id, headers: request.headers }),
+		async ({ body, user, request }) => await mediaService.deleteMany(body.ids, { force: body.force }, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			rateLimit: { name: "media-files-bulk-delete", max: 10, windowMs: MINUTE },
@@ -125,8 +121,7 @@ export const mediaFilesRoutes = new Elysia({
 	)
 	.post(
 		"/bulk-refresh",
-		async ({ body, status, user, request }) =>
-			status(202, await mediaService.refreshMany(body.ids, { actorUserId: user?.id, headers: request.headers })),
+		async ({ body, status, user, request }) => status(202, await mediaService.refreshMany(body.ids, actorContext({ user, request }))),
 		{
 			adminOnly: true,
 			rateLimit: {
@@ -162,7 +157,7 @@ export const mediaFilesRoutes = new Elysia({
 	.post(
 		"/markers/import",
 		async ({ body, user, request }) => {
-			return await mediaService.importMarkers(body, { actorUserId: user?.id, headers: request.headers });
+			return await mediaService.importMarkers(body, actorContext({ user, request }));
 		},
 		{
 			adminOnly: true,
@@ -268,7 +263,7 @@ export const mediaFilesRoutes = new Elysia({
 	.delete(
 		"/:mediaFileId/markers",
 		async ({ params, user, request }) => {
-			return await mediaService.deleteMarkers(params.mediaFileId, { actorUserId: user?.id, headers: request.headers });
+			return await mediaService.deleteMarkers(params.mediaFileId, actorContext({ user, request }));
 		},
 		{
 			adminOnly: true,
@@ -290,7 +285,7 @@ export const mediaFilesRoutes = new Elysia({
 	.post(
 		"/:mediaFileId/refresh",
 		async ({ params, status, user, request }) =>
-			status(202, await mediaService.refresh(params.mediaFileId, { actorUserId: user?.id, headers: request.headers })),
+			status(202, await mediaService.refresh(params.mediaFileId, actorContext({ user, request }))),
 		{
 			adminOnly: true,
 			params: MediaFileIdParams,
@@ -338,7 +333,7 @@ export const mediaFilesRoutes = new Elysia({
 	)
 	.delete(
 		"/:mediaFileId",
-		async ({ params, user, request }) => await mediaService.delete(params.mediaFileId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await mediaService.delete(params.mediaFileId, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MediaFileIdParams,
@@ -351,7 +346,7 @@ export const mediaFilesRoutes = new Elysia({
 	.patch(
 		"/:mediaFileId",
 		async ({ params, body, query, user, request }) =>
-			await mediaService.update(params.mediaFileId, body, query, { actorUserId: user?.id, headers: request.headers }),
+			await mediaService.update(params.mediaFileId, body, query, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MediaFileIdParams,
@@ -366,7 +361,7 @@ export const mediaFilesRoutes = new Elysia({
 	.post(
 		"/:mediaFileId/reassign",
 		async ({ params, body, query, user, request }) =>
-			await mediaService.reassign(params.mediaFileId, body, query, { actorUserId: user?.id, headers: request.headers }),
+			await mediaService.reassign(params.mediaFileId, body, query, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MediaFileIdParams,

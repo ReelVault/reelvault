@@ -2,8 +2,8 @@ import { serverConfig } from "@/config/server/server.config";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { DomainError, toDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
-import { workerService } from "@/workers/worker.service";
-import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
+import { createWorkerDefinition } from "@/workers/worker.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,10 +78,6 @@ export async function processImageTask(data: ImageProcessingData, context: Appli
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
-export function enqueueImageProcessing(data: ImageProcessingData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(imageProcessingWorker.id, data, { ...options, ...imageProcessingQueueOptions(data) });
-}
-
 function getEntityInfo(data: ImageProcessingData): { kind: ImageProcessingData["kind"]; id: string } {
 	switch (data.kind) {
 		case "metadata":
@@ -97,7 +93,7 @@ function getEntityInfo(data: ImageProcessingData): { kind: ImageProcessingData["
 	}
 }
 
-function imageProcessingQueueOptions(data: ImageProcessingData) {
+const imageProcessingEnqueue = defineWorkerEnqueue<ImageProcessingData>(imageProcessingWorker.id, (data) => {
 	const { kind, id } = getEntityInfo(data);
 	const priorities = serverConfig.workers.definitions.imageProcessing.priorities;
 
@@ -106,4 +102,6 @@ function imageProcessingQueueOptions(data: ImageProcessingData) {
 		reference: { type: kind, id },
 		priority: priorities[kind],
 	};
-}
+});
+
+export const enqueueImageProcessing = imageProcessingEnqueue.enqueue;

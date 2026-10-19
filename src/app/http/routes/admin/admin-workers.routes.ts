@@ -22,6 +22,7 @@ import { t } from "elysia";
 import { adminWorkerOperationsService } from "@/app/admin/admin-worker-operations.service";
 import { PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { JobIdParams, OperationIdParams, WorkerIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
@@ -67,7 +68,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/workers/:workerId/run",
 		async ({ params, body, user, request }) => {
-			return await adminWorkerOperationsService.runWorker(params.workerId, body, { actorUserId: user?.id, headers: request.headers });
+			return await adminWorkerOperationsService.runWorker(params.workerId, body, actorContext({ user, request }));
 		},
 		{
 			rateLimit: { name: "admin-workers-run", max: 20, windowMs: MINUTE },
@@ -81,7 +82,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/workers/categories/:category/run",
 		async ({ params, user, request }) => {
-			return await adminWorkerOperationsService.runWorkerCategory(params.category, { actorUserId: user?.id, headers: request.headers });
+			return await adminWorkerOperationsService.runWorkerCategory(params.category, actorContext({ user, request }));
 		},
 		{
 			rateLimit: { name: "admin-workers-category-run", max: 20, windowMs: MINUTE },
@@ -157,7 +158,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/workers/purge-history",
 		async ({ body, user, request }) => {
-			return await adminWorkerOperationsService.purgeHistory(body ?? {}, { actorUserId: user?.id, headers: request.headers });
+			return await adminWorkerOperationsService.purgeHistory(body ?? {}, actorContext({ user, request }));
 		},
 		{
 			rateLimit: { name: "admin-workers-purge-history", max: 10, windowMs: MINUTE },
@@ -190,8 +191,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/workers/jobs/:jobId/cancel",
-		async ({ params, user, request }) =>
-			await adminWorkerOperationsService.cancelItem(params.jobId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await adminWorkerOperationsService.cancelItem(params.jobId, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-workers-jobs-cancel", max: 30, windowMs: MINUTE },
 			params: JobIdParams,
@@ -202,8 +202,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 
 	.post(
 		"/workers/jobs/:jobId/retry",
-		async ({ params, user, request }) =>
-			await adminWorkerOperationsService.retryItem(params.jobId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await adminWorkerOperationsService.retryItem(params.jobId, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-workers-jobs-retry", max: 30, windowMs: MINUTE },
 			params: JobIdParams,
@@ -220,7 +219,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/workers/operations/cancel-all",
 		async ({ user, request }) => {
-			const { count } = await adminWorkerOperationsService.cancelAllOperations({ actorUserId: user?.id, headers: request.headers });
+			const { count } = await adminWorkerOperationsService.cancelAllOperations(actorContext({ user, request }));
 
 			return toCancelPendingResponse(count);
 		},
@@ -233,7 +232,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/workers/operations/:operationId/resume",
 		async ({ params, user, request }) =>
-			await adminWorkerOperationsService.resumeOperation(params.operationId, { actorUserId: user?.id, headers: request.headers }),
+			await adminWorkerOperationsService.resumeOperation(params.operationId, actorContext({ user, request })),
 		{
 			params: OperationIdParams,
 			rateLimit: { name: "admin-workers-operations-resume", max: 20, windowMs: MINUTE },
@@ -267,7 +266,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/workers/operations/:operationId/cancel",
 		async ({ params, user, request }) =>
-			await adminWorkerOperationsService.cancelOperation(params.operationId, { actorUserId: user?.id, headers: request.headers }),
+			await adminWorkerOperationsService.cancelOperation(params.operationId, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-workers-operations-cancel", max: 20, windowMs: MINUTE },
 			params: OperationIdParams,

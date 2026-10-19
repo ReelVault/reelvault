@@ -8,6 +8,7 @@ import {
 import { collectionsService } from "@/app/catalog/collections.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { CollectionIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
@@ -20,7 +21,7 @@ export const adminCollectionsRoutes = adminShell({ tags: ["Admin"] })
 	.patch(
 		"/collections/:collectionId",
 		async ({ params, body, query, user, request }) =>
-			await collectionsService.update(params.collectionId, body, query, { actorUserId: user?.id, headers: request.headers }),
+			await collectionsService.update(params.collectionId, body, query, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-collections-update", max: 30, windowMs: MINUTE },
 			params: CollectionIdParams,

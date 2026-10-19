@@ -16,6 +16,7 @@ import { t } from "elysia";
 import { adminUsersService } from "@/app/admin/admin-users.service";
 import { ClampedNumeric, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { UserIdParams, UserProfileIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { MINUTE, serverConstants } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
@@ -44,8 +45,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/users",
-		async ({ body, user, request, status }) =>
-			status(201, await adminUsersService.create(body, { actorUserId: user?.id, headers: request.headers })),
+		async ({ body, user, request, status }) => status(201, await adminUsersService.create(body, actorContext({ user, request }))),
 		{
 			rateLimit: { name: "admin-users-create", max: 10, windowMs: MINUTE },
 			body: "admin.createUser",
@@ -103,8 +103,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post(
 		"/users/sessions/revoke",
-		async ({ body, user, request }) =>
-			await adminUsersService.revokeSessionsForUsers(body.userIds, { actorUserId: user?.id, headers: request.headers }),
+		async ({ body, user, request }) => await adminUsersService.revokeSessionsForUsers(body.userIds, actorContext({ user, request })),
 		{
 			body: RevokeUsersSessionsSchema,
 			rateLimit: { name: "admin-user-sessions-revoke", max: 10, windowMs: MINUTE },
@@ -122,8 +121,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/users/:userId/profiles",
-		async ({ params, body, user, request }) =>
-			await adminUsersService.createProfile(params.userId, body, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, body, user, request }) => await adminUsersService.createProfile(params.userId, body, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-users-profiles-create", max: 30, windowMs: MINUTE },
 			params: UserIdParams,
@@ -160,7 +158,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	.delete(
 		"/users/:userId/profiles/:profileId/preferences",
 		async ({ params, user, request }) =>
-			await adminUsersService.resetProfilePreferences(params.userId, params.profileId, { actorUserId: user?.id, headers: request.headers }),
+			await adminUsersService.resetProfilePreferences(params.userId, params.profileId, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-users-prefs-reset", max: 10, windowMs: MINUTE },
 			params: UserProfileIdParams,
@@ -173,7 +171,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	.patch(
 		"/users/:userId/profiles/:profileId",
 		async ({ params, body, user, request }) =>
-			await adminUsersService.updateProfile(params.userId, params.profileId, body, { actorUserId: user?.id, headers: request.headers }),
+			await adminUsersService.updateProfile(params.userId, params.profileId, body, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-users-profile-update", max: 30, windowMs: MINUTE },
 			params: UserProfileIdParams,
@@ -189,7 +187,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	.delete(
 		"/users/:userId/profiles/:profileId",
 		async ({ params, user, request }) =>
-			await adminUsersService.deleteProfile(params.userId, params.profileId, { actorUserId: user?.id, headers: request.headers }),
+			await adminUsersService.deleteProfile(params.userId, params.profileId, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-users-profile-delete", max: 10, windowMs: MINUTE },
 			params: UserProfileIdParams,
@@ -199,8 +197,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.patch(
 		"/users/:userId",
-		async ({ params, body, user, request }) =>
-			await adminUsersService.update(params.userId, body, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, body, user, request }) => await adminUsersService.update(params.userId, body, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-users-update", max: 30, windowMs: MINUTE },
 			params: UserIdParams,
@@ -215,8 +212,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post(
 		"/users/:userId/password",
-		async ({ params, body, user, request }) =>
-			await adminUsersService.setPassword(params.userId, body, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, body, user, request }) => await adminUsersService.setPassword(params.userId, body, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-users-set-password", max: 10, windowMs: MINUTE },
 			params: UserIdParams,
@@ -227,7 +223,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.delete(
 		"/users/:userId",
-		async ({ params, user, request }) => await adminUsersService.delete(params.userId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await adminUsersService.delete(params.userId, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-users-delete", max: 10, windowMs: MINUTE },
 			params: UserIdParams,

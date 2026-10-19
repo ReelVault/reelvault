@@ -4,9 +4,9 @@ import { assertFound, toDomainError } from "@/utils/domain.errors";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { workerService } from "@/workers/worker.service";
-import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
+import { createWorkerDefinition } from "@/workers/worker.types";
 import {
 	completeFreshIngest,
 	completeRetryIngest,
@@ -164,24 +164,12 @@ export async function ingestMediaFileTask(
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
-export function enqueueMediaFileIngest(data: MediaFileIngestData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(mediaFileIngestWorker.id, data, { ...options, ...mediaFileIngestQueueOptions(data) });
-}
+const mediaFileIngestEnqueue = defineWorkerEnqueue<MediaFileIngestData>(mediaFileIngestWorker.id, (data) => ({
+	dedupeKey: `${data.libraryId}:${data.filePath}`,
+	reference: { type: "library", id: data.libraryId },
+}));
 
-function mediaFileIngestQueueOptions(data: MediaFileIngestData) {
-	return {
-		dedupeKey: `${data.libraryId}:${data.filePath}`,
-		reference: { type: "library", id: data.libraryId },
-	};
-}
+export const enqueueMediaFileIngest = mediaFileIngestEnqueue.enqueue;
 
 /** Batched variant of {@link enqueueMediaFileIngest} — one INSERT batch instead of one INSERT per file. */
-export function enqueueManyMediaFileIngest(entries: readonly MediaFileIngestData[], options: WorkerEnqueueOptions = {}) {
-	return workerService.addItems(
-		mediaFileIngestWorker.id,
-		entries.map((data) => ({
-			data,
-			options: { ...options, ...mediaFileIngestQueueOptions(data) },
-		})),
-	);
-}
+export const enqueueManyMediaFileIngest = mediaFileIngestEnqueue.enqueueMany;

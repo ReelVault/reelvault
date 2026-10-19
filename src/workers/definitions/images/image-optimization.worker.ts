@@ -3,8 +3,8 @@ import { type ImageOptimizationOutcome, imageMaintenanceService } from "@/module
 import { DomainError, withDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
-import { workerService } from "@/workers/worker.service";
-import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
+import { createWorkerDefinition } from "@/workers/worker.types";
 
 export interface ImageOptimizationData {
 	imageId: string;
@@ -67,6 +67,19 @@ export function processImageOptimizationTask(
 	});
 }
 
+// ─── Enqueue Functions ────────────────────────────────────────────────────────
+
+const imageOptimizationEnqueue = defineWorkerEnqueue<ImageOptimizationData>(imageOptimizationWorker.id, (data) => ({
+	dedupeKey: `image-optimization:${data.imageId}`,
+	reference: { type: "image", id: data.imageId },
+	priority: 50,
+}));
+
+export const enqueueImageOptimization = imageOptimizationEnqueue.enqueue;
+
+/** Batched variant of {@link enqueueImageOptimization} — one INSERT batch instead of one per image. */
+const enqueueImageOptimizationMany = imageOptimizationEnqueue.enqueueMany;
+
 export function scanImagesForOptimizationTask(context: ApplicationContext = {}): Promise<ImageOptimizationScanResult> {
 	return withDomainError("Image optimization scan failed", () =>
 		scanAndEnqueueTask<string, ImageOptimizationData>({
@@ -78,29 +91,4 @@ export function scanImagesForOptimizationTask(context: ApplicationContext = {}):
 			enqueueMany: (items, options) => enqueueImageOptimizationMany(items, options),
 		}),
 	);
-}
-
-/** Batched variant of {@link enqueueImageOptimization} — one INSERT batch instead of one per image. */
-function enqueueImageOptimizationMany(items: ImageOptimizationData[], options: WorkerEnqueueOptions) {
-	return workerService.addItems(
-		imageOptimizationWorker.id,
-		items.map((data) => ({
-			data,
-			options: { ...options, ...imageOptimizationQueueOptions(data) },
-		})),
-	);
-}
-
-// ─── Enqueue Functions ────────────────────────────────────────────────────────
-
-export function enqueueImageOptimization(data: ImageOptimizationData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(imageOptimizationWorker.id, data, { ...options, ...imageOptimizationQueueOptions(data) });
-}
-
-function imageOptimizationQueueOptions(data: ImageOptimizationData) {
-	return {
-		dedupeKey: `image-optimization:${data.imageId}`,
-		reference: { type: "image", id: data.imageId },
-		priority: 50,
-	};
 }

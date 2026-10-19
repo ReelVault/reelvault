@@ -34,6 +34,7 @@ import {
 	ROUTE_ERRORS,
 } from "@/app/http/schemas/common.schema";
 import { MetadataIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { withEtagResponse } from "@/app/http/utils/etag.utils";
 import { IMAGE_UPLOAD_MAX_SIZE, MINUTE } from "@/config/server/server.constants";
 
@@ -86,20 +87,15 @@ export const metadataRoutes = new Elysia({
 			description: "Search titles, people, collections and genres in one request.",
 		},
 	})
-	.post(
-		"/",
-		async ({ body, query, user, request }) =>
-			await metadataService.create(body, query, { actorUserId: user?.id, headers: request.headers }),
-		{
-			adminOnly: true,
-			body: "metadata.create.body",
-			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "metadata.schema" },
-			detail: {
-				description: "Add a new metadata entry to the system.",
-			},
+	.post("/", async ({ body, query, user, request }) => await metadataService.create(body, query, actorContext({ user, request })), {
+		adminOnly: true,
+		body: "metadata.create.body",
+		query: "fields.schema",
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "metadata.schema" },
+		detail: {
+			description: "Add a new metadata entry to the system.",
 		},
-	)
+	})
 	.get("/:metadataId/images/options", async ({ params }) => await metadataService.getImageOptions(params.metadataId), {
 		params: MetadataIdParams,
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: t.Array(MetadataImageOptionSchema) },
@@ -108,8 +104,7 @@ export const metadataRoutes = new Elysia({
 	})
 	.post(
 		"/:metadataId/images/select",
-		async ({ params, body, user, request }) =>
-			await metadataService.selectImage(params.metadataId, body, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, body, user, request }) => await metadataService.selectImage(params.metadataId, body, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MetadataIdParams,
@@ -169,7 +164,7 @@ export const metadataRoutes = new Elysia({
 	.patch(
 		"/:metadataId",
 		async ({ params, body, query, user, request }) =>
-			await metadataService.update(params.metadataId, body, query, { actorUserId: user?.id, headers: request.headers }),
+			await metadataService.update(params.metadataId, body, query, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MetadataIdParams,
@@ -184,7 +179,7 @@ export const metadataRoutes = new Elysia({
 	.post(
 		"/:metadataId/providers",
 		async ({ params, body, query, user, request }) =>
-			await metadataService.linkProvider(params.metadataId, body, query, { actorUserId: user?.id, headers: request.headers }),
+			await metadataService.linkProvider(params.metadataId, body, query, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MetadataIdParams,
@@ -199,7 +194,7 @@ export const metadataRoutes = new Elysia({
 	.post(
 		"/:metadataId/rematch",
 		async ({ params, body, query, user, request }) =>
-			await metadataService.rematch(params.metadataId, body, query, { actorUserId: user?.id, headers: request.headers }),
+			await metadataService.rematch(params.metadataId, body, query, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MetadataIdParams,
@@ -213,8 +208,7 @@ export const metadataRoutes = new Elysia({
 	)
 	.delete(
 		"/:metadataId",
-		async ({ params, user, request }) =>
-			await metadataService.delete(params.metadataId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await metadataService.delete(params.metadataId, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MetadataIdParams,
@@ -227,7 +221,7 @@ export const metadataRoutes = new Elysia({
 	.post(
 		"/:metadataId/merge",
 		async ({ params, body, user, request }) =>
-			await metadataService.mergeMetadata(params.metadataId, body.sourceMetadataId, { actorUserId: user?.id, headers: request.headers }),
+			await metadataService.mergeMetadata(params.metadataId, body.sourceMetadataId, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MetadataIdParams,
@@ -257,8 +251,7 @@ export const metadataRoutes = new Elysia({
 	})
 	.post(
 		"/bulk-delete",
-		async ({ body, user, request }) =>
-			await metadataService.deleteMany(body.ids, { force: body.force }, { actorUserId: user?.id, headers: request.headers }),
+		async ({ body, user, request }) => await metadataService.deleteMany(body.ids, { force: body.force }, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			rateLimit: { name: "metadata-bulk-delete", max: 10, windowMs: MINUTE },

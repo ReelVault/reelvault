@@ -2,9 +2,9 @@ import { serverConfig } from "@/config/server/server.config";
 import { withDomainError } from "@/utils/domain.errors";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import type { ApplicationContext } from "@/utils/task-context.types";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { workerService } from "@/workers/worker.service";
-import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
+import { createWorkerDefinition } from "@/workers/worker.types";
 
 export interface MetadataRefreshData {
 	metadataId: string;
@@ -44,23 +44,11 @@ export async function refreshMetadataTask(data: MetadataRefreshData, context: Ap
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
-export function enqueueMetadataRefresh(data: MetadataRefreshData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(metadataRefreshWorker.id, data, { ...options, ...metadataRefreshQueueOptions(data) });
-}
+const metadataRefreshEnqueue = defineWorkerEnqueue<MetadataRefreshData>(metadataRefreshWorker.id, (data) => ({
+	dedupeKey: data.metadataId,
+	reference: { type: "metadata", id: data.metadataId },
+}));
 
-export function enqueueManyMetadataRefresh(items: MetadataRefreshData[], options: WorkerEnqueueOptions = {}) {
-	return workerService.addItems(
-		metadataRefreshWorker.id,
-		items.map((data) => ({
-			data,
-			options: { ...options, ...metadataRefreshQueueOptions(data) },
-		})),
-	);
-}
+export const enqueueMetadataRefresh = metadataRefreshEnqueue.enqueue;
 
-function metadataRefreshQueueOptions(data: MetadataRefreshData) {
-	return {
-		dedupeKey: data.metadataId,
-		reference: { type: "metadata", id: data.metadataId },
-	};
-}
+export const enqueueManyMetadataRefresh = metadataRefreshEnqueue.enqueueMany;

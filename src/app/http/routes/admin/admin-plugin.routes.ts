@@ -25,6 +25,7 @@ import { adminService } from "@/app/admin/admin.service";
 import { adminPluginCatalogService } from "@/app/admin/admin-plugin-catalog.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { PluginIdParams, ProviderIdParams, RepositoryIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
@@ -53,16 +54,12 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 			description: "List plugin runtime status and the phase of any failed load without exposing configuration values.",
 		},
 	})
-	.post(
-		"/plugins/reload",
-		async ({ user, request }) => await adminService.reloadPlugins({ actorUserId: user?.id, headers: request.headers }),
-		{
-			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.plugins" },
-			detail: {
-				description: "Reloads all discovered plugins from the plugins directory.",
-			},
+	.post("/plugins/reload", async ({ user, request }) => await adminService.reloadPlugins(actorContext({ user, request })), {
+		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.plugins" },
+		detail: {
+			description: "Reloads all discovered plugins from the plugins directory.",
 		},
-	)
+	})
 	.get("/plugins/:pluginId", ({ params }) => adminService.getPlugin(params.pluginId), {
 		params: PluginIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.plugin" },
@@ -72,8 +69,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/plugins/:pluginId/reload",
-		async ({ params, user, request }) =>
-			await adminService.reloadPlugin(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await adminService.reloadPlugin(params.pluginId, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.plugin" },
@@ -90,7 +86,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.put(
 		"/plugins/:pluginId/ui",
 		async ({ params, body, user, request }) =>
-			await adminService.updatePluginUiSettings(params.pluginId, body, { actorUserId: user?.id, headers: request.headers }),
+			await adminService.updatePluginUiSettings(params.pluginId, body, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			body: "admin.updatePluginUiSettings",
@@ -103,8 +99,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.delete(
 		"/plugins/:pluginId/ui",
-		async ({ params, user, request }) =>
-			await adminService.resetPluginUiSettings(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await adminService.resetPluginUiSettings(params.pluginId, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.pluginUiSettings" },
@@ -113,8 +108,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post(
 		"/plugins/:pluginId/enable",
-		async ({ params, user, request }) =>
-			await adminService.enablePlugin(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await adminService.enablePlugin(params.pluginId, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.plugin" },
@@ -125,8 +119,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post(
 		"/plugins/:pluginId/disable",
-		async ({ params, user, request }) =>
-			await adminService.disablePlugin(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await adminService.disablePlugin(params.pluginId, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.plugin" },
@@ -142,7 +135,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.patch(
 		"/providers/:providerId",
 		async ({ params, body, user, request }) =>
-			await adminService.updateMetadataProviderConfiguration(params.providerId, body, { actorUserId: user?.id, headers: request.headers }),
+			await adminService.updateMetadataProviderConfiguration(params.providerId, body, actorContext({ user, request })),
 		{
 			params: ProviderIdParams,
 			body: t.Object({
@@ -156,7 +149,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.put(
 		"/providers/order",
 		async ({ body, user, request }) =>
-			await adminService.reorderMetadataProviderConfigurations(body.providerIds, { actorUserId: user?.id, headers: request.headers }),
+			await adminService.reorderMetadataProviderConfigurations(body.providerIds, actorContext({ user, request })),
 		{
 			body: ReorderMetadataProvidersSchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: "admin.metadataProviderConfigurations" },
@@ -173,7 +166,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.put(
 		"/plugins/:pluginId/config",
 		async ({ params, body, user, request }) =>
-			await adminService.updatePluginConfig(params.pluginId, body, { actorUserId: user?.id, headers: request.headers }),
+			await adminService.updatePluginConfig(params.pluginId, body, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			body: "admin.updatePluginConfig",
@@ -185,8 +178,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post(
 		"/plugins/:pluginId/config/reset",
-		async ({ params, body, user, request }) =>
-			await adminService.resetPluginConfig(params.pluginId, body, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, body, user, request }) => await adminService.resetPluginConfig(params.pluginId, body, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			body: "admin.resetPluginConfig",
@@ -197,21 +189,17 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 			},
 		},
 	)
-	.post(
-		"/plugins/bulk",
-		async ({ body, user, request }) => await adminService.setPluginsEnabled(body, { actorUserId: user?.id, headers: request.headers }),
-		{
-			body: "admin.pluginBulkState",
-			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: "admin.pluginBulkStateResult" },
-			detail: {
-				description: "Enable or disable several plugins at once. Each plugin is attempted on its own and reported in the result.",
-			},
+	.post("/plugins/bulk", async ({ body, user, request }) => await adminService.setPluginsEnabled(body, actorContext({ user, request })), {
+		body: "admin.pluginBulkState",
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: "admin.pluginBulkStateResult" },
+		detail: {
+			description: "Enable or disable several plugins at once. Each plugin is attempted on its own and reported in the result.",
 		},
-	)
+	})
 	.put(
 		"/plugins/:pluginId/pin",
 		async ({ params, body, user, request }) =>
-			await adminService.setPluginPinned(params.pluginId, body.pinned, { actorUserId: user?.id, headers: request.headers }),
+			await adminService.setPluginPinned(params.pluginId, body.pinned, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			body: "admin.pluginPin",
@@ -225,7 +213,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.put(
 		"/plugins/:pluginId/csp",
 		async ({ params, body, user, request }) =>
-			await adminService.setPluginCspEnabled(params.pluginId, body.enabled, { actorUserId: user?.id, headers: request.headers }),
+			await adminService.setPluginCspEnabled(params.pluginId, body.enabled, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			body: "admin.pluginCsp",
@@ -243,7 +231,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/plugins/:pluginId/config/import",
 		async ({ params, body, user, request }) =>
-			await adminService.importPluginConfig(params.pluginId, body, { actorUserId: user?.id, headers: request.headers }),
+			await adminService.importPluginConfig(params.pluginId, body, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			body: "admin.pluginConfigExport",
@@ -262,8 +250,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/plugins/repositories",
-		async ({ body, user, request }) =>
-			await adminPluginCatalogService.createRepository(body, { actorUserId: user?.id, headers: request.headers }),
+		async ({ body, user, request }) => await adminPluginCatalogService.createRepository(body, actorContext({ user, request })),
 		{
 			body: CreatePluginRepositoryBodySchema,
 			rateLimit: { name: "admin-plugin-repository-create", max: 10, windowMs: MINUTE },
@@ -279,7 +266,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.patch(
 		"/plugins/repositories/:repositoryId",
 		async ({ params, body, user, request }) =>
-			await adminPluginCatalogService.updateRepository(params.repositoryId, body, { actorUserId: user?.id, headers: request.headers }),
+			await adminPluginCatalogService.updateRepository(params.repositoryId, body, actorContext({ user, request })),
 		{
 			params: RepositoryIdParams,
 			body: UpdatePluginRepositoryBodySchema,
@@ -292,7 +279,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.delete(
 		"/plugins/repositories/:repositoryId",
 		async ({ params, user, request }) =>
-			await adminPluginCatalogService.deleteRepository(params.repositoryId, { actorUserId: user?.id, headers: request.headers }),
+			await adminPluginCatalogService.deleteRepository(params.repositoryId, actorContext({ user, request })),
 		{
 			params: RepositoryIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
@@ -304,7 +291,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/plugins/repositories/:repositoryId/refresh",
 		async ({ params, user, request }) =>
-			await adminPluginCatalogService.refreshRepository(params.repositoryId, { actorUserId: user?.id, headers: request.headers }),
+			await adminPluginCatalogService.refreshRepository(params.repositoryId, actorContext({ user, request })),
 		{
 			params: RepositoryIdParams,
 			rateLimit: { name: "admin-plugin-repository-refresh", max: 10, windowMs: MINUTE },
@@ -322,7 +309,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/plugins/catalog/install",
-		async ({ body, user, request }) => await adminPluginCatalogService.install(body, { actorUserId: user?.id, headers: request.headers }),
+		async ({ body, user, request }) => await adminPluginCatalogService.install(body, actorContext({ user, request })),
 		{
 			body: InstallCatalogPluginBodySchema,
 			rateLimit: { name: "admin-plugin-install", max: 5, windowMs: MINUTE },
@@ -344,8 +331,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/plugins/install-upload",
-		async ({ body, user, request }) =>
-			await adminPluginCatalogService.installUploadedArchive(body.file, { actorUserId: user?.id, headers: request.headers }),
+		async ({ body, user, request }) => await adminPluginCatalogService.installUploadedArchive(body.file, actorContext({ user, request })),
 		{
 			body: t.Object({ file: t.File({ maxSize: "200m" }) }),
 			rateLimit: { name: "admin-plugin-install-upload", max: 10, windowMs: MINUTE },
@@ -357,8 +343,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post(
 		"/plugins/:pluginId/uninstall",
-		async ({ params, user, request }) =>
-			await adminPluginCatalogService.uninstall(params.pluginId, { actorUserId: user?.id, headers: request.headers }),
+		async ({ params, user, request }) => await adminPluginCatalogService.uninstall(params.pluginId, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
 			rateLimit: { name: "admin-plugin-uninstall", max: 10, windowMs: MINUTE },

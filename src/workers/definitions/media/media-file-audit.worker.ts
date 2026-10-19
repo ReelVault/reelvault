@@ -3,6 +3,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { DomainError, withDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
@@ -79,6 +80,18 @@ export function auditMediaFileTask(data: MediaFileAuditData, context: Applicatio
 	});
 }
 
+// ─── Enqueue Functions ────────────────────────────────────────────────────────
+
+const mediaFileAuditEnqueue = defineWorkerEnqueue<MediaFileAuditData>(mediaFileAuditWorker.id, (data) => ({
+	dedupeKey: `media-match-audit:${data.mediaFileId}`,
+	reference: { type: "media-file", id: data.mediaFileId },
+}));
+
+export const enqueueMediaFileAudit = mediaFileAuditEnqueue.enqueue;
+
+/** Batched variant of {@link enqueueMediaFileAudit} — one INSERT batch instead of one per file. */
+const enqueueMediaFileAuditMany = mediaFileAuditEnqueue.enqueueMany;
+
 export function scanMediaMatchAuditTask(context: ApplicationContext = {}): Promise<MediaMatchAuditScanResult> {
 	return withDomainError("Media match audit scan failed", () =>
 		scanAndEnqueueTask<string, MediaFileAuditData>({
@@ -90,28 +103,4 @@ export function scanMediaMatchAuditTask(context: ApplicationContext = {}): Promi
 			enqueueMany: (items, options) => enqueueMediaFileAuditMany(items, options),
 		}),
 	);
-}
-
-/** Batched variant of {@link enqueueMediaFileAudit} — one INSERT batch instead of one per file. */
-function enqueueMediaFileAuditMany(items: MediaFileAuditData[], options: WorkerEnqueueOptions) {
-	return workerService.addItems(
-		mediaFileAuditWorker.id,
-		items.map((data) => ({
-			data,
-			options: { ...options, ...mediaFileAuditQueueOptions(data) },
-		})),
-	);
-}
-
-// ─── Enqueue Functions ────────────────────────────────────────────────────────
-
-export function enqueueMediaFileAudit(data: MediaFileAuditData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(mediaFileAuditWorker.id, data, { ...options, ...mediaFileAuditQueueOptions(data) });
-}
-
-function mediaFileAuditQueueOptions(data: MediaFileAuditData) {
-	return {
-		dedupeKey: `media-match-audit:${data.mediaFileId}`,
-		reference: { type: "media-file", id: data.mediaFileId },
-	};
 }

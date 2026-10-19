@@ -23,6 +23,7 @@ import { metadataService } from "@/app/catalog/metadata/metadata.service";
 import { metadataRefreshQueueService } from "@/app/catalog/metadata/refresh/metadata-refresh-queue.service";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
 import { ClampedNumeric, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
@@ -198,7 +199,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 	.delete(
 		"/metadata/orphans",
 		async ({ user, request }) => {
-			return await metadataService.deleteOrphans({ actorUserId: user?.id, headers: request.headers });
+			return await metadataService.deleteOrphans(actorContext({ user, request }));
 		},
 		{
 			response: {
@@ -213,7 +214,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/refresh-metadata",
 		async ({ body, status, user, request }) => {
-			const task = await metadataRefreshQueueService.queue(body, { actorUserId: user?.id, headers: request.headers });
+			const task = await metadataRefreshQueueService.queue(body, actorContext({ user, request }));
 			if (!task)
 				throw new DomainError("internal", "Metadata refresh operation was not created", { code: "admin.metadata.refresh_not_created" });
 

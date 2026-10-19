@@ -11,6 +11,7 @@ import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { MediaFileIdParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { trickplayAdminService } from "@/app/trickplay/trickplay-admin.service";
 import { MINUTE } from "@/config/server/server.constants";
 import { unique } from "@/utils/array.utils";
@@ -52,7 +53,7 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 					resourceType: "trickplay",
 					resourceId: params.mediaFileId,
 					summary: `${result.artifacts} trickplay artifact(s) removed`,
-					context: { actorUserId: user?.id, headers: request.headers },
+					context: actorContext({ user, request }),
 				},
 				trickplayAuditLogger,
 			);
@@ -78,7 +79,7 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 						resourceType: "trickplay",
 						summary: `${result.artifacts} trickplay artifact(s) removed from ${result.mediaFiles} media file(s)`,
 						after: { mediaFileIds: body.mediaFileIds },
-						context: { actorUserId: user?.id, headers: request.headers },
+						context: actorContext({ user, request }),
 					},
 					trickplayAuditLogger,
 				);

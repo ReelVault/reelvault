@@ -2,6 +2,7 @@ import { AdminLogFileInfoSchema, AdminLogsPageSchema } from "@reelvault/sdk/comm
 import { t } from "elysia";
 import { adminLogsService } from "@/app/admin/admin-logs.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
@@ -68,7 +69,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 		async ({ query, user, request }) => {
 			if (!query.fileId) throw new DomainError("validation", "Missing fileId", { code: "admin.logs.file_id_required" });
 
-			return await adminLogsService.deleteLogFile(query.fileId, { actorUserId: user?.id, headers: request.headers });
+			return await adminLogsService.deleteLogFile(query.fileId, actorContext({ user, request }));
 		},
 		{
 			query: t.Object({
@@ -87,12 +88,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 		"/logs/cleanup",
 		async ({ query, user, request }) => {
 			const dryRun = query.dryRun === true;
-			const result = await adminLogsService.purgeOldLogs(
-				query.retentionDays,
-				{ actorUserId: user?.id, headers: request.headers },
-				undefined,
-				dryRun,
-			);
+			const result = await adminLogsService.purgeOldLogs(query.retentionDays, actorContext({ user, request }), undefined, dryRun);
 
 			return { ...result, dryRun };
 		},
