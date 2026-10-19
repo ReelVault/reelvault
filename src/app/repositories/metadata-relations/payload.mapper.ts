@@ -1,3 +1,4 @@
+import { isRelationItem, parseJsonRelationArray } from "@/integrations/drizzle-orm/utils/relation-json.utils";
 import { safeParseJson } from "@/utils/file.utils";
 import {
 	castDateKeys,
@@ -45,17 +46,6 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Narrows a JSON payload item to a relation DTO shape. The SQL builder emits
- * exactly the columns in `keys`; `_shape` anchors the type parameter to the
- * caller's DTO type.
- */
-function isRelationItem<T extends object>(item: unknown, keys: readonly string[], _shape?: T): item is T {
-	if (!isRecordValue(item)) return false;
-
-	return keys.every((key) => key in item);
-}
-
 function reviveDateColumns(item: unknown, keys: readonly string[]): void {
 	if (keys.length === 0 || !isRecordValue(item)) return;
 
@@ -67,18 +57,7 @@ function reviveDateColumns(item: unknown, keys: readonly string[]): void {
 
 /** Relation payloads arrive as JSON strings; the SQL builder fixes the shape. */
 function parsePayload<T extends object>(payload: string, keys: readonly string[], dateKeys: readonly string[]): T[] {
-	const parsed = safeParseJson(payload);
-	if (!Array.isArray(parsed)) return [];
-
-	const items: T[] = [];
-	for (const item of parsed) {
-		if (!isRelationItem<T>(item, keys)) continue;
-
-		reviveDateColumns(item, dateKeys);
-		items.push(item);
-	}
-
-	return items;
+	return parseJsonRelationArray<T>(payload, keys, { booleanKeys: [], dateKeys });
 }
 
 function parseStringPayload(payload: string): string[] {

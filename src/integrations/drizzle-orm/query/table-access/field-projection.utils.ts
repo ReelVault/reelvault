@@ -69,6 +69,34 @@ export function pickColumns(
 	return selection;
 }
 
+/**
+ * Column sets are picked per request, and the same field list comes back on
+ * every request for the same table — so the pick is cached per column set.
+ */
+const pickedColumnsCache = new WeakMap<object, Map<string, Record<string, SQLiteColumn>>>();
+
+/** {@link pickColumns} with the pick cached per column set and field list. */
+export function pickColumnsCached(
+	columns: Record<string, SQLiteColumn>,
+	requested: ReadonlySet<string>,
+	required: readonly string[] = [],
+): Record<string, SQLiteColumn> {
+	const key = `${[...requested].toSorted().join(",")}|${[...required].toSorted().join(",")}`;
+	let cachedByKey = pickedColumnsCache.get(columns);
+	if (!cachedByKey) {
+		cachedByKey = new Map();
+		pickedColumnsCache.set(columns, cachedByKey);
+	}
+
+	const cached = cachedByKey.get(key);
+	if (cached) return cached;
+
+	const selection = pickColumns(columns, requested, required);
+	if (cachedByKey.size < 1000) cachedByKey.set(key, selection);
+
+	return selection;
+}
+
 export async function selectFirstWithFields<TTable extends DatabaseTables, F extends string>(
 	repository: TableAccessBase<TTable>,
 	params: {

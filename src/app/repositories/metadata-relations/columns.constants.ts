@@ -1,7 +1,7 @@
 import { getTableColumns } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { pickColumns } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
+import { pickColumnsCached } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { dateKeysOf } from "@/integrations/drizzle-orm/utils/relation-json.utils";
 
 export const collectionColumns = getTableColumns(schema.collections);
@@ -70,8 +70,6 @@ export const crewKeys = Object.keys(crewColumns);
 
 export const imagePayloadKeys = ["imageType", "data"];
 
-const selectColumnsCache = new WeakMap<object, Map<string, Record<string, unknown>>>();
-
 export function selectColumns<T extends Record<string, SQLiteColumn>>(
 	requested: Set<string> | undefined,
 	columns: T,
@@ -85,20 +83,5 @@ export function selectColumns(
 ): Record<string, unknown> {
 	if (!requested) return columns;
 
-	const requiredFields = new Set(required);
-	const cacheKey = `${[...requested].toSorted().join(",")}|${[...requiredFields].toSorted().join(",")}`;
-	let cachedByKey = selectColumnsCache.get(columns);
-	if (!cachedByKey) {
-		cachedByKey = new Map();
-		selectColumnsCache.set(columns, cachedByKey);
-	}
-
-	const cached = cachedByKey.get(cacheKey);
-	if (cached) return cached;
-
-	const result = pickColumns(columns, requested, required);
-
-	if (cachedByKey.size < 1000) cachedByKey.set(cacheKey, result);
-
-	return result;
+	return pickColumnsCached(columns, requested, required);
 }

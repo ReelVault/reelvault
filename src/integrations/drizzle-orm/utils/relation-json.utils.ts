@@ -94,7 +94,7 @@ export function reviveJsonItem(item: unknown, keys: RelationJsonKeys): void {
  * the columns in `keys`; `_shape` anchors the type parameter to the caller's
  * DTO type.
  */
-function isRelationItem<T extends object>(item: unknown, keys: readonly string[], _shape?: T): item is T {
+export function isRelationItem<T extends object>(item: unknown, keys: readonly string[], _shape?: T): item is T {
 	if (!isRecordValue(item)) return false;
 
 	return keys.every((key) => key in item);

@@ -325,6 +325,17 @@ export async function findSimilarPage<F extends string>(
 /**
  * Get metadata by ID
  */
+/** Loads the relation graph of one title and applies the field selection. */
+async function hydrateOne<F extends string>(
+	metadata: typeof schema.metadata.$inferSelect,
+	fields: FieldsConfig<F> | undefined,
+	tx: DatabaseTransaction | undefined,
+): Promise<SelectFields<MetadataWithRelation, F>> {
+	const relations = await loadRelations([metadata.id], tx, fields, true);
+
+	return QueryFields.apply(withRelations(metadata, relations.get(metadata.id)), fields);
+}
+
 export async function findFirst<F extends string>({
 	where,
 	fields,
@@ -337,9 +348,7 @@ export async function findFirst<F extends string>({
 	const metadata = (await selectMetadata({ fields, where, limit: 1, tx }))[0];
 	if (!metadata) return undefined;
 
-	const relations = await loadRelations([metadata.id], tx, fields, true);
-
-	return QueryFields.apply(withRelations(metadata, relations.get(metadata.id)), fields);
+	return await hydrateOne(metadata, fields, tx);
 }
 
 export async function findById<F extends string>({
@@ -363,9 +372,7 @@ export async function findById<F extends string>({
 	const metadata = await metadataTable.selectFirstById({ primaryId, tx });
 	if (!metadata) return undefined;
 
-	const relations = await loadRelations([metadata.id], tx, fields, true);
-
-	return QueryFields.apply(withRelations(metadata, relations.get(metadata.id)), fields);
+	return await hydrateOne(metadata, fields, tx);
 }
 
 /**
