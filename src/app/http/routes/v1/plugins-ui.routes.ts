@@ -129,7 +129,11 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 			let assetPath = resolved;
 			if (!(await FileUtils.exists(assetPath))) {
 				// Extension-less request → SPA deep link, serve the nearest index.html.
-				assetPath = extension ? "" : ((await resolveSpaFallback(pluginDir, resolved)) ?? "");
+				if (extension) {
+					assetPath = "";
+				} else {
+					assetPath = (await resolveSpaFallback(pluginDir, resolved)) ?? "";
+				}
 				if (!assetPath) {
 					throw new DomainError("not_found", `Plugin UI asset not found: ${filePath}`, {
 						code: "plugin_ui.asset_not_found",

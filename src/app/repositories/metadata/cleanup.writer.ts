@@ -29,7 +29,12 @@ export async function findOrphanIds(limit?: number, afterId?: string, tx?: Datab
 		.from(schema.metadata)
 		.where(and(...conditions))
 		.orderBy(asc(schema.metadata.id));
-	const rows = limit === undefined ? await query : await query.limit(limit);
+	let rows: Array<{ id: string }>;
+	if (limit === undefined) {
+		rows = await query;
+	} else {
+		rows = await query.limit(limit);
+	}
 
 	return rows.map((r) => r.id);
 }

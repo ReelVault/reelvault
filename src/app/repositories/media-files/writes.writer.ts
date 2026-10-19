@@ -61,16 +61,22 @@ export async function reassign({
 }): Promise<void> {
 	streamingDurationCache.delete(mediaFileId);
 	await databaseFactory.transaction(async (tx) => {
-		const existingDefault = await mediaFiles.selectFirst({
-			where: movieId
-				? and(eq(schema.mediaFiles.movieId, movieId), eq(schema.mediaFiles.isDefault, true), ne(schema.mediaFiles.id, mediaFileId))
-				: and(
-						eq(schema.mediaFiles.episodeId, episodeId ?? ""),
-						eq(schema.mediaFiles.isDefault, true),
-						ne(schema.mediaFiles.id, mediaFileId),
-					),
-			tx,
-		});
+		let defaultWhere: SQL | undefined;
+		if (movieId) {
+			defaultWhere = and(
+				eq(schema.mediaFiles.movieId, movieId),
+				eq(schema.mediaFiles.isDefault, true),
+				ne(schema.mediaFiles.id, mediaFileId),
+			);
+		} else {
+			defaultWhere = and(
+				eq(schema.mediaFiles.episodeId, episodeId ?? ""),
+				eq(schema.mediaFiles.isDefault, true),
+				ne(schema.mediaFiles.id, mediaFileId),
+			);
+		}
+
+		const existingDefault = await mediaFiles.selectFirst({ where: defaultWhere, tx });
 
 		await mediaFiles.update({
 			primaryId: mediaFileId,
@@ -143,12 +149,14 @@ export async function createWithStreams(data: CreateMediaFile, tx?: DatabaseTran
 		if (!createdMediaFile) {
 			// Multi-episode files own several rows per path — fetch the row for
 			// THIS target (episode id), not just any row with the same path.
-			const existingMediaFile = await mediaFiles.selectFirst({
-				where: data.episodeId
-					? and(eq(schema.mediaFiles.filePath, data.filePath), eq(schema.mediaFiles.episodeId, data.episodeId))
-					: and(eq(schema.mediaFiles.filePath, data.filePath), isNull(schema.mediaFiles.episodeId)),
-				tx: runTx,
-			});
+			let existingWhere: SQL | undefined;
+			if (data.episodeId) {
+				existingWhere = and(eq(schema.mediaFiles.filePath, data.filePath), eq(schema.mediaFiles.episodeId, data.episodeId));
+			} else {
+				existingWhere = and(eq(schema.mediaFiles.filePath, data.filePath), isNull(schema.mediaFiles.episodeId));
+			}
+
+			const existingMediaFile = await mediaFiles.selectFirst({ where: existingWhere, tx: runTx });
 			if (!existingMediaFile)
 				throw new DomainError("internal", "Media file insert conflicted but no existing row was found", {
 					code: "media_files.insert_conflict_row_missing",

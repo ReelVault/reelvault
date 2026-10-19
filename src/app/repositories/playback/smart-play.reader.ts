@@ -28,19 +28,21 @@ import {
  * connection instead of rebuilt for every progress view, smart-play read and
  * continue-watching page.
  */
+const progressColumns = {
+	mediaFileId: schema.playbackProgress.mediaFileId,
+	episodeId: schema.mediaFiles.episodeId,
+	movieId: schema.mediaFiles.movieId,
+	position: schema.playbackProgress.position,
+	duration: schema.playbackProgress.duration,
+	completed: schema.playbackProgress.completed,
+	audioStreamIndex: schema.playbackProgress.audioStreamIndex,
+	subtitleId: schema.playbackProgress.subtitleId,
+	updatedAt: schema.playbackProgress.updatedAt,
+};
+
 const preparedProgressRows = createPreparedQuery((client: PlaybackRelationClient) =>
 	client
-		.select({
-			mediaFileId: schema.playbackProgress.mediaFileId,
-			episodeId: schema.mediaFiles.episodeId,
-			movieId: schema.mediaFiles.movieId,
-			position: schema.playbackProgress.position,
-			duration: schema.playbackProgress.duration,
-			completed: schema.playbackProgress.completed,
-			audioStreamIndex: schema.playbackProgress.audioStreamIndex,
-			subtitleId: schema.playbackProgress.subtitleId,
-			updatedAt: schema.playbackProgress.updatedAt,
-		})
+		.select(progressColumns)
 		.from(schema.playbackProgress)
 		.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.playbackProgress.mediaFileId))
 		.where(
@@ -70,18 +72,6 @@ const metadataColumns = {
 const batchMetadataColumns = {
 	id: schema.metadata.id,
 	...metadataColumns,
-};
-
-const progressColumns = {
-	mediaFileId: schema.playbackProgress.mediaFileId,
-	episodeId: schema.mediaFiles.episodeId,
-	movieId: schema.mediaFiles.movieId,
-	position: schema.playbackProgress.position,
-	duration: schema.playbackProgress.duration,
-	completed: schema.playbackProgress.completed,
-	audioStreamIndex: schema.playbackProgress.audioStreamIndex,
-	subtitleId: schema.playbackProgress.subtitleId,
-	updatedAt: schema.playbackProgress.updatedAt,
 };
 
 type SmartPlayMediaFile = Pick<typeof schema.mediaFiles.$inferSelect, "id" | "movieId" | "episodeId" | "isDefault" | "updatedAt">;
@@ -167,15 +157,16 @@ export async function findProgressRows(metadataId: string, profileId: string) {
 export async function findPlaybackProgressAndSmartPlayData(metadataId: string, profileId: string) {
 	const client = databaseFactory.getClient();
 	const [smartPlay] = await preparedSmartPlayData(client).execute({ metadataId, profileId });
+	if (!smartPlay) return null;
 
-	const metadataRows = smartPlay ? parseJsonRelationArray<SmartPlayMetadataRow>(smartPlay.metadataRows, metadataKeys, noRevive) : [];
+	const metadataRows = parseJsonRelationArray<SmartPlayMetadataRow>(smartPlay.metadataRows, metadataKeys, noRevive);
 	const metadata = metadataRows[0];
 	if (!metadata) return null;
 
-	const mediaFiles = smartPlay ? parseJsonRelationArray<SmartPlayMediaFile>(smartPlay.mediaFiles, mediaFileKeys, mediaFileRevive) : [];
-	const progressRows = smartPlay ? parseJsonRelationArray<SmartPlayProgressRow>(smartPlay.progressRows, progressKeys, progressRevive) : [];
-	const seasons = smartPlay ? parseJsonRelationArray<SeasonRow>(smartPlay.seasons, seasonKeys, noRevive) : [];
-	const episodes = smartPlay ? parseJsonRelationArray<EpisodeRow>(smartPlay.episodes, episodeKeys, noRevive) : [];
+	const mediaFiles = parseJsonRelationArray<SmartPlayMediaFile>(smartPlay.mediaFiles, mediaFileKeys, mediaFileRevive);
+	const progressRows = parseJsonRelationArray<SmartPlayProgressRow>(smartPlay.progressRows, progressKeys, progressRevive);
+	const seasons = parseJsonRelationArray<SeasonRow>(smartPlay.seasons, seasonKeys, noRevive);
+	const episodes = parseJsonRelationArray<EpisodeRow>(smartPlay.episodes, episodeKeys, noRevive);
 
 	return { metadata, mediaFiles, progressRows, seasons, episodes };
 }
@@ -206,22 +197,22 @@ export async function findSmartPlayBatchData(metadataIds: readonly string[], pro
 	const ids = [...metadataIds];
 	const [smartPlay] = await preparedSmartPlayBatchData(client).execute({ ids: JSON.stringify(ids), profileId });
 
-	const metadataRows = smartPlay
-		? parseJsonRelationArray<SmartPlayBatchMetadataRow>(smartPlay.metadataRows, batchMetadataKeys, noRevive)
-		: [];
-	const metadataById = toMap(metadataRows, (row) => row.id);
+	let metadataRows: SmartPlayBatchMetadataRow[] = [];
+	let mediaFiles: SmartPlayBatchMediaFile[] = [];
+	let progressRows: SmartPlayBatchProgressRow[] = [];
+	let seasons: SeasonRow[] = [];
+	let episodes: EpisodeRow[] = [];
+	let watchlistedEntries: SmartPlayWatchlistRow[] = [];
+	if (smartPlay) {
+		metadataRows = parseJsonRelationArray<SmartPlayBatchMetadataRow>(smartPlay.metadataRows, batchMetadataKeys, noRevive);
+		mediaFiles = parseJsonRelationArray<SmartPlayBatchMediaFile>(smartPlay.mediaFiles, batchMediaFileKeys, mediaFileRevive);
+		progressRows = parseJsonRelationArray<SmartPlayBatchProgressRow>(smartPlay.progressRows, batchProgressKeys, progressRevive);
+		seasons = parseJsonRelationArray<SeasonRow>(smartPlay.seasons, seasonKeys, noRevive);
+		episodes = parseJsonRelationArray<EpisodeRow>(smartPlay.episodes, episodeKeys, noRevive);
+		watchlistedEntries = parseJsonRelationArray<SmartPlayWatchlistRow>(smartPlay.watchlistedIds ?? "[]", watchlistKeys, noRevive);
+	}
 
-	const mediaFiles = smartPlay
-		? parseJsonRelationArray<SmartPlayBatchMediaFile>(smartPlay.mediaFiles, batchMediaFileKeys, mediaFileRevive)
-		: [];
-	const progressRows = smartPlay
-		? parseJsonRelationArray<SmartPlayBatchProgressRow>(smartPlay.progressRows, batchProgressKeys, progressRevive)
-		: [];
-	const seasons = smartPlay ? parseJsonRelationArray<SeasonRow>(smartPlay.seasons, seasonKeys, noRevive) : [];
-	const episodes = smartPlay ? parseJsonRelationArray<EpisodeRow>(smartPlay.episodes, episodeKeys, noRevive) : [];
-	const watchlistedEntries = smartPlay
-		? parseJsonRelationArray<SmartPlayWatchlistRow>(smartPlay.watchlistedIds ?? "[]", watchlistKeys, noRevive)
-		: [];
+	const metadataById = toMap(metadataRows, (row) => row.id);
 	const watchlistedIds = new Set(unique(watchlistedEntries, (entry) => entry.metadataId));
 
 	const mediaFilesByMetadataId = groupBy(mediaFiles, (file) => file.metadataId);

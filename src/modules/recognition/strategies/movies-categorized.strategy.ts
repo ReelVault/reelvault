@@ -15,16 +15,14 @@ export class MoviesCategorizedStrategy implements RecognitionStrategy {
 
 		const fileIdentity = parseFileName(fileName);
 
-		if (YEAR_FOLDER_PATTERN.test(parentFolder)) {
-			if (fileIdentity?.type === "movie") {
-				return {
-					type: "movie",
-					identity: {
-						...fileIdentity,
-						year: fileIdentity.year ?? (Number.parseInt(parentFolder, 10) || undefined),
-					},
-				};
-			}
+		if (YEAR_FOLDER_PATTERN.test(parentFolder) && fileIdentity?.type === "movie") {
+			return {
+				type: "movie",
+				identity: {
+					...fileIdentity,
+					year: fileIdentity.year ?? (Number.parseInt(parentFolder, 10) || undefined),
+				},
+			};
 		}
 
 		const folderIdentity = parseFileName(parentFolder);

@@ -47,7 +47,10 @@ class RemoteAccessService {
 				: { id: "trusted-proxy", ok: publicUrl ? null : true, code: "remote_access.trusted_proxy_missing" },
 		);
 
-		const reachable = publicUrl ? await this.checkSelfReachable(publicUrl) : null;
+		let reachable: { ok: boolean } | null = null;
+		if (publicUrl) {
+			reachable = await this.checkSelfReachable(publicUrl);
+		}
 		if (reachable === null) checks.push({ id: "reachable", ok: null, code: "remote_access.reachable_not_configured" });
 		else if (reachable.ok) checks.push({ id: "reachable", ok: true, code: "remote_access.reachable_ok" });
 		else checks.push({ id: "reachable", ok: false, code: "remote_access.reachable_failed" });

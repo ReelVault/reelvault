@@ -284,6 +284,14 @@ async function enqueueIngestWork(
 ): Promise<void> {
 	const { taskScheduling, context, dependencies } = scope;
 	const enqueueBatch = dependencies.enqueueMediaFileIngestBatch?.bind(dependencies);
+	let enqueueChunk: ((chunk: string[]) => Promise<unknown>) | undefined;
+	if (enqueueBatch) {
+		enqueueChunk = (chunk) =>
+			enqueueBatch(
+				chunk.map((filePath) => ({ libraryId: data.libraryId, libraryType, filePath })),
+				taskScheduling,
+			);
+	}
 	await enqueueInChunks(
 		{
 			items: state.newFilePaths,
@@ -291,13 +299,7 @@ async function enqueueIngestWork(
 			setCursor: (cursor) => {
 				state.ingestCursor = cursor;
 			},
-			batch: enqueueBatch
-				? (chunk) =>
-						enqueueBatch(
-							chunk.map((filePath) => ({ libraryId: data.libraryId, libraryType, filePath })),
-							taskScheduling,
-						)
-				: undefined,
+			batch: enqueueChunk,
 			item: (filePath) => dependencies.enqueueMediaFileIngest({ libraryId: data.libraryId, libraryType, filePath }, taskScheduling),
 			persist: () => persistScanCursors(state, data.libraryId, dependencies, context),
 		},

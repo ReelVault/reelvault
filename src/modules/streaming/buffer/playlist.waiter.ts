@@ -8,6 +8,7 @@ import { PLAYLIST_FILE_NAME } from "@/modules/streaming/utils/segment-name.utils
 import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { isNullish } from "@/utils/type.utils";
 
 /** Placeholder unregister used until `registerWaiter` replaces it synchronously (no await in between). */
 const noopUnregister = () => {
@@ -46,7 +47,7 @@ export class PlaylistWaiter {
 		if (!(await FileUtils.exists(playlistPath))) {
 			let session = this.store.get(sessionId);
 			const exitCode = session?.process?.exitCode ?? null;
-			if (session && exitCode != null) {
+			if (session && !isNullish(exitCode)) {
 				const restarted = await retryWithSoftwareEncoder(sessionId, session);
 				if (!restarted) {
 					throw new DomainError("internal", `Streaming process exited before creating the playlist (exit code ${exitCode})`, {
@@ -62,16 +63,19 @@ export class PlaylistWaiter {
 			}
 
 			const processHandle = session?.process;
-			const exitPromise: Promise<never> = processHandle
-				? (async () => {
-						const code = await processHandle.exited;
-						throw new DomainError("internal", `Streaming process exited before creating the playlist (exit code ${code})`, {
-							code: "streaming_process_exited",
-						});
-					})()
-				: new Promise<never>(() => {
-						// intentionally empty — promise never resolves (no exit event to handle)
+			let exitPromise: Promise<never>;
+			if (processHandle) {
+				exitPromise = (async () => {
+					const code = await processHandle.exited;
+					throw new DomainError("internal", `Streaming process exited before creating the playlist (exit code ${code})`, {
+						code: "streaming_process_exited",
 					});
+				})();
+			} else {
+				exitPromise = new Promise<never>(() => {
+					// intentionally empty — promise never resolves (no exit event to handle)
+				});
+			}
 
 			let unregister = noopUnregister;
 			const cancelled = new Promise<never>((_resolve, reject) => {
@@ -108,7 +112,7 @@ export class PlaylistWaiter {
 		while (Date.now() < cushionDeadline) {
 			if (signal?.aborted) return;
 
-			if (session.process?.exitCode != null) break;
+			if (!isNullish(session.process?.exitCode)) break;
 
 			try {
 				// The shared cache dedupes the stat+read+parse per (mtime, size), so an

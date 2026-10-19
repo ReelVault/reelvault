@@ -116,8 +116,8 @@ export class PluginLoader {
 					await PromiseUtils.withTimeout(this.load(name), serverConfig.plugins.lifecycle.loadTimeoutMs);
 
 					return { status: "fulfilled", value: undefined };
-				} catch (reason) {
-					return { status: "rejected", reason };
+				} catch (error) {
+					return { status: "rejected", reason: error };
 				}
 			},
 		);
@@ -294,13 +294,13 @@ export class PluginLoader {
 				subtitleProviders: runtime.subtitleProviderIds.length,
 				jobs: runtime.jobNames.length,
 			});
-		} catch (err) {
+		} catch (error) {
 			await scope.cleanup();
 			await this.runFailedLoadUnload(plugin, trackedPluginId);
-			failurePhase = this.recordLoadFailure({ trackedPluginId, manifest, pluginName, failurePhase, configDefinition }, err);
+			failurePhase = this.recordLoadFailure({ trackedPluginId, manifest, pluginName, failurePhase, configDefinition }, error);
 
-			this.logger.error(`Failed to load plugin ${pluginName}`, err, { failurePhase });
-			throw err;
+			this.logger.error(`Failed to load plugin ${pluginName}`, error, { failurePhase });
+			throw error;
 		}
 	}
 

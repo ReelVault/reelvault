@@ -6,9 +6,9 @@ type AdminChoices = Pick<InstalledPluginRecord, "disabled" | "cspDisabled" | "pi
 
 function adminChoicesOf(source: AdminChoices): AdminChoices {
 	return {
-		...(source.disabled !== undefined ? { disabled: source.disabled } : {}),
-		...(source.cspDisabled !== undefined ? { cspDisabled: source.cspDisabled } : {}),
-		...(source.pinned !== undefined ? { pinned: source.pinned } : {}),
+		...(source.disabled === undefined ? {} : { disabled: source.disabled }),
+		...(source.cspDisabled === undefined ? {} : { cspDisabled: source.cspDisabled }),
+		...(source.pinned === undefined ? {} : { pinned: source.pinned }),
 	};
 }
 
@@ -31,8 +31,8 @@ export function buildInstallRecord(input: InstallRecordInput): InstalledPluginRe
 		installedAt: new Date().toISOString(),
 		source,
 		// The admin's CSP choice follows the plugin across an upgrade.
-		...(previousRecord?.cspDisabled !== undefined ? { cspDisabled: previousRecord.cspDisabled } : {}),
-		...(previousRecord?.pinned !== undefined ? { pinned: previousRecord.pinned } : {}),
+		...(previousRecord?.cspDisabled === undefined ? {} : { cspDisabled: previousRecord.cspDisabled }),
+		...(previousRecord?.pinned === undefined ? {} : { pinned: previousRecord.pinned }),
 		version,
 		...(previousRecord && backupDirectory ? { previous: toPreviousInstall(previousRecord, backupDirectory) } : {}),
 	};

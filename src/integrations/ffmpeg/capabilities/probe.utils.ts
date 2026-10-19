@@ -19,22 +19,24 @@ export function parseFfmpegVersion(stdout: string): string | undefined {
 
 /** Filter names from `ffmpeg -filters`. */
 export function parseFilterNames(stdout: string): Set<string> {
-	return stdout.split("\n").reduce<Set<string>>((set, line) => {
+	const names = new Set<string>();
+	for (const line of stdout.split("\n")) {
 		const match = line.match(filterLineRegex);
-		if (match?.[1]) set.add(match[1]);
+		if (match?.[1]) names.add(match[1]);
+	}
 
-		return set;
-	}, new Set());
+	return names;
 }
 
 /** Accelerator names from `ffmpeg -hwaccels`, without the header lines. */
 export function parseHwaccelNames(stdout: string): Set<string> {
-	return stdout.split("\n").reduce<Set<string>>((set, raw) => {
+	const names = new Set<string>();
+	for (const raw of stdout.split("\n")) {
 		const line = raw.trim();
-		if (line && !line.startsWith("Hardware") && !line.startsWith("---")) set.add(line);
+		if (line && !line.startsWith("Hardware") && !line.startsWith("---")) names.add(line);
+	}
 
-		return set;
-	}, new Set());
+	return names;
 }
 
 /**
@@ -45,13 +47,14 @@ export function parseHwaccelNames(stdout: string): Set<string> {
  * flags column is matched shape-only and the name is taken as the second token.
  */
 export function parseEncoderNames(output: string): ReadonlySet<string> {
-	return output.split("\n").reduce<Set<string>>((set, line) => {
+	const names = new Set<string>();
+	for (const line of output.split("\n")) {
 		const parts = line.trim().split(whitespaceRegex);
 		if (parts.length >= 2 && encoderFlagsRegex.test(parts[0] ?? "") && encoderNameRegex.test(parts[1] ?? "")) {
 			const name = parts[1];
-			if (name) set.add(name);
+			if (name) names.add(name);
 		}
+	}
 
-		return set;
-	}, new Set());
+	return names;
 }

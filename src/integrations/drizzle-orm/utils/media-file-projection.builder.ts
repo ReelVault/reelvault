@@ -89,9 +89,12 @@ async function attachMediaFiles<F extends string, TRow extends { id: string }>(
 		? buildMediaFileProjection(options.fields.relations.mediaFiles, options.relation)
 		: undefined;
 	const ids = rows.map((row) => row.id);
-	const mediaFiles = projection
-		? await client.select(projection).from(schema.mediaFiles).where(inArray(schema.mediaFiles[options.relation], ids))
-		: await preparedMediaFilesByRelation[options.relation](client).execute({ ids: JSON.stringify(ids) });
+	let mediaFiles: Array<typeof schema.mediaFiles.$inferSelect>;
+	if (projection) {
+		mediaFiles = await client.select(projection).from(schema.mediaFiles).where(inArray(schema.mediaFiles[options.relation], ids));
+	} else {
+		mediaFiles = await preparedMediaFilesByRelation[options.relation](client).execute({ ids: JSON.stringify(ids) });
+	}
 	const mediaFilesByParentId = groupBy(mediaFiles, (mediaFile) => mediaFile[options.relation]);
 
 	return rows.map((row) => ({ ...row, mediaFiles: mediaFilesByParentId.get(row.id) ?? [] }));

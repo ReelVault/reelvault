@@ -4,8 +4,9 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { isNotNullish, pluckValidIds, toMap } from "@/utils/array.utils";
+import { pluckValidIds, toMap } from "@/utils/array.utils";
 import { MemoryCache } from "@/utils/memory.cache";
+import { isNotNullish } from "@/utils/type.utils";
 
 const RATING_DEFAULT_SOURCE_WEIGHT = 1;
 
@@ -138,11 +139,22 @@ async function loadSourceTraits(client: MoreLikeThisClient, metadataId: string):
 	for (const row of traitRows) {
 		if (!row.id) continue;
 
-		if (row.kind === "collection") collections.push({ id: row.id });
-		else if (row.kind === "genre") genres.push({ id: row.id });
-		else if (row.kind === "keyword") keywords.push({ id: row.id });
-		else if (row.kind === "crew") crew.push({ job: row.extra, data: { id: row.id } });
-		else cast.push({ role: row.extra, sortOrder: row.sortOrder, data: { id: row.id } });
+		switch (row.kind) {
+			case "collection":
+				collections.push({ id: row.id });
+				break;
+			case "genre":
+				genres.push({ id: row.id });
+				break;
+			case "keyword":
+				keywords.push({ id: row.id });
+				break;
+			case "crew":
+				crew.push({ job: row.extra, data: { id: row.id } });
+				break;
+			default:
+				cast.push({ role: row.extra, sortOrder: row.sortOrder, data: { id: row.id } });
+		}
 	}
 
 	return { type: metadataRow.type, collections, genres, keywords, crew, cast };
@@ -161,30 +173,30 @@ interface SimilarityTraits {
 function buildSimilarityScores(traits: SimilarityTraits) {
 	const { collectionIds, genreIds, keywordIds, directors, topCast, type } = traits;
 
-	const collectionScore =
-		collectionIds.length > 0
-			? sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCollections} WHERE ${schema.metadataCollections.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCollections.collectionId, collectionIds)}) THEN -100 ELSE 0 END)`
-			: sql`0`;
+	let collectionScore = sql`0`;
+	if (collectionIds.length > 0) {
+		collectionScore = sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCollections} WHERE ${schema.metadataCollections.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCollections.collectionId, collectionIds)}) THEN -100 ELSE 0 END)`;
+	}
 
-	const genreScore =
-		genreIds.length > 0
-			? sql`(SELECT COUNT(*) * 30 FROM ${schema.metadataGenres} WHERE ${schema.metadataGenres.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataGenres.genreId, genreIds)})`
-			: sql`0`;
+	let genreScore = sql`0`;
+	if (genreIds.length > 0) {
+		genreScore = sql`(SELECT COUNT(*) * 30 FROM ${schema.metadataGenres} WHERE ${schema.metadataGenres.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataGenres.genreId, genreIds)})`;
+	}
 
-	const keywordScore =
-		keywordIds.length > 0
-			? sql`(SELECT COUNT(*) * 12 FROM ${schema.metadataKeywords} WHERE ${schema.metadataKeywords.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataKeywords.keywordId, keywordIds)})`
-			: sql`0`;
+	let keywordScore = sql`0`;
+	if (keywordIds.length > 0) {
+		keywordScore = sql`(SELECT COUNT(*) * 12 FROM ${schema.metadataKeywords} WHERE ${schema.metadataKeywords.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataKeywords.keywordId, keywordIds)})`;
+	}
 
-	const directorScore =
-		directors.length > 0
-			? sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCrew} WHERE ${schema.metadataCrew.metadataId} = ${schema.metadata.id} AND ${schema.metadataCrew.job} LIKE '%Director%' AND ${inArray(schema.metadataCrew.personId, directors)}) THEN 80 ELSE 0 END)`
-			: sql`0`;
+	let directorScore = sql`0`;
+	if (directors.length > 0) {
+		directorScore = sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCrew} WHERE ${schema.metadataCrew.metadataId} = ${schema.metadata.id} AND ${schema.metadataCrew.job} LIKE '%Director%' AND ${inArray(schema.metadataCrew.personId, directors)}) THEN 80 ELSE 0 END)`;
+	}
 
-	const castScore =
-		topCast.length > 0
-			? sql`(SELECT COUNT(*) * 15 FROM ${schema.metadataCast} WHERE ${schema.metadataCast.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCast.personId, topCast)})`
-			: sql`0`;
+	let castScore = sql`0`;
+	if (topCast.length > 0) {
+		castScore = sql`(SELECT COUNT(*) * 15 FROM ${schema.metadataCast} WHERE ${schema.metadataCast.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCast.personId, topCast)})`;
+	}
 
 	// Prefer the same type (movie -> movies, show -> show)
 	const typeScore = sql`CASE WHEN ${schema.metadata.type} = ${type} THEN 50 ELSE 0 END`;

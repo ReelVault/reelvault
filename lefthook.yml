@@ -16,6 +16,9 @@ pre-push:
     oxlint:
       glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
       run: bunx oxlint --type-aware
+    duplicates:
+      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
+      run: bunx jscpd --config .jscpd.json
     types:
       glob: "*.{ts,tsx}"
       run: bunx tsc --noEmit --pretty

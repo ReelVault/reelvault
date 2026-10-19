@@ -79,7 +79,7 @@ class PluginMediaService {
 		// memory for a plugin. Callers page with offset for the rest.
 		const requestedLimit = options?.limit ?? MAX_LIST_MEDIA_LIMIT;
 		const limit = clamp(requestedLimit, 1, MAX_LIST_MEDIA_LIMIT);
-		const offset = options?.offset !== undefined ? Math.max(0, options.offset) : 0;
+		const offset = options?.offset === undefined ? 0 : Math.max(0, options.offset);
 		const rows = await pluginMediaData.findFileRowsPage({ limit, offset });
 
 		return rows.map((row) => ({

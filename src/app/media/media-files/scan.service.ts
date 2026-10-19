@@ -51,8 +51,8 @@ async function probeMediaFile(filePath: string): Promise<{ probeSuccess: boolean
 		if (probe) return { probeSuccess: true, probeErrorCode: null };
 
 		return { probeSuccess: false, probeErrorCode: "media.probe_no_data" };
-	} catch (err) {
-		return { probeSuccess: false, probeErrorCode: errorCodeOf(err, "media.probe_failed") };
+	} catch (error) {
+		return { probeSuccess: false, probeErrorCode: errorCodeOf(error, "media.probe_failed") };
 	}
 }
 
@@ -74,8 +74,8 @@ async function decodeMediaFile(
 		if (ffmpegResult.exitCode === 0) return { decodeSuccess: true, decodeErrorCode: null };
 
 		return { decodeSuccess: false, decodeErrorCode: "media.decode_failed" };
-	} catch (err) {
-		return { decodeSuccess: false, decodeErrorCode: errorCodeOf(err, "media.decode_failed") };
+	} catch (error) {
+		return { decodeSuccess: false, decodeErrorCode: errorCodeOf(error, "media.decode_failed") };
 	}
 }
 

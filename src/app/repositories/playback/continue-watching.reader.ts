@@ -133,12 +133,16 @@ export async function findContinueWatchingData(profileId: string, limit = 24) {
 
 	const [details] = await preparedContinueWatchingDetails(client).execute({ ids: JSON.stringify(metadataIds) });
 
+	if (!details) {
+		return { progressRows, metadataList: [], mediaFiles: [], seasons: [], episodes: [], backdrops: [] };
+	}
+
 	return {
 		progressRows,
-		metadataList: details ? parseJsonRelationArray<ContinueWatchingMetadata>(details.metadataList, metadataKeys, noRevive) : [],
-		mediaFiles: details ? parseJsonRelationArray<ContinueWatchingFile>(details.mediaFiles, fileKeys, fileRevive) : [],
-		seasons: details ? parseJsonRelationArray<SeasonRow>(details.seasons, seasonKeys, noRevive) : [],
-		episodes: details ? parseJsonRelationArray<EpisodeRow>(details.episodes, episodeKeys, noRevive) : [],
-		backdrops: details ? parseJsonRelationArray<ContinueWatchingBackdrop>(details.backdrops, backdropKeys, backdropRevive) : [],
+		metadataList: parseJsonRelationArray<ContinueWatchingMetadata>(details.metadataList, metadataKeys, noRevive),
+		mediaFiles: parseJsonRelationArray<ContinueWatchingFile>(details.mediaFiles, fileKeys, fileRevive),
+		seasons: parseJsonRelationArray<SeasonRow>(details.seasons, seasonKeys, noRevive),
+		episodes: parseJsonRelationArray<EpisodeRow>(details.episodes, episodeKeys, noRevive),
+		backdrops: parseJsonRelationArray<ContinueWatchingBackdrop>(details.backdrops, backdropKeys, backdropRevive),
 	};
 }

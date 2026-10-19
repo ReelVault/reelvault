@@ -104,83 +104,11 @@ function applyNumericFlag(args: BenchmarkArgs, key: string, value: string): void
 }
 
 function applyFlag(args: BenchmarkArgs, key: string, value: string | undefined, extraFlags: ReadonlySet<string>): void {
-	if (key === "help") {
-		args.help = true;
+	if (applySwitchFlag(args, key)) return;
 
-		return;
-	}
+	if (applyValueFlag(args, key, value)) return;
 
-	if (key === "target" && value) {
-		args.target = value;
-
-		return;
-	}
-
-	if (key === "url" && value) {
-		args.baseUrl = value.replace(TRAILING_SLASH_REGEX, "");
-
-		return;
-	}
-
-	if (key === "scenario" && value) {
-		args.scenario = value;
-
-		return;
-	}
-
-	if (key === "keep-server") {
-		args.keepServer = true;
-
-		return;
-	}
-
-	if (key === "no-cache") {
-		args.noCache = true;
-
-		return;
-	}
-
-	if (key === "no-dedup") {
-		args.noDedup = true;
-
-		return;
-	}
-
-	if (key === "json") {
-		args.json = value ?? true;
-
-		return;
-	}
-
-	if (key === "strict") {
-		args.strict = true;
-
-		return;
-	}
-
-	if (key === "save-baseline") {
-		args.saveBaseline = value ?? true;
-
-		return;
-	}
-
-	if (key === "compare-baseline") {
-		args.compareBaseline = value ?? true;
-
-		return;
-	}
-
-	if (key === "only" && value) {
-		args.only = value;
-
-		return;
-	}
-
-	if (key === "concurrency" && value) {
-		args.concurrency = parseConcurrency(value);
-
-		return;
-	}
+	if (applyOptionalValueFlag(args, key, value)) return;
 
 	if (FLAG_NAMES.has(key) && value) {
 		applyNumericFlag(args, key, value);
@@ -196,6 +124,40 @@ function applyFlag(args: BenchmarkArgs, key: string, value: string | undefined, 
 
 	console.warn(`Unknown flag: --${key}`);
 	args.help = true;
+}
+
+/** The flags that only switch a behaviour on. */
+function applySwitchFlag(args: BenchmarkArgs, key: string): boolean {
+	if (key === "help") args.help = true;
+	else if (key === "keep-server") args.keepServer = true;
+	else if (key === "no-cache") args.noCache = true;
+	else if (key === "no-dedup") args.noDedup = true;
+	else if (key === "strict") args.strict = true;
+	else return false;
+
+	return true;
+}
+
+/** The flags that carry a value. */
+function applyValueFlag(args: BenchmarkArgs, key: string, value: string | undefined): boolean {
+	if (key === "target" && value) args.target = value;
+	else if (key === "url" && value) args.baseUrl = value.replace(TRAILING_SLASH_REGEX, "");
+	else if (key === "scenario" && value) args.scenario = value;
+	else if (key === "only" && value) args.only = value;
+	else if (key === "concurrency" && value) args.concurrency = parseConcurrency(value);
+	else return false;
+
+	return true;
+}
+
+/** The flags that carry an optional value. */
+function applyOptionalValueFlag(args: BenchmarkArgs, key: string, value: string | undefined): boolean {
+	if (key === "json") args.json = value ?? true;
+	else if (key === "save-baseline") args.saveBaseline = value ?? true;
+	else if (key === "compare-baseline") args.compareBaseline = value ?? true;
+	else return false;
+
+	return true;
 }
 
 export function parseBenchmarkArgs(extraFlags: ReadonlySet<string> = new Set()): BenchmarkArgs {

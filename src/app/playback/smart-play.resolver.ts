@@ -161,8 +161,8 @@ export function selectMovieSmartPlay(mediaFiles: readonly MediaFile[], progress?
 		return {
 			type: "continue",
 			mediaFileId: progress.mediaFileId,
-			...(progress.audioStreamIndex !== undefined ? { audioStreamIndex: progress.audioStreamIndex } : {}),
-			...(progress.subtitleId !== undefined ? { subtitleId: progress.subtitleId } : {}),
+			...(progress.audioStreamIndex === undefined ? {} : { audioStreamIndex: progress.audioStreamIndex }),
+			...(progress.subtitleId === undefined ? {} : { subtitleId: progress.subtitleId }),
 		};
 	}
 
@@ -194,17 +194,10 @@ export function selectEpisodeSmartPlay(
 	// Find the episode with the most recent progress activity
 	const recent = findMostRecentProgress(playableEpisodes, progressByEpisode);
 	if (recent) {
-		const { episode: mostRecentEpisode, progress: mostRecentProgress } = recent;
-		if (!mostRecentProgress.completed && mostRecentProgress.position > 0) {
-			return {
-				type: "continue",
-				mediaFileId: mostRecentProgress.mediaFileId,
-				...(mostRecentProgress.audioStreamIndex !== undefined ? { audioStreamIndex: mostRecentProgress.audioStreamIndex } : {}),
-				...(mostRecentProgress.subtitleId !== undefined ? { subtitleId: mostRecentProgress.subtitleId } : {}),
-			};
-		}
+		const continued = continueSuggestion(recent.progress);
+		if (continued) return continued;
 
-		const nextEpisode = selectNextEpisodeFile(playableEpisodes, mostRecentEpisode.id, (episode) => filesByEpisode.get(episode.id) ?? []);
+		const nextEpisode = selectNextEpisodeFile(playableEpisodes, recent.episode.id, (episode) => filesByEpisode.get(episode.id) ?? []);
 		if (nextEpisode) {
 			return { type: "next_episode", mediaFileId: nextEpisode.id };
 		}
@@ -224,6 +217,18 @@ export function selectEpisodeSmartPlay(
 	const firstFile = selectPreferredMediaFile(filesByEpisode.get(firstEpisode.id) ?? []);
 
 	return firstFile ? { type: "new", mediaFileId: firstFile.id } : undefined;
+}
+
+/** The "continue" suggestion for a partially watched episode. */
+function continueSuggestion(progress: PlaybackProgress): SmartPlaySuggestion | undefined {
+	if (progress.completed || progress.position <= 0) return undefined;
+
+	return {
+		type: "continue",
+		mediaFileId: progress.mediaFileId,
+		...(progress.audioStreamIndex === undefined ? {} : { audioStreamIndex: progress.audioStreamIndex }),
+		...(progress.subtitleId === undefined ? {} : { subtitleId: progress.subtitleId }),
+	};
 }
 
 export function compareEpisodes(

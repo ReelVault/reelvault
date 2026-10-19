@@ -7,7 +7,7 @@ const option = (overrides: Partial<{ url: string; score: number }> = {}) => ({
 	externalId: "1",
 	type: "poster" as const,
 	url: overrides.url ?? "https://img.example/1.jpg",
-	...(overrides.score !== undefined ? { score: overrides.score } : {}),
+	...(overrides.score === undefined ? {} : { score: overrides.score }),
 });
 
 describe("rankImageOptions", () => {

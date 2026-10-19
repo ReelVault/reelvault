@@ -2,8 +2,9 @@ import { and, eq, gte, inArray, lte, type SQL, sql } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { isNotNullish, trimAndFilter } from "@/utils/array.utils";
+import { trimAndFilter } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
+import { isNotNullish } from "@/utils/type.utils";
 
 export const QueryFiltering = {
 	eq(column: SQLiteColumn, value: string | number | boolean): SQL {

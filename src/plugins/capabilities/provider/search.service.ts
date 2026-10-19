@@ -1,9 +1,9 @@
 import type { MetadataProviderSearchRequest, MetadataProviderSearchResponse } from "@reelvault/sdk/common";
 import type { ProviderSearchRequest, ProviderSearchResponse } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
-import { isNotNullish } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { isNotNullish } from "@/utils/type.utils";
 import { type fetchDetailsByProvider, searchByProviderExternalId } from "./details.service";
 import type { ProviderServiceState, WithoutState } from "./shared.utils";
 import { publishSearchRequested, rankProviderResults, resolveProviders } from "./shared.utils";

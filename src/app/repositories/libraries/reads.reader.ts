@@ -88,11 +88,10 @@ export async function findPage<F extends string>(
  * freshly created duplicates and lets a duplicate slip through as 200.
  */
 export async function hasNameConflict(name: string, type: "movies" | "tv_shows", excludeLibraryId?: string): Promise<boolean> {
-	const row = await libraries.selectFirst({
-		where: excludeLibraryId
-			? and(eq(schema.libraries.name, name), eq(schema.libraries.type, type), ne(schema.libraries.id, excludeLibraryId))
-			: and(eq(schema.libraries.name, name), eq(schema.libraries.type, type)),
-	});
+	const conditions = [eq(schema.libraries.name, name), eq(schema.libraries.type, type)];
+	if (excludeLibraryId) conditions.push(ne(schema.libraries.id, excludeLibraryId));
+
+	const row = await libraries.selectFirst({ where: and(...conditions) });
 
 	return row !== undefined;
 }

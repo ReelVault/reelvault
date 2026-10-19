@@ -91,7 +91,7 @@ export function printMicroResults(results: readonly MicroBenchmarkResult[], titl
 		results.map((result) => {
 			const stats = summarizeLatencies(result.timesMs);
 
-			return [result.name, ...statCells(stats), result.rows !== undefined ? String(result.rows) : "-"];
+			return [result.name, ...statCells(stats), result.rows === undefined ? "-" : String(result.rows)];
 		}),
 	);
 }

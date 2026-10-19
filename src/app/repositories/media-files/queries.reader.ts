@@ -82,9 +82,13 @@ export async function findMany<F extends string>({
 }: ProjectedSelectParams<F>): Promise<Array<SelectFields<MediaFileWithRelation, F>>> {
 	// Field-projected root rows skip the widest columns (filePath, formatName,
 	// …) right in SQL; id+libraryId are required so loadRelations can anchor.
-	const data = fields?.fields.length
-		? await selectManyWithFields(mediaFiles, { fields, required: ["id", "libraryId"], where, orderBy, limit, offset, tx })
-		: await mediaFiles.selectMany({ where, orderBy, limit, offset, tx });
+	const projectionParams = { fields, required: ["id", "libraryId"], where, orderBy, limit, offset, tx };
+	let data: Awaited<ReturnType<typeof mediaFiles.selectMany>>;
+	if (fields?.fields.length) {
+		data = await selectManyWithFields(mediaFiles, projectionParams);
+	} else {
+		data = await mediaFiles.selectMany({ where, orderBy, limit, offset, tx });
+	}
 	const related = await loadRelations(data, tx, fields);
 
 	const results: Array<SelectFields<MediaFileWithRelation, F>> = [];
@@ -188,6 +192,15 @@ export async function findByPrimaryId<F extends string>({
 	const media = await mediaFiles.selectFirstById({ primaryId, tx });
 	if (!media) return undefined;
 
+	return await applyRelations(media, fields, tx);
+}
+
+/** The row with its relation bundle applied, projected to the requested fields. */
+async function applyRelations<F extends string>(
+	media: typeof schema.mediaFiles.$inferSelect,
+	fields: FieldsConfig<F> | undefined,
+	tx: DatabaseTransaction | undefined,
+): Promise<SelectFields<MediaFileWithRelation, F> | undefined> {
 	const relations = (await loadRelations([media], tx, fields)).get(media.id);
 	if (!relations) return undefined;
 
@@ -219,10 +232,7 @@ async function findOneHydrated<F extends string>(
 
 	if (!media) return undefined;
 
-	const relations = (await loadRelations([media], tx, fields)).get(media.id);
-	if (!relations) return undefined;
-
-	return QueryFields.apply<MediaFileWithRelation, F>({ ...media, ...relations }, fields);
+	return await applyRelations(media, fields, tx);
 }
 
 /** Keyset page of file stats — the scanner diffs the library page-by-page instead of loading every row. */
@@ -287,6 +297,28 @@ export async function findCleanupData(mediaFileId: string, tx?: DatabaseTransact
  * directly off them — previously this ran a second `SELECT * FROM media_files WHERE id IN (...)`
  * purely to recover `libraryId`, duplicating a query the caller had already made.
  */
+/** The per-relation projections the field config asks for. */
+function relationProjections<F extends string>(fields?: FieldsConfig<F>) {
+	let videoProjection: typeof videoStreamColumns | undefined;
+	if (fields?.relations.videoStreams?.length) {
+		videoProjection = buildRelationProjection(fields.relations.videoStreams, videoStreamColumns, ["mediaFileId"]);
+	}
+	let audioProjection: typeof audioStreamColumns | undefined;
+	if (fields?.relations.audioStreams?.length) {
+		audioProjection = buildRelationProjection(fields.relations.audioStreams, audioStreamColumns, ["mediaFileId"]);
+	}
+	let libraryProjection: typeof libraryColumns | undefined;
+	if (fields?.relations.library?.length) {
+		libraryProjection = buildRelationProjection(fields.relations.library, libraryColumns, ["id"]);
+	}
+	let subtitleProjection: typeof subtitleColumns | undefined;
+	if (fields?.relations.subtitles?.length) {
+		subtitleProjection = buildRelationProjection(fields.relations.subtitles, subtitleColumns, ["mediaFileId"]);
+	}
+
+	return { videoProjection, audioProjection, libraryProjection, subtitleProjection };
+}
+
 async function loadRelations<F extends string>(
 	mediaFileRows: Array<{ id: string; libraryId: string }>,
 	tx: DatabaseTransaction | undefined,
@@ -296,18 +328,7 @@ async function loadRelations<F extends string>(
 
 	const mediaFileIds = mediaFileRows.map((mediaFile) => mediaFile.id);
 	const client = databaseFactory.getClient({ tx });
-	const videoProjection = fields?.relations.videoStreams?.length
-		? buildRelationProjection(fields.relations.videoStreams, videoStreamColumns, ["mediaFileId"])
-		: undefined;
-	const audioProjection = fields?.relations.audioStreams?.length
-		? buildRelationProjection(fields.relations.audioStreams, audioStreamColumns, ["mediaFileId"])
-		: undefined;
-	const libraryProjection = fields?.relations.library?.length
-		? buildRelationProjection(fields.relations.library, libraryColumns, ["id"])
-		: undefined;
-	const subtitleProjection = fields?.relations.subtitles?.length
-		? buildRelationProjection(fields.relations.subtitles, subtitleColumns, ["mediaFileId"])
-		: undefined;
+	const { videoProjection, audioProjection, libraryProjection, subtitleProjection } = relationProjections(fields);
 	// Single-row bundle: one statement replaces the four batched reads when the
 	// anchor is a single file and every relation is on the default projection.
 	const onlyRow = mediaFileRows.length === 1 ? mediaFileRows[0] : undefined;

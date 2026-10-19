@@ -297,9 +297,12 @@ export class ImageProcessingService {
 		}
 
 		// Sidecar artwork arrives as local absolute paths; provider art as URLs.
-		const persisted = PathUtils.isAbsolute(url)
-			? await this.dependencies.prepareLocalArtwork(url, target, variant, imageType, signal)
-			: await this.dependencies.downloadAndPrepare(url, target, variant, imageType, signal);
+		let persisted: PersistedImageInput;
+		if (PathUtils.isAbsolute(url)) {
+			persisted = await this.dependencies.prepareLocalArtwork(url, target, variant, imageType, signal);
+		} else {
+			persisted = await this.dependencies.downloadAndPrepare(url, target, variant, imageType, signal);
+		}
 		await replace(persisted);
 		this.gc.tick();
 	}

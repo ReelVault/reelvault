@@ -47,14 +47,14 @@ describe("WorkerRegistryService", () => {
 		const registry = new WorkerRegistryService();
 		registry.register(def());
 
-		let error: unknown;
+		let failure: unknown;
 		try {
 			registry.register(def({ handler: async () => "other" }));
-		} catch (caught) {
-			error = caught;
+		} catch (error) {
+			failure = error;
 		}
 
-		expect(error).toMatchObject({ category: "conflict", code: "worker.already_registered" });
+		expect(failure).toMatchObject({ category: "conflict", code: "worker.already_registered" });
 	});
 
 	test("caps explicit concurrency at the allocator ceiling and keeps a lower value", () => {

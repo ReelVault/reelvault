@@ -463,9 +463,9 @@ describe("PluginManager config", () => {
 			source: "test",
 		});
 
-		const error = await manager.savePluginConfig("org.reelvault.locale", { language: "not a locale" }).catch((reason: unknown) => reason);
+		const failure = await manager.savePluginConfig("org.reelvault.locale", { language: "not a locale" }).catch((error: unknown) => error);
 
-		expect(error).toMatchObject({ category: "validation", code: "plugin.config_invalid", params: { field: "language" } });
+		expect(failure).toMatchObject({ category: "validation", code: "plugin.config_invalid", params: { field: "language" } });
 		expect(existsSync(join(await installedDirectory(manager, "org.reelvault.locale"), "config.json"))).toBe(false);
 	});
 
@@ -475,9 +475,9 @@ describe("PluginManager config", () => {
 			source: "test",
 		});
 
-		const error = await manager.savePluginConfig("org.reelvault.required", { apiKey: "   " }).catch((reason: unknown) => reason);
+		const failure = await manager.savePluginConfig("org.reelvault.required", { apiKey: "   " }).catch((error: unknown) => error);
 
-		expect(error).toMatchObject({ category: "validation", code: "plugin.config_invalid", params: { field: "apiKey" } });
+		expect(failure).toMatchObject({ category: "validation", code: "plugin.config_invalid", params: { field: "apiKey" } });
 		expect(existsSync(join(await installedDirectory(manager, "org.reelvault.required"), "config.json"))).toBe(false);
 	});
 

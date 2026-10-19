@@ -8,6 +8,7 @@ import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import type { HlsBufferAnalysis, RequireSession } from "@/modules/streaming/streaming.types";
 import { assertFound } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
+import { isNullish } from "@/utils/type.utils";
 
 export interface DiagnosticsMediaFile {
 	id: string;
@@ -82,7 +83,7 @@ function toBufferProgress(analysis: HlsBufferAnalysis, active: boolean, duration
 		active,
 		transcodedSeconds: round2(analysis.bufferedSeconds),
 		transcodedUntil,
-		remainingSeconds: duration !== null ? Math.max(0, round2(duration - transcodedUntil)) : null,
+		remainingSeconds: duration === null ? null : Math.max(0, round2(duration - transcodedUntil)),
 		progressPercent: calculateBufferProgress(transcodedUntil, duration),
 	};
 }
@@ -101,31 +102,53 @@ type SessionDiagnostics = ReturnType<ServiceDependencies["getSessionDiagnostics"
 
 function sourceDiagnostics(file: DiagnosticsMediaFile, selectedAudioIndex: number | null | undefined) {
 	const defaultVideoStream = selectDefaultOrFirstStream(file.videoStreams ?? []);
-	const audioStreams = file.audioStreams ?? [];
-	let targetAudioStream = selectDefaultOrFirstStream(audioStreams);
-	if (selectedAudioIndex != null) {
-		targetAudioStream = audioStreams.find((s) => s.index === selectedAudioIndex) ?? targetAudioStream;
-	}
+	const targetAudioStream = selectTargetAudioStream(file, selectedAudioIndex);
 
 	return {
 		container: file.formatName ?? file.fileName?.split(".").pop() ?? null,
 		sizeBytes: file.size ?? null,
 		duration: file.duration ?? null,
 		bitrateKbps: file.bitRate ? Math.round(file.bitRate / 1000) : null,
-		videoCodec: defaultVideoStream?.codecName ?? null,
-		videoProfile: defaultVideoStream?.profile ?? null,
-		width: defaultVideoStream?.width ?? null,
-		height: defaultVideoStream?.height ?? null,
-		aspectRatio: defaultVideoStream ? `${defaultVideoStream.width ?? "?"}:${defaultVideoStream.height ?? "?"}` : null,
-		frameRate: defaultVideoStream?.frameRate ?? null,
-		pixelFormat: defaultVideoStream?.pixelFormat ?? null,
-		audioStreamIndex: targetAudioStream?.index ?? null,
-		audioCodec: targetAudioStream?.codecName ?? null,
-		audioChannels: targetAudioStream?.channels ?? null,
-		audioChannelLayout: targetAudioStream?.channelLayout ?? null,
-		audioLanguage: targetAudioStream?.language ?? null,
-		audioTitle: targetAudioStream?.title ?? null,
-		audioBitrateKbps: targetAudioStream?.bitRate ? Math.round(targetAudioStream.bitRate / 1000) : null,
+		...videoSourceFields(defaultVideoStream),
+		...audioSourceFields(targetAudioStream),
+	};
+}
+
+/** The audio stream the session selected, or the default one. */
+function selectTargetAudioStream(
+	file: DiagnosticsMediaFile,
+	selectedAudioIndex: number | null | undefined,
+): ReturnType<typeof selectDefaultOrFirstStream> {
+	const audioStreams = file.audioStreams ?? [];
+	const defaultAudioStream = selectDefaultOrFirstStream(audioStreams);
+	if (isNullish(selectedAudioIndex)) return defaultAudioStream;
+
+	return audioStreams.find((s) => s.index === selectedAudioIndex) ?? defaultAudioStream;
+}
+
+/** The video fields of the source diagnostics. */
+function videoSourceFields(stream: DiagnosticsMediaFile["videoStreams"] extends Array<infer T> | undefined ? T | undefined : never) {
+	return {
+		videoCodec: stream?.codecName ?? null,
+		videoProfile: stream?.profile ?? null,
+		width: stream?.width ?? null,
+		height: stream?.height ?? null,
+		aspectRatio: stream ? `${stream.width ?? "?"}:${stream.height ?? "?"}` : null,
+		frameRate: stream?.frameRate ?? null,
+		pixelFormat: stream?.pixelFormat ?? null,
+	};
+}
+
+/** The audio fields of the source diagnostics. */
+function audioSourceFields(stream: DiagnosticsMediaFile["audioStreams"] extends Array<infer T> | undefined ? T | undefined : never) {
+	return {
+		audioStreamIndex: stream?.index ?? null,
+		audioCodec: stream?.codecName ?? null,
+		audioChannels: stream?.channels ?? null,
+		audioChannelLayout: stream?.channelLayout ?? null,
+		audioLanguage: stream?.language ?? null,
+		audioTitle: stream?.title ?? null,
+		audioBitrateKbps: stream?.bitRate ? Math.round(stream.bitRate / 1000) : null,
 	};
 }
 
@@ -191,7 +214,10 @@ export class DiagnosticsService {
 		assertFound(file, "MediaFile", access.mediaFileId);
 
 		const sessionDiag = getSessionDiagnostics(sessionId);
-		const bufferProgress = bufferAnalysis ? toBufferProgress(bufferAnalysis, isSessionActive(sessionId), file.duration ?? null) : null;
+		let bufferProgress: ReturnType<typeof toBufferProgress> | null = null;
+		if (bufferAnalysis) {
+			bufferProgress = toBufferProgress(bufferAnalysis, isSessionActive(sessionId), file.duration ?? null);
+		}
 
 		return {
 			mediaFileId: file.id,

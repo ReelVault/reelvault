@@ -41,7 +41,12 @@ export async function rematch<F extends string>(
 		assertFound(existing, "Metadata", metadataId);
 
 		// Locked fields keep their stored values unless the administrator asks to overwrite them too.
-		const lockedFields = body.overwriteLocked === true ? [] : await metadataRepository.getLockedFields(metadataId);
+		let lockedFields: string[];
+		if (body.overwriteLocked === true) {
+			lockedFields = [];
+		} else {
+			lockedFields = await metadataRepository.getLockedFields(metadataId);
+		}
 
 		return await updateLinkedProvider(
 			state,

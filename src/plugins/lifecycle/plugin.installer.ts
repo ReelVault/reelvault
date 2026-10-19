@@ -144,7 +144,10 @@ export class PluginInstaller {
 		const existingRecord = (await this.lockfileStore.read()).plugins[manifest.id];
 		const previousRecord = isUpgrade ? existingRecord : undefined;
 		// An upgrade keeps the package it replaces as a rollback point (`previous`). Without a lockfile record there is nothing to roll back to.
-		const backupDirectory = isUpgrade ? PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`) : undefined;
+		let backupDirectory: string | undefined;
+		if (isUpgrade) {
+			backupDirectory = PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`);
+		}
 
 		const record = buildInstallRecord({
 			targetDirectory,

@@ -92,9 +92,33 @@ interface DetailFields {
 	readonly runtimeMinutes?: number;
 }
 
+/** The title-level fields a movie/series document carries; season and episode roots only map the reduced set. */
+type TitleLevelFields = Partial<
+	Pick<CanonicalSidecarDocument, "originalTitle" | "year" | "status" | "genres" | "cast" | "ratings" | "runtimeMinutes">
+>;
+
 /** Rating elements live under the root (Jellyfin) or inside a `<ratings>` wrapper (Kodi/Plex). */
 function readRatingElements(node: Readonly<Record<string, unknown>>): ReadonlyArray<Readonly<Record<string, unknown>>> {
 	return [...readXmlObjects(node, "rating"), ...readXmlObjects(node, "ratings").flatMap((wrapper) => readXmlObjects(wrapper, "rating"))];
+}
+
+/** The performer an `<actor>` block describes; undefined for the crew blocks Jellyfin packs into the same element. */
+function toCastMember(
+	actor: Readonly<Record<string, unknown>>,
+	index: number,
+): { name: string; character?: string; order?: number } | undefined {
+	const name = readXmlText(actor, "name");
+	if (!name) return undefined;
+
+	// Jellyfin packs crew into `<actor>` blocks (job in `<role>`, e.g.
+	// `<type>Producer</type>`) — only performers belong in the cast.
+	const type = readXmlText(actor, "type")?.toLowerCase();
+	if (type !== undefined && type !== "actor" && type !== "gueststar") return undefined;
+
+	const character = readXmlText(actor, "role");
+	const order = toNumber(readXmlText(actor, "order")) ?? toNumber(readXmlText(actor, "sortorder")) ?? index;
+
+	return { name, ...(character === undefined ? {} : { character }), order };
 }
 
 /**
@@ -104,19 +128,10 @@ function readRatingElements(node: Readonly<Record<string, unknown>>): ReadonlyAr
 export function toDetailFields(node: Readonly<Record<string, unknown>>): DetailFields {
 	const genres = readXmlTexts(node, "genre");
 	const cast: Array<{ name: string; character?: string; order?: number }> = [];
-	readXmlObjects(node, "actor").forEach((actor, index) => {
-		const name = readXmlText(actor, "name");
-		if (!name) return;
-
-		// Jellyfin packs crew into `<actor>` blocks (job in `<role>`, e.g.
-		// `<type>Producer</type>`) — only performers belong in the cast.
-		const type = readXmlText(actor, "type")?.toLowerCase();
-		if (type !== undefined && type !== "actor" && type !== "gueststar") return;
-
-		const character = readXmlText(actor, "role");
-		const order = toNumber(readXmlText(actor, "order")) ?? toNumber(readXmlText(actor, "sortorder")) ?? index;
-		cast.push({ name, ...(character !== undefined ? { character } : {}), order });
-	});
+	for (const [index, actor] of readXmlObjects(node, "actor").entries()) {
+		const performer = toCastMember(actor, index);
+		if (performer) cast.push(performer);
+	}
 	const ratings: Array<{ source: string; value: number; voteCount?: number }> = [];
 	for (const rating of readRatingElements(node)) {
 		const value = toNumber(readXmlText(rating, "value")) ?? toNumber(readXmlValue(rating));
@@ -126,7 +141,7 @@ export function toDetailFields(node: Readonly<Record<string, unknown>>): DetailF
 		ratings.push({
 			source: readXmlAttr(rating, "name") ?? readXmlText(rating, "name") ?? "sidecar",
 			value,
-			...(voteCount !== undefined ? { voteCount } : {}),
+			...(voteCount === undefined ? {} : { voteCount }),
 		});
 	}
 
@@ -142,7 +157,7 @@ export function toDetailFields(node: Readonly<Record<string, unknown>>): DetailF
 		...(genres.length > 0 ? { genres } : {}),
 		...(cast.length > 0 ? { cast } : {}),
 		...(ratings.length > 0 ? { ratings } : {}),
-		...(runtimeMinutes !== undefined ? { runtimeMinutes } : {}),
+		...(runtimeMinutes === undefined ? {} : { runtimeMinutes }),
 	};
 }
 
@@ -165,24 +180,29 @@ export async function readTitleDocument(
 	/** Parsed once by callers that try several roots (the format adapter). */
 	preloaded?: XmlDocument | null,
 ): Promise<CanonicalSidecarDocument | null> {
-	const document = preloaded === undefined ? await loadJellyfinDocument(documentPath, content) : preloaded;
+	let document: XmlDocument | null | undefined = preloaded;
+	if (preloaded === undefined) {
+		document = await loadJellyfinDocument(documentPath, content);
+	}
 	const node = document ? readXmlObject(document, root) : undefined;
 	if (!node) return null;
 
 	const titleLevel = mediaKind === "movie" || mediaKind === "series";
+	let titleFields: TitleLevelFields = {};
+	if (titleLevel) {
+		titleFields = {
+			originalTitle: readXmlText(node, "originaltitle"),
+			year: extractYear(readXmlText(node, "year")),
+			status: readXmlText(node, "status"),
+			...toDetailFields(node),
+		};
+	}
 
 	return {
 		mediaKind,
 		identifiers: toIdentifiers(node),
 		title: readXmlText(node, "title"),
-		...(titleLevel
-			? {
-					originalTitle: readXmlText(node, "originaltitle"),
-					year: extractYear(readXmlText(node, "year")),
-					status: readXmlText(node, "status"),
-					...toDetailFields(node),
-				}
-			: {}),
+		...titleFields,
 		releaseDate: readReleaseDate(node, releaseDateElement),
 		overview: readXmlText(node, "plot"),
 		...(withTagline ? { tagline: readXmlText(node, "tagline") } : {}),

@@ -1,6 +1,6 @@
 import type { CreateMetadata, FieldsQuery, MetadataWithRelation, SelectFields } from "@reelvault/sdk/common";
 import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
-import { and, eq } from "drizzle-orm";
+import { and, eq, type SQL } from "drizzle-orm";
 import { providersRepository } from "@/app/repositories/providers.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -13,6 +13,9 @@ import { hasEntry } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { findById, getLockedFields } from "./queries.reader";
 import { findMetadataProvider, logger, metadataProviders, metadataTable, normalizeProviderLinks } from "./shared.utils";
+
+/** The scalar values a metadata row is written with. */
+type MetadataInsertValues = Parameters<typeof metadataTable.findOrCreate>[0]["values"];
 
 /**
  * A season/episode sync reported fallback-language content for this title —
@@ -84,7 +87,9 @@ export async function createAndRead<F extends string>(
 		return created;
 	});
 
-	return metadata ? await findById({ primaryId: metadata.id, fields }) : undefined;
+	if (!metadata) return undefined;
+
+	return await findById({ primaryId: metadata.id, fields });
 }
 
 export async function updateAndRead<F extends string>(
@@ -133,6 +138,34 @@ export async function findOrCreateByIdentity({
 	// identity (the fallback WHERE compared the raw values). The stable key is
 	// the row identity, so re-read by it.
 	return await metadataTable.selectFirst({ where: eq(schema.metadata.stableKey, stableKey), tx });
+}
+
+/** Applies the unlocked scalar values to an existing metadata row, or creates the row. */
+async function upsertMetadataRow(
+	metadata: typeof schema.metadata.$inferSelect | undefined,
+	metadataValues: MetadataInsertValues,
+	metadataWhere: SQL | undefined,
+	tx: DatabaseTransaction | undefined,
+): Promise<typeof schema.metadata.$inferSelect | undefined> {
+	if (!metadata) return await metadataTable.findOrCreate({ where: metadataWhere, values: metadataValues, tx });
+
+	// Never clobber scalar fields the user explicitly locked.
+	const locked = new Set(await getLockedFields(metadata.id, tx));
+	const updateValues: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(metadataValues)) {
+		if (!locked.has(key)) updateValues[key] = value;
+	}
+
+	if (!hasEntry(updateValues)) return metadata;
+
+	const [updated] = await databaseFactory
+		.getClient({ tx })
+		.update(schema.metadata)
+		.set(updateValues)
+		.where(eq(schema.metadata.id, metadata.id))
+		.returning();
+
+	return updated ?? metadata;
 }
 
 /**
@@ -190,27 +223,7 @@ export async function findOrCreateMetadata({
 		...toMetadataValues(results, providerName, matchScore),
 	};
 	let metadata = existingByStableKey ?? existingMetadata ?? undefined;
-	if (metadata) {
-		// Never clobber scalar fields the user explicitly locked.
-		const locked = new Set(await getLockedFields(metadata.id, tx));
-		const updateValues: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(metadataValues)) {
-			if (!locked.has(key)) updateValues[key] = value;
-		}
-
-		const hasUpdates = hasEntry(updateValues);
-		if (hasUpdates) {
-			const [updated] = await databaseFactory
-				.getClient({ tx })
-				.update(schema.metadata)
-				.set(updateValues)
-				.where(eq(schema.metadata.id, metadata.id))
-				.returning();
-			metadata = updated ?? metadata;
-		}
-	} else {
-		metadata = await metadataTable.findOrCreate({ where: metadataWhere, values: metadataValues, tx });
-	}
+	metadata = await upsertMetadataRow(metadata, metadataValues, metadataWhere, tx);
 
 	if (!metadata) throw new DomainError("internal", "Error while creating metadata", { code: "metadata.create_failed" });
 

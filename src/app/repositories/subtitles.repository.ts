@@ -140,10 +140,10 @@ const overrides = {
 		let sourceCondition: SQL | undefined;
 		if (streamIndex !== undefined) {
 			sourceCondition = eq(subtitles.table.streamIndex, streamIndex);
-		} else if (filePath !== undefined) {
-			sourceCondition = eq(subtitles.table.filePath, filePath);
-		} else {
+		} else if (filePath === undefined) {
 			sourceCondition = isNull(subtitles.table.filePath);
+		} else {
+			sourceCondition = eq(subtitles.table.filePath, filePath);
 		}
 
 		return await getSubtitlesRepository()

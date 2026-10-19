@@ -11,6 +11,7 @@ import type { StreamingLifecycleCallbacks } from "@/modules/streaming/streaming.
 import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { detach, PromiseUtils } from "@/utils/promise.utils";
+import { isNullish } from "@/utils/type.utils";
 import { RESERVATION_DEADLINE_MS, type SessionStore } from "./session.store";
 import type { SessionReservationTracker } from "./session-reservation.tracker";
 
@@ -23,6 +24,15 @@ interface SessionReaperDeps {
 	playlistWaiter: { invalidate(id: string): void; clear(): void };
 	softwareFallbackSessions: Set<string>;
 	implicitSeek: { invalidate(id: string): void };
+}
+
+/** Best-effort cleanup step: a failure here must not stop the other cleanup steps. */
+async function ignoreFailure(work: Promise<unknown>): Promise<void> {
+	try {
+		await work;
+	} catch {
+		/* intentionally empty */
+	}
 }
 
 export class SessionReaper {
@@ -152,19 +162,20 @@ export class SessionReaper {
 		if (process) ffmpegProcessTracker.markIntentionalKill(sessionId);
 
 		try {
-			await Promise.all([
-				session?.operationId
-					? lifecycleCallbacks.cancelOperation(session.operationId).catch(() => {
-							/* intentionally empty */
-						})
-					: undefined,
-				session?.operationId ? transcodeProgressMonitor.onSessionReleased(sessionId, session.operationId) : undefined,
-				process
-					? killFfmpegProcessGracefully(process).catch(() => {
-							/* intentionally empty */
-						})
-					: undefined,
-			]);
+			let cancelOperation: Promise<void> | undefined;
+			if (session?.operationId) {
+				cancelOperation = ignoreFailure(lifecycleCallbacks.cancelOperation(session.operationId));
+			}
+			let releaseProgress: Promise<void> | undefined;
+			if (session?.operationId) {
+				releaseProgress = transcodeProgressMonitor.onSessionReleased(sessionId, session.operationId);
+			}
+			let killProcess: Promise<void> | undefined;
+			if (process) {
+				killProcess = ignoreFailure(killFfmpegProcessGracefully(process));
+			}
+
+			await Promise.all([cancelOperation, releaseProgress, killProcess]);
 			if (process) ffmpegProcessTracker.forgetStderrTail(process);
 
 			await this.processManager.removeTempDirectory(PathUtils.join(config.tempRootDir, sessionId));
@@ -193,7 +204,7 @@ export class SessionReaper {
 							operationId: session.operationId,
 							playedSeconds: playback.playedSeconds,
 							furthestPositionSeconds: playback.furthestPosition,
-							durationSeconds: session.durationMs != null ? Math.round(session.durationMs / 1000) : null,
+							durationSeconds: isNullish(session.durationMs) ? null : Math.round(session.durationMs / 1000),
 						});
 					} catch (error) {
 						this.logger.error("Playback session end callback failed", error, { sessionId });

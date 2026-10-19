@@ -21,8 +21,13 @@ export async function resolvePluginDirectoryName(
 	pluginsDirectory: string,
 ): Promise<string | undefined> {
 	const record = lockfile.plugins[pluginId];
-	if (record && isPluginDirectoryName(record.directory) && PathUtils.getFileName(record.directory) === record.directory) {
-		if (await DirUtils.exists(PathUtils.join(pluginsDirectory, record.directory))) return record.directory;
+	if (
+		record &&
+		isPluginDirectoryName(record.directory) &&
+		PathUtils.getFileName(record.directory) === record.directory &&
+		(await DirUtils.exists(PathUtils.join(pluginsDirectory, record.directory)))
+	) {
+		return record.directory;
 	}
 
 	for (const dirName of await DirUtils.listDirs(pluginsDirectory)) {

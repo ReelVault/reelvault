@@ -132,29 +132,31 @@ async function loadResolvedSchema(
  */
 export async function resolvePluginUiSchemas(pluginDir: string, manifest: PluginUiManifest): Promise<PluginUiManifest> {
 	const dialogIds = new Set((manifest.dialogs ?? []).map((dialog) => dialog.id));
-	const pages = manifest.pages
-		? await Promise.all(
-				manifest.pages.map(async (page, index) => {
-					if (!page.schemaRef) return page;
+	let pages: PluginUiManifest["pages"];
+	if (manifest.pages) {
+		pages = await Promise.all(
+			manifest.pages.map(async (page, index) => {
+				if (!page.schemaRef) return page;
 
-					const schema = await loadResolvedSchema(pluginDir, page.schemaRef, `ui.pages[${index}]`, dialogIds);
+				const schema = await loadResolvedSchema(pluginDir, page.schemaRef, `ui.pages[${index}]`, dialogIds);
 
-					return { ...page, schema, schemaRef: undefined };
-				}),
-			)
-		: undefined;
+				return { ...page, schema, schemaRef: undefined };
+			}),
+		);
+	}
 
-	const dialogs = manifest.dialogs
-		? await Promise.all(
-				manifest.dialogs.map(async (dialog, index) => {
-					if (!dialog.schemaRef) return dialog;
+	let dialogs: PluginUiManifest["dialogs"];
+	if (manifest.dialogs) {
+		dialogs = await Promise.all(
+			manifest.dialogs.map(async (dialog, index) => {
+				if (!dialog.schemaRef) return dialog;
 
-					const schema = await loadResolvedSchema(pluginDir, dialog.schemaRef, `ui.dialogs[${index}]`, dialogIds);
+				const schema = await loadResolvedSchema(pluginDir, dialog.schemaRef, `ui.dialogs[${index}]`, dialogIds);
 
-					return { ...dialog, schema, schemaRef: undefined };
-				}),
-			)
-		: undefined;
+				return { ...dialog, schema, schemaRef: undefined };
+			}),
+		);
+	}
 
 	return {
 		...manifest,

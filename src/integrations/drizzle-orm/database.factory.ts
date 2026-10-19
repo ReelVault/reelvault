@@ -254,7 +254,10 @@ export class DatabaseFactory {
 		}
 
 		const holdsWriteLock = this.writeLockStore.getStore() === true;
-		const releaseLock = holdsWriteLock ? undefined : await this.acquireWriteLock();
+		let releaseLock: (() => void) | undefined;
+		if (!holdsWriteLock) {
+			releaseLock = await this.acquireWriteLock();
+		}
 		const txClient = this.getTransactionClient();
 
 		try {

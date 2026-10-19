@@ -59,7 +59,7 @@ function parseArgs(): CliOptions {
 	const flagValue = (flag: string): string | undefined => {
 		const index = argv.indexOf(flag);
 
-		return index !== -1 ? (argv[index + 1] ?? undefined) : undefined;
+		return index === -1 ? undefined : (argv[index + 1] ?? undefined);
 	};
 
 	const scenarioInput = flagValue("--scenario") ?? "browse";

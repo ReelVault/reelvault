@@ -1,6 +1,5 @@
-import { isNotNullish } from "@/utils/array.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { isRecord } from "@/utils/type.utils";
+import { isNotNullish, isRecord } from "@/utils/type.utils";
 
 // Paginated lists re-run the same COUNT every page. The count scan (often with
 // a correlated EXISTS per row) is serialized onto the same connection as the

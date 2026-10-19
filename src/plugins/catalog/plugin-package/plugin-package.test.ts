@@ -294,8 +294,8 @@ function buildTar(entries: TarEntry[]): Uint8Array<ArrayBuffer> {
 				prefix,
 				size: data?.byteLength ?? 0,
 				type,
-				...(entry.linkTo !== undefined ? { linkTo: entry.linkTo } : {}),
-				...(entry.mode !== undefined ? { mode: entry.mode } : {}),
+				...(entry.linkTo === undefined ? {} : { linkTo: entry.linkTo }),
+				...(entry.mode === undefined ? {} : { mode: entry.mode }),
 			}),
 		);
 		if (data) blocks.push(padToBlock(data));

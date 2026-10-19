@@ -73,7 +73,7 @@ export class SegmentService {
 		try {
 			const segmentDuration = serverConfig.stream.hlsSegmentDurationSeconds;
 			const sessionStartTime = runtime.getSessionStartTime(sessionId);
-			const segmentInfo = segment !== INIT_SEGMENT_FILE_NAME ? runtime.getSegmentInfo(segment) : null;
+			const segmentInfo = segment === INIT_SEGMENT_FILE_NAME ? null : runtime.getSegmentInfo(segment);
 
 			if (segmentInfo && sessionStartTime !== undefined && segmentInfo.startTime < sessionStartTime) {
 				throw new DomainError("not_found", `Obsolete segment requested: ${segment}`, { code: "stream.segment_obsolete" });
@@ -85,7 +85,7 @@ export class SegmentService {
 				signal,
 				isSeeking: () => runtime.isSessionSeeking(sessionId),
 				isNearActiveWindow:
-					!!segmentInfo && sessionStartTime !== undefined && segmentInfo.startTime <= sessionStartTime + segmentDuration * 2,
+					segmentInfo !== null && sessionStartTime !== undefined && segmentInfo.startTime <= sessionStartTime + segmentDuration * 2,
 			};
 
 			const existing = await this.dependencies.lookup.find(context);

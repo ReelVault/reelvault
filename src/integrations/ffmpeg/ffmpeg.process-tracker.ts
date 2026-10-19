@@ -1,5 +1,6 @@
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
+import { isNullish } from "@/utils/type.utils";
 
 const logger = createLogger("FFmpegProcessTracker");
 
@@ -151,7 +152,7 @@ class FFmpegProcessTracker {
 	}
 
 	isIntentionalKill(label: string | null | undefined): boolean {
-		return label != null && this.intentionalKillLabels.has(label);
+		return !isNullish(label) && this.intentionalKillLabels.has(label);
 	}
 
 	clearIntentionalKill(label: string | null | undefined): void {

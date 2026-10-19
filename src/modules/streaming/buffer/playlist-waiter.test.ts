@@ -90,9 +90,9 @@ describe("playlist waiter", () => {
 		const { waiter } = createWaiter("pending", { pending: true });
 		const started = Date.now();
 
-		const error: unknown = await waiter.waitForPlaylist("s1", 60, async () => false).catch((caught: unknown) => caught);
+		const failure: unknown = await waiter.waitForPlaylist("s1", 60, async () => false).catch((error: unknown) => error);
 
-		expect(error).toMatchObject({ category: "timeout", code: "playlist_generation_timeout" });
+		expect(failure).toMatchObject({ category: "timeout", code: "playlist_generation_timeout" });
 		expect(Date.now() - started).toBeGreaterThanOrEqual(50);
 	});
 });

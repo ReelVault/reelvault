@@ -115,15 +115,20 @@ export async function getLibraryHealth(state: LibrariesServiceState): Promise<Li
 			for (const libraryPath of library.paths) {
 				const stat = statsByPathId.get(libraryPath.id);
 				const failure = unwatchable.get(libraryPath.id);
+				let failureMeta: { unwatchableCode?: UnwatchableCode; unwatchableSince?: string } = {};
+				if (failure) {
+					failureMeta = {
+						unwatchableCode: unwatchableCodeOf(failure.reason),
+						unwatchableSince: new Date(failure.since).toISOString(),
+					};
+				}
 				paths.push({
 					pathId: libraryPath.id,
 					path: libraryPath.path,
 					exists: stat?.exists ?? false,
 					isDirectory: stat?.isDirectory ?? false,
 					watchStatus: failure ? "unwatchable" : "watching",
-					...(failure
-						? { unwatchableCode: unwatchableCodeOf(failure.reason), unwatchableSince: new Date(failure.since).toISOString() }
-						: {}),
+					...failureMeta,
 				});
 			}
 

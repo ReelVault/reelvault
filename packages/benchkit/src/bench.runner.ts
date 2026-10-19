@@ -123,7 +123,7 @@ async function runBenchUnit(
 		name: entry.name,
 		...(unit.group.length > 0 ? { group: unit.group } : {}),
 		stats: summarizeLatencies(entry.timesMs),
-		...(entry.rows !== undefined ? { rows: entry.rows } : {}),
+		...(entry.rows === undefined ? {} : { rows: entry.rows }),
 	});
 	baselineOut?.push({
 		kind: "bench",
@@ -223,39 +223,42 @@ function readDescription(module: unknown): string {
 	return "";
 }
 
-/** Discovers, imports and runs *.bench.ts files sequentially, gc-ing between them. */
-export async function runDiscovery(options: DiscoveryOptions): Promise<void> {
-	const { files, command, target } = options;
-	const stems = files.map((file) => stemOf(file));
-
+/** The benchmark files the target names, or undefined when the run must stop. */
+function selectTargetFiles(files: readonly string[], stems: string[], command: string, target: string | undefined): string[] | undefined {
 	if (!target || target === "help" || target === "--help" || target === "-h") {
 		printRunnerUsage(command, stems);
 
-		return;
+		return undefined;
 	}
 
 	if (files.length === 0) {
 		console.error("No *.bench.ts files found.");
 		process.exitCode = 1;
 
-		return;
+		return undefined;
 	}
 
-	let selected: string[];
-	if (target === "all") {
-		selected = [...files];
-	} else {
-		const index = stems.indexOf(target);
-		if (index === -1) {
-			console.error(`Unknown benchmark suite: "${target}"\n`);
-			printRunnerUsage(command, stems);
-			process.exitCode = 1;
+	if (target === "all") return [...files];
 
-			return;
-		}
+	const index = stems.indexOf(target);
+	if (index === -1) {
+		console.error(`Unknown benchmark suite: "${target}"\n`);
+		printRunnerUsage(command, stems);
+		process.exitCode = 1;
 
-		selected = [files[index] ?? ""];
+		return undefined;
 	}
+
+	return [files[index] ?? ""];
+}
+
+/** Discovers, imports and runs *.bench.ts files sequentially, gc-ing between them. */
+export async function runDiscovery(options: DiscoveryOptions): Promise<void> {
+	const { files, command, target } = options;
+	const stems = files.map((file) => stemOf(file));
+
+	const selected = selectTargetFiles(files, stems, command, target);
+	if (!selected) return;
 
 	const onlyPattern = options.only;
 	let onlyRe: RegExp | undefined;

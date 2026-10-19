@@ -22,17 +22,20 @@ export type MediaMarkerListQuery = MediaMarkerFilters & { limit?: number };
 function markerListWhere(query: MediaMarkerListQuery): SQL | undefined {
 	const term = query.q?.trim();
 
+	let termFilter: SQL | undefined;
+	if (term) {
+		termFilter = or(
+			QueryFiltering.like(mediaMarkers.table.label, term),
+			QueryFiltering.like(mediaMarkers.table.mediaFileId, term),
+			QueryFiltering.like(mediaMarkers.table.pluginId, term),
+			QueryFiltering.like(mediaMarkers.table.type, term),
+		);
+	}
+
 	return and(
 		query.type ? eq(mediaMarkers.table.type, query.type) : undefined,
 		query.source ? eq(mediaMarkers.table.source, query.source) : undefined,
-		term
-			? or(
-					QueryFiltering.like(mediaMarkers.table.label, term),
-					QueryFiltering.like(mediaMarkers.table.mediaFileId, term),
-					QueryFiltering.like(mediaMarkers.table.pluginId, term),
-					QueryFiltering.like(mediaMarkers.table.type, term),
-				)
-			: undefined,
+		termFilter,
 	);
 }
 
@@ -166,10 +169,10 @@ const overrides = {
 					pluginId: marker.pluginId ?? options?.pluginId ?? null,
 				})),
 			);
-			const inserted =
-				records.length === 0
-					? []
-					: await mapChunked(records, (recordChunk) => client.insert(mediaMarkers.table).values(recordChunk).returning());
+			let inserted: Array<typeof mediaMarkers.table.$inferSelect> = [];
+			if (records.length > 0) {
+				inserted = await mapChunked(records, (recordChunk) => client.insert(mediaMarkers.table).values(recordChunk).returning());
+			}
 
 			const beforeByFile = groupBy(before, (row) => row.mediaFileId);
 			const afterByFile = groupBy(inserted, (row) => row.mediaFileId);

@@ -448,7 +448,7 @@ if (!args.help) {
 	});
 
 	const zipPath = resolvePluginZip();
-	if (!zipPath) {
+	if (zipPath === undefined) {
 		console.log("[plugins] skipped — org.reelvault.requests zip not found under ../../plugins/dist/plugins (clone the plugins repo)");
 	} else {
 		const serverFixture = suiteServerFixture(args);

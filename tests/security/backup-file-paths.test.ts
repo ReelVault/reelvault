@@ -70,7 +70,7 @@ test("a backup that cannot be written fails with its own code and the exit statu
 
 	const failure = await databaseFactory.backup(unwritable).then(
 		() => undefined,
-		(caught: unknown) => caught,
+		(error: unknown) => error,
 	);
 
 	if (!(failure instanceof DomainError && failure.category === "internal"))

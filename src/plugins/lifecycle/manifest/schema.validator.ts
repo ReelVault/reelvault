@@ -370,7 +370,7 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 				});
 			}
 
-			return;
+			break;
 		case "close":
 			return;
 		case "toast":

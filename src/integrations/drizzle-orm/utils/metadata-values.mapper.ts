@@ -18,6 +18,6 @@ export function toMetadataValues(results: ProviderMetadataResult, providerName: 
 		revenue: results.revenue,
 		popularity: results.popularity,
 		hasMissingTranslation: results.hasMissingTranslation ?? false,
-		...(matchScore !== undefined ? { matchScore } : {}),
+		...(matchScore === undefined ? {} : { matchScore }),
 	};
 }

@@ -1,7 +1,7 @@
 import type { ProviderMetadataResult, ProviderRating } from "@reelvault/sdk/plugin";
 import { DomainError } from "@/utils/domain.errors";
 import { isValidRating } from "@/utils/math.utils";
-import { isNonEmptyString } from "@/utils/type.utils";
+import { isNonEmptyString, isNullish } from "@/utils/type.utils";
 
 export interface ProviderContribution {
 	providerId: string;
@@ -118,7 +118,7 @@ function firstDefined<T>(
 ): T | undefined {
 	for (const contribution of contributions) {
 		const value = pick(contribution.metadata);
-		if (value != null) return value;
+		if (!isNullish(value)) return value;
 	}
 
 	return undefined;

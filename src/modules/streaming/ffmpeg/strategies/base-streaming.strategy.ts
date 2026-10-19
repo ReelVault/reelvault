@@ -11,6 +11,7 @@ import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
+import { isNullish } from "@/utils/type.utils";
 
 /**
  * Shared plumbing for streaming strategies: the ffmpeg builder chain, progress
@@ -106,7 +107,8 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 				ffmpegProcessTracker.clearIntentionalKill(sessionId);
 
 				if (exitCode === 0) this.logger.debug("FFmpeg process completed successfully", { sessionId, mode });
-				else if (intentional || signalCode != null) this.logger.warn("FFmpeg process stopped", { sessionId, mode, exitCode, signalCode });
+				else if (intentional || !isNullish(signalCode))
+					this.logger.warn("FFmpeg process stopped", { sessionId, mode, exitCode, signalCode });
 				else this.logger.error("FFmpeg process exited with error", error, { sessionId, exitCode, signalCode });
 
 				detach(transcodeProgressMonitor.onFfmpegExit(sessionId, exitCode, signalCode, handle.process));

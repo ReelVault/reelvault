@@ -63,7 +63,7 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
 				type: "episode",
 				season,
 				episode,
-				...(episodeEnd !== undefined ? { episodeEnd } : {}),
+				...(episodeEnd === undefined ? {} : { episodeEnd }),
 				year: year ? Number.parseInt(year, 10) : undefined,
 			};
 		}
@@ -149,7 +149,7 @@ function extractSeasonEpisodeUncached(fileName: string): { season?: number; epis
 
 	return {
 		...(seasonStr ? { season: Number.parseInt(seasonStr, 10) } : {}),
-		...(episodeNumber !== undefined ? { episode: episodeNumber } : {}),
+		...(episodeNumber === undefined ? {} : { episode: episodeNumber }),
 		...(episodeNumber !== undefined && endNumber !== undefined && endNumber > episodeNumber ? { episodeEnd: endNumber } : {}),
 	};
 }

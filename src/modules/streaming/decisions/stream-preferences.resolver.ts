@@ -42,7 +42,18 @@ export function selectPreferredAudioStream<T extends AudioStream>(
 		return baselineCandidate;
 	}
 
-	// Baseline is not natively supported (e.g. EAC3 / AC3) - look for an equivalent compatible stream (e.g. AAC)
+	return findCompatibleStream(candidates, baselineCandidate, supportedCodecs) ?? baselineCandidate;
+}
+
+/**
+ * Baseline is not natively supported (e.g. EAC3 / AC3) - look for an equivalent
+ * compatible stream (e.g. AAC) with the same language or the same title.
+ */
+function findCompatibleStream<T extends AudioStream>(
+	candidates: readonly T[],
+	baselineCandidate: T,
+	supportedCodecs: ReadonlySet<string>,
+): T | undefined {
 	const normalizedLangByIndex = new Map<number, string | undefined>();
 	for (const stream of candidates) normalizedLangByIndex.set(stream.index, normalizeLanguage(stream.language));
 
@@ -65,7 +76,7 @@ export function selectPreferredAudioStream<T extends AudioStream>(
 		if (baselineTitle !== "" && streamTitle !== "" && baselineTitle === streamTitle) return stream;
 	}
 
-	return baselineCandidate;
+	return undefined;
 }
 
 export function selectDefaultOrFirstStream<T extends { index: number; isDefault: boolean }>(streams: readonly T[]): T | undefined {

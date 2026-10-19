@@ -193,5 +193,7 @@ export function shouldLoadRelation<F extends string>(
 }
 
 async function loadIf<T>(condition: boolean, load: () => T[] | Promise<T[]>): Promise<T[]> {
-	return condition ? await load() : [];
+	if (!condition) return [];
+
+	return await load();
 }

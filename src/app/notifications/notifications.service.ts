@@ -1,4 +1,4 @@
-import type { CreateNotification, Notification, PaginatedResponse } from "@reelvault/sdk/common";
+import type { CreateNotification, Notification, PaginatedResponse, RealtimePayload } from "@reelvault/sdk/common";
 import { notificationsRepository } from "@/app/repositories/notifications.repository";
 import { playbackRepository } from "@/app/repositories/playback.repository";
 import { profilePreferencesRepository } from "@/app/repositories/profile-preferences.repository";
@@ -36,6 +36,18 @@ function unreadCountKey(userId: string, profileId?: string): string {
 	return profileId ? `${userId}:${profileId}` : userId;
 }
 
+/** The distinct profiles behind a set of viewer and watchlist rows. */
+function collectRecipients(items: Array<{ userId: string; profileId: string | null }>): Map<string, { userId: string; profileId: string }> {
+	const recipients = new Map<string, { userId: string; profileId: string }>();
+	for (const item of items) {
+		if (item.profileId && item.userId && !recipients.has(item.profileId)) {
+			recipients.set(item.profileId, { userId: item.userId, profileId: item.profileId });
+		}
+	}
+
+	return recipients;
+}
+
 class NotificationsService {
 	readonly serviceName = "NotificationsService";
 	readonly logger = createLogger("NotificationsService");
@@ -51,17 +63,7 @@ class NotificationsService {
 
 			const sourcePluginId = options?.sourcePluginId ?? null;
 			if (sourcePluginId) {
-				// Per-plugin flood guard: throw (instead of silently dropping) so the
-				// plugin learns its notifications are not being delivered.
-				const startOfDay = new Date();
-				startOfDay.setHours(0, 0, 0, 0);
-				const createdToday = await notificationsRepository.countCreatedByPluginSince(sourcePluginId, startOfDay);
-				const maxPerDay = serverConfig.plugins.notifications.maxPerDayPerPlugin;
-				if (createdToday >= maxPerDay) {
-					throw new DomainError("validation", `Plugin '${sourcePluginId}' exceeded the daily notification limit (${maxPerDay})`, {
-						code: "plugin.notifications.rate_limited",
-					});
-				}
+				await this.assertPluginNotificationQuota(sourcePluginId);
 			}
 
 			const id = await notificationsRepository.create({
@@ -97,16 +99,43 @@ class NotificationsService {
 			};
 			if (notification.profileId) {
 				// A muted type still exists for the profile's list and plugins; it just does not interrupt with a live event.
-				const muted = await this.mutedTypesFor(notification.profileId);
-				if (!muted.includes(notification.type)) {
-					realtimeService.sendToProfile(notification.profileId, "notification:created", realtimePayload);
-				}
+				await this.sendProfileRealtimeCreated(notification, realtimePayload);
 			} else {
 				realtimeService.sendToUser(notification.userId, "notification:created", realtimePayload);
 			}
 
 			return id;
 		});
+	}
+
+	/** Sends the live event to a profile, unless the profile muted that type. */
+	private async sendProfileRealtimeCreated(
+		notification: CreateNotification,
+		payload: RealtimePayload<"notification:created">,
+	): Promise<void> {
+		const profileId = notification.profileId;
+		if (!profileId) return;
+
+		const muted = await this.mutedTypesFor(profileId);
+		if (muted.includes(notification.type)) return;
+
+		realtimeService.sendToProfile(profileId, "notification:created", payload);
+	}
+
+	/**
+	 * Per-plugin flood guard: throw (instead of silently dropping) so the
+	 * plugin learns its notifications are not being delivered.
+	 */
+	private async assertPluginNotificationQuota(sourcePluginId: string): Promise<void> {
+		const startOfDay = new Date();
+		startOfDay.setHours(0, 0, 0, 0);
+		const createdToday = await notificationsRepository.countCreatedByPluginSince(sourcePluginId, startOfDay);
+		const maxPerDay = serverConfig.plugins.notifications.maxPerDayPerPlugin;
+		if (createdToday >= maxPerDay) {
+			throw new DomainError("validation", `Plugin '${sourcePluginId}' exceeded the daily notification limit (${maxPerDay})`, {
+				code: "plugin.notifications.rate_limited",
+			});
+		}
 	}
 
 	/** Notification types the profile has muted; none without a profile. */
@@ -156,10 +185,12 @@ class NotificationsService {
 			const key = unreadCountKey(userId, profileId);
 			const excludedTypes = await this.mutedTypesFor(profileId);
 			// The cache keys the recipient only, so a profile with muted types is counted live.
-			const count =
-				excludedTypes.length > 0
-					? await notificationsRepository.countUnread(userId, profileId, excludedTypes)
-					: await unreadCountCache.getOrSet(key, () => notificationsRepository.countUnread(userId, profileId));
+			let count: number;
+			if (excludedTypes.length > 0) {
+				count = await notificationsRepository.countUnread(userId, profileId, excludedTypes);
+			} else {
+				count = await unreadCountCache.getOrSet(key, () => notificationsRepository.countUnread(userId, profileId));
+			}
 
 			return { count };
 		});
@@ -168,9 +199,12 @@ class NotificationsService {
 	async markRead(id: string, userId?: string, profileId?: string, read = true): Promise<{ success: true }> {
 		return await runSafely(this, "markRead", async () => {
 			assertUserId(userId);
-			const updated = read
-				? await notificationsRepository.markReadForRecipient(id, userId, profileId)
-				: await notificationsRepository.markUnreadForRecipient(id, userId, profileId);
+			let updated: boolean;
+			if (read) {
+				updated = await notificationsRepository.markReadForRecipient(id, userId, profileId);
+			} else {
+				updated = await notificationsRepository.markUnreadForRecipient(id, userId, profileId);
+			}
 			if (!updated) {
 				throw new DomainError("forbidden", "Notification is not available to this account or profile", {
 					code: "notification.access_denied",
@@ -209,13 +243,17 @@ class NotificationsService {
 			const read = params.read ?? true;
 
 			if (params.all) {
-				await (read
-					? notificationsRepository.markAllReadForRecipient(userId, profileId, params.type)
-					: notificationsRepository.markAllUnreadForRecipient(userId, profileId, params.type));
+				if (read) {
+					await notificationsRepository.markAllReadForRecipient(userId, profileId, params.type);
+				} else {
+					await notificationsRepository.markAllUnreadForRecipient(userId, profileId, params.type);
+				}
 			} else if (params.ids && params.ids.length > 0) {
-				await (read
-					? notificationsRepository.markReadBatch(params.ids, userId, profileId)
-					: notificationsRepository.markUnreadBatch(params.ids, userId, profileId));
+				if (read) {
+					await notificationsRepository.markReadBatch(params.ids, userId, profileId);
+				} else {
+					await notificationsRepository.markUnreadBatch(params.ids, userId, profileId);
+				}
 			}
 
 			this.invalidateFor(userId, profileId);
@@ -257,12 +295,7 @@ class NotificationsService {
 				watchlistRepository.findProfilesByMetadataId(input.metadataId),
 			]);
 
-			const recipients = new Map<string, { userId: string; profileId: string }>();
-			for (const item of [...viewers, ...watchlistUsers]) {
-				if (item.profileId && item.userId && !recipients.has(item.profileId)) {
-					recipients.set(item.profileId, { userId: item.userId, profileId: item.profileId });
-				}
-			}
+			const recipients = collectRecipients([...viewers, ...watchlistUsers]);
 
 			const recipientList = [...recipients.values()];
 			if (recipientList.length > 0) {
@@ -336,7 +369,7 @@ class NotificationsService {
 			message: notification.message,
 			link: notification.link,
 			data: notification.data,
-			...(notification.sourcePluginId !== undefined ? { sourcePluginId: notification.sourcePluginId } : {}),
+			...(notification.sourcePluginId === undefined ? {} : { sourcePluginId: notification.sourcePluginId }),
 		});
 
 		// External channels are best-effort: delivery runs detached so a slow

@@ -17,7 +17,7 @@ export function buildKodiDocument(documentPath: string, document: SidecarSnapsho
 			values: {
 				...toTitleFields(document),
 				...premieredField(document),
-				...(document.seasonNumber !== undefined ? { seasonnumber: document.seasonNumber } : {}),
+				...(document.seasonNumber === undefined ? {} : { seasonnumber: document.seasonNumber }),
 			},
 		};
 	}
@@ -27,15 +27,15 @@ export function buildKodiDocument(documentPath: string, document: SidecarSnapsho
 		values: {
 			...toTitleFields(document),
 			// Episodes date with `<aired>`; `<premiered>` belongs to titles.
-			...(document.releaseDate !== undefined ? { aired: document.releaseDate } : {}),
-			...(document.seasonNumber !== undefined ? { season: document.seasonNumber } : {}),
-			...(document.episodeNumber !== undefined ? { episode: document.episodeNumber } : {}),
+			...(document.releaseDate === undefined ? {} : { aired: document.releaseDate }),
+			...(document.seasonNumber === undefined ? {} : { season: document.seasonNumber }),
+			...(document.episodeNumber === undefined ? {} : { episode: document.episodeNumber }),
 		},
 	};
 }
 
 function premieredField(document: SidecarSnapshotDocument): Record<string, unknown> {
-	return document.releaseDate !== undefined ? { premiered: document.releaseDate } : {};
+	return document.releaseDate === undefined ? {} : { premiered: document.releaseDate };
 }
 
 const UNIQUE_ID_PRIORITY = ["tmdb", "imdb", "tvdb"] as const;
@@ -44,11 +44,11 @@ const CREDITS_JOBS = new Set(["writer", "screenplay", "story"]);
 function toTitleFields(document: SidecarSnapshotDocument): Record<string, unknown> {
 	const values: Record<string, unknown> = {
 		title: document.title,
-		...(document.originalTitle !== undefined ? { originaltitle: document.originalTitle } : {}),
-		...(document.overview !== undefined ? { plot: document.overview } : {}),
-		...(document.tagline !== undefined ? { tagline: document.tagline } : {}),
-		...(document.year !== undefined ? { year: document.year } : {}),
-		...(document.status !== undefined ? { status: document.status } : {}),
+		...(document.originalTitle === undefined ? {} : { originaltitle: document.originalTitle }),
+		...(document.overview === undefined ? {} : { plot: document.overview }),
+		...(document.tagline === undefined ? {} : { tagline: document.tagline }),
+		...(document.year === undefined ? {} : { year: document.year }),
+		...(document.status === undefined ? {} : { status: document.status }),
 		...toUniqueIdFields(document.identifiers),
 	};
 
@@ -63,8 +63,8 @@ function toTitleFields(document: SidecarSnapshotDocument): Record<string, unknow
 	if (document.cast.length > 0) {
 		values.actor = document.cast.map((member) => ({
 			name: member.name,
-			...(member.character !== undefined ? { role: member.character } : {}),
-			...(member.order !== undefined ? { order: member.order } : {}),
+			...(member.character === undefined ? {} : { role: member.character }),
+			...(member.order === undefined ? {} : { order: member.order }),
 		}));
 	}
 
@@ -111,6 +111,6 @@ function toRatingValues(rating: SidecarRating, index: number): Record<string, un
 		"@_max": "10",
 		...(index === 0 ? { "@_default": "true" } : {}),
 		value: String(rating.value),
-		...(rating.voteCount !== undefined ? { votes: String(rating.voteCount) } : {}),
+		...(rating.voteCount === undefined ? {} : { votes: String(rating.voteCount) }),
 	};
 }

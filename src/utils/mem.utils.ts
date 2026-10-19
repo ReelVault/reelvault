@@ -128,7 +128,7 @@ export function getTotalMemoryKiB(): number | undefined {
 
 		const cgroupLimit = readCgroupMemoryLimitKiB();
 		if (cgroupLimit !== undefined) {
-			total = total !== undefined ? Math.min(total, cgroupLimit) : cgroupLimit;
+			total = total === undefined ? cgroupLimit : Math.min(total, cgroupLimit);
 		}
 
 		cachedTotalKiB = total;

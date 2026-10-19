@@ -24,7 +24,8 @@ export function processFailureDetail(stderr: string | null, exitCode: number | n
  * SSRF), optionally adds hardware decode args, and requires the final output to
  * stay inside server-managed directories.
  */
-export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): string[] {
+/** Rejects the banned flags, input formats and filter tokens. */
+function assertAnalyseArgsAllowed(args: string[]): void {
 	if (args.includes("-protocol_whitelist")) {
 		throw new DomainError("validation", "runAnalyse manages -protocol_whitelist itself", { code: "plugin.ffmpeg.security_violation" });
 	}
@@ -49,6 +50,10 @@ export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): stri
 			});
 		}
 	}
+}
+
+export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): string[] {
+	assertAnalyseArgsAllowed(args);
 
 	const hwArgs = hardwareDecode ? hardwareDecodeArgs(getEffectiveHwaccel()) : [];
 	const hardened: string[] = [];

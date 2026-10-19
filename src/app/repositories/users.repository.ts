@@ -1,5 +1,5 @@
 import type { SelectFields, User } from "@reelvault/sdk/common";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { FindFirstReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
@@ -32,8 +32,13 @@ const overrides = {
 		limit: number;
 		offset: number;
 	}) {
+		let searchFilter: SQL | undefined;
+		if (search) {
+			searchFilter = or(QueryFiltering.like(users.table.name, search), QueryFiltering.like(users.table.email, search));
+		}
+
 		const where = and(
-			search ? or(QueryFiltering.like(users.table.name, search), QueryFiltering.like(users.table.email, search)) : undefined,
+			searchFilter,
 			role ? eq(users.table.role, role) : undefined,
 			banned === undefined ? undefined : eq(users.table.banned, banned),
 		);

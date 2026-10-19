@@ -73,7 +73,7 @@ export async function getScanFindingCandidates(
 		const candidates = await providerService.search({
 			type: mapLibraryType(library.type),
 			title: searchTitle,
-			...(searchYear !== null ? { year: searchYear } : {}),
+			...(searchYear === null ? {} : { year: searchYear }),
 		});
 
 		return { searchTitle, searchYear, candidates };

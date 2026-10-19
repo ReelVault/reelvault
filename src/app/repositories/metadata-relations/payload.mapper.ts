@@ -1,4 +1,4 @@
-import { isRelationItem, parseJsonRelationArray } from "@/integrations/drizzle-orm/utils/relation-json.utils";
+import { isRelationItem, parseJsonRelationArray, parseJsonRelationArrayWith } from "@/integrations/drizzle-orm/utils/relation-json.utils";
 import { safeParseJson } from "@/utils/file.utils";
 import {
 	castDateKeys,
@@ -74,20 +74,11 @@ function parseNestedPayload<T extends object>(
 	outerDateKeys: readonly string[],
 	dataDateKeys: readonly string[],
 ): T[] {
-	const parsed = safeParseJson(payload);
-	if (!Array.isArray(parsed)) return [];
-
-	const items: T[] = [];
-	for (const item of parsed) {
-		if (!isRelationItem<T>(item, keys)) continue;
-
+	return parseJsonRelationArrayWith<T>(payload, keys, (item) => {
 		reviveDateColumns(item, outerDateKeys);
 		const data = isRecordValue(item) ? item.data : undefined;
 		if (isRelationItem(data, dataKeys)) reviveDateColumns(data, dataDateKeys);
-		items.push(item);
-	}
-
-	return items;
+	});
 }
 
 export function applyDetailRelations(target: MetadataRelationData, row: Omit<DetailRelationsRow, "metadataId">): void {

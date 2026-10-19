@@ -24,7 +24,7 @@ export class SeriesBasicStrategy implements RecognitionStrategy {
 
 		return {
 			type: "tv_show",
-			identity: { title, year, type: "episode", season, episode, ...(episodeEnd !== undefined ? { episodeEnd } : {}) },
+			identity: { title, year, type: "episode", season, episode, ...(episodeEnd === undefined ? {} : { episodeEnd }) },
 		};
 	}
 }

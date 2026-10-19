@@ -4,6 +4,7 @@ import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { isNullish } from "@/utils/type.utils";
 
 /**
  * Fixed-shape playback queries (Faza 3 pilot). Inserts bind `id`/timestamps
@@ -116,15 +117,14 @@ export async function findProgressUpdateData(fileId: string, profileId: string) 
 
 	return {
 		mediaFile: { id: row.id, duration: row.duration, metadataId: row.metadataId },
-		existingProgress:
-			row.completed != null
-				? {
-						completed: row.completed,
-						position: row.position,
-						audioStreamIndex: row.audioStreamIndex,
-						subtitleId: row.subtitleId,
-					}
-				: undefined,
+		existingProgress: isNullish(row.completed)
+			? undefined
+			: {
+					completed: row.completed,
+					position: row.position,
+					audioStreamIndex: row.audioStreamIndex,
+					subtitleId: row.subtitleId,
+				},
 	};
 }
 

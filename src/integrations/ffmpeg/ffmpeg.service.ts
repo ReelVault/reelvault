@@ -83,31 +83,33 @@ class FFmpegService {
 		signal?.addEventListener("abort", abort, { once: true });
 
 		const timeoutState = { timedOut: false };
-		const timeoutTimer =
-			timeoutMs !== undefined
-				? setTimeout(() => {
-						timeoutState.timedOut = true;
-						detach(
-							(async () => {
-								try {
-									await killFfmpegProcessGracefully(process);
-								} catch {
-									// Graceful-kill failures are non-fatal; the timeout already fired.
-								}
-							})(),
-						);
-						boundReap();
-					}, timeoutMs)
-				: undefined;
+		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+		if (timeoutMs !== undefined) {
+			timeoutTimer = setTimeout(() => {
+				timeoutState.timedOut = true;
+				detach(
+					(async () => {
+						try {
+							await killFfmpegProcessGracefully(process);
+						} catch {
+							// Graceful-kill failures are non-fatal; the timeout already fired.
+						}
+					})(),
+				);
+				boundReap();
+			}, timeoutMs);
+		}
 		timeoutTimer?.unref();
 
 		try {
-			const stdoutPromise =
-				stdoutMode === "pipe" && process.stdout
-					? collectStdout(process.stdout, maxOutputBytes, () => {
-							process.kill("SIGKILL");
-						})
-					: Promise.resolve(new Uint8Array(0));
+			let stdoutPromise: Promise<Uint8Array>;
+			if (stdoutMode === "pipe" && process.stdout) {
+				stdoutPromise = collectStdout(process.stdout, maxOutputBytes, () => {
+					process.kill("SIGKILL");
+				});
+			} else {
+				stdoutPromise = Promise.resolve(new Uint8Array(0));
+			}
 			const [exitCode, stdout, stderr] = await Promise.race([
 				Promise.all([process.exited, stdoutPromise, collectStderrTail(process.stderr, maxStderrBytes)]),
 				unreaped,

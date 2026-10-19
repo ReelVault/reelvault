@@ -64,10 +64,12 @@ export async function enrichPathsWithStats(
 	const enrichedPaths = new Map<string, EnrichedLibraryPath[]>();
 	const pathsByLibrary = groupBy(rawPaths, (path) => path.libraryId);
 	const multiPathLibraryIds = libraryIds.filter((id) => (pathsByLibrary.get(id)?.length ?? 0) > 1);
-	const pathStatsByPathId =
-		multiPathLibraryIds.length > 0
-			? await loadPathStats(caches, pathsByLibrary, multiPathLibraryIds, tx)
-			: new Map<string, LibraryPathStats>();
+	let pathStatsByPathId: Map<string, LibraryPathStats>;
+	if (multiPathLibraryIds.length > 0) {
+		pathStatsByPathId = await loadPathStats(caches, pathsByLibrary, multiPathLibraryIds, tx);
+	} else {
+		pathStatsByPathId = new Map<string, LibraryPathStats>();
+	}
 
 	for (const libraryId of libraryIds) {
 		const libPaths = pathsByLibrary.get(libraryId) ?? [];
@@ -111,6 +113,35 @@ export async function enrichPathsWithStats(
 	return enrichedPaths;
 }
 
+/** The cached path stats of the given libraries, and the libraries that still hold an uncached path. */
+function scanCachedPathStats(
+	caches: LibraryStatsCaches,
+	pathsByLibrary: Map<string, Array<typeof schema.libraryPaths.$inferSelect>>,
+	libraryIds: readonly string[],
+): { stats: Map<string, LibraryPathStats>; uncachedLibraryIds: string[] } {
+	const stats = new Map<string, LibraryPathStats>();
+	const uncachedLibraryIds: string[] = [];
+
+	for (const libId of libraryIds) {
+		const libPaths = pathsByLibrary.get(libId) ?? [];
+		let allCached = true;
+		for (const p of libPaths) {
+			const cached = caches.pathStatsCache.get(p.id);
+			if (cached) {
+				stats.set(p.id, cached);
+			} else {
+				allCached = false;
+			}
+		}
+
+		if (!allCached) {
+			uncachedLibraryIds.push(libId);
+		}
+	}
+
+	return { stats, uncachedLibraryIds };
+}
+
 /** Prefix stats for multi-path libraries: served from cache, refetched for uncached libraries via longest-prefix SQL. */
 async function loadPathStats(
 	caches: LibraryStatsCaches,
@@ -118,27 +149,14 @@ async function loadPathStats(
 	multiPathLibraryIds: readonly string[],
 	tx?: DatabaseTransaction,
 ): Promise<Map<string, LibraryPathStats>> {
-	const pathStatsByPathId = new Map<string, LibraryPathStats>();
+	let pathStatsByPathId = new Map<string, LibraryPathStats>();
 	const uncachedMultiPathLibraryIds: string[] = [];
-	if (!tx) {
-		for (const libId of multiPathLibraryIds) {
-			const libPaths = pathsByLibrary.get(libId) ?? [];
-			let allCached = true;
-			for (const p of libPaths) {
-				const cached = caches.pathStatsCache.get(p.id);
-				if (cached) {
-					pathStatsByPathId.set(p.id, cached);
-				} else {
-					allCached = false;
-				}
-			}
-
-			if (!allCached) {
-				uncachedMultiPathLibraryIds.push(libId);
-			}
-		}
-	} else {
+	if (tx) {
 		uncachedMultiPathLibraryIds.push(...multiPathLibraryIds);
+	} else {
+		const cached = scanCachedPathStats(caches, pathsByLibrary, multiPathLibraryIds);
+		pathStatsByPathId = cached.stats;
+		uncachedMultiPathLibraryIds.push(...cached.uncachedLibraryIds);
 	}
 
 	if (uncachedMultiPathLibraryIds.length === 0) return pathStatsByPathId;

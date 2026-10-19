@@ -93,7 +93,7 @@ function processExistingEpisode(
 ): boolean {
 	const { episodeUpdates, tasks } = output;
 	// Drizzle skips `undefined` fields in .set(), so only compare provided values.
-	const absoluteNumber = episodeInfo.absoluteNumber !== undefined ? Number(episodeInfo.absoluteNumber) : undefined;
+	const absoluteNumber = episodeInfo.absoluteNumber === undefined ? undefined : Number(episodeInfo.absoluteNumber);
 	const changed =
 		existingEpisode.title !== episodeInfo.name ||
 		changedFields(existingEpisode, { overview: episodeInfo.overview, airDate: episodeInfo.airDate, absoluteNumber }, [
@@ -109,7 +109,7 @@ function processExistingEpisode(
 				title: episodeInfo.name,
 				overview: episodeInfo.overview,
 				airDate: episodeInfo.airDate,
-				...(absoluteNumber !== undefined ? { absoluteNumber } : {}),
+				...(absoluteNumber === undefined ? {} : { absoluteNumber }),
 			},
 		});
 	}

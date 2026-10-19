@@ -64,8 +64,8 @@ export class WorkerSchedulerService {
 					(async () => {
 						try {
 							await this.evaluateTriggers();
-						} catch (err) {
-							this.logger.error("Error evaluating scheduled triggers", err);
+						} catch (error) {
+							this.logger.error("Error evaluating scheduled triggers", error);
 						}
 					})(),
 				);
@@ -379,28 +379,22 @@ export class WorkerSchedulerService {
 	}
 
 	private validateTrigger(trigger: TaskTrigger, workerId: string, index: number): void {
-		if (trigger.type === "daily" || trigger.type === "weekly") {
-			if (!(trigger.timeOfDay && TIME_OF_DAY_REGEX.test(trigger.timeOfDay))) {
-				throw new DomainError("validation", `Worker "${workerId}" trigger[${index}] (${trigger.type}) requires valid "timeOfDay" (HH:MM)`, {
-					code: "worker.schedule_time_invalid",
-				});
-			}
+		if ((trigger.type === "daily" || trigger.type === "weekly") && !(trigger.timeOfDay && TIME_OF_DAY_REGEX.test(trigger.timeOfDay))) {
+			throw new DomainError("validation", `Worker "${workerId}" trigger[${index}] (${trigger.type}) requires valid "timeOfDay" (HH:MM)`, {
+				code: "worker.schedule_time_invalid",
+			});
 		}
 
-		if (trigger.type === "weekly") {
-			if (trigger.dayOfWeek === undefined || trigger.dayOfWeek < 0 || trigger.dayOfWeek > 6) {
-				throw new DomainError("validation", `Worker "${workerId}" trigger[${index}] (weekly) requires valid "dayOfWeek" (0-6)`, {
-					code: "worker.schedule_day_invalid",
-				});
-			}
+		if (trigger.type === "weekly" && (trigger.dayOfWeek === undefined || trigger.dayOfWeek < 0 || trigger.dayOfWeek > 6)) {
+			throw new DomainError("validation", `Worker "${workerId}" trigger[${index}] (weekly) requires valid "dayOfWeek" (0-6)`, {
+				code: "worker.schedule_day_invalid",
+			});
 		}
 
-		if (trigger.type === "interval") {
-			if (!trigger.intervalMinutes || trigger.intervalMinutes < 1) {
-				throw new DomainError("validation", `Worker "${workerId}" trigger[${index}] (interval) requires "intervalMinutes" >= 1`, {
-					code: "worker.schedule_interval_invalid",
-				});
-			}
+		if (trigger.type === "interval" && (!trigger.intervalMinutes || trigger.intervalMinutes < 1)) {
+			throw new DomainError("validation", `Worker "${workerId}" trigger[${index}] (interval) requires "intervalMinutes" >= 1`, {
+				code: "worker.schedule_interval_invalid",
+			});
 		}
 	}
 }

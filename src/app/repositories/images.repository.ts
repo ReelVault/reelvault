@@ -414,7 +414,9 @@ class ImageRepository {
 	}
 
 	private async findImagePath(imageId: string | null | undefined, tx?: DatabaseTransaction): Promise<string | undefined> {
-		const image = imageId ? await this.findById({ primaryId: imageId, fields: QueryFields.parse({ fields: "localPath" }), tx }) : undefined;
+		if (!imageId) return undefined;
+
+		const image = await this.findById({ primaryId: imageId, fields: QueryFields.parse({ fields: "localPath" }), tx });
 
 		return image?.localPath;
 	}

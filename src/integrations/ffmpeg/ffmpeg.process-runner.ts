@@ -26,7 +26,7 @@ export async function spawnAndCollect({ cmd, timeoutMs, purpose, maxBuffer }: Sp
 		cmd,
 		stdout: "pipe",
 		stderr: "pipe",
-		...(maxBuffer !== undefined ? { maxBuffer } : {}),
+		...(maxBuffer === undefined ? {} : { maxBuffer }),
 	});
 	ffmpegProcessTracker.track(subprocess, purpose);
 
@@ -34,14 +34,14 @@ export async function spawnAndCollect({ cmd, timeoutMs, purpose, maxBuffer }: Sp
 	// A process stuck in an uninterruptible state never reaps after SIGKILL;
 	// bound the wait instead of holding the caller's semaphore slot forever.
 	const { unreaped, boundReap } = watchForUnreapedProcess(subprocess, "Process did not exit after SIGKILL");
-	const timer =
-		timeoutMs !== undefined
-			? setTimeout(() => {
-					state.timedOut = true;
-					subprocess.kill("SIGKILL");
-					boundReap();
-				}, timeoutMs)
-			: undefined;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	if (timeoutMs !== undefined) {
+		timer = setTimeout(() => {
+			state.timedOut = true;
+			subprocess.kill("SIGKILL");
+			boundReap();
+		}, timeoutMs);
+	}
 	timer?.unref();
 
 	try {

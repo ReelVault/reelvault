@@ -38,9 +38,48 @@ export async function claimNextBatch(input: ClaimNextInput, max: number): Promis
 	);
 }
 
+/** Claims one candidate row; the row is only claimed while it is still pending. */
+async function claimCandidate(
+	tx: DatabaseTransaction,
+	candidate: { id: string },
+	input: ClaimNextInput,
+	now: Date,
+): Promise<WorkerItem | undefined> {
+	const [claimed] = await tx
+		.update(items)
+		.set({
+			status: "running",
+			attempts: sql`${items.attempts} + 1`,
+			runnerId: input.runnerId,
+			claimToken: crypto.randomUUID(),
+			leaseUntil: new Date(now.getTime() + input.timeoutMs),
+			startedAt: now,
+			updatedAt: now,
+		})
+		.where(and(eq(items.id, candidate.id), eq(items.status, "pending")))
+		.returning();
+
+	return claimed;
+}
+
+/** Why a candidate cannot be claimed, or null when it can. */
+function claimBlocker(
+	candidate: { operationId?: string | null; dependsOnJobId?: string | null },
+	parentStatuses: Map<string, string | undefined>,
+	cancelledOperations: ReadonlySet<string>,
+): "cancelled" | "parent-failed" | "parent-pending" | null {
+	if (candidate.operationId && cancelledOperations.has(candidate.operationId)) return "cancelled";
+
+	const parentStatus = candidate.dependsOnJobId ? parentStatuses.get(candidate.dependsOnJobId) : undefined;
+	if (parentStatus === "failed" || parentStatus === "cancelled") return "parent-failed";
+	if (parentStatus === "pending" || parentStatus === "running") return "parent-pending";
+
+	return null;
+}
+
 /** One claim pass inside its transaction: recovers expired leases, then claims runnable candidates up to `max`. */
 async function claimRunnableItems(tx: DatabaseTransaction, input: ClaimNextInput, max: number): Promise<WorkerItem[]> {
-	const { workerId, runnerId, concurrency, timeoutMs, now } = input;
+	const { workerId, concurrency, now } = input;
 	await recoverExpired(workerId, now, tx, input.excludeActiveIds);
 
 	// Claim decisions need only these columns — the arbitrary `data` JSON
@@ -68,62 +107,43 @@ async function claimRunnableItems(tx: DatabaseTransaction, input: ClaimNextInput
 	// A cancel request and this claim are separate statements: consult the
 	// operations table so a job of a just-cancelled operation can never start.
 	const operationIds = [...new Set(candidates.flatMap((candidate) => (candidate.operationId ? [candidate.operationId] : [])))];
-	const cancelledOperations = new Set(
-		operationIds.length === 0
-			? []
-			: (
-					await tx
-						.select({ id: operations.id })
-						.from(operations)
-						.where(and(inArray(operations.id, operationIds), or(eq(operations.cancelRequested, true), eq(operations.status, "cancelled"))))
-				).map((row) => row.id),
-	);
+	let cancelledOperationIds: string[] = [];
+	if (operationIds.length > 0) {
+		const cancelledRows = await tx
+			.select({ id: operations.id })
+			.from(operations)
+			.where(and(inArray(operations.id, operationIds), or(eq(operations.cancelRequested, true), eq(operations.status, "cancelled"))));
+		cancelledOperationIds = cancelledRows.map((row) => row.id);
+	}
+	const cancelledOperations = new Set(cancelledOperationIds);
 	const startedByOperation = new Map<string, number>();
 
 	const claimedItems: WorkerItem[] = [];
 	for (const candidate of candidates) {
 		if (claimedItems.length >= max) break;
 
-		if (candidate.operationId && cancelledOperations.has(candidate.operationId)) {
+		const blocker = claimBlocker(candidate, parentStatuses, cancelledOperations);
+		if (blocker === "cancelled" || blocker === "parent-failed") {
 			await cancelPending(candidate.id, tx);
 			continue;
 		}
 
-		const parentStatus = candidate.dependsOnJobId ? parentStatuses.get(candidate.dependsOnJobId) : undefined;
-		if (parentStatus === "failed" || parentStatus === "cancelled") {
-			await cancelPending(candidate.id, tx);
-			continue;
-		}
-
-		if (parentStatus === "pending" || parentStatus === "running") {
+		if (blocker === "parent-pending") {
 			continue; // Prerequisite not finished yet (completed or gone → claimable)
 		}
 
 		if (runningCount >= concurrency) break;
 
-		const [claimed] = await tx
-			.update(items)
-			.set({
-				status: "running",
-				attempts: sql`${items.attempts} + 1`,
-				runnerId,
-				claimToken: crypto.randomUUID(),
-				leaseUntil: new Date(now.getTime() + timeoutMs),
-				startedAt: now,
-				updatedAt: now,
-			})
-			.where(and(eq(items.id, candidate.id), eq(items.status, "pending")))
-			.returning();
+		const claimed = await claimCandidate(tx, candidate, input, now);
+		if (!claimed) continue;
 
-		if (claimed) {
-			// Subsequent claims in this transaction must see the new running row.
-			runningCount++;
-			if (claimed.operationId) {
-				startedByOperation.set(claimed.operationId, (startedByOperation.get(claimed.operationId) ?? 0) + 1);
-			}
-
-			claimedItems.push(claimed);
+		// Subsequent claims in this transaction must see the new running row.
+		runningCount++;
+		if (claimed.operationId) {
+			startedByOperation.set(claimed.operationId, (startedByOperation.get(claimed.operationId) ?? 0) + 1);
 		}
+
+		claimedItems.push(claimed);
 	}
 
 	// One counter update per operation instead of one per claimed job.

@@ -9,6 +9,7 @@ import { realtimeService } from "@/modules/realtime/realtime.service";
 import { wsProtocol } from "@/modules/realtime/ws-protocol.service";
 import { assertSessionAccess } from "@/modules/streaming/sessions/session-access.guard";
 import { DomainError } from "@/utils/domain.errors";
+import { isNullish } from "@/utils/type.utils";
 
 export const eventsRoutes = new Elysia({ prefix: "/events", tags: ["Realtime"] })
 	.use(commonModel)
@@ -23,9 +24,9 @@ export const eventsRoutes = new Elysia({ prefix: "/events", tags: ["Realtime"] }
 			return {
 				delivered,
 				command: body.type,
-				...(body.position != null ? { position: body.position } : {}),
-				...(body.relative != null ? { relative: body.relative } : {}),
-				...(body.volume != null ? { volume: body.volume } : {}),
+				...(isNullish(body.position) ? {} : { position: body.position }),
+				...(isNullish(body.relative) ? {} : { relative: body.relative }),
+				...(isNullish(body.volume) ? {} : { volume: body.volume }),
 			};
 		},
 		{

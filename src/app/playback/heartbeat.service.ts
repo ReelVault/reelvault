@@ -5,7 +5,7 @@ import { defaultRequireSession } from "@/modules/streaming/contracts.utils";
 import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
 import type { RequireSession } from "@/modules/streaming/streaming.types";
 import { createLogger } from "@/utils/logger.utils";
-import { isFiniteNumber } from "@/utils/type.utils";
+import { isFiniteNumber, isNullish } from "@/utils/type.utils";
 
 interface ServiceDependencies {
 	requireSession: RequireSession;
@@ -57,7 +57,7 @@ export class HeartbeatService {
 			);
 		}
 
-		if (sendSessionEvent && (isFiniteNumber(progress?.position) || progress?.isPaused != null)) {
+		if (sendSessionEvent && (isFiniteNumber(progress?.position) || !isNullish(progress?.isPaused))) {
 			sendSessionEvent(sessionId, "playback:session:progress", {
 				sessionId,
 				position: progress.position ?? undefined,

@@ -49,7 +49,7 @@ export function buildSessionDiagnostics(session: StreamingSession, environment: 
 		lastActivityAt: serializeDate(session.lastActivity),
 		processId: session.process?.pid ?? null,
 		processExitCode: session.process?.exitCode ?? null,
-		encodePositionSeconds: session.transcodePositionMs !== null ? Number((session.transcodePositionMs / 1000).toFixed(2)) : null,
+		encodePositionSeconds: session.transcodePositionMs === null ? null : Number((session.transcodePositionMs / 1000).toFixed(2)),
 		encodePercent: session.transcodePercent,
 		encodeSpeed: session.transcodeSpeed,
 	};

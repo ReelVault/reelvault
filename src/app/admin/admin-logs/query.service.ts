@@ -24,6 +24,29 @@ export interface AdminLogsQuery {
 	page?: number;
 }
 
+/** The filters one log-window read applies to every line. */
+function buildLogWindowFilter({
+	query,
+	targetLevels,
+	hasErrorsFilter,
+	searchLower,
+}: {
+	query: AdminLogsQuery | undefined;
+	targetLevels: Set<string> | undefined;
+	hasErrorsFilter: boolean;
+	searchLower: string | undefined;
+}): LogWindowFilter {
+	return {
+		targetLevels,
+		hasErrorsFilter,
+		searchLower,
+		excludeLower: query?.exclude ? normalizeLower(query.exclude) : undefined,
+		moduleLower: query?.module ? normalizeLower(query.module) : undefined,
+		fromMs: parseLogBound(query?.from),
+		toMs: parseLogBound(query?.to),
+	};
+}
+
 /** Newest-first filtered page of one log file. Entries outside the page are counted, never materialized. */
 export async function getLogs(state: AdminLogsState, query?: AdminLogsQuery): Promise<AdminLogsPage> {
 	const { lines, parsed, lowerLines, readOffset } = await readLogTailLines(state, query?.fileId);
@@ -39,15 +62,7 @@ export async function getLogs(state: AdminLogsState, query?: AdminLogsQuery): Pr
 	const windowEnd = windowStart + limit;
 	let totalMatching = 0;
 
-	const filter: LogWindowFilter = {
-		targetLevels,
-		hasErrorsFilter,
-		searchLower,
-		excludeLower: query?.exclude ? normalizeLower(query.exclude) : undefined,
-		moduleLower: query?.module ? normalizeLower(query.module) : undefined,
-		fromMs: parseLogBound(query?.from),
-		toMs: parseLogBound(query?.to),
-	};
+	const filter = buildLogWindowFilter({ query, targetLevels, hasErrorsFilter, searchLower });
 
 	for (let i = lines.length - 1; i >= 0 && lines.length - i <= maxLines; i--) {
 		const line = lines[i];

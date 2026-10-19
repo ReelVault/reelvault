@@ -37,8 +37,8 @@ class ProfileStreamPrefsRepository {
 			.onConflictDoUpdate({
 				target: [this.table.profileId, this.table.metadataId],
 				set: {
-					...(input.audioLanguage !== undefined ? { audioLanguage: input.audioLanguage } : {}),
-					...(input.subtitleLanguage !== undefined ? { subtitleLanguage: input.subtitleLanguage } : {}),
+					...(input.audioLanguage === undefined ? {} : { audioLanguage: input.audioLanguage }),
+					...(input.subtitleLanguage === undefined ? {} : { subtitleLanguage: input.subtitleLanguage }),
 					updatedAt: new Date(),
 				},
 			});

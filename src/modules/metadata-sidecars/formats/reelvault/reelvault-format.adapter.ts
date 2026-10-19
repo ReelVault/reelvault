@@ -7,7 +7,7 @@ import type {
 	SidecarWriteResult,
 } from "@/modules/metadata-sidecars/sidecar.types";
 import { writeXmlDocument, writeXmlIfChanged } from "@/modules/metadata-sidecars/xml/xml.writer";
-import { assertXmlDocumentSize, readXmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
+import { assertXmlDocumentSize, readXmlDocument, type XmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
 import { readXmlObject, readXmlText } from "@/modules/metadata-sidecars/xml/xml-value.reader";
 import { FileUtils, readFile } from "@/utils/file.utils";
 import { PathUtils } from "@/utils/path.utils";
@@ -26,7 +26,10 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	async read({ documentPath }: SidecarFormatInput): Promise<CanonicalSidecarDocument | null> {
 		assertXmlDocumentSize(documentPath, FileUtils.getSize(documentPath));
 		const source = await readFile(documentPath, "utf8").catch(() => null);
-		const document = source ? await readXmlDocument(source) : null;
+		let document: XmlDocument | null = null;
+		if (source) {
+			document = await readXmlDocument(source);
+		}
 		const root = document ? readXmlObject(document, "reelvault") : undefined;
 		const snapshot = root ? parseSnapshot(readXmlText(root, "snapshot")) : undefined;
 		if (!snapshot) return null;

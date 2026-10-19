@@ -5,6 +5,7 @@ import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { parseColonSeparatedSeconds } from "@/utils/time.utils";
+import { isNullish } from "@/utils/type.utils";
 import type { SessionStore } from "./session-state/session.store";
 
 const logger = createLogger("TranscodeProgressMonitor");
@@ -110,7 +111,7 @@ export class TranscodeProgressMonitor {
 		if (!(store && session)) return;
 		if (process && session.process !== process) return;
 
-		if (exitCode !== 0 || signalCode != null) return;
+		if (exitCode !== 0 || !isNullish(signalCode)) return;
 
 		const operationId = session.operationId;
 		this.lastWrites.delete(sessionId);

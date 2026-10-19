@@ -94,14 +94,7 @@ export async function queueSeason(
 		const season = await downloadsStorage().findSeasonForDownload(body.seasonId);
 		assertFound(season, "Season", body.seasonId);
 
-		const episodeFiles = new Map<string, SeasonFileCandidate | null>();
-		for (const row of await downloadsStorage().findEpisodeFilesByMetadataId(season.metadataId)) {
-			if (row.seasonId !== season.id) continue;
-			const candidate = row.mediaFileId
-				? { mediaFileId: row.mediaFileId, isDefault: row.mediaFileIsDefault === true, sizeBytes: row.mediaFileSize ?? 0 }
-				: null;
-			episodeFiles.set(row.id, preferDefaultFile(episodeFiles.get(row.id) ?? null, candidate));
-		}
+		const episodeFiles = await collectSeasonFiles(season);
 
 		const estimatedBytes = [...episodeFiles.values()].reduce((sum, chosen) => sum + (chosen?.sizeBytes ?? 0), 0);
 		const { maxBytes, usedBytes } = await getStorageQuota(profileId);
@@ -137,6 +130,20 @@ export async function queueSeason(
  * Enqueues the profile's oldest waiting downloads, as many as it has free running slots. The worker claims a slot
  * when it runs, so a download that is enqueued twice is harmless. Never rejects: a failure is only logged.
  */
+/** The preferred media file per episode of the season. */
+async function collectSeasonFiles(season: { id: string; metadataId: string }): Promise<Map<string, SeasonFileCandidate | null>> {
+	const episodeFiles = new Map<string, SeasonFileCandidate | null>();
+	for (const row of await downloadsStorage().findEpisodeFilesByMetadataId(season.metadataId)) {
+		if (row.seasonId !== season.id) continue;
+		const candidate = row.mediaFileId
+			? { mediaFileId: row.mediaFileId, isDefault: row.mediaFileIsDefault === true, sizeBytes: row.mediaFileSize ?? 0 }
+			: null;
+		episodeFiles.set(row.id, preferDefaultFile(episodeFiles.get(row.id) ?? null, candidate));
+	}
+
+	return episodeFiles;
+}
+
 export async function promoteQueued(state: DownloadsServiceState, profileId: string): Promise<void> {
 	try {
 		const freeSlots = serverConfig.downloads.maxConcurrentPerProfile - (await downloadsStorage().countProcessingByProfile(profileId));

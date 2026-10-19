@@ -63,8 +63,8 @@ export async function listLogFiles(state: AdminLogsState): Promise<AdminLogFileI
 					seenNames.add(relPath);
 				}
 			});
-		} catch (err) {
-			logger.error("Error scanning log directory", { path: currentDir, error: err });
+		} catch (error) {
+			logger.error("Error scanning log directory", { path: currentDir, error: error });
 		}
 	}
 
@@ -131,6 +131,21 @@ export async function getLogFileDownloadContent(
 	}
 }
 
+/** Removes the directory a deleted log file lived in, once it holds no file left. */
+async function removeEmptyParentDir(filePath: string): Promise<void> {
+	try {
+		const parentDir = PathUtils.getDirName(filePath);
+		if (parentDir === serverConfig.paths.logs) return;
+
+		const remaining = await readdir(parentDir);
+		if (remaining.length === 0) {
+			await rmdir(parentDir);
+		}
+	} catch {
+		// intentionally empty
+	}
+}
+
 export async function deleteLogFile(state: AdminLogsState, fileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
 	const { filePath, filename } = resolveLogFilePath(state, fileId);
 	try {
@@ -138,17 +153,7 @@ export async function deleteLogFile(state: AdminLogsState, fileId: string, conte
 			await truncate(filePath, 0);
 		} else {
 			await bunFile(filePath).delete();
-			try {
-				const parentDir = PathUtils.getDirName(filePath);
-				if (parentDir !== serverConfig.paths.logs) {
-					const remaining = await readdir(parentDir);
-					if (remaining.length === 0) {
-						await rmdir(parentDir);
-					}
-				}
-			} catch {
-				// intentionally empty
-			}
+			await removeEmptyParentDir(filePath);
 		}
 	} catch (error) {
 		if (isMissingFile(error)) throw new DomainError("not_found", `Log file not found: ${fileId}`, { code: "logs.file_not_found" });

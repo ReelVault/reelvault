@@ -8,15 +8,15 @@ import { measureDirectory } from "@/system/server-data.utils";
 import { workerService } from "@/workers/worker.service";
 
 function sumWorkerCounters(queues: Array<{ active: number; waiting: number; completed: number; failed: number }>) {
-	return queues.reduce(
-		(total, queue) => ({
-			active: total.active + queue.active,
-			waiting: total.waiting + queue.waiting,
-			completed: total.completed + queue.completed,
-			failed: total.failed + queue.failed,
-		}),
-		{ active: 0, waiting: 0, completed: 0, failed: 0 },
-	);
+	const total = { active: 0, waiting: 0, completed: 0, failed: 0 };
+	for (const queue of queues) {
+		total.active += queue.active;
+		total.waiting += queue.waiting;
+		total.completed += queue.completed;
+		total.failed += queue.failed;
+	}
+
+	return total;
 }
 
 /** Dashboard counters. Full-table aggregates, so the caller caches the result. */

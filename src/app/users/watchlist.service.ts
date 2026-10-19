@@ -12,10 +12,11 @@ import type {
 } from "@reelvault/sdk/common";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { watchlistRepository } from "@/app/repositories/watchlist.repository";
-import { isNotNullish, toMap, unique } from "@/utils/array.utils";
+import { toMap, unique } from "@/utils/array.utils";
 import { assertProfileId, DomainError, notFoundError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
+import { isNotNullish } from "@/utils/type.utils";
 
 import { invalidateProfileCaches } from "./cache-invalidation.cache";
 

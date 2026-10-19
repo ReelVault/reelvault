@@ -58,13 +58,15 @@ export async function processCreatedBase(
 	base: CreatedProviderMetadata,
 	options: Omit<TvProcessOptions, "metadataStableKey">,
 ): Promise<MetadataProcessResult | undefined> {
-	const result =
-		type === "movie"
-			? await processMovieMetadata(state, base.metadataId, base.metadataStableKey)
-			: await processTVShowMetadata(state, base.metadataId, parsed, base.metadata, {
-					...options,
-					metadataStableKey: base.metadataStableKey,
-				});
+	let result: MetadataProcessResult | undefined;
+	if (type === "movie") {
+		result = await processMovieMetadata(state, base.metadataId, base.metadataStableKey);
+	} else {
+		result = await processTVShowMetadata(state, base.metadataId, parsed, base.metadata, {
+			...options,
+			metadataStableKey: base.metadataStableKey,
+		});
+	}
 
 	if (result) await enqueueBaseMetadataImages(state, base, options.scheduling);
 

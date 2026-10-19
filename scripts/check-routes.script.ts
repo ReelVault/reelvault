@@ -59,6 +59,15 @@ const findDuplicates = (routes: readonly RouteDef[]): ReadonlyMap<string, number
 	return new Map([...counts].filter(([, count]) => count > 1));
 };
 
+/** The shadowing report of two paths of the same method, when one shadows the other. */
+const findCollision = (method: HttpMethod, pathA: string, pathB: string): string | undefined => {
+	if (pathA === pathB) return undefined; // exact dupes handled separately
+
+	if (!segmentsMatch(toSegments(pathA), toSegments(pathB))) return undefined;
+
+	return `${method}: "${pathA}" vs "${pathB}"`;
+};
+
 const findShadowedRoutes = (routes: readonly RouteDef[]): readonly string[] => {
 	const byMethod = new Map<HttpMethod, string[]>();
 	for (const r of routes) {
@@ -73,13 +82,8 @@ const findShadowedRoutes = (routes: readonly RouteDef[]): readonly string[] => {
 				const pathB = paths[j];
 				if (pathA === undefined || pathB === undefined) continue;
 
-				if (pathA === pathB) continue; // exact dupes handled separately
-
-				const segA = toSegments(pathA);
-				const segB = toSegments(pathB);
-				if (segmentsMatch(segA, segB)) {
-					collisions.push(`${method}: "${pathA}" vs "${pathB}"`);
-				}
+				const collision = findCollision(method, pathA, pathB);
+				if (collision) collisions.push(collision);
 			}
 		}
 	}
@@ -125,9 +129,9 @@ const findUnmatchedSdkCalls = (routes: readonly RouteDef[], sdkEndpoints: readon
 
 const printSection = (title: string, lines: readonly string[]): void => {
 	console.log(`\n${title} (${lines.length}):`);
-	lines.forEach((line) => {
+	for (const line of lines) {
 		console.log(" ", line);
-	});
+	}
 };
 
 const main = (): void => {
@@ -143,9 +147,9 @@ const main = (): void => {
 	}
 
 	console.log("\n=== CHECKING ROUTE SHADOWING / OVERLAPS ===");
-	findShadowedRoutes(routes).forEach((line) => {
+	for (const line of findShadowedRoutes(routes)) {
 		console.log(`[SHADOWING/OVERLAP] ${line}`);
-	});
+	}
 
 	const sdkDir = path.resolve(__dirname, "../sdk/client/resources");
 	const sdkEndpoints = scanSdkEndpoints(sdkDir);

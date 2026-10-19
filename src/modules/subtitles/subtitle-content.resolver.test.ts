@@ -12,17 +12,17 @@ function createResolver(overrides: { externalContent?: SubtitleContent | null; e
 	const resolver = new SubtitleContentResolver({
 		getExternalContent: (id) =>
 			Promise.resolve(
-				overrides.externalContent !== undefined
-					? overrides.externalContent
-					: { contentType: "text/plain", file: new Blob([`external:${id}`]) },
+				overrides.externalContent === undefined
+					? { contentType: "text/plain", file: new Blob([`external:${id}`]) }
+					: overrides.externalContent,
 			),
 		extractEmbeddedContent: (id, mediaFilePath, streamIndex, format, signal) => {
 			capturedSignal = signal;
 
 			return Promise.resolve(
-				overrides.embeddedContent !== undefined
-					? overrides.embeddedContent
-					: { contentType: "text/vtt", file: new Blob([`embedded:${id}:${mediaFilePath}:${streamIndex}:${format}`]) },
+				overrides.embeddedContent === undefined
+					? { contentType: "text/vtt", file: new Blob([`embedded:${id}:${mediaFilePath}:${streamIndex}:${format}`]) }
+					: overrides.embeddedContent,
 			);
 		},
 	});

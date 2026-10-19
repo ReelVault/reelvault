@@ -44,9 +44,15 @@ export async function findWatchedWithMedia(profileId: string, options: WatchedHi
 
 	// Cursor mode orders by the full key (watchedAt, id) so pagination stays
 	// deterministic even when rows share a timestamp.
-	const where = cursor
-		? and(eq(schema.watchedHistory.profileId, profileId), keysetWhere(schema.watchedHistory.watchedAt, schema.watchedHistory.id, cursor))
-		: eq(schema.watchedHistory.profileId, profileId);
+	let where: SQL | undefined;
+	if (cursor) {
+		where = and(
+			eq(schema.watchedHistory.profileId, profileId),
+			keysetWhere(schema.watchedHistory.watchedAt, schema.watchedHistory.id, cursor),
+		);
+	} else {
+		where = eq(schema.watchedHistory.profileId, profileId);
+	}
 
 	const rows = await client
 		.select({

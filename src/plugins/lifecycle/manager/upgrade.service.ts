@@ -22,7 +22,7 @@ export async function installFromDirectory(
 		const previousRecords = await state.installer.list();
 		const result = await state.installer.install(sourceDirectory, {
 			upgrade: true,
-			...(options.source !== undefined ? { source: options.source } : {}),
+			...(options.source === undefined ? {} : { source: options.source }),
 		});
 		state.integrityIssues.delete(result.id);
 

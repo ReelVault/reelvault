@@ -2,7 +2,11 @@ import type { CreatePlaybackSession, PlaybackDecision, PlaybackSession } from "@
 import { serverConstants } from "@/config/server/server.constants";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
-import { resolveSessionSelection, type SessionSelectionInput } from "@/modules/streaming/decisions/session-selection.resolver";
+import {
+	type PlaybackSelection,
+	resolveSessionSelection,
+	type SessionSelectionInput,
+} from "@/modules/streaming/decisions/session-selection.resolver";
 import type { SessionAccessInfo } from "@/modules/streaming/runtime/session-state/session.store";
 import type { StreamInitData } from "@/modules/streaming/runtime/stream.initializer";
 import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
@@ -12,6 +16,7 @@ import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
+import { isNullish } from "@/utils/type.utils";
 import { PlaybackSessionIdempotencyRegistry } from "./playback-session.registry";
 import { SessionCreationGuard } from "./session-creation.guard";
 import { type PlaybackSessionStartedEvent, publishSessionStarted } from "./session-events.publisher";
@@ -234,7 +239,7 @@ export class SessionLifecycleService {
 					profileId,
 					decision,
 					inputPath: file.filePath,
-					durationMs: file.duration != null ? file.duration * 1000 : null,
+					durationMs: isNullish(file.duration) ? null : file.duration * 1000,
 				});
 				await runtime.prepareSession(sessionId);
 				const operation = await workerService.createOperation({
@@ -271,12 +276,7 @@ export class SessionLifecycleService {
 					sessionId,
 					reasons: decision.reasons ?? { video: { code: "unknown" }, audio: { code: "unknown" } },
 					audioStreamIndex: audioStream?.index ?? null,
-					subtitleLanguage: playbackPreferences.subtitleLanguage,
-					subtitlesEnabled: playbackPreferences.subtitlesEnabled,
-					forcedSubtitlesOnly: playbackPreferences.forcedSubtitlesOnly,
-					subtitleId: subtitle?.id ?? null,
-					subtitleStreamIndex: subtitle?.streamIndex ?? null,
-					subtitleType: subtitle?.type ?? null,
+					...subtitleFields(subtitle, playbackPreferences),
 					heartbeatIntervalMs: serverConstants.stream.heartbeatIntervalMs,
 				};
 			} catch (error) {
@@ -326,6 +326,18 @@ export class SessionLifecycleService {
 			}),
 		};
 	}
+}
+
+/** The subtitle fields of a created session. */
+function subtitleFields(subtitle: PlaybackSelection["subtitle"], playbackPreferences: PlaybackSelection["playbackPreferences"]) {
+	return {
+		subtitleLanguage: playbackPreferences.subtitleLanguage,
+		subtitlesEnabled: playbackPreferences.subtitlesEnabled,
+		forcedSubtitlesOnly: playbackPreferences.forcedSubtitlesOnly,
+		subtitleId: subtitle?.id ?? null,
+		subtitleStreamIndex: subtitle?.streamIndex ?? null,
+		subtitleType: subtitle?.type ?? null,
+	};
 }
 
 export const sessionLifecycleService = new SessionLifecycleService();

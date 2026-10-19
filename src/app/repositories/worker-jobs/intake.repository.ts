@@ -200,29 +200,37 @@ async function validateBatchRelations(inputs: EnqueueWorkerItemInput[], tx: Data
 	for (const dep of depRows) dependencyById.set(dep.id, dep);
 
 	for (const input of inputs) {
-		const depId = input.dependsOnJobId ?? input.dependsOnTaskIds?.[0];
-		if (!depId) continue;
+		assertDependencyValid(input, dependencyById);
+	}
+}
 
-		if (!input.operationId) {
-			throw new DomainError("validation", "Worker task dependencies require a non-empty operationId", {
-				code: "worker.dependency_invalid",
-			});
-		}
+/** One task's dependency must exist, must not be the task itself, and must share its operation. */
+function assertDependencyValid(
+	input: EnqueueWorkerItemInput,
+	dependencyById: Map<string, { id: string; operationId: string | null }>,
+): void {
+	const depId = input.dependsOnJobId ?? input.dependsOnTaskIds?.[0];
+	if (!depId) return;
 
-		if (depId === input.id) {
-			throw new DomainError("conflict", "Worker task dependency cannot reference itself", { code: "worker.dependency_self" });
-		}
+	if (!input.operationId) {
+		throw new DomainError("validation", "Worker task dependencies require a non-empty operationId", {
+			code: "worker.dependency_invalid",
+		});
+	}
 
-		const dep = dependencyById.get(depId);
-		if (!dep) {
-			throw new DomainError("not_found", `Worker dependency task not found: ${depId}`, { code: "worker.dependency_not_found" });
-		}
+	if (depId === input.id) {
+		throw new DomainError("conflict", "Worker task dependency cannot reference itself", { code: "worker.dependency_self" });
+	}
 
-		if (dep.operationId !== input.operationId) {
-			throw new DomainError("validation", "Worker task dependencies must belong to the same operation", {
-				code: "worker.dependency_other_operation",
-			});
-		}
+	const dep = dependencyById.get(depId);
+	if (!dep) {
+		throw new DomainError("not_found", `Worker dependency task not found: ${depId}`, { code: "worker.dependency_not_found" });
+	}
+
+	if (dep.operationId !== input.operationId) {
+		throw new DomainError("validation", "Worker task dependencies must belong to the same operation", {
+			code: "worker.dependency_other_operation",
+		});
 	}
 }
 

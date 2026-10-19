@@ -112,13 +112,25 @@ class TrickplayRepository {
 			);
 		}
 
-		if (scope.kind === "library") {
-			conditions.push(eq(schema.mediaFiles.libraryId, scope.id));
-		} else if (scope.kind === "title") {
-			conditions.push(eq(schema.mediaFiles.metadataId, scope.id));
-		} else if (scope.kind === "season") {
-			const seasonEpisodes = client.select({ id: schema.episodes.id }).from(schema.episodes).where(eq(schema.episodes.seasonId, scope.id));
-			conditions.push(inArray(schema.mediaFiles.episodeId, seasonEpisodes));
+		switch (scope.kind) {
+			case "library":
+				conditions.push(eq(schema.mediaFiles.libraryId, scope.id));
+				break;
+			case "title":
+				conditions.push(eq(schema.mediaFiles.metadataId, scope.id));
+				break;
+			case "season": {
+				const seasonEpisodes = client
+					.select({ id: schema.episodes.id })
+					.from(schema.episodes)
+					.where(eq(schema.episodes.seasonId, scope.id));
+				conditions.push(inArray(schema.mediaFiles.episodeId, seasonEpisodes));
+				break;
+			}
+			case "all":
+				break;
+			default:
+				break;
 		}
 
 		return and(...conditions);

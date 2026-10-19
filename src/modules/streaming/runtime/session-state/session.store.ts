@@ -2,6 +2,7 @@ import type { PlaybackDecision, StreamingSession } from "@reelvault/sdk/common";
 import type { TerminatedSessionEntry } from "@/modules/streaming/streaming.types";
 import { playedSecondsBetween } from "@/modules/streaming/utils/playback-position.utils";
 import { DomainError } from "@/utils/domain.errors";
+import { isNullish } from "@/utils/type.utils";
 
 /** A creating session without a process past this deadline is a stuck stream-init — the reaper releases it. */
 export const RESERVATION_DEADLINE_MS = 60_000;
@@ -101,7 +102,7 @@ export class SessionStore {
 	}
 
 	isAttached(sessionId: string): boolean {
-		return this.sessions.get(sessionId)?.process != null;
+		return !isNullish(this.sessions.get(sessionId)?.process);
 	}
 
 	/**
@@ -229,7 +230,7 @@ export class SessionStore {
 	isSessionActive(sessionId: string): boolean {
 		const session = this.sessions.get(sessionId);
 
-		return session?.state === "active" && session.process != null;
+		return session?.state === "active" && !isNullish(session.process);
 	}
 
 	/** Creating entries past the reservation deadline — candidates for release by the reaper. */

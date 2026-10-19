@@ -122,8 +122,12 @@ class PeopleRepository {
 	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<PersonWithRelations, F>>> {
 		const data = await selectManyWithFields(people, { fields, required: ["id", "imageId"], where, orderBy, limit, offset, tx });
 		const imageIds = QueryFields.includes(fields, "image") ? data.flatMap((p) => (p.imageId ? [p.imageId] : [])) : [];
-		const images =
-			imageIds.length > 0 ? await this.loadImages(imageIds, tx, fields) : new Map<string, NonNullable<PersonWithRelations["image"]>>();
+		let images: Map<string, NonNullable<PersonWithRelations["image"]>>;
+		if (imageIds.length > 0) {
+			images = await this.loadImages(imageIds, tx, fields);
+		} else {
+			images = new Map<string, NonNullable<PersonWithRelations["image"]>>();
+		}
 
 		return data.map((item) =>
 			QueryFields.apply<PersonWithRelations, F>({ ...item, image: item.imageId ? (images.get(item.imageId) ?? null) : null }, fields),
@@ -139,9 +143,12 @@ class PeopleRepository {
 		fields: FieldsConfig<F> | undefined,
 		tx?: DatabaseTransaction,
 	): Promise<SelectFields<PersonWithRelations, F>> {
-		const images = QueryFields.includes(fields, "image")
-			? await this.loadImages(person.imageId ? [person.imageId] : [], tx, fields)
-			: new Map<string, NonNullable<PersonWithRelations["image"]>>();
+		let images: Map<string, NonNullable<PersonWithRelations["image"]>>;
+		if (QueryFields.includes(fields, "image")) {
+			images = await this.loadImages(person.imageId ? [person.imageId] : [], tx, fields);
+		} else {
+			images = new Map<string, NonNullable<PersonWithRelations["image"]>>();
+		}
 
 		return QueryFields.apply<PersonWithRelations, F>(
 			{ ...person, image: person.imageId ? (images.get(person.imageId) ?? null) : null },

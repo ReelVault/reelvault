@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { isNullish } from "@/utils/type.utils";
 
 /** Marks the post-create sidecar write so a retry does not repeat it. */
 export async function markIngestSidecarWritten(mediaFileId: string): Promise<void> {
@@ -24,7 +25,7 @@ export async function findIngestProgress(mediaFileId: string): Promise<{ sidecar
 		.where(eq(schema.mediaFileIngestState.mediaFileId, mediaFileId))
 		.limit(1);
 
-	return { sidecarWritten: row?.sidecarWrittenAt != null, discoveredEmitted: row?.discoveredEmittedAt != null };
+	return { sidecarWritten: !isNullish(row?.sidecarWrittenAt), discoveredEmitted: !isNullish(row?.discoveredEmittedAt) };
 }
 
 async function upsertIngestState(mediaFileId: string, values: { sidecarWrittenAt?: Date; discoveredEmittedAt?: Date }): Promise<void> {

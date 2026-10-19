@@ -4,12 +4,13 @@ import { discoverRepository } from "@/app/repositories/discover.repository";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { groupBy, isNotNullish, toMap, unique } from "@/utils/array.utils";
+import { groupBy, toMap, unique } from "@/utils/array.utils";
 import { assertProfileId } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
+import { isNotNullish } from "@/utils/type.utils";
 import {
 	applyDiversityFilter,
 	buildRelationScores,
@@ -99,8 +100,8 @@ class DiscoverService {
 		const dislikedIds = new Set(await discoverRepository.findDislikedMetadataIds(profileId));
 		const recentlyAdded = await metadataRepository.findRecentlyAddedByTypes(["movie", "tv_show"], limit);
 		const [recommendationIds, trendingRaw] = await Promise.all([
-			this.getRecommendations(profileId, limit).catch((err) => {
-				this.logger.warn("Failed to generate recommendations for discover view, falling back to empty list", { profileId, err });
+			this.getRecommendations(profileId, limit).catch((error) => {
+				this.logger.warn("Failed to generate recommendations for discover view, falling back to empty list", { profileId, err: error });
 
 				return [];
 			}),
@@ -123,7 +124,10 @@ class DiscoverService {
 			.map((row) => row.metadataId)
 			.filter((id): id is string => Boolean(id) && !recentlyAddedMap.has(id));
 		const missingIds = [...new Set([...missingRecIds, ...missingTrendingIds])];
-		const missingEnriched = missingIds.length > 0 ? await metadataRepository.findManyByIdsWithRelations(missingIds) : [];
+		let missingEnriched: MetadataWithRelation[] = [];
+		if (missingIds.length > 0) {
+			missingEnriched = await metadataRepository.findManyByIdsWithRelations(missingIds);
+		}
 		const enrichedMap = toMap([...recentlyAddedAll, ...missingEnriched], (m) => m.id);
 		const hydratedRecs: MetadataWithRelation[] = recommendationIds.map((id) => enrichedMap.get(id)).filter((v) => isNotNullish(v));
 

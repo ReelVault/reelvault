@@ -166,9 +166,13 @@ export async function findPage<F extends string>(
 	} else {
 		const baseOrderBy = QueryUtils.buildOrderBy(sorting, metadataQueryMap.orderBy, metadataQueryMap.defaults);
 		// Tiebreaker keeps offset pagination deterministic for non-unique keys.
-		orderBy = baseOrderBy
-			? QuerySorting.withTiebreaker(baseOrderBy, schema.metadata.id, QueryUtils.resolveSortOrder(sorting, metadataQueryMap.defaults))
-			: undefined;
+		if (baseOrderBy) {
+			orderBy = QuerySorting.withTiebreaker(
+				baseOrderBy,
+				schema.metadata.id,
+				QueryUtils.resolveSortOrder(sorting, metadataQueryMap.defaults),
+			);
+		}
 	}
 
 	const requiredFields: Array<keyof typeof metadataColumns> | undefined = cursorMode ? ["createdAt"] : undefined;

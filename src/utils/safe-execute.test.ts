@@ -28,12 +28,12 @@ describe("runSafely", () => {
 
 	test("wraps unexpected errors as an internal error that keeps the cause", async () => {
 		const rawError = new Error("DB connection timeout");
-		const error = await runSafely(service, "testOp", () => {
+		const failure = await runSafely(service, "testOp", () => {
 			throw rawError;
-		}).catch((caught: unknown) => caught);
+		}).catch((error: unknown) => error);
 
-		expect(error).toMatchObject({ category: "internal" });
-		expect((error as DomainError).cause).toBe(rawError);
+		expect(failure).toMatchObject({ category: "internal" });
+		expect((failure as DomainError).cause).toBe(rawError);
 	});
 
 	test("supports customThrow as an Error instance", async () => {
@@ -46,7 +46,7 @@ describe("runSafely", () => {
 				throw rawError;
 			},
 			{ customThrow: conflict },
-		).catch((caught: unknown) => caught);
+		).catch((error: unknown) => error);
 
 		expect(error).toBe(conflict);
 		expect((error as DomainError).cause).toBe(rawError);
@@ -68,7 +68,7 @@ describe("runSafely", () => {
 					return new DomainError("validation", "Invalid reference");
 				},
 			},
-		).catch((caught: unknown) => caught);
+		).catch((error: unknown) => error);
 
 		expect(received).toBe(rawError);
 		expect(error).toMatchObject({ category: "validation" });

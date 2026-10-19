@@ -1,0 +1,11 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// An if/else-if chain that dispatches on one value is a switch in disguise:
+// the same subject is compared again and again, and a branch can drop out of
+// the chain unnoticed. A switch states the dispatch once.
+JsIfStatement(test=JsBinaryExpression(left=$subject, right=$first), else_clause=JsElseClause(alternate=JsIfStatement(test=JsBinaryExpression(left=$subject, right=$second), else_clause=JsElseClause(alternate=JsIfStatement(test=JsBinaryExpression(left=$subject, right=$third)))))) as $chain where {
+	$chain <: r"(?s).*===.*",
+	not $chain <: within JsElseClause(),
+	register_diagnostic(span=$chain, message="if/else-if chain on one value. Use a switch.")
+}

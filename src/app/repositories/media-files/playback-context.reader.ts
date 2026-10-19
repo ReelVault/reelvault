@@ -63,12 +63,17 @@ export async function findPlaybackContext(mediaFileId: string): Promise<Playback
 	const relations = parseMediaFileRelations(row.data, row);
 	if (!relations) return undefined;
 
+	let episode: ReturnType<typeof parseEpisodeWithMediaFiles> | undefined;
+	if (row.episode?.id) {
+		episode = parseEpisodeWithMediaFiles({ data: row.episode, mediaFiles: row.episodeMediaFiles });
+	}
+
 	return {
 		mediaFile: { ...row.data, ...relations },
 		// A left join leaves the nested row's columns null when the foreign key
 		// target is gone; the view's assertFound expects the undefined shape.
 		metadata: row.root?.id ? row.root : undefined,
-		episode: row.episode?.id ? parseEpisodeWithMediaFiles({ data: row.episode, mediaFiles: row.episodeMediaFiles }) : undefined,
+		episode,
 		markers: parseJsonRelationArray<typeof schema.mediaMarkers.$inferSelect>(row.markers, markerKeys, markerRevive),
 	};
 }

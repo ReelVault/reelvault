@@ -137,7 +137,7 @@ export class SystemResourcesService {
 		const eventLoopUtilization = this.eventLoopMonitor.read();
 		const metrics: CpuResourceMetrics = Object.freeze({
 			...derived,
-			...(eventLoopUtilization !== undefined ? { eventLoopUtilization } : {}),
+			...(eventLoopUtilization === undefined ? {} : { eventLoopUtilization }),
 		});
 
 		this.cachedMetrics = { metrics, expiresAt: now + METRICS_TTL_MS };

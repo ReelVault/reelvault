@@ -3,11 +3,11 @@
 	"entry": ["tests/**/*.test.ts", "scripts/**/*.ts", "packages/benchkit/**/*.test.ts"],
 	"project": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "packages/**/*.ts"],
 	"ignoreDependencies": [],
-	"ignoreBinaries": ["ffmpeg"],
+	"ignoreBinaries": ["ffmpeg", "check"],
 	"ignoreExportsUsedInFile": true,
 	"rules": {
-		"exports": "warn",
-		"types": "warn",
-		"duplicates": "warn"
+		"exports": "error",
+		"types": "error",
+		"duplicates": "error"
 	}
 }

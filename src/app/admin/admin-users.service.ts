@@ -286,9 +286,14 @@ class AdminUsersService {
 			assertFound(userExists, "User", userId);
 			if (isNameTaken) throw new DomainError("conflict", "Profile with the same name already exists", { code: "profile.name_conflict" });
 
+			let pin: string | undefined;
+			if (body.pin) {
+				pin = await hashProfilePin(body.pin);
+			}
+
 			const profile = await profilesRepository.createAndRead(userId, {
 				name: body.name,
-				...(body.pin ? { pin: await hashProfilePin(body.pin) } : {}),
+				...(pin === undefined ? {} : { pin }),
 				...(body.avatarUrl ? { avatarUrl: body.avatarUrl } : {}),
 			});
 			assertFound(profile, "Profile", body.name);
@@ -373,10 +378,17 @@ class AdminUsersService {
 
 			const payload: AdminUserProfileUpdate = { ...body };
 			if (body.pin !== undefined) {
-				payload.pin = body.pin ? await hashProfilePin(body.pin) : null;
+				if (body.pin) {
+					payload.pin = await hashProfilePin(body.pin);
+				} else {
+					payload.pin = null;
+				}
 			}
 
-			const updated = hasEntry(payload) ? ((await profilesRepository.updateAndRead(profile.id, payload)) ?? profile) : profile;
+			let updated = profile;
+			if (hasEntry(payload)) {
+				updated = (await profilesRepository.updateAndRead(profile.id, payload)) ?? profile;
+			}
 			recordAuditSafe(
 				{
 					action: "update",

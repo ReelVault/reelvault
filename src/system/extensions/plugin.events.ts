@@ -70,8 +70,8 @@ export class PluginEventBus {
 				await PromiseUtils.withTimeout(Promise.resolve(run), this.timeoutMs, `Plugin event ${event}`);
 
 				return { status: "fulfilled" as const, value: undefined };
-			} catch (reason) {
-				return { status: "rejected" as const, reason };
+			} catch (error) {
+				return { status: "rejected" as const, reason: error };
 			}
 		});
 

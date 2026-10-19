@@ -2,8 +2,8 @@ import type { MetadataProvider } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import type { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { isNotNullish } from "@/utils/array.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { isNotNullish } from "@/utils/type.utils";
 import { trimNameAndOverview } from "./match-ranking.utils";
 import type { ProviderServiceState } from "./shared.utils";
 

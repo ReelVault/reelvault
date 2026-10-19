@@ -54,15 +54,13 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 					},
 				});
 
-				if (match.thumbnailPath) {
-					if (options.forceImage || !episode.imageId) {
-						await imageProcessingService.processEpisode({
-							metadataId: season.metadataId,
-							episodeId: episode.id,
-							imagesUrl: match.thumbnailPath,
-							force: options.forceImage,
-						});
-					}
+				if (match.thumbnailPath && (options.forceImage || !episode.imageId)) {
+					await imageProcessingService.processEpisode({
+						metadataId: season.metadataId,
+						episodeId: episode.id,
+						imagesUrl: match.thumbnailPath,
+						force: options.forceImage,
+					});
 				}
 			}
 

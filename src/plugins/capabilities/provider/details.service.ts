@@ -9,11 +9,11 @@ import {
 } from "@/plugins/capabilities/metadata-aggregator.service";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { hasEntry, isNotNullish } from "@/utils/array.utils";
+import { hasEntry } from "@/utils/array.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { isAcceptableMatch } from "@/utils/media-match/ranking.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
-import { normalizeLower } from "@/utils/type.utils";
+import { isNotNullish, isNullish, normalizeLower } from "@/utils/type.utils";
 import { isExternalIdentifierAwareProvider, matchesExternalIdentifiers, normalizeMetadataDetails } from "./match-ranking.utils";
 import type { AcceptedMatch, ProviderDetails } from "./provider.types";
 import { NoMatchError } from "./provider.types";
@@ -272,7 +272,7 @@ async function collectAcceptedMatches(
 
 			const best = ranked[0];
 			const runnerUp = ranked[1];
-			const acceptable = best != null && isAcceptableMatch(best, runnerUp, systemSettingsStore.get("metadata.minMatchScore"));
+			const acceptable = !isNullish(best) && isAcceptableMatch(best, runnerUp, systemSettingsStore.get("metadata.minMatchScore"));
 
 			if (!acceptable) {
 				state.logger.debug("No confident metadata match, skipping provider", {

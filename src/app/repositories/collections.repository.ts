@@ -90,9 +90,10 @@ class CollectionsRepository {
 		const where = QueryUtils.buildWhereConditions(filters, collectionQueryMap.filters);
 		const baseOrderBy = QueryUtils.buildOrderBy(sorting, collectionQueryMap.orderBy, collectionQueryMap.defaults);
 		// Tiebreaker keeps offset pagination deterministic for non-unique keys.
-		const orderBy = baseOrderBy
-			? QuerySorting.withTiebreaker(baseOrderBy, this.table.id, QueryUtils.resolveSortOrder(sorting, collectionQueryMap.defaults))
-			: undefined;
+		let orderBy: typeof baseOrderBy | undefined;
+		if (baseOrderBy) {
+			orderBy = QuerySorting.withTiebreaker(baseOrderBy, this.table.id, QueryUtils.resolveSortOrder(sorting, collectionQueryMap.defaults));
+		}
 		const minItems = filters?.minItems ?? systemSettingsStore.get("collections.minimalToShow");
 
 		// Page ids come back already ordered/limited from SQL — the previous version
@@ -144,17 +145,19 @@ class CollectionsRepository {
 			QueryFields.includes(fields, "metadataCount") ||
 			QueryFields.includes(fields, "posterImages");
 
-		return loadRelations
-			? await this.findById({ primaryId: collection.id, fields })
-			: QueryFields.apply<CollectionWithRelations, F>(
-					{
-						...collection,
-						providers: [],
-						metadataCount: 0,
-						posterImages: [],
-					},
-					fields,
-				);
+		if (loadRelations) {
+			return await this.findById({ primaryId: collection.id, fields });
+		}
+
+		return QueryFields.apply<CollectionWithRelations, F>(
+			{
+				...collection,
+				providers: [],
+				metadataCount: 0,
+				posterImages: [],
+			},
+			fields,
+		);
 	}
 
 	async updateAndRead<F extends string>(

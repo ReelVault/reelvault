@@ -138,7 +138,7 @@ export async function ingestMediaFileTask(
 					type,
 					startSeconds,
 					endSeconds,
-					...(label !== null ? { label } : {}),
+					...(label === null ? {} : { label }),
 				})),
 				{ source: "automatic" },
 			);

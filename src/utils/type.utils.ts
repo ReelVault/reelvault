@@ -3,12 +3,22 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** True for `null` and `undefined` — the two values a missing field can carry. */
+export function isNullish(value: unknown): value is null | undefined {
+	return value === null || value === undefined;
+}
+
+/** Type guard that filters out `null` and `undefined` values. */
+export function isNotNullish<T>(value: T | null | undefined): value is T {
+	return !isNullish(value);
+}
+
 /** Returns a new object with only the keys whose values are not `null` or `undefined`. */
 export function pickDefined(obj: Record<string, unknown>): Record<string, unknown> {
 	const result: Record<string, unknown> = {};
 	for (const key of Object.keys(obj)) {
 		const value = obj[key];
-		if (value != null) {
+		if (!isNullish(value)) {
 			result[key] = value;
 		}
 	}

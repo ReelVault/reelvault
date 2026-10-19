@@ -150,7 +150,11 @@ class ProfilesService {
 
 			// An omitted PIN leaves the stored one alone; an explicit null removes it. Dropping the null
 			// here (hashProfilePin returns undefined for it) made removal a silent no-op.
-			const payload = { ...body, pin: body.pin === null ? null : await hashProfilePin(body.pin) };
+			let pin: string | null | undefined = null;
+			if (body.pin !== null) {
+				pin = await hashProfilePin(body.pin);
+			}
+			const payload = { ...body, pin };
 			const result = await profilesRepository.updateAndRead(profileId, payload, query);
 			assertFound(result, "Profile", profileId);
 
@@ -203,7 +207,10 @@ class ProfilesService {
 			// Proof (signed, HttpOnly) that this client passed the profile PIN, bound to
 			// the current PIN hash. Only meaningful for PIN-protected profiles — a token
 			// issued for an unprotected profile must not unlock it after a PIN is added.
-			const unlockToken = profile.pin ? signProfileUnlock(profile.id, env.BETTER_AUTH_SECRET, profilePinFingerprint(profile.pin)) : null;
+			let unlockToken: string | null = null;
+			if (profile.pin) {
+				unlockToken = signProfileUnlock(profile.id, env.BETTER_AUTH_SECRET, profilePinFingerprint(profile.pin));
+			}
 
 			return { success: true, profileId: profile.id, unlockToken };
 		});

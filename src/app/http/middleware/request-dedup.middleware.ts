@@ -110,10 +110,10 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 							timer.unref();
 							if (existing.settled) {
 								clearTimeout(timer);
-								if (existing.error !== undefined) {
-									reject(existing.error);
-								} else {
+								if (existing.error === undefined) {
 									resolve(buildSharedResponse(existing));
+								} else {
+									reject(existing.error);
 								}
 
 								return;

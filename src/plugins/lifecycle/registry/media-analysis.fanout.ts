@@ -3,6 +3,7 @@ import type { MediaAnalysis, MediaAnalyzer } from "@reelvault/sdk/plugin";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { createLogger } from "@/utils/logger.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { isNullish } from "@/utils/type.utils";
 import { PluginEntityTable } from "./plugin-entity.registry";
 
 /** Runs every registered analyzer against a media file, isolating per-analyzer failures. */
@@ -66,7 +67,7 @@ function normalizeMediaAnalysis(analysis: MediaAnalysis | undefined): MediaAnaly
 }
 
 function normalizeAnalysisValue(value: string | null | undefined): string | null | undefined {
-	if (value == null) return value;
+	if (isNullish(value)) return value;
 
 	return value.trim() || null;
 }

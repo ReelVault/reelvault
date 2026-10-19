@@ -31,6 +31,8 @@ jobs:
             command: bun run lint:ci
           - name: Dead code
             command: bun run deadcode
+          - name: Coverage
+            command: bun run coverage
           - name: Tests
             command: bun test --parallel
           - name: Migration drift

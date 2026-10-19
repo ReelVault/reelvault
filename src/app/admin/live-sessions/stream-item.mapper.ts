@@ -3,6 +3,7 @@ import { serverConfig } from "@/config/server/server.config";
 import type { DetectedHwaccel } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
 import { computeProgressPercent } from "@/modules/streaming/utils/playback-position.utils";
 import { serializeDate } from "@/utils/time.utils";
+import { isNullish } from "@/utils/type.utils";
 import type { SessionMaps } from "./session-maps.utils";
 import { parseUserAgent } from "./user-agent.parser";
 
@@ -57,7 +58,7 @@ function resolveTargetAudioStream<T extends { index: number; isDefault: boolean 
 	audioStreamIndex: number | null | undefined,
 ): T | undefined {
 	const fallback = audioStreams[0];
-	if (audioStreamIndex != null) return audioStreams.find((a) => a.index === audioStreamIndex) ?? fallback;
+	if (!isNullish(audioStreamIndex)) return audioStreams.find((a) => a.index === audioStreamIndex) ?? fallback;
 
 	return audioStreams.find((a) => a.isDefault) ?? fallback;
 }
@@ -120,12 +121,7 @@ export function buildActiveStreamItem(
 		metadataId: media.metadataId,
 		title: media.title,
 		type: media.type,
-		releaseYear: media.releaseDate ? new Date(media.releaseDate).getFullYear() : null,
-		seasonNumber: media.seasonNumber ?? null,
-		episodeNumber: media.episodeNumber ?? null,
-		episodeTitle: media.episodeTitle ?? null,
-		posterUrl: media.posterImageId ? `${serverConfig.security.imageRoutePrefix}${media.posterImageId}` : null,
-		posterUpdatedAt: media.posterImageUpdatedAt ?? null,
+		...mediaItemFields(media),
 		backdropUrl: null,
 		currentTime: Math.round(currentTime),
 		duration: Math.round(totalDurationSeconds),
@@ -138,14 +134,12 @@ export function buildActiveStreamItem(
 		hwaccel: effectiveHw.type,
 		transcodeReasons: session.decision.reasons ?? null,
 		...videoStreamProps(targetVideoStream, session.decision),
-		bitrateKbps: media.bitRate ? Math.round(media.bitRate / 1000) : null,
 		targetVideoBitrateKbps: session.decision.videoBitrateKbps ?? null,
 		...audioStreamProps(targetAudioStream, session.decision),
 		processId: session.process?.pid ?? null,
-		bufferedSeconds: bufferAnalysis ? Number(bufferAnalysis.bufferedSeconds.toFixed(2)) : null,
-		bufferedUntil: bufferAnalysis ? Number(bufferAnalysis.bufferedUntil.toFixed(2)) : null,
+		...bufferFields(bufferAnalysis),
 		bufferState,
-		encodePositionSeconds: session.transcodePositionMs !== null ? Number((session.transcodePositionMs / 1000).toFixed(2)) : null,
+		encodePositionSeconds: session.transcodePositionMs === null ? null : Number((session.transcodePositionMs / 1000).toFixed(2)),
 		encodePercent: session.transcodePercent,
 		encodeSpeed: session.transcodeSpeed,
 		clientName: parsedUa.clientName,
@@ -154,5 +148,26 @@ export function buildActiveStreamItem(
 		ipAddress: userSession?.ipAddress ?? null,
 		startedAt: serializeDate(session.createdAt),
 		lastActivityAt: serializeDate(session.lastActivity),
+	};
+}
+
+/** The media fields of a live-stream row. */
+function mediaItemFields(media: NonNullable<ReturnType<SessionMaps["mediaMap"]["get"]>>) {
+	return {
+		releaseYear: media.releaseDate ? new Date(media.releaseDate).getFullYear() : null,
+		seasonNumber: media.seasonNumber ?? null,
+		episodeNumber: media.episodeNumber ?? null,
+		episodeTitle: media.episodeTitle ?? null,
+		posterUrl: media.posterImageId ? `${serverConfig.security.imageRoutePrefix}${media.posterImageId}` : null,
+		posterUpdatedAt: media.posterImageUpdatedAt ?? null,
+		bitrateKbps: media.bitRate ? Math.round(media.bitRate / 1000) : null,
+	};
+}
+
+/** The buffer fields of a live-stream row. */
+function bufferFields(bufferAnalysis: { bufferedSeconds: number; bufferedUntil: number } | null) {
+	return {
+		bufferedSeconds: bufferAnalysis ? Number(bufferAnalysis.bufferedSeconds.toFixed(2)) : null,
+		bufferedUntil: bufferAnalysis ? Number(bufferAnalysis.bufferedUntil.toFixed(2)) : null,
 	};
 }

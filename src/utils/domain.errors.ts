@@ -1,4 +1,4 @@
-import { isRecord } from "./type.utils";
+import { isNullish, isRecord } from "./type.utils";
 
 /**
  * Coarse error categories. They map 1:1 to HTTP status codes and are used as the
@@ -96,11 +96,11 @@ export function definedParams(params: DomainErrorParams | undefined): Record<str
 
 /** Canonical not-found error carrying the translatable code + params for an entity. */
 export function notFoundError(entityType: string, entityId?: string): DomainError {
-	const message = entityId !== undefined ? `${entityType} not found: ${entityId}` : `${entityType} not found`;
+	const message = entityId === undefined ? `${entityType} not found` : `${entityType} not found: ${entityId}`;
 
 	return new DomainError("not_found", message, {
 		code: "entity.not_found",
-		...(entityId !== undefined ? { params: { entityType, entityId } } : {}),
+		...(entityId === undefined ? {} : { params: { entityType, entityId } }),
 	});
 }
 
@@ -116,7 +116,7 @@ export function assertFound<T>(
 	entityId?: string,
 	customThrow?: ErrorFactory,
 ): asserts value is T {
-	if (value != null) return;
+	if (!isNullish(value)) return;
 	if (customThrow) throw typeof customThrow === "function" ? customThrow() : customThrow;
 
 	throw notFoundError(entityType, entityId);
@@ -132,7 +132,7 @@ export function assertUserId(userId: string | undefined): asserts userId is stri
 
 /** Guards a dependency that must always be present — its absence is a caller bug (500), not a client-facing not-found (404). */
 export function assertPresent<T>(value: T | null | undefined, message: string): asserts value is T {
-	if (value == null) throw new DomainError("internal", message);
+	if (isNullish(value)) throw new DomainError("internal", message);
 }
 
 const ERROR_CODE_PATTERN = /^[a-z][a-z0-9_.]{0,63}$/;

@@ -10,8 +10,11 @@ Load the `karpathy-guidelines` skill before starting any task.
 Run from the repo root:
 
 - `bun run format`: Biome formatting. It does not sort imports; for import order run `bunx biome check --write <files>`.
-- `bun run lint`: Biome plus oxlint (type-aware).
-- `bun run check-types`: TypeScript (`tsc --noEmit`).
+- `bun run lint`: Biome plus oxlint (type-aware) plus the duplication check.
+- `bun run lint:duplicates`: jscpd copy/paste detector over `src/`. The budget is 1% duplicated lines.
+- `bun run check-types`: TypeScript (`tsc --noEmit`, the TypeScript 7 native checker — ~0.3 s for the whole repo).
+- `bun run check-types:bun`: the same project through Bun's own checker (`bun check`). It reports the same errors but is ~3x slower here, so it is a second opinion, not the gate.
+- `bun run coverage`: runs the suite with coverage and fails under the line-coverage floor (75% of `src/`; today ~82%). `bun run coverage:report` prints the full report.
 - `bun run deadcode`: knip.
 - `bun run test`: full suite. `bun test` runs from the root only; `bunfig.toml` preloads don't apply in subdirectories.
 - `bun run db:generate --name "descriptive_name"`, `db:migrate`, `db:migrate:runtime`, `scenarios`, `benchmark`.
@@ -37,6 +40,18 @@ Don't work around these. If one seems wrong, stop and ask the user.
 - No weakening of `biome.json`, `.oxlintrc.json` or `tsconfig.json`, and no new `ignores` or `ignorePatterns` entries.
 - No knip `ignore` entries and no `@public` tags. Delete unused code.
 - No `test.skip`, `test.todo`, `.only` or environment-gated `skipIf`. A test that cannot run fails loudly.
+
+## Readability rules
+
+`biome.json` and `.oxlintrc.json` carry the house style; `scripts/lint/*.grit` holds the rules no linter ships.
+
+- A ternary only picks between two short values. A branch that carries a call and runs past 80 characters, or any `await` inside a branch, is an `if`/`else` (or an early return) — `scripts/lint/long-ternary.grit` fails the build on it.
+- One value, one dispatch: an `if`/`else if` chain that compares the same subject three or more times is a `switch` — `scripts/lint/else-if-chain.grit` fails the build on it.
+- Conditions read positive: no `!` in an `if`/`else` or a ternary, and no `else` after a `return` (`eslint/no-negated-condition`, `eslint/no-else-return`).
+- One function, one job: cognitive complexity ≤ 20, ≤ 100 lines, ≤ 5 parameters, nesting ≤ 4 levels. Split a function instead of reaching for a deeper branch.
+- One name per thing: `catch (error)`, no `forEach`/`reduce` where a loop says it better, no `console.log` outside scripts.
+- Nullish checks go through `isNullish()` / `isNotNullish()` (`src/utils/type.utils.ts`); `==`/`!=` are banned (`eslint/eqeqeq`).
+- Copy-paste is a bug waiting to happen: the duplication budget is 1% (`bun run lint:duplicates`). Extract the shared part instead of cloning it.
 
 ## Code
 

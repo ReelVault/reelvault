@@ -69,7 +69,7 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 				type: marker.type,
 				startSeconds: marker.startSeconds,
 				endSeconds: marker.endSeconds,
-				...(marker.label !== null ? { label: marker.label } : {}),
+				...(marker.label === null ? {} : { label: marker.label }),
 			})),
 			{ source: "automatic" },
 		);

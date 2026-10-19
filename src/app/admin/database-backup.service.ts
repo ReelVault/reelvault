@@ -118,14 +118,7 @@ class DatabaseBackupService {
 	/** The backup file behind a download link. Names that could leave the backups folder are refused. */
 	async findBackupFile(fileName: string): Promise<{ fileName: string; path: string; sizeBytes: number }> {
 		return await runSafely(this, "findBackupFile", async () => {
-			if (!fileName.endsWith(".sqlite") || fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
-				throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
-			}
-
-			const fullPath = PathUtils.join(serverConfig.paths.backups, fileName);
-			if (!PathUtils.isSubpath(fullPath, serverConfig.paths.backups)) {
-				throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
-			}
+			const fullPath = resolveBackupPath(fileName, { requireSqliteSuffix: true });
 
 			const handle = file(fullPath);
 			if (!(await handle.exists())) {
@@ -138,17 +131,7 @@ class DatabaseBackupService {
 
 	async deleteBackup(fileName: string): Promise<boolean> {
 		return await runSafely(this, "deleteBackup", async () => {
-			// Prevent path traversal
-			if (fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
-				throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
-			}
-
-			const fullPath = PathUtils.join(serverConfig.paths.backups, fileName);
-			if (!PathUtils.isSubpath(fullPath, serverConfig.paths.backups)) {
-				throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
-			}
-
-			return await FileUtils.delete(fullPath);
+			return await FileUtils.delete(resolveBackupPath(fileName, { requireSqliteSuffix: false }));
 		});
 	}
 
@@ -169,3 +152,24 @@ class DatabaseBackupService {
 }
 
 export const databaseBackupService = new DatabaseBackupService();
+
+/**
+ * The path of a backup file inside the backups folder. Names that could leave
+ * that folder are refused; a download names a `.sqlite` file, a delete does not.
+ */
+function resolveBackupPath(fileName: string, options: { requireSqliteSuffix: boolean }): string {
+	if (fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
+		throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
+	}
+
+	if (options.requireSqliteSuffix && !fileName.endsWith(".sqlite")) {
+		throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
+	}
+
+	const fullPath = PathUtils.join(serverConfig.paths.backups, fileName);
+	if (!PathUtils.isSubpath(fullPath, serverConfig.paths.backups)) {
+		throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
+	}
+
+	return fullPath;
+}

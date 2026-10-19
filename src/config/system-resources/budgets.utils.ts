@@ -115,7 +115,9 @@ function resolveReservedWebCores(profile: CpuProfile, effectiveCores: number, sp
 	}
 
 	if (profile === "performance") {
-		return effectiveCores > 2 ? clamp(Math.floor(effectiveCores * PROFILE_RESERVE_RATIO.performance), 1, effectiveCores) : 1;
+		if (effectiveCores > 2) return clamp(Math.floor(effectiveCores * PROFILE_RESERVE_RATIO.performance), 1, effectiveCores);
+
+		return 1;
 	}
 
 	let ratio = (isReservedProfile(profile) ? PROFILE_RESERVE_RATIO[profile] : undefined) ?? PROFILE_RESERVE_RATIO.balanced;

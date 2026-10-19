@@ -24,15 +24,7 @@ export function boundedLevenshtein(source: string, target: string, maxDistance: 
 
 	for (let i = 1; i <= sLen; i++) {
 		v1[0] = i;
-		let rowMinimum = i;
-		const sCharCode = s.charCodeAt(i - 1);
-
-		for (let j = 1; j <= tLen; j++) {
-			const substitution = (v0[j - 1] ?? 0) + (sCharCode === t.charCodeAt(j - 1) ? 0 : 1);
-			const value = Math.min((v0[j] ?? 0) + 1, (v1[j - 1] ?? 0) + 1, substitution);
-			v1[j] = value;
-			if (value < rowMinimum) rowMinimum = value;
-		}
+		const rowMinimum = nextDistanceRow(v0, v1, s.charCodeAt(i - 1), t, tLen);
 
 		if (rowMinimum > maxDistance) return null;
 
@@ -44,6 +36,20 @@ export function boundedLevenshtein(source: string, target: string, maxDistance: 
 	const distance = v0[tLen];
 
 	return distance !== undefined && distance <= maxDistance ? distance : null;
+}
+
+/** One row of the distance matrix; returns the row's smallest distance. */
+function nextDistanceRow(v0: number[], v1: number[], sCharCode: number, t: string, tLen: number): number {
+	let rowMinimum = v1[0] ?? 0;
+
+	for (let j = 1; j <= tLen; j++) {
+		const substitution = (v0[j - 1] ?? 0) + (sCharCode === t.charCodeAt(j - 1) ? 0 : 1);
+		const value = Math.min((v0[j] ?? 0) + 1, (v1[j - 1] ?? 0) + 1, substitution);
+		v1[j] = value;
+		if (value < rowMinimum) rowMinimum = value;
+	}
+
+	return rowMinimum;
 }
 
 /**

@@ -116,11 +116,14 @@ async function handlePluginRouteDispatch({
 	profile?: { id: string } | null | undefined;
 	body?: unknown;
 }) {
-	const parsedBody = body !== undefined ? body : await parseJsonBody(request);
+	let parsedBody = body;
+	if (parsedBody === undefined) {
+		parsedBody = await parseJsonBody(request);
+	}
 	const headersObj: Record<string, string> = {};
-	request.headers.forEach((value, key) => {
+	for (const [key, value] of request.headers.entries()) {
 		headersObj[key.toLowerCase()] = value;
-	});
+	}
 	const result = await pluginRouteDispatchService.dispatch({
 		pluginId,
 		method: request.method,

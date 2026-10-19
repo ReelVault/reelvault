@@ -33,7 +33,10 @@ export async function readSidecarMetadataHint(videoPath: string, kind: "movie" |
 	const chain = await locateLocalNfoChain(videoPath, kind);
 
 	if (kind === "movie") {
-		const document = chain.movieDocument ? await readDocument(chain.movieDocument) : undefined;
+		let document: Awaited<ReturnType<typeof readDocument>> | undefined;
+		if (chain.movieDocument) {
+			document = await readDocument(chain.movieDocument);
+		}
 		if (!document) return undefined;
 
 		return {

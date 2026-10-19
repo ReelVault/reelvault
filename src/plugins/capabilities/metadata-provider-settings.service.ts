@@ -27,12 +27,13 @@ class MetadataProviderSettingsService {
 
 	async getOrderedProviders(libraryId?: string): Promise<MetadataProvider[]> {
 		const source = pluginRegistry.getProviders();
-		if (!libraryId) {
-			if (this.cachedOrdered?.source === source) return this.cachedOrdered.values;
-		}
+		if (!libraryId && this.cachedOrdered?.source === source) return this.cachedOrdered.values;
 
 		const settings = await this.getSettings();
-		const overrides = libraryId ? await this.getLibraryOverrides(libraryId) : undefined;
+		let overrides: Map<string, LibraryProviderPriority> | undefined;
+		if (libraryId) {
+			overrides = await this.getLibraryOverrides(libraryId);
+		}
 		const values = source
 			.filter((provider) => overrides?.get(provider.id)?.enabled ?? settings.get(provider.id)?.enabled ?? true)
 			.toSorted((left, right) => {

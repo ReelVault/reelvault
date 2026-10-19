@@ -45,9 +45,12 @@ export async function loadRelations<F extends string>(
 		libraryStatsPromise = caches.libraryStatsCache.getOrSetMany(libraryIds, async (missing) => await loadLibraryStats(missing));
 	}
 
-	const pathsPromise = shouldLoadPaths
-		? client.select().from(schema.libraryPaths).where(inArray(schema.libraryPaths.libraryId, libraryIds))
-		: Promise.resolve([]);
+	let pathsPromise: PromiseLike<Array<typeof schema.libraryPaths.$inferSelect>>;
+	if (shouldLoadPaths) {
+		pathsPromise = client.select().from(schema.libraryPaths).where(inArray(schema.libraryPaths.libraryId, libraryIds));
+	} else {
+		pathsPromise = Promise.resolve([]);
+	}
 	let mediaFilesPromise: PromiseLike<Array<typeof schema.mediaFiles.$inferSelect>>;
 	if (!shouldLoadMediaFiles) {
 		mediaFilesPromise = Promise.resolve([]);
@@ -59,10 +62,12 @@ export async function loadRelations<F extends string>(
 
 	const [rawPaths, mediaFiles, libraryStats] = await Promise.all([pathsPromise, mediaFilesPromise, libraryStatsPromise]);
 
-	const enrichedPaths: Map<string, EnrichedLibraryPath[]> =
-		shouldLoadPaths && rawPaths.length > 0
-			? await enrichPathsWithStats(caches, libraryIds, rawPaths, libraryStats, tx)
-			: new Map<string, EnrichedLibraryPath[]>();
+	let enrichedPaths: Map<string, EnrichedLibraryPath[]>;
+	if (shouldLoadPaths && rawPaths.length > 0) {
+		enrichedPaths = await enrichPathsWithStats(caches, libraryIds, rawPaths, libraryStats, tx);
+	} else {
+		enrichedPaths = new Map<string, EnrichedLibraryPath[]>();
+	}
 
 	return {
 		paths: enrichedPaths,

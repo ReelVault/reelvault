@@ -87,7 +87,9 @@ class PluginBlobsRepository {
 			.where(and(...conditions))
 			.orderBy(asc(this.table.key));
 
-		return options?.limit === undefined ? await query : await query.limit(options.limit);
+		if (options?.limit === undefined) return await query;
+
+		return await query.limit(options.limit);
 	}
 
 	async deleteByKeys(pluginId: string, keys: string[]): Promise<void> {
@@ -120,7 +122,9 @@ class PluginBlobsRepository {
 			.where(lte(this.table.expiresAt, now))
 			.orderBy(asc(this.table.expiresAt));
 
-		return limit === undefined ? await query : await query.limit(limit);
+		if (limit === undefined) return await query;
+
+		return await query.limit(limit);
 	}
 
 	async set(values: typeof this.table.$inferInsert, tx?: DatabaseTransaction): Promise<void> {

@@ -151,7 +151,7 @@ class ApiKeysService {
 		const rawKey = this.newRawKey();
 		const keyPrefix = rawKey.slice(0, 12);
 		const now = new Date();
-		const expiresAt = input.expiresAtDays !== undefined ? new Date(now.getTime() + input.expiresAtDays * 86_400_000) : null;
+		const expiresAt = input.expiresAtDays === undefined ? null : new Date(now.getTime() + input.expiresAtDays * 86_400_000);
 		const id = randomBytes(12).toString("base64url");
 
 		await apiKeysRepository.insert({

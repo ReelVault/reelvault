@@ -108,8 +108,8 @@ export async function processTVShowMetadata(
 				episodeNumber: persisted.episode.episodeNumber,
 				episodeTitle: episodeInfo?.name,
 			});
-		} catch (err) {
-			state.logger.warn("Failed to send new episode notification", { err });
+		} catch (error) {
+			state.logger.warn("Failed to send new episode notification", { err: error });
 		}
 	}
 

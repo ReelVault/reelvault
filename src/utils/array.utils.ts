@@ -1,12 +1,5 @@
 import { isNonEmptyString } from "./type.utils";
 
-/**
- * Type guard that filters out `null` and `undefined` values from an array.
- */
-export function isNotNullish<T>(value: T | null | undefined): value is T {
-	return value != null;
-}
-
 export function hasEntry(entries: object | Record<string, unknown> | undefined | null): boolean {
 	if (entries === undefined || entries === null) return false;
 
@@ -132,7 +125,7 @@ export function groupBy<T, K extends string | number | symbol, V>(
 	const map = new Map<K, Array<V | T>>();
 	for (const item of items) {
 		const key = keySelector(item);
-		if (key == null) continue;
+		if (key === null || key === undefined) continue;
 
 		const value = valueSelector ? valueSelector(item) : item;
 		const existing = map.get(key);

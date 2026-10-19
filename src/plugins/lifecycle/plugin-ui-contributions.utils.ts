@@ -47,7 +47,7 @@ function slotKeys(slot: PluginSlotName, contributions: readonly PluginSlotContri
 	const seen = new Map<string, number>();
 
 	return contributions.map((contribution) => {
-		const base = contribution.id !== undefined ? `slot:${slot}:id:${contribution.id}` : `slot:${slot}:${slotDescriptor(contribution)}`;
+		const base = contribution.id === undefined ? `slot:${slot}:${slotDescriptor(contribution)}` : `slot:${slot}:id:${contribution.id}`;
 		const count = (seen.get(base) ?? 0) + 1;
 		seen.set(base, count);
 

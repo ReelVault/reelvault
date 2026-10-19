@@ -1,6 +1,7 @@
 import type { ClientCapabilities, PlaybackDecision, PlaybackReasonPart } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
 import type { MediaFileInfo } from "@/modules/streaming/streaming.types";
+import { isNullish } from "@/utils/type.utils";
 import { AUDIO_CODEC_MAP, HDR_TRANSFER_ALLOWLIST, normalizeCodec, VIDEO_CODEC_MAP } from "./codec-maps.constants";
 
 const TEN_BIT_PIXEL_FORMAT_REGEX = /(?:10)(?:le|be)$|p010/i;
@@ -19,13 +20,13 @@ function buildCodecSet(codecs: readonly string[]): Set<string> {
 }
 
 function resolveHdrLabel(doviProfile: number | null | undefined, hdrTransfer: string | null): string {
-	if (doviProfile != null) return `DV${doviProfile}`;
+	if (!isNullish(doviProfile)) return `DV${doviProfile}`;
 
 	return hdrTransfer === "arib-std-b67" ? "HLG" : "HDR10";
 }
 
 function resolvePassthroughTransfer(doviProfile: number | null | undefined, hdrTransfer: string | null): string | null {
-	if (doviProfile == null) return hdrTransfer;
+	if (isNullish(doviProfile)) return hdrTransfer;
 
 	return doviProfile === 8 ? "smpte2084" : null;
 }
@@ -67,7 +68,7 @@ function judgeVideo(file: MediaFileInfo, videoCodec: string | null, capabilities
 	const isHighTenH264 = videoCodec === "h264" && HIGH_TEN_H264_PROFILE_REGEX.test(file.videoProfile ?? "");
 	const lowerTransfer = file.videoColorTransfer?.toLowerCase();
 	const hdrTransfer = lowerTransfer && HDR_TRANSFER_ALLOWLIST.has(lowerTransfer) ? lowerTransfer : null;
-	const isHdr = hdrTransfer !== null || file.doviProfile != null;
+	const isHdr = hdrTransfer !== null || !isNullish(file.doviProfile);
 	const hdrLabel = resolveHdrLabel(file.doviProfile, hdrTransfer);
 	const clientHdrTransfers = new Set(capabilities.hdrTransfers ?? []);
 	const passthroughTransfer = resolvePassthroughTransfer(file.doviProfile, hdrTransfer);
@@ -227,12 +228,15 @@ function transcodeDecision(input: TranscodeInput): PlaybackDecision {
 	} = input;
 	const displayVideoCodec = videoCodec ?? "?";
 	const displayAudioCodec = audioCodec ?? "?";
-	const videoTranscode = !video.videoOk || !!videoBitrateKbps;
+	const videoTranscode = !video.videoOk || Boolean(videoBitrateKbps);
 	const depthSuffix = bitDepthSuffix(video);
 	const rateSuffix = bitrateSuffix(videoBitrateKbps, bandwidthCappedReason);
-	const videoReason = videoTranscode
-		? videoTranscodeReason(video, displayVideoCodec, depthSuffix, rateSuffix, toneMapAvailable)
-		: `video:${displayVideoCodec} copied`;
+	let videoReason: string;
+	if (videoTranscode) {
+		videoReason = videoTranscodeReason(video, displayVideoCodec, depthSuffix, rateSuffix, toneMapAvailable);
+	} else {
+		videoReason = `video:${displayVideoCodec} copied`;
+	}
 	const audioReason = audioTranscode ? `audio:${displayAudioCodec} → AAC` : `audio:${displayAudioCodec} copied`;
 
 	const videoPart: PlaybackReasonPart = videoReasonPart({

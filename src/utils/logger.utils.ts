@@ -6,7 +6,7 @@ import { hasEntry } from "./array.utils";
 import { CoalescingStream } from "./logging/coalescing.stream";
 import { DailyRotatingStream } from "./logging/daily-rotating.stream";
 import { sanitizeLogValue } from "./logging/sanitize.utils";
-import { isRecord } from "./type.utils";
+import { isNullish, isRecord } from "./type.utils";
 
 function formatDuration(ms: number, showMs = false): string {
 	const totalSeconds = Math.floor(ms / 1000);
@@ -42,7 +42,9 @@ function buildStreams(): pino.StreamEntry[] {
 	const streams: pino.StreamEntry[] = [];
 	accessLineSinks = undefined;
 
-	if (!isTest) {
+	if (isTest) {
+		streams.push({ level: "info", stream: process.stdout });
+	} else {
 		const jsonSinks: CoalescingStream[] = [];
 		logSinks = jsonSinks;
 		try {
@@ -88,8 +90,6 @@ function buildStreams(): pino.StreamEntry[] {
 			// the same bytes to every info-level destination pino would.
 			accessLineSinks = jsonSinks;
 		}
-	} else {
-		streams.push({ level: "info", stream: process.stdout });
 	}
 
 	return streams;
@@ -242,7 +242,7 @@ class AppLogger implements Logger {
 
 		if (errObj instanceof Error) {
 			payload.err = sanitizeLogValue(errObj);
-		} else if (errObj != null) {
+		} else if (!isNullish(errObj)) {
 			payload.errorDetails = sanitizeLogValue(errObj);
 		}
 

@@ -31,10 +31,24 @@ export function toJobContract(item: WorkerItemSummary, dependsOnTaskIds: string[
 }
 
 export function applyStats(stats: WorkerQueueStats, row: WorkerItemStats): void {
-	if (row.status === "pending") stats.waiting = row.count;
-	else if (row.status === "running") stats.active = row.count;
-	else if (row.status === "completed") stats.completed = row.count;
-	else if (row.status === "failed") stats.failed = row.count;
+	switch (row.status) {
+		case "pending":
+			stats.waiting = row.count;
+			break;
+		case "running":
+			stats.active = row.count;
+			break;
+		case "completed":
+			stats.completed = row.count;
+			break;
+		case "failed":
+			stats.failed = row.count;
+			break;
+		case "cancelled":
+			break;
+		default:
+			break;
+	}
 }
 
 export function toOperationContract(operation: WorkerOperation): WorkerOperationContract {

@@ -17,9 +17,9 @@ describe("ImageUploadService", () => {
 		try {
 			const oversized = new File([new Uint8Array(2 * MIB)], "poster.png", { type: "image/png" });
 
-			const error = await imageUploadService.upload(oversized, target).catch((caught: unknown) => caught);
+			const failure = await imageUploadService.upload(oversized, target).catch((error: unknown) => error);
 
-			expect(error).toMatchObject({ code: "images.upload_too_large", params: { maxBytes: MIB, size: 2 * MIB } });
+			expect(failure).toMatchObject({ code: "images.upload_too_large", params: { maxBytes: MIB, size: 2 * MIB } });
 		} finally {
 			systemSettingsStore.clearRuntimeValues();
 		}
@@ -30,10 +30,10 @@ describe("ImageUploadService", () => {
 		try {
 			const large = new File([new Uint8Array(30 * MIB)], "poster.png", { type: "image/png" });
 
-			const error = await imageUploadService.upload(large, target).catch((caught: unknown) => caught);
+			const failure = await imageUploadService.upload(large, target).catch((error: unknown) => error);
 
 			// Zero bytes are not a raster image: the content check refuses the file, not the size check.
-			expect(error).toMatchObject({ code: "images.unsupported_format" });
+			expect(failure).toMatchObject({ code: "images.unsupported_format" });
 		} finally {
 			systemSettingsStore.clearRuntimeValues();
 		}

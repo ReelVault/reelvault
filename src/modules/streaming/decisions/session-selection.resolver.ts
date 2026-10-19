@@ -1,6 +1,7 @@
 import type { ClientCapabilities, PlaybackDecision } from "@reelvault/sdk/common";
 import { resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import type { AudioStream, MediaFileInfo, PlaybackSessionInput, Subtitle } from "@/modules/streaming/streaming.types";
+import { isNullish } from "@/utils/type.utils";
 import { decidePlaybackMode } from "./playback-decision.resolver";
 import {
 	resolvePlaybackPreferences,
@@ -95,10 +96,10 @@ export function resolveSessionSelection(input: SessionSelectionInput): PlaybackS
 	});
 	// A title with active progress reopens on its remembered audio track; the
 	// explicit request index (manual in-session switch) still wins above it.
-	const resumeAudioStream =
-		capabilitiesQuery.audioStreamIndex === undefined && input.hasActiveProgress && input.savedAudioStreamIndex != null
-			? file.audioStreams.find((stream) => stream.index === input.savedAudioStreamIndex)
-			: undefined;
+	let resumeAudioStream: (typeof file.audioStreams)[number] | undefined;
+	if (capabilitiesQuery.audioStreamIndex === undefined && input.hasActiveProgress && !isNullish(input.savedAudioStreamIndex)) {
+		resumeAudioStream = file.audioStreams.find((stream) => stream.index === input.savedAudioStreamIndex);
+	}
 	const effectiveAudioStream = resumeAudioStream ?? audioStream;
 	const subtitleSelection = selectPreferredSubtitle(file.subtitles, {
 		...playbackPreferences,

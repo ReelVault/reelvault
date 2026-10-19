@@ -47,9 +47,9 @@ describe("assertCoreArtifactsBudget", () => {
 	test("classifies the budget error for skip handling", async () => {
 		systemSettingsStore.setRuntimeValue("system.artifacts.coreMaxStorageGb", 1);
 
-		const error = await assertCoreArtifactsBudget(2 * GIBIBYTE, 1).catch((caught: unknown) => caught);
+		const failure = await assertCoreArtifactsBudget(2 * GIBIBYTE, 1).catch((error: unknown) => error);
 
-		expect(isStorageBudgetError(error)).toBe(true);
+		expect(isStorageBudgetError(failure)).toBe(true);
 		expect(isStorageBudgetError(new Error("nope"))).toBe(false);
 	});
 

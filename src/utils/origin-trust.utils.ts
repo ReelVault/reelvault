@@ -112,15 +112,15 @@ export function wildcardPatternToRegex(pattern: string): RegExp {
 
 	const match = withScheme.match(HTTP_URL_PATTERN);
 	let regexString: string;
-	if (!match) {
-		regexString = `^${escapeRegex(withScheme).replace(/\\\*/g, ".*")}$`;
-	} else {
+	if (match) {
 		const scheme = match[1] ?? "";
 		const host = match[2] ?? "";
 		const rest = match[3] ?? "";
 		const ipShaped = IP_SHAPED_HOST_PATTERN.test(host);
 		const wildcard = ipShaped ? "[0-9.]*" : "[^.]*";
 		regexString = `^${escapeRegex(scheme)}${escapeRegex(host).replace(/\\\*/g, wildcard)}${escapeRegex(rest).replace(/\\\*/g, ".*")}$`;
+	} else {
+		regexString = `^${escapeRegex(withScheme).replace(/\\\*/g, ".*")}$`;
 	}
 
 	const compiled = new RegExp(regexString, "i");
@@ -212,10 +212,8 @@ export function isOriginAllowed(reqOrigin: string | null | undefined, explicitAl
 
 	// 3. Dynamic allowed origins from database / system settings store
 	const dynamicOrigins = dynamicAllowedOrigins();
-	if (dynamicOrigins.length > 0) {
-		if (matchesOriginRules(reqOrigin, dynamicOrigins)) {
-			return true;
-		}
+	if (dynamicOrigins.length > 0 && matchesOriginRules(reqOrigin, dynamicOrigins)) {
+		return true;
 	}
 
 	// 4. Configured origins from env.APP_ALLOWED_ORIGINS
@@ -224,8 +222,8 @@ export function isOriginAllowed(reqOrigin: string | null | undefined, explicitAl
 	}
 
 	// 5. Explicitly passed origins/regexes (if provided)
-	if (explicitAllowedOrigins && explicitAllowedOrigins.length > 0) {
-		if (matchesOriginRules(reqOrigin, explicitAllowedOrigins)) return true;
+	if (explicitAllowedOrigins && explicitAllowedOrigins.length > 0 && matchesOriginRules(reqOrigin, explicitAllowedOrigins)) {
+		return true;
 	}
 
 	return false;

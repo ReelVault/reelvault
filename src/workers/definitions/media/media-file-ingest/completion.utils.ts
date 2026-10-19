@@ -80,7 +80,10 @@ function ingestCompletionResult(input: IngestCompletionInput, created: boolean, 
 
 /** Reruns only the post-create side effects a crashed prior attempt may have left unfinished. */
 async function repairIngestSideEffects(target: IngestTarget, input: IngestCompletionInput, dependencies: Deps): Promise<void> {
-	const progress = dependencies.readIngestProgress ? await dependencies.readIngestProgress(target.mediaFileId) : undefined;
+	let progress: Awaited<ReturnType<NonNullable<typeof dependencies.readIngestProgress>>> | undefined;
+	if (dependencies.readIngestProgress) {
+		progress = await dependencies.readIngestProgress(target.mediaFileId);
+	}
 	// No progress row means the crashed attempt never reached the marking step —
 	// the side effects still need to run.
 	if (!progress?.sidecarWritten) {

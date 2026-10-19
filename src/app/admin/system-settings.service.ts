@@ -113,18 +113,23 @@ class SystemSettingsService {
 			const { value, isCustom } = systemSettingsStore.getWithMeta(key);
 
 			const row = rowsByKey.get(key);
+			const rowMeta: { updatedAt?: string; lastModifiedBy?: string | null } = {};
+			if (row) {
+				rowMeta.updatedAt = new Date(row.updatedAt).toISOString();
+				rowMeta.lastModifiedBy = row.lastModifiedBy;
+			}
 			grouped[def.group].push({
 				key,
 				group: def.group,
 				type: def.type,
 				value,
-				...(row ? { updatedAt: new Date(row.updatedAt).toISOString(), lastModifiedBy: row.lastModifiedBy } : {}),
+				...rowMeta,
 				default: def.default,
 				isCustom,
 				...(def.options ? { options: def.options } : {}),
-				...(def.min !== undefined ? { min: def.min } : {}),
-				...(def.max !== undefined ? { max: def.max } : {}),
-				...(def.unit !== undefined ? { unit: def.unit } : {}),
+				...(def.min === undefined ? {} : { min: def.min }),
+				...(def.max === undefined ? {} : { max: def.max }),
+				...(def.unit === undefined ? {} : { unit: def.unit }),
 				...(def.restartRequired ? { restartRequired: true } : {}),
 			});
 		}
@@ -158,7 +163,7 @@ class SystemSettingsService {
 		if (parsedValue === null) {
 			throw new DomainError("validation", `Invalid value for setting "${key}"`, {
 				code: "admin.settings.invalid_value",
-				params: { key, ...(def.min !== undefined ? { min: def.min } : {}), ...(def.max !== undefined ? { max: def.max } : {}) },
+				params: { key, ...(def.min === undefined ? {} : { min: def.min }), ...(def.max === undefined ? {} : { max: def.max }) },
 			});
 		}
 
@@ -298,54 +303,25 @@ class SystemSettingsService {
 	 * triggers them; the same key rules apply to updates and resets.
 	 */
 	private async applySettingsSideEffects(keys: readonly string[]): Promise<void> {
-		let needsWatcherSync = false;
-		let needsFfmpegReload = false;
-		let changesProfileDefaults = false;
-		let changesLogLevel = false;
-		let changesProviderCacheTtl = false;
-		let changesMonitoring = false;
-		let changesRescue = false;
-		for (const key of keys) {
-			// The watcher reads its fallback interval when arming timers, so a change
-			// must re-arm them; the same applies to the periodic rescan deadline.
-			if (
-				key.startsWith("scanning.autoWatcher") ||
-				key === "scanning.watcherFallbackIntervalMinutes" ||
-				key === "scanning.scheduledScanIntervalHours"
-			) {
-				needsWatcherSync = true;
-			}
-
-			if (key.startsWith("profiles.defaultPreferences.")) changesProfileDefaults = true;
-
-			if (key.startsWith("ffmpeg.") || key === "ffprobe.path") needsFfmpegReload = true;
-
-			if (key === "system.logs.level") changesLogLevel = true;
-
-			if (key === "plugins.providers.detailsCacheTtlMs") changesProviderCacheTtl = true;
-
-			if (key === "system.resources.monitoringIntervalMs" || key === "system.resources.monitoringEnabled") changesMonitoring = true;
-
-			if (key.startsWith("system.rescue.")) changesRescue = true;
-		}
+		const effects = requiredSideEffects(keys);
 
 		// Profiles inherit these defaults; any cached response that embeds effective preferences is stale now.
-		if (changesProfileDefaults) invalidateResponseBodies();
+		if (effects.changesProfileDefaults) invalidateResponseBodies();
 
 		// The stored level overrides LOG_LEVEL from here on; the debug file still requires a restart.
-		if (changesLogLevel) setLogLevel(serverConfig.logs.level);
+		if (effects.changesLogLevel) setLogLevel(serverConfig.logs.level);
 
-		if (changesProviderCacheTtl) providerService.resetCaches();
+		if (effects.changesProviderCacheTtl) providerService.resetCaches();
 
-		if (changesMonitoring) resourceAllocator.rescheduleMonitoring();
+		if (effects.changesMonitoring) resourceAllocator.rescheduleMonitoring();
 
 		// The monitor latches `system.rescue.enabled` when it arms; a change must
 		// arm or disarm it without a restart.
-		if (changesRescue) serverRescueService.reschedule();
+		if (effects.changesRescue) serverRescueService.reschedule();
 
-		if (needsWatcherSync) await libraryWatcherService.syncWatchers();
+		if (effects.needsWatcherSync) await libraryWatcherService.syncWatchers();
 
-		if (needsFfmpegReload) await this.reloadFfmpeg();
+		if (effects.needsFfmpegReload) await this.reloadFfmpeg();
 	}
 
 	private async reloadFfmpeg(): Promise<void> {
@@ -365,6 +341,58 @@ class SystemSettingsService {
 			await this.init();
 		}
 	}
+}
+
+/** The side effects a set of changed setting keys requires. */
+interface SettingsSideEffects {
+	needsWatcherSync: boolean;
+	needsFfmpegReload: boolean;
+	changesProfileDefaults: boolean;
+	changesLogLevel: boolean;
+	changesProviderCacheTtl: boolean;
+	changesMonitoring: boolean;
+	changesRescue: boolean;
+}
+
+/** Which runtime side effects the changed setting keys require. */
+function requiredSideEffects(keys: readonly string[]): SettingsSideEffects {
+	const effects: SettingsSideEffects = {
+		needsWatcherSync: false,
+		needsFfmpegReload: false,
+		changesProfileDefaults: false,
+		changesLogLevel: false,
+		changesProviderCacheTtl: false,
+		changesMonitoring: false,
+		changesRescue: false,
+	};
+
+	for (const key of keys) {
+		// The watcher reads its fallback interval when arming timers, so a change
+		// must re-arm them; the same applies to the periodic rescan deadline.
+		if (
+			key.startsWith("scanning.autoWatcher") ||
+			key === "scanning.watcherFallbackIntervalMinutes" ||
+			key === "scanning.scheduledScanIntervalHours"
+		) {
+			effects.needsWatcherSync = true;
+		}
+
+		if (key.startsWith("profiles.defaultPreferences.")) effects.changesProfileDefaults = true;
+
+		if (key.startsWith("ffmpeg.") || key === "ffprobe.path") effects.needsFfmpegReload = true;
+
+		if (key === "system.logs.level") effects.changesLogLevel = true;
+
+		if (key === "plugins.providers.detailsCacheTtlMs") effects.changesProviderCacheTtl = true;
+
+		if (key === "system.resources.monitoringIntervalMs" || key === "system.resources.monitoringEnabled") {
+			effects.changesMonitoring = true;
+		}
+
+		if (key.startsWith("system.rescue.")) effects.changesRescue = true;
+	}
+
+	return effects;
 }
 
 /** Per-key rules that reject a value before anything is persisted or mutated. */

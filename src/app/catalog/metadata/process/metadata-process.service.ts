@@ -16,6 +16,49 @@ import type { EnqueueImages, MetadataProcessResult, MetadataProcessState } from 
 const enqueueImagesInBackground: EnqueueImages = (data: ImageProcessingData, options: TaskSchedulingOptions = {}): Promise<unknown> =>
 	enqueueImageProcessing(data, options);
 
+interface SidecarResolution {
+	state: MetadataProcessState;
+	type: "movie" | "tv_show";
+	parsed: MediaIdentity;
+	sidecar: SidecarMetadataHint | undefined;
+	scheduling: TaskSchedulingOptions | undefined;
+	language: string | undefined;
+}
+
+/**
+ * Step 0 of the resolution order: a local NFO carrying imdb/tmdb ids pins the
+ * title without any provider round-trip — works fully offline. `undefined` when
+ * the sidecar names no known title, so the lookup continues with the database.
+ */
+async function resolveFromSidecar({
+	state,
+	type,
+	parsed,
+	sidecar,
+	scheduling,
+	language,
+}: SidecarResolution): Promise<MetadataProcessResult | undefined> {
+	if (!sidecar) return undefined;
+
+	const sidecarMatch = await findMetadataByIdentifiers(type, sidecar);
+	if (!sidecarMatch) return undefined;
+
+	if (type === "movie") {
+		return await processMovieMetadata(state, sidecarMatch.metadataId, sidecarMatch.stableKey);
+	}
+
+	// An undefined TV match falls through to the local-database lookup.
+	const tvShow = await processTVShowMetadata(state, sidecarMatch.metadataId, parsed, sidecarMatch.metadata, {
+		metadataStableKey: sidecarMatch.stableKey,
+		scheduling,
+		providers: sidecarMatch.providers,
+		sidecarHint: sidecar,
+		language,
+	});
+
+	return tvShow ?? undefined;
+}
+
 export class MetadataProcess {
 	readonly serviceName = "MetadataProcess";
 	readonly logger = createLogger("MetadataProcess");
@@ -56,28 +99,15 @@ export class MetadataProcess {
 
 			// 0. Sidecar-first: a local NFO carrying imdb/tmdb ids pins the title
 			// without any provider round-trip — works fully offline.
-			const sidecarMatch = sidecar ? await findMetadataByIdentifiers(type, sidecar) : undefined;
-			if (sidecarMatch) {
-				if (type === "movie") {
-					return await processMovieMetadata(state, sidecarMatch.metadataId, sidecarMatch.stableKey);
-				}
-
-				// An undefined TV match falls through to the local-database lookup.
-				const tvShow = await processTVShowMetadata(state, sidecarMatch.metadataId, parsed, sidecarMatch.metadata, {
-					metadataStableKey: sidecarMatch.stableKey,
-					scheduling,
-					providers: sidecarMatch.providers,
-					sidecarHint: sidecar,
-					language,
-				});
-				if (tvShow) return tvShow;
-			}
+			const sidecarResult = await resolveFromSidecar({ state, type, parsed, sidecar, scheduling, language });
+			if (sidecarResult) return sidecarResult;
 
 			// 0b. A TMDB id named in the file or folder name (or the NFO) names the exact title: fetch that entry
 			// instead of searching by title. An id the provider does not know falls through to the search below.
-			const namedTitle = sidecar?.identifiers.tmdb
-				? await providerService.fetchAggregatedDetailsByProvider("tmdb", type, sidecar.identifiers.tmdb, { language })
-				: null;
+			let namedTitle: Awaited<ReturnType<typeof providerService.fetchAggregatedDetailsByProvider>> = null;
+			if (sidecar?.identifiers.tmdb) {
+				namedTitle = await providerService.fetchAggregatedDetailsByProvider("tmdb", type, sidecar.identifiers.tmdb, { language });
+			}
 			if (namedTitle) return await processAggregatedMatch(state, type, parsed, namedTitle, { scheduling, language });
 
 			// 1. Check the local database first — the metadata may already exist.
@@ -101,7 +131,10 @@ export class MetadataProcess {
 			if (!aggregated) {
 				// 3. Sidecar offline import: no local row, no provider hit — build the
 				// metadata row from the NFO itself so an offline server still imports.
-				const fromSidecar = sidecar?.title ? await createSidecarMetadata(state, type, sidecar) : undefined;
+				let fromSidecar: Awaited<ReturnType<typeof createSidecarMetadata>> | undefined;
+				if (sidecar?.title) {
+					fromSidecar = await createSidecarMetadata(state, type, sidecar);
+				}
 				if (!fromSidecar) {
 					this.logger.debug("No metadata match found", { title: enrichedParsed.title, year: enrichedParsed.year, type });
 

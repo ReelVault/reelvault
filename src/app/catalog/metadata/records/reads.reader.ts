@@ -4,6 +4,7 @@ import type {
 	FieldsQuery,
 	MetadataDetailsViewResponse,
 	MetadataFilters,
+	MetadataPlaybackProgress,
 	MetadataSorting,
 	MetadataWithRelation,
 	PaginatedResponse,
@@ -22,6 +23,7 @@ import { seasonsRepository } from "@/app/repositories/seasons.repository";
 import { userRatingsRepository } from "@/app/repositories/user-ratings.repository";
 import { watchedHistoryRepository } from "@/app/repositories/watched-history.repository";
 import { watchlistRepository } from "@/app/repositories/watchlist.repository";
+import type { SmartPlay } from "@/modules/streaming/streaming.types";
 import { groupBy } from "@/utils/array.utils";
 import { assertFound, errorMessage } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
@@ -107,6 +109,40 @@ export async function getDetailsView(
 
 		const isTv = metadata.type === "tv_show";
 
+		let watchedState: Promise<boolean>;
+		if (profileId) {
+			watchedState = watchedHistoryRepository
+				.isWatched(profileId, metadataId)
+				// Degraded reads must be visible — a silent false would present
+				// watched state as unwatched.
+				.catch((error) => {
+					state.logger.warn("Watched-state lookup failed — reporting as unwatched", {
+						metadataId,
+						profileId,
+						error: errorMessage(error),
+					});
+
+					return false;
+				});
+		} else {
+			watchedState = Promise.resolve(false);
+		}
+
+		let progressRowsPromise: Promise<Awaited<ReturnType<typeof playbackRepository.findProgressRows>>>;
+		if (profileId) {
+			progressRowsPromise = playbackRepository.findProgressRows(metadataId, profileId).catch((error) => {
+				state.logger.warn("Playback progress lookup failed — reporting as no progress", {
+					metadataId,
+					profileId,
+					error: errorMessage(error),
+				});
+
+				return [];
+			});
+		} else {
+			progressRowsPromise = Promise.resolve([]);
+		}
+
 		const [seasonsResult, episodesResult, mediaFilesResult, inWatchlist, ratingRecord, isWatchedRecord, progressRows] = await Promise.all([
 			isTv ? seasonsRepository.findByMetadataId(metadataId) : Promise.resolve([]),
 			isTv ? episodesRepository.findByMetadataIdProjected(metadataId) : Promise.resolve([]),
@@ -115,32 +151,8 @@ export async function getDetailsView(
 			mediaRepository.findRootsByMetadataId(metadataId),
 			profileId ? watchlistRepository.isWatchlisted(profileId, metadataId) : Promise.resolve(false),
 			profileId ? userRatingsRepository.findByProfileAndMetadata(profileId, metadataId) : Promise.resolve(null),
-			profileId
-				? watchedHistoryRepository
-						.isWatched(profileId, metadataId)
-						// Degraded reads must be visible — a silent false would present
-						// watched state as unwatched.
-						.catch((error) => {
-							state.logger.warn("Watched-state lookup failed — reporting as unwatched", {
-								metadataId,
-								profileId,
-								error: errorMessage(error),
-							});
-
-							return false;
-						})
-				: Promise.resolve(false),
-			profileId
-				? playbackRepository.findProgressRows(metadataId, profileId).catch((error) => {
-						state.logger.warn("Playback progress lookup failed — reporting as no progress", {
-							metadataId,
-							profileId,
-							error: errorMessage(error),
-						});
-
-						return [];
-					})
-				: Promise.resolve([]),
+			watchedState,
+			progressRowsPromise,
 		]);
 
 		const mediaFilesByEpisodeId = groupBy(mediaFilesResult, (m) => m.episodeId);
@@ -156,24 +168,26 @@ export async function getDetailsView(
 			episodes: episodesBySeason.get(season.id) ?? [],
 		}));
 
-		const progress = profileId
-			? playbackProgressService.computePlaybackProgress({
-					metadata,
-					mediaFiles: mediaFilesResult,
-					progressRows,
-					episodes: episodesResult,
-				})
-			: null;
+		let progress: MetadataPlaybackProgress | null = null;
+		if (profileId) {
+			progress = playbackProgressService.computePlaybackProgress({
+				metadata,
+				mediaFiles: mediaFilesResult,
+				progressRows,
+				episodes: episodesResult,
+			});
+		}
 
-		const smartPlay = profileId
-			? playbackProgressService.computeSmartPlay({
-					metadata,
-					mediaFiles: mediaFilesResult,
-					progressRows,
-					seasons: seasonsResult,
-					episodes: episodesResult,
-				})
-			: null;
+		let smartPlay: SmartPlay | null = null;
+		if (profileId) {
+			smartPlay = playbackProgressService.computeSmartPlay({
+				metadata,
+				mediaFiles: mediaFilesResult,
+				progressRows,
+				seasons: seasonsResult,
+				episodes: episodesResult,
+			});
+		}
 
 		return {
 			metadata,

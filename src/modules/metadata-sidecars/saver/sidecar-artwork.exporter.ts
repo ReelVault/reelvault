@@ -140,13 +140,15 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 		// Metadata mutations re-save constantly — skip the tmp+rename when the
 		// exported bytes are already on disk, and remember the signatures so the
 		// next save skips the re-encode too.
-		const existing = targetStats
-			? Buffer.from(
-					await Bun.file(targetPath)
-						.arrayBuffer()
-						.catch(() => new ArrayBuffer(0)),
-				)
-			: Buffer.alloc(0);
+		let existing: Buffer;
+		if (targetStats) {
+			const targetBytes = await Bun.file(targetPath)
+				.arrayBuffer()
+				.catch(() => new ArrayBuffer(0));
+			existing = Buffer.from(targetBytes);
+		} else {
+			existing = Buffer.alloc(0);
+		}
 		if (existing.length > 0 && existing.equals(contents)) {
 			exportStamps.set(targetPath, { sourceSignature, targetSignature });
 

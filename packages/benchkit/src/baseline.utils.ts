@@ -123,7 +123,7 @@ export function compareBaselineEntry(
 	const minDeltaPercent = options.minDeltaPercent ?? DEFAULT_MIN_DELTA_PERCENT;
 	const baseMedian = percentile(baseline.samples, 50);
 	const currentMedian = percentile(entry.samples, 50);
-	const deltaPercent = baseMedian !== 0 ? ((currentMedian - baseMedian) / baseMedian) * 100 : 0;
+	const deltaPercent = baseMedian === 0 ? 0 : ((currentMedian - baseMedian) / baseMedian) * 100;
 
 	let verdict: Verdict;
 	if (entry.samples.length < MIN_SAMPLES_FOR_VERDICT || baseline.samples.length < MIN_SAMPLES_FOR_VERDICT) {
@@ -160,7 +160,7 @@ export function compareTaskMetrics(
 			continue;
 		}
 
-		const deltaPercent = base.value !== 0 ? ((current.value - base.value) / base.value) * 100 : 0;
+		const deltaPercent = base.value === 0 ? 0 : ((current.value - base.value) / base.value) * 100;
 		let verdict: Verdict;
 		if (Math.abs(deltaPercent) < minDeltaPercent) {
 			verdict = "unchanged";

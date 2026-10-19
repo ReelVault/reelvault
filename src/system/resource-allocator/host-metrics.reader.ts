@@ -138,6 +138,30 @@ async function sampleCgroupCpuPercent() {
 	return cgroupCpuPercent(usageMicros, Date.now(), systemResourcesService.getMetrics().effectiveCores);
 }
 
+/** The total and idle jiffies of the `/proc/stat` aggregate CPU line. */
+function parseProcStatCpuLine(cpuLine: string): { total: number; idle: number } {
+	let total = 0;
+	let idle = 0;
+	let fieldIndex = 0;
+	let start = 0;
+
+	for (let i = 0; i <= cpuLine.length; i++) {
+		if (i === cpuLine.length || cpuLine.charCodeAt(i) === 32) {
+			if (i > start) {
+				const value = Number(cpuLine.slice(start, i));
+				total += value;
+				if (fieldIndex === 3 || fieldIndex === 4) idle += value;
+
+				fieldIndex++;
+			}
+
+			start = i + 1;
+		}
+	}
+
+	return { total, idle };
+}
+
 /** Host CPU percent since the previous sample, from the `/proc/stat` aggregate line. */
 async function sampleProcStatCpuPercent(): Promise<number> {
 	try {
@@ -145,25 +169,7 @@ async function sampleProcStatCpuPercent(): Promise<number> {
 		const lineEnd = text.indexOf("\n");
 		const cpuLine = lineEnd === -1 ? text.slice(text.indexOf(" ") + 1) : text.slice(text.indexOf(" ") + 1, lineEnd);
 
-		let total = 0;
-		let idle = 0;
-		let fieldIndex = 0;
-		let start = 0;
-
-		for (let i = 0; i <= cpuLine.length; i++) {
-			if (i === cpuLine.length || cpuLine.charCodeAt(i) === 32) {
-				if (i > start) {
-					const value = Number(cpuLine.slice(start, i));
-					total += value;
-					if (fieldIndex === 3 || fieldIndex === 4) idle += value;
-
-					fieldIndex++;
-				}
-
-				start = i + 1;
-			}
-		}
-
+		const { total, idle } = parseProcStatCpuLine(cpuLine);
 		const totalDelta = total - previousCpuTotal;
 		const idleDelta = idle - previousCpuIdle;
 

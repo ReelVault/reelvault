@@ -76,6 +76,18 @@ export function getCandidateHwaccels(encoders: ReadonlySet<string>, hwaccels: Re
 		hevcEncoder: hasEncoder(hevc) ? hevc : "libx265",
 	});
 
+	const configured = configuredHwaccel(configHw, configDevice, buildResult);
+	if (configured) return configured;
+
+	return detectedHwaccels(encoders, hwaccels, configDevice, buildResult);
+}
+
+/** The accelerator the configuration pins, when it pins one. */
+function configuredHwaccel(
+	configHw: string,
+	configDevice: string | null,
+	buildResult: (type: HwaccelType, device: string | null, h264: string, hevc: string) => DetectedHwaccel,
+): DetectedHwaccel[] | undefined {
 	if (configHw === "nvenc") return [buildResult("nvenc", configDevice, "h264_nvenc", "hevc_nvenc")];
 
 	if (configHw === "vaapi") return [buildResult("vaapi", getDetectedDriDevice(), "h264_vaapi", "hevc_vaapi")];
@@ -88,6 +100,16 @@ export function getCandidateHwaccels(encoders: ReadonlySet<string>, hwaccels: Re
 
 	if (configHw === "none") return [SOFTWARE_HWACCEL];
 
+	return undefined;
+}
+
+/** The accelerators the FFmpeg probe reports as usable. */
+function detectedHwaccels(
+	encoders: ReadonlySet<string>,
+	hwaccels: ReadonlySet<string>,
+	configDevice: string | null,
+	buildResult: (type: HwaccelType, device: string | null, h264: string, hevc: string) => DetectedHwaccel,
+): DetectedHwaccel[] {
 	const driDevice = getDetectedDriDevice();
 	const candidates: DetectedHwaccel[] = [];
 

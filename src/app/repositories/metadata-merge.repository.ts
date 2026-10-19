@@ -133,14 +133,20 @@ class MetadataMergeRepository {
 
 		const srcSeasonIds = sourceSeasons.map((s) => s.id);
 		const tgtSeasonIds = targetSeasons.map((s) => s.id);
-		const [allSourceEpisodes, allTargetEpisodes] = await Promise.all([
-			srcSeasonIds.length > 0
-				? episodesRepository.selectMany({ where: inArray(schema.episodes.seasonId, srcSeasonIds), tx })
-				: Promise.resolve([]),
-			tgtSeasonIds.length > 0
-				? episodesRepository.selectMany({ where: inArray(schema.episodes.seasonId, tgtSeasonIds), tx })
-				: Promise.resolve([]),
-		]);
+		let sourceEpisodes: Promise<Array<typeof schema.episodes.$inferSelect>>;
+		if (srcSeasonIds.length > 0) {
+			sourceEpisodes = episodesRepository.selectMany({ where: inArray(schema.episodes.seasonId, srcSeasonIds), tx });
+		} else {
+			sourceEpisodes = Promise.resolve([]);
+		}
+		let targetEpisodes: Promise<Array<typeof schema.episodes.$inferSelect>>;
+		if (tgtSeasonIds.length > 0) {
+			targetEpisodes = episodesRepository.selectMany({ where: inArray(schema.episodes.seasonId, tgtSeasonIds), tx });
+		} else {
+			targetEpisodes = Promise.resolve([]);
+		}
+
+		const [allSourceEpisodes, allTargetEpisodes] = await Promise.all([sourceEpisodes, targetEpisodes]);
 
 		const srcEpsBySeason = groupBy(allSourceEpisodes, (ep) => ep.seasonId);
 		const tgtEpsBySeason = groupBy(allTargetEpisodes, (ep) => ep.seasonId);
@@ -231,17 +237,21 @@ class MetadataMergeRepository {
 		}
 
 		if (transferProfileIds.length > 0) {
-			const updateQuery =
-				table === schema.watchlist
-					? client
-							.update(schema.watchlist)
-							.set({ metadataId: targetId })
-							.where(and(eq(schema.watchlist.metadataId, sourceId), inArray(schema.watchlist.profileId, transferProfileIds)))
-					: client
-							.update(schema.userRatings)
-							.set({ metadataId: targetId })
-							.where(and(eq(schema.userRatings.metadataId, sourceId), inArray(schema.userRatings.profileId, transferProfileIds)));
-			ops.push(updateQuery);
+			if (table === schema.watchlist) {
+				ops.push(
+					client
+						.update(schema.watchlist)
+						.set({ metadataId: targetId })
+						.where(and(eq(schema.watchlist.metadataId, sourceId), inArray(schema.watchlist.profileId, transferProfileIds))),
+				);
+			} else {
+				ops.push(
+					client
+						.update(schema.userRatings)
+						.set({ metadataId: targetId })
+						.where(and(eq(schema.userRatings.metadataId, sourceId), inArray(schema.userRatings.profileId, transferProfileIds))),
+				);
+			}
 		}
 
 		await Promise.all(ops);

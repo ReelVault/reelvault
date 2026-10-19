@@ -5,7 +5,7 @@ import { type MarkerKeywords, mapChaptersToMarkers } from "./chapters-to-markers
 const chapter = (startTime: string, endTime: string, title?: string): FFProbeChapter => ({
 	start_time: startTime,
 	end_time: endTime,
-	...(title !== undefined ? { tags: { title } } : {}),
+	...(title === undefined ? {} : { tags: { title } }),
 });
 
 const ENGLISH_KEYWORDS: MarkerKeywords = {

@@ -27,7 +27,7 @@ function readSessionLifetimeSeconds(): number {
 			.query("SELECT value FROM system_settings WHERE key = 'auth.sessionLifetimeDays' LIMIT 1")
 			.get();
 		const value = isRecord(row) && typeof row.value === "string" ? row.value : undefined;
-		const days = value !== undefined ? Number(value) : Number.NaN;
+		const days = value === undefined ? Number.NaN : Number(value);
 
 		return Number.isFinite(days) && days >= 1 ? Math.round(days * 86_400) : 604_800;
 	} catch {

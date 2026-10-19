@@ -282,9 +282,9 @@ async function runAbortedDownloads(server: ManagedServer, sessionId: string, seg
 		[
 			[
 				String(ABORT_ROUNDS),
-				rssBefore !== undefined ? fmtMb(rssBefore) : "n/a",
-				rssAfter !== undefined ? fmtMb(rssAfter) : "n/a",
-				rssBefore !== undefined && rssAfter !== undefined ? fmtMb(rssAfter - rssBefore) : "n/a",
+				rssBefore === undefined ? "n/a" : fmtMb(rssBefore),
+				rssAfter === undefined ? "n/a" : fmtMb(rssAfter),
+				rssBefore === undefined || rssAfter === undefined ? "n/a" : fmtMb(rssAfter - rssBefore),
 				recovery.ok ? "ok" : `HTTP ${recovery.status}`,
 				rssSamplesStable,
 			],

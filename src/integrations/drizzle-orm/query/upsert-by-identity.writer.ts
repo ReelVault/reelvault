@@ -39,6 +39,8 @@ export async function findOrCreateWithIdentityRecovery<T extends IdentityRow>({
 		const existing = await findByIdentity();
 		if (!existing) return await findByStableKey();
 
-		return existing.stableKey === stableKey ? existing : await reconcile(existing);
+		if (existing.stableKey === stableKey) return existing;
+
+		return await reconcile(existing);
 	}
 }

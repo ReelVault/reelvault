@@ -5,6 +5,7 @@ import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { metadataImageOn, posterImagesOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
 import { toMap, trimAndFilter } from "@/utils/array.utils";
 import { fuzzyTitleDistance } from "@/utils/media-match/fuzzy.matcher";
+import { isNullish } from "@/utils/type.utils";
 import { titleMatchFilter } from "./metadata-filters.utils";
 
 const WHITESPACE_RE = /\s+/;
@@ -73,22 +74,27 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 	// (collections, genres) keep the LIKE scan.
 	const metadataMatch = ftsMatchQuery(searchTerm);
 
-	const rawTitles = metadataMatch
-		? client.all<{ id: string; title: string; type: "movie" | "tv_show" }>(sql`
+	let rawTitles: Array<{ id: string; title: string; type: "movie" | "tv_show" }> = [];
+	if (metadataMatch) {
+		rawTitles = client.all<{ id: string; title: string; type: "movie" | "tv_show" }>(sql`
 				SELECT m.id AS id, m.title AS title, m.type AS type
 				FROM metadata_fts
 				JOIN metadata m ON m.id = metadata_fts.metadata_id
 				WHERE metadata_fts MATCH ${metadataMatch}
 				ORDER BY rank
 				LIMIT ${limit}
-			`)
-		: [];
+			`);
+	}
 	// Typo tolerance: when the prefix index leaves results sparse, a bounded
 	// fuzzy pass over close candidates fills the gap (ranked by edit distance,
 	// appended after the exact matches).
-	const fuzzyTitles = rawTitles.length < limit ? await fuzzyTitleSearch(client, searchTerm, limit, rawTitles) : [];
-	const peopleRows = metadataMatch
-		? client.all<{ id: string; name: string; imageId: string | null; imageUpdatedAt: number | null }>(sql`
+	let fuzzyTitles: Awaited<ReturnType<typeof fuzzyTitleSearch>> = [];
+	if (rawTitles.length < limit) {
+		fuzzyTitles = await fuzzyTitleSearch(client, searchTerm, limit, rawTitles);
+	}
+	let peopleRows: Array<{ id: string; name: string; imageId: string | null; imageUpdatedAt: number | null }> = [];
+	if (metadataMatch) {
+		peopleRows = client.all<{ id: string; name: string; imageId: string | null; imageUpdatedAt: number | null }>(sql`
 				SELECT p.id AS id, p.name AS name, p.image_id AS imageId, i.updated_at AS imageUpdatedAt
 				FROM people_fts
 				JOIN people p ON p.id = people_fts.person_id
@@ -96,12 +102,12 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 				WHERE people_fts MATCH ${metadataMatch}
 				ORDER BY rank
 				LIMIT ${limit}
-			`)
-		: [];
+			`);
+	}
 	// Raw SQL bypasses drizzle's column mappers — updated_at is stored as unix seconds.
 	const people = peopleRows.map((row) => ({
 		...row,
-		imageUpdatedAt: row.imageUpdatedAt != null ? new Date(row.imageUpdatedAt * 1000) : null,
+		imageUpdatedAt: isNullish(row.imageUpdatedAt) ? null : new Date(row.imageUpdatedAt * 1000),
 	}));
 	const [rawCollections, genres] = await Promise.all([
 		findNamedMatches(client, schema.collections, containsPattern, prefixPattern, limit),
@@ -109,43 +115,44 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 	]);
 
 	const matchedTitles = [...rawTitles, ...fuzzyTitles];
+	const titlePosterQuery = () =>
+		client
+			.select({
+				metadataId: schema.metadataImages.metadataId,
+				imageId: schema.metadataImages.imageId,
+				imageUpdatedAt: schema.images.updatedAt,
+			})
+			.from(schema.metadataImages)
+			.innerJoin(schema.images, metadataImageOn)
+			.where(
+				and(
+					inArray(
+						schema.metadataImages.metadataId,
+						matchedTitles.map((t) => t.id),
+					),
+					eq(schema.metadataImages.imageType, "poster"),
+				),
+			);
+	const collectionPosterQuery = () =>
+		client
+			.select({
+				collectionId: schema.metadataCollections.collectionId,
+				imageId: schema.metadataImages.imageId,
+				imageUpdatedAt: schema.images.updatedAt,
+			})
+			.from(schema.metadataCollections)
+			.innerJoin(schema.metadataImages, posterImagesOn(schema.metadataCollections.metadataId))
+			.innerJoin(schema.images, metadataImageOn)
+			.where(
+				inArray(
+					schema.metadataCollections.collectionId,
+					rawCollections.map((c) => c.id),
+				),
+			);
+
 	const [titlePosters, collectionPosters] = await Promise.all([
-		matchedTitles.length > 0
-			? client
-					.select({
-						metadataId: schema.metadataImages.metadataId,
-						imageId: schema.metadataImages.imageId,
-						imageUpdatedAt: schema.images.updatedAt,
-					})
-					.from(schema.metadataImages)
-					.innerJoin(schema.images, metadataImageOn)
-					.where(
-						and(
-							inArray(
-								schema.metadataImages.metadataId,
-								matchedTitles.map((t) => t.id),
-							),
-							eq(schema.metadataImages.imageType, "poster"),
-						),
-					)
-			: [],
-		rawCollections.length > 0
-			? client
-					.select({
-						collectionId: schema.metadataCollections.collectionId,
-						imageId: schema.metadataImages.imageId,
-						imageUpdatedAt: schema.images.updatedAt,
-					})
-					.from(schema.metadataCollections)
-					.innerJoin(schema.metadataImages, posterImagesOn(schema.metadataCollections.metadataId))
-					.innerJoin(schema.images, metadataImageOn)
-					.where(
-						inArray(
-							schema.metadataCollections.collectionId,
-							rawCollections.map((c) => c.id),
-						),
-					)
-			: [],
+		matchedTitles.length > 0 ? titlePosterQuery() : [],
+		rawCollections.length > 0 ? collectionPosterQuery() : [],
 	]);
 
 	const titlePosterMap = posterMap(titlePosters, (row) => row.metadataId);
@@ -196,36 +203,37 @@ async function fuzzyTitleSearch(
 	if (probe.length === 0) return [];
 
 	const projection = { id: schema.metadata.id, title: schema.metadata.title, type: schema.metadata.type };
-	const candidates =
-		probe.length <= 400
-			? await client
-					.select(projection)
-					.from(schema.metadata)
-					.where(
-						and(
-							sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(probe.map((row) => row.rowid))}))`,
-							titleMatchFilter(slice, "contains"),
-						),
-					)
-					.orderBy(desc(schema.metadata.popularity))
-					.limit(400)
-			: await client
-					.select(projection)
-					.from(schema.metadata)
-					.where(titleMatchFilter(slice, "contains"))
-					.orderBy(desc(schema.metadata.popularity))
-					.limit(400);
+	let candidates: Array<{ id: string; title: string; type: "movie" | "tv_show" }>;
+	if (probe.length <= 400) {
+		candidates = await client
+			.select(projection)
+			.from(schema.metadata)
+			.where(
+				and(
+					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(probe.map((row) => row.rowid))}))`,
+					titleMatchFilter(slice, "contains"),
+				),
+			)
+			.orderBy(desc(schema.metadata.popularity))
+			.limit(400);
+	} else {
+		candidates = await client
+			.select(projection)
+			.from(schema.metadata)
+			.where(titleMatchFilter(slice, "contains"))
+			.orderBy(desc(schema.metadata.popularity))
+			.limit(400);
+	}
 
 	const maxDistance = Math.max(2, Math.floor(token.length / 4));
 	const exactIds = new Set(exactMatches.map((match) => match.id));
-	const scored = candidates.reduce<Array<(typeof candidates)[number] & { distance: number }>>((acc, candidate) => {
+	const scored: Array<(typeof candidates)[number] & { distance: number }> = [];
+	for (const candidate of candidates) {
 		const distance = fuzzyTitleDistance(token, candidate.title, maxDistance);
 		if (distance !== null && !exactIds.has(candidate.id)) {
-			acc.push({ ...candidate, distance });
+			scored.push({ ...candidate, distance });
 		}
-
-		return acc;
-	}, []);
+	}
 
 	scored.sort((left, right) => left.distance - right.distance);
 

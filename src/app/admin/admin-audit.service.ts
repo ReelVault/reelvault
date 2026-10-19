@@ -168,7 +168,7 @@ export async function auditedUpdate<T>(params: AuditedUpdateParams<T>): Promise<
 	const { logger, resourceType, resourceId, entityName } = params;
 	const before = await params.before();
 	const result = await params.update();
-	if (result == null) {
+	if (result === null || result === undefined) {
 		throw new DomainError("not_found", `${entityName} not found: ${resourceId}`, {
 			code: "entity.not_found",
 			params: { entityType: entityName, entityId: resourceId },

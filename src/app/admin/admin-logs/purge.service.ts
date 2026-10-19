@@ -75,6 +75,18 @@ export async function purgeOldLogs(
 	);
 }
 
+/** Removes a purged sub-directory once the last log file in it is gone. */
+async function removeEmptyDirectory(fullPath: string, logsDir: string, dryRun: boolean): Promise<void> {
+	try {
+		if (fullPath === logsDir || dryRun) return;
+
+		const remaining = await readdir(fullPath);
+		if (remaining.length === 0) await rmdir(fullPath);
+	} catch {
+		// intentionally empty
+	}
+}
+
 async function cleanLogDirectory(
 	state: AdminLogsState,
 	currentDir: string,
@@ -97,14 +109,7 @@ async function cleanLogDirectory(
 				deletedCount += subResult.deletedCount;
 				freedBytes += subResult.freedBytes;
 
-				try {
-					if (fullPath !== logsDir && !dryRun) {
-						const remaining = await readdir(fullPath);
-						if (remaining.length === 0) await rmdir(fullPath);
-					}
-				} catch {
-					// intentionally empty
-				}
+				await removeEmptyDirectory(fullPath, logsDir, dryRun);
 			} else if (entry.isFile() && entry.name.endsWith(".log")) {
 				scannedCount++;
 				const result = await purgeSingleLogFile(state, fullPath, cutoffMs, mainLogPath, dryRun);
@@ -114,8 +119,8 @@ async function cleanLogDirectory(
 				}
 			}
 		}
-	} catch (dirErr) {
-		state.logger.error("Error scanning log directory for purge", { path: currentDir, error: dirErr });
+	} catch (error) {
+		state.logger.error("Error scanning log directory for purge", { path: currentDir, error: error });
 	}
 
 	return { scannedCount, deletedCount, freedBytes };
@@ -141,8 +146,8 @@ async function purgeSingleLogFile(
 		}
 
 		return { deleted: true, bytes: stats.size };
-	} catch (fileErr) {
-		state.logger.warn("Failed to purge old log file", { path: fullPath, error: fileErr });
+	} catch (error) {
+		state.logger.warn("Failed to purge old log file", { path: fullPath, error: error });
 
 		return { deleted: false, bytes: 0 };
 	}

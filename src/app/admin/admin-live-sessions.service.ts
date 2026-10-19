@@ -15,6 +15,7 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import type { DetectedHwaccel } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { realtimeService } from "@/modules/realtime/realtime.service";
+import type { EndedLiveSession } from "@/modules/streaming/runtime/ended-session.history";
 import { ENDED_SESSION_HISTORY_LIMIT, endedSessionHistory } from "@/modules/streaming/runtime/ended-session.history";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { toMap, unique } from "@/utils/array.utils";
@@ -204,7 +205,10 @@ class AdminLiveSessionsService {
 		return await runSafely(this, "getSessionLog", async () => {
 			const active = streamingManager.getAllActiveSessions().find((item) => item.id === sessionId);
 			// An ended session is no longer active; its history entry names the operation its logs were written under.
-			const ended = active ? undefined : endedSessionHistory.list(ENDED_SESSION_HISTORY_LIMIT).find((item) => item.sessionId === sessionId);
+			let ended: EndedLiveSession | undefined;
+			if (!active) {
+				ended = endedSessionHistory.list(ENDED_SESSION_HISTORY_LIMIT).find((item) => item.sessionId === sessionId);
+			}
 			if (!(active || ended)) {
 				throw new DomainError("not_found", `Session not found: ${sessionId}`, {
 					code: "stream.session_not_found",

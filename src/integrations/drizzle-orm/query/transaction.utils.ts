@@ -8,5 +8,7 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
  * of opening its own connection-level transaction.
  */
 export async function runInTransaction<T>(tx: DatabaseTransaction | undefined, fn: (tx: DatabaseTransaction) => Promise<T>): Promise<T> {
-	return tx ? await fn(tx) : await databaseFactory.transaction(fn);
+	if (tx) return await fn(tx);
+
+	return await databaseFactory.transaction(fn);
 }

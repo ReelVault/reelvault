@@ -10,10 +10,10 @@ export function resolveStreamEncoders(
 	let videoEncoder: string;
 	if (!decision.videoTranscode) videoEncoder = "copy";
 	else if (decision.forceSoftware === true) videoEncoder = "libx264";
-	else if (effectiveHw.type !== "none") videoEncoder = effectiveHw.h264Encoder;
-	else videoEncoder = "libx264";
+	else if (effectiveHw.type === "none") videoEncoder = "libx264";
+	else videoEncoder = effectiveHw.h264Encoder;
 
-	const audioEncoder = !decision.audioTranscode ? "copy" : "aac";
+	const audioEncoder = decision.audioTranscode ? "aac" : "copy";
 
 	return { videoEncoder, audioEncoder };
 }

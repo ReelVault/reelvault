@@ -12,12 +12,26 @@ export function parseImageRequest(request: ImageQuery, imagesConfig: ImagesConfi
 		IMAGE_SUPPORTED_WIDTHS,
 		Math.min(request.width ?? imagesConfig.optimization.defaultWidth, imagesConfig.maxWidth),
 	);
-	const height = request.height ? nearestValue(IMAGE_SUPPORTED_HEIGHTS, Math.min(request.height, imagesConfig.maxHeight)) : null;
+	let height: number | null = null;
+	if (request.height) {
+		height = nearestValue(IMAGE_SUPPORTED_HEIGHTS, Math.min(request.height, imagesConfig.maxHeight));
+	}
 	const quality = nearestValue(IMAGE_SUPPORTED_QUALITIES, request.quality ?? imagesConfig.optimization.defaultQuality);
 
 	return { width, height, quality };
 }
 
-function nearestValue<T extends number>(values: readonly T[], value: number): T {
-	return values.reduce((closest, current) => (Math.abs(current - value) < Math.abs(closest - value) ? current : closest));
+function nearestValue<T extends number>(values: readonly [T, ...T[]], value: number): T {
+	let closest = values[0];
+	let closestDistance = Math.abs(closest - value);
+
+	for (const current of values) {
+		const distance = Math.abs(current - value);
+		if (distance < closestDistance) {
+			closest = current;
+			closestDistance = distance;
+		}
+	}
+
+	return closest;
 }

@@ -77,8 +77,8 @@ export async function cleanupStartupDirectories(
 			}
 
 			await DirUtils.create(targetDir);
-		} catch (err) {
-			logger.warn("Failed to clean up startup directory", { targetDir, err });
+		} catch (error) {
+			logger.warn("Failed to clean up startup directory", { targetDir, err: error });
 		}
 	}
 

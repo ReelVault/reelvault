@@ -10,6 +10,16 @@
 		"ignoreUnknown": true,
 		"includes": ["**", "!node_modules", "!.agents", "!dist", "!build", "!**/*.svg", "!**/routeTree.gen.ts", "!**/*.gen.ts"]
 	},
+	"plugins": [
+		{
+			"path": "./scripts/lint/long-ternary.grit",
+			"includes": ["**/src/**", "!**/packages/**", "!**/src/**/*.test.ts", "!**/src/**/*.spec.ts"]
+		},
+		{
+			"path": "./scripts/lint/else-if-chain.grit",
+			"includes": ["**/src/**", "!**/packages/**", "!**/src/**/*.test.ts", "!**/src/**/*.spec.ts"]
+		}
+	],
 	"assist": {
 		"enabled": true,
 		"actions": {
@@ -65,7 +75,7 @@
 				"noExcessiveCognitiveComplexity": {
 					"level": "error",
 					"options": {
-						"maxAllowedComplexity": 25
+						"maxAllowedComplexity": 20
 					}
 				},
 				"noExcessiveLinesPerFunction": {
@@ -80,14 +90,22 @@
 						"max": 5
 					}
 				},
-				"noExcessiveNestedTestSuites": "warn",
-				"noForEach": "off",
+				"noExcessiveNestedTestSuites": "error",
+				"noForEach": "error",
 				"useSimplifiedLogicExpression": "error",
 				"noUselessTernary": "error",
 				"noUselessTypeConstraint": "error",
 				"noUselessSwitchCase": "error",
 				"noUselessLoneBlockStatements": "error",
-				"noAdjacentSpacesInRegex": "error"
+				"noAdjacentSpacesInRegex": "error",
+				"useLiteralKeys": "error",
+				"useIndexOf": "error",
+				"useOptionalChain": "error",
+				"useFlatMap": "error",
+				"noCommaOperator": "error",
+				"noStaticOnlyClass": "error",
+				"noThisInStatic": "error",
+				"noUselessCatchBinding": "error"
 			},
 			"correctness": {
 				"noConstantMathMinMaxClamp": "error",
@@ -118,9 +136,9 @@
 			},
 			"performance": {
 				"noAccumulatingSpread": "error",
-				"noBarrelFile": "warn",
-				"noReExportAll": "warn",
-				"noNamespaceImport": "warn",
+				"noBarrelFile": "error",
+				"noReExportAll": "error",
+				"noNamespaceImport": "error",
 				"useTopLevelRegex": "error",
 				"noDelete": "error",
 				"noDynamicNamespaceImportAccess": "error"
@@ -150,16 +168,20 @@
 						"style": "interface"
 					}
 				},
-				"noDefaultExport": "off",
+				"noDefaultExport": "error",
 				"noMagicNumbers": "off",
 				"useNamingConvention": "off",
 				"useSingleVarDeclarator": "error",
 				"useConst": "error",
-				"useDefaultSwitchClause": "warn",
+				"useDefaultSwitchClause": "error",
 				"useNumberNamespace": "error",
 				"useTemplate": "error",
 				"noInferrableTypes": "error",
 				"noUselessElse": "error",
+				"noNestedTernary": "error",
+				"useCollapsedElseIf": "error",
+				"useCollapsedIf": "error",
+				"useExponentiationOperator": "error",
 				"useExplicitLengthCheck": "error",
 				"useDefaultParameterLast": "error",
 				"noRestrictedTypes": {
@@ -197,7 +219,7 @@
 				"noDuplicateClassMembers": "error",
 				"noDuplicateObjectKeys": "error",
 				"noDuplicateParameters": "error",
-				"noEmptyBlockStatements": "warn",
+				"noEmptyBlockStatements": "error",
 				"noFallthroughSwitchClause": "error",
 				"noFunctionAssign": "error",
 				"noGlobalAssign": "error",
@@ -433,22 +455,16 @@
 			}
 		},
 		{
-			"includes": ["tests/sdk/common-barrel.test.ts"],
+			"includes": ["src/**", "!**/*.test.ts", "!**/*.spec.ts"],
 			"linter": {
 				"rules": {
-					"performance": {
-						"noNamespaceImport": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["sdk/**"],
-			"linter": {
-				"rules": {
-					"performance": {
-						"noReExportAll": "off",
-						"noBarrelFile": "off"
+					"suspicious": {
+						"noConsole": {
+							"level": "error",
+							"options": {
+								"allow": ["warn", "error"]
+							}
+						}
 					}
 				}
 			}

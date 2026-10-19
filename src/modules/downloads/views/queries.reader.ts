@@ -45,8 +45,9 @@ export async function listAllPage(query: DownloadsPageQuery) {
 /** Ownership-checked variants — a profile only ever sees its own jobs. */
 export async function getJobViewForProfile(jobId: string, profileId: string): Promise<DownloadJobView | null> {
 	const row = await getOwnedDownload(jobId, profileId);
+	if (!row) return null;
 
-	return row ? await viewOf(row) : null;
+	return await viewOf(row);
 }
 
 /** Media file of an owned download; the route checks stream access against it before a retry. */

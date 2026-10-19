@@ -104,6 +104,18 @@ function normalizeStreamPrefLanguage(value: string | null | undefined): string |
 	return trimmed.length > 0 ? trimmed : null;
 }
 
+/** The position and completion state a progress write resolves to. */
+function resolveProgressState(body: UpdatePlaybackProgress, duration: number): { position: number; completed: boolean } {
+	// "Mark watched" writes MAX_SAFE_INTEGER; a file with no known duration
+	// cannot satisfy the ratio check, so honor the explicit intent instead of
+	// storing a bogus position and leaving the row incomplete.
+	const requestedPosition = body.position ?? 0;
+	const explicitComplete = requestedPosition >= Number.MAX_SAFE_INTEGER && duration <= 0;
+	const position = explicitComplete ? 0 : normalizePlaybackPosition(requestedPosition, duration);
+
+	return { position, completed: explicitComplete || isCompleted(position, duration) };
+}
+
 class PlaybackProgressService {
 	readonly serviceName = "PlaybackProgressService";
 	readonly logger = createLogger("PlaybackProgressService");
@@ -122,15 +134,9 @@ class PlaybackProgressService {
 			assertFound(mediaFile, "MediaFile", fileId);
 
 			const duration = mediaFile.duration ?? 0;
-			// "Mark watched" writes MAX_SAFE_INTEGER; a file with no known duration
-			// cannot satisfy the ratio check, so honor the explicit intent instead of
-			// storing a bogus position and leaving the row incomplete.
-			const requestedPosition = body.position ?? 0;
-			const explicitComplete = requestedPosition >= Number.MAX_SAFE_INTEGER && duration <= 0;
-			const position = explicitComplete ? 0 : normalizePlaybackPosition(requestedPosition, duration);
-			const completed = explicitComplete || isCompleted(position, duration);
-			const audioStreamIndex = body.audioStreamIndex !== undefined ? body.audioStreamIndex : existingProgress?.audioStreamIndex;
-			const subtitleId = body.subtitleId !== undefined ? body.subtitleId : existingProgress?.subtitleId;
+			const { position, completed } = resolveProgressState(body, duration);
+			const audioStreamIndex = body.audioStreamIndex === undefined ? existingProgress?.audioStreamIndex : body.audioStreamIndex;
+			const subtitleId = body.subtitleId === undefined ? existingProgress?.subtitleId : body.subtitleId;
 			const completesTitle = completed && !existingProgress?.completed;
 
 			// The progress row and the history row are one unit: if the history write fails, the progress must not
@@ -172,8 +178,8 @@ class PlaybackProgressService {
 				await this.dependencies.profileStreamPrefsRepository.upsert({
 					profileId,
 					metadataId: mediaFile.metadataId,
-					audioLanguage: body.audioLanguage !== undefined ? normalizeStreamPrefLanguage(body.audioLanguage) : undefined,
-					subtitleLanguage: body.subtitleLanguage !== undefined ? normalizeStreamPrefLanguage(body.subtitleLanguage) : undefined,
+					audioLanguage: body.audioLanguage === undefined ? undefined : normalizeStreamPrefLanguage(body.audioLanguage),
+					subtitleLanguage: body.subtitleLanguage === undefined ? undefined : normalizeStreamPrefLanguage(body.subtitleLanguage),
 				});
 			}
 
@@ -384,12 +390,15 @@ class PlaybackProgressService {
 				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId),
 			);
 
+			let nextEpisodeFileId: string | null = null;
+			if (currentEpisode) {
+				nextEpisodeFileId = selectNextEpisodeFileInSeries(data.episodes, data.seasons, data.mediaFiles, currentEpisode);
+			}
+
 			return {
 				progress: computePlaybackProgress(data),
 				smartPlay: computeSmartPlay(data),
-				nextEpisodeFileId: currentEpisode
-					? selectNextEpisodeFileInSeries(data.episodes, data.seasons, data.mediaFiles, currentEpisode)
-					: null,
+				nextEpisodeFileId,
 			};
 		});
 	}
@@ -455,9 +464,12 @@ class PlaybackProgressService {
 			// Only a failed batch falls back to the separate watchlist read, so an
 			// outage still reports flags for suggestion-less cards (previous behavior).
 			const batch = await this.dependencies.playbackRepository.findSmartPlayBatchData(ids, profileId).catch(() => null);
-			const watchlisted = batch
-				? new Set(batch.filter((entry) => entry.inWatchlist).map((entry) => entry.metadataId))
-				: await this.dependencies.watchlistRepository.findWatchlistedIds(profileId, ids).catch(() => new Set<string>());
+			let watchlisted: Set<string>;
+			if (batch) {
+				watchlisted = new Set(batch.filter((entry) => entry.inWatchlist).map((entry) => entry.metadataId));
+			} else {
+				watchlisted = await this.dependencies.watchlistRepository.findWatchlistedIds(profileId, ids).catch(() => new Set<string>());
+			}
 			const suggestionByMetadataId = new Map(
 				(batch ?? []).map((entry) => [entry.metadataId, entry.data ? computeSmartPlay(entry.data).suggestion : null]),
 			);

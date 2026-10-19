@@ -21,6 +21,9 @@ import { clamp, isValidRating } from "@/utils/math.utils";
 /** Relation surfaces a field lock can protect; each entry deletes that relation's rows for one title. */
 type LockedRelation = "cast" | "crew" | "genres" | "keywords" | "companies" | "collections" | "ratings";
 
+/** Person images the credit import attaches to a title. */
+type MetadataPersonImages = Awaited<ReturnType<typeof peopleRepository.processMetadataCredits>>;
+
 const RELATION_DELETES: Record<LockedRelation, (metadataId: string, tx: DatabaseTransaction) => Promise<unknown>> = {
 	cast: (metadataId, tx) => metadataRepository.deleteCast({ where: eq(schema.metadataCast.metadataId, metadataId), tx }),
 	crew: (metadataId, tx) => metadataRepository.deleteCrew({ where: eq(schema.metadataCrew.metadataId, metadataId), tx }),
@@ -65,9 +68,10 @@ class MetadataPersistenceRepository {
 					tx,
 					mergeConflict: async (targetId, sourceId) => await metadataMergeRepository.merge(targetId, sourceId, type),
 				});
-				const personImages = metadataResult.created
-					? await this.createMetadataRelations(metadataResult.metadata.id, providerName, metadata, tx)
-					: [];
+				let personImages: MetadataPersonImages = [];
+				if (metadataResult.created) {
+					personImages = await this.createMetadataRelations(metadataResult.metadata.id, providerName, metadata, tx);
+				}
 
 				return { ...metadataResult, personImages };
 			},
@@ -261,30 +265,31 @@ class MetadataPersistenceRepository {
 
 			if (!season) return null;
 
-			// A second file for an already-imported episode must not re-notify viewers.
-			const existingEpisode = episodeInfo
-				? await episodesRepository.findBySeasonAndNumber(season.id, Number(episodeInfo.episodeNumber))
-				: undefined;
-			const episode = episodeInfo
-				? await episodesRepository.findOrCreateByIdentity({
+			let episode: Awaited<ReturnType<typeof episodesRepository.findOrCreateByIdentity>> | null = null;
+			let episodeCreated = false;
+			if (episodeInfo) {
+				// A second file for an already-imported episode must not re-notify viewers.
+				const existingEpisode = await episodesRepository.findBySeasonAndNumber(season.id, Number(episodeInfo.episodeNumber));
+				episode = await episodesRepository.findOrCreateByIdentity({
+					seasonId: season.id,
+					episodeNumber: Number(episodeInfo.episodeNumber),
+					seasonStableKey: season.stableKey,
+					values: {
 						seasonId: season.id,
 						episodeNumber: Number(episodeInfo.episodeNumber),
-						seasonStableKey: season.stableKey,
-						values: {
-							seasonId: season.id,
-							episodeNumber: Number(episodeInfo.episodeNumber),
-							absoluteNumber: episodeInfo.absoluteNumber !== undefined ? Number(episodeInfo.absoluteNumber) : null,
-							title: episodeInfo.name,
-							overview: episodeInfo.overview,
-							airDate: episodeInfo.airDate,
-						},
-						tx,
-					})
-				: null;
+						absoluteNumber: episodeInfo.absoluteNumber === undefined ? null : Number(episodeInfo.absoluteNumber),
+						title: episodeInfo.name,
+						overview: episodeInfo.overview,
+						airDate: episodeInfo.airDate,
+					},
+					tx,
+				});
+				episodeCreated = existingEpisode === undefined;
+			}
 
 			if (flagMissingTranslation) await metadataRepository.flagMissingTranslation(metadataId, tx);
 
-			return { season, ...(episode ? { episode, episodeCreated: existingEpisode === undefined } : {}) };
+			return { season, ...(episode ? { episode, episodeCreated } : {}) };
 		});
 	}
 
@@ -307,31 +312,32 @@ class MetadataPersistenceRepository {
 		tx: DatabaseTransaction,
 		locked: ReadonlySet<string> = new Set(),
 	) {
+		const runUnlessLocked = (relation: LockedRelation, work: () => Promise<unknown>) => {
+			if (isRelationLocked(locked, relation)) return Promise.resolve();
+			return work();
+		};
+		const processCredits = () => {
+			if (locked.has("cast") && locked.has("crew")) return Promise.resolve<MetadataPersonImages>([]);
+			return peopleRepository.processMetadataCredits({
+				metadataId,
+				providerName,
+				cast: locked.has("cast") ? undefined : metadata.cast,
+				crew: locked.has("crew") ? undefined : metadata.crew,
+				tx,
+			});
+		};
+
 		const [, , , , personImages] = await Promise.all([
-			isRelationLocked(locked, "collections")
-				? Promise.resolve()
-				: collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
-			isRelationLocked(locked, "companies")
-				? Promise.resolve()
-				: companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }),
-			isRelationLocked(locked, "genres")
-				? Promise.resolve()
-				: genreRepository.process({ metadataId, providerName, items: metadata.genres, tx }),
-			isRelationLocked(locked, "keywords")
-				? Promise.resolve()
-				: keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx }),
-			locked.has("cast") && locked.has("crew")
-				? Promise.resolve([])
-				: peopleRepository.processMetadataCredits({
-						metadataId,
-						providerName,
-						cast: locked.has("cast") ? undefined : metadata.cast,
-						crew: locked.has("crew") ? undefined : metadata.crew,
-						tx,
-					}),
-			isRelationLocked(locked, "ratings")
-				? Promise.resolve()
-				: metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx }),
+			runUnlessLocked("collections", () =>
+				collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
+			),
+			runUnlessLocked("companies", () =>
+				companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }),
+			),
+			runUnlessLocked("genres", () => genreRepository.process({ metadataId, providerName, items: metadata.genres, tx })),
+			runUnlessLocked("keywords", () => keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx })),
+			processCredits(),
+			runUnlessLocked("ratings", () => metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx })),
 		]);
 
 		return personImages;

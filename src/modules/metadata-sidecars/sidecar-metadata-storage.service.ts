@@ -1,9 +1,10 @@
 import { systemResourcesService } from "@/config/system-resources.service";
-import { isNotNullish, toMap, unique } from "@/utils/array.utils";
+import { toMap, unique } from "@/utils/array.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
+import { isNotNullish } from "@/utils/type.utils";
 import { type SidecarArtworkWriter, sidecarArtworkExporter } from "./saver/sidecar-artwork.exporter";
 import {
 	type SidecarEpisodeRecord,
@@ -55,15 +56,19 @@ function isEpisodeSaveTarget(target: SaveTarget): target is EpisodeSaveTarget {
  */
 async function loadSeriesRows(sidecarFiles: SidecarStorageMediaFile[]): Promise<SeriesRows> {
 	const episodeIds = unique(sidecarFiles.map((mediaFile) => mediaFile.episodeId).filter((episodeId) => isNotNullish(episodeId)));
-	const episodesById =
-		episodeIds.length > 0
-			? toMap(await sidecarStorage().findEpisodeRecords(episodeIds), (episode) => episode.id)
-			: new Map<string, SidecarEpisodeRecord>();
+	let episodesById: Map<string, SidecarEpisodeRecord>;
+	if (episodeIds.length > 0) {
+		episodesById = toMap(await sidecarStorage().findEpisodeRecords(episodeIds), (episode) => episode.id);
+	} else {
+		episodesById = new Map<string, SidecarEpisodeRecord>();
+	}
 	const seasonIds = unique([...episodesById.values()].map((episode) => episode.seasonId));
-	const seasonsById =
-		seasonIds.length > 0
-			? toMap(await sidecarStorage().findSeasonRecords(seasonIds), (season) => season.id)
-			: new Map<string, SidecarSeasonRecord>();
+	let seasonsById: Map<string, SidecarSeasonRecord>;
+	if (seasonIds.length > 0) {
+		seasonsById = toMap(await sidecarStorage().findSeasonRecords(seasonIds), (season) => season.id);
+	} else {
+		seasonsById = new Map<string, SidecarSeasonRecord>();
+	}
 	return { episodesById, seasonsById };
 }
 

@@ -13,6 +13,9 @@ export interface PluginPackageDetails {
 	pinned?: boolean;
 }
 
+/** The install-record fields the admin view shows; absent for a plugin that is not installed. */
+type InstalledPluginState = Partial<Pick<PluginPackageDetails, "installedAt" | "source" | "integrityOk" | "cspDisabled" | "pinned">>;
+
 /** The loaded manifest when there is one; otherwise the one on disk, so a failed or disabled plugin still reports its capabilities. */
 async function declaredCapabilities(state: PluginManagerState, pluginId: string, directory: string): Promise<string[]> {
 	const runtime = state.registry.get(pluginId);
@@ -34,17 +37,20 @@ export async function getPackageDetails(state: PluginManagerState, pluginId: str
 		.then((records) => records.find((entry) => entry.id === pluginId)?.record)
 		.catch(() => null);
 
+	let installState: InstalledPluginState = {};
+	if (installed) {
+		installState = {
+			installedAt: installed.installedAt,
+			source: installed.source,
+			integrityOk: !state.integrityIssues.has(pluginId),
+			cspDisabled: installed.cspDisabled === true,
+			pinned: installed.pinned === true,
+		};
+	}
+
 	return {
 		capabilities: await declaredCapabilities(state, pluginId, directory),
 		...(configReadError ? { configReadError } : {}),
-		...(installed
-			? {
-					installedAt: installed.installedAt,
-					source: installed.source,
-					integrityOk: !state.integrityIssues.has(pluginId),
-					cspDisabled: installed.cspDisabled === true,
-					pinned: installed.pinned === true,
-				}
-			: {}),
+		...installState,
 	};
 }

@@ -113,14 +113,14 @@ describe("fixture", () => {
 		const mark = markCollection();
 		collectUnits(mark);
 		await good();
-		let error: unknown;
+		let failure: unknown;
 		try {
 			await bad();
-		} catch (caught) {
-			error = caught;
+		} catch (error) {
+			failure = error;
 		}
 
-		expect(error).toBeInstanceOf(Error);
+		expect(failure).toBeInstanceOf(Error);
 		await cleanupFixtures();
 		expect(cleanups).toEqual(["good"]);
 	});

@@ -107,6 +107,14 @@ export function parseJsonRelationArray<T extends object>(
 	revive: RelationJsonKeys,
 	_shape?: T,
 ): T[] {
+	return parseJsonRelationArrayWith<T>(payload, keys, (item) => reviveJsonItem(item, revive));
+}
+
+/**
+ * Parses a `json_group_array` payload into DTO items, reviving each of them
+ * with the caller's mapper — the shape the nested relation payloads need.
+ */
+export function parseJsonRelationArrayWith<T extends object>(payload: string, keys: readonly string[], revive: (item: T) => void): T[] {
 	const parsed = safeParseJson(payload);
 	if (!Array.isArray(parsed)) return [];
 
@@ -114,7 +122,7 @@ export function parseJsonRelationArray<T extends object>(
 	for (const item of parsed) {
 		if (!isRelationItem<T>(item, keys)) continue;
 
-		reviveJsonItem(item, revive);
+		revive(item);
 		items.push(item);
 	}
 

@@ -135,9 +135,27 @@ async function queryPreviews(
 	// A full preview reads both halves in one statement (UNION ALL, measured
 	// neutral against the two parallel reads); a single-flag read keeps its one
 	// statement.
-	const merged = withCounts && withPosters ? await postersQuery().unionAll(countsQuery()) : undefined;
-	const counts = merged?.filter((row) => row.kind === "count") ?? (withCounts ? await countsQuery() : []);
-	const posters = merged?.filter((row) => row.kind === "poster") ?? (withPosters ? await postersQuery() : []);
+	const mergedQuery = () => postersQuery().unionAll(countsQuery());
+	type PreviewRow = Awaited<ReturnType<typeof mergedQuery>>[number];
+
+	let merged: PreviewRow[] | undefined;
+	if (withCounts && withPosters) {
+		merged = await mergedQuery();
+	}
+
+	let counts: PreviewRow[] = [];
+	if (merged) {
+		counts = merged.filter((row) => row.kind === "count");
+	} else if (withCounts) {
+		counts = await countsQuery();
+	}
+
+	let posters: PreviewRow[] = [];
+	if (merged) {
+		posters = merged.filter((row) => row.kind === "poster");
+	} else if (withPosters) {
+		posters = await postersQuery();
+	}
 
 	const countMap = toMap(
 		counts,

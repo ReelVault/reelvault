@@ -4,7 +4,7 @@ import { preparedListGenres, preparedListImages, preparedListRatings } from "./b
 import { loadJunctionRows, loadRelationRows, shouldLoadRelation } from "./explicit.reader";
 import { preparedDetailRelations, preparedDetailRow } from "./json.reader";
 import { applyDetailRelations, emptyRelationData } from "./payload.mapper";
-import type { DetailRelationsRow, MetadataRelationData, RelationClient } from "./relations.types";
+import type { DetailRelationsRow, MetadataRelationData, RelationClient, RelationItem } from "./relations.types";
 
 /** Default detail projection: one prepared statement returns every relation as JSON. */
 export function loadMergedDetailRelations(
@@ -70,13 +70,28 @@ export function loadBatchedListRelations(
 
 	for (const row of genres) relationsByMetadataId.get(row.metadataId)?.genres.push(row.data);
 
+	attachImages(relationsByMetadataId, images);
+	attachRatings(relationsByMetadataId, ratings);
+}
+
+/** The image rows of a metadata, attached to its relation data. */
+function attachImages(
+	relationsByMetadataId: Map<string, MetadataRelationData>,
+	images: Array<{ metadataId: string; imageType: string; data: RelationItem<"images">["data"] }>,
+): void {
 	for (const row of images) {
 		relationsByMetadataId.get(row.metadataId)?.images.push({
 			imageType: row.imageType,
 			data: row.data,
 		});
 	}
+}
 
+/** The rating rows of a metadata, attached to its relation data. */
+function attachRatings(
+	relationsByMetadataId: Map<string, MetadataRelationData>,
+	ratings: Array<{ metadataId: string | number | null; data: RelationItem<"rating">["scores"][number] }>,
+): void {
 	for (const row of ratings) {
 		relationsByMetadataId.get(String(row.metadataId))?.rating.scores.push(row.data);
 	}
@@ -126,16 +141,8 @@ export async function loadExplicitRelations<F extends string>(
 		});
 	}
 
-	for (const row of images) {
-		relationsByMetadataId.get(row.metadataId)?.images.push({
-			imageType: row.imageType,
-			data: row.data,
-		});
-	}
-
-	for (const row of ratings) {
-		relationsByMetadataId.get(String(row.metadataId))?.rating.scores.push(row.data);
-	}
+	attachImages(relationsByMetadataId, images);
+	attachRatings(relationsByMetadataId, ratings);
 
 	for (const row of providers) relationsByMetadataId.get(row.metadataId)?.providers.push(row.data);
 

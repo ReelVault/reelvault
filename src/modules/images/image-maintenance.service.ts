@@ -43,7 +43,10 @@ class ImageMaintenanceService {
 	async purgeOptimizedCache(): Promise<PurgeOptimizedCacheResult> {
 		return await runSafely(this, "purgeOptimizedCache", async () => {
 			const cacheDir = PathUtils.join(serverConfig.paths.images, ".cache");
-			const names = (await DirUtils.exists(cacheDir)) ? await readdir(cacheDir) : [];
+			let names: string[] = [];
+			if (await DirUtils.exists(cacheDir)) {
+				names = await readdir(cacheDir);
+			}
 			const ioConcurrency = systemResourcesService.getIoConcurrency();
 			const files = (
 				await PromiseUtils.mapConcurrent(names, ioConcurrency, async (name) => {
@@ -92,11 +95,12 @@ class ImageMaintenanceService {
 
 				for (const entry of scannedFiles) {
 					throwIfAborted(signal);
-					if (this.shouldPurgeFile(entry.filePath, entry.mtimeMs, { now, minAgeMs, localPaths, imageIds })) {
-						if (await FileUtils.delete(entry.filePath)) {
-							deletedCount++;
-							freedBytes += entry.size;
-						}
+					if (
+						this.shouldPurgeFile(entry.filePath, entry.mtimeMs, { now, minAgeMs, localPaths, imageIds }) &&
+						(await FileUtils.delete(entry.filePath))
+					) {
+						deletedCount++;
+						freedBytes += entry.size;
 					}
 				}
 

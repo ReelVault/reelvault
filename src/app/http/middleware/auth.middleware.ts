@@ -96,7 +96,10 @@ async function resolveCurrentProfile(
 	userId: string,
 ): Promise<Profile | null> {
 	const profileId = selectedProfileId ?? request.headers.get("x-profile-id");
-	const rawProfile = typeof profileId === "string" ? ((await profilesRepository.findByPrimaryIdCached(profileId)) ?? null) : null;
+	let rawProfile: Profile | null = null;
+	if (typeof profileId === "string") {
+		rawProfile = (await profilesRepository.findByPrimaryIdCached(profileId)) ?? null;
+	}
 	const ownedProfile: Profile | null = rawProfile?.userId === userId ? rawProfile : null;
 
 	return resolveUnlockedProfile(ownedProfile, typeof unlockValue === "string" ? unlockValue : undefined);
@@ -157,11 +160,13 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 			// in-memory cache below keeps that guarantee while avoiding a DB read per
 			// HLS segment.
 			const sessionToken = extractSessionToken(request.headers);
-			const session = sessionToken
-				? await getOrSetSession(sessionToken, () =>
-						betterAuthApi.getSession({ headers: request.headers, query: { disableCookieCache: true } }),
-					)
-				: await betterAuthApi.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+			const readSession = () => betterAuthApi.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+			let session: Awaited<ReturnType<typeof readSession>>;
+			if (sessionToken) {
+				session = await getOrSetSession(sessionToken, readSession);
+			} else {
+				session = await readSession();
+			}
 			if (!session) {
 				logger.debug("Missing session", {
 					method: request.method,

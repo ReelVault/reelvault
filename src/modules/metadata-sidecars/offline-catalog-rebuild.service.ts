@@ -67,10 +67,12 @@ export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuild
 						[libraryPathId, library.id, libraryPathId, PathUtils.resolve(path), pathNow, pathNow],
 					);
 					const tree = await this.treeWalker.collect(path);
-					const result =
-						library.type === "movies"
-							? await this.moviesImporter.import(database, library.id, path, tree, skipped)
-							: await this.seriesImporter.import(database, library.id, path, tree, skipped);
+					let result: Awaited<ReturnType<typeof this.moviesImporter.import>>;
+					if (library.type === "movies") {
+						result = await this.moviesImporter.import(database, library.id, path, tree, skipped);
+					} else {
+						result = await this.seriesImporter.import(database, library.id, path, tree, skipped);
+					}
 					importedMovies += result.entries;
 					importedMediaFiles += result.mediaFiles;
 				}

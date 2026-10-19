@@ -3,11 +3,12 @@ import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { mergeProviderMetadata, type ProviderContribution } from "@/plugins/capabilities/metadata-aggregator.service";
-import { hasEntry, isNotNullish } from "@/utils/array.utils";
+import { hasEntry } from "@/utils/array.utils";
 import { assertFound, errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { PromiseUtils } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
+import { isNotNullish } from "@/utils/type.utils";
 import type { ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { processPersonImages } from "../providers/metadata-create.utils";
 import { applyMetadataCandidate, toMetadataCandidate } from "../providers/metadata-normalization.mapper";
@@ -204,10 +205,12 @@ export class MetadataRefreshService {
 			providers.map(async (provider): Promise<ProviderContribution | null> => {
 				try {
 					const prefetched = prefetchedProviders?.[provider.name];
-					const result =
-						prefetched && prefetched.externalId === provider.externalId
-							? prefetched
-							: await this.dependencies.fetchProviderDetails(provider.name, metadata.type, provider.externalId, metadata.id);
+					let result: ProviderMetadataResult | undefined;
+					if (prefetched && prefetched.externalId === provider.externalId) {
+						result = prefetched;
+					} else {
+						result = await this.dependencies.fetchProviderDetails(provider.name, metadata.type, provider.externalId, metadata.id);
+					}
 					if (!result) return null;
 
 					if (result.externalId !== provider.externalId) {

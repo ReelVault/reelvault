@@ -56,9 +56,17 @@ class TrickplayAdminService {
 		const ids = [...new Set(mediaFileIds)];
 		// The whole batch is read in one query: the files were read (and deleted)
 		// one at a time, so a bulk request over many files cost a round trip each.
-		const { artifacts, mediaFileIds: filesWithArtifacts } = options.dryRun
-			? await mediaArtifactsService.countByMediaFileIdsAndKind(ids, "trickplay", CORE_ARTIFACTS_OWNER)
-			: await mediaArtifactsService.deleteByMediaFileIdsAndKind(ids, "trickplay", CORE_ARTIFACTS_OWNER);
+		let artifacts: number;
+		let filesWithArtifacts: string[];
+		if (options.dryRun) {
+			const counted = await mediaArtifactsService.countByMediaFileIdsAndKind(ids, "trickplay", CORE_ARTIFACTS_OWNER);
+			artifacts = counted.artifacts;
+			filesWithArtifacts = counted.mediaFileIds;
+		} else {
+			const deleted = await mediaArtifactsService.deleteByMediaFileIdsAndKind(ids, "trickplay", CORE_ARTIFACTS_OWNER);
+			artifacts = deleted.artifacts;
+			filesWithArtifacts = deleted.mediaFileIds;
+		}
 
 		if (!options.dryRun) trickplayRepository.clearStatsCache();
 

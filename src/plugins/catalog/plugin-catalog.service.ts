@@ -165,10 +165,10 @@ class PluginCatalogService {
 		}
 
 		const updated = await pluginCatalogRepositoryData.update(id, {
-			...(values.name !== undefined ? { name: values.name } : {}),
-			...(values.url !== undefined ? { url: values.url } : {}),
-			...(tokenEncrypted !== undefined ? { tokenEncrypted } : {}),
-			...(values.enabled !== undefined ? { enabled: values.enabled } : {}),
+			...(values.name === undefined ? {} : { name: values.name }),
+			...(values.url === undefined ? {} : { url: values.url }),
+			...(tokenEncrypted === undefined ? {} : { tokenEncrypted }),
+			...(values.enabled === undefined ? {} : { enabled: values.enabled }),
 		});
 
 		// A URL/token change invalidates the cached manifest.

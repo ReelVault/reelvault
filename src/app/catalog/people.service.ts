@@ -42,10 +42,8 @@ class PeopleService extends DictionaryCrudService<
 						},
 					});
 
-					if (match.profilePath) {
-						if (options.forceImage || !person.imageId) {
-							await imageProcessingService.processPerson(person.id, match.profilePath, options.forceImage);
-						}
+					if (match.profilePath && (options.forceImage || !person.imageId)) {
+						await imageProcessingService.processPerson(person.id, match.profilePath, options.forceImage);
 					}
 				}
 			}

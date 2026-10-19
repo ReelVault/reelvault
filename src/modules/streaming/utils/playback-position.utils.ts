@@ -1,6 +1,6 @@
 // Pure playback-position calculations — shared by progress/ and segments.
 import { clamp } from "@/utils/math.utils";
-import { isFiniteNumber } from "@/utils/type.utils";
+import { isFiniteNumber, isNullish } from "@/utils/type.utils";
 
 const COMPLETION_THRESHOLD = 0.9;
 
@@ -31,5 +31,5 @@ export function playedSecondsBetween(previous: { position: number; at: number } 
 }
 
 export function computeProgressPercent(position: number, duration: number | null | undefined): number {
-	return duration != null && duration > 0 ? Math.min(100, Math.round((position / duration) * 100)) : 0;
+	return !isNullish(duration) && duration > 0 ? Math.min(100, Math.round((position / duration) * 100)) : 0;
 }

@@ -1,4 +1,4 @@
-import { isRecord } from "@/utils/type.utils";
+import { isNullish, isRecord } from "@/utils/type.utils";
 
 const SENSITIVE_LOG_KEY = /(authorization|cookie|password|secret|token|api[-_]?key|access[-_]?token|refresh[-_]?token|storage[-_]?key)/i;
 
@@ -36,7 +36,7 @@ export function sanitizeLogValue(value: unknown, key?: string): unknown {
 function needsSanitization(value: unknown, key: string | undefined, seen: WeakSet<object> | null, depth: number): boolean {
 	if (isSensitiveKey(key)) return true;
 
-	if (value == null) return false;
+	if (isNullish(value)) return false;
 
 	if (typeof value === "number" || typeof value === "boolean" || typeof value === "symbol" || typeof value === "bigint") return false;
 
@@ -48,43 +48,49 @@ function needsSanitization(value: unknown, key: string | undefined, seen: WeakSe
 
 	if (depth >= MAX_SANITIZE_DEPTH) return false;
 
-	if (Array.isArray(value)) {
-		const seenSet = seen ?? new WeakSet<object>();
-		if (seenSet.has(value)) return false;
+	if (Array.isArray(value)) return arrayNeedsSanitization(value, seen, depth);
 
-		seenSet.add(value);
-		for (const item of value) {
-			if (needsSanitization(item, undefined, seenSet, depth + 1)) {
-				seenSet.delete(value);
+	if (isRecord(value)) return recordNeedsSanitization(value, seen, depth);
 
-				return true;
-			}
+	return false;
+}
+
+/** True when any item of the array needs sanitizing. */
+function arrayNeedsSanitization(value: readonly unknown[], seen: WeakSet<object> | null, depth: number): boolean {
+	const seenSet = seen ?? new WeakSet<object>();
+	if (seenSet.has(value)) return false;
+
+	seenSet.add(value);
+	for (const item of value) {
+		if (needsSanitization(item, undefined, seenSet, depth + 1)) {
+			seenSet.delete(value);
+
+			return true;
 		}
-
-		seenSet.delete(value);
-
-		return false;
 	}
 
-	if (isRecord(value)) {
-		const seenSet = seen ?? new WeakSet<object>();
-		if (seenSet.has(value)) return false;
+	seenSet.delete(value);
 
-		seenSet.add(value);
+	return false;
+}
 
-		for (const entryKey of Object.keys(value)) {
-			const entryValue: unknown = value[entryKey];
-			if (needsSanitization(entryValue, entryKey, seenSet, depth + 1)) {
-				seenSet.delete(value);
+/** True when any value of the record needs sanitizing. */
+function recordNeedsSanitization(value: Record<string, unknown>, seen: WeakSet<object> | null, depth: number): boolean {
+	const seenSet = seen ?? new WeakSet<object>();
+	if (seenSet.has(value)) return false;
 
-				return true;
-			}
+	seenSet.add(value);
+
+	for (const entryKey of Object.keys(value)) {
+		const entryValue: unknown = value[entryKey];
+		if (needsSanitization(entryValue, entryKey, seenSet, depth + 1)) {
+			seenSet.delete(value);
+
+			return true;
 		}
-
-		seenSet.delete(value);
-
-		return false;
 	}
+
+	seenSet.delete(value);
 
 	return false;
 }
@@ -92,7 +98,7 @@ function needsSanitization(value: unknown, key: string | undefined, seen: WeakSe
 function sanitizeLogValueInner(value: unknown, key: string | undefined, seen: WeakSet<object>, depth: number): unknown {
 	if (isSensitiveKey(key)) return "[REDACTED]";
 
-	if (value == null) return value;
+	if (isNullish(value)) return value;
 
 	if (typeof value === "number" || typeof value === "boolean" || typeof value === "symbol" || typeof value === "bigint") return value;
 

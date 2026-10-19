@@ -1,0 +1,16 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A ternary only reads well when it picks one of two short values. A branch
+// that carries a call and runs past 80 characters hides the decision behind
+// the call, so it becomes an if/else (or an early return) instead. An await
+// inside a branch hides the same decision behind a second suspension point.
+`$test ? $cons : $alt` as $ternary where {
+	or {
+		and { $cons <: r"(?s).{80,}", $cons <: contains JsCallExpression() },
+		and { $alt <: r"(?s).{80,}", $alt <: contains JsCallExpression() },
+		$cons <: contains JsAwaitExpression(),
+		$alt <: contains JsAwaitExpression()
+	},
+	register_diagnostic(span=$ternary, message="Long ternary branch with a call, or an await inside a branch. Use if/else (or an early return) instead.")
+}

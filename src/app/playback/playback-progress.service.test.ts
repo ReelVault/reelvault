@@ -383,11 +383,11 @@ describe("playback progress service: reads and language preferences", () => {
 	});
 
 	test("requires an authenticated profile", async () => {
-		const error: unknown = await createService()
+		const failure: unknown = await createService()
 			.updatePlaybackProgress("file-1", { position: 10 })
-			.catch((caught: unknown) => caught);
+			.catch((error: unknown) => error);
 
-		expect(error).toMatchObject({ category: "unauthorized", code: "auth.profile_required" });
+		expect(failure).toMatchObject({ category: "unauthorized", code: "auth.profile_required" });
 	});
 
 	test("persists picked track languages per title and keeps the audio language when only subtitles change", async () => {
