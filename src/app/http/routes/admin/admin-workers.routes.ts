@@ -21,7 +21,7 @@ import {
 import { t } from "elysia";
 import { adminWorkerOperationsService } from "@/app/admin/admin-worker-operations.service";
 import { PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
-import { OperationIdParams, WorkerIdParams } from "@/app/http/schemas/route-params.schema";
+import { JobIdParams, OperationIdParams, WorkerIdParams } from "@/app/http/schemas/route-params.schema";
 import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
@@ -184,7 +184,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.get("/workers/jobs/:jobId", async ({ params }) => await adminWorkerOperationsService.getItem(params.jobId), {
 		rateLimit: { name: "admin-workers-jobs-get", max: 120, windowMs: MINUTE },
-		params: t.Object({ jobId: t.String({ minLength: 1 }) }),
+		params: JobIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerJob" },
 		detail: { description: "Retrieve a single worker job with its status, progress, and result/error." },
 	})
@@ -194,7 +194,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			await adminWorkerOperationsService.cancelItem(params.jobId, { actorUserId: user?.id, headers: request.headers }),
 		{
 			rateLimit: { name: "admin-workers-jobs-cancel", max: 30, windowMs: MINUTE },
-			params: t.Object({ jobId: t.String({ minLength: 1 }) }),
+			params: JobIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: SuccessResponseSchema },
 			detail: { description: "Cancel a pending or running worker job." },
 		},
@@ -206,7 +206,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			await adminWorkerOperationsService.retryItem(params.jobId, { actorUserId: user?.id, headers: request.headers }),
 		{
 			rateLimit: { name: "admin-workers-jobs-retry", max: 30, windowMs: MINUTE },
-			params: t.Object({ jobId: t.String({ minLength: 1 }) }),
+			params: JobIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: WorkerRetryResponseSchema },
 			detail: { description: "Re-enqueue a failed worker job as a new task with the same payload; the failed job stays in its history." },
 		},

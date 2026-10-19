@@ -109,3 +109,22 @@ export function parseAllowedOrigins(value?: string | string[]): string[] {
 
 	return unique(origins);
 }
+
+/** Credential segments every request-key builder composes (dedup, response cache). */
+export interface RequestCredentials {
+	authorization: string;
+	cookie: string;
+	/** Raw `x-profile-id` header; the resolved session profile is a separate input. */
+	headerProfileId: string;
+	apiKey: string;
+}
+
+/** Reads the credential headers request keys are scoped by; missing headers become empty segments. */
+export function readRequestCredentials(request: Request): RequestCredentials {
+	return {
+		authorization: request.headers.get("authorization") ?? "",
+		cookie: request.headers.get("cookie") ?? "",
+		headerProfileId: request.headers.get("x-profile-id") ?? "",
+		apiKey: request.headers.get("x-api-key") ?? "",
+	};
+}

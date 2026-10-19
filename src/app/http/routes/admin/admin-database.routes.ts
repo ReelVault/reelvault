@@ -11,6 +11,7 @@ import { databaseBackupService } from "@/app/admin/database-backup.service";
 import { databaseMaintenanceService } from "@/app/admin/database-maintenance.service";
 import { databaseRestoreService } from "@/app/admin/database-restore.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { env } from "@/config/env.config";
 import { DATABASE_BACKUP_UPLOAD_MAX_SIZE, MINUTE } from "@/config/server/server.constants";
 import { createLogger } from "@/utils/logger.utils";
@@ -83,12 +84,10 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 		async ({ params }) => {
 			const backup = await databaseBackupService.findBackupFile(params.fileName);
 
-			return new Response(file(backup.path), {
-				headers: {
-					"content-type": "application/vnd.sqlite3",
-					"content-length": String(backup.sizeBytes),
-					"content-disposition": `attachment; filename="${backup.fileName}"`,
-				},
+			return attachmentResponse(file(backup.path), {
+				filename: backup.fileName,
+				contentType: "application/vnd.sqlite3",
+				headers: { "Content-Length": String(backup.sizeBytes) },
 			});
 		},
 		{

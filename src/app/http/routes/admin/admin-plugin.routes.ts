@@ -24,7 +24,7 @@ import { t } from "elysia";
 import { adminService } from "@/app/admin/admin.service";
 import { adminPluginCatalogService } from "@/app/admin/admin-plugin-catalog.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
-import { PluginIdParams, RepositoryIdParams } from "@/app/http/schemas/route-params.schema";
+import { PluginIdParams, ProviderIdParams, RepositoryIdParams } from "@/app/http/schemas/route-params.schema";
 import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
@@ -144,7 +144,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		async ({ params, body, user, request }) =>
 			await adminService.updateMetadataProviderConfiguration(params.providerId, body, { actorUserId: user?.id, headers: request.headers }),
 		{
-			params: t.Object({ providerId: t.String({ minLength: 1, maxLength: 128 }) }),
+			params: ProviderIdParams,
 			body: t.Object({
 				priority: t.Optional(t.Integer({ minimum: 0, maximum: 10000 })),
 				enabled: t.Optional(t.Boolean()),

@@ -29,6 +29,7 @@ import {
 	ROUTE_ERRORS,
 } from "@/app/http/schemas/common.schema";
 import { MediaFileArtifactParams, MediaFileIdParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
+import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { mediaService } from "@/app/media/media-files/media-files.service";
 import { MINUTE } from "@/config/server/server.constants";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
@@ -136,12 +137,7 @@ export const mediaFilesRoutes = new Elysia({
 		async ({ query }) => {
 			const text = await mediaService.exportMarkers(query);
 
-			return new Response(text, {
-				headers: {
-					"content-type": "application/x-ndjson; charset=utf-8",
-					"content-disposition": 'attachment; filename="media-markers.ndjson"',
-				},
-			});
+			return attachmentResponse(text, { filename: "media-markers.ndjson", contentType: "application/x-ndjson; charset=utf-8" });
 		},
 		{
 			adminOnly: true,

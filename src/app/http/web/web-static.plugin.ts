@@ -7,31 +7,9 @@ import { apiRouter } from "@/app/http/routes/api.routes";
 import { isWebApiPath } from "@/app/http/utils/route-classification.utils";
 import { getPathname, matchesIfNoneMatch } from "@/utils/http.utils";
 import { byteRangeResponse } from "@/utils/http-range.utils";
+import { contentTypeForPath, MIME_TYPES } from "@/utils/mime.utils";
 import { PathUtils } from "@/utils/path.utils";
 import { resolveWebDistRoot } from "../../../system/web-dist.utils";
-
-const CONTENT_TYPES: Record<string, string> = {
-	".avif": "image/avif",
-	".css": "text/css; charset=utf-8",
-	".gif": "image/gif",
-	".htm": "text/html; charset=utf-8",
-	".html": "text/html; charset=utf-8",
-	".ico": "image/x-icon",
-	".jpeg": "image/jpeg",
-	".jpg": "image/jpeg",
-	".js": "text/javascript; charset=utf-8",
-	".json": "application/json",
-	".map": "application/json",
-	".mjs": "text/javascript; charset=utf-8",
-	".png": "image/png",
-	".svg": "image/svg+xml",
-	".txt": "text/plain; charset=utf-8",
-	".wasm": "application/wasm",
-	".webmanifest": "application/manifest+json",
-	".webp": "image/webp",
-	".woff": "font/woff",
-	".woff2": "font/woff2",
-};
 
 const HTML_ENTRY = "index.html";
 const HTML_CONTENT_TYPE = "text/html; charset=utf-8";
@@ -140,13 +118,6 @@ async function loadIndexEntry(root: string, fileStat: FileStatView): Promise<Buf
 	return indexEntryCache.body;
 }
 
-function contentTypeFor(filePath: string): string {
-	const dot = filePath.lastIndexOf(".");
-	if (dot < 0) return "application/octet-stream";
-
-	return CONTENT_TYPES[filePath.slice(dot).toLowerCase()] ?? "application/octet-stream";
-}
-
 function notFoundResponse(): Response {
 	return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }
@@ -201,7 +172,7 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 	// Only KNOWN servable extensions mark a path as a file request. Plugin ids
 	// contain dots ("org.example.app"), so testing for any ".suffix" would turn
 	// their SPA routes into 404s before the fallback could serve index.html.
-	const hasFileExtension = Object.hasOwn(CONTENT_TYPES, PathUtils.getExtension(relativePath).toLowerCase());
+	const hasFileExtension = Object.hasOwn(MIME_TYPES, PathUtils.getExtension(relativePath));
 	const filePath = join(root, ...segments);
 	// A direct `/index.html` request (the PWA precache, curious users) must get the
 	// same transformed entry as the SPA fallback — without the injected API-origin
@@ -247,7 +218,7 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 	}
 
 	const headers: Record<string, string> = {
-		"Content-Type": contentTypeFor(filePath),
+		"Content-Type": contentTypeForPath(filePath),
 		"Cache-Control": cacheControl,
 		ETag: etag,
 		"Accept-Ranges": "bytes",

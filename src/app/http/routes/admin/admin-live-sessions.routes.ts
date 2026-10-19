@@ -8,6 +8,7 @@ import { t } from "elysia";
 import { adminLiveSessionsService } from "@/app/admin/admin-live-sessions.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { SessionIdParams } from "@/app/http/schemas/route-params.schema";
+import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { ENDED_SESSION_HISTORY_LIMIT } from "@/modules/streaming/runtime/ended-session.history";
 import { adminShell } from "./admin-shell.routes";
@@ -57,12 +58,7 @@ export const adminLiveSessionsRoutes = adminShell({ prefix: "/live-activity", ta
 		async ({ params }) => {
 			const archive = await adminLiveSessionsService.getSessionLog(params.sessionId);
 
-			return new Response(archive.data, {
-				headers: {
-					"content-type": "application/zip",
-					"content-disposition": `attachment; filename="${archive.filename}"`,
-				},
-			});
+			return attachmentResponse(archive.data, { filename: archive.filename, contentType: "application/zip" });
 		},
 		{
 			rateLimit: { name: "admin-live-session-log", max: 10, windowMs: MINUTE },

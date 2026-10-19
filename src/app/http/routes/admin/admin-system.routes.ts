@@ -23,6 +23,7 @@ import { metadataService } from "@/app/catalog/metadata/metadata.service";
 import { metadataRefreshQueueService } from "@/app/catalog/metadata/refresh/metadata-refresh-queue.service";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
 import { ClampedNumeric, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
 import { RefreshMetadataSchema } from "./admin.schema";
@@ -123,12 +124,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		async ({ query }) => {
 			const exported = await adminResourcesService.exportHistory(query.hours, query.format);
 
-			return new Response(exported.body, {
-				headers: {
-					"content-type": exported.contentType,
-					"content-disposition": `attachment; filename="${exported.filename}"`,
-				},
-			});
+			return attachmentResponse(exported.body, { filename: exported.filename, contentType: exported.contentType });
 		},
 		{
 			rateLimit: { name: "admin-resources-export", max: 10, windowMs: MINUTE },
@@ -184,12 +180,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		async ({ query }) => {
 			const exported = await adminAuditService.exportEntries(query);
 
-			return new Response(exported.body, {
-				headers: {
-					"content-type": exported.contentType,
-					"content-disposition": `attachment; filename="${exported.filename}"`,
-				},
-			});
+			return attachmentResponse(exported.body, { filename: exported.filename, contentType: exported.contentType });
 		},
 		{
 			rateLimit: { name: "admin-audit-export", max: 10, windowMs: MINUTE },

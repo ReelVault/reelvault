@@ -9,6 +9,7 @@ import { t } from "elysia";
 import { apiKeysService } from "@/app/admin/api-keys.service";
 import { requireAdmin } from "@/app/http/middleware/auth.middleware";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { IdParams } from "@/app/http/schemas/route-params.schema";
 import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
@@ -56,7 +57,7 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 		},
 		{
 			rateLimit: { name: "admin-api-keys-update", max: 30, windowMs: MINUTE },
-			params: t.Object({ id: t.String({ minLength: 1 }) }),
+			params: IdParams,
 			body: UpdateApiKeyRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN, 200: ApiKeySchema },
 			detail: {
@@ -73,7 +74,7 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 		},
 		{
 			rateLimit: { name: "admin-api-keys-rotate", max: 10, windowMs: MINUTE },
-			params: t.Object({ id: t.String({ minLength: 1 }) }),
+			params: IdParams,
 			response: { ...ROUTE_ERRORS.ADMIN, 200: ApiKeyCreatedSchema },
 			detail: {
 				description: "Replace an API key's secret. The new secret is returned exactly once and the old one stops working at once.",
@@ -90,7 +91,7 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 		},
 		{
 			rateLimit: { name: "admin-api-keys-revoke", max: 30, windowMs: MINUTE },
-			params: t.Object({ id: t.String({ minLength: 1 }) }),
+			params: IdParams,
 			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Object({ success: t.Boolean() }) },
 			detail: {
 				description: "Revoke an API key immediately.",

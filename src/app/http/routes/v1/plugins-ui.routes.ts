@@ -8,38 +8,35 @@ import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
 import { DomainError } from "@/utils/domain.errors";
 import { FileUtils } from "@/utils/file.utils";
+import { contentTypeForPath } from "@/utils/mime.utils";
 import { PathUtils } from "@/utils/path.utils";
 
-const MIME_TYPES: Record<string, string> = {
-	".html": "text/html; charset=utf-8",
-	".js": "application/javascript; charset=utf-8",
-	".mjs": "application/javascript; charset=utf-8",
-	".css": "text/css; charset=utf-8",
-	".png": "image/png",
-	".jpg": "image/jpeg",
-	".jpeg": "image/jpeg",
-	".gif": "image/gif",
-	".webp": "image/webp",
-	".svg": "image/svg+xml",
-	".ico": "image/x-icon",
-	".woff": "font/woff",
-	".woff2": "font/woff2",
-	".ttf": "font/ttf",
-	".wasm": "application/wasm",
-	".vtt": "text/vtt; charset=utf-8",
-};
-
-/** UI assets are an allowlist — plugin sources and config.json (may hold secrets) never leave the plugin dir. */
-const SERVABLE_EXTENSIONS = new Set(Object.keys(MIME_TYPES));
+/**
+ * UI assets are an allowlist — plugin sources and `config.json` (may hold
+ * secrets) never leave the plugin dir. Content types come from the shared
+ * extension table; this set only decides what may be served at all.
+ */
+const SERVABLE_EXTENSIONS = new Set([
+	".html",
+	".js",
+	".mjs",
+	".css",
+	".png",
+	".jpg",
+	".jpeg",
+	".gif",
+	".webp",
+	".svg",
+	".ico",
+	".woff",
+	".woff2",
+	".ttf",
+	".wasm",
+	".vtt",
+]);
 
 /** Bound the upward search for a plugin SPA entry so a bad request cannot walk the filesystem. */
 const MAX_SPA_FALLBACK_DEPTH = 8;
-
-function getMimeType(filePath: string): string {
-	const ext = PathUtils.getExtension(filePath);
-
-	return MIME_TYPES[ext] ?? "application/octet-stream";
-}
 
 function safePath(base: string, relative: string): string | null {
 	const resolved = PathUtils.resolve(base, relative);
@@ -158,7 +155,7 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 			// size/mtime ETag from binaryFileResponse makes the browser revalidate
 			// every import, so a rebuilt bundle is picked up immediately instead of
 			// after a 1 h max-age.
-			return binaryFileResponse(pluginFile, getMimeType(assetPath), "no-cache", request.headers.get("if-none-match"), {
+			return binaryFileResponse(pluginFile, contentTypeForPath(assetPath), "no-cache", request.headers.get("if-none-match"), {
 				headers: extraHeaders,
 			});
 		},

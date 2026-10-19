@@ -9,6 +9,7 @@ import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { JobIdParams } from "@/app/http/schemas/route-params.schema";
+import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { downloadsService } from "@/modules/downloads/downloads.service";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
@@ -62,12 +63,11 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			const result = await downloadsService.resolveFileForProfile(params.jobId, profile?.id ?? "");
 			if (!result) return new Response("Not found", { status: 404 });
 
-			return new Response(result.blob, {
-				headers: {
-					"Content-Type": "video/mp4",
-					"Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
-					"Cache-Control": "no-store",
-				},
+			return attachmentResponse(result.blob, {
+				filename: result.fileName,
+				contentType: "video/mp4",
+				rfc5987: true,
+				headers: { "Cache-Control": "no-store" },
 			});
 		},
 		{

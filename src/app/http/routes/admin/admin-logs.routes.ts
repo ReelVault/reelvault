@@ -2,6 +2,7 @@ import { AdminLogFileInfoSchema, AdminLogsPageSchema } from "@reelvault/sdk/comm
 import { t } from "elysia";
 import { adminLogsService } from "@/app/admin/admin-logs.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
 import { AdminLogsQuerySchema } from "./admin.schema";
@@ -26,12 +27,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 		async () => {
 			const { data, filename } = await adminLogsService.getLogBundle();
 
-			return new Response(new Blob([data]), {
-				headers: {
-					"content-type": "application/zip",
-					"content-disposition": `attachment; filename="${filename}"`,
-				},
-			});
+			return attachmentResponse(new Blob([data]), { filename, contentType: "application/zip" });
 		},
 		{
 			rateLimit: { name: "admin-logs-bundle", max: 3, windowMs: MINUTE },
@@ -50,12 +46,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 		async ({ query }) => {
 			const { file, filename } = await adminLogsService.getLogFileDownloadContent(query.fileId);
 
-			return new Response(file, {
-				headers: {
-					"content-type": "text/plain; charset=utf-8",
-					"content-disposition": `attachment; filename="${filename}"`,
-				},
-			});
+			return attachmentResponse(file, { filename, contentType: "text/plain; charset=utf-8" });
 		},
 		{
 			query: t.Object({

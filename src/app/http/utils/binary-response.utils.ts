@@ -59,3 +59,23 @@ export function binaryFileResponse(
 
 	return toBinaryResponse({ body: file, contentType, etag, cacheControl, status: 200, extraHeaders: options?.headers });
 }
+
+export interface AttachmentResponseOptions {
+	filename: string;
+	contentType: string;
+	/** Encode per RFC 5987 (`filename*=UTF-8''…`) instead of the quoted form, for non-ASCII names. */
+	rfc5987?: boolean | undefined;
+	headers?: HeadersInit | undefined;
+}
+
+/** Response carrying a downloadable payload with a `Content-Disposition: attachment` header. */
+export function attachmentResponse(body: BodyInit | null, options: AttachmentResponseOptions): Response {
+	const disposition = options.rfc5987
+		? `attachment; filename*=UTF-8''${encodeURIComponent(options.filename)}`
+		: `attachment; filename="${options.filename}"`;
+	const headers = new Headers(options.headers);
+	headers.set("Content-Type", options.contentType);
+	headers.set("Content-Disposition", disposition);
+
+	return new Response(body, { status: 200, headers });
+}
