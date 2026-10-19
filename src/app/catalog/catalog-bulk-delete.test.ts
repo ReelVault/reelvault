@@ -32,7 +32,7 @@ async function remainingTitleIds(): Promise<string[]> {
 describe("metadataService.deleteMany while streams are active", () => {
 	test("holds a bulk title delete back while a stream plays one of the title's files", async () => {
 		const streamedFileId = await seedTitles();
-		stubs.push(stubMethod(streamingManager, "getAllActiveSessions", () => [{ mediaFileId: streamedFileId }]));
+		stubs.push(stubMethod(streamingManager, "getActiveMediaFileIds", () => new Set([streamedFileId])));
 
 		await expect(metadataService.deleteMany(["m1"])).rejects.toMatchObject({
 			code: "metadata.delete_blocked_active_streams",
@@ -43,7 +43,7 @@ describe("metadataService.deleteMany while streams are active", () => {
 
 	test("deletes the titles once the admin forces it, and reports each title's outcome", async () => {
 		const streamedFileId = await seedTitles();
-		stubs.push(stubMethod(streamingManager, "getAllActiveSessions", () => [{ mediaFileId: streamedFileId }]));
+		stubs.push(stubMethod(streamingManager, "getActiveMediaFileIds", () => new Set([streamedFileId])));
 
 		const outcome = await metadataService.deleteMany(["m1", "m2"], { force: true });
 
@@ -58,7 +58,7 @@ describe("metadataService.deleteMany while streams are active", () => {
 
 	test("a stream on some other title's file does not hold the delete back", async () => {
 		await seedTitles();
-		stubs.push(stubMethod(streamingManager, "getAllActiveSessions", () => [{ mediaFileId: "unrelated-file" }]));
+		stubs.push(stubMethod(streamingManager, "getActiveMediaFileIds", () => new Set(["unrelated-file"])));
 
 		expect(await metadataService.deleteMany(["m2"])).toEqual({ results: [{ id: "m2", ok: true }] });
 		expect(await remainingTitleIds()).toEqual(["m1"]);
@@ -66,7 +66,7 @@ describe("metadataService.deleteMany while streams are active", () => {
 
 	test("deletes titles without a force flag when no stream plays their files", async () => {
 		await seedTitles();
-		stubs.push(stubMethod(streamingManager, "getAllActiveSessions", () => []));
+		stubs.push(stubMethod(streamingManager, "getActiveMediaFileIds", () => new Set()));
 
 		const outcome = await metadataService.deleteMany(["m2"]);
 

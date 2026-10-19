@@ -306,6 +306,15 @@ class StreamingManager {
 		return this.store.values();
 	}
 
+	/**
+	 * The media file ids the live sessions play. The delete guards ask this per
+	 * file, and copying the whole session list for every one of them turned a
+	 * bulk delete into a quadratic scan.
+	 */
+	getActiveMediaFileIds(): Set<string> {
+		return this.store.mediaFileIds();
+	}
+
 	/** Active sessions owned by one profile — the remote-control page's list. */
 	listSessionsForProfile(profileId: string) {
 		return this.store

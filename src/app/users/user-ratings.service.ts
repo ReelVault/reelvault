@@ -9,7 +9,7 @@ import type {
 } from "@reelvault/sdk/common";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { userRatingsRepository } from "@/app/repositories/user-ratings.repository";
-import { assertFound, assertProfileId } from "@/utils/domain.errors";
+import { assertFound, assertProfileId, notFoundError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
@@ -35,8 +35,10 @@ class UserRatingsService {
 			assertProfileId(profileId);
 
 			// A stale catalog id must be a 404, not an FK violation surfacing as a 500.
-			const metadata = await metadataRepository.findByIdForRead(body.metadataId);
-			assertFound(metadata, "Metadata", body.metadataId);
+			// The existence check needs no relation graph — the full read would load
+			// the cast, crew, genres and providers of the title for a yes/no answer.
+			const existing = await metadataRepository.findExistingIds([body.metadataId]);
+			if (!existing.has(body.metadataId)) throw notFoundError("Metadata", body.metadataId);
 
 			const result = await userRatingsRepository.upsert({ profileId, metadataId: body.metadataId, rating: body.rating });
 			assertFound(result, "UserRating", body.metadataId);

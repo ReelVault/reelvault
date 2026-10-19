@@ -82,6 +82,14 @@ export class SessionStore {
 		return [...this.sessions.values()];
 	}
 
+	/** The media file ids the live sessions play — the delete guards check them. */
+	mediaFileIds(): Set<string> {
+		const ids = new Set<string>();
+		for (const session of this.sessions.values()) ids.add(session.mediaFileId);
+
+		return ids;
+	}
+
 	/** Entries with an attached process handle (dead handles after EOF still count, matching capacity semantics). */
 	attachedCount(): number {
 		let count = 0;

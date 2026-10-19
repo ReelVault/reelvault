@@ -13,7 +13,7 @@ import type {
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { watchlistRepository } from "@/app/repositories/watchlist.repository";
 import { isNotNullish, toMap, unique } from "@/utils/array.utils";
-import { assertFound, assertProfileId, DomainError, notFoundError } from "@/utils/domain.errors";
+import { assertProfileId, DomainError, notFoundError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
@@ -164,8 +164,10 @@ class WatchlistService {
 
 	/** A stale catalog id must be a 404, not an FK violation surfacing as a 500. */
 	private async assertMetadataExists(metadataId: string): Promise<void> {
-		const metadata = await metadataRepository.findByIdForRead(metadataId);
-		assertFound(metadata, "Metadata", metadataId);
+		// The existence check needs no relation graph — the full read would load
+		// the cast, crew, genres and providers of the title for a yes/no answer.
+		const existing = await metadataRepository.findExistingIds([metadataId]);
+		if (!existing.has(metadataId)) throw notFoundError("Metadata", metadataId);
 	}
 }
 

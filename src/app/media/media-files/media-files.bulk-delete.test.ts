@@ -35,7 +35,7 @@ describe("mediaService.deleteMany while streams are active", () => {
 	test("holds a bulk delete back while a stream plays one of the files, and deletes nothing", async () => {
 		await seedFiles();
 		const streamed = await fileIdByName("f1.mkv");
-		stubs.push(stubMethod(streamingManager, "getAllActiveSessions", () => [{ mediaFileId: streamed }]));
+		stubs.push(stubMethod(streamingManager, "getActiveMediaFileIds", () => new Set([streamed])));
 
 		await expect(mediaService.deleteMany([streamed, await fileIdByName("f2.mkv")])).rejects.toMatchObject({
 			code: "media.delete_blocked_active_streams",
@@ -46,7 +46,7 @@ describe("mediaService.deleteMany while streams are active", () => {
 
 	test("a stream on a file outside the batch does not hold the delete back", async () => {
 		await seedFiles();
-		stubs.push(stubMethod(streamingManager, "getAllActiveSessions", () => [{ mediaFileId: "unrelated-file" }]));
+		stubs.push(stubMethod(streamingManager, "getActiveMediaFileIds", () => new Set(["unrelated-file"])));
 		const other = await fileIdByName("f2.mkv");
 
 		expect(await mediaService.deleteMany([other])).toEqual({ results: [{ id: other, ok: true }] });
@@ -57,7 +57,7 @@ describe("mediaService.deleteMany while streams are active", () => {
 		await seedFiles();
 		const streamed = await fileIdByName("f1.mkv");
 		const other = await fileIdByName("f2.mkv");
-		stubs.push(stubMethod(streamingManager, "getAllActiveSessions", () => [{ mediaFileId: streamed }]));
+		stubs.push(stubMethod(streamingManager, "getActiveMediaFileIds", () => new Set([streamed])));
 
 		const outcome = await mediaService.deleteMany([streamed, "missing-file", other, streamed], { force: true });
 

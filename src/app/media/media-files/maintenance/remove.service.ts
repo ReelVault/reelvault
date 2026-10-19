@@ -30,7 +30,8 @@ export async function deleteMany(
 ) {
 	return await runSafely(state, "deleteMany", async () => {
 		const ids = [...new Set(mediaFileIds)];
-		const activeStreams = streamingManager.getAllActiveSessions().filter((session) => ids.includes(session.mediaFileId)).length;
+		const idSet = new Set(ids);
+		const activeStreams = [...streamingManager.getActiveMediaFileIds()].filter((mediaFileId) => idSet.has(mediaFileId)).length;
 		if (activeStreams > 0 && options.force !== true) {
 			throw new DomainError("conflict", "Delete is blocked while streams are playing these files", {
 				code: "media.delete_blocked_active_streams",
@@ -54,7 +55,7 @@ export async function deleteOne(
 		const mediaFile = await getOne(mediaFileId, { fields: "id" });
 		// The same protection the bulk path enforces: deleting the record ends playback.
 		if (options.force !== true) {
-			const activeStreams = streamingManager.getAllActiveSessions().filter((session) => session.mediaFileId === mediaFileId).length;
+			const activeStreams = streamingManager.getActiveMediaFileIds().has(mediaFileId) ? 1 : 0;
 			if (activeStreams > 0) {
 				throw new DomainError("conflict", "Delete is blocked while a stream is playing this file", {
 					code: "media.delete_blocked_active_streams",
