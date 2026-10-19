@@ -678,3 +678,24 @@ The browse and collections rows are the combined result of every change above; t
 - **`pluginRepositories.count()` returned 0 or 1** — it used a `LIMIT 1` probe; it is a real count now.
 - **Cancelling a diamond-shaped dependency set over-counted an operation** — a dependent reachable from two levels was counted twice, so progress could exceed 100%; ids are de-duplicated before the counters.
 - **Enabling or disabling a plugin silently ignored lockfile failures** — only the `plugin.not_installed` case is swallowed now; read and write errors surface.
+- **A resumed operation could stay pending forever** — the pre-set total counted every cancelled row, but rows skipped because their worker no longer exists or their dedupe key is active never became jobs, so the finished count could never reach the total; resume now rebuilds the counters from the rows that were actually re-enqueued (including on a failed re-enqueue). The resume no longer leaves `pending: 0` for a fully queued operation.
+- **Creating a title that already exists under a case/Unicode variant answered 500** — the generic find-or-create re-read by the raw `(title, type, releaseDate)` while the unique index keys on the normalized stable key, so the duplicate insert was swallowed and the fallback found nothing; it now re-reads by the stable key. A provider update that would collide with such a duplicate now merges it instead of aborting the transaction.
+- **A second external subtitle in the same language reported "not found" and deleted the uploaded file** — the fallback looked up the source path while the unique index keys on `(mediaFileId, language, type)`; a duplicate language now reuses the existing row.
+- **Cancelling an operation could still start its pending jobs** — the cancel request and the claim are separate statements, so the poller could claim rows in between; pending rows are cancelled before the running ones and a claim now skips jobs of a cancelled operation.
+- **Re-running a worker from the admin panel could leave a phantom `pending` operation** — a dedupe race left the freshly created operation behind; the manual run now drops it like the other enqueue paths.
+- **Server rescue never armed after being enabled at runtime** — the monitor latched `system.rescue.enabled` at boot; changing the setting now arms or disarms it immediately.
+- **A force-released handler could stretch the timeout of a newer attempt** — `extendTimeout` is bound to its own execution now.
+- **A process that never reaps after SIGKILL held its caller forever** — FFmpeg and FFprobe waits are bounded and fail with `ffmpeg.kill_timeout` instead of holding a semaphore slot (stalled network mounts).
+- **Aborting a probe released the ffprobe concurrency slot while the shared probe kept running** — the budget now lives inside the cached probe, so it bounds actual probe processes.
+- **Editing a subtitle could serve stale cues** — an in-flight extraction is awaited before the VTT is dropped, and the info cache is invalidated after the write instead of before it.
+- **A plugin whose lockfile record survived a deleted directory could never be reinstalled** (`plugin.already_installed`), and manually dropped plugin directories could never be uninstalled through the API; both paths work now.
+- **Adding a second file for an already-imported episode sent "new episode" notifications again** — notifications are only sent when the episode row is actually created.
+- **`pinned` and `cspDisabled` choices could be reverted by a concurrent install** — both now run under the lifecycle lock.
+- **Bulk "mark as watched" did nothing for files without a known duration** — the progress row stayed incomplete with a bogus position; the explicit intent is honored now.
+- **A failed server component swap could leave the install root without `server/`** — a partial swap now restores the moved entries.
+- **Dot-segment request paths bypassed rate-limit exemptions and the public-GET classification** — the pathname is normalized (decoded `.`/`..` collapsed) before classification, matching what the router resolves.
+- **`GET /v1/media-files/audit` could be triggered cross-site** — the state-changing GET now refuses `Sec-Fetch-Site: cross-site`.
+- **A keyframe probe could return a keyframe after the requested position** — the cache is keyed by the exact target instead of a 2 s bucket.
+- **Releasing a session left playlist waits polling a deleted directory** — release now fails them immediately, and a released session cannot leave a stale cushion entry.
+- **A seek answered "buffered" while a restart was wiping that buffer** — the buffered check runs under the same session lock as restarts.
+- **An exit from a replaced FFmpeg process could close a newer operation** — the exit handler now compares the process handle.
