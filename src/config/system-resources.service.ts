@@ -14,6 +14,7 @@ import {
 	ramScaled,
 	relationQueryConcurrency,
 	SLOW_CORE_FACTOR,
+	trickplayConcurrency,
 	workerAutoConcurrency,
 } from "./system-resources/budgets.utils";
 import { detectHostCores } from "./system-resources/hardware.utils";
@@ -172,6 +173,12 @@ export class SystemResourcesService {
 	/** Parallel file-system fan-outs (stat/unlink/read sweeps). */
 	getIoConcurrency(): number {
 		return ioConcurrency(this.getMetrics().capacity);
+	}
+
+	/** Trickplay sprite grids rendering at once — background CPU budget, so the
+	 * web reserve is already subtracted. */
+	getTrickplayConcurrency(): number {
+		return trickplayConcurrency(this.getMetrics().backgroundBudgetCores);
 	}
 
 	/** media-file-ingest tasks each run an ffprobe plus catalog writes. */

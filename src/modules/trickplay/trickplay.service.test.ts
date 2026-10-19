@@ -120,8 +120,34 @@ describe("trickplayService.generateForMediaFile", () => {
 
 		await trickplayService.generateForMediaFile(mediaFileId);
 
-		const firstCommand = ffmpegCommands[0] ?? [];
-		expect(firstCommand[firstCommand.indexOf("-ss") + 1]).toBe("5.000");
+		// The grids render concurrently, so the first command is not necessarily
+		// the first grid's — look the first grid up by its output path.
+		const firstGrid = ffmpegCommands.find((command) => command.at(-1)?.endsWith("sprite_0.webp")) ?? [];
+		expect(firstGrid[firstGrid.indexOf("-ss") + 1]).toBe("5.000");
+	});
+
+	test("renders the sprite grids concurrently", async () => {
+		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
+		let inFlight = 0;
+		let peakInFlight = 0;
+		activeStubs.push(
+			stubMethod(ffMpegService, "runToCompletion", async (args: string[]) => {
+				inFlight++;
+				peakInFlight = Math.max(peakInFlight, inFlight);
+				await Promise.resolve();
+				inFlight--;
+				const outputPath = args.at(-1);
+				if (!outputPath) throw new Error("The ffmpeg command has no output path");
+				await Bun.write(outputPath, new Uint8Array(SPRITE_BYTES));
+
+				return { exitCode: 0, stderr: "" };
+			}),
+		);
+
+		await trickplayService.generateForMediaFile(mediaFileId);
+
+		// 600 s at a 10 s interval is 3 sprite grids; they render side by side.
+		expect(peakInFlight).toBeGreaterThan(1);
 	});
 
 	test("a regeneration replaces the previous sprites rather than adding to them", async () => {

@@ -1,6 +1,7 @@
-import { file } from "bun";
+import { type BunFile, file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { buildSpriteExtractionCommand } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes } from "@/modules/artifacts/artifacts-budget.utils";
@@ -11,6 +12,7 @@ import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { PathUtils } from "@/utils/path.utils";
+import { PromiseUtils } from "@/utils/promise.utils";
 
 const CONTENT_TYPE_WEBP = "image/webp";
 const CONTENT_TYPE_VTT = "text/vtt";
@@ -221,38 +223,35 @@ class TrickplayService {
 		return true;
 	}
 
-	/** Renders each timestamp chunk into one WebP sprite sheet and stores it as a core trickplay artifact. */
+	/**
+	 * Renders each timestamp chunk into one WebP sprite sheet and stores it as a
+	 * core trickplay artifact.
+	 *
+	 * The grids are independent, so they render concurrently: one grid decodes a
+	 * whole row of seeks out of the source, and rendering them one after another
+	 * left the machine idle between grids. The budget comes from the background
+	 * cores, so a slow box still renders one grid at a time.
+	 */
 	private async extractSprites(job: TrickplayJob, chunks: number[][]): Promise<TrickplaySprite[]> {
-		const { layout } = job;
-		const sprites: TrickplaySprite[] = [];
-		for (const [spriteIndex, chunkTimeMs] of chunks.entries()) {
-			const spritePath = PathUtils.join(job.tempDir, `sprite_${spriteIndex}.webp`);
-			const command = buildSpriteExtractionCommand(
-				job.filePath,
-				{
-					mediaFileId: job.mediaFileId,
-					timeMs: chunkTimeMs,
-					width: layout.tileWidth,
-					height: layout.tileHeight,
-					columns: layout.columns,
-					format: "webp",
-				},
-				spritePath,
+		// A failed grid aborts the siblings, so a generation error does not leave
+		// ffmpeg processes decoding frames nobody will read.
+		const controller = new AbortController();
+		let rendered: Array<{ file: BunFile; tileCount: number }>;
+		try {
+			rendered = await PromiseUtils.mapConcurrent(
+				chunks,
+				systemResourcesService.getTrickplayConcurrency(),
+				async (chunkTimeMs, spriteIndex) => await this.renderSprite(job, spriteIndex, chunkTimeMs, controller.signal),
+				controller.signal,
 			);
-			const result = await ffMpegService.runToCompletion(command, {
-				timeoutMs: FFMPEG_TIMEOUT_MS,
-				maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
-			});
-			if (result.exitCode !== 0) {
-				const exitText = result.exitCode === null ? "signal" : String(result.exitCode);
-				throw new DomainError("internal", `Trickplay sprite extraction failed (exit ${exitText}): ${result.stderr}`, {
-					code: "trickplay_extraction_failed",
-				});
-			}
+		} catch (error) {
+			controller.abort();
 
-			const spriteFile = file(spritePath);
-			if (spriteFile.size === 0) throw new DomainError("internal", "Trickplay sprite is empty", { code: "trickplay_empty_sprite" });
+			throw error;
+		}
 
+		const sprites: TrickplaySprite[] = [];
+		for (const sprite of rendered) {
 			// The artifact write streams the BunFile straight to its storage
 			// path (no full buffer through JS) and deletes the temp source
 			// afterwards — writeFileWithRollback owns that cleanup.
@@ -260,12 +259,51 @@ class TrickplayService {
 				mediaFileId: job.mediaFileId,
 				kind: "trickplay",
 				contentType: CONTENT_TYPE_WEBP,
-				content: spriteFile,
+				content: sprite.file,
 			});
-			sprites.push({ url: written.url, tileCount: chunkTimeMs.length });
+			sprites.push({ url: written.url, tileCount: sprite.tileCount });
 		}
 
 		return sprites;
+	}
+
+	/** Decodes one grid of timestamps from the source into a single WebP sheet. */
+	private async renderSprite(
+		job: TrickplayJob,
+		spriteIndex: number,
+		chunkTimeMs: number[],
+		signal: AbortSignal,
+	): Promise<{ file: BunFile; tileCount: number }> {
+		const { layout } = job;
+		const spritePath = PathUtils.join(job.tempDir, `sprite_${spriteIndex}.webp`);
+		const command = buildSpriteExtractionCommand(
+			job.filePath,
+			{
+				mediaFileId: job.mediaFileId,
+				timeMs: chunkTimeMs,
+				width: layout.tileWidth,
+				height: layout.tileHeight,
+				columns: layout.columns,
+				format: "webp",
+			},
+			spritePath,
+		);
+		const result = await ffMpegService.runToCompletion(command, {
+			timeoutMs: FFMPEG_TIMEOUT_MS,
+			maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
+			signal,
+		});
+		if (result.exitCode !== 0) {
+			const exitText = result.exitCode === null ? "signal" : String(result.exitCode);
+			throw new DomainError("internal", `Trickplay sprite extraction failed (exit ${exitText}): ${result.stderr}`, {
+				code: "trickplay_extraction_failed",
+			});
+		}
+
+		const spriteFile = file(spritePath);
+		if (spriteFile.size === 0) throw new DomainError("internal", "Trickplay sprite is empty", { code: "trickplay_empty_sprite" });
+
+		return { file: spriteFile, tileCount: chunkTimeMs.length };
 	}
 }
 

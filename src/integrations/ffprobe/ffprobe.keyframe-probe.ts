@@ -44,13 +44,15 @@ export async function findKeyframeBefore(filePath: string, target: number, signa
 	const cached = await keyframeCache.getOrSet(cacheKey, async () => {
 		try {
 			const from = Math.max(0, target - PROBE_WINDOW_SECONDS);
-			const probe = await ffProbeService
+			// A packet listing, not a format probe: ffprobe answers
+			// `-show_entries packet=…` with the packets alone.
+			const packets = await ffProbeService
 				.create()
 				.addArg("-read_intervals", `${from}%${target}`)
 				.selectStreams("v")
 				.addArg("-show_entries", "packet=pts_time,flags")
-				.execute(filePath, signal);
-			const keyframe = pickLastKeyframePackets(probe.packets ?? [], target);
+				.executePackets(filePath, signal);
+			const keyframe = pickLastKeyframePackets(packets, target);
 
 			return keyframe ?? 0;
 		} catch (error) {

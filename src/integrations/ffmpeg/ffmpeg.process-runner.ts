@@ -11,22 +11,19 @@ export interface SpawnCollectResult {
 	timedOut: boolean;
 }
 
+export interface SpawnCollectOptions {
+	cmd: string[];
+	timeoutMs?: number | undefined;
+	purpose: FfmpegProcessPurpose;
+	maxBuffer?: number | undefined;
+}
+
 /**
  * Spawns a short-lived ffmpeg/ffprobe process, tracks it, enforces a hard
  * timeout (SIGKILL) and collects the full stdout/stderr as text. Streaming
  * runs with output caps or graceful kills use the dedicated FFmpeg runner.
  */
-export async function spawnAndCollect({
-	cmd,
-	timeoutMs,
-	purpose,
-	maxBuffer,
-}: {
-	cmd: string[];
-	timeoutMs?: number | undefined;
-	purpose: FfmpegProcessPurpose;
-	maxBuffer?: number | undefined;
-}): Promise<SpawnCollectResult> {
+export async function spawnAndCollect({ cmd, timeoutMs, purpose, maxBuffer }: SpawnCollectOptions): Promise<SpawnCollectResult> {
 	const subprocess = spawn({
 		cmd,
 		stdout: "pipe",

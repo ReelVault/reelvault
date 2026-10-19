@@ -51,6 +51,7 @@ const CAPS = {
 	scannerConcurrency: 6,
 	ffprobeConcurrency: 3,
 	heavySubprocess: 2,
+	trickplay: 4,
 } as const;
 
 // A single ffprobe/ffmpeg/sharp subprocess burns a whole core; budget how many
@@ -137,6 +138,16 @@ export function heavySubprocessConcurrency(capacity: number): number {
  * extra ffmpeg processes, so this scales with capacity too. */
 export function ioConcurrency(capacity: number): number {
 	return clamp(Math.floor(capacity * 2), 4, CAPS.ioConcurrency);
+}
+
+/**
+ * How many trickplay sprite grids may render at once. A grid is a background
+ * CPU job — it decodes a row of seeks from the source — so the budget comes
+ * from the cores left after the web reserve, halved because one grid already
+ * fans out over many seeks.
+ */
+export function trickplayConcurrency(backgroundBudgetCores: number): number {
+	return clamp(Math.floor(backgroundBudgetCores / 2), 1, CAPS.trickplay);
 }
 
 /** media-file-ingest tasks each run an ffprobe plus catalog writes. */

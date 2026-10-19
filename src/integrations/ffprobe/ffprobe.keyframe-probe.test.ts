@@ -1,5 +1,7 @@
-import { describe, expect, it } from "bun:test";
-import { pickLastKeyframePackets } from "./ffprobe.keyframe-probe";
+import { describe, expect, it, spyOn } from "bun:test";
+import { FFProbeBuilder } from "./ffprobe.builder";
+import { findKeyframeBefore, pickLastKeyframePackets } from "./ffprobe.keyframe-probe";
+import { ffProbeService } from "./ffprobe.service";
 
 const packet = (pts: string, flags: string) => ({ pts_time: pts, flags });
 
@@ -22,5 +24,36 @@ describe("pickLastKeyframePackets", () => {
 	it("returns null when no keyframe is found", () => {
 		expect(pickLastKeyframePackets([packet("5", "__")], 10)).toBeNull();
 		expect(pickLastKeyframePackets([], 10)).toBeNull();
+	});
+});
+
+describe("findKeyframeBefore", () => {
+	it("finds the keyframe at or before the target", async () => {
+		const builder = new FFProbeBuilder(async () => ({
+			exitCode: 0,
+			stdout: JSON.stringify({ packets: [packet("98.000000", "K__"), packet("98.042000", "___"), packet("100.000000", "K__")] }),
+			stderr: "",
+			timedOut: false,
+		}));
+		const probe = spyOn(ffProbeService, "create").mockReturnValue(builder);
+
+		expect(await findKeyframeBefore("/media/movie.mkv", 99.5)).toBe(98);
+		expect(await findKeyframeBefore("/media/movie.mkv", 100)).toBe(100);
+
+		probe.mockRestore();
+	});
+
+	it("reports no keyframe when the window holds none", async () => {
+		const builder = new FFProbeBuilder(async () => ({
+			exitCode: 0,
+			stdout: JSON.stringify({ packets: [packet("98.042000", "___")] }),
+			stderr: "",
+			timedOut: false,
+		}));
+		const probe = spyOn(ffProbeService, "create").mockReturnValue(builder);
+
+		expect(await findKeyframeBefore("/media/no-keyframe.mkv", 99.5)).toBeNull();
+
+		probe.mockRestore();
 	});
 });

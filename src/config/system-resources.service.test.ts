@@ -25,22 +25,43 @@ describe("SystemResourcesService sizing formulas (injected hardware)", () => {
 			scanner: number;
 			ffprobe: number;
 			pool: number;
+			trickplay: number;
 		}
 		const table: ReadonlyArray<[number, number, "balanced" | "conservative" | "performance", ExpectedBudgets]> = [
 			// 2 fast cores: floor(2/3)=0 threads → clamp to 1; pool floor hits the 3 minimum.
-			[2, 1.0, "balanced", { capacity: 2, reserved: 1, background: 1, ffmpeg: 1, sharp: 1, scanner: 1, ffprobe: 1, pool: 3 }],
+			[2, 1.0, "balanced", { capacity: 2, reserved: 1, background: 1, ffmpeg: 1, sharp: 1, scanner: 1, ffprobe: 1, pool: 3, trickplay: 1 }],
 			// 4 fast cores: balanced reserve ceil(4×0.33)=2.
-			[4, 1.0, "balanced", { capacity: 4, reserved: 2, background: 2, ffmpeg: 1, sharp: 2, scanner: 2, ffprobe: 2, pool: 5 }],
+			[4, 1.0, "balanced", { capacity: 4, reserved: 2, background: 2, ffmpeg: 1, sharp: 2, scanner: 2, ffprobe: 2, pool: 5, trickplay: 1 }],
 			// 8 slow cores: balanced auto-downgrades to conservative reserve ceil(8×0.5)=4.
-			[8, 0.5, "balanced", { capacity: 4, reserved: 4, background: 4, ffmpeg: 2, sharp: 2, scanner: 2, ffprobe: 2, pool: 5 }],
+			[8, 0.5, "balanced", { capacity: 4, reserved: 4, background: 4, ffmpeg: 2, sharp: 2, scanner: 2, ffprobe: 2, pool: 5, trickplay: 2 }],
 			// 16 very fast cores: subprocess budgets hit their caps, not capacity.
-			[16, 1.5, "balanced", { capacity: 24, reserved: 6, background: 10, ffmpeg: 5, sharp: 4, scanner: 6, ffprobe: 3, pool: 12 }],
+			[
+				16,
+				1.5,
+				"balanced",
+				{ capacity: 24, reserved: 6, background: 10, ffmpeg: 5, sharp: 4, scanner: 6, ffprobe: 3, pool: 12, trickplay: 4 },
+			],
 			// 32 slowest cores: threads cap at 8, pool at 12.
-			[32, 0.35, "balanced", { capacity: 11, reserved: 16, background: 16, ffmpeg: 8, sharp: 4, scanner: 5, ffprobe: 3, pool: 12 }],
+			[
+				32,
+				0.35,
+				"balanced",
+				{ capacity: 11, reserved: 16, background: 16, ffmpeg: 8, sharp: 4, scanner: 5, ffprobe: 3, pool: 12, trickplay: 4 },
+			],
 			// Explicit conservative keeps the 50% reserve even on fast cores.
-			[8, 1.0, "conservative", { capacity: 8, reserved: 4, background: 4, ffmpeg: 2, sharp: 4, scanner: 4, ffprobe: 3, pool: 10 }],
+			[
+				8,
+				1.0,
+				"conservative",
+				{ capacity: 8, reserved: 4, background: 4, ffmpeg: 2, sharp: 4, scanner: 4, ffprobe: 3, pool: 10, trickplay: 2 },
+			],
 			// Performance reserve floor(eff×0.15), minimum 1.
-			[8, 1.0, "performance", { capacity: 8, reserved: 1, background: 7, ffmpeg: 2, sharp: 4, scanner: 4, ffprobe: 3, pool: 10 }],
+			[
+				8,
+				1.0,
+				"performance",
+				{ capacity: 8, reserved: 1, background: 7, ffmpeg: 2, sharp: 4, scanner: 4, ffprobe: 3, pool: 10, trickplay: 3 },
+			],
 		];
 
 		for (const [cores, speedFactor, profile, expected] of table) {
@@ -59,6 +80,7 @@ describe("SystemResourcesService sizing formulas (injected hardware)", () => {
 				expect(metrics.scannerConcurrency).toBe(expected.scanner);
 				expect(metrics.ffprobeConcurrency).toBe(expected.ffprobe);
 				expect(metrics.workerPoolMaxConcurrent).toBe(expected.pool);
+				expect(service.getTrickplayConcurrency()).toBe(expected.trickplay);
 			});
 		}
 	});
