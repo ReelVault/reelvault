@@ -63,6 +63,7 @@ class MetadataPersistenceRepository {
 					providers: providers?.map((provider) => ({ name: provider.providerId, externalId: provider.externalId })),
 					matchScore,
 					tx,
+					mergeConflict: async (targetId, sourceId) => await metadataMergeRepository.merge(targetId, sourceId, type),
 				});
 				const personImages = metadataResult.created
 					? await this.createMetadataRelations(metadataResult.metadata.id, providerName, metadata, tx)
@@ -260,6 +261,10 @@ class MetadataPersistenceRepository {
 
 			if (!season) return null;
 
+			// A second file for an already-imported episode must not re-notify viewers.
+			const existingEpisode = episodeInfo
+				? await episodesRepository.findBySeasonAndNumber(season.id, Number(episodeInfo.episodeNumber))
+				: undefined;
 			const episode = episodeInfo
 				? await episodesRepository.findOrCreateByIdentity({
 						seasonId: season.id,
@@ -279,7 +284,7 @@ class MetadataPersistenceRepository {
 
 			if (flagMissingTranslation) await metadataRepository.flagMissingTranslation(metadataId, tx);
 
-			return { season, ...(episode ? { episode } : {}) };
+			return { season, ...(episode ? { episode, episodeCreated: existingEpisode === undefined } : {}) };
 		});
 	}
 

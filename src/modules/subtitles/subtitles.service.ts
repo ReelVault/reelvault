@@ -178,10 +178,15 @@ export class SubtitlesService {
 	async update(id: string, body: UpdateSubtitleRequest): Promise<Subtitle> {
 		return await runSafely(this, "update", async () => {
 			const previous = await this.dependencies.findById(id);
-			this.dependencies.infoCache.invalidate(id);
+			// An in-flight extraction read the old row; let it settle before the VTT
+			// is dropped, or it can rename the old cues back after the delete.
+			await this.dependencies.waitForInFlightExtraction(id);
 
 			const updatedEntity = await this.dependencies.updateRow(id, body);
 			assertFound(updatedEntity, "Subtitle", id);
+			// Invalidate after the write: a concurrent read between an earlier
+			// invalidate and the commit would re-cache the old row for the full TTL.
+			this.dependencies.infoCache.invalidate(id);
 
 			// The extracted VTT is keyed only by the subtitle id, but its content
 			// depends on the stream/source/media file — drop it so the next content

@@ -99,16 +99,18 @@ export async function processTVShowMetadata(
 		);
 	}
 
-	try {
-		await notificationsService.notifyNewEpisode({
-			metadataId,
-			showTitle: metadata.title,
-			seasonNumber: persisted.season.seasonNumber,
-			episodeNumber: persisted.episode.episodeNumber,
-			episodeTitle: episodeInfo?.name,
-		});
-	} catch (err) {
-		state.logger.warn("Failed to send new episode notification", { err });
+	if (persisted.episodeCreated) {
+		try {
+			await notificationsService.notifyNewEpisode({
+				metadataId,
+				showTitle: metadata.title,
+				seasonNumber: persisted.season.seasonNumber,
+				episodeNumber: persisted.episode.episodeNumber,
+				episodeTitle: episodeInfo?.name,
+			});
+		} catch (err) {
+			state.logger.warn("Failed to send new episode notification", { err });
+		}
 	}
 
 	return { metadataId, movieId: null, episodeId: persisted.episode.id };

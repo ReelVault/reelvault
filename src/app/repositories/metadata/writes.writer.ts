@@ -121,14 +121,18 @@ export async function findOrCreateByIdentity({
 	values: CreateMetadata;
 	tx?: DatabaseTransaction | undefined;
 }) {
-	return await metadataTable.findOrCreate({
+	const stableKey = createLocalMetadataStableKey({ title, type, releaseDate });
+	const created = await metadataTable.findOrCreate({
 		where: and(eq(schema.metadata.title, title), eq(schema.metadata.type, type), eq(schema.metadata.releaseDate, releaseDate)),
-		values: {
-			...values,
-			stableKey: createLocalMetadataStableKey({ title, type, releaseDate }),
-		},
+		values: { ...values, stableKey },
 		tx,
 	});
+	if (created) return created;
+
+	// The insert lost to the unique index on a case/Unicode variant of the same
+	// identity (the fallback WHERE compared the raw values). The stable key is
+	// the row identity, so re-read by it.
+	return await metadataTable.selectFirst({ where: eq(schema.metadata.stableKey, stableKey), tx });
 }
 
 /**
@@ -141,6 +145,7 @@ export async function findOrCreateMetadata({
 	results,
 	matchScore,
 	tx,
+	mergeConflict,
 }: {
 	type: "movie" | "tv_show";
 	providerName: string;
@@ -148,6 +153,8 @@ export async function findOrCreateMetadata({
 	results: ProviderMetadataResult;
 	matchScore?: number | undefined;
 	tx?: DatabaseTransaction | undefined;
+	/** Folds a raw-identity duplicate into the provider-linked row (the caller owns the merge repository). */
+	mergeConflict?: ((targetId: string, sourceId: string) => Promise<void>) | undefined;
 }) {
 	const links = normalizeProviderLinks(providerName, results.externalId, providers);
 
@@ -169,6 +176,12 @@ export async function findOrCreateMetadata({
 		metadataTable.selectFirst({ where: eq(schema.metadata.stableKey, stableKey), tx }),
 		metadataTable.selectFirst({ where: metadataWhere, tx }),
 	]);
+	if (existingByStableKey && candidateByIdentity && candidateByIdentity.id !== existingByStableKey.id && mergeConflict) {
+		// The update below would collide with this duplicate's unique identity
+		// (title, type, release_date); fold it into the provider-linked row first.
+		await mergeConflict(existingByStableKey.id, candidateByIdentity.id);
+	}
+
 	const existingMetadata = existingByStableKey ? null : candidateByIdentity;
 	const created = !(existingByStableKey ?? existingMetadata);
 	const metadataValues = {

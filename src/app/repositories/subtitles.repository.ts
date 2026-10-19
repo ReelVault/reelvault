@@ -146,11 +146,27 @@ const overrides = {
 			sourceCondition = isNull(subtitles.table.filePath);
 		}
 
-		return await getSubtitlesRepository().findOrCreate({
-			where: and(eq(subtitles.table.mediaFileId, mediaFileId), sourceCondition),
-			values,
-			tx,
-		});
+		return await getSubtitlesRepository()
+			.findOrCreate({
+				where: and(eq(subtitles.table.mediaFileId, mediaFileId), sourceCondition),
+				values,
+				tx,
+			})
+			.then(async (subtitle) => {
+				if (subtitle || values.type === "embedded") return subtitle;
+
+				// External rows are uniquely keyed by (mediaFileId, language, type); a
+				// second file for the same language loses the insert and the source-based
+				// fallback above misses. Re-read by the real identity.
+				return await getSubtitlesRepository().findFirst({
+					where: and(
+						eq(subtitles.table.mediaFileId, mediaFileId),
+						eq(subtitles.table.language, values.language),
+						eq(subtitles.table.type, "external"),
+					),
+					tx,
+				});
+			});
 	},
 
 	async findExternalByMediaFileAndLanguage({
