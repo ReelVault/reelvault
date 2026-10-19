@@ -232,7 +232,7 @@ export class RealtimeService {
 				if (now - conn.lastActiveAt > CLIENT_STALE_TIMEOUT_MS) {
 					this.logger.debug("Reaping stale realtime client connection", { connectionId: conn.connectionId });
 					conn.close(1000, "Stale heartbeat");
-					this.registry.remove(conn.connectionId);
+					this.unregister(conn.connectionId);
 				}
 			}
 		}, STALE_SWEEP_INTERVAL_MS);

@@ -28,6 +28,15 @@ export class KeyedMutex {
 		await swallow(previous);
 		await gate;
 	}
+
+	/**
+	 * Drops the queued tail for `key` (e.g. the keyed resource ended): callers
+	 * that already captured the tail still settle in order, while the next
+	 * caller starts immediately instead of waiting on it.
+	 */
+	forget(key: string): void {
+		this.tails.delete(key);
+	}
 }
 
 /** A failed earlier section must not skip or reject every later section. */
@@ -58,5 +67,10 @@ export class InFlightMap<T> {
 		} finally {
 			if (this.inFlight.get(key) === started) this.inFlight.delete(key);
 		}
+	}
+
+	/** The in-flight promise for `key`, or undefined — lets a caller await settlement without starting work. */
+	peek(key: string): Promise<T> | undefined {
+		return this.inFlight.get(key);
 	}
 }

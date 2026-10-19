@@ -24,3 +24,8 @@ export async function getStorageQuota(profileId: string): Promise<{ maxBytes: nu
 		usedBytes: await downloadsStorage().storageUsedByProfile(profileId),
 	};
 }
+
+/** Fails a download whose source media file disappeared — retrying cannot bring it back. */
+export async function failMissingSource(downloadId: string): Promise<void> {
+	await downloadsStorage().update(downloadId, { status: "failed", errorText: "download.media_missing" });
+}

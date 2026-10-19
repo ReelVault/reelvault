@@ -4,6 +4,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { throwIfAborted } from "@/utils/cancellation.utils";
+import { InFlightMap } from "@/utils/concurrency.utils";
 import { DirUtils } from "@/utils/directory.utils";
 import { createTempPath, FileUtils } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
@@ -36,7 +37,7 @@ export class SubtitleExtractorService {
 	readonly logger = createLogger("SubtitleExtractorService");
 
 	private readonly dependencies: ServiceDependencies;
-	private readonly inFlightExtractions = new Map<string, Promise<SubtitleContent | null>>();
+	private readonly inFlightExtractions = new InFlightMap<SubtitleContent | null>();
 	// Each extraction spawns an FFmpeg — concurrency derives from measured CPU capacity.
 	private readonly extractionSemaphore = PromiseUtils.createSemaphore(() => this.dependencies.getConcurrency());
 
@@ -77,24 +78,14 @@ export class SubtitleExtractorService {
 			return { contentType: "text/vtt", file: cachedFile };
 		}
 
-		const existingExtraction = this.inFlightExtractions.get(subtitleId);
-		if (existingExtraction) {
-			return await existingExtraction;
-		}
-
 		// The shared extraction runs on its own lifetime — an aborted requester must
 		// not cancel ffmpeg out from under other clients waiting on the same track.
 		// The result is cached on disk either way, so completing is always useful.
-		const extractionPromise = this.extractionSemaphore.run(
-			async () => await this.runExtraction(subtitleId, mediaFilePath, streamIndex, cacheFilePath),
+		return await this.inFlightExtractions.run(
+			subtitleId,
+			async () =>
+				await this.extractionSemaphore.run(async () => await this.runExtraction(subtitleId, mediaFilePath, streamIndex, cacheFilePath)),
 		);
-		this.inFlightExtractions.set(subtitleId, extractionPromise);
-
-		try {
-			return await extractionPromise;
-		} finally {
-			this.inFlightExtractions.delete(subtitleId);
-		}
 	}
 
 	private async runExtraction(
@@ -145,7 +136,7 @@ export class SubtitleExtractorService {
 
 	/** Resolves once an in-flight extraction for this subtitle settles (delete coordination). */
 	async waitForInFlight(subtitleId: string): Promise<void> {
-		await this.inFlightExtractions.get(subtitleId)?.catch(() => {
+		await this.inFlightExtractions.peek(subtitleId)?.catch(() => {
 			// Settled extraction failures are surfaced through the original caller.
 		});
 	}

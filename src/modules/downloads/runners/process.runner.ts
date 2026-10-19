@@ -8,7 +8,7 @@ import { PathUtils } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { deleteArtifact } from "../artifacts/artifacts.service";
 import { promoteQueued } from "../queue.service";
-import { type DownloadRunOptions, type DownloadsServiceState, getStorageQuota } from "../shared.utils";
+import { type DownloadRunOptions, type DownloadsServiceState, failMissingSource, getStorageQuota } from "../shared.utils";
 import { runFfmpeg } from "./ffmpeg.runner";
 
 const FILE_EXTENSION_REGEX = /\.[^.]+$/;
@@ -60,7 +60,7 @@ async function loadPendingDownload(downloadId: string): Promise<PendingDownload 
 	if (!mediaFile?.filePath) {
 		// Retrying cannot bring the file back, and leaving the row `pending`
 		// pinned the profile's single active-download slot forever.
-		await downloadsStorage().update(downloadId, { status: "failed", errorText: "download.media_missing" });
+		await failMissingSource(downloadId);
 
 		return null;
 	}

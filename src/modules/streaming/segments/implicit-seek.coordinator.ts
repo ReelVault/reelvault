@@ -1,5 +1,5 @@
 import { realtimeService } from "@/modules/realtime/realtime.service";
-import { BoundedMap } from "@/modules/streaming/utils/bounded-map.utils";
+import { CooldownMap } from "@/modules/streaming/utils/cooldown.utils";
 
 const IMPLICIT_SEEK_COOLDOWN_MS = 10_000;
 /** Bound the per-session cooldown map — entries older than the cooldown are stale. */
@@ -29,33 +29,29 @@ export interface SeekedAnnouncement {
  */
 export class ImplicitSeekCoordinator {
 	private readonly dependencies: ImplicitSeekDependencies;
-	private readonly lastSeekAt: BoundedMap<number>;
+	private readonly cooldowns: CooldownMap;
 
 	constructor(dependencies: Partial<ImplicitSeekDependencies> = {}) {
 		this.dependencies = { ...defaultDependencies, ...dependencies };
-		this.lastSeekAt = new BoundedMap({ maxEntries: MAX_TRACKED_SESSIONS, now: this.dependencies.now });
+		this.cooldowns = new CooldownMap({
+			cooldownMs: this.dependencies.cooldownMs,
+			maxEntries: MAX_TRACKED_SESSIONS,
+			now: this.dependencies.now,
+		});
 	}
 
 	tryBegin(sessionId: string): boolean {
-		const now = this.dependencies.now();
-		const lastSeekAt = this.lastSeekAt.get(sessionId);
-		if (lastSeekAt !== undefined && now - lastSeekAt < this.dependencies.cooldownMs) {
-			return false;
-		}
+		if (this.cooldowns.size >= MAX_TRACKED_SESSIONS) this.pruneStale();
 
-		if (this.lastSeekAt.size >= MAX_TRACKED_SESSIONS) this.pruneStale();
-
-		this.lastSeekAt.set(sessionId, now);
-
-		return true;
+		return this.cooldowns.tryBegin(sessionId).allowed;
 	}
 
 	private pruneStale(): void {
-		this.lastSeekAt.prune((lastSeekAt, now) => now - lastSeekAt >= this.dependencies.cooldownMs);
+		this.cooldowns.pruneElapsed();
 	}
 
 	invalidate(sessionId: string): void {
-		this.lastSeekAt.delete(sessionId);
+		this.cooldowns.invalidate(sessionId);
 	}
 
 	announceSeeked(announcement: SeekedAnnouncement): void {

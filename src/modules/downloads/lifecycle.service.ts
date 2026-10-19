@@ -4,6 +4,7 @@ import { detach } from "@/utils/promise.utils";
 import { deleteArtifactFile } from "./artifacts/artifacts.service";
 import { type PrepareOne, promoteQueued } from "./queue.service";
 import type { DownloadsServiceState, WithoutState } from "./shared.utils";
+import { failMissingSource } from "./shared.utils";
 import { assertOwnedDownload, requireDownload } from "./views/rows.utils";
 import type { DownloadJobView } from "./views/views.mapper";
 
@@ -87,7 +88,7 @@ export async function reconcileOnStartup(): Promise<number> {
 	for (const row of stale) {
 		const mediaFile = await downloadsStorage().findMediaFileForDownload(row.mediaFileId);
 		if (!mediaFile?.filePath) {
-			await downloadsStorage().update(row.id, { status: "failed", errorText: "download.media_missing" });
+			await failMissingSource(row.id);
 			continue;
 		}
 

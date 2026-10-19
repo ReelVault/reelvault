@@ -1,5 +1,6 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { SeekResult } from "@/modules/streaming/streaming.types";
+import { KeyedMutex } from "@/utils/concurrency.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
 
@@ -24,7 +25,7 @@ export type SeekExecutor = (sessionId: string, offset: number, decision: Playbac
  */
 export class SeekScheduler {
 	private readonly pending = new Map<string, PendingSeek>();
-	private readonly locks = new Map<string, Promise<void>>();
+	private readonly locks = new KeyedMutex();
 	private readonly seekingIds = new Set<string>();
 
 	private readonly debounceMs: number;
@@ -90,7 +91,7 @@ export class SeekScheduler {
 	 * a new session that reuses the same sessionId.
 	 */
 	cancelSessionLock(sessionId: string): void {
-		this.locks.delete(sessionId);
+		this.locks.forget(sessionId);
 	}
 
 	/**
@@ -99,35 +100,7 @@ export class SeekScheduler {
 	 * never both tear down + restart the same session concurrently.
 	 */
 	async runExclusive<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
-		return await this.withSessionLock(sessionId, task);
-	}
-
-	/**
-	 * Runs `task` under the session's mutex: it starts once the previous entry
-	 * settles (regardless of its outcome) and becomes the new lock until it
-	 * settles itself. The lock is dropped once no newer entry replaced it.
-	 */
-	private async withSessionLock<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
-		const previousLock = this.locks.get(sessionId) ?? Promise.resolve();
-		const run = (async () => {
-			await previousLock;
-
-			return await task();
-		})();
-		const lock = (async () => {
-			try {
-				await run;
-			} catch {
-				// The lock mirrors settlement only; failures belong to the caller of `run`.
-			}
-		})();
-		this.locks.set(sessionId, lock);
-
-		try {
-			return await run;
-		} finally {
-			if (this.locks.get(sessionId) === lock) this.locks.delete(sessionId);
-		}
+		return await this.locks.runExclusive(sessionId, task);
 	}
 
 	/** Flush wrapper that can never reject: flush delivers failures to its waiters. */
@@ -147,7 +120,7 @@ export class SeekScheduler {
 		try {
 			// Executor returns the actual content start (may differ from the requested
 			// offset when stream copy begins at the preceding keyframe).
-			const actualStart = await this.withSessionLock(sessionId, () => this.runExecutor(sessionId, pending.offset, pending.decision));
+			const actualStart = await this.runExclusive(sessionId, () => this.runExecutor(sessionId, pending.offset, pending.decision));
 			for (const waiter of pending.waiters) waiter.resolve({ startTime: actualStart ?? pending.offset, reusedBuffer: false });
 		} catch (error) {
 			for (const waiter of pending.waiters) waiter.reject(error);
