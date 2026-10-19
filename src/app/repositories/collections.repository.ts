@@ -31,6 +31,7 @@ import { groupBy, toMap, unique } from "@/utils/array.utils";
 import {
 	countQualifyingCollections,
 	findQualifyingCollectionIds,
+	findQualifyingCollectionRows,
 	type QualifyingPage,
 	type QualifyingScope,
 } from "./collections/listing.reader";
@@ -97,11 +98,11 @@ class CollectionsRepository {
 		// The count is cached per (filters, minItems) for 10 s — the same staleness
 		// contract as every other paginated list — because metadata writes flush the
 		// response-body cache and every page would otherwise re-run the group-by.
-		const [total, pageIds] = await Promise.all([
+		const [total, pageRows] = await Promise.all([
 			cachedCount("collections", { filters: filterSignature(filters, collectionQueryMap.filters), minItems }, () =>
 				this.countWithMinimumMetadata({ where, minItems }),
 			),
-			this.findPageIdsWithMinimumMetadata({
+			this.findPageRowsWithMinimumMetadata({
 				where,
 				minItems,
 				orderBy,
@@ -110,13 +111,11 @@ class CollectionsRepository {
 			}),
 		]);
 		if (total === 0) return QueryPagination.createResponse({ total: 0, pagination, data: [] });
-		if (pageIds.length === 0) return QueryPagination.createResponse({ total, pagination, data: [] });
+		if (pageRows.length === 0) return QueryPagination.createResponse({ total, pagination, data: [] });
 
-		const data = await this.findMany({
-			where: QueryFiltering.combine([where, QueryFiltering.inArray(this.table.id, pageIds)]),
-			orderBy,
-			fields,
-		});
+		// The page query already ordered/limited the rows, so they hydrate directly
+		// instead of being re-read by id through findMany (one statement less).
+		const data = await this.hydrateRelations(pageRows, fields);
 
 		return QueryPagination.createResponse({ total, pagination, data });
 	}
@@ -224,6 +223,11 @@ class CollectionsRepository {
 	/** Ordered page of qualifying collection ids. */
 	async findPageIdsWithMinimumMetadata(page: QualifyingPage): Promise<string[]> {
 		return await findQualifyingCollectionIds(page);
+	}
+
+	/** Ordered page of qualifying collection rows. */
+	async findPageRowsWithMinimumMetadata(page: QualifyingPage) {
+		return await findQualifyingCollectionRows(page);
 	}
 
 	/**

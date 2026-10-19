@@ -100,32 +100,44 @@ async function queryPreviews(
 		.groupBy(schema.metadataCollections.collectionId, schema.metadataImages.imageId)
 		.as("ranked_posters");
 
-	const [counts, posters] = await Promise.all([
-		withCounts
-			? client
-					.select({
-						collectionId: schema.metadataCollections.collectionId,
-						// (metadata_id, collection_id) is the primary key, so metadata_id is
-						// unique within a collection and COUNT(*) is exact; it also lets the
-						// planner serve the group from the (collection_id, sort_order) index
-						// instead of deduplicating ids per row.
-						count: sql<number>`COUNT(*)`,
-					})
-					.from(schema.metadataCollections)
-					.where(inArray(schema.metadataCollections.collectionId, collectionIds))
-					.groupBy(schema.metadataCollections.collectionId)
-			: [],
-		withPosters
-			? client
-					.select({
-						collectionId: rankedPosters.collectionId,
-						posterId: rankedPosters.posterId,
-						posterUpdatedAt: rankedPosters.posterUpdatedAt,
-					})
-					.from(rankedPosters)
-					.where(lte(rankedPosters.rn, PREVIEW_POSTER_COUNT))
-			: [],
-	]);
+	// The poster branch leads the union, so its column types map the whole
+	// result (the timestamp still decodes to a Date); each branch fills the
+	// other's columns with NULL and rows are split on `kind` below.
+	const postersQuery = () =>
+		client
+			.select({
+				kind: sql<string>`'poster'`.as("kind"),
+				collectionId: rankedPosters.collectionId,
+				posterId: rankedPosters.posterId,
+				posterUpdatedAt: rankedPosters.posterUpdatedAt,
+				count: sql<number>`NULL`.as("count"),
+			})
+			.from(rankedPosters)
+			.where(lte(rankedPosters.rn, PREVIEW_POSTER_COUNT));
+
+	const countsQuery = () =>
+		client
+			.select({
+				kind: sql<string>`'count'`.as("kind"),
+				collectionId: schema.metadataCollections.collectionId,
+				posterId: sql<string>`NULL`.as("posterId"),
+				posterUpdatedAt: sql<Date>`NULL`.as("posterUpdatedAt"),
+				// (metadata_id, collection_id) is the primary key, so metadata_id is
+				// unique within a collection and COUNT(*) is exact; it also lets the
+				// planner serve the group from the (collection_id, sort_order) index
+				// instead of deduplicating ids per row.
+				count: sql<number>`COUNT(*)`,
+			})
+			.from(schema.metadataCollections)
+			.where(inArray(schema.metadataCollections.collectionId, collectionIds))
+			.groupBy(schema.metadataCollections.collectionId);
+
+	// A full preview reads both halves in one statement (UNION ALL, measured
+	// neutral against the two parallel reads); a single-flag read keeps its one
+	// statement.
+	const merged = withCounts && withPosters ? await postersQuery().unionAll(countsQuery()) : undefined;
+	const counts = merged?.filter((row) => row.kind === "count") ?? (withCounts ? await countsQuery() : []);
+	const posters = merged?.filter((row) => row.kind === "poster") ?? (withPosters ? await postersQuery() : []);
 
 	const countMap = toMap(
 		counts,

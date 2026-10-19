@@ -144,10 +144,12 @@ describe("scanFindingsRepository.listWithCounts", () => {
 		expect(repository.listWithCounts("lib-1", "active")).toEqual({
 			items: [{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "type_mismatch" }],
 			counts: { active: 1, ignored: 1 },
+			libraryExists: true,
 		});
 		expect(repository.listWithCounts("lib-1", "ignored")).toEqual({
 			items: [{ filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" }],
 			counts: { active: 1, ignored: 1 },
+			libraryExists: true,
 		});
 		expect(repository.listWithCounts("lib-1")).toEqual({
 			items: [
@@ -155,7 +157,18 @@ describe("scanFindingsRepository.listWithCounts", () => {
 				{ filePath: "/media/b.mkv", fileName: "b.mkv", reason: "no_metadata_match" },
 			],
 			counts: { active: 1, ignored: 1 },
+			libraryExists: true,
 		});
 		expect(repository.listWithCounts("lib-2").counts).toEqual({ active: 0, ignored: 0 });
+	});
+
+	test("reports a missing library row in the counts row", () => {
+		const repository = createRepository();
+
+		expect(repository.listWithCounts("lib-missing")).toEqual({
+			items: [],
+			counts: { active: 0, ignored: 0 },
+			libraryExists: false,
+		});
 	});
 });

@@ -93,9 +93,14 @@ export class ScanFindingsRepository {
 	/**
 	 * Findings of one status plus the active/ignored counts for the status tabs
 	 * in ONE statement: the data rows UNION a single counts row (an empty path
-	 * marks it). The page needs both, and a second round trip bought nothing.
+	 * marks it). The counts row also carries whether the library row exists, so
+	 * the caller's not-found check costs no extra round trip (with warm caches
+	 * the check bought nothing at all).
 	 */
-	listWithCounts(libraryId: string, status?: ScanFindingStatus): { items: ScanFindingItem[]; counts: { active: number; ignored: number } } {
+	listWithCounts(
+		libraryId: string,
+		status?: ScanFindingStatus,
+	): { items: ScanFindingItem[]; counts: { active: number; ignored: number }; libraryExists: boolean } {
 		let statusCondition = sql``;
 		if (status === "ignored") statusCondition = sql`AND ignored_at IS NOT NULL`;
 		else if (status === "active") statusCondition = sql`AND ignored_at IS NULL`;
@@ -105,12 +110,13 @@ export class ScanFindingsRepository {
 			reason: ScanFindingReason;
 			activeCount: number | null;
 			ignoredCount: number | null;
+			libraryExists: number | null;
 		}>(sql`
-			SELECT file_path AS filePath, file_name AS fileName, reason AS reason, NULL AS activeCount, NULL AS ignoredCount
+			SELECT file_path AS filePath, file_name AS fileName, reason AS reason, NULL AS activeCount, NULL AS ignoredCount, NULL AS libraryExists
 			FROM scan_findings
 			WHERE library_id = ${libraryId} ${statusCondition}
 			UNION ALL
-			SELECT '', '', '', coalesce(sum(CASE WHEN ignored_at IS NULL THEN 1 ELSE 0 END), 0), coalesce(sum(CASE WHEN ignored_at IS NOT NULL THEN 1 ELSE 0 END), 0)
+			SELECT '', '', '', coalesce(sum(CASE WHEN ignored_at IS NULL THEN 1 ELSE 0 END), 0), coalesce(sum(CASE WHEN ignored_at IS NOT NULL THEN 1 ELSE 0 END), 0), (SELECT count(*) FROM libraries WHERE id = ${libraryId})
 			FROM scan_findings
 			WHERE library_id = ${libraryId}
 			ORDER BY filePath
@@ -119,17 +125,19 @@ export class ScanFindingsRepository {
 		const items: ScanFindingItem[] = [];
 		let active = 0;
 		let ignored = 0;
+		let libraryExists = false;
 		for (const row of rows) {
 			if (row.filePath.length === 0) {
 				active = row.activeCount ?? 0;
 				ignored = row.ignoredCount ?? 0;
+				libraryExists = row.libraryExists === 1;
 				continue;
 			}
 
 			items.push({ filePath: row.filePath, fileName: row.fileName, reason: row.reason });
 		}
 
-		return { items, counts: { active, ignored } };
+		return { items, counts: { active, ignored }, libraryExists };
 	}
 
 	async findByPath(libraryId: string, filePath: string): Promise<ScanFindingItem | null> {

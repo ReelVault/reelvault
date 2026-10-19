@@ -20,10 +20,9 @@ export async function getScanFindings(
 	libraryId: string,
 	status: ScanFindingStatus = "active",
 ): Promise<ScanFindingsResponse> {
-	return await runSafely(state, "getScanFindings", async () => {
-		await getLibraryForScan(libraryId, { fields: "id" });
-
-		const { items, counts } = scanFindingsRepository.listWithCounts(libraryId, status);
+	return await runSafely(state, "getScanFindings", () => {
+		const { items, counts, libraryExists } = scanFindingsRepository.listWithCounts(libraryId, status);
+		if (!libraryExists) throw notFoundError("Library", libraryId);
 
 		return { data: items, counts };
 	});

@@ -97,9 +97,8 @@ class DiscoverService {
 		// Cache the maximum-size view once per profile; callers slice to their limit.
 		const limit = 50;
 		const dislikedIds = new Set(await discoverRepository.findDislikedMetadataIds(profileId));
-		const [recentlyAddedMovies, recentlyAddedShows, recommendationIds, trendingRaw] = await Promise.all([
-			metadataRepository.findRecentlyAddedByType("movie", limit),
-			metadataRepository.findRecentlyAddedByType("tv_show", limit),
+		const recentlyAdded = await metadataRepository.findRecentlyAddedByTypes(["movie", "tv_show"], limit);
+		const [recommendationIds, trendingRaw] = await Promise.all([
 			this.getRecommendations(profileId, limit).catch((err) => {
 				this.logger.warn("Failed to generate recommendations for discover view, falling back to empty list", { profileId, err });
 
@@ -111,6 +110,8 @@ class DiscoverService {
 				.catch(() => []),
 		]);
 
+		const recentlyAddedMovies = recentlyAdded.get("movie") ?? [];
+		const recentlyAddedShows = recentlyAdded.get("tv_show") ?? [];
 		const recentlyAddedAll = [...recentlyAddedMovies, ...recentlyAddedShows];
 
 		// Hydrate recommendation items that are not already in recentlyAdded.

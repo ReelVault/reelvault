@@ -89,3 +89,23 @@ test("getScanFindingCandidates does not search a finding that failed for another
 	expect(search.calls).toEqual([]);
 	expect(response).toEqual({ searchTitle: "Some Movie", searchYear: 2019, candidates: [] });
 });
+
+test("getScanFindings returns the findings with counts and reports a missing library", async () => {
+	const libraryId = await seedLibrary("movies");
+	await seedFinding(libraryId, "/media/a.mkv", "no_metadata_match");
+	await seedFinding(libraryId, "/media/b.mkv", "probe_failed");
+	await librariesService.setScanFindingIgnored(libraryId, "/media/b.mkv", true);
+
+	expect(await librariesService.getScanFindings(libraryId, "active")).toEqual({
+		data: [{ filePath: "/media/a.mkv", fileName: "a.mkv", reason: "no_metadata_match" }],
+		counts: { active: 1, ignored: 1 },
+	});
+	expect(await librariesService.getScanFindings(libraryId, "ignored")).toEqual({
+		data: [{ filePath: "/media/b.mkv", fileName: "b.mkv", reason: "probe_failed" }],
+		counts: { active: 1, ignored: 1 },
+	});
+
+	await expect(librariesService.getScanFindings("lib-missing")).rejects.toMatchObject({
+		code: "entity.not_found",
+	});
+});

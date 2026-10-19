@@ -37,7 +37,7 @@ function qualifyingCollections({ where, minItems, tx }: QualifyingScope) {
 			.offset(minimumCount - 1),
 	);
 
-	return client.select({ id: schema.collections.id }).from(schema.collections).where(and(where, qualifies));
+	return client.select().from(schema.collections).where(and(where, qualifies));
 }
 
 /** Total collections meeting the `minItems` threshold, computed in SQL (no id materialization). */
@@ -48,11 +48,19 @@ export async function countQualifyingCollections(scope: QualifyingScope): Promis
 	return row?.value ?? 0;
 }
 
-/** Ordered page of qualifying collection ids — pushes LIMIT/OFFSET into SQL. */
-export async function findQualifyingCollectionIds({ orderBy, limit, offset, ...scope }: QualifyingPage): Promise<string[]> {
+/**
+ * Ordered page of qualifying collection rows — pushes LIMIT/OFFSET into SQL and
+ * returns full rows, so pagination hydrates them directly instead of re-reading
+ * them by id (one statement less per page).
+ */
+export async function findQualifyingCollectionRows({ orderBy, limit, offset, ...scope }: QualifyingPage) {
 	const base = qualifyingCollections(scope);
 	const ordered = orderBy ? base.orderBy(orderBy) : base;
-	const rows = await ordered.limit(limit).offset(offset);
 
-	return rows.map((row) => row.id);
+	return await ordered.limit(limit).offset(offset);
+}
+
+/** Ordered page of qualifying collection ids. */
+export async function findQualifyingCollectionIds(page: QualifyingPage): Promise<string[]> {
+	return (await findQualifyingCollectionRows(page)).map((row) => row.id);
 }
