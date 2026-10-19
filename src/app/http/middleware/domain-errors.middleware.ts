@@ -69,6 +69,21 @@ function projectValidationDetails(all: unknown): Array<{ path: string; message: 
 	return details.length > 0 ? details : undefined;
 }
 
+/** The standard error envelope — every branch answers with the same shape. */
+function errorResponse(
+	status: number,
+	code: string,
+	requestId: string | undefined,
+	extra?: { params?: Record<string, string | number | boolean | null> | undefined; details?: unknown },
+): ApiErrorResponse {
+	const response: ApiErrorResponse = { statusCode: status, code };
+	if (extra?.params) response.params = extra.params;
+	if (extra?.details !== undefined) response.details = extra.details;
+	if (requestId) response.requestId = requestId;
+
+	return response;
+}
+
 export const domainErrorsMiddleware = new Elysia({ name: "DomainErrors" }).onError({ as: "global" }, ({ error, set, ...ctx }) => {
 	const requestId = "requestId" in ctx && typeof ctx.requestId === "string" ? ctx.requestId : undefined;
 	const logContext = { ...ctx, set };
@@ -77,13 +92,7 @@ export const domainErrorsMiddleware = new Elysia({ name: "DomainErrors" }).onErr
 		const status = statusByCategory[error.category];
 		set.status = status;
 
-		const response: ApiErrorResponse = { statusCode: status, code: error.code };
 		const params = definedParams(error.params);
-		if (params) response.params = params;
-
-		if (requestId) response.requestId = requestId;
-
-		if (error.details) response.details = error.details;
 
 		// Standard back-off hint: HTTP clients (and proxies) honour the header, not the JSON params.
 		const retryAfter = params?.retryAfterSeconds;
@@ -91,30 +100,24 @@ export const domainErrorsMiddleware = new Elysia({ name: "DomainErrors" }).onErr
 
 		logRequestFailure(logContext, { status, code: error.code, error });
 
-		return response;
+		return errorResponse(status, error.code, requestId, { params, details: error.details });
 	}
 
 	const mapped = mapElysiaError(error);
 	if (mapped) {
 		set.status = mapped.status;
-		const response: ApiErrorResponse = { statusCode: mapped.status, code: mapped.code };
-		if (mapped.details !== undefined) response.details = mapped.details;
-
-		if (requestId) response.requestId = requestId;
 
 		logRequestFailure(logContext, { status: mapped.status, code: mapped.code, error });
 
-		return response;
+		return errorResponse(mapped.status, mapped.code, requestId, { details: mapped.details });
 	}
 
 	// Last resort: a non-domain, non-Elysia error (typically a bug inside a
 	// plugin route handler) still gets the standard envelope instead of Elysia's
 	// plain-text 500.
 	set.status = 500;
-	const fallback: ApiErrorResponse = { statusCode: 500, code: "internal" };
-	if (requestId) fallback.requestId = requestId;
 
 	logRequestFailure(logContext, { status: 500, code: "internal", error });
 
-	return fallback;
+	return errorResponse(500, "internal", requestId);
 });

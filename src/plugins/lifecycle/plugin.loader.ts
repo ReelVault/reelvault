@@ -75,8 +75,9 @@ export class PluginLoader {
 		// Boot / reload-all: stale mirrors from a crash are safe to drop before materialising fresh ones.
 		await clearPluginRuntimes(this.runtimeRoot);
 		await pluginBlobsService.purgeExpired();
-		await this.directoryIndex.refresh(this.pluginsDirectory);
-		const pluginNames = (await DirUtils.listDirs(this.pluginsDirectory)).filter((name) => isPluginDirectoryName(name));
+		// The index scans the plugins root and reads the manifests; it hands back
+		// the directory names, so the root is not scanned a second time.
+		const pluginNames = await this.directoryIndex.refresh(this.pluginsDirectory);
 		if (pluginNames.length === 0) {
 			this.logger.info("No plugins found");
 

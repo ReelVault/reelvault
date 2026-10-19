@@ -2,6 +2,7 @@ import { and, asc, eq, gt, inArray, isNull, lte, or, sum } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
+import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 
 class PluginStorageRepository {
 	readonly table = schema.pluginStorage;
@@ -39,12 +40,21 @@ class PluginStorageRepository {
 		await databaseFactory.getClient().delete(this.table).where(eq(this.table.pluginId, pluginId));
 	}
 
-	async findKeysByPlugin(pluginId: string): Promise<string[]> {
+	/**
+	 * The keys of one plugin, optionally narrowed to a prefix and capped — the
+	 * filter and the limit belong in the query, so a plugin with a large store
+	 * does not materialize every key to hand back the first page of them.
+	 */
+	async findKeysByPlugin(pluginId: string, options?: { prefix?: string | undefined; limit?: number | undefined }): Promise<string[]> {
 		const rows = await databaseFactory
 			.getClient()
 			.select({ key: this.table.key })
 			.from(this.table)
-			.where(eq(this.table.pluginId, pluginId));
+			.where(
+				and(eq(this.table.pluginId, pluginId), options?.prefix ? QueryFiltering.startsWith(this.table.key, options.prefix) : undefined),
+			)
+			.orderBy(asc(this.table.key))
+			.limit(options?.limit ?? -1);
 
 		return rows.map((row) => row.key);
 	}

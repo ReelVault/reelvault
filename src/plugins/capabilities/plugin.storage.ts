@@ -50,12 +50,11 @@ class PluginStorageService {
 
 	/** Keys of this plugin, optionally filtered by prefix (no values — cheap enumeration). */
 	async list(pluginId: string, prefix?: string): Promise<string[]> {
-		const keys = await pluginStorageData.findKeysByPlugin(pluginId);
+		// The prefix filter and the cap belong in the query: a plugin with a large
+		// store used to materialize every key to hand back the first page of them.
+		const keys = await pluginStorageData.findKeysByPlugin(pluginId, { prefix, limit: MAX_STORAGE_KEYS });
 
-		return keys
-			.filter((key) => !prefix || key.startsWith(prefix))
-			.toSorted()
-			.slice(0, MAX_STORAGE_KEYS);
+		return keys;
 	}
 
 	async removeForPlugin(pluginId: string): Promise<void> {

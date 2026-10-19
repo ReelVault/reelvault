@@ -32,6 +32,13 @@ export const QueryFiltering = {
 		return sql`${column} LIKE ${`%${escaped}%`} ESCAPE ${"\\"}`;
 	},
 
+	/** A prefix match — the same literal-wildcard rule as {@link like}. */
+	startsWith(column: SQLiteColumn, prefix: string): SQL {
+		const escaped = prefix.replace(/[\\%_]/g, (char) => `\\${char}`);
+
+		return sql`${column} LIKE ${`${escaped}%`} ESCAPE ${"\\"}`;
+	},
+
 	m2m(
 		column: SQLiteColumn,
 		values: string | string[] | undefined,

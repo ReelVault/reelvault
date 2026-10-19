@@ -39,8 +39,12 @@ export class PluginDirectoryIndex {
 		return this.entries.get(pluginId);
 	}
 
-	/** Reads every plugin manifest once to build the id→directory index used by id-based lookups. */
-	async refresh(pluginsDirectory: string): Promise<void> {
+	/**
+	 * Reads every plugin manifest once to build the id→directory index used by
+	 * id-based lookups. Returns the plugin directories it found, so the caller
+	 * does not scan the plugins root a second time.
+	 */
+	async refresh(pluginsDirectory: string): Promise<string[]> {
 		const dirNames = (await DirUtils.listDirs(pluginsDirectory)).filter((name) => isPluginDirectoryName(name));
 		const knownDirectories = new Set(this.entries.values());
 		await PromiseUtils.mapConcurrent(dirNames, serverConfig.plugins.lifecycle.loadConcurrency, async (dirName) => {
@@ -53,5 +57,7 @@ export class PluginDirectoryIndex {
 				// Not a loadable plugin directory — ignore.
 			}
 		});
+
+		return dirNames;
 	}
 }

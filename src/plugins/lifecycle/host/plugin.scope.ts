@@ -196,8 +196,10 @@ export class PluginScope {
 			});
 		};
 		const concurrency = serverConfig.plugins.lifecycle.loadConcurrency;
-		await PromiseUtils.mapConcurrent(this.providers.getAll(), concurrency, initialize);
-		await PromiseUtils.mapConcurrent(this.subtitleProviders.getAll(), concurrency, initialize);
+		// Both kinds initialize side by side: a provider and a subtitle provider
+		// never overlap, so running them in two batches made every plugin wait
+		// for the first batch before the second one started.
+		await PromiseUtils.mapConcurrent([...this.providers.getAll(), ...this.subtitleProviders.getAll()], concurrency, initialize);
 	}
 
 	/** Binds the plugin id before setup() so host capabilities used there (e.g. notification channels) can namespace themselves. */

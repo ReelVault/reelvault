@@ -1,6 +1,8 @@
 import type { PluginMediaFile } from "@reelvault/sdk/common";
 import type { MediaAnalysis, MediaAnalyzer } from "@reelvault/sdk/plugin";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { createLogger } from "@/utils/logger.utils";
+import { PromiseUtils } from "@/utils/promise.utils";
 import { PluginEntityTable } from "./plugin-entity.registry";
 
 /** Runs every registered analyzer against a media file, isolating per-analyzer failures. */
@@ -25,16 +27,22 @@ export class MediaAnalysisFanout {
 	}
 
 	async analyze(media: PluginMediaFile): Promise<MediaAnalysis> {
-		const result: MediaAnalysis = {};
-
-		for (const analyzer of this.table.getAll()) {
+		// The analyzers run side by side — each one probes the file, so running
+		// them one after another made the analysis as slow as the sum of its
+		// parts. The results are merged in registration order, so a later
+		// analyzer still wins.
+		const analyses = await PromiseUtils.mapConcurrent(this.table.getAll(), systemResourcesService.getIoConcurrency(), async (analyzer) => {
 			try {
-				const analysis = normalizeMediaAnalysis(await analyzer.analyze({ media, logger: createLogger(`MediaAnalyzer:${analyzer.id}`) }));
-				Object.assign(result, analysis);
+				return normalizeMediaAnalysis(await analyzer.analyze({ media, logger: createLogger(`MediaAnalyzer:${analyzer.id}`) }));
 			} catch (error) {
 				this.logger.error(`Media analyzer ${analyzer.id} failed`, error);
+
+				return {};
 			}
-		}
+		});
+
+		const result: MediaAnalysis = {};
+		for (const analysis of analyses) Object.assign(result, analysis);
 
 		return result;
 	}
