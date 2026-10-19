@@ -80,6 +80,18 @@ export class WorkerExecutionPoolService {
 		this.running.set(item.id, exec);
 		const prev = this.runningCountByWorker.get(definition.id) ?? 0;
 		this.runningCountByWorker.set(definition.id, prev + 1);
+
+		// The polling loop does not await executions (drain does); a failure inside
+		// the finalize path must still not surface as an unhandled rejection.
+		detach(
+			(async () => {
+				try {
+					await exec.promise;
+				} catch (error) {
+					this.logger.error("Worker execution failed to finalize", error, { workerId: definition.id, taskId: item.id });
+				}
+			})(),
+		);
 	}
 
 	private armTimeout(exec: ActiveExecution, jobId: string, timeoutMs: number): void {
