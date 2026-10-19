@@ -6,6 +6,7 @@ import {
 	markJobRetried,
 	markJobStarted,
 	markPendingJobsCancelled,
+	reconcileFromJobs,
 	updateProgress,
 } from "./worker-operation/progress.writer";
 import {
@@ -112,6 +113,10 @@ class WorkerOperationRepository {
 	/** Admin resume: clear the cancel request and re-arm the operation for its re-enqueued jobs. */
 	markResumed(id: string, totalItems = 0) {
 		return markResumed(id, totalItems);
+	}
+
+	reconcileFromJobs(operationId: string) {
+		return reconcileFromJobs(operationId);
 	}
 
 	requestCancel(id: string) {

@@ -245,7 +245,9 @@ export class WorkerSchedulerService {
 			});
 		}
 
-		// A failed enqueue must not leave a dangling operation behind.
+		// A failed enqueue must not leave a dangling operation behind. A dedupe hit
+		// (another request won the race after the pre-check) returns the existing row
+		// with its own operation, so drop the freshly created one.
 		const { operationId, result: job } = await enqueueWithOperation(
 			{ type: workerId, reference: { type: "worker", id: workerId } },
 			(opId) =>
@@ -255,6 +257,7 @@ export class WorkerSchedulerService {
 					priority: -10,
 					operationId: opId,
 				}),
+			{ isAttached: (queued, opId) => queued.operationId === opId },
 		);
 
 		return { success: true, jobId: job.id, operationId };

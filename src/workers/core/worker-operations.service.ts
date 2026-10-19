@@ -74,6 +74,9 @@ export class WorkerOperationsService {
 		if (!operation || (operation.status !== "pending" && operation.status !== "running")) return false;
 
 		await workerDependencies().operations.requestCancel(id);
+		// Pending rows first: the poller claims them without consulting the cancel
+		// request, so the window between the two calls must be as short as possible.
+		await workerDependencies().jobs.cancelPendingByOperation(id);
 
 		const runningItems = await workerDependencies().jobs.findRunningByOperation(id);
 		for (const item of runningItems) {
@@ -85,8 +88,6 @@ export class WorkerOperationsService {
 				workerDependencies().jobs.cancelRunning(item.id),
 			);
 		}
-
-		await workerDependencies().jobs.cancelPendingByOperation(id);
 
 		return true;
 	}
@@ -162,15 +163,26 @@ export class WorkerOperationsService {
 				if (items.length < RESUME_PAGE_SIZE) break;
 			}
 		} catch (error) {
-			// Re-enqueue failed part-way — put the operation back into the cancelled
-			// state so it does not sit "pending" with no queued work.
+			// Re-enqueue failed part-way: cancel what was inserted and rebuild the
+			// counters from the surviving rows, so the operation cannot sit pending
+			// with a total nothing will ever reach.
 			await workerDependencies()
-				.operations.requestCancel(id)
+				.jobs.cancelPendingByOperation(id)
+				.catch(() => {
+					// best-effort rollback
+				});
+			await workerDependencies()
+				.operations.reconcileFromJobs(id)
 				.catch(() => {
 					// best-effort rollback
 				});
 			throw error;
 		}
+
+		// The pre-set total counted every cancelled row; rows skipped because the
+		// worker is gone or the dedupe key is active never become jobs. Rebuild the
+		// counters from the inserted rows so the operation can terminalize.
+		await workerDependencies().operations.reconcileFromJobs(id);
 
 		return { resumed };
 	}

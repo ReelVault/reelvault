@@ -152,6 +152,8 @@ export interface WorkerOperationStore {
 	}>;
 	updateProgress(operationId: string, progressPercent: number): Promise<void>;
 	markResumed(id: string, totalItems?: number): Promise<void>;
+	/** Recomputes total/pending/finished counters from the operation's actual jobs. */
+	reconcileFromJobs(operationId: string): Promise<{ total: number }>;
 	requestCancel(id: string): Promise<void>;
 	remove(id: string): Promise<void>;
 	cleanupExpired(now?: Date): Promise<number>;

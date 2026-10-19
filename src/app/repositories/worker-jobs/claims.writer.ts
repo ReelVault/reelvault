@@ -8,7 +8,7 @@ import { chunk } from "@/utils/array.utils";
 import { cancelPending, cascadeCancel, terminalizeRunning } from "./cancellation.writer";
 import { loadParentStatuses } from "./intake.repository";
 import type { ClaimNextInput, WorkerItem } from "./shared.types";
-import { applyOperationCounts, items, RELEASE_CLAIM, toOperationCounts } from "./shared.types";
+import { applyOperationCounts, items, operations, RELEASE_CLAIM, toOperationCounts } from "./shared.types";
 
 /**
  * Claims every runnable job for one worker in a single transaction, up to
@@ -65,11 +65,29 @@ async function claimRunnableItems(tx: DatabaseTransaction, input: ClaimNextInput
 	let runningCount = await tx.$count(items, and(eq(items.workerId, workerId), eq(items.status, "running")));
 
 	const parentStatuses = await loadParentStatuses(candidates, tx);
+	// A cancel request and this claim are separate statements: consult the
+	// operations table so a job of a just-cancelled operation can never start.
+	const operationIds = [...new Set(candidates.flatMap((candidate) => (candidate.operationId ? [candidate.operationId] : [])))];
+	const cancelledOperations = new Set(
+		operationIds.length === 0
+			? []
+			: (
+					await tx
+						.select({ id: operations.id })
+						.from(operations)
+						.where(and(inArray(operations.id, operationIds), or(eq(operations.cancelRequested, true), eq(operations.status, "cancelled"))))
+				).map((row) => row.id),
+	);
 	const startedByOperation = new Map<string, number>();
 
 	const claimedItems: WorkerItem[] = [];
 	for (const candidate of candidates) {
 		if (claimedItems.length >= max) break;
+
+		if (candidate.operationId && cancelledOperations.has(candidate.operationId)) {
+			await cancelPending(candidate.id, tx);
+			continue;
+		}
 
 		const parentStatus = candidate.dependsOnJobId ? parentStatuses.get(candidate.dependsOnJobId) : undefined;
 		if (parentStatus === "failed" || parentStatus === "cancelled") {

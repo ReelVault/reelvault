@@ -38,10 +38,10 @@ async function insertOperations(ids: string[], status: "pending" | "cancelled"):
 	}
 }
 
-async function insertCancelledJobs(operationId: string, count: number): Promise<void> {
+async function insertCancelledJobs(operationId: string, count: number, workerId = "w-1"): Promise<void> {
 	const rows = Array.from({ length: count }, (_, index) => ({
 		id: `c-${String(index).padStart(5, "0")}`,
-		workerId: "w-1",
+		workerId,
 		operationId,
 		data: "{}",
 		status: "cancelled" as const,
@@ -121,5 +121,17 @@ describe("worker operations resume", () => {
 			code: "worker.nothing_to_resume",
 		});
 		expect((await operationById("op-empty"))?.status).toBe("cancelled");
+	});
+
+	test("terminalizes the operation when every cancelled job belongs to a removed worker", async () => {
+		await insertOperations(["op-gone"], "cancelled");
+		await insertCancelledJobs("op-gone", 10, "w-gone");
+
+		const result = await workerOperationsService.resume("op-gone");
+
+		// Nothing could be re-enqueued: the total must shrink back to zero instead
+		// of leaving the operation pending forever.
+		expect(result).toEqual({ resumed: 0 });
+		expect(await operationById("op-gone")).toMatchObject({ status: "cancelled", totalItems: 0, pendingItems: 0 });
 	});
 });

@@ -179,7 +179,11 @@ export class WorkerExecutionPoolService {
 					percent,
 				});
 			},
-			extendTimeout: (additionalMs: number) => this.extendTimeout(item.id, additionalMs),
+			// Bound to this execution: a force-released handler that keeps calling
+			// extendTimeout must not re-arm the timer of a newer attempt of the job.
+			extendTimeout: (additionalMs: number) => {
+				if (this.running.get(item.id) === exec) this.extendTimeout(item.id, additionalMs);
+			},
 		};
 	}
 

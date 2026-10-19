@@ -1,8 +1,8 @@
-import { eq, sql } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { clamp } from "@/utils/math.utils";
-import { operations, updateOperation } from "./shared.types";
+import { jobs, operations, updateOperation } from "./shared.types";
 import { buildCompletedAtCase, buildProgressPercentCase, buildStatusCase } from "./sql.builder";
 
 /** Adds `amount` items to an operation's total, reopening it when it had already finished. */
@@ -26,6 +26,65 @@ export async function incrementTotalItems(operationId: string, amount: number, t
 
 export async function updateProgress(operationId: string, progressPercent: number, tx?: DatabaseTransaction): Promise<void> {
 	await updateOperation(operationId, { progressPercent: clamp(Math.round(progressPercent), 0, 100), updatedAt: new Date() }, tx);
+}
+
+/**
+ * Recomputes an operation's item counters from its actual jobs, in one
+ * transaction. Used after a resume re-enqueue, where the pre-set total can
+ * exceed the number of jobs that were actually inserted (unregistered worker,
+ * dedupe conflict) and would otherwise never terminalize.
+ */
+export async function reconcileFromJobs(operationId: string): Promise<{ total: number }> {
+	return await databaseFactory.transaction(async (tx) => {
+		const rows = await tx
+			.select({ status: jobs.status, amount: count() })
+			.from(jobs)
+			.where(eq(jobs.operationId, operationId))
+			.groupBy(jobs.status);
+		const [operation] = await tx
+			.select({ cancelRequested: operations.cancelRequested })
+			.from(operations)
+			.where(eq(operations.id, operationId))
+			.limit(1);
+
+		const counts = { pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
+		for (const row of rows) counts[row.status] = row.amount;
+
+		// Cancelled rows are the pre-resume history (the re-enqueue inserts new
+		// rows); counting them would double the total and immediately terminalize.
+		const active = counts.pending + counts.running + counts.completed + counts.failed;
+		const finished = counts.completed + counts.failed;
+		const cancelRequested = operation?.cancelRequested === true;
+		let status: "pending" | "running" | "completed" | "failed" | "cancelled";
+		if (active === 0 || cancelRequested) {
+			status = "cancelled";
+		} else if (counts.running > 0) {
+			status = "running";
+		} else if (finished < active) {
+			status = "pending";
+		} else {
+			status = counts.failed > 0 ? "failed" : "completed";
+		}
+
+		await updateOperation(
+			operationId,
+			{
+				totalItems: active,
+				pendingItems: counts.pending,
+				runningItems: counts.running,
+				completedItems: counts.completed,
+				failedItems: counts.failed,
+				cancelledItems: 0,
+				status,
+				completedAt: status === "pending" || status === "running" ? null : new Date(),
+				progressPercent: active === 0 ? 100 : clamp(Math.round((finished / active) * 100), 0, 100),
+				updatedAt: new Date(),
+			},
+			tx,
+		);
+
+		return { total: active };
+	});
 }
 
 export async function markJobStarted(operationId: string, now: Date = new Date(), tx?: DatabaseTransaction, amount = 1): Promise<void> {
