@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { notificationsService } from "@/app/notifications/notifications.service";
+import { profilesRepository } from "@/app/repositories/profiles.repository";
 import { twoFactorRepository } from "@/app/repositories/two-factor.repository";
 import { env } from "@/config/env.config";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
@@ -120,6 +121,9 @@ async function seedAccounts(): Promise<void> {
 
 beforeEach(async () => {
 	await seedAccounts();
+	// A test that changes the PIN must not leak the new value into the next one.
+	await client.update(profiles).set({ pin: PINNED_PIN }).where(eq(profiles.id, PROFILE.pinned));
+	profilesRepository.invalidateCached(PROFILE.pinned);
 	await client.delete(watchlist);
 	await client.delete(watchedHistory);
 	await client.delete(notifications);
@@ -210,6 +214,24 @@ describe("PIN-protected profiles", () => {
 		}
 
 		expect(results).toEqual(Object.keys(UNLOCK_ATTEMPTS).map((attempt) => ({ attempt, status: 401 })));
+	});
+
+	test("a cached private body is not served after the PIN changes", async () => {
+		await client.insert(watchlist).values({ profileId: PROFILE.pinned, metadataId: METADATA_ID });
+		const token = signProfileUnlock(PROFILE.pinned, env.BETTER_AUTH_SECRET, profilePinFingerprint(PINNED_PIN));
+		const headers = {
+			cookie: `better-auth.session_token=user-token; ${PROFILE_UNLOCK_COOKIE}=${token}`,
+			"x-profile-id": PROFILE.pinned,
+		};
+
+		const unlocked = await send("GET", "/v1/me/watchlist", { headers });
+		expect(unlocked.status).toBe(200);
+
+		await client.update(profiles).set({ pin: "a-new-pin" }).where(eq(profiles.id, PROFILE.pinned));
+		profilesRepository.invalidateCached(PROFILE.pinned);
+
+		const locked = await send("GET", "/v1/me/watchlist", { headers });
+		expect(locked.status).toBe(401);
 	});
 
 	test("a token signed for the current PIN opens the profile", async () => {
