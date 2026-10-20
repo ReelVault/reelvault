@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { cgroupCpuPercent } from "./host-metrics.reader";
+import { cgroupCpuPercent, memoryReading } from "./host-metrics.reader";
+
+describe("memoryReading", () => {
+	test("clamps a constrained total so the dashboard cannot receive a negative or over-100 value", () => {
+		expect(memoryReading(2048, -100)).toEqual({ usedMb: 0, totalMb: 2048, percent: 0 });
+		expect(memoryReading(2048, 4096)).toEqual({ usedMb: 2048, totalMb: 2048, percent: 100 });
+		expect(memoryReading(0, 10)).toEqual({ usedMb: 0, totalMb: 0, percent: 0 });
+	});
+});
 
 describe("cgroupCpuPercent", () => {
 	test("reports container CPU from the second reading, scaled by the cores the container may use", () => {

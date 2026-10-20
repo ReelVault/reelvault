@@ -707,6 +707,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Improved error diagnostics** — internal database, FFmpeg, worker, cache, concurrency, sorting and settings errors now expose specific error codes while retaining HTTP 500 responses.
 - **Fixed paginated result ordering** — title recommendations, media markers, admin users and sessions no longer skip or repeat rows when timestamps match.
 - **Fixed server resource monitoring** — container CPU usage now uses the container's own cgroup measurements instead of host-wide CPU usage.
+- **Fixed negative system memory readings** — usage and percentage are clamped to the effective total, so the admin dashboard no longer fails with a 500 under a constrained memory limit.
 - **Fixed server component upgrades** — failed component swaps restore moved files instead of leaving the installation without the `server/` directory.
 - **Fixed static asset MIME types** — web and plugin UI assets now use a consistent MIME mapping, including JavaScript, fonts and WebVTT files, while plugin file restrictions remain enforced.
 - **Improved server rescue and maintenance** — download-retention timers stop before database closure, and startup or shutdown failures are reported more reliably.

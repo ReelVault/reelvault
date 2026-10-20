@@ -15,11 +15,17 @@ function round1(value: number): number {
 	return Math.round(value * 10) / 10;
 }
 function percentOf(used: number, total: number): number {
-	return round1((used / total) * 100);
+	return total > 0 ? round1((used / total) * 100) : 0;
 }
 
-function memoryReading(totalMb: number, usedMb: number): MemoryReading {
-	return { usedMb, totalMb, percent: percentOf(usedMb, totalMb) };
+export function memoryReading(totalMb: number, usedMb: number): MemoryReading {
+	// A memory limit can be lower than the host's available figure (cgroup quota,
+	// benchmark simulation). Never report negative use or a percentage above 100:
+	// the dashboard schema rejects both and turns the whole page into a 500.
+	const total = Math.max(0, totalMb);
+	const used = clamp(usedMb, 0, total);
+
+	return { usedMb: used, totalMb: total, percent: percentOf(used, total) };
 }
 
 /** Container memory when a cgroup limit is set, otherwise the host's `/proc/meminfo`, otherwise `os` totals. */
@@ -36,7 +42,11 @@ export function getMemoryInfo(): MemoryReading {
 	const totalKiB = getTotalMemoryKiB();
 	const availableKiB = getAvailableMemoryKiB();
 	if (totalKiB !== undefined && totalKiB > 0 && availableKiB !== undefined && availableKiB > 0) {
-		return memoryReading(Math.round(totalKiB / 1024), Math.round((totalKiB - availableKiB) / 1024));
+		// A simulated/limited total can be below the host's MemAvailable. Report
+		// this process's RSS instead of a negative figure (or a meaningless zero).
+		const usedKiB = availableKiB >= totalKiB ? Math.round(process.memoryUsage().rss / 1024) : totalKiB - availableKiB;
+
+		return memoryReading(Math.round(totalKiB / 1024), Math.round(usedKiB / 1024));
 	}
 
 	const totalMb = Math.round(totalmem() / 1024 / 1024);
