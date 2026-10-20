@@ -19,6 +19,12 @@ pre-push:
     duplicates:
       glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
       run: bunx jscpd --config .jscpd.json
+    duplicates_strict:
+      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
+      run: bunx jscpd --config .jscpd.strict.json
+    guard:
+      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
+      run: bun run lint:guard
     types:
       glob: "*.{ts,tsx}"
       run: bunx tsc --noEmit --pretty

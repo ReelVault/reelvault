@@ -1,0 +1,19 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A test that never runs protects nothing. The suite has to fail loudly when a
+// behavior cannot be checked, so a disabled test is a defect, not a safety net.
+//
+// Biome's `noSkippedTests` covers `test.skip`, `it.skip`, `describe.skip` and
+// the `.fixme` forms, but not `test.todo` — and this project runs on `bun:test`.
+// This rule closes that gap.
+//
+//     test.todo("cover the retry path");   // never runs
+//     test("covers the retry path", ...);  // runs
+//
+// Note: a non-capturing group `(?:...)` is required. Biome's regex engine
+// rejects capturing groups in a `<:` condition.
+`$fn.todo($args)` as $call where {
+	$fn <: r"^(?:test|it|describe)$",
+	register_diagnostic(span=$call, message="A todo test never runs. Write the assertion or delete the test.")
+}

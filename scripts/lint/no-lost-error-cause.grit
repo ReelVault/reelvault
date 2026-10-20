@@ -1,0 +1,24 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A caught error is context. Dropping it leaves the log line without the one
+// fact that explains the failure.
+//
+// Biome's `useErrorCause` only recognizes the built-in `Error` constructor, so
+// it cannot check the `DomainError` this codebase throws — and `DomainError`
+// forwards `ErrorOptions` to `super()`, so `cause` works there too.
+//
+// A `new DomainError(...)` raised inside a `catch` clause must carry the
+// original error as `cause`. A `catch` clause without a parameter cannot
+// provide one, so it is reported as well.
+//
+//     try { await writeFileAtomic(path, data); }
+//     catch (error) {
+//         throw new DomainError("internal", "Cannot write optimized image", { cause: error, code: "image.write_failed" });
+//     }
+JsNewExpression() as $thrown where {
+	$thrown <: r"(?s).*DomainError.*",
+	$thrown <: within JsCatchClause(),
+	not $thrown <: r"(?s).*cause.*",
+	register_diagnostic(span=$thrown, message="A DomainError raised in a catch clause must keep the original error as `cause`. Bind the caught error and pass it along.")
+}

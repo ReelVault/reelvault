@@ -20,8 +20,19 @@
 	"rules": {
 		"typescript/no-explicit-any": "error",
 		"typescript/no-unsafe-type-assertion": "error",
+		"typescript/prefer-regexp-exec": "error",
+		"typescript/use-unknown-in-catch-callback-variable": "error",
 		"typescript/no-non-null-asserted-optional-chain": "error",
 		"typescript/no-unnecessary-type-assertion": "error",
+		"typescript/ban-ts-comment": [
+			"error",
+			{
+				"ts-expect-error": false,
+				"ts-ignore": true,
+				"ts-nocheck": true,
+				"ts-check": false
+			}
+		],
 		"typescript/consistent-type-assertions": [
 			"error",
 			{
@@ -99,6 +110,7 @@
 		"typescript/require-array-sort-compare": "error",
 		"eslint/prefer-const": "error",
 		"eslint/no-shadow": "error",
+		"eslint/no-duplicate-imports": "error",
 		"eslint/no-lonely-if": "error",
 		"eslint/no-nested-ternary": "error",
 		"eslint/no-else-return": "error",
@@ -113,7 +125,6 @@
 			}
 		],
 		"import/no-unassigned-import": "error",
-		"typescript/ban-ts-comment": "error",
 		"typescript/consistent-return": "error",
 		"eslint/require-await": "off",
 		"eslint/default-case-last": "error",
@@ -156,6 +167,8 @@
 		"unicorn/prefer-number-properties": "error",
 		"unicorn/prefer-date-now": "error",
 		"unicorn/prefer-regexp-test": "error",
+		"unicorn/prefer-string-replace-all": "error",
+		"unicorn/prefer-string-raw": "error",
 		"unicorn/prefer-array-some": "error",
 		"unicorn/prefer-set-has": "error",
 		"unicorn/prefer-structured-clone": "error",
@@ -198,6 +211,7 @@
 		"import/no-empty-named-blocks": "error",
 		"import/no-named-as-default-member": "error",
 		"import/no-mutable-exports": "error",
+		"import/no-relative-parent-imports": "error",
 		"node/no-process-env": "error",
 		"eslint/eqeqeq": "error"
 	},
@@ -225,7 +239,8 @@
 				"unicorn/no-useless-undefined": "off",
 				"unicorn/no-array-callback-reference": "off",
 				"eslint/no-shadow": "off",
-				"promise/prefer-await-to-then": "off"
+				"promise/prefer-await-to-then": "off",
+				"import/no-relative-parent-imports": "off"
 			}
 		},
 		{
@@ -235,10 +250,16 @@
 			}
 		},
 		{
-			"files": ["src/**"],
+			"files": ["src/**/*.ts", "!src/**/*.test.ts", "!src/**/*.spec.ts"],
 			"rules": {
 				"import/no-named-as-default": "off",
 				"import/no-named-as-default-member": "off"
+			}
+		},
+		{
+			"files": ["src/config/version.constants.ts"],
+			"rules": {
+				"import/no-relative-parent-imports": "off"
 			}
 		},
 		{

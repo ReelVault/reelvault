@@ -1,0 +1,12 @@
+{
+	"pattern": "src/**/*.ts",
+	"format": ["typescript"],
+	"minLines": 5,
+	"minTokens": 40,
+	"mode": "strict",
+	"reporters": ["console"],
+	"gitignore": true,
+	"absolute": false,
+	"threshold": 1,
+	"ignore": ["**/*.test.ts", "**/*.spec.ts"]
+}

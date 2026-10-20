@@ -22,6 +22,14 @@
 		{
 			"path": "./scripts/lint/no-namespace-object.grit",
 			"includes": ["**/src/**", "!**/packages/**", "!**/src/**/*.test.ts", "!**/src/**/*.spec.ts"]
+		},
+		{
+			"path": "./scripts/lint/no-todo-test.grit",
+			"includes": ["**/src/**", "!**/packages/**"]
+		},
+		{
+			"path": "./scripts/lint/no-lost-error-cause.grit",
+			"includes": ["**/src/**", "!**/packages/**"]
 		}
 	],
 	"assist": {
@@ -76,6 +84,7 @@
 				"noVoid": "error",
 				"useDateNow": "error",
 				"noImportantStyles": "off",
+				"noImplicitCoercions": "error",
 				"noExcessiveCognitiveComplexity": {
 					"level": "error",
 					"options": {
@@ -133,10 +142,13 @@
 				"noConstAssign": "error",
 				"noPrecisionLoss": "error",
 				"noSetterReturn": "error",
-				"noGlobalObjectCalls": "error"
+				"noGlobalObjectCalls": "error",
+				"noUnsafeFinally": "error",
+				"noDuplicateVariableNames": "error"
 			},
 			"security": {
-				"noGlobalEval": "error"
+				"noGlobalEval": "error",
+				"noSecrets": "off"
 			},
 			"performance": {
 				"noAccumulatingSpread": "error",
@@ -175,6 +187,18 @@
 				"noDefaultExport": "error",
 				"noMagicNumbers": "off",
 				"useNamingConvention": "off",
+				"useTrimStartEnd": "error",
+				"useEnumInitializers": "error",
+				"useLiteralEnumMembers": "error",
+				"useGlobalThis": "error",
+				"useErrorCause": "off",
+				"useConsistentArrayType": "off",
+				"noExcessiveClassesPerFile": {
+					"level": "error",
+					"options": {
+						"maxClasses": 2
+					}
+				},
 				"useSingleVarDeclarator": "error",
 				"useConst": "error",
 				"useDefaultSwitchClause": "error",
@@ -245,7 +269,17 @@
 				"useNumberToFixedDigitsArgument": "error",
 				"noVar": "error",
 				"noWith": "error",
-				"noOctalEscape": "error"
+				"noOctalEscape": "error",
+				"noSkippedTests": "error",
+				"noDuplicateElseIf": "error",
+				"noUnassignedVariables": "error",
+				"noDuplicateTestHooks": "error",
+				"noEmptyInterface": "error",
+				"noDuplicateEnumValues": "error",
+				"noEqualsToNull": "error",
+				"noForIn": "error",
+				"noUnusedExpressions": "error",
+				"noNestedPromises": "error"
 			},
 			"nursery": {
 				"noFloatingPromises": "off",
@@ -269,7 +303,10 @@
 				"noThisOutsideOfClass": "error",
 				"noNegationInEqualityCheck": "error",
 				"noEmptyObjectKeys": "error",
-				"noExcessiveNestedCallbacks": "warn"
+				"noExcessiveNestedCallbacks": "warn",
+				"noReturnInFinally": "error",
+				"noIdenticalTestTitle": "error",
+				"useStringStartsEndsWith": "error"
 			}
 		}
 	},
@@ -390,6 +427,10 @@
 									{
 										"group": ["@/app/**", "@/plugins/**", "@/workers/**", "@/modules/**"],
 										"message": "System supervisors don't depend on features. Their collaborators arrive through system ports."
+									},
+									{
+										"group": ["elysia", "elysia/**"],
+										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. System supervisors are framework-free."
 									}
 								]
 							}
@@ -410,6 +451,10 @@
 									{
 										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**"],
 										"message": "Integrations are external processes and services. They don't depend on app, features, plugins, workers or system. Collaborators arrive through ports."
+									},
+									{
+										"group": ["elysia", "elysia/**"],
+										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. Integrations are framework-free."
 									}
 								]
 							}
@@ -430,6 +475,14 @@
 									{
 										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**", "@/integrations/**"],
 										"message": "utils holds helpers with no application dependencies. Move the code to the layer that uses it."
+									},
+									{
+										"group": ["elysia", "elysia/**"],
+										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. utils holds framework-free helpers."
+									},
+									{
+										"group": ["drizzle-orm", "drizzle-orm/**"],
+										"message": "utils holds pure helpers with no database dependency. Query building lives in src/integrations/drizzle-orm."
 									}
 								]
 							}
@@ -450,6 +503,14 @@
 									{
 										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**", "@/integrations/**"],
 										"message": "config is read at boot and depends on utils only."
+									},
+									{
+										"group": ["elysia", "elysia/**"],
+										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. config is framework-free."
+									},
+									{
+										"group": ["drizzle-orm", "drizzle-orm/**"],
+										"message": "config is read at boot and depends on utils only. Query building lives in src/integrations/drizzle-orm."
 									}
 								]
 							}
@@ -467,6 +528,15 @@
 							"level": "error",
 							"options": {
 								"allow": ["warn", "error"]
+							}
+						}
+					},
+					"style": {
+						"noExcessiveLinesPerFile": {
+							"level": "error",
+							"options": {
+								"maxLines": 500,
+								"skipBlankLines": true
 							}
 						}
 					}

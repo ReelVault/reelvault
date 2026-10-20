@@ -8,6 +8,9 @@
 	"rules": {
 		"exports": "error",
 		"types": "error",
-		"duplicates": "error"
+		"duplicates": "error",
+		"enumMembers": "error",
+		"namespaceMembers": "error",
+		"cycles": "error"
 	}
 }
