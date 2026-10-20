@@ -107,7 +107,7 @@ const scanSdkEndpoints = (sdkDir: string): readonly SdkEndpoint[] => {
 			if (!isHttpMethod(upper)) continue;
 
 			const method = upper;
-			const withParams = raw.replace(/\$\{[^}]+\}/g, ":param");
+			const withParams = raw.replaceAll(/\$\{[^}]+\}/g, ":param");
 			const normalized = `/v1${withParams.startsWith("/") ? withParams : `/${withParams}`}`;
 
 			endpoints.push({ file, method, raw, normalized });

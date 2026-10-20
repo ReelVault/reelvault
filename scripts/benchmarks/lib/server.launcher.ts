@@ -616,7 +616,7 @@ async function seedWorkerIdentities(rootDir: string, count: number): Promise<str
 
 	for (let index = 0; index < count; index++) {
 		const userId = `user-bench-${index}`;
-		const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+		const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
 		const signature = await makeSignature(token, AUTH_SECRET);
 		insertUser.run(userId, `Bench Worker ${index}`, `bench-worker-${index}@reelvault.local`, now, now);
 		insertSession.run(`session-bench-${index}`, userId, token, expiresAt, now, now);

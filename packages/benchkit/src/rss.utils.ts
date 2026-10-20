@@ -19,7 +19,7 @@ export interface RssSummary {
 export function readProcessRssBytes(pid: number): number | undefined {
 	try {
 		const status = readFileSync(`/proc/${pid}/status`, "utf-8");
-		const match = status.match(VM_RSS_PATTERN);
+		const match = VM_RSS_PATTERN.exec(status);
 
 		return match ? Number(match[1]) * 1024 : undefined;
 	} catch {

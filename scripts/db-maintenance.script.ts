@@ -7,9 +7,9 @@
  *                                    (default: <backups dir>/manual-<timestamp>.sqlite)
  */
 import { mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { getDirName, joinPath } from "@/utils/path.utils";
 
 const [command, target] = process.argv.slice(2);
 
@@ -41,8 +41,8 @@ try {
 			break;
 		case "backup": {
 			assertHealthy();
-			const destination = target ?? joinPath(serverConfig.paths.backups, `manual-${new Date().toISOString().replaceAll(":", "-")}.sqlite`);
-			await mkdir(getDirName(destination), { recursive: true });
+			const destination = target ?? join(serverConfig.paths.backups, `manual-${new Date().toISOString().replaceAll(":", "-")}.sqlite`);
+			await mkdir(dirname(destination), { recursive: true });
 			await databaseFactory.backup(destination);
 			console.log(`Backup written to ${destination}`);
 			break;

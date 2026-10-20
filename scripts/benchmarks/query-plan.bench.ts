@@ -197,6 +197,10 @@ function buildCases(rows: number, now: number): QueryCase[] {
 			sql: "SELECT watched_history.id FROM watched_history INNER JOIN media_files ON media_files.id = watched_history.media_file_id INNER JOIN metadata ON metadata.id = media_files.metadata_id LEFT JOIN episodes ON episodes.id = media_files.episode_id LEFT JOIN seasons ON seasons.id = episodes.season_id WHERE watched_history.profile_id = 'profile-1' ORDER BY watched_history.watched_at DESC LIMIT 50 OFFSET 0",
 		},
 		{
+			name: "watched-history cursor page (watchedAt, id)",
+			sql: "SELECT watched_history.id FROM watched_history WHERE watched_history.profile_id = 'profile-1' ORDER BY watched_history.watched_at DESC, watched_history.id DESC LIMIT 50",
+		},
+		{
 			name: "watched-history count",
 			sql: "SELECT count(*) FROM watched_history WHERE profile_id = 'profile-1'",
 		},

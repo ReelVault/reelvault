@@ -463,7 +463,7 @@ async function runScenario(name: ScenarioName, server: ManagedServer, options: C
 	);
 
 	mkdirSync(options.outDir, { recursive: true });
-	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 	const artifact = join(options.outDir, `scenario-${name}-${stamp}.json`);
 	writeFileSync(
 		artifact,

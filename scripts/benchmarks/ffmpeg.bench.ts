@@ -57,7 +57,7 @@ if (!args.help) {
 
 			for (const scenario of scenarios) {
 				console.log(`[ffmpeg] running ${scenario.name}...`);
-				const outputDir = join(root, scenario.name.replace(/\s+/g, "-").toLowerCase());
+				const outputDir = join(root, scenario.name.replaceAll(/\s+/g, "-").toLowerCase());
 				await mkdir(outputDir, { recursive: true });
 				const sessionId = `bench-${Date.now()}`;
 				const startedAt = performance.now();

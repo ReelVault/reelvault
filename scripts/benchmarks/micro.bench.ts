@@ -41,7 +41,7 @@ const args = suiteArgs();
 const SEGMENT_NAME_PATTERN = /seg_(\d+)\.m4s/;
 
 function parseSegmentNameRegex(segmentName: string, segmentDuration: number): { startTime: number; index: number } {
-	const match = segmentName.match(SEGMENT_NAME_PATTERN);
+	const match = SEGMENT_NAME_PATTERN.exec(segmentName);
 	if (!match) return { startTime: 0, index: 0 };
 
 	const index = Number.parseInt(match[1] ?? "0", 10);
@@ -474,7 +474,7 @@ if (!args.help) {
 		equal: (a, b) => a === b,
 	});
 
-	compare("stripDiacritics: NFD + /\\p{M}/gu vs single-pass accent map (search path)", {
+	compare(String.raw`stripDiacritics: NFD + /\p{M}/gu vs single-pass accent map (search path)`, {
 		variants: [
 			{
 				name: "NFD + \\p{M}",

@@ -187,7 +187,7 @@ const typoSearch: RequestBuilder = (context) => {
 
 /** {key} placeholders resolve against the live context before each run. */
 function interpolatePath(context: BenchContext, template: string): string {
-	return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
+	return template.replaceAll(/\{(\w+)\}/g, (_match, key: string) => {
 		const fields: Record<string, string | undefined> = {
 			genreId: context.genreId,
 			movieId: context.movieId,

@@ -4,12 +4,12 @@
  * disk space, database integrity and the bundled web UI. Exit code 1 when a check fails.
  */
 import { access, constants, mkdir, rm, statfs } from "node:fs/promises";
+import { join } from "node:path";
 import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
 import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { resolveWebDistRoot } from "@/system/web-dist.utils";
-import { joinPath } from "@/utils/path.utils";
 
 type Level = "ok" | "warn" | "fail";
 interface Check {
@@ -57,7 +57,7 @@ async function checkTool(name: string, command: string): Promise<Check> {
 }
 
 async function checkDataDirectory(): Promise<Check> {
-	const probe = joinPath(env.ROOT_DIR, `.doctor-${process.pid}`);
+	const probe = join(env.ROOT_DIR, `.doctor-${process.pid}`);
 	try {
 		await mkdir(env.ROOT_DIR, { recursive: true });
 		await Bun.write(probe, "ok");
@@ -117,7 +117,7 @@ async function checkWebUi(): Promise<Check> {
 		};
 
 	try {
-		await access(joinPath(root, "index.html"), constants.R_OK);
+		await access(join(root, "index.html"), constants.R_OK);
 
 		return { name: "web UI", level: "ok", detail: root };
 	} catch {

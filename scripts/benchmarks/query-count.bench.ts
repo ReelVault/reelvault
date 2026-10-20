@@ -28,6 +28,7 @@ const { databaseFactory } = await import("@/integrations/drizzle-orm/database.fa
 databaseFactory.enableQueryStats();
 const { librariesRepository } = await import("@/app/repositories/libraries.repository");
 const { collectionRepository } = await import("@/app/repositories/collections.repository");
+const { genreRepository } = await import("@/app/repositories/genres.repository");
 const { mediaRepository } = await import("@/app/repositories/media-files.repository");
 const { metadataRepository } = await import("@/app/repositories/metadata.repository");
 const { playbackRepository } = await import("@/app/repositories/playback.repository");
@@ -117,6 +118,13 @@ function repositoryOperationCases(): OperationCase[] {
 			name: "librariesRepository.findByIdForRead (fields=id,type)",
 			target: 1,
 			run: () => librariesRepository.findByIdForRead(LIBRARY_ID, { fields: "id,type" }),
+		},
+		{
+			// The named-entity detail read goes through the table-access by-id
+			// reader, which serves the default projection from a prepared statement.
+			name: "genreRepository.findByIdForRead (default projection)",
+			target: 1,
+			run: () => genreRepository.findByIdForRead("genre-0"),
 		},
 		{
 			// The findings statement carries the library-existence flag in its
