@@ -4,7 +4,6 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { createPageResponse } from "@/integrations/drizzle-orm/query/pagination.utils";
-import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import {
 	buildOrderBy,
 	buildWhereConditions,
@@ -13,11 +12,12 @@ import {
 	resolveSortOrder,
 } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { withTiebreaker } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
+import { selectByIdWithFields } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { isNotNullish } from "@/utils/type.utils";
 import { mapChunked } from "./chunking.utils";
-import { selectFirstWithFields, selectManyWithFields } from "./field-projection.utils";
+import { selectManyWithFields } from "./field-projection.utils";
 import { cachedCount, filterSignature } from "./row-count.cache";
 import type { SelectManyParams, TableAccess, TableAccessBase, TableSelect } from "./table-access.types";
 
@@ -77,10 +77,9 @@ export async function findById<TTable extends DatabaseTables, F extends string>(
 	repository: TableAccessBase<TTable>,
 	{ primaryId, fields, tx }: { primaryId: string; fields?: FieldsConfig<F> | undefined; tx?: DatabaseTransaction | undefined },
 ): Promise<SelectFields<TableSelect<TTable>, F> | undefined> {
-	const row = await selectFirstWithFields(repository, { where: eq(repository.primaryKeyColumn, primaryId), tx, fields });
-	if (!row) return undefined;
-
-	return applyFields(row, fields);
+	// The by-id reader serves the default projection from a prepared statement
+	// and only builds a dynamic projection when fields are asked for.
+	return await selectByIdWithFields(repository, { primaryId, fields, tx });
 }
 
 export async function findByIds<TTable extends DatabaseTables, F extends string>(

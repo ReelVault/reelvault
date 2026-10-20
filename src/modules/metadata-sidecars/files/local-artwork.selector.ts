@@ -1,5 +1,6 @@
+import { basename } from "node:path";
 import type { SidecarArtworkReference } from "@/modules/metadata-sidecars/sidecar.types";
-import { getFileName, getFileNameWithoutExt } from "@/utils/path.utils";
+import { getFileNameWithoutExt } from "@/utils/path.utils";
 import { episodeThumbFileName, TITLE_BACKDROP_NAMES, TITLE_POSTER_NAMES, UNSUPPORTED_ARTWORK_REGEX } from "./artwork.constants";
 import type { IgnoredLocalAsset } from "./local-media.utils";
 
@@ -8,7 +9,7 @@ const NUMBERED_BACKDROP_REGEX = /^backdrop\d+\.jpg$/;
 export function indexByLowerCaseName(paths: readonly string[]): Map<string, string> {
 	const map = new Map<string, string>();
 	for (const path of paths) {
-		map.set(getFileName(path).toLowerCase(), path);
+		map.set(basename(path).toLowerCase(), path);
 	}
 
 	return map;
@@ -30,7 +31,7 @@ export function selectIgnoredAssets(paths: readonly string[]): IgnoredLocalAsset
 
 /** Maps one path to the ignored-asset record when its file name is an unsupported artwork type. */
 export function toIgnoredAsset(path: string): IgnoredLocalAsset[] {
-	const fileName = getFileName(path);
+	const fileName = basename(path);
 
 	return UNSUPPORTED_ARTWORK_REGEX.test(fileName) ? [{ path, fileName, reason: "unsupported-artwork-type" as const }] : [];
 }

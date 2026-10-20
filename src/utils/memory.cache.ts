@@ -486,10 +486,19 @@ export class MemoryCache<T, K extends string = string> {
 }
 
 /**
+ * The in-flight cache surface: it coalesces concurrent loads and keeps no
+ * value, so it has no `set` — a stored value would never expire.
+ */
+export type InFlightCache<T> = Pick<MemoryCache<T>, "getOrRun" | "peekPending">;
+
+/**
  * A cache that only coalesces concurrent loads: it never keeps a value, so it
  * needs neither a TTL nor an eviction limit. `getOrRun` shares one in-flight
  * load per key; `peekPending` awaits its settlement.
+ *
+ * The returned type has no `set`: a stored value would never expire, so the
+ * cache would grow for the life of the process.
  */
-export function createInFlightCache<T>(): MemoryCache<T> {
+export function createInFlightCache<T>(): InFlightCache<T> {
 	return new MemoryCache<T>({ ttlMs: -1, maxSize: -1 });
 }

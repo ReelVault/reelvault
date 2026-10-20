@@ -1,9 +1,10 @@
+import { basename, resolve } from "node:path";
 import { sleep } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { type ScannedFileEntry, scanFiles, scanFilesWithStats } from "@/utils/directory.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { getFileName, resolvePath } from "@/utils/path.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { mapConcurrent, PromiseTimeoutError, withTimeout } from "@/utils/promise.utils";
 
 interface ScanOptions {
@@ -93,7 +94,7 @@ export class FileScannerService {
 		let processed = 0;
 		for (const entries of scanned) {
 			for (const entry of entries) {
-				const resolvedPath = resolvePath(pathOf(entry));
+				const resolvedPath = resolve(pathOf(entry));
 				if (!unique.has(resolvedPath)) unique.set(resolvedPath, withResolvedPath(entry, resolvedPath));
 				processed++;
 				if (processed % DEDUPE_YIELD_INTERVAL === 0) await sleep(0);
@@ -162,18 +163,23 @@ interface CompiledIgnorePattern {
 
 // Patterns are settings-backed and stable across a scan; compile each raw
 // pattern once instead of once per file per pattern.
-const compiledIgnorePatterns = new Map<string, CompiledIgnorePattern | null>();
 const MAX_COMPILED_IGNORE_PATTERNS = 64;
+const compiledIgnorePatterns = new MemoryCache<CompiledIgnorePattern | null>({
+	ttlMs: -1,
+	maxSize: MAX_COMPILED_IGNORE_PATTERNS,
+	name: "scan.compiled-ignore-patterns",
+});
 
 function compileIgnorePattern(pattern: string): CompiledIgnorePattern | null {
-	const cached = compiledIgnorePatterns.get(pattern);
-	if (cached !== undefined) return cached;
+	// The cache holds `null` for a pattern that compiles to nothing, so the
+	// presence check and the read are two steps.
+	if (compiledIgnorePatterns.has(pattern)) return compiledIgnorePatterns.get(pattern);
 
 	const trimmed = pattern.trim().toLowerCase();
 	let compiled: CompiledIgnorePattern | null = null;
 	if (trimmed) {
 		const escaped = trimmed
-			.replaceAll(/[\\+(){}[\]$^|.]/g, "\\$&")
+			.replaceAll(/[\\+(){}[\]$^|.]/g, String.raw`\$&`)
 			.replaceAll("*", "\u0000")
 			.replaceAll("?", "\u0001")
 			.replaceAll("\u0000", ".*")
@@ -181,7 +187,6 @@ function compileIgnorePattern(pattern: string): CompiledIgnorePattern | null {
 		compiled = { regex: new RegExp(`^${escaped}$`), pathScoped: escaped.includes("/") };
 	}
 
-	if (compiledIgnorePatterns.size >= MAX_COMPILED_IGNORE_PATTERNS) compiledIgnorePatterns.clear();
 	compiledIgnorePatterns.set(pattern, compiled);
 
 	return compiled;
@@ -191,15 +196,18 @@ function compileIgnorePattern(pattern: string): CompiledIgnorePattern | null {
  * Roots repeat across every file of a scan; normalizing the same root per file
  * is wasted string work. Bounded because roots come from config (a handful).
  */
-const normalizedRootCache = new Map<string, string>();
 const MAX_NORMALIZED_ROOTS = 32;
+const normalizedRootCache = new MemoryCache<string>({
+	ttlMs: -1,
+	maxSize: MAX_NORMALIZED_ROOTS,
+	name: "scan.normalized-roots",
+});
 
 function normalizeIgnoreRoot(rootPath: string): string {
 	const cached = normalizedRootCache.get(rootPath);
-	if (cached !== undefined) return cached;
+	if (cached !== null) return cached;
 
 	const normalized = rootPath.replaceAll("\\", "/").replace(TRAILING_SLASHES_REGEX, "").toLowerCase();
-	if (normalizedRootCache.size >= MAX_NORMALIZED_ROOTS) normalizedRootCache.clear();
 	normalizedRootCache.set(rootPath, normalized);
 
 	return normalized;
@@ -256,7 +264,7 @@ export function isIgnoredRelativePath(filePath: string): boolean {
 }
 
 function isIgnoredPath(filePath: string, rootPath: string, patterns: readonly string[]): boolean {
-	if (EXTRA_FILE_NAME_PATTERN.test(getFileName(filePath))) return true;
+	if (EXTRA_FILE_NAME_PATTERN.test(basename(filePath))) return true;
 
 	return matchesIgnorePattern(filePath, rootPath, patterns);
 }

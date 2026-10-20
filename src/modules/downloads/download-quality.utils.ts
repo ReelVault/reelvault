@@ -1,4 +1,6 @@
 import { DOWNLOAD_QUALITIES, type DownloadQuality } from "@/integrations/drizzle-orm/constants/downloads.constants";
+import { buildFitPadFilter } from "@/integrations/ffmpeg/ffmpeg.filters";
+import { buildStreamMapArgs } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { parseColonSeparatedSeconds } from "@/utils/time.utils";
 
 export const DEFAULT_DOWNLOAD_QUALITY: DownloadQuality = "720p-mobile";
@@ -43,18 +45,15 @@ export function buildDownloadOutputArgs(quality: DownloadQuality, sourceDuration
 	const spec = resolveDownloadQuality(quality);
 	if (quality === "original") {
 		// `?` keeps video-only sources downloadable — a hard `0:a:0` aborts ffmpeg.
-		return ["-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart"];
+		return [...buildStreamMapArgs({}), "-c", "copy", "-movflags", "+faststart"];
 	}
 
 	const durationGuard = sourceDurationSeconds > 0 ? ["-t", String(Math.ceil(sourceDurationSeconds))] : [];
 
 	return [
-		"-map",
-		"0:v:0",
-		"-map",
-		"0:a:0?",
+		...buildStreamMapArgs({}),
 		"-vf",
-		`scale=${spec.width}:${spec.height}:force_original_aspect_ratio=decrease,pad=${spec.width}:${spec.height}:(ow-iw)/2:(oh-ih)/2:black`,
+		buildFitPadFilter(spec.width, spec.height),
 		"-c:v",
 		"libx264",
 		"-preset",

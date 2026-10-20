@@ -1,4 +1,5 @@
 import { readdir, rmdir, truncate } from "node:fs/promises";
+import { basename, dirname, relative, resolve } from "node:path";
 import type { AdminLogFileInfo } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
@@ -7,7 +8,7 @@ import type { AdminAuditContext } from "@/app/repositories/admin-audit.repositor
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
-import { getDirName, getFileName, normalizePath, relativePath, resolvePath, resolveWithin } from "@/utils/path.utils";
+import { normalizePath, resolveWithin } from "@/utils/path.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import type { AdminLogsState } from "./shared.types";
 
@@ -42,8 +43,8 @@ export async function listLogFiles(state: AdminLogsState): Promise<AdminLogFileI
 		logger: state.logger,
 		concurrency: systemResourcesService.getIoConcurrency(),
 		onFile: (fullPath, stats) => {
-			const relPath = relativePath(logsDir, fullPath);
-			const name = getFileName(fullPath);
+			const relPath = relative(logsDir, fullPath);
+			const name = basename(fullPath);
 			const type = classifyLogType(name, relPath);
 
 			results.push({
@@ -58,7 +59,7 @@ export async function listLogFiles(state: AdminLogsState): Promise<AdminLogFileI
 	});
 
 	if (state.dependencies.logFilePath) {
-		const mainName = getFileName(state.dependencies.logFilePath);
+		const mainName = basename(state.dependencies.logFilePath);
 		if (!seenNames.has(mainName)) {
 			try {
 				const stats = await bunFile(state.dependencies.logFilePath).stat();
@@ -82,11 +83,11 @@ export async function listLogFiles(state: AdminLogsState): Promise<AdminLogFileI
 
 /** The file a log id names, confined to the logs directory. A missing id is the active log. */
 export function resolveLogFilePath(state: AdminLogsState, fileId?: string): { filePath: string; filename: string } {
-	const logsRoot = resolvePath(serverConfig.paths.logs);
+	const logsRoot = resolve(serverConfig.paths.logs);
 	// Only a missing id means the active log. A blank id ("" or whitespace) names no file and must not
 	// fall through to the active log, which deleting would truncate.
 	if (fileId === undefined) {
-		return { filePath: state.dependencies.logFilePath, filename: getFileName(state.dependencies.logFilePath) };
+		return { filePath: state.dependencies.logFilePath, filename: basename(state.dependencies.logFilePath) };
 	}
 
 	// A NUL byte never belongs in a path, and the logs root itself is a directory, not a log file.
@@ -97,7 +98,7 @@ export function resolveLogFilePath(state: AdminLogsState, fileId?: string): { fi
 		throw new DomainError("validation", "Invalid log file path", { code: "admin.log_path_invalid", params: { fileId } });
 	}
 
-	return { filePath: targetPath, filename: getFileName(targetPath) };
+	return { filePath: targetPath, filename: basename(targetPath) };
 }
 
 /**
@@ -113,15 +114,15 @@ export async function getLogFileDownloadContent(
 		if (!(await file.exists())) throw new DomainError("not_found", "Log file does not exist", { code: "admin.log_not_found" });
 
 		return { file, filename };
-	} catch {
-		throw new DomainError("not_found", `Log file not found: ${fileId ?? filename}`, { code: "logs.file_not_found" });
+	} catch (error) {
+		throw new DomainError("not_found", `Log file not found: ${fileId ?? filename}`, { cause: error, code: "logs.file_not_found" });
 	}
 }
 
 /** Removes the directory a deleted log file lived in, once it holds no file left. */
 async function removeEmptyParentDir(filePath: string): Promise<void> {
 	try {
-		const parentDir = getDirName(filePath);
+		const parentDir = dirname(filePath);
 		if (parentDir === serverConfig.paths.logs) return;
 
 		const remaining = await readdir(parentDir);
@@ -143,7 +144,8 @@ export async function deleteLogFile(state: AdminLogsState, fileId: string, conte
 			await removeEmptyParentDir(filePath);
 		}
 	} catch (error) {
-		if (isMissingFile(error)) throw new DomainError("not_found", `Log file not found: ${fileId}`, { code: "logs.file_not_found" });
+		if (isMissingFile(error))
+			throw new DomainError("not_found", `Log file not found: ${fileId}`, { cause: error, code: "logs.file_not_found" });
 		state.logger.error("Failed to delete log file", error, { fileId, filePath });
 		throw new DomainError("internal", `Log file could not be deleted: ${fileId}`, { cause: error, code: "logs.delete_failed" });
 	}

@@ -1,14 +1,15 @@
+import { join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
+import { KIB } from "@/utils/bytes.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { fileExists, readJsonFile, writeFileAtomic } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
 
 const CONFIG_FILENAME = "config.json";
-const MAX_CONFIG_BYTES = 512 * 1024;
+const MAX_CONFIG_BYTES = 512 * KIB;
 export const PLUGIN_CONFIG_UNREADABLE = "plugin.config_unreadable";
 /** Config holds API keys/tokens — owner-only, never world-readable. */
 const CONFIG_FILE_MODE = 0o600;
@@ -28,7 +29,7 @@ export class PluginConfig {
 		const { values, cause } = await this.read(pluginDir);
 		if (cause !== undefined) {
 			// A config.json that exists but is unreadable would otherwise silently reset the plugin to its defaults.
-			this.logger.warn(`Plugin config could not be read — using defaults: ${joinPath(pluginDir, CONFIG_FILENAME)}`, { error: cause });
+			this.logger.warn(`Plugin config could not be read — using defaults: ${join(pluginDir, CONFIG_FILENAME)}`, { error: cause });
 		}
 
 		return values;
@@ -40,7 +41,7 @@ export class PluginConfig {
 	}
 
 	private async read(pluginDir: string): Promise<{ values: Record<string, unknown>; code?: string; cause?: unknown }> {
-		const configPath = joinPath(pluginDir, CONFIG_FILENAME);
+		const configPath = join(pluginDir, CONFIG_FILENAME);
 		try {
 			if (!(await fileExists(configPath))) return { values: {} };
 
@@ -84,7 +85,7 @@ export class PluginConfig {
 			}
 
 			// Atomic write: a crash mid-write must not corrupt the existing config.
-			const configPath = joinPath(pluginDir, CONFIG_FILENAME);
+			const configPath = join(pluginDir, CONFIG_FILENAME);
 			await writeFileAtomic(configPath, serialized, { chmod: CONFIG_FILE_MODE });
 
 			return persistedConfig;
@@ -98,7 +99,7 @@ export class PluginConfig {
 			});
 		}
 
-		return joinPath(this.pluginsDirectory, pluginName);
+		return join(this.pluginsDirectory, pluginName);
 	}
 }
 

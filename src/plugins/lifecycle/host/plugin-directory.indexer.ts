@@ -1,7 +1,7 @@
+import { join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { loadPluginManifest } from "@/plugins/lifecycle/plugin.manifest";
 import { directoryExists, listDirectories } from "@/utils/directory.utils";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 /** `node_modules` (the SDK runtime shim) and dot-directories are never plugin packages. */
@@ -29,7 +29,7 @@ export class PluginDirectoryIndex {
 	async resolve(pluginId: string, pluginsDirectory: string): Promise<string | undefined> {
 		const indexed = this.entries.get(pluginId);
 		if (indexed) {
-			if (await directoryExists(joinPath(pluginsDirectory, indexed))) return indexed;
+			if (await directoryExists(join(pluginsDirectory, indexed))) return indexed;
 
 			this.entries.delete(pluginId);
 		}
@@ -51,7 +51,7 @@ export class PluginDirectoryIndex {
 			if (knownDirectories.has(dirName)) return;
 
 			try {
-				const manifest = await loadPluginManifest(joinPath(pluginsDirectory, dirName));
+				const manifest = await loadPluginManifest(join(pluginsDirectory, dirName));
 				this.entries.set(manifest.id, dirName);
 			} catch {
 				// Not a loadable plugin directory — ignore.

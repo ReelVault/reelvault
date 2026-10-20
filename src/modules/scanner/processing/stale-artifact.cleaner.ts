@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { PluginEventInput } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
@@ -6,7 +7,7 @@ import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { deleteFile as deletePhysicalFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { isSubpath, joinPath } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 interface ServiceDependencies {
@@ -79,7 +80,7 @@ export class StaleArtifactCleaner {
 		}
 
 		for (const id of cleanup.subtitleIds) {
-			removals.push(() => deleteFile(joinPath(subtitlesRoot, `${id}.vtt`)));
+			removals.push(() => deleteFile(join(subtitlesRoot, `${id}.vtt`)));
 		}
 
 		await mapConcurrent(removals, getIoConcurrency(), (removal) => removal(), signal);

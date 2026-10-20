@@ -1,8 +1,8 @@
+import { basename } from "node:path";
 import { ffProbeService } from "@/integrations/ffprobe/ffprobe.service";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { getFileName } from "@/utils/path.utils";
 
 export const videoParser = {
 	serviceName: "VideoParser",
@@ -10,7 +10,7 @@ export const videoParser = {
 
 	async probe(filePath: string, signal?: AbortSignal): Promise<FFProbeResult | null> {
 		throwIfAborted(signal);
-		const fileName = getFileName(filePath);
+		const fileName = basename(filePath);
 		const startedAt = performance.now();
 		videoParser.logger.debug("Probing file", { fileName });
 

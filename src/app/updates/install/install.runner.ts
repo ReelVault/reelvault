@@ -6,6 +6,7 @@ import { PENDING_DIR, STAGING_DIR, type UpdateComponent } from "@/app/updates/up
 import { updateHistoryService } from "@/app/updates/update-history.service";
 import { checksumForFile, serverAssetName, webAssetName } from "@/app/updates/update-release.utils";
 import { downloadArchive } from "@/plugins/catalog/plugin-package/download.fetcher";
+import { MIB } from "@/utils/bytes.utils";
 import { assertChecksumMatches } from "@/utils/crypto.utils";
 import { DomainError, errorCodeOf } from "@/utils/domain.errors";
 import { guardedFetch } from "@/utils/url-guard.utils";
@@ -13,7 +14,7 @@ import { applyServerUpdate, applyWebUpdate } from "./apply.service";
 import { assertNotCancelled, removeScratchDirectories, setJob, setLastError, type UpdateInstallState } from "./shared.types";
 
 /** Release archives reach ~250 MB compressed (~1 GB uncompressed with ffmpeg). */
-const MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024;
+const MAX_ARCHIVE_BYTES = 1024 * MIB;
 /** A slow line downloading the archive needs far more than the plugin default. */
 const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
 

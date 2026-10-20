@@ -1,4 +1,3 @@
-import { joinPath } from "@/utils/path.utils";
-
+import { join } from "node:path";
 /** Migration folders ship in the drizzle-orm integration (`src/integrations/drizzle-orm/migrations`). */
-export const MIGRATIONS_DIR = joinPath(import.meta.dir, "..", "migrations");
+export const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");

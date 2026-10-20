@@ -1,4 +1,4 @@
-import type { DatabaseType } from "../database.types";
+import type { DatabaseType } from "@/integrations/drizzle-orm/database.types";
 
 /** Builder methods that execute a statement — every one must run under the lock. */
 const EXECUTION_METHODS: ReadonlySet<string> = new Set(["then", "catch", "finally", "execute", "run", "all", "get"]);

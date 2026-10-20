@@ -1,10 +1,10 @@
-import { trimAndFilter, unique } from "@/utils/array.utils";
+import { splitCommaList, trimAndFilter, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { MemoryCache } from "@/utils/memory.cache";
 import { responseCacheKey } from "@/utils/response-body.cache";
 
 export function escapeRegex(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 /** Bounded cache for URL origin parsing — avoids repeated `new URL()` on every request. */
@@ -62,13 +62,17 @@ export function matchesIfNoneMatch(ifNoneMatch: string | null | undefined, etag:
  * getPathname("http://localhost:3000/v1/health?foo=bar") // "/v1/health"
  */
 export function getPathname(url: string): string {
+	return normalizeDotSegments(slicePathname(url));
+}
+
+/** The raw pathname of a URL: no query string, no dot-segment normalization. */
+function slicePathname(url: string): string {
 	const start = url.indexOf("/", 8);
 	if (start === -1) return "/";
 
 	const end = url.indexOf("?", start);
-	const raw = end === -1 ? url.slice(start) : url.slice(start, end);
 
-	return normalizeDotSegments(raw);
+	return end === -1 ? url.slice(start) : url.slice(start, end);
 }
 
 /**
@@ -94,12 +98,7 @@ export function getNormalizedPathname(request: Request): string {
  * the ones that climb out of the web root, so it must see the path as sent.
  */
 export function getRequestPathname(url: string): string {
-	const start = url.indexOf("/", 8);
-	if (start === -1) return "/";
-
-	const end = url.indexOf("?", start);
-
-	return end === -1 ? url.slice(start) : url.slice(start, end);
+	return slicePathname(url);
 }
 
 /**
@@ -165,9 +164,7 @@ export function normalizeHttpUrl(value: string): URL {
 export function parseAllowedOrigins(value?: string | string[]): string[] {
 	if (!value) return [];
 
-	const rawList = Array.isArray(value) ? value : value.split(",");
-
-	const origins = trimAndFilter(rawList);
+	const origins = Array.isArray(value) ? trimAndFilter(value) : splitCommaList(value);
 
 	return unique(origins);
 }

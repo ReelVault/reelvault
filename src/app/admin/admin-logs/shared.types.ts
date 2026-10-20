@@ -1,3 +1,4 @@
+import { MIB } from "@/utils/bytes.utils";
 import type { createLogger } from "@/utils/logger.utils";
 import type { MemoryCache } from "@/utils/memory.cache";
 
@@ -5,7 +6,7 @@ export interface AdminLogsServiceDependencies {
 	logFilePath: string;
 }
 
-export const LOG_TAIL_BYTES = 2 * 1024 * 1024;
+export const LOG_TAIL_BYTES = 2 * MIB;
 export const LOG_MAX_PARSED_LINES = 10_000;
 /** Appends beyond this many cached lines force a rebuild from the tail window. */
 export const LOG_TAIL_LINE_CAP = 40_000;

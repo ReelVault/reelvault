@@ -1,14 +1,14 @@
+import { join } from "node:path";
 import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import type { DownloadQuality } from "@/integrations/drizzle-orm/constants/downloads.constants";
+import { deleteArtifact } from "@/modules/downloads/artifacts/artifacts.service";
 import { type DownloadRecord, downloadsStorage } from "@/modules/downloads/downloads.ports";
+import { promoteQueued } from "@/modules/downloads/queue.service";
+import { type DownloadRunOptions, type DownloadsServiceState, failMissingSource, getStorageQuota } from "@/modules/downloads/shared.utils";
 import { createDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { joinPath } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
-import { deleteArtifact } from "../artifacts/artifacts.service";
-import { promoteQueued } from "../queue.service";
-import { type DownloadRunOptions, type DownloadsServiceState, failMissingSource, getStorageQuota } from "../shared.utils";
 import { runFfmpeg } from "./ffmpeg.runner";
 
 const FILE_EXTENSION_REGEX = /\.[^.]+$/;
@@ -71,9 +71,9 @@ async function loadPendingDownload(downloadId: string): Promise<PendingDownload 
 async function resolveOutputPath(downloadId: string, quality: string, sourceFileName: string): Promise<string> {
 	const baseName = mediaFileBaseName(sourceFileName);
 	const fileName = `${baseName}.${quality === "original" ? "mp4" : `${quality}.mp4`}`;
-	const outputDir = joinPath(serverConfig.paths.downloads, downloadId);
+	const outputDir = join(serverConfig.paths.downloads, downloadId);
 	await createDirectory(outputDir);
-	const outputPath = joinPath(outputDir, fileName);
+	const outputPath = join(outputDir, fileName);
 	await downloadsStorage().update(downloadId, { fileName });
 
 	return outputPath;

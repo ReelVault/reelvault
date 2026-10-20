@@ -25,8 +25,7 @@ import { refresh, refreshAll, refreshMany, update } from "./maintenance/refresh.
 import { deleteMany, deleteOne } from "./maintenance/remove.service";
 import { deleteMarkers, exportMarkers, importMarkers, setMarkers } from "./markers.service";
 import { getAll, getArtifact, getById, getPlaybackContext, listAllMarkers, listArtifacts, listMarkers } from "./queries.reader";
-import type { MediaFileScanResult } from "./scan.service";
-import { scan } from "./scan.service";
+import { type MediaFileScanResult, scan } from "./scan.service";
 import type { MediaServiceState } from "./shared.utils";
 
 class MediaService {

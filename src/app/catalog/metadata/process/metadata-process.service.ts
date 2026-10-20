@@ -1,4 +1,6 @@
 import type { MediaIdentity } from "@reelvault/sdk/common";
+import { resolveLibraryLanguage } from "@/app/catalog/metadata/providers/library-metadata-language.resolver";
+import type { CreatedProviderMetadata } from "@/app/catalog/metadata/providers/metadata-create.utils";
 import type { SidecarMetadataHint } from "@/modules/metadata-sidecars/files/local-sidecar.reader";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { throwIfAborted } from "@/utils/cancellation.utils";
@@ -6,8 +8,6 @@ import { createLogger } from "@/utils/logger.utils";
 import { createInFlightCache } from "@/utils/memory.cache";
 import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 import { enqueueImageProcessing, type ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
-import { resolveLibraryLanguage } from "../providers/library-metadata-language.resolver";
-import type { CreatedProviderMetadata } from "../providers/metadata-create.utils";
 import { processAggregatedMatch, processCreatedBase } from "./base.service";
 import { processMovieMetadata, processTVShowMetadata } from "./entries.service";
 import { createSidecarMetadata, findExistingLocalMetadata, findMetadataByIdentifiers, resolveLocalTVShow } from "./lookup.service";

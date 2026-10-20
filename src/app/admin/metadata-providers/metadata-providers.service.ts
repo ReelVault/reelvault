@@ -1,9 +1,9 @@
 import type { MetadataProviderConfiguration } from "@reelvault/sdk/common";
 import { auditedChange } from "@/app/admin/admin-audit.service";
+import type { AdminServiceState } from "@/app/admin/shared.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { DomainError } from "@/utils/domain.errors";
-import type { AdminServiceState } from "../shared.utils";
 
 export async function getMetadataProviderConfigurations(): Promise<MetadataProviderConfiguration[]> {
 	return await providerService.getConfigurations();

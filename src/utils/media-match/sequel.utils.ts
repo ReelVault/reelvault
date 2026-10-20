@@ -4,7 +4,7 @@ const SEQUEL_DIGIT_PATTERN = /\b(?:part|pt|vol|volume|chapter|czesc|faza)?\s*([1
  * Extracts a normalized sequel number from the end of a title (e.g. "iron man 3" -> "3", "dune part 2" -> "2").
  */
 export function extractSequelNumber(normalizedTitle: string): string | null {
-	return normalizedTitle.match(SEQUEL_DIGIT_PATTERN)?.[1] ?? null;
+	return SEQUEL_DIGIT_PATTERN.exec(normalizedTitle)?.[1] ?? null;
 }
 
 /**

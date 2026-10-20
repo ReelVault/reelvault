@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { isRecord } from "@/utils/type.utils";
 
@@ -101,7 +102,7 @@ async function materializePluginSdkShim(pluginsDirectory: string): Promise<boole
 	} catch (error) {
 		logger.warn("Could not create the plugin SDK shim — plugins importing the SDK by name may fail to load", {
 			shimDir,
-			error: error instanceof Error ? error.message : String(error),
+			error: errorMessage(error),
 		});
 
 		return false;

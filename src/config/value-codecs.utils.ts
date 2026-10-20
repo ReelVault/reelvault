@@ -1,4 +1,5 @@
 import { trimAndFilter } from "@/utils/array.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import { isFiniteNumber, parseBooleanToken } from "@/utils/type.utils";
 
 export interface ValueCodec<T> {
@@ -35,13 +36,9 @@ export function createValueCodecs() {
 			parse: (raw) => {
 				if (!raw) return null;
 
-				try {
-					const parsed: unknown = JSON.parse(raw);
-					if (Array.isArray(parsed)) {
-						return trimAndFilter(parsed.filter((item): item is string => typeof item === "string"));
-					}
-				} catch {
-					// Fallback for comma-separated raw strings
+				const parsed = safeParseJson(raw);
+				if (Array.isArray(parsed)) {
+					return trimAndFilter(parsed.filter((item): item is string => typeof item === "string"));
 				}
 
 				return trimAndFilter(raw.split(","));

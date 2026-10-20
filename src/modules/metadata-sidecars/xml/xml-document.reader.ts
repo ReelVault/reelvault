@@ -1,5 +1,6 @@
 import type { XMLParser } from "fast-xml-parser";
 import type { SyntaxValidator } from "fast-xml-validator";
+import { KIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { getFileSize, readFile } from "@/utils/file.utils";
 import { isRecord } from "@/utils/type.utils";
@@ -37,7 +38,7 @@ async function createXmlReaderTools(): Promise<XmlReaderTools> {
 	};
 }
 
-const BYTES_PER_MB = 1024 * 1024;
+const BYTES_PER_MB = 1024 * KIB;
 
 export const MAX_XML_DOCUMENT_BYTES = 2 * BYTES_PER_MB;
 

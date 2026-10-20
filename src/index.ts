@@ -1,5 +1,6 @@
 import cors from "@elysiajs/cors";
 import Elysia from "elysia";
+import { MIB } from "@/utils/bytes.utils";
 import { systemSettingsService } from "./app/admin/system-settings.service";
 import { firstRunSetupService } from "./app/auth/setup/first-run-setup.service";
 import { clientIpMiddleware } from "./app/http/middleware/client-ip.middleware";
@@ -42,7 +43,6 @@ import { Shutdown, setActiveShutdown } from "./system/shutdown.service";
 import { flushLogs, logger, setLogLevel } from "./utils/logger.utils";
 import { isOriginAllowed, isUsableOriginEntry } from "./utils/origin-trust.utils";
 import { loadBuiltInWorkers } from "./workers/built-in.loader";
-import { scheduledTasksService } from "./workers/scheduled-tasks.service";
 import { workerService } from "./workers/worker.service";
 
 /** Matches the leading major of FFmpeg versions like `7.0.2`, `6.1.1-3ubuntu5` or `n7.0`. */
@@ -62,6 +62,7 @@ async function setupServer(): Promise<void> {
 		logger.info("Applying database migrations...");
 		const { applied } = databaseFactory.migrate();
 		logger.info("Database migrations applied", { appliedMigrations: applied });
+
 		// Modules read their data through ports; wire them before any module runs.
 		wireModulePorts();
 		// Workers take their stores the same way, before the scheduler or any pool starts.
@@ -69,6 +70,7 @@ async function setupServer(): Promise<void> {
 		wireSystemPorts();
 		// Auth and provider sync write through app repositories, so they are wired before any user or provider write.
 		wireIntegrationPorts();
+
 		// Runs left open by the previous process: a server run that restarted into its target version succeeded.
 		await updateHistoryService.settleRunsAfterStart(SERVER_VERSION);
 
@@ -129,8 +131,6 @@ async function setupServer(): Promise<void> {
 
 		// Streaming lifecycle callbacks must be configured before any session can start.
 		registerStreamingLifecycle();
-
-		await scheduledTasksService.init();
 
 		logger.info("Initializing resource allocator...");
 		await resourceAllocator.initialize();
@@ -210,7 +210,7 @@ try {
 		{
 			port: env.APP_PORT,
 			hostname: serverConfig.network.host,
-			maxRequestBodySize: 50 * 1024 * 1024,
+			maxRequestBodySize: 50 * MIB,
 			// Bun's default (10s) kills idle sockets mid-request — the playlist endpoint
 			// legitimately blocks server-side for up to ~60s on slow storage while ffmpeg
 			// produces the first manifest, which the client saw as an empty failed response.
@@ -251,7 +251,7 @@ function isPublicBindHost(host: string): boolean {
 
 /** Unknown version strings return null — a warning would be noise. */
 function parseMajorVersion(version: string): number | null {
-	const match = version.match(FFMPEG_MAJOR_VERSION_REGEX);
+	const match = FFMPEG_MAJOR_VERSION_REGEX.exec(version);
 	if (!match?.[1]) return null;
 
 	return Number.parseInt(match[1], 10);

@@ -45,16 +45,15 @@ import {
 } from "@/app/http/schemas/common.schema";
 import { MediaFileIdParams, MetadataIdParams } from "@/app/http/schemas/route-params.schema";
 import { hydratedWatchlistPaginatedSchema, watchlistPaginatedSchema, watchlistResponseSchema } from "@/app/http/schemas/watchlist.schema";
-import { assertRouteMediaAccess } from "@/app/http/utils/access-context.utils";
+import { assertRouteMediaAccess, assertRouteMediaAccessMany, requireProfileId } from "@/app/http/utils/access-context.utils";
 import { playbackProgressService } from "@/app/playback/playback-progress.service";
 import { userRatingsService } from "@/app/users/user-ratings.service";
 import { watchedHistoryService } from "@/app/users/watched-history.service";
-import { watchlistService } from "@/app/users/watchlist.service";
-import { trimAndFilter } from "@/utils/array.utils";
+import { MAX_STATUSES_IDS, watchlistService } from "@/app/users/watchlist.service";
+import { parseIdList } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 
 /** The website checks at most this many titles per batch; a longer list is refused rather than scanned. */
-const WATCHLIST_STATUS_MAX_IDS = 500;
 
 export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playback"] })
 	.use(commonModel)
@@ -97,15 +96,19 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.guard({ auth: true, profileRequired: true })
 
 	// --- PLAYBACK & CONTINUE WATCHING ---
-	.get("/continue-watching", async ({ query, profile }) => await playbackProgressService.getContinueWatching(profile?.id, query.limit), {
-		query: t.Object({ limit: t.Optional(ClampedNumeric(1, 50)) }),
-		response: { ...ROUTE_ERRORS.AUTH, 200: ContinueWatchingResponseSchema },
-		...cached({ maxAge: 10, private: true }),
-		detail: { description: "Retrieve items to continue watching for the active profile." },
-	})
+	.get(
+		"/continue-watching",
+		async ({ query, profile }) => await playbackProgressService.getContinueWatching(requireProfileId(profile), query.limit),
+		{
+			query: t.Object({ limit: t.Optional(ClampedNumeric(1, 50)) }),
+			response: { ...ROUTE_ERRORS.AUTH, 200: ContinueWatchingResponseSchema },
+			...cached({ maxAge: 10, private: true }),
+			detail: { description: "Retrieve items to continue watching for the active profile." },
+		},
+	)
 	.delete(
 		"/continue-watching/:metadataId",
-		async ({ params, profile }) => await playbackProgressService.dismissContinueWatching(params.metadataId, profile?.id),
+		async ({ params, profile }) => await playbackProgressService.dismissContinueWatching(params.metadataId, requireProfileId(profile)),
 		{
 			params: MetadataIdParams,
 			response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
@@ -116,7 +119,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	)
 	.get(
 		"/playback-progress/:metadataId",
-		async ({ params, profile }) => await playbackProgressService.getPlaybackProgress(params.metadataId, profile?.id),
+		async ({ params, profile }) => await playbackProgressService.getPlaybackProgress(params.metadataId, requireProfileId(profile)),
 		{
 			params: MetadataIdParams,
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: MetadataPlaybackProgressSchema },
@@ -132,7 +135,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		async ({ params, body, user, profile }) => {
 			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 
-			return await playbackProgressService.updatePlaybackProgress(params.mediaFileId, body, profile?.id);
+			return await playbackProgressService.updatePlaybackProgress(params.mediaFileId, body, requireProfileId(profile));
 		},
 		{
 			params: MediaFileIdParams,
@@ -144,7 +147,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.get(
 		"/stream-prefs/:mediaFileId",
 		async ({ params, profile }) => {
-			const prefs = await playbackProgressService.getStreamPrefs(params.mediaFileId, profile?.id);
+			const prefs = await playbackProgressService.getStreamPrefs(params.mediaFileId, requireProfileId(profile));
 
 			return { audioLanguage: prefs?.audioLanguage ?? null, subtitleLanguage: prefs?.subtitleLanguage ?? null };
 		},
@@ -162,7 +165,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		async ({ params, query, user, profile }) => {
 			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 
-			return await playbackProgressService.resetPlaybackProgress(params.mediaFileId, profile?.id, query.scope);
+			return await playbackProgressService.resetPlaybackProgress(params.mediaFileId, requireProfileId(profile), query.scope);
 		},
 		{
 			params: MediaFileIdParams,
@@ -178,9 +181,9 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		"/playback-suggestions",
 		async ({ query, profile }) => {
 			// The detail promises up to 50 ids; trim before the batch lookup.
-			const ids = trimAndFilter(query.metadataIds.split(",")).slice(0, 50);
+			const ids = parseIdList(query.metadataIds).slice(0, 50);
 
-			return await playbackProgressService.getSmartPlayBatch(ids, profile?.id);
+			return await playbackProgressService.getSmartPlayBatch(ids, requireProfileId(profile));
 		},
 		{
 			query: t.Object({ metadataIds: t.String({ maxLength: 2000 }) }),
@@ -190,7 +193,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	)
 	.get(
 		"/playback-suggestions/:metadataId",
-		async ({ params, profile }) => await playbackProgressService.getSmartPlay(params.metadataId, profile?.id),
+		async ({ params, profile }) => await playbackProgressService.getSmartPlay(params.metadataId, requireProfileId(profile)),
 		{
 			params: MetadataIdParams,
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: SmartPlayResponseSchema },
@@ -199,7 +202,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	)
 
 	// --- WATCHLIST ---
-	.get("/watchlist", async ({ query, profile }) => await watchlistService.getAll(query, profile?.id), {
+	.get("/watchlist", async ({ query, profile }) => await watchlistService.getAll(query, requireProfileId(profile)), {
 		query: t.Composite([
 			PaginationSchema,
 			FieldsSchema,
@@ -217,52 +220,60 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 				"Retrieve watchlist items for the active profile. With hydrate=true every item embeds its full metadata card (single-request hydration); `fields` is ignored in that mode.",
 		},
 	})
-	.post("/watchlist", async ({ body, profile }) => await watchlistService.add(body.metadataId, profile?.id), {
+	.post("/watchlist", async ({ body, profile }) => await watchlistService.add(body.metadataId, requireProfileId(profile)), {
 		body: t.Object({ metadataId: t.String() }),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
 		detail: { description: "Add a title to the watchlist." },
 	})
-	.delete("/watchlist", async ({ profile }) => await watchlistService.clear(profile?.id), {
+	.delete("/watchlist", async ({ profile }) => await watchlistService.clear(requireProfileId(profile)), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.clear.response" },
 		detail: { description: "Remove every title from the watchlist of the active profile." },
 	})
-	.delete("/watchlist/:metadataId", async ({ params, profile }) => await watchlistService.remove(params.metadataId, profile?.id), {
-		params: MetadataIdParams,
-		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
-		detail: { description: "Remove a title from the watchlist." },
-	})
+	.delete(
+		"/watchlist/:metadataId",
+		async ({ params, profile }) => await watchlistService.remove(params.metadataId, requireProfileId(profile)),
+		{
+			params: MetadataIdParams,
+			response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
+			detail: { description: "Remove a title from the watchlist." },
+		},
+	)
 	// Static segment BEFORE :metadataId (the router must prefer "statuses" over the param).
 	.get(
 		"/watchlist/statuses",
 		async ({ query, profile }) => {
-			const metadataIds = trimAndFilter(query.ids.split(","));
-			if (metadataIds.length > WATCHLIST_STATUS_MAX_IDS) {
+			const metadataIds = parseIdList(query.ids);
+			if (metadataIds.length > MAX_STATUSES_IDS) {
 				throw new DomainError("validation", "Too many titles in one status request", {
 					code: "watchlist.statuses_too_many",
-					params: { limit: WATCHLIST_STATUS_MAX_IDS },
+					params: { limit: MAX_STATUSES_IDS },
 				});
 			}
 
-			return await watchlistService.getStatuses(metadataIds, profile?.id);
+			return await watchlistService.getStatuses(metadataIds, requireProfileId(profile));
 		},
 		{
-			query: t.Object({ ids: t.String({ maxLength: WATCHLIST_STATUS_MAX_IDS * 80 }) }),
+			query: t.Object({ ids: t.String({ maxLength: MAX_STATUSES_IDS * 80 }) }),
 			response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.statuses.response" },
 			...cached({ maxAge: 10, private: true }),
 			detail: { description: "Batch check which titles are in the watchlist for the active profile." },
 		},
 	)
-	.get("/watchlist/:metadataId", async ({ params, profile }) => await watchlistService.isWatchlisted(params.metadataId, profile?.id), {
-		params: MetadataIdParams,
-		response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.status.response" },
-		detail: { description: "Check if a title is in the watchlist." },
-	})
-	.post("/watchlist/bulk", async ({ body, profile }) => await watchlistService.bulkUpdate(body, profile?.id), {
+	.get(
+		"/watchlist/:metadataId",
+		async ({ params, profile }) => await watchlistService.isWatchlisted(params.metadataId, requireProfileId(profile)),
+		{
+			params: MetadataIdParams,
+			response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchlist.status.response" },
+			detail: { description: "Check if a title is in the watchlist." },
+		},
+	)
+	.post("/watchlist/bulk", async ({ body, profile }) => await watchlistService.bulkUpdate(body, requireProfileId(profile)), {
 		body: "me.watchlist.bulk.body",
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "me.watchlist.bulk.response" },
 		detail: { description: "Add and remove several titles of the active profile in one request (up to 500 of each)." },
 	})
-	.post("/watchlist/toggle", async ({ body, profile }) => await watchlistService.toggle(body, profile?.id), {
+	.post("/watchlist/toggle", async ({ body, profile }) => await watchlistService.toggle(body, requireProfileId(profile)), {
 		body: "me.watchlist.toggle.body",
 		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "me.watchlist.toggle.response" },
 		detail: { description: "Toggle an item in the watchlist for the active profile." },
@@ -271,11 +282,9 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.post(
 		"/watch-state/bulk",
 		async ({ body, user, profile }) => {
-			for (const mediaFileId of new Set(body.mediaFileIds)) {
-				await assertRouteMediaAccess({ user, profile }, mediaFileId);
-			}
+			await assertRouteMediaAccessMany({ user, profile }, body.mediaFileIds);
 
-			return await playbackProgressService.setWatchStateBulk(body, profile?.id);
+			return await playbackProgressService.setWatchStateBulk(body, requireProfileId(profile));
 		},
 		{
 			body: WatchStateBulkSchema,
@@ -288,29 +297,33 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	)
 
 	// --- WATCHED HISTORY ---
-	.get("/watched-history", async ({ query, profile }) => await watchedHistoryService.getAll(query, profile?.id), {
+	.get("/watched-history", async ({ query, profile }) => await watchedHistoryService.getAll(query, requireProfileId(profile)), {
 		query: t.Composite([CursorPaginationSchema, WatchedHistorySortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchedHistory.paginated.schema" },
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve watched history for the active profile." },
 	})
-	.post("/watched-history", async ({ body, profile }) => await watchedHistoryService.sync(body, profile?.id), {
+	.post("/watched-history", async ({ body, profile }) => await watchedHistoryService.sync(body, requireProfileId(profile)), {
 		body: "me.watchedHistory.sync.body",
 		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
 		detail: { description: "Log a watched history entry for the active profile." },
 	})
-	.get("/watched-history/insights", async ({ query, profile }) => await watchedHistoryService.getInsights(query.range, profile?.id), {
-		query: t.Object({ range: InsightsRangeSchema }),
-		response: { ...ROUTE_ERRORS.AUTH, 200: ProfileInsightsSchema },
-		...cached({ maxAge: 30, private: true }),
-		detail: { description: "Aggregate profile viewing activity insights." },
-	})
+	.get(
+		"/watched-history/insights",
+		async ({ query, profile }) => await watchedHistoryService.getInsights(query.range, requireProfileId(profile)),
+		{
+			query: t.Object({ range: InsightsRangeSchema }),
+			response: { ...ROUTE_ERRORS.AUTH, 200: ProfileInsightsSchema },
+			...cached({ maxAge: 30, private: true }),
+			detail: { description: "Aggregate profile viewing activity insights." },
+		},
+	)
 	.get(
 		"/watched-history/wrapped",
 		async ({ query, profile }) => {
 			const targetYear = query.year ?? new Date().getFullYear();
 
-			return await watchedHistoryService.getWrapped(targetYear, profile?.id);
+			return await watchedHistoryService.getWrapped(targetYear, requireProfileId(profile));
 		},
 		{
 			query: t.Object({ year: t.Optional(t.Numeric({ minimum: 2000, maximum: 2100 })) }),
@@ -321,32 +334,36 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	)
 	.get(
 		"/watched-history/:metadataId/watched",
-		async ({ params, profile }) => await watchedHistoryService.isWatched(params.metadataId, profile?.id),
+		async ({ params, profile }) => await watchedHistoryService.isWatched(params.metadataId, requireProfileId(profile)),
 		{
 			params: MetadataIdParams,
 			response: { ...ROUTE_ERRORS.AUTH, 200: "me.watchedHistory.isWatched.response" },
 			detail: { description: "Check if a metadata item has been watched." },
 		},
 	)
-	.delete("/watched-history", async ({ profile }) => await watchedHistoryService.clear(profile?.id), {
+	.delete("/watched-history", async ({ profile }) => await watchedHistoryService.clear(requireProfileId(profile)), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
 		detail: { description: "Clear all watched history for the active profile." },
 	})
 
 	// --- USER RATINGS ---
-	.get("/ratings", async ({ query, profile }) => await userRatingsService.getRatings(query, profile?.id), {
+	.get("/ratings", async ({ query, profile }) => await userRatingsService.getRatings(query, requireProfileId(profile)), {
 		query: t.Composite([PaginationSchema, FieldsSchema, UserRatingFiltersSchema, UserRatingSortingSchema]),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.userRatings.paginated.schema" },
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve all user ratings for the active profile." },
 	})
-	.post("/ratings", async ({ body, profile }) => await userRatingsService.rate(body, profile?.id), {
+	.post("/ratings", async ({ body, profile }) => await userRatingsService.rate(body, requireProfileId(profile)), {
 		body: "me.userRating.create.body",
 		response: { ...ROUTE_ERRORS.VALIDATED, 201: "me.userRating.schema" },
 		detail: { description: "Rate a title for the active profile." },
 	})
-	.delete("/ratings/:metadataId", async ({ params, profile }) => await userRatingsService.delete(params.metadataId, profile?.id), {
-		params: MetadataIdParams,
-		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
-		detail: { description: "Remove a rating for the active profile." },
-	});
+	.delete(
+		"/ratings/:metadataId",
+		async ({ params, profile }) => await userRatingsService.delete(params.metadataId, requireProfileId(profile)),
+		{
+			params: MetadataIdParams,
+			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "success.response" },
+			detail: { description: "Remove a rating for the active profile." },
+		},
+	);

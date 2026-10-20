@@ -1,16 +1,36 @@
+import { join } from "node:path";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
-import { joinPath, normalizePath } from "@/utils/path.utils";
+import { normalizePath } from "@/utils/path.utils";
+
+/** Which streams a command takes from the source. */
+export interface StreamMapOptions {
+	/** The audio stream index, or undefined for the first audio stream. */
+	audioStreamIndex?: number | undefined;
+	/** Drop the source subtitle streams (`-map -0:s`). */
+	dropSubtitles?: boolean | undefined;
+}
 
 /**
- * `-map` args selecting the video stream and the (possibly remapped) audio stream.
+ * `-map` args selecting the video stream and the (possibly remapped) audio
+ * stream.
  */
-export function buildStreamMapArgs(decision: PlaybackDecision): string[] {
+export function buildStreamMapArgs(options: StreamMapOptions): string[] {
 	// `0:a:0?` — the trailing `?` keeps silent files playable: a hard `0:a:0`
 	// makes ffmpeg abort with "matches no streams" for video-only sources.
-	const audioSelector = decision.audioStreamIndex === undefined ? "0:a:0?" : `0:${decision.audioStreamIndex}?`;
+	const audioSelector = options.audioStreamIndex === undefined ? "0:a:0?" : `0:${options.audioStreamIndex}?`;
+	const args = ["-map", "0:v:0", "-map", audioSelector];
+	if (options.dropSubtitles) args.push("-map", "-0:s");
 
-	return ["-map", "0:v:0", "-map", audioSelector, "-map", "-0:s"];
+	return args;
+}
+
+/**
+ * `-map` args for a playback decision: the chosen audio stream, without the
+ * source subtitles.
+ */
+export function buildDecisionStreamMapArgs(decision: PlaybackDecision): string[] {
+	return buildStreamMapArgs({ audioStreamIndex: decision.audioStreamIndex, dropSubtitles: true });
 }
 
 /** Strip source metadata and chapters — neither is meaningful for an HLS stream. */
@@ -28,7 +48,7 @@ export function buildMetadataStripArgs(): string[] {
  * on every platform.
  */
 export function buildHlsOutputPath(outputDir: string, fileName: string): string {
-	return normalizePath(joinPath(outputDir, fileName));
+	return normalizePath(join(outputDir, fileName));
 }
 
 /**

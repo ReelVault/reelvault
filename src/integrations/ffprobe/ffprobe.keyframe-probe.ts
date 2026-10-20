@@ -1,4 +1,4 @@
-import { fileStatSignature, getFileStats } from "@/utils/file.utils";
+import { fileVersionSignature } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { ffProbeService } from "./ffprobe.service";
 import type { FFProbePacket } from "./ffprobe.types";
@@ -38,8 +38,7 @@ export async function findKeyframeBefore(filePath: string, target: number, signa
 	// The file's (size, mtime) signature keeps a replaced file from serving the
 	// previous content's keyframe buckets for the whole TTL. Keyed by the exact
 	// target: a bucket-level key can hand a later keyframe to an earlier request.
-	const stats = await getFileStats(filePath);
-	const signature = stats ? fileStatSignature(stats) : "0";
+	const signature = await fileVersionSignature(filePath);
 	const cacheKey = `${filePath}:${signature}:${target}`;
 	const cached = await keyframeCache.getOrSet(cacheKey, async () => {
 		try {

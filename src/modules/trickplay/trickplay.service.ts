@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { type BunFile, file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/config/server/server.constants";
@@ -11,7 +12,6 @@ import { createDirectory, deleteDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 const CONTENT_TYPE_WEBP = "image/webp";
@@ -143,7 +143,7 @@ class TrickplayService {
 			Math.round(((index + 0.5) * durationSeconds * 1000) / frameCount),
 		);
 
-		const tempDir = joinPath(serverConfig.paths.transcodeTmp, `trickplay_${mediaFileId}_${crypto.randomUUID()}`);
+		const tempDir = join(serverConfig.paths.transcodeTmp, `trickplay_${mediaFileId}_${crypto.randomUUID()}`);
 		if (!(await createDirectory(tempDir))) {
 			// create() logs the underlying fs error and returns false — fail with the
 			// actual cause instead of later reporting an empty sprite.
@@ -275,7 +275,7 @@ class TrickplayService {
 		signal: AbortSignal,
 	): Promise<{ file: BunFile; tileCount: number }> {
 		const { layout } = job;
-		const spritePath = joinPath(job.tempDir, `sprite_${spriteIndex}.webp`);
+		const spritePath = join(job.tempDir, `sprite_${spriteIndex}.webp`);
 		const command = buildSpriteExtractionCommand(
 			job.filePath,
 			{

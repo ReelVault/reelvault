@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type {
 	ExtractedFrame,
 	ExtractedSprite,
@@ -24,7 +25,6 @@ import { DomainError } from "@/utils/domain.errors";
 import { deleteFile, fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
-import { joinPath } from "@/utils/path.utils";
 import { createSemaphore, mapConcurrent } from "@/utils/promise.utils";
 import { hardenAnalyseArgs, processFailureDetail } from "./ffmpeg/analyse-args.hardener";
 import { assertFrameExtractionRequest, assertSpriteExtractionRequest, contentTypeFor } from "./ffmpeg/request-validation.guard";
@@ -84,7 +84,7 @@ class PluginFfmpegService {
 		const tempDir = serverConfig.paths.transcodeTmp;
 		await createDirectory(tempDir);
 		const format = request.format ?? "webp";
-		const tempFilePath = joinPath(tempDir, `frame_${crypto.randomUUID()}.${format}`);
+		const tempFilePath = join(tempDir, `frame_${crypto.randomUUID()}.${format}`);
 		const hwDecodeArgs = hardwareDecodeArgs(getEffectiveHwaccel());
 
 		try {
@@ -127,12 +127,12 @@ class PluginFfmpegService {
 		await createDirectory(tempBaseDir);
 
 		const buildId = crypto.randomUUID();
-		const framesDir = joinPath(tempBaseDir, `sprite_frames_${buildId}`);
+		const framesDir = join(tempBaseDir, `sprite_frames_${buildId}`);
 		await createDirectory(framesDir);
 
 		const format = request.format ?? "webp";
 		const ext = format === "webp" ? "webp" : "jpg";
-		const spriteOutputPath = joinPath(tempBaseDir, `sprite_${buildId}.${ext}`);
+		const spriteOutputPath = join(tempBaseDir, `sprite_${buildId}.${ext}`);
 		const hwaccel = getEffectiveHwaccel();
 		const hwDecodeArgs = hardwareDecodeArgs(hwaccel);
 		if (hwDecodeArgs.length > 0) {
@@ -155,7 +155,7 @@ class PluginFfmpegService {
 	): Promise<void> {
 		await mapConcurrent(request.timeMs, systemResourcesService.getHeavySubprocessConcurrency(), async (timeMs, index) => {
 			const paddedIndex = String(index).padStart(4, "0");
-			const framePath = joinPath(framesDir, `frame_${paddedIndex}.${ext}`);
+			const framePath = join(framesDir, `frame_${paddedIndex}.${ext}`);
 			const frameInput = {
 				inputPath: filePath,
 				timeMs,
@@ -194,7 +194,7 @@ class PluginFfmpegService {
 	): Promise<{ columns: number; rows: number }> {
 		const columns = Math.min(request.columns, request.timeMs.length);
 		const rows = Math.ceil(request.timeMs.length / columns);
-		const framesPattern = joinPath(framesDir, `frame_%04d.${ext}`);
+		const framesPattern = join(framesDir, `frame_%04d.${ext}`);
 		const tileCmd = buildSpriteTileCommand(framesPattern, columns, rows, format, spriteOutputPath);
 
 		const { exitCode: tileExitCode, stderr: tileStderr } = await ffMpegService.runToCompletion(tileCmd, {

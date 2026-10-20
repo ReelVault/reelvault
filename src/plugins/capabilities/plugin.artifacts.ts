@@ -1,6 +1,7 @@
 import type { PlaybackArtifact, PlaybackArtifactWrite } from "@reelvault/sdk/common";
 import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
 import { serverConfig } from "@/config/server/server.config";
+import { MIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 
@@ -37,7 +38,7 @@ class PluginArtifactsService {
 		if (totalBytes > maxTotalBytes) {
 			throw new DomainError(
 				"validation",
-				`Plugin '${pluginId}' artifact storage must not exceed ${(maxTotalBytes / 1024 / 1024).toFixed(0)} MB (${maxTotalBytes} bytes).`,
+				`Plugin '${pluginId}' artifact storage must not exceed ${(maxTotalBytes / MIB).toFixed(0)} MB (${maxTotalBytes} bytes).`,
 				{ code: "plugin.artifact.quota_exceeded" },
 			);
 		}

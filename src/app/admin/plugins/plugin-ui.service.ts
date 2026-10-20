@@ -1,8 +1,8 @@
 import type { PluginUiSettings, UpdatePluginUiSettingsBody } from "@reelvault/sdk/common";
 import { auditedChange } from "@/app/admin/admin-audit.service";
+import type { AdminServiceState } from "@/app/admin/shared.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
-import type { AdminServiceState } from "../shared.utils";
 
 /** Compact audit view of a plugin's UI switches: master flag plus the hidden keys. */
 function summarizeUiSettings(settings: PluginUiSettings): { enabled: boolean; disabledKeys: string[] } {

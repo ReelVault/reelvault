@@ -1,10 +1,10 @@
 import type { PluginConfigDetails, PluginConfigExport } from "@reelvault/sdk/common";
 import { auditedChange } from "@/app/admin/admin-audit.service";
+import type { AdminServiceState } from "@/app/admin/shared.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import type { AdminServiceState } from "../shared.utils";
 
 export async function getPluginConfig(state: AdminServiceState, pluginId: string): Promise<PluginConfigDetails> {
 	return await runSafely(state, "pluginConfig", () => pluginManager.getPluginConfigDetails(pluginId));

@@ -1,14 +1,15 @@
+import { basename, dirname, join, resolve } from "node:path";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import type { SidecarArtworkReference } from "@/modules/metadata-sidecars/sidecar.types";
 import { extractSeasonEpisode } from "@/modules/recognition/utils/recognition.utils";
+import { listDirectoryEntriesCached } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { getDirName, getFileName, getFileNameWithoutExt, isSubpath, isVideoFile, joinPath, resolvePath } from "@/utils/path.utils";
+import { getFileNameWithoutExt, isSubpath, isVideoFile } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import { indexByLowerCaseName, selectEpisodeThumbnail, selectIgnoredAssets, selectMovieArtwork } from "./local-artwork.selector";
-import { listDirectoryEntries } from "./local-directory.listing";
 import type { LocalEpisodeFile, LocalMovieFolder, LocalSeasonGroup, LocalSeriesGroup } from "./local-media.utils";
 import { readSeasonNumber } from "./local-season.utils";
 
@@ -28,7 +29,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 	async inspectMovie(videoPath: string): Promise<LocalMovieFolder> {
 		this.assertWithinRoot(videoPath);
-		const movieDirectory = getDirName(videoPath);
+		const movieDirectory = dirname(videoPath);
 		const files = await readFiles(movieDirectory);
 		const index = indexByLowerCaseName(files);
 
@@ -43,8 +44,8 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 	async inspectSeries(seriesPath: string): Promise<LocalSeriesGroup> {
 		this.assertWithinRoot(seriesPath);
-		const seriesDirectory = resolvePath(seriesPath);
-		const entries = await listDirectoryEntries(seriesDirectory);
+		const seriesDirectory = resolve(seriesPath);
+		const entries = await listDirectoryEntriesCached(seriesDirectory);
 		if (!entries) {
 			// An unreadable series directory (EACCES on a NAS mount) must be
 			// distinguishable from an empty one — otherwise sidecar metadata
@@ -61,7 +62,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 		const files: string[] = [];
 		const directories: string[] = [];
 		for (const e of entries) {
-			const fullPath = joinPath(seriesDirectory, e.name);
+			const fullPath = join(seriesDirectory, e.name);
 			if (e.isFile) files.push(fullPath);
 			else if (e.isDirectory) directories.push(fullPath);
 		}
@@ -82,7 +83,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 	}
 
 	private async inspectSeason(directory: string): Promise<LocalSeasonGroup | null> {
-		const seasonNumber = readSeasonNumber(getFileName(directory));
+		const seasonNumber = readSeasonNumber(basename(directory));
 		if (seasonNumber === undefined) return null;
 
 		const files = await readFiles(directory);
@@ -102,7 +103,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 	private assertWithinRoot(path: string): void {
 		if (!isSubpath(path, this.libraryRoot)) {
-			throw new DomainError("validation", `Sidecar path must be inside configured library root: ${resolvePath(path)}`, {
+			throw new DomainError("validation", `Sidecar path must be inside configured library root: ${resolve(path)}`, {
 				code: "sidecar.path_outside_library",
 			});
 		}
@@ -110,7 +111,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 }
 
 async function readFiles(directory: string): Promise<string[]> {
-	const entries = await listDirectoryEntries(directory);
+	const entries = await listDirectoryEntriesCached(directory);
 	if (!entries) {
 		logger.warn("Directory unreadable — treated as empty", { directory });
 
@@ -119,7 +120,7 @@ async function readFiles(directory: string): Promise<string[]> {
 
 	const result: string[] = [];
 	for (const entry of entries) {
-		if (entry.isFile) result.push(joinPath(directory, entry.name));
+		if (entry.isFile) result.push(join(directory, entry.name));
 	}
 
 	return result;

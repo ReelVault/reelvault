@@ -1,12 +1,13 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MIB } from "@/utils/bytes.utils";
 import { removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createTarStreamExtractor } from "./tar.extractor";
 import { createZipEntryHandler } from "./zip.extractor";
 
-const DEFAULT_MAX_UNCOMPRESSED_BYTES = 512 * 1024 * 1024;
+const DEFAULT_MAX_UNCOMPRESSED_BYTES = 512 * MIB;
 const PLUGIN_ROOT_SEARCH_DEPTH = 3;
 
 interface ExtractedPackage {

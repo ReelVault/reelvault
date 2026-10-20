@@ -1,13 +1,14 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MIB } from "@/utils/bytes.utils";
 import { createHash } from "@/utils/crypto.utils";
 import { removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { consumeStreamBounded } from "@/utils/file.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
 
-const DEFAULT_MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+const DEFAULT_MAX_DOWNLOAD_BYTES = 200 * MIB;
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 interface DownloadedArchive {
@@ -67,7 +68,7 @@ async function requestArchive(url: string, options: DownloadArchiveOptions): Pro
 		});
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : "unknown error";
-		throw new DomainError("validation", `Failed to download plugin package: ${reason}`, { code: "plugin.download_failed" });
+		throw new DomainError("validation", `Failed to download plugin package: ${reason}`, { cause: error, code: "plugin.download_failed" });
 	}
 
 	if (!response.ok)

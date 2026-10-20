@@ -1,7 +1,7 @@
 import type { Subprocess } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { getEffectiveHwaccel, resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import { buildHlsMuxerArgs, buildMetadataStripArgs, buildStreamMapArgs } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
+import { buildDecisionStreamMapArgs, buildHlsMuxerArgs, buildMetadataStripArgs } from "@/integrations/ffmpeg/ffmpeg.hls-muxer";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { resolveStreamingThreads } from "@/integrations/ffmpeg/ffmpeg.threads";
 import { buildHwaccelInputArgs, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
@@ -47,7 +47,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 				...buildMetadataStripArgs(),
 				...buildTranscodeVideoArgs(decision, this.config, hw, toneMap),
 				...buildTranscodeAudioArgs(decision),
-				...buildStreamMapArgs(decision),
+				...buildDecisionStreamMapArgs(decision),
 				...buildHlsMuxerArgs(this.config, startNumber, segmentPattern),
 			];
 

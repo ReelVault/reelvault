@@ -6,6 +6,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { getMemoryInfo } from "@/system/resource-allocator/host-metrics.reader";
 import { resourceAllocator } from "@/system/resource-allocator.service";
+import { MIB } from "@/utils/bytes.utils";
 import { errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
@@ -96,8 +97,8 @@ class HealthService {
 
 		try {
 			const stats = await statfs(serverConfig.paths.transcodes);
-			const totalGb = (stats.blocks * stats.bsize) / (1024 * 1024 * 1024);
-			const freeGb = (stats.bavail * stats.bsize) / (1024 * 1024 * 1024);
+			const totalGb = (stats.blocks * stats.bsize) / (1024 * MIB);
+			const freeGb = (stats.bavail * stats.bsize) / (1024 * MIB);
 			const usedPercent = Math.round(((totalGb - freeGb) / totalGb) * 100);
 
 			return resourceStatusFromUsage("disk", usedPercent, `${freeGb.toFixed(1)} GB free`);

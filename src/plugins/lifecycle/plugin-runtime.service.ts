@@ -1,8 +1,8 @@
 import { copyFile, link, mkdir, readdir, realpath } from "node:fs/promises";
+import { join } from "node:path";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { removeTree } from "@/utils/directory.utils";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 /**
@@ -25,7 +25,7 @@ interface MirrorPlan {
 }
 
 export function pluginRuntimeRoot(pluginsDirectory: string): string {
-	return joinPath(pluginsDirectory, RUNTIME_DIRECTORY_NAME);
+	return join(pluginsDirectory, RUNTIME_DIRECTORY_NAME);
 }
 
 /** Wipes every materialised runtime. Called on boot before the first load. */
@@ -35,7 +35,7 @@ export async function clearPluginRuntimes(runtimeRoot: string): Promise<void> {
 
 /** Creates a unique path that imports a fresh module graph for `pluginDir`. */
 export async function materializePluginRuntime(pluginDir: string, runtimeRoot: string): Promise<string> {
-	const runtimeDir = joinPath(runtimeRoot, crypto.randomUUID());
+	const runtimeDir = join(runtimeRoot, crypto.randomUUID());
 	const plan: MirrorPlan = { directories: [], files: [] };
 	await collectMirrorPlan(pluginDir, runtimeDir, new Set(), plan);
 
@@ -62,8 +62,8 @@ async function collectMirrorPlan(source: string, destination: string, visitedRea
 	for (const entry of entries) {
 		if (SKIPPED_DIRECTORY_NAMES.has(entry.name)) continue;
 
-		const from = joinPath(source, entry.name);
-		const to = joinPath(destination, entry.name);
+		const from = join(source, entry.name);
+		const to = join(destination, entry.name);
 
 		if (entry.isDirectory()) {
 			await collectMirrorPlan(from, to, visitedRealPaths, plan);

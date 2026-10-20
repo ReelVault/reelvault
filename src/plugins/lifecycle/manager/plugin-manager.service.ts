@@ -11,8 +11,7 @@ import { getPluginConfigDetails, loadStoredConfig, writePluginConfig } from "./c
 import { loadPlugin, reloadAllPlugins, reloadPlugin, setPluginEnabled, uninstallPlugin, unloadPlugin } from "./lifecycle.service";
 import { getPackageDetails, type PluginPackageDetails } from "./package.reader";
 import { loadInstalledPlugins } from "./startup.service";
-import type { PluginManagerState } from "./state.utils";
-import { runLifecycle } from "./state.utils";
+import { type PluginManagerState, runLifecycle } from "./state.utils";
 import { getStatus } from "./status.reader";
 import { installFromDirectory } from "./upgrade.service";
 

@@ -1,9 +1,7 @@
-import { MINUTE } from "@/config/server/server.constants";
 import { CooldownMap } from "@/modules/streaming/utils/cooldown.utils";
 import { DomainError } from "@/utils/domain.errors";
 
 const DEFAULT_COOLDOWN_MS = 500;
-const SWEEP_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_ENTRIES = 1_000;
 
 interface GuardOptions {
@@ -16,7 +14,6 @@ export class SessionCreationGuard {
 	private readonly cooldownMs: number;
 	private readonly now: () => number;
 	private readonly cooldowns: CooldownMap;
-	private lastSweepTime = 0;
 
 	constructor(options: GuardOptions = {}) {
 		this.cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS;
@@ -35,12 +32,6 @@ export class SessionCreationGuard {
 					params: { retryAfterSeconds: Math.max(1, Math.ceil(check.retryAfterMs / 1000)) },
 				},
 			);
-		}
-
-		const now = this.now();
-		if (now - this.lastSweepTime > SWEEP_INTERVAL_MS) {
-			this.lastSweepTime = now;
-			this.cooldowns.pruneOlderThan(MINUTE);
 		}
 	}
 }

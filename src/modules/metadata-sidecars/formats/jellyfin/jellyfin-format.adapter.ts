@@ -1,8 +1,8 @@
+import { basename } from "node:path";
 import type { SidecarFormatAdapter } from "@/modules/metadata-sidecars/formats/sidecar-format.adapter";
 import type { SidecarFormatInput } from "@/modules/metadata-sidecars/sidecar.types";
+import { loadXmlDocumentFile } from "@/modules/metadata-sidecars/xml/xml-document.reader";
 import { readFile } from "@/utils/file.utils";
-import { getFileName } from "@/utils/path.utils";
-import { loadXmlDocumentFile } from "../../xml/xml-document.reader";
 import { readJellyfinEpisodeDocument } from "./jellyfin-episode-document.reader";
 import { readJellyfinMovieDocument } from "./jellyfin-movie-document.reader";
 import { readJellyfinSeasonDocument } from "./jellyfin-season-document.reader";
@@ -13,7 +13,7 @@ export class JellyfinFormatAdapter implements SidecarFormatAdapter {
 	readonly capabilities = ["read"] as const;
 
 	canRead({ documentPath }: SidecarFormatInput): Promise<boolean> {
-		const fileName = getFileName(documentPath).toLowerCase();
+		const fileName = basename(documentPath).toLowerCase();
 
 		// The app's own snapshots also end in `.nfo` — they must never be claimed
 		// by the Jellyfin reader, or a registry-order change would break them.

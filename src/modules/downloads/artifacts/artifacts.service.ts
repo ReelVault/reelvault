@@ -1,11 +1,11 @@
 import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import type { DownloadRecord } from "@/modules/downloads/downloads.ports";
-import { joinPath } from "@/utils/path.utils";
 
 function artifactPath(downloadId: string, fileName: string): string {
-	return joinPath(serverConfig.paths.downloads, downloadId, fileName);
+	return join(serverConfig.paths.downloads, downloadId, fileName);
 }
 
 /** Completed download as a file handle — never exposes the storage path. */

@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { type SchemaOptions, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { errorMessage } from "@/utils/domain.errors";
 
 const DEFAULT_ROOT_DIR = "../data";
 const DEFAULT_APP_PORT = 3030;
@@ -113,7 +114,7 @@ if (process.env.NODE_ENV === "test") {
 		bootstrapPersistedSecrets();
 	} catch (error) {
 		console.error(
-			`Cannot use the data directory (ROOT_DIR=${resolveRootDir()}): ${error instanceof Error ? error.message : String(error)}\n` +
+			`Cannot use the data directory (ROOT_DIR=${resolveRootDir()}): ${errorMessage(error)}\n` +
 				"Point ROOT_DIR at a writable directory or fix its permissions, then start the server again.",
 		);
 		process.exit(1);

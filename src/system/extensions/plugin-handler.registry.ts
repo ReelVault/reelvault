@@ -28,6 +28,11 @@ export class PluginHandlerTable<THandler> {
 	}
 
 	all(): THandler[] {
-		return [...this.handlersByPlugin.values()].flatMap((set) => [...set]);
+		const handlers: THandler[] = [];
+		for (const set of this.handlersByPlugin.values()) {
+			for (const handler of set) handlers.push(handler);
+		}
+
+		return handlers;
 	}
 }

@@ -2,16 +2,16 @@ import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { type SpawnCollectOptions, type SpawnCollectResult, spawnAndCollect } from "@/integrations/ffmpeg/ffmpeg.process-runner";
 import { DomainError } from "@/utils/domain.errors";
-import { fileStatSignature, getFileStats } from "@/utils/file.utils";
+import { fileVersionSignature } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { createSemaphore } from "@/utils/promise.utils";
+import { createSemaphore, raceWithAbort } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import type { FFProbePacket, FFProbeResult } from "./ffprobe.types";
 
 // Full FFProbeResult rows are 5-50 KB — size scales with installed RAM.
 const ffprobeCache = new MemoryCache<unknown>({
 	name: "ffprobe",
-	maxSize: systemResourcesService.getRamScaledCacheEntries(100, 250, 2000),
+	maxSize: systemResourcesService.getRamScaled(100, 250, 2000),
 });
 
 // One probe-process budget for every ffprobe caller (scanner, keyframe seek,
@@ -38,31 +38,6 @@ function isFFProbePacketList(value: unknown): value is { packets: FFProbePacket[
 
 export function clearFFProbeCache(): void {
 	ffprobeCache.clear();
-}
-
-/**
- * Waits for a shared probe but lets each caller stop waiting on its own abort.
- * The shared probe itself is not bound to any caller's signal — a follower's
- * abort must not kill a probe another caller is still awaiting.
- */
-export async function raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-	if (!signal) return promise;
-
-	if (signal.aborted) throw signal.reason ?? new Error("FFprobe aborted");
-
-	let onAbort: (() => void) | undefined;
-	const abort = new Promise<never>((_resolve, reject) => {
-		onAbort = () => reject(signal.reason ?? new Error("FFprobe aborted"));
-		signal.addEventListener("abort", onAbort, { once: true });
-	});
-
-	try {
-		return await Promise.race([promise, abort]);
-	} finally {
-		// A completed probe must not leave its listener on a long-lived session
-		// signal — they would accumulate one per probe and slow abort dispatch.
-		if (onAbort) signal.removeEventListener("abort", onAbort);
-	}
 }
 
 export class FFProbeBuilder {
@@ -131,8 +106,7 @@ export class FFProbeBuilder {
 	private async executeParsed(filePath: string, shape: "format" | "packets", signal?: AbortSignal): Promise<unknown> {
 		if (signal?.aborted) throw signal.reason ?? new Error("FFprobe aborted");
 
-		const fileStat = await getFileStats(filePath);
-		const statSignature = fileStat ? fileStatSignature(fileStat) : "";
+		const statSignature = await fileVersionSignature(filePath);
 
 		// The shape is part of the key: the same arguments can be read as a
 		// format probe or as a packet listing, and the two hold different data.
@@ -140,7 +114,7 @@ export class FFProbeBuilder {
 		const args = [...this.args];
 		const promise = ffprobeCache.getOrSet(cacheKey, () => this.probe(filePath, args));
 
-		return await raceWithAbort(promise, signal);
+		return await raceWithAbort(promise, signal, "FFprobe aborted");
 	}
 
 	private async probe(filePath: string, args: string[]): Promise<unknown> {
@@ -180,6 +154,7 @@ export class FFProbeBuilder {
 				else msg = "Unknown error";
 
 				throw new DomainError("internal", `FFprobe execution failed: ${msg}`, {
+					cause: error,
 					code: "ffprobe_execution_failed",
 					details: error instanceof Error ? error : new Error(msg),
 				});

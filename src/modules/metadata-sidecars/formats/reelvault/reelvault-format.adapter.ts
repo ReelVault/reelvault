@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { SidecarFormatAdapter } from "@/modules/metadata-sidecars/formats/sidecar-format.adapter";
 import type {
 	CanonicalSidecarDocument,
@@ -9,7 +10,7 @@ import type {
 import { writeXmlDocument, writeXmlIfChanged } from "@/modules/metadata-sidecars/xml/xml.writer";
 import { loadXmlDocumentFile } from "@/modules/metadata-sidecars/xml/xml-document.reader";
 import { readXmlObject, readXmlText } from "@/modules/metadata-sidecars/xml/xml-value.reader";
-import { getFileName } from "@/utils/path.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import { isRecord } from "@/utils/type.utils";
 
 const SNAPSHOT_VERSION = 1;
@@ -19,7 +20,7 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	readonly capabilities = ["read", "write"] as const;
 
 	canRead({ documentPath }: SidecarFormatInput): Promise<boolean> {
-		return Promise.resolve(getFileName(documentPath).toLowerCase().endsWith(".reelvault.nfo"));
+		return Promise.resolve(basename(documentPath).toLowerCase().endsWith(".reelvault.nfo"));
 	}
 
 	async read({ documentPath }: SidecarFormatInput): Promise<CanonicalSidecarDocument | null> {
@@ -61,17 +62,13 @@ function isSidecarSnapshotDocument(value: unknown): value is SidecarSnapshotDocu
 function parseSnapshot(value: string | undefined): SidecarSnapshotDocument | undefined {
 	if (!value) return undefined;
 
-	try {
-		const parsed: unknown = JSON.parse(value);
+	const parsed = safeParseJson(value);
 
-		return isSidecarSnapshotDocument(parsed) ? parsed : undefined;
-	} catch {
-		return undefined;
-	}
+	return isSidecarSnapshotDocument(parsed) ? parsed : undefined;
 }
 
 function getMediaKind(documentPath: string): "movie" | "series" | "episode" {
-	const name = getFileName(documentPath).toLowerCase();
+	const name = basename(documentPath).toLowerCase();
 	if (name === "movie.reelvault.nfo") return "movie";
 
 	if (name === "tvshow.reelvault.nfo") return "series";

@@ -1,8 +1,8 @@
 import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { deleteFile, getFileStats } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 // Bounded on-disk variants cache: oldest entries beyond the cap are removed
@@ -87,7 +87,7 @@ export class ImageCacheEviction {
 	private async reconcile(cacheDir: string): Promise<void> {
 		const names = await this.dependencies.listDirectory(cacheDir);
 		const stats = await mapConcurrent(names, this.dependencies.getIoConcurrency(), async (name) => {
-			const path = joinPath(cacheDir, name);
+			const path = join(cacheDir, name);
 			const fileStat = await this.dependencies.getStats(path);
 
 			return { name, path, mtimeMs: fileStat?.mtimeMs ?? 0 };
@@ -118,7 +118,7 @@ export class ImageCacheEviction {
 			toEvict.push(name);
 		}
 
-		await mapConcurrent(toEvict, this.dependencies.getIoConcurrency(), (name) => this.dependencies.deleteFile(joinPath(cacheDir, name)));
+		await mapConcurrent(toEvict, this.dependencies.getIoConcurrency(), (name) => this.dependencies.deleteFile(join(cacheDir, name)));
 		for (const name of toEvict) tracked.delete(name);
 		this.logger.debug("Evicted stale optimized-image cache entries", { evicted: toEvict.length, kept: IMAGE_CACHE_MAX_ENTRIES });
 	}

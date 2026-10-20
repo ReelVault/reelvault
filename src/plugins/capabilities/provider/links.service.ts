@@ -3,8 +3,7 @@ import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { fetchFromEveryProvider, fetchFromProviders } from "./fan-out.service";
 import type { ProviderEpisodeDetails, ProviderLink, ProviderSeasonDetails } from "./provider.types";
-import type { ProviderServiceState } from "./shared.utils";
-import { getProviderKey } from "./shared.utils";
+import { getProviderKey, type ProviderServiceState } from "./shared.utils";
 
 /**
  * Fetches a season from every linked provider using that provider's own

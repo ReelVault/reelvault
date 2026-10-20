@@ -1,4 +1,5 @@
 import { systemResourcesService } from "@/config/system-resources.service";
+import { KIB, MIB } from "@/utils/bytes.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 
 /** Serialized JSON body plus per-encoding compressed variants, reused across requests. */
@@ -10,7 +11,7 @@ export interface CachedResponseBody {
 }
 
 /** Hard ceiling on a cacheable response body — oversized payloads are still served, just not cached. */
-export const RESPONSE_BODY_CACHE_MAX_BYTES = 512 * 1024;
+export const RESPONSE_BODY_CACHE_MAX_BYTES = 512 * KIB;
 /** Server-side TTL cap regardless of the route's client-facing max-age. */
 const RESPONSE_BODY_CACHE_MAX_TTL_MS = 5 * 60_000;
 /** TTL of the short-lived aggregation bodies stored by withEtagResponse(). */
@@ -20,9 +21,9 @@ export const ETAG_BODY_CACHE_TTL_MS = 10_000;
  * installed RAM, clamped to [MIN, MAX]. A catalog list page is ~22 KB, so a 30 GB box holds
  * ~2,800 pages — a 512-entry count cap held only ~11 MB and thrashed on wider browse patterns.
  */
-const RESPONSE_BODY_CACHE_BYTES_PER_GB = 2 * 1024 * 1024;
-const RESPONSE_BODY_CACHE_MIN_TOTAL_BYTES = 32 * 1024 * 1024;
-const RESPONSE_BODY_CACHE_MAX_TOTAL_BYTES = 256 * 1024 * 1024;
+const RESPONSE_BODY_CACHE_BYTES_PER_GB = 2 * MIB;
+const RESPONSE_BODY_CACHE_MIN_TOTAL_BYTES = 32 * MIB;
+const RESPONSE_BODY_CACHE_MAX_TOTAL_BYTES = 256 * MIB;
 /** Entry-count safety net for many small bodies; the byte budget is the real limit. */
 const RESPONSE_BODY_CACHE_MAX_ENTRIES = 8192;
 
@@ -39,6 +40,19 @@ const RESPONSE_BODY_CACHE_MAX_ENTRIES = 8192;
 /** NUL never appears in URLs or HTTP headers, so it is safe as a key segment separator. */
 const KEY_SEGMENT_SEPARATOR = "\u0000";
 
+/** The n-th `\u0000`-separated segment of a cache key, without splitting the rest. */
+function keySegment(key: string, index: number): string | undefined {
+	let start = 0;
+	for (let i = 0; i < index; i++) {
+		const next = key.indexOf(KEY_SEGMENT_SEPARATOR, start);
+		if (next === -1) return undefined;
+		start = next + 1;
+	}
+	const end = key.indexOf(KEY_SEGMENT_SEPARATOR, start);
+
+	return end === -1 ? key.slice(start) : key.slice(start, end);
+}
+
 /**
  * profileId → cached keys. invalidateProfileResponseBodies() runs on EVERY
  * progress/watchlist write (each stream heartbeat), so invalidation must be a
@@ -48,7 +62,7 @@ const KEY_SEGMENT_SEPARATOR = "\u0000";
 const profileKeyIndex = new Map<string, Set<string>>();
 
 function removeFromProfileIndex(key: string): void {
-	const profileId = key.split(KEY_SEGMENT_SEPARATOR)[2];
+	const profileId = keySegment(key, 2);
 	if (!profileId) return;
 
 	const keys = profileKeyIndex.get(profileId);
@@ -62,7 +76,7 @@ const responseBodyCache = new MemoryCache<CachedResponseBody>({
 	// TTL is enforced per entry (expiresAt) so each route keeps its own max-age.
 	ttlMs: -1,
 	maxSize: RESPONSE_BODY_CACHE_MAX_ENTRIES,
-	maxWeight: systemResourcesService.getRamScaledCacheBytes(
+	maxWeight: systemResourcesService.getRamScaled(
 		RESPONSE_BODY_CACHE_BYTES_PER_GB,
 		RESPONSE_BODY_CACHE_MIN_TOTAL_BYTES,
 		RESPONSE_BODY_CACHE_MAX_TOTAL_BYTES,
@@ -115,7 +129,7 @@ export function getCachedResponseBody(key: string, now = Date.now()): CachedResp
 export function setCachedResponseBody(key: string, entry: CachedResponseBody): void {
 	responseBodyCache.set(key, entry);
 
-	const profileId = key.split(KEY_SEGMENT_SEPARATOR)[2];
+	const profileId = keySegment(key, 2);
 	if (!profileId) return;
 
 	const keys = profileKeyIndex.get(profileId);
@@ -179,7 +193,7 @@ export function invalidateResponseBodiesForPathPrefixes(pathPrefixes: readonly s
 
 	invalidationEpoch++;
 	for (const key of responseBodyCache.keys()) {
-		const path = key.split(KEY_SEGMENT_SEPARATOR)[0] ?? "";
+		const path = keySegment(key, 0) ?? "";
 		if (pathPrefixes.some((prefix) => path.startsWith(prefix))) responseBodyCache.delete(key);
 	}
 }

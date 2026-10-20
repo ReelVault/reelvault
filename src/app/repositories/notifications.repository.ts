@@ -3,7 +3,6 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { DomainError } from "@/utils/domain.errors";
 
@@ -138,14 +137,11 @@ const overrides = {
 	}): Promise<{ data: Array<typeof schema.notifications.$inferSelect>; total: number }> {
 		const where = recipientConditions({ userId, profileId, unreadOnly, type, excludedTypes });
 
-		return await findOffsetPage({
-			access: notifications,
+		return await notifications.findOffsetPage({
 			where,
 			orderBy: desc(notifications.table.createdAt),
 			limit,
 			offset,
-			findMany: (page) => notifications.selectMany(page),
-			count: () => notifications.count({ where }),
 		});
 	},
 
@@ -200,21 +196,14 @@ const overrides = {
 		return await getNotificationsRepository().setRead(id, recipientWhere(userId, profileId), false);
 	},
 
-	async markReadBatch(ids: string[], userId: string, profileId?: string): Promise<void> {
-		await setBatchReadState(ids, recipientWhere(userId, profileId), true);
+	/** Flips the given notifications of one recipient; `read` selects the direction. */
+	async markBatchForRecipient(ids: string[], userId: string, profileId: string | undefined, read: boolean): Promise<void> {
+		await setBatchReadState(ids, recipientWhere(userId, profileId), read);
 	},
 
-	async markUnreadBatch(ids: string[], userId: string, profileId?: string): Promise<void> {
-		await setBatchReadState(ids, recipientWhere(userId, profileId), false);
-	},
-
-	/** Marks the recipient's notifications read; with `type`, only those of that type. */
-	async markAllReadForRecipient(userId: string, profileId?: string, type?: string): Promise<void> {
-		await setAllRead(and(recipientWhere(userId, profileId), type ? eq(schema.notifications.type, type) : undefined), true);
-	},
-
-	async markAllUnreadForRecipient(userId: string, profileId?: string, type?: string): Promise<void> {
-		await setAllRead(and(recipientWhere(userId, profileId), type ? eq(schema.notifications.type, type) : undefined), false);
+	/** Flips the recipient's notifications; with `type`, only those of that type. */
+	async markAllForRecipient(userId: string, profileId: string | undefined, type: string | undefined, read: boolean): Promise<void> {
+		await setAllRead(and(recipientWhere(userId, profileId), type ? eq(schema.notifications.type, type) : undefined), read);
 	},
 
 	/** Deletes the given notifications of one recipient; ids that belong to someone else are left alone. */

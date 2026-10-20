@@ -4,14 +4,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { unique } from "@/utils/array.utils";
-
-/** Local-calendar date key (YYYY-MM-DD) matching SQLite's date(..., 'localtime'). */
-function localDayKey(date: Date): string {
-	const month = String(date.getMonth() + 1).padStart(2, "0");
-	const day = String(date.getDate()).padStart(2, "0");
-
-	return `${date.getFullYear()}-${month}-${day}`;
-}
+import { formatDateOnly } from "@/utils/time.utils";
 
 export interface InsightAggregate {
 	metadataId: string;
@@ -54,7 +47,7 @@ export async function findInsightAggregates(profileId: string, since?: Date, unt
 	const groups = new Map<string, InsightAggregate>();
 	for (const row of rows) {
 		const date = row.watchedAt;
-		const day = localDayKey(date);
+		const day = formatDateOnly(date);
 		const hour = date.getHours();
 		const key = `${row.metadataId}|${day}|${hour}`;
 		let group = groups.get(key);

@@ -4,10 +4,10 @@ import { killFfmpegProcessGracefully } from "@/integrations/ffmpeg/ffmpeg.proces
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { buildDownloadOutputArgs, ffmpegTimeToSeconds } from "@/modules/downloads/download-quality.utils";
 import { downloadsStorage } from "@/modules/downloads/downloads.ports";
+import type { DownloadRunOptions, DownloadsServiceState } from "@/modules/downloads/shared.utils";
 import { errorMessage } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
-import { detach } from "@/utils/promise.utils";
-import type { DownloadRunOptions, DownloadsServiceState } from "../shared.utils";
+import { detachCatching } from "@/utils/promise.utils";
 
 /** Progress writes must never reject into ffmpeg's callbacks: a failure is logged and the run goes on. */
 function reportProgress(
@@ -17,15 +17,7 @@ function reportProgress(
 	message: string,
 	step: () => Promise<unknown>,
 ): void {
-	detach(
-		(async () => {
-			try {
-				await step();
-			} catch (error) {
-				state.logger.warn(message, { downloadId, percent, error: errorMessage(error) });
-			}
-		})(),
-	);
+	detachCatching(step(), (error) => state.logger.warn(message, { downloadId, percent, error: errorMessage(error) }));
 }
 
 /** Runs ffmpeg into `outputPath`; resolves with the exit code, or rejects when the process itself fails. */
@@ -49,15 +41,7 @@ export function runFfmpeg(
 		// SIGTERM first, SIGKILL after the grace period: a plain kill left ffmpeg
 		// alive on a stalled mount, so the cancelled download kept burning CPU
 		// and holding the disk.
-		detach(
-			(async () => {
-				try {
-					await killFfmpegProcessGracefully(running);
-				} catch {
-					// The kill is best-effort.
-				}
-			})(),
-		);
+		detachCatching(killFfmpegProcessGracefully(running));
 	};
 	state.abortHandles.set(downloadId, killProc);
 	if (options.signal?.aborted) {

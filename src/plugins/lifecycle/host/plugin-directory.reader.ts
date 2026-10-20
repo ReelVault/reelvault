@@ -1,7 +1,7 @@
+import { join } from "node:path";
 import type { PluginManifest } from "@reelvault/sdk/plugin";
 import { loadPluginManifest } from "@/plugins/lifecycle/plugin.manifest";
 import { listDirectories } from "@/utils/directory.utils";
-import { joinPath } from "@/utils/path.utils";
 import { isPluginDirectoryName } from "./plugin-directory.indexer";
 
 /**
@@ -14,7 +14,7 @@ export async function* readPluginManifests(pluginsDirectory: string): AsyncGener
 		if (!isPluginDirectoryName(directoryName)) continue;
 
 		try {
-			yield { directoryName, manifest: await loadPluginManifest(joinPath(pluginsDirectory, directoryName)) };
+			yield { directoryName, manifest: await loadPluginManifest(join(pluginsDirectory, directoryName)) };
 		} catch {
 			// Not a loadable plugin directory — ignore.
 		}

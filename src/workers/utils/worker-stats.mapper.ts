@@ -1,5 +1,5 @@
 import type { WorkerJob as WorkerJobContract, WorkerOperation as WorkerOperationContract, WorkerQueueStats } from "@reelvault/sdk/common";
-import { safeParseJson } from "@/utils/file.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import { pickDefined } from "@/utils/type.utils";
 import type { WorkerItemStats, WorkerItemSummary, WorkerOperation } from "@/workers/worker.ports";
 

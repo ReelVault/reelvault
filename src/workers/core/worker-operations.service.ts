@@ -1,10 +1,10 @@
-import { daysAgo } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { buildAdminPagination, createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { safeParseJson } from "@/utils/file.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
+import { type TerminalPurgeRequest, terminalPurgeFilter } from "@/workers/utils/worker-purge.utils";
 import { toJobContract, toOperationContract } from "@/workers/utils/worker-stats.mapper";
 import { type WorkerItem, type WorkerOperationRecord, type WorkerOperationStatus, workerDependencies } from "@/workers/worker.ports";
 import type { WorkerOperationJobsQuery } from "@/workers/worker.types";
@@ -213,15 +213,8 @@ export const workerOperationsService = {
 	},
 
 	/** With `dryRun` nothing is deleted: the result counts the operations and jobs a purge would remove. */
-	purgeHistory(
-		options: {
-			status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
-			olderThanDays?: number | undefined;
-			dryRun?: boolean | undefined;
-		} = {},
-	): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }> {
-		const cutoffDate = options.olderThanDays && options.olderThanDays > 0 ? daysAgo(options.olderThanDays) : undefined;
-		const filter = { status: options.status, cutoffDate };
+	purgeHistory(options: TerminalPurgeRequest = {}): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }> {
+		const filter = terminalPurgeFilter(options);
 
 		return options.dryRun
 			? workerDependencies().operations.countTerminalOperations(filter)

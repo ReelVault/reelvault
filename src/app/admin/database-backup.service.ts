@@ -1,4 +1,5 @@
 import { readdir, rename } from "node:fs/promises";
+import { join } from "node:path";
 import type { AdminDatabaseBackup } from "@reelvault/sdk/common";
 import { file } from "bun";
 import { databaseMaintenanceRepository } from "@/app/repositories/database-maintenance.repository";
@@ -9,7 +10,7 @@ import { createDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath, resolveWithin } from "@/utils/path.utils";
+import { resolveWithin } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
@@ -19,7 +20,7 @@ const SQLITE_HEADER = new TextEncoder().encode("SQLite format 3\0");
 function backupTimestamp(now: Date): string {
 	return now
 		.toISOString()
-		.replace(/[T:.]/g, (ch) => (ch === "T" ? "_" : "-"))
+		.replaceAll(/[T:.]/g, (ch) => (ch === "T" ? "_" : "-"))
 		.replace("Z", "");
 }
 
@@ -33,7 +34,7 @@ class DatabaseBackupService {
 
 			const now = new Date();
 			const fileName = `reelvault_backup_${backupTimestamp(now)}.sqlite`;
-			const filePath = joinPath(serverConfig.paths.backups, fileName);
+			const filePath = join(serverConfig.paths.backups, fileName);
 
 			this.logger.info("Starting SQLite database backup", { targetPath: filePath });
 			await databaseMaintenanceRepository.backup(filePath);
@@ -61,7 +62,7 @@ class DatabaseBackupService {
 			const entries = await readdir(serverConfig.paths.backups, { withFileTypes: true });
 			const sqliteEntries = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".sqlite"));
 			const backups = await mapConcurrent(sqliteEntries, systemResourcesService.getIoConcurrency(), async (entry) => {
-				const fullPath = joinPath(serverConfig.paths.backups, entry.name);
+				const fullPath = join(serverConfig.paths.backups, entry.name);
 				const stats = await file(fullPath).stat();
 
 				return {
@@ -93,7 +94,7 @@ class DatabaseBackupService {
 			}
 
 			await createDirectory(serverConfig.paths.backups);
-			const stagingPath = joinPath(serverConfig.paths.backups, `.upload-${crypto.randomUUID()}.tmp`);
+			const stagingPath = join(serverConfig.paths.backups, `.upload-${crypto.randomUUID()}.tmp`);
 			try {
 				await Bun.write(stagingPath, upload);
 				if (!databaseMaintenanceRepository.verifyBackupFile(stagingPath)) {
@@ -102,7 +103,7 @@ class DatabaseBackupService {
 
 				const now = new Date();
 				const fileName = `reelvault_backup_upload_${backupTimestamp(now)}.sqlite`;
-				const filePath = joinPath(serverConfig.paths.backups, fileName);
+				const filePath = join(serverConfig.paths.backups, fileName);
 				await rename(stagingPath, filePath);
 				const stats = await file(filePath).stat();
 				this.logger.info("Database backup uploaded", { fileName, sizeBytes: stats.size });

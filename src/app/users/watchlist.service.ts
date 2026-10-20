@@ -21,7 +21,7 @@ import { isNotNullish } from "@/utils/type.utils";
 import { invalidateProfileCaches } from "./cache-invalidation.cache";
 
 /** Hard cap for batch status checks (guards against giant query strings). */
-const MAX_STATUSES_IDS = 500;
+export const MAX_STATUSES_IDS = 500;
 
 class WatchlistService {
 	readonly serviceName = "WatchlistService";

@@ -34,7 +34,7 @@ export class PlaylistService {
 		} catch (error) {
 			if (error instanceof DomainError) throw error;
 
-			throw new DomainError("internal", errorMessage(error), { code: "stream.playlist_unavailable" });
+			throw new DomainError("internal", errorMessage(error), { cause: error, code: "stream.playlist_unavailable" });
 		}
 
 		const playlistPath = runtime.getFilePath(sessionId, PLAYLIST_FILE_NAME);

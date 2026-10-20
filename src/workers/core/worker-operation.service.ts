@@ -36,6 +36,19 @@ async function removeOperationBestEffort(operationId: string): Promise<void> {
  * scheduler services can use it without importing `worker.service` back — that
  * runtime cycle reads uninitialised bindings at module load (see worker-runtime.ts).
  */
+/**
+ * Whether an enqueued item belongs to the operation it was enqueued for. The
+ * enqueue helper drops a fresh operation whose job deduped onto another one.
+ */
+export function attachedToOperation(result: { operationId?: string | null | undefined }, operationId: string): boolean {
+	return result.operationId === operationId;
+}
+
+/** The batch form of {@link attachedToOperation}. */
+export function anyAttachedToOperation(results: ReadonlyArray<{ operationId?: string | null | undefined }>, operationId: string): boolean {
+	return results.some((item) => attachedToOperation(item, operationId));
+}
+
 export async function enqueueWithOperation<T>(
 	input: WorkerOperationInput,
 	enqueue: (operationId: string) => Promise<T>,

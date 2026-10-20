@@ -1,5 +1,4 @@
-import type { CreatePlaybackSession } from "@reelvault/sdk/common";
-import { DEFAULT_BROWSER_CAPABILITIES } from "@reelvault/sdk/common";
+import { type CreatePlaybackSession, DEFAULT_BROWSER_CAPABILITIES } from "@reelvault/sdk/common";
 import { HDR_TRANSFER_ALLOWLIST } from "@/modules/streaming/decisions/codec-maps.constants";
 import type { PlaybackSessionInput } from "@/modules/streaming/streaming.types";
 import { normalizeStringList } from "@/modules/streaming/utils/string-list.utils";

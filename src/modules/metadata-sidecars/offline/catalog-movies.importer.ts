@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
+import { basename, dirname } from "node:path";
 import type { OfflineRebuildIssue } from "@/modules/metadata-sidecars/offline-rebuild.types";
-import { getDirName, getFileName, isVideoFile } from "@/utils/path.utils";
+import { isVideoFile } from "@/utils/path.utils";
 import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.utils";
 import { type CatalogDirectoryNode, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
 
@@ -22,7 +23,7 @@ export class CatalogMoviesImporter extends CatalogImporter {
 			importDocument: (documentPath, document, now) => {
 				const metadataId = crypto.randomUUID();
 				const movieId = crypto.randomUUID();
-				const directory = getDirName(documentPath);
+				const directory = dirname(documentPath);
 				insertMetadataRow(database, { id: metadataId, type: "movie", document, now });
 				database.run("INSERT INTO movies (id, stable_key, metadata_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", [
 					movieId,
@@ -39,7 +40,7 @@ export class CatalogMoviesImporter extends CatalogImporter {
 					const id = crypto.randomUUID();
 					database.run(
 						"INSERT INTO media_files (id, library_id, metadata_id, movie_id, file_path, file_name, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-						[id, libraryId, metadataId, movieId, videoPath, getFileName(videoPath), fileIndex === 0 ? 1 : 0, now, now],
+						[id, libraryId, metadataId, movieId, videoPath, basename(videoPath), fileIndex === 0 ? 1 : 0, now, now],
 					);
 					fileIndex++;
 				}

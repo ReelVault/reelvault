@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { MediaIdentity } from "@reelvault/sdk/common";
 import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import { readSidecarMetadataHint, type SidecarMetadataHint } from "@/modules/metadata-sidecars/files/local-sidecar.reader";
@@ -20,7 +21,7 @@ import { DomainError, toDomainError } from "@/utils/domain.errors";
 import { getFileStats } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { createInFlightCache } from "@/utils/memory.cache";
-import { getFileName, normalizePath } from "@/utils/path.utils";
+import { normalizePath } from "@/utils/path.utils";
 import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 
 interface ProbeAndMapResult {
@@ -187,7 +188,7 @@ class MediaFileProcessor {
 				if (existingMediaFile) return null;
 			}
 
-			const fileName = getFileName(filePath);
+			const fileName = basename(filePath);
 			const recognition = await recognizeWithPluginHooks(filePath);
 			throwIfAborted(signal);
 			if (!recognition) {

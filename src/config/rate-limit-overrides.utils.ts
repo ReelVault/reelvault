@@ -1,5 +1,6 @@
+import { revisionMemo } from "@/config/settings-revision.cache";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { trimAndFilter } from "@/utils/array.utils";
+import { splitCommaList } from "@/utils/array.utils";
 
 const WHOLE_NUMBER_PATTERN = /^[1-9][0-9]*$/;
 
@@ -35,11 +36,8 @@ export interface RateLimitOverrideIssues {
 
 /** Splits `name=max,name=max` into trimmed entries; empty entries are ignored. */
 function splitEntries(raw: string): string[] {
-	return trimAndFilter(raw.split(","));
+	return splitCommaList(raw);
 }
-
-let cachedOverridesRevision = -1;
-let cachedOverrides: ReadonlyMap<string, number> | undefined;
 
 /**
  * Parsed `network.rateLimit.routeOverrides` for the current settings revision.
@@ -47,23 +45,17 @@ let cachedOverrides: ReadonlyMap<string, number> | undefined;
  * is pure allocation; the first valid entry per name wins, matching the
  * previous first-match scan. Invalid entries are ignored.
  */
-function parsedOverrides(): ReadonlyMap<string, number> {
-	const revision = systemSettingsStore.revision;
-	if (revision !== cachedOverridesRevision || !cachedOverrides) {
-		const parsed = new Map<string, number>();
-		for (const entry of splitEntries(systemSettingsStore.get("network.rateLimit.routeOverrides"))) {
-			const [entryName, value] = entry.split("=").map((part) => part.trim());
-			if (!(entryName && value && WHOLE_NUMBER_PATTERN.test(value)) || parsed.has(entryName)) continue;
+const parsedOverrides = revisionMemo((): ReadonlyMap<string, number> => {
+	const parsed = new Map<string, number>();
+	for (const entry of splitEntries(systemSettingsStore.get("network.rateLimit.routeOverrides"))) {
+		const [entryName, value] = entry.split("=").map((part) => part.trim());
+		if (!(entryName && value && WHOLE_NUMBER_PATTERN.test(value)) || parsed.has(entryName)) continue;
 
-			parsed.set(entryName, Number(value));
-		}
-
-		cachedOverrides = parsed;
-		cachedOverridesRevision = revision;
+		parsed.set(entryName, Number(value));
 	}
 
-	return cachedOverrides;
-}
+	return parsed;
+});
 
 /** Reports what is wrong with a configured override string, so saving it can be refused with the bad entries. */
 export function rateLimitOverrideIssues(raw: string): RateLimitOverrideIssues {

@@ -2,6 +2,7 @@ import { type Subprocess, spawn } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
+import { FFMPEG_GLOBAL_ARGS } from "./ffmpeg.args";
 import { FfmpegOperationLog, type FfmpegOperationLogOptions } from "./ffmpeg.operation-log";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
 
@@ -21,7 +22,7 @@ export class FFmpegBuilder {
 	// `warning` keeps errors/warnings visible while dropping ffmpeg's per-run info
 	// block; `-stats` still emits the progress line the monitor parses, so the
 	// operation log for a long playback is far smaller without losing progress.
-	private readonly globalArgs: string[] = ["-hide_banner", "-loglevel", "warning", "-stats"];
+	private readonly globalArgs: string[] = [...FFMPEG_GLOBAL_ARGS];
 	private readonly _inputArgs: string[] = [];
 	private inputPath?: string | undefined;
 	private readonly _outputArgs: string[] = [];

@@ -1,12 +1,12 @@
+import { join } from "node:path";
 import type { ImageQuality } from "@reelvault/sdk/common";
 import { reencodeImage } from "@/integrations/sharp/sharp.actions";
 import { imagesStorage } from "@/modules/images/images.ports";
+import { episodeThumbFileName, TITLE_BACKDROP_NAMES, TITLE_POSTER_NAMES } from "@/modules/metadata-sidecars/files/artwork.constants";
 import { errorMessage } from "@/utils/domain.errors";
-import { fileStatSignature, getFileStats, writeFileIfChanged } from "@/utils/file.utils";
+import { fileStatSignature, fileVersionSignature, getFileStats, writeFileIfChanged } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { joinPath } from "@/utils/path.utils";
-import { episodeThumbFileName, TITLE_BACKDROP_NAMES, TITLE_POSTER_NAMES } from "../files/artwork.constants";
 import { assertEpisodeBaseName, seasonFileName } from "./sidecar-path.policy";
 
 const JPEG_QUALITY: ImageQuality = 85;
@@ -82,15 +82,13 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 	async saveSeasonArtwork({ imageId, directory, seasonNumber }: SeasonArtworkInput): Promise<readonly string[]> {
 		if (!imageId) return [];
 
-		return await this.exportAll(this.exportImageFile(imageId, joinPath(directory, seasonFileName(seasonNumber, "-poster.jpg"))));
+		return await this.exportAll(this.exportImageFile(imageId, join(directory, seasonFileName(seasonNumber, "-poster.jpg"))));
 	}
 
 	async saveEpisodeArtwork({ imageId, directory, videoBaseName }: EpisodeArtworkInput): Promise<readonly string[]> {
 		if (!imageId) return [];
 
-		return await this.exportAll(
-			this.exportImageFile(imageId, joinPath(directory, episodeThumbFileName(assertEpisodeBaseName(videoBaseName)))),
-		);
+		return await this.exportAll(this.exportImageFile(imageId, join(directory, episodeThumbFileName(assertEpisodeBaseName(videoBaseName)))));
 	}
 
 	private async exportAll(...writes: Array<Promise<string | undefined>>): Promise<readonly string[]> {
@@ -117,7 +115,7 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 		const sourcePath = await imagesStorage().findMetadataImagePath(metadataId, imageType);
 		if (!sourcePath) return undefined;
 
-		return await this.exportFile(sourcePath, joinPath(directory, fileName));
+		return await this.exportFile(sourcePath, join(directory, fileName));
 	}
 
 	private async exportImageFile(imageId: string, targetPath: string): Promise<string | undefined> {
@@ -128,16 +126,16 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 	}
 
 	private async exportFile(sourcePath: string, targetPath: string): Promise<string | undefined> {
-		const [sourceStats, targetStats] = await Promise.all([getFileStats(sourcePath), getFileStats(targetPath)]);
-		const sourceSignature = sourceStats ? fileStatSignature(sourceStats) : "";
-		const targetSignature = targetStats ? fileStatSignature(targetStats) : "";
+		const [sourceSignature, targetSignature] = await Promise.all([fileVersionSignature(sourcePath), fileVersionSignature(targetPath)]);
 		const cached = exportStamps.get(targetPath);
 		// Both files untouched since the last export — nothing to re-encode.
 		if (cached && targetSignature !== "" && cached.sourceSignature === sourceSignature && cached.targetSignature === targetSignature) {
 			return undefined;
 		}
 
-		const contents = await this.dependencies.reencodeImage(Buffer.from(await Bun.file(sourcePath).arrayBuffer()), JPEG_QUALITY);
+		// Sharp reads the file itself: passing the path keeps the image out of
+		// the JavaScript heap.
+		const contents = await this.dependencies.reencodeImage(sourcePath, JPEG_QUALITY);
 		// Metadata mutations re-save constantly — skip the tmp+rename when the
 		// exported bytes are already on disk, and remember the signatures so the
 		// next save skips the re-encode too.

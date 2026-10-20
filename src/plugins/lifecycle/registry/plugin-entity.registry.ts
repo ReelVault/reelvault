@@ -33,6 +33,11 @@ export class PluginEntityTable<T extends { id: string; name: string; version: st
 		this.sortById = options.sortById === true;
 	}
 
+	/** The ids of the registered entities, in registration order. */
+	getIds(): string[] {
+		return this.getAll().map((entity) => entity.id);
+	}
+
 	/** Pre-flight duplicate check so a multi-entity registration stays all-or-nothing. */
 	assertRegisterable(entities: readonly T[]): void {
 		for (const entity of entities) {

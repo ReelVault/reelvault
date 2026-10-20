@@ -1,5 +1,7 @@
 import type { LibraryScanProgress, LibraryScanProgressResponse } from "@reelvault/sdk/common";
 import { recordUpdateAudit } from "@/app/admin/admin-audit.service";
+import { getLibraryForScan } from "@/app/libraries/crud.service";
+import type { LibrariesServiceState } from "@/app/libraries/shared.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
@@ -7,8 +9,6 @@ import { assertFound } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { enqueueLibraryScan } from "@/workers/definitions/libraries/library-scan.worker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped.utils";
-import { getLibraryForScan } from "../crud.service";
-import type { LibrariesServiceState } from "../shared.utils";
 
 interface ScanRequest {
 	libraryId: string;

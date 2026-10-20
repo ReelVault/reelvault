@@ -181,8 +181,8 @@ async function resolvePublicTarget(rawUrl: string, options: GuardedFetchOptions)
 	let parsed: URL;
 	try {
 		parsed = new URL(rawUrl);
-	} catch {
-		throw new DomainError("validation", "Download URL is not a valid URL", { code: "download.invalid_url" });
+	} catch (error) {
+		throw new DomainError("validation", "Download URL is not a valid URL", { cause: error, code: "download.invalid_url" });
 	}
 
 	const allowedProtocols = options.allowedProtocols ?? DEFAULT_ALLOWED_PROTOCOLS;
@@ -203,8 +203,11 @@ async function resolvePublicTarget(rawUrl: string, options: GuardedFetchOptions)
 	let addresses: string[];
 	try {
 		addresses = await resolveHostAddresses(host, options.dnsCache);
-	} catch {
-		throw new DomainError("validation", `Download host does not resolve: ${parsed.hostname}`, { code: "download.host_unresolved" });
+	} catch (error) {
+		throw new DomainError("validation", `Download host does not resolve: ${parsed.hostname}`, {
+			cause: error,
+			code: "download.host_unresolved",
+		});
 	}
 
 	if (addresses.length === 0 || addresses.some((address) => !isPublicIp(address))) {

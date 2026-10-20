@@ -5,6 +5,8 @@
  * cadence. Bun does not ship eventLoopUtilization, so this measures it with a
  * probe timer — loop stalls surface as probe delays.
  */
+import { clamp } from "./math.utils";
+
 export class EventLoopMonitor {
 	private readonly intervalMs: number;
 	private lastAt = 0;
@@ -36,7 +38,7 @@ export class EventLoopMonitor {
 		this.delayedMs = 0;
 		this.elapsedMs = 0;
 
-		return Math.min(1, Math.max(0, utilization));
+		return clamp(utilization, 0, 1);
 	}
 
 	stop(): void {

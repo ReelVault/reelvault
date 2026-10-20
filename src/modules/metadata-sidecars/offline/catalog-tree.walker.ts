@@ -1,8 +1,8 @@
+import { basename, join } from "node:path";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { type DirectoryEntry, readDirectoryEntries } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { getFileName, joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 export interface CatalogDirectoryNode {
@@ -38,7 +38,7 @@ export class CatalogTreeWalker {
 	async collect(root: string): Promise<Map<string, CatalogDirectoryNode>> {
 		const tree = new Map<string, CatalogDirectoryNode>();
 		const visit = async (directory: string): Promise<void> => {
-			const entries = await this.dependencies.listEntries(directory).catch((error) => {
+			const entries = await this.dependencies.listEntries(directory).catch((error: unknown) => {
 				// An unreadable directory must not masquerade as an empty one during a
 				// full catalog rebuild — the missing files would be undiagnosable.
 				this.logger.warn("Directory unreadable during catalog rebuild — treated as empty", {
@@ -51,7 +51,7 @@ export class CatalogTreeWalker {
 			const files: string[] = [];
 			const subdirectories: string[] = [];
 			for (const entry of entries) {
-				const joined = joinPath(directory, entry.name);
+				const joined = join(directory, entry.name);
 				if (entry.isFile) files.push(joined);
 				else if (entry.isDirectory) subdirectories.push(joined);
 			}
@@ -97,5 +97,5 @@ export function findMatchingFiles(
 export function findDocumentsByNames(tree: ReadonlyMap<string, CatalogDirectoryNode>, root: string, names: readonly string[]): string[] {
 	const normalizedNames = new Set(names.map((name) => name.toLowerCase()));
 
-	return findMatchingFiles(tree, root, (path) => normalizedNames.has(getFileName(path).toLowerCase()));
+	return findMatchingFiles(tree, root, (path) => normalizedNames.has(basename(path).toLowerCase()));
 }

@@ -71,7 +71,7 @@ export class ProcessManager {
 			this.store.attachProcess(sessionId, process, timelineStart);
 		} catch (error) {
 			ffmpegProcessTracker.markIntentionalKill(sessionId);
-			await killFfmpegProcessGracefully(process).catch((killError) => {
+			await killFfmpegProcessGracefully(process).catch((killError: unknown) => {
 				this.logger.warn("Failed to kill orphaned ffmpeg during session start rollback", { sessionId, error: killError });
 			});
 			await waitForExitWithTimeout(process);
@@ -87,7 +87,7 @@ export class ProcessManager {
 		const process = session.process;
 		if (process) {
 			ffmpegProcessTracker.markIntentionalKill(sessionId);
-			await killFfmpegProcessGracefully(process, timeoutMs).catch((killError) => {
+			await killFfmpegProcessGracefully(process, timeoutMs).catch((killError: unknown) => {
 				// A failed kill leaves an orphan ffmpeg consuming CPU and writing into
 				// a temp dir that is about to be deleted — must be visible.
 				this.logger.warn("Failed to kill ffmpeg process gracefully", { sessionId, error: killError });

@@ -1,6 +1,7 @@
 import type { Logger } from "@reelvault/sdk";
 import { CancellationError } from "@/utils/cancellation.utils";
 import { DomainError } from "./domain.errors";
+import { roundTo } from "./math.utils";
 
 type ErrorFactory = Error | ((cause?: unknown) => Error);
 
@@ -20,7 +21,7 @@ export interface SafeExecuteContext {
 }
 
 function elapsedMs(startTime: number): number {
-	return Math.round((performance.now() - startTime) * 100) / 100;
+	return roundTo(performance.now() - startTime, 2);
 }
 
 /**

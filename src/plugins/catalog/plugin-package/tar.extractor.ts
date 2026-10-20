@@ -218,7 +218,7 @@ function beginRegularFile(reader: TarReader, entry: TarEntry): void {
 }
 
 function parseTarNumber(block: Uint8Array, offset: number, length: number): number {
-	return Number.parseInt(readTarString(block, offset, length).replace(/[^0-7]/g, ""), 8) || 0;
+	return Number.parseInt(readTarString(block, offset, length).replaceAll(/[^0-7]/g, ""), 8) || 0;
 }
 
 function decodeTarLongName(parts: Uint8Array[]): string {

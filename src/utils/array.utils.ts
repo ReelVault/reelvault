@@ -3,11 +3,7 @@ import { isNonEmptyString } from "./type.utils";
 export function hasEntry(entries: object | Record<string, unknown> | undefined | null): boolean {
 	if (entries === undefined || entries === null) return false;
 
-	for (const _ in entries) {
-		return true;
-	}
-
-	return false;
+	return Object.keys(entries).length > 0;
 }
 
 /**
@@ -100,6 +96,25 @@ export function trimAndFilter(items: readonly string[]): string[] {
 	}
 
 	return result;
+}
+
+/**
+ * Splits a comma-separated list into trimmed, non-empty entries.
+ */
+export function splitCommaList(value: string | undefined): string[] {
+	if (!value) return [];
+
+	return trimAndFilter(value.split(","));
+}
+
+/**
+ * Parses a comma-separated id list: the entries are trimmed and the empty ones
+ * dropped.
+ */
+export function parseIdList(raw: string | undefined): string[] {
+	if (!raw) return [];
+
+	return trimAndFilter(raw.split(","));
 }
 
 /**

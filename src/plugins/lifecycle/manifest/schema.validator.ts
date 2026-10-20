@@ -1,9 +1,10 @@
-import type { PluginUiSchemaSurface } from "@reelvault/sdk/plugin";
 import {
 	PLUGIN_SCHEMA_ACTION_TYPES as PLUGIN_SCHEMA_ACTION_TYPE_VALUES,
 	PLUGIN_SCHEMA_CONDITION_OPS as PLUGIN_SCHEMA_CONDITION_OP_VALUES,
 	PLUGIN_SCHEMA_FIELD_INPUTS as PLUGIN_SCHEMA_FIELD_INPUT_VALUES,
+	type PluginUiSchemaSurface,
 } from "@reelvault/sdk/plugin";
+import { KIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
 import {
@@ -20,7 +21,7 @@ import {
  * host; these caps are format/protocol limits (hardware-independent) so a
  * malformed schema cannot exhaust the browser.
  */
-export const SCHEMA_MAX_BYTES = 256 * 1024;
+export const SCHEMA_MAX_BYTES = 256 * KIB;
 
 const SCHEMA_MAX_NODES = 2000;
 

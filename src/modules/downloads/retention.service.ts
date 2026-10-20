@@ -1,9 +1,9 @@
+import { join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { downloadsStorage } from "@/modules/downloads/downloads.ports";
 import { type DirectoryEntry, readDirectoryEntries, removeTree } from "@/utils/directory.utils";
 
 import { errorMessage, isMissingFile } from "@/utils/domain.errors";
-import { joinPath } from "@/utils/path.utils";
 import { deleteArtifactFile } from "./artifacts/artifacts.service";
 import type { DownloadsServiceState } from "./shared.utils";
 
@@ -97,7 +97,7 @@ export async function sweepOrphanArtifacts(state: DownloadsServiceState): Promis
 			if (known.has(id)) continue;
 
 			try {
-				await removeTree(joinPath(root, id));
+				await removeTree(join(root, id));
 				removed++;
 			} catch (error) {
 				state.logger.warn("Could not remove the artifacts of a deleted download", { downloadId: id, error: errorMessage(error) });

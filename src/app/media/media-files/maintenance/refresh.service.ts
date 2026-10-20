@@ -2,6 +2,7 @@ import type { FieldsQuery, MediaFileWithRelation, SelectFields, UpdateMediaFile 
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { runBulkItems } from "@/app/catalog/catalog.utils";
 import { mediaFileRefreshService } from "@/app/media/media-files/refresh-media-file.operation";
+import type { MediaServiceState, WithoutState } from "@/app/media/media-files/shared.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { assertFound } from "@/utils/domain.errors";
@@ -9,7 +10,6 @@ import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } f
 import { runSafely } from "@/utils/safe-execute.utils";
 import { enqueueAllMediaFilesRefresh } from "@/workers/definitions/media/media-files-refresh-all.worker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped.utils";
-import type { MediaServiceState, WithoutState } from "../shared.utils";
 
 export async function update<F extends string>(
 	state: MediaServiceState,

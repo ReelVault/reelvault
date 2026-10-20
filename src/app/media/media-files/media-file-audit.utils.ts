@@ -6,7 +6,7 @@ import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { extractYear } from "@/utils/media-match/normalize.utils";
 import { rankCandidates } from "@/utils/media-match/ranking.utils";
 import { isSequelMismatch, REVIEW_MATCH_SCORE } from "@/utils/media-match/score.constants";
-import { mapLibraryType } from "@/utils/type.utils";
+import { mapLibraryType } from "@/utils/media-metadata.utils";
 
 const SEVERITY_WEIGHTS: Record<string, number> = { high: 3, low: 1, medium: 2 };
 

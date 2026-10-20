@@ -1,10 +1,11 @@
+import { resolve } from "node:path";
 import type { PluginManifest } from "@reelvault/sdk/plugin";
 import { file as bunFile } from "bun";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { loadPluginManifest, resolvePluginEntry } from "@/plugins/lifecycle/plugin.manifest";
 import { DomainError } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
-import { isSubpath, resolvePath } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 import { minServerVersionError } from "@/utils/semver.utils";
 import { assertNoSymbolicLinks } from "./symlink.guard";
 
@@ -61,5 +62,5 @@ async function assertFile(path: string, name: string): Promise<void> {
 }
 
 function isWithinDirectory(path: string, directory: string): boolean {
-	return resolvePath(path) === resolvePath(directory) || isSubpath(path, directory);
+	return resolve(path) === resolve(directory) || isSubpath(path, directory);
 }

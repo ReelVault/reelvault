@@ -1,3 +1,4 @@
+import { basename, join } from "node:path";
 import type { ImageQuery } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
@@ -10,8 +11,7 @@ import { errorMessage } from "@/utils/domain.errors";
 import { writeFileAtomic } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { createInFlightCache } from "@/utils/memory.cache";
-import { getFileName, joinPath } from "@/utils/path.utils";
-import { detach } from "@/utils/promise.utils";
+import { detachCatching } from "@/utils/promise.utils";
 import { imageCacheEviction } from "./cache/image-cache.eviction";
 import { parseImageRequest } from "./cache/image-request.parser";
 import { sourceVersionCache } from "./cache/source-version.cache";
@@ -34,10 +34,10 @@ class ImageOptimizationService {
 
 	async getOptimizedImage(sourcePath: string, request: ImageQuery, imageId?: string, signal?: AbortSignal): Promise<OptimizedImage> {
 		const options = parseImageRequest(request, serverConfig.images);
-		const cacheDir = joinPath(serverConfig.paths.images, ".cache");
+		const cacheDir = join(serverConfig.paths.images, ".cache");
 		const sourceVersion = (await sourceVersionCache.read(sourcePath)).replaceAll(":", "-");
 		const cacheKey = `${imageId ?? `src_${createHash("sha1").update(sourcePath).digest("hex").slice(0, 16)}`}_${options.width}_${options.height ?? 0}_${options.quality}_${sourceVersion}.webp`;
-		const cachePath = joinPath(cacheDir, cacheKey);
+		const cachePath = join(cacheDir, cacheKey);
 
 		const cachedFile = bunFile(cachePath);
 		if (await cachedFile.exists()) {
@@ -60,17 +60,9 @@ class ImageOptimizationService {
 		try {
 			await createDirectory(cacheDir);
 			await writeFileAtomic(cachePath, optimized);
-			imageCacheEviction.recordWrite(cacheDir, getFileName(cachePath));
+			imageCacheEviction.recordWrite(cacheDir, basename(cachePath));
 			// Fire-and-forget must not become an unhandled rejection on fs errors.
-			detach(
-				(async () => {
-					try {
-						await imageCacheEviction.evictIfDue(cacheDir);
-					} catch {
-						// Cache eviction is best-effort.
-					}
-				})(),
-			);
+			detachCatching(imageCacheEviction.evictIfDue(cacheDir));
 
 			return { file: bunFile(cachePath), contentType: CONTENT_TYPE, options };
 		} catch (error) {

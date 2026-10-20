@@ -1,6 +1,7 @@
 import { file as bunFile } from "bun";
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
-import { readFile, safeParseJson } from "@/utils/file.utils";
+import { readFile } from "@/utils/file.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import { isNonEmptyString, isRecord, normalizeLower } from "@/utils/type.utils";
 import { resolveLogFilePath } from "./files.service";
 import { type AdminLogsState, LOG_TAIL_BYTES, LOG_TAIL_LINE_CAP, type LogTailEntry } from "./shared.types";
@@ -62,8 +63,8 @@ async function readLogTail(state: AdminLogsState, fileId?: string): Promise<{ co
 			.text();
 
 		return { content, truncated: true };
-	} catch {
-		throw new DomainError("not_found", `Log file not found: ${fileId ?? filePath}`, { code: "logs.file_not_found" });
+	} catch (error) {
+		throw new DomainError("not_found", `Log file not found: ${fileId ?? filePath}`, { cause: error, code: "logs.file_not_found" });
 	}
 }
 

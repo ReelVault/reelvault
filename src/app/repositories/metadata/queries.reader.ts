@@ -17,8 +17,7 @@ import {
 	metadataQueryMap,
 	titleMatchFilter,
 } from "@/app/repositories/metadata-filters.utils";
-import type { MoreLikeThisSource } from "@/app/repositories/metadata-recommendations.reader";
-import { getMoreLikeThis as recommendMoreLikeThis } from "@/app/repositories/metadata-recommendations.reader";
+import { type MoreLikeThisSource, getMoreLikeThis as recommendMoreLikeThis } from "@/app/repositories/metadata-recommendations.reader";
 import { loadMergedDetailRow } from "@/app/repositories/metadata-relations/relations.loader";
 import { loadRelations, withRelations } from "@/app/repositories/metadata-relations.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";

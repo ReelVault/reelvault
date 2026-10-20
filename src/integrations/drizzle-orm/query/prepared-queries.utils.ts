@@ -1,4 +1,4 @@
-import type { DatabaseTransaction } from "../database.types";
+import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 
 /**
  * Per-call-site prepared-statement factory (Faza 3 pilot).

@@ -88,7 +88,10 @@ export class PlaylistWaiter {
 				await Promise.race([waitForFile(playlistPath, timeoutMs, 25, signal), exitPromise, cancelled]);
 			} catch (error) {
 				if (error instanceof DomainError && error.category === "timeout") {
-					throw new DomainError("timeout", `Playlist was not generated within ${timeoutMs}ms`, { code: "playlist_generation_timeout" });
+					throw new DomainError("timeout", `Playlist was not generated within ${timeoutMs}ms`, {
+						cause: error,
+						code: "playlist_generation_timeout",
+					});
 				}
 
 				throw error;

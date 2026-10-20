@@ -5,15 +5,15 @@ import type {
 	ScanFindingsResponse,
 } from "@reelvault/sdk/common";
 import { recordUpdateAudit } from "@/app/admin/admin-audit.service";
+import { getLibraryForScan } from "@/app/libraries/crud.service";
+import type { LibrariesServiceState } from "@/app/libraries/shared.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { scanFindingsRepository } from "@/app/repositories/scan-findings.repository";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { assertExists, assertFound } from "@/utils/domain.errors";
+import { mapLibraryType } from "@/utils/media-metadata.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { mapLibraryType } from "@/utils/type.utils";
-import { getLibraryForScan } from "../crud.service";
-import type { LibrariesServiceState } from "../shared.utils";
 
 export async function getScanFindings(
 	state: LibrariesServiceState,

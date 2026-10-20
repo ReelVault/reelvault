@@ -4,6 +4,7 @@ import type { FFmpegProgress } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { parseColonSeparatedSeconds } from "@/utils/time.utils";
 import { isNullish } from "@/utils/type.utils";
 import type { SessionStore } from "./session-state/session.store";
@@ -39,7 +40,17 @@ const defaultDependencies: TranscodeProgressMonitorDependencies = {
  */
 export class TranscodeProgressMonitor {
 	private store: SessionStore | null = null;
-	private readonly lastWrites = new Map<string, { at: number; percent: number }>();
+	/**
+	 * The last progress write per session. A session that ends without an EOF
+	 * (an error, an abort, a seek restart) never reaches the delete below, so
+	 * the state is held in a bounded cache with a time-to-live instead of a map
+	 * that grows for the life of the process.
+	 */
+	private readonly lastWrites = new MemoryCache<{ at: number; percent: number }>({
+		ttlMs: PROGRESS_WRITE_MIN_INTERVAL_MS * 4,
+		maxSize: 1_000,
+		name: "stream.progress-writes",
+	});
 	/** Sessions that already hold a streaming slot — guards seek/fallback restarts from double-claiming. */
 	private readonly attachedSessions = new Set<string>();
 	private readonly dependencies: TranscodeProgressMonitorDependencies;

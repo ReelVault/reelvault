@@ -3,7 +3,8 @@ import { freemem, loadavg, totalmem } from "node:os";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { clamp } from "@/utils/math.utils";
+import { GIB, KIB, MIB } from "@/utils/bytes.utils";
+import { clamp, roundTo } from "@/utils/math.utils";
 import { getAvailableMemoryKiB, getTotalMemoryKiB, readCgroupMemoryLimitKiB, readCgroupMemoryUsageKiB } from "@/utils/mem.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import type { ResourceMetrics, ResourceSnapshot } from "./resource-allocator.types";
@@ -12,7 +13,7 @@ type MemoryReading = ResourceSnapshot["memory"];
 type DiskReading = ResourceSnapshot["disk"];
 
 function round1(value: number): number {
-	return Math.round(value * 10) / 10;
+	return roundTo(value, 1);
 }
 function percentOf(used: number, total: number): number {
 	return total > 0 ? round1((used / total) * 100) : 0;
@@ -34,8 +35,8 @@ export function getMemoryInfo(): MemoryReading {
 	const cgroupUsageKiB = readCgroupMemoryUsageKiB();
 
 	if (cgroupLimitKiB !== undefined) {
-		const totalMb = Math.round(cgroupLimitKiB / 1024);
-		if (totalMb > 0) return memoryReading(totalMb, Math.round((cgroupUsageKiB ?? 0) / 1024));
+		const totalMb = Math.round(cgroupLimitKiB / KIB);
+		if (totalMb > 0) return memoryReading(totalMb, Math.round((cgroupUsageKiB ?? 0) / KIB));
 	}
 
 	// Reuse the shared /proc/meminfo readers instead of re-parsing the file here.
@@ -44,13 +45,13 @@ export function getMemoryInfo(): MemoryReading {
 	if (totalKiB !== undefined && totalKiB > 0 && availableKiB !== undefined && availableKiB > 0) {
 		// A simulated/limited total can be below the host's MemAvailable. Report
 		// this process's RSS instead of a negative figure (or a meaningless zero).
-		const usedKiB = availableKiB >= totalKiB ? Math.round(process.memoryUsage().rss / 1024) : totalKiB - availableKiB;
+		const usedKiB = availableKiB >= totalKiB ? Math.round(process.memoryUsage().rss / KIB) : totalKiB - availableKiB;
 
-		return memoryReading(Math.round(totalKiB / 1024), Math.round(usedKiB / 1024));
+		return memoryReading(Math.round(totalKiB / KIB), Math.round(usedKiB / KIB));
 	}
 
-	const totalMb = Math.round(totalmem() / 1024 / 1024);
-	const freeMb = Math.round(freemem() / 1024 / 1024);
+	const totalMb = Math.round(totalmem() / MIB);
+	const freeMb = Math.round(freemem() / MIB);
 
 	return memoryReading(totalMb, totalMb - freeMb);
 }
@@ -61,8 +62,8 @@ async function getDiskInfo(path: string): Promise<DiskReading> {
 		const totalBytes = stat.blocks * stat.bsize;
 		const freeBytes = stat.bavail * stat.bsize;
 		const usedBytes = totalBytes - freeBytes;
-		const totalGb = round1(totalBytes / 1024 / 1024 / 1024);
-		const usedGb = round1(usedBytes / 1024 / 1024 / 1024);
+		const totalGb = round1(totalBytes / GIB);
+		const usedGb = round1(usedBytes / GIB);
 
 		return { usedGb, totalGb, percent: percentOf(usedGb, totalGb) };
 	} catch {

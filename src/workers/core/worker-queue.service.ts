@@ -1,11 +1,11 @@
 import type { AddWorkerItemOptions, WorkerDefinition } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
-import { daysAgo } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
+import { type TerminalPurgeRequest, terminalPurgeFilter } from "@/workers/utils/worker-purge.utils";
 import { type ActiveWorkerItem, type EnqueueWorkerItemInput, type WorkerItem, workerDependencies } from "@/workers/worker.ports";
 import { getWorkerRuntime } from "./worker.runtime";
-import { enqueueWithOperation } from "./worker-operation.service";
+import { anyAttachedToOperation, attachedToOperation, enqueueWithOperation } from "./worker-operation.service";
 
 export class WorkerQueueService {
 	readonly serviceName = "WorkerQueueService";
@@ -28,7 +28,7 @@ export class WorkerQueueService {
 			{
 				operationId: options.operationId,
 				// A dedupe hit returns the *existing* row with its own operation.
-				isAttached: (item, operationId) => item.operationId === operationId,
+				isAttached: attachedToOperation,
 			},
 		);
 
@@ -58,7 +58,7 @@ export class WorkerQueueService {
 				{ type: workerId, reference: { type: "worker", id: workerId } },
 				(operationId) => workerDependencies().jobs.enqueueMany(buildInputs(operationId), enqueueOptions),
 				// Every entry losing the dedupe race leaves the shared operation with no items.
-				{ isAttached: (batch, operationId) => batch.some((item) => item.operationId === operationId) },
+				{ isAttached: anyAttachedToOperation },
 			));
 		} else {
 			items = await workerDependencies().jobs.enqueueMany(buildInputs(), enqueueOptions);
@@ -111,15 +111,8 @@ export class WorkerQueueService {
 	}
 
 	/** With `dryRun` nothing is deleted: the result counts the standalone jobs a purge would remove. */
-	purgeHistory(
-		options: {
-			status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
-			olderThanDays?: number | undefined;
-			dryRun?: boolean | undefined;
-		} = {},
-	): Promise<number> {
-		const cutoffDate = options.olderThanDays && options.olderThanDays > 0 ? daysAgo(options.olderThanDays) : undefined;
-		const filter = { status: options.status, cutoffDate };
+	purgeHistory(options: TerminalPurgeRequest = {}): Promise<number> {
+		const filter = terminalPurgeFilter(options);
 
 		return options.dryRun ? workerDependencies().jobs.countTerminalJobs(filter) : workerDependencies().jobs.purgeTerminalJobs(filter);
 	}

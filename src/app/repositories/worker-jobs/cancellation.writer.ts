@@ -5,8 +5,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { toMap, unique } from "@/utils/array.utils";
-import type { WorkerItem } from "./shared.types";
-import { applyOperationCounts, items, RELEASE_CLAIM, runningJobWhere, toOperationCounts } from "./shared.types";
+import { applyOperationCounts, items, RELEASE_CLAIM, runningJobWhere, toOperationCounts, type WorkerItem } from "./shared.types";
 
 export async function cancelPending(id: string, tx?: DatabaseTransaction): Promise<boolean> {
 	const client = databaseFactory.getClient({ tx });
@@ -95,8 +94,10 @@ export async function cancelRunning(id: string, claimToken?: string): Promise<bo
 				id,
 				claimToken,
 				values: { status: "cancelled", ...RELEASE_CLAIM, completedAt: now, updatedAt: now },
-				afterUpdated: async (updatedJob) => {
-					if (updatedJob.operationId) await workerOperationRepository.markJobFinished(updatedJob.operationId, "cancelled", now, tx);
+				afterUpdated: async (updatedJob, transaction) => {
+					if (updatedJob.operationId) {
+						await workerOperationRepository.markJobFinished(updatedJob.operationId, "cancelled", now, transaction);
+					}
 				},
 			}),
 	);
@@ -243,7 +244,7 @@ export async function terminalizeRunning(
 		runnerId?: string | undefined;
 		claimToken?: string | undefined;
 		values: SQLiteUpdateSetSource<typeof items>;
-		afterUpdated: (updatedJob: { operationId: string | null }) => Promise<void>;
+		afterUpdated: (updatedJob: { operationId: string | null }, tx: DatabaseTransaction) => Promise<void>;
 	},
 ): Promise<boolean> {
 	const updated = await tx
@@ -255,7 +256,7 @@ export async function terminalizeRunning(
 	const updatedJob = updated[0];
 	if (!updatedJob) return false;
 
-	await afterUpdated(updatedJob);
+	await afterUpdated(updatedJob, tx);
 
 	return true;
 }

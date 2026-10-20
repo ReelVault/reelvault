@@ -1,6 +1,7 @@
 import { serverConstants } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { KIB } from "@/utils/bytes.utils";
 import { clamp } from "@/utils/math.utils";
 
 /** CPU, memory and rescue settings, plus the settings that scale with installed RAM and measured capacity. */
@@ -71,7 +72,7 @@ export const resourceConfig = {
 	sharp: {
 		...serverConstants.sharp,
 		get maxInputPixels() {
-			return clamp(Math.floor(((systemResourcesService.getTotalMemoryKiB() ?? 8_388_608) / 1024) * 6.4), 12_000_000, 40_000_000);
+			return clamp(Math.floor(((systemResourcesService.getTotalMemoryKiB() ?? 8_388_608) / KIB) * 6.4), 12_000_000, 40_000_000);
 		},
 	},
 

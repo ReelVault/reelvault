@@ -1,13 +1,14 @@
-import { listDirectoryEntries } from "@/modules/metadata-sidecars/files/local-directory.listing";
+import { dirname, join } from "node:path";
 import { subtitlesStorage } from "@/modules/subtitles/subtitles.ports";
+import { listDirectoryEntriesCached } from "@/utils/directory.utils";
 import { fileExists } from "@/utils/file.utils";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
-import { getDirName, getExtension, getFileNameWithoutExt, joinPath } from "@/utils/path.utils";
+import { getExtension, getFileNameWithoutExt } from "@/utils/path.utils";
 
 export const SIDECAR_SUBTITLE_EXTENSIONS = new Set(["srt", "ass", "ssa"]);
 
 async function readDirectoryEntries(directory: string): Promise<string[]> {
-	const entries = await listDirectoryEntries(directory);
+	const entries = await listDirectoryEntriesCached(directory);
 	if (!entries) return [];
 
 	return entries.map((entry) => entry.name);
@@ -68,7 +69,7 @@ function parseSidecarSubtitleNameFromBase(base: string, fileName: string): Parse
 }
 
 export async function findSidecarSubtitles(videoFilePath: string): Promise<SidecarSubtitleCandidate[]> {
-	const directory = getDirName(videoFilePath);
+	const directory = dirname(videoFilePath);
 	const baseLower = getFileNameWithoutExt(videoFilePath).toLowerCase();
 	const entries = await readDirectoryEntries(directory);
 
@@ -78,7 +79,7 @@ export async function findSidecarSubtitles(videoFilePath: string): Promise<Sidec
 		if (!parsed) continue;
 
 		candidates.push({
-			filePath: joinPath(directory, entry),
+			filePath: join(directory, entry),
 			language: parsed.language ?? "und",
 			format: parsed.extension,
 			isDefault: parsed.isDefault,

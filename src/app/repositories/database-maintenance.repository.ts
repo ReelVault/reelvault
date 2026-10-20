@@ -1,13 +1,13 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { serverConstants } from "@/config/server/server.constants";
 import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { joinPath, resolvePath } from "@/utils/path.utils";
 
 export const databaseMaintenanceRepository = {
 	shutdownIfConfiguredDatabasePath(path: string) {
-		if (resolvePath(path) === resolvePath(serverConstants.paths.sqlite)) databaseFactory.shutdown();
+		if (resolve(path) === resolve(serverConstants.paths.sqlite)) databaseFactory.shutdown();
 	},
 
 	backup(targetPath: string): Promise<void> {
@@ -25,7 +25,7 @@ export const databaseMaintenanceRepository = {
 	/** Migration folders shipped with the server, in the order they apply, and how many the database has recorded as applied. */
 	getMigrationStatus(): { tags: string[]; applied: number } {
 		const tags = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
-			.filter((entry) => entry.isDirectory() && existsSync(joinPath(MIGRATIONS_DIR, entry.name, "migration.sql")))
+			.filter((entry) => entry.isDirectory() && existsSync(join(MIGRATIONS_DIR, entry.name, "migration.sql")))
 			.map((entry) => entry.name)
 			.toSorted();
 		const row = databaseFactory.sqlite.query<{ count: number }, []>("SELECT count(*) AS count FROM __drizzle_migrations").get();

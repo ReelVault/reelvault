@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type {
 	MediaItem,
 	SubtitleProviderDownloadRequest,
@@ -13,7 +14,7 @@ import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/p
 import { DomainError } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { isSubpath, joinPath } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import { pluginMediaService } from "./plugin.media";
 import { pluginMetadataService } from "./plugin.metadata";
@@ -158,7 +159,7 @@ class SubtitleProviderService {
 	}
 
 	private storagePath(format: string): string {
-		return joinPath(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
+		return join(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
 	}
 
 	private isOwnedPath(path: string): boolean {

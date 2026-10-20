@@ -1,6 +1,6 @@
 import { type SQL, type SQLChunk, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
-import { safeParseJson } from "@/utils/file.utils";
+import { safeParseJson } from "@/utils/json.utils";
 
 /**
  * Builders and readers for relation payloads carried as JSON columns: one

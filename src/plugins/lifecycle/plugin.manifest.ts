@@ -1,17 +1,17 @@
-import type {
-	ConfigDefinition,
-	PluginCapabilityName,
-	PluginConfig,
-	PluginManifest,
-	PluginUiManifest,
-	PluginUiSchemaSurface,
+import { join } from "node:path";
+import {
+	type ConfigDefinition,
+	PLUGIN_CAPABILITY_SET,
+	type PluginCapabilityName,
+	type PluginConfig,
+	type PluginManifest,
+	type PluginUiManifest,
+	type PluginUiSchemaSurface,
 } from "@reelvault/sdk/plugin";
-import { PLUGIN_CAPABILITY_SET } from "@reelvault/sdk/plugin";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { getFileStats, readJsonFile } from "@/utils/file.utils";
-import { joinPath } from "@/utils/path.utils";
 import { isValidSemver } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
 import { validatePluginCsp } from "./manifest/csp.validator";
@@ -86,7 +86,7 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 const manifestCache = new Map<string, { signature: string; manifest: PluginManifest }>();
 
 export async function loadPluginManifest(pluginDir: string, options?: { fresh?: boolean | undefined }): Promise<PluginManifest> {
-	const manifestPath = joinPath(pluginDir, "plugin.json");
+	const manifestPath = join(pluginDir, "plugin.json");
 	const stats = await getFileStats(manifestPath);
 	const signature = stats ? `${stats.size}:${stats.mtimeMs}` : "missing";
 	const cached = manifestCache.get(manifestPath);

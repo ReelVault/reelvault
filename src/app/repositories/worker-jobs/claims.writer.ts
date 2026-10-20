@@ -1,14 +1,21 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
-import { MINUTE, serverConstants } from "@/config/server/server.constants";
+import { MINUTE } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { chunk } from "@/utils/array.utils";
+import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { cancelPending, cascadeCancel, terminalizeRunning } from "./cancellation.writer";
 import { loadParentStatuses } from "./intake.repository";
-import type { ClaimNextInput, WorkerItem } from "./shared.types";
-import { applyOperationCounts, items, operations, RELEASE_CLAIM, toOperationCounts } from "./shared.types";
+import {
+	applyOperationCounts,
+	type ClaimNextInput,
+	items,
+	operations,
+	RELEASE_CLAIM,
+	toOperationCounts,
+	type WorkerItem,
+} from "./shared.types";
 
 /**
  * Claims every runnable job for one worker in a single transaction, up to
@@ -170,85 +177,83 @@ export async function updateProgress(id: string, progressPercent: number, claimT
 	});
 }
 
+/**
+ * Terminalizes a running job in one transaction: the guarded update and the
+ * operation bookkeeping that follows it. `complete`, `retry` and `fail` differ
+ * only in the values they write and in what the operation records afterwards.
+ */
+async function terminalizeJob(
+	job: { id: string; runnerId: string; claimToken?: string | undefined },
+	values: SQLiteUpdateSetSource<typeof items>,
+	afterUpdated: (updatedJob: { operationId: string | null }, tx: DatabaseTransaction) => Promise<void>,
+): Promise<boolean> {
+	return await databaseFactory.transaction(async (tx) => await terminalizeRunning(tx, { ...job, values, afterUpdated }));
+}
+
 export async function complete(id: string, runnerId: string, result: string, claimToken?: string): Promise<boolean> {
 	const now = new Date();
 
-	return await databaseFactory.transaction(
-		async (tx) =>
-			await terminalizeRunning(tx, {
-				id,
-				runnerId,
-				claimToken,
-				values: {
-					status: "completed",
-					result,
-					error: null,
-					...RELEASE_CLAIM,
-					progressPercent: 100,
-					completedAt: now,
-					updatedAt: now,
-				},
-				afterUpdated: async (updatedJob) => {
-					if (updatedJob.operationId) {
-						await workerOperationRepository.markJobFinished(updatedJob.operationId, "completed", now, tx);
-					}
-				},
-			}),
+	return await terminalizeJob(
+		{ id, runnerId, claimToken },
+		{
+			status: "completed",
+			result,
+			error: null,
+			...RELEASE_CLAIM,
+			progressPercent: 100,
+			completedAt: now,
+			updatedAt: now,
+		},
+		async (updatedJob, tx) => {
+			if (updatedJob.operationId) {
+				await workerOperationRepository.markJobFinished(updatedJob.operationId, "completed", now, tx);
+			}
+		},
 	);
 }
 
 export async function retry(id: string, runnerId: string, runAt: Date, error: string, claimToken?: string): Promise<boolean> {
 	const now = new Date();
 
-	return await databaseFactory.transaction(
-		async (tx) =>
-			await terminalizeRunning(tx, {
-				id,
-				runnerId,
-				claimToken,
-				values: {
-					status: "pending",
-					runAt,
-					error,
-					// A retry starts fresh: stale progress/start/result from the failed
-					// attempt must not show up in the admin UI while the job waits.
-					progressPercent: null,
-					startedAt: null,
-					result: null,
-					...RELEASE_CLAIM,
-					updatedAt: now,
-				},
-				afterUpdated: async (updatedJob) => {
-					if (updatedJob.operationId) await workerOperationRepository.markJobRetried(updatedJob.operationId, now, tx);
-				},
-			}),
+	return await terminalizeJob(
+		{ id, runnerId, claimToken },
+		{
+			status: "pending",
+			runAt,
+			error,
+			// A retry starts fresh: stale progress/start/result from the failed
+			// attempt must not show up in the admin UI while the job waits.
+			progressPercent: null,
+			startedAt: null,
+			result: null,
+			...RELEASE_CLAIM,
+			updatedAt: now,
+		},
+		async (updatedJob, tx) => {
+			if (updatedJob.operationId) await workerOperationRepository.markJobRetried(updatedJob.operationId, now, tx);
+		},
 	);
 }
 
 export async function fail(id: string, runnerId: string, error: string, claimToken?: string): Promise<boolean> {
 	const now = new Date();
 
-	return await databaseFactory.transaction(
-		async (tx) =>
-			await terminalizeRunning(tx, {
-				id,
-				runnerId,
-				claimToken,
-				values: {
-					status: "failed",
-					error,
-					...RELEASE_CLAIM,
-					completedAt: now,
-					updatedAt: now,
-				},
-				afterUpdated: async (updatedJob) => {
-					if (updatedJob.operationId) {
-						await workerOperationRepository.markJobFinished(updatedJob.operationId, "failed", now, tx);
-					}
+	return await terminalizeJob(
+		{ id, runnerId, claimToken },
+		{
+			status: "failed",
+			error,
+			...RELEASE_CLAIM,
+			completedAt: now,
+			updatedAt: now,
+		},
+		async (updatedJob, tx) => {
+			if (updatedJob.operationId) {
+				await workerOperationRepository.markJobFinished(updatedJob.operationId, "failed", now, tx);
+			}
 
-					await cascadeCancel(tx, [id], now);
-				},
-			}),
+			await cascadeCancel(tx, [id], now);
+		},
 	);
 }
 
@@ -371,14 +376,14 @@ async function updateRunningRowsChunked(
 	values: SQLiteUpdateSetSource<typeof items>,
 ): Promise<Set<string>> {
 	const updated = new Set<string>();
-	for (const chunkIds of chunk([...ids], serverConstants.database.queryChunkSize)) {
+	await forEachChunked(ids, async (chunkIds) => {
 		const res = await tx
 			.update(items)
 			.set(values)
 			.where(and(inArray(items.id, chunkIds), eq(items.status, "running")))
 			.returning({ id: items.id });
 		for (const row of res) updated.add(row.id);
-	}
+	});
 
 	return updated;
 }

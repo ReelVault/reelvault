@@ -3,7 +3,7 @@ import { pluginCatalogRepositoryData } from "@/app/plugins/plugin-data.service";
 import { env } from "@/config/env.config";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { assertChecksumMatches } from "@/utils/crypto.utils";
-import { DomainError, errorCodeOf, toErrorCode } from "@/utils/domain.errors";
+import { DomainError, errorCodeOf, errorMessage, toErrorCode } from "@/utils/domain.errors";
 import { consumeStreamBounded } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
@@ -137,11 +137,11 @@ class PluginCatalogService {
 			url: values.url,
 			tokenEncrypted: values.token ? encryptSecret(values.token, env.BETTER_AUTH_SECRET) : null,
 		});
-		await this.refreshRepository(row.id).catch((error) => {
+		await this.refreshRepository(row.id).catch((error: unknown) => {
 			// Creation succeeds even if the first fetch fails — the error is
 			// recorded on the row so the UI can surface it.
 			this.logger.warn("Initial catalog refresh failed", {
-				reason: error instanceof Error ? error.message : String(error),
+				reason: errorMessage(error),
 			});
 		});
 		return this.toView(await requireRepository(row.id));
@@ -197,7 +197,7 @@ class PluginCatalogService {
 
 			return new Set(plugins.filter((entry) => entry.status === "update-available").map((entry) => entry.id));
 		} catch (error) {
-			this.logger.warn("Plugin update check skipped", { reason: error instanceof Error ? error.message : String(error) });
+			this.logger.warn("Plugin update check skipped", { reason: errorMessage(error) });
 
 			return new Set();
 		}
@@ -236,7 +236,7 @@ class PluginCatalogService {
 					return { plugins };
 				} catch (error) {
 					this.logger.warn("Skipping unavailable plugin repository", {
-						reason: error instanceof Error ? error.message : String(error),
+						reason: errorMessage(error),
 						repositoryId: row.id,
 					});
 

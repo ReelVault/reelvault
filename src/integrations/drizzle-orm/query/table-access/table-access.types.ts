@@ -38,6 +38,25 @@ export interface TableAccessBase<TTable extends DatabaseTables> {
 	primaryKeyColumn: SQLiteColumn;
 }
 
+/**
+ * The rows a write targets: by primary key, by id list, or by a condition.
+ * Every write helper accepts the same three, so they are written once.
+ */
+export interface TableWriteTarget {
+	primaryId?: string | undefined;
+	ids?: string[] | undefined;
+	where?: SQL | undefined;
+	tx?: DatabaseTransaction | undefined;
+}
+
+/** The rows and the values a write applies. */
+export interface TableUpdateParams<TTable extends DatabaseTables> extends TableWriteTarget {
+	values: TableUpdateSet<TTable>;
+}
+
+/** The rows a write removes. */
+export type TableDeleteParams = TableWriteTarget;
+
 export interface TableAccess<TTable extends DatabaseTables> extends TableAccessBase<TTable> {
 	query: (tx?: DatabaseTransaction) => DatabaseType["query"][TTable];
 	selectMany: (params?: SelectManyParams) => Promise<Array<TableSelect<TTable>>>;
@@ -74,38 +93,16 @@ export interface TableAccess<TTable extends DatabaseTables> extends TableAccessB
 		onConflict?: "doNothing" | "none" | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}) => Promise<Array<TableSelect<TTable>>>;
-	update: (params: {
-		primaryId?: string | undefined;
-		ids?: string[] | undefined;
-		where?: SQL | undefined;
-		values: TableUpdateSet<TTable>;
-		tx?: DatabaseTransaction | undefined;
-	}) => Promise<void>;
-	updateReturning: (params: {
-		primaryId?: string | undefined;
-		ids?: string[] | undefined;
-		where?: SQL | undefined;
-		values: TableUpdateSet<TTable>;
-		tx?: DatabaseTransaction | undefined;
-	}) => Promise<Array<TableSelect<TTable>>>;
+	update: (params: TableUpdateParams<TTable>) => Promise<void>;
+	updateReturning: (params: TableUpdateParams<TTable>) => Promise<Array<TableSelect<TTable>>>;
 	updateAndReturn: <F extends string>(params: {
 		primaryId: string;
 		values: TableUpdateSet<TTable>;
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}) => Promise<SelectFields<TableSelect<TTable>, F> | undefined>;
-	delete: (params: {
-		primaryId?: string | undefined;
-		ids?: string[] | undefined;
-		where?: SQL | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}) => Promise<void>;
-	deleteReturning: (params: {
-		primaryId?: string | undefined;
-		ids?: string[] | undefined;
-		where?: SQL | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}) => Promise<Array<TableSelect<TTable>>>;
+	delete: (params: TableDeleteParams) => Promise<void>;
+	deleteReturning: (params: TableDeleteParams) => Promise<Array<TableSelect<TTable>>>;
 	deleteAndReturn: (params: { primaryId: string; tx?: DatabaseTransaction | undefined }) => Promise<TableSelect<TTable> | undefined>;
 	findByIds: <F extends string>(params: {
 		ids: readonly string[];

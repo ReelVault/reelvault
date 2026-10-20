@@ -35,6 +35,7 @@ async function enablePlugin(state: PluginManagerState, pluginId: string): Promis
 		if (!restored) throw error;
 
 		throw new DomainError("validation", `Plugin ${pluginId} did not load; version ${restored.version} was restored`, {
+			cause: error,
 			code: "plugin.upgrade_rolled_back",
 			params: { pluginId, version: restored.version },
 		});

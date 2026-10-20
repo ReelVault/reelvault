@@ -4,7 +4,7 @@ import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
-import { enqueueWithOperation } from "@/workers/core/worker-operation.service";
+import { anyAttachedToOperation, attachedToOperation, enqueueWithOperation } from "@/workers/core/worker-operation.service";
 import { assertCronExpression } from "@/workers/utils/worker-policy.utils";
 import { workerService } from "@/workers/worker.service";
 
@@ -126,7 +126,7 @@ export const pluginJobsService = {
 				operationId: options?.operationId,
 				// A dedupe hit keeps the existing row (and its operation) — drop the
 				// fresh operation instead of leaving an empty `pending` one behind.
-				isAttached: (item, opId) => item.operationId === opId,
+				isAttached: attachedToOperation,
 			},
 		);
 
@@ -164,7 +164,7 @@ export const pluginJobsService = {
 			{
 				operationId: commonOptions?.operationId,
 				// Only drop the fresh operation when every item deduped onto others.
-				isAttached: (queued, opId) => queued.some((item) => item.operationId === opId),
+				isAttached: anyAttachedToOperation,
 			},
 		);
 

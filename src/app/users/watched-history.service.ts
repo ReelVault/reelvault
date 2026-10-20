@@ -128,14 +128,14 @@ export const watchedHistoryService = {
 				dailyAverageMinutes: Math.round(totalMinutes / Math.max(1, days)),
 				titlesWatched: metadataMinutes.size,
 				completedTitlesCount: completedCount,
-				longestSessionMinutes: Math.round(longestSessionSeconds / 60),
+				longestSessionMinutes: toWatchedMinutes(longestSessionSeconds),
 				topGenre: topFromAggregated(genreAggregated),
 				topActor: topRelation(relations.actors, metadataMinutes),
 				topMovies,
 				topShows,
 				genresDistribution,
 				hourlyHeatmap: buildHourlyHeatmap(
-					currentRows.map((row) => ({ dayOfWeek: row.dayOfWeek, hour: row.hour, minutes: Math.round(row.durationSum / 60) })),
+					currentRows.map((row) => ({ dayOfWeek: row.dayOfWeek, hour: row.hour, minutes: toWatchedMinutes(row.durationSum) })),
 				),
 				dailyActivity: activityByDay(currentRows, days, now),
 			};
@@ -168,7 +168,7 @@ export const watchedHistoryService = {
 			let episodesCount = 0;
 
 			for (const row of rows) {
-				const durationMinutes = Math.round(row.durationSum / 60);
+				const durationMinutes = toWatchedMinutes(row.durationSum);
 
 				const m = row.month - 1;
 				const previousMonth = monthTotals.get(m) ?? 0;
@@ -255,8 +255,13 @@ export const watchedHistoryService = {
 	},
 };
 
+/** Watched seconds as whole minutes. */
+function toWatchedMinutes(durationSum: number): number {
+	return Math.round(durationSum / 60);
+}
+
 function sumMinutes(rows: Array<{ durationSum: number }>) {
-	return rows.reduce((total, row) => total + Math.round(row.durationSum / 60), 0);
+	return rows.reduce((total, row) => total + toWatchedMinutes(row.durationSum), 0);
 }
 
 /** Rounded minutes per metadata id — shared by both insight aggregations. */
@@ -264,7 +269,7 @@ function accumulateMinutes(rows: Array<{ metadataId: string; durationSum: number
 	const totals = new Map<string, number>();
 	for (const row of rows) {
 		const prev = totals.get(row.metadataId) ?? 0;
-		totals.set(row.metadataId, prev + Math.round(row.durationSum / 60));
+		totals.set(row.metadataId, prev + toWatchedMinutes(row.durationSum));
 	}
 
 	return totals;
@@ -313,7 +318,7 @@ function activityByDay(rows: Array<{ day: string | null; durationSum: number }>,
 		if (!row.day) continue;
 
 		const prev = totals.get(row.day) ?? 0;
-		totals.set(row.day, prev + Math.round(row.durationSum / 60));
+		totals.set(row.day, prev + toWatchedMinutes(row.durationSum));
 	}
 
 	return recentDayKeys(days, now).map((date) => ({ date, minutes: totals.get(date) ?? 0 }));

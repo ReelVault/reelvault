@@ -2,7 +2,7 @@ import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, type SQL } from "driz
 import { DAY, serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
-import { chunk } from "@/utils/array.utils";
+import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { jobs, operations, TERMINAL_STATUSES, type TerminalOperationsOptions } from "./shared.types";
 
 /** Stamps terminal operations that have no retention deadline yet. Returns how many were stamped. */
@@ -22,9 +22,9 @@ export async function finalizeTerminalOperations(now: Date = new Date(), retenti
 	// the read→write window also wants the immediate lock).
 	await databaseFactory.transaction(
 		async (tx) => {
-			for (const chunkIds of chunk(ids, serverConstants.database.queryChunkSize)) {
+			await forEachChunked(ids, async (chunkIds) => {
 				await tx.update(operations).set({ retentionUntil, updatedAt: now }).where(inArray(operations.id, chunkIds));
-			}
+			});
 		},
 		{ immediate: true },
 	);
@@ -53,10 +53,10 @@ export async function cleanupExpiredOperations(now: Date = new Date()): Promise<
 	const ids = expired.map((e) => e.id);
 
 	return await databaseFactory.transaction(async (tx) => {
-		for (const chunkIds of chunk(ids, serverConstants.database.queryChunkSize)) {
+		await forEachChunked(ids, async (chunkIds) => {
 			await tx.delete(jobs).where(inArray(jobs.operationId, chunkIds));
 			await tx.delete(operations).where(inArray(operations.id, chunkIds));
-		}
+		});
 
 		return ids.length;
 	});

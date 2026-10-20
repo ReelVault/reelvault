@@ -1,6 +1,6 @@
 import type { ProviderMetadataResult, ProviderRating } from "@reelvault/sdk/plugin";
 import { DomainError } from "@/utils/domain.errors";
-import { isValidRating } from "@/utils/math.utils";
+import { isValidRating } from "@/utils/media-metadata.utils";
 import { isNonEmptyString, isNullish } from "@/utils/type.utils";
 
 export interface ProviderContribution {

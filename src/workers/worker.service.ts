@@ -1,6 +1,7 @@
 import type { AddWorkerItemOptions, WorkerDefinition, WorkerJob as WorkerItemContract, WorkerQueueStats } from "@reelvault/sdk/common";
 import { resourceAllocator } from "@/system/resource-allocator.service";
 import { serverRescueService } from "@/system/server-rescue.service";
+import { safeParseJson } from "@/utils/json.utils";
 import { createLogger } from "@/utils/logger.utils";
 import type { ActiveWorkerItem, WorkerItem, WorkerOperationRecord, WorkerOperationStatus } from "@/workers/worker.ports";
 import { setWorkerRuntime } from "./core/worker.runtime";
@@ -12,6 +13,7 @@ import { WorkerQueueService } from "./core/worker-queue.service";
 import { WorkerRegistryService } from "./core/worker-registry.service";
 import { type WorkerSchedulerService, workerSchedulerService } from "./core/worker-scheduler.service";
 import { WorkerWatchdogService } from "./core/worker-watchdog.service";
+import type { TerminalPurgeRequest } from "./utils/worker-purge.utils";
 import { toJobContract } from "./utils/worker-stats.mapper";
 import type { WorkerOperationJobsQuery } from "./worker.types";
 
@@ -158,7 +160,7 @@ class WorkerService {
 		const item = await this.queue.getJob(id);
 		if (!item) return undefined;
 
-		const payload: unknown = JSON.parse(item.data);
+		const payload: unknown = safeParseJson(item.data) ?? item.data;
 		const retried = await this.queue.enqueue(item.workerId, payload, {
 			dedupeKey: item.dedupeKey ?? undefined,
 			reference: item.referenceType && item.referenceId ? { type: item.referenceType, id: item.referenceId } : undefined,
@@ -213,13 +215,7 @@ class WorkerService {
 		);
 	}
 
-	async purgeHistory(
-		options: {
-			status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
-			olderThanDays?: number | undefined;
-			dryRun?: boolean | undefined;
-		} = {},
-	): Promise<{ deletedJobsCount: number; deletedOperationsCount: number }> {
+	async purgeHistory(options: TerminalPurgeRequest = {}): Promise<{ deletedJobsCount: number; deletedOperationsCount: number }> {
 		// Operations and standalone jobs purge independently (no FK between the
 		// tables), so both DELETE scans can run concurrently.
 		const [opResult, standaloneJobsDeleted] = await Promise.all([this.operations.purgeHistory(options), this.queue.purgeHistory(options)]);

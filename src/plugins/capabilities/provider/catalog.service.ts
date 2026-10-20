@@ -11,8 +11,7 @@ import { errorMessage } from "@/utils/domain.errors";
 import { fetchFromEveryProvider } from "./fan-out.service";
 import { discoveryCacheKey } from "./match-ranking.utils";
 import type { ProviderPersonDetails, ProviderResultCache } from "./provider.types";
-import type { ProviderServiceState } from "./shared.utils";
-import { getProviderKey, resolveProviders } from "./shared.utils";
+import { getProviderKey, type ProviderServiceState, resolveProviders } from "./shared.utils";
 
 /**
  * Walks providers in priority order and returns the first result `isPositive`

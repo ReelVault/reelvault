@@ -1,3 +1,4 @@
+import { dirname, join, resolve } from "node:path";
 import { file } from "bun";
 import Elysia, { t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
@@ -9,7 +10,7 @@ import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.
 import { DomainError } from "@/utils/domain.errors";
 import { fileExists } from "@/utils/file.utils";
 import { contentTypeForPath } from "@/utils/mime.utils";
-import { getDirName, getExtension, isSubpath, joinPath, resolvePath } from "@/utils/path.utils";
+import { getExtension, isSubpath } from "@/utils/path.utils";
 
 /**
  * UI assets are an allowlist — plugin sources and `config.json` (may hold
@@ -39,7 +40,7 @@ const SERVABLE_EXTENSIONS = new Set([
 const MAX_SPA_FALLBACK_DEPTH = 8;
 
 function safePath(base: string, relative: string): string | null {
-	const resolved = resolvePath(base, relative);
+	const resolved = resolve(base, relative);
 	if (!isSubpath(resolved, base)) return null;
 
 	return resolved;
@@ -51,16 +52,16 @@ function safePath(base: string, relative: string): string | null {
  * so history-routed bundles work regardless of their entry depth.
  */
 async function resolveSpaFallback(pluginDir: string, resolved: string): Promise<string | null> {
-	const root = resolvePath(pluginDir);
+	const root = resolve(pluginDir);
 	let current = resolved;
 
 	for (let depth = 0; depth <= MAX_SPA_FALLBACK_DEPTH; depth++) {
-		const candidate = joinPath(current, "index.html");
+		const candidate = join(current, "index.html");
 		if (await fileExists(candidate)) return candidate;
 
 		if (current === root) return null;
 
-		const parent = getDirName(current);
+		const parent = dirname(current);
 		if (parent === current || !isSubpath(current, root)) return null;
 
 		current = parent;
@@ -113,7 +114,7 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 				throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
 			}
 
-			const pluginDir = joinPath(serverConfig.paths.plugins, directoryName);
+			const pluginDir = join(serverConfig.paths.plugins, directoryName);
 
 			const resolved = safePath(pluginDir, filePath);
 			if (!resolved) {

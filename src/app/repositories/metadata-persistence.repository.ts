@@ -16,7 +16,8 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { toMetadataValues } from "@/integrations/drizzle-orm/utils/metadata-values.mapper";
 import { createProviderStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
-import { clamp, isValidRating } from "@/utils/math.utils";
+import { clamp } from "@/utils/math.utils";
+import { isValidRating } from "@/utils/media-metadata.utils";
 
 /** Relation surfaces a field lock can protect; each entry deletes that relation's rows for one title. */
 type LockedRelation = "cast" | "crew" | "genres" | "keywords" | "companies" | "collections" | "ratings";

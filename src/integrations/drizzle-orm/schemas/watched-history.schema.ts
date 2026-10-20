@@ -18,9 +18,10 @@ export const watchedHistory = sqliteTable(
 		...timestampColumns,
 	},
 	(t) => [
-		index("history_profile_watched_idx").on(t.profileId, t.watchedAt),
-		// `sortBy=createdAt` on the watched-history page needs the id tiebreaker;
-		// only watchedAt was covered.
+		// The default listing is a keyset page over (watchedAt, id): without the
+		// id in the index the sort falls back to a temp B-tree over a full scan.
+		index("history_profile_watched_id_idx").on(t.profileId, t.watchedAt, t.id),
+		// `sortBy=createdAt` on the watched-history page needs the id tiebreaker.
 		index("history_profile_created_idx").on(t.profileId, t.createdAt, t.id),
 		index("history_profile_media_idx").on(t.profileId, t.mediaFileId),
 		index("history_media_file_idx").on(t.mediaFileId),

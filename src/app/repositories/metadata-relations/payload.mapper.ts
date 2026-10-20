@@ -1,5 +1,5 @@
 import { isRelationItem, parseJsonRelationArray, parseJsonRelationArrayWith } from "@/integrations/drizzle-orm/utils/relation-json.utils";
-import { safeParseJson } from "@/utils/file.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import {
 	castDateKeys,
 	castKeys,

@@ -1,11 +1,9 @@
 import { env } from "@/config/env.config";
 import { SystemSettingsCreator } from "@/config/system-settings.utils";
-import { trimAndFilter } from "@/utils/array.utils";
+import { splitCommaList } from "@/utils/array.utils";
 
 function parseInitialOrigins(value?: string): string[] {
-	if (!value) return [];
-
-	return trimAndFilter(value.split(","));
+	return splitCommaList(value);
 }
 
 const creator = SystemSettingsCreator("network");

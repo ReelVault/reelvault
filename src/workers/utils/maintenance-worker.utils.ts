@@ -18,7 +18,7 @@ interface MaintenanceWorkerOptions<TResult> {
  * wiring, so each worker file only carries its schedule and its work.
  */
 export function defineMaintenanceWorker<TResult>(options: MaintenanceWorkerOptions<TResult>): WorkerDefinition {
-	const definition: WorkerDefinition = createWorkerDefinition(
+	return createWorkerDefinition(
 		options.id,
 		() => ({
 			name: options.name,
@@ -32,8 +32,6 @@ export function defineMaintenanceWorker<TResult>(options: MaintenanceWorkerOptio
 
 			return await options.run(context);
 		},
+		[options.trigger],
 	);
-	definition.defaultTriggers = [options.trigger];
-
-	return definition;
 }

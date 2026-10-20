@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { env } from "../env.config";
+import { env } from "@/config/env.config";
+import { KIB } from "@/utils/bytes.utils";
 
 const KIBIBYTE = 1024;
 const MEBIBYTE = KIBIBYTE * KIBIBYTE;
@@ -123,7 +124,7 @@ export const serverConstants = {
 		brotliQuality: 4,
 		brotliLgwin: 18,
 		gzipLevel: 1,
-		minSizeBytes: 1024,
+		minSizeBytes: KIB,
 		types: ["text/*", "application/json", "application/javascript", "application/xml", "application/x-mpegURL"],
 		excludeTypes: ["image/*", "video/*", "audio/*", "application/octet-stream"],
 	},

@@ -18,16 +18,26 @@ import { computeNextRunAt } from "@/workers/utils/worker-policy.utils";
 import { applyStats } from "@/workers/utils/worker-stats.mapper";
 import { workerDependencies } from "@/workers/worker.ports";
 import { getWorkerRuntime } from "./worker.runtime";
-import { enqueueWithOperation } from "./worker-operation.service";
+import { attachedToOperation, enqueueWithOperation } from "./worker-operation.service";
 
 const TIME_OF_DAY_REGEX = /^\d{2}:\d{2}$/;
+
+/** The concurrency a worker runs with when its definition does not say. */
+function defaultConcurrency(def: WorkerDefinition): number {
+	return def.concurrency ?? 1;
+}
+
+/** The timeout a worker runs with when its definition does not say. */
+function defaultTimeoutMs(def: WorkerDefinition): number {
+	return def.timeoutMs ?? MINUTE;
+}
 
 /** Zeroed queue stats for a worker that has no job rows yet. */
 function emptyWorkerStats(def: WorkerDefinition): WorkerQueueStats {
 	return {
 		workerId: def.id,
-		concurrency: def.concurrency ?? 1,
-		timeoutMs: def.timeoutMs ?? MINUTE,
+		concurrency: defaultConcurrency(def),
+		timeoutMs: defaultTimeoutMs(def),
 		waiting: 0,
 		active: 0,
 		completed: 0,
@@ -261,7 +271,7 @@ export class WorkerSchedulerService {
 					priority: -10,
 					operationId: opId,
 				}),
-			{ isAttached: (queued, opId) => queued.operationId === opId },
+			{ isAttached: attachedToOperation },
 		);
 
 		return { success: true, jobId: job.id, operationId };
@@ -352,8 +362,8 @@ export class WorkerSchedulerService {
 				id: def.id,
 				name: def.name ?? def.id,
 				category: def.category ?? "application",
-				concurrency: def.concurrency ?? 1,
-				timeoutMs: def.timeoutMs ?? MINUTE,
+				concurrency: defaultConcurrency(def),
+				timeoutMs: defaultTimeoutMs(def),
 				stats: statsMap.get(def.id) ?? emptyWorkerStats(def),
 				triggers,
 				scheduleEnabled: scheduleRow?.isEnabled ?? true,

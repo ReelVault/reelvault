@@ -8,18 +8,15 @@ import { DailyRotatingStream } from "./logging/daily-rotating.stream";
 import { sanitizeLogValue } from "./logging/sanitize.utils";
 import { isNullish, isRecord } from "./type.utils";
 
-function formatDuration(ms: number, showMs = false): string {
+function formatDuration(ms: number): string {
 	const totalSeconds = Math.floor(ms / 1000);
 	const minutes = Math.floor(totalSeconds / 60);
 	const seconds = totalSeconds % 60;
-	let result = `${minutes}:${seconds.toString().padStart(2, "0")}`;
-	if (showMs) {
-		result += `.${Math.floor(ms % 1000)
-			.toString()
-			.padStart(3, "0")}`;
-	}
+	const millis = Math.floor(ms % 1000)
+		.toString()
+		.padStart(3, "0");
 
-	return result;
+	return `${minutes}:${seconds.toString().padStart(2, "0")}.${millis}`;
 }
 
 const isDev = env.NODE_ENV === "development";
@@ -286,7 +283,7 @@ class AppLogger implements Logger {
 			this.info(finishLabel, {
 				...finishMeta,
 				durationMs,
-				duration: formatDuration(durationMs, true),
+				duration: formatDuration(durationMs),
 			});
 		};
 	}

@@ -1,5 +1,4 @@
-import type { CreateMediaMarker, MediaMarker } from "@reelvault/sdk/common";
-import { CreateMediaMarkerSchema } from "@reelvault/sdk/common";
+import { type CreateMediaMarker, CreateMediaMarkerSchema, type MediaMarker } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
 import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
@@ -34,8 +33,9 @@ export function serializeMarkersNdjson(markers: readonly MediaMarker[]): string 
 	return `${lines.join("\n")}\n`;
 }
 
-function invalidLine(lineNumber: number, reason: string): DomainError {
+function invalidLine(lineNumber: number, reason: string, cause?: unknown): DomainError {
 	return new DomainError("validation", `Marker line ${lineNumber} is invalid: ${reason}`, {
+		cause,
 		code: "media.markers_import_invalid",
 		params: { line: lineNumber, reason },
 	});
@@ -44,8 +44,8 @@ function invalidLine(lineNumber: number, reason: string): DomainError {
 function parseLine(line: string, lineNumber: number): unknown {
 	try {
 		return JSON.parse(line);
-	} catch {
-		throw invalidLine(lineNumber, "not_json");
+	} catch (error) {
+		throw invalidLine(lineNumber, "not_json", error);
 	}
 }
 

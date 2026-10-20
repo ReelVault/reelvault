@@ -1,6 +1,6 @@
+import { basename, join } from "node:path";
 import type { PluginLockfile } from "@/plugins/lifecycle/installer/lockfile.store";
 import { directoryExists } from "@/utils/directory.utils";
-import { getFileName, joinPath } from "@/utils/path.utils";
 import { isPluginDirectoryName } from "./plugin-directory.indexer";
 import { readPluginManifests } from "./plugin-directory.reader";
 
@@ -24,8 +24,8 @@ export async function resolvePluginDirectoryName(
 	if (
 		record &&
 		isPluginDirectoryName(record.directory) &&
-		getFileName(record.directory) === record.directory &&
-		(await directoryExists(joinPath(pluginsDirectory, record.directory)))
+		basename(record.directory) === record.directory &&
+		(await directoryExists(join(pluginsDirectory, record.directory)))
 	) {
 		return record.directory;
 	}

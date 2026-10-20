@@ -1,3 +1,4 @@
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { SidecarArtwork } from "@/modules/metadata-sidecars/sidecar.types";
 import {
 	readXmlAttr,
@@ -7,7 +8,7 @@ import {
 	readXmlTexts,
 	readXmlValue,
 } from "@/modules/metadata-sidecars/xml/xml-value.reader";
-import { getDirName, getFileName, isAbsolutePath, isSubpath, joinPath, resolvePath } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 
 const REMOTE_URL_REGEX = /^[a-z][a-z0-9+.-]*:\/\//i;
 
@@ -44,8 +45,8 @@ function readFanartThumb(values: Readonly<Record<string, unknown>>): string | un
 export function resolveLocalArtworkPath(documentPath: string, value: string | undefined): { path: string } | undefined {
 	if (!value || REMOTE_URL_REGEX.test(value)) return undefined;
 
-	const directory = getDirName(documentPath);
-	const candidate = isAbsolutePath(value) ? joinPath(directory, getFileName(value)) : resolvePath(directory, value);
+	const directory = dirname(documentPath);
+	const candidate = isAbsolute(value) ? join(directory, basename(value)) : resolve(directory, value);
 	if (!isSubpath(candidate, directory)) return undefined;
 
 	return { path: candidate };

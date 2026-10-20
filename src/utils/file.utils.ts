@@ -1,6 +1,8 @@
+import type { Stats } from "node:fs";
 import { chmod, rename } from "node:fs/promises";
 import { file as bunFile, write as bunWrite } from "bun";
 import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
+import { MIB } from "@/utils/bytes.utils";
 import { DomainError, fsErrorCode, isMissingFile } from "./domain.errors";
 import { createLogger } from "./logger.utils";
 import { isVideoFile } from "./path.utils";
@@ -68,7 +70,18 @@ export function fileStatSignature(stats: { size: number; mtimeMs: number }): str
 	return `${stats.size}:${Math.floor(stats.mtimeMs)}`;
 }
 
-const DEFAULT_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
+/**
+ * The version signature of a path, or an empty string when the file cannot be
+ * stat'ed. One call replaces the stat-then-signature pair every cache key
+ * needs.
+ */
+export async function fileVersionSignature(path: string): Promise<string> {
+	const stats = await getFileStats(path);
+
+	return stats ? fileStatSignature(stats) : "";
+}
+
+const DEFAULT_MAX_DOWNLOAD_BYTES = 20 * MIB;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 15_000;
 
 interface DownloadOptions {
@@ -105,8 +118,8 @@ export async function readJsonFile(path: string, options?: ReadJsonOptions | num
 			if (stats.size > maxSize) {
 				logger.warn("JSON file too large", {
 					filePath: path,
-					sizeMb: Number((stats.size / 1024 / 1024).toFixed(2)),
-					maxSizeMb: maxSize / 1024 / 1024,
+					sizeMb: Number((stats.size / MIB).toFixed(2)),
+					maxSizeMb: maxSize / MIB,
 				});
 
 				return null;
@@ -135,13 +148,21 @@ export async function getFileStats(path: string) {
 	}
 }
 
+/**
+ * The stat of a path with a hard deadline: a hung stat (dead NFS/CIFS) must
+ * not wedge the caller.
+ */
+export async function statWithTimeout(path: string): Promise<Stats> {
+	return await withTimeout(bunFile(path).stat(), FS_STAT_TIMEOUT_MS, `stat ${path}`);
+}
+
 export async function fileExists(path: string): Promise<boolean> {
 	return await bunFile(path).exists();
 }
 
 export async function checkFileExistence(path: string): Promise<"exists" | "missing" | "unavailable"> {
 	try {
-		await withTimeout(bunFile(path).stat(), FS_STAT_TIMEOUT_MS, `stat ${path}`);
+		await statWithTimeout(path);
 
 		return "exists";
 	} catch (error) {
@@ -355,14 +376,4 @@ async function streamToFile(body: ReadableStream<Uint8Array>, path: string, maxB
 
 function normalizeContentType(value: string | null): string {
 	return normalizeLower(value?.split(";", 1)[0] ?? "");
-}
-
-export function safeParseJson(value: string | null | undefined): unknown {
-	if (!value) return null;
-
-	try {
-		return JSON.parse(value);
-	} catch {
-		return null;
-	}
 }

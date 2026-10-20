@@ -1,6 +1,6 @@
+import { basename, dirname, join, resolve } from "node:path";
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
 import { getFileStats, readFile, writeFileAtomic } from "@/utils/file.utils";
-import { getDirName, getFileName, joinPath, resolvePath } from "@/utils/path.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 
 export const LOCKFILE_NAME = "plugins.lock.json";
@@ -101,16 +101,16 @@ export class PluginLockfileStore {
 		// The directory name may differ from the plugin id (manually dropped
 		// packages), so validate it as a plain basename and keep the resolved
 		// path inside the plugins root.
-		if (getFileName(pluginId) !== pluginId || getFileName(record.directory) !== record.directory) {
+		if (basename(pluginId) !== pluginId || basename(record.directory) !== record.directory) {
 			throw new DomainError("validation", `Plugin ${pluginId} has an unsafe ${LOCKFILE_NAME} directory entry`, {
 				code: "plugin.lockfile_entry_unsafe",
 				params: { plugin: pluginId },
 			});
 		}
 
-		const pluginsDirectory = resolvePath(this.pluginsDirectory);
-		const directory = resolvePath(pluginsDirectory, record.directory);
-		if (getDirName(directory) !== pluginsDirectory)
+		const pluginsDirectory = resolve(this.pluginsDirectory);
+		const directory = resolve(pluginsDirectory, record.directory);
+		if (dirname(directory) !== pluginsDirectory)
 			throw new DomainError("validation", `Plugin ${pluginId} escapes the plugins directory`, {
 				code: "plugin.directory_escape",
 				params: { plugin: pluginId },
@@ -120,7 +120,7 @@ export class PluginLockfileStore {
 	}
 
 	private lockfilePath(): string {
-		return joinPath(resolvePath(this.pluginsDirectory), LOCKFILE_NAME);
+		return join(resolve(this.pluginsDirectory), LOCKFILE_NAME);
 	}
 }
 

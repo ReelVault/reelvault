@@ -76,7 +76,7 @@ class DiscoverService {
 
 	private readonly cache = new MemoryCache<DiscoverResponse>({
 		ttlMs: MINUTE,
-		maxSize: systemResourcesService.getRamScaledCacheEntries(12, 25, 100),
+		maxSize: systemResourcesService.getRamScaled(12, 25, 100),
 		name: "discover",
 	});
 
@@ -100,7 +100,7 @@ class DiscoverService {
 		const dislikedIds = new Set(await discoverRepository.findDislikedMetadataIds(profileId));
 		const recentlyAdded = await metadataRepository.findRecentlyAddedByTypes(["movie", "tv_show"], limit);
 		const [recommendationIds, trendingRaw] = await Promise.all([
-			this.getRecommendations(profileId, limit).catch((error) => {
+			this.getRecommendations(profileId, limit).catch((error: unknown) => {
 				this.logger.warn("Failed to generate recommendations for discover view, falling back to empty list", { profileId, err: error });
 
 				return [];

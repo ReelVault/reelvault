@@ -1,4 +1,6 @@
 import type { FrameExtractionRequest, FrameImageFormat, SpriteExtractionRequest } from "@reelvault/sdk/plugin";
+import { FFMPEG_QUIET_ARGS } from "@/integrations/ffmpeg/ffmpeg.args";
+import { buildFitPadFilter } from "@/integrations/ffmpeg/ffmpeg.filters";
 
 export function buildFrameExtractionCommand(
 	inputPath: string,
@@ -10,9 +12,7 @@ export function buildFrameExtractionCommand(
 	const scaleArguments = request.width ? ["-vf", `scale=${request.width}:-2`] : [];
 
 	return [
-		"-hide_banner",
-		"-loglevel",
-		"error",
+		...FFMPEG_QUIET_ARGS,
 		...(hwDecodeArgs ?? []),
 		"-ss",
 		(request.timeMs / 1000).toFixed(3),
@@ -29,17 +29,12 @@ export function buildFrameExtractionCommand(
 export function buildSpriteExtractionCommand(inputPath: string, request: SpriteExtractionRequest, outputPath?: string): string[] {
 	const format = request.format ?? "webp";
 	const inputs = request.timeMs.flatMap((timeMs) => ["-ss", (timeMs / 1000).toFixed(3), "-i", inputPath]);
-	const filters = request.timeMs.map(
-		(_, index) =>
-			`[${index}:v]scale=${request.width}:${request.height}:force_original_aspect_ratio=decrease,pad=${request.width}:${request.height}:(ow-iw)/2:(oh-ih)/2:black[s${index}]`,
-	);
+	const filters = request.timeMs.map((_, index) => `[${index}:v]${buildFitPadFilter(request.width, request.height)}[s${index}]`);
 	const spriteInputs = request.timeMs.map((_, index) => `[s${index}]`).join("");
 	const layout = request.timeMs.map((_, index) => spritePosition(index, request.columns)).join("|");
 
 	return [
-		"-hide_banner",
-		"-loglevel",
-		"error",
+		...FFMPEG_QUIET_ARGS,
 		...inputs,
 		"-filter_complex",
 		`${filters.join(";")};${spriteInputs}xstack=inputs=${request.timeMs.length}:layout=${layout}[sprite]`,
@@ -71,12 +66,10 @@ export function buildSingleFrameExtractionCommand({
 	outputPath,
 	hwDecodeArgs,
 }: SingleFrameExtractionInput): string[] {
-	const filter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`;
+	const filter = buildFitPadFilter(width, height);
 
 	return [
-		"-hide_banner",
-		"-loglevel",
-		"error",
+		...FFMPEG_QUIET_ARGS,
 		...(hwDecodeArgs ?? []),
 		"-ss",
 		(timeMs / 1000).toFixed(3),
@@ -99,9 +92,7 @@ export function buildSpriteTileCommand(
 	outputPath: string,
 ): string[] {
 	return [
-		"-hide_banner",
-		"-loglevel",
-		"error",
+		...FFMPEG_QUIET_ARGS,
 		"-i",
 		framesInputPattern,
 		"-vf",

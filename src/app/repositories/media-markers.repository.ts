@@ -4,7 +4,6 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { groupBy } from "@/utils/array.utils";
@@ -43,15 +42,12 @@ function markerListWhere(query: MediaMarkerListQuery): SQL | undefined {
 const overrides = {
 	async findPage(query: MediaMarkerFilters & { limit: number; offset: number }) {
 		const where = markerListWhere(query);
-		const { data, total } = await findOffsetPage({
-			access: mediaMarkers,
+		const { data, total } = await mediaMarkers.findOffsetPage({
 			where,
 			orderBy: asc(mediaMarkers.table.createdAt),
 			limit: query.limit,
 			offset: query.offset,
 			tiebreakerOrder: "asc",
-			findMany: (page) => mediaMarkers.selectMany(page),
-			count: () => mediaMarkers.count({ where }),
 		});
 
 		return { rows: data, total };

@@ -1,6 +1,6 @@
 import { and, eq, lt, or, type SQL, type SQLWrapper } from "drizzle-orm";
 import { DomainError } from "@/utils/domain.errors";
-import { safeParseJson } from "@/utils/file.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import { isFiniteNumber, isNonEmptyString, isRecord } from "@/utils/type.utils";
 
 export interface CreatedAtCursor {
@@ -22,8 +22,8 @@ export function decodeCursor(value: string): CreatedAtCursor {
 	let text: string;
 	try {
 		text = Buffer.from(value, "base64url").toString("utf8");
-	} catch {
-		throw new DomainError("validation", "Invalid pagination cursor", { code: "validation.invalid_cursor" });
+	} catch (error) {
+		throw new DomainError("validation", "Invalid pagination cursor", { cause: error, code: "validation.invalid_cursor" });
 	}
 
 	const parsed = safeParseJson(text);

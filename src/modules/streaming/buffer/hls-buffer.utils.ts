@@ -20,7 +20,7 @@ export function parseHlsBuffer(playlist: string, segmentDuration: number): HlsBu
 			continue;
 		}
 
-		const durationMatch = line.match(DURATION_PATTERN);
+		const durationMatch = DURATION_PATTERN.exec(line);
 		if (durationMatch) {
 			const duration = Number(durationMatch[1]);
 			pendingDuration = isFiniteNumber(duration) ? duration : null;

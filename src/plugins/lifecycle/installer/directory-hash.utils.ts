@@ -1,8 +1,8 @@
 import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { file } from "bun";
 import { createHash } from "@/utils/crypto.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { joinPath } from "@/utils/path.utils";
 
 /** Admin-owned runtime state at the package root — mutable, so excluded from the hash. */
 export const MUTABLE_CONFIG_FILENAME = "config.json";
@@ -25,7 +25,7 @@ async function updateIntegrityHash(hash: ReturnType<typeof createHash>, root: st
 	for (const entry of entries.toSorted((left, right) => left.name.localeCompare(right.name))) {
 		if (isRoot && entry.name === MUTABLE_CONFIG_FILENAME) continue;
 
-		const path = joinPath(directory, entry.name);
+		const path = join(directory, entry.name);
 		const relativePath = path.slice(root.length + 1).replaceAll("\\", "/");
 		if (entry.isDirectory()) {
 			hash.update(`directory:${relativePath}\0`);

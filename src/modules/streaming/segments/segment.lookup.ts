@@ -107,7 +107,10 @@ export class SegmentLookup {
 			return this.dependencies.readFile(filePath);
 		} catch (error) {
 			if (isMissingFile(error)) {
-				throw new DomainError("timeout", "Segment was removed by a seek restart — retry shortly", { code: "stream.segment_removed" });
+				throw new DomainError("timeout", "Segment was removed by a seek restart — retry shortly", {
+					cause: error,
+					code: "stream.segment_removed",
+				});
 			}
 
 			throw error;

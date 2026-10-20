@@ -1,13 +1,13 @@
 import { chmod, mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { file, write } from "bun";
-import { joinPath } from "@/utils/path.utils";
 import { MUTABLE_CONFIG_FILENAME } from "./directory-hash.utils";
 
 /** Uninstalled configurations wait here until the same plugin is installed again. Dot-directory, so it is never a plugin. */
 const CONFIG_BACKUP_DIRECTORY = ".config-backups";
 
 function configBackupPath(pluginsDirectory: string, pluginId: string): string {
-	return joinPath(pluginsDirectory, CONFIG_BACKUP_DIRECTORY, `${pluginId}.json`);
+	return join(pluginsDirectory, CONFIG_BACKUP_DIRECTORY, `${pluginId}.json`);
 }
 
 /** Copies a config file with owner-only permissions. Non-POSIX filesystems may not support chmod, so that failure is ignored. */
@@ -24,18 +24,18 @@ async function copyOwnerOnly(sourcePath: string, targetPath: string): Promise<vo
  * A missing config (fresh install / never configured) is a no-op.
  */
 export async function preserveMutableConfig(fromDirectory: string, toDirectory: string): Promise<void> {
-	const sourcePath = joinPath(fromDirectory, MUTABLE_CONFIG_FILENAME);
+	const sourcePath = join(fromDirectory, MUTABLE_CONFIG_FILENAME);
 	if (!(await file(sourcePath).exists())) return;
 
-	await copyOwnerOnly(sourcePath, joinPath(toDirectory, MUTABLE_CONFIG_FILENAME));
+	await copyOwnerOnly(sourcePath, join(toDirectory, MUTABLE_CONFIG_FILENAME));
 }
 
 /** Keeps an uninstalled plugin's config so a later install of the same id gets it back. */
 export async function backupMutableConfig(fromDirectory: string, pluginsDirectory: string, pluginId: string): Promise<void> {
-	const sourcePath = joinPath(fromDirectory, MUTABLE_CONFIG_FILENAME);
+	const sourcePath = join(fromDirectory, MUTABLE_CONFIG_FILENAME);
 	if (!(await file(sourcePath).exists())) return;
 
-	await mkdir(joinPath(pluginsDirectory, CONFIG_BACKUP_DIRECTORY), { recursive: true });
+	await mkdir(join(pluginsDirectory, CONFIG_BACKUP_DIRECTORY), { recursive: true });
 	await copyOwnerOnly(sourcePath, configBackupPath(pluginsDirectory, pluginId));
 }
 
@@ -43,7 +43,7 @@ export async function restoreUninstalledConfig(pluginsDirectory: string, pluginI
 	const backupPath = configBackupPath(pluginsDirectory, pluginId);
 	if (!(await file(backupPath).exists())) return;
 
-	await copyOwnerOnly(backupPath, joinPath(toDirectory, MUTABLE_CONFIG_FILENAME));
+	await copyOwnerOnly(backupPath, join(toDirectory, MUTABLE_CONFIG_FILENAME));
 }
 
 export async function discardConfigBackup(pluginsDirectory: string, pluginId: string): Promise<void> {

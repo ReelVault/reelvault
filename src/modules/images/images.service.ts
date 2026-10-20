@@ -5,8 +5,7 @@ import { assertFound, DomainError } from "@/utils/domain.errors";
 import { deleteFile, fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
-import type { OptimizedImage } from "./image-optimization.service";
-import { imageOptimizationService } from "./image-optimization.service";
+import { imageOptimizationService, type OptimizedImage } from "./image-optimization.service";
 
 interface ServiceDependencies {
 	findForFileRead: (imageId: string) => Promise<{ localPath: string; contentType: string } | undefined>;

@@ -225,15 +225,13 @@ export class SystemResourcesService {
 		return getTotalMemoryKiB();
 	}
 
-	/** Entries a RAM-held cache may hold: scales with installed memory so a
-	 * cache sized for 8 GB doesn't starve a 4 GB box (nor underuse a 32 GB one). */
-	getRamScaledCacheEntries(gbMultiplier: number, min: number, max: number): number {
-		return ramScaled(this.getTotalMemoryKiB(), gbMultiplier, min, max);
-	}
-
-	/** Byte budget for a RAM-held cache: `bytesPerGb` for each GiB of installed memory, clamped to [minBytes, maxBytes]. */
-	getRamScaledCacheBytes(bytesPerGb: number, minBytes: number, maxBytes: number): number {
-		return ramScaled(this.getTotalMemoryKiB(), bytesPerGb, minBytes, maxBytes);
+	/**
+	 * A value that scales with installed memory: `perUnit` for each GiB of RAM,
+	 * clamped to [min, max]. The unit is the caller's — entries for a cache
+	 * size, bytes for a byte budget.
+	 */
+	getRamScaled(perUnit: number, min: number, max: number): number {
+		return ramScaled(this.getTotalMemoryKiB(), perUnit, min, max);
 	}
 
 	/** Wall-clock budgets need headroom on slow single cores: a fixed 15 s

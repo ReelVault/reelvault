@@ -14,14 +14,14 @@ export function runFfmpegDiagnostic(args: string[], timeoutMs?: number) {
 
 /** The version from `ffmpeg -version`, or undefined when the banner is unexpected. */
 export function parseFfmpegVersion(stdout: string): string | undefined {
-	return stdout.match(versionLineRegex)?.[1]?.trim();
+	return versionLineRegex.exec(stdout)?.[1]?.trim();
 }
 
 /** Filter names from `ffmpeg -filters`. */
 export function parseFilterNames(stdout: string): Set<string> {
 	const names = new Set<string>();
 	for (const line of stdout.split("\n")) {
-		const match = line.match(filterLineRegex);
+		const match = filterLineRegex.exec(line);
 		if (match?.[1]) names.add(match[1]);
 	}
 

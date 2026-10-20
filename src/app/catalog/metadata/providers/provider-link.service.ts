@@ -2,6 +2,7 @@ import type { FieldsQuery, MetadataWithRelation, SelectFields } from "@reelvault
 import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { resolveMetadataLanguage } from "@/app/catalog/metadata/providers/library-metadata-language.resolver";
+import { invalidateReadCaches, type MetadataServiceState } from "@/app/catalog/metadata/records/shared.utils";
 import { metadataRefreshService } from "@/app/catalog/metadata/refresh/metadata-refresh.runtime";
 import { syncSeasonsAndEpisodes } from "@/app/catalog/metadata/refresh/season-sync.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
@@ -13,7 +14,6 @@ import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { invalidateReadCaches, type MetadataServiceState } from "../records/shared.utils";
 
 interface LinkedProviderTarget {
 	metadataId: string;

@@ -222,6 +222,13 @@ export async function findSmartPlayBatchData(metadataIds: readonly string[], pro
 		(season) => season.id,
 		(season) => season.metadataId,
 	);
+	// Grouped once: scanning the whole list per metadata id was quadratic in
+	// the batch size.
+	const seasonsByMetadataId = groupBy(seasons, (season) => season.metadataId);
+	const episodesByMetadataId = groupBy(
+		episodes.filter((episode) => episode.episodeType === "regular"),
+		(episode) => seasonMetadataId.get(episode.seasonId),
+	);
 
 	return ids.map((metadataId) => {
 		const inWatchlist = watchlistedIds.has(metadataId);
@@ -235,8 +242,8 @@ export async function findSmartPlayBatchData(metadataIds: readonly string[], pro
 				metadata: { type: metadata.type, numberingMode: metadata.numberingMode },
 				mediaFiles: mediaFilesByMetadataId.get(metadataId) ?? [],
 				progressRows: progressByMetadataId.get(metadataId) ?? [],
-				seasons: seasons.filter((season) => season.metadataId === metadataId),
-				episodes: episodes.filter((episode) => episode.episodeType === "regular" && seasonMetadataId.get(episode.seasonId) === metadataId),
+				seasons: seasonsByMetadataId.get(metadataId) ?? [],
+				episodes: episodesByMetadataId.get(metadataId) ?? [],
 			},
 		};
 	});

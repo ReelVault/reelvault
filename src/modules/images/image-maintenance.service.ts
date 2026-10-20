@@ -1,4 +1,5 @@
 import { readdir } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
@@ -13,7 +14,7 @@ import { DomainError } from "@/utils/domain.errors";
 import { deleteFile, getFileStats, writeFileAtomic } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { BatchGarbageCollector } from "@/utils/mem.utils";
-import { getFileName, joinPath, normalizePath } from "@/utils/path.utils";
+import { normalizePath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
@@ -42,7 +43,7 @@ class ImageMaintenanceService {
 	 */
 	async purgeOptimizedCache(): Promise<PurgeOptimizedCacheResult> {
 		return await runSafely(this, "purgeOptimizedCache", async () => {
-			const cacheDir = joinPath(serverConfig.paths.images, ".cache");
+			const cacheDir = join(serverConfig.paths.images, ".cache");
 			let names: string[] = [];
 			if (await directoryExists(cacheDir)) {
 				names = await readdir(cacheDir);
@@ -50,7 +51,7 @@ class ImageMaintenanceService {
 			const ioConcurrency = systemResourcesService.getIoConcurrency();
 			const files = (
 				await mapConcurrent(names, ioConcurrency, async (name) => {
-					const path = joinPath(cacheDir, name);
+					const path = join(cacheDir, name);
 					const stats = await getFileStats(path);
 
 					return stats?.isFile() ? { path, size: stats.size } : null;
@@ -126,7 +127,7 @@ class ImageMaintenanceService {
 		}
 
 		if (normalizedPath.includes("/.cache/")) {
-			const fileName = getFileName(filePath);
+			const fileName = basename(filePath);
 			const imageIdPrefix = fileName.split("_")[0];
 
 			// Fresh cache entries may belong to an image registered a moment later —
@@ -195,8 +196,8 @@ class ImageMaintenanceService {
 			// The source changed in place under the same path — drop its version
 			// stamp or the optimized-variant cache keeps serving pre-optimization bytes.
 			sourceVersionCache.invalidate(image.localPath);
-		} catch {
-			throw new DomainError("internal", `Cannot write optimized image: ${image.localPath}`, { code: "image.write_failed" });
+		} catch (error) {
+			throw new DomainError("internal", `Cannot write optimized image: ${image.localPath}`, { cause: error, code: "image.write_failed" });
 		}
 
 		await imagesStorage().markImageOptimizationVersion(image.id, currentVersion, {

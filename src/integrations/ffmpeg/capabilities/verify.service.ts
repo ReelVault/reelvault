@@ -1,9 +1,10 @@
+import { join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { FFMPEG_QUIET_ARGS } from "@/integrations/ffmpeg/ffmpeg.args";
 import { createDirectory } from "@/utils/directory.utils";
 import { withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { type DetectedHwaccel, hardwareDecodeArgs, SOFTWARE_HWACCEL, withDevice } from "./hwaccel.utils";
 import { runFfmpegDiagnostic } from "./probe.utils";
@@ -25,8 +26,6 @@ export interface DecodeTestResult {
 	code: string | null;
 	detail: string | null;
 }
-
-const QUIET_FFMPEG_ARGS = ["-hide_banner", "-loglevel", "error"];
 
 // A 2-frame test encode on a slow single core flirts with a fixed 15 s
 // budget — scale with measured CPU speed so GPU-less weak boxes don't get
@@ -129,7 +128,7 @@ function buildTestEncodeArgs(hw: DetectedHwaccel): string[] {
 	const deviceArgs = deviceFlag ? withDevice(deviceFlag, hw.device) : [];
 	const vfArgs = hw.type === "vaapi" ? ["-vf", "format=nv12,hwupload"] : [];
 
-	return [...QUIET_FFMPEG_ARGS, ...deviceArgs, ...lavfiInput, ...vfArgs, "-frames:v", "2", "-c:v", hw.h264Encoder, "-f", "null", "-"];
+	return [...FFMPEG_QUIET_ARGS, ...deviceArgs, ...lavfiInput, ...vfArgs, "-frames:v", "2", "-c:v", hw.h264Encoder, "-f", "null", "-"];
 }
 
 async function runTestEncode(hw: DetectedHwaccel): Promise<DecodeTestResult> {
@@ -148,15 +147,15 @@ async function runTestEncode(hw: DetectedHwaccel): Promise<DecodeTestResult> {
 export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeTestResult> {
 	if (hw.type === "none") return { ok: false, code: "ffmpeg.hwaccel.none_effective", detail: null };
 
-	const tmpDir = joinPath(serverConfig.paths.transcodes, ".tmp");
+	const tmpDir = join(serverConfig.paths.transcodes, ".tmp");
 	await createDirectory(tmpDir);
 
-	return await withTempPath(joinPath(tmpDir, "hwaccel_decode_probe"), ".bin", async (probePath) => {
+	return await withTempPath(join(tmpDir, "hwaccel_decode_probe"), ".bin", async (probePath) => {
 		// Raw H.264 elementary stream with a .bin suffix — no temp file may look like
 		// a media file, cleanup helpers refuse to delete those.
 		const generate = await runFfmpegDiagnostic(
 			[
-				...QUIET_FFMPEG_ARGS,
+				...FFMPEG_QUIET_ARGS,
 				"-f",
 				"lavfi",
 				"-i",
@@ -185,7 +184,7 @@ export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeT
 		}
 
 		const decode = await runFfmpegDiagnostic(
-			[...QUIET_FFMPEG_ARGS, ...hardwareDecodeArgs(hw), "-i", probePath, "-frames:v", "2", "-f", "null", "-"],
+			[...FFMPEG_QUIET_ARGS, ...hardwareDecodeArgs(hw), "-i", probePath, "-frames:v", "2", "-f", "null", "-"],
 			testTimeoutMs(),
 		);
 		if (decode.exitCode === 0) return { ok: true, code: null, detail: null };

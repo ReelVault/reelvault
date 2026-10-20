@@ -1,8 +1,8 @@
-import { serverConfig } from "../config/server/server.config";
-import { databaseFactory } from "../integrations/drizzle-orm/database.factory";
-import { ffMpegService } from "../integrations/ffmpeg/ffmpeg.service";
-import { flushLogs, logger } from "../utils/logger.utils";
-import { detach } from "../utils/promise.utils";
+import { serverConfig } from "@/config/server/server.config";
+import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
+import { flushLogs, logger } from "@/utils/logger.utils";
+import { detach } from "@/utils/promise.utils";
 import { resourceAllocator } from "./resource-allocator.service";
 import { serverRescueService } from "./server-rescue.service";
 import { systemShutdown } from "./system.ports";

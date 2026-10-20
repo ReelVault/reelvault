@@ -4,12 +4,13 @@ import { PENDING_DIR, readInstalledWebVersion, STAGING_DIR } from "@/app/updates
 import { swapIntoPlace, swapWebDirectory } from "@/app/updates/update-swap.utils";
 import { SERVER_VERSION } from "@/config/version.constants";
 import { extractArchive } from "@/plugins/catalog/plugin-package/extract.extractor";
+import { GIB } from "@/utils/bytes.utils";
 import { removeTreeSync } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
 import { assertNotCancelled, setJob, type UpdateInstallState } from "./shared.types";
 
-const MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_UNCOMPRESSED_BYTES = 2 * GIB;
 
 /**
  * The web dist is static — swapping the directory makes it live immediately

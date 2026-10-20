@@ -1,4 +1,5 @@
 import { readdir, rmdir, truncate } from "node:fs/promises";
+import { resolve } from "node:path";
 import { file as bunFile } from "bun";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { walkLogFiles } from "@/app/admin/admin-logs/log-walker.utils";
@@ -7,7 +8,6 @@ import { serverConfig } from "@/config/server/server.config";
 import { DAY } from "@/config/server/server.constants";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { directoryExists } from "@/utils/directory.utils";
-import { resolvePath } from "@/utils/path.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import type { AdminLogsState } from "./shared.types";
@@ -49,7 +49,7 @@ export async function purgeOldLogs(
 				return { scannedCount: 0, deletedCount: 0, freedBytes: 0, retentionDays: days };
 			}
 
-			const mainLogPath = state.dependencies.logFilePath ? resolvePath(state.dependencies.logFilePath) : null;
+			const mainLogPath = state.dependencies.logFilePath ? resolve(state.dependencies.logFilePath) : null;
 			const stats = await cleanLogDirectory(state, logsDir, { logsDir, cutoffMs, mainLogPath, signal, dryRun });
 
 			if (!dryRun && context?.actorUserId && stats.deletedCount > 0) {
@@ -127,7 +127,7 @@ async function purgeSingleLogFile(
 		if (stats.mtime.getTime() >= cutoffMs) return { deleted: false, bytes: 0 };
 		if (dryRun) return { deleted: true, bytes: stats.size };
 
-		const resolvedPath = resolvePath(fullPath);
+		const resolvedPath = resolve(fullPath);
 		if (mainLogPath && resolvedPath === mainLogPath) {
 			await truncate(resolvedPath, 0);
 		} else {

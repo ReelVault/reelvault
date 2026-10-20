@@ -1,5 +1,6 @@
+import { dirname, resolve } from "node:path";
 import type { MetadataStorageMode } from "@reelvault/sdk/common";
-import { getDirName, isSubpath, resolvePath } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 import type { SidecarStorageLibrary } from "./sidecar.ports";
 
 export interface PreparedStorageRoots {
@@ -9,7 +10,7 @@ export interface PreparedStorageRoots {
 
 /** Resolves the library roots once per batch — matching runs per media file. */
 export function prepareStorageRoots(library: SidecarStorageLibrary): PreparedStorageRoots {
-	return { paths: library.paths, resolved: library.paths.map((path) => resolvePath(path.path)) };
+	return { paths: library.paths, resolved: library.paths.map((path) => resolve(path.path)) };
 }
 
 /** Index of the longest configured root that equals `target` or is one of its ancestors. */
@@ -32,7 +33,7 @@ export function resolveMetadataStorageMode(
 	filePath: string,
 	roots: PreparedStorageRoots,
 ): MetadataStorageMode {
-	const index = longestMatchingRootIndex(roots.resolved, resolvePath(filePath));
+	const index = longestMatchingRootIndex(roots.resolved, resolve(filePath));
 	if (index === undefined) return library.metadataStorageMode;
 
 	return roots.paths[index]?.metadataStorageMode ?? library.metadataStorageMode;
@@ -46,5 +47,5 @@ export function resolveSeriesDirectory(roots: PreparedStorageRoots, episodeDirec
 	const index = longestMatchingRootIndex(roots.resolved, episodeDirectory);
 	const bestMatch = index === undefined ? undefined : roots.resolved[index];
 
-	return bestMatch === episodeDirectory ? episodeDirectory : getDirName(episodeDirectory);
+	return bestMatch === episodeDirectory ? episodeDirectory : dirname(episodeDirectory);
 }

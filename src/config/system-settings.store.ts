@@ -63,15 +63,7 @@ class SystemSettingsStore {
 	get<K extends SystemSettingKey>(key: K): SystemSettingValue<K>;
 	get(key: string): unknown;
 	get(key: string): unknown {
-		const def = this.definition(key);
-		if (this.runtime.size > 0 && isSystemSettingKey(key)) {
-			const value = this.runtime.get(key);
-			if (value !== undefined || this.runtime.has(key)) {
-				return cloneSettingValue(value);
-			}
-		}
-
-		return cloneSettingValue(def.default);
+		return cloneSettingValue(this.lookup(key).value);
 	}
 
 	/**
@@ -79,15 +71,25 @@ class SystemSettingsStore {
 	 * Single lookup instead of separate hasCustom() + get() calls at the call site.
 	 */
 	getWithMeta<K extends SystemSettingKey>(key: K): { value: SystemSettingValue<K>; isCustom: boolean } {
+		const { value, isCustom } = this.lookup(key);
+
+		return { value: cloneSettingValue(value, key), isCustom };
+	}
+
+	/** The runtime override for a key, or the definition's default. */
+	private lookup(key: string): { value: unknown; isCustom: boolean } {
 		const def = this.definition(key);
-		if (this.runtime.size > 0) {
-			const value = this.runtime.get(key);
-			if (value !== undefined || this.runtime.has(key)) {
-				return { value: cloneSettingValue(value, key), isCustom: true };
+		// The definition lookup above already rejected an unknown key; the guard
+		// only tells the type system that `key` is a known one.
+		const runtimeKey = isSystemSettingKey(key) ? key : undefined;
+		if (this.runtime.size > 0 && runtimeKey) {
+			const value = this.runtime.get(runtimeKey);
+			if (value !== undefined || this.runtime.has(runtimeKey)) {
+				return { value, isCustom: true };
 			}
 		}
 
-		return { value: cloneSettingValue(def.default), isCustom: false };
+		return { value: def.default, isCustom: false };
 	}
 
 	setRuntimeValue(key: SystemSettingKey, value: unknown): void {

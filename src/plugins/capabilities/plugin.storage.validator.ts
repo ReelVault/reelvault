@@ -26,8 +26,11 @@ export function serializeStorageValue(value: unknown): string {
 	let serialized: string | undefined;
 	try {
 		serialized = stringifyOrUndefined(value);
-	} catch {
-		throw new DomainError("validation", "Plugin storage value must be JSON-serializable", { code: "plugin.storage.invalid_value" });
+	} catch (error) {
+		throw new DomainError("validation", "Plugin storage value must be JSON-serializable", {
+			cause: error,
+			code: "plugin.storage.invalid_value",
+		});
 	}
 
 	if (serialized === undefined)

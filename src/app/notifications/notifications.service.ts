@@ -221,7 +221,7 @@ class NotificationsService {
 	async markAllRead(userId?: string, profileId?: string): Promise<{ success: true }> {
 		return await runSafely(this, "markAllRead", async () => {
 			assertUserId(userId);
-			await notificationsRepository.markAllReadForRecipient(userId, profileId);
+			await notificationsRepository.markAllForRecipient(userId, profileId, undefined, true);
 			this.invalidateFor(userId, profileId);
 
 			return { success: true };
@@ -243,17 +243,9 @@ class NotificationsService {
 			const read = params.read ?? true;
 
 			if (params.all) {
-				if (read) {
-					await notificationsRepository.markAllReadForRecipient(userId, profileId, params.type);
-				} else {
-					await notificationsRepository.markAllUnreadForRecipient(userId, profileId, params.type);
-				}
+				await notificationsRepository.markAllForRecipient(userId, profileId, params.type, read);
 			} else if (params.ids && params.ids.length > 0) {
-				if (read) {
-					await notificationsRepository.markReadBatch(params.ids, userId, profileId);
-				} else {
-					await notificationsRepository.markUnreadBatch(params.ids, userId, profileId);
-				}
+				await notificationsRepository.markBatchForRecipient(params.ids, userId, profileId, read);
 			}
 
 			this.invalidateFor(userId, profileId);

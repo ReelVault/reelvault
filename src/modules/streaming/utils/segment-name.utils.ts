@@ -5,7 +5,7 @@ export const PLAYLIST_FILE_NAME = "playlist.m3u8";
 /** ffmpeg `-hls_segment_filename` printf pattern; `%d` is replaced with the segment number. */
 export const SEGMENT_OUTPUT_PATTERN = `${SEGMENT_PREFIX}%d${SEGMENT_SUFFIX}`;
 
-const SEGMENT_SUFFIX_ESCAPED = SEGMENT_SUFFIX.replace(".", "\\.");
+const SEGMENT_SUFFIX_ESCAPED = SEGMENT_SUFFIX.replace(".", String.raw`\.`);
 /** Exact server-generated segment names accepted by the segments route. */
 const SEGMENT_NAME_PATTERN = new RegExp(`^${SEGMENT_PREFIX}\\d+${SEGMENT_SUFFIX_ESCAPED}$`);
 /** Segment URI inside an HLS playlist line (optional path prefix and query). */

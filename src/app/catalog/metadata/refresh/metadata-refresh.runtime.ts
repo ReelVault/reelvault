@@ -1,11 +1,11 @@
 import { fetchSeason, mapProviderLinks } from "@/app/catalog/catalog.utils";
+import { resolveMetadataLanguage } from "@/app/catalog/metadata/providers/library-metadata-language.resolver";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { metadataPersistenceRepository } from "@/app/repositories/metadata-persistence.repository";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { enqueueImageProcessing } from "@/workers/definitions/images/image-processing.worker";
-import { resolveMetadataLanguage } from "../providers/library-metadata-language.resolver";
 import { MetadataRefreshService } from "./metadata-refresh.service";
 import { syncSeasonsAndEpisodes } from "./season-sync.utils";
 

@@ -2,6 +2,7 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { groupBy } from "@/utils/array.utils";
 import { errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { createSemaphore, detach } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { sidecarStorage } from "./sidecar.ports";
@@ -23,7 +24,7 @@ class SidecarSyncService {
 
 	private readonly storage = new SidecarMetadataStorageService(sidecarMetadataWriter);
 	/** In-flight sync per metadataId — a second request schedules one re-run instead of a parallel write. */
-	private readonly inFlight = new Map<string, Promise<void>>();
+	private readonly inFlight = new MemoryCache<Promise<void>>({ ttlMs: -1, maxSize: 1_000, name: "sidecar.inflight-syncs" });
 	private readonly rerunRequested = new Set<string>();
 	/** Bounds how many titles rewrite sidecars at once during a catalog-wide refresh. */
 	private readonly semaphore = createSemaphore(() => systemResourcesService.getIoConcurrency());

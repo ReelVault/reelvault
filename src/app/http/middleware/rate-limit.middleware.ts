@@ -1,12 +1,12 @@
 import { Elysia } from "elysia";
 import { isImageAssetPath, isPluginUiPath } from "@/app/http/utils/route-classification.utils";
+import { tunedRouteMax } from "@/config/rate-limit-overrides.utils";
 import { serverConfig } from "@/config/server/server.config";
 import { getRequestClientIp } from "@/utils/client-ip.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { getNormalizedPathname } from "@/utils/http.utils";
 import { InMemoryRateLimiter } from "@/utils/in-memory.limiter";
 import { isRecord } from "@/utils/type.utils";
-import { tunedRouteMax } from "../../../config/rate-limit-overrides.utils";
 
 const rateLimiter = new InMemoryRateLimiter();
 

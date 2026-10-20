@@ -1,6 +1,7 @@
+import { join } from "node:path";
 import type { SidecarFlavor } from "@/modules/metadata-sidecars/sidecar.types";
 import { DomainError } from "@/utils/domain.errors";
-import { isSubpath, joinPath } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 
 const PATH_SEPARATOR_REGEX = /[/\\]/;
 
@@ -14,7 +15,7 @@ function assertWithinDirectory(directory: string, documentPath: string): string 
 }
 
 function episodeDocumentPath(directory: string, videoBaseName: string, suffix: string): string {
-	return assertWithinDirectory(directory, joinPath(directory, `${assertEpisodeBaseName(videoBaseName)}${suffix}`));
+	return assertWithinDirectory(directory, join(directory, `${assertEpisodeBaseName(videoBaseName)}${suffix}`));
 }
 
 /** Episode-derived file names (sidecar documents and thumbnails) must stay flat. */
@@ -45,13 +46,13 @@ interface SidecarFileNames {
 function createSidecarPathPolicy(names: SidecarFileNames) {
 	return {
 		movie(directory: string): string {
-			return assertWithinDirectory(directory, joinPath(directory, names.movie));
+			return assertWithinDirectory(directory, join(directory, names.movie));
 		},
 		series(directory: string): string {
-			return assertWithinDirectory(directory, joinPath(directory, names.series));
+			return assertWithinDirectory(directory, join(directory, names.series));
 		},
 		season(directory: string, seasonNumber: number): string {
-			return assertWithinDirectory(directory, joinPath(directory, seasonFileName(seasonNumber, names.seasonSuffix)));
+			return assertWithinDirectory(directory, join(directory, seasonFileName(seasonNumber, names.seasonSuffix)));
 		},
 		episode(directory: string, videoBaseName: string): string {
 			return episodeDocumentPath(directory, videoBaseName, names.episodeSuffix);

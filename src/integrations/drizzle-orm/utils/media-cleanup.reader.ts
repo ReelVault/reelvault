@@ -1,9 +1,9 @@
 import { eq, inArray, type SQL } from "drizzle-orm";
-import { serverConstants } from "@/config/server/server.constants";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { chunk } from "@/utils/array.utils";
+import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 
 export interface MediaCleanupData {
 	artifactStorageKeys: string[];
@@ -86,10 +86,12 @@ export async function findCleanupDataForMediaFileIds(mediaFileIds: readonly stri
 	if (mediaFileIds.length === 0) return toMediaCleanupData([], []);
 
 	const client = databaseFactory.getClient({ tx });
-	const idChunks = chunk([...mediaFileIds], serverConstants.database.queryChunkSize);
+	// The chunks run with a bounded concurrency: an unbounded Promise.all over
+	// every chunk would open one statement per chunk at once.
+	const concurrency = systemResourcesService.getIoConcurrency();
 	const [subtitleResults, artifactResults] = await Promise.all([
-		Promise.all(idChunks.map((idChunk) => selectSubtitleRefsByMediaFileIds(client, idChunk))),
-		Promise.all(idChunks.map((idChunk) => selectArtifactKeysByMediaFileIds(client, idChunk))),
+		mapChunked(mediaFileIds, async (idChunk) => await selectSubtitleRefsByMediaFileIds(client, idChunk), { concurrency }),
+		mapChunked(mediaFileIds, async (idChunk) => await selectArtifactKeysByMediaFileIds(client, idChunk), { concurrency }),
 	]);
 
 	return toMediaCleanupData(subtitleResults.flat(), artifactResults.flat());

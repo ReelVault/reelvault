@@ -34,9 +34,8 @@ export const mediaMatchAuditScanWorker = createWorkerDefinition<Record<string, n
 	"media-match-audit-all",
 	() => serverConfig.workers.definitions.mediaMatchAuditScan,
 	async (context) => await scanMediaMatchAuditTask(toApplicationContext(context)),
+	[{ id: "media-audit-weekly", type: "weekly", dayOfWeek: 0, timeOfDay: "04:30" }],
 );
-
-mediaMatchAuditScanWorker.defaultTriggers = [{ id: "media-audit-weekly", type: "weekly", dayOfWeek: 0, timeOfDay: "04:30" }];
 
 /**
  * Full-catalog audit run as a single operation job. The route returns 202 and the

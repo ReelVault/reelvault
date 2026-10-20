@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { killFfmpegProcessGracefully } from "@/integrations/ffmpeg/ffmpeg.process";
@@ -9,7 +10,6 @@ import type { SessionSeeker } from "@/modules/streaming/seeking/session.seeker";
 import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import type { StreamingLifecycleCallbacks } from "@/modules/streaming/streaming.types";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath } from "@/utils/path.utils";
 import { detach, mapConcurrent } from "@/utils/promise.utils";
 import { isNullish } from "@/utils/type.utils";
 import { RESERVATION_DEADLINE_MS, type SessionStore } from "./session.store";
@@ -178,7 +178,7 @@ export class SessionReaper {
 			await Promise.all([cancelOperation, releaseProgress, killProcess]);
 			if (process) ffmpegProcessTracker.forgetStderrTail(process);
 
-			await this.processManager.removeTempDirectory(joinPath(config.tempRootDir, sessionId));
+			await this.processManager.removeTempDirectory(join(config.tempRootDir, sessionId));
 		} catch (error) {
 			this.logger.error("Failed to cleanup streaming session", error, { sessionId, reason, mode: session?.mode });
 		} finally {

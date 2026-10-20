@@ -1,10 +1,11 @@
 import { statfs } from "node:fs/promises";
 import { serverConfig } from "@/config/server/server.config";
+import { MIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 
-const GIBIBYTE = 1024 * 1024 * 1024;
+const GIBIBYTE = 1024 * MIB;
 /** Auto budget (`coreMaxStorageGb = 0`): share of the artifacts volume capacity. */
 const AUTO_BUDGET_CAPACITY_RATIO = 0.05;
 const AUTO_BUDGET_MIN_BYTES = 5 * GIBIBYTE;

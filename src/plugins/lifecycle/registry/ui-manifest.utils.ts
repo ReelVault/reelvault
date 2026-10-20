@@ -1,5 +1,5 @@
 import type { PluginUiManifest } from "@reelvault/sdk/plugin";
-import { filterUiManifest } from "../plugin-ui-contributions.utils";
+import { filterUiManifest } from "@/plugins/lifecycle/plugin-ui-contributions.utils";
 
 /** Pure UI-manifest helpers: role filtering and custom-element tag collection. */
 

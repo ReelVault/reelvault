@@ -41,11 +41,6 @@ export function normalizeLower(value: string): string {
 	return normalizeCase(value);
 }
 
-/** Maps a library type string (`"movies"` / `"tv"`) to the canonical media type. */
-export function mapLibraryType(libraryType: string): "movie" | "tv_show" {
-	return libraryType === "movies" ? "movie" : "tv_show";
-}
-
 /** True when `value` is a non-empty string after trimming. */
 export function isNonEmptyString(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0;

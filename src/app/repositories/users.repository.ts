@@ -4,7 +4,6 @@ import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.p
 import type { FindFirstReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
-import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 
 const users = defineTableAccess("users", {
@@ -43,14 +42,11 @@ const overrides = {
 			role ? eq(users.table.role, role) : undefined,
 			banned === undefined ? undefined : eq(users.table.banned, banned),
 		);
-		return await findOffsetPage({
-			access: users,
+		return await users.findOffsetPage({
 			where,
 			orderBy: desc(users.table.createdAt),
 			limit,
 			offset,
-			findMany: (page) => users.selectMany(page),
-			count: () => users.count({ where }),
 		});
 	},
 

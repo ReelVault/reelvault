@@ -114,30 +114,25 @@ export class PluginScope {
 	}
 
 	addProvider(provider: MetadataProvider): void {
-		this.assertUnderLimit(
-			"plugin.registration_limit.providers",
-			this.providers.getAll().length,
-			serverConfig.plugins.registration.maxHandlers,
-		);
-		this.providers.register(undefined, [provider]);
+		this.registerEntity("plugin.registration_limit.providers", this.providers, provider);
 	}
 
 	addSubtitleProvider(provider: SubtitleProvider): void {
-		this.assertUnderLimit(
-			"plugin.registration_limit.subtitle_providers",
-			this.subtitleProviders.getAll().length,
-			serverConfig.plugins.registration.maxHandlers,
-		);
-		this.subtitleProviders.register(undefined, [provider]);
+		this.registerEntity("plugin.registration_limit.subtitle_providers", this.subtitleProviders, provider);
 	}
 
 	addAnalyzer(analyzer: MediaAnalyzer): void {
-		this.assertUnderLimit(
-			"plugin.registration_limit.analyzers",
-			this.analyzers.getAll().length,
-			serverConfig.plugins.registration.maxHandlers,
-		);
-		this.analyzers.register(undefined, [analyzer]);
+		this.registerEntity("plugin.registration_limit.analyzers", this.analyzers, analyzer);
+	}
+
+	/** Checks the registration limit and adds the entity to its table. */
+	private registerEntity<T extends { id: string; name: string; version: string }>(
+		code: string,
+		table: PluginEntityTable<T>,
+		entity: T,
+	): void {
+		this.assertUnderLimit(code, table.getAll().length, serverConfig.plugins.registration.maxHandlers);
+		table.register(undefined, [entity]);
 	}
 
 	private readonly scheduledTasks: PluginScheduledTaskDefinition[] = [];
@@ -228,6 +223,7 @@ export class PluginScope {
 				const message = errorMessage(error);
 				this.logger.error(`Failed to register scheduled task '${task.id}' for plugin '${pluginId}': ${message}`);
 				throw new DomainError("validation", `Plugin '${pluginId}' scheduled task registration failed: ${message}`, {
+					cause: error,
 					code: "plugin.scheduled_task_failed",
 					params: { plugin: pluginId },
 				});
@@ -280,15 +276,15 @@ export class PluginScope {
 	}
 
 	getProviderIds(): string[] {
-		return this.providers.getAll().map((provider) => provider.id);
+		return this.providers.getIds();
 	}
 
 	getAnalyzerIds(): string[] {
-		return this.analyzers.getAll().map((analyzer) => analyzer.id);
+		return this.analyzers.getIds();
 	}
 
 	getSubtitleProviderIds(): string[] {
-		return this.subtitleProviders.getAll().map((provider) => provider.id);
+		return this.subtitleProviders.getIds();
 	}
 
 	/** Raw plugin-declared job names — duplicate checks, enqueue guards and status counts. */
@@ -310,23 +306,28 @@ export class PluginScope {
 	}
 
 	subscribe(pluginId: string, event: PluginEventName, handler: PluginEventHandlerErased): void {
-		this.unsubscribers.push(pluginEventBus.on(pluginId, event, handler));
+		this.track(pluginEventBus.on(pluginId, event, handler));
 	}
 
 	subscribeBeforeMetadataSave(pluginId: string, handler: BeforeMetadataSaveHook): void {
-		this.unsubscribers.push(pluginHookBus.beforeMetadataSave(pluginId, handler));
+		this.track(pluginHookBus.beforeMetadataSave(pluginId, handler));
 	}
 
 	subscribeBeforeMediaRecognition(pluginId: string, handler: BeforeMediaRecognitionHook): void {
-		this.unsubscribers.push(pluginHookBus.beforeMediaRecognition(pluginId, handler));
+		this.track(pluginHookBus.beforeMediaRecognition(pluginId, handler));
 	}
 
 	subscribeBeforeArtifactCreate(pluginId: string, handler: BeforeArtifactCreateHook): void {
-		this.unsubscribers.push(pluginHookBus.beforeArtifactCreate(pluginId, handler));
+		this.track(pluginHookBus.beforeArtifactCreate(pluginId, handler));
 	}
 
 	subscribeAccessPolicy(pluginId: string, policy: PluginAccessPolicy): void {
-		this.unsubscribers.push(pluginAccessBus.register(pluginId, policy));
+		this.track(pluginAccessBus.register(pluginId, policy));
+	}
+
+	/** Remembers an unsubscribe function so `cleanup` can run it. */
+	private track(unsubscribe: () => void): void {
+		this.unsubscribers.push(unsubscribe);
 	}
 
 	registerNotificationChannelScope(channel: PluginNotificationChannel): void {

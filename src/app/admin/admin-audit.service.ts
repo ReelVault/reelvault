@@ -10,7 +10,7 @@ import {
 import { buildAdminPagination, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { buildCsvExport, toCsvLine } from "@/utils/csv.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { safeParseJson } from "@/utils/file.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";

@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { type ImageOwnerTarget, type ImageProcess, imagesStorage, type PersistedImageInput } from "@/modules/images/images.ports";
 import { throwIfAborted } from "@/utils/cancellation.utils";
@@ -5,7 +6,6 @@ import { errorMessage } from "@/utils/domain.errors";
 import { fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { BatchGarbageCollector } from "@/utils/mem.utils";
-import { isAbsolutePath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import type { UploadedImage } from "./image-upload.service";
@@ -290,7 +290,7 @@ export class ImageProcessingService {
 		// Sidecar artwork paths can go stale (source deleted after import) — skip
 		// instead of failing the job and retrying a missing source until the
 		// attempts are exhausted.
-		if (isAbsolutePath(url) && !(await this.dependencies.fileExists(url))) {
+		if (isAbsolute(url) && !(await this.dependencies.fileExists(url))) {
 			this.logger.warn("Local artwork source is missing — skipping image sync", { url });
 
 			return;
@@ -298,7 +298,7 @@ export class ImageProcessingService {
 
 		// Sidecar artwork arrives as local absolute paths; provider art as URLs.
 		let persisted: PersistedImageInput;
-		if (isAbsolutePath(url)) {
+		if (isAbsolute(url)) {
 			persisted = await this.dependencies.prepareLocalArtwork(url, target, variant, imageType, signal);
 		} else {
 			persisted = await this.dependencies.downloadAndPrepare(url, target, variant, imageType, signal);

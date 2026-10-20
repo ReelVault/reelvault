@@ -1,6 +1,7 @@
 import type { AdminDashboardViewResponse, AdminStats } from "@reelvault/sdk/common";
 import { adminAuditService } from "@/app/admin/admin-audit.service";
 import { adminLogsService } from "@/app/admin/admin-logs.service";
+import type { AdminServiceState } from "@/app/admin/shared.utils";
 import { librariesService } from "@/app/libraries/libraries.service";
 import { updateCheckService } from "@/app/updates/update-check.service";
 import { describeUpdateEnvironment } from "@/app/updates/update-environment.utils";
@@ -10,7 +11,6 @@ import { SERVER_VERSION } from "@/config/version.constants";
 import { resolveWebVersion } from "@/system/web-dist.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { workerService } from "@/workers/worker.service";
-import type { AdminServiceState } from "../shared.utils";
 
 export function resourceSettings() {
 	return {

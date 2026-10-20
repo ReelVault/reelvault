@@ -22,7 +22,7 @@ export async function getLogBundle(
 		entries[info.name] = new Uint8Array(await file.arrayBuffer());
 	}
 
-	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const timestamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 	// Loaded on the first bundle download, not at boot.
 	const { zipSync } = await import("fflate");
 	const zipped = zipSync(entries, { level: 6 });

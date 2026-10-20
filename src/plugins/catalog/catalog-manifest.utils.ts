@@ -1,4 +1,5 @@
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
+import { MIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { isValidSemver } from "@/utils/semver.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
@@ -17,7 +18,7 @@ export type PluginCatalogCategory = (typeof PLUGIN_CATALOG_CATEGORIES)[number];
 
 const SHA256_PATTERN = /^sha256-[a-f0-9]{64}$/;
 const HTTPS_URL_PATTERN = /^https:\/\/\S+$/;
-const MAX_MANIFEST_BYTES = 5 * 1024 * 1024;
+const MAX_MANIFEST_BYTES = 5 * MIB;
 const MAX_PLUGINS = 500;
 const MAX_VERSIONS_PER_PLUGIN = 50;
 const MAX_DATE_LENGTH = 40;
@@ -152,8 +153,8 @@ export function parsePluginCatalogManifest(raw: string): PluginCatalogManifest {
 	let value: unknown;
 	try {
 		value = JSON.parse(raw);
-	} catch {
-		throw new DomainError("validation", "Catalog manifest is not valid JSON", { code: "plugin.catalog_not_json" });
+	} catch (error) {
+		throw new DomainError("validation", "Catalog manifest is not valid JSON", { cause: error, code: "plugin.catalog_not_json" });
 	}
 
 	if (!isRecord(value))

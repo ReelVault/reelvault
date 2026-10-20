@@ -19,7 +19,7 @@ const RATING_DEFAULT_SOURCE_WEIGHT = 1;
  */
 const similarIdsCache = new MemoryCache<{ ids: string[]; total: number }>({
 	ttlMs: 60_000,
-	maxSize: systemResourcesService.getRamScaledCacheEntries(128, 512, 2048),
+	maxSize: systemResourcesService.getRamScaled(128, 512, 2048),
 	name: "metadata.similarIds",
 });
 

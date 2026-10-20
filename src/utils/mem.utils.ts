@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
-import { totalmem } from "node:os";
 import { gc } from "bun";
 import { env } from "@/config/env.config";
+import { detectHostTotalMemoryKiB } from "@/config/system-resources/hardware.utils";
+import { KIB } from "@/utils/bytes.utils";
 import { isFiniteNumber } from "./type.utils";
 
 const MEM_TOTAL_REGEX = /MemTotal:\s+(\d+)/;
@@ -75,7 +76,7 @@ export function readCgroupMemoryLimitKiB(): number | undefined {
 			// v1 reports ~0x7fff_ffff_0000_0000 when no limit is configured.
 			const unlimited = hierarchy === "v1" && bytes >= 0x7fff_ffff_0000_0000;
 			if (isFiniteNumber(bytes) && bytes > 0 && !unlimited) {
-				cachedLimitKiB = Math.floor(bytes / 1024);
+				cachedLimitKiB = Math.floor(bytes / KIB);
 
 				return cachedLimitKiB;
 			}
@@ -97,7 +98,7 @@ export function readCgroupMemoryUsageKiB(): number | undefined {
 	for (const path of paths) {
 		try {
 			const bytes = Number(readFileSync(path, "utf8").trim());
-			if (isFiniteNumber(bytes) && bytes >= 0) return Math.floor(bytes / 1024);
+			if (isFiniteNumber(bytes) && bytes >= 0) return Math.floor(bytes / KIB);
 		} catch {
 			// Usage unreadable — fall through to the next candidate path.
 		}
@@ -121,14 +122,9 @@ export function getTotalMemoryKiB(): number | undefined {
 			// /proc/meminfo unavailable — fall back to os.totalmem().
 		}
 
-		if (total === undefined) {
-			try {
-				const osTotal = totalmem();
-				if (osTotal > 0) total = Math.floor(osTotal / 1024);
-			} catch {
-				// os.totalmem() unavailable — leave total undefined.
-			}
-		}
+		// /proc/meminfo unavailable — fall back to the host reading that
+		// system-resources owns.
+		total ??= detectHostTotalMemoryKiB();
 
 		const cgroupLimit = readCgroupMemoryLimitKiB();
 		if (cgroupLimit !== undefined) {

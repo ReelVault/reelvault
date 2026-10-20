@@ -12,8 +12,7 @@ import { mediaMarkersRepository } from "@/app/repositories/media-markers.reposit
 import { toPublicMarker } from "@/integrations/drizzle-orm/utils/media-marker.mapper";
 import { assertExists, DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import type { MediaServiceState } from "./shared.utils";
-import { assertMediaFileExists } from "./shared.utils";
+import { assertMediaFileExists, type MediaServiceState } from "./shared.utils";
 
 /** Every marker matching the filters as NDJSON; an export past the cap is refused rather than cut short. */
 export async function exportMarkers(state: MediaServiceState, query: MediaMarkerFilters): Promise<string> {

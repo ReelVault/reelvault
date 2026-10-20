@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { mapChaptersToMarkers } from "@/modules/scanner/probe/chapters-to-markers.utils";
 import { mapMediaFileData } from "@/modules/scanner/probe/media-probe.mapper";
@@ -5,7 +6,6 @@ import { videoParser } from "@/modules/scanner/probe/video-parser.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertFound, toDomainError } from "@/utils/domain.errors";
 import { getFileStats } from "@/utils/file.utils";
-import { getFileName } from "@/utils/path.utils";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { enqueueTrickplayGenerationForLibrary } from "@/workers/definitions/media/trickplay-generate.worker";
 import { toApplicationContext } from "@/workers/utils/task-context.mapper";
@@ -44,7 +44,7 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 			return { mediaFileId, skipped: true as const };
 		}
 
-		const data = mapMediaFileData(getFileName(mediaFile.filePath), probe);
+		const data = mapMediaFileData(basename(mediaFile.filePath), probe);
 		const sourceMtimeMs = Math.floor(stats.mtimeMs);
 		const previousAudioKeys = mediaFile.audioStreams.map((s) => `${s.index}:${s.codecName}:${s.language ?? ""}`).join("|");
 		const newAudioKeys = data.audioStreams.map((s) => `${s.index}:${s.codecName}:${s.language ?? ""}`).join("|");

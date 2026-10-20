@@ -1,10 +1,10 @@
 import { type FSWatcher, watch } from "node:fs";
+import { resolve } from "node:path";
 import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { serverConfig } from "@/config/server/server.config";
 import { toMap } from "@/utils/array.utils";
 import { directoryExists } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
-import { resolvePath } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { handleFsEvent } from "./debounce.watcher";
@@ -95,7 +95,7 @@ export async function syncWatchers(state: LibraryWatcherState): Promise<void> {
 			const isCurrent = (pathId: string, recordedPath: string) => {
 				const current = activePathById.get(pathId);
 
-				return current !== undefined && resolvePath(current.path) === recordedPath;
+				return current !== undefined && resolve(current.path) === recordedPath;
 			};
 
 			// Remove watchers for paths that are no longer active or deleted; failures of removed/repointed paths go too.
@@ -124,7 +124,7 @@ export async function syncWatchers(state: LibraryWatcherState): Promise<void> {
 }
 
 async function startWatcher(state: LibraryWatcherState, libraryId: string, pathId: string, rawPath: string): Promise<void> {
-	const resolvedPath = resolvePath(rawPath);
+	const resolvedPath = resolve(rawPath);
 
 	try {
 		const exists = await directoryExists(resolvedPath);

@@ -24,7 +24,7 @@ const DOT_UNDERSCORE_PATTERN = /[._]/g;
 const TITLE_TAIL_PATTERN = /[\s._([-]+$/;
 
 function cleanTitle(str: string): string {
-	return str.replace(DOT_UNDERSCORE_PATTERN, " ").replace(/\s+/g, " ").trim();
+	return str.replace(DOT_UNDERSCORE_PATTERN, " ").replaceAll(/\s+/g, " ").trim();
 }
 
 /**
@@ -52,7 +52,7 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
 
 	// 1. Series marker (SxxExx / NxN): title/year come from the anchored
 	// pattern, the season/episode numbers from the shared extractor.
-	const seriesMatch = nameWithoutExt.match(SERIES_PATTERN);
+	const seriesMatch = SERIES_PATTERN.exec(nameWithoutExt);
 	if (seriesMatch?.groups) {
 		const { title, year, episodeMarker } = seriesMatch.groups;
 		const { season, episode, episodeEnd } = extractSeasonEpisode(episodeMarker ?? "");

@@ -2,8 +2,8 @@ import { serverConfig } from "@/config/server/server.config";
 import { timeoutMultiplierForFactor } from "@/config/system-resources.service";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { createLogger } from "@/utils/logger.utils";
-import { detach } from "@/utils/promise.utils";
 import { RecurringTimer } from "@/utils/recurring-timer.utils";
+import { publishAdminBroadcast } from "./admin-broadcast.publisher";
 import { systemAdminBroadcast } from "./system.ports";
 
 export type RescueState = "healthy" | "rescuing";
@@ -362,15 +362,7 @@ class ServerRescueService {
 	private broadcast(): void {
 		// Rescue state is admin-panel material — role-scoped fan-out instead of a
 		// global broadcast that would hand server internals to every user.
-		detach(
-			(async () => {
-				try {
-					await systemAdminBroadcast().publishRescueState(this.getState());
-				} catch (error) {
-					this.logger.error("Failed to broadcast rescue state", error);
-				}
-			})(),
-		);
+		publishAdminBroadcast(this.logger, "rescue state", async () => await systemAdminBroadcast().publishRescueState(this.getState()));
 	}
 }
 

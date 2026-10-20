@@ -15,11 +15,23 @@ const CHECKSUM_PREFIX_REGEX = /^sha256-/;
  * archive hash (`sha256-<hex>`) can be compared against a published plain-hex
  * digest without pre-normalizing at the call site.
  */
-export function constantTimeEquals(actual: string, expected: string, options: { checksum?: boolean } = {}): boolean {
-	const left = options.checksum ? actual.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase() : actual;
-	const right = options.checksum ? expected.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase() : expected;
-	const actualBytes = Buffer.from(left);
-	const expectedBytes = Buffer.from(right);
+export function constantTimeEquals(actual: string, expected: string): boolean {
+	return compareBytes(actual, expected);
+}
+
+/**
+ * The checksum variant of `constantTimeEquals`: a leading `sha256-` is stripped
+ * from both sides and hex case is ignored, so a streamed archive hash
+ * (`sha256-<hex>`) can be compared against a published plain-hex digest
+ * without pre-normalizing at the call site.
+ */
+export function constantTimeChecksumEquals(actual: string, expected: string): boolean {
+	return compareBytes(actual.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase(), expected.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase());
+}
+
+function compareBytes(actual: string, expected: string): boolean {
+	const actualBytes = Buffer.from(actual);
+	const expectedBytes = Buffer.from(expected);
 
 	return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
@@ -33,7 +45,8 @@ export function assertChecksumMatches(
 	expected: string,
 	failure: { checksum: boolean; code: string; message: string },
 ): void {
-	if (!constantTimeEquals(actual, expected, { checksum: failure.checksum })) {
+	const matches = failure.checksum ? constantTimeChecksumEquals(actual, expected) : constantTimeEquals(actual, expected);
+	if (!matches) {
 		throw new DomainError("validation", failure.message, { code: failure.code });
 	}
 }

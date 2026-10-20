@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { PlaybackDecision, SessionLifecycleState, StreamingSession, TranscodeConfig } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
 import { getEffectiveHwaccel, getToneMappingMethod } from "@/integrations/ffmpeg/ffmpeg.capabilities";
@@ -18,7 +19,6 @@ import { resolveSeekTimelineStart } from "@/modules/streaming/utils/seek-timelin
 import { PLAYLIST_FILE_NAME, parseSegmentName } from "@/modules/streaming/utils/segment-name.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath } from "@/utils/path.utils";
 import { SessionReaper } from "./session-state/session.reaper";
 import { SessionStore } from "./session-state/session.store";
 import { SessionReservationTracker } from "./session-state/session-reservation.tracker";
@@ -198,7 +198,7 @@ class StreamingManager {
 	}
 
 	getFilePath(sessionId: string, fileName: string): string {
-		return joinPath(this.config.tempRootDir, sessionId, fileName);
+		return join(this.config.tempRootDir, sessionId, fileName);
 	}
 
 	waitForPlaylist(sessionId: string, timeoutMs = serverConfig.stream.playlistTimeoutMs, signal?: AbortSignal): Promise<void> {
@@ -260,7 +260,7 @@ class StreamingManager {
 			profileId: access.profileId,
 			decision: access.decision,
 			inputPath: access.inputPath,
-			tempDir: joinPath(this.config.tempRootDir, sessionId),
+			tempDir: join(this.config.tempRootDir, sessionId),
 			softwareVideoTranscode: usesSoftwareVideoEncode(access.decision, getEffectiveHwaccel().type),
 			durationMs: access.durationMs ?? null,
 		});

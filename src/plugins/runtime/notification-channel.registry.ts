@@ -1,6 +1,6 @@
 import type { OutgoingNotification, PluginNotificationChannel } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
-import { DomainError } from "@/utils/domain.errors";
+import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { withTimeout } from "@/utils/promise.utils";
 
@@ -61,7 +61,7 @@ function reportChannelFailure(key: string, entry: { pluginId: string; channel: P
 	const failure: NotificationChannelFailure = {
 		pluginId: entry.pluginId,
 		channelId: entry.channel.id,
-		message: error instanceof Error ? error.message : String(error),
+		message: errorMessage(error),
 	};
 	for (const listener of failureListeners) listener(failure);
 }

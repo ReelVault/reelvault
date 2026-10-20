@@ -1,5 +1,6 @@
 import type { CpuProfile } from "@/config/system-settings.types";
 import { type CanonicalWorkerId, canonicalWorkerId } from "@/config/worker-ids.utils";
+import { MIB } from "@/utils/bytes.utils";
 import { clamp } from "@/utils/math.utils";
 import { type CpuSettings, isReservedProfile } from "./settings.reader";
 
@@ -63,16 +64,43 @@ export const SLOW_CORE_FACTOR = 0.7;
 // These are MAXIMUMS used when the admin leaves concurrency at "auto" (0).
 // Input is capacity (modern-core equivalents), not raw thread count: twelve
 // slow threads must not fund twelve simultaneous ffprobe/ffmpeg subprocesses.
-const WORKER_BUDGET_RATIO: Readonly<Record<WorkerId, (capacity: number) => number>> = {
+const WORKER_BUDGET_RATIO: Readonly<Record<WorkerId, CapacityBudget>> = {
 	// Image processing: CPU-intensive (Sharp/libvips). Cap at 4 to leave cores for HTTP.
-	"image-processing": (c) => clamp(Math.ceil(c / 3), 1, 4),
+	"image-processing": { divisor: 3, min: 1, max: 4, rounding: "ceil" },
 	// Metadata refresh: mostly network I/O + DB. Can be a bit higher.
-	"metadata-refresh": (c) => clamp(Math.ceil(c / 3), 1, 3),
+	"metadata-refresh": { divisor: 3, min: 1, max: 3, rounding: "ceil" },
 	// Technical refresh: ffprobe subprocess per file — CPU-bound. Keep low.
-	"media-file-technical-refresh": (c) => clamp(Math.ceil(c / 4), 1, 3),
+	"media-file-technical-refresh": { divisor: 4, min: 1, max: 3, rounding: "ceil" },
 	// Media file analysis: also ffprobe + DB writes. Same reasoning.
-	"media-file-analysis": (c) => clamp(Math.ceil(c / 4), 1, 2),
+	"media-file-analysis": { divisor: 4, min: 1, max: 2, rounding: "ceil" },
 };
+
+/**
+ * A budget derived from the measured capacity. Every budget in this file is
+ * "how much of the capacity may one thing use, clamped" — the shape is the
+ * same, so it is written down once.
+ */
+export interface CapacityBudget {
+	/** The divisor applied to the capacity before the clamp. */
+	divisor: number;
+	/** The lower bound. */
+	min: number;
+	/** The upper bound. */
+	max: number;
+	/** Rounding of the quotient: "floor" (default) or "ceil". */
+	rounding?: "floor" | "ceil" | undefined;
+	/** A multiplier applied to the capacity before the division. */
+	multiplier?: number | undefined;
+	/** A constant added after the rounding. */
+	offset?: number | undefined;
+}
+
+export function capacityBudget(capacity: number, budget: CapacityBudget): number {
+	const scaled = (capacity * (budget.multiplier ?? 1)) / budget.divisor;
+	const value = budget.rounding === "ceil" ? Math.ceil(scaled) : Math.floor(scaled);
+
+	return clamp(value + (budget.offset ?? 0), budget.min, budget.max);
+}
 
 /** Narrowing guard: only the budgeted workers have a ratio entry. */
 function isBudgetedWorker(id: CanonicalWorkerId): id is WorkerId {
@@ -89,7 +117,6 @@ export function deriveCpuMetrics(
 	const effectiveCores = clamp(Math.min(detectedCores, configuredMaxCores), 1, detectedCores);
 	const capacity = Math.max(1, Math.round(effectiveCores * speedFactor));
 	const reservedWebCores = resolveReservedWebCores(settings.cpuProfile, effectiveCores, speedFactor, settings.reservedWebCores);
-	const halfCapacity = Math.floor(capacity / 2);
 
 	return {
 		detectedCores,
@@ -102,11 +129,12 @@ export function deriveCpuMetrics(
 		cpuProfile: settings.cpuProfile,
 		// One transcode must not eat the whole machine: ~⅓ of the threads per
 		// FFmpeg process leaves the rest for HTTP and other sessions.
-		ffmpegThreads: settings.ffmpegThreads ?? clamp(Math.floor(effectiveCores / 3), 1, CAPS.ffmpegThreads),
-		sharpConcurrency: clamp(halfCapacity, 1, CAPS.sharpConcurrency),
-		workerPoolMaxConcurrent: settings.poolMaxConcurrent ?? clamp(Math.floor(capacity * 1.25), 3, CAPS.poolMax),
-		scannerConcurrency: clamp(halfCapacity, 1, CAPS.scannerConcurrency),
-		ffprobeConcurrency: clamp(halfCapacity, 1, CAPS.ffprobeConcurrency),
+		ffmpegThreads: settings.ffmpegThreads ?? capacityBudget(effectiveCores, { divisor: 3, min: 1, max: CAPS.ffmpegThreads }),
+		sharpConcurrency: capacityBudget(capacity, { divisor: 2, min: 1, max: CAPS.sharpConcurrency }),
+		workerPoolMaxConcurrent:
+			settings.poolMaxConcurrent ?? capacityBudget(capacity, { divisor: 1, min: 3, max: CAPS.poolMax, multiplier: 1.25 }),
+		scannerConcurrency: capacityBudget(capacity, { divisor: 2, min: 1, max: CAPS.scannerConcurrency }),
+		ffprobeConcurrency: capacityBudget(capacity, { divisor: 2, min: 1, max: CAPS.ffprobeConcurrency }),
 	};
 }
 
@@ -133,14 +161,14 @@ function resolveReservedWebCores(profile: CpuProfile, effectiveCores: number, sp
 /** How many CPU-heavy subprocesses (parallel ffmpeg decodes, test encodes)
  * may run at once, derived from capacity instead of raw thread count. */
 export function heavySubprocessConcurrency(capacity: number): number {
-	return clamp(Math.floor(capacity / 3), 1, CAPS.heavySubprocess);
+	return capacityBudget(capacity, { divisor: 3, min: 1, max: CAPS.heavySubprocess });
 }
 
 /** Parallel file-system fan-outs (stat/unlink/read sweeps). Slow storage
  * (NAS, SD card) suffers as much from deep queues as a slow CPU does from
  * extra ffmpeg processes, so this scales with capacity too. */
 export function ioConcurrency(capacity: number): number {
-	return clamp(Math.floor(capacity * 2), 4, CAPS.ioConcurrency);
+	return capacityBudget(capacity, { divisor: 1, min: 4, max: CAPS.ioConcurrency, multiplier: 2 });
 }
 
 /**
@@ -150,12 +178,12 @@ export function ioConcurrency(capacity: number): number {
  * fans out over many seeks.
  */
 export function trickplayConcurrency(backgroundBudgetCores: number): number {
-	return clamp(Math.floor(backgroundBudgetCores / 2), 1, CAPS.trickplay);
+	return capacityBudget(backgroundBudgetCores, { divisor: 2, min: 1, max: CAPS.trickplay });
 }
 
 /** media-file-ingest tasks each run an ffprobe plus catalog writes. */
 export function ingestConcurrency(capacity: number): number {
-	return clamp(Math.floor(capacity / 2), 1, 3);
+	return capacityBudget(capacity, { divisor: 2, min: 1, max: 3 });
 }
 
 /**
@@ -164,13 +192,13 @@ export function ingestConcurrency(capacity: number): number {
  * and direct-stream remuxes are not counted by this limit.
  */
 export function softwareTranscodeConcurrency(capacity: number): number {
-	return clamp(Math.floor(capacity) + 1, 1, CAPS.softwareTranscode);
+	return capacityBudget(capacity, { divisor: 1, min: 1, max: CAPS.softwareTranscode, offset: 1 });
 }
 
 /** Heavy chunked relation queries fan out per metadata id — catalog reads,
  * same budget class as ingest, derived from measured capacity. */
 export function relationQueryConcurrency(capacity: number): number {
-	return clamp(Math.ceil(capacity / 2), 1, 8);
+	return capacityBudget(capacity, { divisor: 2, min: 1, max: 8, rounding: "ceil" });
 }
 
 /** Auto concurrency for a worker by its canonical id; unbudgeted workers get 1. */
@@ -178,7 +206,7 @@ export function workerAutoConcurrency(workerId: string, capacity: number): numbe
 	const mappedId = canonicalWorkerId(workerId);
 	if (!(mappedId && isBudgetedWorker(mappedId))) return 1;
 
-	return WORKER_BUDGET_RATIO[mappedId](capacity);
+	return capacityBudget(capacity, WORKER_BUDGET_RATIO[mappedId]);
 }
 
 /**
@@ -189,7 +217,7 @@ export function workerAutoConcurrency(workerId: string, capacity: number): numbe
 export function ramScaled(totalKiB: number | undefined, perGb: number, min: number, max: number): number {
 	if (totalKiB === undefined) return min;
 
-	const memGb = totalKiB / 1024 / 1024;
+	const memGb = totalKiB / MIB;
 
 	return clamp(Math.floor(memGb * perGb), min, max);
 }

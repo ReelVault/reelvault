@@ -17,7 +17,7 @@ import { type StreamingPlaybackSessionData, streamingStorage, streamingWorker } 
 import type { PlaybackSessionInput, SessionReleaseOutcome, TerminatedSessionEntry } from "@/modules/streaming/streaming.types";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { detach } from "@/utils/promise.utils";
+import { detachCatching } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { isNullish } from "@/utils/type.utils";
 import { PlaybackSessionIdempotencyRegistry } from "./playback-session.registry";
@@ -137,15 +137,7 @@ export class SessionLifecycleService {
 	releasePlaybackSession(sessionId: string): void {
 		assertSafeId(sessionId, "sessionId");
 		const release = this.dependencies.runtime.releaseSession(sessionId, "client-release");
-		detach(
-			(async () => {
-				try {
-					await release;
-				} catch (error: unknown) {
-					this.logger.error("Failed to release playback session", error, { sessionId });
-				}
-			})(),
-		);
+		detachCatching(release, (error) => this.logger.error("Failed to release playback session", error, { sessionId }));
 	}
 
 	getTerminatedSession(sessionId: string): TerminatedSessionEntry | undefined {

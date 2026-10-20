@@ -1,7 +1,7 @@
 import type { FieldsConfig, FieldsQuery, PaginationQuery, SortOrder, SortQuery } from "@reelvault/sdk/common";
 import type { SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
-import { parsePagination } from "../pagination.utils";
+import { parsePagination } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { parseFields } from "./fields.parser";
 import { combineFilters } from "./filtering.parser";
 import { applySorting } from "./sorting.parser";

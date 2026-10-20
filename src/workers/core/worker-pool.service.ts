@@ -2,7 +2,7 @@ import type { WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk/comm
 import { MINUTE } from "@/config/server/server.constants";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { errorMessage } from "@/utils/domain.errors";
-import { safeParseJson } from "@/utils/file.utils";
+import { safeParseJson } from "@/utils/json.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 import { getRetryDelay } from "@/workers/utils/worker-policy.utils";
@@ -138,11 +138,9 @@ export class WorkerExecutionPoolService {
 
 		try {
 			const result = await definition.handler(context);
-			this.clearTimers(exec);
 			const durationMs = Date.now() - startedAt.getTime();
 			await this.handleTaskSuccess(item, exec, startedAt, durationMs, result);
 		} catch (error) {
-			this.clearTimers(exec);
 			const errorMsg = errorMessage(error);
 			const durationMs = Date.now() - startedAt.getTime();
 			await this.handleTaskFailure(item, exec, startedAt, durationMs, errorMsg);

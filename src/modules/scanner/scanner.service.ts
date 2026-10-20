@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { sleep } from "bun";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { episodeRangeSpan, parseFileName } from "@/modules/recognition/utils/recognition.utils";
@@ -6,7 +7,6 @@ import { throwIfAborted } from "@/utils/cancellation.utils";
 import type { ScannedFileEntry } from "@/utils/directory.utils";
 import { toDomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { getFileName } from "@/utils/path.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { fileScannerService } from "./disk/file.scanner";
 import { type RemovalGuard, removalGuard } from "./disk/removal.guard";
@@ -39,7 +39,7 @@ async function collectNewFiles(
 		if (rowCount === undefined) {
 			newFiles.push(filePath);
 		} else if (type === "tv_show") {
-			const span = episodeRangeSpan(parseFileName(getFileName(filePath)));
+			const span = episodeRangeSpan(parseFileName(basename(filePath)));
 			if (span !== undefined && span > rowCount) newFiles.push(filePath);
 		}
 

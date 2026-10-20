@@ -1,16 +1,24 @@
 import { and, desc, eq, inArray, lte, or, type SQL } from "drizzle-orm";
 import { workerJobSummaryColumns } from "@/app/repositories/worker-job.projection";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
-import { serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
-import { chunk, toMap, unique } from "@/utils/array.utils";
+import { toMap, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
-import type { ActiveWorkerItem, EnqueueWorkerItemInput, WorkerItem, WorkerItemStatus, WorkerItemSummary } from "./shared.types";
-import { applyOperationCounts, items, operations, toOperationCounts } from "./shared.types";
+import {
+	type ActiveWorkerItem,
+	applyOperationCounts,
+	type EnqueueWorkerItemInput,
+	items,
+	operations,
+	toOperationCounts,
+	type WorkerItem,
+	type WorkerItemStatus,
+	type WorkerItemSummary,
+} from "./shared.types";
 
 const jobsAccess = defineTableAccess("workerJobs", { primaryKeyColumn: "id" });
 
@@ -51,10 +59,10 @@ export async function enqueueMany(
 			}));
 
 			const insertedItems: WorkerItem[] = [];
-			for (const chunkValues of chunk(values, serverConstants.database.queryChunkSize)) {
+			await forEachChunked(values, async (chunkValues) => {
 				const inserted = await tx.insert(items).values(chunkValues).onConflictDoNothing().returning();
 				insertedItems.push(...inserted);
-			}
+			});
 
 			// Only actually-inserted rows count toward the operation total —
 			// dedupe fetch-backs were already counted at first enqueue. Resume

@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { CreateLibraryPath } from "@reelvault/sdk/common";
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
@@ -6,7 +7,6 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { toMap } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { resolvePath } from "@/utils/path.utils";
 import { libraryPaths } from "./shared.types";
 
 /**
@@ -14,7 +14,7 @@ import { libraryPaths } from "./shared.types";
  * A path already assigned to another library is refused rather than moved.
  */
 export async function replacePaths(libraryId: string, paths: CreateLibraryPath[], tx?: DatabaseTransaction): Promise<void> {
-	const normalizedPaths = [...toMap(paths, (item) => resolvePath(item.path.trim())).entries()];
+	const normalizedPaths = [...toMap(paths, (item) => resolve(item.path.trim())).entries()];
 	const client = databaseFactory.getClient({ tx });
 	const stableKeys = normalizedPaths.map(([path]) => createLocalStableKey({ namespace: "library-path", value: path }));
 	if (stableKeys.length === 0) {

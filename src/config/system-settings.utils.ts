@@ -27,18 +27,22 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			validate: (raw) => stringCodec.parse(raw) ?? (defaultValue === "" ? "" : null),
 			serialize: (val) => stringCodec.serialize(String(val)),
 		}),
-		number: (key, min, max, defaultValue, meta = {}) => ({
-			key,
-			group,
-			type: "number",
-			default: defaultValue,
-			min,
-			max,
-			...meta,
-			parse: (raw) => codecs.number(min, max).parse(raw) ?? defaultValue,
-			validate: (raw) => codecs.number(min, max).parse(raw),
-			serialize: (val) => String(val),
-		}),
+		number: (key, min, max, defaultValue, meta = {}) => {
+			const codec = codecs.number(min, max);
+
+			return {
+				key,
+				group,
+				type: "number",
+				default: defaultValue,
+				min,
+				max,
+				...meta,
+				parse: (raw) => codec.parse(raw) ?? defaultValue,
+				validate: (raw) => codec.parse(raw),
+				serialize: (val) => String(val),
+			};
+		},
 		boolean: (key, defaultValue) => ({
 			key,
 			group,
@@ -57,15 +61,19 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			validate: (raw) => stringArrayCodec.parse(raw),
 			serialize: (val) => JSON.stringify(Array.isArray(val) ? val : []),
 		}),
-		enum: <T extends string>(key: string, options: T[], defaultValue: T) => ({
-			key,
-			group,
-			type: "enum" as const,
-			options: [...options],
-			default: defaultValue,
-			parse: (raw) => codecs.enum(options).parse(raw) ?? defaultValue,
-			validate: (raw) => codecs.enum(options).parse(raw),
-			serialize: (val) => String(val),
-		}),
+		enum: <T extends string>(key: string, options: T[], defaultValue: T) => {
+			const codec = codecs.enum(options);
+
+			return {
+				key,
+				group,
+				type: "enum" as const,
+				options: [...options],
+				default: defaultValue,
+				parse: (raw) => codec.parse(raw) ?? defaultValue,
+				validate: (raw) => codec.parse(raw),
+				serialize: (val) => String(val),
+			};
+		},
 	};
 }

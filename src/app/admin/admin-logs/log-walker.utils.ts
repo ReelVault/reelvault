@@ -1,8 +1,8 @@
+import { join } from "node:path";
 import type { Logger } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import { type DirectoryEntry, readDirectoryEntries } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 export interface LogFileStats {
@@ -45,7 +45,7 @@ export async function walkLogFiles(
 		concurrency,
 		async (entry) => {
 			signal?.throwIfAborted();
-			const fullPath = joinPath(directory, entry.name);
+			const fullPath = join(directory, entry.name);
 
 			if (entry.isDirectory) {
 				await walkLogFiles(fullPath, { logger, signal, concurrency, onFile, onDirectory });

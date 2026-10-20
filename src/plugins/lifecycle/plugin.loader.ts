@@ -1,6 +1,6 @@
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { ConfigDefinition, PluginLoadPhase, ReelVaultPlugin } from "@reelvault/sdk/plugin";
-import { isConfigDefinition } from "@reelvault/sdk/plugin";
+import { type ConfigDefinition, isConfigDefinition, type PluginLoadPhase, type ReelVaultPlugin } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
@@ -16,7 +16,7 @@ import { directoryExists } from "@/utils/directory.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { readJsonFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { isSubpath, joinPath } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 import { mapConcurrent, withTimeout } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import { workerService } from "@/workers/worker.service";
@@ -140,7 +140,7 @@ export class PluginLoader {
 
 	/** Directory for a plugin given by directory name or manifest id; a manifest id resolves through the index instead of a rescan. */
 	private async resolvePluginDirectory(pluginNameOrId: string): Promise<{ pluginDir: string; pluginName: string }> {
-		let pluginDir = joinPath(this.pluginsDirectory, pluginNameOrId);
+		let pluginDir = join(this.pluginsDirectory, pluginNameOrId);
 		let pluginName = pluginNameOrId;
 
 		if (!(await directoryExists(pluginDir))) {
@@ -148,7 +148,7 @@ export class PluginLoader {
 			const resolvedName = await this.findDirectoryNameForPluginId(pluginNameOrId);
 			if (resolvedName) {
 				pluginName = resolvedName;
-				pluginDir = joinPath(this.pluginsDirectory, resolvedName);
+				pluginDir = join(this.pluginsDirectory, resolvedName);
 			}
 		}
 
@@ -157,7 +157,7 @@ export class PluginLoader {
 
 	/** Loads the optional ui.json into the scope; a malformed manifest skips UI contributions, not the plugin. */
 	private async loadUiManifest(pluginDir: string, scope: PluginScope): Promise<void> {
-		const uiManifestPath = joinPath(pluginDir, "ui.json");
+		const uiManifestPath = join(pluginDir, "ui.json");
 		const uiManifestRaw = await readJsonFile<unknown>(uiManifestPath, { silent: true });
 		if (uiManifestRaw === null) return;
 

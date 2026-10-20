@@ -2,10 +2,6 @@ import type { ScheduledTaskCategory, TaskTrigger } from "@reelvault/sdk/common";
 import { workerService } from "./worker.service";
 
 export const scheduledTasksService = {
-	async init(): Promise<void> {
-		await workerService.scheduler.init();
-	},
-
 	register(task: {
 		id: string;
 		category: ScheduledTaskCategory;

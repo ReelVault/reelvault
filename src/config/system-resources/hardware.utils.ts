@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
-import { availableParallelism, cpus } from "node:os";
+import { availableParallelism, cpus, totalmem } from "node:os";
 import type { Logger } from "@reelvault/sdk/common";
+import { KIB } from "@/utils/bytes.utils";
 import { isFiniteNumber, isNonEmptyString } from "@/utils/type.utils";
 
 const WHITESPACE_REGEX = /\s+/;
@@ -73,6 +74,20 @@ function readCpusetCores(logger: Logger): number | undefined {
 	}
 
 	return undefined;
+}
+
+/**
+ * Total physical memory of the host in KiB, or undefined when the host does
+ * not report it. This module is the only place allowed to read the host
+ * directly — every budget asks here.
+ */
+export function detectHostTotalMemoryKiB(): number | undefined {
+	try {
+		const bytes = totalmem();
+		return bytes > 0 ? Math.floor(bytes / KIB) : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /**

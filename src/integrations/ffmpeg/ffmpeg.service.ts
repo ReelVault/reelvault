@@ -2,6 +2,7 @@ import { which } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
+import { MIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
 import { killFfmpegProcessGracefully } from "./ffmpeg.process";
@@ -27,7 +28,7 @@ export interface FfmpegRunOptions {
 }
 
 /** Default retention for stderr (4 MiB tail). */
-const DEFAULT_MAX_STDERR_BYTES = 4 * 1024 * 1024;
+const DEFAULT_MAX_STDERR_BYTES = 4 * MIB;
 
 interface FfmpegExecutionResult {
 	exitCode: number | null;

@@ -1,15 +1,16 @@
 import type { PluginUiSurfaceKind } from "@reelvault/sdk/common";
-import type {
-	PluginDialogContribution,
-	PluginLocalizedText,
-	PluginPageContribution,
-	PluginSlotContribution,
-	PluginSlotName,
-	PluginTabContribution,
-	PluginTabHostName,
-	PluginUiManifest,
+import {
+	PLUGIN_SLOT_NAMES,
+	PLUGIN_TAB_HOST_NAMES,
+	type PluginDialogContribution,
+	type PluginLocalizedText,
+	type PluginPageContribution,
+	type PluginSlotContribution,
+	type PluginSlotName,
+	type PluginTabContribution,
+	type PluginTabHostName,
+	type PluginUiManifest,
 } from "@reelvault/sdk/plugin";
-import { PLUGIN_SLOT_NAMES, PLUGIN_TAB_HOST_NAMES } from "@reelvault/sdk/plugin";
 
 /** Override key that hides a plugin's whole UI. */
 export const PLUGIN_UI_MASTER_KEY = "*";

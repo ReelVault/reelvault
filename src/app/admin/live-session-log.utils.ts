@@ -1,13 +1,14 @@
 import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { operationLogSegment } from "@/integrations/ffmpeg/ffmpeg.operation-log";
+import { MIB } from "@/utils/bytes.utils";
 import { isMissingFile } from "@/utils/domain.errors";
-import { joinPath } from "@/utils/path.utils";
 
 /** Logs read for one archive stop at this total size; the timeline records when they were cut. */
-export const SESSION_LOG_MAX_BYTES = 64 * 1024 * 1024;
+export const SESSION_LOG_MAX_BYTES = 64 * MIB;
 
 /** `FfmpegOperationLog` file names end with the operation id, after the date and time it started. */
 const OPERATION_LOG_NAME_REGEX = /^FFmpeg\.(?:Transcode|DirectStream)-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_(.+)\.log$/;
@@ -78,7 +79,7 @@ export function summarizeFfmpegLog(file: string, text: string): FfmpegRunSummary
 
 /** Reads the operation logs of a session from every day's ffmpeg directory, oldest day first. */
 export async function readSessionLogFiles(segments: readonly string[]): Promise<{ files: SessionLogFile[]; truncated: boolean }> {
-	const root = joinPath(serverConfig.paths.logs, "ffmpeg");
+	const root = join(serverConfig.paths.logs, "ffmpeg");
 	let days: Dirent[];
 	try {
 		days = await readdir(root, { withFileTypes: true });
@@ -92,11 +93,11 @@ export async function readSessionLogFiles(segments: readonly string[]): Promise<
 	let total = 0;
 	let truncated = false;
 	for (const day of days.filter((entry) => entry.isDirectory()).toSorted((a, b) => a.name.localeCompare(b.name))) {
-		const dayPath = joinPath(root, day.name);
+		const dayPath = join(root, day.name);
 		for (const entry of await readdir(dayPath, { withFileTypes: true })) {
 			if (!(entry.isFile() && isSessionOperationLog(entry.name, segments))) continue;
 
-			const path = joinPath(dayPath, entry.name);
+			const path = join(dayPath, entry.name);
 			const { size } = await bunFile(path).stat();
 			if (total + size > SESSION_LOG_MAX_BYTES) {
 				truncated = true;

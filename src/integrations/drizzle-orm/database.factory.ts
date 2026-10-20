@@ -1,14 +1,15 @@
 import { Database } from "bun:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { sleep } from "bun";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate as runMigrations } from "drizzle-orm/bun-sqlite/migrator";
 import { env } from "@/config/env.config";
+import { KIB, MIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
 import { getTotalMemoryKiB } from "@/utils/mem.utils";
-import { getDirName, joinPath } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
 import { MIGRATIONS_DIR } from "./constants/migrations.constants";
 import type { DatabaseTransaction, DatabaseType } from "./database.types";
@@ -32,7 +33,7 @@ export interface DatabaseFactoryOptions {
  * capped. A fixed `temp_store = MEMORY` measured +61 MB RSS for a 2M-row
  * GROUP BY (vs +3 MB with FILE) — an OOM risk on a 1-2 GB NAS/Raspberry Pi.
  */
-const LOW_MEMORY_KIB = 2 * 1024 * 1024;
+const LOW_MEMORY_KIB = 2 * MIB;
 
 /**
  * SQLite samples an index instead of walking every row when `ANALYZE` runs with
@@ -71,7 +72,7 @@ const QUERY_CACHE_MAX_ENTRIES = 512;
 export function queryCacheEntriesForMemoryKiB(totalKiB: number | undefined): number {
 	if (!totalKiB) return QUERY_CACHE_MAX_ENTRIES;
 
-	const gib = totalKiB / 1024 / 1024;
+	const gib = totalKiB / MIB;
 
 	return clamp(Math.floor(gib * QUERY_CACHE_ENTRIES_PER_GIB), QUERY_CACHE_MIN_ENTRIES, QUERY_CACHE_MAX_ENTRIES);
 }
@@ -108,7 +109,7 @@ export class DatabaseFactory {
 	/** Main client with writes routed through `runWrite`; created lazily. */
 	private queuedClient: DatabaseType | null = null;
 
-	constructor(path = joinPath(env.ROOT_DIR, env.DB_FILE_NAME), options: DatabaseFactoryOptions = {}) {
+	constructor(path = join(env.ROOT_DIR, env.DB_FILE_NAME), options: DatabaseFactoryOptions = {}) {
 		this.path = path;
 		this.memoryOverrideKiB = options.totalMemoryKiB;
 		this.queryLogger = new DatabaseQueryLogger({
@@ -120,7 +121,7 @@ export class DatabaseFactory {
 		// With secrets provided via env, nothing else creates ROOT_DIR before this
 		// constructor runs at import time — a missing directory would surface as a
 		// raw SQLITE_CANTOPEN crash instead of a boot-time recovery.
-		mkdirSync(getDirName(path), { recursive: true });
+		mkdirSync(dirname(path), { recursive: true });
 		this.sqlite = new Database(path);
 		this.configureConnection(this.sqlite);
 		this.db = drizzle({ client: instrumentSqliteClient(this.sqlite, this.queryLogger), relations, logger: this.queryLogger });
@@ -481,8 +482,8 @@ export class DatabaseFactory {
 
 	/** 1.25% of total RAM in KiB, clamped to 16-128 MiB (per connection). */
 	private resolvePageCacheKiB(): number {
-		const minKiB = 16 * 1024;
-		const maxKiB = 128 * 1024;
+		const minKiB = 16 * KIB;
+		const maxKiB = 128 * KIB;
 		const totalKiB = this.totalMemoryKiB();
 		if (!totalKiB) return maxKiB;
 

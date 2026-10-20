@@ -4,7 +4,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { chunk } from "@/utils/array.utils";
+import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { calculateAverageScore } from "./metadata-recommendations.reader";
 import { emptyRelationData } from "./metadata-relations/payload.mapper";
 import { loadBatchedListRelations, loadExplicitRelations, loadMergedDetailRelations } from "./metadata-relations/relations.loader";
@@ -38,11 +38,11 @@ export async function loadRelations<F extends string>(
 	// Explicit projections build one `IN (...)` per relation with bound ids, so
 	// they keep the chunking that stays within SQLite's bound-variable limit.
 	if (metadataIds.length > serverConstants.database.queryChunkSize) {
-		for (const idsChunk of chunk(metadataIds, serverConstants.database.queryChunkSize)) {
+		await forEachChunked(metadataIds, async (idsChunk) => {
 			for (const [id, data] of await loadRelations(idsChunk, tx, fields, isDetailPage)) {
 				relationsByMetadataId.set(id, data);
 			}
-		}
+		});
 
 		return relationsByMetadataId;
 	}

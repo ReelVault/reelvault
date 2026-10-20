@@ -8,9 +8,13 @@ import { parseStandardQuery, type QueryMap } from "@/integrations/drizzle-orm/qu
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { SchemaTable, TableAccess, TableSelect } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
+import {
+	type NamedProviderEntity,
+	processNamedEntities,
+	upsertNamedEntities,
+} from "@/integrations/drizzle-orm/utils/provider-entity-sync.writer";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { unique } from "@/utils/array.utils";
-import { type NamedProviderEntity, processNamedEntities, upsertNamedEntities } from "../utils/provider-entity-sync.writer";
 
 /** Named-entity tables this factory supports — a union lets the internal inserts/selects resolve their column shapes. */
 type NamedEntityTableName = "genres" | "keywords" | "companies";

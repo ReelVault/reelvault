@@ -3,8 +3,13 @@ import type { ProviderSearchRequest, ProviderSearchResponse } from "@reelvault/s
 import { DomainError } from "@/utils/domain.errors";
 import { type fetchDetailsByProvider, searchByProviderExternalId } from "./details.service";
 import { mapProvidersSafely } from "./fan-out.service";
-import type { ProviderServiceState, WithoutState } from "./shared.utils";
-import { publishSearchRequested, rankProviderResults, resolveProviders } from "./shared.utils";
+import {
+	type ProviderServiceState,
+	publishSearchRequested,
+	rankProviderResults,
+	resolveProviders,
+	type WithoutState,
+} from "./shared.utils";
 
 export async function search(
 	request: MetadataProviderSearchRequest,

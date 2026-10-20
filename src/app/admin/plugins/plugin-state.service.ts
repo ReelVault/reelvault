@@ -1,11 +1,11 @@
 import type { PluginAdminStatus, PluginBulkStateBody, PluginBulkStateResult } from "@reelvault/sdk/common";
 import { recordUpdateAudit } from "@/app/admin/admin-audit.service";
+import { type AdminServiceState, requirePlugin } from "@/app/admin/shared.utils";
 import { pluginAdminService } from "@/app/plugins/plugin-admin.service";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { type AdminServiceState, requirePlugin } from "../shared.utils";
 
 type PluginAction = "enable" | "disable" | "reload";
 

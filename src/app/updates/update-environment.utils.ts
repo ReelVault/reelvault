@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { safeParseJson } from "@/utils/json.utils";
 import { isRecord } from "@/utils/type.utils";
 
 export type UpdateInstallType = "archive" | "docker" | "dev";
@@ -97,7 +98,7 @@ export function readInstalledWebVersion(root: string): string | null {
 	if (!existsSync(marker)) return null;
 
 	try {
-		const parsed: unknown = JSON.parse(readFileSync(marker, "utf8"));
+		const parsed = safeParseJson(readFileSync(marker, "utf8"));
 		if (!isRecord(parsed)) return null;
 
 		const { version } = parsed;

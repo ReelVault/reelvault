@@ -3,6 +3,7 @@ import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { fallbackEpisodeExternalId, fallbackSeasonExternalId } from "@/app/catalog/catalog.utils";
 import { resolveLibraryLanguage } from "@/app/catalog/metadata/providers/library-metadata-language.resolver";
 import { createFromProvider, processPersonImages } from "@/app/catalog/metadata/providers/metadata-create.utils";
+import type { MediaServiceState } from "@/app/media/media-files/shared.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { episodesRepository } from "@/app/repositories/episodes.repository";
 import { librariesRepository } from "@/app/repositories/libraries.repository";
@@ -15,9 +16,8 @@ import { imageProcessingService } from "@/modules/images/image-processing.servic
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertFound, DomainError } from "@/utils/domain.errors";
+import { mapLibraryType } from "@/utils/media-metadata.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { mapLibraryType } from "@/utils/type.utils";
-import type { MediaServiceState } from "../shared.utils";
 
 /**
  * Fetches provider details and persists a brand-new metadata record for a

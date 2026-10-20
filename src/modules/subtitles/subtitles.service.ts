@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type {
 	BulkRefreshItem,
 	BulkSubtitleDeleteResult,
@@ -21,7 +22,6 @@ import { createDirectory } from "@/utils/directory.utils";
 import { assertFound, DomainError, errorCodeOf } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath } from "@/utils/path.utils";
 import { invalidateResponseBodies } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
@@ -157,7 +157,7 @@ export class SubtitlesService {
 			}
 
 			await createDirectory(serverConfig.paths.subtitles);
-			const storedPath = joinPath(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
+			const storedPath = join(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
 			await Bun.write(storedPath, text);
 
 			try {

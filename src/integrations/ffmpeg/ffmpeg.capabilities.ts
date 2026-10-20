@@ -11,6 +11,7 @@ import {
 } from "./capabilities/probe.utils";
 import { resolveToneMappingMethod, type ToneMapConfig, type ToneMappingMethod } from "./capabilities/tone-mapping.resolver";
 import { type HwaccelVerification, verifyHwaccelCandidates } from "./capabilities/verify.service";
+import { FFMPEG_QUIET_ARGS } from "./ffmpeg.args";
 
 const logger = createLogger("FfmpegCapabilities");
 
@@ -37,9 +38,9 @@ let capabilities: FfmpegCapabilities = {
 export async function initializeFfmpegCapabilities(): Promise<FfmpegCapabilities> {
 	const [versionOutput, filtersOutput, encodersOutput, hwaccelsOutput] = await Promise.all([
 		runFfmpegDiagnostic(["-version"]),
-		runFfmpegDiagnostic(["-hide_banner", "-filters"]),
-		runFfmpegDiagnostic(["-hide_banner", "-encoders"]),
-		runFfmpegDiagnostic(["-hide_banner", "-hwaccels"]),
+		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-filters"]),
+		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-encoders"]),
+		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-hwaccels"]),
 	]);
 
 	if (versionOutput.exitCode !== 0)

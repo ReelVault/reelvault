@@ -1,5 +1,6 @@
 import type { CreateMediaFile } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
+import { errorMessage } from "@/utils/domain.errors";
 import { workerDependencies } from "@/workers/worker.ports";
 import type {
 	IngestCompletionInput,
@@ -179,7 +180,7 @@ export async function ingestAdditionalTargets(
 			context.logger?.warn("Multi-episode target ingest failed", {
 				filePath: data.filePath,
 				episodeId: target.episodeId,
-				error: error instanceof Error ? error.message : String(error),
+				error: errorMessage(error),
 			});
 		}
 	}

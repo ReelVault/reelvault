@@ -115,7 +115,7 @@ export async function getDetailsView(
 				.isWatched(profileId, metadataId)
 				// Degraded reads must be visible — a silent false would present
 				// watched state as unwatched.
-				.catch((error) => {
+				.catch((error: unknown) => {
 					state.logger.warn("Watched-state lookup failed — reporting as unwatched", {
 						metadataId,
 						profileId,
@@ -130,7 +130,7 @@ export async function getDetailsView(
 
 		let progressRowsPromise: Promise<Awaited<ReturnType<typeof playbackRepository.findProgressRows>>>;
 		if (profileId) {
-			progressRowsPromise = playbackRepository.findProgressRows(metadataId, profileId).catch((error) => {
+			progressRowsPromise = playbackRepository.findProgressRows(metadataId, profileId).catch((error: unknown) => {
 				state.logger.warn("Playback progress lookup failed — reporting as no progress", {
 					metadataId,
 					profileId,

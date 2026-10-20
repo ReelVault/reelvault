@@ -1,8 +1,8 @@
 import type { DownloadStatus } from "@/integrations/drizzle-orm/constants/downloads.constants";
 import { createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { resolveFileFromRow } from "@/modules/downloads/artifacts/artifacts.service";
 import { downloadsStorage } from "@/modules/downloads/downloads.ports";
-import { resolveFileFromRow } from "../artifacts/artifacts.service";
-import { getStorageQuota } from "../shared.utils";
+import { getStorageQuota } from "@/modules/downloads/shared.utils";
 import { assertOwnedDownload, getOwnedDownload } from "./rows.utils";
 import { type DownloadJobView, metadataIdsOf, toView, viewOf } from "./views.mapper";
 

@@ -1,5 +1,6 @@
 import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
@@ -7,7 +8,6 @@ import { createDirectory, directoryExists, removeTree } from "@/utils/directory.
 import { DomainError } from "@/utils/domain.errors";
 import { fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 const logger = createLogger("ServerDataUtils");
@@ -18,12 +18,12 @@ export async function ensureDataDirectories(): Promise<void> {
 
 	const directories = [
 		serverConfig.paths.images,
-		joinPath(serverConfig.paths.images, "posters"),
-		joinPath(serverConfig.paths.images, "backdrops"),
-		joinPath(serverConfig.paths.images, "people"),
-		joinPath(serverConfig.paths.images, "profiles"),
-		joinPath(serverConfig.paths.images, "others"),
-		joinPath(serverConfig.paths.images, ".cache"),
+		join(serverConfig.paths.images, "posters"),
+		join(serverConfig.paths.images, "backdrops"),
+		join(serverConfig.paths.images, "people"),
+		join(serverConfig.paths.images, "profiles"),
+		join(serverConfig.paths.images, "others"),
+		join(serverConfig.paths.images, ".cache"),
 		serverConfig.paths.imageTmp,
 		serverConfig.paths.plugins,
 		serverConfig.paths.downloads,
@@ -70,7 +70,7 @@ export async function cleanupStartupDirectories(
 					(entry) => {
 						if (excludeEntryNames?.has(entry)) return Promise.resolve();
 
-						return removeTree(joinPath(targetDir, entry));
+						return removeTree(join(targetDir, entry));
 					},
 					signal,
 				);
@@ -105,7 +105,7 @@ export async function measureDirectory(dir: string): Promise<{ bytes: number; fi
 		}
 
 		for (const entry of entries) {
-			const entryPath = joinPath(current, entry.name);
+			const entryPath = join(current, entry.name);
 			if (entry.isDirectory()) {
 				stack.push(entryPath);
 			} else if (entry.isFile()) {

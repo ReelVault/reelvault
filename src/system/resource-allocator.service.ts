@@ -2,8 +2,8 @@ import { serverConfig } from "@/config/server/server.config";
 import { HOUR, MINUTE } from "@/config/server/server.constants";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { createLogger } from "@/utils/logger.utils";
-import { detach } from "@/utils/promise.utils";
 import { RecurringTimer } from "@/utils/recurring-timer.utils";
+import { publishAdminBroadcast } from "./admin-broadcast.publisher";
 import { readHostMetrics, readLoadAverage } from "./resource-allocator/host-metrics.reader";
 import { resourceAllocatorStorage } from "./resource-allocator/resource-allocator.ports";
 import type {
@@ -64,7 +64,7 @@ export class ResourceAllocator {
 		}
 
 		await this.collectSnapshot();
-		this.armMonitorInterval();
+		this.monitorTimer.start();
 		this.logger.info("Resource allocator initialized", { intervalMs: serverConfig.resources.monitoringIntervalMs });
 	}
 
@@ -72,20 +72,20 @@ export class ResourceAllocator {
 	rescheduleMonitoring(): void {
 		if (this.isShutdown) return;
 
-		this.disarmMonitorInterval();
+		this.monitorTimer.stop();
 		if (!serverConfig.resources.monitoringEnabled) {
 			this.logger.info("Resource monitoring disabled");
 
 			return;
 		}
 
-		this.armMonitorInterval();
+		this.monitorTimer.start();
 		this.logger.info("Resource monitoring rescheduled", { intervalMs: serverConfig.resources.monitoringIntervalMs });
 	}
 
 	async shutdown(): Promise<void> {
 		this.isShutdown = true;
-		this.disarmMonitorInterval();
+		this.monitorTimer.stop();
 
 		await this.flushToDatabase(true);
 		this.logger.info("Resource allocator shut down");
@@ -113,14 +113,6 @@ export class ResourceAllocator {
 	/** Absolute concurrency ceiling for a worker id (admin/plugin settings can never exceed it). */
 	getWorkerConcurrencyCeiling(workerId: string): number {
 		return workerConcurrencyCeiling(workerId);
-	}
-
-	private armMonitorInterval(): void {
-		this.monitorTimer.start();
-	}
-
-	private disarmMonitorInterval(): void {
-		this.monitorTimer.stop();
 	}
 
 	private async collectSnapshot(): Promise<void> {
@@ -219,17 +211,13 @@ export class ResourceAllocator {
 
 		// Resource alerts feed the admin dashboard — keep them off non-admin sockets.
 		resourceAllocatorStorage().notifyAlert(draft.code, draft.params ?? {});
-		detach(this.broadcastAlert(alert));
+		this.broadcastAlert(alert);
 
 		this.logger.warn(`Resource alert [${draft.severity}]`, { type: draft.type, code: draft.code, params: draft.params });
 	}
 
-	private async broadcastAlert(alert: ResourceAlert): Promise<void> {
-		try {
-			await systemAdminBroadcast().publishResourceAlert(alert);
-		} catch (error) {
-			this.logger.error("Failed to broadcast resource alert", error);
-		}
+	private broadcastAlert(alert: ResourceAlert): void {
+		publishAdminBroadcast(this.logger, "resource alert", async () => await systemAdminBroadcast().publishResourceAlert(alert));
 	}
 }
 

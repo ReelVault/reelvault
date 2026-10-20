@@ -1,5 +1,6 @@
+import { isAbsolute, resolve } from "node:path";
 import { DomainError } from "@/utils/domain.errors";
-import { isAbsolutePath, isSubpath, resolvePath } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 
 /** Contribution identifiers are referenced across surfaces (tabs → pages, slots → actions). */
@@ -102,8 +103,9 @@ export function assertSafeHref(value: unknown, field: string): asserts value is 
 	let parsed: URL;
 	try {
 		parsed = new URL(value);
-	} catch {
+	} catch (error) {
 		throw new DomainError("validation", `Plugin ui.json ${field} must be an absolute http(s) URL or a site-relative path`, {
+			cause: error,
 			code: "plugin.ui.url_invalid",
 			params: { field },
 		});
@@ -164,14 +166,14 @@ export function assertNonEmptyString(value: unknown, field: string): asserts val
 
 export function assertRelativeString(value: unknown, field: string): asserts value is string {
 	assertNonEmptyString(value, field);
-	if (isAbsolutePath(value) || !value.startsWith("./")) {
+	if (isAbsolute(value) || !value.startsWith("./")) {
 		throw fieldError(field, "path_invalid", "must be a relative path starting with './'");
 	}
 }
 
 export function resolvePluginPath(pluginDir: string, path: string, field: string): string {
-	const root = resolvePath(pluginDir);
-	const resolvedPath = resolvePath(root, path);
+	const root = resolve(pluginDir);
+	const resolvedPath = resolve(root, path);
 	if (!isSubpath(resolvedPath, root)) {
 		throw fieldError(field, "path_escapes", `escapes plugin directory: ${path}`);
 	}

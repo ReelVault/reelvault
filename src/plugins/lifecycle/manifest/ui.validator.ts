@@ -1,8 +1,8 @@
-import type { PluginUiManifest } from "@reelvault/sdk/plugin";
 import {
 	PLUGIN_DIALOG_SIZES as PLUGIN_DIALOG_SIZE_VALUES,
 	PLUGIN_SLOT_NAMES as PLUGIN_SLOT_NAME_VALUES,
 	PLUGIN_TAB_HOST_NAMES as PLUGIN_TAB_HOST_NAME_VALUES,
+	type PluginUiManifest,
 } from "@reelvault/sdk/plugin";
 import { DomainError } from "@/utils/domain.errors";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
@@ -75,52 +75,71 @@ function uiManifestUsesTag(value: Record<string, unknown>): boolean {
 	return false;
 }
 
-function validateUiPages(pages: unknown, dialogIds: ReadonlySet<string>): Set<string> {
-	const ids = new Set<string>();
-	if (pages === undefined) return ids;
+/** A UI surface entry whose id has been validated. */
+type UiSurfaceEntry = Record<string, unknown> & { id: string };
 
-	if (!Array.isArray(pages))
-		throw new DomainError("validation", "Plugin ui.json pages must be an array", {
+/**
+ * The entries of a UI surface list, checked for shape and unique ids. The
+ * page- and dialog-specific rules run on the returned entries.
+ */
+function validatedUiSurfaces(entries: unknown, field: "pages" | "dialogs"): { ids: Set<string>; entries: UiSurfaceEntry[] } {
+	const ids = new Set<string>();
+	if (entries === undefined) return { ids, entries: [] };
+
+	if (!Array.isArray(entries))
+		throw new DomainError("validation", `Plugin ui.json ${field} must be an array`, {
 			code: "plugin.ui.field_not_array",
-			params: { field: "pages" },
+			params: { field },
 		});
 
-	for (const page of pages) {
-		if (!isRecord(page))
-			throw new DomainError("validation", "Plugin ui.json pages entries must be objects", {
+	const validated: UiSurfaceEntry[] = [];
+	for (const entry of entries) {
+		if (!isRecord(entry))
+			throw new DomainError("validation", `Plugin ui.json ${field} entries must be objects`, {
 				code: "plugin.ui.entry_not_object",
-				params: { field: "pages" },
+				params: { field },
 			});
 
-		assertUiId(page.id, "ui.pages[].id");
-		if (ids.has(page.id))
-			throw new DomainError("validation", `Plugin ui.json has duplicate page id '${page.id}'`, {
+		assertUiId(entry.id, `ui.${field}[].id`);
+		if (ids.has(entry.id))
+			throw new DomainError("validation", `Plugin ui.json has duplicate ${field.slice(0, -1)} id '${entry.id}'`, {
 				code: "plugin.ui.duplicate_id",
-				params: { field: "pages", id: page.id },
+				params: { field, id: entry.id },
 			});
 
-		ids.add(page.id);
+		ids.add(entry.id);
+		validated.push({ ...entry, id: entry.id });
+	}
+
+	return { ids, entries: validated };
+}
+
+function validateUiPages(pages: unknown, dialogIds: ReadonlySet<string>): Set<string> {
+	const { ids, entries } = validatedUiSurfaces(pages, "pages");
+
+	for (const page of entries) {
+		const id = page.id;
 		if (typeof page.path !== "string" || !PLUGIN_UI_PAGE_PATH_PATTERN.test(page.path)) {
-			throw new DomainError("validation", `Plugin ui.json page '${page.id}' has an invalid path`, {
+			throw new DomainError("validation", `Plugin ui.json page '${id}' has an invalid path`, {
 				code: "plugin.ui.page_path_invalid",
-				params: { page: page.id },
+				params: { page: id },
 			});
 		}
 
-		assertLocalizedText(page.name, `ui.pages.${page.id}.name`);
-		if (page.icon !== undefined) assertNonEmptyString(page.icon, `ui.pages.${page.id}.icon`);
+		assertLocalizedText(page.name, `ui.pages.${id}.name`);
+		if (page.icon !== undefined) assertNonEmptyString(page.icon, `ui.pages.${id}.icon`);
 
-		validateSurfaceDefinition(page, `ui.pages.${page.id}`, dialogIds);
-		assertOptionalType(page.adminOnly, "boolean", `page '${page.id}' adminOnly`);
+		validateSurfaceDefinition(page, `ui.pages.${id}`, dialogIds);
+		assertOptionalType(page.adminOnly, "boolean", `page '${id}' adminOnly`);
 
 		if (page.nav !== undefined && page.nav !== false && page.nav !== "user" && page.nav !== "admin") {
-			throw new DomainError("validation", `Plugin ui.json page '${page.id}' nav must be 'user', 'admin' or false`, {
+			throw new DomainError("validation", `Plugin ui.json page '${id}' nav must be 'user', 'admin' or false`, {
 				code: "plugin.ui.page_nav_invalid",
-				params: { page: page.id },
+				params: { page: id },
 			});
 		}
 
-		assertOptionalType(page.priority, "number", `page '${page.id}' priority`);
+		assertOptionalType(page.priority, "number", `page '${id}' priority`);
 	}
 
 	return ids;
@@ -143,42 +162,22 @@ function collectDeclaredDialogIds(dialogs: unknown): Set<string> {
 }
 
 function validateUiDialogs(dialogs: unknown, dialogIds: ReadonlySet<string>): Set<string> {
-	const ids = new Set<string>();
-	if (dialogs === undefined) return ids;
+	const { ids, entries } = validatedUiSurfaces(dialogs, "dialogs");
 
-	if (!Array.isArray(dialogs))
-		throw new DomainError("validation", "Plugin ui.json dialogs must be an array", {
-			code: "plugin.ui.field_not_array",
-			params: { field: "dialogs" },
-		});
-
-	for (const dialog of dialogs) {
-		if (!isRecord(dialog))
-			throw new DomainError("validation", "Plugin ui.json dialogs entries must be objects", {
-				code: "plugin.ui.entry_not_object",
-				params: { field: "dialogs" },
-			});
-
-		assertUiId(dialog.id, "ui.dialogs[].id");
-		if (ids.has(dialog.id))
-			throw new DomainError("validation", `Plugin ui.json has duplicate dialog id '${dialog.id}'`, {
-				code: "plugin.ui.duplicate_id",
-				params: { field: "dialogs", id: dialog.id },
-			});
-
-		ids.add(dialog.id);
-		assertLocalizedText(dialog.title, `ui.dialogs.${dialog.id}.title`);
-		if (dialog.icon !== undefined) assertNonEmptyString(dialog.icon, `ui.dialogs.${dialog.id}.icon`);
+	for (const dialog of entries) {
+		const id = dialog.id;
+		assertLocalizedText(dialog.title, `ui.dialogs.${id}.title`);
+		if (dialog.icon !== undefined) assertNonEmptyString(dialog.icon, `ui.dialogs.${id}.icon`);
 
 		if (dialog.size !== undefined && (typeof dialog.size !== "string" || !PLUGIN_DIALOG_SIZES.has(dialog.size))) {
-			throw new DomainError("validation", `Plugin ui.json dialog '${dialog.id}' has an unsupported size`, {
+			throw new DomainError("validation", `Plugin ui.json dialog '${id}' has an unsupported size`, {
 				code: "plugin.ui.dialog_size_invalid",
-				params: { dialog: dialog.id },
+				params: { dialog: id },
 			});
 		}
 
-		validateSurfaceDefinition(dialog, `ui.dialogs.${dialog.id}`, dialogIds);
-		assertOptionalType(dialog.adminOnly, "boolean", `dialog '${dialog.id}' adminOnly`);
+		validateSurfaceDefinition(dialog, `ui.dialogs.${id}`, dialogIds);
+		assertOptionalType(dialog.adminOnly, "boolean", `dialog '${id}' adminOnly`);
 	}
 
 	return ids;

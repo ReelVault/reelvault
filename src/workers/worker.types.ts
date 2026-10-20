@@ -1,4 +1,4 @@
-import type { AddWorkerItemOptions, WorkerCategory, WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk";
+import type { AddWorkerItemOptions, TaskTrigger, WorkerCategory, WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk";
 import type { BackoffConfig } from "@/config/server/workers.config";
 
 export type WorkerEnqueueOptions = Pick<AddWorkerItemOptions, "operationId" | "dependsOnTaskIds" | "dependsOnJobId" | "priority">;
@@ -25,6 +25,7 @@ export function createWorkerDefinition<TData, TResult = unknown>(
 		removeOnFail?: number | boolean | undefined;
 	},
 	handler: (context: WorkerHandlerContext<TData>) => Promise<TResult>,
+	defaultTriggers?: TaskTrigger[],
 ): WorkerDefinition<TData, TResult> {
 	return {
 		id,
@@ -55,6 +56,7 @@ export function createWorkerDefinition<TData, TResult = unknown>(
 		get removeOnFail() {
 			return getConfig().removeOnFail;
 		},
+		defaultTriggers,
 		handler,
 	};
 }

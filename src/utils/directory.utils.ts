@@ -1,13 +1,14 @@
 import { rmSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { file as bunFile, Glob } from "bun";
-import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { isMissingFile } from "./domain.errors";
+import { statWithTimeout } from "./file.utils";
 import { createLogger } from "./logger.utils";
 import { MemoryCache } from "./memory.cache";
-import { isVideoFile, joinPath } from "./path.utils";
-import { mapConcurrent, PromiseTimeoutError, withTimeout } from "./promise.utils";
+import { isVideoFile } from "./path.utils";
+import { mapConcurrent, PromiseTimeoutError } from "./promise.utils";
 
 const logger = createLogger("DirUtils");
 
@@ -57,9 +58,42 @@ export async function listDirectoryEntries(directory: string): Promise<Directory
 	}
 }
 
+/**
+ * A season pack is read once per episode — the sidecar documents, the
+ * subtitles — so the listing was read from disk again for every episode of the
+ * same season. The entries are cached for a few seconds: a file dropped in
+ * mid-scan is picked up by the next scan or refresh (the imports are
+ * idempotent).
+ */
+const DIRECTORY_LISTING_TTL_MS = 5_000;
+const directoryListingCache = new MemoryCache<DirectoryEntry[]>({
+	ttlMs: DIRECTORY_LISTING_TTL_MS,
+	maxSize: 64,
+	name: "directory-listings",
+});
+
+/**
+ * The entries of a directory, or undefined when it cannot be read — the caller
+ * decides whether an unreadable directory is an empty one or an error. The
+ * listing is cached for a few seconds.
+ */
+export async function listDirectoryEntriesCached(directory: string): Promise<DirectoryEntry[] | undefined> {
+	const cached = directoryListingCache.get(directory);
+	if (cached) return cached;
+
+	try {
+		const result = await readDirectoryEntries(directory);
+		directoryListingCache.set(directory, result);
+
+		return result;
+	} catch {
+		return undefined;
+	}
+}
+
 export async function directoryExists(path: string): Promise<boolean> {
 	try {
-		const stats = await withTimeout(bunFile(path).stat(), FS_STAT_TIMEOUT_MS, `stat ${path}`);
+		const stats = await statWithTimeout(path);
 
 		return stats.isDirectory();
 	} catch (error) {
@@ -111,15 +145,19 @@ export async function deleteTemporaryDirectory(path: string): Promise<boolean> {
 	return await deleteDirectory(path, { allowVideo: true });
 }
 
-export async function scanFiles(
+/**
+ * Runs a directory scan and turns a failure into an empty listing. An aborted
+ * scan is rethrown: the caller asked to stop.
+ */
+async function withScanErrorHandling(
 	basePath: string,
 	extensions: readonly string[],
-	maxDepth = 10,
-	signal?: AbortSignal,
-	options?: { dot?: boolean | undefined },
+	maxDepth: number,
+	signal: AbortSignal | undefined,
+	run: () => Promise<string[]>,
 ): Promise<string[]> {
 	try {
-		return await collectGlobPaths(basePath, extensions, maxDepth, signal, options);
+		return await run();
 	} catch (error) {
 		if (signal?.aborted) throw error;
 
@@ -127,6 +165,22 @@ export async function scanFiles(
 
 		return [];
 	}
+}
+
+export async function scanFiles(
+	basePath: string,
+	extensions: readonly string[],
+	maxDepth = 10,
+	signal?: AbortSignal,
+	options?: { dot?: boolean | undefined },
+): Promise<string[]> {
+	return await withScanErrorHandling(
+		basePath,
+		extensions,
+		maxDepth,
+		signal,
+		async () => await collectGlobPaths(basePath, extensions, maxDepth, signal, options),
+	);
 }
 
 export async function scanFilesWithStats(
@@ -187,13 +241,9 @@ export async function scanFilesWithStats(
 }
 
 export async function listDirectories(basePath: string): Promise<string[]> {
-	try {
-		const entries = await readdir(basePath, { withFileTypes: true });
+	const entries = await listDirectoryEntries(basePath);
 
-		return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-	} catch {
-		return [];
-	}
+	return entries?.filter((entry) => entry.isDirectory).map((entry) => entry.name) ?? [];
 }
 
 const globCache = new MemoryCache<Glob>({ ttlMs: -1, maxSize: 32, name: "glob-pattern" });
@@ -242,7 +292,7 @@ async function* iterateGlob(
 
 		if (depth > maxDepth) continue;
 
-		yield joinPath(basePath, file);
+		yield join(basePath, file);
 	}
 }
 
@@ -250,7 +300,7 @@ async function containsVideoFile(path: string, maxDepth = 10, currentDepth = 0):
 	if (currentDepth >= maxDepth) return false;
 
 	for (const entry of await readdir(path, { withFileTypes: true })) {
-		const entryPath = joinPath(path, entry.name);
+		const entryPath = join(path, entry.name);
 		if (entry.isFile() && isVideoFile(entryPath)) return true;
 
 		if (entry.isDirectory() && (await containsVideoFile(entryPath, maxDepth, currentDepth + 1))) return true;

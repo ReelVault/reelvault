@@ -1,8 +1,9 @@
+import { dirname } from "node:path";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { toMap, unique } from "@/utils/array.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { getDirName, getFileNameWithoutExt } from "@/utils/path.utils";
+import { getFileNameWithoutExt } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import { type SidecarArtworkWriter, sidecarArtworkExporter } from "./saver/sidecar-artwork.exporter";
@@ -144,7 +145,7 @@ export class SidecarMetadataStorageService {
 
 	private async saveMovieTarget(target: MovieSaveTarget, scope: SaveScope): Promise<void> {
 		const { mediaFile } = target;
-		const movieDirectory = getDirName(mediaFile.filePath);
+		const movieDirectory = dirname(mediaFile.filePath);
 		await this.writeAndExport(
 			scope,
 			`movie:${mediaFile.metadataId}:${movieDirectory}`,
@@ -155,7 +156,7 @@ export class SidecarMetadataStorageService {
 
 	private async saveEpisodeTarget(target: EpisodeSaveTarget, scope: SaveScope): Promise<void> {
 		const { mediaFile, episode, season } = target;
-		const episodeDirectory = getDirName(mediaFile.filePath);
+		const episodeDirectory = dirname(mediaFile.filePath);
 		const seriesDirectory = resolveSeriesDirectory(scope.storageRoots, episodeDirectory);
 		await this.saveSeriesOnce(mediaFile, seriesDirectory, scope);
 		await this.saveSeasonOnce(season, episodeDirectory, scope);

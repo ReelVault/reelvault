@@ -1,5 +1,5 @@
-import type { PlaybackArtifact, PlaybackArtifactKind, PlaybackArtifactWrite } from "@reelvault/sdk/common";
-import { playbackArtifactKinds } from "@reelvault/sdk/common";
+import { join } from "node:path";
+import { type PlaybackArtifact, type PlaybackArtifactKind, type PlaybackArtifactWrite, playbackArtifactKinds } from "@reelvault/sdk/common";
 import { file } from "bun";
 import { mediaArtifactsRepository } from "@/app/repositories/media-artifacts.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
@@ -17,7 +17,6 @@ import { assertExists, DomainError } from "@/utils/domain.errors";
 import { deleteFile, getFileStats } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 type MediaArtifactRow = InferTable<"mediaArtifacts">;
@@ -125,7 +124,7 @@ class MediaArtifactsService {
 		const id = crypto.randomUUID();
 		const storageKey = `${normalizedArtifact.mediaFileId}/${id}`;
 		const stableKey = createLocalStableKey({ namespace: "media-artifact", value: `${ownerId}:${storageKey}` });
-		const mediaArtifactsDir = joinPath(serverConfig.paths.artifacts, normalizedArtifact.mediaFileId);
+		const mediaArtifactsDir = join(serverConfig.paths.artifacts, normalizedArtifact.mediaFileId);
 		await createDirectory(mediaArtifactsDir);
 
 		const storedRows = await writeFileWithRollback(this.storagePath(storageKey), normalizedArtifact.content, () =>
@@ -314,7 +313,7 @@ class MediaArtifactsService {
 	}
 
 	private storagePath(storageKey: string): string {
-		return joinPath(serverConfig.paths.artifacts, storageKey);
+		return join(serverConfig.paths.artifacts, storageKey);
 	}
 
 	private assertAllowedContentType(contentType: string, ownerId: string): void {

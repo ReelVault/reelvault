@@ -25,11 +25,12 @@ class PluginStorageService {
 			const parsed: unknown = JSON.parse(value);
 
 			return parsed;
-		} catch {
+		} catch (error) {
 			// Keep the stored bytes untouched: silently treating this as missing
 			// would let the next write overwrite recoverable data.
 			this.logger.error("Plugin storage value is not valid JSON", { pluginId, key });
 			throw new DomainError("internal", `Plugin storage value is corrupt: ${pluginId}/${key}`, {
+				cause: error,
 				code: "plugin.storage_corrupt",
 			});
 		}

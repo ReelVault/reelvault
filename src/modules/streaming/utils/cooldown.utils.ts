@@ -1,4 +1,4 @@
-import { BoundedMap } from "@/modules/streaming/utils/bounded-map.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 
 export interface CooldownCheck {
 	allowed: boolean;
@@ -13,19 +13,22 @@ interface CooldownMapOptions {
 }
 
 /**
- * Per-key cooldown gate over a bounded map: records when a key's attempt was
- * last accepted and reports how long the next one must wait. Pruning is
- * explicit — callers decide how long entries may linger.
+ * Per-key cooldown gate: records when a key's attempt was last accepted and
+ * reports how long the next one must wait.
+ *
+ * The entries live in a bounded cache whose time-to-live is the cooldown
+ * itself, so an entry can never outlive the window in which it blocks an
+ * attempt — the memory is reclaimed by the cache, not by a manual sweep.
  */
 export class CooldownMap {
-	private readonly entries: BoundedMap<number>;
+	private readonly entries: MemoryCache<number>;
 	private readonly cooldownMs: number;
 	private readonly now: () => number;
 
 	constructor(options: CooldownMapOptions) {
 		this.cooldownMs = options.cooldownMs;
 		this.now = options.now ?? Date.now;
-		this.entries = new BoundedMap({ maxEntries: options.maxEntries, now: this.now });
+		this.entries = new MemoryCache<number>({ ttlMs: options.cooldownMs, maxSize: options.maxEntries });
 	}
 
 	get size(): number {
@@ -36,7 +39,7 @@ export class CooldownMap {
 	tryBegin(key: string): CooldownCheck {
 		const now = this.now();
 		const last = this.entries.get(key);
-		if (last !== undefined && now - last < this.cooldownMs) {
+		if (last !== null && now - last < this.cooldownMs) {
 			return { allowed: false, retryAfterMs: this.cooldownMs - (now - last) };
 		}
 
@@ -47,14 +50,5 @@ export class CooldownMap {
 
 	invalidate(key: string): void {
 		this.entries.delete(key);
-	}
-
-	/** Drops entries whose cooldown has elapsed — they can no longer block an attempt. */
-	pruneElapsed(): void {
-		this.entries.prune((time, now) => now - time >= this.cooldownMs);
-	}
-
-	pruneOlderThan(ms: number): void {
-		this.entries.prune((time, now) => now - time > ms);
 	}
 }

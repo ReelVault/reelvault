@@ -41,13 +41,7 @@ export class ImplicitSeekCoordinator {
 	}
 
 	tryBegin(sessionId: string): boolean {
-		if (this.cooldowns.size >= MAX_TRACKED_SESSIONS) this.pruneStale();
-
 		return this.cooldowns.tryBegin(sessionId).allowed;
-	}
-
-	private pruneStale(): void {
-		this.cooldowns.pruneElapsed();
 	}
 
 	invalidate(sessionId: string): void {

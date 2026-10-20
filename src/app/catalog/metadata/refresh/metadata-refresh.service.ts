@@ -1,5 +1,7 @@
 import type { MetadataCandidate } from "@reelvault/sdk/common";
 import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
+import { processPersonImages } from "@/app/catalog/metadata/providers/metadata-create.utils";
+import { applyMetadataCandidate, toMetadataCandidate } from "@/app/catalog/metadata/providers/metadata-normalization.mapper";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { mergeProviderMetadata, type ProviderContribution } from "@/plugins/capabilities/metadata-aggregator.service";
@@ -10,8 +12,6 @@ import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import type { ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
-import { processPersonImages } from "../providers/metadata-create.utils";
-import { applyMetadataCandidate, toMetadataCandidate } from "../providers/metadata-normalization.mapper";
 
 export interface RefreshableMetadata {
 	id: string;

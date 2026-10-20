@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { PluginBlob, PluginBlobMetadata, PluginBlobWriteOptions } from "@reelvault/sdk/plugin";
 import { file } from "bun";
 import { type PluginBlobRow, type PluginBlobTransaction, pluginBlobData } from "@/app/plugins/plugin-data.service";
@@ -7,7 +8,6 @@ import { KeyedMutex } from "@/utils/concurrency.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { joinPath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isExpired } from "@/utils/time.utils";
 import { assertPluginBlobWrite } from "./plugin.blobs.validator";
@@ -182,7 +182,7 @@ class PluginBlobsService {
 	}
 
 	private storagePath(storageKey: string): string {
-		return joinPath(serverConfig.paths.pluginBlobs, storageKey);
+		return join(serverConfig.paths.pluginBlobs, storageKey);
 	}
 }
 

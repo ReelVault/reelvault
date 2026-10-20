@@ -3,6 +3,7 @@ import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { withDomainError } from "@/utils/domain.errors";
+import { anyAttachedToOperation, attachedToOperation } from "@/workers/core/worker-operation.service";
 import { type WorkerItem, workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
@@ -41,7 +42,7 @@ export async function enqueueTrickplayGeneration(mediaFileId: string, options: W
 				{ ...options, ...trickplayQueueOptions(mediaFileId), operationId },
 			),
 		// A dedupe hit keeps the existing job (and its operation) — drop the fresh one.
-		{ isAttached: (item, operationId) => item.operationId === operationId },
+		{ isAttached: attachedToOperation },
 	);
 
 	return result;
@@ -113,7 +114,7 @@ export async function enqueueTrickplayGenerationMany(
 					options: { ...trickplayQueueOptions(mediaFileId), operationId: opId },
 				})),
 			),
-		{ isAttached: (queued, opId) => queued.some((item) => item.operationId === opId) },
+		{ isAttached: anyAttachedToOperation },
 	);
 
 	return { operationId, items };

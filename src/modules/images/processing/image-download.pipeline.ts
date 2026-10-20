@@ -1,4 +1,5 @@
 import { copyFile, rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { getImageMetadata, type OptimizedImageResult, optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
@@ -10,7 +11,6 @@ import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { createTempPath, deleteFile, downloadFile, fileExists, writeFile } from "@/utils/file.utils";
 import { createImageStableKey, createImageStoragePath } from "@/utils/image-storage.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { getDirName, joinPath } from "@/utils/path.utils";
 import { getContentType } from "./content-types.utils";
 
 interface ServiceDependencies {
@@ -88,14 +88,14 @@ export class ImageDownloadPipeline {
 	}
 
 	private createTemporaryImagePath(): string {
-		return joinPath(this.dependencies.imageTmpPath(), `${crypto.randomUUID()}.webp`);
+		return join(this.dependencies.imageTmpPath(), `${crypto.randomUUID()}.webp`);
 	}
 
 	private async moveToStablePath(localPath: string, stableKey: string, imageType?: string): Promise<string> {
 		const stablePath = createImageStoragePath({ root: this.dependencies.imagesRoot(), stableKey, imageType });
 		if (localPath === stablePath) return stablePath;
 
-		await this.dependencies.createDirectory(getDirName(stablePath));
+		await this.dependencies.createDirectory(dirname(stablePath));
 		if (await this.dependencies.fileExists(stablePath)) {
 			await this.dependencies.deleteFile(localPath);
 
@@ -172,8 +172,7 @@ export class ImageDownloadPipeline {
 		acquire: (sourcePath: string) => Promise<void>,
 	): Promise<Omit<PersistedImageInput, "localPath" | "stableKey">> {
 		throwIfAborted(signal);
-		await this.dependencies.createDirectory(getDirName(localPath));
-		await this.dependencies.deleteFile(localPath);
+		await this.dependencies.createDirectory(dirname(localPath));
 
 		const sourcePath = createTempPath(localPath, ".source.tmp");
 		const optimizedPath = createTempPath(localPath, ".optimized.tmp");

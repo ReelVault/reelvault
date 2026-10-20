@@ -1,7 +1,7 @@
 import { watch } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 import { file } from "bun";
 import { createLogger } from "@/utils/logger.utils";
-import { getDirName, getFileName } from "@/utils/path.utils";
 import { DomainError } from "./domain.errors";
 
 const logger = createLogger("PromiseUtils");
@@ -21,6 +21,49 @@ export class PromiseTimeoutError extends Error {
  */
 export function detach(_promise: Promise<unknown>): void {
 	// Detached intentionally: errors are owned by the task itself.
+}
+
+/**
+ * Detaches a promise that may reject. The handler owns the error, so the
+ * detached task never becomes an unhandled rejection. Without a handler the
+ * failure is swallowed — use it only where the work is genuinely best-effort.
+ */
+export function detachCatching(work: Promise<unknown>, onError?: (error: unknown) => void): void {
+	detach(
+		(async () => {
+			try {
+				await work;
+			} catch (error) {
+				onError?.(error);
+			}
+		})(),
+	);
+}
+
+/**
+ * Waits for a shared promise but lets each caller stop waiting on its own
+ * abort. The shared promise itself is not bound to any caller's signal — a
+ * follower's abort must not kill work another caller is still awaiting.
+ */
+export async function raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal, message = "Operation aborted"): Promise<T> {
+	if (!signal) return promise;
+
+	if (signal.aborted) throw signal.reason ?? new Error(message);
+
+	let onAbort: (() => void) | undefined;
+	const abort = new Promise<never>((_resolve, reject) => {
+		onAbort = () => reject(signal.reason ?? new Error(message));
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
+
+	try {
+		return await Promise.race([promise, abort]);
+	} finally {
+		// A completed promise must not leave its listener on a long-lived
+		// session signal — they would accumulate one per call and slow abort
+		// dispatch.
+		if (onAbort) signal.removeEventListener("abort", onAbort);
+	}
 }
 
 export async function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<Awaited<T>> {
@@ -155,8 +198,8 @@ export function waitForFile(filePath: string, timeoutMs = 10_000, pollMs = 200, 
 		}, timeoutMs);
 		timeoutTimer.unref();
 
-		const targetName = getFileName(filePath);
-		const directory = getDirName(filePath);
+		const targetName = basename(filePath);
+		const directory = dirname(filePath);
 
 		releaseWatcher = subscribeDirWatcher(
 			directory,

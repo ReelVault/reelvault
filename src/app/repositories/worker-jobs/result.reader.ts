@@ -1,6 +1,7 @@
 import type { Static, TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { safeParseJson } from "@/utils/json.utils";
 
 /**
  * Result payload of a completed worker operation's first job, validated against
@@ -13,13 +14,8 @@ export async function readCompletedOperationResult<TSchemaType extends TSchema>(
 	const [job] = await workerJobRepository.findByOperation(operationId, 1);
 	if (!job?.result) return null;
 
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(job.result);
-	} catch {
-		// A damaged result row must read as "no result", not crash the endpoint.
-		return null;
-	}
+	// A damaged result row must read as "no result", not crash the endpoint.
+	const parsed = safeParseJson(job.result);
 
 	return Value.Check(schema, parsed) ? parsed : null;
 }

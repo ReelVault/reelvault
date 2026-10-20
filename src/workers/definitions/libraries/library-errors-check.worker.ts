@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
@@ -5,7 +6,6 @@ import { fileScannerService } from "@/modules/scanner/disk/file.scanner";
 import { trimAndFilter, unique } from "@/utils/array.utils";
 import { createHash } from "@/utils/crypto.utils";
 import { withDomainError } from "@/utils/domain.errors";
-import { resolvePath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
@@ -30,7 +30,7 @@ export interface LibraryErrorsCheckResult {
 }
 
 export function normalizeLibraryPaths(libraryPaths: string[]): string[] {
-	return unique(trimAndFilter(libraryPaths), (libraryPath) => resolvePath(libraryPath)).toSorted();
+	return unique(trimAndFilter(libraryPaths), (libraryPath) => resolve(libraryPath)).toSorted();
 }
 
 export function createLibraryErrorsCheckDedupeKey(libraryPaths: string[]): string {

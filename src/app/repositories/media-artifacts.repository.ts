@@ -1,5 +1,5 @@
 import type { PlaybackArtifactKind } from "@reelvault/sdk/common";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
@@ -7,6 +7,21 @@ import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/
 const mediaArtifacts = defineTableAccess("mediaArtifacts", {
 	primaryKeyColumn: "id",
 });
+
+/**
+ * The scope of an artifact read: one or more files, one kind and (optionally)
+ * one owner. A single file keeps the `=` comparison, so the
+ * `(media_file_id, kind, plugin_id)` index serves it best.
+ */
+function artifactScopeWhere(mediaFileIds: readonly string[], kind: PlaybackArtifactKind, ownerId?: string): SQL | undefined {
+	const [first] = mediaFileIds;
+	const fileFilter =
+		first !== undefined && mediaFileIds.length === 1
+			? eq(mediaArtifacts.table.mediaFileId, first)
+			: inArray(mediaArtifacts.table.mediaFileId, [...mediaFileIds]);
+
+	return and(fileFilter, eq(mediaArtifacts.table.kind, kind), ...(ownerId ? [eq(mediaArtifacts.table.pluginId, ownerId)] : []));
+}
 
 const overrides = {
 	async findByMediaFileId(mediaFileId: string, tx?: DatabaseTransaction) {
@@ -24,11 +39,7 @@ const overrides = {
 	/** The artifacts of one file, of one kind and (optionally) one owner — the filters live in SQL. */
 	async findByMediaFileIdAndKind(mediaFileId: string, kind: PlaybackArtifactKind, ownerId?: string, tx?: DatabaseTransaction) {
 		return await getMediaArtifactsRepository().selectMany({
-			where: and(
-				eq(mediaArtifacts.table.mediaFileId, mediaFileId),
-				eq(mediaArtifacts.table.kind, kind),
-				...(ownerId ? [eq(mediaArtifacts.table.pluginId, ownerId)] : []),
-			),
+			where: artifactScopeWhere([mediaFileId], kind, ownerId),
 			orderBy: desc(mediaArtifacts.table.createdAt),
 			tx,
 		});
@@ -39,11 +50,7 @@ const overrides = {
 		if (mediaFileIds.length === 0) return [];
 
 		return await getMediaArtifactsRepository().selectMany({
-			where: and(
-				inArray(mediaArtifacts.table.mediaFileId, [...mediaFileIds]),
-				eq(mediaArtifacts.table.kind, kind),
-				...(ownerId ? [eq(mediaArtifacts.table.pluginId, ownerId)] : []),
-			),
+			where: artifactScopeWhere(mediaFileIds, kind, ownerId),
 			orderBy: desc(mediaArtifacts.table.createdAt),
 			tx,
 		});
@@ -55,13 +62,7 @@ const overrides = {
 			.getClient()
 			.select({ count: count() })
 			.from(mediaArtifacts.table)
-			.where(
-				and(
-					eq(mediaArtifacts.table.mediaFileId, mediaFileId),
-					eq(mediaArtifacts.table.kind, kind),
-					...(ownerId ? [eq(mediaArtifacts.table.pluginId, ownerId)] : []),
-				),
-			);
+			.where(artifactScopeWhere([mediaFileId], kind, ownerId));
 
 		return row?.count ?? 0;
 	},

@@ -1,7 +1,7 @@
 {
 	"version": "7",
 	"dialect": "sqlite",
-	"id": "caff5fd0-bb04-4334-ac0f-a2e2c7bcd7ff",
+	"id": "137faf65-62cc-491b-8113-830e5a49d8c7",
 	"prevIds": ["da938c08-eb2c-4790-975d-0920c6198407"],
 	"ddl": [
 		{
@@ -9632,12 +9632,16 @@
 				{
 					"value": "watched_at",
 					"isExpression": false
+				},
+				{
+					"value": "id",
+					"isExpression": false
 				}
 			],
 			"isUnique": false,
 			"where": null,
 			"origin": "manual",
-			"name": "history_profile_watched_idx",
+			"name": "history_profile_watched_id_idx",
 			"entityType": "indexes",
 			"table": "watched_history"
 		},

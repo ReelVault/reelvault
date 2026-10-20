@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
 import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
-import { systemSettingsStore } from "@/config/system-settings.store";
+import { revisionMemo } from "@/config/settings-revision.cache";
 import { unique } from "@/utils/array.utils";
 import { escapeRegex, normalizeHttpUrl, parseAllowedOrigins, parseOriginUrl } from "@/utils/http.utils";
 import { MemoryCache } from "@/utils/memory.cache";
@@ -110,7 +110,7 @@ export function wildcardPatternToRegex(pattern: string): RegExp {
 
 	const withScheme = trimmed.includes("://") ? trimmed : `https?://${trimmed}`;
 
-	const match = withScheme.match(HTTP_URL_PATTERN);
+	const match = HTTP_URL_PATTERN.exec(withScheme);
 	let regexString: string;
 	if (match) {
 		const scheme = match[1] ?? "";
@@ -118,9 +118,9 @@ export function wildcardPatternToRegex(pattern: string): RegExp {
 		const rest = match[3] ?? "";
 		const ipShaped = IP_SHAPED_HOST_PATTERN.test(host);
 		const wildcard = ipShaped ? "[0-9.]*" : "[^.]*";
-		regexString = `^${escapeRegex(scheme)}${escapeRegex(host).replace(/\\\*/g, wildcard)}${escapeRegex(rest).replace(/\\\*/g, ".*")}$`;
+		regexString = `^${escapeRegex(scheme)}${escapeRegex(host).replaceAll(String.raw`\*`, wildcard)}${escapeRegex(rest).replaceAll(String.raw`\*`, ".*")}$`;
 	} else {
-		regexString = `^${escapeRegex(withScheme).replace(/\\\*/g, ".*")}$`;
+		regexString = `^${escapeRegex(withScheme).replaceAll(String.raw`\*`, ".*")}$`;
 	}
 
 	const compiled = new RegExp(regexString, "i");
@@ -271,10 +271,13 @@ const STATIC_TRUSTED_ORIGIN_PATTERNS: readonly string[] = [
 ];
 
 let staticTrustedOriginPatterns: string[] | undefined;
-let cachedDynamicOriginsRevision = -1;
-let cachedDynamicOrigins: readonly string[] = [];
-let cachedDynamicPatternsRevision = -1;
-let cachedDynamicPatterns: string[] | undefined;
+const dynamicOrigins = revisionMemo((): readonly string[] => serverConfig.network.allowedOrigins);
+const dynamicPatterns = revisionMemo((): string[] => {
+	const origins = dynamicOrigins();
+	const base = staticTrustedOriginPatterns ? [...staticTrustedOriginPatterns] : [];
+
+	return origins.length === 0 ? base : unique([...base, ...origins]);
+});
 
 /**
  * Dynamic allowed origins for the current settings revision. The store clones
@@ -282,13 +285,7 @@ let cachedDynamicPatterns: string[] | undefined;
  * this runs on every request carrying an `Origin` header.
  */
 function dynamicAllowedOrigins(): readonly string[] {
-	const revision = systemSettingsStore.revision;
-	if (revision !== cachedDynamicOriginsRevision) {
-		cachedDynamicOrigins = serverConfig.network.allowedOrigins;
-		cachedDynamicOriginsRevision = revision;
-	}
-
-	return cachedDynamicOrigins;
+	return dynamicOrigins();
 }
 
 /**
@@ -306,13 +303,5 @@ export function getTrustedOriginPatterns(): string[] {
 		staticTrustedOriginPatterns = unique(base);
 	}
 
-	const revision = systemSettingsStore.revision;
-	if (revision !== cachedDynamicPatternsRevision || !cachedDynamicPatterns) {
-		const dynamicOrigins = dynamicAllowedOrigins();
-		cachedDynamicPatterns =
-			dynamicOrigins.length === 0 ? staticTrustedOriginPatterns : unique([...staticTrustedOriginPatterns, ...dynamicOrigins]);
-		cachedDynamicPatternsRevision = revision;
-	}
-
-	return cachedDynamicPatterns;
+	return dynamicPatterns();
 }

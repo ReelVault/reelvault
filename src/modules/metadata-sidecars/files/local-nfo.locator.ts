@@ -1,6 +1,7 @@
+import { basename, dirname, join } from "node:path";
 import { seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import { fileExists } from "@/utils/file.utils";
-import { getDirName, getFileName, getFileNameWithoutExt, joinPath } from "@/utils/path.utils";
+import { getFileNameWithoutExt } from "@/utils/path.utils";
 import { readSeasonNumber } from "./local-season.utils";
 
 export interface LocalNfoChain {
@@ -21,38 +22,38 @@ const MAX_SERIES_LOOKUP_DEPTH = 3;
  * file without sidecars yields an empty chain.
  */
 export async function locateLocalNfoChain(videoPath: string, kind: "movie" | "tv_show"): Promise<LocalNfoChain> {
-	const directory = getDirName(videoPath);
+	const directory = dirname(videoPath);
 	const baseName = getFileNameWithoutExt(videoPath);
 	const lowerBaseName = baseName.toLowerCase();
 
 	if (kind === "movie") {
 		return {
 			movieDocument: await firstExisting([
-				joinPath(directory, `${baseName}.nfo`),
-				joinPath(directory, `${lowerBaseName}.nfo`),
-				joinPath(directory, "movie.nfo"),
-				joinPath(directory, `${baseName}.reelvault.nfo`),
-				joinPath(directory, `${lowerBaseName}.reelvault.nfo`),
-				joinPath(directory, "movie.reelvault.nfo"),
+				join(directory, `${baseName}.nfo`),
+				join(directory, `${lowerBaseName}.nfo`),
+				join(directory, "movie.nfo"),
+				join(directory, `${baseName}.reelvault.nfo`),
+				join(directory, `${lowerBaseName}.reelvault.nfo`),
+				join(directory, "movie.reelvault.nfo"),
 			]),
 		};
 	}
 
-	const seasonNumber = readSeasonNumber(getFileName(directory));
+	const seasonNumber = readSeasonNumber(basename(directory));
 	const paddedSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, ".nfo");
 	const paddedReelvaultSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, "-reelvault.nfo");
 
 	return {
 		episodeDocument: await firstExisting([
-			joinPath(directory, `${baseName}.nfo`),
-			joinPath(directory, `${lowerBaseName}.nfo`),
-			joinPath(directory, `${baseName}.reelvault.nfo`),
-			joinPath(directory, `${lowerBaseName}.reelvault.nfo`),
+			join(directory, `${baseName}.nfo`),
+			join(directory, `${lowerBaseName}.nfo`),
+			join(directory, `${baseName}.reelvault.nfo`),
+			join(directory, `${lowerBaseName}.reelvault.nfo`),
 		]),
 		seasonDocument: await firstExisting([
-			...(paddedSeasonName ? [joinPath(directory, paddedSeasonName)] : []),
-			joinPath(directory, "season.nfo"),
-			...(paddedReelvaultSeasonName ? [joinPath(directory, paddedReelvaultSeasonName)] : []),
+			...(paddedSeasonName ? [join(directory, paddedSeasonName)] : []),
+			join(directory, "season.nfo"),
+			...(paddedReelvaultSeasonName ? [join(directory, paddedReelvaultSeasonName)] : []),
 		]),
 		seriesDocument: await findUpwards(directory, ["tvshow.nfo", "tvshow.reelvault.nfo"]),
 	};
@@ -71,11 +72,11 @@ async function findUpwards(startDirectory: string, fileNames: readonly string[])
 	let directory = startDirectory;
 	for (let depth = 0; depth < MAX_SERIES_LOOKUP_DEPTH; depth++) {
 		for (const fileName of fileNames) {
-			const candidate = joinPath(directory, fileName);
+			const candidate = join(directory, fileName);
 			if (await fileExists(candidate)) return candidate;
 		}
 
-		const parent = getDirName(directory);
+		const parent = dirname(directory);
 		if (parent === directory) return undefined;
 
 		directory = parent;

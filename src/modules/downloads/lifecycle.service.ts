@@ -3,8 +3,7 @@ import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
 import { deleteArtifactFile } from "./artifacts/artifacts.service";
 import { type PrepareOne, promoteQueued } from "./queue.service";
-import type { DownloadsServiceState, WithoutState } from "./shared.utils";
-import { failMissingSource } from "./shared.utils";
+import { type DownloadsServiceState, failMissingSource, type WithoutState } from "./shared.utils";
 import { assertOwnedDownload, requireDownload } from "./views/rows.utils";
 import type { DownloadJobView } from "./views/views.mapper";
 

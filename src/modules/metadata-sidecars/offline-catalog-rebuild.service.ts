@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { rename } from "node:fs/promises";
+import { resolve } from "node:path";
 import { DomainError } from "@/utils/domain.errors";
 import { withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { resolvePath } from "@/utils/path.utils";
 import { metadataSidecarsService } from "./metadata-sidecars.service";
 import { CatalogMoviesImporter } from "./offline/catalog-movies.importer";
 import { CatalogSchemaBuilder } from "./offline/catalog-schema.builder";
@@ -64,7 +64,7 @@ export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuild
 					const pathNow = Date.now();
 					database.run(
 						"INSERT INTO library_paths (id, library_id, stable_key, path, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-						[libraryPathId, library.id, libraryPathId, resolvePath(path), pathNow, pathNow],
+						[libraryPathId, library.id, libraryPathId, resolve(path), pathNow, pathNow],
 					);
 					const tree = await this.treeWalker.collect(path);
 					let result: Awaited<ReturnType<typeof this.moviesImporter.import>>;

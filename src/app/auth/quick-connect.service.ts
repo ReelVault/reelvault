@@ -78,7 +78,7 @@ export class QuickConnectService {
 	}
 
 	private normalizeCode(raw: string): string {
-		return raw.replace(/[^0-9a-zA-Z]/g, "").toUpperCase();
+		return raw.replaceAll(/[^0-9a-zA-Z]/g, "").toUpperCase();
 	}
 
 	private findByNormalizedCode(normalized: string): QuickConnectEntry | undefined {

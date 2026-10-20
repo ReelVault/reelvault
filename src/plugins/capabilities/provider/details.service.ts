@@ -14,10 +14,8 @@ import { isAcceptableMatch } from "@/utils/media-match/ranking.utils";
 import { isNullish, normalizeLower } from "@/utils/type.utils";
 import { mapProvidersSafely } from "./fan-out.service";
 import { isExternalIdentifierAwareProvider, matchesExternalIdentifiers, normalizeMetadataDetails } from "./match-ranking.utils";
-import type { AcceptedMatch, ProviderDetails } from "./provider.types";
-import { NoMatchError } from "./provider.types";
-import type { ProviderServiceState, WithoutState } from "./shared.utils";
-import { getProviderKey, publishSearchRequested, rankProviderResults } from "./shared.utils";
+import { type AcceptedMatch, NoMatchError, type ProviderDetails } from "./provider.types";
+import { getProviderKey, type ProviderServiceState, publishSearchRequested, rankProviderResults, type WithoutState } from "./shared.utils";
 
 /**
  * Exact lookup of an id in one provider's own namespace — works with every

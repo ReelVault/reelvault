@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
+import { basename, dirname } from "node:path";
 import type { OfflineRebuildIssue } from "@/modules/metadata-sidecars/offline-rebuild.types";
-import { getDirName, getFileName, isVideoFile } from "@/utils/path.utils";
+import { isVideoFile } from "@/utils/path.utils";
 import { parseEpisode } from "./catalog-episode.parser";
 import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.utils";
 import { type CatalogDirectoryNode, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
@@ -35,11 +36,11 @@ export class CatalogSeriesImporter extends CatalogImporter {
 			skipped,
 			importDocument: (documentPath, document, now) => {
 				const metadataId = crypto.randomUUID();
-				const seriesDirectory = getDirName(documentPath);
+				const seriesDirectory = dirname(documentPath);
 				insertMetadataRow(database, { id: metadataId, type: "tv_show", document, now });
 				let mediaFiles = 0;
 				for (const videoPath of findMatchingFiles(tree, seriesDirectory, (path) => isVideoFile(path))) {
-					const episode = parseEpisode(getFileName(videoPath));
+					const episode = parseEpisode(basename(videoPath));
 					if (!episode) continue;
 
 					const seasonId = `${metadataId}-${episode.season}`;
@@ -54,11 +55,11 @@ export class CatalogSeriesImporter extends CatalogImporter {
 					const episodeId = crypto.randomUUID();
 					database.run(
 						"INSERT INTO episodes (id, stable_key, season_id, type, episode_number, title, created_at, updated_at) VALUES (?, ?, ?, 'regular', ?, ?, ?, ?)",
-						[episodeId, episodeId, seasonId, episode.number, getFileName(videoPath), now, now],
+						[episodeId, episodeId, seasonId, episode.number, basename(videoPath), now, now],
 					);
 					database.run(
 						"INSERT INTO media_files (id, library_id, metadata_id, episode_id, file_path, file_name, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
-						[crypto.randomUUID(), libraryId, metadataId, episodeId, videoPath, getFileName(videoPath), now, now],
+						[crypto.randomUUID(), libraryId, metadataId, episodeId, videoPath, basename(videoPath), now, now],
 					);
 					mediaFiles++;
 				}

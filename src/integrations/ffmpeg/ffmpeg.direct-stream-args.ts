@@ -1,6 +1,6 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
-import { buildHlsMuxerArgs, buildMetadataStripArgs, buildStreamMapArgs } from "./ffmpeg.hls-muxer";
+import { buildDecisionStreamMapArgs, buildHlsMuxerArgs, buildMetadataStripArgs } from "./ffmpeg.hls-muxer";
 import { resolveStreamingThreads } from "./ffmpeg.threads";
 
 const HEVC_CODECS = new Set(["hevc", "h265"]);
@@ -24,7 +24,7 @@ export function buildDirectStreamOutputArgs(
 		...(isHevc ? ["-tag:v:0", "hvc1"] : []),
 		"-codec:a:0",
 		"copy",
-		...buildStreamMapArgs(decision),
+		...buildDecisionStreamMapArgs(decision),
 		...buildHlsMuxerArgs(config, startNumber, segmentPattern),
 	];
 }
