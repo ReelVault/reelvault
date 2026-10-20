@@ -1,6 +1,6 @@
 import { serverConstants } from "@/config/server/server.constants";
 import { chunk } from "@/utils/array.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 /**
  * Runs `fn` over id/value lists chunked by `queryChunkSize` so one statement
@@ -20,7 +20,7 @@ export async function mapChunked<T, R>(
 
 	const chunks = chunk([...items], serverConstants.database.queryChunkSize);
 	if (options?.concurrency !== undefined) {
-		return (await PromiseUtils.mapConcurrent(chunks, options.concurrency, fn)).flat();
+		return (await mapConcurrent(chunks, options.concurrency, fn)).flat();
 	}
 
 	const results: R[] = [];
@@ -47,7 +47,7 @@ export async function forEachChunked<T>(
 
 	const chunks = chunk([...items], serverConstants.database.queryChunkSize);
 	if (options?.concurrency !== undefined) {
-		await PromiseUtils.mapConcurrent(chunks, options.concurrency, fn);
+		await mapConcurrent(chunks, options.concurrency, fn);
 
 		return;
 	}

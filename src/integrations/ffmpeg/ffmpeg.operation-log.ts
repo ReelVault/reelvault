@@ -2,7 +2,7 @@ import fs, { mkdirSync } from "node:fs";
 import { serverConfig } from "@/config/server/server.config";
 import { errorMessage } from "@/utils/domain.errors";
 import { currentLogDate } from "@/utils/logging/file-archive.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 
 const UNSAFE_ID_REGEX = /[^a-zA-Z0-9_-]/g;
 
@@ -27,7 +27,7 @@ export class FfmpegOperationLog {
 	private finished = false;
 
 	constructor(options: FfmpegOperationLogOptions) {
-		const dateDirectory = PathUtils.join(options.logsDirectory ?? serverConfig.paths.logs, "ffmpeg", currentLogDate());
+		const dateDirectory = joinPath(options.logsDirectory ?? serverConfig.paths.logs, "ffmpeg", currentLogDate());
 		// Synchronous create before the stream opens: a fire-and-forget mkdir raced
 		// the first write and silently dropped the first log of each day (ENOENT).
 		try {
@@ -39,7 +39,7 @@ export class FfmpegOperationLog {
 		const modePrefix = options.mode === "transcode" ? "FFmpeg.Transcode" : "FFmpeg.DirectStream";
 		const dateStr = new Date(this.startedAt).toISOString().replace("T", "_").replaceAll(":", "-").slice(0, 19);
 		const safeOperationId = operationLogSegment(options.operationId);
-		this.filePath = PathUtils.join(dateDirectory, `${modePrefix}-${dateStr}_${safeOperationId}.log`);
+		this.filePath = joinPath(dateDirectory, `${modePrefix}-${dateStr}_${safeOperationId}.log`);
 		this.stream = fs.createWriteStream(this.filePath, { flags: "a" });
 		this.stream.on("error", () => {
 			/* intentionally empty */

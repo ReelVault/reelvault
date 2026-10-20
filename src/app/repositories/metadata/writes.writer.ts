@@ -5,7 +5,7 @@ import { providersRepository } from "@/app/repositories/providers.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { parseStandardQuery } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { toMetadataValues } from "@/integrations/drizzle-orm/utils/metadata-values.mapper";
 import { createLocalMetadataStableKey, createProviderStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
@@ -70,7 +70,7 @@ export async function createAndRead<F extends string>(
 	body: CreateMetadata,
 	query?: FieldsQuery<F>,
 ): Promise<SelectFields<MetadataWithRelation, F> | undefined> {
-	const { fields } = QueryUtils.parseStandard(query);
+	const { fields } = parseStandardQuery(query);
 	const { lockedFields, ...metadataValues } = body;
 	const metadata = await databaseFactory.transaction(async (tx) => {
 		const created = await findOrCreateByIdentity({
@@ -97,7 +97,7 @@ export async function updateAndRead<F extends string>(
 	values: CreateMetadata | Partial<CreateMetadata>,
 	query?: FieldsQuery<F>,
 ): Promise<SelectFields<MetadataWithRelation, F> | undefined> {
-	const { fields } = QueryUtils.parseStandard(query);
+	const { fields } = parseStandardQuery(query);
 	const { lockedFields, ...metadataValues } = values;
 
 	await databaseFactory.transaction(async (tx) => {

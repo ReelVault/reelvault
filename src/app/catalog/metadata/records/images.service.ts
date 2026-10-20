@@ -15,7 +15,7 @@ import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { toMap } from "@/utils/array.utils";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { rankImageOptions } from "@/utils/image-storage.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { invalidateReadCaches, type MetadataServiceState, type WithoutState } from "./shared.utils";
 
@@ -31,16 +31,13 @@ export async function getImageOptions(state: MetadataServiceState, metadataId: s
 		const metadata = await metadataRepository.findProviderDetails(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
 		const providers = metadata.providers.filter((provider) => provider.entityType === metadata.type);
-		const options = await PromiseUtils.mapConcurrent(
-			providers,
-			serverConfig.application.metadataImageProviderConcurrency,
-			async (provider) =>
-				(await providerService.fetchImagesByProvider(provider.name, metadata.type, provider.externalId)).map((image) => ({
-					providerId: provider.name,
-					providerName: provider.name,
-					externalId: provider.externalId,
-					...image,
-				})),
+		const options = await mapConcurrent(providers, serverConfig.application.metadataImageProviderConcurrency, async (provider) =>
+			(await providerService.fetchImagesByProvider(provider.name, metadata.type, provider.externalId)).map((image) => ({
+				providerId: provider.name,
+				providerName: provider.name,
+				externalId: provider.externalId,
+				...image,
+			})),
 		);
 
 		return rankImageOptions(options.flat());
@@ -217,5 +214,5 @@ async function syncSeasonEpisodeImages(
 		}
 	}
 
-	await PromiseUtils.mapConcurrent(imageTasks, systemResourcesService.getSharpConcurrency(), (task) => task());
+	await mapConcurrent(imageTasks, systemResourcesService.getSharpConcurrency(), (task) => task());
 }

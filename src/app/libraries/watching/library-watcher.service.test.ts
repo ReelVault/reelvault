@@ -7,7 +7,7 @@ import { HOUR } from "@/config/server/server.constants";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { removeTreeSync } from "@/utils/directory.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { resolvePath } from "@/utils/path.utils";
 import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import {
 	deleteLibraryPath,
@@ -257,7 +257,7 @@ describe("LibraryWatcherService real-time events", () => {
 describe("LibraryWatcherService path failures", () => {
 	test("records an unwatchable path and notifies admins once per failure episode", async () => {
 		const { service, notifierCalls, cleanup } = createHarness();
-		const missingPath = PathUtils.resolve("/non/existent/rv-watcher-test");
+		const missingPath = resolvePath("/non/existent/rv-watcher-test");
 		await addLibraryPath("path-gone", "lib-1", missingPath);
 
 		try {

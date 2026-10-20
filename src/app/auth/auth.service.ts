@@ -29,12 +29,12 @@ const LOGIN_ACCOUNT_WINDOW_MS = 5 * 60_000;
  * tests via REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS (see env.ts). */
 const loginAccountLimiter = new InMemoryRateLimiter();
 
-class AuthService {
-	readonly serviceName = "AuthService";
-	readonly logger = createLogger("AuthService");
+export const authService = {
+	serviceName: "AuthService",
+	logger: createLogger("AuthService"),
 
 	async register(body: RegisterRequest, request: Request): Promise<Response> {
-		return await runSafely(this, "register", async () => {
+		return await runSafely(authService, "register", async () => {
 			const response = await firstRunSetupService.registerUser({
 				email: body.email,
 				password: body.password,
@@ -45,10 +45,10 @@ class AuthService {
 
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});
-	}
+	},
 
 	async changePassword(body: ChangePasswordRequest, request: Request): Promise<Response> {
-		return await runSafely(this, "changePassword", async () => {
+		return await runSafely(authService, "changePassword", async () => {
 			const response = await betterAuthApi.changePassword({
 				currentPassword: body.currentPassword,
 				newPassword: body.newPassword,
@@ -58,14 +58,14 @@ class AuthService {
 
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});
-	}
+	},
 
 	async login(body: LoginRequest, request: Request): Promise<Response> {
-		return await runSafely(this, "login", async () => {
+		return await runSafely(authService, "login", async () => {
 			const accountKey = `login:${normalizeLower(body.email.trim())}`;
 			const result = loginAccountLimiter.consume(accountKey, serverConfig.auth.loginAccountMaxAttempts, LOGIN_ACCOUNT_WINDOW_MS);
 			if (!result.allowed) {
-				throw new DomainError("too_many_requests", "Too many login attempts for this account.", {
+				throw new DomainError("too_many_requests", "Too many login attempts for authService account.", {
 					code: "rate_limit.exceeded",
 					params: { retryAfterSeconds: Math.ceil(result.resetMs / 1000) },
 				});
@@ -77,7 +77,7 @@ class AuthService {
 			if (serverConfig.auth.enforceTwoFactor) {
 				const user = await usersRepository.findByEmail(body.email.trim());
 				if (user && !user.twoFactorEnabled) {
-					throw new DomainError("forbidden", "Two-factor authentication is required for this account", {
+					throw new DomainError("forbidden", "Two-factor authentication is required for authService account", {
 						code: "auth.two_factor_required",
 					});
 				}
@@ -97,28 +97,26 @@ class AuthService {
 
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});
-	}
+	},
 
 	async logout(request: Request): Promise<Response> {
-		return await runSafely(this, "logout", async () => {
+		return await runSafely(authService, "logout", async () => {
 			assertFound(request.headers, "Auth", "logout");
 
 			const response = await betterAuthApi.signOut(request.headers);
 
 			return rewriteCookieDomain(response, request.headers.get("origin"));
 		});
-	}
+	},
 
 	getMe(session?: Session | null, user?: User | null, profile?: Profile | null): Promise<SessionResponse> {
-		return runSafely(this, "getMe", () => ({
+		return runSafely(authService, "getMe", () => ({
 			session: session ? toPublicSession(session) : null,
 			user: user ? toPublicUser(user) : null,
 			profile: profile ? toPublicProfile(profile) : null,
 		}));
-	}
-}
-
-export const authService = new AuthService();
+	},
+};
 
 function toPublicSession(session: Session): AuthSession {
 	return {

@@ -2,7 +2,7 @@ import type { EpisodeFilters, EpisodeSorting, EpisodeWithRelations } from "@reel
 import { episodesRepository } from "@/app/repositories/episodes.repository";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { seasonsRepository } from "@/app/repositories/seasons.repository";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
@@ -20,13 +20,13 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 		return await runSafely(this, "refresh", async () => {
 			const episode = await episodesRepository.findByPrimaryId({
 				primaryId: episodeId,
-				fields: QueryFields.parse({ fields: "id,seasonId,episodeNumber,title,overview,airDate,imageId" }),
+				fields: parseFields({ fields: "id,seasonId,episodeNumber,title,overview,airDate,imageId" }),
 			});
 			assertFound(episode, "Episode", episodeId);
 
 			const season = await seasonsRepository.findByPrimaryId({
 				primaryId: episode.seasonId,
-				fields: QueryFields.parse({ fields: "id,seasonNumber,metadataId" }),
+				fields: parseFields({ fields: "id,seasonNumber,metadataId" }),
 			});
 			assertFound(season, "Season", episode.seasonId);
 

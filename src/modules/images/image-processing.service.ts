@@ -2,11 +2,11 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { type ImageOwnerTarget, type ImageProcess, imagesStorage, type PersistedImageInput } from "@/modules/images/images.ports";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { errorMessage } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { BatchGarbageCollector } from "@/utils/mem.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { isAbsolutePath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import type { UploadedImage } from "./image-upload.service";
 import { type ImageDownloadPipeline, imageDownloadPipeline } from "./processing/image-download.pipeline";
@@ -40,7 +40,7 @@ const defaultDependencies: ServiceDependencies = {
 	replacePersonImage: (personId, image) => imagesStorage().replacePersonImage(personId, image),
 	getProfileAvatarTarget: (profileId) => imagesStorage().getProfileAvatarTarget(profileId),
 	replaceProfileAvatar: (profileId, image) => imagesStorage().replaceProfileAvatar(profileId, image),
-	fileExists: (path) => FileUtils.exists(path),
+	fileExists: (path) => fileExists(path),
 	getSharpConcurrency: () => systemResourcesService.getSharpConcurrency(),
 	downloadAndPrepare: (url, target, variant, imageType, signal) =>
 		imageDownloadPipeline.downloadAndPrepare(url, target, variant, imageType, signal),
@@ -65,7 +65,7 @@ export class ImageProcessingService {
 			this,
 			"processMetadata",
 			async () => {
-				await PromiseUtils.mapConcurrent(
+				await mapConcurrent(
 					images,
 					// Each item is a sharp decode+encode — derive from measured capacity.
 					this.dependencies.getSharpConcurrency,
@@ -290,7 +290,7 @@ export class ImageProcessingService {
 		// Sidecar artwork paths can go stale (source deleted after import) — skip
 		// instead of failing the job and retrying a missing source until the
 		// attempts are exhausted.
-		if (PathUtils.isAbsolute(url) && !(await this.dependencies.fileExists(url))) {
+		if (isAbsolutePath(url) && !(await this.dependencies.fileExists(url))) {
 			this.logger.warn("Local artwork source is missing — skipping image sync", { url });
 
 			return;
@@ -298,7 +298,7 @@ export class ImageProcessingService {
 
 		// Sidecar artwork arrives as local absolute paths; provider art as URLs.
 		let persisted: PersistedImageInput;
-		if (PathUtils.isAbsolute(url)) {
+		if (isAbsolutePath(url)) {
 			persisted = await this.dependencies.prepareLocalArtwork(url, target, variant, imageType, signal);
 		} else {
 			persisted = await this.dependencies.downloadAndPrepare(url, target, variant, imageType, signal);

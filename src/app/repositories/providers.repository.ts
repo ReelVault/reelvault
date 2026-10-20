@@ -1,6 +1,5 @@
 import type { ProviderEntityType } from "@reelvault/sdk/common";
 import { and, eq, sql } from "drizzle-orm";
-import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
@@ -21,20 +20,18 @@ const overrides = {
 		// Chunk the multi-row upsert — an unbounded cast/crew list can exceed
 		// SQLite's bound-variable limit and holds the write lock longer.
 		return await mapChunked(values, (chunkValues) =>
-			databaseFactory
-				.getClient({ tx })
-				.insert(providers.table)
-				.values(chunkValues)
-				.onConflictDoUpdate({
-					target: providers.table.stableKey,
-					set: {
-						name: sql`excluded.name`,
-						entityType: sql`excluded.entity_type`,
-						externalId: sql`excluded.external_id`,
-						updatedAt: new Date(),
-					},
-				})
-				.returning(),
+			providers.upsert({
+				values: chunkValues,
+				target: providers.table.stableKey,
+				set: {
+					name: sql`excluded.name`,
+					entityType: sql`excluded.entity_type`,
+					externalId: sql`excluded.external_id`,
+					updatedAt: new Date(),
+				},
+				returning: true,
+				tx,
+			}),
 		);
 	},
 

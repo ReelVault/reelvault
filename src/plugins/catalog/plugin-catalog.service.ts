@@ -1,13 +1,13 @@
 import type { InstallCatalogPluginResponse, PluginValidationResult } from "@reelvault/sdk/common";
 import { pluginCatalogRepositoryData } from "@/app/plugins/plugin-data.service";
 import { env } from "@/config/env.config";
-import { SERVER_VERSION } from "@/config/version.constants";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { assertChecksumMatches } from "@/utils/crypto.utils";
 import { DomainError, errorCodeOf, toErrorCode } from "@/utils/domain.errors";
+import { consumeStreamBounded } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
-import { isNewerVersion } from "@/utils/semver.utils";
+import { minServerVersionError } from "@/utils/semver.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
 import {
 	isHttpsUrl,
@@ -276,13 +276,12 @@ class PluginCatalogService {
 
 		// The catalog entry declares the oldest compatible server — refuse before
 		// downloading anything. Mirrors the web-UI update gate.
-		if (candidate.minServerVersion && isNewerVersion(candidate.minServerVersion, SERVER_VERSION)) {
-			throw new DomainError(
-				"validation",
-				`Plugin ${candidate.id} ${candidate.version} requires server ${candidate.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
-				{ code: "plugin.server_too_old" },
-			);
-		}
+		const versionError = minServerVersionError(
+			candidate.minServerVersion,
+			`Plugin ${candidate.id} ${candidate.version}`,
+			"plugin.server_too_old",
+		);
+		if (versionError) throw versionError;
 
 		const token = this.tokenFor(row);
 		const download = await downloadArchive(candidate.downloadUrl, token ? { token } : {});
@@ -437,28 +436,15 @@ async function readBodyTextWithinLimit(response: Response, maxBytes: number): Pr
 
 	if (!response.body) return "";
 
-	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
-	let total = 0;
 	let text = "";
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-
-			total += value.byteLength;
-			if (total > maxBytes) {
-				await reader.cancel();
-				throw new DomainError("validation", "Repository manifest exceeds the size limit", { code: "plugin.repository_too_large" });
-			}
-
+	await consumeStreamBounded(response.body, {
+		maxBytes,
+		overflow: () => new DomainError("validation", "Repository manifest exceeds the size limit", { code: "plugin.repository_too_large" }),
+		onChunk: (value) => {
 			text += decoder.decode(value, { stream: true });
-		}
+		},
+	});
 
-		text += decoder.decode();
-	} finally {
-		reader.releaseLock();
-	}
-
-	return text;
+	return text + decoder.decode();
 }

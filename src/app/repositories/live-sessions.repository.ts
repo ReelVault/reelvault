@@ -1,13 +1,17 @@
 import { and, desc, eq, gt, inArray, max } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { metadataImageOn, metadataOn, posterImagesOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
+
+const videoStreams = defineTableAccess("mediaFileVideoStreams", { primaryKeyColumn: "mediaFileId" });
+const audioStreams = defineTableAccess("mediaFileAudioStreams", { primaryKeyColumn: "mediaFileId" });
 
 /**
  * Composite reads backing the admin "live activity" view. Kept out of the
  * application layer so `AdminLiveSessionsService` never touches Drizzle.
  */
-class LiveSessionsRepository {
+export const liveSessionsRepository = {
 	async findMediaSummaries(mediaFileIds: readonly string[]) {
 		if (mediaFileIds.length === 0) return [];
 
@@ -34,7 +38,7 @@ class LiveSessionsRepository {
 			.leftJoin(schema.episodes, eq(schema.episodes.id, schema.mediaFiles.episodeId))
 			.leftJoin(schema.seasons, eq(schema.seasons.id, schema.episodes.seasonId))
 			.where(inArray(schema.mediaFiles.id, [...mediaFileIds]));
-	}
+	},
 
 	async findProfilesWithUsers(profileIds: readonly string[]) {
 		if (profileIds.length === 0) return [];
@@ -52,7 +56,7 @@ class LiveSessionsRepository {
 			.from(schema.profiles)
 			.innerJoin(schema.users, eq(schema.users.id, schema.profiles.userId))
 			.where(inArray(schema.profiles.id, [...profileIds]));
-	}
+	},
 
 	async findProgress(mediaFileIds: readonly string[], profileIds: readonly string[]) {
 		if (mediaFileIds.length === 0 || profileIds.length === 0) return [];
@@ -69,27 +73,15 @@ class LiveSessionsRepository {
 			.where(
 				and(inArray(schema.playbackProgress.mediaFileId, [...mediaFileIds]), inArray(schema.playbackProgress.profileId, [...profileIds])),
 			);
-	}
+	},
 
 	async findVideoStreams(mediaFileIds: readonly string[]) {
-		if (mediaFileIds.length === 0) return [];
-
-		return await databaseFactory
-			.getClient()
-			.select()
-			.from(schema.mediaFileVideoStreams)
-			.where(inArray(schema.mediaFileVideoStreams.mediaFileId, [...mediaFileIds]));
-	}
+		return await videoStreams.findByColumnIn(videoStreams.table.mediaFileId, mediaFileIds);
+	},
 
 	async findAudioStreams(mediaFileIds: readonly string[]) {
-		if (mediaFileIds.length === 0) return [];
-
-		return await databaseFactory
-			.getClient()
-			.select()
-			.from(schema.mediaFileAudioStreams)
-			.where(inArray(schema.mediaFileAudioStreams.mediaFileId, [...mediaFileIds]));
-	}
+		return await audioStreams.findByColumnIn(audioStreams.table.mediaFileId, mediaFileIds);
+	},
 
 	/** Latest session per user (max updatedAt) — bare columns come from that row in SQLite. */
 	async findLatestUserSessions(userIds: readonly string[]) {
@@ -106,7 +98,7 @@ class LiveSessionsRepository {
 			.from(schema.sessions)
 			.where(inArray(schema.sessions.userId, [...userIds]))
 			.groupBy(schema.sessions.userId);
-	}
+	},
 
 	async findActiveUserSessions({ since, now, limit }: { since: Date; now: Date; limit: number }) {
 		return await databaseFactory
@@ -126,7 +118,5 @@ class LiveSessionsRepository {
 			.where(and(gt(schema.sessions.expiresAt, now), gt(schema.sessions.updatedAt, since)))
 			.orderBy(desc(schema.sessions.updatedAt))
 			.limit(limit);
-	}
-}
-
-export const liveSessionsRepository = new LiveSessionsRepository();
+	},
+};

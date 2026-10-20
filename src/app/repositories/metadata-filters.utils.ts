@@ -5,9 +5,17 @@ import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import {
+	filterEquals,
+	filterGte,
+	filterInArray,
+	filterLike,
+	filterLte,
+	filterM2M,
+	parseCommaSeparated,
+} from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
-import { QuerySorting } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
+import { applySorting } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
 import { REVIEW_MATCH_SCORE } from "@/utils/media-match/score.constants";
 import { coerceBoolean, isFiniteNumber } from "@/utils/type.utils";
 
@@ -27,13 +35,10 @@ export function titleMatchFilter(term: string, mode: "contains" | "exact" | "con
 
 	// Shared LIKE escaping: `%`/`_` in a search term match literally.
 	if (mode === "contains-or-id") {
-		return (
-			or(QueryFiltering.like(title, term), QueryFiltering.like(originalTitle, term), QueryFiltering.like(schema.metadata.id, term)) ??
-			sql`1 = 0`
-		);
+		return or(filterLike(title, term), filterLike(originalTitle, term), filterLike(schema.metadata.id, term)) ?? sql`1 = 0`;
 	}
 
-	return or(QueryFiltering.like(title, term), QueryFiltering.like(originalTitle, term)) ?? sql`1 = 0`;
+	return or(filterLike(title, term), filterLike(originalTitle, term)) ?? sql`1 = 0`;
 }
 
 function buildTitleSearchFilter(term: string): SQL {
@@ -63,7 +68,7 @@ function buildStartsWithFilter(value: string): SQL | undefined {
 
 function buildRelationFilter(relation: MetadataRelationFilter, ids: string[] | undefined): SQL | undefined {
 	if (relation === "library" || relation === "file") {
-		return QueryFiltering.m2m(
+		return filterM2M(
 			schema.metadata.id,
 			ids,
 			schema.mediaFiles,
@@ -82,7 +87,7 @@ function buildRelationFilter(relation: MetadataRelationFilter, ids: string[] | u
 	} as const;
 	const [junctionTable, junctionField] = relationTables[relation];
 
-	return QueryFiltering.m2m(schema.metadata.id, ids, junctionTable, junctionTable.metadataId, junctionField);
+	return filterM2M(schema.metadata.id, ids, junctionTable, junctionTable.metadataId, junctionField);
 }
 
 /**
@@ -265,25 +270,25 @@ export const metadataQueryMap: QueryMap<MetadataRepositoryFilters, MetadataSorti
 	filters: {
 		title: (value: string) => buildTitleSearchFilter(value),
 		startsWith: (value: string) => buildStartsWithFilter(value),
-		type: (value: string) => QueryFiltering.eq(schema.metadata.type, value),
-		yearFrom: (value: number) => QueryFiltering.gte(schema.metadata.releaseDate, `${value}-01-01`),
-		yearTo: (value: number) => QueryFiltering.lte(schema.metadata.releaseDate, `${value}-12-31`),
-		status: (value: string) => QueryFiltering.eq(schema.metadata.status, value),
-		minMatchScore: (value: number) => QueryFiltering.gte(schema.metadata.matchScore, value),
-		maxMatchScore: (value: number) => QueryFiltering.lte(schema.metadata.matchScore, value),
+		type: (value: string) => filterEquals(schema.metadata.type, value),
+		yearFrom: (value: number) => filterGte(schema.metadata.releaseDate, `${value}-01-01`),
+		yearTo: (value: number) => filterLte(schema.metadata.releaseDate, `${value}-12-31`),
+		status: (value: string) => filterEquals(schema.metadata.status, value),
+		minMatchScore: (value: number) => filterGte(schema.metadata.matchScore, value),
+		maxMatchScore: (value: number) => filterLte(schema.metadata.matchScore, value),
 		lowConfidence: (value: boolean | string) => buildLowConfidenceFilter(value),
-		metadataIds: (value: string) => QueryFiltering.inArray(schema.metadata.id, QueryFiltering.parseCommaSeparated(value)),
-		libraryIds: (value: string) => buildRelationFilter("library", QueryFiltering.parseCommaSeparated(value)),
-		companyIds: (value: string) => buildRelationFilter("company", QueryFiltering.parseCommaSeparated(value)),
-		genreIds: (value: string) => buildRelationFilter("genre", QueryFiltering.parseCommaSeparated(value)),
-		keywordIds: (value: string) => buildRelationFilter("keyword", QueryFiltering.parseCommaSeparated(value)),
-		collectionIds: (value: string) => buildRelationFilter("collection", QueryFiltering.parseCommaSeparated(value)),
-		castIds: (value: string) => buildRelationFilter("cast", QueryFiltering.parseCommaSeparated(value)),
-		crewIds: (value: string) => buildRelationFilter("crew", QueryFiltering.parseCommaSeparated(value)),
-		personIds: (value: string) => buildPersonFilter(QueryFiltering.parseCommaSeparated(value)),
-		fileIds: (value: string) => buildRelationFilter("file", QueryFiltering.parseCommaSeparated(value)),
+		metadataIds: (value: string) => filterInArray(schema.metadata.id, parseCommaSeparated(value)),
+		libraryIds: (value: string) => buildRelationFilter("library", parseCommaSeparated(value)),
+		companyIds: (value: string) => buildRelationFilter("company", parseCommaSeparated(value)),
+		genreIds: (value: string) => buildRelationFilter("genre", parseCommaSeparated(value)),
+		keywordIds: (value: string) => buildRelationFilter("keyword", parseCommaSeparated(value)),
+		collectionIds: (value: string) => buildRelationFilter("collection", parseCommaSeparated(value)),
+		castIds: (value: string) => buildRelationFilter("cast", parseCommaSeparated(value)),
+		crewIds: (value: string) => buildRelationFilter("crew", parseCommaSeparated(value)),
+		personIds: (value: string) => buildPersonFilter(parseCommaSeparated(value)),
+		fileIds: (value: string) => buildRelationFilter("file", parseCommaSeparated(value)),
 		hasMediaFiles: (value: boolean | string) => buildHasMediaFilesFilter(value),
-		missingTranslation: (value: boolean | string) => QueryFiltering.eq(schema.metadata.hasMissingTranslation, coerceBoolean(value)),
+		missingTranslation: (value: boolean | string) => filterEquals(schema.metadata.hasMissingTranslation, coerceBoolean(value)),
 		minDurationMinutes: (value: number) => buildDurationFilter("min", value),
 		maxDurationMinutes: (value: number) => buildDurationFilter("max", value),
 		watchedStatus: (value: ProfileScopedFilter) => buildWatchedStatusFilter(value),
@@ -308,7 +313,7 @@ export const metadataQueryMap: QueryMap<MetadataRepositoryFilters, MetadataSorti
 };
 
 export function buildCollectionOrderBy(collectionIds: string | undefined, sortOrder: "asc" | "desc"): SQL {
-	const ids = collectionIds ? QueryFiltering.parseCommaSeparated(collectionIds) : undefined;
+	const ids = collectionIds ? parseCommaSeparated(collectionIds) : undefined;
 	if (ids?.length === 1) {
 		const orderExpression = sql`(
 			SELECT ${schema.metadataCollections.sortOrder}
@@ -320,5 +325,5 @@ export function buildCollectionOrderBy(collectionIds: string | undefined, sortOr
 		return sortOrder === "desc" ? desc(orderExpression) : asc(orderExpression);
 	}
 
-	return QuerySorting.apply(schema.metadata.releaseDate, sortOrder);
+	return applySorting(schema.metadata.releaseDate, sortOrder);
 }

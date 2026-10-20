@@ -2,12 +2,12 @@ import { readdir, rmdir, truncate } from "node:fs/promises";
 import type { AdminLogFileInfo } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
+import { walkLogFiles } from "@/app/admin/admin-logs/log-walker.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { getDirName, getFileName, normalizePath, relativePath, resolvePath, resolveWithin } from "@/utils/path.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import type { AdminLogsState } from "./shared.types";
 
@@ -38,40 +38,27 @@ export async function listLogFiles(state: AdminLogsState): Promise<AdminLogFileI
 	const logsDir = serverConfig.paths.logs;
 	const results: AdminLogFileInfo[] = [];
 	const seenNames = new Set<string>();
-	const logger = state.logger;
+	await walkLogFiles(logsDir, {
+		logger: state.logger,
+		concurrency: systemResourcesService.getIoConcurrency(),
+		onFile: (fullPath, stats) => {
+			const relPath = relativePath(logsDir, fullPath);
+			const name = getFileName(fullPath);
+			const type = classifyLogType(name, relPath);
 
-	async function scanDirectory(currentDir: string) {
-		try {
-			const entries = await readdir(currentDir, { withFileTypes: true });
-			await PromiseUtils.mapConcurrent(entries, systemResourcesService.getIoConcurrency(), async (entry) => {
-				const fullPath = PathUtils.join(currentDir, entry.name);
-				if (entry.isDirectory()) {
-					await scanDirectory(fullPath);
-				} else if (entry.isFile() && entry.name.endsWith(".log")) {
-					const stats = await bunFile(fullPath).stat();
-					const relPath = PathUtils.relative(logsDir, fullPath);
-					const name = PathUtils.getFileName(fullPath);
-					const type = classifyLogType(name, relPath);
-
-					results.push({
-						id: relPath,
-						name: relPath,
-						type,
-						size: stats.size,
-						modifiedAt: stats.mtime.toISOString(),
-					});
-					seenNames.add(relPath);
-				}
+			results.push({
+				id: relPath,
+				name: relPath,
+				type,
+				size: stats.size,
+				modifiedAt: stats.mtime.toISOString(),
 			});
-		} catch (error) {
-			logger.error("Error scanning log directory", { path: currentDir, error: error });
-		}
-	}
-
-	await scanDirectory(logsDir);
+			seenNames.add(relPath);
+		},
+	});
 
 	if (state.dependencies.logFilePath) {
-		const mainName = PathUtils.getFileName(state.dependencies.logFilePath);
+		const mainName = getFileName(state.dependencies.logFilePath);
 		if (!seenNames.has(mainName)) {
 			try {
 				const stats = await bunFile(state.dependencies.logFilePath).stat();
@@ -95,22 +82,22 @@ export async function listLogFiles(state: AdminLogsState): Promise<AdminLogFileI
 
 /** The file a log id names, confined to the logs directory. A missing id is the active log. */
 export function resolveLogFilePath(state: AdminLogsState, fileId?: string): { filePath: string; filename: string } {
-	const logsRoot = PathUtils.resolve(serverConfig.paths.logs);
+	const logsRoot = resolvePath(serverConfig.paths.logs);
 	// Only a missing id means the active log. A blank id ("" or whitespace) names no file and must not
 	// fall through to the active log, which deleting would truncate.
 	if (fileId === undefined) {
-		return { filePath: state.dependencies.logFilePath, filename: PathUtils.getFileName(state.dependencies.logFilePath) };
+		return { filePath: state.dependencies.logFilePath, filename: getFileName(state.dependencies.logFilePath) };
 	}
 
 	// A NUL byte never belongs in a path, and the logs root itself is a directory, not a log file.
 	const trimmed = fileId.trim();
-	const cleanId = trimmed.includes("\0") ? "" : PathUtils.normalize(trimmed).replace(leadingParentTraversalPattern, "");
-	const targetPath = PathUtils.resolve(PathUtils.join(logsRoot, cleanId));
-	if (targetPath === logsRoot || !PathUtils.isSubpath(targetPath, logsRoot)) {
+	const cleanId = trimmed.includes("\0") ? "" : normalizePath(trimmed).replace(leadingParentTraversalPattern, "");
+	const targetPath = resolveWithin(logsRoot, cleanId);
+	if (!targetPath || targetPath === logsRoot) {
 		throw new DomainError("validation", "Invalid log file path", { code: "admin.log_path_invalid", params: { fileId } });
 	}
 
-	return { filePath: targetPath, filename: PathUtils.getFileName(targetPath) };
+	return { filePath: targetPath, filename: getFileName(targetPath) };
 }
 
 /**
@@ -134,7 +121,7 @@ export async function getLogFileDownloadContent(
 /** Removes the directory a deleted log file lived in, once it holds no file left. */
 async function removeEmptyParentDir(filePath: string): Promise<void> {
 	try {
-		const parentDir = PathUtils.getDirName(filePath);
+		const parentDir = getDirName(filePath);
 		if (parentDir === serverConfig.paths.logs) return;
 
 		const remaining = await readdir(parentDir);

@@ -4,30 +4,31 @@ import {
 	MyDownloadsResponseSchema,
 	PrepareDownloadSchema,
 	QueueSeasonDownloadSchema,
+	SuccessResponseSchema,
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { JobIdParams } from "@/app/http/schemas/route-params.schema";
+import { assertRouteMediaAccess, requireProfileId } from "@/app/http/utils/access-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { downloadsService } from "@/modules/downloads/downloads.service";
-import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
 
 export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downloads"] })
 	.use(commonModel)
 	.use(authMiddleware)
 	.guard({ auth: true, profileRequired: true })
-	.get("/", async ({ profile }) => await downloadsService.list(profile?.id ?? ""), {
+	.get("/", async ({ profile }) => await downloadsService.list(requireProfileId(profile)), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: MyDownloadsResponseSchema },
 		detail: { description: "List the calling profile's offline downloads." },
 	})
 	.post(
 		"/prepare",
 		async ({ body, user, profile }) => {
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: body.mediaFileId });
+			await assertRouteMediaAccess({ user, profile }, body.mediaFileId);
 
-			return await downloadsService.prepare(profile?.id ?? "", body.mediaFileId, body.quality);
+			return await downloadsService.prepare(requireProfileId(profile), body.mediaFileId, body.quality);
 		},
 		{
 			rateLimit: { name: "downloads-prepare", max: 10, windowMs: MINUTE },
@@ -39,9 +40,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 	.post(
 		"/seasons",
 		async ({ body, user, profile }) =>
-			await downloadsService.queueSeason(profile?.id, body, (mediaFileId) =>
-				assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId }),
-			),
+			await downloadsService.queueSeason(profile?.id, body, (mediaFileId) => assertRouteMediaAccess({ user, profile }, mediaFileId)),
 		{
 			rateLimit: { name: "downloads-queue-season", max: 10, windowMs: MINUTE },
 			body: QueueSeasonDownloadSchema,
@@ -52,15 +51,19 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			},
 		},
 	)
-	.get("/:jobId/status", async ({ params, profile }) => await downloadsService.getJobViewForProfile(params.jobId, profile?.id ?? ""), {
-		params: JobIdParams,
-		response: { 200: t.Nullable(DownloadJobSchema), 404: "error.response" },
-		detail: { description: "Status of a single download job owned by the calling profile." },
-	})
+	.get(
+		"/:jobId/status",
+		async ({ params, profile }) => await downloadsService.getJobViewForProfile(params.jobId, requireProfileId(profile)),
+		{
+			params: JobIdParams,
+			response: { 200: t.Nullable(DownloadJobSchema), 404: "error.response" },
+			detail: { description: "Status of a single download job owned by the calling profile." },
+		},
+	)
 	.get(
 		"/:jobId/file",
 		async ({ params, profile }) => {
-			const result = await downloadsService.resolveFileForProfile(params.jobId, profile?.id ?? "");
+			const result = await downloadsService.resolveFileForProfile(params.jobId, requireProfileId(profile));
 			if (!result) return new Response("Not found", { status: 404 });
 
 			return attachmentResponse(result.blob, {
@@ -75,18 +78,18 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			detail: { description: "Download the finished MP4 file (completed jobs only)." },
 		},
 	)
-	.post("/:jobId/cancel", async ({ params, profile }) => await downloadsService.cancelForProfile(params.jobId, profile?.id ?? ""), {
+	.post("/:jobId/cancel", async ({ params, profile }) => await downloadsService.cancelForProfile(params.jobId, requireProfileId(profile)), {
 		params: JobIdParams,
-		response: { 200: t.Object({ success: t.Literal(true) }), 404: "error.response", 409: "error.response" },
+		response: { 200: SuccessResponseSchema, 404: "error.response", 409: "error.response" },
 		detail: { description: "Cancel a pending or running download; its partial file is removed." },
 	})
 	.post(
 		"/:jobId/retry",
 		async ({ params, user, profile }) => {
-			const mediaFileId = await downloadsService.mediaFileIdForProfile(params.jobId, profile?.id ?? "");
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId });
+			const mediaFileId = await downloadsService.mediaFileIdForProfile(params.jobId, requireProfileId(profile));
+			await assertRouteMediaAccess({ user, profile }, mediaFileId);
 
-			return await downloadsService.retryForProfile(params.jobId, profile?.id ?? "");
+			return await downloadsService.retryForProfile(params.jobId, requireProfileId(profile));
 		},
 		{
 			rateLimit: { name: "downloads-retry", max: 10, windowMs: MINUTE },
@@ -95,8 +98,8 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			detail: { description: "Queue a new download of the same file and quality after a failed or cancelled one." },
 		},
 	)
-	.delete("/:jobId", async ({ params, profile }) => await downloadsService.deleteForProfile(params.jobId, profile?.id ?? ""), {
+	.delete("/:jobId", async ({ params, profile }) => await downloadsService.deleteForProfile(params.jobId, requireProfileId(profile)), {
 		params: JobIdParams,
-		response: { 200: t.Object({ success: t.Boolean() }), 404: "error.response" },
+		response: { 200: SuccessResponseSchema, 404: "error.response" },
 		detail: { description: "Delete a download (and its file) owned by the calling profile." },
 	});

@@ -1,9 +1,9 @@
-import { readdir } from "node:fs/promises";
 import { serverConfig } from "@/config/server/server.config";
 import { downloadsStorage } from "@/modules/downloads/downloads.ports";
-import { removeTree } from "@/utils/directory.utils";
+import { type DirectoryEntry, readDirectoryEntries, removeTree } from "@/utils/directory.utils";
+
 import { errorMessage, isMissingFile } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 import { deleteArtifactFile } from "./artifacts/artifacts.service";
 import type { DownloadsServiceState } from "./shared.utils";
 
@@ -77,15 +77,17 @@ export async function sweepExpired(state: DownloadsServiceState): Promise<{ remo
  */
 export async function sweepOrphanArtifacts(state: DownloadsServiceState): Promise<{ removed: number }> {
 	const root = serverConfig.paths.downloads;
-	let candidates: string[];
+	let entries: DirectoryEntry[];
 	try {
-		const entries = await readdir(root, { withFileTypes: true });
-		candidates = entries.filter((entry) => entry.isDirectory() && DOWNLOAD_ID_DIRECTORY_REGEX.test(entry.name)).map((entry) => entry.name);
+		entries = await readDirectoryEntries(root);
 	} catch (error) {
 		if (isMissingFile(error)) return { removed: 0 };
 
 		throw error;
 	}
+	const candidates = entries
+		.filter((entry) => entry.isDirectory && DOWNLOAD_ID_DIRECTORY_REGEX.test(entry.name))
+		.map((entry) => entry.name);
 
 	let removed = 0;
 	for (let offset = 0; offset < candidates.length; offset += ORPHAN_SWEEP_BATCH_SIZE) {
@@ -95,7 +97,7 @@ export async function sweepOrphanArtifacts(state: DownloadsServiceState): Promis
 			if (known.has(id)) continue;
 
 			try {
-				await removeTree(PathUtils.join(root, id));
+				await removeTree(joinPath(root, id));
 				removed++;
 			} catch (error) {
 				state.logger.warn("Could not remove the artifacts of a deleted download", { downloadId: id, error: errorMessage(error) });

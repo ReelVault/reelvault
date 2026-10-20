@@ -1,14 +1,14 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { DOWNLOAD_QUALITIES, DOWNLOAD_STATUSES } from "@/integrations/drizzle-orm/constants/downloads.constants";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { profileMediaFileRefs, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { mediaFiles } from "./media-files.schema";
 import { profiles } from "./profiles.schema";
 
 export const downloads = sqliteTable(
 	"downloads",
 	{
-		...DatabaseHelper.profileMediaFileRefs({ profileId: () => profiles.id, mediaFileId: () => mediaFiles.id }),
+		...profileMediaFileRefs({ profileId: () => profiles.id, mediaFileId: () => mediaFiles.id }),
 
 		quality: text("quality", { enum: DOWNLOAD_QUALITIES }).notNull().default("720p-mobile"),
 		status: text("status", { enum: DOWNLOAD_STATUSES }).notNull().default("pending"),
@@ -17,7 +17,7 @@ export const downloads = sqliteTable(
 		fileName: text("file_name"),
 		errorText: text("error_text"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		index("downloads_profile_status_idx").on(t.profileId, t.status),

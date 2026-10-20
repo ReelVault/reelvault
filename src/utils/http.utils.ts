@@ -1,6 +1,7 @@
 import { trimAndFilter, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { MemoryCache } from "@/utils/memory.cache";
+import { responseCacheKey } from "@/utils/response-body.cache";
 
 export function escapeRegex(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -196,4 +197,25 @@ export function readRequestCredentials(request: Request): RequestCredentials {
 	credentialsCache.set(request, credentials);
 
 	return credentials;
+}
+
+/**
+ * One identity-scoped request key for the response cache, ETags and request
+ * dedup. The resolved profile id wins; without one the raw `x-profile-id`
+ * header is used. `includeMethod` separates GET and HEAD for dedup.
+ */
+export function requestIdentityKey(
+	request: Request,
+	options: { profileId?: string | undefined; includeMethod?: boolean | undefined } = {},
+): string {
+	const credentials = readRequestCredentials(request);
+	const key = responseCacheKey({
+		pathWithQuery: pathWithQuery(request.url),
+		cookie: credentials.cookie,
+		profileId: options.profileId ?? credentials.headerProfileId,
+		auth: credentials.authorization,
+		apiKey: credentials.apiKey,
+	});
+
+	return options.includeMethod ? `${request.method}:${key}` : key;
 }

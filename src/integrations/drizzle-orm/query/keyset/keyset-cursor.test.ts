@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { decodeCursorFor, KeysetCursor } from "./keyset-cursor.utils";
+import { decodeCursor, decodeCursorFor, encodeCursor } from "./keyset-cursor.utils";
 
 describe("KeysetCursor", () => {
 	test("round-trips a createdAt and id cursor", () => {
 		const cursor = { createdAt: 1_725_000_000_000, id: "metadata-42" };
-		expect(KeysetCursor.decode(KeysetCursor.encode(cursor))).toEqual(cursor);
+		expect(decodeCursor(encodeCursor(cursor))).toEqual(cursor);
 	});
 
 	test("rejects malformed cursors", () => {
-		expect(() => KeysetCursor.decode("not-a-cursor")).toThrow(
+		expect(() => decodeCursor("not-a-cursor")).toThrow(
 			expect.objectContaining({ category: "validation", code: "validation.invalid_cursor" }),
 		);
 	});
@@ -17,7 +17,7 @@ describe("KeysetCursor", () => {
 describe("decodeCursorFor", () => {
 	test("decodes a cursor in cursor mode", () => {
 		const cursor = { createdAt: 1, id: "m-1" };
-		expect(decodeCursorFor(KeysetCursor.encode(cursor), true, "cursor requires desc")).toEqual(cursor);
+		expect(decodeCursorFor(encodeCursor(cursor), true, "cursor requires desc")).toEqual(cursor);
 	});
 
 	test("rejects a cursor outside cursor mode", () => {

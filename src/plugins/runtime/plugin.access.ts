@@ -2,7 +2,7 @@ import type { PluginAccessContext, PluginAccessDenial, PluginAccessPolicy } from
 import { serverConfig } from "@/config/server/server.config";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { withTimeout } from "@/utils/promise.utils";
 
 class PluginAccessBus {
 	readonly serviceName = "PluginAccessBus";
@@ -53,7 +53,7 @@ class PluginAccessBus {
 		context: PluginAccessContext,
 	): Promise<PluginAccessDenial | undefined> {
 		try {
-			return await PromiseUtils.withTimeout(
+			return await withTimeout(
 				Promise.resolve(policy.beforeAccess(context)),
 				serverConfig.plugins.runtime.accessPolicyTimeoutMs,
 				"Plugin access policy",

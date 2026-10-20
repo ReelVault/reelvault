@@ -1,6 +1,6 @@
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath, normalizePath } from "@/utils/path.utils";
 
 /**
  * `-map` args selecting the video stream and the (possibly remapped) audio stream.
@@ -28,7 +28,7 @@ export function buildMetadataStripArgs(): string[] {
  * on every platform.
  */
 export function buildHlsOutputPath(outputDir: string, fileName: string): string {
-	return PathUtils.normalize(PathUtils.join(outputDir, fileName));
+	return normalizePath(joinPath(outputDir, fileName));
 }
 
 /**

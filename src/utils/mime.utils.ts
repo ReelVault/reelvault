@@ -1,4 +1,4 @@
-import { PathUtils } from "@/utils/path.utils";
+import { getExtension } from "@/utils/path.utils";
 
 /**
  * The one extension→MIME table for static assets: the web bundle and plugin UI
@@ -33,5 +33,5 @@ export const MIME_TYPES: Readonly<Record<string, string>> = {
 
 /** MIME type for a file path's extension, `application/octet-stream` when unknown. */
 export function contentTypeForPath(filePath: string): string {
-	return MIME_TYPES[PathUtils.getExtension(filePath)] ?? "application/octet-stream";
+	return MIME_TYPES[getExtension(filePath)] ?? "application/octet-stream";
 }

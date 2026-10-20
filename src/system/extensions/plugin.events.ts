@@ -2,7 +2,7 @@ import { createPluginEventPayload, type PluginEventHandler, type PluginEventInpu
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { createLogger } from "@/utils/logger.utils";
-import { detach, PromiseUtils } from "@/utils/promise.utils";
+import { detach, mapConcurrent, withTimeout } from "@/utils/promise.utils";
 import { PluginHandlerTable } from "./plugin-handler.registry";
 
 type ErasedPluginHandler = (payload: never) => void | Promise<void>;
@@ -62,12 +62,12 @@ export class PluginEventBus {
 		const payload = createPluginEventPayload(input);
 		const handlers = table.all();
 		// Time-box each handler: a hung plugin must not stall core event emission.
-		const results = await PromiseUtils.mapConcurrent(handlers, systemResourcesService.getIoConcurrency(), async (handler) => {
+		const results = await mapConcurrent(handlers, systemResourcesService.getIoConcurrency(), async (handler) => {
 			try {
 				// ErasedPluginHandler accepts `never`, so dispatch goes through the
 				// untyped apply channel and is re-boxed as unknown before awaiting.
 				const run: unknown = Reflect.apply(handler, undefined, [payload]);
-				await PromiseUtils.withTimeout(Promise.resolve(run), this.timeoutMs, `Plugin event ${event}`);
+				await withTimeout(Promise.resolve(run), this.timeoutMs, `Plugin event ${event}`);
 
 				return { status: "fulfilled" as const, value: undefined };
 			} catch (error) {

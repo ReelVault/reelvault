@@ -7,12 +7,12 @@ import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes } from "@/modules/artifacts/artifacts-budget.utils";
 import { trickplayStorage } from "@/modules/trickplay/trickplay.ports";
 import { chunk } from "@/utils/array.utils";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory, deleteDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 const CONTENT_TYPE_WEBP = "image/webp";
 const CONTENT_TYPE_VTT = "text/vtt";
@@ -143,8 +143,8 @@ class TrickplayService {
 			Math.round(((index + 0.5) * durationSeconds * 1000) / frameCount),
 		);
 
-		const tempDir = PathUtils.join(serverConfig.paths.transcodeTmp, `trickplay_${mediaFileId}_${crypto.randomUUID()}`);
-		if (!(await DirUtils.create(tempDir))) {
+		const tempDir = joinPath(serverConfig.paths.transcodeTmp, `trickplay_${mediaFileId}_${crypto.randomUUID()}`);
+		if (!(await createDirectory(tempDir))) {
 			// create() logs the underlying fs error and returns false — fail with the
 			// actual cause instead of later reporting an empty sprite.
 			throw new DomainError("internal", "Trickplay temp directory could not be created", { code: "trickplay_temp_dir_failed" });
@@ -201,7 +201,7 @@ class TrickplayService {
 
 			return { mediaFileId, frames: frameCount, sprites: sprites.length };
 		} finally {
-			await DirUtils.delete(tempDir);
+			await deleteDirectory(tempDir);
 		}
 	}
 
@@ -238,7 +238,7 @@ class TrickplayService {
 		const controller = new AbortController();
 		let rendered: Array<{ file: BunFile; tileCount: number }>;
 		try {
-			rendered = await PromiseUtils.mapConcurrent(
+			rendered = await mapConcurrent(
 				chunks,
 				systemResourcesService.getTrickplayConcurrency(),
 				async (chunkTimeMs, spriteIndex) => await this.renderSprite(job, spriteIndex, chunkTimeMs, controller.signal),
@@ -275,7 +275,7 @@ class TrickplayService {
 		signal: AbortSignal,
 	): Promise<{ file: BunFile; tileCount: number }> {
 		const { layout } = job;
-		const spritePath = PathUtils.join(job.tempDir, `sprite_${spriteIndex}.webp`);
+		const spritePath = joinPath(job.tempDir, `sprite_${spriteIndex}.webp`);
 		const command = buildSpriteExtractionCommand(
 			job.filePath,
 			{

@@ -2,8 +2,8 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { toMap, unique } from "@/utils/array.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { getDirName, getFileNameWithoutExt } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import { type SidecarArtworkWriter, sidecarArtworkExporter } from "./saver/sidecar-artwork.exporter";
 import {
@@ -92,7 +92,7 @@ export class SidecarMetadataStorageService {
 		if (sidecarFiles.length === 0) return;
 
 		const rows = await loadSeriesRows(sidecarFiles);
-		const targets = await PromiseUtils.mapConcurrent(sidecarFiles, systemResourcesService.getIoConcurrency(), (mediaFile) =>
+		const targets = await mapConcurrent(sidecarFiles, systemResourcesService.getIoConcurrency(), (mediaFile) =>
 			Promise.resolve(this.resolveSaveTarget(mediaFile, rows)),
 		);
 
@@ -103,7 +103,7 @@ export class SidecarMetadataStorageService {
 			savedSeries: new Set<string>(),
 			savedSeasons: new Set<string>(),
 		};
-		await PromiseUtils.mapConcurrent(
+		await mapConcurrent(
 			targets.filter((item) => isNotNullish(item)),
 			Math.max(1, Math.floor(systemResourcesService.getIoConcurrency() / 2)),
 			(target) => (isEpisodeSaveTarget(target) ? this.saveEpisodeTarget(target, scope) : this.saveMovieTarget(target, scope)),
@@ -144,16 +144,18 @@ export class SidecarMetadataStorageService {
 
 	private async saveMovieTarget(target: MovieSaveTarget, scope: SaveScope): Promise<void> {
 		const { mediaFile } = target;
-		const movieDirectory = PathUtils.getDirName(mediaFile.filePath);
-		await scope.writes.runExclusive(`movie:${mediaFile.metadataId}:${movieDirectory}`, async () => {
-			await this.writer.saveMovie({ metadataId: mediaFile.metadataId, movieDirectory, flavor: scope.flavor });
-			await this.artwork.saveTitleArtwork({ metadataId: mediaFile.metadataId, directory: movieDirectory });
-		});
+		const movieDirectory = getDirName(mediaFile.filePath);
+		await this.writeAndExport(
+			scope,
+			`movie:${mediaFile.metadataId}:${movieDirectory}`,
+			async () => await this.writer.saveMovie({ metadataId: mediaFile.metadataId, movieDirectory, flavor: scope.flavor }),
+			async () => await this.artwork.saveTitleArtwork({ metadataId: mediaFile.metadataId, directory: movieDirectory }),
+		);
 	}
 
 	private async saveEpisodeTarget(target: EpisodeSaveTarget, scope: SaveScope): Promise<void> {
 		const { mediaFile, episode, season } = target;
-		const episodeDirectory = PathUtils.getDirName(mediaFile.filePath);
+		const episodeDirectory = getDirName(mediaFile.filePath);
 		const seriesDirectory = resolveSeriesDirectory(scope.storageRoots, episodeDirectory);
 		await this.saveSeriesOnce(mediaFile, seriesDirectory, scope);
 		await this.saveSeasonOnce(season, episodeDirectory, scope);
@@ -162,7 +164,7 @@ export class SidecarMetadataStorageService {
 			this.writer.saveEpisode({
 				episodeId: episode.id,
 				episodeDirectory,
-				videoBaseName: PathUtils.getFileNameWithoutExt(mediaFile.filePath),
+				videoBaseName: getFileNameWithoutExt(mediaFile.filePath),
 				snapshot: episodeSnapshot(episode),
 				flavor: scope.flavor,
 			}),
@@ -170,7 +172,7 @@ export class SidecarMetadataStorageService {
 		await this.artwork.saveEpisodeArtwork({
 			imageId: episode.imageId,
 			directory: episodeDirectory,
-			videoBaseName: PathUtils.getFileNameWithoutExt(mediaFile.filePath),
+			videoBaseName: getFileNameWithoutExt(mediaFile.filePath),
 		});
 	}
 
@@ -179,9 +181,24 @@ export class SidecarMetadataStorageService {
 		if (scope.savedSeries.has(seriesKey)) return;
 
 		scope.savedSeries.add(seriesKey);
-		await scope.writes.runExclusive(`series:${seriesKey}`, async () => {
-			await this.writer.saveSeries({ metadataId: mediaFile.metadataId, seriesDirectory, flavor: scope.flavor });
-			await this.artwork.saveTitleArtwork({ metadataId: mediaFile.metadataId, directory: seriesDirectory });
+		await this.writeAndExport(
+			scope,
+			`series:${seriesKey}`,
+			async () => await this.writer.saveSeries({ metadataId: mediaFile.metadataId, seriesDirectory, flavor: scope.flavor }),
+			async () => await this.artwork.saveTitleArtwork({ metadataId: mediaFile.metadataId, directory: seriesDirectory }),
+		);
+	}
+
+	/** One title document and its artwork under the same per-target write lock. */
+	private async writeAndExport(
+		scope: SaveScope,
+		key: string,
+		write: () => Promise<unknown>,
+		exportArtwork: () => Promise<unknown>,
+	): Promise<void> {
+		await scope.writes.runExclusive(key, async () => {
+			await write();
+			await exportArtwork();
 		});
 	}
 

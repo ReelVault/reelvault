@@ -11,63 +11,68 @@ const extensionSetCache: { revision: number; extensions: Set<string> } = {
 const BACKSLASH_REGEX = /\\+/g;
 const MULTI_SLASH_REGEX = /\/+/g;
 
-export const PathUtils = {
-	join(...paths: string[]): string {
-		return join(...paths);
-	},
+export function joinPath(...paths: string[]): string {
+	return join(...paths);
+}
 
-	resolve(...paths: string[]): string {
-		return resolve(...paths);
-	},
+export function resolvePath(...paths: string[]): string {
+	return resolve(...paths);
+}
 
-	relative(from: string, to: string): string {
-		return relative(from, to);
-	},
+export function relativePath(from: string, to: string): string {
+	return relative(from, to);
+}
 
-	getFileName(path: string): string {
-		return basename(path);
-	},
+export function getFileName(path: string): string {
+	return basename(path);
+}
 
-	getFileNameWithoutExt(path: string): string {
-		const base = basename(path);
-		const ext = extname(base);
+export function getFileNameWithoutExt(path: string): string {
+	const base = basename(path);
+	const ext = extname(base);
 
-		return ext ? base.slice(0, -ext.length) : base;
-	},
+	return ext ? base.slice(0, -ext.length) : base;
+}
 
-	getDirName(path: string): string {
-		return dirname(path);
-	},
+export function getDirName(path: string): string {
+	return dirname(path);
+}
 
-	getExtension(path: string): string {
-		return extname(path).toLowerCase();
-	},
+export function getExtension(path: string): string {
+	return extname(path).toLowerCase();
+}
 
-	isVideoFile(path: string): boolean {
-		const revision = systemSettingsStore.revision;
-		if (revision !== extensionSetCache.revision) {
-			extensionSetCache.extensions = new Set(serverConfig.media.supportedVideoExtensions);
-			extensionSetCache.revision = revision;
-		}
+export function isVideoFile(path: string): boolean {
+	const revision = systemSettingsStore.revision;
+	if (revision !== extensionSetCache.revision) {
+		extensionSetCache.extensions = new Set(serverConfig.media.supportedVideoExtensions);
+		extensionSetCache.revision = revision;
+	}
 
-		return extensionSetCache.extensions.has(PathUtils.getExtension(path));
-	},
+	return extensionSetCache.extensions.has(getExtension(path));
+}
 
-	normalize(path: string): string {
-		return path.replace(BACKSLASH_REGEX, "/").replace(MULTI_SLASH_REGEX, "/");
-	},
+export function normalizePath(path: string): string {
+	return path.replace(BACKSLASH_REGEX, "/").replace(MULTI_SLASH_REGEX, "/");
+}
 
-	isAbsolute(path: string): boolean {
-		return isAbsolute(path);
-	},
+export function isAbsolutePath(path: string): boolean {
+	return isAbsolute(path);
+}
 
-	isSubpath(candidatePath: string, parentDir: string): boolean {
-		const resolvedCandidate = resolve(candidatePath);
-		const resolvedParent = resolve(parentDir);
-		// A root parent ("/") must not become "//" — append the separator only
-		// when the parent does not already end with one.
-		const prefix = resolvedParent.endsWith(sep) ? resolvedParent : `${resolvedParent}${sep}`;
+export function isSubpath(candidatePath: string, parentDir: string): boolean {
+	const resolvedCandidate = resolve(candidatePath);
+	const resolvedParent = resolve(parentDir);
+	// A root parent ("/") must not become "//" — append the separator only
+	// when the parent does not already end with one.
+	const prefix = resolvedParent.endsWith(sep) ? resolvedParent : `${resolvedParent}${sep}`;
 
-		return resolvedCandidate.startsWith(prefix);
-	},
-};
+	return resolvedCandidate.startsWith(prefix);
+}
+
+/** Resolves `candidate` under `root`; undefined when the result escapes the root. */
+export function resolveWithin(root: string, candidate: string): string | undefined {
+	const target = resolve(join(root, candidate));
+
+	return isSubpath(target, root) ? target : undefined;
+}

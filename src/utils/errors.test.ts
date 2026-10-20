@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { assertFound, assertPresent, assertProfileId, assertUserId, DomainError, errorCodeOf, toErrorCode } from "./domain.errors";
+import {
+	assertExists,
+	assertFound,
+	assertPresent,
+	assertProfileId,
+	assertUserId,
+	DomainError,
+	errorCodeOf,
+	toErrorCode,
+} from "./domain.errors";
 
 function thrownBy(run: () => void): unknown {
 	try {
@@ -30,6 +39,24 @@ describe("assertFound", () => {
 		expect(thrownBy(() => assertFound(null, "User", "1", () => new DomainError("forbidden", "no")))).toMatchObject({
 			category: "forbidden",
 		});
+	});
+});
+
+describe("assertExists", () => {
+	test("passes a true existence result and throws not_found for false", () => {
+		expect(assertExists(true, "Library", "library-1")).toBeUndefined();
+		expect(() => assertExists(false, "Library", "library-1")).toThrow(
+			expect.objectContaining({
+				category: "not_found",
+				code: "entity.not_found",
+				params: { entityType: "Library", entityId: "library-1" },
+			}),
+		);
+	});
+
+	test("throws the custom error instead of the not-found error when given", () => {
+		const custom = new DomainError("conflict", "in use");
+		expect(thrownBy(() => assertExists(false, "Library", "1", custom))).toBe(custom);
 	});
 });
 

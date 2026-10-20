@@ -1,12 +1,12 @@
 import type { SidecarRating, SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
 import type { XmlDocumentOutput } from "@/modules/metadata-sidecars/xml/xml.writer";
-import { PathUtils } from "@/utils/path.utils";
+import { getFileName } from "@/utils/path.utils";
 
 const SEASON_FILE_REGEX = /^season\d*\.nfo$/;
 
 /** The root element follows the file name — same inference the reelvault adapter does. */
 export function buildKodiDocument(documentPath: string, document: SidecarSnapshotDocument): XmlDocumentOutput {
-	const name = PathUtils.getFileName(documentPath).toLowerCase();
+	const name = getFileName(documentPath).toLowerCase();
 	if (name === "movie.nfo") return { rootName: "movie", values: { ...toTitleFields(document), ...premieredField(document) } };
 
 	if (name === "tvshow.nfo") return { rootName: "tvshow", values: { ...toTitleFields(document), ...premieredField(document) } };

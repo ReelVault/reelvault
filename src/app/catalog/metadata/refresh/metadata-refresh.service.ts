@@ -6,7 +6,7 @@ import { mergeProviderMetadata, type ProviderContribution } from "@/plugins/capa
 import { hasEntry } from "@/utils/array.utils";
 import { assertFound, errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import type { ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
@@ -183,7 +183,7 @@ export class MetadataRefreshService {
 
 		if (existing.type === "tv_show" && this.dependencies.syncSeasonsAndEpisodes) {
 			const tvTasks = await this.dependencies.syncSeasonsAndEpisodes(existing.id, providerId, metadata, existing.providers);
-			await PromiseUtils.mapConcurrent(tvTasks, systemResourcesService.getIoConcurrency(), (task) => enqueueImages(task, { operationId }));
+			await mapConcurrent(tvTasks, systemResourcesService.getIoConcurrency(), (task) => enqueueImages(task, { operationId }));
 		}
 	}
 

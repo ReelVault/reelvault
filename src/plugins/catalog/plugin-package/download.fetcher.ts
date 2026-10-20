@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createHash } from "@/utils/crypto.utils";
 import { removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
+import { consumeStreamBounded } from "@/utils/file.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
 
 const DEFAULT_MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
@@ -95,14 +96,15 @@ async function storeArchive(
 	const writer = Bun.file(filePath).writer();
 	let received = 0;
 	try {
-		for await (const chunk of body) {
-			received += chunk.byteLength;
-			if (received > maxBytes) throw packageTooLarge(maxBytes);
-
-			hasher.update(chunk);
-			await writer.write(chunk);
-			onProgress?.(received, declaredLength);
-		}
+		received = await consumeStreamBounded(body, {
+			maxBytes,
+			overflow: () => packageTooLarge(maxBytes),
+			onChunk: async (chunk, total) => {
+				hasher.update(chunk);
+				await writer.write(chunk);
+				onProgress?.(total, declaredLength);
+			},
+		});
 
 		await writer.end();
 	} catch (error) {

@@ -1,12 +1,11 @@
 import type { PluginManifest } from "@reelvault/sdk/plugin";
 import { file as bunFile } from "bun";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { SERVER_VERSION } from "@/config/version.constants";
 import { loadPluginManifest, resolvePluginEntry } from "@/plugins/lifecycle/plugin.manifest";
 import { DomainError } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { isNewerVersion } from "@/utils/semver.utils";
+import { isSubpath, resolvePath } from "@/utils/path.utils";
+import { minServerVersionError } from "@/utils/semver.utils";
 import { assertNoSymbolicLinks } from "./symlink.guard";
 
 /** SHA-256 over large blobs — CPU+disk bound, so concurrency scales with measured capacity. */
@@ -23,13 +22,12 @@ export async function assertPackageDirectory(directory: string): Promise<void> {
 /** Loads the source manifest and refuses a package that needs a newer server or lacks its entry file. */
 export async function loadInstallableManifest(source: string): Promise<PluginManifest> {
 	const manifest = await loadPluginManifest(source);
-	if (manifest.minServerVersion && isNewerVersion(manifest.minServerVersion, SERVER_VERSION)) {
-		throw new DomainError(
-			"validation",
-			`Plugin ${manifest.id} ${manifest.version} requires server ${manifest.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
-			{ code: "plugin.server_too_old" },
-		);
-	}
+	const versionError = minServerVersionError(
+		manifest.minServerVersion,
+		`Plugin ${manifest.id} ${manifest.version}`,
+		"plugin.server_too_old",
+	);
+	if (versionError) throw versionError;
 	await assertFile(resolvePluginEntry(source, manifest), "Plugin entrypoint");
 
 	return manifest;
@@ -63,5 +61,5 @@ async function assertFile(path: string, name: string): Promise<void> {
 }
 
 function isWithinDirectory(path: string, directory: string): boolean {
-	return PathUtils.resolve(path) === PathUtils.resolve(directory) || PathUtils.isSubpath(path, directory);
+	return resolvePath(path) === resolvePath(directory) || isSubpath(path, directory);
 }

@@ -17,8 +17,8 @@ import { profilePreferencesRepository } from "@/app/repositories/profile-prefere
 import { profilesRepository } from "@/app/repositories/profiles.repository";
 import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
-import { QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseStandardQuery } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { imageUploadService } from "@/modules/images/image-upload.service";
 import { hashProfilePin, verifyProfilePin } from "@/utils/crypto.utils";
@@ -55,9 +55,9 @@ class ProfilesService {
 	async getById<F extends string>(profileId: string, query?: FieldsQuery<F>, userId?: string): Promise<SelectFields<Profile, F>> {
 		return await runSafely(this, "getById", async () => {
 			const profile = await this.findOwnedProfile(profileId, userId);
-			const { fields } = QueryUtils.parseStandard(query);
+			const { fields } = parseStandardQuery(query);
 
-			return QueryFields.apply(this.#stripPin(profile), fields);
+			return applyFields(this.#stripPin(profile), fields);
 		});
 	}
 

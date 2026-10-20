@@ -188,37 +188,10 @@ class MetadataPersistenceRepository {
 		lockedFields?: readonly string[],
 	): Promise<void> {
 		const lockedSet = new Set(lockedFields ?? []);
-		const isGenresLocked = lockedSet.has("genres");
-		const isKeywordsLocked = lockedSet.has("keywords");
-		const isCompaniesLocked = lockedSet.has("companies") || lockedSet.has("studios");
-		const isCollectionsLocked = lockedSet.has("collections");
-		const isRatingsLocked = lockedSet.has("ratings");
 
 		await databaseFactory.transaction(async (tx) => {
 			await this.deleteUnlockedRelations(metadataId, lockedSet, tx, ["genres", "keywords", "companies", "collections", "ratings"]);
-
-			const processes: Array<Promise<unknown>> = [];
-			if (!isGenresLocked) {
-				processes.push(genreRepository.process({ metadataId, providerName, items: metadata.genres, tx }));
-			}
-
-			if (!isKeywordsLocked) {
-				processes.push(keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx }));
-			}
-
-			if (!isCompaniesLocked) {
-				processes.push(companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }));
-			}
-
-			if (!isCollectionsLocked) {
-				processes.push(collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }));
-			}
-
-			if (!isRatingsLocked) {
-				processes.push(metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx }));
-			}
-
-			await Promise.all(processes);
+			await this.processMetadataRelations(metadataId, providerName, metadata, tx, lockedSet);
 		});
 	}
 
@@ -305,6 +278,32 @@ class MetadataPersistenceRepository {
 		);
 	}
 
+	/** The five non-credit relation processors, each skipped when its field lock is set. */
+	private async processMetadataRelations(
+		metadataId: string,
+		providerName: string,
+		metadata: ProviderMetadataResult,
+		tx: DatabaseTransaction,
+		locked: ReadonlySet<string>,
+	): Promise<void> {
+		const runUnlessLocked = (relation: LockedRelation, work: () => Promise<unknown>) => {
+			if (isRelationLocked(locked, relation)) return Promise.resolve();
+			return work();
+		};
+
+		await Promise.all([
+			runUnlessLocked("collections", () =>
+				collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
+			),
+			runUnlessLocked("companies", () =>
+				companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }),
+			),
+			runUnlessLocked("genres", () => genreRepository.process({ metadataId, providerName, items: metadata.genres, tx })),
+			runUnlessLocked("keywords", () => keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx })),
+			runUnlessLocked("ratings", () => metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx })),
+		]);
+	}
+
 	private async createMetadataRelations(
 		metadataId: string,
 		providerName: string,
@@ -312,10 +311,6 @@ class MetadataPersistenceRepository {
 		tx: DatabaseTransaction,
 		locked: ReadonlySet<string> = new Set(),
 	) {
-		const runUnlessLocked = (relation: LockedRelation, work: () => Promise<unknown>) => {
-			if (isRelationLocked(locked, relation)) return Promise.resolve();
-			return work();
-		};
 		const processCredits = () => {
 			if (locked.has("cast") && locked.has("crew")) return Promise.resolve<MetadataPersonImages>([]);
 			return peopleRepository.processMetadataCredits({
@@ -327,17 +322,9 @@ class MetadataPersistenceRepository {
 			});
 		};
 
-		const [, , , , personImages] = await Promise.all([
-			runUnlessLocked("collections", () =>
-				collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
-			),
-			runUnlessLocked("companies", () =>
-				companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }),
-			),
-			runUnlessLocked("genres", () => genreRepository.process({ metadataId, providerName, items: metadata.genres, tx })),
-			runUnlessLocked("keywords", () => keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx })),
+		const [, personImages] = await Promise.all([
+			this.processMetadataRelations(metadataId, providerName, metadata, tx, locked),
 			processCredits(),
-			runUnlessLocked("ratings", () => metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx })),
 		]);
 
 		return personImages;

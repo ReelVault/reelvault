@@ -1,5 +1,5 @@
 import type { DownloadStatus } from "@/integrations/drizzle-orm/constants/downloads.constants";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { downloadsStorage } from "@/modules/downloads/downloads.ports";
 import { resolveFileFromRow } from "../artifacts/artifacts.service";
 import { getStorageQuota } from "../shared.utils";
@@ -22,7 +22,7 @@ export async function list(profileId: string): Promise<{ data: DownloadJobView[]
 
 /** One page of every profile's downloads for the admin overview, with the counts per status for its counters. */
 export async function listAllPage(query: DownloadsPageQuery) {
-	const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 50 });
+	const pagination = resolvePageParams(query, { defaultLimit: 50 });
 	const [result, counts] = await Promise.all([
 		downloadsStorage().findPage({ status: query.status, limit: pagination.limit, offset: pagination.offset }),
 		downloadsStorage().countByStatus(),
@@ -30,7 +30,7 @@ export async function listAllPage(query: DownloadsPageQuery) {
 	const metadataIds = await metadataIdsOf(result.data);
 
 	return {
-		...QueryPagination.createResponse({
+		...createPageResponse({
 			total: result.total,
 			pagination,
 			data: result.data.map((row) => ({

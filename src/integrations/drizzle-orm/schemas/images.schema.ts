@@ -1,11 +1,11 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 export const images = sqliteTable(
 	"images",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		stableKey: text("stable_key").notNull(),
 
 		localPath: text("local_path").notNull(),
@@ -15,7 +15,7 @@ export const images = sqliteTable(
 		fileSize: integer("file_size"),
 		optimizationVersion: integer("optimization_version"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("images_unique").on(t.localPath),

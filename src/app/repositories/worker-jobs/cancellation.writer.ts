@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, type SQL } from "drizzle-orm";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
@@ -102,29 +102,41 @@ export async function cancelRunning(id: string, claimToken?: string): Promise<bo
 	);
 }
 
-export async function cancelPendingByOperation(operationId: string): Promise<number> {
-	const now = new Date();
-
+/**
+ * Cancels every pending row matching `where`, cascades to their dependents and
+ * lets the caller sync the operation counters — one set-based pass instead of a
+ * query per row.
+ */
+async function cancelPendingWhere(
+	where: SQL | undefined,
+	now: Date,
+	applyCounts: (tx: DatabaseTransaction, rows: Array<{ operationId: string | null }>) => Promise<void>,
+): Promise<number> {
 	return await databaseFactory.transaction(async (tx) => {
 		const updated = await tx
 			.update(items)
 			.set({ status: "cancelled", completedAt: now, updatedAt: now })
-			.where(and(eq(items.operationId, operationId), eq(items.status, "pending")))
-			.returning({ id: items.id });
+			.where(where)
+			.returning({ id: items.id, operationId: items.operationId });
 
-		// Cancelled parents must cascade to their dependent children, same as a
-		// single cancelPending — one set-based pass instead of a query per row.
-		if (updated.length > 0) {
-			await cascadeCancel(
-				tx,
-				updated.map((row) => row.id),
-				now,
-			);
-			// Sync the parent operation's counters for the cancelled top-level rows.
-			await workerOperationRepository.markPendingJobsCancelled(operationId, now, tx, updated.length);
-		}
+		if (updated.length === 0) return 0;
+
+		await cascadeCancel(
+			tx,
+			updated.map((row) => row.id),
+			now,
+		);
+		await applyCounts(tx, updated);
 
 		return updated.length;
+	});
+}
+
+export async function cancelPendingByOperation(operationId: string): Promise<number> {
+	const now = new Date();
+
+	return await cancelPendingWhere(and(eq(items.operationId, operationId), eq(items.status, "pending")), now, async (tx, rows) => {
+		await workerOperationRepository.markPendingJobsCancelled(operationId, now, tx, rows.length);
 	});
 }
 
@@ -187,28 +199,11 @@ export async function cancelAllPending(workerId?: string): Promise<number> {
 	const conditions = [eq(items.status, "pending")];
 	if (workerId) conditions.push(eq(items.workerId, workerId));
 
-	return await databaseFactory.transaction(async (tx) => {
-		const updated = await tx
-			.update(items)
-			.set({ status: "cancelled", completedAt: now, updatedAt: now })
-			.where(and(...conditions))
-			.returning({ id: items.id, operationId: items.operationId });
-
-		if (updated.length === 0) return 0;
-
-		// Dependents of a cancelled parent must not stay pending forever.
-		await cascadeCancel(
-			tx,
-			updated.map((row) => row.id),
-			now,
-		);
-
+	return await cancelPendingWhere(and(...conditions), now, async (tx, rows) => {
 		// Keep operation counters in sync, decrementing pendingItems (not runningItems).
-		await applyOperationCounts(toOperationCounts(updated), (operationId, amount) =>
+		await applyOperationCounts(toOperationCounts(rows), (operationId, amount) =>
 			workerOperationRepository.markPendingJobsCancelled(operationId, now, tx, amount),
 		);
-
-		return updated.length;
 	});
 }
 

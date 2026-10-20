@@ -5,7 +5,7 @@ import {
 	AdminUpdateStatusSchema,
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
-import { ClampedNumeric, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { PaginationQuerySchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { updateCheckService } from "@/app/updates/update-check.service";
 import { describeUpdateEnvironment } from "@/app/updates/update-environment.utils";
 import { updateHistoryService } from "@/app/updates/update-history.service";
@@ -92,10 +92,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 	})
 	.get("/history", async ({ query }) => await updateHistoryService.list(query), {
 		rateLimit: { name: "admin-update-history", max: 120, windowMs: MINUTE },
-		query: t.Object({
-			page: t.Optional(t.Numeric({ minimum: 1 })),
-			limit: t.Optional(ClampedNumeric(1, 50)),
-		}),
+		query: PaginationQuerySchema({ maxLimit: 50 }),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateHistory" },
 		detail: {
 			description: "Installs and rollbacks of the server and the web UI, newest first, with their status and error if they failed.",

@@ -7,10 +7,9 @@ import type {
 	SidecarWriteResult,
 } from "@/modules/metadata-sidecars/sidecar.types";
 import { writeXmlDocument, writeXmlIfChanged } from "@/modules/metadata-sidecars/xml/xml.writer";
-import { assertXmlDocumentSize, readXmlDocument, type XmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
+import { loadXmlDocumentFile } from "@/modules/metadata-sidecars/xml/xml-document.reader";
 import { readXmlObject, readXmlText } from "@/modules/metadata-sidecars/xml/xml-value.reader";
-import { FileUtils, readFile } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getFileName } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
 
 const SNAPSHOT_VERSION = 1;
@@ -20,16 +19,11 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	readonly capabilities = ["read", "write"] as const;
 
 	canRead({ documentPath }: SidecarFormatInput): Promise<boolean> {
-		return Promise.resolve(PathUtils.getFileName(documentPath).toLowerCase().endsWith(".reelvault.nfo"));
+		return Promise.resolve(getFileName(documentPath).toLowerCase().endsWith(".reelvault.nfo"));
 	}
 
 	async read({ documentPath }: SidecarFormatInput): Promise<CanonicalSidecarDocument | null> {
-		assertXmlDocumentSize(documentPath, FileUtils.getSize(documentPath));
-		const source = await readFile(documentPath, "utf8").catch(() => null);
-		let document: XmlDocument | null = null;
-		if (source) {
-			document = await readXmlDocument(source);
-		}
+		const document = await loadXmlDocumentFile(documentPath);
 		const root = document ? readXmlObject(document, "reelvault") : undefined;
 		const snapshot = root ? parseSnapshot(readXmlText(root, "snapshot")) : undefined;
 		if (!snapshot) return null;
@@ -77,7 +71,7 @@ function parseSnapshot(value: string | undefined): SidecarSnapshotDocument | und
 }
 
 function getMediaKind(documentPath: string): "movie" | "series" | "episode" {
-	const name = PathUtils.getFileName(documentPath).toLowerCase();
+	const name = getFileName(documentPath).toLowerCase();
 	if (name === "movie.reelvault.nfo") return "movie";
 
 	if (name === "tvshow.reelvault.nfo") return "series";

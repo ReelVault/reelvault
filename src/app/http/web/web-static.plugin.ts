@@ -7,7 +7,7 @@ import { isWebApiPath } from "@/app/http/utils/route-classification.utils";
 import { getPathname, getRequestPathname, matchesIfNoneMatch } from "@/utils/http.utils";
 import { byteRangeResponse } from "@/utils/http-range.utils";
 import { contentTypeForPath, MIME_TYPES } from "@/utils/mime.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getExtension } from "@/utils/path.utils";
 import { resolveWebDistRoot } from "../../../system/web-dist.utils";
 
 const HTML_ENTRY = "index.html";
@@ -169,7 +169,7 @@ export const webStaticPlugin = new Elysia({ name: "WebStatic" }).get("/*", async
 	// Only KNOWN servable extensions mark a path as a file request. Plugin ids
 	// contain dots ("org.example.app"), so testing for any ".suffix" would turn
 	// their SPA routes into 404s before the fallback could serve index.html.
-	const hasFileExtension = Object.hasOwn(MIME_TYPES, PathUtils.getExtension(relativePath));
+	const hasFileExtension = Object.hasOwn(MIME_TYPES, getExtension(relativePath));
 	const filePath = join(root, ...segments);
 	// A direct `/index.html` request (the PWA precache, curious users) must get the
 	// same transformed entry as the SPA fallback — without the injected API-origin

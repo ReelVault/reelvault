@@ -1,9 +1,9 @@
 import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
-import { eq, inArray, type SQL, sql } from "drizzle-orm";
-import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
+import { eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
+import type { AnySQLiteInsert, SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { hasEntry } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { forEachChunked } from "./chunking.utils";
@@ -92,6 +92,87 @@ export async function insertRowsReturning<TTable extends DatabaseTables>(
 	const query = client.insert(repository.table).values(valuesArray);
 	if (onConflict === "doNothing") {
 		return await query.onConflictDoNothing().returning();
+	}
+
+	return await query.returning();
+}
+
+/** Columns an `"inserted"` upsert must never copy back: the identity and the original creation time. */
+const UPSERT_MANAGED_COLUMNS = new Set(["id", "createdAt"]);
+
+/**
+ * Builds the conflict update set from the inserted values: every column present
+ * in the insert (except the identity and `createdAt`) takes its `excluded`
+ * value, and `updatedAt` is stamped when the table has it.
+ */
+function insertedUpdateSet<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	valuesArray: Array<TableInsertValue<TTable>>,
+): Record<string, SQL | Date> {
+	const columns: Record<string, SQLiteColumn> = getTableColumns(repository.table);
+	const keys = new Set<string>();
+	for (const row of valuesArray) {
+		for (const key of Object.keys(row)) keys.add(key);
+	}
+
+	const set: Record<string, SQL | Date> = {};
+	for (const key of keys) {
+		if (UPSERT_MANAGED_COLUMNS.has(key)) continue;
+
+		const column = columns[key];
+		if (column) set[key] = sql`excluded.${sql.identifier(column.name)}`;
+	}
+
+	if ("updatedAt" in repository.table) set.updatedAt = new Date();
+
+	if (!hasEntry(set))
+		throw new DomainError("internal", `${repository.tableName}: upsert has no column to update`, {
+			code: "table_access.upsert_set_empty",
+		});
+
+	return set;
+}
+
+/**
+ * Insert-or-update by a unique target. One implementation for every settings,
+ * schedule, preference and stable-key write; callers supply only the values,
+ * the conflict target and — when not every inserted column may change — the
+ * `set` list.
+ */
+export async function upsertRows<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	{
+		values,
+		target,
+		set = "inserted",
+		setWhere,
+		returning = false,
+		tx,
+	}: {
+		values: TableInsertValue<TTable> | Array<TableInsertValue<TTable>>;
+		target: SQLiteColumn | SQLiteColumn[];
+		set?: TableUpdateSet<TTable> | "inserted" | undefined;
+		setWhere?: SQL | undefined;
+		returning?: boolean | undefined;
+		tx?: DatabaseTransaction | undefined;
+	},
+): Promise<Array<TableSelect<TTable>>> {
+	const valuesArray = toInsertValuesArray(values);
+	if (valuesArray.length === 0) return [];
+
+	const updateSet = set === "inserted" ? insertedUpdateSet(repository, valuesArray) : set;
+	const query = databaseFactory.getClient({ tx }).insert(repository.table).values(valuesArray);
+	// A generic table is a union of every schema table here, which defeats
+	// Drizzle's conflict-set inference. Widening only for the config call keeps
+	// the public `set` typed by `TableUpdateSet<TTable>` and `returning()` typed
+	// by the concrete insert builder.
+	const configurable: AnySQLiteInsert = query;
+	configurable.onConflictDoUpdate({ target, set: updateSet, ...(setWhere ? { setWhere } : {}) });
+
+	if (!returning) {
+		await Promise.resolve(query);
+
+		return [];
 	}
 
 	return await query.returning();
@@ -200,7 +281,7 @@ export async function updateAndReturn<TTable extends DatabaseTables, F extends s
 	const [row] = await runUpdate(repository, { primaryId, values, tx }, true);
 	if (!row) return undefined;
 
-	return QueryFields.apply(row, fields);
+	return applyFields(row, fields);
 }
 
 interface DeleteParams {
@@ -258,6 +339,22 @@ export async function deleteAndReturn<TTable extends DatabaseTables>(
 	const [row] = await runDelete(repository, { primaryId, tx }, true);
 
 	return row;
+}
+
+/** Table-access wrapper around {@link updateManyFieldsById}. */
+export async function updateManyFields<TTable extends DatabaseTables>(
+	repository: TableAccessBase<TTable>,
+	params: {
+		columns: Record<string, SQLiteColumn>;
+		updates: ReadonlyArray<{ id: string; values: Record<string, string | number | null | undefined> }>;
+		touchUpdatedAt?: boolean | undefined;
+	},
+): Promise<void> {
+	await updateManyFieldsById({
+		table: repository.table,
+		primaryKeyColumn: repository.primaryKeyColumn,
+		...params,
+	});
 }
 
 /**

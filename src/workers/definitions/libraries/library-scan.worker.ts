@@ -1,22 +1,20 @@
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
 import { LIBRARY_SCAN_PRIORITY, MINUTE } from "@/config/server/server.constants";
-import { systemResourcesService } from "@/config/system-resources.service";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { scannerService } from "@/modules/scanner/scanner.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { assertFound, toDomainError } from "@/utils/domain.errors";
-import { PromiseUtils } from "@/utils/promise.utils";
 import type { ApplicationContext, TaskSchedulingOptions } from "@/utils/task-context.types";
 import { mapLibraryType } from "@/utils/type.utils";
 import type { MediaFileIngestData } from "@/workers/definitions/media/media-file-ingest/media-file-ingest.types";
 import { enqueueManyMediaFileIngest, enqueueMediaFileIngest } from "@/workers/definitions/media/media-file-ingest.worker";
 import { enqueueMediaFileRefreshBatch } from "@/workers/definitions/media/media-file-refresh-batch.service";
-import { batchChunks } from "@/workers/utils/batch-chunker.utils";
+import { enqueueInBatches } from "@/workers/utils/batch-enqueue.utils";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
-import { ENQUEUE_BATCH_SIZE } from "@/workers/worker.constants";
 import { type ScanCheckpoint, workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
@@ -106,13 +104,11 @@ export interface LibraryScanOrchestration {
 export const libraryScanWorker = createWorkerDefinition<LibraryScanData>(
 	"library-scan",
 	() => serverConfig.workers.definitions.libraryScan,
-	async ({ data, logger, signal, operationId, taskId, extendTimeout, updateProgress }) =>
-		await scanLibraryTask(
-			data,
-			{ signal, logger, operationId, correlationId: operationId, taskId, extendTimeout, updateProgress },
-			defaultDependencies,
-			{ operationId, taskId },
-		),
+	async (context) =>
+		await scanLibraryTask(context.data, toApplicationContext(context), defaultDependencies, {
+			operationId: context.operationId,
+			taskId: context.taskId,
+		}),
 );
 
 // ─── Task Function ────────────────────────────────────────────────────────────
@@ -258,21 +254,18 @@ async function reportEnqueueProgress(state: ScanEnqueueState, context: Applicati
  */
 async function enqueueInChunks<T>(plan: ChunkPlan<T>, context: ApplicationContext): Promise<void> {
 	const { items, cursor, setCursor, batch, item, persist } = plan;
-	if (batch) {
-		for (const { items: chunk, nextCursor } of batchChunks(items, ENQUEUE_BATCH_SIZE, cursor)) {
-			context.signal?.throwIfAborted();
-			await batch(chunk);
+	await enqueueInBatches({
+		items,
+		cursor,
+		batch,
+		item,
+		signal: context.signal,
+		onChunk: async (nextCursor) => {
 			setCursor(nextCursor);
 			await persist();
 			context.extendTimeout?.(ENQUEUE_CHUNK_TIMEOUT_MS);
-		}
-
-		return;
-	}
-
-	await PromiseUtils.mapConcurrent(items.slice(cursor), systemResourcesService.getIngestConcurrency(), item, context.signal);
-	setCursor(items.length);
-	await persist();
+		},
+	});
 }
 
 /** Enqueues new-file ingest work in resumable batches. */

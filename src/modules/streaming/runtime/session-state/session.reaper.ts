@@ -9,8 +9,8 @@ import type { SessionSeeker } from "@/modules/streaming/seeking/session.seeker";
 import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import type { StreamingLifecycleCallbacks } from "@/modules/streaming/streaming.types";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { detach, PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { detach, mapConcurrent } from "@/utils/promise.utils";
 import { isNullish } from "@/utils/type.utils";
 import { RESERVATION_DEADLINE_MS, type SessionStore } from "./session.store";
 import type { SessionReservationTracker } from "./session-reservation.tracker";
@@ -96,7 +96,7 @@ export class SessionReaper {
 				detach(
 					(async () => {
 						try {
-							await PromiseUtils.mapConcurrent(inactiveIds, systemResourcesService.getHeavySubprocessConcurrency(), (id) =>
+							await mapConcurrent(inactiveIds, systemResourcesService.getHeavySubprocessConcurrency(), (id) =>
 								// Re-check freshness atomically at claim time: a heartbeat that arrived
 								// after this tick must cancel the release.
 								releaseSession(id, "inactivity-timeout", (session) => Date.now() - session.lastActivity > timeout),
@@ -133,7 +133,7 @@ export class SessionReaper {
 							if (staleIds.length === 0) return;
 
 							this.logger.warn("Releasing session reservations stuck without a running process", { sessionIds: staleIds });
-							await PromiseUtils.mapConcurrent(staleIds, systemResourcesService.getHeavySubprocessConcurrency(), (id) =>
+							await mapConcurrent(staleIds, systemResourcesService.getHeavySubprocessConcurrency(), (id) =>
 								releaseSession(id, "reservation-deadline"),
 							);
 						} catch {
@@ -178,7 +178,7 @@ export class SessionReaper {
 			await Promise.all([cancelOperation, releaseProgress, killProcess]);
 			if (process) ffmpegProcessTracker.forgetStderrTail(process);
 
-			await this.processManager.removeTempDirectory(PathUtils.join(config.tempRootDir, sessionId));
+			await this.processManager.removeTempDirectory(joinPath(config.tempRootDir, sessionId));
 		} catch (error) {
 			this.logger.error("Failed to cleanup streaming session", error, { sessionId, reason, mode: session?.mode });
 		} finally {
@@ -230,7 +230,7 @@ export class SessionReaper {
 
 		this.seeker.cancelAll("Streaming system is shutting down");
 
-		await PromiseUtils.mapConcurrent(
+		await mapConcurrent(
 			this.store.values().map((session) => session.id),
 			systemResourcesService.getHeavySubprocessConcurrency(),
 			(sessionId) => releaseSession(sessionId, "shutdown"),

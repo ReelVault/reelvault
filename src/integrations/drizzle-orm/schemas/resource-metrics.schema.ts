@@ -1,10 +1,10 @@
 import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 export const resourceMetrics = sqliteTable(
 	"resource_metrics",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 
 		// CPU
 		cpuUsedPercent: real("cpu_used_percent").notNull(),
@@ -30,7 +30,7 @@ export const resourceMetrics = sqliteTable(
 		// Retention
 		retentionUntil: integer("retention_until", { mode: "timestamp" }).notNull(),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		index("resource_metrics_retention_idx").on(table.retentionUntil),

@@ -11,21 +11,33 @@ import type {
 	UpdateCollection,
 } from "@reelvault/sdk/common";
 import type { ProviderResultCollection } from "@reelvault/sdk/plugin";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { serverConstants } from "@/config/server/server.constants";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
-import { type QueryMap, QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
-import { QuerySorting } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
+import { createPageResponse } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { applyFields, includesField } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import {
+	buildOrderBy,
+	buildWhereConditions,
+	parseStandardQuery,
+	parseWithFilters,
+	type QueryMap,
+	resolveSortOrder,
+} from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { withTiebreaker } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
 import { cachedCount, filterSignature } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
-import { defineTableAccess, parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import {
+	defineRepository,
+	defineTableAccess,
+	parseFieldsForRead,
+} from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
+import { loadNamedRelation } from "@/integrations/drizzle-orm/utils/named-relation.reader";
 import { processNamedEntities, upsertNamedEntities } from "@/integrations/drizzle-orm/utils/provider-entity-sync.writer";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
@@ -48,7 +60,7 @@ const collectionProviders = defineTableAccess("collectionProviders", {
 
 const collectionQueryMap: QueryMap<CollectionFilters, CollectionSorting> = {
 	filters: {
-		name: (value: string) => QueryFiltering.like(schema.collections.name, value),
+		name: (value: string) => filterLike(schema.collections.name, value),
 		minItems: () => {
 			/* intentionally empty */
 		},
@@ -61,38 +73,17 @@ const collectionQueryMap: QueryMap<CollectionFilters, CollectionSorting> = {
 	defaults: { sortBy: "name", sortOrder: "asc" },
 };
 
-class CollectionsRepository {
-	readonly table = schema.collections;
-	readonly primaryKeyColumn = collections.primaryKeyColumn;
-	readonly query = collections.query;
-	readonly selectMany = collections.selectMany;
-	readonly selectFirst = collections.selectFirst;
-	readonly selectFirstById = collections.selectFirstById;
-	readonly findOrCreate = collections.findOrCreate;
-	readonly insert = collections.insert;
-	readonly update = collections.update;
-	readonly count = collections.count;
-	readonly isExists = collections.isExists;
-	readonly delete = collections.delete;
-	readonly insertReturning = collections.insertReturning;
-	readonly updateReturning = collections.updateReturning;
-	readonly updateAndReturn = collections.updateAndReturn;
-	readonly deleteReturning = collections.deleteReturning;
-	readonly deleteAndReturn = collections.deleteAndReturn;
-	readonly findByIds = collections.findByIds;
-	readonly findByColumnIn = collections.findByColumnIn;
-	readonly insertProviders = collectionProviders.insert;
-
+const overrides = {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & CollectionFilters & CollectionSorting,
 	): Promise<PaginatedResponse<SelectFields<CollectionWithRelations, F>>> {
-		const { pagination, fields, filters, sorting } = QueryUtils.parseWithFilters<F, CollectionFilters, CollectionSorting>(query);
-		const where = QueryUtils.buildWhereConditions(filters, collectionQueryMap.filters);
-		const baseOrderBy = QueryUtils.buildOrderBy(sorting, collectionQueryMap.orderBy, collectionQueryMap.defaults);
+		const { pagination, fields, filters, sorting } = parseWithFilters<F, CollectionFilters, CollectionSorting>(query);
+		const where = buildWhereConditions(filters, collectionQueryMap.filters);
+		const baseOrderBy = buildOrderBy(sorting, collectionQueryMap.orderBy, collectionQueryMap.defaults);
 		// Tiebreaker keeps offset pagination deterministic for non-unique keys.
 		let orderBy: typeof baseOrderBy | undefined;
 		if (baseOrderBy) {
-			orderBy = QuerySorting.withTiebreaker(baseOrderBy, this.table.id, QueryUtils.resolveSortOrder(sorting, collectionQueryMap.defaults));
+			orderBy = withTiebreaker(baseOrderBy, collections.table.id, resolveSortOrder(sorting, collectionQueryMap.defaults));
 		}
 		const minItems = filters?.minItems ?? systemSettingsStore.get("collections.minimalToShow");
 
@@ -104,9 +95,9 @@ class CollectionsRepository {
 		// response-body cache and every page would otherwise re-run the group-by.
 		const [total, pageRows] = await Promise.all([
 			cachedCount("collections", { filters: filterSignature(filters, collectionQueryMap.filters), minItems }, () =>
-				this.countWithMinimumMetadata({ where, minItems }),
+				countQualifyingCollections({ where, minItems }),
 			),
-			this.findPageRowsWithMinimumMetadata({
+			findQualifyingCollectionRows({
 				where,
 				minItems,
 				orderBy,
@@ -114,42 +105,40 @@ class CollectionsRepository {
 				offset: pagination.offset,
 			}),
 		]);
-		if (total === 0) return QueryPagination.createResponse({ total: 0, pagination, data: [] });
-		if (pageRows.length === 0) return QueryPagination.createResponse({ total, pagination, data: [] });
+		if (total === 0) return createPageResponse({ total: 0, pagination, data: [] });
+		if (pageRows.length === 0) return createPageResponse({ total, pagination, data: [] });
 
 		// The page query already ordered/limited the rows, so they hydrate directly
 		// instead of being re-read by id through findMany (one statement less).
-		const data = await this.hydrateRelations(pageRows, fields);
+		const data = await hydrateRelations(pageRows, fields);
 
-		return QueryPagination.createResponse({ total, pagination, data });
-	}
+		return createPageResponse({ total, pagination, data });
+	},
 
 	async findByIdForRead<F extends string>(collectionId: string, query?: FieldsQuery<F>) {
-		return await this.findById({ primaryId: collectionId, fields: parseFieldsForRead(query) });
-	}
+		return await getCollectionRepository().findById({ primaryId: collectionId, fields: parseFieldsForRead(query) });
+	},
 
 	async findByName(name: string) {
-		return await this.selectFirst({ where: eq(this.table.name, name) });
-	}
+		return await collections.selectFirst({ where: eq(collections.table.name, name) });
+	},
 
 	async createAndRead<F extends string>(
 		body: CreateCollection,
 		query?: FieldsQuery<F>,
 	): Promise<SelectFields<CollectionWithRelations, F> | undefined> {
-		const { fields } = QueryUtils.parseStandard(query);
-		const collection = await this.findOrCreateByName({ name: body.name, values: body });
+		const { fields } = parseStandardQuery(query);
+		const collection = await getCollectionRepository().findOrCreateByName({ name: body.name, values: body });
 		if (!collection) return undefined;
 
 		const loadRelations =
-			QueryFields.includes(fields, "providers") ||
-			QueryFields.includes(fields, "metadataCount") ||
-			QueryFields.includes(fields, "posterImages");
+			includesField(fields, "providers") || includesField(fields, "metadataCount") || includesField(fields, "posterImages");
 
 		if (loadRelations) {
-			return await this.findById({ primaryId: collection.id, fields });
+			return await getCollectionRepository().findById({ primaryId: collection.id, fields });
 		}
 
-		return QueryFields.apply<CollectionWithRelations, F>(
+		return applyFields<CollectionWithRelations, F>(
 			{
 				...collection,
 				providers: [],
@@ -158,52 +147,21 @@ class CollectionsRepository {
 			},
 			fields,
 		);
-	}
+	},
 
 	async updateAndRead<F extends string>(
 		collectionId: string,
 		body: UpdateCollection,
 		query?: FieldsQuery<F>,
 	): Promise<SelectFields<CollectionWithRelations, F> | undefined> {
-		const { fields } = QueryUtils.parseStandard(query);
-		const [collection] = await this.updateReturning({ primaryId: collectionId, values: body });
+		const { fields } = parseStandardQuery(query);
+		const [collection] = await collections.updateReturning({ primaryId: collectionId, values: body });
 		if (!collection) return undefined;
 
-		const [hydrated] = await this.hydrateRelations([collection], fields);
+		const [hydrated] = await hydrateRelations([collection], fields);
 
 		return hydrated;
-	}
-
-	private async hydrateRelations<F extends string>(
-		items: Array<typeof schema.collections.$inferSelect>,
-		fields?: FieldsConfig<F>,
-		tx?: DatabaseTransaction,
-	): Promise<Array<SelectFields<CollectionWithRelations, F>>> {
-		const ids = items.map((c) => c.id);
-		const [providersByCollectionId, metadataByCollectionId] = await Promise.all([
-			QueryFields.includes(fields, "providers")
-				? this.loadProviders(ids, tx)
-				: new Map<string, Array<typeof schema.providers.$inferSelect>>(),
-			loadMetadataPreviews(ids, tx, {
-				withCounts: QueryFields.includes(fields, "metadataCount"),
-				withPosters: QueryFields.includes(fields, "posterImages"),
-			}),
-		]);
-
-		return items.map((item) => {
-			const meta = metadataByCollectionId.get(item.id);
-
-			return QueryFields.apply<CollectionWithRelations, F>(
-				{
-					...item,
-					providers: providersByCollectionId.get(item.id) ?? [],
-					metadataCount: meta?.count ?? 0,
-					posterImages: meta?.posterImages ?? [],
-				},
-				fields,
-			);
-		});
-	}
+	},
 
 	/**
 	 * Get all collections with pagination
@@ -216,25 +174,25 @@ class CollectionsRepository {
 		offset,
 		tx,
 	}: ProjectedSelectParams<F>): Promise<Array<SelectFields<CollectionWithRelations, F>>> {
-		const data = await this.selectMany({ where, orderBy, limit, offset, tx });
+		const data = await collections.selectMany({ where, orderBy, limit, offset, tx });
 
-		return this.hydrateRelations(data, fields, tx);
-	}
+		return hydrateRelations(data, fields, tx);
+	},
 
 	/** Total collections meeting the `minItems` threshold. */
 	async countWithMinimumMetadata(scope: QualifyingScope): Promise<number> {
 		return await countQualifyingCollections(scope);
-	}
+	},
 
 	/** Ordered page of qualifying collection ids. */
 	async findPageIdsWithMinimumMetadata(page: QualifyingPage): Promise<string[]> {
 		return await findQualifyingCollectionIds(page);
-	}
+	},
 
 	/** Ordered page of qualifying collection rows. */
 	async findPageRowsWithMinimumMetadata(page: QualifyingPage) {
 		return await findQualifyingCollectionRows(page);
-	}
+	},
 
 	/**
 	 * Get a single collection by ID
@@ -248,21 +206,21 @@ class CollectionsRepository {
 		fields: FieldsConfig<F>;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<CollectionWithRelations, F> | undefined> {
-		const collection = await this.selectFirstById({ primaryId, tx });
+		const collection = await collections.selectFirstById({ primaryId, tx });
 		if (!collection) return undefined;
 
-		const [hydrated] = await this.hydrateRelations([collection], fields, tx);
+		const [hydrated] = await hydrateRelations([collection], fields, tx);
 
 		return hydrated;
-	}
+	},
 
 	async findOrCreateByName({ name, values, tx }: { name: string; values: CreateCollection; tx?: DatabaseTransaction }) {
-		return await this.findOrCreate({
-			where: eq(this.table.name, name),
+		return await collections.findOrCreate({
+			where: eq(collections.table.name, name),
 			values: { ...values, stableKey: createLocalStableKey({ namespace: "collection", value: name }) },
 			tx,
 		});
-	}
+	},
 
 	/**
 	 * Persist a manually configured ordering of metadata items within a collection.
@@ -285,7 +243,7 @@ class CollectionsRepository {
 					.where(and(eq(schema.metadataCollections.collectionId, collectionId), inArray(schema.metadataCollections.metadataId, idChunk)));
 			}
 		});
-	}
+	},
 
 	/**
 	 * Process collection for metadata (link metadata to collection)
@@ -308,13 +266,13 @@ class CollectionsRepository {
 			entityLabel: "collections",
 			tx,
 			context: { metadataId },
-			insertEntities: async (items) => await upsertNamedEntities(this.table, items, tx),
-			selectEntities: async (names) => await this.findByColumnIn(this.table.name, names, { tx }),
+			insertEntities: async (items) => await upsertNamedEntities(collections.table, items, tx),
+			selectEntities: async (names) => await collections.findByColumnIn(collections.table.name, names, { tx }),
 			persistAssociations: async (associations) => {
 				const uniqueEntityIds = unique(associations, ({ entityId }) => entityId);
-				const nextSortOrders = await this.nextManualSortOrders(uniqueEntityIds, tx);
+				const nextSortOrders = await nextManualSortOrders(uniqueEntityIds, tx);
 				await Promise.all([
-					this.insertProviders({
+					collectionProviders.insert({
 						values: associations.flatMap(({ entityId, providerId }) => (providerId ? [{ collectionId: entityId, providerId }] : [])),
 						tx,
 					}),
@@ -329,47 +287,82 @@ class CollectionsRepository {
 				]);
 			},
 		});
-	}
+	},
+};
 
-	private async nextManualSortOrders(collectionIds: string[], tx?: DatabaseTransaction): Promise<Map<string, number>> {
-		if (collectionIds.length === 0) return new Map();
+export const collectionRepository = defineRepository(collections, overrides);
 
-		const client = databaseFactory.getClient({ tx });
-		const rows = await client
-			.select({
-				collectionId: schema.metadataCollections.collectionId,
-				maxSortOrder: sql<number>`MAX(${schema.metadataCollections.sortOrder})`,
-			})
-			.from(schema.metadataCollections)
-			.where(inArray(schema.metadataCollections.collectionId, collectionIds))
-			.groupBy(schema.metadataCollections.collectionId);
-
-		return toMap(
-			rows,
-			(row) => row.collectionId,
-			(row) => row.maxSortOrder + 1,
-		);
-	}
-
-	private async loadProviders(
-		collectionIds: string[],
-		tx?: DatabaseTransaction,
-	): Promise<Map<string, Array<typeof schema.providers.$inferSelect>>> {
-		if (collectionIds.length === 0) return new Map();
-
-		const rows = await databaseFactory
-			.getClient({ tx })
-			.select({ collectionId: schema.collectionProviders.collectionId, provider: schema.providers })
-			.from(schema.collectionProviders)
-			.innerJoin(schema.providers, eq(schema.providers.id, schema.collectionProviders.providerId))
-			.where(inArray(schema.collectionProviders.collectionId, collectionIds));
-
-		return groupBy(
-			rows,
-			(row) => row.collectionId,
-			(row) => row.provider,
-		);
-	}
+/** Methods dispatch through the singleton: the lint rule forbids referencing the const before its definition. */
+function getCollectionRepository() {
+	return collectionRepository;
 }
 
-export const collectionRepository = new CollectionsRepository();
+async function hydrateRelations<F extends string>(
+	items: Array<typeof schema.collections.$inferSelect>,
+	fields?: FieldsConfig<F>,
+	tx?: DatabaseTransaction,
+): Promise<Array<SelectFields<CollectionWithRelations, F>>> {
+	const ids = items.map((c) => c.id);
+	const [providersByCollectionId, metadataByCollectionId] = await Promise.all([
+		includesField(fields, "providers") ? loadProviders(ids, tx) : new Map<string, Array<typeof schema.providers.$inferSelect>>(),
+		loadMetadataPreviews(ids, tx, {
+			withCounts: includesField(fields, "metadataCount"),
+			withPosters: includesField(fields, "posterImages"),
+		}),
+	]);
+
+	return items.map((item) => {
+		const meta = metadataByCollectionId.get(item.id);
+
+		return applyFields<CollectionWithRelations, F>(
+			{
+				...item,
+				providers: providersByCollectionId.get(item.id) ?? [],
+				metadataCount: meta?.count ?? 0,
+				posterImages: meta?.posterImages ?? [],
+			},
+			fields,
+		);
+	});
+}
+
+async function nextManualSortOrders(collectionIds: string[], tx?: DatabaseTransaction): Promise<Map<string, number>> {
+	if (collectionIds.length === 0) return new Map();
+
+	const client = databaseFactory.getClient({ tx });
+	const rows = await client
+		.select({
+			collectionId: schema.metadataCollections.collectionId,
+			maxSortOrder: sql<number>`MAX(${schema.metadataCollections.sortOrder})`,
+		})
+		.from(schema.metadataCollections)
+		.where(inArray(schema.metadataCollections.collectionId, collectionIds))
+		.groupBy(schema.metadataCollections.collectionId);
+
+	return toMap(
+		rows,
+		(row) => row.collectionId,
+		(row) => row.maxSortOrder + 1,
+	);
+}
+
+async function loadProviders(
+	collectionIds: string[],
+	tx?: DatabaseTransaction,
+): Promise<Map<string, Array<typeof schema.providers.$inferSelect>>> {
+	if (collectionIds.length === 0) return new Map();
+
+	const rows = await loadNamedRelation(databaseFactory.getClient({ tx }), collectionIds, {
+		metadataId: schema.collectionProviders.collectionId,
+		junctionTable: schema.collectionProviders,
+		entityColumn: schema.collectionProviders.providerId,
+		entityTable: schema.providers,
+		data: getTableColumns(schema.providers),
+	});
+
+	return groupBy(
+		rows,
+		(row) => row.metadataId,
+		(row) => row.data,
+	);
+}

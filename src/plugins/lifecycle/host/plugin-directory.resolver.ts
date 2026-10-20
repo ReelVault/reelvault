@@ -1,8 +1,8 @@
 import type { PluginLockfile } from "@/plugins/lifecycle/installer/lockfile.store";
-import { loadPluginManifest } from "@/plugins/lifecycle/plugin.manifest";
-import { DirUtils } from "@/utils/directory.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { directoryExists } from "@/utils/directory.utils";
+import { getFileName, joinPath } from "@/utils/path.utils";
 import { isPluginDirectoryName } from "./plugin-directory.indexer";
+import { readPluginManifests } from "./plugin-directory.reader";
 
 /**
  * The directory a plugin id lives in.
@@ -24,21 +24,14 @@ export async function resolvePluginDirectoryName(
 	if (
 		record &&
 		isPluginDirectoryName(record.directory) &&
-		PathUtils.getFileName(record.directory) === record.directory &&
-		(await DirUtils.exists(PathUtils.join(pluginsDirectory, record.directory)))
+		getFileName(record.directory) === record.directory &&
+		(await directoryExists(joinPath(pluginsDirectory, record.directory)))
 	) {
 		return record.directory;
 	}
 
-	for (const dirName of await DirUtils.listDirs(pluginsDirectory)) {
-		if (!isPluginDirectoryName(dirName)) continue;
-
-		try {
-			const manifest = await loadPluginManifest(PathUtils.join(pluginsDirectory, dirName));
-			if (manifest.id === pluginId) return dirName;
-		} catch {
-			// Not a loadable plugin directory — ignore.
-		}
+	for await (const { directoryName, manifest } of readPluginManifests(pluginsDirectory)) {
+		if (manifest.id === pluginId) return directoryName;
 	}
 
 	return undefined;

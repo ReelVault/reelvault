@@ -1,7 +1,7 @@
 import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { createLogger } from "@/utils/logger.utils";
-import { detach } from "@/utils/promise.utils";
+import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { workerDependencies } from "@/workers/worker.ports";
 import { getWorkerRuntime } from "./worker.runtime";
 
@@ -18,8 +18,14 @@ export class WorkerWatchdogService {
 	readonly serviceName = "WorkerWatchdogService";
 	readonly logger = createLogger("WorkerWatchdogService");
 
-	private timer: Timer | undefined;
-	private recoveryTimer: Timer | undefined;
+	private readonly checkTimer = new RecurringTimer(() => this.checkHealth(), DEFAULT_WATCHDOG_INTERVAL_MS);
+	private readonly recoveryTimer = new RecurringTimer(async () => {
+		try {
+			await this.recoverOrphaned();
+		} catch {
+			// Orphan recovery is fire-and-forget; failures are logged inside.
+		}
+	}, MINUTE);
 	private getLastPollAtFn: () => number = () => Date.now();
 	private onStallDetectedFn: () => void = () => {
 		// intentionally empty
@@ -45,42 +51,18 @@ export class WorkerWatchdogService {
 	}
 
 	start(): void {
-		if (this.timer) return;
+		if (this.checkTimer.running) return;
 
-		const checkInterval = DEFAULT_WATCHDOG_INTERVAL_MS;
+		this.checkTimer.start();
+		// Periodically recover orphaned running jobs.
+		this.recoveryTimer.start();
 
-		this.timer = setInterval(() => {
-			this.checkHealth();
-		}, checkInterval);
-		this.timer.unref();
-
-		// Periodically recover orphaned running jobs
-		this.recoveryTimer = setInterval(() => {
-			detach(
-				(async () => {
-					try {
-						await this.recoverOrphaned();
-					} catch {
-						// Orphan recovery is fire-and-forget; failures are logged inside.
-					}
-				})(),
-			);
-		}, MINUTE);
-		this.recoveryTimer.unref();
-
-		this.logger.info("Worker watchdog started", { checkIntervalMs: checkInterval });
+		this.logger.info("Worker watchdog started", { checkIntervalMs: DEFAULT_WATCHDOG_INTERVAL_MS });
 	}
 
 	stop(): void {
-		if (this.timer) {
-			clearInterval(this.timer);
-			this.timer = undefined;
-		}
-
-		if (this.recoveryTimer) {
-			clearInterval(this.recoveryTimer);
-			this.recoveryTimer = undefined;
-		}
+		this.checkTimer.stop();
+		this.recoveryTimer.stop();
 
 		this.logger.info("Worker watchdog stopped");
 	}
@@ -150,7 +132,7 @@ export class WorkerWatchdogService {
 			elapsedSinceLastPollMs: Date.now() - lastPollAt,
 			lastPollAt: new Date(lastPollAt).toISOString(),
 			restarts: this.restarts,
-			running: Boolean(this.timer),
+			running: this.checkTimer.running,
 			recoveredJobs: this.recoveredJobs,
 			...(this.lastRecoveredAt ? { lastRecoveredAt: this.lastRecoveredAt.toISOString() } : {}),
 		};

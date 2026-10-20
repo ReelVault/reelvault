@@ -1,11 +1,11 @@
 import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { createProviderJunction } from "@/integrations/drizzle-orm/utils/junction.utils";
 
 export const collections = sqliteTable(
 	"collections",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		stableKey: text("stable_key").notNull(),
 
 		name: text("name").notNull(),
@@ -14,7 +14,7 @@ export const collections = sqliteTable(
 			.notNull()
 			.default("release_date"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [uniqueIndex("collections_unique").on(t.name), uniqueIndex("collections_stable_key_idx").on(t.stableKey)],
 );

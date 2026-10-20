@@ -1,23 +1,22 @@
 import { serverConfig } from "@/config/server/server.config";
 import { type StreamInitData, streamInitializer } from "@/modules/streaming/runtime/stream.initializer";
-import { workerService } from "@/workers/worker.service";
-import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
+import { createWorkerDefinition } from "@/workers/worker.types";
 
 // ─── Worker Definition ────────────────────────────────────────────────────────
 
 export const streamInitWorker = createWorkerDefinition<StreamInitData>(
 	"stream-init",
 	() => serverConfig.workers.definitions.streamInitialization,
-	async ({ data, logger, signal, operationId, taskId }) =>
-		await streamInitializer.initialize(data, { signal, logger, operationId, correlationId: operationId, taskId }),
+	async (context) => await streamInitializer.initialize(context.data, toApplicationContext(context)),
 );
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
-export function enqueueStreamInit(data: StreamInitData, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(streamInitWorker.id, data, {
-		...options,
-		dedupeKey: data.sessionId,
-		reference: { type: "media-file", id: data.mediaFileId },
-	});
-}
+const streamInitEnqueue = defineWorkerEnqueue<StreamInitData>(streamInitWorker.id, (data) => ({
+	dedupeKey: data.sessionId,
+	reference: { type: "media-file", id: data.mediaFileId },
+}));
+
+export const enqueueStreamInit = streamInitEnqueue.enqueue;

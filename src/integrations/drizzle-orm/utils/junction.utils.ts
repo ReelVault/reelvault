@@ -13,11 +13,11 @@ import {
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { providers } from "@/integrations/drizzle-orm/schemas/providers.schema";
 import { DomainError } from "@/utils/domain.errors";
-import { DatabaseHelper } from "../query/database-helper.utils";
 
-type JunctionEntityColumn = ReturnType<typeof DatabaseHelper.tableRef>;
+type JunctionEntityColumn = ReturnType<typeof tableRef>;
 
 /** Typed view of a junction table: the entity column keeps its literal key so relations stay precise. */
 type JunctionTable<TColumns extends Record<string, JunctionEntityColumn>> = SQLiteTableWithColumns<{
@@ -29,8 +29,8 @@ type JunctionTable<TColumns extends Record<string, JunctionEntityColumn>> = SQLi
 
 function providerJunctionColumns(entityIdColumn: string, entityIdRef: () => AnySQLiteColumn) {
 	return {
-		[entityIdColumn]: DatabaseHelper.tableRef(entityIdColumn, entityIdRef, { onDelete: "cascade" }),
-		providerId: DatabaseHelper.tableRef("provider_id", () => providers.id, { onDelete: "cascade" }),
+		[entityIdColumn]: tableRef(entityIdColumn, entityIdRef, { onDelete: "cascade" }),
+		providerId: tableRef("provider_id", () => providers.id, { onDelete: "cascade" }),
 	};
 }
 
@@ -112,7 +112,7 @@ export function createRatingsJunction<TEntityIdColumn extends string>(
 	entityIdRef: () => AnySQLiteColumn,
 ): RatingsJunctionTable<TEntityIdColumn> {
 	const entityEntries: Record<string, RatingsEntityBuilder> = {
-		[entityIdColumn]: DatabaseHelper.tableRef(entityIdColumnName, entityIdRef, { onDelete: "cascade" }),
+		[entityIdColumn]: tableRef(entityIdColumnName, entityIdRef, { onDelete: "cascade" }),
 	};
 	const columns: RatingsJunctionColumns<TEntityIdColumn> = Object.assign(entityEntries, {
 		source: ratingsSourceColumn(),
@@ -137,10 +137,10 @@ export function createRatingsJunction<TEntityIdColumn extends string>(
 }
 
 type ProfileMetadataLinkColumns = {
-	id: typeof DatabaseHelper.id;
-	profileId: ReturnType<typeof DatabaseHelper.tableRef>;
-	metadataId: ReturnType<typeof DatabaseHelper.tableRef>;
-} & typeof DatabaseHelper.timestamps;
+	id: typeof idColumn;
+	profileId: ReturnType<typeof tableRef>;
+	metadataId: ReturnType<typeof tableRef>;
+} & typeof timestampColumns;
 
 /**
  * Profile↔metadata link table (id, cascade FKs to both entities, timestamps)
@@ -157,11 +157,11 @@ export function createProfileMetadataLink<TExtraColumns extends Record<string, C
 	return sqliteTable(
 		tableName,
 		{
-			id: DatabaseHelper.id,
-			profileId: DatabaseHelper.tableRef("profile_id", refs.profileId, { onDelete: "cascade" }),
-			metadataId: DatabaseHelper.tableRef("metadata_id", refs.metadataId, { onDelete: "cascade" }),
+			id: idColumn,
+			profileId: tableRef("profile_id", refs.profileId, { onDelete: "cascade" }),
+			metadataId: tableRef("metadata_id", refs.metadataId, { onDelete: "cascade" }),
 			...extraColumns,
-			...DatabaseHelper.timestamps,
+			...timestampColumns,
 		},
 		(t) => [
 			uniqueIndex(`${tableName}_unique`).on(t.profileId, t.metadataId),
@@ -202,8 +202,8 @@ export function createMetadataEntityJunction(
 	metadataIdRef: () => AnySQLiteColumn,
 ) {
 	const columns = {
-		metadataId: DatabaseHelper.tableRef("metadata_id", metadataIdRef, { onDelete: "cascade" }),
-		[entityIdColumn]: DatabaseHelper.tableRef(entityIdColumnName, entityIdRef, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", metadataIdRef, { onDelete: "cascade" }),
+		[entityIdColumn]: tableRef(entityIdColumnName, entityIdRef, { onDelete: "cascade" }),
 	};
 
 	return sqliteTable(tableName, columns, (t) => {

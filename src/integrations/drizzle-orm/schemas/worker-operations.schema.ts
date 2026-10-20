@@ -1,10 +1,10 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 export const workerOperations = sqliteTable(
 	"worker_operations",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		type: text("type").notNull(),
 		status: text("status", { enum: ["pending", "running", "completed", "failed", "cancelled"] })
 			.notNull()
@@ -23,7 +23,7 @@ export const workerOperations = sqliteTable(
 		startedAt: integer("started_at", { mode: "timestamp" }),
 		completedAt: integer("completed_at", { mode: "timestamp" }),
 		retentionUntil: integer("retention_until", { mode: "timestamp" }),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		// status-only lookups are served by the (status, createdAt) composite.

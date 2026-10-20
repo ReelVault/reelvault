@@ -2,9 +2,9 @@ import type { AdminProcessesResponse } from "@reelvault/sdk/common";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { createLogger } from "@/utils/logger.utils";
 
-class AdminProcessesService {
-	readonly serviceName = "AdminProcessesService";
-	readonly logger = createLogger("AdminProcessesService");
+export const adminProcessesService = {
+	serviceName: "AdminProcessesService",
+	logger: createLogger("AdminProcessesService"),
 
 	/** Point-in-time snapshot of every live child process (ffmpeg/ffprobe). */
 	getProcesses(): AdminProcessesResponse {
@@ -18,7 +18,5 @@ class AdminProcessesService {
 				runtimeMs: snapshot.runtimeMs,
 			})),
 		};
-	}
-}
-
-export const adminProcessesService = new AdminProcessesService();
+	},
+};

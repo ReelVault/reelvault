@@ -5,7 +5,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { clearCountCache } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
 import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory } from "@/utils/directory.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -111,7 +111,7 @@ test("update drops the cached content info, so the next read sees the stored for
 
 test("update that replaces the source deletes the previous external file", async () => {
 	const mediaFileId = await seedMovie();
-	await DirUtils.create(serverConfig.paths.subtitles);
+	await createDirectory(serverConfig.paths.subtitles);
 	const oldPath = join(serverConfig.paths.subtitles, "replaced-old.vtt");
 	await Bun.write(oldPath, "WEBVTT\n");
 	await db
@@ -144,7 +144,7 @@ test("delete removes the row and its extracted VTT cache", async () => {
 		.client()
 		.insert(schema.subtitles)
 		.values({ id: "sub-1", mediaFileId, language: "pl", format: "vtt", type: "external", filePath: "/data/subtitles/movie.pl.vtt" });
-	await DirUtils.create(serverConfig.paths.subtitles);
+	await createDirectory(serverConfig.paths.subtitles);
 	const vttPath = subtitleVttPath(serverConfig.paths.subtitles, "sub-1");
 	await Bun.write(vttPath, "WEBVTT\n");
 

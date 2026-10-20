@@ -1,4 +1,4 @@
-import { PathUtils } from "@/utils/path.utils";
+import { normalizePath, resolvePath } from "@/utils/path.utils";
 
 export function filterPathsWithinRoots(filePaths: string[], roots: string[]): string[] {
 	if (filePaths.length === 0 || roots.length === 0) return [];
@@ -6,13 +6,13 @@ export function filterPathsWithinRoots(filePaths: string[], roots: string[]): st
 	const resolvedRoots = roots.map((root) => {
 		// Normalize to forward slashes: on Windows a resolved root uses `\`, which
 		// would never prefix-match a resolved file path in this comparison.
-		const resolved = PathUtils.normalize(PathUtils.resolve(root));
+		const resolved = normalizePath(resolvePath(root));
 
 		return resolved.endsWith("/") ? resolved : `${resolved}/`;
 	});
 
 	return filePaths.filter((filePath) => {
-		const resolved = PathUtils.normalize(PathUtils.resolve(filePath));
+		const resolved = normalizePath(resolvePath(filePath));
 
 		return resolvedRoots.some((prefix) => resolved.startsWith(prefix));
 	});

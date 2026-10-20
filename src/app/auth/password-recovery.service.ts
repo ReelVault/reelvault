@@ -14,16 +14,16 @@ const MAX_PASSWORD_LENGTH = 128;
  * resets a password (and optionally two-factor) from the command line, with filesystem access
  * to the database as the proof of authority. Every existing session of the user is revoked.
  */
-class PasswordRecoveryService {
-	readonly serviceName = "PasswordRecoveryService";
-	readonly logger = createLogger("PasswordRecoveryService");
+export const passwordRecoveryService = {
+	serviceName: "PasswordRecoveryService",
+	logger: createLogger("PasswordRecoveryService"),
 
 	async resetPassword(input: {
 		email: string;
 		newPassword: string;
 		disableTwoFactor?: boolean;
 	}): Promise<{ userId: string; email: string }> {
-		return await runSafely(this, "resetPassword", async () => {
+		return await runSafely(passwordRecoveryService, "resetPassword", async () => {
 			if (input.newPassword.length < MIN_PASSWORD_LENGTH || input.newPassword.length > MAX_PASSWORD_LENGTH) {
 				throw new DomainError("validation", `Password must be ${MIN_PASSWORD_LENGTH}-${MAX_PASSWORD_LENGTH} characters`, {
 					code: "auth.weak_password",
@@ -45,7 +45,5 @@ class PasswordRecoveryService {
 
 			return { userId: user.id, email: user.email };
 		});
-	}
-}
-
-export const passwordRecoveryService = new PasswordRecoveryService();
+	},
+};

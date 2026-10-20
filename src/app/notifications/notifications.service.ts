@@ -6,7 +6,7 @@ import { profilesRepository } from "@/app/repositories/profiles.repository";
 import { usersRepository } from "@/app/repositories/users.repository";
 import { watchlistRepository } from "@/app/repositories/watchlist.repository";
 import { serverConfig } from "@/config/server/server.config";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import {
 	dispatchNotificationToChannels,
@@ -164,7 +164,7 @@ class NotificationsService {
 	): Promise<PaginatedResponse<Notification>> {
 		return await runSafely(this, "getPage", async () => {
 			assertUserId(userId);
-			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 25, maxLimit: 100 });
+			const pagination = resolvePageParams(query, { defaultLimit: 25, maxLimit: 100 });
 			const result = await notificationsRepository.findPageForRecipient({
 				userId,
 				profileId,
@@ -175,7 +175,7 @@ class NotificationsService {
 				offset: pagination.offset,
 			});
 
-			return QueryPagination.createResponse({ total: result.total, pagination, data: result.data });
+			return createPageResponse({ total: result.total, pagination, data: result.data });
 		});
 	}
 

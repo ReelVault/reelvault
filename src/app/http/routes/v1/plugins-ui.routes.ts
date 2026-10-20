@@ -7,9 +7,9 @@ import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { fileExists } from "@/utils/file.utils";
 import { contentTypeForPath } from "@/utils/mime.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getDirName, getExtension, isSubpath, joinPath, resolvePath } from "@/utils/path.utils";
 
 /**
  * UI assets are an allowlist — plugin sources and `config.json` (may hold
@@ -39,8 +39,8 @@ const SERVABLE_EXTENSIONS = new Set([
 const MAX_SPA_FALLBACK_DEPTH = 8;
 
 function safePath(base: string, relative: string): string | null {
-	const resolved = PathUtils.resolve(base, relative);
-	if (!PathUtils.isSubpath(resolved, base)) return null;
+	const resolved = resolvePath(base, relative);
+	if (!isSubpath(resolved, base)) return null;
 
 	return resolved;
 }
@@ -51,17 +51,17 @@ function safePath(base: string, relative: string): string | null {
  * so history-routed bundles work regardless of their entry depth.
  */
 async function resolveSpaFallback(pluginDir: string, resolved: string): Promise<string | null> {
-	const root = PathUtils.resolve(pluginDir);
+	const root = resolvePath(pluginDir);
 	let current = resolved;
 
 	for (let depth = 0; depth <= MAX_SPA_FALLBACK_DEPTH; depth++) {
-		const candidate = PathUtils.join(current, "index.html");
-		if (await FileUtils.exists(candidate)) return candidate;
+		const candidate = joinPath(current, "index.html");
+		if (await fileExists(candidate)) return candidate;
 
 		if (current === root) return null;
 
-		const parent = PathUtils.getDirName(current);
-		if (parent === current || !PathUtils.isSubpath(current, root)) return null;
+		const parent = getDirName(current);
+		if (parent === current || !isSubpath(current, root)) return null;
 
 		current = parent;
 	}
@@ -113,21 +113,21 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 				throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
 			}
 
-			const pluginDir = PathUtils.join(serverConfig.paths.plugins, directoryName);
+			const pluginDir = joinPath(serverConfig.paths.plugins, directoryName);
 
 			const resolved = safePath(pluginDir, filePath);
 			if (!resolved) {
 				throw new DomainError("forbidden", "Plugin UI asset path is not allowed", { code: "plugin_ui.forbidden", params: { pluginId } });
 			}
 
-			const extension = PathUtils.getExtension(resolved);
+			const extension = getExtension(resolved);
 			// config.json lives in the same directory and may hold provider secrets.
 			if (extension && !SERVABLE_EXTENSIONS.has(extension)) {
 				throw new DomainError("forbidden", "Plugin UI asset type is not servable", { code: "plugin_ui.forbidden", params: { pluginId } });
 			}
 
 			let assetPath = resolved;
-			if (!(await FileUtils.exists(assetPath))) {
+			if (!(await fileExists(assetPath))) {
 				// Extension-less request → SPA deep link, serve the nearest index.html.
 				if (extension) {
 					assetPath = "";

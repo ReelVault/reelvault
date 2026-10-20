@@ -1,22 +1,11 @@
 import type { FieldsConfig } from "@reelvault/sdk/common";
 import { eq, inArray } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { includesField } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { metadataImageOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
 import { loadNamedRelation } from "./batched.reader";
-import {
-	castColumns,
-	collectionColumns,
-	companyColumns,
-	crewColumns,
-	genreColumns,
-	imageColumns,
-	keywordColumns,
-	personColumns,
-	providerColumns,
-	ratingColumns,
-	selectColumns,
-} from "./columns.constants";
+import { castColumns, crewColumns, imageColumns, personColumns, ratingColumns, selectColumns } from "./columns.constants";
+import { NAMED_RELATIONS, type NamedRelationName } from "./named-relations.constants";
 import type { RelationClient } from "./relations.types";
 
 /** Plain junction relations (metadata↔entity lists) for explicit field projections. */
@@ -26,63 +15,29 @@ export function loadJunctionRows<F extends string>(
 	fields: FieldsConfig<F> | undefined,
 	includes: (rel: string) => boolean,
 ) {
-	return Promise.all([
+	const load = (name: NamedRelationName) =>
 		loadIf(
-			includes("collections"),
+			includes(name),
 			async () =>
 				await loadNamedRelation(client, metadataIds, {
-					metadataId: schema.metadataCollections.metadataId,
-					junctionTable: schema.metadataCollections,
-					entityColumn: schema.metadataCollections.collectionId,
-					entityTable: schema.collections,
-					data: selectColumns(relationFields(fields, "collections"), collectionColumns),
+					...namedRelationBindings(name),
+					data: selectColumns(relationFields(fields, name), NAMED_RELATIONS[name].columns),
 				}),
-		),
-		loadIf(
-			includes("companies"),
-			async () =>
-				await loadNamedRelation(client, metadataIds, {
-					metadataId: schema.metadataCompanies.metadataId,
-					junctionTable: schema.metadataCompanies,
-					entityColumn: schema.metadataCompanies.companyId,
-					entityTable: schema.companies,
-					data: selectColumns(relationFields(fields, "companies"), companyColumns),
-				}),
-		),
-		loadIf(
-			includes("genres"),
-			async () =>
-				await loadNamedRelation(client, metadataIds, {
-					metadataId: schema.metadataGenres.metadataId,
-					junctionTable: schema.metadataGenres,
-					entityColumn: schema.metadataGenres.genreId,
-					entityTable: schema.genres,
-					data: selectColumns(relationFields(fields, "genres"), genreColumns),
-				}),
-		),
-		loadIf(
-			includes("keywords"),
-			async () =>
-				await loadNamedRelation(client, metadataIds, {
-					metadataId: schema.metadataKeywords.metadataId,
-					junctionTable: schema.metadataKeywords,
-					entityColumn: schema.metadataKeywords.keywordId,
-					entityTable: schema.keywords,
-					data: selectColumns(relationFields(fields, "keywords"), keywordColumns),
-				}),
-		),
-		loadIf(
-			includes("providers"),
-			async () =>
-				await loadNamedRelation(client, metadataIds, {
-					metadataId: schema.metadataProviders.metadataId,
-					junctionTable: schema.metadataProviders,
-					entityColumn: schema.metadataProviders.providerId,
-					entityTable: schema.providers,
-					data: selectColumns(relationFields(fields, "providers"), providerColumns),
-				}),
-		),
-	]);
+		);
+
+	return Promise.all([load("collections"), load("companies"), load("genres"), load("keywords"), load("providers")]);
+}
+
+/** The four junction bindings of one named relation, without its projection. */
+function namedRelationBindings(name: NamedRelationName) {
+	const relation = NAMED_RELATIONS[name];
+
+	return {
+		metadataId: relation.metadataId,
+		junctionTable: relation.junctionTable,
+		entityColumn: relation.entityColumn,
+		entityTable: relation.entityTable,
+	};
 }
 
 /** Person, media and rating relations for explicit field projections. */
@@ -157,7 +112,7 @@ export function loadRelationRows<F extends string>(
 function relationFields<F extends string>(fields: FieldsConfig<F> | undefined, relation: string): Set<string> | undefined {
 	if (!fields?.fields.length) return undefined;
 
-	if (QueryFields.includes(fields, relation)) return undefined;
+	if (includesField(fields, relation)) return undefined;
 
 	return new Set(fields.fields.filter((field) => field.startsWith(`${relation}.`)).map((field) => field.slice(relation.length + 1)));
 }
@@ -184,7 +139,7 @@ export function shouldLoadRelation<F extends string>(
 	isDetailPage: boolean,
 ): boolean {
 	if (fields?.fields.length) {
-		return QueryFields.includes(fields, relation);
+		return includesField(fields, relation);
 	}
 
 	if (isDetailPage) return true;

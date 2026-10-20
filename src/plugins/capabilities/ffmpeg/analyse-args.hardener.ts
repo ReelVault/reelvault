@@ -2,7 +2,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { hardwareDecodeArgs } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { DomainError } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { isSubpath, resolvePath } from "@/utils/path.utils";
 
 /** Flags that read a caller-supplied local file outside the media input. */
 const BANNED_ANALYSE_FLAGS = new Set(["-attach", "-dump_attachment", "-filter_script", "-filter_complex_script"]);
@@ -73,9 +73,9 @@ export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): stri
 
 	const last = args.at(-1);
 	if (last && last !== "-" && !last.startsWith("-")) {
-		const outputPath = PathUtils.resolve(last);
+		const outputPath = resolvePath(last);
 		const allowedRoots = [serverConfig.paths.transcodes, serverConfig.paths.subtitles];
-		if (!allowedRoots.some((root) => PathUtils.isSubpath(outputPath, PathUtils.resolve(root)))) {
+		if (!allowedRoots.some((root) => isSubpath(outputPath, resolvePath(root)))) {
 			throw new DomainError("validation", "runAnalyse output must stay inside server-managed temporary directories", {
 				code: "plugin.ffmpeg.security_violation",
 			});

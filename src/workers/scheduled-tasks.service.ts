@@ -1,10 +1,10 @@
 import type { ScheduledTaskCategory, TaskTrigger } from "@reelvault/sdk/common";
 import { workerService } from "./worker.service";
 
-class ScheduledTasksAdapter {
+export const scheduledTasksService = {
 	async init(): Promise<void> {
 		await workerService.scheduler.init();
-	}
+	},
 
 	register(task: {
 		id: string;
@@ -24,7 +24,7 @@ class ScheduledTasksAdapter {
 		});
 
 		return Promise.resolve();
-	}
+	},
 
 	async unregisterByPlugin(pluginId: string): Promise<void> {
 		for (const def of workerService.getDefinitions()) {
@@ -32,7 +32,5 @@ class ScheduledTasksAdapter {
 				await workerService.unregisterWorker(def.id);
 			}
 		}
-	}
-}
-
-export const scheduledTasksService = new ScheduledTasksAdapter();
+	},
+};

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { SCAN_FINDING_REASONS } from "@/integrations/drizzle-orm/constants/scan-findings.constants";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { libraries } from "./libraries.schema";
 
 /**
@@ -14,12 +14,12 @@ import { libraries } from "./libraries.schema";
 export const scanFindings = sqliteTable(
 	"scan_findings",
 	{
-		libraryId: DatabaseHelper.tableRef("library_id", () => libraries.id, { onDelete: "cascade" }),
+		libraryId: tableRef("library_id", () => libraries.id, { onDelete: "cascade" }),
 		filePath: text("file_path").notNull(),
 		fileName: text("file_name").notNull(),
 		reason: text("reason", { enum: SCAN_FINDING_REASONS }).notNull(),
 		ignoredAt: integer("ignored_at", { mode: "timestamp" }),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		primaryKey({ columns: [table.libraryId, table.filePath] }),

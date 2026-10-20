@@ -8,13 +8,13 @@ import { imageCacheEviction } from "@/modules/images/cache/image-cache.eviction"
 import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
 import { type ImageOptimizationCandidate, imagesStorage } from "@/modules/images/images.ports";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { DirUtils } from "@/utils/directory.utils";
+import { directoryExists, scanFilesWithStats } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile, getFileStats, writeFileAtomic } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { BatchGarbageCollector } from "@/utils/mem.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { getFileName, joinPath, normalizePath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
 export type ImageOptimizationOutcome = "reoptimized" | "kept" | "missing" | "skipped";
@@ -42,24 +42,22 @@ class ImageMaintenanceService {
 	 */
 	async purgeOptimizedCache(): Promise<PurgeOptimizedCacheResult> {
 		return await runSafely(this, "purgeOptimizedCache", async () => {
-			const cacheDir = PathUtils.join(serverConfig.paths.images, ".cache");
+			const cacheDir = joinPath(serverConfig.paths.images, ".cache");
 			let names: string[] = [];
-			if (await DirUtils.exists(cacheDir)) {
+			if (await directoryExists(cacheDir)) {
 				names = await readdir(cacheDir);
 			}
 			const ioConcurrency = systemResourcesService.getIoConcurrency();
 			const files = (
-				await PromiseUtils.mapConcurrent(names, ioConcurrency, async (name) => {
-					const path = PathUtils.join(cacheDir, name);
-					const stats = await FileUtils.getStats(path);
+				await mapConcurrent(names, ioConcurrency, async (name) => {
+					const path = joinPath(cacheDir, name);
+					const stats = await getFileStats(path);
 
 					return stats?.isFile() ? { path, size: stats.size } : null;
 				})
 			).filter((file): file is { path: string; size: number } => file !== null);
 
-			const removedSizes = await PromiseUtils.mapConcurrent(files, ioConcurrency, async (file) =>
-				(await FileUtils.delete(file.path)) ? file.size : null,
-			);
+			const removedSizes = await mapConcurrent(files, ioConcurrency, async (file) => ((await deleteFile(file.path)) ? file.size : null));
 			const removed = removedSizes.filter((size): size is number => size !== null);
 
 			imageCacheEviction.forget(cacheDir);
@@ -80,13 +78,13 @@ class ImageMaintenanceService {
 				const { localPaths, imageIds } = await imagesStorage().findAllImageStorageIdentifiers();
 				const imagesDir = serverConfig.paths.images;
 
-				if (!(await DirUtils.exists(imagesDir))) {
+				if (!(await directoryExists(imagesDir))) {
 					return { scannedCount: 0, deletedCount: 0, freedBytes: 0 };
 				}
 
 				// dot: true — the images root owns dot-dirs (.tmp/.cache) whose stale
 				// files this sweep is responsible for.
-				const scannedFiles = await DirUtils.scanFilesWithStats(imagesDir, ["webp", "jpeg", "jpg", "png", "tmp", "source"], 10, signal, {
+				const scannedFiles = await scanFilesWithStats(imagesDir, ["webp", "jpeg", "jpg", "png", "tmp", "source"], 10, signal, {
 					dot: true,
 				});
 
@@ -97,7 +95,7 @@ class ImageMaintenanceService {
 					throwIfAborted(signal);
 					if (
 						this.shouldPurgeFile(entry.filePath, entry.mtimeMs, { now, minAgeMs, localPaths, imageIds }) &&
-						(await FileUtils.delete(entry.filePath))
+						(await deleteFile(entry.filePath))
 					) {
 						deletedCount++;
 						freedBytes += entry.size;
@@ -120,7 +118,7 @@ class ImageMaintenanceService {
 		scope: { now: number; minAgeMs: number; localPaths: Set<string>; imageIds: Set<string> },
 	): boolean {
 		const { now, minAgeMs, localPaths, imageIds } = scope;
-		const normalizedPath = PathUtils.normalize(filePath);
+		const normalizedPath = normalizePath(filePath);
 		const ageMs = now - mtimeMs;
 
 		if (normalizedPath.includes("/.tmp/") || normalizedPath.endsWith(".tmp")) {
@@ -128,7 +126,7 @@ class ImageMaintenanceService {
 		}
 
 		if (normalizedPath.includes("/.cache/")) {
-			const fileName = PathUtils.getFileName(filePath);
+			const fileName = getFileName(filePath);
 			const imageIdPrefix = fileName.split("_")[0];
 
 			// Fresh cache entries may belong to an image registered a moment later —
@@ -176,7 +174,7 @@ class ImageMaintenanceService {
 		currentVersion: number,
 		signal?: AbortSignal,
 	): Promise<"kept" | "missing" | "reoptimized"> {
-		const stats = await FileUtils.getStats(image.localPath);
+		const stats = await getFileStats(image.localPath);
 		if (!stats) {
 			await imagesStorage().markImageOptimizationVersion(image.id, currentVersion);
 
@@ -193,7 +191,7 @@ class ImageMaintenanceService {
 		}
 
 		try {
-			await FileUtils.writeAtomic(image.localPath, data);
+			await writeFileAtomic(image.localPath, data);
 			// The source changed in place under the same path — drop its version
 			// stamp or the optimized-variant cache keeps serving pre-optimization bytes.
 			sourceVersionCache.invalidate(image.localPath);

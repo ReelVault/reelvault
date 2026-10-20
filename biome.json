@@ -18,6 +18,10 @@
 		{
 			"path": "./scripts/lint/else-if-chain.grit",
 			"includes": ["**/src/**", "!**/packages/**", "!**/src/**/*.test.ts", "!**/src/**/*.spec.ts"]
+		},
+		{
+			"path": "./scripts/lint/no-namespace-object.grit",
+			"includes": ["**/src/**", "!**/packages/**", "!**/src/**/*.test.ts", "!**/src/**/*.spec.ts"]
 		}
 	],
 	"assist": {

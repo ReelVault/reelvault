@@ -9,7 +9,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { resolveWebDistRoot } from "@/system/web-dist.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 
 type Level = "ok" | "warn" | "fail";
 interface Check {
@@ -57,7 +57,7 @@ async function checkTool(name: string, command: string): Promise<Check> {
 }
 
 async function checkDataDirectory(): Promise<Check> {
-	const probe = PathUtils.join(env.ROOT_DIR, `.doctor-${process.pid}`);
+	const probe = joinPath(env.ROOT_DIR, `.doctor-${process.pid}`);
 	try {
 		await mkdir(env.ROOT_DIR, { recursive: true });
 		await Bun.write(probe, "ok");
@@ -117,7 +117,7 @@ async function checkWebUi(): Promise<Check> {
 		};
 
 	try {
-		await access(PathUtils.join(root, "index.html"), constants.R_OK);
+		await access(joinPath(root, "index.html"), constants.R_OK);
 
 		return { name: "web UI", level: "ok", detail: root };
 	} catch {

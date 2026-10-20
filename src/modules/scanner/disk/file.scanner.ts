@@ -1,10 +1,10 @@
 import { sleep } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { DirUtils, type ScannedFileEntry } from "@/utils/directory.utils";
+import { type ScannedFileEntry, scanFiles, scanFilesWithStats } from "@/utils/directory.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseTimeoutError, PromiseUtils } from "@/utils/promise.utils";
+import { getFileName, resolvePath } from "@/utils/path.utils";
+import { mapConcurrent, PromiseTimeoutError, withTimeout } from "@/utils/promise.utils";
 
 interface ScanOptions {
 	paths: string[];
@@ -53,7 +53,7 @@ export class FileScannerService {
 	async scan(options: ScanOptions): Promise<string[]> {
 		const unique = await this.scanResolved(
 			options,
-			(path, extensions, maxDepth, signal) => DirUtils.scanFiles(path, extensions, maxDepth, signal),
+			(path, extensions, maxDepth, signal) => scanFiles(path, extensions, maxDepth, signal),
 			(filePath) => filePath,
 			(_entry, resolvedPath) => resolvedPath,
 		);
@@ -75,7 +75,7 @@ export class FileScannerService {
 	async scanWithStatsMap(options: ScanOptions): Promise<Map<string, ScannedFileEntry>> {
 		return await this.scanResolved(
 			options,
-			(path, extensions, maxDepth, signal) => DirUtils.scanFilesWithStats(path, extensions, maxDepth, signal),
+			(path, extensions, maxDepth, signal) => scanFilesWithStats(path, extensions, maxDepth, signal),
 			(entry) => entry.filePath,
 			(entry, filePath) => ({ ...entry, filePath }),
 		);
@@ -93,7 +93,7 @@ export class FileScannerService {
 		let processed = 0;
 		for (const entries of scanned) {
 			for (const entry of entries) {
-				const resolvedPath = PathUtils.resolve(pathOf(entry));
+				const resolvedPath = resolvePath(pathOf(entry));
 				if (!unique.has(resolvedPath)) unique.set(resolvedPath, withResolvedPath(entry, resolvedPath));
 				processed++;
 				if (processed % DEDUPE_YIELD_INTERVAL === 0) await sleep(0);
@@ -110,7 +110,7 @@ export class FileScannerService {
 	): Promise<T[][]> {
 		const { paths, extensions, maxDepth, signal } = resolveScanOptions(options);
 
-		return await PromiseUtils.mapConcurrent(
+		return await mapConcurrent(
 			paths,
 			systemResourcesService.getScannerConcurrency(),
 			async (path) => {
@@ -124,7 +124,7 @@ export class FileScannerService {
 				const scanPromise = scanRoot(path, extensions, maxDepth, scanSignal);
 
 				try {
-					return (await PromiseUtils.withTimeout(scanPromise, this.pathScanTimeoutMs, `Library path scan ${path}`)).filter(
+					return (await withTimeout(scanPromise, this.pathScanTimeoutMs, `Library path scan ${path}`)).filter(
 						(entry) => !isIgnoredPath(pathOf(entry), path, patterns),
 					);
 				} catch (error) {
@@ -256,7 +256,7 @@ export function isIgnoredRelativePath(filePath: string): boolean {
 }
 
 function isIgnoredPath(filePath: string, rootPath: string, patterns: readonly string[]): boolean {
-	if (EXTRA_FILE_NAME_PATTERN.test(PathUtils.getFileName(filePath))) return true;
+	if (EXTRA_FILE_NAME_PATTERN.test(getFileName(filePath))) return true;
 
 	return matchesIgnorePattern(filePath, rootPath, patterns);
 }

@@ -1,5 +1,36 @@
 import { describe, expect, it } from "bun:test";
-import { escapeRegex, matchesIfNoneMatch, parseAllowedOrigins } from "./http.utils";
+import { escapeRegex, matchesIfNoneMatch, parseAllowedOrigins, requestIdentityKey } from "./http.utils";
+
+describe("requestIdentityKey", () => {
+	const url = "http://localhost/v1/items?page=2";
+	const headers = {
+		authorization: "Bearer token",
+		cookie: "session=abc",
+		"x-profile-id": "profile-1",
+		"x-api-key": "machine-key",
+	};
+
+	it("scopes the key by path, credentials and the header profile", () => {
+		const key = requestIdentityKey(new Request(url, { headers }));
+
+		expect(key).toContain("/v1/items?page=2");
+		expect(key).toContain("session=abc");
+		expect(key).toContain("Bearer token");
+		expect(key).toContain("profile-1");
+		expect(key).toContain("machine-key");
+	});
+
+	it("lets a resolved profile override the header and separates GET from HEAD", () => {
+		const getKey = requestIdentityKey(new Request(url, { headers }), { includeMethod: true });
+		const headKey = requestIdentityKey(new Request(url, { method: "HEAD", headers }), { includeMethod: true });
+		const resolvedProfileKey = requestIdentityKey(new Request(url, { headers }), { profileId: "profile-2" });
+
+		expect(getKey.startsWith("GET:")).toBeTrue();
+		expect(headKey.startsWith("HEAD:")).toBeTrue();
+		expect(getKey).not.toBe(headKey);
+		expect(resolvedProfileKey).not.toBe(requestIdentityKey(new Request(url, { headers })));
+	});
+});
 
 describe("http.utils", () => {
 	describe("escapeRegex", () => {

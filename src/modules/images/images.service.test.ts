@@ -5,8 +5,8 @@ import { join } from "node:path";
 import sharp from "sharp";
 import { serverConfig } from "@/config/server/server.config";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { DirUtils, removeTree } from "@/utils/directory.utils";
-import { FileUtils } from "@/utils/file.utils";
+import { createDirectory, removeTree } from "@/utils/directory.utils";
+import { fileExists, writeFile } from "@/utils/file.utils";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { ImagesService } from "./images.service";
 
@@ -21,7 +21,7 @@ describe("ImagesService", () => {
 		testImagesDir = await mkdtemp(join(tmpdir(), "reelvault-images-service-test-"));
 		serverConfig.paths.images = testImagesDir;
 
-		await DirUtils.create(join(testImagesDir, "posters"));
+		await createDirectory(join(testImagesDir, "posters"));
 	});
 
 	afterEach(async () => {
@@ -39,7 +39,7 @@ describe("ImagesService", () => {
 
 	test("getById returns the file handle with the stored content type", async () => {
 		const localPath = join(testImagesDir, "posters", "a.webp");
-		await FileUtils.write(localPath, new Uint8Array([1, 2, 3]));
+		await writeFile(localPath, new Uint8Array([1, 2, 3]));
 		await seedImage("image-handle", localPath, "image/webp");
 
 		const result = await service.getById("image-handle");
@@ -61,7 +61,7 @@ describe("ImagesService", () => {
 
 	test("getOptimizedById passes the original file through when the query is empty", async () => {
 		const localPath = join(testImagesDir, "posters", "a.webp");
-		await FileUtils.write(localPath, new Uint8Array([1, 2, 3]));
+		await writeFile(localPath, new Uint8Array([1, 2, 3]));
 		await seedImage("image-passthrough", localPath, "image/webp");
 
 		const result = await service.getOptimizedById("image-passthrough", {});
@@ -73,7 +73,7 @@ describe("ImagesService", () => {
 
 	test("getOptimizedById returns a scaled WebP when dimensions are requested", async () => {
 		const localPath = join(testImagesDir, "posters", "wide.png");
-		await FileUtils.write(
+		await writeFile(
 			localPath,
 			await sharp({ create: { width: 1280, height: 720, channels: 3, background: "#305a5a" } })
 				.png()
@@ -90,20 +90,20 @@ describe("ImagesService", () => {
 
 	test("delete removes the row and the file it pointed to", async () => {
 		const localPath = join(testImagesDir, "posters", "dead.webp");
-		await FileUtils.write(localPath, new Uint8Array([1, 2, 3]));
+		await writeFile(localPath, new Uint8Array([1, 2, 3]));
 		await seedImage("image-deleted", localPath, "image/webp");
 
 		expect(await service.delete("image-deleted")).toEqual({ success: true });
 
-		expect(await FileUtils.exists(localPath)).toBe(false);
+		expect(await fileExists(localPath)).toBe(false);
 		await expect(service.getById("image-deleted")).rejects.toMatchObject({ category: "not_found" });
 	});
 
 	test("delete throws NotFoundError when the row is missing and keeps files untouched", async () => {
 		const unrelated = join(testImagesDir, "posters", "keep.webp");
-		await FileUtils.write(unrelated, new Uint8Array([1, 2, 3]));
+		await writeFile(unrelated, new Uint8Array([1, 2, 3]));
 
 		await expect(service.delete("missing")).rejects.toMatchObject({ category: "not_found" });
-		expect(await FileUtils.exists(unrelated)).toBe(true);
+		expect(await fileExists(unrelated)).toBe(true);
 	});
 });

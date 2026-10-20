@@ -5,7 +5,7 @@ import { killFfmpegProcessGracefully, waitForExitWithTimeout } from "@/integrati
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import type { SessionStore } from "@/modules/streaming/runtime/session-state/session.store";
 import type { SessionReservationTracker } from "@/modules/streaming/runtime/session-state/session-reservation.tracker";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory, deleteTemporaryDirectory, directoryExists } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { isSoftwareFallbackEligible } from "./software-fallback.policy";
@@ -141,12 +141,12 @@ export class ProcessManager {
 
 	async ensureTempDirectory(dirPath: string): Promise<void> {
 		await this.removeTempDirectory(dirPath);
-		await DirUtils.create(dirPath);
+		await createDirectory(dirPath);
 	}
 
 	async removeTempDirectory(dirPath: string): Promise<void> {
-		if (await DirUtils.exists(dirPath)) {
-			await DirUtils.deleteTemporary(dirPath);
+		if (await directoryExists(dirPath)) {
+			await deleteTemporaryDirectory(dirPath);
 		}
 	}
 }

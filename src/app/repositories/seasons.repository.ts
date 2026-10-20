@@ -8,10 +8,9 @@ import type {
 	SelectFields,
 } from "@reelvault/sdk/common";
 import { and, asc, eq, ne, or, sql } from "drizzle-orm";
-import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { type FindFirstReadParams, type PrimaryIdReadParams, selectByPrimaryId } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
@@ -21,8 +20,7 @@ import {
 	defineTableAccess,
 	parseFieldsForRead,
 } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
-import { updateManyFieldsById } from "@/integrations/drizzle-orm/query/table-access/writes.writer";
-import { findOrCreateWithIdentityRecovery } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
+import { upsertByStableKeyIdentity } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 
 const seasons = defineTableAccess("seasons", {
@@ -31,11 +29,11 @@ const seasons = defineTableAccess("seasons", {
 
 const seasonQueryMap: QueryMap<SeasonFilters, SeasonSorting> = {
 	filters: {
-		metadataId: (value: string) => QueryFiltering.eq(schema.seasons.metadataId, value),
-		name: (value: string) => QueryFiltering.like(schema.seasons.name, value),
-		seasonNumber: (value: number) => QueryFiltering.eq(schema.seasons.seasonNumber, value),
-		airDate: (value: string) => QueryFiltering.like(schema.seasons.airDate, value),
-		status: (value: string) => QueryFiltering.like(schema.seasons.status, value),
+		metadataId: (value: string) => filterEquals(schema.seasons.metadataId, value),
+		name: (value: string) => filterLike(schema.seasons.name, value),
+		seasonNumber: (value: number) => filterEquals(schema.seasons.seasonNumber, value),
+		airDate: (value: string) => filterLike(schema.seasons.airDate, value),
+		status: (value: string) => filterLike(schema.seasons.status, value),
 	},
 	orderBy: {
 		name: schema.seasons.name,
@@ -97,49 +95,15 @@ const overrides = {
 			value: `${metadataStableKey ?? createLocalStableKey({ namespace: "metadata", value: metadataId })}:${seasonNumber}`,
 		});
 
-		return await findOrCreateWithIdentityRecovery({
+		return await upsertByStableKeyIdentity(seasons, {
 			stableKey,
-			upsert: async () => {
-				const [season] = await databaseFactory
-					.getClient({ tx })
-					.insert(seasons.table)
-					.values({ ...values, stableKey })
-					.onConflictDoUpdate({
-						target: seasons.table.stableKey,
-						set: {
-							metadataId: sql`excluded.metadata_id`,
-							imageId: sql`excluded.image_id`,
-							seasonNumber: sql`excluded.season_number`,
-							name: sql`excluded.name`,
-							overview: sql`excluded.overview`,
-							airDate: sql`excluded.air_date`,
-							status: sql`excluded.status`,
-							updatedAt: new Date(),
-						},
-						setWhere:
-							or(ne(seasons.table.metadataId, sql`excluded.metadata_id`), ne(seasons.table.seasonNumber, sql`excluded.season_number`)) ??
-							sql`1 = 1`,
-					})
-					.returning();
-
-				return season;
-			},
-			findByStableKey: async () => await getSeasonsRepository().selectFirst({ where: eq(seasons.table.stableKey, stableKey), tx }),
-			findByIdentity: async () =>
-				await getSeasonsRepository().selectFirst({
-					where: and(eq(seasons.table.metadataId, metadataId), eq(seasons.table.seasonNumber, seasonNumber)),
-					tx,
-				}),
-			reconcile: async (existing) => {
-				const [updated] = await databaseFactory
-					.getClient({ tx })
-					.update(seasons.table)
-					.set({ ...values, stableKey, updatedAt: new Date() })
-					.where(eq(seasons.table.id, existing.id))
-					.returning();
-
-				return updated ?? existing;
-			},
+			values: { ...values, stableKey },
+			identityWhere: and(eq(seasons.table.metadataId, metadataId), eq(seasons.table.seasonNumber, seasonNumber)),
+			setWhere:
+				or(ne(seasons.table.metadataId, sql`excluded.metadata_id`), ne(seasons.table.seasonNumber, sql`excluded.season_number`)) ??
+				sql`1 = 1`,
+			reconcileValues: { ...values, stableKey },
+			tx,
 		});
 	},
 
@@ -162,14 +126,12 @@ const overrides = {
 			values: Partial<Pick<typeof schema.seasons.$inferInsert, "name" | "overview" | "airDate" | "status">>;
 		}>,
 	): Promise<void> {
-		await updateManyFieldsById({
-			table: schema.seasons,
-			primaryKeyColumn: schema.seasons.id,
+		await seasons.updateManyFields({
 			columns: {
-				name: schema.seasons.name,
-				overview: schema.seasons.overview,
-				airDate: schema.seasons.airDate,
-				status: schema.seasons.status,
+				name: seasons.table.name,
+				overview: seasons.table.overview,
+				airDate: seasons.table.airDate,
+				status: seasons.table.status,
 			},
 			updates,
 			touchUpdatedAt: true,

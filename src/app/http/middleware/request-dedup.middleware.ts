@@ -2,7 +2,7 @@ import { hash as bunHash } from "bun";
 import { Elysia } from "elysia";
 import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
-import { getResponseStatus, pathWithQuery, readRequestCredentials } from "@/utils/http.utils";
+import { getResponseStatus, requestIdentityKey } from "@/utils/http.utils";
 import { serializedBodyCache } from "./response-cache.middleware";
 
 // Benchmark honesty escape hatch: with dedup disabled every request does its
@@ -92,9 +92,8 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 
 				if (trackedCount >= serverConfig.requestDedup.maxConcurrent) return undefined;
 
-				const credentials = readRequestCredentials(context.request);
 				// GET and HEAD share a route but not a response contract — keep them apart.
-				const composed = `${context.request.method}:${pathWithQuery(context.request.url)}:${credentials.authorization}:${credentials.cookie}:${credentials.headerProfileId}:${credentials.apiKey}`;
+				const composed = requestIdentityKey(context.request, { includeMethod: true });
 				// Raw keys win the A/B benchmark at realistic lengths and make
 				// collisions impossible; oversized keys hash instead so a bounded
 				// in-flight map can't be amplified into a memory sink.

@@ -1,6 +1,6 @@
 import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import type { CanonicalSidecarDocument, SidecarArtwork, SidecarFormatInput } from "@/modules/metadata-sidecars/sidecar.types";
-import { assertXmlDocumentSize, readXmlDocument, type XmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
+import { loadXmlDocumentFile, type XmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
 import {
 	readXmlAttr,
 	readXmlObject,
@@ -9,7 +9,6 @@ import {
 	readXmlTexts,
 	readXmlValue,
 } from "@/modules/metadata-sidecars/xml/xml-value.reader";
-import { FileUtils, readFile } from "@/utils/file.utils";
 import { extractYear } from "@/utils/media-match/normalize.utils";
 import { mapJellyfinArtwork } from "./jellyfin-artwork.mapper";
 
@@ -32,19 +31,6 @@ export function validImdb(value: string | undefined): string | undefined {
 
 export function validTmdb(value: string | undefined): string | undefined {
 	return value && NUMERIC_ID_REGEX.test(value) ? value : undefined;
-}
-
-/**
- * Reads and parses a Jellyfin sidecar. When the caller already supplied the
- * document body the file is not read again, but the size cap is still enforced.
- */
-export async function loadJellyfinDocument(documentPath: string, content: string | undefined): Promise<XmlDocument | null> {
-	if (content === undefined) assertXmlDocumentSize(documentPath, FileUtils.getSize(documentPath));
-
-	const input = content ?? (await readFile(documentPath, "utf8").catch(() => null));
-	if (input === null) return null;
-
-	return readXmlDocument(input);
 }
 
 function readUniqueId(node: Readonly<Record<string, unknown>>, type: string): string | undefined {
@@ -182,8 +168,9 @@ export async function readTitleDocument(
 ): Promise<CanonicalSidecarDocument | null> {
 	let document: XmlDocument | null | undefined = preloaded;
 	if (preloaded === undefined) {
-		document = await loadJellyfinDocument(documentPath, content);
+		document = await loadXmlDocumentFile(documentPath, content);
 	}
+
 	const node = document ? readXmlObject(document, root) : undefined;
 	if (!node) return null;
 

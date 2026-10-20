@@ -12,7 +12,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
@@ -23,8 +23,8 @@ import { type LibraryStatsCaches, libraries } from "./shared.types";
 
 const libraryQueryMap: QueryMap<LibraryFilters, LibrarySorting> = {
 	filters: {
-		name: (value: string) => QueryFiltering.like(schema.libraries.name, value),
-		type: (value: string) => QueryFiltering.eq(schema.libraries.type, value),
+		name: (value: string) => filterLike(schema.libraries.name, value),
+		type: (value: string) => filterEquals(schema.libraries.type, value),
 	},
 	orderBy: {
 		name: schema.libraries.name,

@@ -1,19 +1,19 @@
 import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { namedEntityImageColumns, namedEntityImageIndexes, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { createProviderJunction } from "@/integrations/drizzle-orm/utils/junction.utils";
 import { images } from "./images.schema";
 
 export const companies = sqliteTable(
 	"companies",
 	{
-		...DatabaseHelper.namedEntityImageColumns(() => images.id),
+		...namedEntityImageColumns(() => images.id),
 
 		name: text("name").notNull(),
 		originalName: text("original_name"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
-	(t) => [uniqueIndex("companies_unique").on(t.name), ...DatabaseHelper.namedEntityImageIndexes("companies", t)],
+	(t) => [uniqueIndex("companies_unique").on(t.name), ...namedEntityImageIndexes("companies", t)],
 );
 
 export const companyProviders = createProviderJunction("company_providers", "companyId", () => companies.id);

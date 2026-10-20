@@ -8,7 +8,7 @@ import { env } from "@/config/env.config";
 import { DomainError } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
 import { getTotalMemoryKiB } from "@/utils/mem.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getDirName, joinPath } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
 import { MIGRATIONS_DIR } from "./constants/migrations.constants";
 import type { DatabaseTransaction, DatabaseType } from "./database.types";
@@ -108,7 +108,7 @@ export class DatabaseFactory {
 	/** Main client with writes routed through `runWrite`; created lazily. */
 	private queuedClient: DatabaseType | null = null;
 
-	constructor(path = PathUtils.join(env.ROOT_DIR, env.DB_FILE_NAME), options: DatabaseFactoryOptions = {}) {
+	constructor(path = joinPath(env.ROOT_DIR, env.DB_FILE_NAME), options: DatabaseFactoryOptions = {}) {
 		this.path = path;
 		this.memoryOverrideKiB = options.totalMemoryKiB;
 		this.queryLogger = new DatabaseQueryLogger({
@@ -120,7 +120,7 @@ export class DatabaseFactory {
 		// With secrets provided via env, nothing else creates ROOT_DIR before this
 		// constructor runs at import time — a missing directory would surface as a
 		// raw SQLITE_CANTOPEN crash instead of a boot-time recovery.
-		mkdirSync(PathUtils.getDirName(path), { recursive: true });
+		mkdirSync(getDirName(path), { recursive: true });
 		this.sqlite = new Database(path);
 		this.configureConnection(this.sqlite);
 		this.db = drizzle({ client: instrumentSqliteClient(this.sqlite, this.queryLogger), relations, logger: this.queryLogger });

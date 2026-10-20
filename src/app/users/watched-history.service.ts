@@ -23,9 +23,9 @@ import { clearProfileInsights, invalidateProfileCaches, profileInsightsCache, wr
 
 const RANGE_DAYS: Record<InsightsRange, number> = { "7d": 7, "30d": 30, "90d": 90, "1y": 365, all: 365 };
 
-class WatchedHistoryService {
-	readonly serviceName = "WatchedHistoryService";
-	readonly logger = createLogger("WatchedHistoryService");
+export const watchedHistoryService = {
+	serviceName: "WatchedHistoryService",
+	logger: createLogger("WatchedHistoryService"),
 
 	clearCache(profileId?: string): void {
 		if (profileId) {
@@ -34,21 +34,21 @@ class WatchedHistoryService {
 			profileInsightsCache.clear();
 			wrappedInsightsCache.clear();
 		}
-	}
+	},
 
 	async getAll(
 		query: CursorPaginationQuery & { sortBy?: "watchedAt" | "createdAt"; sortOrder?: "asc" | "desc" },
 		profileId?: string,
 	): Promise<CursorPaginatedResponse<WatchedHistoryWithRelations>> {
-		return await runSafely(this, "getAll", async () => {
+		return await runSafely(watchedHistoryService, "getAll", async () => {
 			assertProfileId(profileId);
 
 			return await watchedHistoryRepository.findPage(profileId, query);
 		});
-	}
+	},
 
 	async sync(body: CreateWatchedHistory, profileId?: string): Promise<{ success: true }> {
-		return await runSafely(this, "sync", async () => {
+		return await runSafely(watchedHistoryService, "sync", async () => {
 			assertProfileId(profileId);
 
 			// A stale catalog id would otherwise surface as an FK violation (500).
@@ -79,7 +79,7 @@ class WatchedHistoryService {
 
 			return { success: true };
 		});
-	}
+	},
 
 	async getInsights(range: InsightsRange, profileId?: string): Promise<ProfileInsights> {
 		assertProfileId(profileId);
@@ -140,7 +140,7 @@ class WatchedHistoryService {
 				dailyActivity: activityByDay(currentRows, days, now),
 			};
 		});
-	}
+	},
 
 	async getWrapped(year: number, profileId?: string): Promise<WrappedInsights> {
 		assertProfileId(profileId);
@@ -233,27 +233,27 @@ class WatchedHistoryService {
 				viewerPersonality: personality,
 			};
 		});
-	}
+	},
 
 	async isWatched(metadataId: string, profileId?: string): Promise<{ watched: boolean }> {
-		return await runSafely(this, "isWatched", async () => {
+		return await runSafely(watchedHistoryService, "isWatched", async () => {
 			assertProfileId(profileId);
 			const watched = await watchedHistoryRepository.isWatched(profileId, metadataId);
 
 			return { watched };
 		});
-	}
+	},
 
 	async clear(profileId?: string): Promise<{ success: true }> {
-		return await runSafely(this, "clearHistory", async () => {
+		return await runSafely(watchedHistoryService, "clearHistory", async () => {
 			assertProfileId(profileId);
 			await watchedHistoryRepository.clearForProfile(profileId);
 			invalidateProfileCaches(profileId);
 
 			return { success: true };
 		});
-	}
-}
+	},
+};
 
 function sumMinutes(rows: Array<{ durationSum: number }>) {
 	return rows.reduce((total, row) => total + Math.round(row.durationSum / 60), 0);
@@ -352,5 +352,3 @@ function getViewerPersonality(
 
 	return { code: "curious_viewer", badge: "✨" };
 }
-
-export const watchedHistoryService = new WatchedHistoryService();

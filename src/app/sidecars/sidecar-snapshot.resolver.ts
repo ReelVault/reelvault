@@ -1,7 +1,7 @@
 import { episodesRepository } from "@/app/repositories/episodes.repository";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { seasonsRepository } from "@/app/repositories/seasons.repository";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import type { SidecarSnapshotDocument, SidecarSnapshotResolver } from "@/modules/metadata-sidecars/sidecar.types";
 import { episodeSnapshot, seasonSnapshot } from "@/modules/metadata-sidecars/sidecar-snapshot.builder";
 import { DomainError } from "@/utils/domain.errors";
@@ -11,7 +11,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 	async metadata(metadataId: string): Promise<SidecarSnapshotDocument> {
 		const metadata = await metadataRepository.findById({
 			primaryId: metadataId,
-			fields: QueryFields.parse({
+			fields: parseFields({
 				fields: "title,originalTitle,releaseDate,overview,tagline,status,providers,genres,keywords,collections,companies,cast,crew,rating",
 			}),
 		});
@@ -53,7 +53,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 	async season(seasonId: string): Promise<SidecarSnapshotDocument> {
 		const season = await seasonsRepository.findByPrimaryId({
 			primaryId: seasonId,
-			fields: QueryFields.parse({ fields: "name,seasonNumber,airDate,overview,status" }),
+			fields: parseFields({ fields: "name,seasonNumber,airDate,overview,status" }),
 		});
 		if (!season) throw new DomainError("not_found", `Season ${seasonId} does not exist`, { code: "season.not_found" });
 
@@ -63,7 +63,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 	async episode(episodeId: string): Promise<SidecarSnapshotDocument> {
 		const episode = await episodesRepository.findByPrimaryId({
 			primaryId: episodeId,
-			fields: QueryFields.parse({ fields: "title,episodeNumber,airDate,overview" }),
+			fields: parseFields({ fields: "title,episodeNumber,airDate,overview" }),
 		});
 		if (!episode) throw new DomainError("not_found", `Episode ${episodeId} does not exist`, { code: "episode.not_found" });
 

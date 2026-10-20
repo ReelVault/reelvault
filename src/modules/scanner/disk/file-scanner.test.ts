@@ -2,9 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { DirUtils, removeTreeSync } from "@/utils/directory.utils";
-import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { scanFiles as actualScanFiles, scanFilesWithStats as actualScanFilesWithStats, removeTreeSync } from "@/utils/directory.utils";
+import { mockModule } from "../../../../tests/helpers/module-mock.helper";
 import { FileScannerService, fileScannerService, matchesIgnorePattern } from "./file.scanner";
+
+let scanFilesWithStatsImpl = actualScanFilesWithStats;
+mockModule("@/utils/directory.utils", () => ({
+	scanFiles: actualScanFiles,
+	scanFilesWithStats: (...args: Parameters<typeof scanFilesWithStatsImpl>) => scanFilesWithStatsImpl(...args),
+}));
 
 let root: string;
 
@@ -97,14 +103,15 @@ describe("matchesIgnorePattern", () => {
 describe("FileScannerService path timeout", () => {
 	test("skips a path whose scan exceeds the deadline instead of hanging", async () => {
 		const scanner = new FileScannerService(20);
-		const stub = stubMethod(
-			DirUtils,
-			"scanFilesWithStats",
-			() =>
-				new Promise<never>(() => {
-					// Never settles — the per-path timeout is what ends the scan.
-				}),
-		);
+		scanFilesWithStatsImpl = () =>
+			new Promise<never>(() => {
+				// Never settles — the per-path timeout is what ends the scan.
+			});
+		const stub = {
+			restore: () => {
+				scanFilesWithStatsImpl = actualScanFilesWithStats;
+			},
+		};
 		try {
 			const entries = await scanner.scanWithStats({ paths: [root], extensions: [".mkv"] });
 

@@ -1,9 +1,9 @@
 import { systemResourcesService } from "@/config/system-resources.service";
 import { isMassRemoval } from "@/modules/scanner/utils/scanner.utils";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { FileUtils } from "@/utils/file.utils";
+import { checkFileExistence } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 export interface RemovalAssessment {
 	/** Paths confirmed gone from disk — safe to purge from the database. */
@@ -32,7 +32,7 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	existence: (path) => FileUtils.existence(path),
+	existence: (path) => checkFileExistence(path),
 	getIoConcurrency: () => systemResourcesService.getIoConcurrency(),
 };
 
@@ -65,7 +65,7 @@ export class RemovalGuard {
 		const uniqueRoots = [...new Set(roots ?? [])];
 		let storageUnavailable = false;
 		if (uniqueRoots.length > 0) {
-			await PromiseUtils.mapConcurrent(
+			await mapConcurrent(
 				uniqueRoots,
 				this.dependencies.getIoConcurrency(),
 				async (root) => {
@@ -83,7 +83,7 @@ export class RemovalGuard {
 		// candidate list — stat each path once.
 		const uniqueCandidates = [...new Set(candidates)];
 		const states = new Map<string, "exists" | "missing" | "unavailable">();
-		await PromiseUtils.mapConcurrent(
+		await mapConcurrent(
 			uniqueCandidates,
 			this.dependencies.getIoConcurrency(),
 			async (candidatePath) => {

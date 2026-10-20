@@ -6,8 +6,8 @@ import type { SessionStore } from "@/modules/streaming/runtime/session-state/ses
 import type { SessionReservationTracker } from "@/modules/streaming/runtime/session-state/session-reservation.tracker";
 import { PLAYLIST_FILE_NAME } from "@/modules/streaming/utils/segment-name.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { fileExists } from "@/utils/file.utils";
+import { waitForFile } from "@/utils/promise.utils";
 import { isNullish } from "@/utils/type.utils";
 
 /** Placeholder unregister used until `registerWaiter` replaces it synchronously (no await in between). */
@@ -44,7 +44,7 @@ export class PlaylistWaiter {
 	): Promise<void> {
 		const playlistPath = this.getFilePath(sessionId, PLAYLIST_FILE_NAME);
 
-		if (!(await FileUtils.exists(playlistPath))) {
+		if (!(await fileExists(playlistPath))) {
 			let session = this.store.get(sessionId);
 			const exitCode = session?.process?.exitCode ?? null;
 			if (session && !isNullish(exitCode)) {
@@ -85,7 +85,7 @@ export class PlaylistWaiter {
 			try {
 				// fs.watch drives the wake-up; the tick below is only the fallback when
 				// no watcher can be created — keep it tight, it sits on playback start.
-				await Promise.race([PromiseUtils.waitForFile(playlistPath, timeoutMs, 25, signal), exitPromise, cancelled]);
+				await Promise.race([waitForFile(playlistPath, timeoutMs, 25, signal), exitPromise, cancelled]);
 			} catch (error) {
 				if (error instanceof DomainError && error.category === "timeout") {
 					throw new DomainError("timeout", `Playlist was not generated within ${timeoutMs}ms`, { code: "playlist_generation_timeout" });

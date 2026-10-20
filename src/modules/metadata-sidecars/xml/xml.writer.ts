@@ -1,5 +1,5 @@
 import type { SidecarWriteResult } from "@/modules/metadata-sidecars/sidecar.types";
-import { FileUtils, readFile } from "@/utils/file.utils";
+import { writeFileIfChanged } from "@/utils/file.utils";
 
 export interface XmlDocumentOutput {
 	readonly rootName: string;
@@ -35,12 +35,7 @@ export async function writeXmlDocument({ rootName, values }: XmlDocumentOutput):
  * is already identical.
  */
 export async function writeXmlIfChanged(documentPath: string, contents: string): Promise<SidecarWriteResult> {
-	const existing = await readFile(documentPath, "utf8").catch(() => null);
-	if (existing === contents) {
-		return { documentPath, writtenFiles: [] };
-	}
+	const written = await writeFileIfChanged(documentPath, contents);
 
-	await FileUtils.writeAtomic(documentPath, contents);
-
-	return { documentPath, writtenFiles: [documentPath] };
+	return { documentPath, writtenFiles: written ? [documentPath] : [] };
 }

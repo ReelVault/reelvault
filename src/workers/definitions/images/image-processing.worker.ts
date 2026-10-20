@@ -2,6 +2,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { DomainError, toDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
@@ -28,8 +29,7 @@ export interface ImageProcessingResult {
 export const imageProcessingWorker = createWorkerDefinition<ImageProcessingData>(
 	"image-processing",
 	() => serverConfig.workers.definitions.imageProcessing,
-	async ({ data, logger, signal, operationId, taskId }) =>
-		await processImageTask(data, { signal, logger, operationId, correlationId: operationId, taskId }),
+	async (context) => await processImageTask(context.data, toApplicationContext(context)),
 );
 
 // ─── Task Function ────────────────────────────────────────────────────────────

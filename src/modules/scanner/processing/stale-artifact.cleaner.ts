@@ -4,10 +4,10 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { type ScannerStoragePort, scannerStorage } from "@/modules/scanner/scanner.ports";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile as deletePhysicalFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { isSubpath, joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 interface ServiceDependencies {
 	deleteByLibraryAndPaths: ScannerStoragePort["deleteByLibraryAndPaths"];
@@ -24,7 +24,7 @@ const defaultDependencies: ServiceDependencies = {
 	deleteByLibraryAndPaths: (libraryId, paths) => scannerStorage().deleteByLibraryAndPaths(libraryId, paths),
 	removeArtifactStorageFiles: (keys) => scannerStorage().removeArtifactStorageFiles(keys),
 	invalidateArtifactByteTotals: () => scannerStorage().invalidateArtifactByteTotals(),
-	deleteFile: (path) => FileUtils.delete(path),
+	deleteFile: (path) => deletePhysicalFile(path),
 	getIoConcurrency: () => systemResourcesService.getIoConcurrency(),
 	subtitlesPath: () => serverConfig.paths.subtitles,
 	clearLibraryStatsCache: () => scannerStorage().clearLibraryStatsCache(),
@@ -63,7 +63,7 @@ export class StaleArtifactCleaner {
 		const cleanup = await deleteByLibraryAndPaths(libraryId, removedFiles);
 		// One event per removed file; awaiting each plugin handler in sequence
 		// multiplies hook timeouts across large removals.
-		await PromiseUtils.mapConcurrent(
+		await mapConcurrent(
 			cleanup.removedMediaFiles,
 			getIoConcurrency(),
 			(removed) => emitMediaUnavailable({ libraryId, mediaFileId: removed.id }),
@@ -73,16 +73,16 @@ export class StaleArtifactCleaner {
 		const subtitlesRoot = subtitlesPath();
 		const removals: Array<() => Promise<unknown>> = [() => removeArtifactStorageFiles(cleanup.artifactStorageKeys)];
 		for (const filePath of cleanup.subtitleFilePaths) {
-			if (filePath && PathUtils.isSubpath(filePath, subtitlesRoot)) {
+			if (filePath && isSubpath(filePath, subtitlesRoot)) {
 				removals.push(() => deleteFile(filePath));
 			}
 		}
 
 		for (const id of cleanup.subtitleIds) {
-			removals.push(() => deleteFile(PathUtils.join(subtitlesRoot, `${id}.vtt`)));
+			removals.push(() => deleteFile(joinPath(subtitlesRoot, `${id}.vtt`)));
 		}
 
-		await PromiseUtils.mapConcurrent(removals, getIoConcurrency(), (removal) => removal(), signal);
+		await mapConcurrent(removals, getIoConcurrency(), (removal) => removal(), signal);
 		invalidateArtifactByteTotals();
 		clearLibraryStatsCache();
 		this.logger.info("Removed stale media records", { libraryId, count: removedFiles.length });

@@ -1,13 +1,13 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { namedEntityImageColumns, namedEntityImageIndexes, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { createProviderJunction } from "@/integrations/drizzle-orm/utils/junction.utils";
 import { images } from "./images.schema";
 
 export const people = sqliteTable(
 	"people",
 	{
-		...DatabaseHelper.namedEntityImageColumns(() => images.id),
+		...namedEntityImageColumns(() => images.id),
 
 		name: text("name").notNull(),
 		biography: text("biography"),
@@ -18,7 +18,7 @@ export const people = sqliteTable(
 
 		popularity: real("popularity").notNull().default(0),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		index("people_name_idx").on(t.name),
@@ -26,7 +26,7 @@ export const people = sqliteTable(
 		// The list page sorts by name and appends the id as a tiebreaker; the
 		// composite covers both.
 		index("people_name_id_idx").on(t.name, t.id),
-		...DatabaseHelper.namedEntityImageIndexes("people", t),
+		...namedEntityImageIndexes("people", t),
 		check("people_gender_check", sql`${t.gender} IS NULL OR ${t.gender} IN ('male', 'female', 'other')`),
 		check(
 			"people_numeric_values_check",

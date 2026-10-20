@@ -45,11 +45,11 @@ import {
 } from "@/app/http/schemas/common.schema";
 import { MediaFileIdParams, MetadataIdParams } from "@/app/http/schemas/route-params.schema";
 import { hydratedWatchlistPaginatedSchema, watchlistPaginatedSchema, watchlistResponseSchema } from "@/app/http/schemas/watchlist.schema";
+import { assertRouteMediaAccess } from "@/app/http/utils/access-context.utils";
 import { playbackProgressService } from "@/app/playback/playback-progress.service";
 import { userRatingsService } from "@/app/users/user-ratings.service";
 import { watchedHistoryService } from "@/app/users/watched-history.service";
 import { watchlistService } from "@/app/users/watchlist.service";
-import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
 import { trimAndFilter } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 
@@ -130,7 +130,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.put(
 		"/media-files/:mediaFileId/playback-progress",
 		async ({ params, body, user, profile }) => {
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: params.mediaFileId });
+			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 
 			return await playbackProgressService.updatePlaybackProgress(params.mediaFileId, body, profile?.id);
 		},
@@ -160,7 +160,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.delete(
 		"/media-files/:mediaFileId/playback-progress",
 		async ({ params, query, user, profile }) => {
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: params.mediaFileId });
+			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 
 			return await playbackProgressService.resetPlaybackProgress(params.mediaFileId, profile?.id, query.scope);
 		},
@@ -272,7 +272,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		"/watch-state/bulk",
 		async ({ body, user, profile }) => {
 			for (const mediaFileId of new Set(body.mediaFileIds)) {
-				await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId });
+				await assertRouteMediaAccess({ user, profile }, mediaFileId);
 			}
 
 			return await playbackProgressService.setWatchStateBulk(body, profile?.id);

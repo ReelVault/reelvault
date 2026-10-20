@@ -1,10 +1,10 @@
 import { daysAgo } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { buildAdminPagination, createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { safeParseJson } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { toJobContract, toOperationContract } from "@/workers/utils/worker-stats.mapper";
 import { type WorkerItem, type WorkerOperationRecord, type WorkerOperationStatus, workerDependencies } from "@/workers/worker.ports";
 import type { WorkerOperationJobsQuery } from "@/workers/worker.types";
@@ -13,9 +13,9 @@ import { getWorkerRuntime } from "./worker.runtime";
 /** Cancelled jobs re-read per page during resume — bounded memory for huge operations. */
 const RESUME_PAGE_SIZE = 5000;
 
-export class WorkerOperationsService {
-	readonly serviceName = "WorkerOperationsService";
-	readonly logger = createLogger("WorkerOperationsService");
+export const workerOperationsService = {
+	serviceName: "WorkerOperationsService",
+	logger: createLogger("WorkerOperationsService"),
 
 	create(input: { type: string; reference?: { type: string; id: string }; error?: string }): Promise<WorkerOperationRecord> {
 		return workerDependencies().operations.create({
@@ -25,33 +25,33 @@ export class WorkerOperationsService {
 			referenceId: input.reference?.id,
 			error: input.error,
 		});
-	}
+	},
 
 	async getById(id: string) {
 		const operation = await workerDependencies().operations.findById(id);
 
 		return operation ? toOperationContract(operation) : undefined;
-	}
+	},
 
 	async list(
 		options: { status?: WorkerOperationStatus | "active" | undefined; page?: number | undefined; limit?: number | undefined } = {},
 	) {
-		const pagination = QueryPagination.resolvePageParams(options, { defaultLimit: 50 });
+		const pagination = resolvePageParams(options, { defaultLimit: 50 });
 		const result = await workerDependencies().operations.list({
 			status: options.status,
 			limit: pagination.limit,
 			offset: pagination.offset,
 		});
 
-		return QueryPagination.createResponse({
+		return createPageResponse({
 			total: result.total,
 			pagination,
 			data: result.data.map(toOperationContract),
 		});
-	}
+	},
 
 	async getOperationJobs(id: string, options: WorkerOperationJobsQuery = {}) {
-		const pagination = QueryPagination.resolvePageParams(options, { defaultLimit: 50 });
+		const pagination = resolvePageParams(options, { defaultLimit: 50 });
 		const [summary, { items, total }] = await Promise.all([
 			workerDependencies().operations.getOperationItemsSummary(id),
 			workerDependencies().operations.listItems(id, {
@@ -65,9 +65,9 @@ export class WorkerOperationsService {
 		return {
 			data: items.map((item) => toJobContract(item, item.dependsOnJobId ? [item.dependsOnJobId] : [])),
 			summary,
-			...QueryPagination.buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),
+			...buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),
 		};
-	}
+	},
 
 	async cancel(id: string): Promise<boolean> {
 		const operation = await workerDependencies().operations.findById(id);
@@ -84,13 +84,13 @@ export class WorkerOperationsService {
 		}
 
 		if (runningItems.length > 0) {
-			await PromiseUtils.mapConcurrent(runningItems, systemResourcesService.getIoConcurrency(), async (item) =>
+			await mapConcurrent(runningItems, systemResourcesService.getIoConcurrency(), async (item) =>
 				workerDependencies().jobs.cancelRunning(item.id),
 			);
 		}
 
 		return true;
-	}
+	},
 
 	/**
 	 * Re-enqueues the cancelled jobs of a stopped operation (admin "resume").
@@ -135,7 +135,11 @@ export class WorkerOperationsService {
 				for (const [workerId, group] of byWorker) {
 					const definition = getWorkerRuntime().registry.get(workerId);
 					if (!definition) {
-						this.logger.warn("Skipping resume group — worker is no longer registered", { workerId, operationId: id, items: group.length });
+						workerOperationsService.logger.warn("Skipping resume group — worker is no longer registered", {
+							workerId,
+							operationId: id,
+							items: group.length,
+						});
 						continue;
 					}
 
@@ -185,7 +189,7 @@ export class WorkerOperationsService {
 		await workerDependencies().operations.reconcileFromJobs(id);
 
 		return { resumed };
-	}
+	},
 
 	async cancelAll(): Promise<number> {
 		const concurrency = systemResourcesService.getIngestConcurrency();
@@ -196,7 +200,7 @@ export class WorkerOperationsService {
 		// the first 1000 active operations.
 		let activeOperations = await workerDependencies().operations.list({ status: "active", limit: 1000 });
 		while (activeOperations.data.length > 0) {
-			const results = await PromiseUtils.mapConcurrent(activeOperations.data, concurrency, async (op) => this.cancel(op.id));
+			const results = await mapConcurrent(activeOperations.data, concurrency, async (op) => workerOperationsService.cancel(op.id));
 			const batchCancelled = results.filter((wasCancelled) => wasCancelled).length;
 			// No progress means the remaining rows cannot be cancelled — stop rather than spin.
 			if (batchCancelled === 0) break;
@@ -206,7 +210,7 @@ export class WorkerOperationsService {
 		}
 
 		return cancelled;
-	}
+	},
 
 	/** With `dryRun` nothing is deleted: the result counts the operations and jobs a purge would remove. */
 	purgeHistory(
@@ -222,15 +226,16 @@ export class WorkerOperationsService {
 		return options.dryRun
 			? workerDependencies().operations.countTerminalOperations(filter)
 			: workerDependencies().operations.purgeTerminalOperations(filter);
-	}
+	},
 
 	cleanupExpired(): Promise<number> {
 		return workerDependencies().operations.cleanupExpired();
-	}
+	},
 
 	async remove(id: string): Promise<void> {
 		await workerDependencies().operations.remove(id);
-	}
-}
+	},
+};
 
-export const workerOperationsService = new WorkerOperationsService();
+/** The singleton's shape, for callers that inject or declare the operations surface. */
+export type WorkerOperationsService = typeof workerOperationsService;

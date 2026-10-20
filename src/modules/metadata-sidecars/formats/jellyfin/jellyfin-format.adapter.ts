@@ -1,8 +1,8 @@
 import type { SidecarFormatAdapter } from "@/modules/metadata-sidecars/formats/sidecar-format.adapter";
 import type { SidecarFormatInput } from "@/modules/metadata-sidecars/sidecar.types";
 import { readFile } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { loadJellyfinDocument } from "./jellyfin-common.utils";
+import { getFileName } from "@/utils/path.utils";
+import { loadXmlDocumentFile } from "../../xml/xml-document.reader";
 import { readJellyfinEpisodeDocument } from "./jellyfin-episode-document.reader";
 import { readJellyfinMovieDocument } from "./jellyfin-movie-document.reader";
 import { readJellyfinSeasonDocument } from "./jellyfin-season-document.reader";
@@ -13,7 +13,7 @@ export class JellyfinFormatAdapter implements SidecarFormatAdapter {
 	readonly capabilities = ["read"] as const;
 
 	canRead({ documentPath }: SidecarFormatInput): Promise<boolean> {
-		const fileName = PathUtils.getFileName(documentPath).toLowerCase();
+		const fileName = getFileName(documentPath).toLowerCase();
 
 		// The app's own snapshots also end in `.nfo` — they must never be claimed
 		// by the Jellyfin reader, or a registry-order change would break them.
@@ -26,7 +26,7 @@ export class JellyfinFormatAdapter implements SidecarFormatAdapter {
 
 		// Validate and parse once, then pick the root. Each candidate reader used
 		// to re-validate and re-parse the same document — 4x for an episode NFO.
-		const document = await loadJellyfinDocument(input.documentPath, content);
+		const document = await loadXmlDocumentFile(input.documentPath, content);
 		if (!document) return null;
 
 		return (

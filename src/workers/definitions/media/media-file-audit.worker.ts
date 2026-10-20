@@ -3,9 +3,9 @@ import { serverConfig } from "@/config/server/server.config";
 import { DomainError, withDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
 export interface MediaFileAuditData {
@@ -27,15 +27,13 @@ export interface MediaMatchAuditScanResult {
 export const mediaFileAuditWorker = createWorkerDefinition<MediaFileAuditData>(
 	"media-match-audit",
 	() => serverConfig.workers.definitions.mediaMatchAudit,
-	async ({ data, signal, operationId, taskId }) =>
-		await auditMediaFileTask({ mediaFileId: data.mediaFileId }, { signal, operationId, correlationId: operationId, taskId }),
+	async (context) => await auditMediaFileTask({ mediaFileId: context.data.mediaFileId }, toApplicationContext(context)),
 );
 
 export const mediaMatchAuditScanWorker = createWorkerDefinition<Record<string, never>>(
 	"media-match-audit-all",
 	() => serverConfig.workers.definitions.mediaMatchAuditScan,
-	async ({ signal, logger, operationId, taskId }) =>
-		await scanMediaMatchAuditTask({ signal, logger, operationId, correlationId: operationId, taskId }),
+	async (context) => await scanMediaMatchAuditTask(toApplicationContext(context)),
 );
 
 mediaMatchAuditScanWorker.defaultTriggers = [{ id: "media-audit-weekly", type: "weekly", dayOfWeek: 0, timeOfDay: "04:30" }];
@@ -54,16 +52,13 @@ export const mediaFileAuditReportWorker = createWorkerDefinition<Record<string, 
 	},
 );
 
+const mediaFileAuditReportEnqueue = defineWorkerEnqueue<Record<string, never>>(mediaFileAuditReportWorker.id, () => ({
+	dedupeKey: "media-files-audit:all",
+	reference: { type: "media-files", id: "all" },
+}));
+
 export function enqueueMediaFileAuditReport(options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(
-		mediaFileAuditReportWorker.id,
-		{},
-		{
-			...options,
-			dedupeKey: "media-files-audit:all",
-			reference: { type: "media-files", id: "all" },
-		},
-	);
+	return mediaFileAuditReportEnqueue.enqueue({}, options);
 }
 
 // ─── Task Functions ───────────────────────────────────────────────────────────

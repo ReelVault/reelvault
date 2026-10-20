@@ -22,7 +22,7 @@ import { adminResourcesService, RESOURCE_HISTORY_MAX_HOURS } from "@/app/admin/a
 import { metadataService } from "@/app/catalog/metadata/metadata.service";
 import { metadataRefreshQueueService } from "@/app/catalog/metadata/refresh/metadata-refresh-queue.service";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
-import { ClampedNumeric, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { ClampedNumeric, paginationQueryFields, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
@@ -158,8 +158,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.get("/audit", async ({ query }) => await adminAuditService.getAll(query), {
 		query: t.Object({
-			page: t.Optional(t.Numeric({ minimum: 1 })),
-			limit: t.Optional(ClampedNumeric(1, 100)),
+			...paginationQueryFields({ maxLimit: 100 }),
 			...AuditFilterFields,
 		}),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.audit" },

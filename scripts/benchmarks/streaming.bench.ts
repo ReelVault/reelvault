@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -20,7 +20,7 @@ import { sleep } from "bun";
 import { parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer.utils";
 import { playlistFileCache } from "@/modules/streaming/playlist/playlist.cache";
 import { removeTree } from "@/utils/directory.utils";
-import { FileUtils } from "@/utils/file.utils";
+import { getBunFile, writeFile } from "@/utils/file.utils";
 import { authHeaders, subnetIp } from "./lib/identity.utils";
 import { createPlaybackSession, deletePlaybackSession, parseSegmentNames } from "./lib/playback.utils";
 import { toScenarioResult } from "./lib/scenario-result.mapper";
@@ -502,7 +502,7 @@ if (!args.help) {
 			const sessionId = `bench-waiter-${Date.now()}`;
 			await playlistFileCache.read(sessionId, playlistPath, 4);
 
-			const raw = await benchmarkAsync("raw read+parse per tick", async () => parseHlsBuffer(await FileUtils.get(playlistPath).text(), 4), {
+			const raw = await benchmarkAsync("raw read+parse per tick", async () => parseHlsBuffer(await getBunFile(playlistPath).text(), 4), {
 				warmup: 5,
 				iterations: 50,
 			});

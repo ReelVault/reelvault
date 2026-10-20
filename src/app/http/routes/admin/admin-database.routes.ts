@@ -3,6 +3,7 @@ import {
 	AdminDatabaseBackupSchema,
 	AdminDatabaseRestoreResponseSchema,
 	DatabaseMigrationStatusSchema,
+	SuccessResponseSchema,
 } from "@reelvault/sdk/common";
 import { file } from "bun";
 import { t } from "elysia";
@@ -11,6 +12,7 @@ import { databaseBackupService } from "@/app/admin/database-backup.service";
 import { databaseMaintenanceService } from "@/app/admin/database-maintenance.service";
 import { databaseRestoreService } from "@/app/admin/database-restore.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { FileNameParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { env } from "@/config/env.config";
@@ -93,7 +95,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 		},
 		{
 			rateLimit: { name: "admin-db-backup-download", max: 10, windowMs: MINUTE },
-			params: t.Object({ fileName: t.String({ minLength: 1 }) }),
+			params: FileNameParams,
 			// Attachment download: the handler returns a Response, not JSON.
 			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
 			detail: {
@@ -115,7 +117,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post("/database/optimize", async () => await databaseMaintenanceService.optimize(), {
 		rateLimit: { name: "admin-db-optimize", max: 5, windowMs: MINUTE },
-		response: { ...ROUTE_ERRORS.ADMIN, 200: t.Object({ success: t.Literal(true) }) },
+		response: { ...ROUTE_ERRORS.ADMIN, 200: SuccessResponseSchema },
 		detail: {
 			description: "Refresh SQLite's planner statistics (PRAGMA optimize).",
 		},
@@ -169,10 +171,10 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			return { success };
 		},
 		{
-			params: t.Object({ fileName: t.String() }),
+			params: FileNameParams,
 			response: {
 				...ROUTE_ERRORS.ADMIN,
-				200: t.Object({ success: t.Boolean() }),
+				200: SuccessResponseSchema,
 			},
 			detail: {
 				description: "Delete an existing database backup.",

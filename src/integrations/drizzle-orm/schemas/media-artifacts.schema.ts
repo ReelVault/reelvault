@@ -1,21 +1,21 @@
 import { playbackArtifactKinds } from "@reelvault/sdk/common";
 import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { mediaFiles } from "./media-files.schema";
 
 export const mediaArtifacts = sqliteTable(
 	"media_artifacts",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		stableKey: text("stable_key").notNull(),
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		mediaFileId: tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
 
 		pluginId: text("plugin_id").notNull(),
 		kind: text("kind", { enum: playbackArtifactKinds }).notNull(),
 		contentType: text("content_type").notNull(),
 		storageKey: text("storage_key").notNull().unique(),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		index("media_artifacts_media_file_created_idx").on(table.mediaFileId, table.createdAt),

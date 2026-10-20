@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { OfflineRebuildIssue } from "@/modules/metadata-sidecars/offline-rebuild.types";
-import { PathUtils } from "@/utils/path.utils";
+import { getDirName, getFileName, isVideoFile } from "@/utils/path.utils";
 import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.utils";
 import { type CatalogDirectoryNode, findDocumentsByNames, findMatchingFiles } from "./catalog-tree.walker";
 
@@ -22,7 +22,7 @@ export class CatalogMoviesImporter extends CatalogImporter {
 			importDocument: (documentPath, document, now) => {
 				const metadataId = crypto.randomUUID();
 				const movieId = crypto.randomUUID();
-				const directory = PathUtils.getDirName(documentPath);
+				const directory = getDirName(documentPath);
 				insertMetadataRow(database, { id: metadataId, type: "movie", document, now });
 				database.run("INSERT INTO movies (id, stable_key, metadata_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", [
 					movieId,
@@ -35,11 +35,11 @@ export class CatalogMoviesImporter extends CatalogImporter {
 				// Only videos sitting NEXT TO the movie.nfo belong to this movie — a
 				// recursive scan would let one root-level sidecar claim every video in
 				// the subtree (episode folders included).
-				for (const videoPath of findMatchingFiles(tree, directory, (path) => PathUtils.isVideoFile(path), { recursive: false })) {
+				for (const videoPath of findMatchingFiles(tree, directory, (path) => isVideoFile(path), { recursive: false })) {
 					const id = crypto.randomUUID();
 					database.run(
 						"INSERT INTO media_files (id, library_id, metadata_id, movie_id, file_path, file_name, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-						[id, libraryId, metadataId, movieId, videoPath, PathUtils.getFileName(videoPath), fileIndex === 0 ? 1 : 0, now, now],
+						[id, libraryId, metadataId, movieId, videoPath, getFileName(videoPath), fileIndex === 0 ? 1 : 0, now, now],
 					);
 					fileIndex++;
 				}

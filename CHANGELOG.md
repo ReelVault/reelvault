@@ -723,6 +723,7 @@ The browse and collections rows are the combined result of every change above; t
 
 #### Database & query efficiency
 
+- **Unified bulk id existence checks** — every bulk precheck now deduplicates and chunks its id list, so a large batch cannot exceed SQLite's bound-variable limit.
 - **Optimized list pagination** — composite indexes now support filtering, sorting and stable ID tie-breakers without temporary sorts. In the database benchmark, typed title browsing improved from 0.14 to 0.03 ms p50, while offset browsing improved from 0.14 to 0.004 ms.
 - **Optimized descending pagination** — sort tie-breakers now follow the requested direction, eliminating an unnecessary temporary sort. Descending browsing improved from 0.13 to 0.02 ms p50.
 - **Reduced database reads for playback** — playback session data now loads in 2 statements instead of 4–5 on a cold preferences cache, or 1 instead of 3–4 with warm preferences. Playback views also combine media, relation, marker, metadata and episode reads, reducing repeated queries.

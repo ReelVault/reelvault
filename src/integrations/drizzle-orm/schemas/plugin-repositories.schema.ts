@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 /**
  * Catalog repositories a server browses for installable plugins
@@ -11,7 +11,7 @@ import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper
 export const pluginRepositories = sqliteTable(
 	"plugin_repositories",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		name: text("name").notNull(),
 		url: text("url").notNull(),
 		tokenEncrypted: text("token_encrypted"),
@@ -19,7 +19,7 @@ export const pluginRepositories = sqliteTable(
 
 		lastRefreshedAt: integer("last_refreshed_at", { mode: "timestamp" }),
 		lastError: text("last_error"),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		index("plugin_repositories_enabled_idx").on(table.enabled),

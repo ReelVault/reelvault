@@ -2,7 +2,7 @@ import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
 import { eq, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { selectFirstByIdPrepared } from "@/integrations/drizzle-orm/query/table-access/by-id.reader";
 import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import type { TableAccessBase, TableSelect } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
@@ -53,5 +53,5 @@ export async function selectByIdWithFields(
 	const row = await selectFirstWithFields(access, { where: eq(access.primaryKeyColumn, primaryId), tx, fields });
 	if (!row) return undefined;
 
-	return QueryFields.apply(row, fields);
+	return applyFields(row, fields);
 }

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { mediaFiles } from "./media-files.schema";
 import { profiles } from "./profiles.schema";
 
@@ -11,9 +11,9 @@ import { profiles } from "./profiles.schema";
 export const interruptedPlaybackSessions = sqliteTable(
 	"interrupted_playback_sessions",
 	{
-		id: DatabaseHelper.id,
-		profileId: DatabaseHelper.tableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		id: idColumn,
+		profileId: tableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
+		mediaFileId: tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
 
 		startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
 		endedAt: integer("ended_at", { mode: "timestamp" }).notNull(),
@@ -22,7 +22,7 @@ export const interruptedPlaybackSessions = sqliteTable(
 		durationSeconds: integer("duration_seconds"),
 		reason: text("reason").notNull(),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		index("interrupted_sessions_profile_ended_idx").on(t.profileId, t.endedAt),

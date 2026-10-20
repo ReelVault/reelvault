@@ -1,8 +1,5 @@
-import { systemResourcesService } from "@/config/system-resources.service";
-import { PromiseUtils } from "@/utils/promise.utils";
 import type { ApplicationContext } from "@/utils/task-context.types";
-import { batchChunks } from "@/workers/utils/batch-chunker.utils";
-import { ENQUEUE_BATCH_SIZE } from "@/workers/worker.constants";
+import { enqueueInBatches } from "@/workers/utils/batch-enqueue.utils";
 import type { WorkerEnqueueOptions } from "@/workers/worker.types";
 
 export interface ScanAndEnqueueResult {
@@ -51,28 +48,22 @@ export async function scanAndEnqueueTask<TId, T>({
 	let queued = 0;
 	const enqueuePage = async (ids: TId[]): Promise<void> => {
 		requested += ids.length;
+		let batch: ((chunk: TId[]) => Promise<unknown>) | undefined;
 		if (enqueueMany) {
-			for (const { items: idChunk } of batchChunks(ids, ENQUEUE_BATCH_SIZE)) {
-				context.signal?.throwIfAborted();
+			batch = async (chunk) =>
 				await enqueueMany(
-					idChunk.map((id) => toData(id)),
+					chunk.map((id) => toData(id)),
 					schedulingOptions,
 				);
-				queued += idChunk.length;
-			}
-
-			return;
 		}
 
-		await PromiseUtils.mapConcurrent(
-			ids,
-			systemResourcesService.getIngestConcurrency(),
-			async (id) => {
-				await enqueueItem(toData(id), schedulingOptions);
-				queued++;
-			},
-			context.signal,
-		);
+		const result = await enqueueInBatches({
+			items: ids,
+			batch,
+			item: async (id) => await enqueueItem(toData(id), schedulingOptions),
+			signal: context.signal,
+		});
+		queued += result.queued;
 	};
 
 	if (scanPages) {

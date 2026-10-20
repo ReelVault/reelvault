@@ -3,27 +3,36 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { DomainError } from "@/utils/domain.errors";
 
-class PluginRepositoriesRepository {
-	readonly table = schema.pluginRepositories;
+export const pluginRepositoriesRepository = {
+	table: schema.pluginRepositories,
 
 	async list() {
-		return await databaseFactory.getClient().select().from(this.table).orderBy(asc(this.table.createdAt));
-	}
+		return await databaseFactory
+			.getClient()
+			.select()
+			.from(pluginRepositoriesRepository.table)
+			.orderBy(asc(pluginRepositoriesRepository.table.createdAt));
+	},
 
 	async findById(id: string) {
-		const [entry] = await databaseFactory.getClient().select().from(this.table).where(eq(this.table.id, id)).limit(1);
+		const [entry] = await databaseFactory
+			.getClient()
+			.select()
+			.from(pluginRepositoriesRepository.table)
+			.where(eq(pluginRepositoriesRepository.table.id, id))
+			.limit(1);
 
 		return entry;
-	}
+	},
 
 	async count(): Promise<number> {
-		return await databaseFactory.getClient().$count(this.table);
-	}
+		return await databaseFactory.getClient().$count(pluginRepositoriesRepository.table);
+	},
 
 	async create(values: { name: string; url: string; tokenEncrypted?: string | null; enabled?: boolean }) {
 		const [entry] = await databaseFactory
 			.getClient()
-			.insert(this.table)
+			.insert(pluginRepositoriesRepository.table)
 			.values({
 				name: values.name,
 				url: values.url,
@@ -34,7 +43,7 @@ class PluginRepositoriesRepository {
 		if (!entry) throw new DomainError("internal", "Plugin repository insert returned no row", { code: "plugin.repository_save_failed" });
 
 		return entry;
-	}
+	},
 
 	/**
 	 * Idempotent seed: inserts only when the URL is not present yet. Unlike
@@ -45,10 +54,10 @@ class PluginRepositoriesRepository {
 	async createIfAbsent(values: { name: string; url: string }): Promise<void> {
 		await databaseFactory
 			.getClient()
-			.insert(this.table)
+			.insert(pluginRepositoriesRepository.table)
 			.values({ name: values.name, url: values.url, tokenEncrypted: null, enabled: true })
 			.onConflictDoNothing();
-	}
+	},
 
 	async update(
 		id: string,
@@ -63,18 +72,16 @@ class PluginRepositoriesRepository {
 	) {
 		const [entry] = await databaseFactory
 			.getClient()
-			.update(this.table)
+			.update(pluginRepositoriesRepository.table)
 			.set({ ...values, updatedAt: new Date() })
-			.where(eq(this.table.id, id))
+			.where(eq(pluginRepositoriesRepository.table.id, id))
 			.returning();
 		if (!entry) throw new DomainError("not_found", `Plugin repository not found: ${id}`, { code: "plugin.repository_not_found" });
 
 		return entry;
-	}
+	},
 
 	async delete(id: string): Promise<void> {
-		await databaseFactory.getClient().delete(this.table).where(eq(this.table.id, id));
-	}
-}
-
-export const pluginRepositoriesRepository = new PluginRepositoriesRepository();
+		await databaseFactory.getClient().delete(pluginRepositoriesRepository.table).where(eq(pluginRepositoriesRepository.table.id, id));
+	},
+};

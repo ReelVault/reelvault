@@ -1,3 +1,6 @@
+import { SERVER_VERSION } from "@/config/version.constants";
+import { DomainError } from "@/utils/domain.errors";
+
 const SEMVER_REGEX = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 /** Full-match `1.2.3` with an optional prerelease/build suffix (no `v` prefix). */
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
@@ -86,4 +89,23 @@ export function isNewerVersion(candidate: string, current: string): boolean {
 	if (next.patch !== now.patch) return next.patch > now.patch;
 
 	return comparePrerelease(next.prerelease, now.prerelease) > 0;
+}
+
+/** True when the running server is older than the declared `minServerVersion`. */
+export function requiresNewerServer(minServerVersion: string | null | undefined): minServerVersion is string {
+	return typeof minServerVersion === "string" && isNewerVersion(minServerVersion, SERVER_VERSION);
+}
+
+/** The one sentence every server-version gate uses, without the subject prefix. */
+export function serverVersionRequirementMessage(minServerVersion: string): string {
+	return `requires server ${minServerVersion} or newer (running ${SERVER_VERSION})`;
+}
+
+/** The validation error for a subject that needs a newer server, or undefined when the server is new enough. */
+export function minServerVersionError(minServerVersion: string | null | undefined, subject: string, code: string): DomainError | undefined {
+	if (!requiresNewerServer(minServerVersion)) return undefined;
+
+	return new DomainError("validation", `${subject} ${serverVersionRequirementMessage(minServerVersion)} — update the server first`, {
+		code,
+	});
 }

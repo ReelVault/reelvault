@@ -1,4 +1,4 @@
-import { PathUtils } from "@/utils/path.utils";
+import { getFileName } from "@/utils/path.utils";
 import type { InstalledPluginRecord, PluginPreviousInstall } from "./lockfile.store";
 
 /** The admin's own choices on a plugin. They survive an upgrade's rollback point and its restore. */
@@ -26,7 +26,7 @@ export function buildInstallRecord(input: InstallRecordInput): InstalledPluginRe
 	const { targetDirectory, version, integrity, source, previousRecord, backupDirectory } = input;
 
 	return {
-		directory: PathUtils.getFileName(targetDirectory),
+		directory: getFileName(targetDirectory),
 		integrity,
 		installedAt: new Date().toISOString(),
 		source,
@@ -57,6 +57,6 @@ function toPreviousInstall(record: InstalledPluginRecord, backupDirectory: strin
 		installedAt: record.installedAt,
 		source: record.source,
 		...adminChoicesOf(record),
-		backupDirectory: PathUtils.getFileName(backupDirectory),
+		backupDirectory: getFileName(backupDirectory),
 	};
 }

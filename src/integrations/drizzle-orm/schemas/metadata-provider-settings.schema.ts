@@ -1,5 +1,5 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 /** Runtime preferences for registered metadata providers, separate from persisted provider entities. */
 export const metadataProviderSettings = sqliteTable(
@@ -8,7 +8,7 @@ export const metadataProviderSettings = sqliteTable(
 		providerId: text("provider_id").primaryKey(),
 		priority: integer("priority").notNull().default(100),
 		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		index("metadata_provider_settings_priority_idx").on(table.enabled, table.priority, table.providerId),

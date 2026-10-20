@@ -1,12 +1,12 @@
 import type { SidecarFlavor } from "@/modules/metadata-sidecars/sidecar.types";
 import { DomainError } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { isSubpath, joinPath } from "@/utils/path.utils";
 
 const PATH_SEPARATOR_REGEX = /[/\\]/;
 
 /** Every write target must resolve inside the directory it is derived from. */
 function assertWithinDirectory(directory: string, documentPath: string): string {
-	if (!PathUtils.isSubpath(documentPath, directory)) {
+	if (!isSubpath(documentPath, directory)) {
 		throw new DomainError("validation", `Sidecar path escapes its media directory: ${documentPath}`, { code: "sidecar.path_invalid" });
 	}
 
@@ -14,7 +14,7 @@ function assertWithinDirectory(directory: string, documentPath: string): string 
 }
 
 function episodeDocumentPath(directory: string, videoBaseName: string, suffix: string): string {
-	return assertWithinDirectory(directory, PathUtils.join(directory, `${assertEpisodeBaseName(videoBaseName)}${suffix}`));
+	return assertWithinDirectory(directory, joinPath(directory, `${assertEpisodeBaseName(videoBaseName)}${suffix}`));
 }
 
 /** Episode-derived file names (sidecar documents and thumbnails) must stay flat. */
@@ -45,13 +45,13 @@ interface SidecarFileNames {
 function createSidecarPathPolicy(names: SidecarFileNames) {
 	return {
 		movie(directory: string): string {
-			return assertWithinDirectory(directory, PathUtils.join(directory, names.movie));
+			return assertWithinDirectory(directory, joinPath(directory, names.movie));
 		},
 		series(directory: string): string {
-			return assertWithinDirectory(directory, PathUtils.join(directory, names.series));
+			return assertWithinDirectory(directory, joinPath(directory, names.series));
 		},
 		season(directory: string, seasonNumber: number): string {
-			return assertWithinDirectory(directory, PathUtils.join(directory, seasonFileName(seasonNumber, names.seasonSuffix)));
+			return assertWithinDirectory(directory, joinPath(directory, seasonFileName(seasonNumber, names.seasonSuffix)));
 		},
 		episode(directory: string, videoBaseName: string): string {
 			return episodeDocumentPath(directory, videoBaseName, names.episodeSuffix);

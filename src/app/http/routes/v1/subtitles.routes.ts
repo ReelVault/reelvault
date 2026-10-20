@@ -16,9 +16,9 @@ import { authMiddleware } from "@/app/http/middleware/auth.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
 import { commonModel, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { IdParams, ProviderIdParams } from "@/app/http/schemas/route-params.schema";
+import { assertRouteMediaAccess } from "@/app/http/utils/access-context.utils";
 import { binaryFileResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE, SUBTITLE_UPLOAD_MAX_SIZE } from "@/config/server/server.constants";
-import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
 import { subtitlesService } from "@/modules/subtitles/subtitles.service";
 
 const SUBTITLE_CACHE_CONTROL = "private, max-age=300";
@@ -125,7 +125,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 			// access policies (e.g. parental control) as the media stream itself,
 			// not just "is signed in".
 			const subtitle = await subtitlesService.getById(params.id);
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: subtitle.mediaFileId });
+			await assertRouteMediaAccess({ user, profile }, subtitle.mediaFileId);
 			const content = await subtitlesService.getContent(params.id, request.signal);
 
 			return binaryFileResponse(content.file, content.contentType, SUBTITLE_CACHE_CONTROL, headers["if-none-match"]);

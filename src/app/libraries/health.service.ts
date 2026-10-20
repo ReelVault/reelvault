@@ -15,7 +15,7 @@ import { workerOperationRepository } from "@/app/repositories/worker-operation.r
 import { systemResourcesService } from "@/config/system-resources.service";
 import { toMap } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import {
 	createLibraryErrorsCheckDedupeKey,
@@ -103,7 +103,7 @@ export async function getLibraryHealth(state: LibrariesServiceState): Promise<Li
 		// many library paths stat-ed them one after another, and a stat on a NAS
 		// can take a while.
 		const allPaths = libraries.flatMap((library) => library.paths.map((libraryPath) => ({ libraryId: library.id, libraryPath })));
-		const pathStats = await PromiseUtils.mapConcurrent(allPaths, systemResourcesService.getIoConcurrency(), async (entry) => ({
+		const pathStats = await mapConcurrent(allPaths, systemResourcesService.getIoConcurrency(), async (entry) => ({
 			...entry,
 			...(await describePath(entry.libraryPath.path)),
 		}));

@@ -1,9 +1,9 @@
 import type { TaskTrigger } from "@reelvault/sdk/common";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 export const workerSchedules = sqliteTable("worker_schedules", {
-	id: DatabaseHelper.id,
+	id: idColumn,
 	workerId: text("worker_id").notNull().unique(),
 	triggers: text("triggers", { mode: "json" }).$type<TaskTrigger[]>().notNull(),
 	isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
@@ -15,5 +15,5 @@ export const workerSchedules = sqliteTable("worker_schedules", {
 	lastStatus: text("last_status", { enum: ["completed", "failed", "cancelled"] }),
 	lastDurationMs: integer("last_duration_ms"),
 	lastError: text("last_error"),
-	...DatabaseHelper.timestamps,
+	...timestampColumns,
 });

@@ -7,7 +7,7 @@ import { fileScannerService, matchesIgnorePattern } from "@/modules/scanner/disk
 import { findSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles.utils";
 import { filterPathsWithinRoots } from "@/modules/scanner/utils/scanner.utils";
 import { removeTree } from "@/utils/directory.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { isVideoFile } from "@/utils/path.utils";
 
 export const meta = { description: "File scanner & recognition (directory walk, diff, parseFileName caching)" };
 
@@ -89,7 +89,7 @@ if (!args.help) {
 		() => {
 			let hits = 0;
 			for (const filePath of videoLookupPaths) {
-				if (PathUtils.isVideoFile(filePath)) hits++;
+				if (isVideoFile(filePath)) hits++;
 			}
 
 			return hits;

@@ -17,15 +17,15 @@ import type {
 } from "@/modules/scanner/scanner.types";
 import { CancellationError, throwIfAborted } from "@/utils/cancellation.utils";
 import { DomainError, toDomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { getFileStats } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { createInFlightCache } from "@/utils/memory.cache";
-import { PathUtils } from "@/utils/path.utils";
+import { getFileName, normalizePath } from "@/utils/path.utils";
 import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 
 interface ProbeAndMapResult {
 	tech: Awaited<ReturnType<typeof videoParser.probe>>;
-	stats: Awaited<ReturnType<typeof FileUtils.getStats>>;
+	stats: Awaited<ReturnType<typeof getFileStats>>;
 	mediaFileData: ReturnType<typeof mapMediaFileData> | null;
 	markers?: ChapterMarkerDraft[] | undefined;
 }
@@ -107,7 +107,7 @@ class MediaFileProcessor {
 	 * never abort.
 	 */
 	private async probeAndMap(filePath: string, fileName: string, signal?: AbortSignal): Promise<ProbeAndMapResult> {
-		const [technicalData, fileStats] = await Promise.allSettled([videoParser.probe(filePath, signal), FileUtils.getStats(filePath)]);
+		const [technicalData, fileStats] = await Promise.allSettled([videoParser.probe(filePath, signal), getFileStats(filePath)]);
 
 		if (technicalData.status === "rejected") {
 			this.logger.warn("Failed to probe video", { filePath, error: technicalData.reason });
@@ -123,6 +123,23 @@ class MediaFileProcessor {
 			mediaFileData,
 			...(tech ? { markers: mapChaptersToMarkers(tech.chapters ?? []) } : {}),
 		};
+	}
+
+	/**
+	 * Probes the file and applies the "never import without technical data" guard
+	 * shared by the single- and multi-episode paths. A failed probe or a vanished
+	 * file returns undefined; importing it would leave a row the scanner never
+	 * revisits (size/mtime would match next time).
+	 */
+	private async probeOrSkip(filePath: string, fileName: string, signal?: AbortSignal): Promise<ProbeAndMapResult | undefined> {
+		const probe = await this.probeAndMap(filePath, fileName, signal);
+		throwIfAborted(signal);
+
+		if (probe.tech && probe.stats) return probe;
+
+		this.logger.warn("Failed to probe video — recording a scan finding and retrying on the next scan", { filePath });
+
+		return undefined;
 	}
 
 	/** Shared shape of a processed file — identity fields plus the probed technical data. */
@@ -170,7 +187,7 @@ class MediaFileProcessor {
 				if (existingMediaFile) return null;
 			}
 
-			const fileName = PathUtils.getFileName(filePath);
+			const fileName = getFileName(filePath);
 			const recognition = await recognizeWithPluginHooks(filePath);
 			throwIfAborted(signal);
 			if (!recognition) {
@@ -203,7 +220,7 @@ class MediaFileProcessor {
 
 			const sidecar = await this.readSidecarHint(filePath, recognition.type);
 			const [probeResult, metadataResult] = await Promise.allSettled([
-				this.probeAndMap(filePath, fileName, signal),
+				this.probeOrSkip(filePath, fileName, signal),
 				this.metadataMatcher.checkMetadata({
 					type: recognition.type,
 					parsed: recognition.identity,
@@ -217,16 +234,8 @@ class MediaFileProcessor {
 
 			if (probeResult.status === "rejected") throw probeResult.reason;
 
-			// `probeAndMap` never rejects — a failed probe or a vanished file resolves
-			// with no technical data. Importing that would leave a row with no
-			// duration/streams that the scanner never revisits (size/mtime match), so
-			// skip with a finding instead and retry on the next scan.
 			const probe = probeResult.value;
-			if (!(probe.tech && probe.stats)) {
-				this.logger.warn("Failed to probe video — recording a scan finding and retrying on the next scan", { filePath });
-
-				return { skipReason: "probe_failed", fileName };
-			}
+			if (!probe) return { skipReason: "probe_failed", fileName };
 
 			if (metadataResult.status === "rejected") {
 				this.logger.warn("Failed to check metadata", { filePath, error: metadataResult.reason });
@@ -280,16 +289,8 @@ class MediaFileProcessor {
 		options?: { libraryId?: string | undefined } | undefined;
 	}): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
 		const sidecar = await this.readSidecarHint(filePath, recognition.type);
-		const probe = await this.probeAndMap(filePath, fileName, signal);
-		throwIfAborted(signal);
-
-		// Same probe guard as the single-episode path: never import a row without
-		// technical data (the scanner would not revisit it).
-		if (!(probe.tech && probe.stats)) {
-			this.logger.warn("Failed to probe video — recording a scan finding and retrying on the next scan", { filePath });
-
-			return { skipReason: "probe_failed", fileName };
-		}
+		const probe = await this.probeOrSkip(filePath, fileName, signal);
+		if (!probe) return { skipReason: "probe_failed", fileName };
 
 		const targets: AdditionalEpisodeTarget[] = [];
 		for (const episode of episodeTargets) {
@@ -335,7 +336,7 @@ type EmptyMediaFileData = Omit<
 
 /** The folders and file name that name the title: the file and its folder for a movie, the show folder too for an episode. */
 function titlePathParts(filePath: string, libraryType: LibraryType): readonly string[] {
-	const parts = PathUtils.normalize(filePath).split("/").filter(Boolean);
+	const parts = normalizePath(filePath).split("/").filter(Boolean);
 
 	return parts.slice(libraryType === "movie" ? -2 : -3);
 }

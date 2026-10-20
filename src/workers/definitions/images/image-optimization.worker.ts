@@ -3,6 +3,7 @@ import { type ImageOptimizationOutcome, imageMaintenanceService } from "@/module
 import { DomainError, withDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
@@ -35,8 +36,7 @@ export const imageOptimizationWorker = createWorkerDefinition<ImageOptimizationD
 		removeOnComplete: 200,
 		removeOnFail: 200,
 	}),
-	async ({ data, signal, operationId, taskId }) =>
-		await processImageOptimizationTask({ imageId: data.imageId }, { signal, operationId, correlationId: operationId, taskId }),
+	async (context) => await processImageOptimizationTask({ imageId: context.data.imageId }, toApplicationContext(context)),
 );
 
 export const imageOptimizationScanWorker = createWorkerDefinition<Record<string, never>>(
@@ -46,8 +46,7 @@ export const imageOptimizationScanWorker = createWorkerDefinition<Record<string,
 		concurrency: 1,
 		timeoutMs: 10 * MINUTE,
 	}),
-	async ({ signal, logger, operationId, taskId }) =>
-		await scanImagesForOptimizationTask({ signal, logger, operationId, correlationId: operationId, taskId }),
+	async (context) => await scanImagesForOptimizationTask(toApplicationContext(context)),
 );
 
 // ─── Task Functions ───────────────────────────────────────────────────────────

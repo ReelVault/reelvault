@@ -20,7 +20,7 @@ import { workerOperationRepository } from "@/app/repositories/worker-operation.r
 import { DatabaseSidecarSnapshotResolver } from "@/app/sidecars/sidecar-snapshot.resolver";
 import { CORE_ARTIFACTS_OWNER } from "@/integrations/drizzle-orm/constants/media-artifacts.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { wireDownloadsProcess, wireDownloadsStorage } from "@/modules/downloads/downloads.ports";
 import { wireImagesStorage } from "@/modules/images/images.ports";
 import { wireSidecarSnapshots, wireSidecarStorage } from "@/modules/metadata-sidecars/sidecar.ports";
@@ -134,13 +134,13 @@ function registerDownloadsStoragePorts(): void {
 		findMediaFileForDownload: async (mediaFileId) =>
 			await mediaRepository.findByPrimaryId({
 				primaryId: mediaFileId,
-				fields: QueryFields.parse({ fields: "id,filePath,duration,fileName" }),
+				fields: parseFields({ fields: "id,filePath,duration,fileName" }),
 			}),
 		findMediaIdentities: async (mediaFileIds) => await mediaRepository.findIdentitiesByIds(mediaFileIds),
 		findSeasonForDownload: async (seasonId) =>
 			await seasonsRepository.findByPrimaryId({
 				primaryId: seasonId,
-				fields: QueryFields.parse({ fields: "id,metadataId" }),
+				fields: parseFields({ fields: "id,metadataId" }),
 			}),
 		findEpisodeFilesByMetadataId: async (metadataId) => await episodesRepository.findEpisodesWithFilesByMetadataId(metadataId),
 	});
@@ -175,12 +175,12 @@ function registerSidecarStoragePorts(): void {
 		findEpisodeRecords: async (ids) =>
 			await episodesRepository.findRecordsByIds({
 				ids,
-				fields: QueryFields.parse({ fields: "id,seasonId,title,episodeNumber,airDate,overview,imageId" }),
+				fields: parseFields({ fields: "id,seasonId,title,episodeNumber,airDate,overview,imageId" }),
 			}),
 		findSeasonRecords: async (ids) =>
 			await seasonsRepository.findByIds({
 				ids,
-				fields: QueryFields.parse({ fields: "id,seasonNumber,name,airDate,overview,status,imageId" }),
+				fields: parseFields({ fields: "id,seasonNumber,name,airDate,overview,status,imageId" }),
 			}),
 		findRootMediaFiles: async (metadataId) => await mediaRepository.findRootsByMetadataId(metadataId),
 		findLibraryWithPaths: async (libraryId) => await librariesRepository.findWithPaths(libraryId),
@@ -237,7 +237,7 @@ function registerTrickplayStoragePorts(): void {
 		findSource: async (mediaFileId) => {
 			const mediaFile = await mediaRepository.findByPrimaryId({
 				primaryId: mediaFileId,
-				fields: QueryFields.parse({ fields: "id,filePath,duration" }),
+				fields: parseFields({ fields: "id,filePath,duration" }),
 			});
 
 			return mediaFile ? { filePath: mediaFile.filePath, duration: mediaFile.duration ?? null } : undefined;

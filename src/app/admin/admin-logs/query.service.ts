@@ -1,5 +1,5 @@
 import type { AdminLogEntry, AdminLogsPage } from "@reelvault/sdk/common";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { buildAdminPagination, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import {
 	buildJsonLogEntry,
@@ -57,7 +57,7 @@ export async function getLogs(state: AdminLogsState, query?: AdminLogsQuery): Pr
 	const targetLevels = query?.level && query.level !== "all" ? new Set(query.level.split(",").map((l) => normalizeLower(l))) : undefined;
 	const hasErrorsFilter = targetLevels?.has("errors") ?? false;
 
-	const { page, limit } = QueryPagination.resolvePageParams(query ?? {}, { defaultLimit: 100 });
+	const { page, limit } = resolvePageParams(query ?? {}, { defaultLimit: 100 });
 	const windowStart = (page - 1) * limit;
 	const windowEnd = windowStart + limit;
 	let totalMatching = 0;
@@ -83,7 +83,7 @@ export async function getLogs(state: AdminLogsState, query?: AdminLogsQuery): Pr
 	}
 
 	return {
-		...QueryPagination.buildAdminPagination({ total: totalMatching, page, limit }),
+		...buildAdminPagination({ total: totalMatching, page, limit }),
 		truncated: readOffset > LOG_TAIL_BYTES,
 		windowBytes: LOG_TAIL_BYTES,
 		data: parsedEntries,

@@ -3,8 +3,8 @@ import { file as bunFile, write as bunWrite } from "bun";
 import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
 import { DomainError, fsErrorCode, isMissingFile } from "./domain.errors";
 import { createLogger } from "./logger.utils";
-import { PathUtils } from "./path.utils";
-import { PromiseTimeoutError, PromiseUtils } from "./promise.utils";
+import { isVideoFile } from "./path.utils";
+import { PromiseTimeoutError, withTimeout } from "./promise.utils";
 import { isFiniteNumber, normalizeLower } from "./type.utils";
 import { guardedFetch } from "./url-guard.utils";
 
@@ -26,6 +26,15 @@ export async function readFile(path: string, options?: BufferEncoding | { encodi
 
 const logger = createLogger("FileUtils");
 
+/** Normalizes every accepted write payload to bytes for the unchanged-content check. */
+function toBuffer(content: string | Buffer | ArrayBuffer | Uint8Array): Buffer {
+	if (typeof content === "string") return Buffer.from(content);
+	if (content instanceof ArrayBuffer) return Buffer.from(content);
+	if (Buffer.isBuffer(content)) return content;
+
+	return Buffer.from(content.buffer, content.byteOffset, content.byteLength);
+}
+
 /**
  * Creates a deterministic temp file path for atomic writes (tmp+rename).
  * @param base - The final destination path
@@ -35,6 +44,20 @@ const logger = createLogger("FileUtils");
  */
 export function createTempPath(base: string, suffix = ".tmp"): string {
 	return `${base}.${crypto.randomUUID()}${suffix.startsWith(".") ? suffix : `.${suffix}`}`;
+}
+
+/**
+ * Runs `produce` against a fresh temp path beside `basePath` and removes the
+ * temp file whatever happens. The producer decides whether to promote it with
+ * `rename`; cleanup is never the caller's job.
+ */
+export async function withTempPath<T>(basePath: string, suffix: string, produce: (tempPath: string) => Promise<T>): Promise<T> {
+	const tempPath = createTempPath(basePath, suffix);
+	try {
+		return await produce(tempPath);
+	} finally {
+		await deleteFile(tempPath);
+	}
 }
 
 /**
@@ -68,9 +91,9 @@ export interface ReadJsonOptions {
 	silent?: boolean | undefined;
 }
 
-async function readJsonFile<T>(path: string, options?: ReadJsonOptions | number): Promise<T | null>;
+export async function readJsonFile<T>(path: string, options?: ReadJsonOptions | number): Promise<T | null>;
 
-async function readJsonFile(path: string, options?: ReadJsonOptions | number): Promise<unknown> {
+export async function readJsonFile(path: string, options?: ReadJsonOptions | number): Promise<unknown> {
 	try {
 		const maxSize = typeof options === "number" ? options : options?.maxSize;
 		if (maxSize !== undefined) {
@@ -104,174 +127,182 @@ async function readJsonFile(path: string, options?: ReadJsonOptions | number): P
 	}
 }
 
-export const FileUtils = {
-	async getStats(path: string) {
-		try {
-			return await bunFile(path).stat();
-		} catch {
-			return null;
+export async function getFileStats(path: string) {
+	try {
+		return await bunFile(path).stat();
+	} catch {
+		return null;
+	}
+}
+
+export async function fileExists(path: string): Promise<boolean> {
+	return await bunFile(path).exists();
+}
+
+export async function checkFileExistence(path: string): Promise<"exists" | "missing" | "unavailable"> {
+	try {
+		await withTimeout(bunFile(path).stat(), FS_STAT_TIMEOUT_MS, `stat ${path}`);
+
+		return "exists";
+	} catch (error) {
+		// A hung stat (dead NFS/CIFS) must read as unreliable storage, never as
+		// "missing" — the removal guard purges records on that basis.
+		if (error instanceof PromiseTimeoutError) return "unavailable";
+
+		const code = fsErrorCode(error);
+
+		return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unavailable";
+	}
+}
+
+export async function writeFile(path: string, content: string | object | Buffer | ArrayBuffer | Uint8Array): Promise<boolean> {
+	try {
+		const isBinary = Buffer.isBuffer(content) || content instanceof ArrayBuffer || content instanceof Uint8Array;
+		const data = typeof content === "object" && !isBinary ? JSON.stringify(content, null, 2) : content;
+
+		await bunWrite(path, data);
+
+		return true;
+	} catch (error) {
+		logger.error("Write error", error, { filePath: path });
+
+		return false;
+	}
+}
+
+export async function writeFileAtomic(
+	path: string,
+	content: string | Buffer | ArrayBuffer | Uint8Array,
+	options?: { chmod?: number | undefined },
+): Promise<void> {
+	const temporaryPath = createTempPath(path);
+	try {
+		await bunWrite(temporaryPath, content);
+		await rename(temporaryPath, path);
+		if (options?.chmod !== undefined) {
+			await chmod(path, options.chmod).catch(() => {
+				// Non-POSIX filesystems may not support chmod — the write still succeeded.
+			});
 		}
-	},
+	} finally {
+		await deleteFile(temporaryPath);
+	}
+}
 
-	async exists(path: string): Promise<boolean> {
-		return await bunFile(path).exists();
-	},
+export async function writeFileIfChanged(
+	path: string,
+	content: string | Buffer | ArrayBuffer | Uint8Array,
+	options?: { chmod?: number | undefined },
+): Promise<boolean> {
+	const incoming = toBuffer(content);
+	const existing = await bunFile(path)
+		.arrayBuffer()
+		.catch(() => null);
+	if (existing && Buffer.from(existing).equals(incoming)) return false;
 
-	/**
-	 * Distinguishes a genuinely missing file from an unreadable one. `exists()`
-	 * returns `false` for every error (EACCES/EBUSY/EIO/timeout), which made the
-	 * scanner treat a transient NAS/ACL failure as "file deleted".
-	 */
-	async existence(path: string): Promise<"exists" | "missing" | "unavailable"> {
-		try {
-			await PromiseUtils.withTimeout(bunFile(path).stat(), FS_STAT_TIMEOUT_MS, `stat ${path}`);
+	await writeFileAtomic(path, content, options);
 
-			return "exists";
-		} catch (error) {
-			// A hung stat (dead NFS/CIFS) must read as unreliable storage, never as
-			// "missing" — the removal guard purges records on that basis.
-			if (error instanceof PromiseTimeoutError) return "unavailable";
+	return true;
+}
 
-			const code = fsErrorCode(error);
+export async function deleteFile(path: string): Promise<boolean> {
+	if (isVideoFile(path)) {
+		logger.warn("Refusing to delete video file", { filePath: path });
 
-			return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unavailable";
-		}
-	},
+		return false;
+	}
 
-	readJson<T>(path: string, options?: ReadJsonOptions | number): Promise<T | null> {
-		return readJsonFile<T>(path, options);
-	},
+	try {
+		await bunFile(path).delete();
 
-	async write(path: string, content: string | object | Buffer | ArrayBuffer | Uint8Array): Promise<boolean> {
-		try {
-			const isBinary = Buffer.isBuffer(content) || content instanceof ArrayBuffer || content instanceof Uint8Array;
-			const data = typeof content === "object" && !isBinary ? JSON.stringify(content, null, 2) : content;
+		return true;
+	} catch {
+		return false;
+	}
+}
 
-			await bunWrite(path, data);
+export async function downloadFile(url: string, destination: string, options: DownloadOptions = {}): Promise<boolean> {
+	const maxBytes = options.maxBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES;
+	const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
+	const temporaryPath = createTempPath(destination);
+	const timeoutSignal = AbortSignal.timeout(timeoutMs);
+	const effectiveSignal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
 
-			return true;
-		} catch (error) {
-			logger.error("Write error", error, { filePath: path });
+	try {
+		effectiveSignal.throwIfAborted();
+		// SSRF guard (audit 2026-09-15): https-only, resolved addresses must be
+		// globally routable, redirects re-validated hop by hop.
+		const response = await (options.fetcher ?? guardedFetch)(url, { signal: effectiveSignal });
+		if (!response.ok) throw new DomainError("internal", `HTTP ${response.status}`, { code: "download.http_error" });
 
-			return false;
-		}
-	},
-
-	/**
-	 * Atomic write (tmp+rename): the payload lands in a temp file beside `path`
-	 * and is renamed into place only after a successful write, so a crash
-	 * mid-write can never leave a truncated target. The temp file is always
-	 * cleaned up — a failed write must not leave a `<path>.<uuid>.tmp` behind
-	 * (the scanner would list it). Write/rename failures reject like Bun.write.
-	 */
-	async writeAtomic(
-		path: string,
-		content: string | Buffer | ArrayBuffer | Uint8Array,
-		options?: { chmod?: number | undefined },
-	): Promise<void> {
-		const temporaryPath = createTempPath(path);
-		try {
-			await bunWrite(temporaryPath, content);
-			await rename(temporaryPath, path);
-			if (options?.chmod !== undefined) {
-				await chmod(path, options.chmod).catch(() => {
-					// Non-POSIX filesystems may not support chmod — the write still succeeded.
+		if (options.allowedContentTypes?.length) {
+			const contentType = normalizeContentType(response.headers.get("content-type"));
+			const isAllowed = options.allowedContentTypes.some((prefix) => contentType.startsWith(prefix));
+			if (!isAllowed)
+				throw new DomainError("internal", `Unexpected content type: ${contentType || "unknown"}`, {
+					code: "download.invalid_content_type",
 				});
-			}
-		} finally {
-			await FileUtils.delete(temporaryPath);
-		}
-	},
-
-	async delete(path: string): Promise<boolean> {
-		if (PathUtils.isVideoFile(path)) {
-			logger.warn("Refusing to delete video file", { filePath: path });
-
-			return false;
 		}
 
-		try {
-			await bunFile(path).delete();
-
-			return true;
-		} catch {
-			return false;
+		const declaredSize = Number(response.headers.get("content-length"));
+		if (isFiniteNumber(declaredSize) && declaredSize > maxBytes) {
+			throw new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
 		}
-	},
 
-	/**
-	 * Downloads a URL to disk atomically: streams the response through a Bun
-	 * `FileSink` into a temp file (capped at `maxBytes`, no full-file buffering),
-	 * optionally validates it, then renames it into place. Merged from the old
-	 * `NetworkUtils.download` — the naive `FileUtils.download`/`Bun.write(dest, response)`
-	 * variant was dropped since it neither enforced a size cap nor validated content.
-	 */
-	async download(url: string, destination: string, options: DownloadOptions = {}): Promise<boolean> {
-		const maxBytes = options.maxBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES;
-		const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
-		const temporaryPath = createTempPath(destination);
-		const timeoutSignal = AbortSignal.timeout(timeoutMs);
-		const effectiveSignal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+		if (!response.body) throw new DomainError("internal", "Response has no body", { code: "download.no_body" });
 
-		try {
-			effectiveSignal.throwIfAborted();
-			// SSRF guard (audit 2026-09-15): https-only, resolved addresses must be
-			// globally routable, redirects re-validated hop by hop.
-			const response = await (options.fetcher ?? guardedFetch)(url, { signal: effectiveSignal });
-			if (!response.ok) throw new DomainError("internal", `HTTP ${response.status}`, { code: "download.http_error" });
+		await streamToFile(response.body, temporaryPath, maxBytes, effectiveSignal);
+		if (options.validate) await options.validate(temporaryPath);
 
-			if (options.allowedContentTypes?.length) {
-				const contentType = normalizeContentType(response.headers.get("content-type"));
-				const isAllowed = options.allowedContentTypes.some((prefix) => contentType.startsWith(prefix));
-				if (!isAllowed)
-					throw new DomainError("internal", `Unexpected content type: ${contentType || "unknown"}`, {
-						code: "download.invalid_content_type",
-					});
-			}
+		await rename(temporaryPath, destination);
 
-			const declaredSize = Number(response.headers.get("content-length"));
-			if (isFiniteNumber(declaredSize) && declaredSize > maxBytes) {
-				throw new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
-			}
-
-			if (!response.body) throw new DomainError("internal", "Response has no body", { code: "download.no_body" });
-
-			await streamToFile(response.body, temporaryPath, maxBytes, effectiveSignal);
-			if (options.validate) await options.validate(temporaryPath);
-
-			await rename(temporaryPath, destination);
-
-			return true;
-		} catch (error) {
-			options.onError?.(error);
-			// Caller cancellation (worker abort / rescue) is expected, not a failure.
-			if (options.signal?.aborted === true) {
-				logger.warn("Download cancelled", { filePath: destination });
-			} else {
-				logger.error("Download error", error, { filePath: destination });
-			}
-			await bunFile(temporaryPath)
-				.delete()
-				.catch(() => {
-					// Temporary file already removed — nothing to clean.
-				});
-
-			return false;
+		return true;
+	} catch (error) {
+		options.onError?.(error);
+		// Caller cancellation (worker abort / rescue) is expected, not a failure.
+		if (options.signal?.aborted === true) {
+			logger.warn("Download cancelled", { filePath: destination });
+		} else {
+			logger.error("Download error", error, { filePath: destination });
 		}
-	},
+		await bunFile(temporaryPath)
+			.delete()
+			.catch(() => {
+				// Temporary file already removed — nothing to clean.
+			});
 
-	getSize(path: string): number {
-		return bunFile(path).size;
-	},
+		return false;
+	}
+}
 
-	get(path: string) {
-		return bunFile(path);
-	},
-};
+export function getFileSize(path: string): number {
+	return bunFile(path).size;
+}
 
-/** Streams a response body to disk via Bun's FileSink, enforcing a hard byte cap without buffering the whole file in memory. */
-async function streamToFile(body: ReadableStream<Uint8Array>, path: string, maxBytes: number, signal?: AbortSignal): Promise<void> {
-	const sink = bunFile(path).writer();
+export function getBunFile(path: string) {
+	return bunFile(path);
+}
+
+/**
+ * Consumes a response body chunk by chunk while enforcing a hard byte cap, so
+ * a hostile or misconfigured server cannot buffer an unbounded payload. The
+ * caller decides what to do with each chunk (sink write, hash, decode) and
+ * which error an overflow raises; the reader is always released.
+ */
+export async function consumeStreamBounded(
+	body: ReadableStream<Uint8Array>,
+	{
+		maxBytes,
+		onChunk,
+		signal,
+		overflow,
+	}: {
+		maxBytes: number;
+		onChunk: (chunk: Uint8Array, receivedBytes: number) => void | Promise<void>;
+		signal?: AbortSignal | undefined;
+		overflow: () => Error;
+	},
+): Promise<number> {
 	const reader = body.getReader();
 	let receivedBytes = 0;
 
@@ -282,12 +313,34 @@ async function streamToFile(body: ReadableStream<Uint8Array>, path: string, maxB
 			if (done) break;
 
 			receivedBytes += value.byteLength;
-			if (receivedBytes > maxBytes)
-				throw new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
+			if (receivedBytes > maxBytes) throw overflow();
 
-			await sink.write(value);
+			await onChunk(value, receivedBytes);
 		}
 
+		return receivedBytes;
+	} finally {
+		try {
+			await reader.cancel();
+		} catch {
+			// Reader already cancelled or stream already closed.
+		}
+	}
+}
+
+/** Streams a response body to disk via Bun's FileSink, enforcing a hard byte cap without buffering the whole file in memory. */
+async function streamToFile(body: ReadableStream<Uint8Array>, path: string, maxBytes: number, signal?: AbortSignal): Promise<void> {
+	const sink = bunFile(path).writer();
+
+	try {
+		await consumeStreamBounded(body, {
+			maxBytes,
+			signal,
+			overflow: () => new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" }),
+			onChunk: async (value) => {
+				await sink.write(value);
+			},
+		});
 		await sink.end();
 	} catch (error) {
 		try {
@@ -297,12 +350,6 @@ async function streamToFile(body: ReadableStream<Uint8Array>, path: string, maxB
 		}
 
 		throw error;
-	} finally {
-		try {
-			await reader.cancel();
-		} catch {
-			// Reader already cancelled or stream already closed.
-		}
 	}
 }
 

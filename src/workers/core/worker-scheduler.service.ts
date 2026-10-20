@@ -11,7 +11,8 @@ import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { detach, PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
+import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { pickDefined } from "@/utils/type.utils";
 import { computeNextRunAt } from "@/workers/utils/worker-policy.utils";
 import { applyStats } from "@/workers/utils/worker-stats.mapper";
@@ -42,7 +43,13 @@ export class WorkerSchedulerService {
 	private lastEvaluatedAt?: Date | undefined;
 	private hasRunStartupTriggers = false;
 	private isEvaluating = false;
-	private checkTimer?: Timer | undefined;
+	private readonly checkTimer = new RecurringTimer(async () => {
+		try {
+			await this.evaluateTriggers();
+		} catch (error) {
+			this.logger.error("Error evaluating scheduled triggers", error);
+		}
+	}, MINUTE);
 
 	async init(): Promise<void> {
 		this.logger.info("Initializing worker scheduler service...");
@@ -58,27 +65,11 @@ export class WorkerSchedulerService {
 		// Overdue deadlines (server was down past a persisted nextRunAt) fire once
 		// on this first pass; workers without a deadline yet get one initialized.
 		await this.evaluateTriggers();
-		if (!this.checkTimer) {
-			this.checkTimer = setInterval(() => {
-				detach(
-					(async () => {
-						try {
-							await this.evaluateTriggers();
-						} catch (error) {
-							this.logger.error("Error evaluating scheduled triggers", error);
-						}
-					})(),
-				);
-			}, MINUTE);
-			this.checkTimer.unref();
-		}
+		this.checkTimer.start();
 	}
 
 	dispose(): void {
-		if (this.checkTimer) {
-			clearInterval(this.checkTimer);
-			this.checkTimer = undefined;
-		}
+		this.checkTimer.stop();
 	}
 
 	async evaluateTriggers(now: Date = new Date()): Promise<void> {
@@ -114,7 +105,7 @@ export class WorkerSchedulerService {
 
 				return this.getTriggersForWorker(def.id).some((t) => t.type === "startup");
 			});
-			await PromiseUtils.mapConcurrent(startupWorkers, systemResourcesService.getIoConcurrency(), async (def) => {
+			await mapConcurrent(startupWorkers, systemResourcesService.getIoConcurrency(), async (def) => {
 				this.logger.info("Triggering worker on startup", { workerId: def.id });
 				await this.enqueueScheduled(def.id, `startup:${currentMinute}`, def.schedule?.data);
 			});
@@ -154,7 +145,7 @@ export class WorkerSchedulerService {
 		// The due workers are enqueued side by side: each one costs a dedupe
 		// lookup and an operation + job insert, and running them one after
 		// another delayed the last worker by the whole sum.
-		const queued = await PromiseUtils.mapConcurrent(
+		const queued = await mapConcurrent(
 			dueWorkers,
 			systemResourcesService.getIoConcurrency(),
 			async (entry) =>

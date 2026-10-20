@@ -1,10 +1,9 @@
 import { deleteWithArtifacts } from "@/app/artifacts/delete-with-artifacts";
 import { runBulkItems } from "@/app/catalog/catalog.utils";
+import { assertNoActiveStreamsForMediaFileIds } from "@/app/playback/active-streams.guard";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
-import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
-import { DomainError } from "@/utils/domain.errors";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import type { getById } from "../queries.reader";
@@ -29,14 +28,11 @@ export async function deleteMany(
 ) {
 	return await runSafely(state, "deleteMany", async () => {
 		const ids = [...new Set(mediaFileIds)];
-		const idSet = new Set(ids);
-		const activeStreams = [...streamingManager.getActiveMediaFileIds()].filter((mediaFileId) => idSet.has(mediaFileId)).length;
-		if (activeStreams > 0 && options.force !== true) {
-			throw new DomainError("conflict", "Delete is blocked while streams are playing these files", {
-				code: "media.delete_blocked_active_streams",
-				params: { activeStreams },
-			});
-		}
+		assertNoActiveStreamsForMediaFileIds(new Set(ids), {
+			force: options.force,
+			message: "Delete is blocked while streams are playing these files",
+			code: "media.delete_blocked_active_streams",
+		});
 
 		return await runBulkItems(ids, (id) => deleteOneFn(id, context, { force: options.force === true }), "media.delete_failed");
 	});
@@ -53,15 +49,11 @@ export async function deleteOne(
 		// getById already asserts existence (404) — no redundant second check needed.
 		const mediaFile = await getOne(mediaFileId, { fields: "id" });
 		// The same protection the bulk path enforces: deleting the record ends playback.
-		if (options.force !== true) {
-			const activeStreams = streamingManager.getActiveMediaFileIds().has(mediaFileId) ? 1 : 0;
-			if (activeStreams > 0) {
-				throw new DomainError("conflict", "Delete is blocked while a stream is playing this file", {
-					code: "media.delete_blocked_active_streams",
-					params: { activeStreams },
-				});
-			}
-		}
+		assertNoActiveStreamsForMediaFileIds(mediaFileId, {
+			force: options.force,
+			message: "Delete is blocked while a stream is playing this file",
+			code: "media.delete_blocked_active_streams",
+		});
 
 		const cleanup = await mediaRepository.deleteAndGetCleanup(mediaFileId);
 		await deleteWithArtifacts({

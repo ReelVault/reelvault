@@ -10,7 +10,7 @@ import { pluginMediaData } from "@/app/plugins/plugin-data.service";
 import { serverConfig } from "@/config/server/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { hardwareDecodeArgs } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import {
@@ -19,13 +19,13 @@ import {
 	buildSpriteTileCommand,
 } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory, deleteTemporaryDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile, fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { createSemaphore, mapConcurrent } from "@/utils/promise.utils";
 import { hardenAnalyseArgs, processFailureDetail } from "./ffmpeg/analyse-args.hardener";
 import { assertFrameExtractionRequest, assertSpriteExtractionRequest, contentTypeFor } from "./ffmpeg/request-validation.guard";
 
@@ -38,9 +38,7 @@ class PluginFfmpegService {
 	 * a batch plugin must not be able to spawn an unbounded number of ffmpeg
 	 * processes, so concurrent runAnalyse calls wait on this semaphore.
 	 */
-	private readonly analyseSemaphore = PromiseUtils.createSemaphore(() =>
-		clamp(Math.ceil(systemResourcesService.getMetrics().capacity / 2), 1, 4),
-	);
+	private readonly analyseSemaphore = createSemaphore(() => clamp(Math.ceil(systemResourcesService.getMetrics().capacity / 2), 1, 4));
 
 	/**
 	 * Generic ffmpeg run for analysis-type jobs (loudnorm passes, scene detection…).
@@ -84,9 +82,9 @@ class PluginFfmpegService {
 		const mediaFile = await this.requireMediaFile(request.mediaFileId);
 
 		const tempDir = serverConfig.paths.transcodeTmp;
-		await DirUtils.create(tempDir);
+		await createDirectory(tempDir);
 		const format = request.format ?? "webp";
-		const tempFilePath = PathUtils.join(tempDir, `frame_${crypto.randomUUID()}.${format}`);
+		const tempFilePath = joinPath(tempDir, `frame_${crypto.randomUUID()}.${format}`);
 		const hwDecodeArgs = hardwareDecodeArgs(getEffectiveHwaccel());
 
 		try {
@@ -100,7 +98,7 @@ class PluginFfmpegService {
 
 			return { content, contentType: contentTypeFor(format) };
 		} catch (error) {
-			await FileUtils.delete(tempFilePath);
+			await deleteFile(tempFilePath);
 			throw error;
 		}
 	}
@@ -117,24 +115,24 @@ class PluginFfmpegService {
 
 			return await this.readSpriteOutput(spriteOutputPath, format, request, columns, rows);
 		} catch (error) {
-			await FileUtils.delete(spriteOutputPath);
+			await deleteFile(spriteOutputPath);
 			throw error;
 		} finally {
-			await DirUtils.deleteTemporary(framesDir);
+			await deleteTemporaryDirectory(framesDir);
 		}
 	}
 
 	private async prepareSpriteEnvironment(request: SpriteExtractionRequest) {
 		const tempBaseDir = serverConfig.paths.transcodeTmp;
-		await DirUtils.create(tempBaseDir);
+		await createDirectory(tempBaseDir);
 
 		const buildId = crypto.randomUUID();
-		const framesDir = PathUtils.join(tempBaseDir, `sprite_frames_${buildId}`);
-		await DirUtils.create(framesDir);
+		const framesDir = joinPath(tempBaseDir, `sprite_frames_${buildId}`);
+		await createDirectory(framesDir);
 
 		const format = request.format ?? "webp";
 		const ext = format === "webp" ? "webp" : "jpg";
-		const spriteOutputPath = PathUtils.join(tempBaseDir, `sprite_${buildId}.${ext}`);
+		const spriteOutputPath = joinPath(tempBaseDir, `sprite_${buildId}.${ext}`);
 		const hwaccel = getEffectiveHwaccel();
 		const hwDecodeArgs = hardwareDecodeArgs(hwaccel);
 		if (hwDecodeArgs.length > 0) {
@@ -155,9 +153,9 @@ class PluginFfmpegService {
 		ext: string,
 		hwDecodeArgs: string[],
 	): Promise<void> {
-		await PromiseUtils.mapConcurrent(request.timeMs, systemResourcesService.getHeavySubprocessConcurrency(), async (timeMs, index) => {
+		await mapConcurrent(request.timeMs, systemResourcesService.getHeavySubprocessConcurrency(), async (timeMs, index) => {
 			const paddedIndex = String(index).padStart(4, "0");
-			const framePath = PathUtils.join(framesDir, `frame_${paddedIndex}.${ext}`);
+			const framePath = joinPath(framesDir, `frame_${paddedIndex}.${ext}`);
 			const frameInput = {
 				inputPath: filePath,
 				timeMs,
@@ -196,7 +194,7 @@ class PluginFfmpegService {
 	): Promise<{ columns: number; rows: number }> {
 		const columns = Math.min(request.columns, request.timeMs.length);
 		const rows = Math.ceil(request.timeMs.length / columns);
-		const framesPattern = PathUtils.join(framesDir, `frame_%04d.${ext}`);
+		const framesPattern = joinPath(framesDir, `frame_%04d.${ext}`);
 		const tileCmd = buildSpriteTileCommand(framesPattern, columns, rows, format, spriteOutputPath);
 
 		const { exitCode: tileExitCode, stderr: tileStderr } = await ffMpegService.runToCompletion(tileCmd, {
@@ -224,12 +222,12 @@ class PluginFfmpegService {
 		const spriteFile = file(spriteOutputPath);
 		const size = spriteFile.size;
 		if (size === 0 || size > serverConfig.plugins.ffmpeg.maxOutputBytes) {
-			await FileUtils.delete(spriteOutputPath);
+			await deleteFile(spriteOutputPath);
 			throw new DomainError("internal", "FFmpeg returned an invalid sprite size", { code: "plugin.ffmpeg.invalid_output" });
 		}
 
 		const content = new Uint8Array(await spriteFile.arrayBuffer());
-		await FileUtils.delete(spriteOutputPath);
+		await deleteFile(spriteOutputPath);
 
 		return {
 			content,
@@ -244,9 +242,9 @@ class PluginFfmpegService {
 	private async requireMediaFile(mediaFileId: string) {
 		const mediaFile = await pluginMediaData.findByPrimaryId({
 			primaryId: mediaFileId,
-			fields: QueryFields.parse({ fields: "id,filePath" }),
+			fields: parseFields({ fields: "id,filePath" }),
 		});
-		if (!(mediaFile && (await FileUtils.exists(mediaFile.filePath)))) {
+		if (!(mediaFile && (await fileExists(mediaFile.filePath)))) {
 			throw new DomainError("not_found", `Media file ${mediaFileId} is unavailable`, { code: "plugin.ffmpeg.media_not_found" });
 		}
 
@@ -296,7 +294,7 @@ class PluginFfmpegService {
 		);
 
 		if (exitCode !== 0) {
-			await FileUtils.delete(tempFilePath);
+			await deleteFile(tempFilePath);
 			// A null exitCode means the process was killed by a signal — surface it as -1.
 			const exitCodeValue: number = exitCode ?? -1;
 			this.logger.error(
@@ -313,7 +311,7 @@ class PluginFfmpegService {
 		const tempFile = file(tempFilePath);
 		const size = tempFile.size;
 		if (size === 0 || size > serverConfig.plugins.ffmpeg.maxOutputBytes) {
-			await FileUtils.delete(tempFilePath);
+			await deleteFile(tempFilePath);
 			throw new DomainError("internal", `FFmpeg returned an invalid ${label} size`, { code: "plugin.ffmpeg.invalid_output" });
 		}
 
@@ -321,7 +319,7 @@ class PluginFfmpegService {
 		// removed before returning — callers get a self-contained payload and
 		// nothing leaks into the transcode temp dir.
 		const bytes = new Uint8Array(await tempFile.arrayBuffer());
-		await FileUtils.delete(tempFilePath);
+		await deleteFile(tempFilePath);
 
 		return bytes;
 	}

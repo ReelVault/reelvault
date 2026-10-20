@@ -1,54 +1,46 @@
-import { sql } from "drizzle-orm";
-import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { and, eq, isNotNull, lt } from "drizzle-orm";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { REVIEW_MATCH_SCORE } from "@/utils/media-match/score.constants";
 
-/** Aggregate counts backing the admin dashboard stats card. */
-class AdminStatsRepository {
-	async getMediaStats() {
-		const [row] = await databaseFactory
-			.getClient()
-			.select({
-				totalFiles: sql<number>`count(*)`,
-				totalSize: sql<number>`coalesce(sum(${schema.mediaFiles.size}), 0)`,
-				moviesCount: sql<number>`count(case when ${schema.mediaFiles.movieId} is not null then 1 end)`,
-				episodesCount: sql<number>`count(case when ${schema.mediaFiles.episodeId} is not null then 1 end)`,
-				withQualityCount: sql<number>`count(case when ${schema.mediaFiles.qualityTag} is not null then 1 end)`,
-			})
-			.from(schema.mediaFiles);
+const mediaFiles = defineTableAccess("mediaFiles", { primaryKeyColumn: "id" });
+const metadata = defineTableAccess("metadata", { primaryKeyColumn: "id" });
+const mediaMarkers = defineTableAccess("mediaMarkers", { primaryKeyColumn: "id" });
 
-		return row;
-	}
+/** Aggregate counts backing the admin dashboard stats card. */
+export const adminStatsRepository = {
+	async getMediaStats() {
+		return await mediaFiles.countAggregates({
+			total: "totalFiles",
+			sum: { key: "totalSize", column: mediaFiles.table.size },
+			counts: {
+				moviesCount: isNotNull(mediaFiles.table.movieId),
+				episodesCount: isNotNull(mediaFiles.table.episodeId),
+				withQualityCount: isNotNull(mediaFiles.table.qualityTag),
+			},
+		});
+	},
 
 	async getMetadataStats() {
-		const [row] = await databaseFactory
-			.getClient()
-			.select({
-				totalCount: sql<number>`count(*)`,
-				moviesCount: sql<number>`count(case when ${schema.metadata.type} = 'movie' then 1 end)`,
-				tvShowsCount: sql<number>`count(case when ${schema.metadata.type} = 'tv_show' then 1 end)`,
-				lowConfidenceCount: sql<number>`count(case when ${schema.metadata.matchScore} is not null and ${schema.metadata.matchScore} < ${REVIEW_MATCH_SCORE} then 1 end)`,
-				missingTranslationCount: sql<number>`count(case when ${schema.metadata.hasMissingTranslation} then 1 end)`,
-			})
-			.from(schema.metadata);
-
-		return row;
-	}
+		return await metadata.countAggregates({
+			total: "totalCount",
+			counts: {
+				moviesCount: eq(metadata.table.type, "movie"),
+				tvShowsCount: eq(metadata.table.type, "tv_show"),
+				lowConfidenceCount: and(isNotNull(metadata.table.matchScore), lt(metadata.table.matchScore, REVIEW_MATCH_SCORE)),
+				missingTranslationCount: eq(metadata.table.hasMissingTranslation, true),
+			},
+		});
+	},
 
 	async getMarkerStats() {
-		const [row] = await databaseFactory
-			.getClient()
-			.select({
-				totalCount: sql<number>`count(*)`,
-				introsCount: sql<number>`count(case when ${schema.mediaMarkers.type} = 'intro' then 1 end)`,
-				creditsCount: sql<number>`count(case when ${schema.mediaMarkers.type} = 'credits' then 1 end)`,
-				highlightsCount: sql<number>`count(case when ${schema.mediaMarkers.type} = 'highlight' then 1 end)`,
-				fromPluginsCount: sql<number>`count(case when ${schema.mediaMarkers.source} = 'plugin' then 1 end)`,
-			})
-			.from(schema.mediaMarkers);
-
-		return row;
-	}
-}
-
-export const adminStatsRepository = new AdminStatsRepository();
+		return await mediaMarkers.countAggregates({
+			total: "totalCount",
+			counts: {
+				introsCount: eq(mediaMarkers.table.type, "intro"),
+				creditsCount: eq(mediaMarkers.table.type, "credits"),
+				highlightsCount: eq(mediaMarkers.table.type, "highlight"),
+				fromPluginsCount: eq(mediaMarkers.table.source, "plugin"),
+			},
+		});
+	},
+};

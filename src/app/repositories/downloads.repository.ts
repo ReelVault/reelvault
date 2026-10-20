@@ -3,6 +3,7 @@ import type { DownloadStatus } from "@/integrations/drizzle-orm/constants/downlo
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { DownloadInsert, DownloadUpdate } from "@/modules/downloads/downloads.ports";
 import { DomainError } from "@/utils/domain.errors";
@@ -49,20 +50,16 @@ const overrides = {
 		offset: number;
 	}): Promise<{ data: DownloadRow[]; total: number }> {
 		const where = status ? eq(downloads.table.status, status) : undefined;
-		const client = databaseFactory.getClient();
-		const [total, rows] = await Promise.all([
-			client.$count(downloads.table, where),
-			client
-				.select()
-				.from(downloads.table)
-				.where(where)
-				// created_at has second resolution — the id tiebreaker keeps offset pagination stable.
-				.orderBy(desc(downloads.table.createdAt), desc(downloads.table.id))
-				.limit(limit)
-				.offset(offset),
-		]);
 
-		return { data: rows, total };
+		return await findOffsetPage({
+			access: downloads,
+			where,
+			orderBy: desc(downloads.table.createdAt),
+			limit,
+			offset,
+			findMany: (page) => downloads.selectMany(page),
+			count: () => downloads.count({ where }),
+		});
 	},
 
 	/** Downloads per status across every profile, for the admin overview's counters. */
@@ -80,15 +77,7 @@ const overrides = {
 
 	/** The ids among `ids` that still have a download row. */
 	async findExistingIds(ids: readonly string[]): Promise<Set<string>> {
-		if (ids.length === 0) return new Set();
-
-		const rows = await databaseFactory
-			.getClient()
-			.select({ id: downloads.table.id })
-			.from(downloads.table)
-			.where(inArray(downloads.table.id, [...ids]));
-
-		return new Set(rows.map((row) => row.id));
+		return await downloads.findExistingIds(ids);
 	},
 
 	/** Active (pending/processing) rows across profiles — the boot reconciliation source. */

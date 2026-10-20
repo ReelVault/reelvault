@@ -4,7 +4,7 @@ import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { operationLogSegment } from "@/integrations/ffmpeg/ffmpeg.operation-log";
 import { isMissingFile } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 
 /** Logs read for one archive stop at this total size; the timeline records when they were cut. */
 export const SESSION_LOG_MAX_BYTES = 64 * 1024 * 1024;
@@ -78,7 +78,7 @@ export function summarizeFfmpegLog(file: string, text: string): FfmpegRunSummary
 
 /** Reads the operation logs of a session from every day's ffmpeg directory, oldest day first. */
 export async function readSessionLogFiles(segments: readonly string[]): Promise<{ files: SessionLogFile[]; truncated: boolean }> {
-	const root = PathUtils.join(serverConfig.paths.logs, "ffmpeg");
+	const root = joinPath(serverConfig.paths.logs, "ffmpeg");
 	let days: Dirent[];
 	try {
 		days = await readdir(root, { withFileTypes: true });
@@ -92,11 +92,11 @@ export async function readSessionLogFiles(segments: readonly string[]): Promise<
 	let total = 0;
 	let truncated = false;
 	for (const day of days.filter((entry) => entry.isDirectory()).toSorted((a, b) => a.name.localeCompare(b.name))) {
-		const dayPath = PathUtils.join(root, day.name);
+		const dayPath = joinPath(root, day.name);
 		for (const entry of await readdir(dayPath, { withFileTypes: true })) {
 			if (!(entry.isFile() && isSessionOperationLog(entry.name, segments))) continue;
 
-			const path = PathUtils.join(dayPath, entry.name);
+			const path = joinPath(dayPath, entry.name);
 			const { size } = await bunFile(path).stat();
 			if (total + size > SESSION_LOG_MAX_BYTES) {
 				truncated = true;

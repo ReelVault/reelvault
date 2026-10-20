@@ -5,7 +5,7 @@ import { serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { includesField } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { pickColumns } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
@@ -53,17 +53,18 @@ const mediaFileIdsSubquery = sql`(SELECT value FROM json_each(${sql.placeholder(
 
 type MediaFileProjectionClient = ReturnType<typeof databaseFactory.getClient>;
 
+/** One prepared read per parent FK — the SQL differs only by the `media_files` column. */
+function preparedMediaFilesBy(column: SQLiteColumn) {
+	return createPreparedQuery((client: MediaFileProjectionClient) =>
+		client.select().from(schema.mediaFiles).where(inArray(column, mediaFileIdsSubquery)).prepare(),
+	);
+}
+
 /** Default-projection relation reads are fixed SQL: prepared once per connection, not rebuilt per read. */
 const preparedMediaFilesByRelation = {
-	movieId: createPreparedQuery((client: MediaFileProjectionClient) =>
-		client.select().from(schema.mediaFiles).where(inArray(schema.mediaFiles.movieId, mediaFileIdsSubquery)).prepare(),
-	),
-	episodeId: createPreparedQuery((client: MediaFileProjectionClient) =>
-		client.select().from(schema.mediaFiles).where(inArray(schema.mediaFiles.episodeId, mediaFileIdsSubquery)).prepare(),
-	),
-	libraryId: createPreparedQuery((client: MediaFileProjectionClient) =>
-		client.select().from(schema.mediaFiles).where(inArray(schema.mediaFiles.libraryId, mediaFileIdsSubquery)).prepare(),
-	),
+	movieId: preparedMediaFilesBy(schema.mediaFiles.movieId),
+	episodeId: preparedMediaFilesBy(schema.mediaFiles.episodeId),
+	libraryId: preparedMediaFilesBy(schema.mediaFiles.libraryId),
 };
 
 interface MediaFileAttachmentOptions<F extends string> {
@@ -110,7 +111,7 @@ export async function findManyWithMediaFiles<F extends string, TRow extends { id
 	rows: TRow[],
 	options: MediaFileAttachmentOptions<F>,
 ): Promise<Array<TRow & WithMediaFiles>> {
-	if (!QueryFields.includes(options.fields, "mediaFiles")) {
+	if (!includesField(options.fields, "mediaFiles")) {
 		return rows.map((row) => ({ ...row, mediaFiles: [] }));
 	}
 

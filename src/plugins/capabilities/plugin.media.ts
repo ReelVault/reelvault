@@ -1,7 +1,7 @@
 import type { PluginMediaFile } from "@reelvault/sdk/common";
 import type { PluginMediaRevision } from "@reelvault/sdk/plugin";
 import { pluginMediaData } from "@/app/plugins/plugin-data.service";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { groupBy } from "@/utils/array.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
@@ -19,14 +19,14 @@ interface PluginEpisodeMediaFile {
 	title?: string | undefined;
 }
 
-class PluginMediaService {
-	readonly serviceName = "PluginMediaService";
-	readonly logger = createLogger("PluginMediaService");
+export const pluginMediaService = {
+	serviceName: "PluginMediaService",
+	logger: createLogger("PluginMediaService"),
 
 	async get(mediaFileId: string): Promise<PluginMediaFile | null> {
 		const mediaFile = await pluginMediaData.findByPrimaryId({
 			primaryId: mediaFileId,
-			fields: QueryFields.parse({ fields: "id,metadataId,fileName,filePath,duration" }),
+			fields: parseFields({ fields: "id,metadataId,fileName,filePath,duration" }),
 		});
 		if (!mediaFile) return null;
 
@@ -38,7 +38,7 @@ class PluginMediaService {
 			durationMs: mediaFile.duration === null ? undefined : mediaFile.duration * 1000,
 			available: true,
 		};
-	}
+	},
 
 	async getRevision(mediaFileId: string): Promise<PluginMediaRevision | null> {
 		const mediaFile = await pluginMediaData.findForPlaybackSession(mediaFileId);
@@ -53,7 +53,7 @@ class PluginMediaService {
 				isDefault: stream.isDefault,
 			})),
 		};
-	}
+	},
 
 	async listEpisodeFilesBySeason(): Promise<Map<string, PluginEpisodeMediaFile[]>> {
 		const rows = await pluginMediaData.findEpisodeFileRows();
@@ -72,7 +72,7 @@ class PluginMediaService {
 				title: row.title ?? undefined,
 			}),
 		);
-	}
+	},
 
 	async listAllMediaFiles(options?: { limit?: number; offset?: number }) {
 		// Always bounded: an unbounded select would load the whole catalog into
@@ -92,7 +92,5 @@ class PluginMediaService {
 			movieId: row.movieId,
 			episodeId: row.episodeId,
 		}));
-	}
-}
-
-export const pluginMediaService = new PluginMediaService();
+	},
+};

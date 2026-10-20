@@ -2,43 +2,44 @@ import { and, asc, eq, gt, inArray, isNull, lte, or, sum } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterStartsWith } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 
-class PluginStorageRepository {
-	readonly table = schema.pluginStorage;
+const pluginStorage = defineTableAccess("pluginStorage", { primaryKeyColumn: "pluginId" });
+const pluginBlobs = defineTableAccess("pluginBlobs", { primaryKeyColumn: "pluginId" });
+
+export const pluginStorageRepository = {
+	table: schema.pluginStorage,
 
 	async find(pluginId: string, key: string): Promise<string | undefined> {
 		const [entry] = await databaseFactory
 			.getClient()
-			.select({ value: this.table.value })
-			.from(this.table)
-			.where(and(eq(this.table.pluginId, pluginId), eq(this.table.key, key)))
+			.select({ value: pluginStorageRepository.table.value })
+			.from(pluginStorageRepository.table)
+			.where(and(eq(pluginStorageRepository.table.pluginId, pluginId), eq(pluginStorageRepository.table.key, key)))
 			.limit(1);
 
 		return entry?.value;
-	}
+	},
 
 	async set(pluginId: string, key: string, value: string): Promise<void> {
-		await databaseFactory
-			.getClient()
-			.insert(this.table)
-			.values({ pluginId, key, value })
-			.onConflictDoUpdate({
-				target: [this.table.pluginId, this.table.key],
-				set: { value, updatedAt: new Date() },
-			});
-	}
+		await pluginStorage.upsert({
+			values: { pluginId, key, value },
+			target: [pluginStorage.table.pluginId, pluginStorage.table.key],
+			set: { value, updatedAt: new Date() },
+		});
+	},
 
 	async delete(pluginId: string, key: string): Promise<void> {
 		await databaseFactory
 			.getClient()
-			.delete(this.table)
-			.where(and(eq(this.table.pluginId, pluginId), eq(this.table.key, key)));
-	}
+			.delete(pluginStorageRepository.table)
+			.where(and(eq(pluginStorageRepository.table.pluginId, pluginId), eq(pluginStorageRepository.table.key, key)));
+	},
 
 	async deleteForPlugin(pluginId: string): Promise<void> {
-		await databaseFactory.getClient().delete(this.table).where(eq(this.table.pluginId, pluginId));
-	}
+		await databaseFactory.getClient().delete(pluginStorageRepository.table).where(eq(pluginStorageRepository.table.pluginId, pluginId));
+	},
 
 	/**
 	 * The keys of one plugin, optionally narrowed to a prefix and capped — the
@@ -48,58 +49,59 @@ class PluginStorageRepository {
 	async findKeysByPlugin(pluginId: string, options?: { prefix?: string | undefined; limit?: number | undefined }): Promise<string[]> {
 		const rows = await databaseFactory
 			.getClient()
-			.select({ key: this.table.key })
-			.from(this.table)
+			.select({ key: pluginStorageRepository.table.key })
+			.from(pluginStorageRepository.table)
 			.where(
-				and(eq(this.table.pluginId, pluginId), options?.prefix ? QueryFiltering.startsWith(this.table.key, options.prefix) : undefined),
+				and(
+					eq(pluginStorageRepository.table.pluginId, pluginId),
+					options?.prefix ? filterStartsWith(pluginStorageRepository.table.key, options.prefix) : undefined,
+				),
 			)
-			.orderBy(asc(this.table.key))
+			.orderBy(asc(pluginStorageRepository.table.key))
 			.limit(options?.limit ?? -1);
 
 		return rows.map((row) => row.key);
-	}
-}
+	},
+};
 
-export const pluginStorageRepository = new PluginStorageRepository();
-
-class PluginBlobsRepository {
-	readonly table = schema.pluginBlobs;
+export const pluginBlobsRepository = {
+	table: schema.pluginBlobs,
 
 	async find(pluginId: string, key: string, tx?: DatabaseTransaction) {
 		const [entry] = await databaseFactory
 			.getClient({ tx })
 			.select()
-			.from(this.table)
-			.where(and(eq(this.table.pluginId, pluginId), eq(this.table.key, key)))
+			.from(pluginBlobsRepository.table)
+			.where(and(eq(pluginBlobsRepository.table.pluginId, pluginId), eq(pluginBlobsRepository.table.key, key)))
 			.limit(1);
 
 		return entry;
-	}
+	},
 
 	async findByPlugin(pluginId: string, options?: { tx?: DatabaseTransaction | undefined; afterKey?: string | undefined; limit?: number }) {
-		const conditions = [eq(this.table.pluginId, pluginId)];
-		if (options?.afterKey) conditions.push(gt(this.table.key, options.afterKey));
+		const conditions = [eq(pluginBlobsRepository.table.pluginId, pluginId)];
+		if (options?.afterKey) conditions.push(gt(pluginBlobsRepository.table.key, options.afterKey));
 
 		const query = databaseFactory
 			.getClient({ tx: options?.tx })
 			.select()
-			.from(this.table)
+			.from(pluginBlobsRepository.table)
 			.where(and(...conditions))
-			.orderBy(asc(this.table.key));
+			.orderBy(asc(pluginBlobsRepository.table.key));
 
 		if (options?.limit === undefined) return await query;
 
 		return await query.limit(options.limit);
-	}
+	},
 
 	async deleteByKeys(pluginId: string, keys: string[]): Promise<void> {
 		if (keys.length === 0) return;
 
 		await databaseFactory
 			.getClient()
-			.delete(this.table)
-			.where(and(eq(this.table.pluginId, pluginId), inArray(this.table.key, keys)));
-	}
+			.delete(pluginBlobsRepository.table)
+			.where(and(eq(pluginBlobsRepository.table.pluginId, pluginId), inArray(pluginBlobsRepository.table.key, keys)));
+	},
 
 	async sumSizeByPlugin(pluginId: string, tx?: DatabaseTransaction): Promise<number> {
 		// Expired blobs are purged lazily (purgeExpired) — they must not count
@@ -107,50 +109,51 @@ class PluginBlobsRepository {
 		const now = new Date();
 		const [result] = await databaseFactory
 			.getClient({ tx })
-			.select({ totalSize: sum(this.table.size) })
-			.from(this.table)
-			.where(and(eq(this.table.pluginId, pluginId), or(isNull(this.table.expiresAt), gt(this.table.expiresAt, now))));
+			.select({ totalSize: sum(pluginBlobsRepository.table.size) })
+			.from(pluginBlobsRepository.table)
+			.where(
+				and(
+					eq(pluginBlobsRepository.table.pluginId, pluginId),
+					or(isNull(pluginBlobsRepository.table.expiresAt), gt(pluginBlobsRepository.table.expiresAt, now)),
+				),
+			);
 
 		return Number(result?.totalSize ?? 0);
-	}
+	},
 
 	async findExpired(now: Date, limit?: number) {
 		const query = databaseFactory
 			.getClient()
 			.select()
-			.from(this.table)
-			.where(lte(this.table.expiresAt, now))
-			.orderBy(asc(this.table.expiresAt));
+			.from(pluginBlobsRepository.table)
+			.where(lte(pluginBlobsRepository.table.expiresAt, now))
+			.orderBy(asc(pluginBlobsRepository.table.expiresAt));
 
 		if (limit === undefined) return await query;
 
 		return await query.limit(limit);
-	}
+	},
 
-	async set(values: typeof this.table.$inferInsert, tx?: DatabaseTransaction): Promise<void> {
-		await databaseFactory
-			.getClient({ tx })
-			.insert(this.table)
-			.values(values)
-			.onConflictDoUpdate({
-				target: [this.table.pluginId, this.table.key],
-				set: {
-					storageKey: values.storageKey,
-					contentType: values.contentType,
-					size: values.size,
-					expiresAt: values.expiresAt,
-					createdAt: values.createdAt,
-					updatedAt: new Date(),
-				},
-			});
-	}
+	async set(values: typeof schema.pluginBlobs.$inferInsert, tx?: DatabaseTransaction): Promise<void> {
+		await pluginBlobs.upsert({
+			values,
+			target: [pluginBlobs.table.pluginId, pluginBlobs.table.key],
+			set: {
+				storageKey: values.storageKey,
+				contentType: values.contentType,
+				size: values.size,
+				expiresAt: values.expiresAt,
+				createdAt: values.createdAt,
+				updatedAt: new Date(),
+			},
+			tx,
+		});
+	},
 
 	async delete(pluginId: string, key: string, tx?: DatabaseTransaction): Promise<void> {
 		await databaseFactory
 			.getClient({ tx })
-			.delete(this.table)
-			.where(and(eq(this.table.pluginId, pluginId), eq(this.table.key, key)));
-	}
-}
-
-export const pluginBlobsRepository = new PluginBlobsRepository();
+			.delete(pluginBlobsRepository.table)
+			.where(and(eq(pluginBlobsRepository.table.pluginId, pluginId), eq(pluginBlobsRepository.table.key, key)));
+	},
+};

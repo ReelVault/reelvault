@@ -1,6 +1,6 @@
 import { seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
-import { FileUtils } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { fileExists } from "@/utils/file.utils";
+import { getDirName, getFileName, getFileNameWithoutExt, joinPath } from "@/utils/path.utils";
 import { readSeasonNumber } from "./local-season.utils";
 
 export interface LocalNfoChain {
@@ -21,38 +21,38 @@ const MAX_SERIES_LOOKUP_DEPTH = 3;
  * file without sidecars yields an empty chain.
  */
 export async function locateLocalNfoChain(videoPath: string, kind: "movie" | "tv_show"): Promise<LocalNfoChain> {
-	const directory = PathUtils.getDirName(videoPath);
-	const baseName = PathUtils.getFileNameWithoutExt(videoPath);
+	const directory = getDirName(videoPath);
+	const baseName = getFileNameWithoutExt(videoPath);
 	const lowerBaseName = baseName.toLowerCase();
 
 	if (kind === "movie") {
 		return {
 			movieDocument: await firstExisting([
-				PathUtils.join(directory, `${baseName}.nfo`),
-				PathUtils.join(directory, `${lowerBaseName}.nfo`),
-				PathUtils.join(directory, "movie.nfo"),
-				PathUtils.join(directory, `${baseName}.reelvault.nfo`),
-				PathUtils.join(directory, `${lowerBaseName}.reelvault.nfo`),
-				PathUtils.join(directory, "movie.reelvault.nfo"),
+				joinPath(directory, `${baseName}.nfo`),
+				joinPath(directory, `${lowerBaseName}.nfo`),
+				joinPath(directory, "movie.nfo"),
+				joinPath(directory, `${baseName}.reelvault.nfo`),
+				joinPath(directory, `${lowerBaseName}.reelvault.nfo`),
+				joinPath(directory, "movie.reelvault.nfo"),
 			]),
 		};
 	}
 
-	const seasonNumber = readSeasonNumber(PathUtils.getFileName(directory));
+	const seasonNumber = readSeasonNumber(getFileName(directory));
 	const paddedSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, ".nfo");
 	const paddedReelvaultSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, "-reelvault.nfo");
 
 	return {
 		episodeDocument: await firstExisting([
-			PathUtils.join(directory, `${baseName}.nfo`),
-			PathUtils.join(directory, `${lowerBaseName}.nfo`),
-			PathUtils.join(directory, `${baseName}.reelvault.nfo`),
-			PathUtils.join(directory, `${lowerBaseName}.reelvault.nfo`),
+			joinPath(directory, `${baseName}.nfo`),
+			joinPath(directory, `${lowerBaseName}.nfo`),
+			joinPath(directory, `${baseName}.reelvault.nfo`),
+			joinPath(directory, `${lowerBaseName}.reelvault.nfo`),
 		]),
 		seasonDocument: await firstExisting([
-			...(paddedSeasonName ? [PathUtils.join(directory, paddedSeasonName)] : []),
-			PathUtils.join(directory, "season.nfo"),
-			...(paddedReelvaultSeasonName ? [PathUtils.join(directory, paddedReelvaultSeasonName)] : []),
+			...(paddedSeasonName ? [joinPath(directory, paddedSeasonName)] : []),
+			joinPath(directory, "season.nfo"),
+			...(paddedReelvaultSeasonName ? [joinPath(directory, paddedReelvaultSeasonName)] : []),
 		]),
 		seriesDocument: await findUpwards(directory, ["tvshow.nfo", "tvshow.reelvault.nfo"]),
 	};
@@ -60,7 +60,7 @@ export async function locateLocalNfoChain(videoPath: string, kind: "movie" | "tv
 
 async function firstExisting(candidates: string[]): Promise<string | undefined> {
 	for (const candidate of candidates) {
-		if (await FileUtils.exists(candidate)) return candidate;
+		if (await fileExists(candidate)) return candidate;
 	}
 
 	return undefined;
@@ -71,11 +71,11 @@ async function findUpwards(startDirectory: string, fileNames: readonly string[])
 	let directory = startDirectory;
 	for (let depth = 0; depth < MAX_SERIES_LOOKUP_DEPTH; depth++) {
 		for (const fileName of fileNames) {
-			const candidate = PathUtils.join(directory, fileName);
-			if (await FileUtils.exists(candidate)) return candidate;
+			const candidate = joinPath(directory, fileName);
+			if (await fileExists(candidate)) return candidate;
 		}
 
-		const parent = PathUtils.getDirName(directory);
+		const parent = getDirName(directory);
 		if (parent === directory) return undefined;
 
 		directory = parent;

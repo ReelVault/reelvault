@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { DomainError } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 
 export function unsafeEntryPath(entryPath: string): DomainError {
 	return new DomainError("validation", `Plugin package contains an unsafe entry path: ${entryPath}`, {
@@ -32,7 +32,7 @@ export function assertSafeDestination(workRoot: string, entryPath: string): stri
 	}
 
 	const target = resolve(workRoot, normalized);
-	if (target !== workRoot && !PathUtils.isSubpath(target, workRoot)) throw unsafeEntryPath(entryPath);
+	if (target !== workRoot && !isSubpath(target, workRoot)) throw unsafeEntryPath(entryPath);
 
 	return target;
 }

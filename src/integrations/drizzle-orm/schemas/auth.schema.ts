@@ -1,8 +1,8 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 export const users = sqliteTable("users", {
-	id: DatabaseHelper.id,
+	id: idColumn,
 
 	// Better Auth
 	name: text("name").notNull(),
@@ -19,14 +19,14 @@ export const users = sqliteTable("users", {
 	// Better Auth - Two Factor
 	twoFactorEnabled: integer("twoFactorEnabled", { mode: "boolean" }).notNull().default(false),
 
-	...DatabaseHelper.timestamps,
+	...timestampColumns,
 });
 
 export const sessions = sqliteTable(
 	"session",
 	{
-		id: DatabaseHelper.id,
-		userId: DatabaseHelper.tableRef("userId", () => users.id, { onDelete: "cascade" }),
+		id: idColumn,
+		userId: tableRef("userId", () => users.id, { onDelete: "cascade" }),
 
 		// Better Auth
 		token: text("token", { length: 255 }).notNull().unique(),
@@ -37,7 +37,7 @@ export const sessions = sqliteTable(
 		impersonatedBy: text("impersonatedBy"),
 
 		expiresAt: integer("expiresAt", { mode: "timestamp" }).notNull(),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		// userId-only lookups are served by the (userId, expiresAt) composite.
@@ -51,8 +51,8 @@ export const sessions = sqliteTable(
 export const accounts = sqliteTable(
 	"account",
 	{
-		id: DatabaseHelper.id,
-		userId: DatabaseHelper.tableRef("userId", () => users.id, { onDelete: "cascade" }),
+		id: idColumn,
+		userId: tableRef("userId", () => users.id, { onDelete: "cascade" }),
 		accountId: text("accountId").notNull(),
 		providerId: text("providerId").notNull(),
 
@@ -65,7 +65,7 @@ export const accounts = sqliteTable(
 
 		accessTokenExpiresAt: integer("accessTokenExpiresAt", { mode: "timestamp" }),
 		refreshTokenExpiresAt: integer("refreshTokenExpiresAt", { mode: "timestamp" }),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		uniqueIndex("account_provider_account_unique").on(table.providerId, table.accountId),
@@ -76,13 +76,13 @@ export const accounts = sqliteTable(
 export const verifications = sqliteTable(
 	"verification",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 
 		identifier: text("identifier").notNull(),
 		value: text("value").notNull(),
 
 		expiresAt: integer("expiresAt", { mode: "timestamp" }).notNull(),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [index("verification_identifier_idx").on(table.identifier), index("verification_expires_idx").on(table.expiresAt)],
 );
@@ -90,8 +90,8 @@ export const verifications = sqliteTable(
 export const twoFactors = sqliteTable(
 	"twoFactor",
 	{
-		id: DatabaseHelper.id,
-		userId: DatabaseHelper.tableRef("userId", () => users.id, { onDelete: "cascade" }),
+		id: idColumn,
+		userId: tableRef("userId", () => users.id, { onDelete: "cascade" }),
 
 		secret: text("secret").notNull(),
 		backupCodes: text("backupCodes").notNull(),

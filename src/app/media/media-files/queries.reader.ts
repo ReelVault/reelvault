@@ -13,7 +13,7 @@ import type {
 import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
 import { mediaRepository, type PlaybackContext } from "@/app/repositories/media-files.repository";
 import { type MediaMarkerListQuery, mediaMarkersRepository } from "@/app/repositories/media-markers.repository";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { toPublicMarker } from "@/integrations/drizzle-orm/utils/media-marker.mapper";
 import { assertFound } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
@@ -107,9 +107,9 @@ export async function listAllMarkers(state: MediaServiceState, query: MediaMarke
 	return await runSafely(state, "listAllMarkers", async () => {
 		// Filters and LIMIT run in SQL — fetching every marker row to filter or slice in JS
 		// would read the whole table on a user-triggerable route.
-		const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 100 });
+		const pagination = resolvePageParams(query, { defaultLimit: 100 });
 		const { rows, total } = await mediaMarkersRepository.findPage({ ...query, limit: pagination.limit, offset: pagination.offset });
 
-		return QueryPagination.createResponse({ total, pagination, data: rows.map((item) => toPublicMarker(item)) });
+		return createPageResponse({ total, pagination, data: rows.map((item) => toPublicMarker(item)) });
 	});
 }

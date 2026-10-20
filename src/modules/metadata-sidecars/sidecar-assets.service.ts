@@ -2,7 +2,7 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { assertFound } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { metadataSidecarsService } from "./metadata-sidecars.service";
 import { sidecarStorage } from "./sidecar.ports";
 
@@ -22,7 +22,7 @@ class SidecarAssetsService {
 		return await this.cache.getOrSet(libraryId, async () => {
 			const library = await sidecarStorage().findLibraryPaths(libraryId);
 			assertFound(library, "Library", libraryId);
-			const assets = await PromiseUtils.mapConcurrent(
+			const assets = await mapConcurrent(
 				library.paths,
 				systemResourcesService.getIoConcurrency(),
 				async (path) => await metadataSidecarsService.findIgnoredAssets(path.path),

@@ -11,7 +11,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { deepFreeze } from "@/system/extensions/plugin.object.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { withTimeout } from "@/utils/promise.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 import { PluginHandlerTable } from "./plugin-handler.registry";
 
@@ -80,11 +80,7 @@ export class PluginHookBus {
 
 		for (const hook of hooks) {
 			try {
-				const result = await PromiseUtils.withTimeout(
-					Promise.resolve(hook({ candidate: frozenInput })),
-					this.timeoutMs,
-					`Plugin ${hookName} hook`,
-				);
+				const result = await withTimeout(Promise.resolve(hook({ candidate: frozenInput })), this.timeoutMs, `Plugin ${hookName} hook`);
 				if (result) {
 					transformed = result;
 					frozenInput = deepFreeze(result);

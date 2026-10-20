@@ -3,19 +3,9 @@ import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { metadataImageOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
 import { aliasedColumns, orderedJsonArray, relationJsonArray } from "@/integrations/drizzle-orm/utils/relation-json.utils";
-import {
-	castColumns,
-	collectionColumns,
-	companyColumns,
-	crewColumns,
-	genreColumns,
-	imageColumns,
-	keywordColumns,
-	personColumns,
-	providerColumns,
-	ratingColumns,
-} from "./columns.constants";
-import type { JsonRelationParams, RelationClient } from "./relations.types";
+import { castColumns, crewColumns, imageColumns, personColumns, ratingColumns } from "./columns.constants";
+import { NAMED_RELATIONS, type NamedRelationDefinition } from "./named-relations.constants";
+import type { RelationClient } from "./relations.types";
 
 /**
  * Default-projection relation reads (no `fields`) are fixed SQL: the id list travels as one JSON
@@ -26,52 +16,12 @@ import type { JsonRelationParams, RelationClient } from "./relations.types";
  */
 export const idListSubquery = sql`(SELECT value FROM json_each(${sql.placeholder("ids")}))`;
 
-function namedRelationJson(params: JsonRelationParams): SQL<string> {
-	const { selectList, pairs } = aliasedColumns(params.data, "");
+function namedRelationJson(params: NamedRelationDefinition): SQL<string> {
+	const { selectList, pairs } = aliasedColumns(params.columns, "");
 	const from = sql`${params.junctionTable} JOIN ${params.entityTable} ON ${params.entityTable.id} = ${params.entityColumn} WHERE ${params.metadataId} = ${schema.metadata.id}`;
 
 	return orderedJsonArray(selectList, pairs, from, sql`${params.entityTable.id}`);
 }
-
-const collectionRelation: JsonRelationParams = {
-	metadataId: schema.metadataCollections.metadataId,
-	junctionTable: schema.metadataCollections,
-	entityColumn: schema.metadataCollections.collectionId,
-	entityTable: schema.collections,
-	data: collectionColumns,
-};
-
-const companyRelation: JsonRelationParams = {
-	metadataId: schema.metadataCompanies.metadataId,
-	junctionTable: schema.metadataCompanies,
-	entityColumn: schema.metadataCompanies.companyId,
-	entityTable: schema.companies,
-	data: companyColumns,
-};
-
-const genreRelation: JsonRelationParams = {
-	metadataId: schema.metadataGenres.metadataId,
-	junctionTable: schema.metadataGenres,
-	entityColumn: schema.metadataGenres.genreId,
-	entityTable: schema.genres,
-	data: genreColumns,
-};
-
-const keywordRelation: JsonRelationParams = {
-	metadataId: schema.metadataKeywords.metadataId,
-	junctionTable: schema.metadataKeywords,
-	entityColumn: schema.metadataKeywords.keywordId,
-	entityTable: schema.keywords,
-	data: keywordColumns,
-};
-
-const providerRelation: JsonRelationParams = {
-	metadataId: schema.metadataProviders.metadataId,
-	junctionTable: schema.metadataProviders,
-	entityColumn: schema.metadataProviders.providerId,
-	entityTable: schema.providers,
-	data: providerColumns,
-};
 
 function castJson(): SQL<string> {
 	const cast = aliasedColumns(castColumns, "");
@@ -122,15 +72,15 @@ function lockedFieldsJson(): SQL<string> {
 }
 
 const detailRelationJson = {
-	collections: namedRelationJson(collectionRelation),
-	companies: namedRelationJson(companyRelation),
-	genres: namedRelationJson(genreRelation),
-	keywords: namedRelationJson(keywordRelation),
+	collections: namedRelationJson(NAMED_RELATIONS.collections),
+	companies: namedRelationJson(NAMED_RELATIONS.companies),
+	genres: namedRelationJson(NAMED_RELATIONS.genres),
+	keywords: namedRelationJson(NAMED_RELATIONS.keywords),
 	cast: castJson(),
 	crew: crewJson(),
 	images: imagesJson(),
 	rating: ratingJson(),
-	providers: namedRelationJson(providerRelation),
+	providers: namedRelationJson(NAMED_RELATIONS.providers),
 	lockedFields: lockedFieldsJson(),
 };
 

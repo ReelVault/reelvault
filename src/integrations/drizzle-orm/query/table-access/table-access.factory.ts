@@ -3,13 +3,33 @@ import { getTableColumns } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTables } from "@/integrations/drizzle-orm/database.types";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { DomainError } from "@/utils/domain.errors";
 import { selectFirstByIdPrepared } from "./by-id.reader";
-import { countRows, findByColumnIn, findById, findByIds, findManyRows, isExists } from "./reads.reader";
+import {
+	countAggregates,
+	countRows,
+	findByColumnIn,
+	findById,
+	findByIds,
+	findExistingIds,
+	findManyRows,
+	findOffsetPage,
+	isExists,
+} from "./reads.reader";
 import { selectFirst, selectMany, tableQuery } from "./select.builder";
 import type { RepositoryDelegations, TableAccess, TableAccessBase, TableAccessConfig } from "./table-access.types";
-import { deleteAndReturn, findOrCreate, insertRows, insertRowsReturning, runDelete, runUpdate, updateAndReturn } from "./writes.writer";
+import {
+	deleteAndReturn,
+	findOrCreate,
+	insertRows,
+	insertRowsReturning,
+	runDelete,
+	runUpdate,
+	updateAndReturn,
+	updateManyFields,
+	upsertRows,
+} from "./writes.writer";
 
 export function defineTableAccess<TTable extends DatabaseTables>(
 	tableName: TTable,
@@ -42,6 +62,19 @@ export function defineTableAccess<TTable extends DatabaseTables>(
 		findById: (params) => findById(repository, params),
 		findByIds: (params) => findByIds(repository, params),
 		findByColumnIn: (column, values, params) => findByColumnIn(repository, column, values, params),
+		findExistingIds: (ids, params) => findExistingIds(repository, ids, params),
+		findOffsetPage: (params) =>
+			findOffsetPage({
+				access: repository,
+				where: params.where,
+				orderBy: params.orderBy,
+				limit: params.limit,
+				offset: params.offset,
+				countKey: params.countKey,
+				tiebreakerOrder: params.tiebreakerOrder,
+				findMany: (page) => findManyRows(repository, { ...page, fields: params.fields }),
+				count: () => countRows(repository, { where: params.where }),
+			}),
 		findOrCreate: (params) => findOrCreate(repository, params),
 		insert: (params) => insertRows(repository, params),
 		insertReturning: (params) => insertRowsReturning(repository, params),
@@ -53,6 +86,9 @@ export function defineTableAccess<TTable extends DatabaseTables>(
 		deleteAndReturn: (params) => deleteAndReturn(repository, params),
 		count: (params) => countRows(repository, params),
 		isExists: (params) => isExists(repository, params),
+		upsert: (params) => upsertRows(repository, params),
+		countAggregates: (params) => countAggregates(repository, params),
+		updateManyFields: (params) => updateManyFields(repository, params),
 	};
 }
 
@@ -89,6 +125,11 @@ export function defineRepository<TTable extends DatabaseTables, TOverrides exten
 		deleteAndReturn: access.deleteAndReturn,
 		findByIds: access.findByIds,
 		findByColumnIn: access.findByColumnIn,
+		findExistingIds: access.findExistingIds,
+		findOffsetPage: access.findOffsetPage,
+		upsert: access.upsert,
+		countAggregates: access.countAggregates,
+		updateManyFields: access.updateManyFields,
 	};
 
 	return { ...delegations, ...overrides };
@@ -101,5 +142,5 @@ export function defineRepository<TTable extends DatabaseTables, TOverrides exten
  * which returns the flat row and silently drops relations.
  */
 export function parseFieldsForRead<F extends string>(query?: FieldsQuery<F>): FieldsConfig<F> {
-	return QueryFields.parse({ fields: query?.fields });
+	return parseFields({ fields: query?.fields });
 }

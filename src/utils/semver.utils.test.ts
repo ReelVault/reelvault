@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { isNewerVersion, parseSemver } from "./semver.utils";
+import { SERVER_VERSION } from "@/config/version.constants";
+import { isNewerVersion, minServerVersionError, parseSemver, requiresNewerServer } from "./semver.utils";
 
 describe("parseSemver", () => {
 	test("parses plain and v-prefixed versions", () => {
@@ -60,5 +61,21 @@ describe("isNewerVersion", () => {
 		expect(isNewerVersion("latest", "1.0.0")).toBe(false);
 		expect(isNewerVersion("1.2.3", "")).toBe(false);
 		expect(isNewerVersion("1.2.3.4", "1.2.3")).toBe(false);
+	});
+});
+
+describe("minServerVersionError", () => {
+	test("refuses a floor newer than the running server with the caller's code", () => {
+		const error = minServerVersionError("999.0.0", "Plugin demo 1.0.0", "plugin.server_too_old");
+
+		expect(error).toMatchObject({ category: "validation", code: "plugin.server_too_old" });
+		expect(requiresNewerServer("999.0.0")).toBeTrue();
+	});
+
+	test("accepts the running version, a missing floor and an unparseable floor", () => {
+		expect(minServerVersionError(SERVER_VERSION, "Plugin demo 1.0.0", "plugin.server_too_old")).toBeUndefined();
+		expect(minServerVersionError(undefined, "Plugin demo 1.0.0", "plugin.server_too_old")).toBeUndefined();
+		expect(minServerVersionError(null, "Plugin demo 1.0.0", "plugin.server_too_old")).toBeUndefined();
+		expect(requiresNewerServer("latest")).toBeFalse();
 	});
 });

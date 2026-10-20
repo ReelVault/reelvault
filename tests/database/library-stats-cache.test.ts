@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const testDatabase = useTestDatabase();
@@ -22,7 +22,7 @@ function mediaFileRow(id: string, libraryId: string, size: number) {
 
 describe("library stats caching", () => {
 	test("aggregates media files once and serves the repeat read from the cache", async () => {
-		const fields = QueryFields.parse({ fields: "id,totalMediaFiles,totalSize" });
+		const fields = parseFields({ fields: "id,totalMediaFiles,totalSize" });
 		await db().insert(schema.libraries).values({ id: "lib-cache", name: "Cache", type: "movies", metadataStorageMode: "database" });
 		await db()
 			.insert(schema.mediaFiles)
@@ -40,7 +40,7 @@ describe("library stats caching", () => {
 	});
 
 	test("caches a zero entry for a library without media files", async () => {
-		const fields = QueryFields.parse({ fields: "id,totalMediaFiles,totalSize" });
+		const fields = parseFields({ fields: "id,totalMediaFiles,totalSize" });
 		await db().insert(schema.libraries).values({ id: "lib-empty", name: "Empty", type: "movies", metadataStorageMode: "database" });
 
 		const result = await librariesRepository.findById({ primaryId: "lib-empty", fields });
@@ -48,7 +48,7 @@ describe("library stats caching", () => {
 	});
 
 	test("attributes per-path stats to the longest matching prefix (nested paths and win32 separators)", async () => {
-		const fields = QueryFields.parse({ fields: "id,paths.id,paths.path,paths.fileCount,paths.totalSize" });
+		const fields = parseFields({ fields: "id,paths.id,paths.path,paths.fileCount,paths.totalSize" });
 		await db().insert(schema.libraries).values({ id: "lib-multi", name: "Multi", type: "movies", metadataStorageMode: "database" });
 		await db()
 			.insert(schema.libraryPaths)

@@ -2,9 +2,9 @@ import type { Database } from "bun:sqlite";
 import { readdir } from "node:fs/promises";
 import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
 import { trimAndFilter } from "@/utils/array.utils";
-import { FileUtils, readFile } from "@/utils/file.utils";
+import { fileExists, readFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 
 interface ServiceDependencies {
 	migrationDirectory: () => string;
@@ -24,7 +24,7 @@ const defaultDependencies: ServiceDependencies = {
 			.toSorted();
 	},
 	readMigration: (migrationPath) => readFile(migrationPath, "utf8"),
-	migrationExists: (migrationPath) => FileUtils.exists(migrationPath),
+	migrationExists: (migrationPath) => fileExists(migrationPath),
 };
 
 /**
@@ -45,7 +45,7 @@ export class CatalogSchemaBuilder {
 		const migrationDirectory = this.dependencies.migrationDirectory();
 		const migrationNames = await this.dependencies.listMigrationDirectories(migrationDirectory);
 		for (const migration of migrationNames) {
-			const migrationPath = PathUtils.join(migrationDirectory, migration, "migration.sql");
+			const migrationPath = joinPath(migrationDirectory, migration, "migration.sql");
 			if (!(await this.dependencies.migrationExists(migrationPath))) continue;
 
 			const sql = await this.dependencies.readMigration(migrationPath);

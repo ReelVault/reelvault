@@ -1,11 +1,12 @@
-import { spawn, which } from "bun";
+import { which } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
-import { killFfmpegProcessGracefully, watchForUnreapedProcess } from "./ffmpeg.process";
+import { killFfmpegProcessGracefully } from "./ffmpeg.process";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
+import { spawnTracked } from "./ffmpeg.spawn.utils";
 
 export interface FfmpegRunOptions {
 	signal?: AbortSignal | undefined;
@@ -34,20 +35,20 @@ interface FfmpegExecutionResult {
 	stderr: string;
 }
 
-class FFmpegService {
+export const ffMpegService = {
 	isAvailable(): boolean {
 		return Boolean(which(serverConfig.ffmpeg.path));
-	}
+	},
 
 	killAll(): void {
 		ffmpegProcessTracker.killAll();
-	}
+	},
 
 	create() {
 		assertFFMpegAvailable();
 
 		return new FFmpegBuilder();
-	}
+	},
 
 	async runToCompletion(args: string[], optionsOrSignal?: AbortSignal | FfmpegRunOptions): Promise<FfmpegExecutionResult> {
 		assertFFMpegAvailable();
@@ -59,34 +60,13 @@ class FFmpegService {
 
 		if (signal?.aborted) throw signal.reason ?? new Error("FFmpeg execution was cancelled");
 
-		const process = spawn({ cmd: [serverConfig.ffmpeg.path, ...args], stdout: stdoutMode, stderr: "pipe" });
-		if (stdoutMode === "pipe" && !process.stdout) {
-			process.kill("SIGKILL");
-			throw new DomainError("internal", "FFmpeg execution could not start", { code: "ffmpeg.start_failed" });
-		}
-
-		ffmpegProcessTracker.track(process, options.purpose ?? "background");
-
-		// A process stuck in an uninterruptible state (stalled network mount) never
-		// reaps after SIGKILL; bound the wait so the caller and its semaphore slot
-		// are not held forever.
-		const { unreaped, boundReap } = watchForUnreapedProcess(process, "FFmpeg did not exit after SIGKILL");
-
-		const abort = () => {
-			try {
-				process.kill("SIGKILL");
-			} catch {
-				// Ignore kill error
-			}
-			boundReap();
-		};
-		signal?.addEventListener("abort", abort, { once: true });
-
-		const timeoutState = { timedOut: false };
-		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
-		if (timeoutMs !== undefined) {
-			timeoutTimer = setTimeout(() => {
-				timeoutState.timedOut = true;
+		let abort: (() => void) | undefined;
+		const tracked = spawnTracked({
+			cmd: [serverConfig.ffmpeg.path, ...args],
+			purpose: options.purpose ?? "background",
+			stdout: stdoutMode,
+			timeoutMs,
+			onTimeout: (process, boundReap) => {
 				detach(
 					(async () => {
 						try {
@@ -97,37 +77,62 @@ class FFmpegService {
 					})(),
 				);
 				boundReap();
-			}, timeoutMs);
+			},
+			onSpawn: (process, boundReap) => {
+				abort = () => {
+					try {
+						process.kill("SIGKILL");
+					} catch {
+						// Ignore kill error
+					}
+					boundReap();
+				};
+				signal?.addEventListener("abort", abort, { once: true });
+			},
+			onCleanup: () => {
+				if (abort) signal?.removeEventListener("abort", abort);
+			},
+			unreapedMessage: "FFmpeg did not exit after SIGKILL",
+		});
+
+		const process = tracked.process;
+		const stdoutStream = process.stdout;
+		const stderrStream = process.stderr;
+		if (
+			!stderrStream ||
+			typeof stderrStream === "number" ||
+			(stdoutMode === "pipe" && (!stdoutStream || typeof stdoutStream === "number"))
+		) {
+			process.kill("SIGKILL");
+			tracked.cleanup();
+			throw new DomainError("internal", "FFmpeg execution could not start", { code: "ffmpeg.start_failed" });
 		}
-		timeoutTimer?.unref();
 
 		try {
 			let stdoutPromise: Promise<Uint8Array>;
-			if (stdoutMode === "pipe" && process.stdout) {
-				stdoutPromise = collectStdout(process.stdout, maxOutputBytes, () => {
+			if (stdoutMode === "pipe" && stdoutStream && typeof stdoutStream !== "number") {
+				stdoutPromise = collectStdout(stdoutStream, maxOutputBytes, () => {
 					process.kill("SIGKILL");
 				});
 			} else {
 				stdoutPromise = Promise.resolve(new Uint8Array(0));
 			}
 			const [exitCode, stdout, stderr] = await Promise.race([
-				Promise.all([process.exited, stdoutPromise, collectStderrTail(process.stderr, maxStderrBytes)]),
-				unreaped,
+				Promise.all([process.exited, stdoutPromise, collectStderrTail(stderrStream, maxStderrBytes)]),
+				tracked.unreaped,
 			]);
 			if (signal?.aborted) throw signal.reason ?? new Error("FFmpeg execution was cancelled");
 
-			if (timeoutState.timedOut && timeoutMs !== undefined) {
+			if (tracked.timedOut() && timeoutMs !== undefined) {
 				throw new DomainError("timeout", `FFmpeg execution timed out after ${timeoutMs}ms`, { code: "ffmpeg.timeout" });
 			}
 
 			return { exitCode, stdout, stderr };
 		} finally {
-			if (timeoutTimer) clearTimeout(timeoutTimer);
-
-			signal?.removeEventListener("abort", abort);
+			tracked.cleanup();
 		}
-	}
-}
+	},
+};
 
 /**
  * Consumes the whole stderr stream but retains only the last `maxBytes` bytes.
@@ -211,5 +216,3 @@ async function collectStdout(
 
 	return output;
 }
-
-export const ffMpegService = new FFmpegService();

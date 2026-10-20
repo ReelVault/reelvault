@@ -5,7 +5,7 @@ import {
 	type UpdateHistoryStart,
 	updateHistoryRepository,
 } from "@/app/repositories/update-history.repository";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { buildAdminPagination, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
@@ -84,11 +84,11 @@ export class UpdateHistoryService {
 
 	async list(query: { page?: number | undefined; limit?: number | undefined }): Promise<AdminUpdateHistoryPage> {
 		return await runSafely(this, "list", async () => {
-			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 20 });
+			const pagination = resolvePageParams(query, { defaultLimit: 20 });
 			const result = await updateHistoryRepository.findPage({ limit: pagination.limit, offset: pagination.offset });
 
 			return {
-				...QueryPagination.buildAdminPagination({ total: result.total, page: pagination.page, limit: pagination.limit }),
+				...buildAdminPagination({ total: result.total, page: pagination.page, limit: pagination.limit }),
 				data: result.data.map(toHistoryEntry),
 			};
 		});

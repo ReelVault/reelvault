@@ -5,16 +5,16 @@ import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import type { ImageOwnerTarget, PersistedImageInput } from "@/modules/images/images.ports";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createHash } from "@/utils/crypto.utils";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory } from "@/utils/directory.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
-import { createTempPath, FileUtils } from "@/utils/file.utils";
+import { createTempPath, deleteFile, downloadFile, fileExists, writeFile } from "@/utils/file.utils";
 import { createImageStableKey, createImageStoragePath } from "@/utils/image-storage.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getDirName, joinPath } from "@/utils/path.utils";
 import { getContentType } from "./content-types.utils";
 
 interface ServiceDependencies {
-	download: typeof FileUtils.download;
+	download: typeof downloadFile;
 	copyLocalFile: (from: string, to: string) => Promise<void>;
 	getImageMetadata: (filePath: string) => Promise<{ format: string }>;
 	optimizeImageWithInfo: (input: string, options: SharpImageOptions, signal?: AbortSignal) => Promise<OptimizedImageResult>;
@@ -29,15 +29,15 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	download: (url, destination, options) => FileUtils.download(url, destination, options),
+	download: (url, destination, options) => downloadFile(url, destination, options),
 	copyLocalFile: (from, to) => copyFile(from, to),
 	getImageMetadata: (filePath) => getImageMetadata(filePath),
 	optimizeImageWithInfo: (input, options, signal) => optimizeImageWithInfo(input, options, signal),
-	writeFile: (path, content) => FileUtils.write(path, content),
-	deleteFile: (path) => FileUtils.delete(path),
-	fileExists: (path) => FileUtils.exists(path),
+	writeFile: (path, content) => writeFile(path, content),
+	deleteFile: (path) => deleteFile(path),
+	fileExists: (path) => fileExists(path),
 	renameFile: (from, to) => rename(from, to),
-	createDirectory: (path) => DirUtils.create(path),
+	createDirectory: (path) => createDirectory(path),
 	resolveVariant: (variant) => serverConfig.images.variants[variant],
 	imageTmpPath: () => serverConfig.paths.imageTmp,
 	imagesRoot: () => serverConfig.paths.images,
@@ -88,14 +88,14 @@ export class ImageDownloadPipeline {
 	}
 
 	private createTemporaryImagePath(): string {
-		return PathUtils.join(this.dependencies.imageTmpPath(), `${crypto.randomUUID()}.webp`);
+		return joinPath(this.dependencies.imageTmpPath(), `${crypto.randomUUID()}.webp`);
 	}
 
 	private async moveToStablePath(localPath: string, stableKey: string, imageType?: string): Promise<string> {
 		const stablePath = createImageStoragePath({ root: this.dependencies.imagesRoot(), stableKey, imageType });
 		if (localPath === stablePath) return stablePath;
 
-		await this.dependencies.createDirectory(PathUtils.getDirName(stablePath));
+		await this.dependencies.createDirectory(getDirName(stablePath));
 		if (await this.dependencies.fileExists(stablePath)) {
 			await this.dependencies.deleteFile(localPath);
 
@@ -172,7 +172,7 @@ export class ImageDownloadPipeline {
 		acquire: (sourcePath: string) => Promise<void>,
 	): Promise<Omit<PersistedImageInput, "localPath" | "stableKey">> {
 		throwIfAborted(signal);
-		await this.dependencies.createDirectory(PathUtils.getDirName(localPath));
+		await this.dependencies.createDirectory(getDirName(localPath));
 		await this.dependencies.deleteFile(localPath);
 
 		const sourcePath = createTempPath(localPath, ".source.tmp");

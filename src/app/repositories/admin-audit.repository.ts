@@ -2,8 +2,8 @@ import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, max, or, type SQL, 
 import { type DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
-import { cachedCount } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
+import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { CLIENT_IP_HEADER } from "@/utils/client-ip.utils";
 
 const sensitiveKeyRegex = /(password|pin|token|secret|refresh.?token|access.?token|id.?token)/i;
@@ -87,7 +87,7 @@ export class AdminAuditRepository {
 		if (requestId) where.push(eq(this.table.requestId, requestId));
 
 		if (q) {
-			where.push(or(QueryFiltering.like(this.table.resourceId, q), QueryFiltering.like(this.table.summary, q)) ?? sql`1 = 0`);
+			where.push(or(filterLike(this.table.resourceId, q), filterLike(this.table.summary, q)) ?? sql`1 = 0`);
 		}
 
 		if (from) where.push(gte(this.table.createdAt, new Date(from)));
@@ -99,19 +99,25 @@ export class AdminAuditRepository {
 
 	async findMany({ page, limit, ...filters }: AdminAuditQuery & { page: number; limit: number }) {
 		const condition = this.conditionFor(filters);
-		const client = this.database.getClient();
-		const [data, total] = await Promise.all([
-			client
-				.select()
-				.from(this.table)
-				.where(condition)
-				.orderBy(desc(this.table.createdAt), desc(this.table.id))
-				.limit(limit)
-				.offset((page - 1) * limit),
-			cachedCount("admin_audit_logs", filters, async () => await this.database.getClient().$count(this.table, condition)),
-		]);
 
-		return { data, total };
+		return await findOffsetPage({
+			access: { tableName: "admin_audit_logs", primaryKeyColumn: this.table.id },
+			where: condition,
+			orderBy: desc(this.table.createdAt),
+			limit,
+			offset: (page - 1) * limit,
+			countKey: filters,
+			findMany: async (params) =>
+				await this.database
+					.getClient()
+					.select()
+					.from(this.table)
+					.where(params.where)
+					.orderBy(params.orderBy)
+					.limit(params.limit)
+					.offset(params.offset),
+			count: () => this.database.getClient().$count(this.table, condition),
+		});
 	}
 
 	/**

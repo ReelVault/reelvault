@@ -4,8 +4,8 @@ import type { SidecarArtworkReference } from "@/modules/metadata-sidecars/sideca
 import { extractSeasonEpisode } from "@/modules/recognition/utils/recognition.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { getDirName, getFileName, getFileNameWithoutExt, isSubpath, isVideoFile, joinPath, resolvePath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import { indexByLowerCaseName, selectEpisodeThumbnail, selectIgnoredAssets, selectMovieArtwork } from "./local-artwork.selector";
 import { listDirectoryEntries } from "./local-directory.listing";
@@ -28,13 +28,13 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 	async inspectMovie(videoPath: string): Promise<LocalMovieFolder> {
 		this.assertWithinRoot(videoPath);
-		const movieDirectory = PathUtils.getDirName(videoPath);
+		const movieDirectory = getDirName(videoPath);
 		const files = await readFiles(movieDirectory);
 		const index = indexByLowerCaseName(files);
 
 		return {
 			movieDirectory,
-			videoPaths: files.filter((path) => PathUtils.isVideoFile(path)),
+			videoPaths: files.filter((path) => isVideoFile(path)),
 			documentPath: index.get("movie.nfo"),
 			artwork: selectMovieArtwork(index),
 			ignoredAssets: selectIgnoredAssets(files),
@@ -43,7 +43,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 	async inspectSeries(seriesPath: string): Promise<LocalSeriesGroup> {
 		this.assertWithinRoot(seriesPath);
-		const seriesDirectory = PathUtils.resolve(seriesPath);
+		const seriesDirectory = resolvePath(seriesPath);
 		const entries = await listDirectoryEntries(seriesDirectory);
 		if (!entries) {
 			// An unreadable series directory (EACCES on a NAS mount) must be
@@ -61,13 +61,13 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 		const files: string[] = [];
 		const directories: string[] = [];
 		for (const e of entries) {
-			const fullPath = PathUtils.join(seriesDirectory, e.name);
+			const fullPath = joinPath(seriesDirectory, e.name);
 			if (e.isFile) files.push(fullPath);
 			else if (e.isDirectory) directories.push(fullPath);
 		}
 
 		const index = indexByLowerCaseName(files);
-		const seasonGroups = await PromiseUtils.mapConcurrent(
+		const seasonGroups = await mapConcurrent(
 			directories,
 			systemResourcesService.getIoConcurrency(),
 			async (directory) => await this.inspectSeason(directory),
@@ -82,14 +82,14 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 	}
 
 	private async inspectSeason(directory: string): Promise<LocalSeasonGroup | null> {
-		const seasonNumber = readSeasonNumber(PathUtils.getFileName(directory));
+		const seasonNumber = readSeasonNumber(getFileName(directory));
 		if (seasonNumber === undefined) return null;
 
 		const files = await readFiles(directory);
 		const index = indexByLowerCaseName(files);
 		const episodeFiles: LocalEpisodeFile[] = [];
 		for (const path of files) {
-			if (PathUtils.isVideoFile(path)) episodeFiles.push(toEpisodeFile(path, index));
+			if (isVideoFile(path)) episodeFiles.push(toEpisodeFile(path, index));
 		}
 
 		return {
@@ -101,8 +101,8 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 	}
 
 	private assertWithinRoot(path: string): void {
-		if (!PathUtils.isSubpath(path, this.libraryRoot)) {
-			throw new DomainError("validation", `Sidecar path must be inside configured library root: ${PathUtils.resolve(path)}`, {
+		if (!isSubpath(path, this.libraryRoot)) {
+			throw new DomainError("validation", `Sidecar path must be inside configured library root: ${resolvePath(path)}`, {
 				code: "sidecar.path_outside_library",
 			});
 		}
@@ -119,14 +119,14 @@ async function readFiles(directory: string): Promise<string[]> {
 
 	const result: string[] = [];
 	for (const entry of entries) {
-		if (entry.isFile) result.push(PathUtils.join(directory, entry.name));
+		if (entry.isFile) result.push(joinPath(directory, entry.name));
 	}
 
 	return result;
 }
 
 function toEpisodeFile(videoPath: string, index: ReadonlyMap<string, string>): LocalEpisodeFile {
-	const name = PathUtils.getFileNameWithoutExt(videoPath);
+	const name = getFileNameWithoutExt(videoPath);
 	const episodeNumber = extractSeasonEpisode(name).episode;
 
 	return {

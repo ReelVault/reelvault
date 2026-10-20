@@ -1,5 +1,5 @@
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { normalizePath } from "@/utils/path.utils";
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "./recognition.types";
 import { MoviesBasicStrategy } from "./strategies/movies-basic.strategy";
 import { MoviesCategorizedStrategy } from "./strategies/movies-categorized.strategy";
@@ -38,7 +38,7 @@ class RecognitionService {
 	}
 
 	private createPathContext(filePath: string): PathContext | null {
-		const normalizedPath = PathUtils.normalize(filePath);
+		const normalizedPath = normalizePath(filePath);
 		const parts = normalizedPath.split("/").filter(Boolean);
 		if (parts.length === 0) return null;
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type SQL, sql } from "drizzle-orm";
 import { SQLiteDialect } from "drizzle-orm/sqlite-core";
-import { QueryUtils } from "./query.parser";
+import { buildWhereConditions } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 
 const dialect = new SQLiteDialect();
 
@@ -12,14 +12,14 @@ function paramsOf(condition: SQL | undefined): unknown[] | undefined {
 
 const filterOnPriority = (value: unknown) => sql`priority = ${value}`;
 
-describe("QueryUtils.buildWhereConditions", () => {
+describe("buildWhereConditions", () => {
 	test.each([0, false])("keeps the falsy filter value %p as a condition", (value) => {
-		const where = QueryUtils.buildWhereConditions({ value }, { value: filterOnPriority });
+		const where = buildWhereConditions({ value }, { value: filterOnPriority });
 
 		expect(paramsOf(where)).toEqual([value]);
 	});
 
 	test.each([undefined, null, ""])("builds no condition for the empty filter value %p", (value) => {
-		expect(QueryUtils.buildWhereConditions({ value }, { value: filterOnPriority })).toBeUndefined();
+		expect(buildWhereConditions({ value }, { value: filterOnPriority })).toBeUndefined();
 	});
 });

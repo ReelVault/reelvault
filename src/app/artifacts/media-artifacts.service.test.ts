@@ -3,7 +3,7 @@ import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -49,7 +49,7 @@ async function onlyArtifact() {
 }
 
 function storedPath(storageKey: string): string {
-	return PathUtils.join(serverConfig.paths.artifacts, storageKey);
+	return joinPath(serverConfig.paths.artifacts, storageKey);
 }
 
 describe("mediaArtifactsService.write validation", () => {

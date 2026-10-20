@@ -1,10 +1,8 @@
 import type { MetadataProviderSearchRequest, MetadataProviderSearchResponse } from "@reelvault/sdk/common";
 import type { ProviderSearchRequest, ProviderSearchResponse } from "@reelvault/sdk/plugin";
-import { serverConfig } from "@/config/server/server.config";
 import { DomainError } from "@/utils/domain.errors";
-import { PromiseUtils } from "@/utils/promise.utils";
-import { isNotNullish } from "@/utils/type.utils";
 import { type fetchDetailsByProvider, searchByProviderExternalId } from "./details.service";
+import { mapProvidersSafely } from "./fan-out.service";
 import type { ProviderServiceState, WithoutState } from "./shared.utils";
 import { publishSearchRequested, rankProviderResults, resolveProviders } from "./shared.utils";
 
@@ -56,9 +54,8 @@ export async function searchProviders(state: ProviderServiceState, request: Prov
 	publishSearchRequested(request.type, query, request.year);
 	const providers = await resolveProviders(request.providerId);
 
-	const results = await PromiseUtils.mapConcurrent(
+	return await mapProvidersSafely(
 		providers,
-		serverConfig.plugins.providers.concurrency,
 		async (provider): Promise<ProviderSearchResponse | null> => {
 			const ranked = await rankProviderResults(provider, { type: request.type, query, year: request.year, language: undefined }, (error) =>
 				state.logger.error(`Provider ${provider.id} failed`, error),
@@ -67,7 +64,8 @@ export async function searchProviders(state: ProviderServiceState, request: Prov
 
 			return { providerId: provider.id, results: ranked.map((candidate) => candidate.item) };
 		},
+		() => {
+			// rankProviderResults reports per-provider failures through its own callback.
+		},
 	);
-
-	return results.filter((result) => isNotNullish(result));
 }

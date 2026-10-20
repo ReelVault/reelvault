@@ -1,5 +1,5 @@
 import { index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { metadata } from "./metadata.schema";
 import { profiles } from "./profiles.schema";
 
@@ -12,13 +12,13 @@ import { profiles } from "./profiles.schema";
 export const profileStreamPrefs = sqliteTable(
 	"profile_stream_prefs",
 	{
-		profileId: DatabaseHelper.tableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
+		profileId: tableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
 
 		audioLanguage: text("audio_language"),
 		subtitleLanguage: text("subtitle_language"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [primaryKey({ columns: [t.profileId, t.metadataId] }), index("profile_stream_prefs_media_idx").on(t.metadataId)],
 );

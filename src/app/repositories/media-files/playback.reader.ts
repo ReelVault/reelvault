@@ -3,7 +3,7 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { applyFields, parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import {
 	aliasedColumns,
@@ -27,12 +27,12 @@ import {
 export async function findForTechnicalRefresh(mediaFileId: string) {
 	return await findByPrimaryId({
 		primaryId: mediaFileId,
-		fields: QueryFields.parse({ fields: "id,libraryId,filePath,size,sourceMtimeMs,audioStreams" }),
+		fields: parseFields({ fields: "id,libraryId,filePath,size,sourceMtimeMs,audioStreams" }),
 	});
 }
 
 /** The projection a playback session is created from. */
-const playbackSessionFields = QueryFields.parse({
+const playbackSessionFields = parseFields({
 	fields: "id,filePath,duration,size,sourceMtimeMs,videoStreams,audioStreams,subtitles,isEnabled",
 });
 
@@ -138,7 +138,7 @@ export async function findPlaybackSessionData(
 	if (!merged) return undefined;
 
 	return {
-		file: QueryFields.apply(merged, playbackSessionFields),
+		file: applyFields(merged, playbackSessionFields),
 		existingProgress: parseJsonRelationObject<PlaybackSessionProgress>(row.existingProgress, sessionProgressKeys, sessionProgressRevive),
 		titleHasActiveProgress: row.titleHasActiveProgress === 1,
 		perTitlePreferences:
@@ -153,7 +153,7 @@ export async function findForStreamingDuration(mediaFileId: string) {
 
 	const record = await findByPrimaryId({
 		primaryId: mediaFileId,
-		fields: QueryFields.parse({ fields: "id,duration" }),
+		fields: parseFields({ fields: "id,duration" }),
 	});
 	if (record) {
 		streamingDurationCache.set(mediaFileId, record);
@@ -165,14 +165,14 @@ export async function findForStreamingDuration(mediaFileId: string) {
 export async function findForStreamingDiagnostics(mediaFileId: string) {
 	return await findByPrimaryId({
 		primaryId: mediaFileId,
-		fields: QueryFields.parse({ fields: "id,fileName,formatName,duration,size,bitRate,videoStreams,audioStreams" }),
+		fields: parseFields({ fields: "id,fileName,formatName,duration,size,bitRate,videoStreams,audioStreams" }),
 	});
 }
 
 export async function findForSubtitleExtraction(mediaFileId: string) {
 	return await findByPrimaryId({
 		primaryId: mediaFileId,
-		fields: QueryFields.parse({ fields: "id,filePath" }),
+		fields: parseFields({ fields: "id,filePath" }),
 	});
 }
 

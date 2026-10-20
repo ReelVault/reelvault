@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 export const pluginStorage = sqliteTable(
 	"plugin_storage",
@@ -9,7 +9,7 @@ export const pluginStorage = sqliteTable(
 		key: text("data_key").notNull(),
 		value: text("value").notNull(),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [primaryKey({ columns: [table.pluginId, table.key] })],
 );
@@ -25,7 +25,7 @@ export const pluginBlobs = sqliteTable(
 		size: integer("size").notNull(),
 
 		expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		primaryKey({ columns: [table.pluginId, table.key] }),

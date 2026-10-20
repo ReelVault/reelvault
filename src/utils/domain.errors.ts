@@ -112,8 +112,8 @@ type ErrorFactory = Error | ((cause?: unknown) => Error);
  */
 /**
  * Not-found guard for records. It only rejects `null`/`undefined`: a boolean
- * `isExists()` result of `false` passes, so existence checks must use an
- * explicit `if (!exists) throw notFoundError(...)` instead.
+ * `isExists()` result of `false` passes, so existence checks must use
+ * {@link assertExists} instead.
  */
 export function assertFound<T>(
 	value: T | null | undefined,
@@ -122,6 +122,17 @@ export function assertFound<T>(
 	customThrow?: ErrorFactory,
 ): asserts value is T {
 	if (!isNullish(value)) return;
+	if (customThrow) throw typeof customThrow === "function" ? customThrow() : customThrow;
+
+	throw notFoundError(entityType, entityId);
+}
+
+/**
+ * Not-found guard for existence probes. `false` from `isExists()` must never
+ * reach `assertFound` — this is the boolean twin.
+ */
+export function assertExists(condition: boolean, entityType: string, entityId?: string, customThrow?: ErrorFactory): asserts condition {
+	if (condition) return;
 	if (customThrow) throw typeof customThrow === "function" ? customThrow() : customThrow;
 
 	throw notFoundError(entityType, entityId);

@@ -1,14 +1,14 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, nullableTableRef, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { users } from "./auth.schema";
 import { profiles } from "./profiles.schema";
 
 export const notifications = sqliteTable(
 	"notifications",
 	{
-		id: DatabaseHelper.id,
-		userId: DatabaseHelper.tableRef("userId", () => users.id, { onDelete: "cascade" }),
-		profileId: DatabaseHelper.nullableTableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
+		id: idColumn,
+		userId: tableRef("userId", () => users.id, { onDelete: "cascade" }),
+		profileId: nullableTableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
 
 		type: text("type").notNull(),
 		title: text("title").notNull(),
@@ -20,7 +20,7 @@ export const notifications = sqliteTable(
 		sourcePluginId: text("source_plugin_id"),
 
 		readAt: integer("read_at", { mode: "timestamp" }),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		index("notifications_user_created_idx").on(table.userId, table.createdAt),

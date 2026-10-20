@@ -94,10 +94,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/workers/:workerId/cancel",
 		async ({ params, user, request }) => {
-			const { count } = await adminWorkerOperationsService.cancelPendingItems(params.workerId, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			});
+			const { count } = await adminWorkerOperationsService.cancelPendingItems(params.workerId, actorContext({ user, request }));
 
 			return toCancelPendingResponse(count);
 		},
@@ -111,10 +108,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.put(
 		"/workers/:workerId/triggers",
 		async ({ params, body, user, request }) => {
-			return await adminWorkerOperationsService.updateWorkerTriggers(params.workerId, body.triggers, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			});
+			return await adminWorkerOperationsService.updateWorkerTriggers(params.workerId, body.triggers, actorContext({ user, request }));
 		},
 		{
 			rateLimit: { name: "admin-workers-triggers", max: 20, windowMs: MINUTE },
@@ -127,10 +121,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.put(
 		"/workers/:workerId/enabled",
 		async ({ params, body, user, request }) =>
-			await adminWorkerOperationsService.setScheduleEnabled(params.workerId, body.enabled, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+			await adminWorkerOperationsService.setScheduleEnabled(params.workerId, body.enabled, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-workers-enabled", max: 20, windowMs: MINUTE },
 			params: WorkerIdParams,
@@ -142,10 +133,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	.post(
 		"/workers/cancel-all",
 		async ({ user, request }) => {
-			const { count } = await adminWorkerOperationsService.cancelPendingItems(undefined, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			});
+			const { count } = await adminWorkerOperationsService.cancelPendingItems(undefined, actorContext({ user, request }));
 
 			return toCancelPendingResponse(count);
 		},

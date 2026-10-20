@@ -4,11 +4,15 @@ import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
 import { CancellationError } from "@/utils/cancellation.utils";
-import { FileUtils } from "@/utils/file.utils";
+import { getFileStats as actualGetFileStats } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { mockModule } from "../../../../tests/helpers/module-mock.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { createMediaFileProcessor, type MetadataCheckInput, type MetadataMatch, type MetadataMatcher } from "./media-file.processor";
+
+let getFileStatsImpl: (path: string) => Promise<unknown> = actualGetFileStats;
+mockModule("@/utils/file.utils", () => ({ getFileStats: (path: string) => getFileStatsImpl(path) }));
 
 // Recognition parses the real file names and the duplicate check reads the test database.
 // Stubbed: ffprobe (external process), file stats (the paths are not on disk) and metadata
@@ -33,10 +37,8 @@ function stubMetadata(resolve: (episode: number | undefined) => MetadataMatch | 
 }
 
 function stubPhysicalFile(): void {
-	stubs.push(
-		stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
-		stubMethod(videoParser, "probe", () => Promise.resolve(validProbe)),
-	);
+	getFileStatsImpl = () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 });
+	stubs.push(stubMethod(videoParser, "probe", () => Promise.resolve(validProbe)));
 }
 
 beforeEach(() => {
@@ -45,6 +47,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	getFileStatsImpl = actualGetFileStats;
 	// Reverse order: a method stubbed twice must unwind to its original implementation.
 	for (const stub of stubs.splice(0).toReversed()) stub.restore();
 });
@@ -102,10 +105,8 @@ describe("mediaFileProcessor.process skip outcomes", () => {
 	});
 
 	test("reports probe_failed when the probe yields no technical data", async () => {
-		stubs.push(
-			stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 })),
-			stubMethod(videoParser, "probe", () => Promise.resolve(null)),
-		);
+		getFileStatsImpl = () => Promise.resolve({ size: 12_345, mtimeMs: 1234.7 });
+		stubs.push(stubMethod(videoParser, "probe", () => Promise.resolve(null)));
 
 		await expect(mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv")).resolves.toEqual({
 			skipReason: "probe_failed",

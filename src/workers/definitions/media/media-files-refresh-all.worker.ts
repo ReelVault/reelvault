@@ -2,8 +2,9 @@ import { serverConfig } from "@/config/server/server.config";
 import { withDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 import { enqueueMediaFileRefreshBatch } from "./media-file-refresh-batch.service";
 
@@ -27,8 +28,7 @@ const defaultDependencies: MediaFilesRefreshAllTaskDependencies = {
 export const mediaFilesRefreshAllWorker = createWorkerDefinition<Record<string, never>>(
 	"media-files-refresh-all",
 	() => serverConfig.workers.definitions.mediaFilesRefreshAll,
-	async ({ logger, signal, operationId, taskId }) =>
-		await refreshAllMediaFilesTask({ signal, logger, operationId, correlationId: operationId, taskId }),
+	async (context) => await refreshAllMediaFilesTask(toApplicationContext(context)),
 );
 
 // ─── Task Function ────────────────────────────────────────────────────────────
@@ -55,14 +55,11 @@ export function refreshAllMediaFilesTask(
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
+const allMediaFilesRefreshEnqueue = defineWorkerEnqueue<Record<string, never>>(mediaFilesRefreshAllWorker.id, () => ({
+	dedupeKey: "media-files-refresh-all",
+	reference: { type: "media-files", id: "all" },
+}));
+
 export function enqueueAllMediaFilesRefresh(options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(
-		mediaFilesRefreshAllWorker.id,
-		{},
-		{
-			...options,
-			dedupeKey: "media-files-refresh-all",
-			reference: { type: "media-files", id: "all" },
-		},
-	);
+	return allMediaFilesRefreshEnqueue.enqueue({}, options);
 }

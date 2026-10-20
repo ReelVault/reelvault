@@ -2,10 +2,10 @@ import { rm } from "node:fs/promises";
 import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import type { DownloadRecord } from "@/modules/downloads/downloads.ports";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 
 function artifactPath(downloadId: string, fileName: string): string {
-	return PathUtils.join(serverConfig.paths.downloads, downloadId, fileName);
+	return joinPath(serverConfig.paths.downloads, downloadId, fileName);
 }
 
 /** Completed download as a file handle — never exposes the storage path. */
@@ -26,7 +26,7 @@ export async function deleteArtifactFile(row: DownloadRecord): Promise<void> {
 }
 
 /** Deletes a download artifact under serverConfig.paths.downloads.
- * FileUtils.delete refuses every video extension (library protection), which
+ * deleteFile refuses every video extension (library protection), which
  * would silently orphan every .mp4 artifact here — downloads own this
  * directory, so the removal bypasses that guard on purpose. */
 export async function deleteArtifact(path: string): Promise<void> {

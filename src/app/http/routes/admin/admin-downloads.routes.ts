@@ -1,4 +1,4 @@
-import { AdminDownloadsResponseSchema } from "@reelvault/sdk/common";
+import { AdminDownloadsResponseSchema, SuccessResponseSchema } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { JobIdParams } from "@/app/http/schemas/route-params.schema";
@@ -25,6 +25,6 @@ export const adminDownloadsRoutes = adminShell({ prefix: "/downloads", tags: ["A
 	.delete("/jobs/:jobId", async ({ params }) => await downloadsService.delete(params.jobId), {
 		rateLimit: { name: "admin-downloads-delete", max: 30, windowMs: MINUTE },
 		params: JobIdParams,
-		response: { 200: t.Object({ success: t.Boolean() }), 404: "error.response" },
+		response: { 200: SuccessResponseSchema, 404: "error.response" },
 		detail: { description: "Delete any user's download job and file (admin)." },
 	});

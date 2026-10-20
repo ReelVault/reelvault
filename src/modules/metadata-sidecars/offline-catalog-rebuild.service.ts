@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { rename } from "node:fs/promises";
 import { DomainError } from "@/utils/domain.errors";
-import { createTempPath, FileUtils } from "@/utils/file.utils";
+import { withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { resolvePath } from "@/utils/path.utils";
 import { metadataSidecarsService } from "./metadata-sidecars.service";
 import { CatalogMoviesImporter } from "./offline/catalog-movies.importer";
 import { CatalogSchemaBuilder } from "./offline/catalog-schema.builder";
@@ -45,11 +45,11 @@ export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuild
 		libraries: Array<{ id: string; type: "movies" | "tv_shows"; paths: string[] }>;
 		outputDatabasePath: string;
 	}): Promise<OfflineRebuildReport> {
-		const temporaryPath = createTempPath(outputDatabasePath);
 		const skipped: OfflineRebuildIssue[] = [];
 		let importedMovies = 0;
 		let importedMediaFiles = 0;
-		try {
+
+		return await withTempPath(outputDatabasePath, ".tmp", async (temporaryPath) => {
 			const database = new Database(temporaryPath);
 			await this.schemaBuilder.createSchema(database);
 			database.run("PRAGMA foreign_keys = ON");
@@ -64,7 +64,7 @@ export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuild
 					const pathNow = Date.now();
 					database.run(
 						"INSERT INTO library_paths (id, library_id, stable_key, path, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-						[libraryPathId, library.id, libraryPathId, PathUtils.resolve(path), pathNow, pathNow],
+						[libraryPathId, library.id, libraryPathId, resolvePath(path), pathNow, pathNow],
 					);
 					const tree = await this.treeWalker.collect(path);
 					let result: Awaited<ReturnType<typeof this.moviesImporter.import>>;
@@ -89,9 +89,6 @@ export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuild
 			await rename(temporaryPath, outputDatabasePath);
 
 			return { importedMovies, importedMediaFiles, skipped };
-		} catch (error) {
-			await FileUtils.delete(temporaryPath);
-			throw error;
-		}
+		});
 	}
 }

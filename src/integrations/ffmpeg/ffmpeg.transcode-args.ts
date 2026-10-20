@@ -163,20 +163,29 @@ export function buildTranscodeVideoArgs(
 	}
 }
 
+/**
+ * Bitrate ceiling shared by every encoder. The fallback flag is the encoder's
+ * own quality mode (`-cq:v`, `-qp`, `-crf`, …); a bitrate target always emits
+ * the same `-b:v`/`-maxrate` pair, with `bufsize` where the encoder uses it.
+ */
+function buildVideoRateArgs(
+	bitrateKbps: number | null | undefined,
+	fallback: string[],
+	options: { rc?: string | undefined; maxrateFlag?: string | undefined; bufsize?: boolean | undefined } = {},
+): string[] {
+	if (!bitrateKbps) return fallback;
+
+	const args: string[] = [];
+	if (options.rc) args.push("-rc:v", options.rc);
+	args.push("-b:v", `${bitrateKbps}k`, options.maxrateFlag ?? "-maxrate", `${bitrateKbps}k`);
+	if (options.bufsize !== false) args.push("-bufsize", `${bitrateKbps * 2}k`);
+
+	return args;
+}
+
 function buildNvencArgs(decision: PlaybackDecision, vfArgs: string[], gopArgs: string[]): string[] {
-	const bitrateArgs = decision.videoBitrateKbps
-		? [
-				// VBR with hard ceiling: quality adapts inside the cap.
-				"-rc:v",
-				"vbr",
-				"-b:v",
-				`${decision.videoBitrateKbps}k`,
-				"-maxrate",
-				`${decision.videoBitrateKbps}k`,
-				"-bufsize",
-				`${decision.videoBitrateKbps * 2}k`,
-			]
-		: ["-cq:v", "23"];
+	// VBR with hard ceiling: quality adapts inside the cap.
+	const bitrateArgs = buildVideoRateArgs(decision.videoBitrateKbps, ["-cq:v", "23"], { rc: "vbr" });
 
 	return [
 		"-c:v",
@@ -194,9 +203,7 @@ function buildNvencArgs(decision: PlaybackDecision, vfArgs: string[], gopArgs: s
 }
 
 function buildVaapiArgs(decision: PlaybackDecision, toneMapChain: string | null, gopArgs: string[]): string[] {
-	const bitrateArgs = decision.videoBitrateKbps
-		? ["-b:v", `${decision.videoBitrateKbps}k`, "-maxrate", `${decision.videoBitrateKbps}k`]
-		: ["-qp", "23"];
+	const bitrateArgs = buildVideoRateArgs(decision.videoBitrateKbps, ["-qp", "23"], { bufsize: false });
 
 	return [
 		"-c:v",
@@ -209,34 +216,24 @@ function buildVaapiArgs(decision: PlaybackDecision, toneMapChain: string | null,
 }
 
 function buildQsvArgs(decision: PlaybackDecision, vfArgs: string[], gopArgs: string[]): string[] {
-	const bitrateArgs = decision.videoBitrateKbps
-		? ["-b:v", `${decision.videoBitrateKbps}k`, "-maxrate", `${decision.videoBitrateKbps}k`]
-		: ["-global_quality", "23", "-look_ahead", "1"];
+	const bitrateArgs = buildVideoRateArgs(decision.videoBitrateKbps, ["-global_quality", "23", "-look_ahead", "1"], {
+		bufsize: false,
+	});
 
 	return ["-c:v", "h264_qsv", "-preset", "medium", ...bitrateArgs, ...vfArgs, ...gopArgs];
 }
 
 function buildAmfArgs(decision: PlaybackDecision, vfArgs: string[], gopArgs: string[]): string[] {
-	const bitrateArgs = decision.videoBitrateKbps
-		? [
-				"-rc:v",
-				"vbr_peak",
-				"-b:v",
-				`${decision.videoBitrateKbps}k`,
-				"-maxrate",
-				`${decision.videoBitrateKbps}k`,
-				"-bufsize",
-				`${decision.videoBitrateKbps * 2}k`,
-			]
-		: ["-quality:v", "balanced"];
+	const bitrateArgs = buildVideoRateArgs(decision.videoBitrateKbps, ["-quality:v", "balanced"], { rc: "vbr_peak" });
 
 	return ["-c:v", "h264_amf", ...bitrateArgs, ...vfArgs, "-pix_fmt", "yuv420p", ...gopArgs];
 }
 
 function buildVideoToolboxArgs(decision: PlaybackDecision, vfArgs: string[], gopArgs: string[]): string[] {
-	const bitrateArgs = decision.videoBitrateKbps
-		? ["-b:v", `${decision.videoBitrateKbps}k`, "-maxrate:v", `${decision.videoBitrateKbps}k`]
-		: ["-q:v", "65"];
+	const bitrateArgs = buildVideoRateArgs(decision.videoBitrateKbps, ["-q:v", "65"], {
+		maxrateFlag: "-maxrate:v",
+		bufsize: false,
+	});
 
 	return [
 		"-c:v",
@@ -261,16 +258,7 @@ function buildSoftwareVideoArgs(decision: PlaybackDecision, toneMapChain: string
 	const lookahead = speedFactor >= 0.5 ? 10 : 5;
 	const crf = serverConfig.ffmpeg.crf.toString();
 
-	const bitrateArgs = decision.videoBitrateKbps
-		? [
-				"-b:v",
-				`${decision.videoBitrateKbps}k`,
-				"-maxrate",
-				`${decision.videoBitrateKbps}k`,
-				"-bufsize",
-				`${decision.videoBitrateKbps * 2}k`,
-			]
-		: ["-crf", crf];
+	const bitrateArgs = buildVideoRateArgs(decision.videoBitrateKbps, ["-crf", crf]);
 
 	return [
 		"-c:v",

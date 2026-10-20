@@ -4,10 +4,10 @@ import { authMiddleware } from "@/app/http/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { SessionIdParams } from "@/app/http/schemas/route-params.schema";
+import { assertRouteSessionAccess } from "@/app/http/utils/access-context.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { wsProtocol } from "@/modules/realtime/ws-protocol.service";
-import { assertSessionAccess } from "@/modules/streaming/sessions/session-access.guard";
 import { DomainError } from "@/utils/domain.errors";
 import { isNullish } from "@/utils/type.utils";
 
@@ -18,7 +18,7 @@ export const eventsRoutes = new Elysia({ prefix: "/events", tags: ["Realtime"] }
 	.post(
 		"/playback-sessions/:sessionId/command",
 		async ({ params, body, user, profile }) => {
-			await assertSessionAccess(params.sessionId, user?.id, profile?.id);
+			await assertRouteSessionAccess({ user, profile }, params.sessionId);
 			const delivered = realtimeService.sendPlaybackCommand(params.sessionId, body, profile?.id);
 
 			return {

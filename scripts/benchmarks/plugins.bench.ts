@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,8 +24,8 @@ import { materializePluginRuntime, pluginRuntimeRoot } from "@/plugins/lifecycle
 import { ensurePluginSdkShim } from "@/plugins/lifecycle/plugin-sdk-alias.utils";
 import { PluginEventBus } from "@/system/extensions/plugin.events";
 import { removeTree } from "@/utils/directory.utils";
-import { FileUtils } from "@/utils/file.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { getFileStats, writeFile } from "@/utils/file.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import { contextHeaders, rotatingIdentity, workerCookie } from "./lib/identity.utils";
 import { type NamedScenario, toScenarioEntries } from "./lib/scenarios.utils";
@@ -422,7 +422,7 @@ if (!args.help) {
 				"quota total: sequential stats (1000 files)",
 				async () => {
 					let total = 0;
-					for (const path of filePaths) total += (await FileUtils.getStats(path))?.size ?? 0;
+					for (const path of filePaths) total += (await getFileStats(path))?.size ?? 0;
 
 					return total;
 				},
@@ -431,9 +431,7 @@ if (!args.help) {
 			const parallel = await benchmarkAsync(
 				"quota total: parallel stats (1000 files, cleanup concurrency)",
 				async () => {
-					const sizes = await PromiseUtils.mapConcurrent(filePaths, serverConfig.plugins.artifacts.cleanupConcurrency, (path) =>
-						FileUtils.getStats(path),
-					);
+					const sizes = await mapConcurrent(filePaths, serverConfig.plugins.artifacts.cleanupConcurrency, (path) => getFileStats(path));
 
 					return sizes.reduce((total, stats) => total + (stats?.size ?? 0), 0);
 				},

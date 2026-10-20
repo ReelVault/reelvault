@@ -49,7 +49,7 @@ export interface TableAccess<TTable extends DatabaseTables> extends TableAccessB
 	 * hand-rolling `.select().from().where().orderBy().limit().offset()` in a
 	 * repository — that pattern has already produced the same "empty orderBy"
 	 * bug twice. Repositories that need to merge related data should still
-	 * call `selectMany` directly and apply `QueryFields.apply` after merging.
+	 * call `selectMany` directly and apply `applyFields` after merging.
 	 */
 	findMany: <F extends string>(
 		params?: SelectManyParams & { fields?: FieldsConfig<F> | undefined },
@@ -118,6 +118,55 @@ export interface TableAccess<TTable extends DatabaseTables> extends TableAccessB
 		values: ReadonlyArray<string | number>,
 		params?: SelectManyParams & { fields?: FieldsConfig<F> | undefined },
 	) => Promise<Array<SelectFields<TableSelect<TTable>, F>>>;
+	findExistingIds: (
+		ids: readonly string[],
+		params?: { column?: SQLiteColumn | undefined; tx?: DatabaseTransaction | undefined },
+	) => Promise<Set<string>>;
+	/**
+	 * One offset page plus its total. Appends the primary key as the tiebreaker
+	 * in the sort's own direction, so equal `createdAt`/`title` values cannot
+	 * make consecutive pages overlap. `countKey` opts into the shared 10 s count
+	 * cache; omit it for an exact total.
+	 */
+	findOffsetPage: <F extends string>(params: {
+		where?: SQL | undefined;
+		orderBy: SQL;
+		limit: number;
+		offset: number;
+		fields?: FieldsConfig<F> | undefined;
+		countKey?: unknown;
+		tiebreakerOrder?: "asc" | "desc" | undefined;
+	}) => Promise<{ data: Array<SelectFields<TableSelect<TTable>, F>>; total: number }>;
+	/**
+	 * Insert-or-update. `set` defaults to `"inserted"`: every inserted column
+	 * except `id` and `createdAt` is overwritten from `excluded`, and `updatedAt`
+	 * is stamped. Pass an explicit `set` when only some columns may change.
+	 */
+	upsert: (params: {
+		values: TableInsertValue<TTable> | Array<TableInsertValue<TTable>>;
+		target: SQLiteColumn | SQLiteColumn[];
+		set?: TableUpdateSet<TTable> | "inserted" | undefined;
+		setWhere?: SQL | undefined;
+		returning?: boolean | undefined;
+		tx?: DatabaseTransaction | undefined;
+	}) => Promise<Array<TableSelect<TTable>>>;
+	/**
+	 * One aggregate row: `total` (COUNT(*), optional), one SUM and named
+	 * `count(case when <filter> then 1 end)` metrics. Replaces the hand-written
+	 * admin dashboard queries.
+	 */
+	countAggregates: (params: {
+		total?: string | false | undefined;
+		sum?: { key: string; column: SQLiteColumn } | undefined;
+		counts?: Record<string, SQL | undefined> | undefined;
+		tx?: DatabaseTransaction | undefined;
+	}) => Promise<Record<string, number>>;
+	/** Chunked per-row CASE update; see {@link updateManyFieldsById}. */
+	updateManyFields: (params: {
+		columns: Record<string, SQLiteColumn>;
+		updates: ReadonlyArray<{ id: string; values: Record<string, string | number | null | undefined> }>;
+		touchUpdatedAt?: boolean | undefined;
+	}) => Promise<void>;
 	count: (params?: { primaryId?: string | undefined; where?: SQL | undefined; tx?: DatabaseTransaction | undefined }) => Promise<number>;
 	isExists: (params: { primaryId?: string | undefined; where?: SQL | undefined; tx?: DatabaseTransaction | undefined }) => Promise<boolean>;
 }

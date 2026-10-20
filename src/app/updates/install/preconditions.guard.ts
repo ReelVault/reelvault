@@ -6,7 +6,7 @@ import { serverAssetName, webAssetName } from "@/app/updates/update-release.util
 import { SERVER_VERSION } from "@/config/version.constants";
 import { resolveWebVersion } from "@/system/web-dist.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { isNewerVersion } from "@/utils/semver.utils";
+import { isNewerVersion, minServerVersionError } from "@/utils/semver.utils";
 import type { UpdateInstallState } from "./shared.types";
 
 /**
@@ -107,13 +107,8 @@ async function assertNewerReleaseAvailable(state: UpdateInstallState, target: Up
 
 		// The web release declares the oldest server it works with. The UI only warns;
 		// this is the actual gate, so the API and dashboard cannot bypass it.
-		if (release.minServerVersion && isNewerVersion(release.minServerVersion, SERVER_VERSION)) {
-			throw new DomainError(
-				"validation",
-				`Web UI ${release.version} requires server ${release.minServerVersion} or newer (running ${SERVER_VERSION}) — update the server first`,
-				{ code: "update.server_too_old" },
-			);
-		}
+		const versionError = minServerVersionError(release.minServerVersion, `Web UI ${release.version}`, "update.server_too_old");
+		if (versionError) throw versionError;
 	}
 
 	return release;

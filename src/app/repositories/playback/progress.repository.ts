@@ -1,10 +1,14 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { mediaFiles } from "@/app/repositories/media-files/shared.utils";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { isNullish } from "@/utils/type.utils";
+
+const playbackProgress = defineTableAccess("playbackProgress", { primaryKeyColumn: "id" });
 
 /**
  * Fixed-shape playback queries (Faza 3 pilot). Inserts bind `id`/timestamps
@@ -136,15 +140,7 @@ export async function findMediaFileWithMetadata(fileId: string) {
 
 /** The ids among `fileIds` that exist as media files. */
 export async function findExistingMediaFileIds(fileIds: readonly string[]): Promise<Set<string>> {
-	if (fileIds.length === 0) return new Set();
-
-	const rows = await databaseFactory
-		.getClient()
-		.select({ id: schema.mediaFiles.id })
-		.from(schema.mediaFiles)
-		.where(inArray(schema.mediaFiles.id, [...fileIds]));
-
-	return new Set(rows.map((row) => row.id));
+	return await mediaFiles.findExistingIds(fileIds);
 }
 
 /** One file as the bulk watch-state write reads it: duration, title and the profile's current progress. */
@@ -240,34 +236,30 @@ export async function upsertProgressBulk({
 	if (rows.length === 0) return;
 
 	const now = new Date();
-	await databaseFactory
-		.getClient({ tx })
-		.insert(schema.playbackProgress)
-		.values(
-			rows.map((row) => ({
-				id: Bun.randomUUIDv7(),
-				profileId,
-				mediaFileId: row.fileId,
-				position: row.position,
-				duration: row.duration,
-				completed: row.completed,
-				audioStreamIndex: row.audioStreamIndex,
-				subtitleId: row.subtitleId,
-				createdAt: now,
-				updatedAt: now,
-			})),
-		)
-		.onConflictDoUpdate({
-			target: [schema.playbackProgress.profileId, schema.playbackProgress.mediaFileId],
-			set: {
-				position: sql`excluded.position`,
-				duration: sql`excluded.duration`,
-				completed: sql`excluded.completed`,
-				audioStreamIndex: sql`excluded.audio_stream_index`,
-				subtitleId: sql`excluded.subtitle_id`,
-				updatedAt: sql`excluded.updated_at`,
-			},
-		});
+	await playbackProgress.upsert({
+		values: rows.map((row) => ({
+			id: Bun.randomUUIDv7(),
+			profileId,
+			mediaFileId: row.fileId,
+			position: row.position,
+			duration: row.duration,
+			completed: row.completed,
+			audioStreamIndex: row.audioStreamIndex,
+			subtitleId: row.subtitleId,
+			createdAt: now,
+			updatedAt: now,
+		})),
+		target: [playbackProgress.table.profileId, playbackProgress.table.mediaFileId],
+		set: {
+			position: sql`excluded.position`,
+			duration: sql`excluded.duration`,
+			completed: sql`excluded.completed`,
+			audioStreamIndex: sql`excluded.audio_stream_index`,
+			subtitleId: sql`excluded.subtitle_id`,
+			updatedAt: sql`excluded.updated_at`,
+		},
+		tx,
+	});
 }
 
 export async function deleteProgress(profileId: string, fileId: string, tx?: DatabaseTransaction): Promise<void> {

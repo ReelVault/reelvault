@@ -3,8 +3,8 @@ import { eq, inArray } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
-import { type QueryMap, QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseStandardQuery, type QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { SchemaTable, TableAccess, TableSelect } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
@@ -94,10 +94,10 @@ export function defineNamedEntityRepository<
 			body: { name: string },
 			query?: FieldsQuery<F>,
 		): Promise<SelectFields<EntityRow, F> | undefined> => {
-			const { fields } = QueryUtils.parseStandard(query);
+			const { fields } = parseStandardQuery(query);
 			const created = await findOrCreateByName({ name: body.name, values: body });
 
-			return created ? QueryFields.apply<EntityRow, F>(created, fields) : undefined;
+			return created ? applyFields<EntityRow, F>(created, fields) : undefined;
 		},
 
 		updateAndRead: async <F extends string>(
@@ -105,7 +105,7 @@ export function defineNamedEntityRepository<
 			body: SQLiteUpdateSetSource<SchemaTable[TTableName]>,
 			query?: FieldsQuery<F>,
 		): Promise<SelectFields<EntityRow, F> | undefined> => {
-			const { fields } = QueryUtils.parseStandard(query);
+			const { fields } = parseStandardQuery(query);
 
 			return await entity.updateAndReturn({ primaryId: entityId, values: body, fields });
 		},

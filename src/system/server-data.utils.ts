@@ -3,27 +3,27 @@ import { readdir } from "node:fs/promises";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { DirUtils, removeTree } from "@/utils/directory.utils";
+import { createDirectory, directoryExists, removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 const logger = createLogger("ServerDataUtils");
 
 export async function ensureDataDirectories(): Promise<void> {
-	if (!(await FileUtils.exists(serverConfig.paths.sqlite)))
+	if (!(await fileExists(serverConfig.paths.sqlite)))
 		throw new DomainError("internal", "No database file", { code: "database.file_missing" });
 
 	const directories = [
 		serverConfig.paths.images,
-		PathUtils.join(serverConfig.paths.images, "posters"),
-		PathUtils.join(serverConfig.paths.images, "backdrops"),
-		PathUtils.join(serverConfig.paths.images, "people"),
-		PathUtils.join(serverConfig.paths.images, "profiles"),
-		PathUtils.join(serverConfig.paths.images, "others"),
-		PathUtils.join(serverConfig.paths.images, ".cache"),
+		joinPath(serverConfig.paths.images, "posters"),
+		joinPath(serverConfig.paths.images, "backdrops"),
+		joinPath(serverConfig.paths.images, "people"),
+		joinPath(serverConfig.paths.images, "profiles"),
+		joinPath(serverConfig.paths.images, "others"),
+		joinPath(serverConfig.paths.images, ".cache"),
 		serverConfig.paths.imageTmp,
 		serverConfig.paths.plugins,
 		serverConfig.paths.downloads,
@@ -32,9 +32,9 @@ export async function ensureDataDirectories(): Promise<void> {
 		serverConfig.paths.backups,
 	];
 
-	const creationResults = await PromiseUtils.mapConcurrent(directories, systemResourcesService.getIoConcurrency(), async (dir) => ({
+	const creationResults = await mapConcurrent(directories, systemResourcesService.getIoConcurrency(), async (dir) => ({
 		dir,
-		created: await DirUtils.create(dir),
+		created: await createDirectory(dir),
 	}));
 	// Boot continues (existing installs on odd mounts must not be locked out),
 	// but the failure is reported once here instead of as scattered write errors.
@@ -58,25 +58,25 @@ export async function cleanupStartupDirectories(
 	for (const targetDir of cleanupTargets) {
 		signal?.throwIfAborted();
 		try {
-			if (await DirUtils.exists(targetDir)) {
+			if (await directoryExists(targetDir)) {
 				const entries = await readdir(targetDir);
 				// Bounded concurrency — an unbounded Promise.all over hundreds of
 				// HLS sessions would flood the I/O thread pool right before listen().
 				// Bounded by measured capacity — a slow disk/SD card must not queue
 				// deep parallel unlink waves right at boot.
-				await PromiseUtils.mapConcurrent(
+				await mapConcurrent(
 					entries,
 					systemResourcesService.getIoConcurrency(),
 					(entry) => {
 						if (excludeEntryNames?.has(entry)) return Promise.resolve();
 
-						return removeTree(PathUtils.join(targetDir, entry));
+						return removeTree(joinPath(targetDir, entry));
 					},
 					signal,
 				);
 			}
 
-			await DirUtils.create(targetDir);
+			await createDirectory(targetDir);
 		} catch (error) {
 			logger.warn("Failed to clean up startup directory", { targetDir, err: error });
 		}
@@ -105,7 +105,7 @@ export async function measureDirectory(dir: string): Promise<{ bytes: number; fi
 		}
 
 		for (const entry of entries) {
-			const entryPath = PathUtils.join(current, entry.name);
+			const entryPath = joinPath(current, entry.name);
 			if (entry.isDirectory()) {
 				stack.push(entryPath);
 			} else if (entry.isFile()) {
@@ -114,7 +114,7 @@ export async function measureDirectory(dir: string): Promise<{ bytes: number; fi
 		}
 	}
 
-	const sizes = await PromiseUtils.mapConcurrent(filePaths, systemResourcesService.getIoConcurrency(), async (filePath) => {
+	const sizes = await mapConcurrent(filePaths, systemResourcesService.getIoConcurrency(), async (filePath) => {
 		try {
 			return (await bunFile(filePath).stat()).size;
 		} catch {

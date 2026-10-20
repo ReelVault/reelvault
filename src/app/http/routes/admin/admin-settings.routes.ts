@@ -7,6 +7,7 @@ import {
 } from "@reelvault/sdk/common";
 import { systemSettingsService } from "@/app/admin/system-settings.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
@@ -27,11 +28,7 @@ export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.patch(
 		"/settings",
-		async ({ body, user, request }) =>
-			await systemSettingsService.updateSettings(body, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+		async ({ body, user, request }) => await systemSettingsService.updateSettings(body, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-settings-update", max: 30, windowMs: MINUTE },
 			body: "admin.updateSystemSettings",
@@ -53,11 +50,7 @@ export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/settings/import",
-		async ({ body, user, request }) =>
-			await systemSettingsService.importSettings(body, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+		async ({ body, user, request }) => await systemSettingsService.importSettings(body, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-settings-import", max: 10, windowMs: MINUTE },
 			body: "admin.importSystemSettings",
@@ -72,11 +65,7 @@ export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post(
 		"/settings/reset",
-		async ({ body, user, request }) =>
-			await systemSettingsService.resetSettings(body.keys, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+		async ({ body, user, request }) => await systemSettingsService.resetSettings(body.keys, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-settings-reset", max: 10, windowMs: MINUTE },
 			body: "admin.resetSystemSettings",

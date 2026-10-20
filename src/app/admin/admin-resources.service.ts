@@ -4,7 +4,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { resourceAllocator } from "@/system/resource-allocator.service";
 import { serverRescueService } from "@/system/server-rescue.service";
-import { toCsvLine } from "@/utils/csv.utils";
+import { buildCsvExport, toCsvLine } from "@/utils/csv.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { serializeDate } from "@/utils/time.utils";
@@ -24,12 +24,12 @@ const DEFAULT_RESOURCE_HOURS = 24;
 
 const CSV_HEADER = "timestamp,cpuPercent,memoryPercent,diskPercent,pressure,activeWorkers";
 
-class AdminResourcesService {
-	readonly serviceName = "AdminResourcesService";
-	readonly logger = createLogger("AdminResourcesService");
+export const adminResourcesService = {
+	serviceName: "AdminResourcesService",
+	logger: createLogger("AdminResourcesService"),
 
 	async getResourcesView(hours = DEFAULT_RESOURCE_HOURS): Promise<AdminResourcesResponse> {
-		return await runSafely(this, "getResourcesView", async () => {
+		return await runSafely(adminResourcesService, "getResourcesView", async () => {
 			const [rawHistory, aggregates] = await Promise.all([
 				resourceMetricsRepository.getHistory(hours),
 				resourceMetricsRepository.getAggregates(hours),
@@ -61,11 +61,11 @@ class AdminResourcesService {
 				workerAllocations: ALLOCATION_WORKER_IDS.map((id) => resourceAllocator.getWorkerAllocation(id)),
 			};
 		});
-	}
+	},
 
 	/** Every sample of the window, unthinned, as CSV or JSON for offline analysis. */
 	exportHistory(hours = DEFAULT_RESOURCE_HOURS, format: "csv" | "json" = "csv") {
-		return runSafely(this, "exportHistory", async () => {
+		return runSafely(adminResourcesService, "exportHistory", async () => {
 			// An infinite point budget disables the chart thinning, so the export keeps every sample.
 			const samples = await resourceMetricsRepository.getHistory(hours, Number.POSITIVE_INFINITY);
 			const rows = samples.map((sample) => ({
@@ -84,9 +84,7 @@ class AdminResourcesService {
 
 			const lines = rows.map((row) => toCsvLine(Object.values(row)));
 
-			return { body: `${[CSV_HEADER, ...lines].join("\n")}\n`, contentType: "text/csv; charset=utf-8", filename };
+			return buildCsvExport(CSV_HEADER, lines, filename);
 		});
-	}
-}
-
-export const adminResourcesService = new AdminResourcesService();
+	},
+};

@@ -27,13 +27,19 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import {
 	type CreatedAtCursor,
 	decodeCursorFor,
-	KeysetCursor,
+	encodeCursor,
 	keysetWhere,
 } from "@/integrations/drizzle-orm/query/keyset/keyset-cursor.utils";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
-import { QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
-import { QuerySorting } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
+import { createPageResponse } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { applyFields, parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import {
+	buildOrderBy,
+	buildWhereConditions,
+	parseStandardQuery,
+	parseWithFilters,
+	resolveSortOrder,
+} from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { withTiebreaker } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { cachedCount, filterSignature } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
@@ -138,14 +144,14 @@ async function hydrateRows<F extends string>(
 		fields,
 	);
 
-	return data.map((item) => QueryFields.apply(withRelations(item, relations.get(item.id)), fields));
+	return data.map((item) => applyFields(withRelations(item, relations.get(item.id)), fields));
 }
 
 export async function findPage<F extends string>(
 	query?: CursorPaginationQuery & FieldsQuery<F> & MetadataRepositoryFilters & MetadataSorting,
 ): Promise<CursorPaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
-	const { pagination, fields, sorting, filters } = QueryUtils.parseWithFilters<F, MetadataRepositoryFilters, MetadataSorting>(query);
-	const where = QueryUtils.buildWhereConditions(filters, metadataQueryMap.filters);
+	const { pagination, fields, sorting, filters } = parseWithFilters<F, MetadataRepositoryFilters, MetadataSorting>(query);
+	const where = buildWhereConditions(filters, metadataQueryMap.filters);
 	const cursorMode =
 		(query?.cursor !== undefined || query?.sortBy === "createdAt") &&
 		(sorting?.sortBy === "createdAt" || !sorting?.sortBy) &&
@@ -164,14 +170,10 @@ export async function findPage<F extends string>(
 	} else if (sorting?.sortBy === "collectionOrder") {
 		orderBy = buildCollectionOrderBy(filters?.collectionIds, sorting.sortOrder ?? "asc");
 	} else {
-		const baseOrderBy = QueryUtils.buildOrderBy(sorting, metadataQueryMap.orderBy, metadataQueryMap.defaults);
+		const baseOrderBy = buildOrderBy(sorting, metadataQueryMap.orderBy, metadataQueryMap.defaults);
 		// Tiebreaker keeps offset pagination deterministic for non-unique keys.
 		if (baseOrderBy) {
-			orderBy = QuerySorting.withTiebreaker(
-				baseOrderBy,
-				schema.metadata.id,
-				QueryUtils.resolveSortOrder(sorting, metadataQueryMap.defaults),
-			);
+			orderBy = withTiebreaker(baseOrderBy, schema.metadata.id, resolveSortOrder(sorting, metadataQueryMap.defaults));
 		}
 	}
 
@@ -188,19 +190,19 @@ export async function findPage<F extends string>(
 
 	if (cursorMode) {
 		const [total, keysetResult] = await Promise.all([countPromise, findManyWithCursor(findManyArgs)]);
-		const response = QueryPagination.createResponse({
+		const response = createPageResponse({
 			total,
 			pagination: { ...pagination, page: 1, offset: 0 },
 			data: keysetResult.data,
 		});
 		if (keysetResult.data.length < pagination.limit || !keysetResult.cursor) return response;
 
-		return { ...response, nextCursor: KeysetCursor.encode(keysetResult.cursor) };
+		return { ...response, nextCursor: encodeCursor(keysetResult.cursor) };
 	}
 
 	const [total, data] = await Promise.all([countPromise, findMany(findManyArgs)]);
 
-	return QueryPagination.createResponse({
+	return createPageResponse({
 		total,
 		pagination,
 		data,
@@ -215,7 +217,7 @@ export async function findByIdForRead<F extends string>(
 }
 
 export async function findProviderDetails(metadataId: string) {
-	return await findById({ primaryId: metadataId, fields: QueryFields.parse({ fields: "id,type,primaryProviderId,providers" }) });
+	return await findById({ primaryId: metadataId, fields: parseFields({ fields: "id,type,primaryProviderId,providers" }) });
 }
 
 /**
@@ -232,13 +234,7 @@ export async function findRootsById(metadataId: string): Promise<typeof schema.m
 
 /** Which of the given ids exist in the catalog; a lightweight check for batch writes. */
 export async function findExistingIds(metadataIds: readonly string[]): Promise<Set<string>> {
-	if (metadataIds.length === 0) return new Set();
-
-	const rows = await mapChunked([...metadataIds], (idChunk) =>
-		databaseFactory.getClient().select({ id: schema.metadata.id }).from(schema.metadata).where(inArray(schema.metadata.id, idChunk)),
-	);
-
-	return new Set(rows.map((row) => row.id));
+	return await metadataTable.findExistingIds(metadataIds);
 }
 
 /** Full metadata rows with default relations (images, genres, rating) for a set of ids. */
@@ -255,7 +251,7 @@ export async function findManyByIdsWithRelations(
 export async function findByTitleAndType(type: "movie" | "tv_show", title: string) {
 	return await findFirst({
 		where: and(eq(schema.metadata.type, type), titleMatchFilter(title, "exact")),
-		fields: QueryFields.parse({ fields: "id,title,releaseDate,stableKey" }),
+		fields: parseFields({ fields: "id,title,releaseDate,stableKey" }),
 	});
 }
 
@@ -320,10 +316,10 @@ export async function findSimilarPage<F extends string>(
 	query?: PaginationQuery & FieldsQuery<F>,
 	source?: SelectFields<MetadataWithRelation, string>,
 ): Promise<PaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
-	const { pagination, fields } = QueryUtils.parseStandard(query);
+	const { pagination, fields } = parseStandardQuery(query);
 	const { total, data } = await getMoreLikeThis({ metadataId, source, limit: pagination.limit, offset: pagination.offset, fields });
 
-	return QueryPagination.createResponse({ total, pagination, data });
+	return createPageResponse({ total, pagination, data });
 }
 
 /**
@@ -337,7 +333,7 @@ async function hydrateOne<F extends string>(
 ): Promise<SelectFields<MetadataWithRelation, F>> {
 	const relations = await loadRelations([metadata.id], tx, fields, true);
 
-	return QueryFields.apply(withRelations(metadata, relations.get(metadata.id)), fields);
+	return applyFields(withRelations(metadata, relations.get(metadata.id)), fields);
 }
 
 export async function findFirst<F extends string>({
@@ -370,7 +366,7 @@ export async function findById<F extends string>({
 		const merged = loadMergedDetailRow(databaseFactory.getClient({ tx }), primaryId);
 		if (!merged) return undefined;
 
-		return QueryFields.apply(withRelations(merged.metadata, merged.relationData), fields);
+		return applyFields(withRelations(merged.metadata, merged.relationData), fields);
 	}
 
 	const metadata = await metadataTable.selectFirstById({ primaryId, tx });

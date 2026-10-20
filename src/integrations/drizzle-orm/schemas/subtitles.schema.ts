@@ -1,13 +1,13 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { mediaFiles } from "./media-files.schema";
 
 export const subtitles = sqliteTable(
 	"subtitles",
 	{
-		id: DatabaseHelper.id,
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		id: idColumn,
+		mediaFileId: tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
 
 		language: text("language").notNull(),
 		label: text("label"),
@@ -22,7 +22,7 @@ export const subtitles = sqliteTable(
 		isForced: integer("is_forced", { mode: "boolean" }).notNull().default(false),
 		isHearingImpaired: integer("is_hearing_impaired", { mode: "boolean" }).notNull().default(false),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("subtitles_external_unique").on(t.mediaFileId, t.language, t.type).where(sql`${t.type} = 'external'`),

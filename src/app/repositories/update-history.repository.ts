@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { DomainError } from "@/utils/domain.errors";
 
 export type UpdateHistoryAction = "install" | "rollback";
@@ -51,13 +52,22 @@ export class UpdateHistoryRepository {
 
 	/** Newest runs first; the total counts every run, not just the page. */
 	async findPage({ limit, offset }: { limit: number; offset: number }) {
-		const client = this.database.getClient();
-		const [total, data] = await Promise.all([
-			client.$count(this.table),
-			client.select().from(this.table).orderBy(desc(this.table.startedAt), desc(this.table.id)).limit(limit).offset(offset),
-		]);
-
-		return { total, data };
+		return await findOffsetPage({
+			access: { tableName: "update_history", primaryKeyColumn: this.table.id },
+			orderBy: desc(this.table.startedAt),
+			limit,
+			offset,
+			findMany: async (page) =>
+				await this.database
+					.getClient()
+					.select()
+					.from(this.table)
+					.where(page.where)
+					.orderBy(page.orderBy)
+					.limit(page.limit)
+					.offset(page.offset),
+			count: () => this.database.getClient().$count(this.table),
+		});
 	}
 }
 

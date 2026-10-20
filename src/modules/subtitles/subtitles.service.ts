@@ -17,11 +17,11 @@ import type {
 	UpdateSubtitleRequest,
 } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory } from "@/utils/directory.utils";
 import { assertFound, DomainError, errorCodeOf } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 import { invalidateResponseBodies } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
@@ -156,8 +156,8 @@ export class SubtitlesService {
 				});
 			}
 
-			await DirUtils.create(serverConfig.paths.subtitles);
-			const storedPath = PathUtils.join(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
+			await createDirectory(serverConfig.paths.subtitles);
+			const storedPath = joinPath(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
 			await Bun.write(storedPath, text);
 
 			try {
@@ -169,7 +169,7 @@ export class SubtitlesService {
 					...(body.label === undefined ? {} : { label: body.label }),
 				});
 			} catch (error) {
-				await FileUtils.delete(storedPath);
+				await deleteFile(storedPath);
 				throw error;
 			}
 		});

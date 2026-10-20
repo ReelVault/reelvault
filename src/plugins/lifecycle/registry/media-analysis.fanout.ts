@@ -2,7 +2,7 @@ import type { PluginMediaFile } from "@reelvault/sdk/common";
 import type { MediaAnalysis, MediaAnalyzer } from "@reelvault/sdk/plugin";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { createLogger } from "@/utils/logger.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { isNullish } from "@/utils/type.utils";
 import { PluginEntityTable } from "./plugin-entity.registry";
 
@@ -32,7 +32,7 @@ export class MediaAnalysisFanout {
 		// them one after another made the analysis as slow as the sum of its
 		// parts. The results are merged in registration order, so a later
 		// analyzer still wins.
-		const analyses = await PromiseUtils.mapConcurrent(this.table.getAll(), systemResourcesService.getIoConcurrency(), async (analyzer) => {
+		const analyses = await mapConcurrent(this.table.getAll(), systemResourcesService.getIoConcurrency(), async (analyzer) => {
 			try {
 				return normalizeMediaAnalysis(await analyzer.analyze({ media, logger: createLogger(`MediaAnalyzer:${analyzer.id}`) }));
 			} catch (error) {

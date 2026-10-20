@@ -1,10 +1,10 @@
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { DirUtils } from "@/utils/directory.utils";
-import { FileUtils } from "@/utils/file.utils";
+import { createDirectory } from "@/utils/directory.utils";
+import { withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { type DetectedHwaccel, hardwareDecodeArgs, SOFTWARE_HWACCEL, withDevice } from "./hwaccel.utils";
 import { runFfmpegDiagnostic } from "./probe.utils";
 
@@ -57,23 +57,19 @@ export async function verifyHwaccelCandidates(
 		return { detected: immediateNone, verification: null };
 	}
 
-	const results = await PromiseUtils.mapConcurrent(
-		candidates,
-		systemResourcesService.getHeavySubprocessConcurrency(),
-		async (candidate) => {
-			const result = await runTestEncode(candidate);
+	const results = await mapConcurrent(candidates, systemResourcesService.getHeavySubprocessConcurrency(), async (candidate) => {
+		const result = await runTestEncode(candidate);
 
-			return {
-				candidate,
-				verification: {
-					encoder: candidate.h264Encoder,
-					ok: result.ok,
-					code: result.code,
-					detail: result.detail,
-				} satisfies HwaccelVerification,
-			};
-		},
-	);
+		return {
+			candidate,
+			verification: {
+				encoder: candidate.h264Encoder,
+				ok: result.ok,
+				code: result.code,
+				detail: result.detail,
+			} satisfies HwaccelVerification,
+		};
+	});
 
 	const explicitHwaccel = serverConfig.ffmpeg.hwaccel !== "auto";
 	let firstFailure: HwaccelVerification | null = null;
@@ -152,11 +148,10 @@ async function runTestEncode(hw: DetectedHwaccel): Promise<DecodeTestResult> {
 export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeTestResult> {
 	if (hw.type === "none") return { ok: false, code: "ffmpeg.hwaccel.none_effective", detail: null };
 
-	const tmpDir = PathUtils.join(serverConfig.paths.transcodes, ".tmp");
-	const probePath = PathUtils.join(tmpDir, `hwaccel_decode_probe_${crypto.randomUUID()}.bin`);
-	await DirUtils.create(tmpDir);
+	const tmpDir = joinPath(serverConfig.paths.transcodes, ".tmp");
+	await createDirectory(tmpDir);
 
-	try {
+	return await withTempPath(joinPath(tmpDir, "hwaccel_decode_probe"), ".bin", async (probePath) => {
 		// Raw H.264 elementary stream with a .bin suffix — no temp file may look like
 		// a media file, cleanup helpers refuse to delete those.
 		const generate = await runFfmpegDiagnostic(
@@ -196,7 +191,5 @@ export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeT
 		if (decode.exitCode === 0) return { ok: true, code: null, detail: null };
 
 		return { ok: false, code: "ffmpeg.decode_test.decode_failed", detail: decode.stderr.trim() || `exit code ${decode.exitCode}` };
-	} finally {
-		await FileUtils.delete(probePath);
-	}
+	});
 }

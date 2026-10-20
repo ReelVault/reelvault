@@ -1,32 +1,22 @@
-import { readdir } from "node:fs/promises";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { type DirectoryEntry, readDirectoryEntries } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { getFileName, joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 export interface CatalogDirectoryNode {
 	readonly files: string[];
 	readonly subdirectories: string[];
 }
 
-export interface CatalogTreeEntry {
-	readonly name: string;
-	readonly isFile: boolean;
-	readonly isDirectory: boolean;
-}
-
 interface ServiceDependencies {
-	listEntries: (directory: string) => Promise<readonly CatalogTreeEntry[]>;
+	listEntries: (directory: string) => Promise<readonly DirectoryEntry[]>;
 	getIoConcurrency: () => number;
 }
 
 const defaultDependencies: ServiceDependencies = {
-	listEntries: async (directory) => {
-		const entries = await readdir(directory, { withFileTypes: true });
-
-		return entries.map((entry) => ({ name: entry.name, isFile: entry.isFile(), isDirectory: entry.isDirectory() }));
-	},
+	listEntries: readDirectoryEntries,
 	getIoConcurrency: () => systemResourcesService.getIoConcurrency(),
 };
 
@@ -61,7 +51,7 @@ export class CatalogTreeWalker {
 			const files: string[] = [];
 			const subdirectories: string[] = [];
 			for (const entry of entries) {
-				const joined = PathUtils.join(directory, entry.name);
+				const joined = joinPath(directory, entry.name);
 				if (entry.isFile) files.push(joined);
 				else if (entry.isDirectory) subdirectories.push(joined);
 			}
@@ -69,7 +59,7 @@ export class CatalogTreeWalker {
 			tree.set(directory, { files, subdirectories });
 			// Bounded walk: an unbounded Promise.all over a deep tree queues one
 			// readdir per directory at once (slow NAS/SD starvation).
-			await PromiseUtils.mapConcurrent(subdirectories, this.dependencies.getIoConcurrency(), async (subdirectory) => {
+			await mapConcurrent(subdirectories, this.dependencies.getIoConcurrency(), async (subdirectory) => {
 				await visit(subdirectory);
 			});
 		};
@@ -107,5 +97,5 @@ export function findMatchingFiles(
 export function findDocumentsByNames(tree: ReadonlyMap<string, CatalogDirectoryNode>, root: string, names: readonly string[]): string[] {
 	const normalizedNames = new Set(names.map((name) => name.toLowerCase()));
 
-	return findMatchingFiles(tree, root, (path) => normalizedNames.has(PathUtils.getFileName(path).toLowerCase()));
+	return findMatchingFiles(tree, root, (path) => normalizedNames.has(getFileName(path).toLowerCase()));
 }

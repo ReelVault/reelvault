@@ -1,5 +1,5 @@
 import { MINUTE } from "@/config/server/server.constants";
-import { FileUtils, fileStatSignature } from "@/utils/file.utils";
+import { fileStatSignature, getFileStats } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 
 interface ServiceDependencies {
@@ -7,7 +7,7 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	getStats: (path) => FileUtils.getStats(path),
+	getStats: (path) => getFileStats(path),
 };
 
 export class SourceVersionCache {

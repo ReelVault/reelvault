@@ -12,13 +12,13 @@ import { contentByteSize, writeFileWithRollback } from "@/plugins/shared/plugin.
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { KeyedMutex } from "@/utils/concurrency.utils";
-import { DirUtils } from "@/utils/directory.utils";
-import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { createDirectory } from "@/utils/directory.utils";
+import { assertExists, DomainError } from "@/utils/domain.errors";
+import { deleteFile, getFileStats } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 type MediaArtifactRow = InferTable<"mediaArtifacts">;
 
@@ -111,20 +111,22 @@ class MediaArtifactsService {
 		const normalizedArtifact = { ...artifact, kind: candidate.kind, contentType: candidate.contentType };
 
 		const mediaFileExists = await mediaRepository.isExists({ primaryId: normalizedArtifact.mediaFileId });
-		if (!mediaFileExists)
-			throw new DomainError(
+		assertExists(
+			mediaFileExists,
+			"Media file",
+			normalizedArtifact.mediaFileId,
+			new DomainError(
 				"not_found",
 				`Artifact owner '${ownerId}' write failed: media file '${normalizedArtifact.mediaFileId}' was not found.`,
-				{
-					code: "artifact.not_found",
-				},
-			);
+				{ code: "artifact.not_found" },
+			),
+		);
 
 		const id = crypto.randomUUID();
 		const storageKey = `${normalizedArtifact.mediaFileId}/${id}`;
 		const stableKey = createLocalStableKey({ namespace: "media-artifact", value: `${ownerId}:${storageKey}` });
-		const mediaArtifactsDir = PathUtils.join(serverConfig.paths.artifacts, normalizedArtifact.mediaFileId);
-		await DirUtils.create(mediaArtifactsDir);
+		const mediaArtifactsDir = joinPath(serverConfig.paths.artifacts, normalizedArtifact.mediaFileId);
+		await createDirectory(mediaArtifactsDir);
 
 		const storedRows = await writeFileWithRollback(this.storagePath(storageKey), normalizedArtifact.content, () =>
 			databaseFactory
@@ -266,8 +268,8 @@ class MediaArtifactsService {
 	}
 
 	async removeStorageFiles(storageKeys: readonly string[]): Promise<void> {
-		await PromiseUtils.mapConcurrent(storageKeys, serverConfig.plugins.artifacts.cleanupConcurrency, (storageKey) =>
-			FileUtils.delete(this.storagePath(storageKey)),
+		await mapConcurrent(storageKeys, serverConfig.plugins.artifacts.cleanupConcurrency, (storageKey) =>
+			deleteFile(this.storagePath(storageKey)),
 		);
 	}
 
@@ -312,7 +314,7 @@ class MediaArtifactsService {
 	}
 
 	private storagePath(storageKey: string): string {
-		return PathUtils.join(serverConfig.paths.artifacts, storageKey);
+		return joinPath(serverConfig.paths.artifacts, storageKey);
 	}
 
 	private assertAllowedContentType(contentType: string, ownerId: string): void {
@@ -345,8 +347,8 @@ class MediaArtifactsService {
 
 	/** Sums the on-disk size of the given artifact rows (bounded parallel). */
 	private async sumStoredBytes(artifacts: readonly MediaArtifactRow[]): Promise<number> {
-		const sizes = await PromiseUtils.mapConcurrent(artifacts, serverConfig.plugins.artifacts.cleanupConcurrency, (artifact) =>
-			FileUtils.getStats(this.storagePath(artifact.storageKey)),
+		const sizes = await mapConcurrent(artifacts, serverConfig.plugins.artifacts.cleanupConcurrency, (artifact) =>
+			getFileStats(this.storagePath(artifact.storageKey)),
 		);
 
 		return sizes.reduce((total, stats) => total + (stats?.size ?? 0), 0);

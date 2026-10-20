@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { pluginUiOverrides } from "@/integrations/drizzle-orm/schemas/plugin-ui-overrides.schema";
 
-class PluginUiOverridesRepository {
+export const pluginUiOverridesRepository = {
 	/** Hidden contribution keys per plugin. */
 	async listAll(): Promise<Map<string, Set<string>>> {
 		const rows = await databaseFactory.getClient().select().from(pluginUiOverrides);
@@ -14,7 +14,7 @@ class PluginUiOverridesRepository {
 		}
 
 		return byPlugin;
-	}
+	},
 
 	/** Replaces the whole hidden set of one plugin; an empty list clears it. */
 	async replaceForPlugin(pluginId: string, keys: readonly string[]): Promise<void> {
@@ -24,7 +24,5 @@ class PluginUiOverridesRepository {
 
 			await tx.insert(pluginUiOverrides).values(keys.map((contributionKey) => ({ pluginId, contributionKey })));
 		});
-	}
-}
-
-export const pluginUiOverridesRepository = new PluginUiOverridesRepository();
+	},
+};

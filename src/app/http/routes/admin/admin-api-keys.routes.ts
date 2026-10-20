@@ -3,9 +3,9 @@ import {
 	ApiKeyListSchema,
 	ApiKeySchema,
 	CreateApiKeyRequestSchema,
+	SuccessResponseSchema,
 	UpdateApiKeyRequestSchema,
 } from "@reelvault/sdk/common";
-import { t } from "elysia";
 import { apiKeysService } from "@/app/admin/api-keys.service";
 import { requireAdmin } from "@/app/http/middleware/auth.middleware";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
@@ -92,7 +92,7 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 		{
 			rateLimit: { name: "admin-api-keys-revoke", max: 30, windowMs: MINUTE },
 			params: IdParams,
-			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Object({ success: t.Boolean() }) },
+			response: { ...ROUTE_ERRORS.ADMIN, 200: SuccessResponseSchema },
 			detail: {
 				description: "Revoke an API key immediately.",
 			},

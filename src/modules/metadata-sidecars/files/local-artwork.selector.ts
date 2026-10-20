@@ -1,6 +1,6 @@
 import type { SidecarArtworkReference } from "@/modules/metadata-sidecars/sidecar.types";
-import { PathUtils } from "@/utils/path.utils";
-import { UNSUPPORTED_ARTWORK_REGEX } from "./artwork.constants";
+import { getFileName, getFileNameWithoutExt } from "@/utils/path.utils";
+import { episodeThumbFileName, TITLE_BACKDROP_NAMES, TITLE_POSTER_NAMES, UNSUPPORTED_ARTWORK_REGEX } from "./artwork.constants";
 import type { IgnoredLocalAsset } from "./local-media.utils";
 
 const NUMBERED_BACKDROP_REGEX = /^backdrop\d+\.jpg$/;
@@ -8,7 +8,7 @@ const NUMBERED_BACKDROP_REGEX = /^backdrop\d+\.jpg$/;
 export function indexByLowerCaseName(paths: readonly string[]): Map<string, string> {
 	const map = new Map<string, string>();
 	for (const path of paths) {
-		map.set(PathUtils.getFileName(path).toLowerCase(), path);
+		map.set(getFileName(path).toLowerCase(), path);
 	}
 
 	return map;
@@ -19,8 +19,8 @@ export function selectMovieArtwork(files: ReadonlyMap<string, string>): {
 	backdrop?: SidecarArtworkReference | undefined;
 } {
 	return {
-		poster: findArtwork(files, ["folder.jpg", "poster.jpg"]),
-		backdrop: findArtwork(files, ["backdrop.jpg", "landscape.jpg", "fanart.jpg"], true),
+		poster: findArtwork(files, TITLE_POSTER_NAMES),
+		backdrop: findArtwork(files, TITLE_BACKDROP_NAMES, true),
 	};
 }
 
@@ -30,15 +30,15 @@ export function selectIgnoredAssets(paths: readonly string[]): IgnoredLocalAsset
 
 /** Maps one path to the ignored-asset record when its file name is an unsupported artwork type. */
 export function toIgnoredAsset(path: string): IgnoredLocalAsset[] {
-	const fileName = PathUtils.getFileName(path);
+	const fileName = getFileName(path);
 
 	return UNSUPPORTED_ARTWORK_REGEX.test(fileName) ? [{ path, fileName, reason: "unsupported-artwork-type" as const }] : [];
 }
 
 export function selectEpisodeThumbnail(videoPath: string, files: ReadonlyMap<string, string>): SidecarArtworkReference | undefined {
-	const baseName = PathUtils.getFileNameWithoutExt(videoPath);
+	const baseName = getFileNameWithoutExt(videoPath);
 
-	return findArtwork(files, [`${baseName}-thumb.jpg`]);
+	return findArtwork(files, [episodeThumbFileName(baseName)]);
 }
 
 function findArtwork(

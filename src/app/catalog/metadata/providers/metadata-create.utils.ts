@@ -3,7 +3,7 @@ import { metadataPersistenceRepository } from "@/app/repositories/metadata-persi
 import { serverConfig } from "@/config/server/server.config";
 import type { AggregatedProviderLink } from "@/plugins/capabilities/metadata-aggregator.service";
 import { pluginHookBus } from "@/system/extensions/plugin.hooks";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { applyMetadataCandidate, toMetadataCandidate } from "./metadata-normalization.mapper";
 
 export interface CreatedProviderMetadata {
@@ -51,5 +51,5 @@ export async function processPersonImages(
 	process: (image: { personId: string; url: string }) => Promise<unknown>,
 ): Promise<void> {
 	const limited = personImages.slice(0, serverConfig.application.metadataPersonImageLimit);
-	await PromiseUtils.mapConcurrent(limited, serverConfig.application.metadataImageEnqueueConcurrency, process);
+	await mapConcurrent(limited, serverConfig.application.metadataImageEnqueueConcurrency, process);
 }

@@ -3,6 +3,7 @@ import { HOUR, MINUTE } from "@/config/server/server.constants";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
+import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { readHostMetrics, readLoadAverage } from "./resource-allocator/host-metrics.reader";
 import { resourceAllocatorStorage } from "./resource-allocator/resource-allocator.ports";
 import type {
@@ -28,7 +29,13 @@ export class ResourceAllocator {
 	private currentSnapshot?: ResourceSnapshot | undefined;
 	private recentAlerts: ResourceAlert[] = [];
 	private readonly alertCooldowns = new Map<string, number>();
-	private monitorInterval?: Timer | undefined;
+	private readonly monitorTimer = new RecurringTimer(async () => {
+		try {
+			await this.collectSnapshot();
+		} catch (error) {
+			this.logger.error("Resource snapshot failed", error);
+		}
+	}, serverConfig.resources.monitoringIntervalMs);
 	private lastFlushAt = 0;
 	private collecting = false;
 	private isShutdown = false;
@@ -109,24 +116,11 @@ export class ResourceAllocator {
 	}
 
 	private armMonitorInterval(): void {
-		const collectSnapshotSafely = async (): Promise<void> => {
-			try {
-				await this.collectSnapshot();
-			} catch (error) {
-				this.logger.error("Resource snapshot failed", error);
-			}
-		};
-		this.monitorInterval = setInterval(() => {
-			detach(collectSnapshotSafely());
-		}, serverConfig.resources.monitoringIntervalMs);
-		this.monitorInterval.unref();
+		this.monitorTimer.start();
 	}
 
 	private disarmMonitorInterval(): void {
-		if (this.monitorInterval) {
-			clearInterval(this.monitorInterval);
-			this.monitorInterval = undefined;
-		}
+		this.monitorTimer.stop();
 	}
 
 	private async collectSnapshot(): Promise<void> {

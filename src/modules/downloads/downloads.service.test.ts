@@ -9,8 +9,8 @@ import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { removeTreeSync } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { fileExists } from "@/utils/file.utils";
+import { joinPath } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { downloadsProcessWorker } from "@/workers/definitions/downloads/downloads-process.worker";
 import { workerService } from "@/workers/worker.service";
@@ -115,7 +115,7 @@ function daysAgo(days: number): Date {
 }
 
 function artifactPath(downloadId: string, fileName: string): string {
-	return PathUtils.join(serverConfig.paths.downloads, downloadId, fileName);
+	return joinPath(serverConfig.paths.downloads, downloadId, fileName);
 }
 
 /**
@@ -300,7 +300,7 @@ describe("DownloadsService.process", () => {
 			sizeBytes: 11,
 			fileName: "My.Movie.720p-mobile.mp4",
 		});
-		expect(await FileUtils.exists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(true);
+		expect(await fileExists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(true);
 	});
 
 	test("sanitizes characters that are illegal in file names", async () => {
@@ -319,7 +319,7 @@ describe("DownloadsService.process", () => {
 		await downloadsService.process("dl-1");
 
 		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "failed", errorText: "download.ffmpeg_failed" });
-		expect(await FileUtils.exists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(false);
+		expect(await fileExists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(false);
 	});
 
 	test("an empty artifact fails the job", async () => {
@@ -341,7 +341,7 @@ describe("DownloadsService.process", () => {
 		await downloadsService.process("dl-1");
 
 		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "cancelled" });
-		expect(await FileUtils.exists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(false);
+		expect(await fileExists(artifactPath("dl-1", "My.Movie.720p-mobile.mp4"))).toBe(false);
 	});
 
 	test("an artifact that would exceed the storage quota fails the job with a storage limit", async () => {
@@ -435,16 +435,16 @@ describe("DownloadsService.sweepExpired", () => {
 			["dl-old", "old.mp4"],
 			["dl-new", "new.mp4"],
 		] as const) {
-			mkdirSync(PathUtils.join(serverConfig.paths.downloads, id), { recursive: true });
+			mkdirSync(joinPath(serverConfig.paths.downloads, id), { recursive: true });
 			writeFileSync(artifactPath(id, fileName), "x");
 		}
 
 		expect(await downloadsService.sweepExpired()).toEqual({ removed: 1 });
 
 		expect(await downloadsRepository.findById("dl-old")).toBeUndefined();
-		expect(await FileUtils.exists(artifactPath("dl-old", "old.mp4"))).toBe(false);
+		expect(await fileExists(artifactPath("dl-old", "old.mp4"))).toBe(false);
 		expect(await downloadsRepository.findById("dl-new")).toMatchObject({ id: "dl-new" });
-		expect(await FileUtils.exists(artifactPath("dl-new", "new.mp4"))).toBe(true);
+		expect(await fileExists(artifactPath("dl-new", "new.mp4"))).toBe(true);
 	});
 });
 

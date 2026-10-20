@@ -1,8 +1,8 @@
 import { write } from "bun";
 import { serverConfig } from "@/config/server/server.config";
-import { DirUtils } from "@/utils/directory.utils";
-import { FileUtils } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { createDirectory } from "@/utils/directory.utils";
+import { deleteFile } from "@/utils/file.utils";
+import { isSubpath } from "@/utils/path.utils";
 
 /**
  * Creates `directory` once per process and returns an idempotent ensurer. A
@@ -14,7 +14,7 @@ export function createDirectoryOnce(directory: string, failure: () => Error): ()
 
 	return async () => {
 		ready ??= (async () => {
-			if (!(await DirUtils.create(directory))) throw failure();
+			if (!(await createDirectory(directory))) throw failure();
 		})();
 
 		try {
@@ -42,13 +42,13 @@ export async function writeFileWithRollback<T>(path: string, content: Blob | Uin
 	try {
 		return await persist();
 	} catch (error) {
-		await FileUtils.delete(path);
+		await deleteFile(path);
 		throw error;
 	} finally {
 		if (content instanceof Blob && "name" in content && typeof content.name === "string") {
 			const tempFilePath = content.name;
-			if (tempFilePath && PathUtils.isSubpath(tempFilePath, serverConfig.paths.transcodes)) {
-				await FileUtils.delete(tempFilePath);
+			if (tempFilePath && isSubpath(tempFilePath, serverConfig.paths.transcodes)) {
+				await deleteFile(tempFilePath);
 			}
 		}
 	}

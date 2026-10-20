@@ -1,6 +1,6 @@
 import { parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer.utils";
 import type { HlsBufferAnalysis } from "@/modules/streaming/streaming.types";
-import { FileUtils } from "@/utils/file.utils";
+import { getBunFile, getFileStats } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 
 interface PlaylistStats {
@@ -59,8 +59,8 @@ export class PlaylistFileCache {
 
 	constructor(dependencies: Partial<PlaylistFileCacheDependencies> = {}) {
 		this.dependencies = {
-			getStats: (path) => FileUtils.getStats(path),
-			readFile: (path) => FileUtils.get(path),
+			getStats: (path) => getFileStats(path),
+			readFile: (path) => getBunFile(path),
 			maxEntries: DEFAULT_MAX_ENTRIES,
 			...dependencies,
 		};

@@ -4,11 +4,11 @@ import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { DirUtils } from "@/utils/directory.utils";
-import { createTempPath, FileUtils } from "@/utils/file.utils";
+import { createDirectory } from "@/utils/directory.utils";
+import { withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { createInFlightCache } from "@/utils/memory.cache";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { createSemaphore } from "@/utils/promise.utils";
 import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
 import type { SubtitleContent } from "./subtitle-content.resolver";
 import { subtitleVttPath } from "./subtitle-path.utils";
@@ -39,7 +39,7 @@ export class SubtitleExtractorService {
 	private readonly dependencies: ServiceDependencies;
 	private readonly inFlightExtractions = createInFlightCache<SubtitleContent | null>();
 	// Each extraction spawns an FFmpeg — concurrency derives from measured CPU capacity.
-	private readonly extractionSemaphore = PromiseUtils.createSemaphore(() => this.dependencies.getConcurrency());
+	private readonly extractionSemaphore = createSemaphore(() => this.dependencies.getConcurrency());
 
 	constructor(dependencies: ServiceDependencies = defaultDependencies) {
 		this.dependencies = dependencies;
@@ -94,43 +94,39 @@ export class SubtitleExtractorService {
 		streamIndex: number,
 		cacheFilePath: string,
 	): Promise<SubtitleContent | null> {
-		const tempFilePath = createTempPath(cacheFilePath, ".tmp");
 		try {
-			await DirUtils.create(this.dependencies.subtitlesPath());
+			return await withTempPath(cacheFilePath, ".tmp", async (tempFilePath) => {
+				await createDirectory(this.dependencies.subtitlesPath());
 
-			const result = await this.dependencies.runFfmpeg(buildWebVttExtractionArgs(mediaFilePath, streamIndex, tempFilePath));
+				const result = await this.dependencies.runFfmpeg(buildWebVttExtractionArgs(mediaFilePath, streamIndex, tempFilePath));
 
-			if (result.exitCode !== 0) {
-				this.logger.error("FFmpeg failed to extract subtitle stream", new Error(result.stderr), {
-					subtitleId,
-					mediaFilePath,
-					streamIndex,
-					stderr: result.stderr,
-				});
+				if (result.exitCode !== 0) {
+					this.logger.error("FFmpeg failed to extract subtitle stream", new Error(result.stderr), {
+						subtitleId,
+						mediaFilePath,
+						streamIndex,
+						stderr: result.stderr,
+					});
 
-				return null;
-			}
+					return null;
+				}
 
-			const tempFile = file(tempFilePath);
-			if (!(await tempFile.exists())) {
-				this.logger.error("Extracted subtitle file was not created", undefined, { subtitleId, tempFilePath });
+				const tempFile = file(tempFilePath);
+				if (!(await tempFile.exists())) {
+					this.logger.error("Extracted subtitle file was not created", undefined, { subtitleId, tempFilePath });
 
-				return null;
-			}
+					return null;
+				}
 
-			// Atomic rename to target cache path
-			await rename(tempFilePath, cacheFilePath);
+				// Atomic rename to target cache path
+				await rename(tempFilePath, cacheFilePath);
 
-			return { contentType: "text/vtt", file: file(cacheFilePath) };
+				return { contentType: "text/vtt", file: file(cacheFilePath) };
+			});
 		} catch (error) {
 			this.logger.error("Error during subtitle extraction", error, { subtitleId, mediaFilePath, streamIndex });
 
 			return null;
-		} finally {
-			// No-op after a successful rename; removes the temp file on any failure.
-			await FileUtils.delete(tempFilePath).catch(() => {
-				// Deletion is best-effort; the temp file may already be gone.
-			});
 		}
 	}
 

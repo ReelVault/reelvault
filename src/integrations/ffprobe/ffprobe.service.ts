@@ -1,12 +1,10 @@
 import { FFProbeBuilder } from "./ffprobe.builder";
 import { assertFFProbeAvailable } from "./ffprobe.environment";
 
-class FFProbeService {
+export const ffProbeService = {
 	create() {
 		assertFFProbeAvailable();
 
 		return new FFProbeBuilder();
-	}
-}
-
-export const ffProbeService = new FFProbeService();
+	},
+};

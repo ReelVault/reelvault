@@ -22,7 +22,7 @@ import { toMap, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { serializeDate } from "@/utils/time.utils";
 import { buildSessionLogArchive, readSessionLogFiles, sessionLogArchiveName, sessionLogSegments } from "./live-session-log.utils";
@@ -94,7 +94,7 @@ class AdminLiveSessionsService {
 		const userIds = unique(profilesData, (p) => p.userId);
 		const [latestUserSessions, bufferAnalyses] = await Promise.all([
 			liveSessionsRepository.findLatestUserSessions(userIds),
-			PromiseUtils.mapConcurrent(activeStreamSessions, systemResourcesService.getIoConcurrency(), (s) =>
+			mapConcurrent(activeStreamSessions, systemResourcesService.getIoConcurrency(), (s) =>
 				streamingManager.getBuffer(s.id).catch(() => null),
 			),
 		]);

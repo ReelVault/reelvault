@@ -7,12 +7,12 @@ import { assertPresent, assertUserId, DomainError } from "@/utils/domain.errors"
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
-class SessionsService {
-	readonly serviceName = "SessionsService";
-	readonly logger = createLogger("SessionsService");
+export const sessionsService = {
+	serviceName: "SessionsService",
+	logger: createLogger("SessionsService"),
 
 	async list(headers?: Headers, currentSessionId?: string, userId?: string, query?: PaginationQuery): Promise<ActiveSessionsResponse> {
-		return await runSafely(this, "list", async () => {
+		return await runSafely(sessionsService, "list", async () => {
 			assertUserId(userId);
 			assertPresent(headers, "Request headers are required to list sessions");
 
@@ -29,10 +29,10 @@ class SessionsService {
 
 			return { ...sessions, data };
 		});
-	}
+	},
 
 	async revoke(sessionId: string, headers?: Headers, currentSessionId?: string, userId?: string): Promise<{ success: boolean }> {
-		return await runSafely(this, "revoke", async () => {
+		return await runSafely(sessionsService, "revoke", async () => {
 			assertUserId(userId);
 			assertPresent(headers, "Request headers are required to revoke a session");
 			if (sessionId === currentSessionId) {
@@ -51,10 +51,10 @@ class SessionsService {
 
 			return { success: true };
 		});
-	}
+	},
 
 	async revokeOthers(headers?: Headers, currentSessionId?: string, userId?: string): Promise<{ success: boolean }> {
-		return await runSafely(this, "revokeOthers", async () => {
+		return await runSafely(sessionsService, "revokeOthers", async () => {
 			assertUserId(userId);
 			assertPresent(headers, "Request headers are required to revoke other sessions");
 			assertPresent(currentSessionId, "Current session id is required to revoke other sessions");
@@ -69,7 +69,5 @@ class SessionsService {
 
 			return { success: true };
 		});
-	}
-}
-
-export const sessionsService = new SessionsService();
+	},
+};

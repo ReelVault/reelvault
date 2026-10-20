@@ -4,8 +4,8 @@ import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { MINUTE } from "@/config/server/server.constants";
 import type { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { includesField } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
@@ -230,12 +230,7 @@ export function parseMediaFileWithRelations(
 export function canUseRelationBundle<F extends string>(fields?: FieldsConfig<F>): boolean {
 	const projected = Object.values(fields?.relations ?? {}).some((relation) => relation.length > 0);
 
-	return (
-		!projected &&
-		QueryFields.includes(fields, "videoStreams") &&
-		QueryFields.includes(fields, "audioStreams") &&
-		QueryFields.includes(fields, "subtitles")
-	);
+	return !projected && includesField(fields, "videoStreams") && includesField(fields, "audioStreams") && includesField(fields, "subtitles");
 }
 
 export interface MediaFileRelationsRow {
@@ -319,16 +314,16 @@ export const AUDIT_ROW_PAGE_SIZE = 1000;
 
 export const mediaFileQueryMap: QueryMap<MediaFileFilters, MediaFileSorting> = {
 	filters: {
-		libraryId: (value: string) => QueryFiltering.eq(schema.mediaFiles.libraryId, value),
-		metadataId: (value: string) => QueryFiltering.eq(schema.mediaFiles.metadataId, value),
-		movieId: (value: string) => QueryFiltering.eq(schema.mediaFiles.movieId, value),
-		episodeId: (value: string) => QueryFiltering.eq(schema.mediaFiles.episodeId, value),
-		filePath: (value: string) => QueryFiltering.like(schema.mediaFiles.filePath, value),
+		libraryId: (value: string) => filterEquals(schema.mediaFiles.libraryId, value),
+		metadataId: (value: string) => filterEquals(schema.mediaFiles.metadataId, value),
+		movieId: (value: string) => filterEquals(schema.mediaFiles.movieId, value),
+		episodeId: (value: string) => filterEquals(schema.mediaFiles.episodeId, value),
+		filePath: (value: string) => filterLike(schema.mediaFiles.filePath, value),
 		fileName: (value: string) =>
 			or(
-				QueryFiltering.like(schema.mediaFiles.fileName, value),
-				QueryFiltering.like(schema.mediaFiles.filePath, value),
-				QueryFiltering.like(schema.mediaFiles.id, value),
+				filterLike(schema.mediaFiles.fileName, value),
+				filterLike(schema.mediaFiles.filePath, value),
+				filterLike(schema.mediaFiles.id, value),
 			),
 	},
 	orderBy: {

@@ -1,13 +1,13 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { profileMediaFileRefs, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { mediaFiles } from "./media-files.schema";
 import { profiles } from "./profiles.schema";
 
 export const playbackProgress = sqliteTable(
 	"playback_progress",
 	{
-		...DatabaseHelper.profileMediaFileRefs({ profileId: () => profiles.id, mediaFileId: () => mediaFiles.id }),
+		...profileMediaFileRefs({ profileId: () => profiles.id, mediaFileId: () => mediaFiles.id }),
 
 		position: integer("position").notNull().default(0),
 		duration: integer("duration").notNull().default(0),
@@ -17,7 +17,7 @@ export const playbackProgress = sqliteTable(
 		// Set when the title is removed from "Continue watching"; new playback (a later updatedAt) brings it back.
 		dismissedAt: integer("dismissed_at", { mode: "timestamp" }),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("playback_progress_profile_media_unique").on(t.profileId, t.mediaFileId),

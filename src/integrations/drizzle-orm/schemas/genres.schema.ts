@@ -1,16 +1,16 @@
 import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { createProviderJunction } from "@/integrations/drizzle-orm/utils/junction.utils";
 
 export const genres = sqliteTable(
 	"genres",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		stableKey: text("stable_key").notNull(),
 
 		name: text("name").notNull(),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [uniqueIndex("genres_unique").on(t.name), uniqueIndex("genres_stable_key_idx").on(t.stableKey)],
 );

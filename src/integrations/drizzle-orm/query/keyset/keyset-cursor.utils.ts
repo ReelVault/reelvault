@@ -14,25 +14,23 @@ function isCreatedAtCursor(value: unknown): value is CreatedAtCursor {
 	return isFiniteNumber(value.createdAt) && isNonEmptyString(value.id);
 }
 
-export const KeysetCursor = {
-	encode(cursor: CreatedAtCursor): string {
-		return Buffer.from(JSON.stringify(cursor)).toString("base64url");
-	},
+export function encodeCursor(cursor: CreatedAtCursor): string {
+	return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
 
-	decode(value: string): CreatedAtCursor {
-		let text: string;
-		try {
-			text = Buffer.from(value, "base64url").toString("utf8");
-		} catch {
-			throw new DomainError("validation", "Invalid pagination cursor", { code: "validation.invalid_cursor" });
-		}
+export function decodeCursor(value: string): CreatedAtCursor {
+	let text: string;
+	try {
+		text = Buffer.from(value, "base64url").toString("utf8");
+	} catch {
+		throw new DomainError("validation", "Invalid pagination cursor", { code: "validation.invalid_cursor" });
+	}
 
-		const parsed = safeParseJson(text);
-		if (!isCreatedAtCursor(parsed)) throw new DomainError("validation", "Invalid pagination cursor", { code: "validation.invalid_cursor" });
+	const parsed = safeParseJson(text);
+	if (!isCreatedAtCursor(parsed)) throw new DomainError("validation", "Invalid pagination cursor", { code: "validation.invalid_cursor" });
 
-		return parsed;
-	},
-};
+	return parsed;
+}
 
 /**
  * Decodes a cursor only when the query is in cursor mode — a cursor on any
@@ -41,7 +39,7 @@ export const KeysetCursor = {
 export function decodeCursorFor(cursor: string | undefined, cursorMode: boolean, errorMessage: string): CreatedAtCursor | undefined {
 	if (cursor && !cursorMode) throw new DomainError("validation", errorMessage, { code: "validation.cursor_not_supported" });
 
-	return cursor && cursorMode ? KeysetCursor.decode(cursor) : undefined;
+	return cursor && cursorMode ? decodeCursor(cursor) : undefined;
 }
 
 /** Keyset seek predicate for a `(date, id)` descending order: strictly older, or same date with a smaller id. */

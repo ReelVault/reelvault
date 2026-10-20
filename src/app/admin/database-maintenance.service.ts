@@ -2,22 +2,22 @@ import { databaseMaintenanceRepository } from "@/app/repositories/database-maint
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
-class DatabaseMaintenanceService {
-	readonly serviceName = "DatabaseMaintenanceService";
-	readonly logger = createLogger("DatabaseMaintenanceService");
+export const databaseMaintenanceService = {
+	serviceName: "DatabaseMaintenanceService",
+	logger: createLogger("DatabaseMaintenanceService"),
 
 	/** Runs SQLite's quick check; `ok` only when it reports nothing but the healthy answer. */
 	async checkIntegrity(): Promise<{ ok: boolean; messages: string[] }> {
-		return await runSafely(this, "checkIntegrity", () => {
+		return await runSafely(databaseMaintenanceService, "checkIntegrity", () => {
 			const messages = databaseMaintenanceRepository.quickCheck();
 
 			return { ok: messages.length === 1 && messages[0] === "ok", messages };
 		});
-	}
+	},
 
-	/** Migration folders shipped with this server and how many of them the database has applied. */
+	/** Migration folders shipped with databaseMaintenanceService server and how many of them the database has applied. */
 	async getMigrationStatus() {
-		return await runSafely(this, "getMigrationStatus", () => {
+		return await runSafely(databaseMaintenanceService, "getMigrationStatus", () => {
 			const { tags, applied } = databaseMaintenanceRepository.getMigrationStatus();
 			const appliedCount = Math.min(applied, tags.length);
 
@@ -29,16 +29,14 @@ class DatabaseMaintenanceService {
 				migrations: tags.map((tag, index) => ({ tag, applied: index < appliedCount })),
 			};
 		});
-	}
+	},
 
 	async optimize(): Promise<{ success: true }> {
-		return await runSafely(this, "optimize", () => {
+		return await runSafely(databaseMaintenanceService, "optimize", () => {
 			databaseMaintenanceRepository.optimize();
-			this.logger.info("Database optimize finished");
+			databaseMaintenanceService.logger.info("Database optimize finished");
 
 			return { success: true as const };
 		});
-	}
-}
-
-export const databaseMaintenanceService = new DatabaseMaintenanceService();
+	},
+};

@@ -1,12 +1,13 @@
 import { readdir, rmdir, truncate } from "node:fs/promises";
 import { file as bunFile } from "bun";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
+import { walkLogFiles } from "@/app/admin/admin-logs/log-walker.utils";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { serverConfig } from "@/config/server/server.config";
 import { DAY } from "@/config/server/server.constants";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { DirUtils } from "@/utils/directory.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { directoryExists } from "@/utils/directory.utils";
+import { resolvePath } from "@/utils/path.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import type { AdminLogsState } from "./shared.types";
@@ -44,11 +45,11 @@ export async function purgeOldLogs(
 			const cutoffMs = Date.now() - days * DAY;
 			const logsDir = serverConfig.paths.logs;
 
-			if (!(await DirUtils.exists(logsDir))) {
+			if (!(await directoryExists(logsDir))) {
 				return { scannedCount: 0, deletedCount: 0, freedBytes: 0, retentionDays: days };
 			}
 
-			const mainLogPath = state.dependencies.logFilePath ? PathUtils.resolve(state.dependencies.logFilePath) : null;
+			const mainLogPath = state.dependencies.logFilePath ? resolvePath(state.dependencies.logFilePath) : null;
 			const stats = await cleanLogDirectory(state, logsDir, { logsDir, cutoffMs, mainLogPath, signal, dryRun });
 
 			if (!dryRun && context?.actorUserId && stats.deletedCount > 0) {
@@ -97,31 +98,19 @@ async function cleanLogDirectory(
 	let deletedCount = 0;
 	let freedBytes = 0;
 
-	try {
-		const entries = await readdir(currentDir, { withFileTypes: true });
-		for (const entry of entries) {
-			throwIfAborted(signal);
-			const fullPath = PathUtils.join(currentDir, entry.name);
-
-			if (entry.isDirectory()) {
-				const subResult = await cleanLogDirectory(state, fullPath, scope);
-				scannedCount += subResult.scannedCount;
-				deletedCount += subResult.deletedCount;
-				freedBytes += subResult.freedBytes;
-
-				await removeEmptyDirectory(fullPath, logsDir, dryRun);
-			} else if (entry.isFile() && entry.name.endsWith(".log")) {
-				scannedCount++;
-				const result = await purgeSingleLogFile(state, fullPath, cutoffMs, mainLogPath, dryRun);
-				if (result.deleted) {
-					deletedCount++;
-					freedBytes += result.bytes;
-				}
+	await walkLogFiles(currentDir, {
+		logger: state.logger,
+		signal,
+		onFile: async (fullPath) => {
+			scannedCount++;
+			const result = await purgeSingleLogFile(state, fullPath, cutoffMs, mainLogPath, dryRun);
+			if (result.deleted) {
+				deletedCount++;
+				freedBytes += result.bytes;
 			}
-		}
-	} catch (error) {
-		state.logger.error("Error scanning log directory for purge", { path: currentDir, error: error });
-	}
+		},
+		onDirectory: async (directoryPath) => await removeEmptyDirectory(directoryPath, logsDir, dryRun),
+	});
 
 	return { scannedCount, deletedCount, freedBytes };
 }
@@ -138,7 +127,7 @@ async function purgeSingleLogFile(
 		if (stats.mtime.getTime() >= cutoffMs) return { deleted: false, bytes: 0 };
 		if (dryRun) return { deleted: true, bytes: stats.size };
 
-		const resolvedPath = PathUtils.resolve(fullPath);
+		const resolvedPath = resolvePath(fullPath);
 		if (mainLogPath && resolvedPath === mainLogPath) {
 			await truncate(resolvedPath, 0);
 		} else {

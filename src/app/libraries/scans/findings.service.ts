@@ -9,7 +9,7 @@ import type { AdminAuditContext } from "@/app/repositories/admin-audit.repositor
 import { scanFindingsRepository } from "@/app/repositories/scan-findings.repository";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { assertFound, notFoundError } from "@/utils/domain.errors";
+import { assertExists, assertFound } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { mapLibraryType } from "@/utils/type.utils";
 import { getLibraryForScan } from "../crud.service";
@@ -22,7 +22,7 @@ export async function getScanFindings(
 ): Promise<ScanFindingsResponse> {
 	return await runSafely(state, "getScanFindings", () => {
 		const { items, counts, libraryExists } = scanFindingsRepository.listWithCounts(libraryId, status);
-		if (!libraryExists) throw notFoundError("Library", libraryId);
+		assertExists(libraryExists, "Library", libraryId);
 
 		return { data: items, counts };
 	});
@@ -39,7 +39,7 @@ export async function setScanFindingIgnored(
 		await getLibraryForScan(libraryId, { fields: "id" });
 
 		const updated = await scanFindingsRepository.setIgnored(libraryId, filePath, ignored);
-		if (!updated) throw notFoundError("Scan finding", filePath);
+		assertExists(updated, "Scan finding", filePath);
 
 		recordUpdateAudit(state.logger, {
 			resourceType: "library",

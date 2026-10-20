@@ -2,18 +2,47 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DirUtils, removeTree } from "@/utils/directory.utils";
+import {
+	createDirectory,
+	deleteDirectory,
+	deleteTemporaryDirectory,
+	directoryExists,
+	listDirectoryEntries,
+	readDirectoryEntries,
+	removeTree,
+	scanFiles,
+	scanFilesWithStats,
+} from "@/utils/directory.utils";
 import { readFile } from "@/utils/file.utils";
+
+describe("directory entries", () => {
+	test("reports each entry's name and type, and an unreadable directory as undefined", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-directory-utils-"));
+		try {
+			await writeFile(join(root, "file.txt"), "x");
+			await createDirectory(join(root, "nested"));
+
+			const entries = await readDirectoryEntries(root);
+			expect(entries.toSorted((a, b) => a.name.localeCompare(b.name))).toEqual([
+				{ name: "file.txt", isFile: true, isDirectory: false },
+				{ name: "nested", isFile: false, isDirectory: true },
+			]);
+			expect(await listDirectoryEntries(join(root, "missing"))).toBeUndefined();
+		} finally {
+			await removeTree(root);
+		}
+	});
+});
 
 describe("DirUtils", () => {
 	test("refuses to delete directories containing video files", async () => {
 		const root = await mkdtemp(join(tmpdir(), "reelvault-directory-utils-"));
 		const videoPath = join(root, "nested", "movie.mkv");
-		await DirUtils.create(join(root, "nested"));
+		await createDirectory(join(root, "nested"));
 		await writeFile(videoPath, "video placeholder");
 
 		try {
-			expect(await DirUtils.delete(root)).toBe(false);
+			expect(await deleteDirectory(root)).toBe(false);
 			expect(await readFile(videoPath, "utf8")).toBe("video placeholder");
 		} finally {
 			await removeTree(root);
@@ -26,8 +55,8 @@ describe("DirUtils", () => {
 		await writeFile(videoPath, "segment placeholder");
 
 		try {
-			expect(await DirUtils.deleteTemporary(root)).toBe(true);
-			expect(await DirUtils.exists(root)).toBe(false);
+			expect(await deleteTemporaryDirectory(root)).toBe(true);
+			expect(await directoryExists(root)).toBe(false);
 		} finally {
 			await removeTree(root);
 		}
@@ -39,7 +68,7 @@ describe("DirUtils", () => {
 		await writeFile(videoPath, "video sample");
 
 		try {
-			const files = await DirUtils.scanFiles(root, ["mp4"]);
+			const files = await scanFiles(root, ["mp4"]);
 			expect(files).toEqual([videoPath]);
 		} finally {
 			await removeTree(root);
@@ -52,7 +81,7 @@ describe("DirUtils", () => {
 		await writeFile(videoPath, "video content sample");
 
 		try {
-			const entries = await DirUtils.scanFilesWithStats(root, ["mp4"]);
+			const entries = await scanFilesWithStats(root, ["mp4"]);
 			const { mtimeMs } = await stat(videoPath);
 			expect(entries).toEqual([{ filePath: videoPath, size: "video content sample".length, mtimeMs: Math.floor(mtimeMs) }]);
 		} finally {
@@ -65,11 +94,11 @@ describe("DirUtils", () => {
 		await writeFile(join(root, "movie.mp4"), "visible");
 		await writeFile(join(root, ".hidden.mp4"), "hidden file");
 		const hiddenDir = join(root, ".hidden-dir");
-		await DirUtils.create(hiddenDir);
+		await createDirectory(hiddenDir);
 		await writeFile(join(hiddenDir, "nested.mp4"), "hidden dir");
 
 		try {
-			const files = await DirUtils.scanFiles(root, ["mp4"]);
+			const files = await scanFiles(root, ["mp4"]);
 			expect(files).toEqual([join(root, "movie.mp4")]);
 		} finally {
 			await removeTree(root);

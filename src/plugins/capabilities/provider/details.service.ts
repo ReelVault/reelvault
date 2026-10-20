@@ -1,6 +1,5 @@
 import type { MediaIdentity, MetadataProviderSearchResponse } from "@reelvault/sdk/common";
 import type { ExternalIdentifiers, ProviderMediaType, ProviderMetadataResult } from "@reelvault/sdk/plugin";
-import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import {
 	type AggregatedMetadata,
@@ -12,8 +11,8 @@ import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { hasEntry } from "@/utils/array.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { isAcceptableMatch } from "@/utils/media-match/ranking.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
-import { isNotNullish, isNullish, normalizeLower } from "@/utils/type.utils";
+import { isNullish, normalizeLower } from "@/utils/type.utils";
+import { mapProvidersSafely } from "./fan-out.service";
 import { isExternalIdentifierAwareProvider, matchesExternalIdentifiers, normalizeMetadataDetails } from "./match-ranking.utils";
 import type { AcceptedMatch, ProviderDetails } from "./provider.types";
 import { NoMatchError } from "./provider.types";
@@ -94,37 +93,31 @@ export async function fetchAggregatedDetails(
 			const accepted = await collectAcceptedMatches(state, type, parsed, options?.libraryId, language);
 			if (accepted.length === 0) throw new NoMatchError();
 
-			const contributions = await PromiseUtils.mapConcurrent(
+			const ordered = await mapProvidersSafely(
 				accepted,
-				serverConfig.plugins.providers.concurrency,
 				async (candidate): Promise<ProviderContribution | null> => {
-					try {
-						const metadata = await candidate.provider.getDetails(
-							type,
-							candidate.bestMatch.item.externalId,
-							language ? { language } : undefined,
-						);
-						if (!metadata) return null;
+					const metadata = await candidate.provider.getDetails(
+						type,
+						candidate.bestMatch.item.externalId,
+						language ? { language } : undefined,
+					);
+					if (!metadata) return null;
 
-						return {
-							providerId: candidate.provider.id,
-							externalId: metadata.externalId,
-							matchScore: Math.min(1, Number(candidate.bestMatch.score.toFixed(3))),
-							metadata: normalizeMetadataDetails(metadata),
-						};
-					} catch (error) {
-						state.logger.warn("Metadata provider details fetch failed during aggregation", {
-							providerId: candidate.provider.id,
-							priorityIndex: candidate.index,
-							error: errorMessage(error),
-						});
-
-						return null;
-					}
+					return {
+						providerId: candidate.provider.id,
+						externalId: metadata.externalId,
+						matchScore: Math.min(1, Number(candidate.bestMatch.score.toFixed(3))),
+						metadata: normalizeMetadataDetails(metadata),
+					};
+				},
+				(candidate, error) => {
+					state.logger.warn("Metadata provider details fetch failed during aggregation", {
+						providerId: candidate.provider.id,
+						priorityIndex: candidate.index,
+						error: errorMessage(error),
+					});
 				},
 			);
-
-			const ordered = contributions.filter((contribution) => isNotNullish(contribution));
 			if (ordered.length === 0) throw new NoMatchError();
 
 			return mergeProviderMetadata(ordered);
@@ -221,23 +214,23 @@ export async function fetchDetailsByLocalIdentifiers(
 	// concurrency), then pick the first hit in the original priority order —
 	// the network lookups no longer block on each other, but provider
 	// priority still decides the winner.
-	const results = await PromiseUtils.mapConcurrent(providers, serverConfig.plugins.providers.concurrency, async (provider) => {
-		try {
+	const results = await mapProvidersSafely(
+		providers,
+		async (provider) => {
 			const metadata = await provider.getDetailsByExternalIds(type, identifiers);
 			if (!(metadata && matchesExternalIdentifiers(provider.id, metadata, identifiers, identifierSet))) return null;
 
 			return { provider: provider.id, metadata: normalizeMetadataDetails(metadata) } satisfies ProviderDetails;
-		} catch (error) {
+		},
+		(provider, error) => {
 			state.logger.warn("Metadata provider identifier lookup failed", {
 				providerId: provider.id,
 				error: errorMessage(error),
 			});
+		},
+	);
 
-			return null;
-		}
-	});
-
-	const firstMatch = results.find((result) => isNotNullish(result));
+	const firstMatch = results[0];
 
 	return firstMatch ? [firstMatch] : [];
 }
@@ -257,9 +250,8 @@ async function collectAcceptedMatches(
 	if (providers.length === 0) return [];
 
 	const indexed = providers.map((provider, index) => ({ provider, index }));
-	const searchResults = await PromiseUtils.mapConcurrent(
+	const searchResults = await mapProvidersSafely(
 		indexed,
-		serverConfig.plugins.providers.concurrency,
 		async ({ provider, index }): Promise<AcceptedMatch | null> => {
 			const ranked = await rankProviderResults(provider, { type, query: parsed.title, year: parsed.year, language }, (error) =>
 				state.logger.warn("Metadata provider failed, trying next provider", {
@@ -289,9 +281,12 @@ async function collectAcceptedMatches(
 
 			return { provider, index, bestMatch: best };
 		},
+		() => {
+			// rankProviderResults reports per-provider failures through its own callback.
+		},
 	);
 
-	return searchResults.filter((result) => isNotNullish(result)).toSorted((left, right) => left.index - right.index);
+	return searchResults.toSorted((left, right) => left.index - right.index);
 }
 
 async function fetchDetailsOnce(state: ProviderServiceState, type: "movie" | "tv_show", parsed: MediaIdentity): Promise<ProviderDetails[]> {

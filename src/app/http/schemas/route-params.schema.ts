@@ -52,3 +52,24 @@ export const ImageIdParams = t.Object({ imageId: t.String({ minLength: 1 }) });
 export const MediaFileArtifactParams = t.Object({ mediaFileId: t.String({ minLength: 1 }), artifactId: t.String({ minLength: 1 }) });
 
 export const ProviderIdParams = t.Object({ providerId: t.String({ minLength: 1, maxLength: 128 }) });
+
+export const LibraryPathParams = t.Object({
+	libraryId: t.String({ minLength: 1 }),
+	pathId: t.String({ minLength: 1 }),
+});
+
+export const SessionSegmentParams = t.Object({
+	sessionId: t.String({ minLength: 1 }),
+	segment: t.String({ minLength: 1 }),
+});
+
+export const UserSessionParams = t.Object({
+	userId: t.String({ minLength: 1 }),
+	sessionId: t.String({ minLength: 1 }),
+});
+
+export const FileNameParams = t.Object({ fileName: t.String({ minLength: 1 }) });
+
+export const LogFileQuery = t.Object({ fileId: t.Optional(t.String()) });
+
+export const PluginArchiveUpload = t.Object({ file: t.File({ maxSize: "200m" }) });

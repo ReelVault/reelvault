@@ -2,9 +2,9 @@ import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import type { DownloadQuality } from "@/integrations/drizzle-orm/constants/downloads.constants";
 import { type DownloadRecord, downloadsStorage } from "@/modules/downloads/downloads.ports";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { deleteArtifact } from "../artifacts/artifacts.service";
 import { promoteQueued } from "../queue.service";
@@ -71,9 +71,9 @@ async function loadPendingDownload(downloadId: string): Promise<PendingDownload 
 async function resolveOutputPath(downloadId: string, quality: string, sourceFileName: string): Promise<string> {
 	const baseName = mediaFileBaseName(sourceFileName);
 	const fileName = `${baseName}.${quality === "original" ? "mp4" : `${quality}.mp4`}`;
-	const outputDir = PathUtils.join(serverConfig.paths.downloads, downloadId);
-	await DirUtils.create(outputDir);
-	const outputPath = PathUtils.join(outputDir, fileName);
+	const outputDir = joinPath(serverConfig.paths.downloads, downloadId);
+	await createDirectory(outputDir);
+	const outputPath = joinPath(outputDir, fileName);
 	await downloadsStorage().update(downloadId, { fileName });
 
 	return outputPath;

@@ -1,7 +1,7 @@
 import { serverConfig } from "@/config/server/server.config";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { errorCodeOf, withDomainError } from "@/utils/domain.errors";
-import { workerService } from "@/workers/worker.service";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
 // ─── Worker Definition ────────────────────────────────────────────────────────
@@ -39,14 +39,11 @@ export const downloadsProcessWorker = createWorkerDefinition<{ downloadId: strin
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
+const downloadsProcessEnqueue = defineWorkerEnqueue<{ downloadId: string }>(downloadsProcessWorker.id, (data) => ({
+	dedupeKey: data.downloadId,
+	reference: { type: "download", id: data.downloadId },
+}));
+
 export function enqueueDownloadsProcess(downloadId: string, options: WorkerEnqueueOptions = {}) {
-	return workerService.addItem(
-		downloadsProcessWorker.id,
-		{ downloadId },
-		{
-			...options,
-			dedupeKey: downloadId,
-			reference: { type: "download", id: downloadId },
-		},
-	);
+	return downloadsProcessEnqueue.enqueue({ downloadId }, options);
 }

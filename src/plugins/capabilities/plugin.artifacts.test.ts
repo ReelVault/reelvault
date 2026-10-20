@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile as actualDeleteFile, getFileStats as actualGetFileStats } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
-import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { mockModule } from "../../../tests/helpers/module-mock.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginArtifactsService } from "./plugin.artifacts";
+
+let getFileStatsImpl: (path: string) => Promise<unknown> = actualGetFileStats;
+mockModule("@/utils/file.utils", () => ({ deleteFile: actualDeleteFile, getFileStats: (path: string) => getFileStatsImpl(path) }));
 
 const PLUGIN_ID = "org.reelvault.test";
 const db = useTestDatabase();
@@ -18,6 +21,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+	getFileStatsImpl = actualGetFileStats;
 	for (const stub of activeStubs.toReversed()) stub.restore();
 });
 
@@ -34,7 +38,7 @@ describe("pluginArtifactsService.write — per-plugin quota", () => {
 		await writeChapters("WEBVTT 1");
 		await writeChapters("WEBVTT 2");
 		// The stored files now report 300 MB each, so the next write is over the quota.
-		activeStubs.push(stubMethod(FileUtils, "getStats", () => Promise.resolve({ size: 300 * 1024 * 1024, mtimeMs: 0 })));
+		getFileStatsImpl = () => Promise.resolve({ size: 300 * 1024 * 1024, mtimeMs: 0 });
 		mediaArtifactsService.invalidateByteTotals();
 
 		await expect(writeChapters("WEBVTT 3")).rejects.toMatchObject({ code: "plugin.artifact.quota_exceeded" });

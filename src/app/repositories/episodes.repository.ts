@@ -13,17 +13,20 @@ import { and, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { applyFields, includesField } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
-import { defineTableAccess, parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import {
+	defineRepository,
+	defineTableAccess,
+	parseFieldsForRead,
+} from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
-import { updateManyFieldsById } from "@/integrations/drizzle-orm/query/table-access/writes.writer";
-import { findOrCreateWithIdentityRecovery } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
+import { upsertByStableKeyIdentity } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
 import {
 	findFirstWithMediaFiles,
 	findManyWithMediaFiles,
@@ -87,16 +90,16 @@ const preparedEpisodesWithFilesByMetadata = createPreparedQuery((client: Episode
 
 const episodeQueryMap: QueryMap<EpisodeFilters, EpisodeSorting> = {
 	filters: {
-		seasonId: (value: string) => QueryFiltering.eq(schema.episodes.seasonId, value),
+		seasonId: (value: string) => filterEquals(schema.episodes.seasonId, value),
 		metadataId: (value: string) =>
 			inArray(
 				schema.episodes.seasonId,
 				databaseFactory.getClient().select({ id: schema.seasons.id }).from(schema.seasons).where(eq(schema.seasons.metadataId, value)),
 			),
-		episodeNumber: (value: number) => QueryFiltering.eq(schema.episodes.episodeNumber, value),
-		title: (value: string) => QueryFiltering.like(schema.episodes.title, value),
-		airDate: (value: string) => QueryFiltering.eq(schema.episodes.airDate, value),
-		type: (value: EpisodeType) => QueryFiltering.eq(schema.episodes.episodeType, value),
+		episodeNumber: (value: number) => filterEquals(schema.episodes.episodeNumber, value),
+		title: (value: string) => filterLike(schema.episodes.title, value),
+		airDate: (value: string) => filterEquals(schema.episodes.airDate, value),
+		type: (value: EpisodeType) => filterEquals(schema.episodes.episodeType, value),
 	},
 	orderBy: {
 		title: schema.episodes.title,
@@ -108,27 +111,7 @@ const episodeQueryMap: QueryMap<EpisodeFilters, EpisodeSorting> = {
 	defaults: { sortBy: "episodeNumber", sortOrder: "asc" },
 };
 
-class EpisodesRepository {
-	readonly table = schema.episodes;
-	readonly primaryKeyColumn = episodes.primaryKeyColumn;
-	readonly query = episodes.query;
-	readonly selectMany = episodes.selectMany;
-	readonly selectFirst = episodes.selectFirst;
-	readonly selectFirstById = episodes.selectFirstById;
-	readonly findOrCreate = episodes.findOrCreate;
-	readonly insert = episodes.insert;
-	readonly update = episodes.update;
-	readonly delete = episodes.delete;
-	readonly count = episodes.count;
-	readonly isExists = episodes.isExists;
-	readonly insertReturning = episodes.insertReturning;
-	readonly updateReturning = episodes.updateReturning;
-	readonly updateAndReturn = episodes.updateAndReturn;
-	readonly deleteReturning = episodes.deleteReturning;
-	readonly deleteAndReturn = episodes.deleteAndReturn;
-	readonly findByIds = episodes.findByIds;
-	readonly findByColumnIn = episodes.findByColumnIn;
-
+const overrides = {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & EpisodeFilters & EpisodeSorting,
 	): Promise<PaginatedResponse<SelectFields<EpisodeWithRelations, F>>> {
@@ -136,28 +119,30 @@ class EpisodesRepository {
 			access: episodes,
 			queryMap: episodeQueryMap,
 			query,
-			findMany: (params) => this.findMany(params),
+			findMany: (params) => getEpisodesRepository().findMany(params),
 		});
-	}
+	},
 
 	async findByIdForRead<F extends string>(episodeId: string, query?: FieldsQuery<F>) {
-		return await this.findByPrimaryId({ primaryId: episodeId, fields: parseFieldsForRead(query) });
-	}
+		return await getEpisodesRepository().findByPrimaryId({ primaryId: episodeId, fields: parseFieldsForRead(query) });
+	},
 
 	/** All episodes belonging to any of the given seasons (raw rows). */
 	async findBySeasonIds(seasonIds: readonly string[]) {
-		return await episodes.findByColumnIn(this.table.seasonId, seasonIds);
-	}
+		return await episodes.findByColumnIn(episodes.table.seasonId, seasonIds);
+	},
 
 	/** An episode by its season and number. */
 	async findBySeasonAndNumber(seasonId: string, episodeNumber: number) {
-		return await this.findFirst({ where: and(eq(this.table.seasonId, seasonId), eq(this.table.episodeNumber, episodeNumber)) });
-	}
+		return await getEpisodesRepository().findFirst({
+			where: and(eq(episodes.table.seasonId, seasonId), eq(episodes.table.episodeNumber, episodeNumber)),
+		});
+	},
 
 	/** Episodes of all seasons of a show projected for the metadata details view. */
 	async findByMetadataIdProjected(metadataId: string) {
 		return await preparedEpisodesProjectedByMetadata(databaseFactory.getClient()).execute({ metadataId });
-	}
+	},
 
 	/**
 	 * Every episode of a show with its media files (LEFT JOIN keeps file-less
@@ -167,7 +152,7 @@ class EpisodesRepository {
 	 */
 	async findEpisodesWithFilesByMetadataId(metadataId: string) {
 		return await preparedEpisodesWithFilesByMetadata(databaseFactory.getClient()).execute({ metadataId });
-	}
+	},
 
 	async findOrCreateByIdentity({
 		seasonId,
@@ -188,58 +173,24 @@ class EpisodesRepository {
 			value: `${seasonStableKey ?? createLocalStableKey({ namespace: "season", value: seasonId })}:${episodeType}:${episodeNumber}`,
 		});
 
-		return await findOrCreateWithIdentityRecovery({
+		return await upsertByStableKeyIdentity(episodes, {
 			stableKey,
-			upsert: async () => {
-				const [episode] = await databaseFactory
-					.getClient({ tx })
-					.insert(this.table)
-					.values({ ...values, episodeType, stableKey })
-					.onConflictDoUpdate({
-						target: this.table.stableKey,
-						set: {
-							seasonId: sql`excluded.season_id`,
-							imageId: sql`excluded.image_id`,
-							episodeType: sql`excluded.type`,
-							episodeNumber: sql`excluded.episode_number`,
-							title: sql`excluded.title`,
-							overview: sql`excluded.overview`,
-							airDate: sql`excluded.air_date`,
-							updatedAt: new Date(),
-						},
-						setWhere:
-							or(
-								sql`${this.table.seasonId} <> excluded.season_id`,
-								sql`${this.table.episodeType} <> excluded.type`,
-								sql`${this.table.episodeNumber} <> excluded.episode_number`,
-							) ?? sql`1 = 1`,
-					})
-					.returning();
-
-				return episode;
-			},
-			findByStableKey: async () => await this.selectFirst({ where: eq(this.table.stableKey, stableKey), tx }),
-			findByIdentity: async () =>
-				await this.selectFirst({
-					where: and(
-						eq(this.table.seasonId, seasonId),
-						eq(this.table.episodeType, episodeType),
-						eq(this.table.episodeNumber, episodeNumber),
-					),
-					tx,
-				}),
-			reconcile: async (existing) => {
-				const [updated] = await databaseFactory
-					.getClient({ tx })
-					.update(this.table)
-					.set({ ...values, episodeType, stableKey, updatedAt: new Date() })
-					.where(eq(this.table.id, existing.id))
-					.returning();
-
-				return updated ?? existing;
-			},
+			values: { ...values, episodeType, stableKey },
+			identityWhere: and(
+				eq(episodes.table.seasonId, seasonId),
+				eq(episodes.table.episodeType, episodeType),
+				eq(episodes.table.episodeNumber, episodeNumber),
+			),
+			setWhere:
+				or(
+					sql`${episodes.table.seasonId} <> excluded.season_id`,
+					sql`${episodes.table.episodeType} <> excluded.type`,
+					sql`${episodes.table.episodeNumber} <> excluded.episode_number`,
+				) ?? sql`1 = 1`,
+			reconcileValues: { ...values, episodeType, stableKey },
+			tx,
 		});
-	}
+	},
 
 	async findMany<F extends string>({
 		fields,
@@ -252,8 +203,8 @@ class EpisodesRepository {
 		const data = await selectManyWithFields(episodes, { fields, required: ["id"], where, orderBy, limit, offset, tx });
 		const rows = await findManyWithMediaFiles(data, { fields, relation: "episodeId", tx });
 
-		return rows.map((item) => QueryFields.apply<EpisodeWithRelations, F>(item, fields));
-	}
+		return rows.map((item) => applyFields<EpisodeWithRelations, F>(item, fields));
+	},
 
 	async findFirst<F extends string>({
 		where,
@@ -264,8 +215,8 @@ class EpisodesRepository {
 		fields?: FieldsConfig<F> | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
-		return await this.projectWithMediaFiles(await this.selectFirst({ where, tx }), { fields, tx });
-	}
+		return await projectWithMediaFiles(await episodes.selectFirst({ where, tx }), { fields, tx });
+	},
 
 	/**
 	 * Batch variant of `findByPrimaryId` (media files attached, same projection
@@ -279,8 +230,11 @@ class EpisodesRepository {
 		const ids = unique(params.ids.filter(Boolean));
 		if (ids.length === 0) return [];
 
-		return await mapChunked(ids, async (idChunk) => await this.findMany({ where: inArray(this.table.id, idChunk), fields: params.fields }));
-	}
+		return await mapChunked(
+			ids,
+			async (idChunk) => await getEpisodesRepository().findMany({ where: inArray(episodes.table.id, idChunk), fields: params.fields }),
+		);
+	},
 
 	async findByPrimaryId<F extends string>({
 		primaryId,
@@ -293,28 +247,15 @@ class EpisodesRepository {
 	}): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
 		// Default projection: row and media files ride one prepared statement. An
 		// explicit relation projection keeps the per-relation read with its columns.
-		if (!fields?.relations.mediaFiles?.length && QueryFields.includes(fields, "mediaFiles")) {
+		if (!fields?.relations.mediaFiles?.length && includesField(fields, "mediaFiles")) {
 			const [row] = await preparedEpisodeWithMediaFiles(databaseFactory.getClient({ tx })).execute({ id: primaryId });
 			if (!row) return undefined;
 
-			return QueryFields.apply<EpisodeWithRelations, F>(parseEpisodeWithMediaFiles(row), fields);
+			return applyFields<EpisodeWithRelations, F>(parseEpisodeWithMediaFiles(row), fields);
 		}
 
-		return await this.projectWithMediaFiles(await this.selectFirstById({ primaryId, tx }), { fields, tx });
-	}
-
-	/** Single-row projection shared by the `where`- and primary-id reads: attaches media files, then applies `fields`. */
-	private async projectWithMediaFiles<F extends string>(
-		data: typeof schema.episodes.$inferSelect | undefined,
-		options: { fields?: FieldsConfig<F> | undefined; tx?: DatabaseTransaction | undefined },
-	): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
-		if (!data) return undefined;
-
-		const row = await findFirstWithMediaFiles(data, { fields: options.fields, relation: "episodeId", tx: options.tx });
-		if (!row) return undefined;
-
-		return QueryFields.apply<EpisodeWithRelations, F>(row, options.fields);
-	}
+		return await projectWithMediaFiles(await episodes.selectFirstById({ primaryId, tx }), { fields, tx });
+	},
 
 	/**
 	 * Chunked CASE update for provider syncs: one statement per chunk assigns
@@ -327,19 +268,35 @@ class EpisodesRepository {
 			values: Partial<Pick<typeof schema.episodes.$inferInsert, "title" | "overview" | "airDate" | "absoluteNumber">>;
 		}>,
 	): Promise<void> {
-		await updateManyFieldsById({
-			table: schema.episodes,
-			primaryKeyColumn: schema.episodes.id,
+		await episodes.updateManyFields({
 			columns: {
-				title: schema.episodes.title,
-				overview: schema.episodes.overview,
-				airDate: schema.episodes.airDate,
-				absoluteNumber: schema.episodes.absoluteNumber,
+				title: episodes.table.title,
+				overview: episodes.table.overview,
+				airDate: episodes.table.airDate,
+				absoluteNumber: episodes.table.absoluteNumber,
 			},
 			updates,
 			touchUpdatedAt: true,
 		});
-	}
+	},
+};
+
+export const episodesRepository = defineRepository(episodes, overrides);
+
+/** Methods dispatch through the singleton: the lint rule forbids referencing the const before its definition. */
+function getEpisodesRepository() {
+	return episodesRepository;
 }
 
-export const episodesRepository = new EpisodesRepository();
+/** Single-row projection shared by the `where`- and primary-id reads: attaches media files, then applies `fields`. */
+async function projectWithMediaFiles<F extends string>(
+	data: typeof schema.episodes.$inferSelect | undefined,
+	options: { fields?: FieldsConfig<F> | undefined; tx?: DatabaseTransaction | undefined },
+): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
+	if (!data) return undefined;
+
+	const row = await findFirstWithMediaFiles(data, { fields: options.fields, relation: "episodeId", tx: options.tx });
+	if (!row) return undefined;
+
+	return applyFields<EpisodeWithRelations, F>(row, options.fields);
+}

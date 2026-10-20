@@ -24,7 +24,7 @@ import { authMiddleware } from "@/app/http/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
 import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
-import { LibraryIdParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
+import { LibraryIdParams, LibraryPathParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { librariesService } from "@/app/libraries/libraries.service";
 import { MINUTE } from "@/config/server/server.constants";
@@ -170,10 +170,7 @@ export const librariesRoutes = new Elysia({
 	.patch(
 		"/:libraryId/scan-findings",
 		async ({ params, body, user, request }) =>
-			await librariesService.setScanFindingIgnored(params.libraryId, body.filePath, body.ignored, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+			await librariesService.setScanFindingIgnored(params.libraryId, body.filePath, body.ignored, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			rateLimit: { name: "library-scan-finding-update", max: 120, windowMs: MINUTE },
@@ -257,10 +254,7 @@ export const librariesRoutes = new Elysia({
 				max: 30,
 				windowMs: MINUTE,
 			},
-			params: t.Object({
-				libraryId: t.String(),
-				pathId: t.String(),
-			}),
+			params: LibraryPathParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 202: OperationQueuedResponseSchema },
 			detail: {
 				description: "Manually trigger a scan of one configured library path.",

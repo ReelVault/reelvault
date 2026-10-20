@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, nullableTableRef, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { episodes } from "./episodes.schema";
 import { libraries } from "./libraries.schema";
 import { metadata } from "./metadata.schema";
@@ -9,13 +9,13 @@ import { movies } from "./movies.schema";
 export const mediaFiles = sqliteTable(
 	"media_files",
 	{
-		id: DatabaseHelper.id,
-		libraryId: DatabaseHelper.tableRef("library_id", () => libraries.id, { onDelete: "cascade" }),
+		id: idColumn,
+		libraryId: tableRef("library_id", () => libraries.id, { onDelete: "cascade" }),
 		// A metadata record can be referenced by media files from multiple libraries.
 		// Deleting one media file must never cascade into the shared metadata graph.
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id),
-		movieId: DatabaseHelper.nullableTableRef("movie_id", () => movies.id, { onDelete: "cascade" }),
-		episodeId: DatabaseHelper.nullableTableRef("episode_id", () => episodes.id, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", () => metadata.id),
+		movieId: nullableTableRef("movie_id", () => movies.id, { onDelete: "cascade" }),
+		episodeId: nullableTableRef("episode_id", () => episodes.id, { onDelete: "cascade" }),
 
 		filePath: text("file_path").notNull(),
 		fileName: text("file_name").notNull(),
@@ -31,7 +31,7 @@ export const mediaFiles = sqliteTable(
 		isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
 		isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		// A multi-episode file (S01E01-E02) owns one row per covered episode, so
@@ -75,7 +75,7 @@ export const mediaFiles = sqliteTable(
 export const mediaFileVideoStreams = sqliteTable(
 	"media_file_video_streams",
 	{
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		mediaFileId: tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
 
 		index: integer("index").notNull(),
 		codecName: text("codec_name").notNull(),
@@ -110,7 +110,7 @@ export const mediaFileVideoStreams = sqliteTable(
 export const mediaFileAudioStreams = sqliteTable(
 	"media_file_audio_streams",
 	{
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		mediaFileId: tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
 
 		index: integer("index").notNull(),
 		codecName: text("codec_name").notNull(),

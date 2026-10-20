@@ -1,13 +1,13 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 const metadataStorageModes = ["database", "sidecar", "database_and_sidecar"] as const;
 
 export const libraries = sqliteTable(
 	"libraries",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 
 		name: text("name").notNull(),
 		type: text("type", { enum: ["movies", "tv_shows"] }).notNull(),
@@ -19,7 +19,7 @@ export const libraries = sqliteTable(
 		// NULL = providers use their own configured language.
 		metadataLanguage: text("metadata_language"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("libraries_unique").on(t.name, t.type),
@@ -32,15 +32,15 @@ export const libraries = sqliteTable(
 export const libraryPaths = sqliteTable(
 	"library_paths",
 	{
-		id: DatabaseHelper.id,
-		libraryId: DatabaseHelper.tableRef("library_id", () => libraries.id, { onDelete: "cascade" }),
+		id: idColumn,
+		libraryId: tableRef("library_id", () => libraries.id, { onDelete: "cascade" }),
 		stableKey: text("stable_key").notNull(),
 
 		path: text("path").notNull(),
 		isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
 		metadataStorageMode: text("metadata_storage_mode", { enum: metadataStorageModes }),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("library_paths_unique").on(t.path),

@@ -8,7 +8,7 @@ import { transcodeProgressMonitor } from "@/modules/streaming/runtime/transcode-
 import type { StreamingStrategy, StreamStartInput } from "@/modules/streaming/streaming.types";
 import { PLAYLIST_FILE_NAME, SEGMENT_OUTPUT_PATTERN } from "@/modules/streaming/utils/segment-name.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 import { isNullish } from "@/utils/type.utils";
@@ -31,7 +31,7 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 
 	/** Refuses to start when the input disappeared between selection and spawn. */
 	protected async assertInputExists(inputPath: string): Promise<void> {
-		if (!(await FileUtils.exists(inputPath))) {
+		if (!(await fileExists(inputPath))) {
 			throw new DomainError("not_found", `Input file does not exist: ${inputPath}`, { code: "media_file.missing" });
 		}
 	}

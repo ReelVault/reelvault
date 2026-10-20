@@ -3,47 +3,47 @@ import { serverConstants } from "@/config/server/server.constants";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { clamp } from "@/utils/math.utils";
 
-export const QueryPagination = {
-	/**
-	 * Parses URL parameters, applies limits and builds the pagination config
-	 */
-	parse(query: PaginationQuery): PaginationConfig {
-		const page = clamp(query.page ?? 1, 1, serverConstants.api.pagination.maxPage);
-		const limit = clamp(query.limit ?? systemSettingsStore.get("api.pagination.defaultLimit"), 1, serverConstants.api.pagination.maxLimit);
-		const offset = (page - 1) * limit;
+/** Parses URL parameters, applies limits and builds the pagination config. */
+export function parsePagination(query: PaginationQuery): PaginationConfig {
+	const page = clamp(query.page ?? 1, 1, serverConstants.api.pagination.maxPage);
+	const limit = clamp(query.limit ?? systemSettingsStore.get("api.pagination.defaultLimit"), 1, serverConstants.api.pagination.maxLimit);
+	const offset = (page - 1) * limit;
 
-		return { page, limit, offset };
-	},
+	return { page, limit, offset };
+}
 
-	/**
-	 * Clamps admin page/limit (admin defaults vary per endpoint) and computes the offset.
-	 */
-	resolvePageParams(
-		query: { page?: number | undefined; limit?: number | undefined },
-		options: { defaultLimit: number; maxLimit?: number | undefined },
-	): PaginationConfig {
-		const maxLimit = options.maxLimit ?? serverConstants.api.pagination.maxLimit;
-		const page = clamp(query.page ?? 1, 1, serverConstants.api.pagination.maxPage);
-		const limit = clamp(query.limit ?? options.defaultLimit, 1, maxLimit);
+/** Clamps admin page/limit (admin defaults vary per endpoint) and computes the offset. */
+export function resolvePageParams(
+	query: { page?: number | undefined; limit?: number | undefined },
+	options: { defaultLimit: number; maxLimit?: number | undefined },
+): PaginationConfig {
+	const maxLimit = options.maxLimit ?? serverConstants.api.pagination.maxLimit;
+	const page = clamp(query.page ?? 1, 1, serverConstants.api.pagination.maxPage);
+	const limit = clamp(query.limit ?? options.defaultLimit, 1, maxLimit);
 
-		return { page, limit, offset: (page - 1) * limit };
-	},
+	return { page, limit, offset: (page - 1) * limit };
+}
 
-	/** Admin pagination meta — zero pages for an empty result, like `createResponse`. */
-	buildAdminPagination({ total, page, limit }: { total: number; page: number; limit: number }) {
-		return { page, limit, total, totalPages: total > 0 ? Math.ceil(total / limit) : 0 };
-	},
+/** Admin pagination meta — zero pages for an empty result, like `createPageResponse`. */
+export function buildAdminPagination({ total, page, limit }: { total: number; page: number; limit: number }) {
+	return { page, limit, total, totalPages: total > 0 ? Math.ceil(total / limit) : 0 };
+}
 
-	/**
-	 * Builds a paginated response
-	 */
-	createResponse<T>({ total, pagination, data }: { total: number; pagination: PaginationConfig; data: T[] }): PaginatedResponse<T> {
-		return {
-			page: pagination.page,
-			limit: pagination.limit,
-			total: total,
-			totalPages: total > 0 ? Math.ceil(total / pagination.limit) : 0,
-			data,
-		};
-	},
-};
+/** Builds a paginated response. */
+export function createPageResponse<T>({
+	total,
+	pagination,
+	data,
+}: {
+	total: number;
+	pagination: PaginationConfig;
+	data: T[];
+}): PaginatedResponse<T> {
+	return {
+		page: pagination.page,
+		limit: pagination.limit,
+		total: total,
+		totalPages: total > 0 ? Math.ceil(total / pagination.limit) : 0,
+		data,
+	};
+}

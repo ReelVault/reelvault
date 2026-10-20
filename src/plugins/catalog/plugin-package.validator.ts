@@ -1,12 +1,11 @@
 import { join } from "node:path";
 import type { PluginValidationIssue, PluginValidationResult } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
-import { SERVER_VERSION } from "@/config/version.constants";
 import { validatePluginUiManifest } from "@/plugins/lifecycle/manifest/ui.validator";
 import { installDirection } from "@/plugins/lifecycle/plugin.installer";
 import { loadPluginManifest, resolvePluginEntry } from "@/plugins/lifecycle/plugin.manifest";
 import { DomainError, definedParams, errorMessage } from "@/utils/domain.errors";
-import { isNewerVersion } from "@/utils/semver.utils";
+import { requiresNewerServer, serverVersionRequirementMessage } from "@/utils/semver.utils";
 
 export interface InstalledVersion {
 	id: string;
@@ -60,10 +59,8 @@ export async function validatePluginPackage(pluginRoot: string, installed: reado
 	}
 
 	const issues: PluginValidationIssue[] = [];
-	if (manifest.minServerVersion && isNewerVersion(manifest.minServerVersion, SERVER_VERSION)) {
-		issues.push(
-			issue("error", "plugin.server_too_old", `requires server ${manifest.minServerVersion} or newer (running ${SERVER_VERSION})`),
-		);
+	if (requiresNewerServer(manifest.minServerVersion)) {
+		issues.push(issue("error", "plugin.server_too_old", serverVersionRequirementMessage(manifest.minServerVersion)));
 	}
 
 	if (!(await isFile(resolvePluginEntry(pluginRoot, manifest)))) {

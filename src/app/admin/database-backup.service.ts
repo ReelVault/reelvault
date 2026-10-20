@@ -5,12 +5,12 @@ import { databaseMaintenanceRepository } from "@/app/repositories/database-maint
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath, resolveWithin } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
 /** The first 16 bytes of every SQLite 3 database file. */
@@ -29,11 +29,11 @@ class DatabaseBackupService {
 
 	async createBackup(): Promise<AdminDatabaseBackup> {
 		return await runSafely(this, "createBackup", async () => {
-			await DirUtils.create(serverConfig.paths.backups);
+			await createDirectory(serverConfig.paths.backups);
 
 			const now = new Date();
 			const fileName = `reelvault_backup_${backupTimestamp(now)}.sqlite`;
-			const filePath = PathUtils.join(serverConfig.paths.backups, fileName);
+			const filePath = joinPath(serverConfig.paths.backups, fileName);
 
 			this.logger.info("Starting SQLite database backup", { targetPath: filePath });
 			await databaseMaintenanceRepository.backup(filePath);
@@ -57,11 +57,11 @@ class DatabaseBackupService {
 
 	async listBackups(): Promise<AdminDatabaseBackup[]> {
 		return await runSafely(this, "listBackups", async () => {
-			await DirUtils.create(serverConfig.paths.backups);
+			await createDirectory(serverConfig.paths.backups);
 			const entries = await readdir(serverConfig.paths.backups, { withFileTypes: true });
 			const sqliteEntries = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".sqlite"));
-			const backups = await PromiseUtils.mapConcurrent(sqliteEntries, systemResourcesService.getIoConcurrency(), async (entry) => {
-				const fullPath = PathUtils.join(serverConfig.paths.backups, entry.name);
+			const backups = await mapConcurrent(sqliteEntries, systemResourcesService.getIoConcurrency(), async (entry) => {
+				const fullPath = joinPath(serverConfig.paths.backups, entry.name);
 				const stats = await file(fullPath).stat();
 
 				return {
@@ -92,8 +92,8 @@ class DatabaseBackupService {
 				throw new DomainError("validation", "Uploaded file is not a SQLite database", { code: "database.backup_invalid" });
 			}
 
-			await DirUtils.create(serverConfig.paths.backups);
-			const stagingPath = PathUtils.join(serverConfig.paths.backups, `.upload-${crypto.randomUUID()}.tmp`);
+			await createDirectory(serverConfig.paths.backups);
+			const stagingPath = joinPath(serverConfig.paths.backups, `.upload-${crypto.randomUUID()}.tmp`);
 			try {
 				await Bun.write(stagingPath, upload);
 				if (!databaseMaintenanceRepository.verifyBackupFile(stagingPath)) {
@@ -102,14 +102,14 @@ class DatabaseBackupService {
 
 				const now = new Date();
 				const fileName = `reelvault_backup_upload_${backupTimestamp(now)}.sqlite`;
-				const filePath = PathUtils.join(serverConfig.paths.backups, fileName);
+				const filePath = joinPath(serverConfig.paths.backups, fileName);
 				await rename(stagingPath, filePath);
 				const stats = await file(filePath).stat();
 				this.logger.info("Database backup uploaded", { fileName, sizeBytes: stats.size });
 
 				return { fileName, filePath, sizeBytes: stats.size, createdAt: now.toISOString() };
 			} catch (error) {
-				await FileUtils.delete(stagingPath);
+				await deleteFile(stagingPath);
 				throw error;
 			}
 		});
@@ -131,7 +131,7 @@ class DatabaseBackupService {
 
 	async deleteBackup(fileName: string): Promise<boolean> {
 		return await runSafely(this, "deleteBackup", async () => {
-			return await FileUtils.delete(resolveBackupPath(fileName, { requireSqliteSuffix: false }));
+			return await deleteFile(resolveBackupPath(fileName, { requireSqliteSuffix: false }));
 		});
 	}
 
@@ -141,10 +141,10 @@ class DatabaseBackupService {
 			const maxRetainedBackups = serverConfig.database.backupRetentionCount;
 			if (backups.length > maxRetainedBackups) {
 				const toDelete = backups.slice(maxRetainedBackups);
-				await PromiseUtils.mapConcurrent(toDelete, systemResourcesService.getIoConcurrency(), (backup) => {
+				await mapConcurrent(toDelete, systemResourcesService.getIoConcurrency(), (backup) => {
 					this.logger.info("Removing old database backup", { fileName: backup.fileName });
 
-					return FileUtils.delete(backup.filePath);
+					return deleteFile(backup.filePath);
 				});
 			}
 		});
@@ -166,8 +166,8 @@ function resolveBackupPath(fileName: string, options: { requireSqliteSuffix: boo
 		throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 	}
 
-	const fullPath = PathUtils.join(serverConfig.paths.backups, fileName);
-	if (!PathUtils.isSubpath(fullPath, serverConfig.paths.backups)) {
+	const fullPath = resolveWithin(serverConfig.paths.backups, fileName);
+	if (!fullPath) {
 		throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 	}
 

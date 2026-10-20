@@ -1,9 +1,10 @@
 import type { CreateMediaMarker, MediaMarkerFilters } from "@reelvault/sdk/common";
-import { and, asc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { groupBy } from "@/utils/array.utils";
@@ -25,10 +26,10 @@ function markerListWhere(query: MediaMarkerListQuery): SQL | undefined {
 	let termFilter: SQL | undefined;
 	if (term) {
 		termFilter = or(
-			QueryFiltering.like(mediaMarkers.table.label, term),
-			QueryFiltering.like(mediaMarkers.table.mediaFileId, term),
-			QueryFiltering.like(mediaMarkers.table.pluginId, term),
-			QueryFiltering.like(mediaMarkers.table.type, term),
+			filterLike(mediaMarkers.table.label, term),
+			filterLike(mediaMarkers.table.mediaFileId, term),
+			filterLike(mediaMarkers.table.pluginId, term),
+			filterLike(mediaMarkers.table.type, term),
 		);
 	}
 
@@ -42,16 +43,18 @@ function markerListWhere(query: MediaMarkerListQuery): SQL | undefined {
 const overrides = {
 	async findPage(query: MediaMarkerFilters & { limit: number; offset: number }) {
 		const where = markerListWhere(query);
-		const rows = await getMediaMarkersRepository().selectMany({
+		const { data, total } = await findOffsetPage({
+			access: mediaMarkers,
 			where,
-			// created_at is second-resolution — the id tiebreaker keeps offset pages stable.
-			orderBy: sql`${asc(mediaMarkers.table.createdAt)}, ${asc(mediaMarkers.table.id)}`,
+			orderBy: asc(mediaMarkers.table.createdAt),
 			limit: query.limit,
 			offset: query.offset,
+			tiebreakerOrder: "asc",
+			findMany: (page) => mediaMarkers.selectMany(page),
+			count: () => mediaMarkers.count({ where }),
 		});
-		const total = await getMediaMarkersRepository().count({ where });
 
-		return { rows, total };
+		return { rows: data, total };
 	},
 
 	async findAll(query: MediaMarkerListQuery = {}, tx?: DatabaseTransaction) {

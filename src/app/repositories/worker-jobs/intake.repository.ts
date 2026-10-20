@@ -5,10 +5,14 @@ import { serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { chunk, toMap, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import type { ActiveWorkerItem, EnqueueWorkerItemInput, WorkerItem, WorkerItemStatus, WorkerItemSummary } from "./shared.types";
 import { applyOperationCounts, items, operations, toOperationCounts } from "./shared.types";
+
+const jobsAccess = defineTableAccess("workerJobs", { primaryKeyColumn: "id" });
 
 export async function enqueue(input: EnqueueWorkerItemInput): Promise<WorkerItem> {
 	const [item] = await enqueueMany([input]);
@@ -116,18 +120,23 @@ export async function listItems(options: {
 	if (options.status) conditions.push(eq(items.status, options.status));
 
 	const where = conditions.length > 0 ? and(...conditions) : undefined;
-	const client = databaseFactory.getClient();
-	const [total, rows] = await Promise.all([
-		client.$count(items, where),
-		client
-			.select(workerJobSummaryColumns)
-			.from(items)
-			.where(where)
-			// created_at has second resolution — the id tiebreaker keeps offset pagination stable.
-			.orderBy(desc(items.createdAt), desc(items.id))
-			.limit(options.limit)
-			.offset(options.offset),
-	]);
+	const { data: rows, total } = await findOffsetPage({
+		access: jobsAccess,
+		where,
+		orderBy: desc(items.createdAt),
+		limit: options.limit,
+		offset: options.offset,
+		findMany: async (page) =>
+			await databaseFactory
+				.getClient()
+				.select(workerJobSummaryColumns)
+				.from(items)
+				.where(page.where)
+				.orderBy(page.orderBy)
+				.limit(page.limit)
+				.offset(page.offset),
+		count: () => jobsAccess.count({ where }),
+	});
 
 	return { items: rows, total };
 }

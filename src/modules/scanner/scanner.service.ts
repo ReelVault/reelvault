@@ -6,7 +6,7 @@ import { throwIfAborted } from "@/utils/cancellation.utils";
 import type { ScannedFileEntry } from "@/utils/directory.utils";
 import { toDomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getFileName } from "@/utils/path.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { fileScannerService } from "./disk/file.scanner";
 import { type RemovalGuard, removalGuard } from "./disk/removal.guard";
@@ -39,7 +39,7 @@ async function collectNewFiles(
 		if (rowCount === undefined) {
 			newFiles.push(filePath);
 		} else if (type === "tv_show") {
-			const span = episodeRangeSpan(parseFileName(PathUtils.getFileName(filePath)));
+			const span = episodeRangeSpan(parseFileName(getFileName(filePath)));
 			if (span !== undefined && span > rowCount) newFiles.push(filePath);
 		}
 

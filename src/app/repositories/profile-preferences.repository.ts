@@ -11,7 +11,10 @@ import { MINUTE } from "@/config/server/server.constants";
 import { type DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { MemoryCache } from "@/utils/memory.cache";
+
+const preferences = defineTableAccess("profilePreferenceOverrides", { primaryKeyColumn: "profileId" });
 
 const OVERRIDES_CACHE_TTL_MS = 5 * MINUTE;
 const OVERRIDES_CACHE_MAX_ENTRIES = 500;
@@ -167,14 +170,12 @@ export class ProfilePreferencesRepository {
 		if (entries.length === 0) return;
 
 		const now = new Date();
-		await this.database
-			.getClient({ tx })
-			.insert(this.table)
-			.values(entries.map((entry) => ({ profileId, key: entry.key, value: entry.value, createdAt: now, updatedAt: now })))
-			.onConflictDoUpdate({
-				target: [this.table.profileId, this.table.key],
-				set: { value: sql`excluded.value`, updatedAt: now },
-			});
+		await preferences.upsert({
+			values: entries.map((entry) => ({ profileId, key: entry.key, value: entry.value, createdAt: now, updatedAt: now })),
+			target: [preferences.table.profileId, preferences.table.key],
+			set: { value: sql`excluded.value`, updatedAt: now },
+			tx,
+		});
 		this.cache.delete(profileId);
 	}
 

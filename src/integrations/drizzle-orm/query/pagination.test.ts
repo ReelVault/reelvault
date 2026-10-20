@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { QueryPagination } from "./pagination.utils";
+import { buildAdminPagination, parsePagination } from "@/integrations/drizzle-orm/query/pagination.utils";
 
 describe("QueryPagination", () => {
 	test("clamps page and limit to configured bounds", () => {
-		expect(QueryPagination.parse({ page: 200_000, limit: 9999 })).toEqual({
+		expect(parsePagination({ page: 200_000, limit: 9999 })).toEqual({
 			page: 100_000,
 			limit: 500,
 			offset: 49_999_500,
@@ -11,11 +11,11 @@ describe("QueryPagination", () => {
 	});
 
 	test("uses safe defaults", () => {
-		expect(QueryPagination.parse({})).toEqual({ page: 1, limit: 20, offset: 0 });
+		expect(parsePagination({})).toEqual({ page: 1, limit: 20, offset: 0 });
 	});
 
 	test("reports zero pages for an empty admin result", () => {
-		expect(QueryPagination.buildAdminPagination({ total: 0, page: 1, limit: 50 })).toEqual({
+		expect(buildAdminPagination({ total: 0, page: 1, limit: 50 })).toEqual({
 			page: 1,
 			limit: 50,
 			total: 0,

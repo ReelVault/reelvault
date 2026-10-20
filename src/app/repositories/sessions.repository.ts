@@ -2,8 +2,8 @@ import type { PaginationQuery } from "@reelvault/sdk/common";
 import { and, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
-import { cachedCount } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
+import { createPageResponse, parsePagination } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 
 /** How a user's sessions have been used: the latest use, and how many sessions are still valid. */
 export interface SessionActivity {
@@ -11,63 +11,69 @@ export interface SessionActivity {
 	activeSessionCount: number;
 }
 
-class SessionsRepository {
-	readonly table = schema.sessions;
+export const sessionsRepository = {
+	table: schema.sessions,
 
 	async findActivePageByUserId(userId: string, query?: PaginationQuery) {
-		const pagination = QueryPagination.parse(query ?? {});
+		const pagination = parsePagination(query ?? {});
+		const where = and(eq(sessionsRepository.table.userId, userId), gt(sessionsRepository.table.expiresAt, new Date()));
 		// The count only depends on userId (expiry is a rolling window) — the 10 s
 		// cache matches every other paginated list; sessions expire at minute scale.
-		const [total, data] = await Promise.all([
-			cachedCount("sessions_active", { userId }, () => this.countActiveByUserId(userId)),
-			this.findActivePublicByUserId(userId, pagination.limit, pagination.offset),
-		]);
+		const { data, total } = await findOffsetPage({
+			access: { tableName: "sessions_active", primaryKeyColumn: sessionsRepository.table.id },
+			where,
+			orderBy: desc(sessionsRepository.table.createdAt),
+			limit: pagination.limit,
+			offset: pagination.offset,
+			countKey: { userId },
+			findMany: async (page) =>
+				await databaseFactory
+					.getClient()
+					.select({
+						id: sessionsRepository.table.id,
+						ipAddress: sessionsRepository.table.ipAddress,
+						userAgent: sessionsRepository.table.userAgent,
+						createdAt: sessionsRepository.table.createdAt,
+						updatedAt: sessionsRepository.table.updatedAt,
+						expiresAt: sessionsRepository.table.expiresAt,
+					})
+					.from(sessionsRepository.table)
+					.where(page.where)
+					.orderBy(page.orderBy)
+					.limit(page.limit)
+					.offset(page.offset),
+			count: () => sessionsRepository.countActiveByUserId(userId),
+		});
 
-		return QueryPagination.createResponse({ total, pagination, data });
-	}
-
-	async findActivePublicByUserId(userId: string, limit: number, offset: number) {
-		const now = new Date();
-
-		return await databaseFactory
-			.getClient()
-			.select({
-				id: this.table.id,
-				ipAddress: this.table.ipAddress,
-				userAgent: this.table.userAgent,
-				createdAt: this.table.createdAt,
-				updatedAt: this.table.updatedAt,
-				expiresAt: this.table.expiresAt,
-			})
-			.from(this.table)
-			.where(and(eq(this.table.userId, userId), gt(this.table.expiresAt, now)))
-			// created_at is second-resolution — the id tiebreaker keeps offset pages stable.
-			.orderBy(desc(this.table.createdAt), desc(this.table.id))
-			.limit(limit)
-			.offset(offset);
-	}
+		return createPageResponse({ total, pagination, data });
+	},
 
 	async countActiveByUserId(userId: string): Promise<number> {
-		return await databaseFactory.getClient().$count(this.table, and(eq(this.table.userId, userId), gt(this.table.expiresAt, new Date())));
-	}
+		return await databaseFactory
+			.getClient()
+			.$count(
+				sessionsRepository.table,
+				and(eq(sessionsRepository.table.userId, userId), gt(sessionsRepository.table.expiresAt, new Date())),
+			);
+	},
 
 	async findTokenByIdAndUserId({ sessionId, userId }: { sessionId: string; userId: string }): Promise<string | undefined> {
 		const [session] = await databaseFactory
 			.getClient()
-			.select({ token: this.table.token })
-			.from(this.table)
-			.where(and(eq(this.table.id, sessionId), eq(this.table.userId, userId)))
+			.select({ token: sessionsRepository.table.token })
+			.from(sessionsRepository.table)
+			.where(and(eq(sessionsRepository.table.id, sessionId), eq(sessionsRepository.table.userId, userId)))
 			.limit(1);
 
 		return session?.token;
-	}
+	},
 
 	async deleteOtherSessions({ userId, currentSessionId }: { userId: string; currentSessionId: string }): Promise<void> {
 		await databaseFactory
 			.getClient()
-			.delete(this.table)
-			.where(and(eq(this.table.userId, userId), ne(this.table.id, currentSessionId)));
-	}
+			.delete(sessionsRepository.table)
+			.where(and(eq(sessionsRepository.table.userId, userId), ne(sessionsRepository.table.id, currentSessionId)));
+	},
 
 	/** Activity per user in one query; users without sessions are absent from the map. */
 	async findActivitySummaryByUserIds(userIds: readonly string[]): Promise<Map<string, SessionActivity>> {
@@ -78,13 +84,13 @@ class SessionsRepository {
 		const rows = await databaseFactory
 			.getClient()
 			.select({
-				userId: this.table.userId,
-				lastUsedSeconds: sql<number | null>`max(${this.table.updatedAt})`,
-				activeSessionCount: sql<number>`sum(case when ${this.table.expiresAt} > ${nowSeconds} then 1 else 0 end)`,
+				userId: sessionsRepository.table.userId,
+				lastUsedSeconds: sql<number | null>`max(${sessionsRepository.table.updatedAt})`,
+				activeSessionCount: sql<number>`sum(case when ${sessionsRepository.table.expiresAt} > ${nowSeconds} then 1 else 0 end)`,
 			})
-			.from(this.table)
-			.where(inArray(this.table.userId, [...userIds]))
-			.groupBy(this.table.userId);
+			.from(sessionsRepository.table)
+			.where(inArray(sessionsRepository.table.userId, [...userIds]))
+			.groupBy(sessionsRepository.table.userId);
 
 		for (const row of rows) {
 			summary.set(row.userId, {
@@ -94,18 +100,18 @@ class SessionsRepository {
 		}
 
 		return summary;
-	}
+	},
 
 	/** Ends one session of a user; false when the user has no such session. */
 	async deleteForUser({ userId, sessionId }: { userId: string; sessionId: string }): Promise<boolean> {
 		const deleted = await databaseFactory
 			.getClient()
-			.delete(this.table)
-			.where(and(eq(this.table.id, sessionId), eq(this.table.userId, userId)))
-			.returning({ id: this.table.id });
+			.delete(sessionsRepository.table)
+			.where(and(eq(sessionsRepository.table.id, sessionId), eq(sessionsRepository.table.userId, userId)))
+			.returning({ id: sessionsRepository.table.id });
 
 		return deleted.length > 0;
-	}
+	},
 
 	/** Ends every session of the listed users; returns how many were ended. */
 	async deleteForUsers(userIds: readonly string[]): Promise<number> {
@@ -113,16 +119,14 @@ class SessionsRepository {
 
 		const deleted = await databaseFactory
 			.getClient()
-			.delete(this.table)
-			.where(inArray(this.table.userId, [...userIds]))
-			.returning({ id: this.table.id });
+			.delete(sessionsRepository.table)
+			.where(inArray(sessionsRepository.table.userId, [...userIds]))
+			.returning({ id: sessionsRepository.table.id });
 
 		return deleted.length;
-	}
+	},
 
 	async deleteAllForUser(userId: string): Promise<void> {
-		await databaseFactory.getClient().delete(this.table).where(eq(this.table.userId, userId));
-	}
-}
-
-export const sessionsRepository = new SessionsRepository();
+		await databaseFactory.getClient().delete(sessionsRepository.table).where(eq(sessionsRepository.table.userId, userId));
+	},
+};

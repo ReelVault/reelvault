@@ -34,7 +34,7 @@ export interface ResourceHistorySample {
 	activeWorkers: Record<string, number>;
 }
 
-class ResourceMetricsRepository {
+export const resourceMetricsRepository = {
 	async create(input: CreateResourceMetricInput): Promise<ResourceMetricRecord> {
 		const retentionUntil = new Date(Date.now() + DAY); // 24h
 		const [record] = await databaseFactory
@@ -45,7 +45,7 @@ class ResourceMetricsRepository {
 		if (!record) throw new DomainError("internal", "Failed to create resource metric", { code: "resource_metrics.create_failed" });
 
 		return record;
-	}
+	},
 
 	async getHistory(hours = 24, maxPoints = 480): Promise<ResourceHistorySample[]> {
 		const cutoff = new Date(Date.now() - hours * HOUR);
@@ -69,7 +69,7 @@ class ResourceMetricsRepository {
 		const stride = Math.max(1, Math.ceil(rows.length / maxPoints));
 
 		return rows.filter((_, index) => index % stride === 0);
-	}
+	},
 
 	async getAggregates(hours = 24): Promise<{
 		avgCpu: number;
@@ -104,13 +104,11 @@ class ResourceMetricsRepository {
 			maxDisk: result?.maxDisk ?? 0,
 			snapshotCount: result?.snapshotCount ?? 0,
 		};
-	}
+	},
 
 	async cleanupOlderThan(cutoff: Date): Promise<number> {
 		const result = await databaseFactory.getClient().delete(metrics).where(lt(metrics.retentionUntil, cutoff));
 
 		return result.changes;
-	}
-}
-
-export const resourceMetricsRepository = new ResourceMetricsRepository();
+	},
+};

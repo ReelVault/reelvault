@@ -4,12 +4,13 @@ import { mapMediaFileData } from "@/modules/scanner/probe/media-probe.mapper";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertFound, toDomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getFileStats } from "@/utils/file.utils";
+import { getFileName } from "@/utils/path.utils";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { enqueueTrickplayGenerationForLibrary } from "@/workers/definitions/media/trickplay-generate.worker";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { workerDependencies } from "@/workers/worker.ports";
-import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
 // ─── Worker Definition ────────────────────────────────────────────────────────
@@ -17,8 +18,7 @@ import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/wor
 export const mediaFileTechnicalRefreshWorker = createWorkerDefinition<{ mediaFileId: string }>(
 	"media-file-technical-refresh",
 	() => serverConfig.workers.definitions.mediaFileTechnicalRefresh,
-	async ({ data, logger, signal, operationId, taskId }) =>
-		await refreshMediaFileTechnicalData(data.mediaFileId, { signal, logger, operationId, correlationId: operationId, taskId }),
+	async (context) => await refreshMediaFileTechnicalData(context.data.mediaFileId, toApplicationContext(context)),
 );
 
 // ─── Task Function ────────────────────────────────────────────────────────────
@@ -29,10 +29,7 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 		const mediaFile = await workerDependencies().media.findForTechnicalRefresh(mediaFileId);
 		assertFound(mediaFile, "MediaFile", mediaFileId);
 
-		const [probe, stats] = await Promise.all([
-			videoParser.probe(mediaFile.filePath, context.signal),
-			FileUtils.getStats(mediaFile.filePath),
-		]);
+		const [probe, stats] = await Promise.all([videoParser.probe(mediaFile.filePath, context.signal), getFileStats(mediaFile.filePath)]);
 		// A failed probe (corrupt file) or a file that vanished between enqueue and
 		// run is an expected anomaly — keep the existing technical data instead of
 		// failing the job; the scanner's removal detection owns deletions.
@@ -47,7 +44,7 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 			return { mediaFileId, skipped: true as const };
 		}
 
-		const data = mapMediaFileData(PathUtils.getFileName(mediaFile.filePath), probe);
+		const data = mapMediaFileData(getFileName(mediaFile.filePath), probe);
 		const sourceMtimeMs = Math.floor(stats.mtimeMs);
 		const previousAudioKeys = mediaFile.audioStreams.map((s) => `${s.index}:${s.codecName}:${s.language ?? ""}`).join("|");
 		const newAudioKeys = data.audioStreams.map((s) => `${s.index}:${s.codecName}:${s.language ?? ""}`).join("|");
@@ -101,14 +98,11 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
+const mediaFileTechnicalRefreshEnqueue = defineWorkerEnqueue<{ mediaFileId: string }>(mediaFileTechnicalRefreshWorker.id, (data) => ({
+	dedupeKey: data.mediaFileId,
+	reference: { type: "media-file", id: data.mediaFileId },
+}));
+
 export async function enqueueMediaFileTechnicalRefresh(mediaFileId: string, options: WorkerEnqueueOptions = {}) {
-	return await workerService.addItem(
-		mediaFileTechnicalRefreshWorker.id,
-		{ mediaFileId },
-		{
-			...options,
-			dedupeKey: mediaFileId,
-			reference: { type: "media-file", id: mediaFileId },
-		},
-	);
+	return await mediaFileTechnicalRefreshEnqueue.enqueue({ mediaFileId }, options);
 }

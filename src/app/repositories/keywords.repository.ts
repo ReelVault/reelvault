@@ -1,7 +1,7 @@
 import type { KeywordFilters, KeywordSorting } from "@reelvault/sdk/common";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { defineNamedEntityRepository } from "@/integrations/drizzle-orm/query/named-entity-repository.factory";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { metadataRepository } from "./metadata.repository";
@@ -10,7 +10,7 @@ const keywords = defineTableAccess("keywords", { primaryKeyColumn: "id" });
 const keywordProviders = defineTableAccess("keywordProviders", { primaryKeyColumn: "keywordId" });
 
 const keywordQueryMap: QueryMap<KeywordFilters, KeywordSorting> = {
-	filters: { name: (value: string) => QueryFiltering.like(schema.keywords.name, value) },
+	filters: { name: (value: string) => filterLike(schema.keywords.name, value) },
 	orderBy: { name: schema.keywords.name, createdAt: schema.keywords.createdAt, updatedAt: schema.keywords.updatedAt },
 	defaults: { sortBy: "name", sortOrder: "asc" },
 };

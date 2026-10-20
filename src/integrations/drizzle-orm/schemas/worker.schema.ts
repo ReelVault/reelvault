@@ -1,16 +1,16 @@
 import { sql } from "drizzle-orm";
 import { type AnySQLiteColumn, check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, nullableTableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { workerOperations } from "./worker-operations.schema";
 
 export const workerJobs = sqliteTable(
 	"worker_jobs",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 
 		workerId: text("worker_id").notNull(),
-		operationId: DatabaseHelper.nullableTableRef("operation_id", () => workerOperations.id, { onDelete: "set null" }),
-		dependsOnJobId: DatabaseHelper.nullableTableRef("depends_on_job_id", (): AnySQLiteColumn => workerJobs.id, { onDelete: "set null" }),
+		operationId: nullableTableRef("operation_id", () => workerOperations.id, { onDelete: "set null" }),
+		dependsOnJobId: nullableTableRef("depends_on_job_id", (): AnySQLiteColumn => workerJobs.id, { onDelete: "set null" }),
 		dedupeKey: text("dedupe_key"),
 
 		referenceType: text("reference_type"),
@@ -42,7 +42,7 @@ export const workerJobs = sqliteTable(
 		startedAt: integer("started_at", { mode: "timestamp" }),
 		runAt: integer("run_at", { mode: "timestamp" }).notNull(),
 		completedAt: integer("completed_at", { mode: "timestamp" }),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		uniqueIndex("worker_jobs_active_dedupe_unique")

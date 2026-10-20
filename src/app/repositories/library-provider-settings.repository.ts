@@ -11,7 +11,7 @@ export interface LibraryProviderSettingRow {
 	enabled: boolean;
 }
 
-class LibraryProviderSettingsRepository {
+export const libraryProviderSettingsRepository = {
 	async listForLibrary(libraryId: string): Promise<LibraryProviderSettingRow[]> {
 		return await databaseFactory
 			.getClient()
@@ -23,7 +23,7 @@ class LibraryProviderSettingsRepository {
 			})
 			.from(libraryProviderSettings)
 			.where(eq(libraryProviderSettings.libraryId, libraryId));
-	}
+	},
 
 	/** Replaces the whole override set for one library in a single transaction. */
 	async replaceForLibrary(libraryId: string, priorities: LibraryProviderPriority[]): Promise<void> {
@@ -44,7 +44,5 @@ class LibraryProviderSettingsRepository {
 				})),
 			);
 		});
-	}
-}
-
-export const libraryProviderSettingsRepository = new LibraryProviderSettingsRepository();
+	},
+};

@@ -29,11 +29,11 @@ import {
 	ROUTE_ERRORS,
 } from "@/app/http/schemas/common.schema";
 import { MediaFileArtifactParams, MediaFileIdParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
+import { assertRouteMediaAccess } from "@/app/http/utils/access-context.utils";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { mediaService } from "@/app/media/media-files/media-files.service";
 import { MINUTE } from "@/config/server/server.constants";
-import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
 import { DomainError } from "@/utils/domain.errors";
 
 export const mediaFilesRoutes = new Elysia({
@@ -191,7 +191,7 @@ export const mediaFilesRoutes = new Elysia({
 	.get(
 		"/:mediaFileId/artifacts",
 		async ({ params, user, profile }) => {
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: params.mediaFileId });
+			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 
 			return await mediaService.listArtifacts(params.mediaFileId);
 		},
@@ -206,7 +206,7 @@ export const mediaFilesRoutes = new Elysia({
 	.get(
 		"/:mediaFileId/artifacts/:artifactId",
 		async ({ params, set, user, profile }) => {
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: params.mediaFileId });
+			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 			const { artifact, file } = await mediaService.getArtifact(params.mediaFileId, params.artifactId);
 			set.headers["Content-Type"] = artifact.contentType;
 			// Access-checked content: a shared cache must never replay it to another
@@ -230,7 +230,7 @@ export const mediaFilesRoutes = new Elysia({
 	.get(
 		"/:mediaFileId/markers",
 		async ({ params, user, profile }) => {
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: params.mediaFileId });
+			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 
 			return await mediaService.listMarkers(params.mediaFileId);
 		},
@@ -245,10 +245,7 @@ export const mediaFilesRoutes = new Elysia({
 	.post(
 		"/:mediaFileId/markers",
 		async ({ params, body, user, request }) => {
-			return await mediaService.setMarkers(params.mediaFileId, body.markers, undefined, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			});
+			return await mediaService.setMarkers(params.mediaFileId, body.markers, undefined, actorContext({ user, request }));
 		},
 		{
 			adminOnly: true,

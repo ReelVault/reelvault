@@ -1,11 +1,11 @@
 import { index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { tableRef } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { metadata } from "./metadata.schema";
 
 export const metadataExternalIds = sqliteTable(
 	"metadata_external_ids",
 	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
 		identifierType: text("identifier_type").notNull(),
 		identifier: text("identifier").notNull(),
 	},

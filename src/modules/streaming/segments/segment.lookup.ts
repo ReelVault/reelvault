@@ -2,8 +2,8 @@ import type { BunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { INIT_SEGMENT_FILE_NAME } from "@/modules/streaming/utils/segment-name.utils";
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { fileExists, getBunFile } from "@/utils/file.utils";
+import { waitForFile } from "@/utils/promise.utils";
 
 const POLL_INTERVAL_MS = 200;
 
@@ -26,9 +26,9 @@ interface LookupDependencies {
 }
 
 const defaultDependencies: LookupDependencies = {
-	exists: (path) => FileUtils.exists(path),
-	waitForFile: (path, timeoutMs, pollMs, signal) => PromiseUtils.waitForFile(path, timeoutMs, pollMs, signal),
-	readFile: (path) => FileUtils.get(path),
+	exists: (path) => fileExists(path),
+	waitForFile: (path, timeoutMs, pollMs, signal) => waitForFile(path, timeoutMs, pollMs, signal),
+	readFile: (path) => getBunFile(path),
 };
 
 /**

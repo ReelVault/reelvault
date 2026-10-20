@@ -11,7 +11,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterEquals } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
@@ -24,8 +24,8 @@ const watchlist = defineTableAccess("watchlist", {
 
 const watchlistQueryMap: QueryMap<WatchlistFilters, WatchlistSorting> = {
 	filters: {
-		profileId: (value: string) => QueryFiltering.eq(schema.watchlist.profileId, value),
-		metadataId: (value: string) => QueryFiltering.eq(schema.watchlist.metadataId, value),
+		profileId: (value: string) => filterEquals(schema.watchlist.profileId, value),
+		metadataId: (value: string) => filterEquals(schema.watchlist.metadataId, value),
 	},
 	orderBy: {
 		createdAt: schema.watchlist.createdAt,

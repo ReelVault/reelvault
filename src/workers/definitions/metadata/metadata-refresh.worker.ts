@@ -2,6 +2,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { withDomainError } from "@/utils/domain.errors";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import type { ApplicationContext } from "@/utils/task-context.types";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
@@ -20,8 +21,7 @@ export interface MetadataRefreshResult {
 export const metadataRefreshWorker = createWorkerDefinition<MetadataRefreshData>(
 	"metadata-refresh",
 	() => serverConfig.workers.definitions.metadataRefresh,
-	async ({ data, logger, signal, operationId, taskId }) =>
-		await refreshMetadataTask(data, { signal, logger, operationId, correlationId: operationId, taskId }),
+	async (context) => await refreshMetadataTask(context.data, toApplicationContext(context)),
 );
 
 // ─── Task Function ────────────────────────────────────────────────────────────

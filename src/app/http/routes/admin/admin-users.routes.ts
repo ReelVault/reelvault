@@ -14,10 +14,10 @@ import {
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { adminUsersService } from "@/app/admin/admin-users.service";
-import { ClampedNumeric, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
-import { UserIdParams, UserProfileIdParams } from "@/app/http/schemas/route-params.schema";
+import { PaginationQuerySchema, paginationQueryFields, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { UserIdParams, UserProfileIdParams, UserSessionParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
-import { MINUTE, serverConstants } from "@/config/server/server.constants";
+import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
 export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
@@ -37,8 +37,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 			q: t.Optional(t.String({ maxLength: 200 })),
 			role: t.Optional(t.Union([t.Literal("admin"), t.Literal("user")])),
 			status: t.Optional(t.Union([t.Literal("active"), t.Literal("blocked")])),
-			page: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxPage)),
-			limit: t.Optional(ClampedNumeric(1, 100)),
+			...paginationQueryFields({ maxLimit: 100 }),
 		}),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.usersPage" },
 		detail: { description: "List user accounts for administration." },
@@ -70,12 +69,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.get("/users/:userId/sessions", async ({ params, query }) => await adminUsersService.getSessions(params.userId, query), {
 		params: UserIdParams,
-		query: t.Optional(
-			t.Object({
-				page: t.Optional(ClampedNumeric(1, 1000, { default: 1 })),
-				limit: t.Optional(ClampedNumeric(1, 100, { default: 25 })),
-			}),
-		),
+		query: t.Optional(PaginationQuerySchema({ maxLimit: 100, defaultLimit: 25, defaultPage: 1 })),
 		rateLimit: { name: "admin-user-sessions", max: 60, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: AdminUserSessionsPageSchema },
 		detail: {
@@ -85,15 +79,12 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	.delete(
 		"/users/:userId/sessions/:sessionId",
 		async ({ params, user, request }) => {
-			await adminUsersService.revokeSession(params.userId, params.sessionId, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			});
+			await adminUsersService.revokeSession(params.userId, params.sessionId, actorContext({ user, request }));
 
 			return { success: true };
 		},
 		{
-			params: t.Object({ userId: t.String({ minLength: 1 }), sessionId: t.String({ minLength: 1 }) }),
+			params: UserSessionParams,
 			rateLimit: { name: "admin-user-session-revoke", max: 60, windowMs: MINUTE },
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
 			detail: {
@@ -143,10 +134,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 	.patch(
 		"/users/:userId/profiles/:profileId/preferences",
 		async ({ params, body, user, request }) =>
-			await adminUsersService.updateProfilePreferences(params.userId, params.profileId, body, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+			await adminUsersService.updateProfilePreferences(params.userId, params.profileId, body, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-users-prefs-update", max: 30, windowMs: MINUTE },
 			params: UserProfileIdParams,

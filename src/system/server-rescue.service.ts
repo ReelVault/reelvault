@@ -3,6 +3,7 @@ import { timeoutMultiplierForFactor } from "@/config/system-resources.service";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
+import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { systemAdminBroadcast } from "./system.ports";
 
 export type RescueState = "healthy" | "rescuing";
@@ -93,7 +94,7 @@ class ServerRescueService {
 	private maxLagSinceCheck = 0;
 
 	private lagSamplerTimer?: Timer | undefined;
-	private checkTimer?: Timer | undefined;
+	private readonly checkTimer = new RecurringTimer(() => this.runCheck(), CHECK_INTERVAL_MS);
 	private pressureProvider: () => SystemPressure = () => "low";
 	private speedFactorProvider: () => number = () => 1;
 	private engageTimes: number[] = [];
@@ -130,8 +131,7 @@ class ServerRescueService {
 		}
 
 		this.armLagSampler();
-		this.checkTimer = setInterval(() => this.runCheck(), CHECK_INTERVAL_MS);
-		this.checkTimer.unref();
+		this.checkTimer.start();
 		this.logger.info("Server rescue monitor armed", {
 			checkIntervalMs: CHECK_INTERVAL_MS,
 			lagThresholdMs: serverConfig.rescue.eventLoopLagMs,
@@ -165,10 +165,7 @@ class ServerRescueService {
 			this.lagSamplerTimer = undefined;
 		}
 
-		if (this.checkTimer) {
-			clearInterval(this.checkTimer);
-			this.checkTimer = undefined;
-		}
+		this.checkTimer.stop();
 	}
 
 	isThrottling(): boolean {

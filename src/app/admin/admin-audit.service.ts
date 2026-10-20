@@ -7,8 +7,8 @@ import {
 	type AdminAuditRepository,
 	adminAuditRepository,
 } from "@/app/repositories/admin-audit.repository";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
-import { toCsvLine } from "@/utils/csv.utils";
+import { buildAdminPagination, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { buildCsvExport, toCsvLine } from "@/utils/csv.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { safeParseJson } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
@@ -50,19 +50,19 @@ function jsonCell(value: unknown): string {
 	return value === undefined || value === null ? "" : JSON.stringify(value);
 }
 
-class AdminAuditService {
-	readonly serviceName = "AdminAuditService";
-	readonly logger = createLogger("AdminAuditService");
+export const adminAuditService = {
+	serviceName: "AdminAuditService",
+	logger: createLogger("AdminAuditService"),
 
 	async record(record: AdminAuditRecord): Promise<void> {
 		await adminAuditRepository.insert(record);
-	}
+	},
 
 	/** Activity per administrator for the filters, busiest first; `limit` caps how many administrators are listed. */
 	async getSummary(query: AdminAuditFilters & { limit?: number | undefined }): Promise<AdminAuditSummary> {
-		return await runSafely(this, "getSummary", async () => {
+		return await runSafely(adminAuditService, "getSummary", async () => {
 			const { limit, ...filters } = query;
-			const pagination = QueryPagination.resolvePageParams({ limit }, { defaultLimit: 20, maxLimit: 50 });
+			const pagination = resolvePageParams({ limit }, { defaultLimit: 20, maxLimit: 50 });
 			const result = await adminAuditRepository.summarizeByActor(filters, pagination.limit);
 
 			return {
@@ -78,28 +78,32 @@ class AdminAuditService {
 				})),
 			};
 		});
-	}
+	},
 
 	async getAll(query: AdminAuditQuery): Promise<AdminAuditPage> {
-		return await runSafely(this, "getAll", async () => {
-			const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 50 });
+		return await runSafely(adminAuditService, "getAll", async () => {
+			const pagination = resolvePageParams(query, { defaultLimit: 50 });
 			const result = await adminAuditRepository.findMany({ ...query, page: pagination.page, limit: pagination.limit });
 
 			return {
-				...QueryPagination.buildAdminPagination({ total: result.total, page: pagination.page, limit: pagination.limit }),
+				...buildAdminPagination({ total: result.total, page: pagination.page, limit: pagination.limit }),
 				data: result.data.map(toAuditEntry),
 			};
 		});
-	}
+	},
 
 	/** The resource types and administrators the audit filter dropdowns offer. */
 	async getFilterOptions(): Promise<AdminAuditOptions> {
-		return await runSafely(this, "getFilterOptions", async () => await adminAuditRepository.findFilterOptions(AUDIT_FILTER_OPTIONS_LIMIT));
-	}
+		return await runSafely(
+			adminAuditService,
+			"getFilterOptions",
+			async () => await adminAuditRepository.findFilterOptions(AUDIT_FILTER_OPTIONS_LIMIT),
+		);
+	},
 
 	/** The entries matching the filters, as CSV or JSON Lines; an export past the cap is refused. */
 	exportEntries(query: AdminAuditQuery & { format?: "csv" | "jsonl" | undefined }) {
-		return runSafely(this, "exportEntries", async () => {
+		return runSafely(adminAuditService, "exportEntries", async () => {
 			const { format = "csv", ...filters } = query;
 			const result = await adminAuditRepository.findMany({ ...filters, page: 1, limit: AUDIT_EXPORT_MAX_ENTRIES + 1 });
 			if (result.data.length > AUDIT_EXPORT_MAX_ENTRIES) {
@@ -139,12 +143,10 @@ class AdminAuditService {
 				]),
 			);
 
-			return { body: `${[AUDIT_CSV_HEADER, ...rows].join("\n")}\n`, contentType: "text/csv; charset=utf-8", filename };
+			return buildCsvExport(AUDIT_CSV_HEADER, rows, filename);
 		});
-	}
-}
-
-export const adminAuditService = new AdminAuditService();
+	},
+};
 
 interface AuditedUpdateParams<T> {
 	logger: Logger;
@@ -230,7 +232,7 @@ interface AuditedChangeParams<TChange, TAfter = TChange> {
 
 /**
  * A change with an audit entry: the before snapshot, the change, and the audit
- * record of the result. The admin settings services all follow this shape, and
+ * record of the result. The admin settings services all follow adminAuditService shape, and
  * each of them wrote the three steps out again.
  */
 export async function auditedChange<TChange, TAfter = TChange>(params: AuditedChangeParams<TChange, TAfter>): Promise<TChange> {

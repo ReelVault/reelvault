@@ -1,8 +1,8 @@
 import { listDirectoryEntries } from "@/modules/metadata-sidecars/files/local-directory.listing";
 import { subtitlesStorage } from "@/modules/subtitles/subtitles.ports";
-import { FileUtils } from "@/utils/file.utils";
+import { fileExists } from "@/utils/file.utils";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getDirName, getExtension, getFileNameWithoutExt, joinPath } from "@/utils/path.utils";
 
 export const SIDECAR_SUBTITLE_EXTENSIONS = new Set(["srt", "ass", "ssa"]);
 
@@ -43,10 +43,10 @@ export function parseSidecarSubtitleName(videoBase: string, fileName: string): P
 
 /** Variant for directory walks that already lower-cased the video base once. */
 function parseSidecarSubtitleNameFromBase(base: string, fileName: string): ParsedSubtitleTokens | null {
-	const extension = PathUtils.getExtension(fileName).slice(1);
+	const extension = getExtension(fileName).slice(1);
 	if (!SIDECAR_SUBTITLE_EXTENSIONS.has(extension)) return null;
 
-	const stem = PathUtils.getFileNameWithoutExt(fileName);
+	const stem = getFileNameWithoutExt(fileName);
 	if (!stem.toLowerCase().startsWith(base)) return null;
 
 	const rest = stem.slice(base.length);
@@ -68,8 +68,8 @@ function parseSidecarSubtitleNameFromBase(base: string, fileName: string): Parse
 }
 
 export async function findSidecarSubtitles(videoFilePath: string): Promise<SidecarSubtitleCandidate[]> {
-	const directory = PathUtils.getDirName(videoFilePath);
-	const baseLower = PathUtils.getFileNameWithoutExt(videoFilePath).toLowerCase();
+	const directory = getDirName(videoFilePath);
+	const baseLower = getFileNameWithoutExt(videoFilePath).toLowerCase();
 	const entries = await readDirectoryEntries(directory);
 
 	const candidates: SidecarSubtitleCandidate[] = [];
@@ -78,7 +78,7 @@ export async function findSidecarSubtitles(videoFilePath: string): Promise<Sidec
 		if (!parsed) continue;
 
 		candidates.push({
-			filePath: PathUtils.join(directory, entry),
+			filePath: joinPath(directory, entry),
 			language: parsed.language ?? "und",
 			format: parsed.extension,
 			isDefault: parsed.isDefault,
@@ -87,9 +87,7 @@ export async function findSidecarSubtitles(videoFilePath: string): Promise<Sidec
 		});
 	}
 
-	const existing = await Promise.all(
-		candidates.map(async (candidate) => ((await FileUtils.exists(candidate.filePath)) ? candidate : null)),
-	);
+	const existing = await Promise.all(candidates.map(async (candidate) => ((await fileExists(candidate.filePath)) ? candidate : null)));
 
 	// The directory listing is cached for a short TTL — a subtitle deleted within
 	// that window must not be imported as a dangling row.

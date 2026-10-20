@@ -1,18 +1,18 @@
 import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
 import { assertFound, errorCodeOf } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { getFileStats } from "@/utils/file.utils";
+import { createSemaphore } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import type { MediaServiceState } from "./shared.utils";
 
 // Concurrency guard for on-demand ffmpeg/ffprobe integrity scans triggered from the API.
 // Each permit is an ffmpeg decode — derived from measured CPU capacity
 // (admin's scanning.concurrency override is honored inside the getter).
-const scanSemaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getScannerConcurrency());
+const scanSemaphore = createSemaphore(() => systemResourcesService.getScannerConcurrency());
 
 export interface MediaFileScanResult {
 	exists: boolean;
@@ -32,7 +32,7 @@ async function probeFileStats(filePath: string): Promise<{ exists: boolean; read
 	let sizeBytes: number | null = null;
 
 	try {
-		const stats = await FileUtils.getStats(filePath);
+		const stats = await getFileStats(filePath);
 		if (stats) {
 			exists = true;
 			readable = stats.isFile();
@@ -88,7 +88,7 @@ export async function scan(
 		return await runSafely(state, "scan", async () => {
 			const mediaFile = await mediaRepository.findByPrimaryId({
 				primaryId: mediaFileId,
-				fields: QueryFields.parse({ fields: "id,filePath,isEnabled" }),
+				fields: parseFields({ fields: "id,filePath,isEnabled" }),
 			});
 			assertFound(mediaFile, "MediaFile", mediaFileId);
 

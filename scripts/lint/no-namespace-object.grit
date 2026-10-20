@@ -1,0 +1,11 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A module is already a namespace. An object literal that only groups helpers
+// creates a second scope, defeats tree-shaking and forces self-references
+// through the object. Export named functions instead; keep a class only when
+// it owns state or lifecycle.
+`export const $name = $value` as $decl where {
+	$name <: r".*Utils$",
+	register_diagnostic(span=$decl, message="Do not group helpers in an export const *Utils object. Export named functions.")
+}

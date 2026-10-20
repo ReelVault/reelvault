@@ -3,7 +3,7 @@ import { inArray } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { applyFields, includesField } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { buildMediaFileProjection } from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
 import { groupBy } from "@/utils/array.utils";
 import type { EnrichedLibraryPath, LibraryRelations, LibraryStats, LibraryStatsCaches } from "./shared.types";
@@ -23,16 +23,13 @@ export async function loadRelations<F extends string>(
 	const mediaFileProjection = fields?.relations.mediaFiles?.length
 		? buildMediaFileProjection(fields.relations.mediaFiles, "libraryId")
 		: undefined;
-	const shouldLoadMediaFiles = Boolean(fields?.fields.length && QueryFields.includes(fields, "mediaFiles"));
-	const shouldLoadPaths = !fields?.fields.length || QueryFields.includes(fields, "paths");
+	const shouldLoadMediaFiles = Boolean(fields?.fields.length && includesField(fields, "mediaFiles"));
+	const shouldLoadPaths = !fields?.fields.length || includesField(fields, "paths");
 	// The aggregate is only needed when the caller reads library-level stats or
 	// paths (single-path path stats reuse it). Narrow field reads like
 	// `{fields:"id,type"}` must not pay for a COUNT+SUM over media_files.
 	const shouldLoadStats =
-		!fields?.fields.length ||
-		shouldLoadPaths ||
-		QueryFields.includes(fields, "totalMediaFiles") ||
-		QueryFields.includes(fields, "totalSize");
+		!fields?.fields.length || shouldLoadPaths || includesField(fields, "totalMediaFiles") || includesField(fields, "totalSize");
 
 	// Uncached ids are aggregated in one query and cached per key; concurrent
 	// callers sharing a library id reuse a single in-flight load.
@@ -84,7 +81,7 @@ export function toLibraryWithRelations<F extends string>(
 ): SelectFields<LibraryWithRelations, F> {
 	const stats = relations.stats.get(item.id) ?? { totalMediaFiles: 0, totalSize: 0 };
 
-	return QueryFields.apply<LibraryWithRelations, F>(
+	return applyFields<LibraryWithRelations, F>(
 		{
 			...item,
 			totalMediaFiles: stats.totalMediaFiles,

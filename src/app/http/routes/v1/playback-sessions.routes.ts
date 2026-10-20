@@ -14,7 +14,8 @@ import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
 import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
-import { MediaFileIdParams, SessionIdParams } from "@/app/http/schemas/route-params.schema";
+import { MediaFileIdParams, SessionIdParams, SessionSegmentParams } from "@/app/http/schemas/route-params.schema";
+import { assertRouteMediaAccess, assertRouteSessionAccess } from "@/app/http/utils/access-context.utils";
 import { withEtagResponse } from "@/app/http/utils/etag.utils";
 import { playbackViewService } from "@/app/media/playback-view.service";
 import { heartbeatService } from "@/app/playback/heartbeat.service";
@@ -24,9 +25,8 @@ import { playlistService } from "@/modules/streaming/playlist/playlist.service";
 import { listMinePlaybackSessions } from "@/modules/streaming/runtime/streaming.runtime";
 import { seekService } from "@/modules/streaming/seeking/seek.service";
 import { segmentService } from "@/modules/streaming/segments/segment.service";
-import { assertSessionAccess, assertSessionOwnershipById } from "@/modules/streaming/sessions/session-access.guard";
+import { assertSessionOwnershipById } from "@/modules/streaming/sessions/session-access.guard";
 import { sessionLifecycleService } from "@/modules/streaming/sessions/session-lifecycle.service";
-import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
 import { byteRangeResponse } from "@/utils/http-range.utils";
 
 export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions", tags: ["Playback Sessions"] })
@@ -56,7 +56,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 	.post(
 		"/",
 		async ({ body, headers, status, user, profile }) => {
-			await assertActiveStreamAccess({ userId: user?.id, profileId: profile?.id, mediaFileId: body.mediaFileId });
+			await assertRouteMediaAccess({ user, profile }, body.mediaFileId);
 
 			return status(201, await sessionLifecycleService.createPlaybackSession(body, profile?.id, headers["idempotency-key"], user?.id));
 		},
@@ -111,7 +111,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 			return segment;
 		},
 		{
-			params: t.Object({ sessionId: t.String(), segment: t.String() }),
+			params: SessionSegmentParams,
 			// Binary HLS segment — handler returns a Response (fMP4 body), not JSON.
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: t.Any() },
 			detail: { description: "Get an HLS fMP4 initialization or media segment." },
@@ -120,7 +120,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 	.post(
 		"/:sessionId/seek",
 		async ({ params, body, user, profile }) => {
-			await assertSessionAccess(params.sessionId, user?.id, profile?.id);
+			await assertRouteSessionAccess({ user, profile }, params.sessionId);
 
 			return await seekService.seek(params.sessionId, body.position);
 		},
@@ -140,7 +140,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 	.get(
 		"/:sessionId/transcode-progress",
 		async ({ params, user, profile }) => {
-			await assertSessionAccess(params.sessionId, user?.id, profile?.id);
+			await assertRouteSessionAccess({ user, profile }, params.sessionId);
 
 			return await diagnosticsService.getTranscodeProgress(params.sessionId);
 		},
@@ -153,7 +153,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 	.get(
 		"/:sessionId/diagnostics",
 		async ({ params, user, profile }) => {
-			await assertSessionAccess(params.sessionId, user?.id, profile?.id);
+			await assertRouteSessionAccess({ user, profile }, params.sessionId);
 
 			return await diagnosticsService.getDiagnostics(params.sessionId);
 		},
@@ -166,7 +166,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 	.post(
 		"/:sessionId/heartbeat",
 		async ({ params, body, user, profile }) => {
-			await assertSessionAccess(params.sessionId, user?.id, profile?.id);
+			await assertRouteSessionAccess({ user, profile }, params.sessionId);
 
 			return await heartbeatService.execute(params.sessionId, body);
 		},
@@ -194,7 +194,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 	.delete(
 		"/:sessionId",
 		async ({ params, set, user, profile }) => {
-			await assertSessionAccess(params.sessionId, user?.id, profile?.id);
+			await assertRouteSessionAccess({ user, profile }, params.sessionId);
 			sessionLifecycleService.releasePlaybackSession(params.sessionId);
 			set.status = 204;
 

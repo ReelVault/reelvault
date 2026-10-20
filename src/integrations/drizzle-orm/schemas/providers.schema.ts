@@ -1,19 +1,19 @@
 import { providerEntityTypes } from "@reelvault/sdk/common";
 import { sql } from "drizzle-orm";
 import { check, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 export const providers = sqliteTable(
 	"providers",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		stableKey: text("stable_key").notNull(),
 
 		name: text("name").notNull(),
 		entityType: text("entity_type", { enum: providerEntityTypes }).notNull(),
 		externalId: text("external_id").notNull(),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("providers_unique").on(t.name, t.entityType, t.externalId),

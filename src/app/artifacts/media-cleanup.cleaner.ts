@@ -1,7 +1,7 @@
 import { serverConfig } from "@/config/server/server.config";
-import { FileUtils } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { deleteFile } from "@/utils/file.utils";
+import { isSubpath, joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { mediaArtifactsService } from "./media-artifacts.service";
 
 export interface MediaCleanupPlan {
@@ -17,14 +17,14 @@ export interface MediaCleanupPlan {
  */
 export async function runMediaCleanup(plan: MediaCleanupPlan): Promise<void> {
 	const tasks: Array<() => Promise<unknown>> = [
-		...plan.artifactStorageKeys.map((storageKey) => async () => FileUtils.delete(PathUtils.join(serverConfig.paths.artifacts, storageKey))),
+		...plan.artifactStorageKeys.map((storageKey) => async () => deleteFile(joinPath(serverConfig.paths.artifacts, storageKey))),
 		...plan.subtitleFilePaths
-			.filter((filePath): filePath is string => Boolean(filePath && PathUtils.isSubpath(filePath, serverConfig.paths.subtitles)))
-			.map((filePath) => async () => FileUtils.delete(filePath)),
-		...(plan.subtitleIds ?? []).map((id) => async () => FileUtils.delete(PathUtils.join(serverConfig.paths.subtitles, `${id}.vtt`))),
+			.filter((filePath): filePath is string => Boolean(filePath && isSubpath(filePath, serverConfig.paths.subtitles)))
+			.map((filePath) => async () => deleteFile(filePath)),
+		...(plan.subtitleIds ?? []).map((id) => async () => deleteFile(joinPath(serverConfig.paths.subtitles, `${id}.vtt`))),
 	];
 
-	await PromiseUtils.mapConcurrent(tasks, serverConfig.application.cleanupConcurrency, async (task) => task());
+	await mapConcurrent(tasks, serverConfig.application.cleanupConcurrency, async (task) => task());
 
 	if (plan.artifactStorageKeys.length > 0) {
 		// The media-artifacts service caches per-owner byte totals for quota/budget

@@ -2,7 +2,7 @@ import type { OutgoingNotification, PluginNotificationChannel } from "@reelvault
 import { serverConfig } from "@/config/server/server.config";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { withTimeout } from "@/utils/promise.utils";
 
 const logger = createLogger("NotificationChannels");
 
@@ -79,7 +79,7 @@ export async function dispatchNotificationToChannels(notification: OutgoingNotif
 	await Promise.all(
 		[...channels].map(async ([key, entry]) => {
 			try {
-				await PromiseUtils.withTimeout(
+				await withTimeout(
 					entry.channel.deliver(structuredClone(notification)),
 					serverConfig.plugins.notifications.channelDeliveryTimeoutMs,
 					`Notification channel ${key}`,

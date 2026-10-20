@@ -10,8 +10,8 @@ import { PLUGIN_CAPABILITY_SET } from "@reelvault/sdk/plugin";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getFileStats, readJsonFile } from "@/utils/file.utils";
+import { joinPath } from "@/utils/path.utils";
 import { isValidSemver } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
 import { validatePluginCsp } from "./manifest/csp.validator";
@@ -86,13 +86,13 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
 const manifestCache = new Map<string, { signature: string; manifest: PluginManifest }>();
 
 export async function loadPluginManifest(pluginDir: string, options?: { fresh?: boolean | undefined }): Promise<PluginManifest> {
-	const manifestPath = PathUtils.join(pluginDir, "plugin.json");
-	const stats = await FileUtils.getStats(manifestPath);
+	const manifestPath = joinPath(pluginDir, "plugin.json");
+	const stats = await getFileStats(manifestPath);
 	const signature = stats ? `${stats.size}:${stats.mtimeMs}` : "missing";
 	const cached = manifestCache.get(manifestPath);
 	if (!options?.fresh && cached?.signature === signature) return cached.manifest;
 
-	const manifest = await FileUtils.readJson<unknown>(manifestPath);
+	const manifest = await readJsonFile<unknown>(manifestPath);
 	if (!manifest)
 		throw new DomainError("validation", `Plugin is missing a valid plugin.json: ${manifestPath}`, { code: "plugin.manifest_missing" });
 
@@ -114,7 +114,7 @@ async function loadResolvedSchema(
 	dialogIds: ReadonlySet<string>,
 ): Promise<PluginUiSchemaSurface> {
 	const refPath = resolvePluginPath(pluginDir, ref, `${field}.schemaRef`);
-	const raw = await FileUtils.readJson<unknown>(refPath, { maxSize: SCHEMA_MAX_BYTES });
+	const raw = await readJsonFile<unknown>(refPath, { maxSize: SCHEMA_MAX_BYTES });
 	if (raw === null)
 		throw new DomainError("validation", `Plugin ui.json ${field}.schemaRef is missing or unreadable: ${ref}`, {
 			code: "plugin.ui.schema_ref_missing",

@@ -1,8 +1,8 @@
 import { hash as bunHash } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
-import { matchesIfNoneMatch, pathWithQuery, readRequestCredentials } from "@/utils/http.utils";
-import { getCachedResponseBody, responseCacheKey, setEtagResponseBody } from "@/utils/response-body.cache";
+import { matchesIfNoneMatch, requestIdentityKey } from "@/utils/http.utils";
+import { getCachedResponseBody, setEtagResponseBody } from "@/utils/response-body.cache";
 
 /** Per-profile aggregation responses must be revalidated by the browser on every use. */
 const ETAG_CACHE_CONTROL = "private, no-cache";
@@ -128,13 +128,5 @@ export async function withEtagResponse<T>(
 
 /** Credential-scoped body-cache key — the same format the response-cache middleware builds. */
 function etagCacheKey(request: Request, profileId: string | undefined): string {
-	const credentials = readRequestCredentials(request);
-
-	return responseCacheKey({
-		pathWithQuery: pathWithQuery(request.url),
-		cookie: credentials.cookie,
-		profileId: profileId ?? "",
-		auth: credentials.authorization,
-		apiKey: credentials.apiKey,
-	});
+	return requestIdentityKey(request, { profileId: profileId ?? "" });
 }

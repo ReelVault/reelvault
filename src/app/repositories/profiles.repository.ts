@@ -14,9 +14,9 @@ import { serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
-import { type QueryMap, QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { parseStandardQuery, type QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { type PrimaryIdReadParams, selectByIdWithFields } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import {
@@ -55,8 +55,8 @@ function readProfileCached(profileId: string): Promise<Profile | undefined> {
 
 const profileQueryMap: QueryMap<ProfileFilters, ProfileSorting> = {
 	filters: {
-		userId: (value: string) => QueryFiltering.eq(schema.profiles.userId, value),
-		name: (value: string) => QueryFiltering.like(schema.profiles.name, value),
+		userId: (value: string) => filterEquals(schema.profiles.userId, value),
+		name: (value: string) => filterLike(schema.profiles.name, value),
 	},
 	orderBy: {
 		name: schema.profiles.name,
@@ -108,7 +108,7 @@ const overrides = {
 
 		if (!data) return undefined;
 
-		return QueryFields.apply(data, fields);
+		return applyFields(data, fields);
 	},
 
 	async isNameTaken({ userId, name, excludeId }: { userId: string; name: string; excludeId?: string }): Promise<boolean> {
@@ -151,7 +151,7 @@ const overrides = {
 		body: CreateProfile,
 		query?: FieldsQuery<F>,
 	): Promise<SelectFields<Profile, F> | undefined> {
-		const { fields } = QueryUtils.parseStandard(query);
+		const { fields } = parseStandardQuery(query);
 
 		return await getProfilesRepository().create({ userId, body, fields });
 	},
@@ -165,7 +165,7 @@ const overrides = {
 		values: Partial<typeof schema.profiles.$inferInsert>,
 		query?: FieldsQuery<F>,
 	): Promise<SelectFields<Profile, F> | undefined> {
-		const { fields } = QueryUtils.parseStandard(query);
+		const { fields } = parseStandardQuery(query);
 		profileCache.delete(profileId);
 
 		return await profiles.updateAndReturn({ primaryId: profileId, values, fields });

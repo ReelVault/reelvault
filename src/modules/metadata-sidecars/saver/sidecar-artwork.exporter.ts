@@ -2,10 +2,11 @@ import type { ImageQuality } from "@reelvault/sdk/common";
 import { reencodeImage } from "@/integrations/sharp/sharp.actions";
 import { imagesStorage } from "@/modules/images/images.ports";
 import { errorMessage } from "@/utils/domain.errors";
-import { FileUtils, fileStatSignature } from "@/utils/file.utils";
+import { fileStatSignature, getFileStats, writeFileIfChanged } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
+import { episodeThumbFileName, TITLE_BACKDROP_NAMES, TITLE_POSTER_NAMES } from "../files/artwork.constants";
 import { assertEpisodeBaseName, seasonFileName } from "./sidecar-path.policy";
 
 const JPEG_QUALITY: ImageQuality = 85;
@@ -73,22 +74,22 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 
 	async saveTitleArtwork({ metadataId, directory }: TitleArtworkInput): Promise<readonly string[]> {
 		return await this.exportAll(
-			this.exportMetadataImage(metadataId, "poster", directory, "poster.jpg"),
-			this.exportMetadataImage(metadataId, "backdrop", directory, "fanart.jpg"),
+			this.exportMetadataImage(metadataId, "poster", directory, TITLE_POSTER_NAMES[1]),
+			this.exportMetadataImage(metadataId, "backdrop", directory, TITLE_BACKDROP_NAMES[2]),
 		);
 	}
 
 	async saveSeasonArtwork({ imageId, directory, seasonNumber }: SeasonArtworkInput): Promise<readonly string[]> {
 		if (!imageId) return [];
 
-		return await this.exportAll(this.exportImageFile(imageId, PathUtils.join(directory, seasonFileName(seasonNumber, "-poster.jpg"))));
+		return await this.exportAll(this.exportImageFile(imageId, joinPath(directory, seasonFileName(seasonNumber, "-poster.jpg"))));
 	}
 
 	async saveEpisodeArtwork({ imageId, directory, videoBaseName }: EpisodeArtworkInput): Promise<readonly string[]> {
 		if (!imageId) return [];
 
 		return await this.exportAll(
-			this.exportImageFile(imageId, PathUtils.join(directory, `${assertEpisodeBaseName(videoBaseName)}-thumb.jpg`)),
+			this.exportImageFile(imageId, joinPath(directory, episodeThumbFileName(assertEpisodeBaseName(videoBaseName)))),
 		);
 	}
 
@@ -116,7 +117,7 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 		const sourcePath = await imagesStorage().findMetadataImagePath(metadataId, imageType);
 		if (!sourcePath) return undefined;
 
-		return await this.exportFile(sourcePath, PathUtils.join(directory, fileName));
+		return await this.exportFile(sourcePath, joinPath(directory, fileName));
 	}
 
 	private async exportImageFile(imageId: string, targetPath: string): Promise<string | undefined> {
@@ -127,7 +128,7 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 	}
 
 	private async exportFile(sourcePath: string, targetPath: string): Promise<string | undefined> {
-		const [sourceStats, targetStats] = await Promise.all([FileUtils.getStats(sourcePath), FileUtils.getStats(targetPath)]);
+		const [sourceStats, targetStats] = await Promise.all([getFileStats(sourcePath), getFileStats(targetPath)]);
 		const sourceSignature = sourceStats ? fileStatSignature(sourceStats) : "";
 		const targetSignature = targetStats ? fileStatSignature(targetStats) : "";
 		const cached = exportStamps.get(targetPath);
@@ -140,24 +141,14 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 		// Metadata mutations re-save constantly — skip the tmp+rename when the
 		// exported bytes are already on disk, and remember the signatures so the
 		// next save skips the re-encode too.
-		let existing: Buffer;
-		if (targetStats) {
-			const targetBytes = await Bun.file(targetPath)
-				.arrayBuffer()
-				.catch(() => new ArrayBuffer(0));
-			existing = Buffer.from(targetBytes);
-		} else {
-			existing = Buffer.alloc(0);
-		}
-		if (existing.length > 0 && existing.equals(contents)) {
+		const written = await writeFileIfChanged(targetPath, contents);
+		if (!written) {
 			exportStamps.set(targetPath, { sourceSignature, targetSignature });
 
 			return undefined;
 		}
 
-		await FileUtils.writeAtomic(targetPath, contents);
-
-		const writtenStats = await FileUtils.getStats(targetPath);
+		const writtenStats = await getFileStats(targetPath);
 		if (writtenStats) exportStamps.set(targetPath, { sourceSignature, targetSignature: fileStatSignature(writtenStats) });
 
 		return targetPath;

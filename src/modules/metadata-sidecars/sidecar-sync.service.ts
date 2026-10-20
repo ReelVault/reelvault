@@ -2,7 +2,7 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { groupBy } from "@/utils/array.utils";
 import { errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { detach, PromiseUtils } from "@/utils/promise.utils";
+import { createSemaphore, detach } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { sidecarStorage } from "./sidecar.ports";
 import { SidecarMetadataStorageService } from "./sidecar-metadata-storage.service";
@@ -26,7 +26,7 @@ class SidecarSyncService {
 	private readonly inFlight = new Map<string, Promise<void>>();
 	private readonly rerunRequested = new Set<string>();
 	/** Bounds how many titles rewrite sidecars at once during a catalog-wide refresh. */
-	private readonly semaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getIoConcurrency());
+	private readonly semaphore = createSemaphore(() => systemResourcesService.getIoConcurrency());
 
 	/**
 	 * Queues a sidecar rewrite for one title. Concurrent requests for the same

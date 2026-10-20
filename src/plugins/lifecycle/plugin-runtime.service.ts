@@ -2,8 +2,8 @@ import { copyFile, link, mkdir, readdir, realpath } from "node:fs/promises";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { removeTree } from "@/utils/directory.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 /**
  * Bun's ESM loader caches modules by resolved path (query strings are ignored)
@@ -25,7 +25,7 @@ interface MirrorPlan {
 }
 
 export function pluginRuntimeRoot(pluginsDirectory: string): string {
-	return PathUtils.join(pluginsDirectory, RUNTIME_DIRECTORY_NAME);
+	return joinPath(pluginsDirectory, RUNTIME_DIRECTORY_NAME);
 }
 
 /** Wipes every materialised runtime. Called on boot before the first load. */
@@ -35,15 +35,15 @@ export async function clearPluginRuntimes(runtimeRoot: string): Promise<void> {
 
 /** Creates a unique path that imports a fresh module graph for `pluginDir`. */
 export async function materializePluginRuntime(pluginDir: string, runtimeRoot: string): Promise<string> {
-	const runtimeDir = PathUtils.join(runtimeRoot, crypto.randomUUID());
+	const runtimeDir = joinPath(runtimeRoot, crypto.randomUUID());
 	const plan: MirrorPlan = { directories: [], files: [] };
 	await collectMirrorPlan(pluginDir, runtimeDir, new Set(), plan);
 
 	// Two phases so the (potentially thousands of) filesystem mutations run
 	// bounded-parallel instead of one await per file.
 	const concurrency = serverConfig.plugins.lifecycle.loadConcurrency;
-	await PromiseUtils.mapConcurrent(plan.directories, concurrency, (directory) => mkdir(directory, { recursive: true }));
-	await PromiseUtils.mapConcurrent(plan.files, concurrency, ({ from, to }) => linkOrCopy(from, to));
+	await mapConcurrent(plan.directories, concurrency, (directory) => mkdir(directory, { recursive: true }));
+	await mapConcurrent(plan.files, concurrency, ({ from, to }) => linkOrCopy(from, to));
 
 	return runtimeDir;
 }
@@ -62,8 +62,8 @@ async function collectMirrorPlan(source: string, destination: string, visitedRea
 	for (const entry of entries) {
 		if (SKIPPED_DIRECTORY_NAMES.has(entry.name)) continue;
 
-		const from = PathUtils.join(source, entry.name);
-		const to = PathUtils.join(destination, entry.name);
+		const from = joinPath(source, entry.name);
+		const to = joinPath(destination, entry.name);
 
 		if (entry.isDirectory()) {
 			await collectMirrorPlan(from, to, visitedRealPaths, plan);

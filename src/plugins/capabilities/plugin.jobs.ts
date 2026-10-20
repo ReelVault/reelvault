@@ -35,17 +35,17 @@ function clampPluginJobTimeout(value: number | undefined): number | undefined {
 	return clamp(Math.floor(value), 1, MAX_PLUGIN_JOB_TIMEOUT_MS);
 }
 
-class PluginJobsService {
-	readonly serviceName = "PluginJobsService";
-	readonly logger = createLogger("PluginJobsService");
+export const pluginJobsService = {
+	serviceName: "PluginJobsService",
+	logger: createLogger("PluginJobsService"),
 
 	namespace(pluginId: string, jobName: string): string {
 		return `${pluginId}:${jobName}`;
-	}
+	},
 
 	validateSchedule(job: PluginJobDefinition): void {
 		if (job.schedule?.cron) assertCronExpression(job.schedule.cron);
-	}
+	},
 
 	async register(pluginId: string, jobs: readonly PluginJobDefinition[]): Promise<string[]> {
 		const names: string[] = [];
@@ -71,9 +71,9 @@ class PluginJobsService {
 					});
 				}
 
-				this.validateSchedule(job);
+				pluginJobsService.validateSchedule(job);
 
-				const name = this.namespace(pluginId, job.name);
+				const name = pluginJobsService.namespace(pluginId, job.name);
 				workerService.registerWorker({
 					id: name,
 					name: job.title ?? job.name,
@@ -106,10 +106,10 @@ class PluginJobsService {
 		} catch (error) {
 			// Roll back the jobs registered before the failure — otherwise they leak
 			// (the caller never receives the partial name list to clean up).
-			await this.unregister(names);
+			await pluginJobsService.unregister(names);
 			throw error;
 		}
-	}
+	},
 
 	async enqueue(pluginId: string, name: string, data: unknown, options?: PluginEnqueueOptions): Promise<PluginJobHandle> {
 		if (!isNonEmptyString(name)) {
@@ -118,7 +118,7 @@ class PluginJobsService {
 			});
 		}
 
-		const namespacedName = this.namespace(pluginId, name);
+		const namespacedName = pluginJobsService.namespace(pluginId, name);
 		const { operationId, result: queuedItem } = await enqueueWithOperation(
 			{ type: namespacedName, reference: options?.reference ?? { type: "plugin", id: pluginId } },
 			(opId) => workerService.addItem(namespacedName, data, { ...options, operationId: opId }),
@@ -131,7 +131,7 @@ class PluginJobsService {
 		);
 
 		return { id: queuedItem.id, name, operationId };
-	}
+	},
 
 	async enqueueMany(
 		pluginId: string,
@@ -147,7 +147,7 @@ class PluginJobsService {
 
 		if (items.length === 0) return [];
 
-		const namespacedName = this.namespace(pluginId, name);
+		const namespacedName = pluginJobsService.namespace(pluginId, name);
 		const { operationId, result: queuedItems } = await enqueueWithOperation(
 			{ type: namespacedName, reference: commonOptions?.reference ?? { type: "plugin", id: pluginId } },
 			(opId) =>
@@ -169,11 +169,9 @@ class PluginJobsService {
 		);
 
 		return queuedItems.map((item) => ({ id: item.id, name, operationId }));
-	}
+	},
 
 	async unregister(names: readonly string[]): Promise<void> {
 		for (const name of [...names].toReversed()) await workerService.unregisterWorker(name);
-	}
-}
-
-export const pluginJobsService = new PluginJobsService();
+	},
+};

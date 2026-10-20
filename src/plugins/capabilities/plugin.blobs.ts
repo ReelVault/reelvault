@@ -5,10 +5,10 @@ import { serverConfig } from "@/config/server/server.config";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { isExpired } from "@/utils/time.utils";
 import { assertPluginBlobWrite } from "./plugin.blobs.validator";
 import { assertStorageKey } from "./plugin.storage.validator";
@@ -61,7 +61,7 @@ class PluginBlobsService {
 				);
 			});
 
-			if (current) await FileUtils.delete(this.storagePath(current.storageKey));
+			if (current) await deleteFile(this.storagePath(current.storageKey));
 
 			return { key, contentType: options.contentType, size, createdAt: now.toISOString(), expiresAt: expiresAt.toISOString() };
 		});
@@ -112,9 +112,7 @@ class PluginBlobsService {
 
 				const keys = page.map((entry) => entry.key);
 				await pluginBlobData.deleteByKeys(pluginId, keys);
-				await PromiseUtils.mapConcurrent(page, serverConfig.plugins.blobs.cleanupConcurrency, (entry) =>
-					FileUtils.delete(this.storagePath(entry.storageKey)),
-				);
+				await mapConcurrent(page, serverConfig.plugins.blobs.cleanupConcurrency, (entry) => deleteFile(this.storagePath(entry.storageKey)));
 
 				if (page.length < pageSize) break;
 
@@ -131,7 +129,7 @@ class PluginBlobsService {
 			const entries = await pluginBlobData.findExpired(new Date(), pageSize);
 			if (entries.length === 0) break;
 
-			await PromiseUtils.mapConcurrent(
+			await mapConcurrent(
 				entries,
 				serverConfig.plugins.blobs.cleanupConcurrency,
 				(entry) =>
@@ -170,7 +168,7 @@ class PluginBlobsService {
 
 	private async deleteEntry(entry: PluginBlobRow): Promise<void> {
 		await pluginBlobData.delete(entry.pluginId, entry.key);
-		await FileUtils.delete(this.storagePath(entry.storageKey));
+		await deleteFile(this.storagePath(entry.storageKey));
 	}
 
 	private toMetadata(entry: PluginBlobRow): PluginBlobMetadata {
@@ -184,7 +182,7 @@ class PluginBlobsService {
 	}
 
 	private storagePath(storageKey: string): string {
-		return PathUtils.join(serverConfig.paths.pluginBlobs, storageKey);
+		return joinPath(serverConfig.paths.pluginBlobs, storageKey);
 	}
 }
 

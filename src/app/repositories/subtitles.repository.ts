@@ -13,7 +13,7 @@ import { and, eq, isNull, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { type FindFirstReadParams, type PrimaryIdReadParams, selectByPrimaryId } from "@/integrations/drizzle-orm/query/primary-id.reader";
@@ -41,18 +41,18 @@ const subtitleQueryMap: QueryMap<SubtitleFilters, SubtitleSorting> = {
 		// Text search: one term matched against the label, the language and the media file id.
 		q: (value: string) =>
 			or(
-				QueryFiltering.like(schema.subtitles.label, value),
-				QueryFiltering.like(schema.subtitles.language, value),
-				QueryFiltering.like(schema.subtitles.mediaFileId, value),
+				filterLike(schema.subtitles.label, value),
+				filterLike(schema.subtitles.language, value),
+				filterLike(schema.subtitles.mediaFileId, value),
 			) ?? sql`1 = 0`,
-		mediaFileId: (value: string) => QueryFiltering.eq(schema.subtitles.mediaFileId, value),
-		language: (value: string) => QueryFiltering.like(schema.subtitles.language, value),
-		label: (value: string) => QueryFiltering.like(schema.subtitles.label, value),
-		format: (value: string) => QueryFiltering.like(schema.subtitles.format, value),
-		type: (value: string) => QueryFiltering.like(schema.subtitles.type, value),
-		streamIndex: (value: number) => QueryFiltering.eq(schema.subtitles.streamIndex, value),
-		isDefault: (value: boolean) => QueryFiltering.eq(schema.subtitles.isDefault, value),
-		isForced: (value: boolean) => QueryFiltering.eq(schema.subtitles.isForced, value),
+		mediaFileId: (value: string) => filterEquals(schema.subtitles.mediaFileId, value),
+		language: (value: string) => filterLike(schema.subtitles.language, value),
+		label: (value: string) => filterLike(schema.subtitles.label, value),
+		format: (value: string) => filterLike(schema.subtitles.format, value),
+		type: (value: string) => filterLike(schema.subtitles.type, value),
+		streamIndex: (value: number) => filterEquals(schema.subtitles.streamIndex, value),
+		isDefault: (value: boolean) => filterEquals(schema.subtitles.isDefault, value),
+		isForced: (value: boolean) => filterEquals(schema.subtitles.isForced, value),
 	},
 	orderBy: {
 		language: schema.subtitles.language,

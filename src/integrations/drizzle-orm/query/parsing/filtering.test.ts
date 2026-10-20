@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { filterLike, filterM2M, parseCommaSeparated } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { assertPresent } from "@/utils/domain.errors";
 import { useTestDatabase } from "../../../../../tests/helpers/test-database.helper";
-import { QueryFiltering } from "./filtering.parser";
 
 const { client } = useTestDatabase();
 
@@ -11,7 +11,7 @@ describe("QueryFiltering", () => {
 		const ids = Array.from({ length: 501 }, (_, index) => `id-${index}`);
 		let caught: unknown;
 		try {
-			QueryFiltering.m2m(schema.genres.id, ids, schema.genres, schema.genres.id, schema.genres.id);
+			filterM2M(schema.genres.id, ids, schema.genres, schema.genres.id, schema.genres.id);
 		} catch (error) {
 			caught = error;
 		}
@@ -20,7 +20,7 @@ describe("QueryFiltering", () => {
 	});
 
 	test("bounds comma-separated filter values", () => {
-		expect(() => QueryFiltering.parseCommaSeparated(Array.from({ length: 501 }, (_, index) => `id-${index}`).join(","))).toThrow(
+		expect(() => parseCommaSeparated(Array.from({ length: 501 }, (_, index) => `id-${index}`).join(","))).toThrow(
 			expect.objectContaining({ category: "validation", code: "validation.filter_too_many_values" }),
 		);
 	});
@@ -41,7 +41,7 @@ describe("QueryFiltering", () => {
 			await db.insert(schema.metadataGenres).values({ metadataId: show.id, genreId: genre.id });
 		}
 
-		const filter = QueryFiltering.m2m(
+		const filter = filterM2M(
 			schema.metadata.id,
 			genreIds.slice(0, 2),
 			schema.metadataGenres,
@@ -66,11 +66,11 @@ describe("QueryFiltering", () => {
 		const percentMatches = await db
 			.select({ name: schema.libraries.name })
 			.from(schema.libraries)
-			.where(QueryFiltering.like(schema.libraries.name, "50%"));
+			.where(filterLike(schema.libraries.name, "50%"));
 		const underscoreMatches = await db
 			.select({ name: schema.libraries.name })
 			.from(schema.libraries)
-			.where(QueryFiltering.like(schema.libraries.name, "a_b"));
+			.where(filterLike(schema.libraries.name, "a_b"));
 
 		expect(percentMatches).toEqual([{ name: "50%" }]);
 		expect(underscoreMatches).toEqual([{ name: "a_b" }]);

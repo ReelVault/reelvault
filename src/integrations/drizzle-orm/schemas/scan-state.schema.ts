@@ -1,5 +1,5 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 
 /**
  * Checkpoint for an interrupted library scan. One row per library holding the
@@ -12,7 +12,7 @@ import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper
 export const scanState = sqliteTable(
 	"scan_state",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		libraryId: text("library_id").notNull().unique(),
 		// Comma-joined scan paths the diff was computed against — a checkpoint is
 		// only resumed when the next scan targets the same paths.
@@ -22,7 +22,7 @@ export const scanState = sqliteTable(
 		changedMediaFileIds: text("changed_media_file_ids", { mode: "json" }).$type<string[]>().notNull(),
 		ingestCursor: integer("ingest_cursor").notNull().default(0),
 		refreshCursor: integer("refresh_cursor").notNull().default(0),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [index("scan_state_library_updated_idx").on(table.libraryId, table.updatedAt)],
 );

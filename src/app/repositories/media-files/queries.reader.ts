@@ -13,7 +13,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { applyFields, includesField, parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
@@ -60,7 +60,7 @@ export async function findByIdForRead<F extends string>(mediaFileId: string, que
 }
 
 export async function findIdByFilePath(filePath: string) {
-	return await findByFilePath({ filePath, fields: QueryFields.parse({ fields: "id" }) });
+	return await findByFilePath({ filePath, fields: parseFields({ fields: "id" }) });
 }
 
 /** Lightweight connectivity probe for the health endpoint. */
@@ -96,7 +96,7 @@ export async function findMany<F extends string>({
 		const rel = related.get(item.id);
 		if (!rel) continue;
 
-		results.push(QueryFields.apply<MediaFileWithRelation, F>({ ...item, ...rel }, fields));
+		results.push(applyFields<MediaFileWithRelation, F>({ ...item, ...rel }, fields));
 	}
 
 	return results;
@@ -157,14 +157,7 @@ export async function findIdentitiesByIds(
 
 /** Which of the ids exist as media files — one read for bulk prechecks (chunked like every id list). */
 export async function findExistingIds(ids: readonly string[]): Promise<Set<string>> {
-	const uniqueIds = [...new Set(ids)];
-	if (uniqueIds.length === 0) return new Set();
-
-	const rows = await mapChunked(uniqueIds, (chunkIds) =>
-		databaseFactory.getClient().select({ id: schema.mediaFiles.id }).from(schema.mediaFiles).where(inArray(schema.mediaFiles.id, chunkIds)),
-	);
-
-	return new Set(rows.map((row) => row.id));
+	return await mediaFiles.findExistingIds(ids);
 }
 
 /**
@@ -186,7 +179,7 @@ export async function findByPrimaryId<F extends string>({
 		const merged = row ? parseMediaFileWithRelations(row) : undefined;
 		if (!merged) return undefined;
 
-		return QueryFields.apply<MediaFileWithRelation, F>(merged, fields);
+		return applyFields<MediaFileWithRelation, F>(merged, fields);
 	}
 
 	const media = await mediaFiles.selectFirstById({ primaryId, tx });
@@ -204,7 +197,7 @@ async function applyRelations<F extends string>(
 	const relations = (await loadRelations([media], tx, fields)).get(media.id);
 	if (!relations) return undefined;
 
-	return QueryFields.apply<MediaFileWithRelation, F>({ ...media, ...relations }, fields);
+	return applyFields<MediaFileWithRelation, F>({ ...media, ...relations }, fields);
 }
 
 /**
@@ -353,7 +346,7 @@ async function loadRelations<F extends string>(
 			.select(videoProjection)
 			.from(schema.mediaFileVideoStreams)
 			.where(inArray(schema.mediaFileVideoStreams.mediaFileId, mediaFileIds));
-	} else if (QueryFields.includes(fields, "videoStreams")) {
+	} else if (includesField(fields, "videoStreams")) {
 		videoStreamsQuery = preparedVideoStreams(client).execute({ ids: mediaFileIdsJson });
 	} else {
 		videoStreamsQuery = Promise.resolve([]);
@@ -365,7 +358,7 @@ async function loadRelations<F extends string>(
 			.select(audioProjection)
 			.from(schema.mediaFileAudioStreams)
 			.where(inArray(schema.mediaFileAudioStreams.mediaFileId, mediaFileIds));
-	} else if (QueryFields.includes(fields, "audioStreams")) {
+	} else if (includesField(fields, "audioStreams")) {
 		audioStreamsQuery = preparedAudioStreams(client).execute({ ids: mediaFileIdsJson });
 	} else {
 		audioStreamsQuery = Promise.resolve([]);
@@ -383,7 +376,7 @@ async function loadRelations<F extends string>(
 	let subtitlesQuery: PromiseLike<Array<typeof schema.subtitles.$inferSelect>>;
 	if (subtitleProjection) {
 		subtitlesQuery = client.select(subtitleProjection).from(schema.subtitles).where(inArray(schema.subtitles.mediaFileId, mediaFileIds));
-	} else if (QueryFields.includes(fields, "subtitles")) {
+	} else if (includesField(fields, "subtitles")) {
 		subtitlesQuery = preparedSubtitles(client).execute({ ids: mediaFileIdsJson });
 	} else {
 		subtitlesQuery = Promise.resolve([]);

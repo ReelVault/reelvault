@@ -2,11 +2,11 @@ import { serverConfig } from "@/config/server/server.config";
 import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import { detectImageFormat } from "@/modules/images/image-format.utils";
 import { createHash } from "@/utils/crypto.utils";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { writeFileAtomic } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getDirName, joinPath } from "@/utils/path.utils";
 
 type ImageUploadTarget =
 	| { ownerType: "metadata"; ownerId: string; variant: "poster" | "backdrop" }
@@ -40,12 +40,12 @@ class ImageUploadService {
 			throw new DomainError("validation", "Uploaded file is not a supported raster image", { code: "images.unsupported_format" });
 
 		const localPath = this.createTemporaryImagePath();
-		await DirUtils.create(PathUtils.getDirName(localPath));
+		await createDirectory(getDirName(localPath));
 
 		const { data, info } = await optimizeImageWithInfo(source, serverConfig.images.variants[target.variant]);
 
 		try {
-			await FileUtils.writeAtomic(localPath, data);
+			await writeFileAtomic(localPath, data);
 		} catch {
 			throw new DomainError("internal", "Cannot write optimized image", { code: "image.write_failed" });
 		}
@@ -70,7 +70,7 @@ class ImageUploadService {
 	}
 
 	private createTemporaryImagePath(): string {
-		return PathUtils.join(serverConfig.paths.imageTmp, `${crypto.randomUUID()}.webp`);
+		return joinPath(serverConfig.paths.imageTmp, `${crypto.randomUUID()}.webp`);
 	}
 }
 

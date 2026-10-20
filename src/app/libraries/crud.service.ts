@@ -19,7 +19,7 @@ import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { libraryProviderSettingsRepository } from "@/app/repositories/library-provider-settings.repository";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { assertFound, DomainError } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { resolvePath } from "@/utils/path.utils";
 import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { ingestLibraryCache } from "@/workers/definitions/media/media-file-ingest/dependencies.utils";
@@ -31,7 +31,7 @@ import { LIBRARY_LIST_PATH_PREFIXES, type LibrariesServiceState, normalizeMetada
  */
 function assertPathsExist(paths: CreateLibraryPath[]): void {
 	for (const item of paths) {
-		const resolved = PathUtils.resolve(item.path.trim());
+		const resolved = resolvePath(item.path.trim());
 		if (!existsSync(resolved)) {
 			throw new DomainError("validation", `Source path does not exist: ${resolved}`, { code: "library.path_not_found" });
 		}

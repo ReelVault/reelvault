@@ -1,7 +1,7 @@
 import { serverConfig } from "@/config/server/server.config";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { isSubpath } from "@/utils/path.utils";
 import { subtitleVttPath } from "./subtitle-path.utils";
 
 interface SubtitleRowReference {
@@ -15,7 +15,7 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	deleteFile: (path) => FileUtils.delete(path),
+	deleteFile: (path) => deleteFile(path),
 	subtitlesPath: () => serverConfig.paths.subtitles,
 };
 
@@ -37,7 +37,7 @@ export class SubtitleFileCleaner {
 	async deleteArtifacts(subtitleId: string, subtitle: SubtitleRowReference): Promise<void> {
 		const subtitlesPath = this.dependencies.subtitlesPath();
 		const deletions: Array<Promise<boolean>> = [this.dependencies.deleteFile(subtitleVttPath(subtitlesPath, subtitleId))];
-		if (subtitle.type === "external" && subtitle.filePath && PathUtils.isSubpath(subtitle.filePath, subtitlesPath)) {
+		if (subtitle.type === "external" && subtitle.filePath && isSubpath(subtitle.filePath, subtitlesPath)) {
 			deletions.push(this.dependencies.deleteFile(subtitle.filePath));
 		}
 

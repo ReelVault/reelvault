@@ -2,9 +2,9 @@ import { serverConfig } from "@/config/server/server.config";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { fileExists, readJsonFile, writeFileAtomic } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 import { isRecord } from "@/utils/type.utils";
 
 const CONFIG_FILENAME = "config.json";
@@ -28,7 +28,7 @@ export class PluginConfig {
 		const { values, cause } = await this.read(pluginDir);
 		if (cause !== undefined) {
 			// A config.json that exists but is unreadable would otherwise silently reset the plugin to its defaults.
-			this.logger.warn(`Plugin config could not be read — using defaults: ${PathUtils.join(pluginDir, CONFIG_FILENAME)}`, { error: cause });
+			this.logger.warn(`Plugin config could not be read — using defaults: ${joinPath(pluginDir, CONFIG_FILENAME)}`, { error: cause });
 		}
 
 		return values;
@@ -40,11 +40,11 @@ export class PluginConfig {
 	}
 
 	private async read(pluginDir: string): Promise<{ values: Record<string, unknown>; code?: string; cause?: unknown }> {
-		const configPath = PathUtils.join(pluginDir, CONFIG_FILENAME);
+		const configPath = joinPath(pluginDir, CONFIG_FILENAME);
 		try {
-			if (!(await FileUtils.exists(configPath))) return { values: {} };
+			if (!(await fileExists(configPath))) return { values: {} };
 
-			const config = await FileUtils.readJson<unknown>(configPath, { silent: true });
+			const config = await readJsonFile<unknown>(configPath, { silent: true });
 			if (isRecord(config)) return { values: config };
 
 			return { values: {}, code: PLUGIN_CONFIG_UNREADABLE, cause: "not a JSON object" };
@@ -84,8 +84,8 @@ export class PluginConfig {
 			}
 
 			// Atomic write: a crash mid-write must not corrupt the existing config.
-			const configPath = PathUtils.join(pluginDir, CONFIG_FILENAME);
-			await FileUtils.writeAtomic(configPath, serialized, { chmod: CONFIG_FILE_MODE });
+			const configPath = joinPath(pluginDir, CONFIG_FILENAME);
+			await writeFileAtomic(configPath, serialized, { chmod: CONFIG_FILE_MODE });
 
 			return persistedConfig;
 		});
@@ -98,7 +98,7 @@ export class PluginConfig {
 			});
 		}
 
-		return PathUtils.join(this.pluginsDirectory, pluginName);
+		return joinPath(this.pluginsDirectory, pluginName);
 	}
 }
 

@@ -1,22 +1,22 @@
 import type { TaskTrigger, WorkerCategory, WorkerCategoryRunResponse, WorkerSummary } from "@reelvault/sdk/common";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { workerService } from "@/workers/worker.service";
 
-class AdminWorkerOperationsService {
-	readonly serviceName = "AdminWorkerOperationsService";
-	readonly logger = createLogger("AdminWorkerOperationsService");
+export const adminWorkerOperationsService = {
+	serviceName: "AdminWorkerOperationsService",
+	logger: createLogger("AdminWorkerOperationsService"),
 
 	getWorkerSummaries(): Promise<WorkerSummary[]> {
 		return workerService.scheduler.listWorkerSummaries();
-	}
+	},
 
 	getWatchdogState() {
 		return workerService.watchdog.getState();
-	}
+	},
 
 	async runWorker(workerId: string, data?: unknown, context?: AdminAuditContext) {
 		const result = await workerService.scheduler.runWorkerManually(workerId, data);
@@ -28,11 +28,11 @@ class AdminWorkerOperationsService {
 				after: { workerId, ...result },
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return result;
-	}
+	},
 
 	async runWorkerCategory(category: WorkerCategory, context?: AdminAuditContext): Promise<WorkerCategoryRunResponse> {
 		const result = await workerService.scheduler.runWorkerCategoryManually(category);
@@ -44,11 +44,11 @@ class AdminWorkerOperationsService {
 				after: { category, started: result.started.map((s) => s.workerId), skipped: result.skipped },
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return result;
-	}
+	},
 
 	async updateWorkerTriggers(workerId: string, triggers: TaskTrigger[], context?: AdminAuditContext) {
 		const result = await workerService.scheduler.updateWorkerTriggers(workerId, triggers);
@@ -60,11 +60,11 @@ class AdminWorkerOperationsService {
 				after: { workerId, triggers },
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return result;
-	}
+	},
 
 	async setScheduleEnabled(workerId: string, enabled: boolean, context?: AdminAuditContext) {
 		const result = await workerService.scheduler.setScheduleEnabled(workerId, enabled);
@@ -77,11 +77,11 @@ class AdminWorkerOperationsService {
 				after: result,
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return result;
-	}
+	},
 
 	async getItems(
 		query: {
@@ -91,7 +91,7 @@ class AdminWorkerOperationsService {
 			status?: "pending" | "running" | "completed" | "failed" | "cancelled" | undefined;
 		} = {},
 	) {
-		const pagination = QueryPagination.resolvePageParams(query, { defaultLimit: 50 });
+		const pagination = resolvePageParams(query, { defaultLimit: 50 });
 		const result = await workerService.listItems({
 			workerId: query.workerId,
 			status: query.status,
@@ -99,26 +99,26 @@ class AdminWorkerOperationsService {
 			offset: pagination.offset,
 		});
 
-		return QueryPagination.createResponse({ total: result.total, pagination, data: result.items });
-	}
+		return createPageResponse({ total: result.total, pagination, data: result.items });
+	},
 
 	async getItem(id: string) {
 		const item = await workerService.getItem(id);
 		assertFound(item, "Worker item", id);
 
 		return item;
-	}
+	},
 
 	getStats() {
 		return workerService.getStats();
-	}
+	},
 
 	async getOperation(id: string) {
 		const operation = await workerService.getOperation(id);
 		assertFound(operation, "Worker operation", id);
 
 		return operation;
-	}
+	},
 
 	getOperations(query?: {
 		status?: "pending" | "running" | "completed" | "failed" | "cancelled" | "active" | undefined;
@@ -126,7 +126,7 @@ class AdminWorkerOperationsService {
 		limit?: number | undefined;
 	}) {
 		return workerService.listOperations(query);
-	}
+	},
 
 	async getOperationItems(
 		id: string,
@@ -137,10 +137,10 @@ class AdminWorkerOperationsService {
 			limit?: number | undefined;
 		},
 	) {
-		await this.getOperation(id);
+		await adminWorkerOperationsService.getOperation(id);
 
 		return workerService.getOperationItems(id, query);
-	}
+	},
 
 	async cancelOperation(id: string, context?: AdminAuditContext): Promise<{ success: true }> {
 		const operation = await workerService.getOperation(id);
@@ -163,11 +163,11 @@ class AdminWorkerOperationsService {
 				after: { ...operation, status: "cancelled" },
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return { success: true };
-	}
+	},
 
 	async resumeOperation(id: string, context?: AdminAuditContext): Promise<{ success: true; resumed: number }> {
 		const operation = await workerService.getOperation(id);
@@ -184,11 +184,11 @@ class AdminWorkerOperationsService {
 				after: { ...operation, status: "pending", resumedTasks: result.resumed },
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return { success: true, resumed: result.resumed };
-	}
+	},
 
 	async cancelAllOperations(context?: AdminAuditContext): Promise<{ count: number }> {
 		const count = await workerService.cancelAllOperations();
@@ -200,11 +200,11 @@ class AdminWorkerOperationsService {
 				after: { cancelledCount: count },
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return { count };
-	}
+	},
 
 	async cancelItem(id: string, context?: AdminAuditContext): Promise<{ success: true }> {
 		const item = await workerService.getItem(id);
@@ -233,11 +233,11 @@ class AdminWorkerOperationsService {
 				after: { ...item, status: "cancelled" },
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return { success: true };
-	}
+	},
 
 	async retryItem(id: string, context?: AdminAuditContext): Promise<{ success: true; jobId: string }> {
 		const item = await workerService.getItem(id);
@@ -262,11 +262,11 @@ class AdminWorkerOperationsService {
 				after: retried,
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return { success: true, jobId: retried.id };
-	}
+	},
 
 	async cancelPendingItems(workerId?: string, context?: AdminAuditContext): Promise<{ count: number }> {
 		const count = await workerService.cancelAllPending(workerId);
@@ -278,11 +278,11 @@ class AdminWorkerOperationsService {
 				after: { workerId: workerId ?? "all", cancelledCount: count },
 				context,
 			},
-			this.logger,
+			adminWorkerOperationsService.logger,
 		);
 
 		return { count };
-	}
+	},
 
 	async purgeHistory(
 		options: {
@@ -304,7 +304,7 @@ class AdminWorkerOperationsService {
 					after: { ...options, ...result },
 					context,
 				},
-				this.logger,
+				adminWorkerOperationsService.logger,
 			);
 		}
 
@@ -314,7 +314,5 @@ class AdminWorkerOperationsService {
 			deletedJobsCount: result.deletedJobsCount,
 			deletedOperationsCount: result.deletedOperationsCount,
 		};
-	}
-}
-
-export const adminWorkerOperationsService = new AdminWorkerOperationsService();
+	},
+};

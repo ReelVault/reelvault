@@ -9,12 +9,12 @@ import { runSafely } from "@/utils/safe-execute.utils";
 import { mediaService } from "./media-files/media-files.service";
 import { resolveEffectivePlaybackPreferences } from "./playback-view.utils";
 
-class PlaybackViewService {
-	readonly serviceName = "PlaybackViewService";
-	readonly logger = createLogger("PlaybackViewService");
+export const playbackViewService = {
+	serviceName: "PlaybackViewService",
+	logger: createLogger("PlaybackViewService"),
 
 	async getPlaybackView(mediaFileId: string, profileId?: string): Promise<PlaybackViewResponse> {
-		return await runSafely(this, "getPlaybackView", async () => {
+		return await runSafely(playbackViewService, "getPlaybackView", async () => {
 			assertProfileId(profileId);
 			// One statement carries the file, its relation graph, its markers, the
 			// root metadata row and (for episode files) the episode with its media
@@ -31,7 +31,7 @@ class PlaybackViewService {
 				profilePreferencesRepository.getEffective({ profileId }),
 			]);
 
-			// The contract field means "the episode after this one"; the overview
+			// The contract field means "the episode after playbackViewService one"; the overview
 			// derives it from the show data it already loaded. The show-level
 			// smart-play suggestion (type "continue") points back at the current
 			// file, so it must not leak in as a next-episode target.
@@ -48,7 +48,5 @@ class PlaybackViewService {
 				effectivePreferences: resolveEffectivePlaybackPreferences(preferences, serverConfig.stream.maxPerStreamBandwidthKbps),
 			};
 		});
-	}
-}
-
-export const playbackViewService = new PlaybackViewService();
+	},
+};

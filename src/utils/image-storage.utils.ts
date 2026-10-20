@@ -1,7 +1,7 @@
 import type { MetadataImageOption } from "@reelvault/sdk/common";
 import { createHash } from "./crypto.utils";
 import { MemoryCache } from "./memory.cache";
-import { PathUtils } from "./path.utils";
+import { joinPath } from "./path.utils";
 import { normalizeCase, normalizeLower } from "./type.utils";
 
 export function normalizeComponent(value: string): string {
@@ -83,7 +83,7 @@ export function createImageStoragePath({
 
 	const subfolder = getSubfolderForImageType(resolvedType);
 	const fileKey = createHash("sha256").update(stableKey).digest("hex");
-	const path = PathUtils.join(root, subfolder, `${fileKey}.webp`);
+	const path = joinPath(root, subfolder, `${fileKey}.webp`);
 
 	storagePathCache.set(cacheKey, path);
 

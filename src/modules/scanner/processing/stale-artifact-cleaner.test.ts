@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginEventInput } from "@reelvault/sdk/plugin";
@@ -9,7 +9,7 @@ import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { removeTree } from "@/utils/directory.utils";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile, writeFile } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { StaleArtifactCleaner } from "./stale-artifact.cleaner";
@@ -48,7 +48,7 @@ function createCleaner(
 		deleteByLibraryAndPaths: (libraryId, paths) => mediaRepository.deleteByLibraryAndPathsAndGetCleanup(libraryId, paths),
 		removeArtifactStorageFiles: (keys) => mediaArtifactsService.removeStorageFiles(keys),
 		invalidateArtifactByteTotals: () => mediaArtifactsService.invalidateByteTotals(),
-		deleteFile: (path) => FileUtils.delete(path),
+		deleteFile: (path) => deleteFile(path),
 		getIoConcurrency: () => ioConcurrency,
 		subtitlesPath: () => subtitlesRoot,
 		clearLibraryStatsCache: () => librariesRepository.clearStatsCache(),

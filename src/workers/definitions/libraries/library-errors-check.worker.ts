@@ -5,10 +5,10 @@ import { fileScannerService } from "@/modules/scanner/disk/file.scanner";
 import { trimAndFilter, unique } from "@/utils/array.utils";
 import { createHash } from "@/utils/crypto.utils";
 import { withDomainError } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { resolvePath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import type { ApplicationContext } from "@/utils/task-context.types";
-import { workerService } from "@/workers/worker.service";
+import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
 const MKV_EXTENSION_PATTERN = "[mM][kK][vV]";
@@ -30,7 +30,7 @@ export interface LibraryErrorsCheckResult {
 }
 
 export function normalizeLibraryPaths(libraryPaths: string[]): string[] {
-	return unique(trimAndFilter(libraryPaths), (libraryPath) => PathUtils.resolve(libraryPath)).toSorted();
+	return unique(trimAndFilter(libraryPaths), (libraryPath) => resolvePath(libraryPath)).toSorted();
 }
 
 export function createLibraryErrorsCheckDedupeKey(libraryPaths: string[]): string {
@@ -65,7 +65,7 @@ export function checkLibraryErrorsTask(data: LibraryErrorsCheckData, context: Ap
 		// processing one-by-one is the main cause of this task taking hours on
 		// large libraries; the batch size derives from measured CPU capacity so
 		// weak boxes never run more FFmpeg decodes than they have cores for.
-		await PromiseUtils.mapConcurrent(
+		await mapConcurrent(
 			filePaths,
 			systemResourcesService.getHeavySubprocessConcurrency(),
 			async (filePath, index) => {
@@ -108,17 +108,12 @@ export function checkLibraryErrorsTask(data: LibraryErrorsCheckData, context: Ap
 
 // ─── Enqueue Function ─────────────────────────────────────────────────────────
 
-export function enqueueLibraryErrorsCheck(data: LibraryErrorsCheckData, options: WorkerEnqueueOptions = {}) {
-	const libraryPaths = normalizeLibraryPaths(data.libraryPaths);
-	const dedupeKey = createLibraryErrorsCheckDedupeKey(libraryPaths);
+const libraryErrorsCheckEnqueue = defineWorkerEnqueue<{ libraryPaths: string[] }>(libraryErrorsCheckWorker.id, (data) => {
+	const dedupeKey = createLibraryErrorsCheckDedupeKey(data.libraryPaths);
 
-	return workerService.addItem(
-		libraryErrorsCheckWorker.id,
-		{ libraryPaths },
-		{
-			...options,
-			dedupeKey,
-			reference: { type: "library-errors", id: dedupeKey },
-		},
-	);
+	return { dedupeKey, reference: { type: "library-errors", id: dedupeKey } };
+});
+
+export function enqueueLibraryErrorsCheck(data: LibraryErrorsCheckData, options: WorkerEnqueueOptions = {}) {
+	return libraryErrorsCheckEnqueue.enqueue({ libraryPaths: normalizeLibraryPaths(data.libraryPaths) }, options);
 }

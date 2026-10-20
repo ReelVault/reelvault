@@ -3,7 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { defineNamedEntityRepository } from "@/integrations/drizzle-orm/query/named-entity-repository.factory";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { metadataRepository } from "./metadata.repository";
@@ -12,7 +12,7 @@ const companies = defineTableAccess("companies", { primaryKeyColumn: "id" });
 const companyProviders = defineTableAccess("companyProviders", { primaryKeyColumn: "companyId" });
 
 const companyQueryMap: QueryMap<CompanyFilters, CompanySorting> = {
-	filters: { name: (value: string) => QueryFiltering.like(schema.companies.name, value) },
+	filters: { name: (value: string) => filterLike(schema.companies.name, value) },
 	orderBy: { name: schema.companies.name, createdAt: schema.companies.createdAt, updatedAt: schema.companies.updatedAt },
 	defaults: { sortBy: "name", sortOrder: "asc" },
 };

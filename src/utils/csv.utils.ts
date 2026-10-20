@@ -11,3 +11,14 @@ export function toCsvCell(value: string | number | boolean | null | undefined): 
 export function toCsvLine(cells: ReadonlyArray<string | number | boolean | null | undefined>): string {
 	return cells.map((cell) => toCsvCell(cell)).join(",");
 }
+
+export interface CsvExport {
+	body: string;
+	contentType: string;
+	filename: string;
+}
+
+/** A complete CSV download: the header line, the rows and the trailing newline. */
+export function buildCsvExport(header: string, lines: readonly string[], filename: string): CsvExport {
+	return { body: `${[header, ...lines].join("\n")}\n`, contentType: "text/csv; charset=utf-8", filename };
+}

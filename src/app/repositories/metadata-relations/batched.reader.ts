@@ -1,24 +1,15 @@
-import { eq, inArray, type SQL } from "drizzle-orm";
+import { inArray, type SQL } from "drizzle-orm";
 import type { SelectedFieldsFlat, SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { metadataImageOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
-import { genreColumns, imageColumns, ratingColumns, selectColumns } from "./columns.constants";
+import { loadNamedRelation, type NamedRelationParams } from "@/integrations/drizzle-orm/utils/named-relation.reader";
+import { imageColumns, ratingColumns, selectColumns } from "./columns.constants";
 import { idListSubquery } from "./json.reader";
-import type { NamedRelationParams, RelationClient } from "./relations.types";
+import { NAMED_RELATIONS } from "./named-relations.constants";
+import type { RelationClient } from "./relations.types";
 
-export function loadNamedRelation<TSelection extends SelectedFieldsFlat, TMetadataId extends SQLiteColumn>(
-	client: DatabaseTransaction,
-	metadataIds: string[] | SQL,
-	params: NamedRelationParams<TSelection, TMetadataId>,
-) {
-	return client
-		.select({ metadataId: params.metadataId, data: params.data })
-		.from(params.junctionTable)
-		.innerJoin(params.entityTable, eq(params.entityTable.id, params.entityColumn))
-		.where(inArray(params.metadataId, metadataIds));
-}
+export { loadNamedRelation };
 
 /** Batched list relations: one prepared query per relation is faster for a page of ids than per-row correlated subqueries. */
 function preparedBatchedRelation<TSelection extends SelectedFieldsFlat, TMetadataId extends SQLiteColumn>(
@@ -30,11 +21,11 @@ function preparedBatchedRelation<TSelection extends SelectedFieldsFlat, TMetadat
 
 export const preparedListGenres = preparedBatchedRelation(
 	{
-		metadataId: schema.metadataGenres.metadataId,
-		junctionTable: schema.metadataGenres,
-		entityColumn: schema.metadataGenres.genreId,
-		entityTable: schema.genres,
-		data: selectColumns(undefined, genreColumns),
+		metadataId: NAMED_RELATIONS.genres.metadataId,
+		junctionTable: NAMED_RELATIONS.genres.junctionTable,
+		entityColumn: NAMED_RELATIONS.genres.entityColumn,
+		entityTable: NAMED_RELATIONS.genres.entityTable,
+		data: selectColumns(undefined, NAMED_RELATIONS.genres.columns),
 	},
 	schema.genres.id,
 );

@@ -116,10 +116,7 @@ export const metadataRoutes = new Elysia({
 	.post(
 		"/:metadataId/images/upload",
 		async ({ params, body, user, request }) =>
-			await metadataService.uploadImage(params.metadataId, body.type, body.file, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+			await metadataService.uploadImage(params.metadataId, body.type, body.file, actorContext({ user, request })),
 		{
 			adminOnly: true,
 			params: MetadataIdParams,

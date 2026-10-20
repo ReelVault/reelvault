@@ -2,9 +2,9 @@ import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { type SpawnCollectOptions, type SpawnCollectResult, spawnAndCollect } from "@/integrations/ffmpeg/ffmpeg.process-runner";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils, fileStatSignature } from "@/utils/file.utils";
+import { fileStatSignature, getFileStats } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { createSemaphore } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import type { FFProbePacket, FFProbeResult } from "./ffprobe.types";
 
@@ -17,7 +17,7 @@ const ffprobeCache = new MemoryCache<unknown>({
 // One probe-process budget for every ffprobe caller (scanner, keyframe seek,
 // capability checks). Acquired inside the cached loader, so a caller that aborts
 // while a shared probe runs does not release the slot the process still holds.
-const probeSemaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getFfprobeConcurrency());
+const probeSemaphore = createSemaphore(() => systemResourcesService.getFfprobeConcurrency());
 
 function isFFProbeResult(value: unknown): value is FFProbeResult {
 	return isRecord(value) && Array.isArray(value.streams) && isRecord(value.format);
@@ -131,7 +131,7 @@ export class FFProbeBuilder {
 	private async executeParsed(filePath: string, shape: "format" | "packets", signal?: AbortSignal): Promise<unknown> {
 		if (signal?.aborted) throw signal.reason ?? new Error("FFprobe aborted");
 
-		const fileStat = await FileUtils.getStats(filePath);
+		const fileStat = await getFileStats(filePath);
 		const statSignature = fileStat ? fileStatSignature(fileStat) : "";
 
 		// The shape is part of the key: the same arguments can be read as a

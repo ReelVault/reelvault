@@ -8,9 +8,8 @@ import type {
 	UserRatingSorting,
 } from "@reelvault/sdk/common";
 import { and, eq } from "drizzle-orm";
-import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterEquals } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
@@ -21,9 +20,9 @@ const userRatings = defineTableAccess("userRatings", {
 
 const userRatingQueryMap: QueryMap<UserRatingFilters, UserRatingSorting> = {
 	filters: {
-		profileId: (value: string) => QueryFiltering.eq(userRatings.table.profileId, value),
-		metadataId: (value: string) => QueryFiltering.eq(userRatings.table.metadataId, value),
-		rating: (value: number) => QueryFiltering.eq(userRatings.table.rating, value),
+		profileId: (value: string) => filterEquals(userRatings.table.profileId, value),
+		metadataId: (value: string) => filterEquals(userRatings.table.metadataId, value),
+		rating: (value: number) => filterEquals(userRatings.table.rating, value),
 	},
 	orderBy: {
 		rating: userRatings.table.rating,
@@ -42,15 +41,13 @@ const overrides = {
 	},
 
 	async upsert({ profileId, metadataId, rating, tx }: { profileId: string; metadataId: string; rating: number; tx?: DatabaseTransaction }) {
-		const [result] = await databaseFactory
-			.getClient({ tx })
-			.insert(userRatings.table)
-			.values({ profileId, metadataId, rating })
-			.onConflictDoUpdate({
-				target: [userRatings.table.profileId, userRatings.table.metadataId],
-				set: { rating, updatedAt: new Date() },
-			})
-			.returning();
+		const [result] = await userRatings.upsert({
+			values: { profileId, metadataId, rating },
+			target: [userRatings.table.profileId, userRatings.table.metadataId],
+			set: { rating, updatedAt: new Date() },
+			returning: true,
+			tx,
+		});
 
 		return result;
 	},

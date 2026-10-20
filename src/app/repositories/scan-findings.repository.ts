@@ -5,7 +5,10 @@ import { type DatabaseFactory, databaseFactory } from "@/integrations/drizzle-or
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { isSubpath } from "@/utils/path.utils";
+
+const scanFindingsAccess = defineTableAccess("scanFindings", { primaryKeyColumn: "libraryId" });
 
 export interface ScanFindingInput {
 	libraryId: string;
@@ -41,19 +44,17 @@ export class ScanFindingsRepository {
 
 	async upsert(input: ScanFindingInput, tx?: DatabaseTransaction): Promise<void> {
 		await this.write(async (activeTx) => {
-			await this.database
-				.getClient({ tx: activeTx })
-				.insert(this.table)
-				.values({
+			await scanFindingsAccess.upsert({
+				values: {
 					libraryId: input.libraryId,
 					filePath: input.filePath,
 					fileName: input.fileName,
 					reason: input.reason,
-				})
-				.onConflictDoUpdate({
-					target: [this.table.libraryId, this.table.filePath],
-					set: { fileName: input.fileName, reason: input.reason, updatedAt: new Date() },
-				});
+				},
+				target: [scanFindingsAccess.table.libraryId, scanFindingsAccess.table.filePath],
+				set: { fileName: input.fileName, reason: input.reason, updatedAt: new Date() },
+				tx: activeTx,
+			});
 		}, tx);
 	}
 
@@ -182,7 +183,7 @@ export class ScanFindingsRepository {
 		const seen = new Set(scannedFilePaths);
 		const stalePaths: string[] = [];
 		for (const finding of findings) {
-			const withinScannedRoot = scannedRoots.some((root) => PathUtils.isSubpath(finding.filePath, root));
+			const withinScannedRoot = scannedRoots.some((root) => isSubpath(finding.filePath, root));
 			if (withinScannedRoot && !seen.has(finding.filePath)) {
 				stalePaths.push(finding.filePath);
 			}

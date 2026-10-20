@@ -1,13 +1,13 @@
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { deleteWithArtifacts } from "@/app/artifacts/delete-with-artifacts";
 import { runBulkItems } from "@/app/catalog/catalog.utils";
+import { assertNoActiveStreamsForMediaFileIds } from "@/app/playback/active-streams.guard";
 import type { AdminAuditContext } from "@/app/repositories/admin-audit.repository";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { metadataRepository } from "@/app/repositories/metadata.repository";
 import { serverConfig } from "@/config/server/server.config";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
-import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
-import { assertFound, DomainError } from "@/utils/domain.errors";
+import { assertFound } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { invalidateReadCaches, type MetadataServiceState, type WithoutState } from "./shared.utils";
 
@@ -30,14 +30,11 @@ export async function deleteMany(
 	return await runSafely(state, "deleteMany", async () => {
 		const ids = [...new Set(metadataIds)];
 		const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds(ids));
-		const activeMediaFileIds = streamingManager.getActiveMediaFileIds();
-		const activeStreams = [...activeMediaFileIds].filter((mediaFileId) => linkedFileIds.has(mediaFileId)).length;
-		if (activeStreams > 0 && options.force !== true) {
-			throw new DomainError("conflict", "Delete is blocked while streams are playing these titles", {
-				code: "metadata.delete_blocked_active_streams",
-				params: { activeStreams },
-			});
-		}
+		assertNoActiveStreamsForMediaFileIds(linkedFileIds, {
+			force: options.force,
+			message: "Delete is blocked while streams are playing these titles",
+			code: "metadata.delete_blocked_active_streams",
+		});
 
 		return await runBulkItems(ids, (id) => deleteOneOf(id, context, { force: options.force === true }), "metadata.delete_failed");
 	});
@@ -53,16 +50,12 @@ export async function deleteOne(
 		const metadata = await metadataRepository.findByIdForRead(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
 		// The same protection the bulk path enforces: deleting the title ends its streams.
-		if (options.force !== true) {
-			const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds([metadataId]));
-			const activeStreams = [...streamingManager.getActiveMediaFileIds()].filter((mediaFileId) => linkedFileIds.has(mediaFileId)).length;
-			if (activeStreams > 0) {
-				throw new DomainError("conflict", "Delete is blocked while a stream is playing this title", {
-					code: "metadata.delete_blocked_active_streams",
-					params: { activeStreams },
-				});
-			}
-		}
+		const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds([metadataId]));
+		assertNoActiveStreamsForMediaFileIds(linkedFileIds, {
+			force: options.force,
+			message: "Delete is blocked while a stream is playing this title",
+			code: "metadata.delete_blocked_active_streams",
+		});
 
 		const cleanup = await metadataRepository.deleteAndGetCleanup(metadataId);
 		await deleteWithArtifacts({

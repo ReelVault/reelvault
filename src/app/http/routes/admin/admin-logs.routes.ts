@@ -1,7 +1,8 @@
-import { AdminLogFileInfoSchema, AdminLogsPageSchema } from "@reelvault/sdk/common";
+import { AdminLogFileInfoSchema, AdminLogsPageSchema, SuccessResponseSchema } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { adminLogsService } from "@/app/admin/admin-logs.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { LogFileQuery } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
@@ -50,9 +51,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 			return attachmentResponse(file, { filename, contentType: "text/plain; charset=utf-8" });
 		},
 		{
-			query: t.Object({
-				fileId: t.Optional(t.String()),
-			}),
+			query: LogFileQuery,
 			rateLimit: { name: "admin-logs-download", max: 10, windowMs: MINUTE },
 			response: {
 				// Plain-text log download — handler returns a Response, not JSON.
@@ -77,7 +76,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 			}),
 			response: {
 				...ROUTE_ERRORS.ADMIN_NOT_FOUND,
-				200: t.Object({ success: t.Boolean() }),
+				200: SuccessResponseSchema,
 			},
 			detail: {
 				description: "Delete a server or FFmpeg log file.",

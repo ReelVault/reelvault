@@ -47,6 +47,8 @@ Don't work around these. If one seems wrong, stop and ask the user.
 
 - A ternary only picks between two short values. A branch that carries a call and runs past 80 characters, or any `await` inside a branch, is an `if`/`else` (or an early return) — `scripts/lint/long-ternary.grit` fails the build on it.
 - One value, one dispatch: an `if`/`else if` chain that compares the same subject three or more times is a `switch` — `scripts/lint/else-if-chain.grit` fails the build on it.
+- A module is the namespace: stateless helpers are named exports (`export function`). Never group them in an `export const *Utils = { ... }` object — `scripts/lint/no-namespace-object.grit` fails the build. Inside a utility module, functions call each other by name, never through the object.
+- A class owns state, lifecycle or invariants. A stateless service is a `createX(deps)` factory returning functions or a plain object; it is never a class with only methods and no state.
 - Conditions read positive: no `!` in an `if`/`else` or a ternary, and no `else` after a `return` (`eslint/no-negated-condition`, `eslint/no-else-return`).
 - One function, one job: cognitive complexity ≤ 20, ≤ 100 lines, ≤ 5 parameters, nesting ≤ 4 levels. Split a function instead of reaching for a deeper branch.
 - One name per thing: `catch (error)`, no `forEach`/`reduce` where a loop says it better, no `console.log` outside scripts.

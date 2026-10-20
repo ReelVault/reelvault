@@ -4,11 +4,13 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { toMap } from "@/utils/array.utils";
 import type { WorkerExecutionRecord } from "@/workers/worker.ports";
 
 const schedules = schema.workerSchedules;
+const schedulesAccess = defineTableAccess("workerSchedules", { primaryKeyColumn: "id" });
 
 class WorkerSchedulesRepository {
 	async getAllTriggers(): Promise<Map<string, TaskTrigger[]>> {
@@ -55,27 +57,21 @@ class WorkerSchedulesRepository {
 			return;
 		}
 
-		await databaseFactory
-			.getClient()
-			.insert(schedules)
-			.values({ id: Bun.randomUUIDv7(), workerId, triggers: [], isEnabled: true, nextRunAt })
-			.onConflictDoUpdate({
-				target: schedules.workerId,
-				set: { nextRunAt, updatedAt: now },
-			});
+		await schedulesAccess.upsert({
+			values: { id: Bun.randomUUIDv7(), workerId, triggers: [], isEnabled: true, nextRunAt },
+			target: schedulesAccess.table.workerId,
+			set: { nextRunAt, updatedAt: now },
+		});
 	}
 
 	/** Pauses (`false`) or resumes (`true`) the scheduled runs of one worker; manual runs ignore this flag. */
 	async setEnabled(workerId: string, enabled: boolean): Promise<void> {
 		const now = new Date();
-		await databaseFactory
-			.getClient()
-			.insert(schedules)
-			.values({ id: Bun.randomUUIDv7(), workerId, triggers: [], isEnabled: enabled })
-			.onConflictDoUpdate({
-				target: schedules.workerId,
-				set: { isEnabled: enabled, updatedAt: now },
-			});
+		await schedulesAccess.upsert({
+			values: { id: Bun.randomUUIDv7(), workerId, triggers: [], isEnabled: enabled },
+			target: schedulesAccess.table.workerId,
+			set: { isEnabled: enabled, updatedAt: now },
+		});
 	}
 
 	/**
@@ -90,22 +86,17 @@ class WorkerSchedulesRepository {
 		const scheduled = entries.filter((entry): entry is { workerId: string; nextRunAt: Date } => entry.nextRunAt !== null);
 		if (scheduled.length > 0) {
 			await forEachChunked(scheduled, async (chunk) => {
-				await databaseFactory
-					.getClient()
-					.insert(schedules)
-					.values(
-						chunk.map((entry) => ({
-							id: Bun.randomUUIDv7(),
-							workerId: entry.workerId,
-							triggers: [],
-							isEnabled: true,
-							nextRunAt: entry.nextRunAt,
-						})),
-					)
-					.onConflictDoUpdate({
-						target: schedules.workerId,
-						set: { nextRunAt: sql`excluded.next_run_at`, updatedAt: now },
-					});
+				await schedulesAccess.upsert({
+					values: chunk.map((entry) => ({
+						id: Bun.randomUUIDv7(),
+						workerId: entry.workerId,
+						triggers: [],
+						isEnabled: true,
+						nextRunAt: entry.nextRunAt,
+					})),
+					target: schedulesAccess.table.workerId,
+					set: { nextRunAt: sql`excluded.next_run_at`, updatedAt: now },
+				});
 			});
 		}
 
@@ -123,34 +114,30 @@ class WorkerSchedulesRepository {
 
 	async setTriggers(workerId: string, triggers: TaskTrigger[], tx?: DatabaseTransaction): Promise<void> {
 		await runInTransaction(tx, async (targetTx) => {
-			const client = databaseFactory.getClient({ tx: targetTx });
 			const now = new Date();
-			await client
-				.insert(schedules)
-				.values({
+			await schedulesAccess.upsert({
+				values: {
 					id: Bun.randomUUIDv7(),
 					workerId,
 					triggers,
 					isEnabled: true,
-				})
-				.onConflictDoUpdate({
-					target: schedules.workerId,
-					set: {
-						triggers,
-						updatedAt: now,
-					},
-				});
+				},
+				target: schedulesAccess.table.workerId,
+				set: {
+					triggers,
+					updatedAt: now,
+				},
+				tx: targetTx,
+			});
 		});
 	}
 
 	async updateExecution(workerId: string, execution: WorkerExecutionRecord, tx?: DatabaseTransaction): Promise<void> {
 		await runInTransaction(tx, async (targetTx) => {
-			const client = databaseFactory.getClient({ tx: targetTx });
 			const now = new Date();
 			const lastRunAt = execution.startedAt ?? execution.completedAt;
-			await client
-				.insert(schedules)
-				.values({
+			await schedulesAccess.upsert({
+				values: {
 					id: Bun.randomUUIDv7(),
 					workerId,
 					triggers: [],
@@ -160,18 +147,18 @@ class WorkerSchedulesRepository {
 					lastStatus: execution.status,
 					lastDurationMs: execution.durationMs,
 					lastError: execution.error ?? null,
-				})
-				.onConflictDoUpdate({
-					target: schedules.workerId,
-					set: {
-						lastRunAt,
-						lastCompletedAt: execution.completedAt,
-						lastStatus: execution.status,
-						lastDurationMs: execution.durationMs,
-						lastError: execution.error ?? null,
-						updatedAt: now,
-					},
-				});
+				},
+				target: schedulesAccess.table.workerId,
+				set: {
+					lastRunAt,
+					lastCompletedAt: execution.completedAt,
+					lastStatus: execution.status,
+					lastDurationMs: execution.durationMs,
+					lastError: execution.error ?? null,
+					updatedAt: now,
+				},
+				tx: targetTx,
+			});
 		});
 	}
 }

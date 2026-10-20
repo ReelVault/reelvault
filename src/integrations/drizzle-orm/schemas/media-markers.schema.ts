@@ -1,14 +1,14 @@
 import { mediaMarkerSources, mediaMarkerTypes } from "@reelvault/sdk/common";
 import { sql } from "drizzle-orm";
 import { check, index, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { mediaFiles } from "./media-files.schema";
 
 export const mediaMarkers = sqliteTable(
 	"media_markers",
 	{
-		id: DatabaseHelper.id,
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		id: idColumn,
+		mediaFileId: tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
 
 		type: text("type", { enum: mediaMarkerTypes }).notNull(),
 		startSeconds: real("start_seconds").notNull(),
@@ -17,7 +17,7 @@ export const mediaMarkers = sqliteTable(
 		source: text("source", { enum: mediaMarkerSources }).notNull().default("manual"),
 		pluginId: text("plugin_id"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		// media_file_id-only lookups are served by the two composites below.

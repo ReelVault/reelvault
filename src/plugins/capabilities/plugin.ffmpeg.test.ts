@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { serverConfig } from "@/config/server/server.config";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile as actualDeleteFile, fileExists as actualFileExists } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { mockModule } from "../../../tests/helpers/module-mock.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginFfmpegService } from "./plugin.ffmpeg";
+
+let fileExistsImpl: (path: string) => Promise<boolean> = actualFileExists;
+mockModule("@/utils/file.utils", () => ({ deleteFile: actualDeleteFile, fileExists: (path: string) => fileExistsImpl(path) }));
 
 const db = useTestDatabase();
 const activeStubs: Array<{ restore(): void }> = [];
@@ -35,10 +39,11 @@ function stubRunToCompletion(exitCode: number) {
 beforeEach(async () => {
 	activeStubs.length = 0;
 	mediaFileId = await insertMovieMediaFile(db.client(), "/media/movie.mkv", "meta-1");
-	activeStubs.push(stubMethod(FileUtils, "exists", () => Promise.resolve(true)));
+	fileExistsImpl = () => Promise.resolve(true);
 });
 
 afterEach(() => {
+	fileExistsImpl = actualFileExists;
 	for (const stub of activeStubs.toReversed()) stub.restore();
 });
 

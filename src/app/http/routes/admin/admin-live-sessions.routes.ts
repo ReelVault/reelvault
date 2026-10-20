@@ -8,6 +8,7 @@ import { t } from "elysia";
 import { adminLiveSessionsService } from "@/app/admin/admin-live-sessions.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { SessionIdParams } from "@/app/http/schemas/route-params.schema";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { ENDED_SESSION_HISTORY_LIMIT } from "@/modules/streaming/runtime/ended-session.history";
@@ -72,11 +73,7 @@ export const adminLiveSessionsRoutes = adminShell({ prefix: "/live-activity", ta
 	)
 	.post(
 		"/terminate",
-		async ({ body, user, request }) =>
-			await adminLiveSessionsService.terminateSessions(body, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+		async ({ body, user, request }) => await adminLiveSessionsService.terminateSessions(body, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-live-session-bulk-terminate", max: 10, windowMs: MINUTE },
 			body: BulkTerminateSessionsSchema,

@@ -5,12 +5,12 @@ import { optimizeImage } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createHash } from "@/utils/crypto.utils";
-import { DirUtils } from "@/utils/directory.utils";
+import { createDirectory } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { writeFileAtomic } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { createInFlightCache } from "@/utils/memory.cache";
-import { PathUtils } from "@/utils/path.utils";
+import { getFileName, joinPath } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { imageCacheEviction } from "./cache/image-cache.eviction";
 import { parseImageRequest } from "./cache/image-request.parser";
@@ -34,10 +34,10 @@ class ImageOptimizationService {
 
 	async getOptimizedImage(sourcePath: string, request: ImageQuery, imageId?: string, signal?: AbortSignal): Promise<OptimizedImage> {
 		const options = parseImageRequest(request, serverConfig.images);
-		const cacheDir = PathUtils.join(serverConfig.paths.images, ".cache");
+		const cacheDir = joinPath(serverConfig.paths.images, ".cache");
 		const sourceVersion = (await sourceVersionCache.read(sourcePath)).replaceAll(":", "-");
 		const cacheKey = `${imageId ?? `src_${createHash("sha1").update(sourcePath).digest("hex").slice(0, 16)}`}_${options.width}_${options.height ?? 0}_${options.quality}_${sourceVersion}.webp`;
-		const cachePath = PathUtils.join(cacheDir, cacheKey);
+		const cachePath = joinPath(cacheDir, cacheKey);
 
 		const cachedFile = bunFile(cachePath);
 		if (await cachedFile.exists()) {
@@ -58,9 +58,9 @@ class ImageOptimizationService {
 		throwIfAborted(signal);
 		const optimized = await optimizeImage(sourcePath, options, signal);
 		try {
-			await DirUtils.create(cacheDir);
-			await FileUtils.writeAtomic(cachePath, optimized);
-			imageCacheEviction.recordWrite(cacheDir, PathUtils.getFileName(cachePath));
+			await createDirectory(cacheDir);
+			await writeFileAtomic(cachePath, optimized);
+			imageCacheEviction.recordWrite(cacheDir, getFileName(cachePath));
 			// Fire-and-forget must not become an unhandled rejection on fs errors.
 			detach(
 				(async () => {

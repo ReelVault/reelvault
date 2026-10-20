@@ -3,16 +3,16 @@ import { existsSync, readdirSync } from "node:fs";
 import { serverConstants } from "@/config/server/server.constants";
 import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath, resolvePath } from "@/utils/path.utils";
 
-class DatabaseMaintenanceRepository {
+export const databaseMaintenanceRepository = {
 	shutdownIfConfiguredDatabasePath(path: string) {
-		if (PathUtils.resolve(path) === PathUtils.resolve(serverConstants.paths.sqlite)) databaseFactory.shutdown();
-	}
+		if (resolvePath(path) === resolvePath(serverConstants.paths.sqlite)) databaseFactory.shutdown();
+	},
 
 	backup(targetPath: string): Promise<void> {
 		return databaseFactory.backup(targetPath);
-	}
+	},
 
 	/** SQLite's quick consistency check: a healthy database answers a single `ok` row. */
 	quickCheck(): string[] {
@@ -20,18 +20,18 @@ class DatabaseMaintenanceRepository {
 			.query<{ quick_check: string }, []>("PRAGMA quick_check")
 			.all()
 			.map((row) => row.quick_check);
-	}
+	},
 
 	/** Migration folders shipped with the server, in the order they apply, and how many the database has recorded as applied. */
 	getMigrationStatus(): { tags: string[]; applied: number } {
 		const tags = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
-			.filter((entry) => entry.isDirectory() && existsSync(PathUtils.join(MIGRATIONS_DIR, entry.name, "migration.sql")))
+			.filter((entry) => entry.isDirectory() && existsSync(joinPath(MIGRATIONS_DIR, entry.name, "migration.sql")))
 			.map((entry) => entry.name)
 			.toSorted();
 		const row = databaseFactory.sqlite.query<{ count: number }, []>("SELECT count(*) AS count FROM __drizzle_migrations").get();
 
 		return { tags, applied: row?.count ?? 0 };
-	}
+	},
 
 	/**
 	 * Checks an uploaded backup without touching the live database: it must open, pass SQLite's quick check and carry the
@@ -53,12 +53,10 @@ class DatabaseMaintenanceRepository {
 		} catch {
 			return false;
 		}
-	}
+	},
 
 	/** Lets SQLite refresh its planner statistics (`PRAGMA optimize`). */
 	optimize(): void {
 		databaseFactory.sqlite.run("PRAGMA optimize");
-	}
-}
-
-export const databaseMaintenanceRepository = new DatabaseMaintenanceRepository();
+	},
+};

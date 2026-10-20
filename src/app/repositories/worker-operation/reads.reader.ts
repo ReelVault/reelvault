@@ -2,9 +2,10 @@ import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { WorkerItemSummary } from "@/app/repositories/worker.repository";
 import { workerJobSummaryColumns } from "@/app/repositories/worker-job.projection";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import { cachedCount } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { unique } from "@/utils/array.utils";
 import {
 	ACTIVE_STATUSES,
@@ -14,6 +15,9 @@ import {
 	type WorkerOperationRecord,
 	type WorkerOperationStatus,
 } from "./shared.types";
+
+const operationsAccess = defineTableAccess("workerOperations", { primaryKeyColumn: "id" });
+const jobsAccess = defineTableAccess("workerJobs", { primaryKeyColumn: "id" });
 
 /** Time left at the observed rate, or null until there is enough progress to estimate. */
 function computeEtaMs(completedItems: number, pendingItems: number, startedAt: Date | null): number | null {
@@ -133,22 +137,21 @@ export async function listOperations(options: OperationListOptions = {}): Promis
 		whereClause = eq(operations.status, options.status);
 	}
 
-	const [countRows, rows] = await Promise.all([
-		cachedCount("worker_operations", { status: options.status ?? null }, async () => await client.$count(operations, whereClause)),
-		client
-			.select()
-			.from(operations)
-			.where(whereClause)
-			// created_at has second resolution — the id tiebreaker keeps offset
-			// pagination stable across same-second operations.
-			.orderBy(desc(operations.createdAt), desc(operations.id))
-			.limit(options.limit ?? 50)
-			.offset(options.offset ?? 0),
-	]);
+	const { data: rows, total } = await findOffsetPage({
+		access: operationsAccess,
+		where: whereClause,
+		orderBy: desc(operations.createdAt),
+		limit: options.limit ?? 50,
+		offset: options.offset ?? 0,
+		countKey: { status: options.status ?? null },
+		findMany: async (page) =>
+			await client.select().from(operations).where(page.where).orderBy(page.orderBy).limit(page.limit).offset(page.offset),
+		count: () => operationsAccess.count({ where: whereClause }),
+	});
 
 	return {
 		data: rows.map((row) => withEta(row)),
-		total: countRows,
+		total,
 	};
 }
 
@@ -167,19 +170,19 @@ export async function listOperationItems(
 	const conditions = [eq(jobs.operationId, operationId)];
 	if (options.status) conditions.push(eq(jobs.status, options.status));
 
-	if (options.search) conditions.push(QueryFiltering.like(jobs.data, options.search));
+	if (options.search) conditions.push(filterLike(jobs.data, options.search));
 
 	const where = and(...conditions);
-	const [total, rows] = await Promise.all([
-		client.$count(jobs, where),
-		client
-			.select(workerJobSummaryColumns)
-			.from(jobs)
-			.where(where)
-			.orderBy(desc(jobs.createdAt), desc(jobs.id))
-			.limit(options.limit ?? 50)
-			.offset(options.offset ?? 0),
-	]);
+	const { data: rows, total } = await findOffsetPage({
+		access: jobsAccess,
+		where,
+		orderBy: desc(jobs.createdAt),
+		limit: options.limit ?? 50,
+		offset: options.offset ?? 0,
+		findMany: async (page) =>
+			await client.select(workerJobSummaryColumns).from(jobs).where(page.where).orderBy(page.orderBy).limit(page.limit).offset(page.offset),
+		count: () => jobsAccess.count({ where }),
+	});
 
 	return { items: rows, total };
 }

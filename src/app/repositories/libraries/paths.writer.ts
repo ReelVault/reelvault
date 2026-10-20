@@ -6,7 +6,7 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { toMap } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { resolvePath } from "@/utils/path.utils";
 import { libraryPaths } from "./shared.types";
 
 /**
@@ -14,7 +14,7 @@ import { libraryPaths } from "./shared.types";
  * A path already assigned to another library is refused rather than moved.
  */
 export async function replacePaths(libraryId: string, paths: CreateLibraryPath[], tx?: DatabaseTransaction): Promise<void> {
-	const normalizedPaths = [...toMap(paths, (item) => PathUtils.resolve(item.path.trim())).entries()];
+	const normalizedPaths = [...toMap(paths, (item) => resolvePath(item.path.trim())).entries()];
 	const client = databaseFactory.getClient({ tx });
 	const stableKeys = normalizedPaths.map(([path]) => createLocalStableKey({ namespace: "library-path", value: path }));
 	if (stableKeys.length === 0) {
@@ -41,24 +41,20 @@ export async function replacePaths(libraryId: string, paths: CreateLibraryPath[]
 		throw new DomainError("conflict", `Path ${stolen.path} is already assigned to another library`, { code: "library.path_conflict" });
 	}
 
-	await client
-		.insert(schema.libraryPaths)
-		.values(
-			normalizedPaths.map(([path, item]) => ({
-				libraryId,
-				path,
-				metadataStorageMode: item.metadataStorageMode,
-				stableKey: createLocalStableKey({ namespace: "library-path", value: path }),
-			})),
-		)
-		.onConflictDoUpdate({
-			target: schema.libraryPaths.stableKey,
-			set: {
-				libraryId: sql`excluded.library_id`,
-				path: sql`excluded.path`,
-				metadataStorageMode: sql`excluded.metadata_storage_mode`,
-				isActive: sql`excluded.is_active`,
-				updatedAt: new Date(),
-			},
-		});
+	await libraryPaths.upsert({
+		values: normalizedPaths.map(([path, item]) => ({
+			libraryId,
+			path,
+			metadataStorageMode: item.metadataStorageMode,
+			stableKey: createLocalStableKey({ namespace: "library-path", value: path }),
+		})),
+		target: schema.libraryPaths.stableKey,
+		set: {
+			libraryId: sql`excluded.library_id`,
+			path: sql`excluded.path`,
+			metadataStorageMode: sql`excluded.metadata_storage_mode`,
+			isActive: sql`excluded.is_active`,
+			updatedAt: new Date(),
+		},
+	});
 }

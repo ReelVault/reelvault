@@ -4,22 +4,34 @@ import type {
 	SubtitleProviderSearchRequest,
 	SubtitleProviderSearchResponse,
 } from "@reelvault/sdk/common";
-import type { SubtitleDownload } from "@reelvault/sdk/plugin";
+import type { SubtitleDownload, SubtitleSearchResult } from "@reelvault/sdk/plugin";
 import { file } from "bun";
 import { pluginSubtitleData, pluginSubtitleSettingsData } from "@/app/plugins/plugin-data.service";
 import { serverConfig } from "@/config/server/server.config";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { isSubpath, joinPath } from "@/utils/path.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import { pluginMediaService } from "./plugin.media";
 import { pluginMetadataService } from "./plugin.metadata";
+import { mapProvidersSafely } from "./provider/fan-out.service";
 
 const supportedFormats: ReadonlySet<string> = new Set(serverConfig.plugins.subtitles.supportedFormats);
+
+/** The plugin interface allows explicit `undefined`; the API response type does not. */
+function toSearchResult(result: SubtitleSearchResult): SubtitleProviderSearchResponse["results"][number] {
+	return {
+		id: result.id,
+		language: result.language,
+		format: result.format,
+		...(result.label === undefined ? {} : { label: result.label }),
+		...(result.isForced === undefined ? {} : { isForced: result.isForced }),
+		...(result.isHearingImpaired === undefined ? {} : { isHearingImpaired: result.isHearingImpaired }),
+	};
+}
 const leadingDotRegex = /^\./;
 
 class SubtitleProviderService {
@@ -51,23 +63,18 @@ class SubtitleProviderService {
 	async search(request: SubtitleProviderSearchRequest): Promise<SubtitleProviderSearchResponse[]> {
 		const media = await this.getMediaItem(request.mediaFileId);
 		const disabled = await this.disabledProviderIds();
-		const results = await PromiseUtils.mapConcurrent(
-			pluginManager.getSubtitleProviders().filter((provider) => !disabled.has(provider.id)),
-			serverConfig.plugins.subtitles.providerConcurrency,
+		const providers = pluginManager.getSubtitleProviders().filter((provider) => !disabled.has(provider.id));
+
+		return await mapProvidersSafely<(typeof providers)[number], SubtitleProviderSearchResponse>(
+			providers,
 			async (provider) => {
-				try {
-					const providerResults = await provider.search({ media, languages: request.languages });
+				const providerResults = await provider.search({ media, languages: request.languages });
 
-					return { providerId: provider.id, results: providerResults };
-				} catch (error) {
-					this.logger.error(`Subtitle provider ${provider.id} failed`, error);
-
-					return null;
-				}
+				return { providerId: provider.id, results: providerResults.map((result) => toSearchResult(result)) };
 			},
+			(provider, error) => this.logger.error(`Subtitle provider ${provider.id} failed`, error),
+			serverConfig.plugins.subtitles.providerConcurrency,
 		);
-
-		return results.filter((result): result is SubtitleProviderSearchResponse => result !== null);
 	}
 
 	async download(providerId: string, request: SubtitleProviderDownloadRequest): Promise<string> {
@@ -151,15 +158,15 @@ class SubtitleProviderService {
 	}
 
 	private storagePath(format: string): string {
-		return PathUtils.join(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
+		return joinPath(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
 	}
 
 	private isOwnedPath(path: string): boolean {
-		return PathUtils.isSubpath(path, serverConfig.paths.subtitles);
+		return isSubpath(path, serverConfig.paths.subtitles);
 	}
 
 	private async deleteOwnedFile(path: string | null): Promise<void> {
-		if (path && this.isOwnedPath(path)) await FileUtils.delete(path);
+		if (path && this.isOwnedPath(path)) await deleteFile(path);
 	}
 
 	private assertDownloadSize(download: SubtitleDownload): void {

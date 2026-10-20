@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { CancellationError, throwIfAborted } from "./cancellation.utils";
 
 describe("worker cancellation", () => {
@@ -15,7 +15,7 @@ describe("worker cancellation", () => {
 		const processed: number[] = [];
 
 		await expect(
-			PromiseUtils.mapConcurrent(
+			mapConcurrent(
 				[1, 2, 3, 4],
 				1,
 				(value) => {

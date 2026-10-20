@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { users } from "./auth.schema";
 
 /**
@@ -21,7 +21,7 @@ export const apiKeys = sqliteTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		expiresAt: integer("expires_at", { mode: "timestamp" }),
 		lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("api_keys_hash_unique").on(t.keyHash),

@@ -1,6 +1,6 @@
 import type { MediaFileAuditResponse } from "@reelvault/sdk/common";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
-import { notFoundError } from "@/utils/domain.errors";
+import { assertExists } from "@/utils/domain.errors";
 import type { createLogger } from "@/utils/logger.utils";
 import type { MemoryCache } from "@/utils/memory.cache";
 
@@ -20,5 +20,5 @@ export type WithoutState<F> = F extends (state: never, ...rest: infer R) => unkn
 
 export async function assertMediaFileExists(mediaFileId: string): Promise<void> {
 	const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
-	if (!mediaFileExists) throw notFoundError("MediaFile", mediaFileId);
+	assertExists(mediaFileExists, "MediaFile", mediaFileId);
 }

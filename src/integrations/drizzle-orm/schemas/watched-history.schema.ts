@@ -1,21 +1,21 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { mediaFiles } from "./media-files.schema";
 import { profiles } from "./profiles.schema";
 
 export const watchedHistory = sqliteTable(
 	"watched_history",
 	{
-		id: DatabaseHelper.id,
-		mediaFileId: DatabaseHelper.tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
-		profileId: DatabaseHelper.tableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
+		id: idColumn,
+		mediaFileId: tableRef("media_file_id", () => mediaFiles.id, { onDelete: "cascade" }),
+		profileId: tableRef("profile_id", () => profiles.id, { onDelete: "cascade" }),
 
 		durationWatched: integer("duration_watched"),
 		isFullWatch: integer("is_full_watch", { mode: "boolean" }).notNull().default(false),
 
 		watchedAt: integer("watched_at", { mode: "timestamp" }).notNull(),
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		index("history_profile_watched_idx").on(t.profileId, t.watchedAt),

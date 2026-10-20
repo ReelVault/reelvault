@@ -1,7 +1,10 @@
 import { eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { isNullish } from "@/utils/type.utils";
+
+const ingestState = defineTableAccess("mediaFileIngestState", { primaryKeyColumn: "mediaFileId" });
 
 /** Marks the post-create sidecar write so a retry does not repeat it. */
 export async function markIngestSidecarWritten(mediaFileId: string): Promise<void> {
@@ -30,12 +33,9 @@ export async function findIngestProgress(mediaFileId: string): Promise<{ sidecar
 
 async function upsertIngestState(mediaFileId: string, values: { sidecarWrittenAt?: Date; discoveredEmittedAt?: Date }): Promise<void> {
 	const now = new Date();
-	await databaseFactory
-		.getClient()
-		.insert(schema.mediaFileIngestState)
-		.values({ mediaFileId, createdAt: now, updatedAt: now, ...values })
-		.onConflictDoUpdate({
-			target: schema.mediaFileIngestState.mediaFileId,
-			set: { ...values, updatedAt: now },
-		});
+	await ingestState.upsert({
+		values: { mediaFileId, createdAt: now, updatedAt: now, ...values },
+		target: ingestState.table.mediaFileId,
+		set: { ...values, updatedAt: now },
+	});
 }

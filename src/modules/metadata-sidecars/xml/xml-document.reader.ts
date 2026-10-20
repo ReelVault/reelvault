@@ -1,6 +1,7 @@
 import type { XMLParser } from "fast-xml-parser";
 import type { SyntaxValidator } from "fast-xml-validator";
 import { DomainError } from "@/utils/domain.errors";
+import { getFileSize, readFile } from "@/utils/file.utils";
 import { isRecord } from "@/utils/type.utils";
 
 export interface XmlDocument {
@@ -55,6 +56,20 @@ export function assertXmlDocumentSize(documentPath: string, sizeBytes: number | 
 		`Sidecar document exceeds the maximum supported size of ${MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB} MB: ${documentPath}`,
 		{ code: "sidecar.document_too_large", params: { maxMb: MAX_XML_DOCUMENT_BYTES / BYTES_PER_MB } },
 	);
+}
+
+/**
+ * Loads a sidecar document from disk, enforcing the size cap first. A caller
+ * that already holds the body passes `content` and skips the second read; the
+ * cap is still checked.
+ */
+export async function loadXmlDocumentFile(documentPath: string, content?: string): Promise<XmlDocument | null> {
+	if (content === undefined) assertXmlDocumentSize(documentPath, getFileSize(documentPath));
+
+	const input = content ?? (await readFile(documentPath, "utf8").catch(() => null));
+	if (input === null) return null;
+
+	return await readXmlDocument(input);
 }
 
 export async function readXmlDocument(input: string): Promise<XmlDocument | null> {

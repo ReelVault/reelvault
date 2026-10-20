@@ -1,6 +1,6 @@
 import type { CreateLibrary, FieldsConfig, FieldsQuery, LibraryWithRelations, SelectFields, UpdateLibrary } from "@reelvault/sdk/common";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { parseStandardQuery } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { hasEntry } from "@/utils/array.utils";
 import { replacePaths } from "./paths.writer";
@@ -20,7 +20,7 @@ export interface LibraryUpdateParams {
 }
 
 export async function createAndRead<F extends string>(caches: LibraryStatsCaches, body: CreateLibrary, query?: FieldsQuery<F>) {
-	const { fields } = QueryUtils.parseStandard(query);
+	const { fields } = parseStandardQuery(query);
 
 	return await create(caches, { values: body, fields });
 }
@@ -31,7 +31,7 @@ export async function updateAndRead<F extends string>(
 	body: UpdateLibrary,
 	query?: FieldsQuery<F>,
 ) {
-	const { fields } = QueryUtils.parseStandard(query);
+	const { fields } = parseStandardQuery(query);
 	await update(caches, { primaryId: libraryId, values: body });
 
 	return await findById(caches, { primaryId: libraryId, fields });

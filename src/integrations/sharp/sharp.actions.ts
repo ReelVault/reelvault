@@ -3,7 +3,7 @@ import type { Sharp } from "sharp";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { createSemaphore } from "@/utils/promise.utils";
 import type { SharpImageOptions } from "./sharp.types";
 
 type SharpFactory = typeof import("sharp").default;
@@ -26,7 +26,7 @@ async function loadSharp(): Promise<SharpFactory> {
 	return sharp;
 }
 
-const sharpSemaphore = PromiseUtils.createSemaphore(() => systemResourcesService.getSharpConcurrency());
+const sharpSemaphore = createSemaphore(() => systemResourcesService.getSharpConcurrency());
 
 interface Dimensions {
 	width: number;
@@ -63,6 +63,23 @@ async function getCoverDimensions(input: Sharp, targetWidth: number, targetHeigh
 	};
 }
 
+/**
+ * Loads sharp, takes the shared semaphore and creates the input pipeline with
+ * the project's decode options. The caller supplies only the encoder chain.
+ */
+async function withSharp<T>(input: Buffer | string, signal: AbortSignal | undefined, run: (image: Sharp) => Promise<T>): Promise<T> {
+	throwIfAborted(signal);
+	const sharp = await loadSharp();
+	await sharpSemaphore.acquire(signal);
+	try {
+		throwIfAborted(signal);
+
+		return await run(sharp(input, { limitInputPixels: serverConfig.sharp.maxInputPixels, failOn: "error" }));
+	} finally {
+		sharpSemaphore.release();
+	}
+}
+
 export interface OptimizedImageResult {
 	data: Buffer;
 	info: {
@@ -78,12 +95,7 @@ export async function optimizeImageWithInfo(
 	options: SharpImageOptions,
 	signal?: AbortSignal,
 ): Promise<OptimizedImageResult> {
-	throwIfAborted(signal);
-	const sharp = await loadSharp();
-	await sharpSemaphore.acquire(signal);
-	try {
-		throwIfAborted(signal);
-		const sharpInput = sharp(input, { limitInputPixels: serverConfig.sharp.maxInputPixels, failOn: "error" });
+	return await withSharp(input, signal, async (sharpInput) => {
 		const { fit = "inside", withoutEnlargement = true } = options;
 
 		let dimensions: Dimensions | null = null;
@@ -116,9 +128,7 @@ export async function optimizeImageWithInfo(
 				size: info.size,
 			},
 		};
-	} finally {
-		sharpSemaphore.release();
-	}
+	});
 }
 
 export async function optimizeImage(input: Buffer | string, options: SharpImageOptions, signal?: AbortSignal): Promise<Buffer> {
@@ -130,17 +140,5 @@ export async function optimizeImage(input: Buffer | string, options: SharpImageO
 /** Container conversion of an already-sized image (webp store variant → jpeg
  * for sidecar artwork export). No resize — only the codec changes. */
 export async function reencodeImage(input: Buffer | string, quality: ImageQuality, signal?: AbortSignal): Promise<Buffer> {
-	throwIfAborted(signal);
-	const sharp = await loadSharp();
-	await sharpSemaphore.acquire(signal);
-	try {
-		throwIfAborted(signal);
-
-		return await sharp(input, { limitInputPixels: serverConfig.sharp.maxInputPixels, failOn: "error" })
-			.rotate()
-			.jpeg({ quality })
-			.toBuffer();
-	} finally {
-		sharpSemaphore.release();
-	}
+	return await withSharp(input, signal, async (sharpInput) => await sharpInput.rotate().jpeg({ quality }).toBuffer());
 }

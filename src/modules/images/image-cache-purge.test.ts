@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { imageMaintenanceService } from "@/modules/images/image-maintenance.service";
-import { DirUtils, removeTree } from "@/utils/directory.utils";
+import { createDirectory, removeTree } from "@/utils/directory.utils";
 
 let testImagesDir: string;
 let originalImagesPath: string;
@@ -14,8 +14,8 @@ beforeEach(async () => {
 	testImagesDir = await mkdtemp(join(tmpdir(), "reelvault-image-cache-purge-test-"));
 	serverConfig.paths.images = testImagesDir;
 
-	await DirUtils.create(join(testImagesDir, "posters"));
-	await DirUtils.create(join(testImagesDir, ".cache"));
+	await createDirectory(join(testImagesDir, "posters"));
+	await createDirectory(join(testImagesDir, ".cache"));
 });
 
 afterEach(async () => {

@@ -12,11 +12,38 @@ export function ClampedNumeric(minimum: number, maximum: number, options?: Param
 		.Encode((value) => value);
 }
 
+/** `page`/`limit` fields for routes that compose them with extra filters. */
+export function paginationQueryFields(options?: {
+	maxLimit?: number | undefined;
+	defaultLimit?: number | undefined;
+	defaultPage?: number | undefined;
+}) {
+	const maxLimit = options?.maxLimit ?? serverConstants.api.pagination.maxLimit;
+
+	let page = ClampedNumeric(1, serverConstants.api.pagination.maxPage);
+	if (options?.defaultPage !== undefined) {
+		page = ClampedNumeric(1, serverConstants.api.pagination.maxPage, { default: options.defaultPage });
+	}
+
+	let limit = ClampedNumeric(1, maxLimit);
+	if (options?.defaultLimit !== undefined) {
+		limit = ClampedNumeric(1, maxLimit, { default: options.defaultLimit });
+	}
+
+	return { page: t.Optional(page), limit: t.Optional(limit) };
+}
+
 /** Offset pagination query — `page`/`limit` only; cursor endpoints use `CursorPaginationSchema`. */
-export const PaginationSchema = t.Object({
-	page: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxPage)),
-	limit: t.Optional(ClampedNumeric(1, serverConstants.api.pagination.maxLimit)),
-});
+export const PaginationSchema = t.Object(paginationQueryFields());
+
+/** Standalone `page`/`limit` object with a route-specific cap. */
+export function PaginationQuerySchema(options?: {
+	maxLimit?: number | undefined;
+	defaultLimit?: number | undefined;
+	defaultPage?: number | undefined;
+}) {
+	return t.Object(paginationQueryFields(options));
+}
 
 /** Cursor-capable pagination query — only routes whose repository honors `cursor`. */
 export const CursorPaginationSchema = t.Object({

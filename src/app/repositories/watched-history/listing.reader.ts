@@ -5,11 +5,11 @@ import { schema } from "@/integrations/drizzle-orm/database.schema";
 import {
 	type CreatedAtCursor,
 	decodeCursorFor,
-	KeysetCursor,
+	encodeCursor,
 	keysetWhere,
 } from "@/integrations/drizzle-orm/query/keyset/keyset-cursor.utils";
-import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.utils";
-import { QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { createPageResponse } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { parseStandardQuery } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { cachedCount, filterSignature } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
 import { metadataImageOn, metadataOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
 import { unique } from "@/utils/array.utils";
@@ -94,7 +94,7 @@ export async function findWatchedPage(
 	profileId: string,
 	query: CursorPaginationQuery & { sortBy?: "watchedAt" | "createdAt"; sortOrder?: "asc" | "desc" },
 ): Promise<CursorPaginatedResponse<WatchedHistoryWithRelations>> {
-	const { pagination } = QueryUtils.parseStandard(query);
+	const { pagination } = parseStandardQuery(query);
 	const sortBy = query.sortBy ?? "watchedAt";
 	const sortOrder = query.sortOrder ?? "desc";
 	// Keyset pagination on the default listing (watchedAt desc) — offset pages
@@ -112,7 +112,7 @@ export async function findWatchedPage(
 		findWatchedWithMedia(profileId, { limit: pagination.limit, offset: pagination.offset, sortBy, sortOrder, cursor }),
 	]);
 
-	const response = QueryPagination.createResponse({
+	const response = createPageResponse({
 		total,
 		pagination: cursor ? { ...pagination, page: 1, offset: 0 } : pagination,
 		data: rows.map(({ history, metadata, episode, season, backdrop }) => ({ ...history, metadata, episode, season, backdrop })),
@@ -125,5 +125,5 @@ export async function findWatchedPage(
 	const last = rows.at(-1);
 	if (!last) return response;
 
-	return { ...response, nextCursor: KeysetCursor.encode({ createdAt: last.history.watchedAt.getTime(), id: last.history.id }) };
+	return { ...response, nextCursor: encodeCursor({ createdAt: last.history.watchedAt.getTime(), id: last.history.id }) };
 }

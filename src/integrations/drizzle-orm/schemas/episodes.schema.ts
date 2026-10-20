@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, nullableTableRef, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { createProviderJunction, createRatingsJunction } from "@/integrations/drizzle-orm/utils/junction.utils";
 import { images } from "./images.schema";
 import { seasons } from "./seasons.schema";
@@ -8,10 +8,10 @@ import { seasons } from "./seasons.schema";
 export const episodes = sqliteTable(
 	"episodes",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		stableKey: text("stable_key").notNull(),
-		seasonId: DatabaseHelper.tableRef("season_id", () => seasons.id, { onDelete: "cascade" }),
-		imageId: DatabaseHelper.nullableTableRef("image_id", () => images.id, { onDelete: "set null" }),
+		seasonId: tableRef("season_id", () => seasons.id, { onDelete: "cascade" }),
+		imageId: nullableTableRef("image_id", () => images.id, { onDelete: "set null" }),
 
 		episodeType: text("type", { enum: ["regular", "special"] })
 			.notNull()
@@ -23,7 +23,7 @@ export const episodes = sqliteTable(
 		overview: text("overview"),
 		airDate: text("air_date"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("episodes_unique").on(t.seasonId, t.episodeType, t.episodeNumber),

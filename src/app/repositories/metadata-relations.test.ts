@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { QueryFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { removeTreeSync } from "@/utils/directory.utils";
 import { metadataRepository } from "./metadata.repository";
 
@@ -173,7 +173,7 @@ describe("metadata relations", () => {
 		const detail = await metadataRepository.findById({ primaryId: relatedId });
 		const projected = await metadataRepository.findById({
 			primaryId: relatedId,
-			fields: QueryFields.parse({ fields: RELATION_KEYS.join(",") }),
+			fields: parseFields({ fields: RELATION_KEYS.join(",") }),
 		});
 		if (!(detail && projected)) throw new Error("seeded title not found");
 

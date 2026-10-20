@@ -14,12 +14,12 @@ interface AuditContext {
 	headers?: Headers | undefined;
 }
 
-class AdminPluginCatalogService {
-	readonly logger = createLogger("AdminPluginCatalog");
+export const adminPluginCatalogService = {
+	logger: createLogger("AdminPluginCatalog"),
 
 	async listRepositories(): Promise<PluginRepository[]> {
 		return await pluginCatalogService.listRepositories();
-	}
+	},
 
 	async createRepository(body: { name: string; url: string; token?: string }, context: AuditContext): Promise<PluginRepository> {
 		const repository = await pluginCatalogService.createRepository(body);
@@ -32,11 +32,11 @@ class AdminPluginCatalogService {
 				after: { name: repository.name, url: repository.url, hasToken: repository.hasToken },
 				context,
 			},
-			this.logger,
+			adminPluginCatalogService.logger,
 		);
 
 		return repository;
-	}
+	},
 
 	async updateRepository(id: string, body: UpdatePluginRepositoryBody, context: AuditContext): Promise<PluginRepository> {
 		const before = await pluginCatalogService.listRepositories().then((rows) => rows.find((row) => row.id === id));
@@ -51,11 +51,11 @@ class AdminPluginCatalogService {
 				after: { name: repository.name, url: repository.url, enabled: repository.enabled, hasToken: repository.hasToken },
 				context,
 			},
-			this.logger,
+			adminPluginCatalogService.logger,
 		);
 
 		return repository;
-	}
+	},
 
 	async deleteRepository(id: string, context: AuditContext): Promise<{ success: boolean }> {
 		const before = await pluginCatalogService.listRepositories().then((rows) => rows.find((row) => row.id === id));
@@ -71,11 +71,11 @@ class AdminPluginCatalogService {
 				before: { name: before.name, url: before.url },
 				context,
 			},
-			this.logger,
+			adminPluginCatalogService.logger,
 		);
 
 		return { success: true };
-	}
+	},
 
 	async refreshRepository(id: string, context: AuditContext): Promise<PluginRepository> {
 		const repository = await pluginCatalogService.refreshRepository(id);
@@ -88,15 +88,15 @@ class AdminPluginCatalogService {
 				after: { action: "refresh", lastRefreshedAt: repository.lastRefreshedAt, lastErrorCode: repository.lastErrorCode },
 				context,
 			},
-			this.logger,
+			adminPluginCatalogService.logger,
 		);
 
 		return repository;
-	}
+	},
 
 	async getCatalog(): Promise<PluginCatalogView> {
 		return await pluginCatalogService.getCatalog();
-	}
+	},
 
 	async install(
 		body: { repositoryId: string; pluginId: string; version?: string },
@@ -117,11 +117,11 @@ class AdminPluginCatalogService {
 				},
 				context,
 			},
-			this.logger,
+			adminPluginCatalogService.logger,
 		);
 
 		return result;
-	}
+	},
 
 	async installUploadedArchive(file: File, context: AuditContext): Promise<InstallCatalogPluginResponse> {
 		const result = await pluginCatalogService.installFromArchive(file, { source: `upload:${file.name}` });
@@ -134,16 +134,16 @@ class AdminPluginCatalogService {
 				after: { version: result.version, upgraded: result.upgraded, fileName: file.name, size: file.size },
 				context,
 			},
-			this.logger,
+			adminPluginCatalogService.logger,
 		);
 
 		return result;
-	}
+	},
 
 	/** Dry run of an uploaded archive. Read-only, so nothing is audited. */
 	async validateUploadedArchive(file: File): Promise<PluginValidationResult> {
 		return await pluginCatalogService.validateArchive(file);
-	}
+	},
 
 	async uninstall(pluginId: string, context: AuditContext): Promise<{ success: boolean }> {
 		await pluginCatalogService.uninstallPlugin(pluginId);
@@ -156,11 +156,9 @@ class AdminPluginCatalogService {
 				after: { action: "uninstall" },
 				context,
 			},
-			this.logger,
+			adminPluginCatalogService.logger,
 		);
 
 		return { success: true };
-	}
-}
-
-export const adminPluginCatalogService = new AdminPluginCatalogService();
+	},
+};

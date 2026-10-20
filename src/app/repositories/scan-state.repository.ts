@@ -1,8 +1,10 @@
 import { eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 
 const scanState = schema.scanState;
+const scanStateAccess = defineTableAccess("scanState", { primaryKeyColumn: "libraryId" });
 
 export interface ScanCheckpoint {
 	pathsSignature: string;
@@ -13,7 +15,7 @@ export interface ScanCheckpoint {
 	refreshCursor: number;
 }
 
-class ScanStateRepository {
+export const scanStateRepository = {
 	async get(libraryId: string): Promise<ScanCheckpoint | undefined> {
 		const [row] = await databaseFactory.getClient().select().from(scanState).where(eq(scanState.libraryId, libraryId)).limit(1);
 		if (!row) return undefined;
@@ -26,19 +28,16 @@ class ScanStateRepository {
 			ingestCursor: row.ingestCursor,
 			refreshCursor: row.refreshCursor,
 		};
-	}
+	},
 
 	async set(libraryId: string, checkpoint: ScanCheckpoint): Promise<void> {
 		const now = new Date();
-		await databaseFactory
-			.getClient()
-			.insert(scanState)
-			.values({ id: crypto.randomUUID(), libraryId, ...checkpoint })
-			.onConflictDoUpdate({
-				target: scanState.libraryId,
-				set: { ...checkpoint, updatedAt: now },
-			});
-	}
+		await scanStateAccess.upsert({
+			values: { id: crypto.randomUUID(), libraryId, ...checkpoint },
+			target: scanStateAccess.table.libraryId,
+			set: { ...checkpoint, updatedAt: now },
+		});
+	},
 
 	/**
 	 * Advances only the cursors. The enqueue loops call this after every batch;
@@ -51,11 +50,9 @@ class ScanStateRepository {
 			.update(scanState)
 			.set({ ...cursors, updatedAt: new Date() })
 			.where(eq(scanState.libraryId, libraryId));
-	}
+	},
 
 	async delete(libraryId: string): Promise<void> {
 		await databaseFactory.getClient().delete(scanState).where(eq(scanState.libraryId, libraryId));
-	}
-}
-
-export const scanStateRepository = new ScanStateRepository();
+	},
+};

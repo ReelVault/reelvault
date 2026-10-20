@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, tableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import {
 	createMetadataEntityJunction,
 	createProviderJunction,
@@ -16,7 +16,7 @@ import { people } from "./people.schema";
 export const metadata = sqliteTable(
 	"metadata",
 	{
-		id: DatabaseHelper.id,
+		id: idColumn,
 		stableKey: text("stable_key").notNull(),
 		/** Metadata provider id used as the preferred refresh source. */
 		primaryProviderId: text("primary_provider_id"),
@@ -43,7 +43,7 @@ export const metadata = sqliteTable(
 		matchScore: real("match_score"),
 		hasMissingTranslation: integer("has_missing_translation", { mode: "boolean" }).notNull().default(false),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(t) => [
 		uniqueIndex("metadata_unique").on(t.title, t.type, t.releaseDate),
@@ -91,8 +91,8 @@ export const metadata = sqliteTable(
 export const metadataCollections = sqliteTable(
 	"metadata_collections",
 	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
-		collectionId: DatabaseHelper.tableRef("collection_id", () => collections.id, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
+		collectionId: tableRef("collection_id", () => collections.id, { onDelete: "cascade" }),
 
 		sortOrder: integer("sort_order").notNull().default(0),
 	},
@@ -134,8 +134,8 @@ export const metadataKeywords = createMetadataEntityJunction(
 export const metadataCast = sqliteTable(
 	"metadata_cast",
 	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
-		personId: DatabaseHelper.tableRef("person_id", () => people.id, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
+		personId: tableRef("person_id", () => people.id, { onDelete: "cascade" }),
 
 		// Data
 		role: text("role").notNull(),
@@ -155,8 +155,8 @@ export const metadataCast = sqliteTable(
 export const metadataCrew = sqliteTable(
 	"metadata_crew",
 	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
-		personId: DatabaseHelper.tableRef("person_id", () => people.id, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
+		personId: tableRef("person_id", () => people.id, { onDelete: "cascade" }),
 
 		job: text("job").notNull(),
 		department: text("department").notNull(),
@@ -167,8 +167,8 @@ export const metadataCrew = sqliteTable(
 export const metadataImages = sqliteTable(
 	"metadata_images",
 	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
-		imageId: DatabaseHelper.tableRef("image_id", () => images.id, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
+		imageId: tableRef("image_id", () => images.id, { onDelete: "cascade" }),
 
 		imageType: text("image_type", {
 			enum: ["poster", "backdrop", "logo", "thumbnail"],
@@ -184,7 +184,7 @@ export const metadataProviders = createProviderJunction("metadata_providers", "m
 export const metadataLockedFields = sqliteTable(
 	"metadata_locked_fields",
 	{
-		metadataId: DatabaseHelper.tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
+		metadataId: tableRef("metadata_id", () => metadata.id, { onDelete: "cascade" }),
 		field: text("field").notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.metadataId, t.field] })],

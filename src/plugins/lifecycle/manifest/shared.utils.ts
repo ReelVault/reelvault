@@ -1,5 +1,5 @@
 import { DomainError } from "@/utils/domain.errors";
-import { PathUtils } from "@/utils/path.utils";
+import { isAbsolutePath, isSubpath, resolvePath } from "@/utils/path.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 
 /** Contribution identifiers are referenced across surfaces (tabs → pages, slots → actions). */
@@ -164,15 +164,15 @@ export function assertNonEmptyString(value: unknown, field: string): asserts val
 
 export function assertRelativeString(value: unknown, field: string): asserts value is string {
 	assertNonEmptyString(value, field);
-	if (PathUtils.isAbsolute(value) || !value.startsWith("./")) {
+	if (isAbsolutePath(value) || !value.startsWith("./")) {
 		throw fieldError(field, "path_invalid", "must be a relative path starting with './'");
 	}
 }
 
 export function resolvePluginPath(pluginDir: string, path: string, field: string): string {
-	const root = PathUtils.resolve(pluginDir);
-	const resolvedPath = PathUtils.resolve(root, path);
-	if (!PathUtils.isSubpath(resolvedPath, root)) {
+	const root = resolvePath(pluginDir);
+	const resolvedPath = resolvePath(root, path);
+	if (!isSubpath(resolvedPath, root)) {
 		throw fieldError(field, "path_escapes", `escapes plugin directory: ${path}`);
 	}
 

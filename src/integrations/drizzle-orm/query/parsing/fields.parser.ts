@@ -8,7 +8,7 @@ interface FieldNode {
 }
 
 /**
- * Fields config enriched by `QueryFields.parse` with a prebuilt selection mask
+ * Fields config enriched by `parseFields` with a prebuilt selection mask
  * and field set so hot paths skip re-parsing the field list.
  */
 export interface ParsedFieldsConfig<F extends string = string> extends FieldsConfig<F> {
@@ -16,7 +16,7 @@ export interface ParsedFieldsConfig<F extends string = string> extends FieldsCon
 	_fieldSet?: Set<string>;
 }
 
-function parseFields<F extends string>({ fields: fieldsString }: { fields?: F | undefined }): ParsedFieldsConfig<F> {
+export function parseFields<F extends string>({ fields: fieldsString }: { fields?: F | undefined }): ParsedFieldsConfig<F> {
 	if (!fieldsString) {
 		return { fields: [], relations: {}, __original: fieldsString };
 	}
@@ -87,10 +87,10 @@ function buildFieldSet(fields: readonly string[]): Set<string> {
 /**
  * Applies a field selection to a data object.
  */
-function applyFields<T extends object>(data: T): T;
-function applyFields<T extends object, F extends string>(data: T, config: ParsedFieldsConfig<F> | undefined): SelectFields<T, F>;
+export function applyFields<T extends object>(data: T): T;
+export function applyFields<T extends object, F extends string>(data: T, config: ParsedFieldsConfig<F> | undefined): SelectFields<T, F>;
 
-function applyFields(data: object, config?: ParsedFieldsConfig): unknown {
+export function applyFields(data: object, config?: ParsedFieldsConfig): unknown {
 	// No fields defined — return the original (SDK default behaviour)
 	if (!config?.fields || config.fields.length === 0) return data;
 
@@ -99,7 +99,7 @@ function applyFields(data: object, config?: ParsedFieldsConfig): unknown {
 	return pickData(data, mask);
 }
 
-function includesField<F extends string>(config: ParsedFieldsConfig<F> | undefined, field: string): boolean {
+export function includesField<F extends string>(config: ParsedFieldsConfig<F> | undefined, field: string): boolean {
 	if (!config?.fields.length) return true;
 
 	const fieldSet = config._fieldSet instanceof Set ? config._fieldSet : buildFieldSet(config.fields);
@@ -170,14 +170,3 @@ function pickData(source: unknown, mask: FieldNode | true): unknown {
 
 	return source;
 }
-
-export const QueryFields = {
-	/**
-	 * Parses a "field1,relation.field2" string into the field-selection config.
-	 */
-	parse: parseFields,
-	apply: applyFields,
-	includes: includesField,
-	_buildFieldMask: buildFieldMask,
-	_pickData: pickData,
-};

@@ -3,6 +3,7 @@ import type { SkippedMediaFile } from "@/modules/scanner/scanner.types";
 import { assertFound, toDomainError } from "@/utils/domain.errors";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import type { ApplicationContext } from "@/utils/task-context.types";
+import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { workerDependencies } from "@/workers/worker.ports";
@@ -28,11 +29,11 @@ import type {
 export const mediaFileIngestWorker = createWorkerDefinition<MediaFileIngestData>(
 	"media-file-ingest",
 	() => serverConfig.workers.definitions.mediaFileIngest,
-	async ({ data, logger, signal, operationId, taskId, attempt }) =>
-		await ingestMediaFileTask(data, { signal, logger, operationId, correlationId: operationId, taskId }, defaultDependencies, {
-			operationId,
-			taskId,
-			attempt,
+	async (context) =>
+		await ingestMediaFileTask(context.data, toApplicationContext(context), defaultDependencies, {
+			operationId: context.operationId,
+			taskId: context.taskId,
+			attempt: context.attempt,
 		}),
 );
 

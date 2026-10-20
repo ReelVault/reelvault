@@ -10,7 +10,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { CORE_ARTIFACTS_OWNER } from "@/integrations/drizzle-orm/constants/media-artifacts.constants";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
-import { PathUtils } from "@/utils/path.utils";
+import { joinPath } from "@/utils/path.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -73,7 +73,7 @@ async function storeArtifactOfSize(mediaFileId: string, bytes: number): Promise<
 	const row = await mediaArtifactsRepository.findById(artifact.id);
 	if (!row) throw new Error("Expected the artifact row to exist");
 
-	await truncate(PathUtils.join(serverConfig.paths.artifacts, row.storageKey), bytes);
+	await truncate(joinPath(serverConfig.paths.artifacts, row.storageKey), bytes);
 	mediaArtifactsService.invalidateByteTotals();
 }
 

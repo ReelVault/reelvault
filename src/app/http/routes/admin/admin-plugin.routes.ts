@@ -24,7 +24,7 @@ import { t } from "elysia";
 import { adminService } from "@/app/admin/admin.service";
 import { adminPluginCatalogService } from "@/app/admin/admin-plugin-catalog.service";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
-import { PluginIdParams, ProviderIdParams, RepositoryIdParams } from "@/app/http/schemas/route-params.schema";
+import { PluginArchiveUpload, PluginIdParams, ProviderIdParams, RepositoryIdParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
@@ -321,7 +321,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		},
 	)
 	.post("/plugins/validate", async ({ body }) => await adminPluginCatalogService.validateUploadedArchive(body.file), {
-		body: t.Object({ file: t.File({ maxSize: "200m" }) }),
+		body: PluginArchiveUpload,
 		rateLimit: { name: "admin-plugin-validate", max: 10, windowMs: MINUTE },
 		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: PluginValidationResultSchema },
 		detail: {
@@ -333,7 +333,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		"/plugins/install-upload",
 		async ({ body, user, request }) => await adminPluginCatalogService.installUploadedArchive(body.file, actorContext({ user, request })),
 		{
-			body: t.Object({ file: t.File({ maxSize: "200m" }) }),
+			body: PluginArchiveUpload,
 			rateLimit: { name: "admin-plugin-install-upload", max: 10, windowMs: MINUTE },
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: InstallCatalogPluginResponseSchema },
 			detail: {

@@ -10,7 +10,7 @@ import type { AdminAuditContext } from "@/app/repositories/admin-audit.repositor
 import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { mediaMarkersRepository } from "@/app/repositories/media-markers.repository";
 import { toPublicMarker } from "@/integrations/drizzle-orm/utils/media-marker.mapper";
-import { DomainError, notFoundError } from "@/utils/domain.errors";
+import { assertExists, DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
 import type { MediaServiceState } from "./shared.utils";
 import { assertMediaFileExists } from "./shared.utils";
@@ -93,7 +93,7 @@ export async function setMarkers(
 			mediaRepository.isExists({ primaryId: mediaFileId }),
 			mediaMarkersRepository.findByMediaFileId(mediaFileId),
 		]);
-		if (!mediaFileExists) throw notFoundError("MediaFile", mediaFileId);
+		assertExists(mediaFileExists, "MediaFile", mediaFileId);
 		const saved = await mediaMarkersRepository.replaceMarkersForMediaFile(mediaFileId, markers, options);
 		const after = saved.map((item) => toPublicMarker(item));
 

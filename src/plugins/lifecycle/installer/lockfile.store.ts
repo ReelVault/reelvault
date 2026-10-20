@@ -1,6 +1,6 @@
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
-import { FileUtils, readFile } from "@/utils/file.utils";
-import { PathUtils } from "@/utils/path.utils";
+import { getFileStats, readFile, writeFileAtomic } from "@/utils/file.utils";
+import { getDirName, getFileName, joinPath, resolvePath } from "@/utils/path.utils";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 
 export const LOCKFILE_NAME = "plugins.lock.json";
@@ -52,7 +52,7 @@ export class PluginLockfileStore {
 
 	async read(): Promise<PluginLockfile> {
 		const lockfilePath = this.lockfilePath();
-		const stats = await FileUtils.getStats(lockfilePath);
+		const stats = await getFileStats(lockfilePath);
 		// The timestamp keeps its sub-millisecond precision: a lockfile rewritten
 		// in the same millisecond (an install right after another one) must not
 		// read as unchanged.
@@ -79,7 +79,7 @@ export class PluginLockfileStore {
 	}
 
 	async write(lockfile: PluginLockfile): Promise<void> {
-		await FileUtils.writeAtomic(this.lockfilePath(), `${JSON.stringify(lockfile, null, 2)}\n`);
+		await writeFileAtomic(this.lockfilePath(), `${JSON.stringify(lockfile, null, 2)}\n`);
 		// The file changed — the next read takes it from disk again.
 		this.cached = undefined;
 	}
@@ -101,16 +101,16 @@ export class PluginLockfileStore {
 		// The directory name may differ from the plugin id (manually dropped
 		// packages), so validate it as a plain basename and keep the resolved
 		// path inside the plugins root.
-		if (PathUtils.getFileName(pluginId) !== pluginId || PathUtils.getFileName(record.directory) !== record.directory) {
+		if (getFileName(pluginId) !== pluginId || getFileName(record.directory) !== record.directory) {
 			throw new DomainError("validation", `Plugin ${pluginId} has an unsafe ${LOCKFILE_NAME} directory entry`, {
 				code: "plugin.lockfile_entry_unsafe",
 				params: { plugin: pluginId },
 			});
 		}
 
-		const pluginsDirectory = PathUtils.resolve(this.pluginsDirectory);
-		const directory = PathUtils.resolve(pluginsDirectory, record.directory);
-		if (PathUtils.getDirName(directory) !== pluginsDirectory)
+		const pluginsDirectory = resolvePath(this.pluginsDirectory);
+		const directory = resolvePath(pluginsDirectory, record.directory);
+		if (getDirName(directory) !== pluginsDirectory)
 			throw new DomainError("validation", `Plugin ${pluginId} escapes the plugins directory`, {
 				code: "plugin.directory_escape",
 				params: { plugin: pluginId },
@@ -120,7 +120,7 @@ export class PluginLockfileStore {
 	}
 
 	private lockfilePath(): string {
-		return PathUtils.join(PathUtils.resolve(this.pluginsDirectory), LOCKFILE_NAME);
+		return joinPath(resolvePath(this.pluginsDirectory), LOCKFILE_NAME);
 	}
 }
 

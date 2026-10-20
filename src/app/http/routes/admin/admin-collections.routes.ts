@@ -34,10 +34,7 @@ export const adminCollectionsRoutes = adminShell({ tags: ["Admin"] })
 	.put(
 		"/collections/:collectionId/order",
 		async ({ params, body, user, request }) =>
-			await collectionsService.updateManualOrder(params.collectionId, body.metadataIds, {
-				actorUserId: user?.id,
-				headers: request.headers,
-			}),
+			await collectionsService.updateManualOrder(params.collectionId, body.metadataIds, actorContext({ user, request })),
 		{
 			rateLimit: { name: "admin-collections-order", max: 30, windowMs: MINUTE },
 			params: CollectionIdParams,

@@ -1,13 +1,13 @@
 import { cp, mkdir, rename } from "node:fs/promises";
 import type { PluginInstallDirection } from "@reelvault/sdk/common";
 import { resolvePluginDirectoryName } from "@/plugins/lifecycle/host/plugin-directory.resolver";
-import { DirUtils, removeTree } from "@/utils/directory.utils";
+import { directoryExists, removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath, resolvePath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { isNewerVersion } from "@/utils/semver.utils";
-import { isPluginDirectoryName } from "./host/plugin-directory.indexer";
+import { readPluginManifests } from "./host/plugin-directory.reader";
 import { activateStagedPackage } from "./installer/activate.service";
 import {
 	assertPackageDirectory,
@@ -84,15 +84,15 @@ export class PluginInstaller {
 	}
 
 	async install(sourceDirectory: string, options: InstallOptions = {}): Promise<InstallResult> {
-		const source = PathUtils.resolve(sourceDirectory);
-		const pluginsDirectory = PathUtils.resolve(this.pluginsDirectory);
+		const source = resolvePath(sourceDirectory);
+		const pluginsDirectory = resolvePath(this.pluginsDirectory);
 		assertSeparateDirectories(source, pluginsDirectory);
 		await assertPackageDirectory(source);
 
 		const manifest = await loadInstallableManifest(source);
 		const targetName = await this.resolveInstalledDirectoryName(manifest.id);
-		const targetDirectory = PathUtils.join(pluginsDirectory, targetName);
-		const targetExists = await DirUtils.exists(targetDirectory);
+		const targetDirectory = joinPath(pluginsDirectory, targetName);
+		const targetExists = await directoryExists(targetDirectory);
 		if (targetExists && !options.upgrade) {
 			throw new DomainError("validation", `Plugin ${manifest.id} is already installed in ${targetDirectory}`, {
 				code: "plugin.already_installed",
@@ -103,7 +103,7 @@ export class PluginInstaller {
 		const isUpgrade = targetExists && options.upgrade === true;
 
 		await mkdir(this.pluginsDirectory, { recursive: true });
-		const stagingDirectory = PathUtils.join(pluginsDirectory, `.install-${manifest.id}-${crypto.randomUUID()}`);
+		const stagingDirectory = joinPath(pluginsDirectory, `.install-${manifest.id}-${crypto.randomUUID()}`);
 		try {
 			await stagePackage(source, stagingDirectory, manifest);
 
@@ -146,7 +146,7 @@ export class PluginInstaller {
 		// An upgrade keeps the package it replaces as a rollback point (`previous`). Without a lockfile record there is nothing to roll back to.
 		let backupDirectory: string | undefined;
 		if (isUpgrade) {
-			backupDirectory = PathUtils.join(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`);
+			backupDirectory = joinPath(pluginsDirectory, `.upgrade-${manifest.id}-${crypto.randomUUID()}`);
 		}
 
 		const record = buildInstallRecord({
@@ -171,7 +171,7 @@ export class PluginInstaller {
 
 		// Only the package this upgrade replaced is dropped: a second upgrade before the first is confirmed.
 		if (backupDirectory && !record.previous) await removeTree(backupDirectory);
-		if (previousRecord?.previous) await removeTree(PathUtils.join(pluginsDirectory, previousRecord.previous.backupDirectory));
+		if (previousRecord?.previous) await removeTree(joinPath(pluginsDirectory, previousRecord.previous.backupDirectory));
 		if (!isUpgrade) await discardConfigBackup(pluginsDirectory, manifest.id);
 
 		await this.removeDuplicateDirectories(manifest.id, targetName);
@@ -194,24 +194,14 @@ export class PluginInstaller {
 
 	/** Best-effort removal of other directories carrying the same plugin id. */
 	private async removeDuplicateDirectories(pluginId: string, targetName: string): Promise<void> {
-		for (const dirName of await DirUtils.listDirs(this.pluginsDirectory)) {
-			if (!isPluginDirectoryName(dirName) || dirName === targetName) continue;
-
-			const directory = PathUtils.join(this.pluginsDirectory, dirName);
-			let manifestId: string;
-			try {
-				manifestId = (await loadPluginManifest(directory)).id;
-			} catch {
-				continue;
-			}
-
-			if (manifestId !== pluginId) continue;
+		for await (const { directoryName, manifest } of readPluginManifests(this.pluginsDirectory)) {
+			if (directoryName === targetName || manifest.id !== pluginId) continue;
 
 			try {
-				await removeTree(directory);
-				logger.warn("Removed a duplicate plugin directory for the same plugin id", { pluginId, directory: dirName });
+				await removeTree(joinPath(this.pluginsDirectory, directoryName));
+				logger.warn("Removed a duplicate plugin directory for the same plugin id", { pluginId, directory: directoryName });
 			} catch (error) {
-				logger.warn("Could not remove a duplicate plugin directory", { pluginId, directory: dirName, error });
+				logger.warn("Could not remove a duplicate plugin directory", { pluginId, directory: directoryName, error });
 			}
 		}
 	}
@@ -229,7 +219,7 @@ export class PluginInstaller {
 		Reflect.deleteProperty(confirmed, "previous");
 		lockfile.plugins[pluginId] = confirmed;
 		await this.lockfileStore.write(lockfile);
-		await removeTree(PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory));
+		await removeTree(joinPath(this.pluginsDirectory, record.previous.backupDirectory));
 
 		return true;
 	}
@@ -245,8 +235,8 @@ export class PluginInstaller {
 		if (!record?.previous) return undefined;
 
 		const current = this.lockfileStore.resolveInstalledDirectory(pluginId, record);
-		const backup = PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory);
-		const failed = PathUtils.join(this.pluginsDirectory, `.failed-${pluginId}-${crypto.randomUUID()}`);
+		const backup = joinPath(this.pluginsDirectory, record.previous.backupDirectory);
+		const failed = joinPath(this.pluginsDirectory, `.failed-${pluginId}-${crypto.randomUUID()}`);
 
 		// Same-directory renames, so the failed build is moved aside before the previous package takes its place.
 		await rename(current, failed);
@@ -317,7 +307,7 @@ export class PluginInstaller {
 	private async hashInstalledPlugins(): Promise<Array<{ plugin: InstalledPlugin; integrity: string }>> {
 		const plugins = await this.list();
 
-		return await PromiseUtils.mapConcurrent(plugins, verificationConcurrency(), async (plugin) => {
+		return await mapConcurrent(plugins, verificationConcurrency(), async (plugin) => {
 			const directory = this.lockfileStore.resolveInstalledDirectory(plugin.id, plugin.record);
 			await assertPackageDirectory(directory);
 
@@ -367,7 +357,7 @@ export class PluginInstaller {
 		}
 
 		if (record.previous) {
-			await removeTree(PathUtils.join(this.pluginsDirectory, record.previous.backupDirectory));
+			await removeTree(joinPath(this.pluginsDirectory, record.previous.backupDirectory));
 		}
 
 		return record;

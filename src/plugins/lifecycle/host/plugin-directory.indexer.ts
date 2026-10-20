@@ -1,8 +1,8 @@
 import { serverConfig } from "@/config/server/server.config";
 import { loadPluginManifest } from "@/plugins/lifecycle/plugin.manifest";
-import { DirUtils } from "@/utils/directory.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { directoryExists, listDirectories } from "@/utils/directory.utils";
+import { joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 /** `node_modules` (the SDK runtime shim) and dot-directories are never plugin packages. */
 export function isPluginDirectoryName(name: string): boolean {
@@ -29,7 +29,7 @@ export class PluginDirectoryIndex {
 	async resolve(pluginId: string, pluginsDirectory: string): Promise<string | undefined> {
 		const indexed = this.entries.get(pluginId);
 		if (indexed) {
-			if (await DirUtils.exists(PathUtils.join(pluginsDirectory, indexed))) return indexed;
+			if (await directoryExists(joinPath(pluginsDirectory, indexed))) return indexed;
 
 			this.entries.delete(pluginId);
 		}
@@ -45,13 +45,13 @@ export class PluginDirectoryIndex {
 	 * does not scan the plugins root a second time.
 	 */
 	async refresh(pluginsDirectory: string): Promise<string[]> {
-		const dirNames = (await DirUtils.listDirs(pluginsDirectory)).filter((name) => isPluginDirectoryName(name));
+		const dirNames = (await listDirectories(pluginsDirectory)).filter((name) => isPluginDirectoryName(name));
 		const knownDirectories = new Set(this.entries.values());
-		await PromiseUtils.mapConcurrent(dirNames, serverConfig.plugins.lifecycle.loadConcurrency, async (dirName) => {
+		await mapConcurrent(dirNames, serverConfig.plugins.lifecycle.loadConcurrency, async (dirName) => {
 			if (knownDirectories.has(dirName)) return;
 
 			try {
-				const manifest = await loadPluginManifest(PathUtils.join(pluginsDirectory, dirName));
+				const manifest = await loadPluginManifest(joinPath(pluginsDirectory, dirName));
 				this.entries.set(manifest.id, dirName);
 			} catch {
 				// Not a loadable plugin directory — ignore.

@@ -30,7 +30,7 @@ import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { scheduledTasksService } from "@/workers/scheduled-tasks.service";
 
 export interface PluginScopeApi {
@@ -199,7 +199,7 @@ export class PluginScope {
 		// Both kinds initialize side by side: a provider and a subtitle provider
 		// never overlap, so running them in two batches made every plugin wait
 		// for the first batch before the second one started.
-		await PromiseUtils.mapConcurrent([...this.providers.getAll(), ...this.subtitleProviders.getAll()], concurrency, initialize);
+		await mapConcurrent([...this.providers.getAll(), ...this.subtitleProviders.getAll()], concurrency, initialize);
 	}
 
 	/** Binds the plugin id before setup() so host capabilities used there (e.g. notification channels) can namespace themselves. */
@@ -350,7 +350,7 @@ export class PluginScope {
 			await pluginJobsService.unregister([...this.registeredJobIds]);
 		}
 
-		await PromiseUtils.mapConcurrent(
+		await mapConcurrent(
 			[...this.providers.getAll(), ...this.subtitleProviders.getAll(), ...this.analyzers.getAll()].toReversed(),
 			serverConfig.plugins.lifecycle.disposeConcurrency,
 			async (entity) => {

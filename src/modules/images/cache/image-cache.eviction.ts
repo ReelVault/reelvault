@@ -1,9 +1,9 @@
 import { readdir } from "node:fs/promises";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { FileUtils } from "@/utils/file.utils";
+import { deleteFile, getFileStats } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { joinPath } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 // Bounded on-disk variants cache: oldest entries beyond the cap are removed
 // after each RECHECK_WRITES-th cache write.
@@ -19,8 +19,8 @@ interface ServiceDependencies {
 
 const defaultDependencies: ServiceDependencies = {
 	listDirectory: (path) => readdir(path),
-	getStats: (path) => FileUtils.getStats(path),
-	deleteFile: (path) => FileUtils.delete(path),
+	getStats: (path) => getFileStats(path),
+	deleteFile: (path) => deleteFile(path),
 	getIoConcurrency: () => systemResourcesService.getIoConcurrency(),
 };
 
@@ -86,8 +86,8 @@ export class ImageCacheEviction {
 	/** One-off readdir + stat pass that trims pre-existing files and seeds the FIFO. */
 	private async reconcile(cacheDir: string): Promise<void> {
 		const names = await this.dependencies.listDirectory(cacheDir);
-		const stats = await PromiseUtils.mapConcurrent(names, this.dependencies.getIoConcurrency(), async (name) => {
-			const path = PathUtils.join(cacheDir, name);
+		const stats = await mapConcurrent(names, this.dependencies.getIoConcurrency(), async (name) => {
+			const path = joinPath(cacheDir, name);
 			const fileStat = await this.dependencies.getStats(path);
 
 			return { name, path, mtimeMs: fileStat?.mtimeMs ?? 0 };
@@ -96,7 +96,7 @@ export class ImageCacheEviction {
 		const excessLength = Math.max(0, sorted.length - IMAGE_CACHE_MAX_ENTRIES);
 		const excess = sorted.slice(0, excessLength);
 		if (excess.length > 0) {
-			await PromiseUtils.mapConcurrent(excess, this.dependencies.getIoConcurrency(), (entry) => this.dependencies.deleteFile(entry.path));
+			await mapConcurrent(excess, this.dependencies.getIoConcurrency(), (entry) => this.dependencies.deleteFile(entry.path));
 			this.logger.debug("Evicted stale optimized-image cache entries", { evicted: excess.length, kept: IMAGE_CACHE_MAX_ENTRIES });
 		}
 
@@ -118,9 +118,7 @@ export class ImageCacheEviction {
 			toEvict.push(name);
 		}
 
-		await PromiseUtils.mapConcurrent(toEvict, this.dependencies.getIoConcurrency(), (name) =>
-			this.dependencies.deleteFile(PathUtils.join(cacheDir, name)),
-		);
+		await mapConcurrent(toEvict, this.dependencies.getIoConcurrency(), (name) => this.dependencies.deleteFile(joinPath(cacheDir, name)));
 		for (const name of toEvict) tracked.delete(name);
 		this.logger.debug("Evicted stale optimized-image cache entries", { evicted: toEvict.length, kept: IMAGE_CACHE_MAX_ENTRIES });
 	}

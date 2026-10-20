@@ -3,6 +3,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { DomainError } from "@/utils/domain.errors";
 
@@ -136,20 +137,16 @@ const overrides = {
 		offset: number;
 	}): Promise<{ data: Array<typeof schema.notifications.$inferSelect>; total: number }> {
 		const where = recipientConditions({ userId, profileId, unreadOnly, type, excludedTypes });
-		const client = databaseFactory.getClient();
-		const [total, rows] = await Promise.all([
-			client.$count(schema.notifications, where),
-			client
-				.select()
-				.from(schema.notifications)
-				.where(where)
-				// created_at has second resolution — the id tiebreaker keeps offset pagination stable.
-				.orderBy(desc(schema.notifications.createdAt), desc(schema.notifications.id))
-				.limit(limit)
-				.offset(offset),
-		]);
 
-		return { data: rows, total };
+		return await findOffsetPage({
+			access: notifications,
+			where,
+			orderBy: desc(notifications.table.createdAt),
+			limit,
+			offset,
+			findMany: (page) => notifications.selectMany(page),
+			count: () => notifications.count({ where }),
+		});
 	},
 
 	async countUnread(userId: string, profileId?: string, excludedTypes: readonly string[] = []): Promise<number> {

@@ -1,12 +1,12 @@
 import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { DatabaseHelper } from "@/integrations/drizzle-orm/query/database-helper.utils";
+import { idColumn, nullableTableRef, timestampColumns } from "@/integrations/drizzle-orm/query/database-helper.utils";
 import { users } from "./auth.schema";
 
 export const adminAuditLogs = sqliteTable(
 	"admin_audit_logs",
 	{
-		id: DatabaseHelper.id,
-		actorUserId: DatabaseHelper.nullableTableRef("actor_user_id", () => users.id, { onDelete: "set null" }),
+		id: idColumn,
+		actorUserId: nullableTableRef("actor_user_id", () => users.id, { onDelete: "set null" }),
 
 		action: text("action", { enum: ["create", "update", "delete"] }).notNull(),
 
@@ -22,7 +22,7 @@ export const adminAuditLogs = sqliteTable(
 		ipAddress: text("ip_address"),
 		userAgent: text("user_agent"),
 
-		...DatabaseHelper.timestamps,
+		...timestampColumns,
 	},
 	(table) => [
 		index("admin_audit_actor_created_idx").on(table.actorUserId, table.createdAt),

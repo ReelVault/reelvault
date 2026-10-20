@@ -1,6 +1,6 @@
-import { spawn } from "bun";
-import { watchForUnreapedProcess } from "./ffmpeg.process";
-import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
+import { DomainError } from "@/utils/domain.errors";
+import type { FfmpegProcessPurpose } from "./ffmpeg.process-tracker";
+import { spawnTracked } from "./ffmpeg.spawn.utils";
 
 export interface SpawnCollectResult {
 	exitCode: number;
@@ -22,36 +22,35 @@ export interface SpawnCollectOptions {
  * runs with output caps or graceful kills use the dedicated FFmpeg runner.
  */
 export async function spawnAndCollect({ cmd, timeoutMs, purpose, maxBuffer }: SpawnCollectOptions): Promise<SpawnCollectResult> {
-	const subprocess = spawn({
+	const tracked = spawnTracked({
 		cmd,
-		stdout: "pipe",
-		stderr: "pipe",
-		...(maxBuffer === undefined ? {} : { maxBuffer }),
-	});
-	ffmpegProcessTracker.track(subprocess, purpose);
-
-	const state = { timedOut: false };
-	// A process stuck in an uninterruptible state never reaps after SIGKILL;
-	// bound the wait instead of holding the caller's semaphore slot forever.
-	const { unreaped, boundReap } = watchForUnreapedProcess(subprocess, "Process did not exit after SIGKILL");
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	if (timeoutMs !== undefined) {
-		timer = setTimeout(() => {
-			state.timedOut = true;
-			subprocess.kill("SIGKILL");
+		purpose,
+		maxBuffer,
+		timeoutMs,
+		// A process stuck in an uninterruptible state never reaps after SIGKILL;
+		// bound the wait instead of holding the caller's semaphore slot forever.
+		onTimeout: (process, boundReap) => {
+			process.kill("SIGKILL");
 			boundReap();
-		}, timeoutMs);
+		},
+		unreapedMessage: "Process did not exit after SIGKILL",
+	});
+
+	const stdoutStream = tracked.process.stdout;
+	const stderrStream = tracked.process.stderr;
+	if (typeof stdoutStream === "number" || typeof stderrStream === "number") {
+		tracked.cleanup();
+		throw new DomainError("internal", "FFmpeg output is not piped", { code: "ffmpeg.start_failed" });
 	}
-	timer?.unref();
 
 	try {
 		const [exitCode, stdout, stderr] = await Promise.race([
-			Promise.all([subprocess.exited, new Response(subprocess.stdout).text(), new Response(subprocess.stderr).text()]),
-			unreaped,
+			Promise.all([tracked.process.exited, new Response(stdoutStream).text(), new Response(stderrStream).text()]),
+			tracked.unreaped,
 		]);
 
-		return { exitCode, stdout, stderr, timedOut: state.timedOut };
+		return { exitCode, stdout, stderr, timedOut: tracked.timedOut() };
 	} finally {
-		if (timer) clearTimeout(timer);
+		tracked.cleanup();
 	}
 }

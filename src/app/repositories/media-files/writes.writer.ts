@@ -3,7 +3,7 @@ import { and, eq, inArray, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { QueryUtils } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import { parseStandardQuery } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { hasEntry } from "@/utils/array.utils";
@@ -19,7 +19,7 @@ import {
 } from "./shared.utils";
 
 export async function updateAndRead<F extends string>(mediaFileId: string, body: UpdateMediaFile, query?: FieldsQuery<F>) {
-	const { fields } = QueryUtils.parseStandard(query);
+	const { fields } = parseStandardQuery(query);
 	const { isDefault, ...values } = body;
 	streamingDurationCache.delete(mediaFileId);
 	await databaseFactory.transaction(async (tx) => {

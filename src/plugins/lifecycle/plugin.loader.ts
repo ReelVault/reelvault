@@ -12,12 +12,12 @@ import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { hasEntry } from "@/utils/array.utils";
-import { DirUtils } from "@/utils/directory.utils";
+import { directoryExists } from "@/utils/directory.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
-import { FileUtils } from "@/utils/file.utils";
+import { readJsonFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { PathUtils } from "@/utils/path.utils";
-import { PromiseUtils } from "@/utils/promise.utils";
+import { isSubpath, joinPath } from "@/utils/path.utils";
+import { mapConcurrent, withTimeout } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import { workerService } from "@/workers/worker.service";
 import { PluginScope } from "./host/plugin.scope";
@@ -108,12 +108,12 @@ export class PluginLoader {
 
 		this.logger.info(`Found ${loadableNames.length} plugins to load`);
 
-		const results = await PromiseUtils.mapConcurrent(
+		const results = await mapConcurrent(
 			loadableNames,
 			serverConfig.plugins.lifecycle.loadConcurrency,
 			async (name): Promise<PromiseSettledResult<void>> => {
 				try {
-					await PromiseUtils.withTimeout(this.load(name), serverConfig.plugins.lifecycle.loadTimeoutMs);
+					await withTimeout(this.load(name), serverConfig.plugins.lifecycle.loadTimeoutMs);
 
 					return { status: "fulfilled", value: undefined };
 				} catch (error) {
@@ -140,15 +140,15 @@ export class PluginLoader {
 
 	/** Directory for a plugin given by directory name or manifest id; a manifest id resolves through the index instead of a rescan. */
 	private async resolvePluginDirectory(pluginNameOrId: string): Promise<{ pluginDir: string; pluginName: string }> {
-		let pluginDir = PathUtils.join(this.pluginsDirectory, pluginNameOrId);
+		let pluginDir = joinPath(this.pluginsDirectory, pluginNameOrId);
 		let pluginName = pluginNameOrId;
 
-		if (!(await DirUtils.exists(pluginDir))) {
+		if (!(await directoryExists(pluginDir))) {
 			// Not a directory name — resolve by manifest id through the index instead of rescanning.
 			const resolvedName = await this.findDirectoryNameForPluginId(pluginNameOrId);
 			if (resolvedName) {
 				pluginName = resolvedName;
-				pluginDir = PathUtils.join(this.pluginsDirectory, resolvedName);
+				pluginDir = joinPath(this.pluginsDirectory, resolvedName);
 			}
 		}
 
@@ -157,8 +157,8 @@ export class PluginLoader {
 
 	/** Loads the optional ui.json into the scope; a malformed manifest skips UI contributions, not the plugin. */
 	private async loadUiManifest(pluginDir: string, scope: PluginScope): Promise<void> {
-		const uiManifestPath = PathUtils.join(pluginDir, "ui.json");
-		const uiManifestRaw = await FileUtils.readJson<unknown>(uiManifestPath, { silent: true });
+		const uiManifestPath = joinPath(pluginDir, "ui.json");
+		const uiManifestRaw = await readJsonFile<unknown>(uiManifestPath, { silent: true });
 		if (uiManifestRaw === null) return;
 
 		try {
@@ -207,7 +207,7 @@ export class PluginLoader {
 		const { pluginDir, pluginName } = await this.resolvePluginDirectory(pluginNameOrId);
 
 		// Defense in depth — the resolved directory must stay inside the plugins root.
-		if (!PathUtils.isSubpath(pluginDir, this.pluginsDirectory)) {
+		if (!isSubpath(pluginDir, this.pluginsDirectory)) {
 			throw new DomainError("validation", "Invalid plugin directory", { code: "plugin.invalid_identifier" });
 		}
 
@@ -422,13 +422,9 @@ export class PluginLoader {
 		const pluginIds = this.registry.getAll().map((runtime) => runtime.manifest.id);
 		if (pluginIds.length === 0) return;
 
-		await PromiseUtils.mapConcurrent(pluginIds, serverConfig.plugins.lifecycle.disposeConcurrency, async (pluginId) => {
+		await mapConcurrent(pluginIds, serverConfig.plugins.lifecycle.disposeConcurrency, async (pluginId) => {
 			try {
-				await PromiseUtils.withTimeout(
-					this.unloadPlugin(pluginId),
-					serverConfig.plugins.lifecycle.unloadTimeoutMs,
-					`Unload of ${pluginId}`,
-				);
+				await withTimeout(this.unloadPlugin(pluginId), serverConfig.plugins.lifecycle.unloadTimeoutMs, `Unload of ${pluginId}`);
 			} catch (error) {
 				this.logger.error("Plugin failed to unload cleanly during shutdown", error, { pluginId });
 			}

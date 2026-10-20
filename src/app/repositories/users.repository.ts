@@ -1,9 +1,10 @@
 import type { SelectFields, User } from "@reelvault/sdk/common";
-import { and, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
-import { QueryFiltering } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { and, desc, eq, inArray, or, type SQL } from "drizzle-orm";
+import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { FindFirstReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
+import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 
 const users = defineTableAccess("users", {
@@ -34,7 +35,7 @@ const overrides = {
 	}) {
 		let searchFilter: SQL | undefined;
 		if (search) {
-			searchFilter = or(QueryFiltering.like(users.table.name, search), QueryFiltering.like(users.table.email, search));
+			searchFilter = or(filterLike(users.table.name, search), filterLike(users.table.email, search));
 		}
 
 		const where = and(
@@ -42,18 +43,15 @@ const overrides = {
 			role ? eq(users.table.role, role) : undefined,
 			banned === undefined ? undefined : eq(users.table.banned, banned),
 		);
-		const [total, data] = await Promise.all([
-			getUsersRepository().count({ where }),
-			// created_at is second-resolution — the id tiebreaker keeps offset pages stable.
-			getUsersRepository().selectMany({
-				where,
-				orderBy: sql`${desc(users.table.createdAt)}, ${desc(users.table.id)}`,
-				limit,
-				offset,
-			}),
-		]);
-
-		return { total, data };
+		return await findOffsetPage({
+			access: users,
+			where,
+			orderBy: desc(users.table.createdAt),
+			limit,
+			offset,
+			findMany: (page) => users.selectMany(page),
+			count: () => users.count({ where }),
+		});
 	},
 
 	/** Whether any account exists — the first-run check needs a yes/no answer, not a total. */

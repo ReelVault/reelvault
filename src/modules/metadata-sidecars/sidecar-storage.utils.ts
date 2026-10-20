@@ -1,5 +1,5 @@
 import type { MetadataStorageMode } from "@reelvault/sdk/common";
-import { PathUtils } from "@/utils/path.utils";
+import { getDirName, isSubpath, resolvePath } from "@/utils/path.utils";
 import type { SidecarStorageLibrary } from "./sidecar.ports";
 
 export interface PreparedStorageRoots {
@@ -9,7 +9,7 @@ export interface PreparedStorageRoots {
 
 /** Resolves the library roots once per batch — matching runs per media file. */
 export function prepareStorageRoots(library: SidecarStorageLibrary): PreparedStorageRoots {
-	return { paths: library.paths, resolved: library.paths.map((path) => PathUtils.resolve(path.path)) };
+	return { paths: library.paths, resolved: library.paths.map((path) => resolvePath(path.path)) };
 }
 
 /** Index of the longest configured root that equals `target` or is one of its ancestors. */
@@ -18,7 +18,7 @@ function longestMatchingRootIndex(resolvedRoots: readonly string[], target: stri
 	let bestLength = -1;
 	for (let index = 0; index < resolvedRoots.length; index++) {
 		const resolved = resolvedRoots[index] ?? "";
-		if ((target === resolved || PathUtils.isSubpath(target, resolved)) && resolved.length > bestLength) {
+		if ((target === resolved || isSubpath(target, resolved)) && resolved.length > bestLength) {
 			bestIndex = index;
 			bestLength = resolved.length;
 		}
@@ -32,7 +32,7 @@ export function resolveMetadataStorageMode(
 	filePath: string,
 	roots: PreparedStorageRoots,
 ): MetadataStorageMode {
-	const index = longestMatchingRootIndex(roots.resolved, PathUtils.resolve(filePath));
+	const index = longestMatchingRootIndex(roots.resolved, resolvePath(filePath));
 	if (index === undefined) return library.metadataStorageMode;
 
 	return roots.paths[index]?.metadataStorageMode ?? library.metadataStorageMode;
@@ -46,5 +46,5 @@ export function resolveSeriesDirectory(roots: PreparedStorageRoots, episodeDirec
 	const index = longestMatchingRootIndex(roots.resolved, episodeDirectory);
 	const bestMatch = index === undefined ? undefined : roots.resolved[index];
 
-	return bestMatch === episodeDirectory ? episodeDirectory : PathUtils.getDirName(episodeDirectory);
+	return bestMatch === episodeDirectory ? episodeDirectory : getDirName(episodeDirectory);
 }

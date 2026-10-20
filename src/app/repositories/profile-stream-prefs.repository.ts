@@ -2,6 +2,9 @@ import { and, eq } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
+import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+
+const streamPrefs = defineTableAccess("profileStreamPrefs", { primaryKeyColumn: "profileId" });
 
 export interface ProfileStreamPrefs {
 	audioLanguage: string | null;
@@ -25,23 +28,21 @@ class ProfileStreamPrefsRepository {
 	}
 
 	async upsert(input: UpsertProfileStreamPrefsInput, tx?: DatabaseTransaction): Promise<void> {
-		await this.database
-			.getClient({ tx })
-			.insert(this.table)
-			.values({
+		await streamPrefs.upsert({
+			values: {
 				profileId: input.profileId,
 				metadataId: input.metadataId,
 				audioLanguage: input.audioLanguage ?? null,
 				subtitleLanguage: input.subtitleLanguage ?? null,
-			})
-			.onConflictDoUpdate({
-				target: [this.table.profileId, this.table.metadataId],
-				set: {
-					...(input.audioLanguage === undefined ? {} : { audioLanguage: input.audioLanguage }),
-					...(input.subtitleLanguage === undefined ? {} : { subtitleLanguage: input.subtitleLanguage }),
-					updatedAt: new Date(),
-				},
-			});
+			},
+			target: [streamPrefs.table.profileId, streamPrefs.table.metadataId],
+			set: {
+				...(input.audioLanguage === undefined ? {} : { audioLanguage: input.audioLanguage }),
+				...(input.subtitleLanguage === undefined ? {} : { subtitleLanguage: input.subtitleLanguage }),
+				updatedAt: new Date(),
+			},
+			tx,
+		});
 	}
 
 	async findForTitle(profileId: string, metadataId: string): Promise<ProfileStreamPrefs | null> {
