@@ -110,6 +110,11 @@ type ErrorFactory = Error | ((cause?: unknown) => Error);
  * Throws a `not_found` DomainError when the value is null/undefined, or `customThrow`
  * (an instance, or a factory called with no arguments) when one is given.
  */
+/**
+ * Not-found guard for records. It only rejects `null`/`undefined`: a boolean
+ * `isExists()` result of `false` passes, so existence checks must use an
+ * explicit `if (!exists) throw notFoundError(...)` instead.
+ */
 export function assertFound<T>(
 	value: T | null | undefined,
 	entityType: string,
