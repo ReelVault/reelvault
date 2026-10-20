@@ -677,6 +677,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed plugin installation and removal** — plugins with stale lockfile entries or manually created directories can now be reinstalled or uninstalled correctly.
 - **Fixed plugin upgrades and rollback** — failed upgrades no longer leave duplicate entries, and restoring a disabled version keeps the correct plugin state.
 - **Fixed plugin state persistence** — concurrent installs can no longer overwrite `pinned` or `cspDisabled` settings.
+- **Corrupt plugin storage values now fail with a specific code** — reading a value that is not valid JSON returns `plugin.storage_corrupt` and logs the plugin and key instead of a generic internal error.
 - **Fixed plugin lifecycle isolation** — unloading a plugin no longer unregisters core workers with matching job names.
 - **Improved plugin configuration error handling** — lockfile read and write failures are no longer silently ignored when enabling or disabling plugins.
 - **Improved plugin repository diagnostics** — repository counts are accurate, and unsupported token formats now report their actual error.

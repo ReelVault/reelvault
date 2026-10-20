@@ -1,5 +1,6 @@
 import { pluginStorageData } from "@/app/plugins/plugin-data.service";
 import { KeyedMutex } from "@/utils/concurrency.utils";
+import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { assertStorageKey, serializeStorageValue } from "./plugin.storage.validator";
 
@@ -20,9 +21,18 @@ class PluginStorageService {
 		const value = await pluginStorageData.findValue(pluginId, key);
 		if (value === undefined) return undefined;
 
-		const parsed: unknown = JSON.parse(value);
+		try {
+			const parsed: unknown = JSON.parse(value);
 
-		return parsed;
+			return parsed;
+		} catch {
+			// Keep the stored bytes untouched: silently treating this as missing
+			// would let the next write overwrite recoverable data.
+			this.logger.error("Plugin storage value is not valid JSON", { pluginId, key });
+			throw new DomainError("internal", `Plugin storage value is corrupt: ${pluginId}/${key}`, {
+				code: "plugin.storage_corrupt",
+			});
+		}
 	}
 
 	async set(pluginId: string, key: string, value: unknown): Promise<void> {
