@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { clamp, isValidRating } from "./math.utils";
+import { isValidRating } from "@/utils/media-metadata.utils";
+import { clamp } from "./math.utils";
 
 describe("clamp", () => {
 	test("returns the value inside the range", () => {

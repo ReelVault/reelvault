@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { spawn } from "bun";
 import { downloadsRepository } from "@/app/repositories/downloads.repository";
 import { serverConfig } from "@/config/server/server.config";
@@ -10,7 +11,6 @@ import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { removeTreeSync } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { fileExists } from "@/utils/file.utils";
-import { joinPath } from "@/utils/path.utils";
 import { detach } from "@/utils/promise.utils";
 import { downloadsProcessWorker } from "@/workers/definitions/downloads/downloads-process.worker";
 import { workerService } from "@/workers/worker.service";
@@ -115,7 +115,7 @@ function daysAgo(days: number): Date {
 }
 
 function artifactPath(downloadId: string, fileName: string): string {
-	return joinPath(serverConfig.paths.downloads, downloadId, fileName);
+	return join(serverConfig.paths.downloads, downloadId, fileName);
 }
 
 /**
@@ -435,7 +435,7 @@ describe("DownloadsService.sweepExpired", () => {
 			["dl-old", "old.mp4"],
 			["dl-new", "new.mp4"],
 		] as const) {
-			mkdirSync(joinPath(serverConfig.paths.downloads, id), { recursive: true });
+			mkdirSync(join(serverConfig.paths.downloads, id), { recursive: true });
 			writeFileSync(artifactPath(id, fileName), "x");
 		}
 

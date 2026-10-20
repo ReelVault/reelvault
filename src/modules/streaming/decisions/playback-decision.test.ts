@@ -92,7 +92,7 @@ describe("streaming quality decision", () => {
 	});
 });
 
-describe("streaming quality decision", () => {
+describe("streaming quality decision: 8-bit HEVC remux", () => {
 	test("keeps 8-bit HEVC on the remux path", () => {
 		const decision = decidePlaybackMode(
 			{ videoCodec: "hevc", audioCodec: "aac", videoProfile: "Main", videoPixelFormat: "yuv420p" },

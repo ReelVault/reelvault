@@ -89,7 +89,7 @@ describe("direct-stream strategy output paths", () => {
 		spies.push(spyOn(ffMpegService, "create").mockReturnValue(new FakeBuilder()));
 
 		try {
-			const outputDir = "C:\\Users\\me\\AppData\\Local\\ReelVault\\data\\transcodes\\s1";
+			const outputDir = String.raw`C:\Users\me\AppData\Local\ReelVault\data\transcodes\s1`;
 			const strategy = new DirectStreamStrategy(config);
 
 			await strategy.startSession({

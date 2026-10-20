@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PlaybackDecision } from "@reelvault/sdk/common";
-import { buildHlsOutputPath, buildStreamMapArgs } from "./ffmpeg.hls-muxer";
+import { buildDecisionStreamMapArgs, buildHlsOutputPath, buildStreamMapArgs } from "./ffmpeg.hls-muxer";
 
 function decision(audioStreamIndex?: number): PlaybackDecision {
 	const value: PlaybackDecision = {
@@ -20,23 +20,27 @@ function decision(audioStreamIndex?: number): PlaybackDecision {
 
 describe("buildStreamMapArgs", () => {
 	test("makes the default audio map optional so silent files still play", () => {
-		expect(buildStreamMapArgs(decision())).toEqual(["-map", "0:v:0", "-map", "0:a:0?", "-map", "-0:s"]);
+		expect(buildDecisionStreamMapArgs(decision())).toEqual(["-map", "0:v:0", "-map", "0:a:0?", "-map", "-0:s"]);
 	});
 
 	test("keeps an explicitly selected audio stream optional too", () => {
-		expect(buildStreamMapArgs(decision(3))).toEqual(["-map", "0:v:0", "-map", "0:3?", "-map", "-0:s"]);
+		expect(buildDecisionStreamMapArgs(decision(3))).toEqual(["-map", "0:v:0", "-map", "0:3?", "-map", "-0:s"]);
+	});
+
+	test("keeps the source subtitles when they are not dropped", () => {
+		expect(buildStreamMapArgs({})).toEqual(["-map", "0:v:0", "-map", "0:a:0?"]);
 	});
 });
 
 describe("buildHlsOutputPath", () => {
 	test("converts a Windows session directory to forward slashes", () => {
-		expect(buildHlsOutputPath("C:\\Users\\me\\AppData\\Local\\ReelVault\\data\\transcodes\\s1", "playlist.m3u8")).toBe(
+		expect(buildHlsOutputPath(String.raw`C:\Users\me\AppData\Local\ReelVault\data\transcodes\s1`, "playlist.m3u8")).toBe(
 			"C:/Users/me/AppData/Local/ReelVault/data/transcodes/s1/playlist.m3u8",
 		);
 	});
 
 	test("keeps the segment number placeholder intact", () => {
-		expect(buildHlsOutputPath("C:\\transcodes\\s1", "seg_%d.m4s")).toBe("C:/transcodes/s1/seg_%d.m4s");
+		expect(buildHlsOutputPath(String.raw`C:\transcodes\s1`, "seg_%d.m4s")).toBe("C:/transcodes/s1/seg_%d.m4s");
 	});
 
 	test("leaves POSIX paths unchanged", () => {

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { file } from "bun";
 import { eq } from "drizzle-orm";
 import { serverConfig } from "@/config/server/server.config";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { joinPath } from "@/utils/path.utils";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginBlobsService } from "./plugin.blobs";
 
@@ -23,7 +23,7 @@ async function storedBlobs() {
 }
 
 function blobPath(storageKey: string): string {
-	return joinPath(serverConfig.paths.pluginBlobs, storageKey);
+	return join(serverConfig.paths.pluginBlobs, storageKey);
 }
 
 /** Pushes a stored blob into the past so the next read treats it as expired. */

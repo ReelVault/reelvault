@@ -126,7 +126,7 @@ describe("plugin package utils", () => {
 	});
 });
 
-describe("plugin package utils", () => {
+describe("plugin package utils: checksum comparison", () => {
 	test("compares checksums in constant time and rejects mismatches", () => {
 		const checksumA = `sha256-${"a".repeat(64)}`;
 		const checksumB = `sha256-${"b".repeat(64)}`;
@@ -212,7 +212,7 @@ describe("plugin package utils", () => {
 	});
 });
 
-describe("plugin package utils", () => {
+describe("plugin package utils: tar extraction", () => {
 	test("extracts a tar archive fed in arbitrary chunk sizes", async () => {
 		const payload = strToU8("A".repeat(1500));
 		const longDirectory = `${"chunked-directory-".repeat(6)}x`;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
-import { raceWithAbort } from "./ffprobe.builder";
+import { raceWithAbort } from "@/utils/promise.utils";
 
 describe("raceWithAbort abort handling", () => {
 	test("detaches the abort listener once the probe settles", async () => {

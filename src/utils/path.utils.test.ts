@@ -73,7 +73,7 @@ describe("getFileNameWithoutExt", () => {
 
 describe("normalizePath", () => {
 	test("normalizes multiple slashes and backslashes to single forward slash", () => {
-		expect(normalizePath("C:\\media\\\\movies\\file.mkv")).toBe("C:/media/movies/file.mkv");
+		expect(normalizePath(String.raw`C:\media\\movies\file.mkv`)).toBe("C:/media/movies/file.mkv");
 		expect(normalizePath("/var///log////app.log")).toBe("/var/log/app.log");
 		expect(normalizePath("path/to//something")).toBe("path/to/something");
 	});

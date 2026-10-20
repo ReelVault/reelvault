@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, test } from "bun:test";
 import { once } from "node:events";
 import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Writable } from "node:stream";
 import { removeTree } from "@/utils/directory.utils";
 import { readFile } from "@/utils/file.utils";
-import { joinPath } from "@/utils/path.utils";
 import { formatAccessLine, logAccessRecord } from "./logger.utils";
 import { CoalescingStream } from "./logging/coalescing.stream";
 import { DailyRotatingStream } from "./logging/daily-rotating.stream";
@@ -19,9 +19,9 @@ afterEach(async () => {
 
 describe("DailyRotatingStream", () => {
 	it("archives the active file when the date changes", async () => {
-		const directory = await mkdtemp(joinPath(tmpdir(), "reelvault-log-"));
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-log-"));
 		temporaryDirectories.push(directory);
-		const activePath = joinPath(directory, "reelvault.log");
+		const activePath = join(directory, "reelvault.log");
 		let date = "2026-08-01";
 		const stream = new DailyRotatingStream(activePath, () => date);
 
@@ -31,14 +31,14 @@ describe("DailyRotatingStream", () => {
 		stream.end();
 		await once(stream, "finish");
 
-		expect(await readFile(joinPath(directory, "2026-08-01", "reelvault.log"), "utf8")).toBe("first\n");
+		expect(await readFile(join(directory, "2026-08-01", "reelvault.log"), "utf8")).toBe("first\n");
 		expect(await readFile(activePath, "utf8")).toBe("second\n");
 	});
 
 	it("archives a leftover file from a previous day before opening the active stream", async () => {
-		const directory = await mkdtemp(joinPath(tmpdir(), "reelvault-log-"));
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-log-"));
 		temporaryDirectories.push(directory);
-		const activePath = joinPath(directory, "reelvault.log");
+		const activePath = join(directory, "reelvault.log");
 		await writeFile(activePath, "stale\n");
 		const { mtimeMs } = await stat(activePath);
 		const staleDate = toLocalDateString(mtimeMs);
@@ -51,14 +51,14 @@ describe("DailyRotatingStream", () => {
 		stream.end();
 		await once(stream, "finish");
 
-		expect(await readFile(joinPath(directory, staleDate, "reelvault.log"), "utf8")).toBe("stale\n");
+		expect(await readFile(join(directory, staleDate, "reelvault.log"), "utf8")).toBe("stale\n");
 		expect(await readFile(activePath, "utf8")).toBe("fresh\n");
 	});
 
 	it("keeps the order of a burst written faster than the file drains", async () => {
-		const directory = await mkdtemp(joinPath(tmpdir(), "reelvault-log-"));
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-log-"));
 		temporaryDirectories.push(directory);
-		const activePath = joinPath(directory, "reelvault.log");
+		const activePath = join(directory, "reelvault.log");
 		const stream = new DailyRotatingStream(activePath, () => "2030-01-01");
 
 		// Synchronous writes without awaiting drain: the backlog is batched through _writev.

@@ -90,7 +90,7 @@ describe("plugin installer", () => {
 	});
 });
 
-describe("plugin installer", () => {
+describe("plugin installer: disabled flag in the lockfile", () => {
 	test("persists the disabled flag in the lockfile and keeps the record verifiable", async () => {
 		const root = await createRoot();
 		const source = join(root, "source");
@@ -159,7 +159,7 @@ describe("plugin installer", () => {
 	});
 });
 
-describe("plugin installer", () => {
+describe("plugin installer: atomic upgrade", () => {
 	test("upgrades an installed plugin atomically and records the catalog source", async () => {
 		const root = await createRoot();
 		const source = join(root, "source");
@@ -230,7 +230,7 @@ describe("plugin installer", () => {
 	});
 });
 
-describe("plugin installer", () => {
+describe("plugin installer: rollback after a failed upgrade", () => {
 	test("rolls back the previous installation when an upgrade fails", async () => {
 		const root = await createRoot();
 		const source = join(root, "source");

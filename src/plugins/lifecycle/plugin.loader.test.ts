@@ -98,7 +98,7 @@ export default { async setup() { events.push(value); } };
 	});
 });
 
-describe("plugin loader lifecycle", () => {
+describe("plugin loader lifecycle: resource cleanup after a failed disable", () => {
 	test("cleans up registered resources even when onDisable fails", async () => {
 		const { loader, registry } = await createLoaderFixture();
 		await loader.load("lifecycle");
@@ -164,7 +164,7 @@ describe("plugin loader lifecycle", () => {
 	});
 });
 
-describe("plugin loader lifecycle", () => {
+describe("plugin loader lifecycle: unload after a partial setup failure", () => {
 	test("calls onUnload when setup fails partway through loading", async () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
 		temporaryDirectories.push(pluginsDirectory);
@@ -257,7 +257,7 @@ export default {
 	});
 });
 
-describe("plugin loader lifecycle", () => {
+describe("plugin loader lifecycle: provider initialization failure", () => {
 	test("a plugin that fails during provider initialization keeps its config definition", async () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
 		temporaryDirectories.push(pluginsDirectory);
@@ -310,7 +310,7 @@ describe("plugin loader lifecycle", () => {
 	});
 });
 
-describe("plugin loader lifecycle", () => {
+describe("plugin loader lifecycle: disabled plugin in the lockfile", () => {
 	test("loadAll skips a plugin disabled in the lockfile and a direct load succeeds after re-enable", async () => {
 		const { loader, registry, pluginsDirectory } = await createLoaderFixture();
 		// Simulate a plugin disabled via the admin API before a restart.
@@ -368,7 +368,7 @@ describe("plugin loader lifecycle", () => {
 	});
 });
 
-describe("plugin loader lifecycle", () => {
+describe("plugin loader lifecycle: invalid plugin.json manifest", () => {
 	test("a package with an invalid plugin.json is listed as a manifest failure under its directory name", async () => {
 		const pluginsDirectory = await mkdtemp(join(tmpdir(), "reelvault-plugins-"));
 		temporaryDirectories.push(pluginsDirectory);

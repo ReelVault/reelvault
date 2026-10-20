@@ -35,8 +35,8 @@ describe("requestIdentityKey", () => {
 describe("http.utils", () => {
 	describe("escapeRegex", () => {
 		it("escapes special regex characters", () => {
-			expect(escapeRegex("hello.world*foo?")).toBe("hello\\.world\\*foo\\?");
-			expect(escapeRegex("a+b(c)[d]{e}^f$g|h\\i")).toBe("a\\+b\\(c\\)\\[d\\]\\{e\\}\\^f\\$g\\|h\\\\i");
+			expect(escapeRegex("hello.world*foo?")).toBe(String.raw`hello\.world\*foo\?`);
+			expect(escapeRegex(String.raw`a+b(c)[d]{e}^f$g|h\i`)).toBe(String.raw`a\+b\(c\)\[d\]\{e\}\^f\$g\|h\\i`);
 		});
 	});
 

@@ -76,7 +76,7 @@ export function listApiRoutes(): RouteEntry[] {
 		.map((route) => ({
 			method: route.method,
 			template: route.path,
-			path: route.path.replace(/:[A-Za-z_]+/g, "00000000-0000-4000-8000-000000000000").replace(/\*/g, "probe"),
+			path: route.path.replaceAll(/:[A-Za-z_]+/g, "00000000-0000-4000-8000-000000000000").replaceAll("*", "probe"),
 		}))
 		.toSorted((left, right) => `${left.method} ${left.template}`.localeCompare(`${right.method} ${right.template}`));
 }

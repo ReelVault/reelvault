@@ -96,7 +96,7 @@ describe("stream preferences", () => {
 	});
 });
 
-describe("stream preferences", () => {
+describe("stream preferences: override precedence", () => {
 	test("resolves session overrides first, profile preferences second, per-title languages last", () => {
 		const profile = {
 			audioLanguage: "en",
@@ -178,7 +178,7 @@ describe("stream preferences", () => {
 	});
 });
 
-describe("stream preferences", () => {
+describe("stream preferences: subtitle language fallback", () => {
 	test("subtitle language falls back to the preferred audio language", () => {
 		const subtitles = [enFull, plForced];
 
@@ -265,7 +265,7 @@ describe("stream preferences", () => {
 	});
 });
 
-describe("stream preferences", () => {
+describe("stream preferences: hearing-impaired subtitle variant", () => {
 	test("hearing-impaired preference picks the SDH variant in the preferred language", () => {
 		const subtitles = [plFull, plSdh];
 

@@ -93,7 +93,7 @@ describe("RemovalGuard", () => {
 	});
 });
 
-describe("RemovalGuard", () => {
+describe("RemovalGuard mass removal and unreachable roots", () => {
 	let existingPaths: Set<string>;
 	let unavailablePaths: Set<string>;
 	let guard: RemovalGuard;

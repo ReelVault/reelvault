@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { removeTree } from "@/utils/directory.utils";
 import { fileExists } from "@/utils/file.utils";
-import { joinPath } from "@/utils/path.utils";
 import { contentByteSize, writeFileWithRollback } from "./plugin.file-record.utils";
 
 const temporaryDirectories: string[] = [];
@@ -16,9 +16,9 @@ afterEach(async () => {
 
 describe("writeFileWithRollback", () => {
 	test("keeps the file when the persist step succeeds", async () => {
-		const dir = await mkdtemp(joinPath(tmpdir(), "rv-file-record-"));
+		const dir = await mkdtemp(join(tmpdir(), "rv-file-record-"));
 		temporaryDirectories.push(dir);
-		const path = joinPath(dir, "artifact.bin");
+		const path = join(dir, "artifact.bin");
 
 		const persisted = await writeFileWithRollback(path, new Uint8Array([1, 2, 3]), async () => "recorded");
 
@@ -28,9 +28,9 @@ describe("writeFileWithRollback", () => {
 
 	test("deletes the just-written file when persist throws", async () => {
 		const insertError = new Error("db insert failed");
-		const dir = await mkdtemp(joinPath(tmpdir(), "rv-file-record-"));
+		const dir = await mkdtemp(join(tmpdir(), "rv-file-record-"));
 		temporaryDirectories.push(dir);
-		const path = joinPath(dir, "artifact.bin");
+		const path = join(dir, "artifact.bin");
 
 		await expect(
 			writeFileWithRollback(path, new Uint8Array([9]), () => {
@@ -44,14 +44,14 @@ describe("writeFileWithRollback", () => {
 	test("streams a temp-file Blob source and deletes it under the transcodes root", async () => {
 		const transcodesDir = serverConfig.paths.transcodes;
 		await mkdir(transcodesDir, { recursive: true });
-		const sourceDir = await mkdtemp(joinPath(transcodesDir, "rv-file-record-"));
+		const sourceDir = await mkdtemp(join(transcodesDir, "rv-file-record-"));
 		temporaryDirectories.push(sourceDir);
-		const sourcePath = joinPath(sourceDir, "sprite.webp");
+		const sourcePath = join(sourceDir, "sprite.webp");
 		await Bun.write(sourcePath, new Uint8Array([1, 2, 3, 4]));
 
-		const dir = await mkdtemp(joinPath(tmpdir(), "rv-file-record-target-"));
+		const dir = await mkdtemp(join(tmpdir(), "rv-file-record-target-"));
 		temporaryDirectories.push(dir);
-		const targetPath = joinPath(dir, "artifact.webp");
+		const targetPath = join(dir, "artifact.webp");
 
 		const persisted = await writeFileWithRollback(targetPath, bunFile(sourcePath), async () => "recorded");
 
@@ -62,9 +62,9 @@ describe("writeFileWithRollback", () => {
 	});
 
 	test("propagates the persist result value", async () => {
-		const dir = await mkdtemp(joinPath(tmpdir(), "rv-file-record-"));
+		const dir = await mkdtemp(join(tmpdir(), "rv-file-record-"));
 		temporaryDirectories.push(dir);
-		const path = joinPath(dir, "nested.bin");
+		const path = join(dir, "nested.bin");
 
 		const value = { id: "row-1" } as const;
 		expect(await writeFileWithRollback(path, new Uint8Array([0]), async () => value)).toEqual(value);

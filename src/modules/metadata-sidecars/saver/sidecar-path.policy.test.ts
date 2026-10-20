@@ -13,7 +13,7 @@ describe("ReelVaultPathPolicy", () => {
 		const invalid = expect.objectContaining({ category: "validation", code: "sidecar.path_invalid" });
 		expect(() => ReelVaultPathPolicy.episode("/media/show", "../evil")).toThrow(invalid);
 		expect(() => ReelVaultPathPolicy.episode("/media/show", "a/b")).toThrow(invalid);
-		expect(() => ReelVaultPathPolicy.episode("/media/show", "a\\b")).toThrow(invalid);
+		expect(() => ReelVaultPathPolicy.episode("/media/show", String.raw`a\b`)).toThrow(invalid);
 		expect(() => ReelVaultPathPolicy.episode("/media/show", "")).toThrow(invalid);
 	});
 });

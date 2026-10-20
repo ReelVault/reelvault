@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { env } from "@/config/env.config";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { joinPath } from "@/utils/path.utils";
 
 const client = databaseFactory.getClient();
 
@@ -14,7 +14,7 @@ const probe = sqliteTable("transaction_lock_probe", {
 });
 
 /** Separate connection to the same file — simulates a concurrent writer. */
-const concurrent = new Database(joinPath(env.ROOT_DIR, env.DB_FILE_NAME));
+const concurrent = new Database(join(env.ROOT_DIR, env.DB_FILE_NAME));
 concurrent.run("PRAGMA busy_timeout = 25");
 
 beforeAll(async () => {

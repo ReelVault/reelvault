@@ -207,7 +207,7 @@ describe("ImageProcessingService", () => {
 	});
 });
 
-describe("ImageProcessingService", () => {
+describe("ImageProcessingService processMetadata", () => {
 	test("processMetadata persists every URL-bearing image and skips blank entries", async () => {
 		const { service, spies } = createService();
 

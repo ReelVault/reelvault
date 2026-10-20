@@ -88,7 +88,7 @@ describe("recognition service", () => {
 	});
 });
 
-describe("recognition service", () => {
+describe("recognition service: movie in a year-bucket folder", () => {
 	test("recognizes movie in year-bucket folder (/mnt/movies/2010/Inception.2010.mkv)", () => {
 		const result = recognitionService.recognize("/mnt/movies/2010/Inception.2010.mkv");
 
@@ -167,7 +167,7 @@ describe("recognition service", () => {
 	});
 });
 
-describe("recognition service", () => {
+describe("recognition service: bare episode number", () => {
 	test("does not invent a season for a bare episode number in a basic structure", () => {
 		const result = recognitionService.recognize("/media/Series/Friends (1994)/Friends - 01.mkv");
 

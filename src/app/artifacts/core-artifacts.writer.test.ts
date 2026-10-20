@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { truncate } from "node:fs/promises";
+import { join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { CORE_ARTIFACTS_OWNER } from "@/integrations/drizzle-orm/constants/media-artifacts.constants";
-import { joinPath } from "@/utils/path.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { mediaArtifactsRepository } from "../repositories/media-artifacts.repository";
@@ -50,7 +50,7 @@ describe("writeCoreArtifact", () => {
 		// A sparse truncate makes the stored file the size of the whole budget without writing a gigabyte.
 		const fullRow = await mediaArtifactsRepository.findById(full.id);
 		if (!fullRow) throw new Error("Expected the artifact row to exist");
-		await truncate(joinPath(serverConfig.paths.artifacts, fullRow.storageKey), GIBIBYTE);
+		await truncate(join(serverConfig.paths.artifacts, fullRow.storageKey), GIBIBYTE);
 		mediaArtifactsService.invalidateByteTotals();
 
 		await expect(

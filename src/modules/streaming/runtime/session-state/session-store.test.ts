@@ -137,7 +137,7 @@ describe("session store", () => {
 	});
 });
 
-describe("session store", () => {
+describe("session store: access to ending sessions", () => {
 	test("getSessionAccess hides ending sessions", () => {
 		const store = new SessionStore();
 		store.register(registration("s1"));

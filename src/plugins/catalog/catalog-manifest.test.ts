@@ -116,7 +116,7 @@ describe("plugin catalog manifest", () => {
 	});
 });
 
-describe("plugin catalog manifest", () => {
+describe("plugin catalog manifest: history entry validation", () => {
 	test("rejects a history entry with a non-https download URL", () => {
 		expect(() =>
 			parsePluginCatalogManifest(

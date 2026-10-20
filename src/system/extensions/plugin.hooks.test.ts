@@ -48,7 +48,7 @@ describe("plugin hook bus", () => {
 
 	test("normalizes a recognition candidate title before it is used", async () => {
 		const bus = new PluginHookBus();
-		bus.beforeMediaRecognition("parser", ({ candidate: input }) => ({ ...input, title: input.title.replace(/\./g, " ") }));
+		bus.beforeMediaRecognition("parser", ({ candidate: input }) => ({ ...input, title: input.title.replaceAll(".", " ") }));
 
 		await expect(
 			bus.runBeforeMediaRecognition({ type: "tv_show", title: "Example.Show", year: 2024, season: 1, episode: 2 }),

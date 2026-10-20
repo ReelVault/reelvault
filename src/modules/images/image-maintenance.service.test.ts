@@ -9,7 +9,7 @@ import { sourceVersionCache } from "@/modules/images/cache/source-version.cache"
 import { imageMaintenanceService } from "@/modules/images/image-maintenance.service";
 import { createDirectory, removeTree } from "@/utils/directory.utils";
 import { fileExists, writeFile } from "@/utils/file.utils";
-import { joinPath, normalizePath } from "@/utils/path.utils";
+import { normalizePath } from "@/utils/path.utils";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 
 describe("ImageMaintenanceService", () => {
@@ -33,9 +33,9 @@ describe("ImageMaintenanceService", () => {
 	});
 
 	test("purgeOrphanedImages deletes unreferenced image files and old tmp files", async () => {
-		const validPath = joinPath(testImagesDir, "posters", "valid.webp");
-		const orphanPath = joinPath(testImagesDir, "posters", "orphan.webp");
-		const oldTmpPath = joinPath(testImagesDir, ".tmp", "stale.tmp");
+		const validPath = join(testImagesDir, "posters", "valid.webp");
+		const orphanPath = join(testImagesDir, "posters", "orphan.webp");
+		const oldTmpPath = join(testImagesDir, ".tmp", "stale.tmp");
 
 		await writeFile(validPath, new Uint8Array([1, 2, 3]));
 		await writeFile(orphanPath, new Uint8Array([4, 5, 6]));
@@ -59,7 +59,7 @@ describe("ImageMaintenanceService", () => {
 	});
 
 	test("reoptimizing a source in place invalidates its cached version stamp", async () => {
-		const sourcePath = joinPath(testImagesDir, "posters", "reoptimize.png");
+		const sourcePath = join(testImagesDir, "posters", "reoptimize.png");
 		// Noise + compressionLevel 0 keeps the PNG far larger than the WebP the
 		// service produces, so the in-place rewrite path actually runs.
 		const noise = Buffer.alloc(256 * 256 * 3);

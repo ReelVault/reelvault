@@ -156,11 +156,11 @@ describe("SystemResourcesService per-worker and memory budgets", () => {
 		const tinyMemService = new SystemResourcesService({ totalMemoryKiB: () => 512 * 1024 });
 		expect(tinyMemService.getMaxInflightResponses()).toBe(32);
 		// 0.5 GB * 2 = 1 entry, raised to the min of 25
-		expect(tinyMemService.getRamScaledCacheEntries(2, 25, 100)).toBe(25);
+		expect(tinyMemService.getRamScaled(2, 25, 100)).toBe(25);
 
 		// 64 GB * 40 = 2560 entries, lowered to the max of 100
 		const hugeMemService = new SystemResourcesService({ totalMemoryKiB: () => 64 * 1024 * 1024 });
-		expect(hugeMemService.getRamScaledCacheEntries(40, 25, 100)).toBe(100);
+		expect(hugeMemService.getRamScaled(40, 25, 100)).toBe(100);
 	});
 
 	test("totalMemoryKiB override drives RAM-scaled cache and inflight budgets", () => {
@@ -170,7 +170,7 @@ describe("SystemResourcesService per-worker and memory budgets", () => {
 		// 4 GB * 32 = 128 max in flight responses
 		expect(lowMemService.getMaxInflightResponses()).toBe(128);
 		// 4 GB * 10 = 40 entries
-		expect(lowMemService.getRamScaledCacheEntries(10, 20, 200)).toBe(40);
+		expect(lowMemService.getRamScaled(10, 20, 200)).toBe(40);
 
 		// 32 GB RAM = 32 * 1024 * 1024 KiB
 		const highMemService = new SystemResourcesService({ totalMemoryKiB: () => 32 * 1024 * 1024 });
@@ -182,15 +182,15 @@ describe("SystemResourcesService per-worker and memory budgets", () => {
 		const mib = 1024 * 1024;
 		const lowMemService = new SystemResourcesService({ totalMemoryKiB: () => 4 * 1024 * 1024 });
 		// 4 GB * 8 MiB = 32 MiB, exactly the floor
-		expect(lowMemService.getRamScaledCacheBytes(8 * mib, 32 * mib, 256 * mib)).toBe(32 * mib);
+		expect(lowMemService.getRamScaled(8 * mib, 32 * mib, 256 * mib)).toBe(32 * mib);
 		// 4 GB * 2 MiB = 8 MiB -> clamped up to the 32 MiB floor
-		expect(lowMemService.getRamScaledCacheBytes(2 * mib, 32 * mib, 256 * mib)).toBe(32 * mib);
+		expect(lowMemService.getRamScaled(2 * mib, 32 * mib, 256 * mib)).toBe(32 * mib);
 
 		const highMemService = new SystemResourcesService({ totalMemoryKiB: () => 30 * 1024 * 1024 });
 		// 30 GB * 2 MiB = 60 MiB, inside the bounds
-		expect(highMemService.getRamScaledCacheBytes(2 * mib, 32 * mib, 256 * mib)).toBe(60 * mib);
+		expect(highMemService.getRamScaled(2 * mib, 32 * mib, 256 * mib)).toBe(60 * mib);
 		// 30 GB * 16 MiB = 480 MiB -> clamped down to the 256 MiB ceiling
-		expect(highMemService.getRamScaledCacheBytes(16 * mib, 32 * mib, 256 * mib)).toBe(256 * mib);
+		expect(highMemService.getRamScaled(16 * mib, 32 * mib, 256 * mib)).toBe(256 * mib);
 	});
 });
 

@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { HOUR } from "@/config/server/server.constants";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { removeTreeSync } from "@/utils/directory.utils";
-import { resolvePath } from "@/utils/path.utils";
 import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import {
 	deleteLibraryPath,
@@ -257,7 +256,7 @@ describe("LibraryWatcherService real-time events", () => {
 describe("LibraryWatcherService path failures", () => {
 	test("records an unwatchable path and notifies admins once per failure episode", async () => {
 		const { service, notifierCalls, cleanup } = createHarness();
-		const missingPath = resolvePath("/non/existent/rv-watcher-test");
+		const missingPath = resolve("/non/existent/rv-watcher-test");
 		await addLibraryPath("path-gone", "lib-1", missingPath);
 
 		try {

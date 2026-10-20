@@ -203,7 +203,7 @@ describe("media-file-ingest worker", () => {
 	});
 });
 
-describe("media-file-ingest worker", () => {
+describe("media-file-ingest worker: scan finding on skip", () => {
 	test("records a scan finding and skips persistence when processing reports a skip reason", async () => {
 		const calls: string[] = [];
 		const findings: Array<{ libraryId: string; filePath: string; fileName: string; reason: string }> = [];
@@ -254,7 +254,7 @@ describe("media-file-ingest worker", () => {
 	});
 });
 
-describe("media-file-ingest worker", () => {
+describe("media-file-ingest worker: retry completes missing side effects", () => {
 	test("completes missing post-create side effects when retrying an existing file", async () => {
 		const calls: string[] = [];
 		const dependencies: MediaFileIngestTaskDependencies = {
@@ -306,7 +306,7 @@ describe("media-file-ingest worker", () => {
 	});
 });
 
-describe("media-file-ingest worker", () => {
+describe("media-file-ingest worker: completion order per episode target", () => {
 	test("runs the completion sequence per additional episode target in order", async () => {
 		const { calls, discovered, identified, dependencies } = createMultiEpisodeHarness();
 
@@ -380,7 +380,7 @@ describe("media-file-ingest worker", () => {
 	});
 });
 
-describe("media-file-ingest worker", () => {
+describe("media-file-ingest worker: retry repairs additional targets", () => {
 	test("repairs post-create side effects for an existing additional target on retry", async () => {
 		const calls: string[] = [];
 		const dependencies: MediaFileIngestTaskDependencies = {

@@ -6,7 +6,6 @@ import { unzipSync } from "fflate";
 import { adminLogsService } from "@/app/admin/admin-logs.service";
 import { serverConfig } from "@/config/server/server.config";
 import { createDirectory, removeTree } from "@/utils/directory.utils";
-import { joinPath } from "@/utils/path.utils";
 
 function jsonLine(message: string): string {
 	return `${JSON.stringify({ level: 30, time: Date.now(), msg: message, module: "Test" })}\n`;
@@ -21,7 +20,7 @@ describe("AdminService getLogs tail cache", () => {
 		originalLogsPath = serverConfig.paths.logs;
 		testLogsDir = await mkdtemp(join(tmpdir(), "reelvault-admin-logs-tail-"));
 		serverConfig.paths.logs = testLogsDir;
-		logPath = joinPath(testLogsDir, "reelvault.log");
+		logPath = join(testLogsDir, "reelvault.log");
 		await writeFile(logPath, Array.from({ length: 20 }, (_, index) => jsonLine(`line-${index}`)).join(""));
 	});
 
@@ -79,9 +78,9 @@ describe("AdminService log bundle", () => {
 		originalLogsPath = serverConfig.paths.logs;
 		testLogsDir = await mkdtemp(join(tmpdir(), "reelvault-admin-logs-bundle-"));
 		serverConfig.paths.logs = testLogsDir;
-		await writeFile(joinPath(testLogsDir, "reelvault.log"), jsonLine("main"));
-		await createDirectory(joinPath(testLogsDir, "ffmpeg"));
-		await writeFile(joinPath(testLogsDir, "ffmpeg", "transcode-1.log"), "transcode line\n");
+		await writeFile(join(testLogsDir, "reelvault.log"), jsonLine("main"));
+		await createDirectory(join(testLogsDir, "ffmpeg"));
+		await writeFile(join(testLogsDir, "ffmpeg", "transcode-1.log"), "transcode line\n");
 	});
 
 	afterEach(async () => {
@@ -112,7 +111,7 @@ describe("AdminService getLogs module, exclude and time filters", () => {
 			entry("2026-10-03T10:00:00Z", "DownloadWorker", "download failed"),
 			"plain ffmpeg output",
 		];
-		await writeFile(joinPath(testLogsDir, "reelvault.log"), `${lines.join("\n")}\n`);
+		await writeFile(join(testLogsDir, "reelvault.log"), `${lines.join("\n")}\n`);
 	});
 
 	afterEach(async () => {

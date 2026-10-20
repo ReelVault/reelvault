@@ -151,7 +151,7 @@ describe("plugin registry", () => {
 	});
 });
 
-describe("plugin registry", () => {
+describe("plugin registry: registered plugin state", () => {
 	const registry = new PluginRegistry();
 
 	afterEach(() => registry.clear());
@@ -244,7 +244,7 @@ describe("plugin registry", () => {
 	});
 });
 
-describe("plugin registry", () => {
+describe("plugin registry: unloaded plugin state", () => {
 	const registry = new PluginRegistry();
 
 	afterEach(() => registry.clear());

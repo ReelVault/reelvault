@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTreeSync } from "@/utils/directory.utils";
@@ -22,10 +22,18 @@ afterAll(() => {
 async function detectFromArchiveCheckout(root: string): Promise<string> {
 	const moduleDir = join(root, "server", "src", "application", "updates");
 	mkdirSync(moduleDir, { recursive: true });
-	const module = readFileSync(join(import.meta.dir, "update-environment.utils.ts"), "utf8").replace(
-		"@/utils/type.utils",
-		join(import.meta.dir, "../../utils/type.utils"),
-	);
+
+	// The copied module keeps its own folder, so every "@/utils/..." import is
+	// rewritten to a relative path and the file it points at is copied next to
+	// it. A new dependency on a util therefore does not break this test.
+	const utilsDir = join(moduleDir, "utils");
+	mkdirSync(utilsDir, { recursive: true });
+	const source = readFileSync(join(import.meta.dir, "update-environment.utils.ts"), "utf8");
+	const module = source.replaceAll(/@\/utils\/([\w.-]+)/g, (_match, name: string) => {
+		copyFileSync(join(import.meta.dir, "../../utils", `${name}.ts`), join(utilsDir, `${name}.ts`));
+
+		return `./utils/${name}.ts`;
+	});
 	writeFileSync(join(moduleDir, "update-environment.utils.ts"), module);
 	writeFileSync(join(root, "server", "package.json"), JSON.stringify({ version: "1.0.0" }));
 	mkdirSync(join(root, "bun"), { recursive: true });

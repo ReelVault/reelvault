@@ -42,7 +42,7 @@ function hasBody(method: string): boolean {
 }
 
 async function snippet(response: Response): Promise<string> {
-	return (await response.text()).slice(0, 160).replace(/\s+/g, " ");
+	return (await response.text()).slice(0, 160).replaceAll(/\s+/g, " ");
 }
 
 test("every route rejects anonymous requests unless it is public on purpose", async () => {

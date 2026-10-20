@@ -110,7 +110,7 @@ describe("session selection resolver", () => {
 	});
 });
 
-describe("session selection resolver", () => {
+describe("session selection resolver: remembered audio track", () => {
 	test("an active title reopens on its remembered audio track", () => {
 		const selection = resolveSessionSelection(
 			createInput({
@@ -199,7 +199,7 @@ describe("session selection resolver", () => {
 	});
 });
 
-describe("session selection resolver", () => {
+describe("session selection resolver: disabled subtitles", () => {
 	test("disabled subtitles yield no subtitle", () => {
 		const selection = resolveSessionSelection(
 			createInput({

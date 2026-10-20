@@ -7,7 +7,6 @@ import { serverConfig } from "@/config/server/server.config";
 import { daysAgo } from "@/config/server/server.constants";
 import { createDirectory, removeTree } from "@/utils/directory.utils";
 import { fileExists, writeFile } from "@/utils/file.utils";
-import { joinPath } from "@/utils/path.utils";
 
 describe("AdminService purgeOldLogs", () => {
 	let testLogsDir: string;
@@ -26,7 +25,7 @@ describe("AdminService purgeOldLogs", () => {
 	});
 
 	test("a dry run counts the log files a purge would remove and removes none", async () => {
-		const oldLog = joinPath(testLogsDir, "ffmpeg", "old.log");
+		const oldLog = join(testLogsDir, "ffmpeg", "old.log");
 		await writeFile(oldLog, "old logs");
 		const tenDaysAgo = daysAgo(10);
 		await utimes(oldLog, tenDaysAgo, tenDaysAgo);
@@ -39,8 +38,8 @@ describe("AdminService purgeOldLogs", () => {
 	});
 
 	test("purges log files older than specified retention days", async () => {
-		const recentLog = joinPath(testLogsDir, "ffmpeg", "recent.log");
-		const oldLog = joinPath(testLogsDir, "ffmpeg", "old.log");
+		const recentLog = join(testLogsDir, "ffmpeg", "recent.log");
+		const oldLog = join(testLogsDir, "ffmpeg", "old.log");
 
 		await writeFile(recentLog, "recent logs");
 		await writeFile(oldLog, "old logs");

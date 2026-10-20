@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getFileName } from "@/utils/path.utils";
+import { basename } from "node:path";
 import { ImageCacheEviction } from "./image-cache.eviction";
 
 const CACHE_DIR = "/images/.cache";
@@ -17,7 +17,7 @@ function createHarness(): Harness {
 	const deleted: string[] = [];
 	const unreadable = new Set<string>();
 	const eviction = new ImageCacheEviction({
-		listDirectory: async () => [...entries.keys(), ...unreadable].map((path) => getFileName(path)),
+		listDirectory: async () => [...entries.keys(), ...unreadable].map((path) => basename(path)),
 		getStats: async (path) => (unreadable.has(path) ? null : (entries.get(path) ?? null)),
 		deleteFile: (path) => {
 			deleted.push(path);
@@ -134,7 +134,7 @@ describe("ImageCacheEviction steady-state eviction", () => {
 		let statCalls = 0;
 		const entries = new Map<string, { mtimeMs: number }>();
 		const eviction = new ImageCacheEviction({
-			listDirectory: () => Promise.resolve([...entries.keys()].map((path) => getFileName(path))),
+			listDirectory: () => Promise.resolve([...entries.keys()].map((path) => basename(path))),
 			getStats: (path) => {
 				statCalls++;
 				return Promise.resolve(entries.get(path) ?? null);

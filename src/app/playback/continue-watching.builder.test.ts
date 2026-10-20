@@ -92,7 +92,7 @@ describe("continue watching builder", () => {
 	});
 });
 
-describe("continue watching builder", () => {
+describe("continue watching builder: most recent active episode", () => {
 	test("continues the most recently active episode of a show", () => {
 		const items = buildContinueWatching(
 			createData({
@@ -163,7 +163,7 @@ describe("continue watching builder", () => {
 	});
 });
 
-describe("continue watching builder", () => {
+describe("continue watching builder: next episode after completion", () => {
 	test("recommends the next episode when the active one is completed", () => {
 		const items = buildContinueWatching(
 			createData({
@@ -252,7 +252,7 @@ describe("continue watching builder", () => {
 	});
 });
 
-describe("continue watching builder", () => {
+describe("continue watching builder: minimum position threshold", () => {
 	test("applies the minimum position threshold to movie candidates", () => {
 		const progressRows = [
 			{

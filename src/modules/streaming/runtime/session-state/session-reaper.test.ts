@@ -134,7 +134,7 @@ describe("session reaper", () => {
 	});
 });
 
-describe("session reaper", () => {
+describe("session reaper: never-started session", () => {
 	test("finalizeRelease of a never-started session skips the ended lifecycle event", async () => {
 		const { reaper, store } = createReaper();
 		registration(store, "s1");

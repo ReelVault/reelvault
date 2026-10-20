@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { MediaFilesRefreshAllTaskDependencies } from "./media-files-refresh-all.worker";
-import { refreshAllMediaFilesTask } from "./media-files-refresh-all.worker";
+import { type MediaFilesRefreshAllTaskDependencies, refreshAllMediaFilesTask } from "./media-files-refresh-all.worker";
 
 describe("media-files-refresh-all worker", () => {
 	test("hands every media file in the scan to the batch enqueue as one batch", async () => {
