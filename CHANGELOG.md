@@ -669,6 +669,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed watch-history recording** — playback progress and watched history are saved atomically, preventing completed plays from disappearing from history after a failed write.
 - **Improved library deletion safety** — deleting a single file or title now respects active playback sessions, just like bulk deletion.
 - **Fixed provider override updates** — failed updates no longer erase existing library provider overrides.
+- **Fixed title matching for stroke letters** — titles using ł, ø or đ now normalize to the same ASCII form as provider spellings such as "Lodz".
 
 #### Plugins & integrations
 
@@ -708,6 +709,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed paginated result ordering** — title recommendations, media markers, admin users and sessions no longer skip or repeat rows when timestamps match.
 - **Fixed server resource monitoring** — container CPU usage now uses the container's own cgroup measurements instead of host-wide CPU usage.
 - **Fixed negative system memory readings** — usage and percentage are clamped to the effective total, so the admin dashboard no longer fails with a 500 under a constrained memory limit.
+- **Fixed admin profile routes for unknown accounts** — profile listing and creation now return 404 instead of listing nothing or failing with a 500 on the foreign-key insert.
 - **Fixed server component upgrades** — failed component swaps restore moved files instead of leaving the installation without the `server/` directory.
 - **Fixed static asset MIME types** — web and plugin UI assets now use a consistent MIME mapping, including JavaScript, fonts and WebVTT files, while plugin file restrictions remain enforced.
 - **Improved server rescue and maintenance** — download-retention timers stop before database closure, and startup or shutdown failures are reported more reliably.

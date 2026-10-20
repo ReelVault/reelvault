@@ -104,6 +104,39 @@ test("administrator routes refuse malformed bodies from an ordinary user without
 	expect(findings).toEqual([]);
 });
 
+test("administrator routes never crash on a malformed body from an administrator", async () => {
+	const findings: string[] = [];
+	const adminBodyRoutes = bodyRoutes().filter((route) => route.template.startsWith("/v1/admin/"));
+
+	for (const route of adminBodyRoutes) {
+		for (const malformed of MALFORMED_BODIES) {
+			const response = await sendWithin(5000, route.method, route.path, { role: "admin", rawBody: malformed.rawBody });
+			if (response === "timeout") {
+				findings.push(`${route.method} ${route.template} [${malformed.name}] as admin: timed out`);
+				continue;
+			}
+			if (response.status >= 500 && !(route.template.startsWith("/v1/health") && response.status === 503)) {
+				findings.push(`${route.method} ${route.template} [${malformed.name}] as admin -> ${response.status}`);
+			}
+		}
+	}
+
+	expect(findings).toEqual([]);
+});
+
+test("administrator profile routes return 404 for an unknown account", async () => {
+	const userId = "00000000-0000-4000-8000-000000000000";
+
+	const list = await sendWithin(5000, "GET", `/v1/admin/users/${userId}/profiles`, { role: "admin" });
+	const create = await sendWithin(5000, "POST", `/v1/admin/users/${userId}/profiles`, { role: "admin", body: { name: "Ghost" } });
+
+	expect(list).not.toBe("timeout");
+	expect(create).not.toBe("timeout");
+	if (list === "timeout" || create === "timeout") return;
+	expect(list.status).toBe(404);
+	expect(create.status).toBe(404);
+});
+
 test("query strings with hostile values never crash a read route", async () => {
 	const findings: string[] = [];
 	const readRoutes = listApiRoutes().filter(

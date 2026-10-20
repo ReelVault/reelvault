@@ -19,7 +19,7 @@ import { QueryPagination } from "@/integrations/drizzle-orm/query/pagination.uti
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { hasEntry } from "@/utils/array.utils";
 import { hashProfilePin } from "@/utils/crypto.utils";
-import { assertFound, assertPresent, DomainError } from "@/utils/domain.errors";
+import { assertFound, assertPresent, DomainError, notFoundError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { recordAuditSafe } from "./admin-audit.service";
@@ -269,7 +269,7 @@ class AdminUsersService {
 	async getProfiles(userId: string): Promise<AdminUserProfile[]> {
 		return await runSafely(this, "getProfiles", async () => {
 			const userExists = await usersRepository.isExists({ primaryId: userId });
-			assertFound(userExists, "User", userId);
+			if (!userExists) throw notFoundError("User", userId);
 
 			const profiles = await profilesRepository.findByUserId(userId);
 
@@ -283,7 +283,7 @@ class AdminUsersService {
 				usersRepository.isExists({ primaryId: userId }),
 				profilesRepository.isNameTaken({ userId, name: body.name }),
 			]);
-			assertFound(userExists, "User", userId);
+			if (!userExists) throw notFoundError("User", userId);
 			if (isNameTaken) throw new DomainError("conflict", "Profile with the same name already exists", { code: "profile.name_conflict" });
 
 			let pin: string | undefined;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { boundedLevenshtein, fuzzyTitleDistance } from "./fuzzy.matcher";
-import { extractYear, normalizeForFuzzy } from "./normalize.utils";
+import { extractYear, normalizeForFuzzy, normalizeTitle } from "./normalize.utils";
 import { generateQueryVariants } from "./query-variants.utils";
 import { pickBestMatch, rankCandidates } from "./ranking.utils";
 import { isSequelMismatch } from "./score.constants";
@@ -9,6 +9,14 @@ describe("normalizeForFuzzy", () => {
 	test("lowercases and strips diacritics like the FTS tokenizer", () => {
 		expect(normalizeForFuzzy("Żółć Łódź")).toBe("zolc lodz");
 		expect(normalizeForFuzzy("Incepcja")).toBe("incepcja");
+	});
+});
+
+describe("normalizeTitle", () => {
+	test("transliterates stroke letters like the fuzzy matcher", () => {
+		expect(normalizeTitle("Łódź")).toBe("lodz");
+		expect(normalizeTitle("Øresund")).toBe("oresund");
+		expect(normalizeTitle("Đorđe")).toBe("dorde");
 	});
 });
 

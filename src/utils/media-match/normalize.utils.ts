@@ -60,7 +60,7 @@ export function normalizeTitle(value: string): string {
 	const cached = normalizeTitleCache.get(value);
 	if (cached !== null) return cached;
 
-	const withoutDiacritics = stripDiacritics(value).toLowerCase();
+	const withoutDiacritics = normalizeForFuzzy(value);
 	const withoutEdition = withoutDiacritics.replace(EDITION_NOISE, " ");
 	const withoutPunctuation = withoutEdition.replace(TITLE_PUNCTUATION, " ").replace(WHITESPACE_COLLAPSE, " ").trim();
 	const withoutLeadingThe = withoutPunctuation.replace(LEADING_THE, "");
