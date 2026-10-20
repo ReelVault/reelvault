@@ -11,17 +11,37 @@ export function stripDiacritics(value: string): string {
 export const WHITESPACE_COLLAPSE = /\s+/g;
 export const LEADING_THE = /^the\s+/i;
 
-const STROKE_LETTER_REGEX = /[łŁđĐøØ]/g;
-// NFD decomposition misses stroke letters (ł, Ł, đ, ø) — they have no
-// combining-mark form and must be mapped explicitly.
-const STROKE_LETTER_MAP: Record<string, string> = { ł: "l", Ł: "l", đ: "d", Đ: "d", ø: "o", Ø: "o" };
+// NFD decomposition misses ligatures and stroke letters (ß, æ, œ, ł, đ, ø) —
+// they have no combining-mark form and must be mapped explicitly. Lower-case
+// keys keep the map small; the replacement lower-cases before lookup.
+const NON_DECOMPOSING_LETTER_REGEX = /[ßæœøłđðþıŋĳĸ]/gi;
+const NON_DECOMPOSING_LETTER_MAP: Record<string, string> = {
+	ß: "ss",
+	æ: "ae",
+	œ: "oe",
+	ø: "o",
+	ł: "l",
+	đ: "d",
+	ð: "d",
+	þ: "th",
+	ı: "i",
+	ŋ: "ng",
+	ĳ: "ij",
+	ĸ: "k",
+};
+
+function foldNonDecomposingLetters(value: string): string {
+	return value.replace(NON_DECOMPOSING_LETTER_REGEX, (character) => {
+		const lower = character.toLowerCase();
+
+		return NON_DECOMPOSING_LETTER_MAP[lower] ?? character;
+	});
+}
 const TITLE_PUNCTUATION = /[.'".,:()[\]\-_/]+/g;
 
-/** Lowercases and strips diacritics, mirroring the FTS5 `remove_diacritics 2` tokenizer. */
+/** Lowercases and folds diacritics/ligatures so titles compare across languages and spellings. */
 export function normalizeForFuzzy(value: string): string {
-	const unstroked = value.replace(STROKE_LETTER_REGEX, (character) => STROKE_LETTER_MAP[character] ?? character);
-
-	return stripDiacritics(unstroked.toLowerCase());
+	return stripDiacritics(foldNonDecomposingLetters(value).toLowerCase());
 }
 
 /** The words of a space-separated value, each once. */

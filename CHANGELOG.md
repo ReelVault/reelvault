@@ -670,7 +670,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed watch-history recording** — playback progress and watched history are saved atomically, preventing completed plays from disappearing from history after a failed write.
 - **Improved library deletion safety** — deleting a single file or title now respects active playback sessions, just like bulk deletion.
 - **Fixed provider override updates** — failed updates no longer erase existing library provider overrides.
-- **Fixed title matching for stroke letters** — titles using ł, ø or đ now normalize to the same ASCII form as provider spellings such as "Lodz".
+- **Fixed title matching for non-decomposing letters** — titles using ł, ø, đ, ß, æ or œ now normalize to the same ASCII form as provider spellings such as "Lodz" or "Strasse".
 
 #### Plugins & integrations
 

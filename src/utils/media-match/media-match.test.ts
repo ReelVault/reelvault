@@ -3,21 +3,36 @@ import { boundedLevenshtein, fuzzyTitleDistance } from "./fuzzy.matcher";
 import { extractYear, normalizeForFuzzy, normalizeTitle } from "./normalize.utils";
 import { generateQueryVariants } from "./query-variants.utils";
 import { pickBestMatch, rankCandidates } from "./ranking.utils";
-import { isSequelMismatch } from "./score.constants";
+import { isSequelMismatch, prepareTitleCached, scoreCandidate } from "./score.constants";
 
 describe("normalizeForFuzzy", () => {
 	test("lowercases and strips diacritics like the FTS tokenizer", () => {
 		expect(normalizeForFuzzy("Żółć Łódź")).toBe("zolc lodz");
 		expect(normalizeForFuzzy("Incepcja")).toBe("incepcja");
 	});
+
+	test("folds ligatures and non-decomposing letters", () => {
+		expect(normalizeForFuzzy("Straße Æon Œuvre Þingvellir Đorđe")).toBe("strasse aeon oeuvre thingvellir dorde");
+	});
 });
 
 describe("normalizeTitle", () => {
-	test("transliterates stroke letters like the fuzzy matcher", () => {
+	test("transliterates stroke letters and ligatures like the fuzzy matcher", () => {
 		expect(normalizeTitle("Łódź")).toBe("lodz");
 		expect(normalizeTitle("Øresund")).toBe("oresund");
 		expect(normalizeTitle("Đorđe")).toBe("dorde");
+		expect(normalizeTitle("Straße")).toBe("strasse");
+		expect(normalizeTitle("Æon Flux")).toBe("aeon flux");
+		expect(normalizeTitle("Œuvre")).toBe("oeuvre");
 	});
+});
+
+test("scores a transliterated provider title as a confident match", () => {
+	const query = prepareTitleCached("Łódź");
+	const result = scoreCandidate(query, { title: "Lodz", releaseDate: "2023-01-01", popularity: 50 }, 2023);
+
+	expect(result.titleScore).toBe(1);
+	expect(result.score).toBeGreaterThan(0.9);
 });
 
 describe("boundedLevenshtein", () => {
