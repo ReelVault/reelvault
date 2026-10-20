@@ -40,6 +40,11 @@ Don't work around these. If one seems wrong, stop and ask the user.
 - No weakening of `biome.json`, `.oxlintrc.json` or `tsconfig.json`, and no new `ignores` or `ignorePatterns` entries.
 - No knip `ignore` entries and no `@public` tags. Delete unused code.
 - No `test.skip`, `test.todo`, `.only` or environment-gated `skipIf`. A test that cannot run fails loudly.
+- A `DomainError` raised in a `catch` clause keeps the original error as `cause` (`scripts/lint/no-lost-error-cause.grit`).
+- Cross-folder imports use `@/`; only same-folder imports stay relative (`import/no-relative-parent-imports`, off for tests and `src/config/version.constants.ts`).
+- One import statement per module, and one array syntax (`T[]` for simple types, `Array<T>` for complex ones — `typescript/array-type` owns this).
+
+`bun run lint:guard` checks the rules no linter ships: no suppression comments, no new ignore entries, no `@public` tags, and the strict TypeScript flags.
 
 ## Readability rules
 

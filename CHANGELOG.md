@@ -718,11 +718,14 @@ The browse and collections rows are the combined result of every change above; t
 - **Improved server rescue and maintenance** — download-retention timers stop before database closure, and startup or shutdown failures are reported more reliably.
 - **Fixed plugin UI security policy updates** — the web Content Security Policy is rebuilt when plugins change rather than on every static asset request.
 - **Fixed plugin repository counting** — repository totals now return the actual number of entries instead of a value capped at one.
+- **Kept the original error as the cause** — a failure raised while handling another failure now carries the original error as its `cause`, so the server log shows what actually went wrong instead of only the outermost message.
 
 ### Performance
 
 #### Database & query efficiency
 
+- **Served the watched-history listing from an index** — the default (keyset) page no longer sorts the whole profile history in a temporary B-tree: the profile/watched-at index now carries the id tie-breaker, so the query is a covering index search. The plan changed from `SCAN watched_history` + `USE TEMP B-TREE FOR ORDER BY` to `SEARCH watched_history USING COVERING INDEX`; the wall clock is unchanged at the benchmark's scale (0.43–0.45 ms p50 before, 0.43–0.48 ms p50 after on a 50,000-row catalog).
+- **Grouped smart-play relations once** — the per-title season and episode scans became a group-by, so a batch no longer re-scans the whole relation set per title. A 50-title batch went from 1.15 to 1.08 ms p50 (a series batch from 0.36 to 0.35 ms).
 - **Unified bulk id existence checks** — every bulk precheck now deduplicates and chunks its id list, so a large batch cannot exceed SQLite's bound-variable limit.
 - **Optimized list pagination** — composite indexes now support filtering, sorting and stable ID tie-breakers without temporary sorts. In the database benchmark, typed title browsing improved from 0.14 to 0.03 ms p50, while offset browsing improved from 0.14 to 0.004 ms.
 - **Optimized descending pagination** — sort tie-breakers now follow the requested direction, eliminating an unnecessary temporary sort. Descending browsing improved from 0.13 to 0.02 ms p50.
@@ -752,6 +755,7 @@ The browse and collections rows are the combined result of every change above; t
 
 #### HTTP, caching & resource usage
 
+- **Bulk watch-state checks no longer run one after another** — `POST /me/watch-state/bulk` checks up to 500 media files with bounded concurrency instead of 500 sequential awaits, and still refuses the first id in request order that is not accessible.
 - **Reduced per-request middleware overhead** — normalized pathnames and credential headers are memoized for the life of a request, and a cache miss no longer rebuilds the same response-cache key after the handler.
 - **Adaptive brotli compression** — cores below the slow-core threshold use quality 2 and a 64 KB window instead of quality 4/256 KB. Bodies grow by roughly 10–25% while compression CPU falls; a 617 KB details payload went from 1.16 to 0.77 ms.
 - **Reduced response-body copying** — compressed responses now reuse the existing byte buffer. Copying a 64 KB body improved from 0.88 to 0.015 ms, with identical compressed output.
@@ -784,6 +788,8 @@ All figures below are from the recorded benchmarks for this release; results dep
 | Typed title browsing | 0.14 ms | 0.03 ms | 4.7× faster |
 | Unfiltered newest browsing | 0.14 ms | 0.02 ms | 7× faster |
 | Descending browsing | 0.13 ms | 0.02 ms | 6.5× faster |
+| Watched-history listing, 50,000-row catalog | 0.44 ms | 0.44 ms | same time, full scan → covering index |
+| Smart-play batch, 50 titles | 1.15 ms | 1.08 ms | 6% faster |
 | 5,000-title relation loading | 9 statements | 3 statements | 67% fewer |
 | Marking 40 files as watched | 121 statements | 4 statements | 97% fewer |
 | Importing markers for 50 files | 300 statements | 5 statements | 98% fewer |
