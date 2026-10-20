@@ -27,7 +27,7 @@ Before you report a task done, run `format`, `lint`, `check-types`, `deadcode` a
 
 ## Changelog
 
-- A behavior change updates `CHANGELOG.md` in the same task, under the newest heading without a git tag (currently `# v1.4.0`).
+- A behavior change updates `CHANGELOG.md` in the same task, under the newest heading without a git tag (currently `# v1.3.2`).
 - Sections: `### Features` (user-facing functionality and API changes), `### Fixes` (concrete bugs and their cause), `### Performance`, `### Performance benchmarks`, `### Additional measurements`.
 - Refactors and test cleanups are not logged. Entries are in English, with no commit hashes.
 - A performance claim needs before/after numbers from `bun run benchmark`, regressions included. A bug fix does not.
