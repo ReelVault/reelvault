@@ -8,6 +8,7 @@ describe("detectUploadedSubtitleFormat", () => {
 
 	it("accepts WebVTT with the WEBVTT header", () => {
 		expect(detectUploadedSubtitleFormat("movie.vtt", "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n")).toBe("vtt");
+		expect(detectUploadedSubtitleFormat("movie.vtt", "\uFEFFWEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n")).toBe("vtt");
 	});
 
 	it("accepts ASS with an [Events] section", () => {

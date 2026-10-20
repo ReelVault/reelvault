@@ -13,7 +13,13 @@ export async function readCompletedOperationResult<TSchemaType extends TSchema>(
 	const [job] = await workerJobRepository.findByOperation(operationId, 1);
 	if (!job?.result) return null;
 
-	const parsed: unknown = JSON.parse(job.result);
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(job.result);
+	} catch {
+		// A damaged result row must read as "no result", not crash the endpoint.
+		return null;
+	}
 
 	return Value.Check(schema, parsed) ? parsed : null;
 }

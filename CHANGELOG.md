@@ -665,6 +665,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed Windows library cleanup** — removed files no longer leave stale media entries or scan findings behind.
 - **Fixed subtitle extraction and caching** — MKV cover art, font attachments and data tracks are no longer imported as subtitles. Editing subtitles also invalidates cached cues correctly.
 - **Fixed duplicate external subtitles** — uploading another subtitle in the same language no longer incorrectly reports it as missing or deletes the uploaded file.
+- **Fixed WebVTT uploads with a UTF-8 BOM** — valid files whose header starts with a BOM are accepted instead of being rejected as unreadable.
 - **Fixed bulk watched status** — files without a known duration can now be marked as watched, as intended.
 - **Fixed watch-history recording** — playback progress and watched history are saved atomically, preventing completed plays from disappearing from history after a failed write.
 - **Improved library deletion safety** — deleting a single file or title now respects active playback sessions, just like bulk deletion.
@@ -690,6 +691,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed worker finalization errors** — failed finalization is logged instead of producing an unhandled rejection.
 - **Fixed manual worker execution** — deduplication races no longer leave phantom pending operations.
 - **Fixed worker progress consistency** — task and operation progress are now updated in a single transaction.
+- **Damaged worker results no longer fail the audit endpoint** — an unreadable stored result is treated as missing instead of throwing a 500.
 - **Fixed worker resource tracking** — workers that finish running are removed from the active-count map.
 - **Improved scheduled job processing** — due jobs can be enqueued concurrently instead of waiting for each preceding job.
 - **Improved library watcher recovery** — rescue mode now reacts immediately when enabled or disabled at runtime.
