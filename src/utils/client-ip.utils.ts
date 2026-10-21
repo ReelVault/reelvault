@@ -45,6 +45,18 @@ export function normalizeIp(value: string | null | undefined): string | null {
 }
 
 /**
+ * Reads the client IP the middleware stamped on the request.
+ *
+ * Only the stamped value is trusted — `X-Forwarded-For` and `X-Real-IP` are
+ * client-controlled unless a trusted proxy rewrote them, and an audit trail
+ * with an attacker-chosen IP is worse than none. Null when the middleware did
+ * not run for the request.
+ */
+export function getStampedClientIp(headers: Headers | undefined): string | null {
+	return headers?.get(CLIENT_IP_HEADER) ?? null;
+}
+
+/**
  * Resolves the real client IP from the socket peer and the trusted tail of
  * `X-Forwarded-For`.
  *

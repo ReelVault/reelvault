@@ -1,6 +1,6 @@
 import { main, metric, runLoadWindow, suiteArgs, type TaskMetrics, task } from "benchkit";
 import { Elysia } from "elysia";
-import { responseCacheMiddleware } from "@/app/http/middleware/response-cache.middleware";
+import { responseCacheMiddleware } from "@/api/middleware/response-cache.middleware";
 
 export const meta = { description: "Cache-hit path in-process (app.handle, no sockets): response cache and encoding negotiation" };
 

@@ -17,11 +17,11 @@ mkdirSync(testRoot, { recursive: true });
 
 // Modules read their data through ports the application registers at boot. Wire the
 // same implementations once per test process, after the environment above is set.
-const { wireModulePorts } = await import("../src/app/wiring/module-ports");
+const { wireModulePorts } = await import("../src/wiring/module-ports");
 wireModulePorts();
-const { wireWorkerPorts } = await import("../src/app/wiring/worker-ports");
+const { wireWorkerPorts } = await import("../src/wiring/worker-ports");
 wireWorkerPorts();
-const { wireSystemPorts } = await import("../src/app/wiring/system-ports");
+const { wireSystemPorts } = await import("../src/wiring/system-ports");
 wireSystemPorts();
-const { wireIntegrationPorts } = await import("../src/app/wiring/integration-ports");
+const { wireIntegrationPorts } = await import("../src/wiring/integration-ports");
 wireIntegrationPorts();

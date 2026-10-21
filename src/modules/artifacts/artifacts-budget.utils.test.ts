@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import {
 	assertCoreArtifactsBudget,
 	computeAutoBudgetBytes,

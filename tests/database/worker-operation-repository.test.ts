@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
-import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { workerJobRepository } from "@/repositories/worker.repository";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 // Migrated schema per test: the tables come from the real migrations, not hand-written DDL.

@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, setDefaultTimeout } from "bun:test";
-import { clearRateLimitBuckets } from "@/app/http/middleware/rate-limit.middleware";
-import { apiRouter } from "@/app/http/routes/api.routes";
+import { clearRateLimitBuckets } from "@/api/middleware/rate-limit.middleware";
+import { apiRouter } from "@/api/routes/api.routes";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { invalidateSessionCache } from "@/integrations/better-auth/better-auth.session-cache";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";

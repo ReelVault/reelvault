@@ -26,22 +26,22 @@ import { seedCatalog } from "./lib/seed.utils";
 // the logger (tests construct their own factory with `queryStats: true`).
 const { databaseFactory } = await import("@/integrations/drizzle-orm/database.factory");
 databaseFactory.enableQueryStats();
-const { librariesRepository } = await import("@/app/repositories/libraries.repository");
-const { collectionRepository } = await import("@/app/repositories/collections.repository");
-const { genreRepository } = await import("@/app/repositories/genres.repository");
-const { mediaRepository } = await import("@/app/repositories/media-files.repository");
-const { metadataRepository } = await import("@/app/repositories/metadata.repository");
-const { playbackRepository } = await import("@/app/repositories/playback.repository");
-const { watchedHistoryRepository } = await import("@/app/repositories/watched-history.repository");
-const { workerOperationRepository } = await import("@/app/repositories/worker-operation.repository");
-const { sessionsRepository } = await import("@/app/repositories/sessions.repository");
-const { adminAuditRepository } = await import("@/app/repositories/admin-audit.repository");
-const { playbackViewService } = await import("@/app/media/playback-view.service");
+const { librariesRepository } = await import("@/repositories/libraries.repository");
+const { collectionRepository } = await import("@/repositories/collections.repository");
+const { genreRepository } = await import("@/repositories/genres.repository");
+const { mediaRepository } = await import("@/repositories/media-files.repository");
+const { metadataRepository } = await import("@/repositories/metadata.repository");
+const { playbackRepository } = await import("@/repositories/playback.repository");
+const { watchedHistoryRepository } = await import("@/repositories/watched-history.repository");
+const { workerOperationRepository } = await import("@/repositories/worker-operation.repository");
+const { sessionsRepository } = await import("@/repositories/sessions.repository");
+const { adminAuditRepository } = await import("@/repositories/admin-audit.repository");
+const { playbackViewService } = await import("@/services/media/playback-view.service");
 const { SidecarMetadataStorageService } = await import("@/modules/metadata-sidecars/sidecar-metadata-storage.service");
-const { playbackProgressService } = await import("@/app/playback/playback-progress.service");
-const { librariesService } = await import("@/app/libraries/libraries.service");
-const { loadRelations } = await import("@/app/repositories/metadata-relations.repository");
-const { wireModulePorts } = await import("@/app/wiring/module-ports");
+const { playbackProgressService } = await import("@/services/playback/playback-progress.service");
+const { librariesService } = await import("@/services/libraries/libraries.service");
+const { loadRelations } = await import("@/repositories/metadata-relations.repository");
+const { wireModulePorts } = await import("@/wiring/module-ports");
 
 // The sidecar case drives SidecarMetadataStorageService, which reads through
 // module ports wired by the composition root at boot; wire the same

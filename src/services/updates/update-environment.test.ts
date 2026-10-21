@@ -1,0 +1,60 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { removeTreeSync } from "@/utils/directory.utils";
+import { detectInstallType } from "./update-environment.utils";
+
+const roots: string[] = [];
+
+afterAll(() => {
+	for (const root of roots.splice(0)) removeTreeSync(root);
+});
+
+/**
+ * Copies the real module into a fake archive checkout so `import.meta.dir`
+ * inside `resolveInstallRoot` resolves through the same depth the updater
+ * sees in a release layout: `<root>/server/src/services/updates`.
+ * Regression: resolving two levels up instead of four reported `server/src`
+ * as the install root, so archive installs detected as "dev" and the panel
+ * refused updates with `update.install_unsupported_install_type`.
+ */
+async function detectFromArchiveCheckout(root: string): Promise<string> {
+	const moduleDir = join(root, "server", "src", "application", "updates");
+	mkdirSync(moduleDir, { recursive: true });
+
+	// The copied module keeps its own folder, so every "@/utils/..." import is
+	// rewritten to a relative path and the file it points at is copied next to
+	// it. A new dependency on a util therefore does not break this test.
+	const utilsDir = join(moduleDir, "utils");
+	mkdirSync(utilsDir, { recursive: true });
+	const source = readFileSync(join(import.meta.dir, "update-environment.utils.ts"), "utf8");
+	const module = source.replaceAll(/@\/utils\/([\w.-]+)/g, (_match, name: string) => {
+		copyFileSync(join(import.meta.dir, "../../utils", `${name}.ts`), join(utilsDir, `${name}.ts`));
+
+		return `./utils/${name}.ts`;
+	});
+	writeFileSync(join(moduleDir, "update-environment.utils.ts"), module);
+	writeFileSync(join(root, "server", "package.json"), JSON.stringify({ version: "1.0.0" }));
+	mkdirSync(join(root, "bun"), { recursive: true });
+
+	const environment: unknown = await import(join(moduleDir, "update-environment.utils.ts"));
+	return (environment as { detectInstallType: (root?: string) => string }).detectInstallType();
+}
+
+describe("detectInstallType on release-archive layouts", () => {
+	test("detects archive when resolved from the module's real depth", async () => {
+		const root = mkdtempSync(join(tmpdir(), "reelvault-archive-root-"));
+		roots.push(root);
+
+		expect(await detectFromArchiveCheckout(root)).toBe("archive");
+	});
+
+	test("still detects dev checkouts", () => {
+		const repo = mkdtempSync(join(tmpdir(), "reelvault-dev-root-"));
+		roots.push(repo);
+		mkdirSync(join(repo, "src", "application", "updates"), { recursive: true });
+
+		expect(detectInstallType(repo)).toBe("dev");
+	});
+});

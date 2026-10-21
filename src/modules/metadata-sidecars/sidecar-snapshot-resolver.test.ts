@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { DatabaseSidecarSnapshotResolver } from "@/app/sidecars/sidecar-snapshot.resolver";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { DatabaseSidecarSnapshotResolver } from "@/services/catalog/metadata/sidecar-snapshot.resolver";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { episodeSnapshot, seasonSnapshot } from "./sidecar-snapshot.builder";
 

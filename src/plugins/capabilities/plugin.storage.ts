@@ -1,4 +1,4 @@
-import { pluginStorageData } from "@/app/plugins/plugin-data.service";
+import { pluginStorageData } from "@/services/plugins/plugin-data.service";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";

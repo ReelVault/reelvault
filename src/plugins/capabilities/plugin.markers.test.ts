@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PluginEventMap } from "@reelvault/sdk/plugin";
-import { mediaMarkersRepository } from "@/app/repositories/media-markers.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { mediaMarkersRepository } from "@/repositories/media-markers.repository";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginMarkersService } from "./plugin.markers";

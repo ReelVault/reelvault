@@ -17,10 +17,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bench, benchmarkAsync, group, main, printMicroResults, suiteArgs, task } from "benchkit";
 import { $ } from "bun";
-import { auditMediaFileRow } from "@/app/media/media-files/media-file-audit.utils";
-import type { MediaFileAuditRow } from "@/app/repositories/media-files.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { ScannerService } from "@/modules/scanner/scanner.service";
+import type { MediaFileAuditRow } from "@/repositories/media-files.repository";
+import { auditMediaFileRow } from "@/services/media/media-files/media-file-audit.utils";
 
 export const meta = { description: "Ingest pipeline (scanner diff/guard over N files, per-row audit recognition+fuzzy rank)" };
 

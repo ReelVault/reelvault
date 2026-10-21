@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { PlaybackProgressService } from "@/app/playback/playback-progress.service";
-import { playbackRepository } from "@/app/repositories/playback.repository";
-import { profilePreferencesRepository } from "@/app/repositories/profile-preferences.repository";
-import { profileStreamPrefsRepository } from "@/app/repositories/profile-stream-prefs.repository";
-import { watchedHistoryRepository } from "@/app/repositories/watched-history.repository";
-import { watchlistRepository } from "@/app/repositories/watchlist.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { playbackRepository } from "@/repositories/playback.repository";
+import { profilePreferencesRepository } from "@/repositories/profile-preferences.repository";
+import { profileStreamPrefsRepository } from "@/repositories/profile-stream-prefs.repository";
+import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
+import { watchlistRepository } from "@/repositories/watchlist.repository";
+import { PlaybackProgressService } from "@/services/playback/playback-progress.service";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const db = useTestDatabase();

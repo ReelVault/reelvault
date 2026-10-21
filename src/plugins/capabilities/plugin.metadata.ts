@@ -1,7 +1,7 @@
 import type { MetadataItem } from "@reelvault/sdk/common";
 import type { MetadataAvailability, ProviderMediaType } from "@reelvault/sdk/plugin";
-import { pluginMetadataData } from "@/app/plugins/plugin-data.service";
 import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { pluginMetadataData } from "@/services/plugins/plugin-data.service";
 import { createLogger } from "@/utils/logger.utils";
 
 export const pluginMetadataService = {

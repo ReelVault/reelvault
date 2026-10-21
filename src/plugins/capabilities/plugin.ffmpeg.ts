@@ -7,7 +7,6 @@ import type {
 	SpriteExtractionRequest,
 } from "@reelvault/sdk/plugin";
 import { file } from "bun";
-import { pluginMediaData } from "@/app/plugins/plugin-data.service";
 import { serverConfig } from "@/config/server/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
@@ -20,6 +19,7 @@ import {
 	buildSpriteTileCommand,
 } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
+import { pluginMediaData } from "@/services/plugins/plugin-data.service";
 import { createDirectory, deleteTemporaryDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { deleteFile, fileExists } from "@/utils/file.utils";

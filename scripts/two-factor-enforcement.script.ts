@@ -6,8 +6,9 @@
  * This switches it off (or back on) directly in the database, on the machine that holds the data
  * directory. A running server keeps the value it loaded, so restart it afterwards.
  */
-import { systemSettingsService } from "@/app/admin/system-settings.service";
+
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { systemSettingsService } from "@/services/admin/system-settings.service";
 
 const state = process.argv[2];
 if (state !== "on" && state !== "off") {

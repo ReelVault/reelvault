@@ -8,9 +8,13 @@ import { removeTreeSync } from "@/utils/directory.utils";
 /**
  * Gives every test in the calling file its own migrated SQLite database and routes the
  * shared `databaseFactory` to it. Call once at the top level of a test file; the
- * returned `client` reads the current test's database for seeding and assertions.
+ * returned `client` reads the current test's database for seeding and assertions, and
+ * `sqlite` is the raw handle for the statements the query builder cannot express.
  */
-export function useTestDatabase(): { client: () => ReturnType<DatabaseFactory["getClient"]> } {
+export function useTestDatabase(): {
+	client: () => ReturnType<DatabaseFactory["getClient"]>;
+	sqlite: () => DatabaseFactory["sqlite"];
+} {
 	let factory: DatabaseFactory | undefined;
 	let tempDir = "";
 	let spies: Array<{ mockRestore(): void }> = [];
@@ -37,5 +41,5 @@ export function useTestDatabase(): { client: () => ReturnType<DatabaseFactory["g
 		removeTreeSync(tempDir);
 	});
 
-	return { client: () => current().getClient() };
+	return { client: () => current().getClient(), sqlite: () => current().sqlite };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { pluginStorageData } from "@/app/plugins/plugin-data.service";
+import { pluginStorageData } from "@/services/plugins/plugin-data.service";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { pluginStorageService } from "./plugin.storage";
 import { assertStorageKey, serializeStorageValue } from "./plugin.storage.validator";

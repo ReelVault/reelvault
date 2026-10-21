@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
-import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
+import { workerJobRepository } from "@/repositories/worker.repository";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { enqueueDeduped } from "./enqueue-deduped.utils";
 

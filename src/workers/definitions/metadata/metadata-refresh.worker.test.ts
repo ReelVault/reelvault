@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { metadataRefreshService } from "@/app/catalog/metadata/refresh/metadata-refresh.runtime";
+import { metadataRefreshService } from "@/services/catalog/metadata/refresh/metadata-refresh.runtime";
 import { getCachedResponseBody, invalidateResponseBodies, responseCacheKey, setCachedResponseBody } from "@/utils/response-body.cache";
 import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { refreshMetadataTask } from "./metadata-refresh.worker";

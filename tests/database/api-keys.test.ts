@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { apiKeysService } from "@/app/admin/api-keys.service";
 import { apiKeys } from "@/integrations/drizzle-orm/schemas/api-keys.schema";
 import { users } from "@/integrations/drizzle-orm/schemas/auth.schema";
+import { apiKeysService } from "@/services/admin/api-keys.service";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const testDatabase = useTestDatabase();

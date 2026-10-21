@@ -11,9 +11,9 @@ import {
 	task,
 } from "benchkit";
 import { sleep } from "bun";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
-import { workerSchedulesRepository } from "@/app/repositories/worker-schedules.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { workerJobRepository } from "@/repositories/worker.repository";
+import { workerSchedulesRepository } from "@/repositories/worker-schedules.repository";
 
 export const meta = { description: "Worker job queue engine (bulk enqueue, dedupe, claimNextBatch transaction)" };
 
@@ -286,7 +286,7 @@ if (!args.help) {
 	task("workers: runtime loop (bench-noop)", async () => {
 		// The runtime loop drives the real pool, poller, registry and watchdog, so
 		// the worker ports have to be wired like the server wires them at boot.
-		const { wireWorkerPorts } = await import("@/app/wiring/worker-ports");
+		const { wireWorkerPorts } = await import("@/wiring/worker-ports");
 		wireWorkerPorts();
 		const { workerService } = await import("@/workers/worker.service");
 

@@ -1,5 +1,5 @@
 import type { PluginUiSettings, UpdatePluginUiSettingsBody } from "@reelvault/sdk/common";
-import { pluginUiOverrideData } from "@/app/plugins/plugin-data.service";
+import { pluginUiOverrideData } from "@/services/plugins/plugin-data.service";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";

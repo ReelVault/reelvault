@@ -1,8 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { notificationsService } from "@/app/notifications/notifications.service";
-import { profilesRepository } from "@/app/repositories/profiles.repository";
-import { twoFactorRepository } from "@/app/repositories/two-factor.repository";
 import { env } from "@/config/env.config";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { twoFactors, users } from "@/integrations/drizzle-orm/schemas/auth.schema";
@@ -14,6 +11,9 @@ import { notifications } from "@/integrations/drizzle-orm/schemas/notifications.
 import { profiles } from "@/integrations/drizzle-orm/schemas/profiles.schema";
 import { watchedHistory } from "@/integrations/drizzle-orm/schemas/watched-history.schema";
 import { watchlist } from "@/integrations/drizzle-orm/schemas/watchlist.schema";
+import { profilesRepository } from "@/repositories/profiles.repository";
+import { twoFactorRepository } from "@/repositories/two-factor.repository";
+import { notificationsService } from "@/services/notifications/notifications.service";
 import { PROFILE_UNLOCK_COOKIE, profilePinFingerprint, signProfileUnlock } from "@/utils/profile-unlock.utils";
 import { installSessionStub, prepareSecuritySuite, send } from "./security.helper";
 

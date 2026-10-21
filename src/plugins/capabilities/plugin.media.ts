@@ -1,7 +1,7 @@
 import type { PluginMediaFile } from "@reelvault/sdk/common";
 import type { PluginMediaRevision } from "@reelvault/sdk/plugin";
-import { pluginMediaData } from "@/app/plugins/plugin-data.service";
 import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { pluginMediaData } from "@/services/plugins/plugin-data.service";
 import { groupBy } from "@/utils/array.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";

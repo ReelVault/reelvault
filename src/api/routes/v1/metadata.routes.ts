@@ -1,0 +1,284 @@
+import {
+	BulkDeleteBodySchema,
+	BulkDeleteResultSchema,
+	BulkRefreshBodySchema,
+	BulkRefreshResultSchema,
+	CreateMetadataSchema,
+	GlobalSearchResponseSchema,
+	LinkMetadataProviderSchema,
+	MetadataDetailsViewResponseSchema,
+	MetadataFiltersSchema,
+	MetadataImageOptionSchema,
+	MetadataImageTypeSchema,
+	MetadataSortingSchema,
+	MetadataStatusesResponseSchema,
+	MetadataWithRelationSchema,
+	ProjectedResponseSchema,
+	RematchMetadataSchema,
+	SelectMetadataImageSchema,
+	SuccessResponseSchema,
+	UpdateMetadataSchema,
+} from "@reelvault/sdk/common";
+import { Elysia, t } from "elysia";
+import { authMiddleware } from "@/api/middleware/auth.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
+import { cached } from "@/api/middleware/response-cache.middleware";
+import {
+	ClampedNumeric,
+	commonModel,
+	cursorListQuerySchema,
+	FieldsSchema,
+	PaginatedResponseSchema,
+	PaginationSchema,
+	ROUTE_ERRORS,
+} from "@/api/schemas/common.schema";
+import { MetadataIdParams } from "@/api/schemas/route-params.schema";
+import { actorContext } from "@/api/utils/audit-context.utils";
+import { withEtagResponse } from "@/api/utils/etag.utils";
+import { IMAGE_UPLOAD_MAX_SIZE } from "@/config/server/server.constants";
+import { metadataService } from "@/services/catalog/metadata/metadata.service";
+
+const GlobalSearchQuerySchema = t.Object({
+	q: t.String({ minLength: 2, maxLength: 200 }),
+	limit: t.Optional(ClampedNumeric(1, 20)),
+});
+
+export const metadataRoutes = new Elysia({
+	prefix: "/metadata",
+	tags: ["Metadata"],
+})
+	.use(commonModel)
+	.use(authMiddleware)
+	.use(rateLimitMiddleware)
+	.model({
+		"metadata.schema": ProjectedResponseSchema(MetadataWithRelationSchema),
+		"metadata.paginated.schema": PaginatedResponseSchema(ProjectedResponseSchema(MetadataWithRelationSchema)),
+		"metadata.details-view": MetadataDetailsViewResponseSchema,
+		"metadata.create.body": CreateMetadataSchema,
+		"metadata.update.body": UpdateMetadataSchema,
+		"metadata.statuses": MetadataStatusesResponseSchema,
+	})
+	.guard({ auth: true })
+	.get("/", async ({ query, profile }) => await metadataService.getAll(query, profile?.id), {
+		query: cursorListQuerySchema({ filters: MetadataFiltersSchema, sorting: MetadataSortingSchema }),
+		response: { ...ROUTE_ERRORS.AUTH, 200: "metadata.paginated.schema" },
+		...cached({ maxAge: 60, private: true }),
+		detail: {
+			description: "Retrieve a paginated list of metadata entries for movies and TV shows with advanced filtering.",
+		},
+	})
+	.get("/statuses", async () => await metadataService.getStatuses(), {
+		response: { ...ROUTE_ERRORS.AUTH, 200: "metadata.statuses" },
+		...cached({ maxAge: 300, private: true }),
+		detail: {
+			description: "Distinct status values of the catalog (for example Ended or Returning Series), for the status filter.",
+		},
+	})
+	.get("/search/global", async ({ query }) => await metadataService.searchGlobal(query.q, query.limit), {
+		rateLimit: routeLimit("metadata-global-search", 60),
+		...cached({ maxAge: 30, private: true }),
+		query: GlobalSearchQuerySchema,
+		response: { ...ROUTE_ERRORS.AUTH, 200: GlobalSearchResponseSchema },
+		detail: {
+			description: "Search titles, people, collections and genres in one request.",
+		},
+	})
+	.post("/", async ({ body, query, user, request }) => await metadataService.create(body, query, actorContext({ user, request })), {
+		adminOnly: true,
+		body: "metadata.create.body",
+		query: "fields.schema",
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 201: "metadata.schema" },
+		detail: {
+			description: "Add a new metadata entry to the system.",
+		},
+	})
+	.get("/:metadataId/images/options", async ({ params }) => await metadataService.getImageOptions(params.metadataId), {
+		params: MetadataIdParams,
+		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: t.Array(MetadataImageOptionSchema) },
+		...cached({ maxAge: 300, private: true }),
+		detail: { description: "Retrieve poster and backdrop candidates from linked metadata providers." },
+	})
+	.post(
+		"/:metadataId/images/select",
+		async ({ params, body, user, request }) => await metadataService.selectImage(params.metadataId, body, actorContext({ user, request })),
+		{
+			adminOnly: true,
+			params: MetadataIdParams,
+			body: SelectMetadataImageSchema,
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
+			detail: { description: "Select and download a poster or backdrop candidate." },
+		},
+	)
+	.post(
+		"/:metadataId/images/upload",
+		async ({ params, body, user, request }) =>
+			await metadataService.uploadImage(params.metadataId, body.type, body.file, actorContext({ user, request })),
+		{
+			adminOnly: true,
+			params: MetadataIdParams,
+			body: t.Object({
+				type: MetadataImageTypeSchema,
+				// The real limit is the live `images.maxUploadBytes` setting (enforced
+				// in the service); this is only the protocol ceiling for the body.
+				file: t.File({ type: "image/*", maxSize: IMAGE_UPLOAD_MAX_SIZE }),
+			}),
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
+			detail: { description: "Upload, optimize and activate a custom poster or backdrop." },
+		},
+	)
+	.get(
+		"/:metadataId/details-view",
+		async ({ params, profile, request, set }) =>
+			withEtagResponse(request, set, () => metadataService.getDetailsView(params.metadataId, profile?.id), {
+				// The details view runs ~17 queries; options enable the shared body
+				// cache, so a repeat/304 request skips the whole aggregation (cleared
+				// on metadata writes and per-profile progress writes).
+				profileId: profile?.id,
+			}),
+		{
+			params: MetadataIdParams,
+			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "metadata.details-view" },
+			deduplicate: {},
+			detail: {
+				description:
+					"Get full aggregated view of title metadata, seasons/episodes, media files, and active profile user state in one request.",
+			},
+		},
+	)
+	.get("/:metadataId", async ({ params, query }) => await metadataService.getById(params.metadataId, query), {
+		params: MetadataIdParams,
+		query: "fields.schema",
+		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "metadata.schema" },
+		...cached({ maxAge: 120, private: true }),
+		detail: {
+			description: "Retrieve detailed information about a specific metadata entry by its ID.",
+		},
+	})
+	.patch(
+		"/:metadataId",
+		async ({ params, body, query, user, request }) =>
+			await metadataService.update(params.metadataId, body, query, actorContext({ user, request })),
+		{
+			adminOnly: true,
+			params: MetadataIdParams,
+			body: "metadata.update.body",
+			query: "fields.schema",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "metadata.schema" },
+			detail: {
+				description: "Modify an existing metadata entry's details.",
+			},
+		},
+	)
+	.post(
+		"/:metadataId/providers",
+		async ({ params, body, query, user, request }) =>
+			await metadataService.linkProvider(params.metadataId, body, query, actorContext({ user, request })),
+		{
+			adminOnly: true,
+			params: MetadataIdParams,
+			body: LinkMetadataProviderSchema,
+			query: "fields.schema",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "metadata.schema" },
+			detail: {
+				description: "Link an additional metadata provider and re-aggregate fields by priority.",
+			},
+		},
+	)
+	.post(
+		"/:metadataId/rematch",
+		async ({ params, body, query, user, request }) =>
+			await metadataService.rematch(params.metadataId, body, query, actorContext({ user, request })),
+		{
+			adminOnly: true,
+			params: MetadataIdParams,
+			body: RematchMetadataSchema,
+			query: "fields.schema",
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "metadata.schema" },
+			detail: {
+				description: "Rematch metadata entry with a specific provider search result.",
+			},
+		},
+	)
+	.delete(
+		"/:metadataId",
+		async ({ params, user, request }) => await metadataService.delete(params.metadataId, actorContext({ user, request })),
+		{
+			adminOnly: true,
+			params: MetadataIdParams,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
+			detail: {
+				description: "Permanently remove a metadata entry from the system.",
+			},
+		},
+	)
+	.post(
+		"/:metadataId/merge",
+		async ({ params, body, user, request }) =>
+			await metadataService.mergeMetadata(params.metadataId, body.sourceMetadataId, actorContext({ user, request })),
+		{
+			adminOnly: true,
+			params: MetadataIdParams,
+			body: t.Object({
+				sourceMetadataId: t.String(),
+			}),
+			response: {
+				...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND,
+				200: t.Object({
+					success: t.Literal(true),
+					targetId: t.String(),
+				}),
+			},
+			detail: {
+				description: "Merge another metadata entry into this one.",
+			},
+		},
+	)
+	.get("/:metadataId/similar", async ({ params, query }) => await metadataService.getSimilar(params.metadataId, query), {
+		params: MetadataIdParams,
+		query: t.Composite([PaginationSchema, FieldsSchema]),
+		response: { ...ROUTE_ERRORS.NOT_FOUND, 200: "metadata.paginated.schema" },
+		...cached({ maxAge: 60, private: true }),
+		detail: {
+			description: "Retrieve a list of metadata entries similar to the specified one, based on various shared attributes.",
+		},
+	})
+	.post(
+		"/bulk-delete",
+		async ({ body, user, request }) => await metadataService.deleteMany(body.ids, { force: body.force }, actorContext({ user, request })),
+		{
+			adminOnly: true,
+			rateLimit: routeLimit("metadata-bulk-delete", 10),
+			body: BulkDeleteBodySchema,
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkDeleteResultSchema },
+			detail: {
+				description: "Remove up to 50 titles in turn. A title is held back while a stream plays one of its files, unless force is set.",
+			},
+		},
+	)
+	.post("/bulk-refresh-images", async ({ body }) => await metadataService.refreshImagesMany(body.ids), {
+		adminOnly: true,
+		rateLimit: routeLimit("metadata-bulk-refresh-images", 30),
+		body: BulkRefreshBodySchema,
+		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkRefreshResultSchema },
+		detail: {
+			description:
+				"Force-refresh the posters and backdrops of up to 50 titles in turn. Each id reports its own outcome, so one failure does not stop the others.",
+		},
+	})
+	.post(
+		"/:metadataId/refresh-images",
+		async ({ params, body }) => await metadataService.refreshImages(params.metadataId, { force: body?.force ?? true }),
+		{
+			adminOnly: true,
+			params: MetadataIdParams,
+			body: t.Optional(
+				t.Object({
+					force: t.Optional(t.Boolean()),
+				}),
+			),
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: SuccessResponseSchema },
+			detail: {
+				description: "Force download and refresh posters, backdrops, and child images from linked provider.",
+			},
+		},
+	);

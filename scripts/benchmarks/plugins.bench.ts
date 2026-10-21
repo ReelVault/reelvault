@@ -16,12 +16,12 @@ import {
 	task,
 } from "benchkit";
 import { sleep } from "bun";
-import { pluginRepositoriesRepository } from "@/app/repositories/plugin-repositories.repository";
 import { serverConfig } from "@/config/server/server.config";
 import { pluginCatalogService } from "@/plugins/catalog/plugin-catalog.service";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { materializePluginRuntime, pluginRuntimeRoot } from "@/plugins/lifecycle/plugin-runtime.service";
 import { ensurePluginSdkShim } from "@/plugins/lifecycle/plugin-sdk-alias.utils";
+import { pluginRepositoriesRepository } from "@/repositories/plugin-repositories.repository";
 import { PluginEventBus } from "@/system/extensions/plugin.events";
 import { removeTree } from "@/utils/directory.utils";
 import { getFileStats, writeFile } from "@/utils/file.utils";

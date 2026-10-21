@@ -1,9 +1,9 @@
 import { join } from "node:path";
 import type { PluginBlob, PluginBlobMetadata, PluginBlobWriteOptions } from "@reelvault/sdk/plugin";
 import { file } from "bun";
-import { type PluginBlobRow, type PluginBlobTransaction, pluginBlobData } from "@/app/plugins/plugin-data.service";
 import { serverConfig } from "@/config/server/server.config";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
+import { type PluginBlobRow, type PluginBlobTransaction, pluginBlobData } from "@/services/plugins/plugin-data.service";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";

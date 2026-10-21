@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { trickplayAdminService } from "@/app/trickplay/trickplay-admin.service";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { trickplayAdminService } from "@/services/trickplay/trickplay-admin.service";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 

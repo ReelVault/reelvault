@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { mediaMarkersRepository } from "@/app/repositories/media-markers.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { mediaMarkersRepository } from "@/repositories/media-markers.repository";
 import { insertMovieMediaFile } from "../helpers/media.fixture";
 import { useTestDatabase } from "../helpers/test-database.helper";
 

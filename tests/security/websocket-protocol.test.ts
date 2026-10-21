@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { profilesRepository } from "@/app/repositories/profiles.repository";
 import { env } from "@/config/env.config";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { type ProtocolSocket, wsProtocol } from "@/modules/realtime/ws-protocol.service";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { profilesRepository } from "@/repositories/profiles.repository";
 import { profilePinFingerprint, signProfileUnlock } from "@/utils/profile-unlock.utils";
 import { useTestDatabase } from "../helpers/test-database.helper";
 

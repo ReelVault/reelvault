@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
+import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import { deleteFile as actualDeleteFile, getFileStats as actualGetFileStats } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../../tests/helpers/module-mock.helper";

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { apiKeysService } from "@/app/admin/api-keys.service";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { apiKeys } from "@/integrations/drizzle-orm/schemas/api-keys.schema";
 import { users } from "@/integrations/drizzle-orm/schemas/auth.schema";
+import { apiKeysService } from "@/services/admin/api-keys.service";
 import { prepareSecuritySuite, send } from "./security.helper";
 
 /**

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
-import type { ScanCheckpoint } from "@/app/repositories/scan-state.repository";
 import { LIBRARY_SCAN_PRIORITY } from "@/config/server/server.constants";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import type { ScanCheckpoint } from "@/repositories/scan-state.repository";
 import { setWorkerRuntime } from "@/workers/core/worker.runtime";
 import { createMockWorkerRuntime, restoreWorkerRuntime } from "@/workers/core/worker-runtime.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";

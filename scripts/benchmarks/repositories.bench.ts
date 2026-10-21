@@ -1,13 +1,13 @@
 import { bench, main, suiteArgs } from "benchkit";
-import { episodesRepository } from "@/app/repositories/episodes.repository";
-import { librariesRepository } from "@/app/repositories/libraries.repository";
-import { mediaRepository } from "@/app/repositories/media-files.repository";
-import { metadataRepository } from "@/app/repositories/metadata.repository";
-import { moviesRepository } from "@/app/repositories/movies.repository";
-import { peopleRepository } from "@/app/repositories/people.repository";
-import { playbackRepository } from "@/app/repositories/playback.repository";
-import { watchedHistoryRepository } from "@/app/repositories/watched-history.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { episodesRepository } from "@/repositories/episodes.repository";
+import { librariesRepository } from "@/repositories/libraries.repository";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { metadataRepository } from "@/repositories/metadata.repository";
+import { moviesRepository } from "@/repositories/movies.repository";
+import { peopleRepository } from "@/repositories/people.repository";
+import { playbackRepository } from "@/repositories/playback.repository";
+import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { seedCatalog } from "./lib/seed.utils";
 
 export const meta = {

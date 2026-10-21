@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bench, fixture, fmtMs, group, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import sharp from "sharp";
-import { imageRepository } from "@/app/repositories/images.repository";
 import { JellyfinFormatAdapter } from "@/modules/metadata-sidecars/formats/jellyfin/jellyfin-format.adapter";
 import { ReelVaultFormatAdapter } from "@/modules/metadata-sidecars/formats/reelvault/reelvault-format.adapter";
 import { SqliteOfflineCatalogRebuildService } from "@/modules/metadata-sidecars/offline-catalog-rebuild.service";
@@ -11,6 +10,7 @@ import { SidecarArtworkExporter } from "@/modules/metadata-sidecars/saver/sideca
 import type { SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
 import { writeXmlDocument } from "@/modules/metadata-sidecars/xml/xml.writer";
 import { readXmlDocument } from "@/modules/metadata-sidecars/xml/xml-document.reader";
+import { imageRepository } from "@/repositories/images.repository";
 import { removeTreeSync } from "@/utils/directory.utils";
 
 export const meta = { description: "Sidecar formats (XML round-trip, adapter file I/O, offline catalog rebuild)" };

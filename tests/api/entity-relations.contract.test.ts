@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
-import { domainErrorsMiddleware } from "@/app/http/middleware/domain-errors.middleware";
+import { domainErrorsMiddleware } from "@/api/middleware/domain-errors.middleware";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const [{ auth }, { mediaFilesRoutes }, { episodesRoutes }, { librariesRoutes }] = await Promise.all([
 	import("@/integrations/better-auth/better-auth.config"),
-	import("@/app/http/routes/v1/media-files.routes"),
-	import("@/app/http/routes/v1/episodes.routes"),
-	import("@/app/http/routes/v1/libraries.routes"),
+	import("@/api/routes/v1/media-files.routes"),
+	import("@/api/routes/v1/episodes.routes"),
+	import("@/api/routes/v1/libraries.routes"),
 ]);
 
 const testDatabase = useTestDatabase();

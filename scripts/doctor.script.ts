@@ -7,9 +7,9 @@ import { access, constants, mkdir, rm, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
+import { resolveWebDistRoot } from "@/config/server/web-dist.utils";
 import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { resolveWebDistRoot } from "@/system/web-dist.utils";
 
 type Level = "ok" | "warn" | "fail";
 interface Check {

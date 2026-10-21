@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { apiRouter } from "@/app/http/routes/api.routes";
+import { apiRouter } from "@/api/routes/api.routes";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 

@@ -1,11 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
-import { mediaRepository } from "@/app/repositories/media-files.repository";
-import { profilePreferencesRepository } from "@/app/repositories/profile-preferences.repository";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { SOFTWARE_HWACCEL } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { profilePreferencesRepository } from "@/repositories/profile-preferences.repository";
 import { workerService } from "@/workers/worker.service";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";

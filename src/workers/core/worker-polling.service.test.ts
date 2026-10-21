@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { workerJobRepository } from "@/repositories/worker.repository";
 // The service singleton installs the production runtime at import; the test restores it afterwards.
 import { workerService } from "@/workers/worker.service";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";

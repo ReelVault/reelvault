@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mediaRepository } from "@/app/repositories/media-files.repository";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
-import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { workerJobRepository } from "@/repositories/worker.repository";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { workerService } from "@/workers/worker.service";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../../tests/helpers/method-stub.helper";

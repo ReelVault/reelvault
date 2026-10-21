@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { librariesRepository } from "@/repositories/libraries.repository";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const testDatabase = useTestDatabase();

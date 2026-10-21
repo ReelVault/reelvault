@@ -7,8 +7,8 @@
  * All sessions of the user are revoked; restart a running server to drop its short session cache.
  */
 import { randomBytes } from "node:crypto";
-import { passwordRecoveryService } from "@/app/auth/password-recovery.service";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { passwordRecoveryService } from "@/services/auth/password-recovery.service";
 
 function readOption(args: string[], name: string): string | undefined {
 	const index = args.indexOf(name);

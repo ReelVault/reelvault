@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { interruptedPlaybackSessionRepository } from "@/app/repositories/interrupted-playback-session.repository";
-import { watchedHistoryRepository } from "@/app/repositories/watched-history.repository";
 import { DAY, MINUTE } from "@/config/server/server.constants";
 import { DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { recordInterruptedSession } from "@/modules/streaming/runtime/interrupted-session.recorder";
+import { interruptedPlaybackSessionRepository } from "@/repositories/interrupted-playback-session.repository";
+import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { removeTreeSync } from "@/utils/directory.utils";
 
 const NOW = Date.now();

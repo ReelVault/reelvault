@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { pluginRepositoriesRepository } from "@/app/repositories/plugin-repositories.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
+import { pluginRepositoriesRepository } from "@/repositories/plugin-repositories.repository";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginCatalogService } from "./plugin-catalog.service";

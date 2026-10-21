@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
-import { DatabaseSidecarSnapshotResolver } from "@/app/sidecars/sidecar-snapshot.resolver";
+import { DatabaseSidecarSnapshotResolver } from "@/services/catalog/metadata/sidecar-snapshot.resolver";
 import { removeTree } from "@/utils/directory.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";

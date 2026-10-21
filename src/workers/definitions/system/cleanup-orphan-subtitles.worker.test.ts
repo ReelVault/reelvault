@@ -1,6 +1,6 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import type { Logger } from "@reelvault/sdk/common";
-import { subtitlesRepository } from "@/app/repositories/subtitles.repository";
+import { subtitlesRepository } from "@/repositories/subtitles.repository";
 import { scanFilesWithStats as actualScanFilesWithStats } from "@/utils/directory.utils";
 import { deleteFile as actualDeleteFile } from "@/utils/file.utils";
 import { stubMethod } from "../../../../tests/helpers/method-stub.helper";

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { openapi } from "@elysiajs/openapi";
 import { Elysia } from "elysia";
-import { apiRouter } from "@/app/http/routes/api.routes";
+import { apiRouter } from "@/api/routes/api.routes";
 
 interface OperationSchema {
 	required?: string[];

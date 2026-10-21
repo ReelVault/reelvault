@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk";
 import { eq } from "drizzle-orm";
-import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { setWorkerRuntime } from "./worker.runtime";

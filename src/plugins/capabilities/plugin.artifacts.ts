@@ -1,6 +1,6 @@
 import type { PlaybackArtifact, PlaybackArtifactWrite } from "@reelvault/sdk/common";
-import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
 import { serverConfig } from "@/config/server/server.config";
+import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import { MIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";

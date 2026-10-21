@@ -1,6 +1,6 @@
 import type { CreateMediaMarker, MediaMarker } from "@reelvault/sdk/common";
-import { pluginMarkerData, pluginMediaData } from "@/app/plugins/plugin-data.service";
 import { toPublicMarker } from "@/integrations/drizzle-orm/utils/media-marker.mapper";
+import { pluginMarkerData, pluginMediaData } from "@/services/plugins/plugin-data.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertExists, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";

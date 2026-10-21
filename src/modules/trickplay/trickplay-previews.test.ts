@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
-import { trickplayAdminService } from "@/app/trickplay/trickplay-admin.service";
 import { CORE_ARTIFACTS_OWNER } from "@/integrations/drizzle-orm/constants/media-artifacts.constants";
+import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
+import { trickplayAdminService } from "@/services/trickplay/trickplay-admin.service";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 

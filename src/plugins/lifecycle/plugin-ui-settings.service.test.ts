@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PluginManifest, PluginRuntime, PluginUiManifest, ReelVaultPlugin } from "@reelvault/sdk/plugin";
-import { pluginUiOverridesRepository } from "@/app/repositories/plugin-ui-overrides.repository";
+import { pluginUiOverridesRepository } from "@/repositories/plugin-ui-overrides.repository";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginRegistry } from "./plugin.registry";
 import { pluginUiSettingsService } from "./plugin-ui-settings.service";

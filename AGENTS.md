@@ -70,7 +70,7 @@ Don't work around these. If one seems wrong, stop and ask the user.
 
 ## Architecture
 
-- Layers: `app/` (features, repositories, HTTP, wiring) sits above `modules/`, `plugins/`, `workers/`, `system/`, `integrations/`, `config/` and `utils/`. Queries live in `app/repositories/` and return DTOs. Use `betterAuthApi.*`, not `auth.api.*`. The import rules are under Layout and naming.
+- Layers: `api/` (HTTP transport), `services/` (use cases), `repositories/` (data access) and `wiring/` (composition root) sit above `modules/`, `plugins/`, `workers/`, `system/`, `integrations/`, `config/` and `utils/`. Queries live in `repositories/` and return DTOs. Use `betterAuthApi.*`, not `auth.api.*`. The import rules are under Layout and naming.
 - Errors: throw `DomainError(category, message, { code, params })`. The message is for logs. API responses carry the code and params, never user-facing text.
 - No `new X()` at module scope in a module that can sit in an import cycle (TDZ). Use a lazy getter or a callback registration.
 - `detach()` takes only promises that cannot reject. A fire-and-forget task catches and logs its own errors before it is detached.
@@ -83,12 +83,10 @@ This is the agreed layout. Put new code where it belongs. Don't create a new top
 ```
 src/
 ├── index.ts          entry point (boot)
-├── app/              features: use cases, repositories, types, one folder per feature
-│   ├── http/         Elysia server: routes (*.routes.ts), middleware, schemas, web UI serving, HTTP helpers
-│   ├── repositories/ one repository per entity; readers (*.reader.ts) for large cross-entity reads; queries return DTOs
-│   ├── plugins/      app services that plugins call
-│   ├── wiring/       startup wiring: registers the ports each layer reads
-│   └── <feature>/    admin, auth, catalog, libraries, media, playback, ...
+├── api/              HTTP transport: Elysia server — routes (*.routes.ts), middleware, schemas, web UI serving, HTTP helpers
+├── services/         use cases: one folder per feature (admin, auth, catalog, libraries, media, playback, plugins, trickplay, ...)
+├── repositories/     data access: one repository per entity; readers (*.reader.ts) for large cross-entity reads; queries return DTOs
+├── wiring/           composition root: registers the ports each layer reads
 ├── modules/          DB-free engines: streaming, scanner, images, subtitles, trickplay, downloads, realtime, metadata-sidecars, ...
 ├── plugins/          top layer: loader, lifecycle, catalog, capability implementations
 ├── workers/          background job runtime and job handlers; dependencies injected at startup
@@ -100,22 +98,26 @@ src/
 
 - Server settings live under `config/server/`, not in a separate top-level folder.
 - Each folder has one responsibility. Place a file by the feature that uses it, not by its kind ("service", "helper").
-- Import direction: `app/` sits on top. It calls `modules/`, `plugins/`, `workers/`, `system/`, `integrations/`, `config/` and `utils/`, which sit below it. Biome enforces these layers (`style/noRestrictedImports` in `biome.json`, alias imports only):
-  - `modules/` doesn't import `app/`, `plugins/`, `workers/`, `drizzle-orm`, the database factory or schema, `better-auth` or `elysia`. Its data arrives through ports that `app/wiring/module-ports.ts` registers at startup.
-  - `plugins/` doesn't import `app/repositories/`, `drizzle-orm`, the database factory or schema, `better-auth` or `elysia`. They call app services such as `app/plugins/plugin-data.service.ts`.
-  - `workers/` doesn't import `app/` or `plugins/`. Stores and services are injected at startup through `app/wiring/worker-ports.ts`.
-  - `system/` doesn't import `app/`, `plugins/`, `workers/` or `modules/`. It reaches them through `system/system.ports.ts`, which `app/wiring/system-ports.ts` wires.
-  - `integrations/` doesn't import `app/`, `modules/`, `plugins/`, `workers/` or `system/`. Its app-side collaborators arrive through ports: `integrations/better-auth/better-auth.ports.ts` and `integrations/drizzle-orm/utils/provider-entity-sync.ports.ts`, both wired in `app/wiring/integration-ports.ts`.
-  - `config/` and `utils/` depend on each other only, and never on features, plugins, workers, `system/`, `modules/` or `integrations/`.
-  - `elysia` is imported only in `app/http/` and in `*.routes.ts` files.
+- The four application layers have one direction each: `api/` calls `services/`, `services/` calls `repositories/`, and `wiring/` calls all of them. `repositories/` never calls upward. Biome enforces these layers (`style/noRestrictedImports` in `biome.json`, alias imports only):
+  - `api/` doesn't import `repositories/`, `workers/` or `integrations/`. A read, a job enqueue and a framework call go through the service that owns them. It may import `services/`, and it may import `modules/` and `plugins/` for transport work (HLS segments, WebSocket frames, served files, the plugin host) — those calls are transport, not use cases.
+  - `services/` doesn't import `api/`. Use cases take plain data; the HTTP layer calls them, not the other way round.
+  - `repositories/` doesn't import `services/` or `api/`. It is the leaf of the application: it knows no use case and no request.
+  - `modules/` doesn't import `api/`, `services/`, `repositories/`, `plugins/`, `workers/`, `drizzle-orm`, the database factory or schema, `better-auth` or `elysia`. Its data arrives through ports that `wiring/module-ports.ts` registers at startup.
+  - `plugins/` doesn't import `repositories/`, `drizzle-orm`, the database factory or schema, `better-auth` or `elysia`. They call application services such as `services/plugins/plugin-data.service.ts`.
+  - `workers/` doesn't import `api/`, `services/`, `repositories/` or `plugins/`. Stores and services are injected at startup through `wiring/worker-ports.ts`.
+  - `system/` doesn't import `api/`, `services/`, `repositories/`, `plugins/`, `workers/` or `modules/`. It reaches them through `system/system.ports.ts`, which `wiring/system-ports.ts` wires.
+  - `integrations/` doesn't import `api/`, `services/`, `repositories/`, `modules/`, `plugins/`, `workers/` or `system/`. Its app-side collaborators arrive through ports: `integrations/better-auth/better-auth.ports.ts` and `integrations/drizzle-orm/utils/provider-entity-sync.ports.ts`, both wired in `wiring/integration-ports.ts`.
+  - `config/` and `utils/` depend on each other only, and never on the application layers, plugins, workers, `system/`, `modules/` or `integrations/`.
+  - `elysia` is imported only in `api/` and in `*.routes.ts` files.
   - Relative imports are not checked. Use `@/` for imports across folders.
 - Inside `integrations/drizzle-orm/`, the database layers are separate:
   - `query/` holds generic building blocks that know no feature: table access, query parsers (`parsing/`), keyset pagination (`keyset/`), transactions, prepared statements.
   - `utils/` holds helpers tied to a domain (joins, stable keys, provider sync, media projections).
   - `schemas/`, `relations.schema.ts`, `migrations/` and `database.factory.ts` hold the schema, the relation graph, the migrations and the connection factory.
-- Repositories live in `app/repositories/`: one per entity, with its simple relation reads (`metadata-relations/`). Large cross-entity reads, such as recommendations, live in `*.reader.ts` files there. They return DTOs.
+- Repositories live in `repositories/`: one per entity, with its simple relation reads (`metadata-relations/`). Large cross-entity reads, such as recommendations, live in `*.reader.ts` files there. They return DTOs.
+- A repository never sees an HTTP concept. The audit log, for example, stores flat columns; the caller context (`services/admin/audit-context.types.ts`) is flattened by the audit service before it reaches the repository.
 - `config/system-resources.service.ts` stays in `config/`, although it reads host CPU and RAM at runtime. About 70 files import it, including `integrations/` and `utils/`, and those layers can't import `system/`. Don't move it to `system/` unless the layer rules change first.
-- Inside `app/catalog/metadata/`, group files by responsibility (`refresh/`, `process/`, `records/`, `providers/`). `metadata.service.ts` stays the facade. Don't group by file type (`service/`, `metadata-process/`).
+- Inside `services/catalog/metadata/`, group files by responsibility (`refresh/`, `process/`, `records/`, `providers/`). `metadata.service.ts` stays the facade. Don't group by file type (`service/`, `metadata-process/`).
 
 ### File names
 
@@ -135,8 +137,11 @@ Know when a piece of code runs before you put it somewhere.
 | `system/` | the resource allocator and server rescue timers start at boot | `.unref()` and cleared at shutdown |
 | `plugins/` | loaded at boot; installed or updated while running | unloaded before the database closes |
 | `workers/` | scheduler and pools start after the database | stopped before the database closes |
-| `modules/` | started by `app/` and `workers/` | ffmpeg processes killed at shutdown |
-| `app/` | per request only (HTTP and use cases) | no global mutable state |
+| `modules/` | started by `services/` and `workers/` | ffmpeg processes killed at shutdown |
+| `wiring/` | at boot, before the server listens | registers the ports every layer reads; nothing else |
+| `services/` | per request only (use cases) | no global mutable state |
+| `repositories/` | per request only (data access) | no global mutable state beyond bounded caches |
+| `api/` | per request only (HTTP transport) | no global mutable state |
 
 Shutdown order (`system/shutdown.service.ts`): realtime, http, library-watchers, resource-allocator, server-rescue, workers, download-sweeps, streaming, ffmpeg, plugins, database. Intake stops first, and the database closes last.
 

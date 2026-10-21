@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
+import { workerJobRepository } from "@/repositories/worker.repository";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { setWorkerRuntime } from "./worker.runtime";
 import { createMockWorkerRuntime, restoreWorkerRuntime } from "./worker-runtime.helper";

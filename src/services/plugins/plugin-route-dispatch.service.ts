@@ -1,0 +1,77 @@
+import type { PluginRouteAccess } from "@reelvault/sdk/plugin";
+import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { PluginRouteValidationError, pluginRoutesRegistry } from "@/plugins/runtime/plugin.routes";
+import { pluginUserData } from "@/services/plugins/plugin-data.service";
+
+export interface PluginRouteDispatchInput {
+	pluginId: string;
+	method: string;
+	path: string;
+	query: Record<string, string>;
+	headers?: Record<string, string> | undefined;
+	body: unknown;
+	user: { id: string; role?: string; profileId?: string };
+}
+
+export type PluginRouteDispatchResult =
+	| { type: "success"; status: number; body: unknown; headers?: Record<string, string> | undefined }
+	| { type: "not_found" }
+	| { type: "forbidden"; message: string }
+	| { type: "invalid_request"; message: string };
+
+/**
+ * Checks the access level of a plugin route.
+ *
+ * Exactly two authorization levels exist for plugin routes: "admin" requires the
+ * admin role; "user" means any authenticated user — the plugin performs its own
+ * resource scoping.
+ */
+async function authorize(
+	userContext: { id: string; role?: string },
+	routeAccess: PluginRouteAccess,
+): Promise<Extract<PluginRouteDispatchResult, { type: "forbidden" }> | undefined> {
+	if (!userContext.id) return { type: "forbidden", message: "Authentication required" };
+
+	if (routeAccess === "admin") {
+		if (userContext.role === "admin") return undefined;
+
+		const user = await pluginUserData.findById(userContext.id);
+		if (user?.role !== "admin") {
+			return { type: "forbidden", message: "Admin role required for this plugin route" };
+		}
+	}
+
+	return undefined;
+}
+
+/** Resolves the route, checks the access level and forwards the request to the plugin. */
+async function dispatch(input: PluginRouteDispatchInput): Promise<PluginRouteDispatchResult> {
+	const resolvedRoute = pluginRoutesRegistry.resolve(input.pluginId, input.method, input.path);
+	if (!resolvedRoute || pluginRegistry.get(input.pluginId)?.state !== "enabled") return { type: "not_found" };
+
+	const authorization = await authorize(input.user, resolvedRoute.route.access ?? "user");
+	if (authorization) return authorization;
+
+	try {
+		const response = await pluginRoutesRegistry.dispatch(resolvedRoute, {
+			params: resolvedRoute.params,
+			query: input.query,
+			headers: input.headers,
+			body: input.body,
+			user: {
+				id: input.user.id,
+				role: input.user.role ?? "user",
+				profileId: input.user.profileId,
+			},
+		});
+
+		return { type: "success", status: response.status ?? 200, body: response.body, headers: response.headers };
+	} catch (error) {
+		if (error instanceof PluginRouteValidationError) return { type: "invalid_request", message: error.message };
+
+		throw error;
+	}
+}
+
+/** The plugin route dispatcher. It owns no state, so it is a plain object of module functions. */
+export const pluginRouteDispatchService = { dispatch };

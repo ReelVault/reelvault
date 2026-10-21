@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { watchedHistoryRepository } from "@/app/repositories/watched-history.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { insertMovieMediaFile } from "../helpers/media.fixture";
 import { useTestDatabase } from "../helpers/test-database.helper";
 

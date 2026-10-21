@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { subtitlesRepository } from "@/app/repositories/subtitles.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { subtitlesRepository } from "@/repositories/subtitles.repository";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { SubtitleInfoCache } from "./subtitle-info.cache";

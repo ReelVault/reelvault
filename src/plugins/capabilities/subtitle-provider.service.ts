@@ -7,10 +7,10 @@ import type {
 } from "@reelvault/sdk/common";
 import type { SubtitleDownload, SubtitleSearchResult } from "@reelvault/sdk/plugin";
 import { file } from "bun";
-import { pluginSubtitleData, pluginSubtitleSettingsData } from "@/app/plugins/plugin-data.service";
 import { serverConfig } from "@/config/server/server.config";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
+import { pluginSubtitleData, pluginSubtitleSettingsData } from "@/services/plugins/plugin-data.service";
 import { DomainError } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";

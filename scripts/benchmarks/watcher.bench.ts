@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fmtMs, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { sleep } from "bun";
-import { LibraryWatcherService } from "@/app/libraries/watching/library-watcher.service";
-import { librariesRepository } from "@/app/repositories/libraries.repository";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { librariesRepository } from "@/repositories/libraries.repository";
+import { LibraryWatcherService } from "@/services/libraries/watching/library-watcher.service";
 import { removeTreeSync } from "@/utils/directory.utils";
 
 /**

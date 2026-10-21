@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Logger, PlaybackDecision } from "@reelvault/sdk/common";
-import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import type { StreamInitData } from "@/modules/streaming/runtime/stream.initializer";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { workerService } from "@/workers/worker.service";
 import { stubMethod } from "../../../../tests/helpers/method-stub.helper";

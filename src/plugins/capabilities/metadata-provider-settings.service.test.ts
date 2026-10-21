@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
-import { libraryProviderSettingsRepository } from "@/app/repositories/library-provider-settings.repository";
-import { metadataProviderSettingsRepository } from "@/app/repositories/metadata-provider-settings.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { libraryProviderSettingsRepository } from "@/repositories/library-provider-settings.repository";
+import { metadataProviderSettingsRepository } from "@/repositories/metadata-provider-settings.repository";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { metadataProviderSettingsService } from "./metadata-provider-settings.service";
 

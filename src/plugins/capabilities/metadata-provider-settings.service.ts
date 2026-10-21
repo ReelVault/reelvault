@@ -1,8 +1,8 @@
 import type { LibraryProviderPriority, MetadataProviderConfiguration } from "@reelvault/sdk/common";
 import type { MetadataProvider } from "@reelvault/sdk/plugin";
-import { type MetadataProviderSetting, pluginProviderSettingsData } from "@/app/plugins/plugin-data.service";
 import { serverConfig } from "@/config/server/server.config";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { type MetadataProviderSetting, pluginProviderSettingsData } from "@/services/plugins/plugin-data.service";
 import { toMap } from "@/utils/array.utils";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";

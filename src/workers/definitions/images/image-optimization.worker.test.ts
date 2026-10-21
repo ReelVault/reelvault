@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { workerJobRepository } from "@/app/repositories/worker.repository";
-import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { imageMaintenanceService } from "@/modules/images/image-maintenance.service";
+import { workerJobRepository } from "@/repositories/worker.repository";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { workerService } from "@/workers/worker.service";
 import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";

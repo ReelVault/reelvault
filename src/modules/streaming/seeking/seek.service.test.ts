@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { mediaRepository } from "@/repositories/media-files.repository";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { SeekService } from "./seek.service";

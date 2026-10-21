@@ -3,9 +3,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { genreRepository } from "@/app/repositories/genres.repository";
 import { DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { genreRepository } from "@/repositories/genres.repository";
 import { removeTreeSync } from "@/utils/directory.utils";
 
 // The shared named-entity pipeline runs through the genre repository, its real caller, against the migrated test database.

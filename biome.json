@@ -316,7 +316,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["src/app/**", "!src/app/http/**", "!**/*.routes.ts"],
+			"includes": ["src/services/**", "src/repositories/**", "src/wiring/**", "!**/*.routes.ts"],
 			"linter": {
 				"rules": {
 					"style": {
@@ -326,7 +326,75 @@
 								"patterns": [
 									{
 										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. Other app code takes plain data."
+										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. Other code takes plain data."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/api/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/repositories/**"],
+										"message": "The HTTP layer talks to services, not repositories. Put the read behind the service that owns it (src/services)."
+									},
+									{
+										"group": ["@/workers/**"],
+										"message": "The HTTP layer talks to services, not workers. Enqueue the job through the service that owns it (src/services)."
+									},
+									{
+										"group": ["@/integrations/**"],
+										"message": "The HTTP layer talks to services, not integrations. Keep the framework behind a service (src/services)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/services/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/api/**"],
+										"message": "Services don't know about HTTP. The API layer (src/api) calls them, not the other way round."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/repositories/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/services/**", "@/api/**"],
+										"message": "Repositories are the data layer. Use cases live in src/services; the HTTP layer lives in src/api."
 									}
 								]
 							}
@@ -345,7 +413,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/app/**"],
+										"group": ["@/services/**", "@/api/**", "@/repositories/**"],
 										"message": "Modules are engines with no app dependency. app wires their ports at startup."
 									},
 									{
@@ -377,8 +445,8 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/app/repositories/**"],
-										"message": "Plugins never import repositories. They go through app services (src/app/plugins/plugin-data.service.ts)."
+										"group": ["@/repositories/**"],
+										"message": "Plugins never import repositories. They go through app services (src/services/plugins/plugin-data.service.ts)."
 									},
 									{
 										"group": ["drizzle-orm", "drizzle-orm/**", "@/integrations/drizzle-orm/database.*"],
@@ -405,7 +473,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/app/**", "@/plugins/**"],
+										"group": ["@/services/**", "@/api/**", "@/repositories/**", "@/plugins/**"],
 										"message": "Workers get their stores and services injected at startup. They don't import app or plugins."
 									},
 									{
@@ -429,12 +497,12 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/app/**", "@/plugins/**", "@/workers/**", "@/modules/**"],
+										"group": ["@/services/**", "@/api/**", "@/repositories/**", "@/plugins/**", "@/workers/**", "@/modules/**"],
 										"message": "System supervisors don't depend on features. Their collaborators arrive through system ports."
 									},
 									{
 										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. System supervisors are framework-free."
+										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. System supervisors are framework-free."
 									}
 								]
 							}
@@ -453,12 +521,20 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**"],
+										"group": [
+											"@/services/**",
+											"@/api/**",
+											"@/repositories/**",
+											"@/modules/**",
+											"@/plugins/**",
+											"@/workers/**",
+											"@/system/**"
+										],
 										"message": "Integrations are external processes and services. They don't depend on app, features, plugins, workers or system. Collaborators arrive through ports."
 									},
 									{
 										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. Integrations are framework-free."
+										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. Integrations are framework-free."
 									}
 								]
 							}
@@ -477,12 +553,21 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**", "@/integrations/**"],
+										"group": [
+											"@/services/**",
+											"@/api/**",
+											"@/repositories/**",
+											"@/modules/**",
+											"@/plugins/**",
+											"@/workers/**",
+											"@/system/**",
+											"@/integrations/**"
+										],
 										"message": "utils holds helpers with no application dependencies. Move the code to the layer that uses it."
 									},
 									{
 										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. utils holds framework-free helpers."
+										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. utils holds framework-free helpers."
 									},
 									{
 										"group": ["drizzle-orm", "drizzle-orm/**"],
@@ -505,12 +590,21 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/app/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**", "@/integrations/**"],
+										"group": [
+											"@/services/**",
+											"@/api/**",
+											"@/repositories/**",
+											"@/modules/**",
+											"@/plugins/**",
+											"@/workers/**",
+											"@/system/**",
+											"@/integrations/**"
+										],
 										"message": "config is read at boot and depends on utils only."
 									},
 									{
 										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/app/http) and in *.routes.ts files. config is framework-free."
+										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. config is framework-free."
 									},
 									{
 										"group": ["drizzle-orm", "drizzle-orm/**"],

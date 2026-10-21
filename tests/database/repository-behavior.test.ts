@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { userRatingsRepository } from "@/app/repositories/user-ratings.repository";
-import { watchlistRepository } from "@/app/repositories/watchlist.repository";
-import { workerSchedulesRepository } from "@/app/repositories/worker-schedules.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { userRatingsRepository } from "@/repositories/user-ratings.repository";
+import { watchlistRepository } from "@/repositories/watchlist.repository";
+import { workerSchedulesRepository } from "@/repositories/worker-schedules.repository";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const db = useTestDatabase();

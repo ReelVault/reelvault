@@ -1,7 +1,7 @@
 import type { InstallCatalogPluginResponse, PluginValidationResult } from "@reelvault/sdk/common";
-import { pluginCatalogRepositoryData } from "@/app/plugins/plugin-data.service";
 import { env } from "@/config/env.config";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
+import { pluginCatalogRepositoryData } from "@/services/plugins/plugin-data.service";
 import { assertChecksumMatches } from "@/utils/crypto.utils";
 import { DomainError, errorCodeOf, errorMessage, toErrorCode } from "@/utils/domain.errors";
 import { consumeStreamBounded } from "@/utils/file.utils";
