@@ -685,6 +685,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Improved plugin repository diagnostics** — repository counts are accurate, and unsupported token formats now report their actual error.
 - **Improved plugin administration performance** — plugin manifests and lockfiles are no longer unnecessarily reread and parsed for every admin view.
 - **Fixed notification channel errors** — failures while reporting a broken channel are logged without creating unhandled promise rejections.
+- **Fixed phantom failed plugin cards** — reloading or enabling a plugin that is not installed now answers `404 plugin.not_found` instead of silently succeeding and leaving a failed card for an id that never existed in the plugin list.
 
 #### Workers & background operations
 

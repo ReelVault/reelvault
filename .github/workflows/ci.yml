@@ -58,6 +58,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The suite drives the real ffmpeg and ffprobe, so both must be on PATH.
+      # The runner image ships neither.
+      - name: Install FFmpeg
+        if: matrix.name == 'Tests' || matrix.name == 'Coverage'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: ${{ matrix.name }}
         run: ${{ matrix.command }}
 

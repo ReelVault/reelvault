@@ -3,6 +3,7 @@ import { truncate } from "node:fs/promises";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { CORE_ARTIFACTS_OWNER } from "@/integrations/drizzle-orm/constants/media-artifacts.constants";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -130,6 +131,10 @@ describe("trickplayService.generateForMediaFile", () => {
 		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
 		let inFlight = 0;
 		let peakInFlight = 0;
+		// The grid budget comes from the host's background cores, so a small box
+		// would render one grid at a time. Pin it so the assertion is about the
+		// service and not about the machine running the suite.
+		activeStubs.push(stubMethod(systemResourcesService, "getTrickplayConcurrency", () => 2));
 		activeStubs.push(
 			stubMethod(ffMpegService, "runToCompletion", async (args: string[]) => {
 				inFlight++;

@@ -155,6 +155,16 @@ export class PluginLoader {
 		return { pluginDir, pluginName };
 	}
 
+	/** A plugin id or directory name that has no package on disk is not installed, not a broken package. */
+	private async assertInstalled(pluginDir: string, pluginId: string): Promise<void> {
+		if (await directoryExists(pluginDir)) return;
+
+		throw new DomainError("not_found", `Plugin not found: ${pluginId}`, {
+			code: "plugin.not_found",
+			params: { pluginId },
+		});
+	}
+
 	/** Loads the optional ui.json into the scope; a malformed manifest skips UI contributions, not the plugin. */
 	private async loadUiManifest(pluginDir: string, scope: PluginScope): Promise<void> {
 		const uiManifestPath = join(pluginDir, "ui.json");
@@ -210,6 +220,9 @@ export class PluginLoader {
 		if (!isSubpath(pluginDir, this.pluginsDirectory)) {
 			throw new DomainError("validation", "Invalid plugin directory", { code: "plugin.invalid_identifier" });
 		}
+
+		// A plugin that is not installed is not a broken package — refuse it before it can be recorded as failed.
+		await this.assertInstalled(pluginDir, pluginNameOrId);
 
 		// A package whose manifest could not be read is listed under its directory name; a retry starts clean.
 		this.registry.clearFailure(pluginName);

@@ -186,6 +186,21 @@ describe("PluginManager enable and disable", () => {
 		});
 	});
 
+	test("a plugin that is not installed is not found, and leaves no failed card behind", async () => {
+		const manager = new PluginManager();
+
+		await expect(manager.reload("org.reelvault.absent")).rejects.toMatchObject({
+			category: "not_found",
+			code: "plugin.not_found",
+		});
+		await expect(manager.setEnabled("org.reelvault.absent", true)).rejects.toMatchObject({
+			category: "not_found",
+			code: "plugin.not_found",
+		});
+
+		expect(manager.getStatus().filter((status) => status.id === "org.reelvault.absent")).toEqual([]);
+	});
+
 	test("disabling an already disabled plugin changes nothing", async () => {
 		const manager = new PluginManager();
 		await manager.installFromDirectory(await writePackage("org.reelvault.idempotent", "1.0.0"), { source: "test" });
