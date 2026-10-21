@@ -22,12 +22,12 @@ import {
 import { Elysia, t } from "elysia";
 import { metadataService } from "@/app/catalog/metadata/metadata.service";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
 import {
 	ClampedNumeric,
-	CursorPaginationSchema,
 	commonModel,
+	cursorListQuerySchema,
 	FieldsSchema,
 	PaginatedResponseSchema,
 	PaginationSchema,
@@ -36,7 +36,7 @@ import {
 import { MetadataIdParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { withEtagResponse } from "@/app/http/utils/etag.utils";
-import { IMAGE_UPLOAD_MAX_SIZE, MINUTE } from "@/config/server/server.constants";
+import { IMAGE_UPLOAD_MAX_SIZE } from "@/config/server/server.constants";
 
 const GlobalSearchQuerySchema = t.Object({
 	q: t.String({ minLength: 2, maxLength: 200 }),
@@ -60,7 +60,7 @@ export const metadataRoutes = new Elysia({
 	})
 	.guard({ auth: true })
 	.get("/", async ({ query, profile }) => await metadataService.getAll(query, profile?.id), {
-		query: t.Composite([CursorPaginationSchema, FieldsSchema, MetadataFiltersSchema, MetadataSortingSchema]),
+		query: cursorListQuerySchema({ filters: MetadataFiltersSchema, sorting: MetadataSortingSchema }),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "metadata.paginated.schema" },
 		...cached({ maxAge: 60, private: true }),
 		detail: {
@@ -75,11 +75,7 @@ export const metadataRoutes = new Elysia({
 		},
 	})
 	.get("/search/global", async ({ query }) => await metadataService.searchGlobal(query.q, query.limit), {
-		rateLimit: {
-			name: "metadata-global-search",
-			max: 60,
-			windowMs: MINUTE,
-		},
+		rateLimit: routeLimit("metadata-global-search", 60),
 		...cached({ maxAge: 30, private: true }),
 		query: GlobalSearchQuerySchema,
 		response: { ...ROUTE_ERRORS.AUTH, 200: GlobalSearchResponseSchema },
@@ -251,7 +247,7 @@ export const metadataRoutes = new Elysia({
 		async ({ body, user, request }) => await metadataService.deleteMany(body.ids, { force: body.force }, actorContext({ user, request })),
 		{
 			adminOnly: true,
-			rateLimit: { name: "metadata-bulk-delete", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("metadata-bulk-delete", 10),
 			body: BulkDeleteBodySchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkDeleteResultSchema },
 			detail: {
@@ -261,11 +257,7 @@ export const metadataRoutes = new Elysia({
 	)
 	.post("/bulk-refresh-images", async ({ body }) => await metadataService.refreshImagesMany(body.ids), {
 		adminOnly: true,
-		rateLimit: {
-			name: "metadata-bulk-refresh-images",
-			max: 30,
-			windowMs: MINUTE,
-		},
+		rateLimit: routeLimit("metadata-bulk-refresh-images", 30),
 		body: BulkRefreshBodySchema,
 		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkRefreshResultSchema },
 		detail: {

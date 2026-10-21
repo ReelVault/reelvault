@@ -3,7 +3,8 @@ import { DAY, serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import { jobs, operations, TERMINAL_STATUSES, type TerminalOperationsOptions } from "./shared.types";
+import type { TerminalRowsPurgeOptions } from "@/workers/worker.ports";
+import { jobs, operations, TERMINAL_STATUSES } from "./shared.types";
 
 /** Stamps terminal operations that have no retention deadline yet. Returns how many were stamped. */
 export async function finalizeTerminalOperations(now: Date = new Date(), retentionDays = 7): Promise<number> {
@@ -64,7 +65,7 @@ export async function cleanupExpiredOperations(now: Date = new Date()): Promise<
 
 /** Deletes the terminal operations matching `options`, page by page, with their jobs. */
 export async function purgeTerminalOperations(
-	options: TerminalOperationsOptions = {},
+	options: TerminalRowsPurgeOptions = {},
 ): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }> {
 	const where = terminalOperationsWhere(options);
 	const pageSize = serverConstants.database.queryChunkSize;
@@ -99,7 +100,7 @@ export async function purgeTerminalOperations(
 
 /** What `purgeTerminalOperations` would delete with the same filters: the operations and the jobs grouped under them. */
 export async function countTerminalOperations(
-	options: TerminalOperationsOptions = {},
+	options: TerminalRowsPurgeOptions = {},
 ): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }> {
 	const where = terminalOperationsWhere(options);
 	const client = databaseFactory.getClient();
@@ -111,7 +112,7 @@ export async function countTerminalOperations(
 	return { deletedOperationsCount, deletedJobsCount };
 }
 
-function terminalOperationsWhere(options: TerminalOperationsOptions): SQL | undefined {
+function terminalOperationsWhere(options: TerminalRowsPurgeOptions): SQL | undefined {
 	const statusFilter =
 		options.status === "all_terminal" || !options.status
 			? inArray(operations.status, TERMINAL_STATUSES)

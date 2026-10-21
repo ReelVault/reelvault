@@ -1,17 +1,9 @@
-import type {
-	FieldsQuery,
-	PaginatedResponse,
-	PaginationQuery,
-	SelectFields,
-	UserRating,
-	UserRatingFilters,
-	UserRatingSorting,
-} from "@reelvault/sdk/common";
+import type { UserRatingFilters, UserRatingSorting } from "@reelvault/sdk/common";
 import { and, eq } from "drizzle-orm";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { filterEquals } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
-import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
+import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 
 const userRatings = defineTableAccess("userRatings", {
@@ -52,16 +44,11 @@ const overrides = {
 		return result;
 	},
 
-	async findPage<F extends string>(
-		query?: PaginationQuery & FieldsQuery<F> & UserRatingFilters & UserRatingSorting,
-	): Promise<PaginatedResponse<SelectFields<UserRating, F>>> {
-		return await findPageWithQueryMap({
-			access: userRatings,
-			queryMap: userRatingQueryMap,
-			query,
-			findMany: (params) => userRatings.findMany<F>(params),
-		});
-	},
+	findPage: definePagedFind({
+		access: userRatings,
+		queryMap: userRatingQueryMap,
+		findMany: (params) => userRatings.findMany(params),
+	}),
 
 	async deleteForProfileMetadata({ profileId, metadataId, tx }: { profileId: string; metadataId: string; tx?: DatabaseTransaction }) {
 		await getUserRatingsRepository().delete({

@@ -14,6 +14,7 @@ import type { MetadataMatcher } from "@/modules/scanner/processing/media-file.pr
 import { DomainError } from "@/utils/domain.errors";
 import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 import type { MetadataRefreshResult } from "@/workers/definitions/metadata/metadata-refresh.worker";
+import type { TerminalJobStatus } from "@/workers/utils/worker-purge.utils";
 
 // Row and input shapes the worker runtime reads and writes. The stores live in app/ and
 // satisfy these ports structurally; workers never import the repositories.
@@ -55,8 +56,9 @@ export interface ClaimNextInput {
 	excludeActiveIds?: string[] | undefined;
 }
 
-export interface TerminalJobPurgeOptions {
-	status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
+/** Which terminal rows a purge touches, and the age cutoff. */
+export interface TerminalRowsPurgeOptions {
+	status?: TerminalJobStatus | undefined;
 	cutoffDate?: Date | undefined;
 }
 
@@ -73,11 +75,6 @@ export interface CreateWorkerOperationInput {
 	referenceType?: string | undefined;
 	referenceId?: string | undefined;
 	error?: string | undefined;
-}
-
-export interface TerminalOperationsOptions {
-	status?: "completed" | "failed" | "cancelled" | "all_terminal" | undefined;
-	cutoffDate?: Date | undefined;
 }
 
 export interface OperationListOptions {
@@ -133,8 +130,8 @@ export interface WorkerJobStore {
 	getStats(): Promise<WorkerItemStats[]>;
 	recoverOrphanedRunning(options?: { excludeActiveIds?: string[]; currentRunnerId?: string; foreignGraceMs?: number }): Promise<number>;
 	trimMany(status: WorkerItemStatus, keepCounts: ReadonlyMap<string, number>): Promise<number>;
-	purgeTerminalJobs(options?: TerminalJobPurgeOptions): Promise<number>;
-	countTerminalJobs(options?: TerminalJobPurgeOptions): Promise<number>;
+	purgeTerminalJobs(options?: TerminalRowsPurgeOptions): Promise<number>;
+	countTerminalJobs(options?: TerminalRowsPurgeOptions): Promise<number>;
 }
 
 export interface WorkerOperationStore {
@@ -158,8 +155,8 @@ export interface WorkerOperationStore {
 	requestCancel(id: string): Promise<void>;
 	remove(id: string): Promise<void>;
 	cleanupExpired(now?: Date): Promise<number>;
-	purgeTerminalOperations(options?: TerminalOperationsOptions): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }>;
-	countTerminalOperations(options?: TerminalOperationsOptions): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }>;
+	purgeTerminalOperations(options?: TerminalRowsPurgeOptions): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }>;
+	countTerminalOperations(options?: TerminalRowsPurgeOptions): Promise<{ deletedOperationsCount: number; deletedJobsCount: number }>;
 }
 
 export interface WorkerScheduleStore {

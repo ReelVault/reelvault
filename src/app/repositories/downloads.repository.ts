@@ -16,6 +16,11 @@ const downloads = defineTableAccess("downloads", {
 	primaryKeyColumn: "id",
 });
 
+/** Downloads of one profile in one state — `processing` runs now, `pending` waits for a slot. */
+async function countByProfileAndStatus(profileId: string, status: DownloadStatus): Promise<number> {
+	return await downloads.count({ where: and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, status)) });
+}
+
 const overrides = {
 	async insert(values: DownloadInsert, tx?: DatabaseTransaction): Promise<DownloadRow> {
 		const [row] = await downloads.insertReturning({ values, tx });
@@ -113,16 +118,12 @@ const overrides = {
 
 	/** Downloads of the profile that run right now: they hold its running slots. */
 	async countProcessingByProfile(profileId: string): Promise<number> {
-		return await databaseFactory
-			.getClient()
-			.$count(downloads.table, and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "processing")));
+		return await countByProfileAndStatus(profileId, "processing");
 	},
 
 	/** Downloads of the profile waiting for a running slot. */
 	async countPendingByProfile(profileId: string): Promise<number> {
-		return await databaseFactory
-			.getClient()
-			.$count(downloads.table, and(eq(downloads.table.profileId, profileId), eq(downloads.table.status, "pending")));
+		return await countByProfileAndStatus(profileId, "pending");
 	},
 
 	/** True while the profile has this file waiting or running: a second copy of the same download would repeat the work. */

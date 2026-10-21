@@ -13,8 +13,8 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
-import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
+import { commonModel, listQuerySchema, PaginatedResponseSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { IdParams } from "@/app/http/schemas/route-params.schema";
 import { profilesService } from "@/app/users/profiles.service";
 import { serverConfig } from "@/config/server/server.config";
@@ -39,7 +39,7 @@ export const profilesRoutes = new Elysia({
 	})
 	.guard({ auth: true })
 	.get("/", async ({ user, query }) => await profilesService.getAll(query, user?.id), {
-		query: t.Composite([PaginationSchema, FieldsSchema, ProfileFiltersSchema, ProfileSortingSchema]),
+		query: listQuerySchema({ filters: ProfileFiltersSchema, sorting: ProfileSortingSchema }),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "profiles.paginated.schema" },
 		detail: {
 			description: "Retrieve all profiles associated with the authenticated user account.",
@@ -132,7 +132,7 @@ export const profilesRoutes = new Elysia({
 		{
 			// PIN verification runs argon2id — cap attempts per account (middleware
 			// identity is userId when no profile is active) to slow brute force.
-			rateLimit: { name: "profile-switch", max: 10, windowMs: 15 * 60_000 },
+			rateLimit: routeLimit("profile-switch", 10, 15 * 60_000),
 			body: "profile.switch.body",
 			response: {
 				...ROUTE_ERRORS.VALIDATED,

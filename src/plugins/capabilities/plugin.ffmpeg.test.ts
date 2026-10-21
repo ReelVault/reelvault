@@ -1,16 +1,24 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { serverConfig } from "@/config/server/server.config";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { deleteFile as actualDeleteFile, fileExists as actualFileExists } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
-import { mockModule } from "../../../tests/helpers/module-mock.helper";
+import { mockModuleWithRealExports, restoreModuleMocks } from "../../../tests/helpers/module-mock.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginFfmpegService } from "./plugin.ffmpeg";
 
-let fileExistsImpl: (path: string) => Promise<boolean> = actualFileExists;
-mockModule("@/utils/file.utils", () => ({ deleteFile: actualDeleteFile, fileExists: (path: string) => fileExistsImpl(path) }));
+// The mock replaces the module, so the real implementation is captured before
+// it lands: a mock that called back into the module it replaces would recurse.
+const realDeleteFile = actualDeleteFile;
+const realFileExists = actualFileExists;
+
+let fileExistsImpl: (path: string) => Promise<boolean> = realFileExists;
+mockModuleWithRealExports("@/utils/file.utils", {
+	deleteFile: realDeleteFile,
+	fileExists: (path: string) => fileExistsImpl(path),
+});
 
 const db = useTestDatabase();
 const activeStubs: Array<{ restore(): void }> = [];
@@ -43,8 +51,13 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-	fileExistsImpl = actualFileExists;
+	fileExistsImpl = realFileExists;
 	for (const stub of activeStubs.toReversed()) stub.restore();
+});
+
+// The next test file must get the real module back.
+afterAll(() => {
+	restoreModuleMocks();
 });
 
 describe("pluginFfmpegService.extractFrame", () => {

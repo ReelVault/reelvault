@@ -1,14 +1,28 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
 import { mediaRepository } from "@/app/repositories/media-files.repository";
 import { profilePreferencesRepository } from "@/app/repositories/profile-preferences.repository";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { SOFTWARE_HWACCEL } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
 import { workerService } from "@/workers/worker.service";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { type ServiceDependencies, SessionLifecycleService } from "./session-lifecycle.service";
+
+// The software-transcode cap only applies when no hardware encoder is
+// available. The real capabilities are probed once per process, so without
+// this pin the test would depend on the host's GPU and on whether another
+// test file initialized them first.
+mockModuleWithRealExports("@/integrations/ffmpeg/ffmpeg.capabilities", {
+	getEffectiveHwaccel: () => SOFTWARE_HWACCEL,
+});
+
+afterAll(() => {
+	restoreModuleMocks();
+});
 
 const db = useTestDatabase();
 

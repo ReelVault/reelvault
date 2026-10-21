@@ -209,14 +209,20 @@ class StreamingManager {
 				// Share the seek mutex: a fallback restart and a seek must not both
 				// stop + restart the same session concurrently.
 				this.seeker.runExclusive(sid, () =>
-					this.processManager.retryWithSoftwareEncoder(
-						sid,
+					this.processManager.retryWithSoftwareEncoder({
+						sessionId: sid,
 						session,
-						this.softwareFallbackSessions,
-						(id) => this.prepareSession(id),
-						(id, path, dec, startTime, opId) =>
-							this.startSession({ sessionId: id, inputPath: path, decision: dec, startTime, operationId: opId }),
-					),
+						softwareFallbackSessions: this.softwareFallbackSessions,
+						prepareSession: (id) => this.prepareSession(id),
+						startSession: (id, target) =>
+							this.startSession({
+								sessionId: id,
+								inputPath: target.inputPath,
+								decision: target.decision,
+								startTime: target.startTime,
+								operationId: target.operationId,
+							}),
+					}),
 				),
 			signal,
 		);

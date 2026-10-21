@@ -8,11 +8,11 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { JobIdParams } from "@/app/http/schemas/route-params.schema";
 import { assertRouteMediaAccess, requireProfileId } from "@/app/http/utils/access-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { downloadsService } from "@/modules/downloads/downloads.service";
 
 export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downloads"] })
@@ -31,7 +31,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			return await downloadsService.prepare(requireProfileId(profile), body.mediaFileId, body.quality);
 		},
 		{
-			rateLimit: { name: "downloads-prepare", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("downloads-prepare", 10),
 			body: PrepareDownloadSchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 429: "error.response", 200: DownloadJobSchema },
 			detail: { description: "Prepare an offline (MP4) download of a media file." },
@@ -42,7 +42,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 		async ({ body, user, profile }) =>
 			await downloadsService.queueSeason(profile?.id, body, (mediaFileId) => assertRouteMediaAccess({ user, profile }, mediaFileId)),
 		{
-			rateLimit: { name: "downloads-queue-season", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("downloads-queue-season", 10),
 			body: QueueSeasonDownloadSchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 429: "error.response", 200: DownloadSeasonQueueResultSchema },
 			detail: {
@@ -92,7 +92,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 			return await downloadsService.retryForProfile(params.jobId, requireProfileId(profile));
 		},
 		{
-			rateLimit: { name: "downloads-retry", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("downloads-retry", 10),
 			params: JobIdParams,
 			response: { 200: DownloadJobSchema, 404: "error.response", 409: "error.response" },
 			detail: { description: "Queue a new download of the same file and quality after a failed or cancelled one." },

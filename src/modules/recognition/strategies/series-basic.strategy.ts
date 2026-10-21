@@ -2,7 +2,7 @@ import type { PathContext, RecognitionResult, RecognitionStrategy } from "@/modu
 import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
 import { GENERIC_FOLDER_NAMES } from "@/utils/release-tags.constants";
 
-export class SeriesBasicStrategy implements RecognitionStrategy {
+export const seriesBasicStrategy: RecognitionStrategy = {
 	recognize(ctx: PathContext): RecognitionResult | null {
 		const { parentFolder, fileName } = ctx;
 		if (!(parentFolder && fileName)) return null;
@@ -26,5 +26,5 @@ export class SeriesBasicStrategy implements RecognitionStrategy {
 			type: "tv_show",
 			identity: { title, year, type: "episode", season, episode, ...(episodeEnd === undefined ? {} : { episodeEnd }) },
 		};
-	}
-}
+	},
+};

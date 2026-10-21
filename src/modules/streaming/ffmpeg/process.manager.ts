@@ -98,19 +98,15 @@ export class ProcessManager {
 		}
 	}
 
-	async retryWithSoftwareEncoder(
-		sessionId: string,
-		session: StreamingSession,
-		softwareFallbackSessions: Set<string>,
-		prepareSession: (id: string) => Promise<void>,
-		startSessionFn: (
-			sessionId: string,
-			inputPath: string,
-			decision: PlaybackDecision,
-			startTime: number,
-			operationId?: string,
-		) => Promise<void>,
-	): Promise<boolean> {
+	async retryWithSoftwareEncoder(options: {
+		sessionId: string;
+		session: StreamingSession;
+		softwareFallbackSessions: Set<string>;
+		prepareSession: (sessionId: string) => Promise<void>;
+		startSession: (sessionId: string, session: StreamingSession) => Promise<void>;
+	}): Promise<boolean> {
+		const { sessionId, session, softwareFallbackSessions, prepareSession, startSession } = options;
+
 		if (softwareFallbackSessions.has(sessionId)) return true;
 
 		if (!isSoftwareFallbackEligible(session.decision, getEffectiveHwaccel().type)) return false;
@@ -126,7 +122,7 @@ export class ProcessManager {
 		});
 		try {
 			await prepareSession(sessionId);
-			await startSessionFn(sessionId, session.inputPath, session.decision, session.startTime, session.operationId);
+			await startSession(sessionId, session);
 
 			return true;
 		} catch (error) {

@@ -1,12 +1,4 @@
-import type {
-	FieldsQuery,
-	PaginatedResponse,
-	PaginationQuery,
-	SelectFields,
-	Watchlist,
-	WatchlistFilters,
-	WatchlistSorting,
-} from "@reelvault/sdk/common";
+import type { WatchlistFilters, WatchlistSorting } from "@reelvault/sdk/common";
 import { and, eq, inArray } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -14,7 +6,7 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { filterEquals } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
+import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 
@@ -129,16 +121,11 @@ const overrides = {
 			.where(eq(watchlist.table.metadataId, metadataId));
 	},
 
-	async findPage<F extends string>(
-		query: PaginationQuery & FieldsQuery<F> & WatchlistFilters & WatchlistSorting,
-	): Promise<PaginatedResponse<SelectFields<Watchlist, F>>> {
-		return await findPageWithQueryMap({
-			access: watchlist,
-			queryMap: watchlistQueryMap,
-			query,
-			findMany: (params) => watchlist.findMany<F>(params),
-		});
-	},
+	findPage: definePagedFind({
+		access: watchlist,
+		queryMap: watchlistQueryMap,
+		findMany: (params) => watchlist.findMany(params),
+	}),
 };
 
 export const watchlistRepository = defineRepository(watchlist, overrides);

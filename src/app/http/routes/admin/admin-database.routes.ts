@@ -11,7 +11,8 @@ import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { databaseBackupService } from "@/app/admin/database-backup.service";
 import { databaseMaintenanceService } from "@/app/admin/database-maintenance.service";
 import { databaseRestoreService } from "@/app/admin/database-restore.service";
-import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
+import { BinaryResponseSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { FileNameParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
@@ -48,7 +49,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			return status(201, backup);
 		},
 		{
-			rateLimit: { name: "admin-db-backup", max: 5, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-db-backup", 5),
 			response: { ...ROUTE_ERRORS.ADMIN, 201: AdminDatabaseBackupSchema },
 			detail: {
 				description: "Create an online SQLite database backup immediately using VACUUM INTO.",
@@ -74,7 +75,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			return status(201, backup);
 		},
 		{
-			rateLimit: { name: "admin-db-backup-upload", max: 5, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-db-backup-upload", 5),
 			body: t.Object({ file: t.File({ maxSize: DATABASE_BACKUP_UPLOAD_MAX_SIZE }) }),
 			response: { ...ROUTE_ERRORS.ADMIN, 201: AdminDatabaseBackupSchema },
 			detail: {
@@ -94,29 +95,29 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			});
 		},
 		{
-			rateLimit: { name: "admin-db-backup-download", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-db-backup-download", 10),
 			params: FileNameParams,
 			// Attachment download: the handler returns a Response, not JSON.
-			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
+			response: { ...ROUTE_ERRORS.ADMIN, ...BinaryResponseSchema },
 			detail: {
 				description: "Download an existing SQLite database backup as a file.",
 			},
 		},
 	)
 	.get("/database/migrations", async () => await databaseMaintenanceService.getMigrationStatus(), {
-		rateLimit: { name: "admin-db-migrations", max: 30, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-db-migrations", 30),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: DatabaseMigrationStatusSchema },
 		detail: { description: "Migration folders shipped with this server, and how many the database has applied." },
 	})
 	.get("/database/integrity", async () => await databaseMaintenanceService.checkIntegrity(), {
-		rateLimit: { name: "admin-db-integrity", max: 10, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-db-integrity", 10),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: t.Object({ ok: t.Boolean(), messages: t.Array(t.String()) }) },
 		detail: {
 			description: "Run SQLite's quick consistency check on the live database.",
 		},
 	})
 	.post("/database/optimize", async () => await databaseMaintenanceService.optimize(), {
-		rateLimit: { name: "admin-db-optimize", max: 5, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-db-optimize", 5),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: SuccessResponseSchema },
 		detail: {
 			description: "Refresh SQLite's planner statistics (PRAGMA optimize).",
@@ -142,7 +143,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			return status(202, result);
 		},
 		{
-			rateLimit: { name: "admin-db-restore", max: 3, windowMs: 10 * MINUTE },
+			rateLimit: routeLimit("admin-db-restore", 3, 10 * MINUTE),
 			body: t.Object({ fileName: t.String({ minLength: 1 }), force: t.Optional(t.Boolean()) }),
 			response: { ...ROUTE_ERRORS.ADMIN, 202: AdminDatabaseRestoreResponseSchema },
 			detail: {

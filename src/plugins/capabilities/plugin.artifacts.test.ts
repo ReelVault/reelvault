@@ -1,13 +1,21 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
 import { deleteFile as actualDeleteFile, getFileStats as actualGetFileStats } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
-import { mockModule } from "../../../tests/helpers/module-mock.helper";
+import { mockModuleWithRealExports, restoreModuleMocks } from "../../../tests/helpers/module-mock.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginArtifactsService } from "./plugin.artifacts";
 
-let getFileStatsImpl: (path: string) => Promise<unknown> = actualGetFileStats;
-mockModule("@/utils/file.utils", () => ({ deleteFile: actualDeleteFile, getFileStats: (path: string) => getFileStatsImpl(path) }));
+// The mock replaces the module, so the real implementation is captured before
+// it lands: a mock that called back into the module it replaces would recurse.
+const realDeleteFile = actualDeleteFile;
+const realGetFileStats = actualGetFileStats;
+
+let getFileStatsImpl: (path: string) => Promise<unknown> = realGetFileStats;
+mockModuleWithRealExports("@/utils/file.utils", {
+	deleteFile: realDeleteFile,
+	getFileStats: (path: string) => getFileStatsImpl(path),
+});
 
 const PLUGIN_ID = "org.reelvault.test";
 const db = useTestDatabase();
@@ -21,8 +29,13 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-	getFileStatsImpl = actualGetFileStats;
+	getFileStatsImpl = realGetFileStats;
 	for (const stub of activeStubs.toReversed()) stub.restore();
+});
+
+// The next test file must get the real module back.
+afterAll(() => {
+	restoreModuleMocks();
 });
 
 function bytes(text: string): Uint8Array {

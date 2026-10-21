@@ -13,12 +13,19 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
-import { commonModel, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import {
+	BinaryNotModifiedSchema,
+	commonModel,
+	PaginatedResponseSchema,
+	PaginationSchema,
+	ROUTE_ERRORS,
+} from "@/app/http/schemas/common.schema";
 import { IdParams, ProviderIdParams } from "@/app/http/schemas/route-params.schema";
 import { assertRouteMediaAccess } from "@/app/http/utils/access-context.utils";
 import { binaryFileResponse } from "@/app/http/utils/binary-response.utils";
-import { MINUTE, SUBTITLE_UPLOAD_MAX_SIZE } from "@/config/server/server.constants";
+import { SUBTITLE_UPLOAD_MAX_SIZE } from "@/config/server/server.constants";
 import { subtitlesService } from "@/modules/subtitles/subtitles.service";
 
 const SUBTITLE_CACHE_CONTROL = "private, max-age=300";
@@ -49,11 +56,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 		},
 	})
 	.post("/search", async ({ body }) => await subtitlesService.searchProviders(body), {
-		rateLimit: {
-			name: "subtitle-search",
-			max: 30,
-			windowMs: MINUTE,
-		},
+		rateLimit: routeLimit("subtitle-search", 30),
 		body: SubtitleProviderSearchRequestSchema,
 		response: { ...ROUTE_ERRORS.VALIDATED, 200: t.Array(SubtitleProviderSearchResponseSchema) },
 		detail: {
@@ -97,7 +100,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 			),
 		{
 			adminOnly: true,
-			rateLimit: { name: "subtitle-upload", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("subtitle-upload", 30),
 			body: t.Object({
 				mediaFileId: t.String({ minLength: 1 }),
 				language: t.String({ minLength: 2, maxLength: 16 }),
@@ -133,15 +136,10 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 		{
 			profileRequired: true,
 			// Each miss spawns an FFmpeg extraction; cap the request rate per profile.
-			rateLimit: { name: "subtitle-content", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("subtitle-content", 30),
 			params: IdParams,
 			...cached({ maxAge: 300, private: true }),
-			response: {
-				// Binary subtitle body (or 304) — handler returns a Response, not JSON.
-				200: t.Any(),
-				...ROUTE_ERRORS.NOT_FOUND,
-				304: t.Any(),
-			},
+			response: { ...BinaryNotModifiedSchema, ...ROUTE_ERRORS.NOT_FOUND },
 			detail: {
 				description: "Read a downloaded subtitle without exposing its storage path.",
 			},
@@ -166,7 +164,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 	})
 	.post("/bulk-delete", async ({ body }) => await subtitlesService.bulkDelete(body.ids), {
 		adminOnly: true,
-		rateLimit: { name: "subtitles-bulk-delete", max: 30, windowMs: MINUTE },
+		rateLimit: routeLimit("subtitles-bulk-delete", 30),
 		body: BulkSubtitleDeleteSchema,
 		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkSubtitleDeleteResultSchema },
 		detail: {

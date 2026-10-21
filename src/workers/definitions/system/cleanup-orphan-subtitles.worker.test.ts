@@ -1,26 +1,39 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import type { Logger } from "@reelvault/sdk/common";
 import { subtitlesRepository } from "@/app/repositories/subtitles.repository";
 import { scanFilesWithStats as actualScanFilesWithStats } from "@/utils/directory.utils";
 import { deleteFile as actualDeleteFile } from "@/utils/file.utils";
 import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
-import { mockModule } from "../../../../tests/helpers/module-mock.helper";
+import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
 import { cleanupOrphanSubtitlesWorker } from "./cleanup-orphan-subtitles.worker";
 
-let scanFilesWithStatsImpl = actualScanFilesWithStats;
-let deleteFileImpl: (path: string) => Promise<boolean> = actualDeleteFile;
-mockModule("@/utils/directory.utils", () => ({
+// The mocks replace the modules, so the real implementations are captured
+// before they land: a mock that called back into the module it replaces would
+// recurse.
+const realScanFilesWithStats = actualScanFilesWithStats;
+const realDeleteFile = actualDeleteFile;
+
+let scanFilesWithStatsImpl = realScanFilesWithStats;
+let deleteFileImpl: (path: string) => Promise<boolean> = realDeleteFile;
+mockModuleWithRealExports("@/utils/directory.utils", {
 	scanFilesWithStats: (...args: Parameters<typeof scanFilesWithStatsImpl>) => scanFilesWithStatsImpl(...args),
-}));
-mockModule("@/utils/file.utils", () => ({ deleteFile: (path: string) => deleteFileImpl(path) }));
+});
+mockModuleWithRealExports("@/utils/file.utils", {
+	deleteFile: (path: string) => deleteFileImpl(path),
+});
 
 const HOUR_MS = 3_600_000;
 const activeStubs: Array<{ restore(): void }> = [];
 
 afterEach(() => {
-	scanFilesWithStatsImpl = actualScanFilesWithStats;
-	deleteFileImpl = actualDeleteFile;
+	scanFilesWithStatsImpl = realScanFilesWithStats;
+	deleteFileImpl = realDeleteFile;
 	for (const stub of activeStubs.splice(0)) stub.restore();
+});
+
+// The next test file must get the real modules back.
+afterAll(() => {
+	restoreModuleMocks();
 });
 
 function noopLogger(): Logger {

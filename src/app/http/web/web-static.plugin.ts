@@ -110,7 +110,7 @@ async function loadIndexEntry(root: string, fileStat: FileStatView): Promise<Buf
 		const raw = await bunFile(filePath).text();
 		const headIndex = raw.indexOf(HEAD_TAG);
 		let body = raw;
-		if (headIndex >= 0) {
+		if (headIndex !== -1) {
 			body = `${raw.slice(0, headIndex + HEAD_TAG.length)}${API_ORIGIN_META_TAG}${raw.slice(headIndex + HEAD_TAG.length)}`;
 		}
 		indexEntryCache = { key, body: Buffer.from(body) };

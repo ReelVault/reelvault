@@ -1,5 +1,6 @@
 import type { PlaybackCommand, RealtimeEventMessage, RealtimeEventName, RealtimePayload } from "@reelvault/sdk/common";
 import { createLogger } from "@/utils/logger.utils";
+import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { ClientConnection } from "./connection/client.connection";
 import { ConnectionRegistry } from "./connection/connection.registry";
 import { CLIENT_STALE_TIMEOUT_MS, STALE_SWEEP_INTERVAL_MS } from "./realtime.constants";
@@ -13,7 +14,7 @@ export class RealtimeService {
 	private readonly registry = new ConnectionRegistry();
 	private readonly startedAt = Date.now();
 	private totalMessagesSent = 0;
-	private sweepTimer: ReturnType<typeof setInterval> | null = null;
+	private sweepTimer: RecurringTimer | null = null;
 
 	constructor() {
 		this.startStaleSweep();
@@ -166,10 +167,8 @@ export class RealtimeService {
 	}
 
 	shutdown(): void {
-		if (this.sweepTimer) {
-			clearInterval(this.sweepTimer);
-			this.sweepTimer = null;
-		}
+		this.sweepTimer?.stop();
+		this.sweepTimer = null;
 
 		for (const conn of this.registry.getAll()) {
 			conn.close(1001, "Server shutdown");
@@ -226,17 +225,23 @@ export class RealtimeService {
 	}
 
 	private startStaleSweep(): void {
-		this.sweepTimer = setInterval(() => {
-			const now = Date.now();
-			for (const conn of this.registry.getAll()) {
-				if (now - conn.lastActiveAt > CLIENT_STALE_TIMEOUT_MS) {
-					this.logger.debug("Reaping stale realtime client connection", { connectionId: conn.connectionId });
-					conn.close(1000, "Stale heartbeat");
-					this.unregister(conn.connectionId);
+		this.sweepTimer = new RecurringTimer(
+			() => {
+				const now = Date.now();
+				for (const conn of this.registry.getAll()) {
+					if (now - conn.lastActiveAt > CLIENT_STALE_TIMEOUT_MS) {
+						this.logger.debug("Reaping stale realtime client connection", { connectionId: conn.connectionId });
+						conn.close(1000, "Stale heartbeat");
+						this.unregister(conn.connectionId);
+					}
 				}
-			}
-		}, STALE_SWEEP_INTERVAL_MS);
-		this.sweepTimer.unref();
+			},
+			STALE_SWEEP_INTERVAL_MS,
+			(error) => {
+				this.logger.error("Stale realtime sweep failed", error);
+			},
+		);
+		this.sweepTimer.start();
 	}
 }
 

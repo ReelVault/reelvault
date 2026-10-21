@@ -2,11 +2,10 @@ import { ProjectedResponseSchema } from "@reelvault/sdk";
 import { DiscoverResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
 import { ClampedNumeric, commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { discoverService } from "@/app/users/discover.service";
-import { MINUTE } from "@/config/server/server.constants";
 
 export const discoverRoutes = new Elysia({
 	prefix: "/discover",
@@ -20,11 +19,7 @@ export const discoverRoutes = new Elysia({
 	})
 	.guard({ auth: true, profileRequired: true })
 	.get("/", async ({ query, profile }) => await discoverService.getDiscoverView(query, profile?.id), {
-		rateLimit: {
-			name: "discover",
-			max: 30,
-			windowMs: MINUTE,
-		},
+		rateLimit: routeLimit("discover", 30),
 		query: t.Object({
 			limit: t.Optional(ClampedNumeric(1, 50, { default: 10 })),
 		}),

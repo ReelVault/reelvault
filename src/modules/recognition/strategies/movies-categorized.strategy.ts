@@ -3,7 +3,7 @@ import { YEAR_FOLDER_PATTERN } from "@/modules/recognition/utils/recognition.con
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { GENERIC_FOLDER_NAMES } from "@/utils/release-tags.constants";
 
-export class MoviesCategorizedStrategy implements RecognitionStrategy {
+export const moviesCategorizedStrategy: RecognitionStrategy = {
 	recognize(ctx: PathContext): RecognitionResult | null {
 		const { parentFolder, fileName } = ctx;
 		if (!(parentFolder && fileName)) return null;
@@ -47,5 +47,5 @@ export class MoviesCategorizedStrategy implements RecognitionStrategy {
 				year,
 			},
 		};
-	}
-}
+	},
+};

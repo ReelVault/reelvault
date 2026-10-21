@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, lte, or, type SQL } from "drizzle-orm";
-import { workerJobSummaryColumns } from "@/app/repositories/worker-job.projection";
+import { readWorkerJobSummaryPage } from "@/app/repositories/worker-job.projection";
 import { workerOperationRepository } from "@/app/repositories/worker-operation.repository";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
@@ -134,15 +134,7 @@ export async function listItems(options: {
 		orderBy: desc(items.createdAt),
 		limit: options.limit,
 		offset: options.offset,
-		findMany: async (page) =>
-			await databaseFactory
-				.getClient()
-				.select(workerJobSummaryColumns)
-				.from(items)
-				.where(page.where)
-				.orderBy(page.orderBy)
-				.limit(page.limit)
-				.offset(page.offset),
+		findMany: async (page) => await readWorkerJobSummaryPage(databaseFactory.getClient(), page),
 		count: () => jobsAccess.count({ where }),
 	});
 

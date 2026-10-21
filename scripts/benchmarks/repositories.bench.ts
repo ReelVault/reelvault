@@ -20,7 +20,7 @@ const MOVIE_ID = "meta-0000001";
 const args = suiteArgs();
 
 if (!args.help) {
-	console.log(`[repositories] migrating isolated benchmark database...`);
+	console.log("[repositories] migrating isolated benchmark database...");
 	databaseFactory.migrate();
 	console.log(`[repositories] seeding ${args.rows} catalog rows...`);
 	seedCatalog(databaseFactory.sqlite, {

@@ -39,6 +39,7 @@ import {
 	CursorPaginationSchema,
 	commonModel,
 	FieldsSchema,
+	listQuerySchema,
 	PaginatedResponseSchema,
 	PaginationSchema,
 	ROUTE_ERRORS,
@@ -50,7 +51,7 @@ import { playbackProgressService } from "@/app/playback/playback-progress.servic
 import { userRatingsService } from "@/app/users/user-ratings.service";
 import { watchedHistoryService } from "@/app/users/watched-history.service";
 import { MAX_STATUSES_IDS, watchlistService } from "@/app/users/watchlist.service";
-import { parseIdList } from "@/utils/array.utils";
+import { splitCommaList } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 
 /** The website checks at most this many titles per batch; a longer list is refused rather than scanned. */
@@ -181,7 +182,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 		"/playback-suggestions",
 		async ({ query, profile }) => {
 			// The detail promises up to 50 ids; trim before the batch lookup.
-			const ids = parseIdList(query.metadataIds).slice(0, 50);
+			const ids = splitCommaList(query.metadataIds).slice(0, 50);
 
 			return await playbackProgressService.getSmartPlayBatch(ids, requireProfileId(profile));
 		},
@@ -242,7 +243,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	.get(
 		"/watchlist/statuses",
 		async ({ query, profile }) => {
-			const metadataIds = parseIdList(query.ids);
+			const metadataIds = splitCommaList(query.ids);
 			if (metadataIds.length > MAX_STATUSES_IDS) {
 				throw new DomainError("validation", "Too many titles in one status request", {
 					code: "watchlist.statuses_too_many",
@@ -348,7 +349,7 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 
 	// --- USER RATINGS ---
 	.get("/ratings", async ({ query, profile }) => await userRatingsService.getRatings(query, requireProfileId(profile)), {
-		query: t.Composite([PaginationSchema, FieldsSchema, UserRatingFiltersSchema, UserRatingSortingSchema]),
+		query: listQuerySchema({ filters: UserRatingFiltersSchema, sorting: UserRatingSortingSchema }),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "me.userRatings.paginated.schema" },
 		...cached({ maxAge: 10, private: true }),
 		detail: { description: "Retrieve all user ratings for the active profile." },

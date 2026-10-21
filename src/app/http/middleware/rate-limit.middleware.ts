@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { isImageAssetPath, isPluginUiPath } from "@/app/http/utils/route-classification.utils";
 import { tunedRouteMax } from "@/config/rate-limit-overrides.utils";
 import { serverConfig } from "@/config/server/server.config";
+import { MINUTE } from "@/config/server/server.constants";
 import { getRequestClientIp } from "@/utils/client-ip.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { getNormalizedPathname } from "@/utils/http.utils";
@@ -9,6 +10,17 @@ import { InMemoryRateLimiter } from "@/utils/in-memory.limiter";
 import { isRecord } from "@/utils/type.utils";
 
 const rateLimiter = new InMemoryRateLimiter();
+
+/**
+ * The rate-limit budget of a route: the bucket name, the request count and the
+ * window they count in.
+ *
+ * The window is the only part every route shares, so it lives here instead of
+ * in each route's own options.
+ */
+export function routeLimit(name: string, max: number, windowMs: number = MINUTE): { name: string; max: number; windowMs: number } {
+	return { name, max, windowMs };
+}
 
 interface RateLimitContext {
 	user?: { id: string; role?: string } | null | undefined;

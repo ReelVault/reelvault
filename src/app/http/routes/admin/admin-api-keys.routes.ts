@@ -8,14 +8,15 @@ import {
 } from "@reelvault/sdk/common";
 import { apiKeysService } from "@/app/admin/api-keys.service";
 import { requireAdmin } from "@/app/http/middleware/auth.middleware";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { IdParams } from "@/app/http/schemas/route-params.schema";
-import { MINUTE } from "@/config/server/server.constants";
+import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { adminShell } from "./admin-shell.routes";
 
 export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 	.get("/api-keys", async () => await apiKeysService.list(), {
-		rateLimit: { name: "admin-api-keys-list", max: 60, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-api-keys-list", 60),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: ApiKeyListSchema },
 		detail: {
 			description: "List machine integration API keys (secrets are never returned — only prefixes).",
@@ -35,12 +36,12 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 						expiresAtDays: body.expiresAtDays,
 						creatorUserId: user.id,
 					},
-					{ actorUserId: user.id, headers: request.headers },
+					actorContext({ user, request }),
 				),
 			);
 		},
 		{
-			rateLimit: { name: "admin-api-keys-create", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-api-keys-create", 10),
 			body: CreateApiKeyRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN, 201: ApiKeyCreatedSchema },
 			detail: {
@@ -50,13 +51,9 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.patch(
 		"/api-keys/:id",
-		async ({ params, body, user, request }) => {
-			requireAdmin(user);
-
-			return await apiKeysService.update(params.id, body, { actorUserId: user.id, headers: request.headers });
-		},
+		async ({ params, body, user, request }) => await apiKeysService.update(params.id, body, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-api-keys-update", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-api-keys-update", 30),
 			params: IdParams,
 			body: UpdateApiKeyRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN, 200: ApiKeySchema },
@@ -67,13 +64,9 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post(
 		"/api-keys/:id/rotate",
-		async ({ params, user, request }) => {
-			requireAdmin(user);
-
-			return await apiKeysService.rotate(params.id, { actorUserId: user.id, headers: request.headers });
-		},
+		async ({ params, user, request }) => await apiKeysService.rotate(params.id, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-api-keys-rotate", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-api-keys-rotate", 10),
 			params: IdParams,
 			response: { ...ROUTE_ERRORS.ADMIN, 200: ApiKeyCreatedSchema },
 			detail: {
@@ -84,13 +77,12 @@ export const adminApiKeysRoutes = adminShell({ tags: ["Admin"] })
 	.delete(
 		"/api-keys/:id",
 		async ({ params, user, request }) => {
-			requireAdmin(user);
-			await apiKeysService.revoke(params.id, { actorUserId: user.id, headers: request.headers });
+			await apiKeysService.revoke(params.id, actorContext({ user, request }));
 
 			return { success: true };
 		},
 		{
-			rateLimit: { name: "admin-api-keys-revoke", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-api-keys-revoke", 30),
 			params: IdParams,
 			response: { ...ROUTE_ERRORS.ADMIN, 200: SuccessResponseSchema },
 			detail: {

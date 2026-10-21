@@ -1,4 +1,5 @@
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
+import type { TerminalRowsPurgeOptions } from "@/workers/worker.ports";
 import { createOperation, markResumed, removeOperation, requestCancel } from "./worker-operation/lifecycle.writer";
 import {
 	incrementTotalItems,
@@ -26,7 +27,7 @@ import {
 	finalizeTerminalOperations,
 	purgeTerminalOperations,
 } from "./worker-operation/retention.writer";
-import type { CreateWorkerOperationInput, TerminalOperationsOptions } from "./worker-operation/shared.types";
+import type { CreateWorkerOperationInput } from "./worker-operation/shared.types";
 import { completeStreamSlot, markStreamAttached, releaseStreamSlot } from "./worker-operation/streams.writer";
 
 export const workerOperationRepository = {
@@ -135,12 +136,12 @@ export const workerOperationRepository = {
 		return cleanupExpiredOperations(now);
 	},
 
-	purgeTerminalOperations(options: TerminalOperationsOptions = {}) {
+	purgeTerminalOperations(options: TerminalRowsPurgeOptions = {}) {
 		return purgeTerminalOperations(options);
 	},
 
 	/** What `purgeTerminalOperations` would delete with the same filters. */
-	countTerminalOperations(options: TerminalOperationsOptions = {}) {
+	countTerminalOperations(options: TerminalRowsPurgeOptions = {}) {
 		return countTerminalOperations(options);
 	},
 };

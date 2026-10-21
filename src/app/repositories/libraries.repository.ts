@@ -10,11 +10,11 @@ import type {
 	UpdateLibrary,
 } from "@reelvault/sdk/common";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
+import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { defineRepository } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import type { MediaCleanupData } from "@/integrations/drizzle-orm/utils/media-cleanup.reader";
 import {
-	type FindLibraryByIdParams,
 	findActiveLibraryPaths,
 	findAllIds,
 	findById,
@@ -98,7 +98,7 @@ const overrides = {
 	},
 
 	/** Get a single library by ID */
-	async findById<F extends string>(params: FindLibraryByIdParams<F>): Promise<SelectFields<LibraryWithRelations, F> | undefined> {
+	async findById<F extends string>(params: PrimaryIdReadParams<F>): Promise<SelectFields<LibraryWithRelations, F> | undefined> {
 		return await findById(caches, params);
 	},
 

@@ -1,12 +1,12 @@
 import { and, eq, inArray, isNull, lt, type SQL } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import type { TerminalJobPurgeOptions } from "@/workers/worker.ports";
+import type { TerminalRowsPurgeOptions } from "@/workers/worker.ports";
 
 export type {
 	ActiveWorkerItem,
 	ClaimNextInput,
 	EnqueueWorkerItemInput,
-	TerminalJobPurgeOptions,
+	TerminalRowsPurgeOptions,
 	WorkerItem,
 	WorkerItemStats,
 	WorkerItemStatus,
@@ -50,7 +50,7 @@ export async function applyOperationCounts(
 }
 
 /** Operation-less jobs in a terminal state, optionally older than the cutoff. */
-export function terminalStandaloneJobsWhere(options: TerminalJobPurgeOptions): SQL | undefined {
+export function terminalStandaloneJobsWhere(options: TerminalRowsPurgeOptions): SQL | undefined {
 	const statusFilter =
 		options.status === "all_terminal" || !options.status
 			? inArray(items.status, ["completed", "failed", "cancelled"])

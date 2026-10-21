@@ -60,7 +60,7 @@ if (!args.help) {
 	console.log(`[matching] pool=${pool.length} candidates, window=${WINDOW}, iterations=${args.iterations}`);
 
 	bench(
-		`rankCandidates — rotating window (cache-cold)`,
+		"rankCandidates — rotating window (cache-cold)",
 		({ iteration }) => {
 			const window = windows[Math.abs(iteration) % windows.length] ?? repeatedPage;
 

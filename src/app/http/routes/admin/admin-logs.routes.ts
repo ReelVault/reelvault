@@ -1,11 +1,11 @@
 import { AdminLogFileInfoSchema, AdminLogsPageSchema, SuccessResponseSchema } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { adminLogsService } from "@/app/admin/admin-logs.service";
-import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
+import { BinaryResponseSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { LogFileQuery } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
 import { AdminLogsQuerySchema } from "./admin.schema";
 import { adminShell } from "./admin-shell.routes";
@@ -32,12 +32,8 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 			return attachmentResponse(new Blob([data]), { filename, contentType: "application/zip" });
 		},
 		{
-			rateLimit: { name: "admin-logs-bundle", max: 3, windowMs: MINUTE },
-			response: {
-				// Binary zip — handler returns a Response, not JSON.
-				...ROUTE_ERRORS.ADMIN,
-				200: t.Any(),
-			},
+			rateLimit: routeLimit("admin-logs-bundle", 3),
+			response: { ...ROUTE_ERRORS.ADMIN, ...BinaryResponseSchema },
 			detail: {
 				description: "Download every log file (rotated and debug included) as a zip archive for a support request.",
 			},
@@ -52,12 +48,8 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 		},
 		{
 			query: LogFileQuery,
-			rateLimit: { name: "admin-logs-download", max: 10, windowMs: MINUTE },
-			response: {
-				// Plain-text log download — handler returns a Response, not JSON.
-				...ROUTE_ERRORS.ADMIN,
-				200: t.Any(),
-			},
+			rateLimit: routeLimit("admin-logs-download", 10),
+			response: { ...ROUTE_ERRORS.ADMIN, ...BinaryResponseSchema },
 			detail: {
 				description: "Download a specific log file as plain text.",
 			},

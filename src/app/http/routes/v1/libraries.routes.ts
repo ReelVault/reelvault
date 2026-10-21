@@ -21,9 +21,9 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
-import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { commonModel, FieldsSchema, listQuerySchema, PaginatedResponseSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { LibraryIdParams, LibraryPathParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { librariesService } from "@/app/libraries/libraries.service";
@@ -52,11 +52,7 @@ export const librariesRoutes = new Elysia({
 			status(202, await librariesService.checkErrors(body.libraryPaths, actorContext({ user, request }))),
 		{
 			adminOnly: true,
-			rateLimit: {
-				name: "library-errors-check",
-				max: 1,
-				windowMs: 5 * MINUTE,
-			},
+			rateLimit: routeLimit("library-errors-check", 1, 5 * MINUTE),
 			body: "libraries.checkErrors.body",
 			response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 			detail: {
@@ -66,7 +62,7 @@ export const librariesRoutes = new Elysia({
 	)
 	.get("/scan-progress", async () => await librariesService.getScanProgress(), {
 		adminOnly: true,
-		rateLimit: { name: "library-scan-progress", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("library-scan-progress", 120),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: LibraryScanProgressResponseSchema },
 		detail: {
 			description:
@@ -75,7 +71,7 @@ export const librariesRoutes = new Elysia({
 	})
 	.get("/health", async () => await librariesService.getHealth(), {
 		adminOnly: true,
-		rateLimit: { name: "library-health", max: 30, windowMs: MINUTE },
+		rateLimit: routeLimit("library-health", 30),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: LibraryHealthResponseSchema },
 		detail: {
 			description:
@@ -84,7 +80,7 @@ export const librariesRoutes = new Elysia({
 	})
 	.get("/check-errors/:operationId", async ({ params }) => await librariesService.getErrorsCheckStatus(params.operationId), {
 		adminOnly: true,
-		rateLimit: { name: "library-errors-check-status", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("library-errors-check-status", 120),
 		params: OperationIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: LibraryErrorsCheckStatusSchema },
 		detail: {
@@ -92,7 +88,7 @@ export const librariesRoutes = new Elysia({
 		},
 	})
 	.get("/", async ({ query }) => await librariesService.getAll(query), {
-		query: t.Composite([PaginationSchema, FieldsSchema, LibraryFiltersSchema, LibrarySortingSchema]),
+		query: listQuerySchema({ filters: LibraryFiltersSchema, sorting: LibrarySortingSchema }),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "libraries.paginated.schema" },
 		// Home-screen staple; stats/paths already have 60 s server caches, this
 		// trims repeat HTTP work. Library mutations bust it via the short TTL.
@@ -125,7 +121,7 @@ export const librariesRoutes = new Elysia({
 	)
 	.post("/scan", async ({ status, user, request }) => status(202, await librariesService.scanAll(actorContext({ user, request }))), {
 		adminOnly: true,
-		rateLimit: { name: "library-scan-all", max: 10, windowMs: MINUTE },
+		rateLimit: routeLimit("library-scan-all", 10),
 		response: { ...ROUTE_ERRORS.ADMIN, 202: LibraryScanAllResponseSchema },
 		detail: {
 			description: "Queue a scan of every library. The scans run one after another, in library order.",
@@ -136,7 +132,7 @@ export const librariesRoutes = new Elysia({
 		async ({ params, user, request }) => await librariesService.cancelScans(params.libraryId, actorContext({ user, request })),
 		{
 			adminOnly: true,
-			rateLimit: { name: "library-scan-cancel", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("library-scan-cancel", 30),
 			params: LibraryIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: LibraryScanCancelResponseSchema },
 			detail: {
@@ -148,7 +144,7 @@ export const librariesRoutes = new Elysia({
 	.get("/:libraryId/metadata-sidecars/assets", async ({ params }) => await sidecarAssetsService.getIgnoredAssets(params.libraryId), {
 		// Full recursive directory walk over every library root — admin tooling.
 		adminOnly: true,
-		rateLimit: { name: "library-sidecar-assets", max: 10, windowMs: MINUTE },
+		rateLimit: routeLimit("library-sidecar-assets", 10),
 		params: LibraryIdParams,
 		response: {
 			...ROUTE_ERRORS.ADMIN_NOT_FOUND,
@@ -158,7 +154,7 @@ export const librariesRoutes = new Elysia({
 	})
 	.get("/:libraryId/scan-findings", async ({ params, query }) => await librariesService.getScanFindings(params.libraryId, query.status), {
 		adminOnly: true,
-		rateLimit: { name: "library-scan-findings", max: 30, windowMs: MINUTE },
+		rateLimit: routeLimit("library-scan-findings", 30),
 		params: LibraryIdParams,
 		query: t.Object({ status: t.Optional(ScanFindingStatusSchema) }),
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: ScanFindingsResponseSchema },
@@ -173,7 +169,7 @@ export const librariesRoutes = new Elysia({
 			await librariesService.setScanFindingIgnored(params.libraryId, body.filePath, body.ignored, actorContext({ user, request })),
 		{
 			adminOnly: true,
-			rateLimit: { name: "library-scan-finding-update", max: 120, windowMs: MINUTE },
+			rateLimit: routeLimit("library-scan-finding-update", 120),
 			params: LibraryIdParams,
 			body: "libraries.scanFinding.update.body",
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: ScanFindingIgnoredResponseSchema },
@@ -188,7 +184,7 @@ export const librariesRoutes = new Elysia({
 		async ({ params, query }) => await librariesService.getScanFindingCandidates(params.libraryId, query.filePath),
 		{
 			adminOnly: true,
-			rateLimit: { name: "library-scan-finding-candidates", max: 20, windowMs: MINUTE },
+			rateLimit: routeLimit("library-scan-finding-candidates", 20),
 			params: LibraryIdParams,
 			query: t.Object({ filePath: t.String({ minLength: 1 }) }),
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: ScanFindingCandidatesResponseSchema },
@@ -231,11 +227,7 @@ export const librariesRoutes = new Elysia({
 			status(202, await librariesService.scan(params.libraryId, actorContext({ user, request }))),
 		{
 			adminOnly: true,
-			rateLimit: {
-				name: "library-scan",
-				max: 30,
-				windowMs: MINUTE,
-			},
+			rateLimit: routeLimit("library-scan", 30),
 			params: LibraryIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 202: OperationQueuedResponseSchema },
 			detail: {
@@ -249,11 +241,7 @@ export const librariesRoutes = new Elysia({
 			status(202, await librariesService.scanPath(params.libraryId, params.pathId, actorContext({ user, request }))),
 		{
 			adminOnly: true,
-			rateLimit: {
-				name: "library-scan",
-				max: 30,
-				windowMs: MINUTE,
-			},
+			rateLimit: routeLimit("library-scan", 30),
 			params: LibraryPathParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 202: OperationQueuedResponseSchema },
 			detail: {

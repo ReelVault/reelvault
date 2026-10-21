@@ -1,9 +1,9 @@
 import type { ImageQuery } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
-import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { BinaryNotModifiedSchema, commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { ImageIdParams } from "@/app/http/schemas/route-params.schema";
 import { binaryFileResponse } from "@/app/http/utils/binary-response.utils";
 import { imagesService } from "@/modules/images/images.service";
@@ -34,11 +34,7 @@ export const imagesRoutes = new Elysia({
 			return binaryFileResponse(image.file, image.contentType, IMAGE_CACHE_CONTROL, headers["if-none-match"]);
 		},
 		{
-			rateLimit: {
-				name: "image-optimization",
-				max: 250,
-				windowMs: 10_000,
-			},
+			rateLimit: routeLimit("image-optimization", 250, 10_000),
 			...cached({ maxAge: 86400, immutable: true }),
 			params: ImageIdParams,
 			query: t.Object({
@@ -49,13 +45,7 @@ export const imagesRoutes = new Elysia({
 				quality: t.Optional(t.Numeric({ minimum: 1, maximum: 100 })),
 				q: t.Optional(t.Numeric({ minimum: 1, maximum: 100 })),
 			}),
-			response: {
-				// Binary image (or 304) — the handler returns a Response, which Elysia
-				// sends as-is and never schema-validates. `t.Any()` is deliberate.
-				200: t.Any(),
-				304: t.Any(),
-				404: "error.response",
-			},
+			response: { ...BinaryNotModifiedSchema, 404: "error.response" },
 			detail: {
 				description: "Retrieve an image file by its ID, with optional resizing support.",
 			},

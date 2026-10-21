@@ -108,16 +108,6 @@ export function splitCommaList(value: string | undefined): string[] {
 }
 
 /**
- * Parses a comma-separated id list: the entries are trimmed and the empty ones
- * dropped.
- */
-export function parseIdList(raw: string | undefined): string[] {
-	if (!raw) return [];
-
-	return trimAndFilter(raw.split(","));
-}
-
-/**
  * Groups items by a key derived from each item.
  * Items with null/undefined keys are omitted.
  */

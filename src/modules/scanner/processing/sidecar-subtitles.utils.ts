@@ -1,9 +1,11 @@
 import { dirname, join } from "node:path";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { subtitlesStorage } from "@/modules/subtitles/subtitles.ports";
 import { listDirectoryEntriesCached } from "@/utils/directory.utils";
 import { fileExists } from "@/utils/file.utils";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
 import { getExtension, getFileNameWithoutExt } from "@/utils/path.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 
 export const SIDECAR_SUBTITLE_EXTENSIONS = new Set(["srt", "ass", "ssa"]);
 
@@ -88,7 +90,11 @@ export async function findSidecarSubtitles(videoFilePath: string): Promise<Sidec
 		});
 	}
 
-	const existing = await Promise.all(candidates.map(async (candidate) => ((await fileExists(candidate.filePath)) ? candidate : null)));
+	// One stat per candidate, bounded: a directory can hold thousands of subtitle
+	// files and an unbounded fan-out would open that many file handles at once.
+	const existing = await mapConcurrent(candidates, systemResourcesService.getIoConcurrency(), async (candidate) =>
+		(await fileExists(candidate.filePath)) ? candidate : null,
+	);
 
 	// The directory listing is cached for a short TTL — a subtitle deleted within
 	// that window must not be imported as a dangling row.

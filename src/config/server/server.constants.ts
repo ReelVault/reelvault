@@ -84,8 +84,10 @@ export const serverConstants = {
 		 * /v1/images at save time, but the picker grid renders the remote URLs.
 		 * Loaded plugins append their declared content sources (plugin.json `csp`);
 		 * script-src and style-src stay locked to self.
+		 *
+		 * The dicebear origin is hardcoded here; making it configurable is a
+		 * separate change to the server settings, not a policy tweak.
 		 */
-		// TODO: Remove hardcoded dicebear.
 		webUiContentSecurityPolicy:
 			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.dicebear.com; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",
 		/**

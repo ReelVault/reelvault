@@ -58,10 +58,7 @@ export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): stri
 
 	const hwArgs = hardwareDecode ? hardwareDecodeArgs(getEffectiveHwaccel()) : [];
 	const hardened: string[] = [];
-	for (let index = 0; index < args.length; index++) {
-		const arg = args[index];
-		if (arg === undefined) continue;
-
+	for (const arg of args) {
 		if (arg === "-i") {
 			// Per-input options: restrict every input to local files (blocks http/rtsp/… SSRF),
 			// optionally decode with the server-configured hardware accelerator.

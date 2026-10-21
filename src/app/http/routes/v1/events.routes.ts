@@ -1,11 +1,10 @@
 import { PlaybackCommandResponseSchema, PlaybackCommandSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { SessionIdParams } from "@/app/http/schemas/route-params.schema";
 import { assertRouteSessionAccess } from "@/app/http/utils/access-context.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { wsProtocol } from "@/modules/realtime/ws-protocol.service";
 import { DomainError } from "@/utils/domain.errors";
@@ -30,7 +29,7 @@ export const eventsRoutes = new Elysia({ prefix: "/events", tags: ["Realtime"] }
 			};
 		},
 		{
-			rateLimit: { name: "playback-command", max: 240, windowMs: MINUTE },
+			rateLimit: routeLimit("playback-command", 240),
 			params: SessionIdParams,
 			body: PlaybackCommandSchema,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: PlaybackCommandResponseSchema },

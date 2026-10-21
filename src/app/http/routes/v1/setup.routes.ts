@@ -2,7 +2,7 @@ import { RegisterResponseSchema, SetupAdminRequestSchema, SetupStatusSchema } fr
 import { Elysia } from "elysia";
 import { firstRunSetupService } from "@/app/auth/setup/first-run-setup.service";
 import { assertAuthRequestOrigin } from "@/app/http/middleware/auth-origin.guard";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel } from "@/app/http/schemas/common.schema";
 import { MINUTE } from "@/config/server/server.constants";
 
@@ -29,7 +29,7 @@ export const setupRoutes = new Elysia({
 	.post("/", async ({ body, request }) => await firstRunSetupService.createAdminFromRequest(body, request.headers), {
 		body: "setup.admin.body",
 		// The setup token is the only credential — throttle guessing.
-		rateLimit: { name: "setup:create-admin", max: 10, windowMs: 15 * MINUTE },
+		rateLimit: routeLimit("setup:create-admin", 10, 15 * MINUTE),
 		response: {
 			200: "setup.admin.response",
 			400: "error.response",

@@ -9,7 +9,7 @@ Load the `karpathy-guidelines` skill before starting any task.
 
 Run from the repo root:
 
-- `bun run format`: Biome formatting. It does not sort imports; for import order run `bunx biome check --write <files>`.
+- `bun run format`: Biome formatting and import ordering. Biome's assist sorts imports (`assist.source.organizeImports` is on and `biome check` enforces it), so `bunx biome check --write <files>` orders the imports of the given files.
 - `bun run lint`: Biome plus oxlint (type-aware) plus the duplication check.
 - `bun run lint:duplicates`: jscpd copy/paste detector over `src/`. The budget is 1% duplicated lines.
 - `bun run check-types`: TypeScript (`tsc --noEmit`, the TypeScript 7 native checker — ~0.3 s for the whole repo).
@@ -43,8 +43,9 @@ Don't work around these. If one seems wrong, stop and ask the user.
 - A `DomainError` raised in a `catch` clause keeps the original error as `cause` (`scripts/lint/no-lost-error-cause.grit`).
 - Cross-folder imports use `@/`; only same-folder imports stay relative (`import/no-relative-parent-imports`, off for tests and `src/config/version.constants.ts`).
 - One import statement per module, and one array syntax (`T[]` for simple types, `Array<T>` for complex ones — `typescript/array-type` owns this).
+- No explicit `any` — enforced by oxlint's `typescript/no-explicit-any`, not by Biome (Biome's `suspicious/noExplicitAny` is off so the two tools do not report the same diagnostic twice). The same split applies to the type-aware rules Biome cannot check: `no-floating-promises`, `no-misused-promises`, `await-thenable`, `no-unsafe-type-assertion`.
 
-`bun run lint:guard` checks the rules no linter ships: no suppression comments, no new ignore entries, no `@public` tags, and the strict TypeScript flags.
+`bun run lint:guard` checks the rules no linter ships: no suppression comments, no environment-gated test skips, no new ignore entries, no `@public` tags, the strict TypeScript flags, the registered grit plugins, and the severity of the rules the quality contract depends on.
 
 ## Readability rules
 
@@ -54,7 +55,7 @@ Don't work around these. If one seems wrong, stop and ask the user.
 - One value, one dispatch: an `if`/`else if` chain that compares the same subject three or more times is a `switch` — `scripts/lint/else-if-chain.grit` fails the build on it.
 - A module is the namespace: stateless helpers are named exports (`export function`). Never group them in an `export const *Utils = { ... }` object — `scripts/lint/no-namespace-object.grit` fails the build. Inside a utility module, functions call each other by name, never through the object.
 - A class owns state, lifecycle or invariants. A stateless service is a `createX(deps)` factory returning functions or a plain object; it is never a class with only methods and no state.
-- Conditions read positive: no `!` in an `if`/`else` or a ternary, and no `else` after a `return` (`eslint/no-negated-condition`, `eslint/no-else-return`).
+- Conditions read positive: no `!` in a conditional that has an `else` branch, and no `else` after a `return` (`eslint/no-negated-condition`, `eslint/no-else-return`). The early-return form — `if (!ok) return;` — is the preferred shape; the rule only fires where an `else` would follow.
 - One function, one job: cognitive complexity ≤ 20, ≤ 100 lines, ≤ 5 parameters, nesting ≤ 4 levels. Split a function instead of reaching for a deeper branch.
 - One name per thing: `catch (error)`, no `forEach`/`reduce` where a loop says it better, no `console.log` outside scripts.
 - Nullish checks go through `isNullish()` / `isNotNullish()` (`src/utils/type.utils.ts`); `==`/`!=` are banned (`eslint/eqeqeq`).

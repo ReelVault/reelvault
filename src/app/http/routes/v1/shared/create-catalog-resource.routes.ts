@@ -1,9 +1,17 @@
-import { ProjectedResponseSchema } from "@reelvault/sdk/common";
+import { BulkRefreshBodySchema, type BulkRefreshResult, BulkRefreshResultSchema, ProjectedResponseSchema } from "@reelvault/sdk/common";
 import type { Static, TObject, TSchema, TString } from "@sinclair/typebox";
-import { Elysia, t } from "elysia";
+import { Elysia } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
-import { commonModel, FieldsSchema, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import {
+	commonModel,
+	type FieldsSchema,
+	listQuerySchema,
+	PaginatedResponseSchema,
+	type PaginationSchema,
+	ROUTE_ERRORS,
+} from "@/app/http/schemas/common.schema";
 
 /**
  * Shared route shape for the single-id catalog resources (genres, keywords,
@@ -21,6 +29,18 @@ type CatalogListQuery<TFilters extends TSchema, TSorting extends TSchema> = Stat
 interface CatalogResourceService<TFilters extends TSchema, TSorting extends TSchema> {
 	getAll(query: CatalogListQuery<TFilters, TSorting>): Promise<unknown>;
 	getById(id: string, query: Static<typeof FieldsSchema>): Promise<unknown>;
+}
+
+/** The on-demand refresh routes of a catalog resource. */
+export interface CatalogResourceRefresh {
+	/** Refreshes one entity by id. */
+	refresh: (id: string) => Promise<unknown>;
+	/** Forces a fresh thumbnail for one entity. */
+	refreshImage: (id: string) => Promise<unknown>;
+	/** Refreshes many entities, one by one. */
+	refreshMany: (ids: string[]) => Promise<BulkRefreshResult>;
+	/** The route descriptions, which name the resource in prose. */
+	descriptions: { refresh: string; refreshImage: string; refreshMany: string };
 }
 
 export interface CatalogResourceRoutesOptions<TFilters extends TSchema, TSorting extends TSchema> {
@@ -53,7 +73,7 @@ export function createCatalogResourceRoutes<TFilters extends TSchema, TSorting e
 		})
 		.guard({ auth: true })
 		.get("/", async ({ query }) => await options.service.getAll(query), {
-			query: t.Composite([PaginationSchema, FieldsSchema, options.filters, options.sorting]),
+			query: listQuerySchema({ filters: options.filters, sorting: options.sorting }),
 			response: { ...ROUTE_ERRORS.AUTH, 200: paginatedModel },
 			...cached({ maxAge: options.cacheMaxAge.list, private: true }),
 			detail: { description: options.descriptions.list },
@@ -64,5 +84,40 @@ export function createCatalogResourceRoutes<TFilters extends TSchema, TSorting e
 			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: detailModel },
 			...cached({ maxAge: options.cacheMaxAge.detail, private: true }),
 			detail: { description: options.descriptions.detail },
+		});
+}
+
+/**
+ * The same shape plus the on-demand refresh routes, for the resources whose
+ * metadata can be refreshed from the admin panel.
+ */
+export function createRefreshableCatalogResourceRoutes<TFilters extends TSchema, TSorting extends TSchema>(
+	options: CatalogResourceRoutesOptions<TFilters, TSorting> & { refresh: CatalogResourceRefresh },
+) {
+	const paramKey = `${options.name}Id`;
+	const detailModel = `${options.name}.schema`;
+	const { refresh, refreshImage, refreshMany, descriptions } = options.refresh;
+
+	return createCatalogResourceRoutes(options)
+		.post(`/:${paramKey}/refresh`, async ({ params }) => await refresh(params[paramKey] ?? ""), {
+			adminOnly: true,
+			rateLimit: routeLimit(`${options.name}-refresh`, 30),
+			params: options.params,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: detailModel },
+			detail: { description: descriptions.refresh },
+		})
+		.post(`/:${paramKey}/refresh-image`, async ({ params }) => await refreshImage(params[paramKey] ?? ""), {
+			adminOnly: true,
+			rateLimit: routeLimit(`${options.name}-refresh-image`, 30),
+			params: options.params,
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: detailModel },
+			detail: { description: descriptions.refreshImage },
+		})
+		.post("/bulk-refresh", async ({ body }) => await refreshMany(body.ids), {
+			adminOnly: true,
+			rateLimit: routeLimit(`${options.name}-bulk-refresh`, 30),
+			body: BulkRefreshBodySchema,
+			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkRefreshResultSchema },
+			detail: { description: descriptions.refreshMany },
 		});
 }

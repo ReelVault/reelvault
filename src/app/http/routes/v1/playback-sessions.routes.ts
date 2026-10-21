@@ -12,14 +12,13 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
-import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
+import { BinaryResponseSchema, commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { MediaFileIdParams, SessionIdParams, SessionSegmentParams } from "@/app/http/schemas/route-params.schema";
 import { assertRouteMediaAccess, assertRouteSessionAccess } from "@/app/http/utils/access-context.utils";
 import { withEtagResponse } from "@/app/http/utils/etag.utils";
 import { playbackViewService } from "@/app/media/playback-view.service";
 import { heartbeatService } from "@/app/playback/heartbeat.service";
-import { MINUTE } from "@/config/server/server.constants";
 import { diagnosticsService } from "@/modules/streaming/diagnostics/diagnostics.service";
 import { playlistService } from "@/modules/streaming/playlist/playlist.service";
 import { listMinePlaybackSessions } from "@/modules/streaming/runtime/streaming.runtime";
@@ -61,7 +60,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 			return status(201, await sessionLifecycleService.createPlaybackSession(body, profile?.id, headers["idempotency-key"], user?.id));
 		},
 		{
-			rateLimit: { name: "playback-session", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("playback-session", 30),
 			body: CreatePlaybackSessionSchema,
 			headers: IdempotencyKeyHeadersSchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 409: "error.response", 429: "error.response", 201: PlaybackSessionSchema },
@@ -80,7 +79,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 		{
 			params: SessionIdParams,
 			// Binary HLS manifest — handler returns a Response (m3u8 body), not JSON.
-			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: t.Any() },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, ...BinaryResponseSchema },
 			detail: { description: "Get the HLS manifest for an active playback session." },
 		},
 	)
@@ -113,7 +112,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 		{
 			params: SessionSegmentParams,
 			// Binary HLS segment — handler returns a Response (fMP4 body), not JSON.
-			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: t.Any() },
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, ...BinaryResponseSchema },
 			detail: { description: "Get an HLS fMP4 initialization or media segment." },
 		},
 	)
@@ -129,7 +128,7 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 			// session; this caps a client that hammers non-buffered seeks, each of
 			// which triggers a full ffmpeg restart. 5/s sustained is well above
 			// human scrubbing and far below the global IP budget.
-			rateLimit: { name: "playback-seek", max: 300, windowMs: MINUTE },
+			rateLimit: routeLimit("playback-seek", 300),
 			params: SessionIdParams,
 			// Server clamps missing/null/non-finite positions into [0, duration].
 			body: t.Object({ position: t.Optional(t.Nullable(t.Number())) }),

@@ -59,16 +59,32 @@ const findDuplicates = (routes: readonly RouteDef[]): ReadonlyMap<string, number
 	return new Map([...counts].filter(([, count]) => count > 1));
 };
 
-/** The shadowing report of two paths of the same method, when one shadows the other. */
-const findCollision = (method: HttpMethod, pathA: string, pathB: string): string | undefined => {
-	if (pathA === pathB) return undefined; // exact dupes handled separately
+/**
+ * True when two paths of the same method can never both be reached: at the
+ * first position where they differ, both hold a parameter, so the router
+ * picks one of them and the other is unreachable.
+ *
+ * A static segment against a parameter is not a collision — the router
+ * prefers the static segment, so both paths stay reachable.
+ */
+const findAmbiguousPaths = (pathA: string, pathB: string): boolean => {
+	const segmentsA = toSegments(pathA);
+	const segmentsB = toSegments(pathB);
+	if (segmentsA.length !== segmentsB.length) return false;
 
-	if (!segmentsMatch(toSegments(pathA), toSegments(pathB))) return undefined;
+	for (const [index, segmentA] of segmentsA.entries()) {
+		const segmentB = segmentsB[index];
+		if (segmentB === undefined) return false;
+		if (segmentA === segmentB) continue;
 
-	return `${method}: "${pathA}" vs "${pathB}"`;
+		return segmentA.startsWith(":") && segmentB.startsWith(":");
+	}
+
+	return false;
 };
 
-const findShadowedRoutes = (routes: readonly RouteDef[]): readonly string[] => {
+/** The route pairs of one method where only one of the two can ever be reached. */
+const findAmbiguousRoutes = (routes: readonly RouteDef[]): readonly string[] => {
 	const byMethod = new Map<HttpMethod, string[]>();
 	for (const r of routes) {
 		byMethod.set(r.method, [...(byMethod.get(r.method) ?? []), r.path]);
@@ -82,8 +98,7 @@ const findShadowedRoutes = (routes: readonly RouteDef[]): readonly string[] => {
 				const pathB = paths[j];
 				if (pathA === undefined || pathB === undefined) continue;
 
-				const collision = findCollision(method, pathA, pathB);
-				if (collision) collisions.push(collision);
+				if (findAmbiguousPaths(pathA, pathB)) collisions.push(`${method}: "${pathA}" vs "${pathB}"`);
 			}
 		}
 	}
@@ -146,17 +161,29 @@ const main = (): void => {
 		console.log("  DUPLICATE:", key, "count:", count);
 	}
 
-	console.log("\n=== CHECKING ROUTE SHADOWING / OVERLAPS ===");
-	for (const line of findShadowedRoutes(routes)) {
-		console.log(`[SHADOWING/OVERLAP] ${line}`);
+	const ambiguous = findAmbiguousRoutes(routes);
+	console.log("\nAmbiguous route pairs count:", ambiguous.length);
+	for (const line of ambiguous) {
+		console.log(`  [AMBIGUOUS] ${line}`);
 	}
 
 	const sdkDir = path.resolve(__dirname, "../sdk/client/resources");
-	const sdkEndpoints = scanSdkEndpoints(sdkDir);
-	console.log("\nTotal SDK endpoints called:", sdkEndpoints.length);
+	if (fs.existsSync(sdkDir)) {
+		const sdkEndpoints = scanSdkEndpoints(sdkDir);
+		console.log("\nTotal SDK endpoints called:", sdkEndpoints.length);
 
-	printSection("\nRoutes NOT matched by any SDK client method", findUnmatchedRoutes(routes, sdkEndpoints));
-	printSection("\nSDK calls NOT matched by any server route", findUnmatchedSdkCalls(routes, sdkEndpoints));
+		printSection("\nRoutes NOT matched by any SDK client method", findUnmatchedRoutes(routes, sdkEndpoints));
+		printSection("\nSDK calls NOT matched by any server route", findUnmatchedSdkCalls(routes, sdkEndpoints));
+	} else {
+		// The SDK lives in its own repository; the comparison only runs where
+		// its sources are checked out next to the server.
+		console.log("\nSDK client sources are not present next to the server — skipping the SDK comparison.");
+	}
+
+	if (duplicates.size > 0 || ambiguous.length > 0) {
+		console.error(`\n${duplicates.size + ambiguous.length} route defect(s). Two routes of one method must not resolve to the same path.`);
+		process.exit(1);
+	}
 
 	process.exit(0);
 };

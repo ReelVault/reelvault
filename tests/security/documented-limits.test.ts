@@ -80,24 +80,22 @@ const LIMIT_CASES: LimitCase[] = [
 
 const routes = listApiRoutes();
 
-for (const limit of LIMIT_CASES) {
-	test(`${limit.method} ${limit.template} refuses ${limit.max + 1} items as a bad request`, async () => {
-		expect(routes.some((route) => route.method === limit.method && route.template === limit.template)).toBe(true);
+test.each(LIMIT_CASES)("$method $template refuses $max+1 items as a bad request", async (limit) => {
+	expect(routes.some((route) => route.method === limit.method && route.template === limit.template)).toBe(true);
 
-		const response = await send(limit.method, limit.template, { role: limit.role, body: limit.body(limit.max + 1) });
+	const response = await send(limit.method, limit.template, { role: limit.role, body: limit.body(limit.max + 1) });
 
-		expect(response.status).toBe(400);
-	});
+	expect(response.status).toBe(400);
+});
 
-	if (limit.acceptsLimit) {
-		test(`${limit.method} ${limit.template} accepts exactly ${limit.max} items`, async () => {
-			const response = await send(limit.method, limit.template, { role: limit.role, body: limit.body(limit.max) });
+const LIMIT_ACCEPTING_CASES = LIMIT_CASES.filter((limit) => limit.acceptsLimit === true);
 
-			expect(response.status).not.toBe(400);
-			expect(response.status).toBeLessThan(500);
-		});
-	}
-}
+test.each(LIMIT_ACCEPTING_CASES)("$method $template accepts exactly $max items", async (limit) => {
+	const response = await send(limit.method, limit.template, { role: limit.role, body: limit.body(limit.max) });
+
+	expect(response.status).not.toBe(400);
+	expect(response.status).toBeLessThan(500);
+});
 
 test("the watchlist status query refuses an oversized id list", async () => {
 	const oversized = "x".repeat(2001);

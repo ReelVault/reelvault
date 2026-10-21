@@ -1,4 +1,6 @@
+import type { InferSelectModel, SQL } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 
 const job = schema.workerJobs;
 
@@ -33,3 +35,25 @@ export const workerJobSummaryColumns = {
 	createdAt: job.createdAt,
 	updatedAt: job.updatedAt,
 } as const;
+
+/** One row of the worker-job summary projection. */
+export type WorkerJobSummaryRow = Pick<InferSelectModel<typeof schema.workerJobs>, keyof typeof workerJobSummaryColumns>;
+
+/**
+ * Reads one page of worker-job summary rows.
+ *
+ * The job list and the operation list project the same columns over the same
+ * table, so they share this reader.
+ */
+export async function readWorkerJobSummaryPage(
+	client: DatabaseTransaction,
+	page: { where?: SQL | undefined; orderBy: SQL; limit: number; offset: number },
+): Promise<WorkerJobSummaryRow[]> {
+	return await client
+		.select(workerJobSummaryColumns)
+		.from(job)
+		.where(page.where)
+		.orderBy(page.orderBy)
+		.limit(page.limit)
+		.offset(page.offset);
+}

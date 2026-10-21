@@ -1,5 +1,4 @@
 import type {
-	FieldsConfig,
 	FieldsQuery,
 	LibraryFilters,
 	LibrarySorting,
@@ -14,6 +13,7 @@ import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
@@ -34,12 +34,6 @@ const libraryQueryMap: QueryMap<LibraryFilters, LibrarySorting> = {
 	},
 	defaults: { sortBy: "name", sortOrder: "asc" },
 };
-
-export interface FindLibraryByIdParams<F extends string> {
-	primaryId: string;
-	fields?: FieldsConfig<F> | undefined;
-	tx?: DatabaseTransaction | undefined;
-}
 
 export async function findActiveLibraryPaths(): Promise<Array<{ id: string; libraryId: string; path: string; isActive: boolean }>> {
 	const client = databaseFactory.getClient();
@@ -119,7 +113,7 @@ export async function findMany<F extends string>(
 /** Get a single library by ID */
 export async function findById<F extends string>(
 	caches: LibraryStatsCaches,
-	{ primaryId, fields, tx }: FindLibraryByIdParams<F>,
+	{ primaryId, fields, tx }: PrimaryIdReadParams<F>,
 ): Promise<SelectFields<LibraryWithRelations, F> | undefined> {
 	const library = await libraries.selectFirstById({ primaryId, tx });
 

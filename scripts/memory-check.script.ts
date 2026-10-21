@@ -232,7 +232,7 @@ async function main(): Promise<void> {
 				[
 					String(samples.length),
 					fmtMb(samples[0] ?? 0),
-					fmtMb(samples[samples.length - 1] ?? 0),
+					fmtMb(samples.at(-1) ?? 0),
 					`${(slope / 1024).toFixed(1)} kB/round`,
 					stable ? "yes" : "NO",
 					leakSuspected ? "LEAK SUSPECTED" : "no leak signal",

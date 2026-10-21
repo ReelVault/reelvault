@@ -1,22 +1,14 @@
-import type {
-	FieldsConfig,
-	FieldsQuery,
-	MediaFileFilters,
-	MediaFileSorting,
-	MediaFileWithRelation,
-	PaginatedResponse,
-	PaginationQuery,
-	SelectFields,
-} from "@reelvault/sdk/common";
+import type { FieldsConfig, FieldsQuery, MediaFileWithRelation, SelectFields } from "@reelvault/sdk/common";
 import { and, asc, eq, gt, inArray, isNull, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { applyFields, includesField, parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
-import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
+import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { findCleanupDataForMediaFileIds } from "@/integrations/drizzle-orm/utils/media-cleanup.reader";
@@ -44,16 +36,11 @@ import {
 	videoStreamColumns,
 } from "./shared.utils";
 
-export async function findPage<F extends string>(
-	query?: PaginationQuery & FieldsQuery<F> & MediaFileFilters & MediaFileSorting,
-): Promise<PaginatedResponse<SelectFields<MediaFileWithRelation, F>>> {
-	return await findPageWithQueryMap({
-		access: mediaFiles,
-		queryMap: mediaFileQueryMap,
-		query,
-		findMany: (params) => findMany(params),
-	});
-}
+export const findPage = definePagedFind({
+	access: mediaFiles,
+	queryMap: mediaFileQueryMap,
+	findMany: (params) => findMany(params),
+});
 
 export async function findByIdForRead<F extends string>(mediaFileId: string, query?: FieldsQuery<F>) {
 	return await findByPrimaryId({ primaryId: mediaFileId, fields: parseFieldsForRead(query) });
@@ -167,11 +154,7 @@ export async function findByPrimaryId<F extends string>({
 	primaryId,
 	fields,
 	tx,
-}: {
-	primaryId: string;
-	fields?: FieldsConfig<F> | undefined;
-	tx?: DatabaseTransaction | undefined;
-}): Promise<SelectFields<MediaFileWithRelation, F> | undefined> {
+}: PrimaryIdReadParams<F>): Promise<SelectFields<MediaFileWithRelation, F> | undefined> {
 	// Single-row bundle: the row and its relations in one statement, so the
 	// default read costs one query instead of row read + relation read.
 	if (canUseRelationBundle(fields)) {

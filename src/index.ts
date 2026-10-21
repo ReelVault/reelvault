@@ -217,7 +217,7 @@ try {
 			idleTimeout: 255, // seconds — Bun's maximum
 		},
 		() => {
-			logger.info(`🚀 Server started successfully`, {
+			logger.info("Server started successfully", {
 				port: env.APP_PORT,
 				host: serverConfig.network.host,
 				environment: env.NODE_ENV,

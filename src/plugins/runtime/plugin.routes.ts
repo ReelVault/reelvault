@@ -23,7 +23,12 @@ export interface ResolvedPluginRoute {
 	params: Readonly<Record<string, string>>;
 }
 
-export class PluginRouteValidationError extends Error {}
+export class PluginRouteValidationError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "PluginRouteValidationError";
+	}
+}
 
 export class PluginRouteRegistry {
 	private readonly routesByPlugin = new Map<string, RegisteredPluginRoute[]>();

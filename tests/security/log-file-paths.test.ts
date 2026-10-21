@@ -43,9 +43,9 @@ const TRAVERSAL_VALUES = [
 	`//..//${token}`,
 	`reelvault.log/../../${token}`,
 	`reelvault.log%00../${token}`,
-	`%2e%2e`,
+	"%2e%2e",
 	WHITESPACE_ID,
-	`.`,
+	".",
 ];
 
 async function errorCode(response: Response): Promise<unknown> {

@@ -6,9 +6,9 @@ import {
 	UpdateSystemSettingsSchema,
 } from "@reelvault/sdk/common";
 import { systemSettingsService } from "@/app/admin/system-settings.service";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
 export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
@@ -20,7 +20,7 @@ export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 		"admin.importSystemSettings": ImportSystemSettingsSchema,
 	})
 	.get("/settings", async () => await systemSettingsService.getAll(), {
-		rateLimit: { name: "admin-settings-get", max: 60, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-settings-get", 60),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.systemSettings" },
 		detail: {
 			description: "Retrieve all dynamic system settings grouped by domain.",
@@ -30,7 +30,7 @@ export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 		"/settings",
 		async ({ body, user, request }) => await systemSettingsService.updateSettings(body, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-settings-update", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-settings-update", 30),
 			body: "admin.updateSystemSettings",
 			response: {
 				...ROUTE_ERRORS.VALIDATED_ADMIN,
@@ -42,7 +42,7 @@ export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 		},
 	)
 	.get("/settings/export", async () => await systemSettingsService.exportSettings(), {
-		rateLimit: { name: "admin-settings-export", max: 10, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-settings-export", 10),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.systemSettingsExport" },
 		detail: {
 			description: "Export the current value of every dynamic system setting as a versioned JSON document.",
@@ -52,7 +52,7 @@ export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 		"/settings/import",
 		async ({ body, user, request }) => await systemSettingsService.importSettings(body, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-settings-import", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-settings-import", 10),
 			body: "admin.importSystemSettings",
 			response: {
 				...ROUTE_ERRORS.VALIDATED_ADMIN,
@@ -67,7 +67,7 @@ export const adminSettingsRoutes = adminShell({ tags: ["Admin"] })
 		"/settings/reset",
 		async ({ body, user, request }) => await systemSettingsService.resetSettings(body.keys, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-settings-reset", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-settings-reset", 10),
 			body: "admin.resetSystemSettings",
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.systemSettings" },
 			detail: {

@@ -9,13 +9,14 @@ import {
 	RegisterResponseSchema,
 	SessionResponseSchema,
 } from "@reelvault/sdk/common";
-import { Elysia, t } from "elysia";
+import { Elysia } from "elysia";
 import { authService } from "@/app/auth/auth.service";
 import { sessionsService } from "@/app/auth/sessions.service";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
 import { assertAuthRequestOrigin } from "@/app/http/middleware/auth-origin.guard";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel, PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { SessionIdParams } from "@/app/http/schemas/route-params.schema";
 import { MINUTE } from "@/config/server/server.constants";
 import { quickConnectRoutes } from "./quick-connect.routes";
 
@@ -46,7 +47,7 @@ export const authRoutes = new Elysia({
 			400: "error.response",
 			500: "error.response",
 		},
-		rateLimit: { name: "auth-register", max: 5, windowMs: 15 * MINUTE },
+		rateLimit: routeLimit("auth-register", 5, 15 * MINUTE),
 		detail: {
 			description: "Create a new user account with email and password.",
 		},
@@ -54,7 +55,7 @@ export const authRoutes = new Elysia({
 	.post("/login", async ({ body, request }) => await authService.login(body, request), {
 		body: "auth.login.body",
 		response: { 200: "auth.login.response", ...ROUTE_ERRORS.AUTH, 500: "error.response" },
-		rateLimit: { name: "auth-login", max: 5, windowMs: MINUTE },
+		rateLimit: routeLimit("auth-login", 5),
 		detail: {
 			description: "Authenticate user and receive a session token.",
 		},
@@ -70,7 +71,7 @@ export const authRoutes = new Elysia({
 			return await authService.logout(request);
 		},
 		{
-			rateLimit: { name: "auth-logout", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("auth-logout", 30),
 			response: {
 				200: "auth.logout.response",
 				404: "error.response",
@@ -87,28 +88,28 @@ export const authRoutes = new Elysia({
 		{
 			query: PaginationSchema,
 			response: { ...ROUTE_ERRORS.AUTH, 200: ActiveSessionsResponseSchema },
-			rateLimit: { name: "auth-sessions-list", max: 60, windowMs: MINUTE },
+			rateLimit: routeLimit("auth-sessions-list", 60),
 			detail: { description: "List the authenticated user's active sessions without exposing session tokens." },
 		},
 	)
 	.post("/change-password", async ({ body, request }) => await authService.changePassword(body, request), {
 		body: "auth.change_password.body",
 		response: { ...ROUTE_ERRORS.AUTH, 200: "auth.change_password.response", 400: "error.response" },
-		rateLimit: { name: "auth-change-password", max: 5, windowMs: 15 * MINUTE },
+		rateLimit: routeLimit("auth-change-password", 5, 15 * MINUTE),
 		detail: { description: "Change the signed-in user's password. Every other session is revoked; the current one stays signed in." },
 	})
 	.delete("/sessions", async ({ request, session, user }) => await sessionsService.revokeOthers(request.headers, session?.id, user?.id), {
 		response: { ...ROUTE_ERRORS.AUTH, 200: "success.response" },
-		rateLimit: { name: "auth-sessions-revoke-others", max: 30, windowMs: MINUTE },
+		rateLimit: routeLimit("auth-sessions-revoke-others", 30),
 		detail: { description: "Revoke every session except the current one." },
 	})
 	.delete(
 		"/sessions/:sessionId",
 		async ({ params, request, session, user }) => await sessionsService.revoke(params.sessionId, request.headers, session?.id, user?.id),
 		{
-			params: t.Object({ sessionId: t.String({ minLength: 1 }) }),
+			params: SessionIdParams,
 			response: { ...ROUTE_ERRORS.AUTH, 403: "error.response", 404: "error.response", 200: "success.response" },
-			rateLimit: { name: "auth-session-revoke", max: 60, windowMs: MINUTE },
+			rateLimit: routeLimit("auth-session-revoke", 60),
 			detail: { description: "Revoke one of the authenticated user's non-current sessions." },
 		},
 	);

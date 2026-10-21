@@ -1,10 +1,10 @@
 import { createLogger } from "@/utils/logger.utils";
 import { normalizePath } from "@/utils/path.utils";
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "./recognition.types";
-import { MoviesBasicStrategy } from "./strategies/movies-basic.strategy";
-import { MoviesCategorizedStrategy } from "./strategies/movies-categorized.strategy";
-import { SeriesBasicStrategy } from "./strategies/series-basic.strategy";
-import { SeriesCategorizedStrategy } from "./strategies/series-categorized.strategy";
+import { moviesBasicStrategy } from "./strategies/movies-basic.strategy";
+import { moviesCategorizedStrategy } from "./strategies/movies-categorized.strategy";
+import { seriesBasicStrategy } from "./strategies/series-basic.strategy";
+import { seriesCategorizedStrategy } from "./strategies/series-categorized.strategy";
 
 class RecognitionService {
 	readonly serviceName = "RecognitionService";
@@ -14,10 +14,10 @@ class RecognitionService {
 
 	constructor() {
 		this.strategies = [
-			new SeriesCategorizedStrategy(), // 1. Try: series / season / file
-			new SeriesBasicStrategy(), // 2. Try: series / file (S01E01)
-			new MoviesCategorizedStrategy(), // 3. Try: movie / file
-			new MoviesBasicStrategy(), // 4. Last resort: bare file
+			seriesCategorizedStrategy, // 1. Try: series / season / file
+			seriesBasicStrategy, // 2. Try: series / file (S01E01)
+			moviesCategorizedStrategy, // 3. Try: movie / file
+			moviesBasicStrategy, // 4. Last resort: bare file
 		];
 	}
 
@@ -47,8 +47,8 @@ class RecognitionService {
 			normalizedPath,
 			parts,
 			fileName: parts.at(-1) ?? "",
-			parentFolder: parts[parts.length - 2],
-			grandParentFolder: parts[parts.length - 3],
+			parentFolder: parts.at(-2),
+			grandParentFolder: parts.at(-3),
 		};
 	}
 }

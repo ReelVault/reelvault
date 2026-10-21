@@ -116,7 +116,7 @@ class PluginBlobsService {
 
 				if (page.length < pageSize) break;
 
-				afterKey = keys[keys.length - 1];
+				afterKey = keys.at(-1);
 			}
 		});
 	}

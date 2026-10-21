@@ -4,7 +4,7 @@ import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/module
 /** Season folder (number captured) or `Specials` (season 0). */
 const SEASON_FOLDER_PATTERN = /^(?:(?:Season|Sezon|S)\s*(\d+)|Specials$)/i;
 
-export class SeriesCategorizedStrategy implements RecognitionStrategy {
+export const seriesCategorizedStrategy: RecognitionStrategy = {
 	recognize(ctx: PathContext): RecognitionResult | null {
 		const { grandParentFolder, parentFolder, fileName } = ctx;
 		if (!(grandParentFolder && parentFolder && fileName)) return null;
@@ -30,5 +30,5 @@ export class SeriesCategorizedStrategy implements RecognitionStrategy {
 			type: "tv_show",
 			identity: { title, year, type: "episode", season, episode, ...(episodeEnd === undefined ? {} : { episodeEnd }) },
 		};
-	}
-}
+	},
+};

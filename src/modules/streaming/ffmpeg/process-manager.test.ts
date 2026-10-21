@@ -97,19 +97,19 @@ describe("process manager", () => {
 			tempDir: join(root, "s1"),
 		});
 
-		const result = await manager.retryWithSoftwareEncoder(
-			"s1",
+		const result = await manager.retryWithSoftwareEncoder({
+			sessionId: "s1",
 			session,
 			softwareFallbackSessions,
-			() => {
+			prepareSession: () => {
 				prepareCalls += 1;
 
 				return Promise.resolve();
 			},
-			async () => {
+			startSession: async () => {
 				/* intentionally empty */
 			},
-		);
+		});
 
 		expect(result).toBe(true);
 		expect(prepareCalls).toBe(0);
@@ -128,13 +128,13 @@ describe("process manager", () => {
 		});
 
 		// forceSoftware = true disqualifies the session from another fallback.
-		const result = await manager.retryWithSoftwareEncoder(
-			"s1",
+		const result = await manager.retryWithSoftwareEncoder({
+			sessionId: "s1",
 			session,
-			new Set<string>(),
-			() => Promise.resolve(),
-			() => Promise.resolve(),
-		);
+			softwareFallbackSessions: new Set<string>(),
+			prepareSession: () => Promise.resolve(),
+			startSession: () => Promise.resolve(),
+		});
 
 		expect(result).toBe(false);
 	});

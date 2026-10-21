@@ -76,7 +76,7 @@ export function findMostRecentProgress<E extends { id: string }, P extends { upd
 /** Episode right after `currentId` in the already-sorted list, or undefined at the end / when not found. */
 export function nextEpisodeAfter<E extends { id: string }>(playableEpisodes: readonly E[], currentId: string): E | undefined {
 	const currentIndex = playableEpisodes.findIndex((episode) => episode.id === currentId);
-	if (currentIndex < 0 || currentIndex >= playableEpisodes.length - 1) return undefined;
+	if (currentIndex === -1 || currentIndex >= playableEpisodes.length - 1) return undefined;
 
 	return playableEpisodes[currentIndex + 1];
 }

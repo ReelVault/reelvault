@@ -1,5 +1,5 @@
 import type { MetadataFilters, MetadataSorting } from "@reelvault/sdk/common";
-import { and, asc, desc, eq, exists, gt, gte, inArray, isNull, lt, lte, notExists, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, gte, inArray, isNull, lt, lte, notExists, or, type SQL, type SQLWrapper, sql } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -145,30 +145,25 @@ function buildDurationFilter(bound: "min" | "max", minutes: number): SQL | undef
 	);
 }
 
-/** EXISTS probe over the media-file → playback-progress join scoped to `baseWhere`. */
-function watchedStatusExists(baseWhere: SQL[], ...extra: SQL[]): SQL {
+/** The media-file → playback-progress subquery the watched-state probes run over. */
+function watchedStatusProbe(baseWhere: SQL[], extra: SQL[]): SQLWrapper {
 	const client = databaseFactory.getClient();
 
-	return exists(
-		client
-			.select({ one: sql`1` })
-			.from(schema.mediaFiles)
-			.innerJoin(schema.playbackProgress, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
-			.where(and(...baseWhere, ...extra)),
-	);
+	return client
+		.select({ one: sql`1` })
+		.from(schema.mediaFiles)
+		.innerJoin(schema.playbackProgress, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
+		.where(and(...baseWhere, ...extra));
+}
+
+/** EXISTS probe over the media-file → playback-progress join scoped to `baseWhere`. */
+function watchedStatusExists(baseWhere: SQL[], ...extra: SQL[]): SQL {
+	return exists(watchedStatusProbe(baseWhere, extra));
 }
 
 /** NOT EXISTS counterpart of {@link watchedStatusExists} (no progress row at all). */
 function watchedStatusNotExists(baseWhere: SQL[]): SQL {
-	const client = databaseFactory.getClient();
-
-	return notExists(
-		client
-			.select({ one: sql`1` })
-			.from(schema.mediaFiles)
-			.innerJoin(schema.playbackProgress, eq(schema.playbackProgress.mediaFileId, schema.mediaFiles.id))
-			.where(and(...baseWhere)),
-	);
+	return notExists(watchedStatusProbe(baseWhere, []));
 }
 
 /**
@@ -197,28 +192,24 @@ function buildWatchedStatusFilter(filter: ProfileScopedFilter): SQL | undefined 
 	return undefined;
 }
 
-/** EXISTS probe over `user_ratings` scoped to `baseWhere`. */
-function userRatingExists(baseWhere: SQL[], ...extra: SQL[]): SQL {
+/** The `user_ratings` subquery the rating probes run over. */
+function userRatingProbe(baseWhere: SQL[], extra: SQL[]): SQLWrapper {
 	const client = databaseFactory.getClient();
 
-	return exists(
-		client
-			.select({ one: sql`1` })
-			.from(schema.userRatings)
-			.where(and(...baseWhere, ...extra)),
-	);
+	return client
+		.select({ one: sql`1` })
+		.from(schema.userRatings)
+		.where(and(...baseWhere, ...extra));
+}
+
+/** EXISTS probe over `user_ratings` scoped to `baseWhere`. */
+function userRatingExists(baseWhere: SQL[], ...extra: SQL[]): SQL {
+	return exists(userRatingProbe(baseWhere, extra));
 }
 
 /** NOT EXISTS counterpart of {@link userRatingExists} (no rating row at all). */
 function userRatingNotExists(baseWhere: SQL[]): SQL {
-	const client = databaseFactory.getClient();
-
-	return notExists(
-		client
-			.select({ one: sql`1` })
-			.from(schema.userRatings)
-			.where(and(...baseWhere)),
-	);
+	return notExists(userRatingProbe(baseWhere, []));
 }
 
 /**

@@ -23,10 +23,10 @@ import {
 import { t } from "elysia";
 import { adminService } from "@/app/admin/admin.service";
 import { adminPluginCatalogService } from "@/app/admin/admin-plugin-catalog.service";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { PluginArchiveUpload, PluginIdParams, ProviderIdParams, RepositoryIdParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
 export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
@@ -253,7 +253,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		async ({ body, user, request }) => await adminPluginCatalogService.createRepository(body, actorContext({ user, request })),
 		{
 			body: CreatePluginRepositoryBodySchema,
-			rateLimit: { name: "admin-plugin-repository-create", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-plugin-repository-create", 10),
 			response: {
 				...ROUTE_ERRORS.VALIDATED_ADMIN,
 				200: "admin.pluginRepository",
@@ -294,7 +294,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 			await adminPluginCatalogService.refreshRepository(params.repositoryId, actorContext({ user, request })),
 		{
 			params: RepositoryIdParams,
-			rateLimit: { name: "admin-plugin-repository-refresh", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-plugin-repository-refresh", 10),
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.pluginRepository" },
 			detail: {
 				description: "Re-fetch the repository manifest immediately (bypasses the cache).",
@@ -312,7 +312,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		async ({ body, user, request }) => await adminPluginCatalogService.install(body, actorContext({ user, request })),
 		{
 			body: InstallCatalogPluginBodySchema,
-			rateLimit: { name: "admin-plugin-install", max: 5, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-plugin-install", 5),
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: InstallCatalogPluginResponseSchema },
 			detail: {
 				description:
@@ -322,7 +322,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.post("/plugins/validate", async ({ body }) => await adminPluginCatalogService.validateUploadedArchive(body.file), {
 		body: PluginArchiveUpload,
-		rateLimit: { name: "admin-plugin-validate", max: 10, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-plugin-validate", 10),
 		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: PluginValidationResultSchema },
 		detail: {
 			description:
@@ -334,7 +334,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		async ({ body, user, request }) => await adminPluginCatalogService.installUploadedArchive(body.file, actorContext({ user, request })),
 		{
 			body: PluginArchiveUpload,
-			rateLimit: { name: "admin-plugin-install-upload", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-plugin-install-upload", 10),
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: InstallCatalogPluginResponseSchema },
 			detail: {
 				description: "Install (or upgrade) a plugin from an uploaded .zip / .tar / .tar.gz archive. Runs third-party code — admin only.",
@@ -346,7 +346,7 @@ export const adminPluginRoutes = adminShell({ tags: ["Admin"] })
 		async ({ params, user, request }) => await adminPluginCatalogService.uninstall(params.pluginId, actorContext({ user, request })),
 		{
 			params: PluginIdParams,
-			rateLimit: { name: "admin-plugin-uninstall", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-plugin-uninstall", 10),
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "success.response" },
 			detail: {
 				description: "Uninstall an installer-managed plugin: unload it, remove its directory, lockfile entry and stored data.",

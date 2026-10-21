@@ -39,6 +39,7 @@ import {
 	resolveSortOrder,
 } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { withTiebreaker } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
+import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { cachedCount, filterSignature } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
@@ -354,11 +355,7 @@ export async function findById<F extends string>({
 	primaryId,
 	fields,
 	tx,
-}: {
-	primaryId: string;
-	fields?: FieldsConfig<F> | undefined;
-	tx?: DatabaseTransaction | undefined;
-}): Promise<SelectFields<MetadataWithRelation, F> | undefined> {
+}: PrimaryIdReadParams<F>): Promise<SelectFields<MetadataWithRelation, F> | undefined> {
 	// Default projection: the root row and every relation ride one prepared
 	// statement instead of `SELECT *` plus the merged relation read.
 	if (!fields?.fields.length) {

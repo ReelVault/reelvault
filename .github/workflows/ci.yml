@@ -35,6 +35,8 @@ jobs:
             command: bun run coverage
           - name: Tests
             command: bun test --parallel
+          - name: Route registry
+            command: bun run check:routes
           - name: Migration drift
             command: bun run check:migrations
     steps:

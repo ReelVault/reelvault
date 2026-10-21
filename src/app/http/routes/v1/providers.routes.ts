@@ -6,8 +6,8 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
-import { MINUTE } from "@/config/server/server.constants";
 import { providerService } from "@/plugins/capabilities/provider.service";
 
 export const providersRoutes = new Elysia({
@@ -34,11 +34,7 @@ export const providersRoutes = new Elysia({
 		},
 	})
 	.post("/search", async ({ body }) => await providerService.search(body), {
-		rateLimit: {
-			name: "provider-search",
-			max: 30,
-			windowMs: MINUTE,
-		},
+		rateLimit: routeLimit("provider-search", 30),
 		body: "provider.search.body",
 		response: { ...ROUTE_ERRORS.AUTH, 200: t.Array(MetadataProviderSearchResponseSchema) },
 		detail: {

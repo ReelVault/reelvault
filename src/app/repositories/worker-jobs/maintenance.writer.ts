@@ -3,7 +3,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { MemoryCache } from "@/utils/memory.cache";
 import {
 	items,
-	type TerminalJobPurgeOptions,
+	type TerminalRowsPurgeOptions,
 	terminalStandaloneJobsWhere,
 	type WorkerItemStats,
 	type WorkerItemStatus,
@@ -71,7 +71,7 @@ export async function trimMany(status: WorkerItemStatus, keepCounts: ReadonlyMap
 	return result.changes;
 }
 
-export async function purgeTerminalJobs(options: TerminalJobPurgeOptions = {}): Promise<number> {
+export async function purgeTerminalJobs(options: TerminalRowsPurgeOptions = {}): Promise<number> {
 	// `changes` avoids materializing every deleted id (weekly purge can span
 	// hundreds of thousands of rows on a busy ingest box).
 	const result = await databaseFactory.getClient().delete(items).where(terminalStandaloneJobsWhere(options));
@@ -80,6 +80,6 @@ export async function purgeTerminalJobs(options: TerminalJobPurgeOptions = {}): 
 }
 
 /** Rows `purgeTerminalJobs` would delete with the same filters; nothing is removed. */
-export async function countTerminalJobs(options: TerminalJobPurgeOptions = {}): Promise<number> {
+export async function countTerminalJobs(options: TerminalRowsPurgeOptions = {}): Promise<number> {
 	return await databaseFactory.getClient().$count(items, terminalStandaloneJobsWhere(options));
 }

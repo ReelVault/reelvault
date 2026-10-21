@@ -6,6 +6,7 @@ export class DependencyError extends DomainError {
 
 	constructor(missing: string[], message: string) {
 		super("internal", message, { code: "media_tools.missing", params: { tools: missing.join(", ") } });
+		this.name = "DependencyError";
 		this.missing = missing;
 	}
 }

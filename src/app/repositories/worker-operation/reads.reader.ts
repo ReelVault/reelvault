@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { WorkerItemSummary } from "@/app/repositories/worker.repository";
-import { workerJobSummaryColumns } from "@/app/repositories/worker-job.projection";
+import { readWorkerJobSummaryPage } from "@/app/repositories/worker-job.projection";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
@@ -179,8 +179,7 @@ export async function listOperationItems(
 		orderBy: desc(jobs.createdAt),
 		limit: options.limit ?? 50,
 		offset: options.offset ?? 0,
-		findMany: async (page) =>
-			await client.select(workerJobSummaryColumns).from(jobs).where(page.where).orderBy(page.orderBy).limit(page.limit).offset(page.offset),
+		findMany: async (page) => await readWorkerJobSummaryPage(client, page),
 		count: () => jobsAccess.count({ where }),
 	});
 

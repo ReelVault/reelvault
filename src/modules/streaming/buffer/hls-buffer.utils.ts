@@ -45,7 +45,7 @@ export function parseHlsBuffer(playlist: string, segmentDuration: number): HlsBu
 
 	const uniqueSegments = [...uniqueByIndex.values()].toSorted((left, right) => left.index - right.index);
 	const ranges = createRanges(uniqueSegments);
-	const lastRange = ranges[ranges.length - 1];
+	const lastRange = ranges.at(-1);
 
 	return {
 		complete,
@@ -74,7 +74,7 @@ function createRanges(segments: HlsBufferedSegment[]): HlsBufferRange[] {
 	const ranges: HlsBufferRange[] = [];
 
 	for (const segment of segments) {
-		const lastRange = ranges[ranges.length - 1];
+		const lastRange = ranges.at(-1);
 		if (lastRange && segment.index === lastRange.endSegment + 1) {
 			lastRange.endSegment = segment.index;
 			lastRange.endTime = segment.endTime;

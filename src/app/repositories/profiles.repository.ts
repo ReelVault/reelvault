@@ -2,8 +2,6 @@ import type {
 	CreateProfile,
 	FieldsConfig,
 	FieldsQuery,
-	PaginatedResponse,
-	PaginationQuery,
 	Profile,
 	ProfileFilters,
 	ProfileSorting,
@@ -18,7 +16,7 @@ import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.par
 import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { parseStandardQuery, type QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { type PrimaryIdReadParams, selectByIdWithFields } from "@/integrations/drizzle-orm/query/primary-id.reader";
-import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
+import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import {
 	defineRepository,
 	defineTableAccess,
@@ -135,16 +133,11 @@ const overrides = {
 		});
 	},
 
-	async findPage<F extends string>(
-		query?: PaginationQuery & FieldsQuery<F> & ProfileFilters & ProfileSorting,
-	): Promise<PaginatedResponse<SelectFields<Profile, F>>> {
-		return await findPageWithQueryMap({
-			access: profiles,
-			queryMap: profileQueryMap,
-			query,
-			findMany: (params) => profiles.findMany<F>(params),
-		});
-	},
+	findPage: definePagedFind({
+		access: profiles,
+		queryMap: profileQueryMap,
+		findMany: (params) => profiles.findMany(params),
+	}),
 
 	async createAndRead<F extends string>(
 		userId: string,

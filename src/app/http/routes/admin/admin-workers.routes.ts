@@ -20,10 +20,10 @@ import {
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { adminWorkerOperationsService } from "@/app/admin/admin-worker-operations.service";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { JobIdParams, OperationIdParams, WorkerIdParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
 /** Shared body for the three cancel endpoints. */
@@ -54,12 +54,12 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	})
 
 	.get("/workers", async () => await adminWorkerOperationsService.getWorkerSummaries(), {
-		rateLimit: { name: "admin-workers-list", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-workers-list", 120),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.workerSummaries" },
 		detail: { description: "List registered workers with queue statistics, schedules/triggers, and last execution state." },
 	})
 	.get("/workers/watchdog", () => adminWorkerOperationsService.getWatchdogState(), {
-		rateLimit: { name: "admin-workers-watchdog", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-workers-watchdog", 120),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: WorkerWatchdogStateSchema },
 		detail: {
 			description: "Polling stalls and orphaned-job recoveries of the worker watchdog, counted since this server process started.",
@@ -71,7 +71,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			return await adminWorkerOperationsService.runWorker(params.workerId, body, actorContext({ user, request }));
 		},
 		{
-			rateLimit: { name: "admin-workers-run", max: 20, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-run", 20),
 			params: WorkerIdParams,
 			// Arbitrary worker payload — each worker validates its own `data` shape.
 			body: t.Optional(t.Unknown()),
@@ -85,7 +85,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			return await adminWorkerOperationsService.runWorkerCategory(params.category, actorContext({ user, request }));
 		},
 		{
-			rateLimit: { name: "admin-workers-category-run", max: 20, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-category-run", 20),
 			params: t.Object({ category: WorkerCategorySchema }),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.workerCategoryRunResponse" },
 			detail: { description: "Run every registered worker of a category; workers already queued or running are skipped." },
@@ -99,7 +99,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			return toCancelPendingResponse(count);
 		},
 		{
-			rateLimit: { name: "admin-workers-cancel", max: 20, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-cancel", 20),
 			params: WorkerIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.cancelPendingResponse" },
 			detail: { description: "Cancel active and pending tasks in a specific worker queue." },
@@ -111,7 +111,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			return await adminWorkerOperationsService.updateWorkerTriggers(params.workerId, body.triggers, actorContext({ user, request }));
 		},
 		{
-			rateLimit: { name: "admin-workers-triggers", max: 20, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-triggers", 20),
 			params: WorkerIdParams,
 			body: UpdateTaskTriggersRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerTriggers" },
@@ -123,7 +123,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		async ({ params, body, user, request }) =>
 			await adminWorkerOperationsService.setScheduleEnabled(params.workerId, body.enabled, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-workers-enabled", max: 20, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-enabled", 20),
 			params: WorkerIdParams,
 			body: WorkerScheduleEnabledRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: WorkerScheduleStateSchema },
@@ -138,7 +138,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			return toCancelPendingResponse(count);
 		},
 		{
-			rateLimit: { name: "admin-workers-cancel-all", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-cancel-all", 10),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.cancelPendingResponse" },
 			detail: { description: "Cancel all pending items across all worker queues." },
 		},
@@ -149,7 +149,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			return await adminWorkerOperationsService.purgeHistory(body ?? {}, actorContext({ user, request }));
 		},
 		{
-			rateLimit: { name: "admin-workers-purge-history", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-purge-history", 10),
 			body: t.Optional(PurgeWorkerHistoryOptionsSchema),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.purgeHistoryResponse" },
 			detail: {
@@ -160,7 +160,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 	)
 
 	.get("/workers/jobs", async ({ query }) => await adminWorkerOperationsService.getItems(query), {
-		rateLimit: { name: "admin-workers-jobs-list", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-workers-jobs-list", 120),
 		query: t.Composite([
 			PaginationSchema,
 			t.Object({
@@ -172,7 +172,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		detail: { description: "List queued, running, and finished worker jobs, one page at a time, filtered by worker and status." },
 	})
 	.get("/workers/jobs/:jobId", async ({ params }) => await adminWorkerOperationsService.getItem(params.jobId), {
-		rateLimit: { name: "admin-workers-jobs-get", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-workers-jobs-get", 120),
 		params: JobIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerJob" },
 		detail: { description: "Retrieve a single worker job with its status, progress, and result/error." },
@@ -181,7 +181,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		"/workers/jobs/:jobId/cancel",
 		async ({ params, user, request }) => await adminWorkerOperationsService.cancelItem(params.jobId, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-workers-jobs-cancel", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-jobs-cancel", 30),
 			params: JobIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: SuccessResponseSchema },
 			detail: { description: "Cancel a pending or running worker job." },
@@ -192,14 +192,14 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		"/workers/jobs/:jobId/retry",
 		async ({ params, user, request }) => await adminWorkerOperationsService.retryItem(params.jobId, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-workers-jobs-retry", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-jobs-retry", 30),
 			params: JobIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: WorkerRetryResponseSchema },
 			detail: { description: "Re-enqueue a failed worker job as a new task with the same payload; the failed job stays in its history." },
 		},
 	)
 	.get("/workers/operations", async ({ query }) => await adminWorkerOperationsService.getOperations(query), {
-		rateLimit: { name: "admin-workers-operations-list", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-workers-operations-list", 120),
 		query: t.Composite([PaginationSchema, t.Object({ status: t.Optional(WorkerStatusFilterSchema) })]),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.workerOperations" },
 		detail: { description: "List worker operations with progress percent and status." },
@@ -212,7 +212,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			return toCancelPendingResponse(count);
 		},
 		{
-			rateLimit: { name: "admin-workers-operations-cancel-all", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-operations-cancel-all", 10),
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.cancelPendingResponse" },
 			detail: { description: "Cancel all active worker operations and their underlying jobs." },
 		},
@@ -223,13 +223,13 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 			await adminWorkerOperationsService.resumeOperation(params.operationId, actorContext({ user, request })),
 		{
 			params: OperationIdParams,
-			rateLimit: { name: "admin-workers-operations-resume", max: 20, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-operations-resume", 20),
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: t.Object({ success: t.Literal(true), resumed: t.Integer({ minimum: 0 }) }) },
 			detail: { description: "Re-enqueue the cancelled tasks of a stopped worker operation." },
 		},
 	)
 	.get("/workers/operations/:operationId", async ({ params }) => await adminWorkerOperationsService.getOperation(params.operationId), {
-		rateLimit: { name: "admin-workers-operations-get", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-workers-operations-get", 120),
 		params: OperationIdParams,
 		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "admin.workerOperation" },
 		detail: { description: "Retrieve a specific worker operation batch with progress counters." },
@@ -238,7 +238,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		"/workers/operations/:operationId/jobs",
 		async ({ params, query }) => await adminWorkerOperationsService.getOperationItems(params.operationId, query),
 		{
-			rateLimit: { name: "admin-workers-operations-jobs", max: 120, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-operations-jobs", 120),
 			params: OperationIdParams,
 			query: t.Composite([
 				PaginationSchema,
@@ -256,7 +256,7 @@ export const adminWorkersRoutes = adminShell({ tags: ["Admin"] })
 		async ({ params, user, request }) =>
 			await adminWorkerOperationsService.cancelOperation(params.operationId, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-workers-operations-cancel", max: 20, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-workers-operations-cancel", 20),
 			params: OperationIdParams,
 			response: { ...ROUTE_ERRORS.ADMIN_CONFLICT, 200: SuccessResponseSchema },
 			detail: { description: "Cancel an entire worker operation batch and all its underlying jobs." },

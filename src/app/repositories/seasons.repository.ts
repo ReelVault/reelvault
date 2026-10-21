@@ -1,12 +1,4 @@
-import type {
-	FieldsQuery,
-	PaginatedResponse,
-	PaginationQuery,
-	Season,
-	SeasonFilters,
-	SeasonSorting,
-	SelectFields,
-} from "@reelvault/sdk/common";
+import type { FieldsQuery, Season, SeasonFilters, SeasonSorting, SelectFields } from "@reelvault/sdk/common";
 import { and, asc, eq, ne, or, sql } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
@@ -14,7 +6,7 @@ import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsi
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { type FindFirstReadParams, type PrimaryIdReadParams, selectByPrimaryId } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
-import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
+import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import {
 	defineRepository,
 	defineTableAccess,
@@ -47,16 +39,11 @@ const seasonQueryMap: QueryMap<SeasonFilters, SeasonSorting> = {
 };
 
 const overrides = {
-	async findPage<F extends string>(
-		query?: PaginationQuery & FieldsQuery<F> & SeasonFilters & SeasonSorting,
-	): Promise<PaginatedResponse<SelectFields<Season, F>>> {
-		return await findPageWithQueryMap({
-			access: seasons,
-			queryMap: seasonQueryMap,
-			query,
-			findMany: (params) => seasons.findMany<F>(params),
-		});
-	},
+	findPage: definePagedFind({
+		access: seasons,
+		queryMap: seasonQueryMap,
+		findMany: (params) => seasons.findMany(params),
+	}),
 
 	async findByIdForRead<F extends string>(seasonId: string, query?: FieldsQuery<F>) {
 		return await getSeasonsRepository().findByPrimaryId({ primaryId: seasonId, fields: parseFieldsForRead(query) });

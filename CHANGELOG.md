@@ -679,6 +679,8 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed plugin state persistence** — concurrent installs can no longer overwrite `pinned` or `cspDisabled` settings.
 - **Corrupt plugin storage values now fail with a specific code** — reading a value that is not valid JSON returns `plugin.storage_corrupt` and logs the plugin and key instead of a generic internal error.
 - **Fixed plugin lifecycle isolation** — unloading a plugin no longer unregisters core workers with matching job names.
+- **Fixed the test suite hanging on a mocked module** — a module mock that called back into the module it replaced recursed forever, and a mock that named only the exports it changed left every other export undefined for the files that ran after it. Mocks now keep the real exports they do not control and are restored when their file ends, so `bun test` and the coverage run finish instead of hanging.
+- **Fixed a playback test that depended on the host's GPU** — the software-transcode cap test assumed no hardware encoder was available, so it failed on any machine with a working GPU and only passed when no other test had probed FFmpeg first. The test now pins the encoder state it relies on.
 - **Improved plugin configuration error handling** — lockfile read and write failures are no longer silently ignored when enabling or disabling plugins.
 - **Improved plugin repository diagnostics** — repository counts are accurate, and unsupported token formats now report their actual error.
 - **Improved plugin administration performance** — plugin manifests and lockfiles are no longer unnecessarily reread and parsed for every admin view.
@@ -709,6 +711,9 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed request path classification** — normalized `.` and `..` path segments can no longer bypass rate-limit exemptions or public-request classification.
 - **Improved request validation** — shared schemas now consistently validate route parameters and library field selections.
 - **Improved error diagnostics** — internal database, FFmpeg, worker, cache, concurrency, sorting and settings errors now expose specific error codes while retaining HTTP 500 responses.
+- **Corrected error type names in logs** — the missing-media-tools and plugin-route validation errors now report their own type instead of the base error class, so a log line names the failure that actually happened.
+- **Timer ticks no longer crash the server** — the realtime stale-connection sweep and the streaming session reaper now run on the shared recurring timer, so a throw inside a tick is logged instead of taking the process down.
+- **Bounded sidecar subtitle checks** — the scanner stats candidate subtitle files with a bounded fan-out, so a directory holding thousands of them no longer opens that many file handles at once.
 - **Fixed paginated result ordering** — title recommendations, media markers, admin users and sessions no longer skip or repeat rows when timestamps match.
 - **Fixed server resource monitoring** — container CPU usage now uses the container's own cgroup measurements instead of host-wide CPU usage.
 - **Fixed negative system memory readings** — usage and percentage are clamped to the effective total, so the admin dashboard no longer fails with a 500 under a constrained memory limit.

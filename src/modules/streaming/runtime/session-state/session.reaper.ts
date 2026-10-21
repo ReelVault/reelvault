@@ -11,6 +11,7 @@ import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import type { StreamingLifecycleCallbacks } from "@/modules/streaming/streaming.types";
 import { createLogger } from "@/utils/logger.utils";
 import { detach, mapConcurrent } from "@/utils/promise.utils";
+import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { isNullish } from "@/utils/type.utils";
 import { RESERVATION_DEADLINE_MS, type SessionStore } from "./session.store";
 import type { SessionReservationTracker } from "./session-reservation.tracker";
@@ -37,7 +38,7 @@ async function ignoreFailure(work: Promise<unknown>): Promise<void> {
 
 export class SessionReaper {
 	readonly logger = createLogger(this.constructor.name);
-	private cleanupTimer: Timer | null = null;
+	private cleanupTimer: RecurringTimer | null = null;
 	private readonly store: SessionStore;
 	private readonly reservations: SessionReservationTracker;
 	private readonly processManager: Pick<ProcessManager, "removeTempDirectory">;
@@ -69,83 +70,89 @@ export class SessionReaper {
 		config: { inactivityTimeout: () => number; cleanupInterval: number; isBusy?: (sessionId: string) => boolean },
 		releaseSession: (sessionId: string, reason: string, shouldRelease?: (session: { lastActivity: number }) => boolean) => Promise<unknown>,
 	): void {
-		this.cleanupTimer = setInterval(() => {
-			const now = Date.now();
-			// Read the timeout per tick so a runtime settings change applies without
-			// restarting the reaper (`cleanupInterval` still needs a restart — it is
-			// the timer period itself).
-			const timeout = config.inactivityTimeout();
-			const inactiveIds: string[] = [];
-			for (const session of this.store.values()) {
-				// `creating` sessions are governed by the reservation deadline below;
-				// `ending` sessions already have a release in flight.
-				if (session.state !== "active") continue;
+		this.cleanupTimer = new RecurringTimer(
+			() => {
+				const now = Date.now();
+				// Read the timeout per tick so a runtime settings change applies without
+				// restarting the reaper (`cleanupInterval` still needs a restart — it is
+				// the timer period itself).
+				const timeout = config.inactivityTimeout();
+				const inactiveIds: string[] = [];
+				for (const session of this.store.values()) {
+					// `creating` sessions are governed by the reservation deadline below;
+					// `ending` sessions already have a release in flight.
+					if (session.state !== "active") continue;
 
-				// An in-flight seek/restart owns the session clock — it either
-				// completes (refreshing activity) or fails without side effects.
-				if (this.seeker.isSessionSeeking(session.id)) continue;
+					// An in-flight seek/restart owns the session clock — it either
+					// completes (refreshing activity) or fails without side effects.
+					if (this.seeker.isSessionSeeking(session.id)) continue;
 
-				// A long segment wait (up to ~33 s) counts as activity even though it
-				// does not touch the clock while blocked.
-				if (config.isBusy?.(session.id)) continue;
+					// A long segment wait (up to ~33 s) counts as activity even though it
+					// does not touch the clock while blocked.
+					if (config.isBusy?.(session.id)) continue;
 
-				if (now - session.lastActivity > timeout) inactiveIds.push(session.id);
-			}
+					if (now - session.lastActivity > timeout) inactiveIds.push(session.id);
+				}
 
-			if (inactiveIds.length > 0) {
-				detach(
-					(async () => {
-						try {
-							await mapConcurrent(inactiveIds, systemResourcesService.getHeavySubprocessConcurrency(), (id) =>
-								// Re-check freshness atomically at claim time: a heartbeat that arrived
-								// after this tick must cancel the release.
-								releaseSession(id, "inactivity-timeout", (session) => Date.now() - session.lastActivity > timeout),
-							);
-						} catch {
-							// releaseSession owns its error reporting; reaping must keep running.
-						}
-					})(),
-				);
-			}
+				if (inactiveIds.length > 0) {
+					detach(
+						(async () => {
+							try {
+								await mapConcurrent(inactiveIds, systemResourcesService.getHeavySubprocessConcurrency(), (id) =>
+									// Re-check freshness atomically at claim time: a heartbeat that arrived
+									// after this tick must cancel the release.
+									releaseSession(id, "inactivity-timeout", (session) => Date.now() - session.lastActivity > timeout),
+								);
+							} catch {
+								// releaseSession owns its error reporting; reaping must keep running.
+							}
+						})(),
+					);
+				}
 
-			// A `creating` session past the deadline with no process is stuck. Do NOT
-			// also require `reservations.isPending(id)`: a start failure releases the
-			// reservation while leaving the entity, so the session became invisible
-			// to both reaper branches and leaked until process restart.
-			const deadlineMs = systemResourcesService.scaledTimeoutMs(RESERVATION_DEADLINE_MS);
-			const candidates = this.store.findStaleReservations(now, deadlineMs).filter((id) => !this.store.isAttached(id));
-			if (candidates.length > 0) {
-				detach(
-					(async () => {
-						try {
-							// A queued stream-init job (heavy-subprocess concurrency is 1-2) can
-							// outlive the deadline under load — releasing then makes startSession 404.
-							const operationIds = candidates
-								.map((id) => this.store.get(id)?.operationId)
-								.filter((operationId): operationId is string => operationId !== undefined);
-							const activeOperations = await streamingStorage().findActiveOperations(operationIds);
-							const staleIds = candidates.filter((id) => {
-								const operationId = this.store.get(id)?.operationId;
+				// A `creating` session past the deadline with no process is stuck. Do NOT
+				// also require `reservations.isPending(id)`: a start failure releases the
+				// reservation while leaving the entity, so the session became invisible
+				// to both reaper branches and leaked until process restart.
+				const deadlineMs = systemResourcesService.scaledTimeoutMs(RESERVATION_DEADLINE_MS);
+				const candidates = this.store.findStaleReservations(now, deadlineMs).filter((id) => !this.store.isAttached(id));
+				if (candidates.length > 0) {
+					detach(
+						(async () => {
+							try {
+								// A queued stream-init job (heavy-subprocess concurrency is 1-2) can
+								// outlive the deadline under load — releasing then makes startSession 404.
+								const operationIds = candidates
+									.map((id) => this.store.get(id)?.operationId)
+									.filter((operationId): operationId is string => operationId !== undefined);
+								const activeOperations = await streamingStorage().findActiveOperations(operationIds);
+								const staleIds = candidates.filter((id) => {
+									const operationId = this.store.get(id)?.operationId;
 
-								return !(operationId && activeOperations.has(operationId));
-							});
+									return !(operationId && activeOperations.has(operationId));
+								});
 
-							if (staleIds.length === 0) return;
+								if (staleIds.length === 0) return;
 
-							this.logger.warn("Releasing session reservations stuck without a running process", { sessionIds: staleIds });
-							await mapConcurrent(staleIds, systemResourcesService.getHeavySubprocessConcurrency(), (id) =>
-								releaseSession(id, "reservation-deadline"),
-							);
-						} catch {
-							// releaseSession owns its error reporting; reaping must keep running.
-						}
-					})(),
-				);
-			}
+								this.logger.warn("Releasing session reservations stuck without a running process", { sessionIds: staleIds });
+								await mapConcurrent(staleIds, systemResourcesService.getHeavySubprocessConcurrency(), (id) =>
+									releaseSession(id, "reservation-deadline"),
+								);
+							} catch {
+								// releaseSession owns its error reporting; reaping must keep running.
+							}
+						})(),
+					);
+				}
 
-			this.store.cleanupTerminatedSessions(5 * MINUTE);
-		}, config.cleanupInterval);
-		this.cleanupTimer.unref();
+				this.store.cleanupTerminatedSessions(5 * MINUTE);
+			},
+			config.cleanupInterval,
+			(error) => {
+				this.logger.error("Streaming session reaper tick failed", error);
+			},
+		);
+		this.cleanupTimer.start();
 	}
 
 	async finalizeRelease(
@@ -223,10 +230,8 @@ export class SessionReaper {
 	async shutdown(releaseSession: (sessionId: string, reason: string) => Promise<unknown>): Promise<void> {
 		this.logger.info("Shutting down streaming system...");
 
-		if (this.cleanupTimer) {
-			clearInterval(this.cleanupTimer);
-			this.cleanupTimer = null;
-		}
+		this.cleanupTimer?.stop();
+		this.cleanupTimer = null;
 
 		this.seeker.cancelAll("Streaming system is shutting down");
 

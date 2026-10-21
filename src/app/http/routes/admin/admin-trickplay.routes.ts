@@ -9,11 +9,11 @@ import {
 import { t } from "elysia";
 import { recordAuditSafe } from "@/app/admin/admin-audit.service";
 import { mediaArtifactsService } from "@/app/artifacts/media-artifacts.service";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { MediaFileIdParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { trickplayAdminService } from "@/app/trickplay/trickplay-admin.service";
-import { MINUTE } from "@/config/server/server.constants";
 import { unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
@@ -88,7 +88,7 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 			return { ...result, dryRun };
 		},
 		{
-			rateLimit: { name: "admin-trickplay-delete-bulk", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-trickplay-delete-bulk", 10),
 			body: t.Object({
 				mediaFileIds: t.Array(t.String({ minLength: 1, maxLength: 128 }), { minItems: 1, maxItems: 500 }),
 				dryRun: t.Optional(t.Boolean()),
@@ -124,7 +124,7 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 			return status(202, { enqueued: items.length, ...(operationId ? { operationId } : {}) });
 		},
 		{
-			rateLimit: { name: "admin-trickplay-generate-all", max: 5, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-trickplay-generate-all", 5),
 			response: {
 				...ROUTE_ERRORS.ADMIN,
 				202: t.Object({ enqueued: t.Number(), operationId: t.Optional(t.String()) }),
@@ -152,7 +152,7 @@ export const adminTrickplayRoutes = adminShell({ prefix: "/trickplay", tags: ["A
 			});
 		},
 		{
-			rateLimit: { name: "admin-trickplay-regenerate", max: 5, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-trickplay-regenerate", 5),
 			body: TrickplayRegenerateRequestSchema,
 			response: { ...ROUTE_ERRORS.ADMIN, 202: TrickplayRegenerationQueuedSchema },
 			detail: {

@@ -6,10 +6,10 @@ import {
 	UpdateCollectionSchema,
 } from "@reelvault/sdk/common";
 import { collectionsService } from "@/app/catalog/collections.service";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { CollectionIdParams } from "@/app/http/schemas/route-params.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
 export const adminCollectionsRoutes = adminShell({ tags: ["Admin"] })
@@ -23,7 +23,7 @@ export const adminCollectionsRoutes = adminShell({ tags: ["Admin"] })
 		async ({ params, body, query, user, request }) =>
 			await collectionsService.update(params.collectionId, body, query, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-collections-update", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-collections-update", 30),
 			params: CollectionIdParams,
 			body: "admin.updateCollection",
 			query: "fields.schema",
@@ -36,7 +36,7 @@ export const adminCollectionsRoutes = adminShell({ tags: ["Admin"] })
 		async ({ params, body, user, request }) =>
 			await collectionsService.updateManualOrder(params.collectionId, body.metadataIds, actorContext({ user, request })),
 		{
-			rateLimit: { name: "admin-collections-order", max: 30, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-collections-order", 30),
 			params: CollectionIdParams,
 			body: "admin.updateCollectionOrder",
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: SuccessResponseSchema },

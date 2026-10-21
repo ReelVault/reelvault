@@ -18,6 +18,16 @@ const MAX_MARKER_LIST_ROWS = 5000;
 /** Admin list filters plus the row cap. */
 export type MediaMarkerListQuery = MediaMarkerFilters & { limit?: number };
 
+/**
+ * The scope a producer owns: its plugin id, or its source. A producer that
+ * passes neither owns every marker of the file.
+ */
+function markerScopeWhere(options?: { pluginId?: string; source?: "automatic" | "manual" | "plugin" }): SQL | undefined {
+	if (options?.pluginId !== undefined) return eq(mediaMarkers.table.pluginId, options.pluginId);
+	if (options?.source) return eq(mediaMarkers.table.source, options.source);
+	return undefined;
+}
+
 /** Filters are ANDed. `q` matches as a substring of the label, file id, plugin id or type. */
 function markerListWhere(query: MediaMarkerListQuery): SQL | undefined {
 	const term = query.q?.trim();
@@ -92,12 +102,9 @@ const overrides = {
 			// Scoped replace: a caller passing a scope (pluginId / source) replaces
 			// only its own markers — wiping the whole file would let two producers
 			// overwrite each other and destroy manually created markers.
-			let deleteWhere: SQL | undefined = eq(mediaMarkers.table.mediaFileId, mediaFileId);
-			if (options?.pluginId !== undefined) {
-				deleteWhere = and(deleteWhere, eq(mediaMarkers.table.pluginId, options.pluginId));
-			} else if (options?.source) {
-				deleteWhere = and(deleteWhere, eq(mediaMarkers.table.source, options.source));
-			}
+			const scope = markerScopeWhere(options);
+			const fileScope = eq(mediaMarkers.table.mediaFileId, mediaFileId);
+			const deleteWhere = scope ? and(fileScope, scope) : fileScope;
 
 			await getMediaMarkersRepository().delete({ where: deleteWhere, tx: targetTx });
 
@@ -146,13 +153,10 @@ const overrides = {
 			);
 
 			// Scoped replace, like the single-file path: a producer only wipes its own rows.
+			const scope = markerScopeWhere(options);
 			await forEachChunked(mediaFileIds, (chunkIds) => {
-				let deleteWhere: SQL | undefined = inArray(mediaMarkers.table.mediaFileId, chunkIds);
-				if (options?.pluginId !== undefined) {
-					deleteWhere = and(deleteWhere, eq(mediaMarkers.table.pluginId, options.pluginId));
-				} else if (options?.source) {
-					deleteWhere = and(deleteWhere, eq(mediaMarkers.table.source, options.source));
-				}
+				const fileScope = inArray(mediaMarkers.table.mediaFileId, chunkIds);
+				const deleteWhere = scope ? and(fileScope, scope) : fileScope;
 
 				return getMediaMarkersRepository().delete({ where: deleteWhere, tx: targetTx });
 			});

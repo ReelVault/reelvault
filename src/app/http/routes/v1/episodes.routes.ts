@@ -1,17 +1,9 @@
-import {
-	BulkRefreshBodySchema,
-	BulkRefreshResultSchema,
-	EpisodeFiltersSchema,
-	EpisodeSortingSchema,
-	EpisodeWithRelationsSchema,
-} from "@reelvault/sdk/common";
+import { EpisodeFiltersSchema, EpisodeSortingSchema, EpisodeWithRelationsSchema } from "@reelvault/sdk/common";
 import { episodesService } from "@/app/catalog/episodes.service";
-import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { EpisodeIdParams } from "@/app/http/schemas/route-params.schema";
-import { MINUTE } from "@/config/server/server.constants";
-import { createCatalogResourceRoutes } from "./shared/create-catalog-resource.routes";
+import { createRefreshableCatalogResourceRoutes } from "./shared/create-catalog-resource.routes";
 
-export const episodesRoutes = createCatalogResourceRoutes({
+export const episodesRoutes = createRefreshableCatalogResourceRoutes({
 	prefix: "/episodes",
 	tag: "Episodes",
 	name: "episode",
@@ -25,43 +17,14 @@ export const episodesRoutes = createCatalogResourceRoutes({
 		list: "Retrieve a paginated list of episodes, optionally filtered by seasonId.",
 		detail: "Retrieve detailed information about a specific episode by its ID.",
 	},
-})
-	.post("/:episodeId/refresh", async ({ params }) => await episodesService.refresh(params.episodeId), {
-		adminOnly: true,
-		rateLimit: {
-			name: "episode-refresh",
-			max: 30,
-			windowMs: MINUTE,
+	refresh: {
+		refresh: (id) => episodesService.refresh(id),
+		refreshImage: (id) => episodesService.refreshImage(id),
+		refreshMany: (ids) => episodesService.refreshMany(ids),
+		descriptions: {
+			refresh: "Refresh episode metadata and download thumbnail if missing.",
+			refreshImage: "Force download and replace episode thumbnail.",
+			refreshMany: "Refresh up to 50 episodes in turn. Each id reports its own outcome, so one failure does not stop the others.",
 		},
-		params: EpisodeIdParams,
-		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "episode.schema" },
-		detail: {
-			description: "Refresh episode metadata and download thumbnail if missing.",
-		},
-	})
-	.post("/:episodeId/refresh-image", async ({ params }) => await episodesService.refreshImage(params.episodeId), {
-		adminOnly: true,
-		rateLimit: {
-			name: "episode-refresh-image",
-			max: 30,
-			windowMs: MINUTE,
-		},
-		params: EpisodeIdParams,
-		response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: "episode.schema" },
-		detail: {
-			description: "Force download and replace episode thumbnail.",
-		},
-	})
-	.post("/bulk-refresh", async ({ body }) => await episodesService.refreshMany(body.ids), {
-		adminOnly: true,
-		rateLimit: {
-			name: "episode-bulk-refresh",
-			max: 30,
-			windowMs: MINUTE,
-		},
-		body: BulkRefreshBodySchema,
-		response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkRefreshResultSchema },
-		detail: {
-			description: "Refresh up to 50 episodes in turn. Each id reports its own outcome, so one failure does not stop the others.",
-		},
-	});
+	},
+});

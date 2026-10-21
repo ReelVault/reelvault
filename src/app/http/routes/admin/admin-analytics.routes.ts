@@ -1,15 +1,15 @@
 import { AdminAnalyticsSchema } from "@reelvault/sdk/common";
 import { t } from "elysia";
 import { adminAnalyticsService } from "@/app/admin/admin-analytics.service";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
-import { MINUTE } from "@/config/server/server.constants";
 import { adminShell } from "./admin-shell.routes";
 
 export const adminAnalyticsRoutes = adminShell({ prefix: "/analytics", tags: ["Admin"] }).get(
 	"",
 	async ({ query }) => await adminAnalyticsService.getAnalytics(query.days),
 	{
-		rateLimit: { name: "admin-analytics", max: 60, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-analytics", 60),
 		query: t.Object({
 			days: t.Optional(t.Numeric({ minimum: 1, maximum: 365 })),
 		}),

@@ -21,14 +21,16 @@ import { selectManyWithFields } from "./field-projection.utils";
 import { cachedCount, filterSignature } from "./row-count.cache";
 import type { SelectManyParams, TableAccess, TableAccessBase, TableSelect } from "./table-access.types";
 
-type FindManyPageFn<F extends string, TRow> = (params: {
+interface FindManyPageParams<F extends string> {
 	where?: SQL | undefined;
 	orderBy?: SQL | undefined;
 	fields?: FieldsConfig<F> | undefined;
 	limit?: number | undefined;
 	offset?: number | undefined;
 	tx?: DatabaseTransaction | undefined;
-}) => Promise<TRow[]>;
+}
+
+type FindManyPageFn<F extends string, TRow> = (params: FindManyPageParams<F>) => Promise<TRow[]>;
 
 /**
  * Paginated list over a table access with a caller-supplied page loader.
@@ -71,6 +73,28 @@ export async function findPageWithQueryMap<
 	const [total, data] = await Promise.all([countPromise, findMany(pageParams)]);
 
 	return createPageResponse({ total, pagination, data });
+}
+
+/**
+ * Builds the standard paginated-list delegate of a repository.
+ *
+ * The query map owns the filters and the sort; the loader returns the page
+ * rows, so a repository that hydrates relations keeps its enriched row type.
+ */
+export function definePagedFind<TTable extends DatabaseTables, TFilters extends object, TSorting extends SortQuery, TRow>(options: {
+	access: TableAccess<TTable>;
+	queryMap: QueryMap<TFilters, TSorting>;
+	findMany: <F extends string>(params: FindManyPageParams<F>) => Promise<Array<SelectFields<TRow, F>>>;
+}) {
+	return async <F extends string>(
+		query?: PaginationQuery & FieldsQuery<F> & TFilters & TSorting,
+	): Promise<PaginatedResponse<SelectFields<TRow, F>>> =>
+		await findPageWithQueryMap<TTable, TFilters, TSorting, F, SelectFields<TRow, F>>({
+			access: options.access,
+			queryMap: options.queryMap,
+			query,
+			findMany: options.findMany,
+		});
 }
 
 export async function findById<TTable extends DatabaseTables, F extends string>(

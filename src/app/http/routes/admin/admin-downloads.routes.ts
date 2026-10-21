@@ -1,14 +1,14 @@
 import { AdminDownloadsResponseSchema, SuccessResponseSchema } from "@reelvault/sdk/common";
 import { t } from "elysia";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { PaginationSchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { JobIdParams } from "@/app/http/schemas/route-params.schema";
-import { MINUTE } from "@/config/server/server.constants";
 import { downloadsService } from "@/modules/downloads/downloads.service";
 import { adminShell } from "./admin-shell.routes";
 
 export const adminDownloadsRoutes = adminShell({ prefix: "/downloads", tags: ["Admin"] })
 	.get("/jobs", async ({ query }) => await downloadsService.listAllPage(query), {
-		rateLimit: { name: "admin-downloads-jobs", max: 60, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-downloads-jobs", 60),
 		query: t.Composite([
 			PaginationSchema,
 			t.Object({
@@ -23,7 +23,7 @@ export const adminDownloadsRoutes = adminShell({ prefix: "/downloads", tags: ["A
 		},
 	})
 	.delete("/jobs/:jobId", async ({ params }) => await downloadsService.delete(params.jobId), {
-		rateLimit: { name: "admin-downloads-delete", max: 30, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-downloads-delete", 30),
 		params: JobIdParams,
 		response: { 200: SuccessResponseSchema, 404: "error.response" },
 		detail: { description: "Delete any user's download job and file (admin)." },

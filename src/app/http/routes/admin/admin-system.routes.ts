@@ -21,11 +21,11 @@ import { adminFfmpegCapabilitiesService } from "@/app/admin/admin-ffmpeg-capabil
 import { adminResourcesService, RESOURCE_HISTORY_MAX_HOURS } from "@/app/admin/admin-resources.service";
 import { metadataService } from "@/app/catalog/metadata/metadata.service";
 import { metadataRefreshQueueService } from "@/app/catalog/metadata/refresh/metadata-refresh-queue.service";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { cached } from "@/app/http/middleware/response-cache.middleware";
-import { ClampedNumeric, paginationQueryFields, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
+import { BinaryResponseSchema, ClampedNumeric, paginationQueryFields, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { actorContext } from "@/app/http/utils/audit-context.utils";
 import { attachmentResponse } from "@/app/http/utils/binary-response.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
 import { RefreshMetadataSchema } from "./admin.schema";
 import { adminShell } from "./admin-shell.routes";
@@ -42,6 +42,9 @@ const AuditFilterFields = {
 	to: t.Optional(t.String({ format: "date-time" })),
 };
 
+/** The resource-history window both resource routes accept. */
+const ResourceHistoryHours = t.Optional(ClampedNumeric(1, RESOURCE_HISTORY_MAX_HOURS, { default: 24 }));
+
 export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.refreshMetadata": RefreshMetadataSchema,
@@ -54,7 +57,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		query: t.Object({
 			path: t.Optional(t.String()),
 		}),
-		rateLimit: { name: "admin-filesystem-browse", max: 30, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-filesystem-browse", 30),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.filesystemBrowse" },
 		detail: {
 			description: "Browse directories on the server filesystem for library configuration.",
@@ -74,7 +77,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		},
 	})
 	.post("/image-cache/purge", async () => await adminService.purgeImageCache(), {
-		rateLimit: { name: "admin-image-cache-purge", max: 10, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-image-cache-purge", 10),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: ImageCachePurgeResultSchema },
 		detail: {
 			description:
@@ -111,7 +114,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		},
 	})
 	.get("/resources", async ({ query }) => await adminResourcesService.getResourcesView(query.hours), {
-		query: t.Object({ hours: t.Optional(ClampedNumeric(1, RESOURCE_HISTORY_MAX_HOURS, { default: 24 })) }),
+		query: t.Object({ hours: ResourceHistoryHours }),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminResourcesResponseSchema },
 		// The monitoring page polls this continuously; a 2s body cache collapses
 		// bursts (compression memoized) without hiding live movement.
@@ -128,20 +131,20 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 			return attachmentResponse(exported.body, { filename: exported.filename, contentType: exported.contentType });
 		},
 		{
-			rateLimit: { name: "admin-resources-export", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-resources-export", 10),
 			query: t.Object({
-				hours: t.Optional(ClampedNumeric(1, RESOURCE_HISTORY_MAX_HOURS, { default: 24 })),
+				hours: ResourceHistoryHours,
 				format: t.Optional(t.Union([t.Literal("csv"), t.Literal("json")])),
 			}),
 			// Binary-style attachment: the handler returns a Response, not JSON.
-			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
+			response: { ...ROUTE_ERRORS.ADMIN, ...BinaryResponseSchema },
 			detail: {
 				description: "Download every resource sample of the history window as CSV or JSON.",
 			},
 		},
 	)
 	.get("/ffmpeg-capabilities", () => adminFfmpegCapabilitiesService.getCapabilities(), {
-		rateLimit: { name: "admin-ffmpeg-capabilities", max: 30, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-ffmpeg-capabilities", 30),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminFfmpegCapabilitiesSchema },
 		detail: {
 			description:
@@ -149,7 +152,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		},
 	})
 	.post("/ffmpeg-capabilities/refresh", async () => await adminFfmpegCapabilitiesService.refreshCapabilities(), {
-		rateLimit: { name: "admin-ffmpeg-capabilities-refresh", max: 5, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-ffmpeg-capabilities-refresh", 5),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminFfmpegCapabilitiesSchema },
 		detail: {
 			description:
@@ -170,7 +173,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		detail: { description: "Resource types and administrators in the audit log, for the audit filter dropdowns." },
 	})
 	.get("/audit/summary", async ({ query }) => await adminAuditService.getSummary(query), {
-		rateLimit: { name: "admin-audit-summary", max: 60, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-audit-summary", 60),
 		query: t.Object({ ...AuditFilterFields, limit: t.Optional(ClampedNumeric(1, 50)) }),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: AdminAuditSummarySchema },
 		detail: { description: "Activity per administrator for the audit filters: totals per action and the latest entry." },
@@ -183,13 +186,13 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 			return attachmentResponse(exported.body, { filename: exported.filename, contentType: exported.contentType });
 		},
 		{
-			rateLimit: { name: "admin-audit-export", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("admin-audit-export", 10),
 			query: t.Object({
 				...AuditFilterFields,
 				format: t.Optional(t.Union([t.Literal("csv"), t.Literal("jsonl")])),
 			}),
 			// Attachment download: the handler returns a Response, not JSON.
-			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
+			response: { ...ROUTE_ERRORS.ADMIN, ...BinaryResponseSchema },
 			detail: {
 				description: "Download the audit entries matching the filters as CSV or JSON Lines, up to 10 000 entries.",
 			},

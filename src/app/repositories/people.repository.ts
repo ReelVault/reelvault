@@ -19,6 +19,7 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { applyFields, includesField } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { filterEquals } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { parseStandardQuery, type QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
+import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
@@ -124,11 +125,7 @@ const overrides = {
 		primaryId,
 		fields,
 		tx,
-	}: {
-		primaryId: string;
-		fields?: FieldsConfig<F> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<PersonWithRelations, F> | undefined> {
+	}: PrimaryIdReadParams<F>): Promise<SelectFields<PersonWithRelations, F> | undefined> {
 		const person = await people.selectFirstById({ primaryId, tx });
 
 		if (!person) return undefined;

@@ -17,6 +17,7 @@ import { applyFields, includesField } from "@/integrations/drizzle-orm/query/par
 import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
+import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
@@ -122,7 +123,6 @@ const overrides = {
 			findMany: (params) => getEpisodesRepository().findMany(params),
 		});
 	},
-
 	async findByIdForRead<F extends string>(episodeId: string, query?: FieldsQuery<F>) {
 		return await getEpisodesRepository().findByPrimaryId({ primaryId: episodeId, fields: parseFieldsForRead(query) });
 	},
@@ -240,11 +240,7 @@ const overrides = {
 		primaryId,
 		fields,
 		tx,
-	}: {
-		primaryId: string;
-		fields?: FieldsConfig<F> | undefined;
-		tx?: DatabaseTransaction | undefined;
-	}): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
+	}: PrimaryIdReadParams<F>): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
 		// Default projection: row and media files ride one prepared statement. An
 		// explicit relation projection keeps the per-relation read with its columns.
 		if (!fields?.relations.mediaFiles?.length && includesField(fields, "mediaFiles")) {

@@ -7,7 +7,6 @@ import type { WorkerOperationStatus } from "@/workers/worker.ports";
 
 export type {
 	CreateWorkerOperationInput,
-	TerminalOperationsOptions,
 	WorkerOperation,
 	WorkerOperationRecord,
 	WorkerOperationStatus,

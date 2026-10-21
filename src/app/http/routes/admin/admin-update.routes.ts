@@ -5,6 +5,7 @@ import {
 	AdminUpdateStatusSchema,
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { PaginationQuerySchema, ROUTE_ERRORS } from "@/app/http/schemas/common.schema";
 import { updateCheckService } from "@/app/updates/update-check.service";
 import { describeUpdateEnvironment } from "@/app/updates/update-environment.utils";
@@ -45,7 +46,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		"admin.updateHistory": AdminUpdateHistoryPageSchema,
 	})
 	.get("/status", async () => await buildUpdateStatus(false), {
-		rateLimit: { name: "admin-update-status", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-update-status", 120),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateStatus" },
 		detail: {
 			description:
@@ -53,7 +54,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		},
 	})
 	.post("/check", async () => await buildUpdateStatus(true), {
-		rateLimit: { name: "admin-update-check", max: 5, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-update-check", 5),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateStatus" },
 		detail: {
 			description: "Force a refresh of both GitHub release checks, bypassing the cache.",
@@ -63,7 +64,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		"/install",
 		async ({ body, user }) => await updateInstallService.startInstall(body.target, user?.id ?? null, { force: body.force }),
 		{
-			rateLimit: { name: "admin-update-install", max: 3, windowMs: 10 * MINUTE },
+			rateLimit: routeLimit("admin-update-install", 3, 10 * MINUTE),
 			body: ActionBody,
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateInstall" },
 			detail: {
@@ -73,7 +74,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		},
 	)
 	.post("/rollback", ({ body, user }) => updateInstallService.startRollback(body.target, user?.id ?? null, { force: body.force }), {
-		rateLimit: { name: "admin-update-rollback", max: 3, windowMs: 10 * MINUTE },
+		rateLimit: routeLimit("admin-update-rollback", 3, 10 * MINUTE),
 		body: ActionBody,
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateInstall" },
 		detail: {
@@ -82,7 +83,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		},
 	})
 	.post("/cancel", ({ body }) => updateInstallService.cancelInstall(body.target), {
-		rateLimit: { name: "admin-update-cancel", max: 10, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-update-cancel", 10),
 		body: TargetBody,
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateCancel" },
 		detail: {
@@ -91,7 +92,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		},
 	})
 	.get("/history", async ({ query }) => await updateHistoryService.list(query), {
-		rateLimit: { name: "admin-update-history", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("admin-update-history", 120),
 		query: PaginationQuerySchema({ maxLimit: 50 }),
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateHistory" },
 		detail: {

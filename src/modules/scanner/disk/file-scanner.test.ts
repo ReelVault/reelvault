@@ -3,14 +3,19 @@ import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { scanFiles as actualScanFiles, scanFilesWithStats as actualScanFilesWithStats, removeTreeSync } from "@/utils/directory.utils";
-import { mockModule } from "../../../../tests/helpers/module-mock.helper";
+import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
 import { FileScannerService, fileScannerService, matchesIgnorePattern } from "./file.scanner";
 
-let scanFilesWithStatsImpl = actualScanFilesWithStats;
-mockModule("@/utils/directory.utils", () => ({
-	scanFiles: actualScanFiles,
+// The mock replaces the module, so the real implementations are captured before
+// it lands: a mock that called back into the module it replaces would recurse.
+const realScanFiles = actualScanFiles;
+const realScanFilesWithStats = actualScanFilesWithStats;
+
+let scanFilesWithStatsImpl = realScanFilesWithStats;
+mockModuleWithRealExports("@/utils/directory.utils", {
+	scanFiles: realScanFiles,
 	scanFilesWithStats: (...args: Parameters<typeof scanFilesWithStatsImpl>) => scanFilesWithStatsImpl(...args),
-}));
+});
 
 let root: string;
 
@@ -26,6 +31,8 @@ beforeAll(() => {
 
 afterAll(() => {
 	removeTreeSync(root);
+	// The next test file must get the real module back.
+	restoreModuleMocks();
 });
 
 describe("FileScannerService.scan", () => {

@@ -7,8 +7,7 @@
 export function parseColonSeparatedSeconds(value: string): number {
 	const parts = value.split(":");
 	let total = 0;
-	for (let i = 0; i < parts.length; i++) {
-		const partStr = parts[i];
+	for (const partStr of parts) {
 		if (!partStr) return Number.NaN;
 
 		const part = Number.parseFloat(partStr);

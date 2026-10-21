@@ -1,9 +1,8 @@
 import { HealthLiveResponseSchema, HealthResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
-import { rateLimitMiddleware } from "@/app/http/middleware/rate-limit.middleware";
+import { rateLimitMiddleware, routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import { healthService } from "@/app/server/health.service";
-import { MINUTE } from "@/config/server/server.constants";
 import { coerceBoolean } from "@/utils/type.utils";
 
 export const healthRoutes = new Elysia({
@@ -16,7 +15,7 @@ export const healthRoutes = new Elysia({
 		"health.response": HealthResponseSchema,
 	})
 	.get("/live", () => ({ status: "ok" as const, uptime: process.uptime() }), {
-		rateLimit: { name: "health-live", max: 120, windowMs: MINUTE },
+		rateLimit: routeLimit("health-live", 120),
 		response: { 200: HealthLiveResponseSchema },
 		detail: { description: "Liveness probe: the process is up. Probes no dependency, so it never fails while the server runs." },
 	})
@@ -28,7 +27,7 @@ export const healthRoutes = new Elysia({
 			return result.status === "ok" ? result : status(503, result);
 		},
 		{
-			rateLimit: { name: "health-ready", max: 120, windowMs: MINUTE },
+			rateLimit: routeLimit("health-ready", 120),
 			response: { 200: "health.response", 503: "health.response" },
 			detail: { description: "Readiness probe: 200 when the database responds, 503 otherwise. Public and unauthenticated." },
 		},
@@ -49,7 +48,7 @@ export const healthRoutes = new Elysia({
 			return result;
 		},
 		{
-			rateLimit: { name: "health", max: 60, windowMs: MINUTE },
+			rateLimit: routeLimit("health", 60),
 			query: t.Object({
 				fresh: t.Optional(t.String()),
 			}),

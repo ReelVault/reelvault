@@ -20,12 +20,13 @@ import {
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/app/http/middleware/auth.middleware";
+import { routeLimit } from "@/app/http/middleware/rate-limit.middleware";
 import {
+	BinaryResponseSchema,
 	ClampedNumeric,
 	commonModel,
-	FieldsSchema,
+	listQuerySchema,
 	PaginatedResponseSchema,
-	PaginationSchema,
 	ROUTE_ERRORS,
 } from "@/app/http/schemas/common.schema";
 import { MediaFileArtifactParams, MediaFileIdParams, OperationIdParams } from "@/app/http/schemas/route-params.schema";
@@ -65,11 +66,7 @@ export const mediaFilesRoutes = new Elysia({
 		},
 		{
 			adminOnly: true,
-			rateLimit: {
-				name: "media-files-audit",
-				max: 10,
-				windowMs: MINUTE,
-			},
+			rateLimit: routeLimit("media-files-audit", 10),
 			deduplicate: {},
 			response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 			detail: {
@@ -87,7 +84,7 @@ export const mediaFilesRoutes = new Elysia({
 		},
 	})
 	.get("/", async ({ query }) => await mediaService.getAll(query), {
-		query: t.Composite([PaginationSchema, FieldsSchema, MediaFileFiltersSchema, MediaFileSortingSchema]),
+		query: listQuerySchema({ filters: MediaFileFiltersSchema, sorting: MediaFileSortingSchema }),
 		response: { ...ROUTE_ERRORS.AUTH, 200: "media-files.paginated.schema" },
 		detail: {
 			description: "Retrieve a paginated list of media files with extensive filtering by library, metadata, and technical properties.",
@@ -95,11 +92,7 @@ export const mediaFilesRoutes = new Elysia({
 	})
 	.post("/refresh", async ({ status, user, request }) => status(202, await mediaService.refreshAll(actorContext({ user, request }))), {
 		adminOnly: true,
-		rateLimit: {
-			name: "media-files-refresh-all",
-			max: 1,
-			windowMs: 5 * MINUTE,
-		},
+		rateLimit: routeLimit("media-files-refresh-all", 1, 5 * MINUTE),
 		response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 		detail: {
 			description: "Queue a refresh of technical data and linked metadata for all media files.",
@@ -110,7 +103,7 @@ export const mediaFilesRoutes = new Elysia({
 		async ({ body, user, request }) => await mediaService.deleteMany(body.ids, { force: body.force }, actorContext({ user, request })),
 		{
 			adminOnly: true,
-			rateLimit: { name: "media-files-bulk-delete", max: 10, windowMs: MINUTE },
+			rateLimit: routeLimit("media-files-bulk-delete", 10),
 			body: BulkDeleteBodySchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 200: BulkDeleteResultSchema },
 			detail: {
@@ -124,11 +117,7 @@ export const mediaFilesRoutes = new Elysia({
 		async ({ body, status, user, request }) => status(202, await mediaService.refreshMany(body.ids, actorContext({ user, request }))),
 		{
 			adminOnly: true,
-			rateLimit: {
-				name: "media-files-bulk-refresh",
-				max: 30,
-				windowMs: MINUTE,
-			},
+			rateLimit: routeLimit("media-files-bulk-refresh", 30),
 			body: BulkRefreshBodySchema,
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN, 202: BulkRefreshResultSchema },
 			detail: {
@@ -147,7 +136,7 @@ export const mediaFilesRoutes = new Elysia({
 			adminOnly: true,
 			query: MediaMarkerFiltersSchema,
 			// Attachment download: the handler returns a Response, not JSON.
-			response: { ...ROUTE_ERRORS.ADMIN, 200: t.Any() },
+			response: { ...ROUTE_ERRORS.ADMIN, ...BinaryResponseSchema },
 			detail: {
 				description:
 					"Download every timeline marker matching the filters as NDJSON, one marker per line, for backup or for moving them to another server.",
@@ -217,11 +206,7 @@ export const mediaFilesRoutes = new Elysia({
 		},
 		{
 			params: MediaFileArtifactParams,
-			response: {
-				// Binary artifact body — handler returns a Response (streamed file), not JSON.
-				...ROUTE_ERRORS.ADMIN_NOT_FOUND,
-				200: t.Any(),
-			},
+			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, ...BinaryResponseSchema },
 			detail: {
 				description: "Read an artifact through the server without exposing its storage path.",
 			},
@@ -299,11 +284,7 @@ export const mediaFilesRoutes = new Elysia({
 		},
 		{
 			adminOnly: true,
-			rateLimit: {
-				name: "media-file-scan",
-				max: 10,
-				windowMs: MINUTE,
-			},
+			rateLimit: routeLimit("media-file-scan", 10),
 			params: MediaFileIdParams,
 			body: t.Optional(
 				t.Object({
