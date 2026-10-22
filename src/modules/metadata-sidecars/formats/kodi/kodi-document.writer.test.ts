@@ -67,16 +67,16 @@ describe("buildKodiDocument", () => {
 	});
 
 	test("season documents carry the season number", () => {
-		const season = buildKodiDocument("/media/Show/season03.nfo", snapshot({ seasonNumber: 3 }));
+		const seasonDocument = buildKodiDocument("/media/Show/season03.nfo", snapshot({ seasonNumber: 3 }));
 
-		expect(season.values).toMatchObject({ seasonnumber: 3 });
+		expect(seasonDocument.values).toMatchObject({ seasonnumber: 3 });
 	});
 
 	test("episode documents carry placement numbers and the aired date", () => {
-		const episode = buildKodiDocument("/media/Show/s01e01.nfo", snapshot({ seasonNumber: 1, episodeNumber: 1 }));
+		const episodeDocument = buildKodiDocument("/media/Show/s01e01.nfo", snapshot({ seasonNumber: 1, episodeNumber: 1 }));
 
-		expect(episode.values).toMatchObject({ season: 1, episode: 1, aired: "2016-11-10" });
-		expect(episode.values).not.toHaveProperty("premiered");
+		expect(episodeDocument.values).toMatchObject({ season: 1, episode: 1, aired: "2016-11-10" });
+		expect(episodeDocument.values).not.toHaveProperty("premiered");
 	});
 
 	test("marks the tmdb unique id as default regardless of map order", () => {

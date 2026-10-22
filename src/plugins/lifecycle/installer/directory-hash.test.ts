@@ -6,7 +6,16 @@ import { removeTree } from "@/utils/directory.utils";
 import { calculateDirectoryIntegrity } from "./directory-hash.utils";
 
 const temporaryDirectories: string[] = [];
-const SHA256_PREFIX_REGEX = /^sha256-/;
+
+/**
+ * The sha256 digests of the fixture package, derived by hand from the hashing
+ * algorithm (sorted entries, `directory:<path>\0` / `file:<path>\0` markers and
+ * the file bytes) — the digests never depend on the host.
+ */
+const BASE_PACKAGE_DIGEST = "sha256-fRJGcxBSmbA0L7vJB9bkHoByuCmuIr0VoFhL+nJ5ceM=";
+const EDITED_PACKAGE_DIGEST = "sha256-7WwYRv/Txkc4HIZfBJPki8fIU0/Kea4iPwrGB/zVQ/Q=";
+const RENAMED_PACKAGE_DIGEST = "sha256-9rrdEmLFNv+VqkJYaezOpCNwBK2XiSaUjnjRjac6NWE=";
+const NESTED_CONFIG_DIGEST = "sha256-CulNNB9SZiVkpA2UMa6ZnXKDYa/DiBWdfTPst1kO47U=";
 
 afterEach(async () => {
 	await Promise.all(temporaryDirectories.splice(0).map(async (directory) => await removeTree(directory)));
@@ -29,8 +38,8 @@ describe("calculateDirectoryIntegrity", () => {
 		const first = await calculateDirectoryIntegrity(await createPackage());
 		const second = await calculateDirectoryIntegrity(await createPackage());
 
-		expect(first).toMatch(SHA256_PREFIX_REGEX);
-		expect(first).toBe(second);
+		expect(first).toBe(BASE_PACKAGE_DIGEST);
+		expect(second).toBe(BASE_PACKAGE_DIGEST);
 	});
 
 	test("changes when file content or structure changes", async () => {
@@ -41,9 +50,9 @@ describe("calculateDirectoryIntegrity", () => {
 		await writeFile(join(renamed, "moved.mjs"), await Bun.file(join(renamed, "index.mjs")).text());
 		await rm(join(renamed, "index.mjs"));
 
-		const baseHash = await calculateDirectoryIntegrity(base);
-		expect(await calculateDirectoryIntegrity(edited)).not.toBe(baseHash);
-		expect(await calculateDirectoryIntegrity(renamed)).not.toBe(baseHash);
+		expect(await calculateDirectoryIntegrity(base)).toBe(BASE_PACKAGE_DIGEST);
+		expect(await calculateDirectoryIntegrity(edited)).toBe(EDITED_PACKAGE_DIGEST);
+		expect(await calculateDirectoryIntegrity(renamed)).toBe(RENAMED_PACKAGE_DIGEST);
 	});
 
 	test("excludes the mutable admin config.json at the package root only", async () => {
@@ -53,9 +62,9 @@ describe("calculateDirectoryIntegrity", () => {
 		const withNestedConfig = await createPackage();
 		await writeFile(join(withNestedConfig, "assets", "config.json"), '{"apiKey":"secret"}\n');
 
-		const baseHash = await calculateDirectoryIntegrity(base);
-		expect(await calculateDirectoryIntegrity(withRootConfig)).toBe(baseHash);
-		expect(await calculateDirectoryIntegrity(withNestedConfig)).not.toBe(baseHash);
+		expect(await calculateDirectoryIntegrity(base)).toBe(BASE_PACKAGE_DIGEST);
+		expect(await calculateDirectoryIntegrity(withRootConfig)).toBe(BASE_PACKAGE_DIGEST);
+		expect(await calculateDirectoryIntegrity(withNestedConfig)).toBe(NESTED_CONFIG_DIGEST);
 	});
 
 	test("rejects unsupported filesystem entries such as symlinks", async () => {

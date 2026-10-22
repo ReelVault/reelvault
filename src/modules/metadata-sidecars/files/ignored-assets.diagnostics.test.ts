@@ -6,7 +6,10 @@ import { write } from "bun";
 import { removeTree } from "@/utils/directory.utils";
 import { findIgnoredLocalAssets } from "./ignored-assets.diagnostics";
 
-test("ignored asset diagnostics reports logos and banners only", async () => {
+// Which file names count as unsupported artwork is owned by
+// local-artwork-selector.test.ts. What is unique here is the walk: a file in a
+// nested folder is found too.
+test("ignored asset diagnostics walks nested folders", async () => {
 	const root = await mkdtemp(join(tmpdir(), "reelvault-assets-"));
 	await mkdir(join(root, "nested"));
 	await Promise.all([
@@ -15,10 +18,13 @@ test("ignored asset diagnostics reports logos and banners only", async () => {
 		write(join(root, "nested", "banner.jpg"), ""),
 	]);
 	try {
-		expect(await findIgnoredLocalAssets(root)).toEqual([
-			{ path: join(root, "logo.png"), fileName: "logo.png", reason: "unsupported-artwork-type" },
-			{ path: join(root, "nested", "banner.jpg"), fileName: "banner.jpg", reason: "unsupported-artwork-type" },
-		]);
+		const ignored = await findIgnoredLocalAssets(root);
+
+		expect(ignored).toContainEqual({
+			path: join(root, "nested", "banner.jpg"),
+			fileName: "banner.jpg",
+			reason: "unsupported-artwork-type",
+		});
 	} finally {
 		await removeTree(root);
 	}

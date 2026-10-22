@@ -64,16 +64,22 @@ describe("readJellyfinMovieDocument", () => {
 	});
 
 	test("maps the legacy id element via tt-prefix or moviedb attribute, dropping bare digits", async () => {
-		const typed = await readJellyfinMovieDocument({
+		const typedDocument = await readJellyfinMovieDocument({
 			documentPath: "/media/Movie/movie.nfo",
 			content: '<movie><id moviedb="tmdb">27205</id></movie>',
 		});
-		const imdb = await readJellyfinMovieDocument({ documentPath: "/media/Movie/movie.nfo", content: "<movie><id>tt1375666</id></movie>" });
-		const bare = await readJellyfinMovieDocument({ documentPath: "/media/Movie/movie.nfo", content: "<movie><id>27205</id></movie>" });
+		const imdbDocument = await readJellyfinMovieDocument({
+			documentPath: "/media/Movie/movie.nfo",
+			content: "<movie><id>tt1375666</id></movie>",
+		});
+		const bareDocument = await readJellyfinMovieDocument({
+			documentPath: "/media/Movie/movie.nfo",
+			content: "<movie><id>27205</id></movie>",
+		});
 
-		expect(typed?.identifiers).toEqual({ tmdb: "27205" });
-		expect(imdb?.identifiers).toEqual({ imdb: "tt1375666" });
-		expect(bare?.identifiers).toEqual({});
+		expect(typedDocument?.identifiers).toEqual({ tmdb: "27205" });
+		expect(imdbDocument?.identifiers).toEqual({ imdb: "tt1375666" });
+		expect(bareDocument?.identifiers).toEqual({});
 	});
 
 	test("reads rating sources from attributes and the ratings wrapper", async () => {

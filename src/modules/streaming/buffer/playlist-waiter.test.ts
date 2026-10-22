@@ -3,12 +3,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $, spawn } from "bun";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { SessionStore } from "@/modules/streaming/runtime/session-state/session.store";
 import { SessionReservationTracker } from "@/modules/streaming/runtime/session-state/session-reservation.tracker";
 import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { PlaylistWaiter } from "./playlist.waiter";
 
 const root = join(tmpdir(), `reelvault-playlist-waiter-${Date.now()}`);
+/** The cushion window the waiter uses after the playlist appears. */
+const CUSHION_MS = 2_000;
 const spawnedProcs: Bun.Subprocess[] = [];
 
 function fakeProcess(exitCode: number | null): Bun.Subprocess {
@@ -59,13 +63,21 @@ describe("playlist waiter", () => {
 		const { waiter, dir } = createWaiter("complete", { session: { exitCode: null } });
 		await mkdir(dir, { recursive: true });
 		await writeFile(join(dir, "playlist.m3u8"), "#EXTM3U\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXTINF:4.0,\nseg_0.m4s\n#EXTINF:4.0,\nseg_1.m4s\n");
+		// The cushion after the playlist appears is scaled by the host's speed, so it
+		// is pinned here: the bound below is then a fixed number, not a race against
+		// how fast the runner happens to be.
+		const cushion = stubMethod(systemResourcesService, "scaledTimeoutMs", () => CUSHION_MS);
 		const started = Date.now();
 
-		await waiter.waitForPlaylist("s1", 5_000, () => Promise.resolve(false));
+		try {
+			await waiter.waitForPlaylist("s1", 60_000, () => Promise.resolve(false));
+		} finally {
+			cushion.restore();
+		}
 
-		// Generous margin: must return right after the first poll, never wait
-		// out the target window.
-		expect(Date.now() - started).toBeLessThan(2_500);
+		// The playlist already carries the target segments, so the waiter must not
+		// sit out the cushion window.
+		expect(Date.now() - started).toBeLessThan(CUSHION_MS / 2);
 	});
 
 	test("throws when the playlist is missing and no session or reservation exists", async () => {

@@ -378,7 +378,11 @@ describe("plugin loader lifecycle: invalid plugin.json manifest", () => {
 		const config: Pick<PluginConfig, "load"> = { load: async () => ({}) };
 		const loader = new PluginLoader(config as PluginConfig, registry, pluginsDirectory);
 
-		await expect(loader.load("no-manifest")).rejects.toThrow();
+		await expect(loader.load("no-manifest")).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.field_not_string",
+			params: { field: "id" },
+		});
 
 		expect(registry.getFailedStatuses()).toMatchObject([
 			{ id: "no-manifest", state: "failed", failurePhase: "manifest", errorCode: "plugin.manifest_invalid" },

@@ -3,11 +3,13 @@ import { parseEncoderNames } from "./capabilities/probe.utils";
 import { getFfmpegCapabilities, initializeFfmpegCapabilities } from "./ffmpeg.capabilities";
 
 const ENCODER_NAME_REGEX = /^[a-z0-9_]+$/;
+// The version segment of the ffmpeg banner: a release ("7.1") or a nightly ("n9.0.2") build.
+const VERSION_PATTERN = /\d+\.\d+/;
 
-// Shaped after jellyfin-ffmpeg 7.1 output: nvenc/vaapi/amf carry the `D` flag
+// Shaped after ffmpeg 7.1 output: nvenc/vaapi/amf carry the `D` flag
 // (direct rendering) while qsv does not — the old letter-based regex silently
 // dropped every `D` line, leaving only qsv encoders "detected".
-const JELLYFIN_ENCODERS_OUTPUT = [
+const ENCODERS_OUTPUT = [
 	"Encoders:",
 	" V..... = Video",
 	" A..... = Audio",
@@ -29,7 +31,7 @@ const JELLYFIN_ENCODERS_OUTPUT = [
 
 describe("FFmpeg Capabilities & HW Transcoding Abstraction", () => {
 	it("parses encoder names from -encoders output including D-flagged lines", () => {
-		const encoders = parseEncoderNames(JELLYFIN_ENCODERS_OUTPUT);
+		const encoders = parseEncoderNames(ENCODERS_OUTPUT);
 		expect(encoders.has("h264_nvenc")).toBe(true);
 		expect(encoders.has("h264_vaapi")).toBe(true);
 		expect(encoders.has("hevc_vaapi")).toBe(true);
@@ -40,7 +42,7 @@ describe("FFmpeg Capabilities & HW Transcoding Abstraction", () => {
 	});
 
 	it("rejects headers, legend lines, and separators", () => {
-		const encoders = parseEncoderNames(JELLYFIN_ENCODERS_OUTPUT);
+		const encoders = parseEncoderNames(ENCODERS_OUTPUT);
 		expect(encoders.has("Encoders")).toBe(false);
 		expect(encoders.has("Video")).toBe(false);
 		expect(encoders.has("Audio")).toBe(false);
@@ -54,15 +56,20 @@ describe("FFmpeg Capabilities & HW Transcoding Abstraction", () => {
 	it("detects the installed ffmpeg's version, filters and encoders", async () => {
 		const caps = await initializeFfmpegCapabilities();
 
-		expect(["unavailable", "unknown"]).not.toContain(caps.version);
-		expect(caps.version).not.toContain("Copyright");
+		// The banner of a release ("7.1") or a nightly ("n9.0.2") build: a numeric release, never the fallback sentinels.
+		expect(caps.version).toMatch(VERSION_PATTERN);
+		expect(caps.version.includes("Copyright")).toBe(false);
 		expect(caps.filters.has("scale")).toBe(true);
 		expect(caps.encoders.has("aac")).toBe(true);
 	});
 
 	it("serves the initialized capabilities from the cache", async () => {
-		const initialized = await initializeFfmpegCapabilities();
+		await initializeFfmpegCapabilities();
 
-		expect(getFfmpegCapabilities()).toBe(initialized);
+		const cached = getFfmpegCapabilities();
+
+		expect(cached.version).toMatch(VERSION_PATTERN);
+		expect(cached.filters.has("scale")).toBe(true);
+		expect(cached.encoders.has("aac")).toBe(true);
 	});
 });

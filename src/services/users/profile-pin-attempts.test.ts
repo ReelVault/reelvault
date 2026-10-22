@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { clearWrongPins, PIN_ATTEMPT_LIMIT, PIN_ATTEMPT_WINDOW_MS, pinAttemptStatus, recordWrongPin } from "./profile-pin-attempts.limiter";
+import { clearWrongPins, PIN_ATTEMPT_LIMIT, pinAttemptStatus, recordWrongPin } from "./profile-pin-attempts.limiter";
 
 describe("profile PIN attempts", () => {
 	test("counts wrong PINs down to zero and reports the time until the window resets", () => {
 		const key = "user-1:profile-attempts-count";
 		const start = 1_000_000;
 
-		expect(pinAttemptStatus(key, start)).toEqual({ attemptsRemaining: PIN_ATTEMPT_LIMIT, retryAfterSeconds: 0 });
+		expect(pinAttemptStatus(key, start)).toEqual({ attemptsRemaining: 10, retryAfterSeconds: 0 });
 		for (let attempt = 0; attempt < PIN_ATTEMPT_LIMIT; attempt++) recordWrongPin(key, start);
 
-		expect(pinAttemptStatus(key, start)).toEqual({ attemptsRemaining: 0, retryAfterSeconds: PIN_ATTEMPT_WINDOW_MS / 1000 });
+		expect(pinAttemptStatus(key, start)).toEqual({ attemptsRemaining: 0, retryAfterSeconds: 900 });
 		clearWrongPins(key);
 	});
 
@@ -18,7 +18,7 @@ describe("profile PIN attempts", () => {
 		const start = 2_000_000;
 		recordWrongPin(key, start);
 
-		expect(pinAttemptStatus(key, start + PIN_ATTEMPT_WINDOW_MS)).toEqual({ attemptsRemaining: PIN_ATTEMPT_LIMIT, retryAfterSeconds: 0 });
+		expect(pinAttemptStatus(key, start + 900_000)).toEqual({ attemptsRemaining: 10, retryAfterSeconds: 0 });
 		clearWrongPins(key);
 	});
 
@@ -28,6 +28,6 @@ describe("profile PIN attempts", () => {
 		recordWrongPin(key, 3_000_000);
 		clearWrongPins(key);
 
-		expect(pinAttemptStatus(key, 3_000_000).attemptsRemaining).toBe(PIN_ATTEMPT_LIMIT);
+		expect(pinAttemptStatus(key, 3_000_000).attemptsRemaining).toBe(10);
 	});
 });

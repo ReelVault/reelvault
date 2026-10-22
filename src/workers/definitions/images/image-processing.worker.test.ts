@@ -74,24 +74,27 @@ describe("image-processing worker", () => {
 	test("enqueues each entity under its own dedupe key, reference and configured priority", async () => {
 		const priorities = serverConfig.workers.definitions.imageProcessing.priorities;
 
-		const season = await enqueueImageProcessing({
-			kind: "season",
-			metadataId: "metadata-1",
-			seasonId: "season-1",
-			seasonNumber: "2",
-			urls: "url",
-		});
-		const person = await enqueueImageProcessing({ kind: "person", personId: "person-1", urls: "url" });
-
-		expect(season).toMatchObject({
-			workerId: imageProcessingWorker.id,
+		// The enqueue returns the stored row, so the assertions below read the
+		// job the queue wrote for each entity.
+		expect(
+			await enqueueImageProcessing({
+				kind: "season",
+				metadataId: "metadata-1",
+				seasonId: "season-1",
+				seasonNumber: "2",
+				urls: "url",
+			}),
+		).toMatchObject({
+			workerId: "image-processing",
+			status: "pending",
 			dedupeKey: "image-processing_season:season-1",
 			referenceType: "season",
 			referenceId: "season-1",
 			priority: priorities.season,
 		});
-		expect(person).toMatchObject({
-			workerId: imageProcessingWorker.id,
+		expect(await enqueueImageProcessing({ kind: "person", personId: "person-1", urls: "url" })).toMatchObject({
+			workerId: "image-processing",
+			status: "pending",
 			dedupeKey: "image-processing_person:person-1",
 			referenceType: "person",
 			referenceId: "person-1",

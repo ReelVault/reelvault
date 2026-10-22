@@ -38,12 +38,12 @@ describe("enqueueTrickplayGenerationForLibrary", () => {
 		const item = await enqueueTrickplayGenerationForLibrary("mf-1", "library-a");
 
 		const [operation] = await operationRows();
-		expect(operation).toMatchObject({ type: trickplayGenerateWorker.id, referenceType: "library", referenceId: "library-a" });
+		expect(operation).toMatchObject({ type: "trickplay-generate", referenceType: "library", referenceId: "library-a" });
 		if (!operation) throw new Error("Expected the enqueue to open an operation");
 		expect(item.operationId).toBe(operation.id);
 		expect(await jobRows()).toMatchObject([
 			{
-				workerId: trickplayGenerateWorker.id,
+				workerId: "trickplay-generate",
 				operationId: operation.id,
 				dedupeKey: "mf-1",
 				referenceType: "media-file",
@@ -53,12 +53,15 @@ describe("enqueueTrickplayGenerationForLibrary", () => {
 	});
 
 	test("attaches later files of the same library to the open operation", async () => {
-		const first = await enqueueTrickplayGenerationForLibrary("mf-2a", "library-b");
+		await enqueueTrickplayGenerationForLibrary("mf-2a", "library-b");
 		const second = await enqueueTrickplayGenerationForLibrary("mf-2b", "library-b");
 
-		expect(await operationRows()).toHaveLength(1);
-		expect(second.operationId).toBe(first.operationId);
-		expect((await jobRows()).map((job) => job.operationId)).toEqual([first.operationId, first.operationId]);
+		const operations = await operationRows();
+		expect(operations).toHaveLength(1);
+		const [operation] = operations;
+		if (!operation) throw new Error("Expected the enqueues to open an operation");
+		expect(second.operationId).toBe(operation.id);
+		expect((await jobRows()).map((job) => job.operationId)).toEqual([operation.id, operation.id]);
 	});
 
 	test("opens a new operation once the library's last one has finished", async () => {

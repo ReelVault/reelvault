@@ -268,6 +268,54 @@ describe("episodeRangeSpan and episodeRangeTargets", () => {
 	});
 });
 
+test("parses series filename directly starting with S02E01", () => {
+	const identity = parseFileName("S02E01.mkv");
+
+	expect(identity).toEqual({
+		title: "S02E01",
+		type: "episode",
+		season: 2,
+		episode: 1,
+	});
+});
+
+test("parses series filename with episode title after S02E01", () => {
+	const identity = parseFileName("S02E01 - Pilot Episode.mkv");
+
+	expect(identity?.type).toBe("episode");
+	expect(identity?.season).toBe(2);
+	expect(identity?.episode).toBe(1);
+});
+
+test("recognizes TV show with year range in filename", () => {
+	const identity = parseFileName("Czterej.Pancerni.I.Pies.1966-1970.S00E04.x264.mkv");
+
+	expect(identity).not.toBeNull();
+	expect(identity?.title).toBe("Czterej Pancerni I Pies");
+	expect(identity?.year).toBe(1966);
+	expect(identity?.season).toBe(0);
+	expect(identity?.episode).toBe(4);
+});
+
+test("strips scene noise on fallback movie when no year is in filename", () => {
+	const identity = parseFileName("Iron.Man.MULTI.1080p.BluRay.x265.DDP7.1-DENDA.mkv");
+
+	expect(identity).not.toBeNull();
+	expect(identity?.type).toBe("movie");
+	expect(identity?.title).toBe("Iron Man");
+});
+
+test("parses a year in parentheses before the episode marker without leaking it into the title", () => {
+	const identity = parseFileName("Breaking Bad (2008) S01E01.mkv");
+
+	expect(identity).not.toBeNull();
+	expect(identity?.type).toBe("episode");
+	expect(identity?.title).toBe("Breaking Bad");
+	expect(identity?.year).toBe(2008);
+	expect(identity?.season).toBe(1);
+	expect(identity?.episode).toBe(1);
+});
+
 describe("resolveShowTitle", () => {
 	test("keeps the show folder title and its year", () => {
 		expect(resolveShowTitle(identity("Friends", 1994), null)).toEqual({ title: "Friends", year: 1994 });

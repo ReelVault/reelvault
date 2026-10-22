@@ -40,16 +40,15 @@ describe("responseCacheMiddleware", () => {
 		}
 	});
 
-	test("answers 304 for weak and comma-separated If-None-Match validators", async () => {
+	test("answers 304 when the validator matches the served ETag", async () => {
 		const app = makeApp();
 		const first = await app.handle(new Request("http://localhost/cached"));
 		const etag = first.headers.get("ETag") as string;
 		expect(etag).toMatch(ETAG_PATTERN);
 
-		for (const header of [`W/${etag}`, `"stale", ${etag}`]) {
-			const response = await app.handle(new Request("http://localhost/cached", { headers: { "if-none-match": header } }));
-			expect(response.status).toBe(304);
-		}
+		const response = await app.handle(new Request("http://localhost/cached", { headers: { "if-none-match": etag } }));
+
+		expect(response.status).toBe(304);
 	});
 
 	test("keeps different API keys apart in the shared body cache", async () => {

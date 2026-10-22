@@ -457,7 +457,8 @@ describe("PluginManager config", () => {
 
 		const details = await manager.getPluginConfigDetails("org.reelvault.unset");
 
-		expect(details.fields).toContainEqual({ name: "apiKey", type: "secret", label: "Api Key", hasValue: false });
+		expect(details.fields).toEqual([{ name: "apiKey", type: "secret", label: "Api Key", hasValue: false }]);
+		expect(details.config).toEqual({});
 	});
 
 	test("savePluginConfig writes the patch, reloads the plugin and returns the refreshed details", async () => {

@@ -8,6 +8,125 @@ paths:
 
 A test earns its place by failing when a behavior that matters breaks. Keep the suite small enough to read as a specification. More tests do not mean more safety.
 
+`AGENTS.md` holds the contract. This file holds the long form: what each rule means, why it exists, and what to write instead.
+
+## The four gates
+
+Every test case passes all four. A case that fails one of them is rewritten or deleted, not merged.
+
+### 1. Provenance — the expected value is a fact
+
+The expected side of an assertion is a **fact about the behavior**:
+
+- a literal,
+- a row read back from the database,
+- bytes read from the real system,
+- a value an external specification fixes (RFC 9110 for ranges, RFC 4122 for UUIDs, a real ffmpeg banner, an HTTP status, a MIME type).
+
+It is never a **recomputation of the subject**. The two forms look different and fail the same way:
+
+**The same function** — the expected side calls the function under test:
+
+```ts
+// The expected value is computed by the code under test. If both sides are
+// wrong in the same way, the test stays green.
+expect(buildDecodeOnlyArgs(hw)).toEqual(hardwareDecodeArgs(hw));
+```
+
+**The same helper** — the expected side calls a helper the code under test also calls:
+
+```ts
+// The pipeline and the test both call createImageStableKey, so a broken key
+// format is invisible: the test only proves the helper was called.
+const STABLE_KEY = createImageStableKey({ ownerStableKey: "owner-key", imageType: "poster", sourceHash });
+expect(result.stableKey).toBe(STABLE_KEY);
+```
+
+The helper's own correctness is then never verified. A helper that produces the expected value needs its own test, with literals:
+
+```ts
+expect(result.stableKey).toBe("poster-owner-key-<sha256 hex>");
+```
+
+The same rule applies to a constant: **a constant used as the expected value is built from literals**, not from a call into the subject.
+
+A helper that reads the world — the filesystem, the network, the database — is a fact, not a recomputation. Reading a file back to prove it was not rewritten stays:
+
+```ts
+const before = await readFile(path);
+await exporter.saveTitleArtwork(...);
+expect(await readFile(path)).toEqual(before); // the file was not rewritten
+```
+
+### 2. Sensitivity — would it fail?
+
+Before you finish a test, break the code path it covers: flip one condition or change one code, confirm the test fails, then restore the code. A test that still passes protects nothing.
+
+`bun run mutation` measures this across the suite. It rewrites the implementation and counts the mutants the suite kills. It reports **sensitivity, not correctness** — a suite can kill every mutant and still assert the wrong value, because mutation testing cannot tell an intended change from an unintended one. Use it to find dead weight, never as a certificate.
+
+### 3. Outcome — assert what happened, not how
+
+Assert the outcome: the returned value, the stored row, the response body, the emitted payload, the written file.
+
+| Never | Instead |
+|---|---|
+| `expect(repo.findById).toHaveBeenCalledWith(id)` | the row the repository returns |
+| `expect(mock.save).toHaveBeenCalledTimes(1)` | the stored row |
+| `expect(result).toBe(stubReturn)` | the value the service produced from it |
+| `expect(spy).toHaveBeenCalledWith(url, opts)` | the response the caller received |
+
+A call assertion is allowed only when the call itself is the invariant — the cache is invalidated before the write becomes visible, the lock is held across the section — and the title says so.
+
+### 4. Ownership — the file owns the code
+
+A test file under `src/` exercises a module from its own folder. A test that covers another area's code belongs to that area:
+
+- the coverage map lies about what is protected,
+- the test reads as noise in the folder it sits in,
+- the next agent moves the code and the test stays behind.
+
+The cross-cutting suites in `tests/` are the exception: they exercise the whole application on purpose.
+
+### 5. Independence — the machine and the build
+
+A test that passes on your box and fails on the CI runner is a broken test, not a flaky one. Two things leak the environment into a test.
+
+**The host.** What the machine has — a GPU, a DRM render node, a core count, a measured CPU speed — is not an input the test controls. The code that consults the host takes the answer as a parameter, so the test passes it:
+
+```ts
+// The accelerator is an input, not a lookup.
+const args = buildTranscodeVideoArgs(decision, config, hw("nvenc"), toneMap("none"));
+```
+
+When the production code reads the host itself, the test replaces the module instead:
+
+```ts
+mockModuleWithRealExports("@/integrations/ffmpeg/ffmpeg.capabilities", {
+	getEffectiveHwaccel: () => SOFTWARE_HWACCEL,
+});
+```
+
+A test may not call a probe that reads the detected capabilities — `getEffectiveHwaccel`, `getFfmpegCapabilities`, `resolveEffectiveHwaccel`, `getDetectedDriDevice`. The one exception is the test that owns the module declaring them.
+
+**The build.** The suite runs against whatever ffmpeg the machine has: upstream ffmpeg, jellyfin-ffmpeg, or a minimal build. They differ in the filters and encoders they advertise, so a test that asserts on the *detected* set is asserting on the build. The decisions that depend on the build are tested with literal sets instead:
+
+```ts
+// jellyfin-ffmpeg ships tonemapx, upstream ffmpeg ships zscale+tonemap.
+expect(resolveToneMappingMethod(new Set(["scale", "tonemapx", "zscale", "tonemap"]))).toBe("tonemapx");
+expect(resolveToneMappingMethod(new Set(["scale", "zscale", "tonemap"]))).toBe("zscale");
+```
+
+The same holds for the encoder set: a build without `h264_nvenc` must fall back to software, and a test proves it with a literal encoder set, not with whatever the host advertises.
+
+**The clock.** A test that measures elapsed time may only compare it against a bound the test itself pins — a stubbed constant, never a wall-clock literal and never a host-scaled default:
+
+```ts
+// The cushion is scaled by the host's speed, so it is pinned here.
+const cushion = stubMethod(systemResourcesService, "scaledTimeoutMs", () => CUSHION_MS);
+```
+
+A bound taken from the host's speed factor or from a hard-coded millisecond count is a race against the runner: it passes on a fast machine and fails on a loaded one.
+
 ## Write
 
 - **Boundary**: call the real route with `app.handle` on the test SQLite database. One test checks the status, the error code, the response shape and the stored row.
@@ -22,11 +141,12 @@ A test earns its place by failing when a behavior that matters breaks. Keep the 
 Each item says what to write instead.
 
 - **Pass-through**: a stub echoed back, or a call asserted with the arguments it was given. Assert the returned value or the stored row.
-- **Tautology**: an expected value recomputed with the logic under test. Use a literal.
-- **Call count or call order on collaborators**: assert the outcome. Keep a call assertion only when the order is the invariant (for example, the cache is invalidated before the write becomes visible), and say so in the title.
+- **Tautology**: an expected value recomputed with the logic under test, or with a helper the logic under test also calls. Use a literal.
+- **Call count or call order on collaborators**: assert the outcome. Keep a call assertion only when the order is the invariant, and say so in the title.
 - **Existence**: `.compile()`, `toBeDefined()`, `toBeTruthy()`, `typeof x === "function"`, a bare `not.toThrow()`. Assert the value the code produces.
+- **A loose bound**: `toBeGreaterThan(0)`, `toBeGreaterThanOrEqual(1)`. Any value passes.
 - **Constants and metadata**: label lists, format tags, unit strings. Assert default values only when a behavior depends on them.
-- **Third-party behavior**: TypeBox, Elysia, Drizzle, Better Auth, Bun.
+- **Third-party behavior**: TypeBox, Elysia, Drizzle, Better Auth, Bun, SQLite, the ffmpeg CLI's own output format.
 - **Schema-enforced rules**: per-field rejections (ranges, lengths, unknown keys). One boundary test per route shows the schema is wired. New rules go into the schema.
 - **Mapping only**: DTO shaping with no invariant behind it.
 - **Duplicates**: the same behavior in two files. Keep it in the file that owns the code.
@@ -64,6 +184,23 @@ Each item says what to write instead.
 ## Self-check
 
 Before you finish a test, break the code path it covers (flip one condition or change one code), confirm the test fails, then restore the code. A test that still passes protects nothing.
+
+Then read the diff of the test the way a reviewer who did not write it would: if the expected value could have been produced by the implementation itself, the test proves nothing. Replace it with a literal.
+
+## The gate
+
+`bun run lint:tests` fails on:
+
+- an expected value recomputed with the code under test or with a helper it also uses,
+- an expected value that is a constant the code under test defines,
+- a case whose only assertion proves something exists,
+- a case whose only assertion is that a collaborator was called,
+- a bare `toThrow()` that accepts any error,
+- a case whose only assertion is a bound any value passes,
+- a test file under `src/` that exercises no module from its own folder,
+- a test that calls a probe of the host's detected capabilities instead of mocking it.
+
+`bun run lint` runs it. Fix the assertion, not the rule.
 
 ## Removing tests
 

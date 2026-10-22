@@ -151,7 +151,10 @@ test("a PAX header that rewrites the path of the next member cannot escape the r
 		{ name: "plugin.json", data: PLUGIN_MANIFEST },
 		{ name: "index.mjs", data: PLUGIN_ENTRY },
 	]);
-	await expectContained(archive, name);
+
+	// The extractor refuses the PAX header itself: it supports neither the
+	// extended header nor the path it would rewrite.
+	expect(await expectContained(archive, name)).toEqual({ refused: true, code: "plugin.package_entry_unsupported" });
 });
 
 test("hard links are refused as unsupported entries, whatever they point at", async () => {

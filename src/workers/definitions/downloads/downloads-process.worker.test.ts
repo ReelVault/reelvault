@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { workerService } from "@/workers/worker.service";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { downloadsProcessWorker, enqueueDownloadsProcess } from "./downloads-process.worker";
 
-useTestDatabase();
+// The queued job is written to the migrated test database and read back.
+const db = useTestDatabase();
 
 beforeEach(() => {
 	workerService.registry.register(downloadsProcessWorker);
@@ -15,10 +17,18 @@ afterEach(() => {
 
 describe("enqueueDownloadsProcess", () => {
 	test("enqueuing the same download twice keeps one active job", async () => {
-		const first = await enqueueDownloadsProcess("download-abc");
-		const second = await enqueueDownloadsProcess("download-abc");
+		await enqueueDownloadsProcess("download-abc");
+		await enqueueDownloadsProcess("download-abc");
 
-		expect(second.id).toBe(first.id);
-		expect(await workerService.findActiveItem(downloadsProcessWorker.id, "download-abc")).toMatchObject({ id: first.id });
+		const jobs = await db.client().select().from(schema.workerJobs);
+		expect(jobs).toHaveLength(1);
+		expect(jobs[0]).toMatchObject({
+			workerId: "downloads-process",
+			status: "pending",
+			priority: 0,
+			dedupeKey: "download-abc",
+			referenceType: "download",
+			referenceId: "download-abc",
+		});
 	});
 });

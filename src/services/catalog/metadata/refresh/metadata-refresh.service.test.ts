@@ -288,7 +288,7 @@ describe("metadata refresh service: locked fields", () => {
 			new MetadataRefreshService(dependencies).refresh("movie-1", {
 				signal: controller.signal,
 			}),
-		).rejects.toThrow();
+		).rejects.toMatchObject({ category: "internal", code: "internal", cause: { name: "AbortError" } });
 		expect(fetched).toEqual([]);
 	});
 });

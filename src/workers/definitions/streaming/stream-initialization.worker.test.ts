@@ -85,7 +85,7 @@ describe("stream-initialization worker", () => {
 		const item = await enqueueStreamInit(data, { operationId: "operation-1" });
 
 		expect(item).toMatchObject({
-			workerId: streamInitWorker.id,
+			workerId: "stream-init",
 			operationId: "operation-1",
 			dedupeKey: "session-1",
 			referenceType: "media-file",

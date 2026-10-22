@@ -1,26 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { rankImageOptions } from "./image-storage.utils";
+import { createImageStableKey, createImageStoragePath } from "./image-storage.utils";
 
-const option = (overrides: Partial<{ url: string; score: number }> = {}) => ({
-	providerId: "p1",
-	providerName: "Provider",
-	externalId: "1",
-	type: "poster" as const,
-	url: overrides.url ?? "https://img.example/1.jpg",
-	...(overrides.score === undefined ? {} : { score: overrides.score }),
-});
+const posterPathPattern = /^\/data\/images\/posters\/[a-f0-9]{64}\.webp$/;
+const backdropPathPattern = /^\/data\/images\/backdrops\/[a-f0-9]{64}\.webp$/;
+const peoplePathPattern = /^\/data\/images\/people\/[a-f0-9]{64}\.webp$/;
 
-describe("rankImageOptions", () => {
-	test("sorts scored candidates best first", () => {
-		const ranked = rankImageOptions([option({ score: 5, url: "a" }), option({ score: 9, url: "b" }), option({ score: 7, url: "c" })]);
-		expect(ranked.map((item) => item.url)).toEqual(["b", "c", "a"]);
+describe("image storage keys and paths", () => {
+	test("builds an image key from owner, type and content hash", () => {
+		expect(createImageStableKey({ ownerStableKey: "owner", imageType: "poster", sourceHash: "abc" })).toBe(
+			"v1:local:696d616765:6f776e65723a706f737465723a616263",
+		);
 	});
 
-	test("keeps provider order for unscored and equal candidates", () => {
-		const ranked = rankImageOptions([option({ url: "a" }), option({ url: "b" }), option({ score: 1, url: "c" }), option({ url: "d" })]);
-		expect(ranked.map((item) => item.url)).toEqual(["c", "a", "b", "d"]);
+	test("builds the categorized image path based on image type", () => {
+		const poster = createImageStoragePath({ root: "/data/images", stableKey: "v1:local:metadata:abc", imageType: "poster" });
+		const backdrop = createImageStoragePath({ root: "/data/images", stableKey: "v1:local:metadata:abc", imageType: "backdrop" });
+		const person = createImageStoragePath({ root: "/data/images", stableKey: "v1:local:metadata:abc", imageType: "profile" });
 
-		const tied = rankImageOptions([option({ score: 4, url: "x" }), option({ score: 4, url: "y" })]);
-		expect(tied.map((item) => item.url)).toEqual(["x", "y"]);
+		expect(poster).toMatch(posterPathPattern);
+		expect(backdrop).toMatch(backdropPathPattern);
+		expect(person).toMatch(peoplePathPattern);
 	});
 });

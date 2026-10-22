@@ -79,7 +79,7 @@ describe("process manager", () => {
 		await manager.ensureTempDirectory(tempDir);
 
 		await manager.removeTempDirectory(tempDir);
-		await expect(stat(tempDir)).rejects.toThrow();
+		await expect(stat(tempDir)).rejects.toMatchObject({ code: "ENOENT" });
 		await expect(manager.removeTempDirectory(tempDir)).resolves.toBeUndefined();
 	});
 

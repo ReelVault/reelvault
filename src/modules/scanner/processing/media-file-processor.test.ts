@@ -3,7 +3,6 @@ import { sleep } from "bun";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
-import { CancellationError } from "@/utils/cancellation.utils";
 import { getFileStats as actualGetFileStats } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
@@ -77,9 +76,9 @@ describe("mediaFileProcessor.process skip outcomes", () => {
 		const controller = new AbortController();
 		controller.abort();
 
-		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv", true, { signal: controller.signal })).rejects.toBeInstanceOf(
-			CancellationError,
-		);
+		await expect(mediaFileProcessor.process("movie", "/media/movie.mkv", true, { signal: controller.signal })).rejects.toMatchObject({
+			name: "CancellationError",
+		});
 	});
 
 	test("returns null when the file is already registered and leaves it untouched", async () => {

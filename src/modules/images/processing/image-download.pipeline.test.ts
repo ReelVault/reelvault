@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "@/utils/crypto.utils";
-import { createImageStableKey, createImageStoragePath } from "@/utils/image-storage.utils";
 import { ImageDownloadPipeline } from "./image-download.pipeline";
 
 const DATA = Buffer.from([1, 2, 3, 4]);
-const SOURCE_HASH = createHash("sha256").update(DATA).digest("hex");
-const STABLE_KEY = createImageStableKey({ ownerStableKey: "owner-key", imageType: "poster", sourceHash: SOURCE_HASH });
-const STABLE_PATH = createImageStoragePath({ root: "/images", stableKey: STABLE_KEY, imageType: "poster" });
+// Derived by hand from the storage algorithm, so a change in the key or path
+// format breaks this test instead of being mirrored by it:
+// sha256([1,2,3,4]) → source hash; the key is "v1:local:" + hex("image") +
+// hex("owner-key:poster:<source hash>"); the path is "/images/posters/" +
+// sha256(<key>) + ".webp".
+const SOURCE_HASH = "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a";
+const STABLE_KEY =
+	"v1:local:696d616765:6f776e65722d6b65793a706f737465723a39663634613734376531623937663133316661626236623434373239366339623666303230316537396662336335333536653663373765383962366138303661";
+const STABLE_PATH = "/images/posters/9c414d6046be20fa889ea6071f6d0b7bf20c6519e63fa3dc3bab31e703701116.webp";
 const URL = "https://example.test/poster.jpg";
 const TARGET = { ownerStableKey: "owner-key" };
 

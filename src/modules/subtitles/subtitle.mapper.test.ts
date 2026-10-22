@@ -1,5 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
+import { isTextExtractable, resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
+
+const embeddedRow = {
+	id: "sub-1",
+	mediaFileId: "file-1",
+	language: "en",
+	label: null,
+	streamIndex: 2,
+	isDefault: false,
+	isForced: false,
+	isHearingImpaired: false,
+	createdAt: new Date(0),
+	updatedAt: new Date(0),
+};
 
 describe("resolveSubtitleType", () => {
 	test("infers external from sourcePath and embedded from streamIndex", () => {
@@ -75,5 +88,18 @@ describe("toPublicSubtitle", () => {
 
 		expect(mapped.type).toBe("external");
 		expect(mapped.createdAt).toBe("2026-08-01T10:00:00.000Z");
+	});
+});
+
+describe("subtitle extractability", () => {
+	test("image-based embedded tracks are not extractable as text", () => {
+		expect(isTextExtractable({ type: "embedded", format: "hdmv_pgs_subtitle" })).toBe(false);
+		expect(isTextExtractable({ type: "embedded", format: "dvd_subtitle" })).toBe(false);
+		expect(isTextExtractable({ type: "embedded", format: "subrip" })).toBe(true);
+	});
+
+	test("the public subtitle carries the extractable flag", () => {
+		expect(toPublicSubtitle({ ...embeddedRow, type: "embedded", format: "pgssub" })).toMatchObject({ extractable: false });
+		expect(toPublicSubtitle({ ...embeddedRow, type: "embedded", format: "subrip" })).toMatchObject({ extractable: true });
 	});
 });

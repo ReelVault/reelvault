@@ -47,9 +47,7 @@ describe("listUiContributions", () => {
 	});
 
 	test("gives every contribution a unique, stable key", () => {
-		const keys = listUiContributions(manifest).map((item) => item.key);
-
-		expect(keys).toEqual([
+		expect(listUiContributions(manifest).map((item) => item.key)).toEqual([
 			"page:requests",
 			"page:mine",
 			"dialog:new",
@@ -60,7 +58,6 @@ describe("listUiContributions", () => {
 			"searchProvider",
 			"playbackPreRoll",
 		]);
-		expect(new Set(keys).size).toBe(keys.length);
 	});
 
 	test("resolves a localized label to its first entry", () => {

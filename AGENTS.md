@@ -10,8 +10,10 @@ Load the `karpathy-guidelines` skill before starting any task.
 Run from the repo root:
 
 - `bun run format`: Biome formatting and import ordering. Biome's assist sorts imports (`assist.source.organizeImports` is on and `biome check` enforces it), so `bunx biome check --write <files>` orders the imports of the given files.
-- `bun run lint`: Biome plus oxlint (type-aware) plus the duplication check.
+- `bun run lint`: Biome plus oxlint (type-aware) plus the duplication check plus the test-quality check.
 - `bun run lint:duplicates`: jscpd copy/paste detector over `src/`. The budget is 1% duplicated lines.
+- `bun run lint:tests`: fails on a test file that cannot catch a bug — a recomputed expectation, an existence-only case, a call-only case, a bare `toThrow()`, a loose bound, or a file that exercises another folder's code. See **Tests**.
+- `bun run mutation`: rewrites the implementation and counts the mutants the suite kills. It measures sensitivity, not correctness. Use it to find dead weight, never as a certificate.
 - `bun run check-types`: TypeScript (`tsc --noEmit`, the TypeScript 7 native checker — ~0.3 s for the whole repo).
 - `bun run check-types:bun`: the same project through Bun's own checker (`bun check`). It reports the same errors but is ~3x slower here, so it is a second opinion, not the gate.
 - `bun run coverage`: runs the suite with coverage and fails under the line-coverage floor (75% of `src/`; today ~82%). `bun run coverage:report` prints the full report.
@@ -24,6 +26,110 @@ The suite runs the real `ffmpeg` and `ffprobe`, so both must be on PATH.
 ## Definition of done
 
 Before you report a task done, run `format`, `lint`, `check-types`, `deadcode` and `test` from the root after your last edit, and report each outcome. Fix a failure at its root cause. If a failure predates your change, say so and show the evidence.
+
+## Tests
+
+A test earns its place by failing when a behavior that matters breaks. A test that cannot fail is worse than no test: it costs reading time, it reports a green tick that carries no information, and it teaches everyone to trust a signal that means nothing.
+
+`.claude/rules/testing.md` holds the long form with the worked examples. This section is the contract every test must satisfy.
+
+### The five gates
+
+Every test case passes all five. A case that fails one is rewritten or deleted, never merged.
+
+1. **Provenance** — the expected value is a fact, not a recomputation of the subject.
+2. **Sensitivity** — breaking the implementation makes the test fail.
+3. **Outcome** — the test asserts what the system produced, not how it was called.
+4. **Ownership** — the file that asserts the behavior owns the code.
+5. **Independence** — the test passes on every machine and on every build.
+
+#### 1. Provenance — the expected value is a fact
+
+The expected side of an assertion is a **fact about the behavior**: a literal, a stored row read back, bytes read from the real system, a value an external specification fixes (RFC 9110, RFC 4122, a real ffmpeg banner, an HTTP status).
+
+It is never a **recomputation of the subject**. Two forms of the same trap:
+
+- **The same function.** The expected side calls the function under test.
+- **The same helper.** The expected side calls a helper the code under test also calls. The helper's correctness is then never verified — the test only proves it was called with the right arguments. A helper that produces the expected value needs its own test, with literals.
+
+| Never | Instead |
+|---|---|
+| `expect(parseEntry(x)).toEqual(parseEntry(x))` | a literal for the expected shape |
+| `expect(result.key).toBe(createStableKey(x))` | the literal key, so the format is pinned |
+| `expect(fingerprint).toBe(profilePinFingerprint(pin))` | the literal fingerprint |
+| `expect(dedupeKey).toBe(createDedupeKey(paths))` | the literal dedupe key |
+| `expect(total).toBe(items.reduce(sum, 0))` | the literal total |
+| `expect(second).toBe(encryptSecret(first))` | two literals, so the ciphertext is not pinned to the implementation |
+
+The same rule applies to a constant: a constant used as the expected value is built from literals, not from a call into the subject.
+
+A helper that reads the world — the filesystem, the network, the database — is a fact, not a recomputation. Reading a file back to prove it was not rewritten stays.
+
+#### 2. Sensitivity — would it fail?
+
+Before you finish a test, break the code path it covers: flip one condition or change one value, run the test, confirm it fails, restore the code. A test that still passes protects nothing.
+
+`bun run mutation` measures this across the whole suite: it rewrites the implementation and counts the mutants the suite kills. It reports **sensitivity, not correctness** — a suite can be sensitive and still assert the wrong value. Use it to find dead weight, never as a certificate.
+
+#### 3. Outcome — assert what happened, not how
+
+Assert the returned value, the stored row, the response body, the emitted payload. Not which collaborator was called, and not with which arguments.
+
+| Never | Instead |
+|---|---|
+| `expect(repo.findById).toHaveBeenCalledWith(id)` | the row the repository returns |
+| `expect(mock.save).toHaveBeenCalledTimes(1)` | the stored row |
+| `expect(result).toBe(stubReturn)` | the value the service produced from it |
+
+A call assertion is allowed only when the call itself is the invariant, and the title says so.
+
+#### 4. Ownership — the file owns the code
+
+A test file under `src/` exercises a module from its own folder. A test that covers another area's code belongs to that area: it makes the coverage map lie, and it makes the test read as noise.
+
+#### 5. Independence — the machine and the build
+
+A test that passes on your box and fails on the CI runner is a broken test, not a flaky one. Three things leak the environment in.
+
+**The host.** What the machine has — a GPU, a DRM render node, a core count — is not an input the test controls. The production code takes it as a parameter, so the test passes it in:
+
+```ts
+const args = buildTranscodeVideoArgs(decision, config, hw("nvenc"), toneMap("none"));
+```
+
+When the production code reads the host itself, the test replaces the module (`mockModuleWithRealExports`). A test may not call a probe of the detected capabilities — `getEffectiveHwaccel`, `getFfmpegCapabilities`, `resolveEffectiveHwaccel`, `getDetectedDriDevice` — except in the test that owns the module declaring them.
+
+**The build.** The suite runs against whatever ffmpeg the machine has: upstream ffmpeg, jellyfin-ffmpeg, or a minimal build. They advertise different filters and encoders, so a test that asserts on the *detected* set asserts on the build. Test those decisions with literal sets instead — a fixture, never the probe's output.
+
+**The clock.** A test that measures elapsed time may only compare it against a bound the test itself pins. A bound taken from the host's speed factor or a hard-coded millisecond count is a race against the runner.
+
+### What a test may never contain
+
+- **Existence**: `.toBeDefined()`, `.toBeTruthy()`, `typeof x === "function"`, a bare `not.toThrow()`. Assert the value the code produces.
+- **A loose bound**: `toBeGreaterThan(0)`, `toBeGreaterThanOrEqual(1)`. Any value passes.
+- **A call as the only assertion** — see gate 3.
+- **A stub's own value** as the expectation.
+- **An error message** as the expectation. Assert `category` and `code`.
+- **A whole object** when only one field carries an invariant. Use `toMatchObject`.
+- **A constant table** with no behavior behind it.
+- **Third-party behavior**: TypeBox, Elysia, Drizzle, Better Auth, Bun, SQLite, the ffmpeg CLI's own output format.
+- **A schema-enforced rule**: per-field rejections belong in the schema. One boundary test per route shows the schema is wired.
+- **A duplicate**: the same behavior in two files. Keep it in the file that owns the code.
+- **An assertion-free case**: code run for coverage with nothing checked.
+
+### Shape
+
+- **Title**: one sentence in domain language, stating the condition and the outcome: `refuses to restore while a stream is active`. Never "works", "handles" or "should".
+- **Structure**: arrange, act, assert. One behavior per test. Set up only what the test needs.
+- **Async**: always `await` `.rejects` and `.resolves`. An un-awaited assertion can pass without running.
+- **Errors**: assert `category` and `code`, never the message text.
+- **Mocks**: only what leaves the process — network, ffmpeg, ffprobe, the clock, external plugins. If the mock setup is longer than the assertion, use the real dependency or move the test up a layer.
+
+### The gate
+
+`bun run lint:tests` fails on a test file that cannot catch a bug: an expected value recomputed with the code under test, an expected value that is a constant the code under test defines, a case that only asserts existence, a case that only asserts a call, a bare `toThrow()`, a loose bound, a file that exercises another folder's code, or a test that reads the host's detected capabilities instead of mocking them. `bun run lint` runs it.
+
+Fix the assertion, not the rule.
 
 ## Changelog
 

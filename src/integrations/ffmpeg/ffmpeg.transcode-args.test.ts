@@ -149,6 +149,38 @@ describe("buildTranscodeVideoArgs", () => {
 		expect(gopOf(24)).toBe("144");
 		expect(gopOf(60)).toBe("360"); // clamped to 2.5 segments
 	});
+
+	// The accelerator is passed in, so the encoder does not depend on what the
+	// host's ffmpeg build happens to support.
+	test.each([
+		["nvenc", "h264_nvenc"],
+		["vaapi", "h264_vaapi"],
+		["qsv", "h264_qsv"],
+		["videotoolbox", "h264_videotoolbox"],
+	] as const)("selects the %s hardware H.264 encoder", (type, encoder) => {
+		const args = buildTranscodeVideoArgs(sdrDecision, config, hw(type), toneMap("none"));
+
+		expect(args).toContain(encoder);
+	});
+
+	test("uses compatibility-focused H.264 settings and segment-aligned keyframes", () => {
+		const args = buildTranscodeVideoArgs({ ...sdrDecision, videoBitrateKbps: 3616 }, config, hw("none"), toneMap("none"));
+
+		expect(args).toEqual(
+			expect.arrayContaining(["libx264", "veryfast", "-pix_fmt", "yuv420p", "-force_key_frames", "expr:gte(t,n_forced*6)"]),
+		);
+	});
+
+	test("applies the configured x264 preset and CRF in a software transcode", () => {
+		systemSettingsStore.setRuntimeValue("ffmpeg.preset", "ultrafast");
+		systemSettingsStore.setRuntimeValue("ffmpeg.crf", 28);
+
+		const args = buildTranscodeVideoArgs(sdrDecision, config, hw("none"), toneMap("none"));
+
+		expect(args).toContain("ultrafast");
+		expect(args).toEqual(expect.arrayContaining(["-crf", "28"]));
+		expect(args).toEqual(expect.arrayContaining(["-x264opts:0", "subme=0:me_range=16:rc_lookahead=10:me=hex:open_gop=0"]));
+	});
 });
 
 describe("transcoded audio arguments", () => {
@@ -156,6 +188,12 @@ describe("transcoded audio arguments", () => {
 
 	afterEach(() => {
 		systemSettingsStore.clearRuntimeValues();
+	});
+
+	test("normalizes the transcoded audio timestamps after a seek", () => {
+		const args = buildTranscodeAudioArgs({ ...sdrDecision, audioTranscode: true });
+
+		expect(args).toContain("aresample=async=1:first_pts=0");
 	});
 
 	test("uses the configured audio bitrate and keeps the source channel count by default", () => {

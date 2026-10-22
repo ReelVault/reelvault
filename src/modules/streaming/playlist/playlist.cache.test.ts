@@ -94,6 +94,16 @@ describe("playlist file cache", () => {
 		expect(text).toContain('#EXT-X-MAP:URI="segments/init.mp4"');
 		expect(text).not.toContain('#EXT-X-MAP:URI="init.mp4"');
 	});
+
+	test("leaves the playlist untouched when the init URI is already mapped", async () => {
+		const text = '#EXT-X-MAP:URI="segments/init.mp4"';
+		await writePlaylist(text);
+		const cache = new PlaylistFileCache();
+
+		const result = expectOk(await cache.read("s1", playlistPath, 4));
+
+		expect(await result.playlist.text()).toBe(text);
+	});
 });
 
 describe("playlist file cache eviction and invalidation", () => {

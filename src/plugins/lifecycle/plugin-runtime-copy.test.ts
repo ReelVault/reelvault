@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { removeTree } from "@/utils/directory.utils";
 import { clearPluginRuntimes, materializePluginRuntime, pluginRuntimeRoot, removePluginRuntime } from "./plugin-runtime.service";
 
 const temporaryDirectories: string[] = [];
+/** The runtime directory name is a random UUID (RFC 4122 version 4). */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 async function writeTree(root: string, files: Record<string, string>): Promise<void> {
 	for (const [relativePath, content] of Object.entries(files)) {
@@ -41,13 +43,16 @@ describe("plugin runtime copy", () => {
 
 		const runtimeDir = await materializePluginRuntime(pluginDir, pluginRuntimeRoot(pluginsDirectory));
 
-		expect(runtimeDir).toContain(join(".runtime"));
-		expect(runtimeDir).not.toBe(pluginDir);
+		// The mirror lives in a fresh `<plugins>/.runtime/<uuid>` directory.
+		expect(dirname(runtimeDir)).toBe(join(pluginsDirectory, ".runtime"));
+		expect(basename(runtimeDir)).toMatch(UUID_REGEX);
 		await expect(Bun.file(join(runtimeDir, "index.mjs")).text()).resolves.toBe("export default {};\n");
 		await expect(Bun.file(join(runtimeDir, "lib", "dep.mjs")).text()).resolves.toBe("export const dep = 1;\n");
 
-		const second = await materializePluginRuntime(pluginDir, pluginRuntimeRoot(pluginsDirectory));
-		expect(second).not.toBe(runtimeDir);
+		await materializePluginRuntime(pluginDir, pluginRuntimeRoot(pluginsDirectory));
+
+		// A second materialization adds its own directory instead of reusing the first.
+		expect(readdirSync(join(pluginsDirectory, ".runtime"))).toHaveLength(2);
 	});
 
 	test("materialization skips .git directories and mirrors regular files of symlinked trees", async () => {

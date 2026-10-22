@@ -56,8 +56,10 @@ describe("library error check task", () => {
 	});
 
 	test("uses the same dedupe key for equivalent path order", () => {
-		expect(createLibraryErrorsCheckDedupeKey(["/media/tv", "/media/movies"])).toBe(
-			createLibraryErrorsCheckDedupeKey(["/media/movies", "/media/tv"]),
-		);
+		// sha256 of the sorted, resolved path list: ["/media/movies","/media/tv"]
+		const dedupeKey = "39dd9d19f26353c80940e14edb098dd7db8cd6f893aa96b4cfc8f0002f85bd68";
+
+		expect(createLibraryErrorsCheckDedupeKey(["/media/tv", "/media/movies"])).toBe(dedupeKey);
+		expect(createLibraryErrorsCheckDedupeKey(["/media/movies", "/media/tv"])).toBe(dedupeKey);
 	});
 });

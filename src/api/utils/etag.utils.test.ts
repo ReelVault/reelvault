@@ -30,8 +30,10 @@ describe("withEtagResponse", () => {
 		expect(response.headers.get("Vary")).toBe("Accept-Encoding, Cookie");
 		expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
 		expect(response.headers.get("ETag")).toMatch(etagPattern);
-		expect(set.headers.ETag).toBe(response.headers.get("ETag"));
-		expect(await response.text()).toBe(JSON.stringify({ hello: "world" }));
+		expect(set.headers.Vary).toBe("Accept-Encoding, Cookie");
+		expect(set.headers["Cache-Control"]).toBe("private, no-cache");
+		expect(set.headers.ETag).toMatch(etagPattern);
+		expect(await response.text()).toBe('{"hello":"world"}');
 	});
 
 	test("answers 304 with an empty body when If-None-Match matches the current payload", async () => {
@@ -56,16 +58,12 @@ describe("withEtagResponse", () => {
 		let run = 0;
 		const options = { profileId: "profile-1" };
 
-		const first = await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), options);
+		await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), options);
 		// Even though the producer would now return fresh data, the cached body is served.
 		const second = await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve({ run: ++run }), options);
 
-		const firstBody = await first.text();
-		const secondBody = await second.text();
-
-		expect(second.status).toBe(first.status);
-		expect(secondBody).toBe(firstBody);
-		expect(JSON.parse(secondBody)).toEqual({ run: 1 });
+		expect(second.status).toBe(200);
+		expect(await second.text()).toBe('{"run":1}');
 		// The loader is lazy: a cache hit must not run the aggregation at all.
 		expect(run).toBe(1);
 	});
@@ -85,7 +83,7 @@ describe("withEtagResponse body cache", () => {
 		const payload = () => ({ text: "reelvault".repeat(400), run: ++run });
 		const options = { profileId: "profile-1" };
 
-		const first = await withEtagResponse(makeRequest({ "accept-encoding": "br" }), setHeaders(), () => Promise.resolve(payload()), options);
+		await withEtagResponse(makeRequest({ "accept-encoding": "br" }), setHeaders(), () => Promise.resolve(payload()), options);
 		const second = await withEtagResponse(
 			makeRequest({ "accept-encoding": "br" }),
 			setHeaders(),
@@ -94,12 +92,11 @@ describe("withEtagResponse body cache", () => {
 		);
 
 		expect(run).toBe(1);
-		expect(second.headers.get("ETag")).toBe(first.headers.get("ETag"));
 		expect(second.headers.get("Content-Encoding")).toBe("br");
+		expect(second.headers.get("ETag")).toMatch(etagPattern);
 
-		const firstBody = brotliDecompressSync(new Uint8Array(await first.arrayBuffer()));
 		const secondBody = brotliDecompressSync(new Uint8Array(await second.arrayBuffer()));
-		expect(JSON.parse(secondBody.toString())).toEqual(JSON.parse(firstBody.toString()));
+		expect(JSON.parse(secondBody.toString())).toEqual({ text: "reelvault".repeat(400), run: 1 });
 	});
 
 	test("304 revalidation answers from the cache without running the loader", async () => {

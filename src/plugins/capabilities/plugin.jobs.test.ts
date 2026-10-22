@@ -34,11 +34,13 @@ describe("plugin job clamps", () => {
 		expect(names).toEqual(["org.reelvault.trickplay:generate"]);
 	});
 
-	test("registers a job with a positive concurrency when none is declared", async () => {
+	test("registers a job without a declared concurrency with a concurrency of one", async () => {
 		const names = await pluginJobsService.register("org.reelvault.clamp", [{ name: "auto", handler: async () => undefined }]);
 		registered.push(names);
 
 		const definition = workerService.getDefinitions().find((candidate) => candidate.id === names[0]);
-		expect(definition?.concurrency).toBeGreaterThanOrEqual(1);
+		// A plugin job belongs to no resource category, so the allocator gives it the
+		// unbudgeted default of a single slot.
+		expect(definition?.concurrency).toBe(1);
 	});
 });

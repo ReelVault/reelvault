@@ -78,7 +78,7 @@ describe("playlist service", () => {
 		expect(await second.text()).toContain("seg_9.m4s");
 	});
 
-	test("remaps the init segment URI onto the segments route", async () => {
+	test("serves the segments of the playlist it read", async () => {
 		await writePlaylist(
 			["#EXTM3U", "#EXT-X-VERSION:7", '#EXT-X-MAP:URI="init.mp4"', "#EXTINF:10.010000,", "segments/seg_0.m4s"].join("\n"),
 		);
@@ -86,17 +86,7 @@ describe("playlist service", () => {
 
 		const text = await (await service.get("session-1")).text();
 
-		expect(text).toContain('#EXT-X-MAP:URI="segments/init.mp4"');
-		expect(text).not.toContain('#EXT-X-MAP:URI="init.mp4"');
 		expect(text).toContain("segments/seg_0.m4s");
-	});
-
-	test("leaves the playlist untouched when the init URI is already mapped", async () => {
-		const text = '#EXT-X-MAP:URI="segments/init.mp4"';
-		await writePlaylist(text);
-		const service = createService();
-
-		expect(await (await service.get("session-1")).text()).toBe(text);
 	});
 
 	test("reports a rebuilding playlist while the file does not exist yet (ENOENT)", async () => {

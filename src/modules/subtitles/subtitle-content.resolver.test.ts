@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type SubtitleContent, SubtitleContentResolver } from "./subtitle-content.resolver";
+import { type SubtitleContent, SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
 
 const CONTROLLER = new AbortController();
 
@@ -100,5 +100,19 @@ describe("SubtitleContentResolver", () => {
 			category: "not_found",
 			code: "subtitle.not_found",
 		});
+	});
+});
+
+describe("subtitle extractability", () => {
+	test("asking for an image-based track names its code instead of reporting it missing", async () => {
+		await expect(
+			subtitleContentResolver.resolve("sub-1", {
+				type: "embedded",
+				mediaFileId: "file-1",
+				streamIndex: 2,
+				format: "hdmv_pgs_subtitle",
+				mediaFilePath: "/media/file.mkv",
+			}),
+		).rejects.toMatchObject({ code: "subtitle.bitmap_unsupported" });
 	});
 });

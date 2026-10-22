@@ -98,12 +98,12 @@ describe("library scan queue priority", () => {
 	test("a library scan is stored as a pending job at the library scan priority, deduped per library", async () => {
 		setWorkerRuntime(createMockWorkerRuntime({ registry: { get: (id) => (id === libraryScanWorker.id ? libraryScanWorker : undefined) } }));
 
-		const task = await enqueueLibraryScan({ libraryId: "library-1" });
+		await enqueueLibraryScan({ libraryId: "library-1" });
+		await enqueueLibraryScan({ libraryId: "library-1" });
 
 		const jobs = await db.client().select().from(schema.workerJobs);
 		expect(jobs).toHaveLength(1);
 		expect(jobs[0]).toMatchObject({
-			id: task.taskId,
 			workerId: "library-scan",
 			status: "pending",
 			priority: LIBRARY_SCAN_PRIORITY,

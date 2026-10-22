@@ -128,7 +128,7 @@ describe("AdminAuditService.exportEntries", () => {
 
 		await expect(adminAuditService.exportEntries({ format: "csv" })).rejects.toMatchObject({
 			code: "admin.audit.export_too_large",
-			params: { limit: AUDIT_EXPORT_MAX_ENTRIES },
+			params: { limit: 10_000 },
 		});
 	});
 });

@@ -10,7 +10,6 @@ import {
 	buildTrending,
 	coldStartFallback,
 	recencyMultiplier,
-	SIGNAL_WEIGHTS,
 	scoreCandidate,
 } from "./discover-recommendations.service";
 
@@ -50,7 +49,9 @@ describe("scoreCandidate", () => {
 			cast: empty,
 		});
 
-		expect(withGenre).toBeGreaterThan(withoutGenre);
+		// The genre match scores 10 × 1.0; both items add the popularity term 5 × 0.03.
+		expect(withGenre).toBeCloseTo(10.15, 5);
+		expect(withoutGenre).toBeCloseTo(0.15, 5);
 	});
 
 	test("popularity-only score equals popularity × POPULARITY_WEIGHT", () => {
@@ -59,7 +60,7 @@ describe("scoreCandidate", () => {
 		expect(result).toBeCloseTo(100 * 0.03, 5);
 	});
 
-	test("signal weights are applied correctly (genre > cast > keyword)", () => {
+	test("weights a genre match above a cast match and a cast match above a keyword match", () => {
 		const scores = new Map([["x", 10]]);
 		const empty = new Map<string, number>();
 
@@ -67,11 +68,10 @@ describe("scoreCandidate", () => {
 		const castOnly = scoreCandidate({ genreIds: [], keywordIds: [], castIds: ["x"] }, 0, { genre: empty, keyword: empty, cast: scores });
 		const kwOnly = scoreCandidate({ genreIds: [], keywordIds: ["x"], castIds: [] }, 0, { genre: empty, keyword: scores, cast: empty });
 
-		expect(genreOnly).toBeCloseTo(10 * SIGNAL_WEIGHTS.genre, 5);
-		expect(castOnly).toBeCloseTo(10 * SIGNAL_WEIGHTS.cast, 5);
-		expect(kwOnly).toBeCloseTo(10 * SIGNAL_WEIGHTS.keyword, 5);
-		expect(genreOnly).toBeGreaterThan(castOnly);
-		expect(castOnly).toBeGreaterThan(kwOnly);
+		// A relation score of 10 is weighted 1.0 for a genre, 0.7 for a cast member and 0.5 for a keyword.
+		expect(genreOnly).toBeCloseTo(10, 5);
+		expect(castOnly).toBeCloseTo(7, 5);
+		expect(kwOnly).toBeCloseTo(5, 5);
 	});
 });
 

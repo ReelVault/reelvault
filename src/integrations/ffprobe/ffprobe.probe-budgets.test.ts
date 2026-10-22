@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FULL_PROBE_BUDGET, probeBudgetForFormat } from "./ffprobe.probe-budgets";
+import { probeBudgetForFormat } from "./ffprobe.probe-budgets";
 
 describe("probe budgets", () => {
 	test("tiers probe budgets by container format", () => {
@@ -12,10 +12,10 @@ describe("probe budgets", () => {
 		expect(mkv.probesize).toBe("20M");
 
 		const exotic = probeBudgetForFormat("mpegts");
-		expect(exotic.analyzeduration).toBe(FULL_PROBE_BUDGET.analyzeduration);
-		expect(exotic.probesize).toBe(FULL_PROBE_BUDGET.probesize);
+		expect(exotic.analyzeduration).toBe("50M");
+		expect(exotic.probesize).toBe("100M");
 
 		const missing = probeBudgetForFormat(null);
-		expect(missing.probesize).toBe(FULL_PROBE_BUDGET.probesize);
+		expect(missing.probesize).toBe("100M");
 	});
 });

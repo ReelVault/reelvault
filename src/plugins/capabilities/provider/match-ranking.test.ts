@@ -43,10 +43,13 @@ describe("normalizeMetadataDetails", () => {
 });
 
 describe("discoveryCacheKey", () => {
+	test("keys a discovery request from its discriminants", () => {
+		expect(discoveryCacheKey({ type: "movie", category: "popular" })).toBe("discover:*:movie:popular:1::::::");
+	});
+
 	test("keys differ when request discriminants differ", () => {
-		const base = { type: "movie" as const, category: "popular" as const };
-		expect(discoveryCacheKey(base)).not.toBe(discoveryCacheKey({ ...base, page: 2 }));
-		expect(discoveryCacheKey(base)).toBe(discoveryCacheKey({ ...base }));
+		expect(discoveryCacheKey({ type: "movie", category: "popular", page: 2 })).toBe("discover:*:movie:popular:2::::::");
+		expect(discoveryCacheKey({ type: "movie", category: "popular", year: 2020 })).toBe("discover:*:movie:popular:1::::2020::");
 	});
 });
 

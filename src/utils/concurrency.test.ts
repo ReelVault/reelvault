@@ -69,4 +69,40 @@ describe("keyed mutex", () => {
 
 		await expect(mutex.runExclusive("library-1", async () => "third")).resolves.toBe("third");
 	});
+
+	test("a finished run does not release the tail the next run installed", async () => {
+		const mutex = new KeyedMutex();
+		const firstGate = deferred<void>();
+		const secondGate = deferred<void>();
+		const order: string[] = [];
+
+		const first = mutex.runExclusive("library-1", async () => {
+			order.push("first:start");
+			await firstGate.promise;
+			order.push("first:end");
+		});
+		// The second run installs its own tail while the first still holds the lock.
+		const second = mutex.runExclusive("library-1", async () => {
+			order.push("second:start");
+			await secondGate.promise;
+		});
+		await Bun.sleep(10);
+
+		firstGate.resolve(undefined);
+		await first;
+
+		// A third run arrives after the first finished but while the second still holds the lock.
+		const third = mutex.runExclusive("library-1", async () => {
+			await Promise.resolve();
+			order.push("third:start");
+		});
+		await Bun.sleep(10);
+
+		// The third run waits for the second one; releasing the tail would let it run first.
+		expect(order).toEqual(["first:start", "first:end", "second:start"]);
+
+		secondGate.resolve(undefined);
+		await Promise.all([second, third]);
+		expect(order).toEqual(["first:start", "first:end", "second:start", "third:start"]);
+	});
 });

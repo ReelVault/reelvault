@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
 import sharp from "sharp";
-import { CancellationError } from "@/utils/cancellation.utils";
 import { imageOptimizationService } from "./image-optimization.service";
 
 describe("ImageOptimizationService", () => {
@@ -53,7 +52,7 @@ describe("ImageOptimizationService", () => {
 			controller.abort();
 			await expect(
 				imageOptimizationService.getOptimizedImage(sourcePath, { width: 160 }, undefined, controller.signal),
-			).rejects.toBeInstanceOf(CancellationError);
+			).rejects.toMatchObject({ name: "CancellationError" });
 		} finally {
 			await rm(sourcePath, { force: true });
 		}

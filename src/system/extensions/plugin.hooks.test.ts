@@ -24,12 +24,28 @@ describe("plugin hook bus", () => {
 
 	test("propagates an explicit hook rejection but isolates ordinary hook failures", async () => {
 		const bus = new PluginHookBus();
+		const ran: string[] = [];
 		bus.beforeMetadataSave("broken", () => {
 			throw new Error("unexpected plugin failure");
 		});
-		bus.beforeMetadataSave("rejecting", () => rejectPluginHook("blocked by policy"));
+		bus.beforeMetadataSave("after-broken", ({ candidate: input }) => {
+			ran.push("after-broken");
 
-		await expect(bus.runBeforeMetadataSave(candidate)).rejects.toBeInstanceOf(PluginHookRejection);
+			return { ...input, title: "Applied after failure" };
+		});
+		bus.beforeMetadataSave("rejecting", () => rejectPluginHook("blocked by policy"));
+		bus.beforeMetadataSave("after-rejection", () => {
+			ran.push("after-rejection");
+
+			return undefined;
+		});
+
+		const rejection = bus.runBeforeMetadataSave(candidate);
+
+		await expect(rejection).rejects.toBeInstanceOf(PluginHookRejection);
+		await expect(rejection).rejects.toMatchObject({ name: "PluginHookRejection", message: "blocked by policy" });
+		// The ordinary failure is skipped, so the next hook runs; the explicit rejection stops the chain.
+		expect(ran).toEqual(["after-broken"]);
 	});
 
 	test("isolates a timed out hook and continues with later hooks", async () => {

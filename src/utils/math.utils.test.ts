@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isValidRating } from "@/utils/media-metadata.utils";
-import { clamp } from "./math.utils";
+import { clamp, roundTo } from "./math.utils";
 
 describe("clamp", () => {
 	test("returns the value inside the range", () => {
@@ -15,16 +14,21 @@ describe("clamp", () => {
 	});
 });
 
-describe("isValidRating", () => {
-	test("accepts a non-empty source with a finite value", () => {
-		expect(isValidRating({ source: "tmdb", value: 7.5 })).toBe(true);
-		expect(isValidRating({ source: "user", value: 0 })).toBe(true);
+describe("roundTo", () => {
+	test("rounds to the requested number of decimal places", () => {
+		expect(roundTo(1.2345, 2)).toBe(1.23);
+		expect(roundTo(1.2355, 2)).toBe(1.24);
+		expect(roundTo(1.2345678, 4)).toBe(1.2346);
 	});
 
-	test("rejects empty sources and non-finite values", () => {
-		expect(isValidRating({ source: "", value: 7.5 })).toBe(false);
-		expect(isValidRating({ source: "  ", value: 7.5 })).toBe(false);
-		expect(isValidRating({ source: "tmdb", value: Number.NaN })).toBe(false);
-		expect(isValidRating({ source: "tmdb", value: Number.POSITIVE_INFINITY })).toBe(false);
+	test("rounds to a whole number with zero decimals", () => {
+		expect(roundTo(1.4, 0)).toBe(1);
+		expect(roundTo(1.5, 0)).toBe(2);
+		expect(roundTo(2.5, 0)).toBe(3);
+	});
+
+	test("leaves a value that already has the requested precision alone", () => {
+		expect(roundTo(3, 2)).toBe(3);
+		expect(roundTo(3.14, 2)).toBe(3.14);
 	});
 });

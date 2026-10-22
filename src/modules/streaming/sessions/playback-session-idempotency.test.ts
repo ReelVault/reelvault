@@ -3,8 +3,17 @@ import { fingerprintPlaybackSession, PlaybackSessionIdempotencyRegistry } from "
 
 describe("PlaybackSessionIdempotencyRegistry", () => {
 	test("normalizes codec order before fingerprinting", () => {
+		// The fingerprint is "<media file id>|<video codecs>|<audio codecs>|<max bitrate>|<audio stream
+		// index>|<audio language>|<subtitle language>|<subtitles enabled>|<forced subtitles only>",
+		// with the ids lowercased and the codec lists trimmed, deduped and sorted.
 		expect(fingerprintPlaybackSession({ mediaFileId: "Media-1", videoCodecs: ["AV1", " h264", "av1"], audioCodecs: ["AAC"] })).toBe(
-			fingerprintPlaybackSession({ mediaFileId: "media-1", videoCodecs: ["h264", "av1"], audioCodecs: ["aac"] }),
+			"media-1|av1,h264|aac||||||",
+		);
+	});
+
+	test("gives a different fingerprint to a different media file", () => {
+		expect(fingerprintPlaybackSession({ mediaFileId: "media-2", videoCodecs: ["AV1", " h264", "av1"], audioCodecs: ["AAC"] })).toBe(
+			"media-2|av1,h264|aac||||||",
 		);
 	});
 

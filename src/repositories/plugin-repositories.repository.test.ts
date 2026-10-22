@@ -23,7 +23,9 @@ describe("PluginRepositoriesRepository.createIfAbsent", () => {
 	test("create rejects a duplicate url and keeps the original row", async () => {
 		await pluginRepositoriesRepository.create({ name: "Official", url: "https://example.com/catalog.json" });
 
-		await expect(pluginRepositoriesRepository.create({ name: "Duplicate", url: "https://example.com/catalog.json" })).rejects.toThrow();
+		await expect(pluginRepositoriesRepository.create({ name: "Duplicate", url: "https://example.com/catalog.json" })).rejects.toMatchObject(
+			{ cause: { code: "SQLITE_CONSTRAINT_UNIQUE" } },
+		);
 
 		expect((await pluginRepositoriesRepository.list()).map((row) => row.name)).toEqual(["Official"]);
 	});

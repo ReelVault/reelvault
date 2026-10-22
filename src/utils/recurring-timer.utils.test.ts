@@ -24,33 +24,45 @@ describe("RecurringTimer", () => {
 	});
 
 	test("routes an async callback failure to onError and keeps ticking", async () => {
+		const failure = new Error("async failure");
+		const errors: unknown[] = [];
+		let calls = 0;
+		const routed = Promise.withResolvers<void>();
+		const timer = new RecurringTimer(
+			() => {
+				calls++;
+				// The timer only stops on its second tick: reaching it proves the
+				// first failure did not stop the interval.
+				if (calls === 2) timer.stop();
+
+				return Promise.reject(failure);
+			},
+			5,
+			(error) => {
+				errors.push(error);
+				if (errors.length === 2) routed.resolve();
+			},
+		);
+
+		timer.start();
+		await routed.promise;
+
+		expect(calls).toBe(2);
+		expect(errors).toHaveLength(2);
+		expect(errors[0]).toBe(failure);
+		expect(errors[1]).toBe(failure);
+	});
+
+	test("routes a synchronous callback failure to onError", async () => {
+		const failure = new Error("sync failure");
 		const errors: unknown[] = [];
 		let calls = 0;
 		const timer = new RecurringTimer(
 			() => {
 				calls++;
+				timer.stop();
 
-				return Promise.reject(new Error("async failure"));
-			},
-			5,
-			(error) => {
-				errors.push(error);
-			},
-		);
-
-		timer.start();
-		await Bun.sleep(30);
-		timer.stop();
-
-		expect(calls).toBeGreaterThan(0);
-		expect(errors.length).toBeGreaterThan(0);
-	});
-
-	test("routes a synchronous callback failure to onError", async () => {
-		const errors: unknown[] = [];
-		const timer = new RecurringTimer(
-			() => {
-				throw new Error("sync failure");
+				throw failure;
 			},
 			5,
 			(error) => {
@@ -60,8 +72,9 @@ describe("RecurringTimer", () => {
 
 		timer.start();
 		await Bun.sleep(20);
-		timer.stop();
 
-		expect(errors.length).toBeGreaterThan(0);
+		expect(calls).toBe(1);
+		expect(errors).toHaveLength(1);
+		expect(errors[0]).toBe(failure);
 	});
 });
