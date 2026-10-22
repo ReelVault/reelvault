@@ -3,6 +3,11 @@ import { serverConfig } from "@/config/server/server.config";
 import { LIBRARY_SCAN_PRIORITY, MINUTE } from "@/config/server/server.constants";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { scannerService } from "@/modules/scanner/scanner.service";
+import { librariesRepository } from "@/repositories/libraries.repository";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { scanFindingsRepository } from "@/repositories/scan-findings.repository";
+import { type ScanCheckpoint, scanStateRepository } from "@/repositories/scan-state.repository";
+import { mediaFileRefreshService } from "@/services/media/media-files/refresh-media-file.operation";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
@@ -15,7 +20,6 @@ import { enqueueMediaFileRefreshBatch } from "@/workers/definitions/media/media-
 import { enqueueInBatches } from "@/workers/utils/batch-enqueue.utils";
 import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
-import { type ScanCheckpoint, workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -72,26 +76,26 @@ export interface LibraryScanTaskDependencies {
 }
 
 const defaultDependencies: LibraryScanTaskDependencies = {
-	findLibrary: (libraryId) => workerDependencies().libraries.findWithPaths(libraryId),
+	findLibrary: (libraryId) => librariesRepository.findWithPaths(libraryId),
 	scanPaths: (libraryId, type, paths, signal) => scannerService.scanPaths(libraryId, type, paths, signal),
 	enqueueMediaFileIngest: (data, options) => enqueueMediaFileIngest(data, options ?? {}),
-	enqueueMediaFileRefresh: (mediaFileId, options) => workerDependencies().services.mediaFileRefresh.queue(mediaFileId, options),
+	enqueueMediaFileRefresh: (mediaFileId, options) => mediaFileRefreshService.queue(mediaFileId, options),
 	enqueueMediaFileIngestBatch: (entries, options) => enqueueManyMediaFileIngest(entries, options ?? {}),
 	enqueueMediaFileRefreshBatch: async (mediaFileIds, options, signal) => {
 		throwIfAborted(signal);
-		const targets = await workerDependencies().media.findIdentitiesByIds(mediaFileIds);
+		const targets = await mediaRepository.findIdentitiesByIds(mediaFileIds);
 
 		return enqueueMediaFileRefreshBatch(targets, options ?? {});
 	},
 	publishScanStarted: (input) => pluginEventBus.publish("library.scan.started", input),
 	emitScanCompleted: (input) => pluginEventBus.emit("library.scan.completed", input),
 	notifyScanCompleted: (input) => realtimeService.broadcast("library:scan:completed", input),
-	loadCheckpoint: (libraryId) => workerDependencies().scanState.get(libraryId),
-	saveCheckpoint: (libraryId, checkpoint) => workerDependencies().scanState.set(libraryId, checkpoint),
-	updateCheckpointCursors: (libraryId, cursors) => workerDependencies().scanState.setCursors(libraryId, cursors),
-	deleteCheckpoint: (libraryId) => workerDependencies().scanState.delete(libraryId),
+	loadCheckpoint: (libraryId) => scanStateRepository.get(libraryId),
+	saveCheckpoint: (libraryId, checkpoint) => scanStateRepository.set(libraryId, checkpoint),
+	updateCheckpointCursors: (libraryId, cursors) => scanStateRepository.setCursors(libraryId, cursors),
+	deleteCheckpoint: (libraryId) => scanStateRepository.delete(libraryId),
 	pruneScanFindings: (libraryId, scannedFilePaths, scannedRoots) =>
-		workerDependencies().scanFindings.pruneStale(libraryId, scannedFilePaths, scannedRoots),
+		scanFindingsRepository.pruneStale(libraryId, scannedFilePaths, scannedRoots),
 };
 
 export interface LibraryScanOrchestration {

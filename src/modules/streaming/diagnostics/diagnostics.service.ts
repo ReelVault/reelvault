@@ -4,8 +4,8 @@ import { calculateBufferProgress } from "@/modules/streaming/buffer/hls-buffer.u
 import { defaultFindForStreamingDuration, defaultRequireSession } from "@/modules/streaming/contracts.utils";
 import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences.resolver";
 import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
-import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import type { HlsBufferAnalysis, RequireSession } from "@/modules/streaming/streaming.types";
+import { mediaRepository } from "@/repositories/media-files.repository";
 import { assertFound } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { isNullish } from "@/utils/type.utils";
@@ -90,7 +90,7 @@ function toBufferProgress(analysis: HlsBufferAnalysis, active: boolean, duration
 
 const defaultDependencies: ServiceDependencies = {
 	requireSession: defaultRequireSession,
-	findForStreamingDiagnostics: (fileId) => streamingStorage().findForStreamingDiagnostics(fileId),
+	findForStreamingDiagnostics: (fileId) => mediaRepository.findForStreamingDiagnostics(fileId),
 	findForStreamingDuration: defaultFindForStreamingDuration,
 	getBuffer: async (sessionId) => await streamingRuntimeService.getBuffer(sessionId).catch(() => null),
 	getSessionDiagnostics: (sessionId) => streamingRuntimeService.getDiagnostics(sessionId),

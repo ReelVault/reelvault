@@ -2,17 +2,17 @@ import {
 	DEFAULT_UPLOAD_SIZE_MB,
 	fmtMb,
 	type HttpScenarioResult,
-	main,
+	mbPerSecond,
 	printHttpResults,
 	printTable,
 	runLoadWindow,
+	subnetIp,
 	suiteArgs,
 	summarizeLatencies,
 	task,
+	toScenarioResult,
 } from "benchkit";
 import sharp from "sharp";
-import { subnetIp } from "./lib/identity.utils";
-import { toScenarioResult } from "./lib/scenario-result.mapper";
 import { suiteServerFixture } from "./lib/server.fixture";
 import type { ManagedServer } from "./lib/server.launcher";
 
@@ -76,52 +76,48 @@ export const meta = { description: "Image upload pipeline (multipart ingest & Sh
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args);
+const serverFixture = suiteServerFixture(args);
 
-	task("upload: pipeline", async () => {
-		const image = await createBenchmarkImage(args.sizeMb || DEFAULT_UPLOAD_SIZE_MB);
-		console.log(`[upload] payload: ${fmtMb(image.size)} JPEG (high-entropy)`);
+task("upload: pipeline", async () => {
+	const image = await createBenchmarkImage(args.sizeMb || DEFAULT_UPLOAD_SIZE_MB);
+	console.log(`[upload] payload: ${fmtMb(image.size)} JPEG (high-entropy)`);
 
-		const server = await serverFixture();
+	const server = await serverFixture();
 
-		const results: HttpScenarioResult[] = [];
-		let totalUploaded = 0;
-		for (const concurrency of args.concurrency) {
-			console.log(`[upload] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
-			const run = await runUploads(server, image, concurrency, args.warmupMs, args.durationMs);
-			totalUploaded += run.uploadedBytes;
-			const stats = summarizeLatencies(run.latencies);
-			results.push(
-				toScenarioResult({
-					name: `image upload c=${concurrency}`,
-					stats,
-					throughputCount: run.requests,
-					elapsedMs: args.durationMs,
-					errorCount: run.non2xx,
-					total: run.requests,
-				}),
-			);
-			printTable(
-				`Upload c=${concurrency}`,
-				["req/s", "MB/s in", "p50", "p95", "p99", "max", "non-2xx"],
+	const results: HttpScenarioResult[] = [];
+	let totalUploaded = 0;
+	for (const concurrency of args.concurrency) {
+		console.log(`[upload] concurrency ${concurrency} (warmup ${args.warmupMs}ms, measure ${args.durationMs}ms)`);
+		const run = await runUploads(server, image, concurrency, args.warmupMs, args.durationMs);
+		totalUploaded += run.uploadedBytes;
+		const stats = summarizeLatencies(run.latencies);
+		results.push(
+			toScenarioResult({
+				name: `image upload c=${concurrency}`,
+				stats,
+				throughputCount: run.requests,
+				elapsedMs: args.durationMs,
+				errorCount: run.non2xx,
+				total: run.requests,
+			}),
+		);
+		printTable(
+			`Upload c=${concurrency}`,
+			["req/s", "MB/s in", "p50", "p95", "p99", "max", "non-2xx"],
+			[
 				[
-					[
-						(run.requests / (args.durationMs / 1000)).toFixed(2),
-						(run.uploadedBytes / (args.durationMs / 1000) / 1024 / 1024).toFixed(2),
-						`${stats.p50Ms.toFixed(0)}ms`,
-						`${stats.p95Ms.toFixed(0)}ms`,
-						`${stats.p99Ms.toFixed(0)}ms`,
-						`${stats.maxMs.toFixed(0)}ms`,
-						String(run.non2xx),
-					],
+					(run.requests / (args.durationMs / 1000)).toFixed(2),
+					mbPerSecond(run.uploadedBytes, args.durationMs).toFixed(2),
+					`${stats.p50Ms.toFixed(0)}ms`,
+					`${stats.p95Ms.toFixed(0)}ms`,
+					`${stats.p99Ms.toFixed(0)}ms`,
+					`${stats.maxMs.toFixed(0)}ms`,
+					String(run.non2xx),
 				],
-			);
-		}
+			],
+		);
+	}
 
-		console.log(`[upload] total uploaded: ${fmtMb(totalUploaded)}`);
-		printHttpResults(results);
-	});
-}
-
-await main(import.meta);
+	console.log(`[upload] total uploaded: ${fmtMb(totalUploaded)}`);
+	printHttpResults(results);
+});

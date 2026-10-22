@@ -1,10 +1,10 @@
 import { serverConfig } from "@/config/server/server.config";
 import { MINUTE } from "@/config/server/server.constants";
+import { subtitlesRepository } from "@/repositories/subtitles.repository";
 import { scanFilesWithStats } from "@/utils/directory.utils";
 import { deleteFile } from "@/utils/file.utils";
 import { getFileNameWithoutExt } from "@/utils/path.utils";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 
 /**
  * Extracted `<subtitleId>.vtt` renditions are deleted together with their row;
@@ -23,7 +23,7 @@ export const cleanupOrphanSubtitlesWorker = defineMaintenanceWorker({
 		const files = await scanFilesWithStats(serverConfig.paths.subtitles, [".vtt"], 1, signal);
 		if (files.length === 0) return { success: true, deleted: 0 };
 
-		const subtitleIds = await workerDependencies().subtitles.findAllIds();
+		const subtitleIds = await subtitlesRepository.findAllIds();
 		const now = Date.now();
 		let deleted = 0;
 

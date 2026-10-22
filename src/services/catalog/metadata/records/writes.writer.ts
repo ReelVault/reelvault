@@ -4,18 +4,18 @@ import { metadataRepository } from "@/repositories/metadata.repository";
 import { metadataMergeRepository } from "@/repositories/metadata-merge.repository";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
+import { metadataLog } from "@/services/catalog/metadata/metadata.logger";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { invalidateReadCaches, type MetadataServiceState } from "./shared.utils";
+import { invalidateReadCaches } from "./read-caches.utils";
 
 export async function create<F extends string>(
-	state: MetadataServiceState,
 	body: CreateMetadata,
 	query?: FieldsQuery<F>,
 	context?: AdminAuditContext,
 ): Promise<SelectFields<MetadataWithRelation, F>> {
-	return await runSafely(state, "create", async () => {
+	return await runSafely(metadataLog, "create", async () => {
 		const result = await metadataRepository.createAndRead(body, query);
 		if (!result) throw new DomainError("internal", "Metadata creation failed", { code: "metadata.create_failed" });
 
@@ -30,7 +30,7 @@ export async function create<F extends string>(
 				after: result,
 				context,
 			},
-			state.logger,
+			metadataLog.logger,
 		);
 
 		return result;
@@ -38,15 +38,14 @@ export async function create<F extends string>(
 }
 
 export async function update<F extends string>(
-	state: MetadataServiceState,
 	metadataId: string,
 	body: UpdateMetadata,
 	query?: FieldsQuery<F>,
 	context?: AdminAuditContext,
 ): Promise<SelectFields<MetadataWithRelation, F>> {
-	return await runSafely(state, "update", async () =>
+	return await runSafely(metadataLog, "update", async () =>
 		auditedUpdate({
-			logger: state.logger,
+			logger: metadataLog.logger,
 			resourceType: "metadata",
 			resourceId: metadataId,
 			entityName: "Metadata",
@@ -64,12 +63,11 @@ export async function update<F extends string>(
 }
 
 export async function mergeMetadata(
-	state: MetadataServiceState,
 	targetId: string,
 	sourceId: string,
 	context?: AdminAuditContext,
 ): Promise<{ success: true; targetId: string }> {
-	return await runSafely(state, "mergeMetadata", async () => {
+	return await runSafely(metadataLog, "mergeMetadata", async () => {
 		if (targetId === sourceId) {
 			throw new DomainError("validation", "Target and source metadata must be different", {
 				code: "metadata.merge_same_id",
@@ -102,7 +100,7 @@ export async function mergeMetadata(
 				after: target,
 				context,
 			},
-			state.logger,
+			metadataLog.logger,
 		);
 
 		return { success: true, targetId };

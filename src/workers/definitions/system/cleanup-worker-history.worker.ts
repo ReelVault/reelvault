@@ -1,7 +1,7 @@
 import { MINUTE } from "@/config/server/server.constants";
+import { workerJobRepository } from "@/repositories/worker.repository";
 import { getWorkerRuntime } from "@/workers/core/worker.runtime";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 
 /** BullMQ-style semantics: `true` = keep none, number = keep N, false/undefined = no trim. */
@@ -36,9 +36,9 @@ export const cleanupWorkerHistoryWorker = defineMaintenanceWorker({
 			if (failed !== undefined) keepFailed.set(definition.id, failed);
 		}
 
-		if (keepCompleted.size > 0) await workerDependencies().jobs.trimMany("completed", keepCompleted);
+		if (keepCompleted.size > 0) await workerJobRepository.trimMany("completed", keepCompleted);
 
-		if (keepFailed.size > 0) await workerDependencies().jobs.trimMany("failed", keepFailed);
+		if (keepFailed.size > 0) await workerJobRepository.trimMany("failed", keepFailed);
 
 		return result;
 	},

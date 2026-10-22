@@ -18,12 +18,13 @@ import { libraryProviderSettingsRepository } from "@/repositories/library-provid
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
 import { deleteWithArtifacts } from "@/services/artifacts/delete-with-artifacts";
+import { librariesLog } from "@/services/libraries/libraries.logger";
 import { libraryWatcherService } from "@/services/libraries/watching/library-watcher.service";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { ingestLibraryCache } from "@/workers/definitions/media/media-file-ingest/dependencies.utils";
-import { LIBRARY_LIST_PATH_PREFIXES, type LibrariesServiceState, normalizeMetadataLanguage } from "./shared.utils";
+import { LIBRARY_LIST_PATH_PREFIXES, normalizeMetadataLanguage } from "./shared.utils";
 
 /**
  * A typo in a source path would otherwise create a library that silently
@@ -47,19 +48,13 @@ export async function getLibraryForScan<F extends string>(libraryId: string, que
 }
 
 export async function getAllLibraries<F extends string>(
-	state: LibrariesServiceState,
 	query?: PaginationQuery & FieldsQuery<F> & LibrarySorting & LibraryFilters,
 ): Promise<PaginatedResponse<SelectFields<LibraryWithRelations, F>>> {
-	return await runSafely(state, "getAll", async () => await librariesRepository.findPage(query));
+	return await runSafely(librariesLog, "getAll", async () => await librariesRepository.findPage(query));
 }
 
-export async function getLibraryById<F extends string>(
-	state: LibrariesServiceState,
-	libraryId: string,
-	query?: FieldsQuery<F>,
-	options?: { siblings?: boolean },
-) {
-	return await runSafely(state, "getById", async () => {
+export async function getLibraryById<F extends string>(libraryId: string, query?: FieldsQuery<F>, options?: { siblings?: boolean }) {
+	return await runSafely(librariesLog, "getById", async () => {
 		const library = await librariesRepository.findByIdForRead(libraryId, query);
 		assertFound(library, "Library", libraryId);
 
@@ -82,12 +77,11 @@ export async function getLibraryById<F extends string>(
 }
 
 export async function createLibrary<F extends string>(
-	state: LibrariesServiceState,
 	body: CreateLibrary,
 	query?: FieldsQuery<F>,
 	context?: AdminAuditContext,
 ): Promise<SelectFields<LibraryWithRelations, F>> {
-	return await runSafely(state, "create", async () => {
+	return await runSafely(librariesLog, "create", async () => {
 		assertPathsExist(body.paths);
 		// Direct probe (not findPage) — the count cache would hide a library
 		// created seconds ago and the duplicate would slip through as 200.
@@ -116,7 +110,7 @@ export async function createLibrary<F extends string>(
 				after: library,
 				context,
 			},
-			state.logger,
+			librariesLog.logger,
 		);
 
 		invalidateResponseBodiesForPathPrefixes(LIBRARY_LIST_PATH_PREFIXES);
@@ -127,13 +121,12 @@ export async function createLibrary<F extends string>(
 }
 
 export async function updateLibrary<F extends string>(
-	state: LibrariesServiceState,
 	libraryId: string,
 	body: UpdateLibrary,
 	query?: FieldsQuery<F>,
 	context?: AdminAuditContext,
 ): Promise<SelectFields<LibraryWithRelations, F>> {
-	return await runSafely(state, "update", async () => {
+	return await runSafely(librariesLog, "update", async () => {
 		if (body.paths) assertPathsExist(body.paths);
 
 		const before = await librariesRepository.findWithPaths(libraryId);
@@ -173,7 +166,7 @@ export async function updateLibrary<F extends string>(
 				after: result,
 				context,
 			},
-			state.logger,
+			librariesLog.logger,
 		);
 
 		invalidateResponseBodiesForPathPrefixes(LIBRARY_LIST_PATH_PREFIXES);
@@ -183,12 +176,8 @@ export async function updateLibrary<F extends string>(
 	});
 }
 
-export async function deleteLibrary(
-	state: LibrariesServiceState,
-	libraryId: string,
-	context?: AdminAuditContext,
-): Promise<{ success: boolean }> {
-	return await runSafely(state, "delete", async () => {
+export async function deleteLibrary(libraryId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
+	return await runSafely(librariesLog, "delete", async () => {
 		const library = await librariesRepository.findWithPaths(libraryId);
 		assertFound(library, "Library", libraryId);
 		ingestLibraryCache.delete(libraryId);
@@ -204,7 +193,7 @@ export async function deleteLibrary(
 				await libraryWatcherService.syncWatchers();
 			},
 			context,
-			logger: state.logger,
+			logger: librariesLog.logger,
 		});
 
 		return { success: true };

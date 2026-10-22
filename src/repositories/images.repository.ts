@@ -8,7 +8,6 @@ import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.par
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { metadataImageOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
-import type { ImageOwnerTarget, ImageProcess, PersistedImageInput } from "@/modules/images/images.ports";
 import { episodesRepository } from "@/repositories/episodes.repository";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { peopleRepository } from "@/repositories/people.repository";
@@ -17,6 +16,26 @@ import { seasonsRepository } from "@/repositories/seasons.repository";
 import { assertExists, DomainError } from "@/utils/domain.errors";
 import { MemoryCache } from "@/utils/memory.cache";
 import { normalizePath } from "@/utils/path.utils";
+
+/** The artwork slot of a metadata entry. */
+export type MetadataImageType = "poster" | "backdrop";
+
+/** A processed image file ready to be stored under its stable key. */
+export interface PersistedImageInput {
+	localPath: string;
+	contentType: string;
+	width: number;
+	height: number;
+	fileSize: number;
+	sourceHash: string;
+	stableKey: string;
+}
+
+/** The owner an image is stored for: its stable key, and the file it holds today. */
+export interface ImageOwnerTarget {
+	ownerStableKey: string;
+	currentLocalPath?: string | undefined;
+}
 
 /** Public image URL prefix embedded in `profiles.avatar_url`. */
 const AVATAR_URL_IMAGE_PREFIX = "/v1/images/";
@@ -145,7 +164,7 @@ const overrides = {
 		return { localPaths, imageIds };
 	},
 
-	async getMetadataTarget(metadataId: string, type: ImageProcess["type"]): Promise<ImageOwnerTarget> {
+	async getMetadataTarget(metadataId: string, type: MetadataImageType): Promise<ImageOwnerTarget> {
 		const [metadata, currentLocalPath] = await Promise.all([
 			findMetadataForImage(metadataId),
 			getImageRepository().findMetadataImagePath(metadataId, type),
@@ -161,7 +180,7 @@ const overrides = {
 	 * nothing references anymore.
 	 */
 
-	async replaceMetadataImage(metadataId: string, type: ImageProcess["type"], image: PersistedImageInput) {
+	async replaceMetadataImage(metadataId: string, type: MetadataImageType, image: PersistedImageInput) {
 		await replaceOwnerImage(
 			image,
 			async (tx) => await findMetadataForImage(metadataId, tx),
@@ -281,7 +300,7 @@ const overrides = {
 		return replaced;
 	},
 
-	async findMetadataImagePath(metadataId: string, imageType: ImageProcess["type"], tx?: DatabaseTransaction) {
+	async findMetadataImagePath(metadataId: string, imageType: MetadataImageType, tx?: DatabaseTransaction) {
 		const [row] = await databaseFactory
 			.getClient({ tx })
 			.select({ localPath: schema.images.localPath })

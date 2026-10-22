@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { UnzipFileHandler } from "fflate";
-import { assertSafeDestination, unpackedTooLarge } from "./shared.utils";
+import { assertSafeDestination, unpackedTooLarge } from "./extraction.guard";
 
 /** fflate streams entry data in chunks; the shared counter bounds the whole archive. */
 export function createZipEntryHandler(workRoot: string, maxUncompressedBytes: number, onFailure: (error: Error) => void): UnzipFileHandler {

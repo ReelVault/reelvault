@@ -1,17 +1,5 @@
-import cors from "@elysiajs/cors";
-import Elysia from "elysia";
 import { MIB } from "@/utils/bytes.utils";
-import { clientIpMiddleware } from "./api/middleware/client-ip.middleware";
-import { compressionMiddleware } from "./api/middleware/compression.middleware";
-import { domainErrorsMiddleware } from "./api/middleware/domain-errors.middleware";
-import { openapiMiddleware } from "./api/middleware/openapi.middleware";
-import { rateLimitMiddleware } from "./api/middleware/rate-limit.middleware";
-import { requestDedupMiddleware } from "./api/middleware/request-dedup.middleware";
-import { requestLoggerMiddleware } from "./api/middleware/request-logger.middleware";
-import { responseCacheMiddleware } from "./api/middleware/response-cache.middleware";
-import { securityHeadersMiddleware } from "./api/middleware/security.middleware";
-import { apiRouter } from "./api/routes/api.routes";
-import { webStaticPlugin } from "./api/web/web-static.plugin";
+import { createHttpApp } from "./api/http-app.factory";
 import { env } from "./config/env.config";
 import { serverConfig } from "./config/server/server.config";
 import { RECOMMENDED_FFMPEG_MAJOR } from "./config/server/server.constants";
@@ -20,28 +8,31 @@ import { SERVER_VERSION } from "./config/version.constants";
 import { databaseFactory } from "./integrations/drizzle-orm/database.factory";
 import { initializeFfmpegCapabilities, missingAudioFilters } from "./integrations/ffmpeg/ffmpeg.capabilities";
 import { assertFFMpegAvailable } from "./integrations/ffmpeg/ffmpeg.environment";
+import { ffMpegService } from "./integrations/ffmpeg/ffmpeg.service";
 import { assertFFProbeAvailable } from "./integrations/ffprobe/ffprobe.environment";
 import { downloadsService } from "./modules/downloads/downloads.service";
+import { realtimeService } from "./modules/realtime/realtime.service";
+import { streamingManager } from "./modules/streaming/runtime/streaming.manager";
 import { registerStreamingLifecycle } from "./modules/streaming/runtime/streaming.runtime";
-import { registerPluginNotificationSink } from "./plugins/lifecycle/host/plugin-host.factory";
 import { pluginManager } from "./plugins/lifecycle/plugin.manager";
+import { onNotificationChannelFailure } from "./plugins/runtime/notification-channel.registry";
+import { adminFailureNotificationService } from "./services/admin/admin-failure-notification.service";
 import { systemSettingsService } from "./services/admin/system-settings.service";
+import { registerAuthListeners } from "./services/auth/auth.service";
 import { firstRunSetupService } from "./services/auth/setup/first-run-setup.service";
+import { librariesService } from "./services/libraries/libraries.service";
 import { libraryWatcherService } from "./services/libraries/watching/library-watcher.service";
-import { notificationsService } from "./services/notifications/notifications.service";
+import { reportChannelFailureToAdministrators } from "./services/notifications/notifications.service";
 import { scheduleStartupUpdateCheck } from "./services/updates/update-check.service";
 import { updateHistoryService } from "./services/updates/update-history.service";
 import { updateInstallService } from "./services/updates/update-install.service";
 import { resourceAllocator } from "./system/resource-allocator.service";
 import { cleanupStartupDirectories, ensureDataDirectories } from "./system/server-data.utils";
 import { serverRescueService } from "./system/server-rescue.service";
-import { Shutdown, setActiveShutdown } from "./system/shutdown.service";
+import { Shutdown, type ShutdownStep, setActiveShutdown } from "./system/shutdown.service";
 import { flushLogs, logger, setLogLevel } from "./utils/logger.utils";
-import { isOriginAllowed, isUsableOriginEntry } from "./utils/origin-trust.utils";
-import { wireIntegrationPorts } from "./wiring/integration-ports";
-import { wireModulePorts } from "./wiring/module-ports";
-import { wireSystemPorts } from "./wiring/system-ports";
-import { wireWorkerPorts } from "./wiring/worker-ports";
+import { isUsableOriginEntry } from "./utils/origin-trust.utils";
+import { detach } from "./utils/promise.utils";
 import { loadBuiltInWorkers } from "./workers/built-in.loader";
 import { workerService } from "./workers/worker.service";
 
@@ -63,13 +54,8 @@ async function setupServer(): Promise<void> {
 		const { applied } = databaseFactory.migrate();
 		logger.info("Database migrations applied", { appliedMigrations: applied });
 
-		// Modules read their data through ports; wire them before any module runs.
-		wireModulePorts();
-		// Workers take their stores the same way, before the scheduler or any pool starts.
-		wireWorkerPorts();
-		wireSystemPorts();
-		// Auth and provider sync write through app repositories, so they are wired before any user or provider write.
-		wireIntegrationPorts();
+		// Better Auth's own user writes create the first profile; registered before any user can be created.
+		registerAuthListeners();
 
 		// Runs left open by the previous process: a server run that restarted into its target version succeeded.
 		await updateHistoryService.settleRunsAfterStart(SERVER_VERSION);
@@ -109,11 +95,8 @@ async function setupServer(): Promise<void> {
 		}
 
 		logger.info("Loading plugins...");
-		registerPluginNotificationSink({
-			create: async (notification, options) => await notificationsService.create(notification, options),
-			createForAdministrators: async (notification, options) => await notificationsService.createForAdministrators(notification, options),
-		});
-
+		// A plugin channel that stops delivering tells the administrators once, with its error.
+		onNotificationChannelFailure((failure) => detach(reportChannelFailureToAdministrators(failure)));
 		await pluginManager.loadPlugins();
 
 		logger.info("Loading queue service...");
@@ -133,14 +116,24 @@ async function setupServer(): Promise<void> {
 		registerStreamingLifecycle();
 
 		logger.info("Initializing resource allocator...");
+		resourceAllocator.registerActiveStreamsProvider(() => streamingManager.getActiveSessions());
+		// Resource alerts and rescue state are admin-panel material — keep them off non-admin sockets.
+		resourceAllocator.registerAlertListener(async (alert) => {
+			adminFailureNotificationService.notifyResourceAlert(alert.code, alert.params ?? {});
+			await realtimeService.sendToAdmins("system.resource_alert", alert);
+		});
 		await resourceAllocator.initialize();
 
 		// Arm the server rescue monitor (event-loop lag + system pressure watchdog)
 		serverRescueService.registerPressureProvider(() => resourceAllocator.getCurrentSnapshot()?.pressure ?? "low");
 		serverRescueService.registerSpeedFactorProvider(() => systemResourcesService.getSpeedFactor());
+		serverRescueService.registerStateListener(async (state) => await realtimeService.sendToAdmins("system.rescue_state", state));
 		serverRescueService.init();
 
 		logger.info("Initializing library watchers...");
+		// A watched change rescans the path; the periodic fallback rescans the whole library.
+		libraryWatcherService.registerScanner((libraryId, pathId) => librariesService.scanPath(libraryId, pathId));
+		libraryWatcherService.registerLibraryScanner((libraryId) => librariesService.scan(libraryId));
 		await libraryWatcherService.init();
 
 		// Fire-and-forget: a slow or unreachable GitHub must never delay boot.
@@ -153,54 +146,33 @@ async function setupServer(): Promise<void> {
 }
 await setupServer();
 
-// Setup Elysia — domainErrorsMiddleware catches DomainError subclasses and maps
-// them to structured API responses (400/401/403/404/409/408/429/500).
-//
-// encodeSchema: false skips Elysia's response-transform encoding. SDK entity
-// schemas carry `t.Date()` transforms, and running them over every uncached
-// payload costs CPU. `JSON.stringify` writes a Date as the same ISO string the
-// transform produces. Response validation and unknown-field stripping still run.
-// One difference: a number in a Date field now passes the response check and is
-// served as a number, where it used to fail with a 422. The response-cache hit
-// path has always served pre-serialized bodies without the transform.
-const app = new Elysia({ name: "ReelVault", aot: true, encodeSchema: false })
-	.use(domainErrorsMiddleware)
-	.use(securityHeadersMiddleware)
-	.use(requestLoggerMiddleware)
-	.use(requestDedupMiddleware)
-	.use(responseCacheMiddleware)
-	.use(compressionMiddleware)
-	.use(
-		cors({
-			origin: (request) => isOriginAllowed(request.headers.get("origin")),
-			methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-			credentials: true,
-			allowedHeaders: [
-				"Content-Type",
-				"Authorization",
-				"Idempotency-Key",
-				"x-requested-with",
-				"x-profile-id",
-				"x-setup-token",
-				"x-api-key",
-				"x-client-shell",
-			],
-			// Browser clients need explicit access to these non-simple response headers.
-			exposeHeaders: ["ETag", "Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
-		}),
-	)
-	// Public API reference; OPENAPI_DOCS_ENABLED=false unregisters it entirely.
-	.use(openapiMiddleware)
-	// Must precede every consumer of the client IP (rate limiter, auth, audit).
-	.use(clientIpMiddleware)
-	.use(rateLimitMiddleware)
-	.use(apiRouter)
-	// After the API router: the wildcard serves the bundled web UI without ever
-	// shadowing /v1 or /openapi (API paths yield to keep the JSON 404 envelope).
-	.use(webStaticPlugin);
+const app = createHttpApp();
+
+/**
+ * The order matters: intake stops first, background work next, queues and
+ * streams after that, and the database closes last, once nothing writes to it.
+ */
+const shutdownSteps: ShutdownStep[] = [
+	// Realtime first: app.stop() waits for open sockets to drain, and a connected
+	// events WebSocket never closes on its own — stopping the server before telling
+	// clients to go away deadlocked shutdown until the timeout.
+	{ name: "realtime", message: "Closing realtime connections...", run: () => realtimeService.shutdown() },
+	{ name: "http", message: "Stopping server...", run: () => app.stop() },
+	{ name: "library-watchers", message: "Stopping library watchers...", run: () => libraryWatcherService.shutdown() },
+	{ name: "resource-allocator", message: "Shutting down resource allocator...", run: () => resourceAllocator.shutdown() },
+	{ name: "server-rescue", message: "Stopping server rescue monitor...", run: () => serverRescueService.shutdown() },
+	{ name: "workers", message: "Shutting down queue system...", run: () => workerService.shutdown() },
+	// Retention sweeps query the database, so they stop before it closes.
+	{ name: "download-sweeps", message: "Stopping download retention sweeps...", run: () => downloadsService.shutdown() },
+	{ name: "streaming", message: "Closing streaming sessions...", run: () => streamingManager.shutdown() },
+	{ name: "ffmpeg", message: "Terminating FFmpeg processes...", run: () => ffMpegService.killAll() },
+	// Plugins get their onDisable/onUnload/dispose while the database is still open.
+	{ name: "plugins", message: "Unloading plugins...", run: () => pluginManager.shutdown() },
+	{ name: "database", message: "Closing database...", run: () => databaseFactory.shutdown() },
+];
 
 // Setup graceful shutdown
-const shutdownHandler = new Shutdown({ shutdownAppFn: () => app.stop() });
+const shutdownHandler = new Shutdown(shutdownSteps);
 setActiveShutdown(shutdownHandler);
 shutdownHandler.init();
 

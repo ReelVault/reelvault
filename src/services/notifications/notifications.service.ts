@@ -2,11 +2,7 @@ import type { CreateNotification, Notification, PaginatedResponse, RealtimePaylo
 import { serverConfig } from "@/config/server/server.config";
 import { createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
 import { realtimeService } from "@/modules/realtime/realtime.service";
-import {
-	dispatchNotificationToChannels,
-	type NotificationChannelFailure,
-	onNotificationChannelFailure,
-} from "@/plugins/runtime/notification-channel.registry";
+import { dispatchNotificationToChannels, type NotificationChannelFailure } from "@/plugins/runtime/notification-channel.registry";
 import { notificationsRepository } from "@/repositories/notifications.repository";
 import { playbackRepository } from "@/repositories/playback.repository";
 import { profilePreferencesRepository } from "@/repositories/profile-preferences.repository";
@@ -429,8 +425,11 @@ class NotificationsService {
 
 export const notificationsService = new NotificationsService();
 
-/** The report is best-effort: a failed report is logged, never left as an unhandled rejection. */
-async function reportChannelFailureToAdministrators(failure: NotificationChannelFailure): Promise<void> {
+/**
+ * Tells the administrators once that a notification channel stopped delivering, with its error. Best-effort:
+ * a failed report is logged, never left as an unhandled rejection. Registered on the channel registry at boot.
+ */
+export async function reportChannelFailureToAdministrators(failure: NotificationChannelFailure): Promise<void> {
 	try {
 		await notificationsService.notifyAdministratorsOfChannelFailure(failure);
 	} catch (error) {
@@ -441,8 +440,3 @@ async function reportChannelFailureToAdministrators(failure: NotificationChannel
 		});
 	}
 }
-
-// A channel that stops delivering tells the administrators once, with its error.
-onNotificationChannelFailure((failure) => {
-	detach(reportChannelFailureToAdministrators(failure));
-});

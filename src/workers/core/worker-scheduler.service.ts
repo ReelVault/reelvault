@@ -9,6 +9,8 @@ import type {
 } from "@reelvault/sdk/common";
 import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { workerJobRepository } from "@/repositories/worker.repository";
+import { workerSchedulesRepository } from "@/repositories/worker-schedules.repository";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
@@ -16,7 +18,6 @@ import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { pickDefined } from "@/utils/type.utils";
 import { computeNextRunAt } from "@/workers/utils/worker-policy.utils";
 import { applyStats } from "@/workers/utils/worker-stats.mapper";
-import { workerDependencies } from "@/workers/worker.ports";
 import { getWorkerRuntime } from "./worker.runtime";
 import { attachedToOperation, enqueueWithOperation } from "./worker-operation.service";
 
@@ -64,7 +65,7 @@ export class WorkerSchedulerService {
 	async init(): Promise<void> {
 		this.logger.info("Initializing worker scheduler service...");
 		try {
-			const persisted = await workerDependencies().schedules.getAllTriggers();
+			const persisted = await workerSchedulesRepository.getAllTriggers();
 			for (const [workerId, triggers] of persisted.entries()) {
 				this.customTriggers.set(workerId, triggers);
 			}
@@ -106,7 +107,7 @@ export class WorkerSchedulerService {
 
 		const definitions = getWorkerRuntime().registry.getAll();
 		// One snapshot per pass. A paused worker (isEnabled = false) fires nothing, startup included.
-		const scheduleRows = await workerDependencies().schedules.getAllSchedules();
+		const scheduleRows = await workerSchedulesRepository.getAllSchedules();
 		const isPaused = (workerId: string) => scheduleRows.get(workerId)?.isEnabled === false;
 
 		if (isStartup) {
@@ -171,7 +172,7 @@ export class WorkerSchedulerService {
 			deadlineUpdates.push({ workerId: entry.def.id, nextRunAt: computeNextRunAt(triggers, entry.def.schedule?.cron, now) });
 		}
 
-		await workerDependencies().schedules.setNextRunAtMany(deadlineUpdates);
+		await workerSchedulesRepository.setNextRunAtMany(deadlineUpdates);
 	}
 
 	/** Returns true when the trigger is handled (enqueued or already active) and false on failure. */
@@ -221,10 +222,10 @@ export class WorkerSchedulerService {
 			}
 		}
 
-		await workerDependencies().schedules.setTriggers(workerId, triggers);
+		await workerSchedulesRepository.setTriggers(workerId, triggers);
 		this.customTriggers.set(workerId, triggers);
 		const def = getWorkerRuntime().registry.get(workerId);
-		await workerDependencies().schedules.setNextRunAt(workerId, computeNextRunAt(triggers, def?.schedule?.cron, new Date()));
+		await workerSchedulesRepository.setNextRunAt(workerId, computeNextRunAt(triggers, def?.schedule?.cron, new Date()));
 		this.logger.info("Updated worker triggers", { workerId, triggerCount: triggers.length });
 
 		return triggers;
@@ -238,12 +239,12 @@ export class WorkerSchedulerService {
 		const def = getWorkerRuntime().registry.get(workerId);
 		if (!def) throw new DomainError("not_found", `Worker "${workerId}" was not found`, { code: "worker.not_found" });
 
-		await workerDependencies().schedules.setEnabled(workerId, enabled);
+		await workerSchedulesRepository.setEnabled(workerId, enabled);
 		this.logger.info(enabled ? "Worker schedule resumed" : "Worker schedule paused", { workerId });
 		if (!enabled) return { workerId, enabled, nextRunAt: null };
 
 		const nextRunAt = computeNextRunAt(this.getTriggersForWorker(workerId), def.schedule?.cron, new Date());
-		await workerDependencies().schedules.setNextRunAt(workerId, nextRunAt);
+		await workerSchedulesRepository.setNextRunAt(workerId, nextRunAt);
 
 		return { workerId, enabled, nextRunAt: nextRunAt?.toISOString() ?? null };
 	}
@@ -317,7 +318,7 @@ export class WorkerSchedulerService {
 		const abortedCount = getWorkerRuntime().pool.cancelAllForWorker(workerId);
 		const [pendingCount, runningDbCount] = await Promise.all([
 			getWorkerRuntime().queue.cancelAllPending(workerId),
-			workerDependencies().jobs.cancelAllRunning(workerId),
+			workerJobRepository.cancelAllRunning(workerId),
 		]);
 
 		return { success: true, cancelledCount: abortedCount + pendingCount + runningDbCount };
@@ -325,10 +326,7 @@ export class WorkerSchedulerService {
 
 	async listWorkerSummaries(): Promise<WorkerSummary[]> {
 		const definitions = getWorkerRuntime().registry.getAll();
-		const [statsRows, allSchedules] = await Promise.all([
-			workerDependencies().jobs.getStats(),
-			workerDependencies().schedules.getAllSchedules(),
-		]);
+		const [statsRows, allSchedules] = await Promise.all([workerJobRepository.getStats(), workerSchedulesRepository.getAllSchedules()]);
 		const statsMap = new Map<string, WorkerQueueStats>();
 
 		for (const def of definitions) {

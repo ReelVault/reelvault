@@ -1,9 +1,10 @@
 import type { AddWorkerItemOptions, WorkerDefinition } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
+import { workerJobRepository } from "@/repositories/worker.repository";
+import type { ActiveWorkerItem, EnqueueWorkerItemInput, WorkerItem } from "@/repositories/worker-jobs/shared.types";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { type TerminalPurgeRequest, terminalPurgeFilter } from "@/workers/utils/worker-purge.utils";
-import { type ActiveWorkerItem, type EnqueueWorkerItemInput, type WorkerItem, workerDependencies } from "@/workers/worker.ports";
 import { getWorkerRuntime } from "./worker.runtime";
 import { anyAttachedToOperation, attachedToOperation, enqueueWithOperation } from "./worker-operation.service";
 
@@ -23,8 +24,7 @@ export class WorkerQueueService {
 
 		const { result } = await enqueueWithOperation(
 			{ type: workerId, reference: { type: "worker", id: workerId } },
-			(operationId) =>
-				workerDependencies().jobs.enqueue(this.buildWorkerItemInput(workerId, data, { ...options, operationId }, definition)),
+			(operationId) => workerJobRepository.enqueue(this.buildWorkerItemInput(workerId, data, { ...options, operationId }, definition)),
 			{
 				operationId: options.operationId,
 				// A dedupe hit returns the *existing* row with its own operation.
@@ -56,12 +56,12 @@ export class WorkerQueueService {
 		if (entries.some((entry) => !entry.options?.operationId)) {
 			({ result: items } = await enqueueWithOperation(
 				{ type: workerId, reference: { type: "worker", id: workerId } },
-				(operationId) => workerDependencies().jobs.enqueueMany(buildInputs(operationId), enqueueOptions),
+				(operationId) => workerJobRepository.enqueueMany(buildInputs(operationId), enqueueOptions),
 				// Every entry losing the dedupe race leaves the shared operation with no items.
 				{ isAttached: anyAttachedToOperation },
 			));
 		} else {
-			items = await workerDependencies().jobs.enqueueMany(buildInputs(), enqueueOptions);
+			items = await workerJobRepository.enqueueMany(buildInputs(), enqueueOptions);
 		}
 
 		this.onEnqueueCallback?.();
@@ -70,41 +70,41 @@ export class WorkerQueueService {
 	}
 
 	findActive(workerId: string, dedupeKey: string): Promise<ActiveWorkerItem | undefined> {
-		return workerDependencies().jobs.findActiveByDedupeKey(workerId, dedupeKey);
+		return workerJobRepository.findActiveByDedupeKey(workerId, dedupeKey);
 	}
 
 	findActiveMany(workerId: string, dedupeKeys: readonly string[]): Promise<ActiveWorkerItem[]> {
-		return workerDependencies().jobs.findActiveByWorkerAndDedupeKeys(workerId, dedupeKeys);
+		return workerJobRepository.findActiveByWorkerAndDedupeKeys(workerId, dedupeKeys);
 	}
 
 	getJob(id: string): Promise<WorkerItem | undefined> {
-		return workerDependencies().jobs.findItem(id);
+		return workerJobRepository.findItem(id);
 	}
 
 	listJobs(options: { limit: number; offset: number; workerId?: string | undefined; status?: WorkerItem["status"] | undefined }) {
-		return workerDependencies().jobs.listItems(options);
+		return workerJobRepository.listItems(options);
 	}
 
 	async cancelJob(id: string): Promise<boolean> {
-		const item = await workerDependencies().jobs.findItem(id);
+		const item = await workerJobRepository.findItem(id);
 		if (!item) return false;
 
 		if (item.status === "pending") {
-			const res = await workerDependencies().jobs.cancelPending(id);
+			const res = await workerJobRepository.cancelPending(id);
 			if (res) this.onEnqueueCallback?.();
 
 			return res;
 		}
 
 		if (item.status === "running") {
-			return await workerDependencies().jobs.cancelRunning(id);
+			return await workerJobRepository.cancelRunning(id);
 		}
 
 		return false;
 	}
 
 	async cancelAllPending(workerId?: string): Promise<number> {
-		const count = await workerDependencies().jobs.cancelAllPending(workerId);
+		const count = await workerJobRepository.cancelAllPending(workerId);
 		if (count > 0) this.onEnqueueCallback?.();
 
 		return count;
@@ -114,7 +114,7 @@ export class WorkerQueueService {
 	purgeHistory(options: TerminalPurgeRequest = {}): Promise<number> {
 		const filter = terminalPurgeFilter(options);
 
-		return options.dryRun ? workerDependencies().jobs.countTerminalJobs(filter) : workerDependencies().jobs.purgeTerminalJobs(filter);
+		return options.dryRun ? workerJobRepository.countTerminalJobs(filter) : workerJobRepository.purgeTerminalJobs(filter);
 	}
 
 	private buildWorkerItemInput(

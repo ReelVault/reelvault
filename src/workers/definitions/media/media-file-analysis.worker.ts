@@ -1,11 +1,13 @@
 import { serverConfig } from "@/config/server/server.config";
+import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
+import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { mediaRepository } from "@/repositories/media-files.repository";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { hasEntry } from "@/utils/array.utils";
 import { withDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
 
 export interface MediaFileAnalysisData {
@@ -35,14 +37,14 @@ export async function analyzeMediaFileTask(
 ): Promise<MediaFileAnalysisResult> {
 	return await withDomainError(`Media file analysis failed: ${data.mediaFileId}`, async () => {
 		context.signal?.throwIfAborted();
-		const publicMediaFile = await workerDependencies().services.pluginMedia.get(data.mediaFileId);
+		const publicMediaFile = await pluginMediaService.get(data.mediaFileId);
 		let analyzed = false;
 		if (publicMediaFile) {
-			const analysis = await workerDependencies().services.pluginRegistry.analyzeMedia(publicMediaFile);
+			const analysis = await pluginRegistry.analyzeMedia(publicMediaFile);
 
 			const hasAnalysis = hasEntry(analysis);
 			if (hasAnalysis) {
-				await workerDependencies().media.update({ primaryId: data.mediaFileId, values: analysis });
+				await mediaRepository.update({ primaryId: data.mediaFileId, values: analysis });
 				analyzed = true;
 			}
 		}

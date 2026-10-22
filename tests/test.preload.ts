@@ -15,13 +15,7 @@ process.env.BETTER_AUTH_SECRET ??= "test-secret-with-at-least-32-characters";
 rmSync(testRoot, { recursive: true, force: true });
 mkdirSync(testRoot, { recursive: true });
 
-// Modules read their data through ports the application registers at boot. Wire the
-// same implementations once per test process, after the environment above is set.
-const { wireModulePorts } = await import("../src/wiring/module-ports");
-wireModulePorts();
-const { wireWorkerPorts } = await import("../src/wiring/worker-ports");
-wireWorkerPorts();
-const { wireSystemPorts } = await import("../src/wiring/system-ports");
-wireSystemPorts();
-const { wireIntegrationPorts } = await import("../src/wiring/integration-ports");
-wireIntegrationPorts();
+// Better Auth's own user writes create the first profile, as at boot. Imported
+// after the environment above is set, because the auth config reads it.
+const { registerAuthListeners } = await import("../src/services/auth/auth.service");
+registerAuthListeners();

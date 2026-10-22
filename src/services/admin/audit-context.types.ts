@@ -1,4 +1,4 @@
-import type { AdminAuditAction } from "@/repositories/admin-audit.repository";
+import type { AdminAuditChange } from "@/repositories/admin-audit.repository";
 
 /**
  * The audit context of the acting caller: who acts and with which headers.
@@ -12,14 +12,7 @@ export interface AdminAuditContext {
 	headers?: Headers | undefined;
 }
 
-/** One audited change: what happened, to what, and the context of the caller. */
-export interface AdminAuditRecord {
-	action: AdminAuditAction;
-	resourceType: string;
-	resourceId?: string | null | undefined;
-	resourceName?: string | null | undefined;
-	summary?: string | null | undefined;
-	before?: unknown;
-	after?: unknown;
+/** One audited change with the context of the caller. */
+export interface AdminAuditRecord extends AdminAuditChange {
 	context?: AdminAuditContext | undefined;
 }

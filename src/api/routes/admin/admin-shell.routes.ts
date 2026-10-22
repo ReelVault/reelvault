@@ -13,8 +13,8 @@ import { commonModel } from "@/api/schemas/common.schema";
  * drop the adminOnly check. Routes registered on the returned instance inherit
  * it, exactly like the per-file chain it replaces. commonModel stays here (not
  * on admin.routes.ts) because Elysia resolves model-name references per
- * instance at the type level — a parent-only registration is a check-types
- * error in every module.
+ * instance at the type level — a parent-only registration is a type error in
+ * every module.
  */
 export function adminShell<const Prefix extends string = "">(options?: { prefix?: Prefix; tags?: string[] }) {
 	return new Elysia(options).use(commonModel).use(authMiddleware).use(rateLimitMiddleware).guard({ adminOnly: true });

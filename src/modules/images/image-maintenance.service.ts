@@ -7,7 +7,7 @@ import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { imageCacheEviction } from "@/modules/images/cache/image-cache.eviction";
 import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
-import { type ImageOptimizationCandidate, imagesStorage } from "@/modules/images/images.ports";
+import { imageRepository } from "@/repositories/images.repository";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { directoryExists, scanFilesWithStats } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
@@ -76,7 +76,7 @@ class ImageMaintenanceService {
 				const minAgeMs = options.minAgeMs ?? 10 * MINUTE;
 				const now = Date.now();
 
-				const { localPaths, imageIds } = await imagesStorage().findAllImageStorageIdentifiers();
+				const { localPaths, imageIds } = await imageRepository.findAllImageStorageIdentifiers();
 				const imagesDir = serverConfig.paths.images;
 
 				if (!(await directoryExists(imagesDir))) {
@@ -145,7 +145,7 @@ class ImageMaintenanceService {
 			async () => {
 				throwIfAborted(signal);
 
-				return await imagesStorage().findOutdatedImageIds(serverConfig.images.currentOptimizationVersion);
+				return await imageRepository.findOutdatedImageIds(serverConfig.images.currentOptimizationVersion);
 			},
 			{ errorMessage: "cannot list outdated images" },
 		);
@@ -158,7 +158,7 @@ class ImageMaintenanceService {
 			async () => {
 				throwIfAborted(signal);
 				const currentVersion = serverConfig.images.currentOptimizationVersion;
-				const image = await imagesStorage().findImageOptimizationCandidate(imageId, currentVersion);
+				const image = await imageRepository.findImageOptimizationCandidate(imageId, currentVersion);
 				if (!image) return "skipped" as const;
 
 				const outcome = await this.reoptimizeImage(image, currentVersion, signal);
@@ -171,13 +171,13 @@ class ImageMaintenanceService {
 	}
 
 	private async reoptimizeImage(
-		image: ImageOptimizationCandidate,
+		image: NonNullable<Awaited<ReturnType<typeof imageRepository.findImageOptimizationCandidate>>>,
 		currentVersion: number,
 		signal?: AbortSignal,
 	): Promise<"kept" | "missing" | "reoptimized"> {
 		const stats = await getFileStats(image.localPath);
 		if (!stats) {
-			await imagesStorage().markImageOptimizationVersion(image.id, currentVersion);
+			await imageRepository.markImageOptimizationVersion(image.id, currentVersion);
 
 			return "missing";
 		}
@@ -186,7 +186,7 @@ class ImageMaintenanceService {
 		const { data, info } = await optimizeImageWithInfo(image.localPath, variant, signal);
 
 		if (info.size >= stats.size) {
-			await imagesStorage().markImageOptimizationVersion(image.id, currentVersion);
+			await imageRepository.markImageOptimizationVersion(image.id, currentVersion);
 
 			return "kept";
 		}
@@ -200,7 +200,7 @@ class ImageMaintenanceService {
 			throw new DomainError("internal", `Cannot write optimized image: ${image.localPath}`, { cause: error, code: "image.write_failed" });
 		}
 
-		await imagesStorage().markImageOptimizationVersion(image.id, currentVersion, {
+		await imageRepository.markImageOptimizationVersion(image.id, currentVersion, {
 			width: info.width,
 			height: info.height,
 			fileSize: info.size,

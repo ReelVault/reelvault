@@ -1,12 +1,12 @@
 import { serverConfig } from "@/config/server/server.config";
 import type { SkippedMediaFile } from "@/modules/scanner/scanner.types";
+import { mediaMarkersRepository } from "@/repositories/media-markers.repository";
 import { assertFound, toDomainError } from "@/utils/domain.errors";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition } from "@/workers/worker.types";
 import {
 	completeFreshIngest,
@@ -133,7 +133,7 @@ export async function ingestMediaFileTask(
 		// Scoped replace touches only `source: "automatic"` rows; manual and
 		// plugin markers survive rescans.
 		if (automaticMarkers?.length) {
-			await workerDependencies().mediaMarkers.replaceMarkersForMediaFile(
+			await mediaMarkersRepository.replaceMarkersForMediaFile(
 				createdMediaFile.id,
 				automaticMarkers.map(({ type, startSeconds, endSeconds, label }) => ({
 					type,

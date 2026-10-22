@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SidecarStorageLibrary } from "./sidecar.ports";
+import type { SidecarStorageLibrary } from "./sidecar.types";
 import { prepareStorageRoots, resolveMetadataStorageMode, resolveSeriesDirectory, usesSidecars } from "./sidecar-storage.utils";
 
 const library: SidecarStorageLibrary = {

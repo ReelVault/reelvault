@@ -1,5 +1,6 @@
 import type { MediaIdentity } from "@reelvault/sdk/common";
 import type { SidecarMetadataHint } from "@/modules/metadata-sidecars/files/local-sidecar.reader";
+import type { MetadataCheckInput, MetadataMatcher } from "@/modules/scanner/processing/media-file.processor";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { resolveLibraryLanguage } from "@/services/catalog/metadata/providers/library-metadata-language.resolver";
 import type { CreatedProviderMetadata } from "@/services/catalog/metadata/providers/metadata-create.utils";
@@ -59,7 +60,7 @@ async function resolveFromSidecar({
 	return tvShow ?? undefined;
 }
 
-export class MetadataProcess {
+export class MetadataProcess implements MetadataMatcher {
 	readonly serviceName = "MetadataProcess";
 	readonly logger = createLogger("MetadataProcess");
 
@@ -81,14 +82,7 @@ export class MetadataProcess {
 		signal,
 		scheduling,
 		libraryId,
-	}: {
-		type: "movie" | "tv_show";
-		parsed: MediaIdentity;
-		sidecar?: SidecarMetadataHint | undefined;
-		signal?: AbortSignal | undefined;
-		scheduling?: TaskSchedulingOptions | undefined;
-		libraryId?: string | undefined;
-	}): Promise<MetadataProcessResult | undefined> {
+	}: MetadataCheckInput): Promise<MetadataProcessResult | undefined> {
 		const state = this.state;
 		try {
 			throwIfAborted(signal);

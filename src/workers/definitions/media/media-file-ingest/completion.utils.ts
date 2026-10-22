@@ -1,7 +1,7 @@
 import type { CreateMediaFile } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
+import { librariesRepository } from "@/repositories/libraries.repository";
 import { errorMessage } from "@/utils/domain.errors";
-import { workerDependencies } from "@/workers/worker.ports";
 import type {
 	IngestCompletionInput,
 	IngestTarget,
@@ -125,7 +125,7 @@ export async function completeRetryIngest(input: IngestCompletionInput, dependen
 export async function completeFreshIngest(input: IngestCompletionInput, dependencies: Deps): Promise<MediaFileIngestResult> {
 	await publishFreshIngest(input.target, input, dependencies);
 	// File counts/size in the library stats cache changed.
-	workerDependencies().libraries.clearStatsCache();
+	librariesRepository.clearStatsCache();
 
 	const analysisTaskId = await enqueueCompletionAnalysis(input.target, input, dependencies);
 

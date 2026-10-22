@@ -49,5 +49,12 @@ fi
 
 mkdir -p "$ROOT_DIR"
 
+# `start.sh <command> [args]` runs an administration command instead of the
+# server: doctor, admin:reset-password <email>, db:backup, ... (package.json).
+if [ $# -gt 0 ]; then
+	cd "$HERE/server"
+	PATH="$HERE/bun:$PATH" exec "$HERE/bun/bun" run "$@"
+fi
+
 # $APP_BUN_FLAGS is intentionally unquoted: it expands to zero or more runtime flags.
 exec "$HERE/bun/bun" ${APP_BUN_FLAGS:-} run "$HERE/server/src/index.ts"

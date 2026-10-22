@@ -2,13 +2,12 @@ import { basename } from "node:path";
 import type { MediaIdentity } from "@reelvault/sdk/common";
 import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 import { readSidecarMetadataHint, type SidecarMetadataHint } from "@/modules/metadata-sidecars/files/local-sidecar.reader";
+import { recognizeWithPluginHooks } from "@/modules/recognition/recognition.service";
 import type { RecognitionResult } from "@/modules/recognition/recognition.types";
 import { episodeRangeTargets, extractPathProviderIds } from "@/modules/recognition/utils/recognition.utils";
 import { type ChapterMarkerDraft, mapChaptersToMarkers } from "@/modules/scanner/probe/chapters-to-markers.utils";
 import { mapMediaFileData } from "@/modules/scanner/probe/media-probe.mapper";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
-import { recognizeWithPluginHooks } from "@/modules/scanner/recognition/recognition.service";
-import { scannerStorage } from "@/modules/scanner/scanner.ports";
 import type {
 	AdditionalEpisodeTarget,
 	LibraryType,
@@ -16,6 +15,7 @@ import type {
 	ProcessedMediaFileWithMarkers,
 	SkippedMediaFile,
 } from "@/modules/scanner/scanner.types";
+import { mediaRepository } from "@/repositories/media-files.repository";
 import { CancellationError, throwIfAborted } from "@/utils/cancellation.utils";
 import { DomainError, toDomainError } from "@/utils/domain.errors";
 import { getFileStats } from "@/utils/file.utils";
@@ -184,7 +184,7 @@ class MediaFileProcessor {
 			}
 
 			if (!skipExistingLookup) {
-				const existingMediaFile = await scannerStorage().findIdByFilePath(filePath);
+				const existingMediaFile = await mediaRepository.findIdByFilePath(filePath);
 				if (existingMediaFile) return null;
 			}
 

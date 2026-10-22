@@ -16,80 +16,52 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-
-env:
-  LEFTHOOK: "0" # skip git hooks installed by the `prepare` script
+  contents: read
 
 jobs:
+  # Release gate: a tag on a broken commit must not produce artifacts.
+  checks:
+    name: Checks
+    uses: ./.github/workflows/ci.yml
+
   release:
     name: Build and publish
+    needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
 
+      # The input, else the tag, else package.json — and whichever it is must match package.json.
       - name: Resolve release version
         id: version
         env:
           INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
-          if [ -n "$INPUT_VERSION" ]; then
-            version="${INPUT_VERSION#v}"
-          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(jq -r .version package.json)"
-          fi
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
-            echo "::error::invalid version: $version"
+          package_version="$(jq -r .version package.json)"
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then version="$GITHUB_REF_NAME"; fi
+          version="${version:-$package_version}"
+          version="${version#v}"
+          if [ "$version" != "$package_version" ]; then
+            echo "::error::version $version does not match package.json version $package_version"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Check version against package.json
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          pkg="$(jq -r .version package.json)"
-          if [ "$VERSION" != "$pkg" ]; then
-            echo "::error::version $VERSION does not match package.json version $pkg"
-            exit 1
-          fi
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      # The test gate drives the real ffmpeg and ffprobe, so both must be on PATH.
-      # The runner image ships neither.
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
-
-      # Release gate: a tag on a broken commit must not produce artifacts.
-      - name: Check types, lint and run tests
-        run: |
-          bun run check-types
-          bun run lint:ci
-          bun run deadcode
-          bun run check:routes
-          bun run test
-
       - name: Build release archives
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          ./scripts/release.sh "$VERSION"
+        run: ./scripts/release.sh "$VERSION"
 
       - name: Publish GitHub release
         env:

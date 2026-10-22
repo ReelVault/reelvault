@@ -266,13 +266,6 @@ export async function findCleanupData(mediaFileId: string, tx?: DatabaseTransact
 	return await findCleanupDataForMediaFileIds([mediaFileId], tx);
 }
 
-/**
- * Loads video/audio streams and the parent library for a set of media files.
- *
- * Takes the already-fetched media file rows (not just their IDs) so it can read `libraryId`
- * directly off them — previously this ran a second `SELECT * FROM media_files WHERE id IN (...)`
- * purely to recover `libraryId`, duplicating a query the caller had already made.
- */
 /** The per-relation projections the field config asks for. */
 function relationProjections<F extends string>(fields?: FieldsConfig<F>) {
 	let videoProjection: typeof videoStreamColumns | undefined;
@@ -295,6 +288,13 @@ function relationProjections<F extends string>(fields?: FieldsConfig<F>) {
 	return { videoProjection, audioProjection, libraryProjection, subtitleProjection };
 }
 
+/**
+ * Loads video/audio streams and the parent library for a set of media files.
+ *
+ * Takes the already-fetched media file rows (not just their IDs) so it can read `libraryId`
+ * directly off them — previously this ran a second `SELECT * FROM media_files WHERE id IN (...)`
+ * purely to recover `libraryId`, duplicating a query the caller had already made.
+ */
 async function loadRelations<F extends string>(
 	mediaFileRows: Array<{ id: string; libraryId: string }>,
 	tx: DatabaseTransaction | undefined,

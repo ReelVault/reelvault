@@ -1,4 +1,4 @@
-import { workerDependencies } from "@/workers/worker.ports";
+import { workerJobRepository } from "@/repositories/worker.repository";
 import { workerOperationsService } from "./worker-operations.service";
 
 interface WorkerOperationInput {
@@ -26,17 +26,6 @@ async function removeOperationBestEffort(operationId: string): Promise<void> {
 }
 
 /**
- * Creates a worker operation when the caller does not supply one, runs the
- * enqueue with the effective operation id, and best-effort removes a freshly
- * created operation that ended up orphaned — either the enqueue failed (after
- * cancelling any jobs it managed to insert) or the result deduped onto an
- * existing row, so nothing references the new operation.
- *
- * Lives next to `worker-runtime` (not on `worker.service`) so the queue and
- * scheduler services can use it without importing `worker.service` back — that
- * runtime cycle reads uninitialised bindings at module load (see worker-runtime.ts).
- */
-/**
  * Whether an enqueued item belongs to the operation it was enqueued for. The
  * enqueue helper drops a fresh operation whose job deduped onto another one.
  */
@@ -49,6 +38,17 @@ export function anyAttachedToOperation(results: ReadonlyArray<{ operationId?: st
 	return results.some((item) => attachedToOperation(item, operationId));
 }
 
+/**
+ * Creates a worker operation when the caller does not supply one, runs the
+ * enqueue with the effective operation id, and best-effort removes a freshly
+ * created operation that ended up orphaned — either the enqueue failed (after
+ * cancelling any jobs it managed to insert) or the result deduped onto an
+ * existing row, so nothing references the new operation.
+ *
+ * Lives next to `worker-runtime` (not on `worker.service`) so the queue and
+ * scheduler services can use it without importing `worker.service` back — that
+ * runtime cycle reads uninitialised bindings at module load (see worker-runtime.ts).
+ */
 export async function enqueueWithOperation<T>(
 	input: WorkerOperationInput,
 	enqueue: (operationId: string) => Promise<T>,
@@ -70,11 +70,9 @@ export async function enqueueWithOperation<T>(
 			// A batch enqueue that failed midway may have inserted jobs referencing
 			// the operation we are about to remove — cancel them so nothing is
 			// orphaned (pending forever against a missing operation).
-			await workerDependencies()
-				.jobs.cancelPendingByOperation(operationId)
-				.catch(() => {
-					// intentionally empty
-				});
+			await workerJobRepository.cancelPendingByOperation(operationId).catch(() => {
+				// intentionally empty
+			});
 			await removeOperationBestEffort(operationId);
 		}
 

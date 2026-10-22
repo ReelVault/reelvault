@@ -15,7 +15,7 @@
  * (lib/seed.ts) instead of inlining seed SQL.
  */
 
-import { main, printTable, suiteArgs, task } from "benchkit";
+import { printTable, suiteArgs, task } from "benchkit";
 import type { SidecarArtworkWriter } from "@/modules/metadata-sidecars/saver/sidecar-artwork.exporter";
 import type { SidecarMetadataWriter } from "@/modules/metadata-sidecars/sidecar.types";
 import { seedCatalog } from "./lib/seed.utils";
@@ -41,12 +41,6 @@ const { SidecarMetadataStorageService } = await import("@/modules/metadata-sidec
 const { playbackProgressService } = await import("@/services/playback/playback-progress.service");
 const { librariesService } = await import("@/services/libraries/libraries.service");
 const { loadRelations } = await import("@/repositories/metadata-relations.repository");
-const { wireModulePorts } = await import("@/wiring/module-ports");
-
-// The sidecar case drives SidecarMetadataStorageService, which reads through
-// module ports wired by the composition root at boot; wire the same
-// implementations here so the counted statements match the server.
-wireModulePorts();
 
 export const meta = { description: "Statement-count audit (queries per operation, targets gate --strict)" };
 
@@ -317,35 +311,31 @@ function reportBudget(results: OperationResult[]): OperationResult[] {
 
 const args = suiteArgs();
 
-if (!args.help) {
-	task("query-count: statement counts per operation", async () => {
-		console.log(`[query-count] migrating and seeding ${args.rows} rows...`);
-		databaseFactory.migrate();
-		seedCatalog(databaseFactory.sqlite, {
-			rows: args.rows,
-			repositoryExtras: true,
-			history: { profileId: PROFILE_ID, everyNth: 3, duration: 3000 },
-			progress: true,
-			series: { shows: 1, seasons: 2, episodesPerSeason: 10 },
-			analyze: true,
-		});
-
-		const sidecar = createSidecarFixture();
-		const cases = [...repositoryOperationCases(), ...playbackOperationCases(sidecar)];
-
-		const results: OperationResult[] = [];
-		for (const operationCase of cases) {
-			results.push(await measureOperation(operationCase));
-		}
-
-		printOperationTable(results);
-		const failing = reportBudget(results);
-
-		return {
-			ok: failing.length === 0,
-			data: { operations: results.length, overBudget: failing.length, rows: args.rows },
-		};
+task("query-count: statement counts per operation", async () => {
+	console.log(`[query-count] migrating and seeding ${args.rows} rows...`);
+	databaseFactory.migrate();
+	seedCatalog(databaseFactory.sqlite, {
+		rows: args.rows,
+		repositoryExtras: true,
+		history: { profileId: PROFILE_ID, everyNth: 3, duration: 3000 },
+		progress: true,
+		series: { shows: 1, seasons: 2, episodesPerSeason: 10 },
+		analyze: true,
 	});
-}
 
-await main(import.meta);
+	const sidecar = createSidecarFixture();
+	const cases = [...repositoryOperationCases(), ...playbackOperationCases(sidecar)];
+
+	const results: OperationResult[] = [];
+	for (const operationCase of cases) {
+		results.push(await measureOperation(operationCase));
+	}
+
+	printOperationTable(results);
+	const failing = reportBudget(results);
+
+	return {
+		ok: failing.length === 0,
+		data: { operations: results.length, overBudget: failing.length, rows: args.rows },
+	};
+});

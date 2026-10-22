@@ -6,8 +6,6 @@ import {
 } from "@reelvault/sdk/plugin";
 import { DomainError } from "@/utils/domain.errors";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
-import { validatePlaybackPreRoll, validateSearchProvider } from "./providers.validator";
-import { validatePluginSchema } from "./schema.validator";
 import {
 	assertLocalizedText,
 	assertNonEmptyString,
@@ -17,7 +15,9 @@ import {
 	assertSafeHref,
 	assertUiId,
 	optionalUiId,
-} from "./shared.utils";
+} from "./manifest-fields.validator";
+import { validatePlaybackPreRoll, validateSearchProvider } from "./providers.validator";
+import { validatePluginSchema } from "./schema.validator";
 
 const PLUGIN_SLOT_NAMES: ReadonlySet<string> = new Set(PLUGIN_SLOT_NAME_VALUES);
 

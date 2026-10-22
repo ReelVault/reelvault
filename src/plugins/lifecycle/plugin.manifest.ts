@@ -15,7 +15,6 @@ import { getFileStats, readJsonFile } from "@/utils/file.utils";
 import { isValidSemver } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
 import { validatePluginCsp } from "./manifest/csp.validator";
-import { SCHEMA_MAX_BYTES, validatePluginSchema } from "./manifest/schema.validator";
 import {
 	assertNonEmptyString,
 	assertRelativeString,
@@ -23,7 +22,8 @@ import {
 	assertStringArray,
 	assertUnique,
 	resolvePluginPath,
-} from "./manifest/shared.utils";
+} from "./manifest/manifest-fields.validator";
+import { SCHEMA_MAX_BYTES, validatePluginSchema } from "./manifest/schema.validator";
 
 const CAPABILITY_NAMES: ReadonlySet<string> = PLUGIN_CAPABILITY_SET;
 

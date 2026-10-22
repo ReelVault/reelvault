@@ -26,6 +26,14 @@ const SDK_SHIM_ENTRIES = [
 ] as const;
 
 /**
+ * Successful materialisations per plugins directory, memoised for the process:
+ * every plugin load/enable/reload calls the ensurer, but the shim only changes
+ * with the server install (restart) or external deletion (recreated on boot).
+ * Failed attempts are dropped so the next load retries.
+ */
+const shimAttempts = new Map<string, Promise<boolean>>();
+
+/**
  * Materialises a `node_modules/@reelvault/sdk` shim inside the plugins
  * directory so installed plugins resolve the host SDK through ordinary module
  * resolution.
@@ -36,14 +44,6 @@ const SDK_SHIM_ENTRIES = [
  * re-exports the server's own installed SDK files, so every plugin shares one
  * SDK identity (important for `instanceof PluginHookRejection`).
  */
-/**
- * Successful materialisations per plugins directory, memoised for the process:
- * every plugin load/enable/reload calls the ensurer, but the shim only changes
- * with the server install (restart) or external deletion (recreated on boot).
- * Failed attempts are dropped so the next load retries.
- */
-const shimAttempts = new Map<string, Promise<boolean>>();
-
 export async function ensurePluginSdkShim(pluginsDirectory: string): Promise<void> {
 	const attempt = shimAttempts.get(pluginsDirectory);
 	if (attempt) {

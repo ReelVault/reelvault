@@ -10,24 +10,9 @@ pre-commit:
       run: bunx oxlint --type-aware {staged_files}
 pre-push:
   commands:
-    biome:
+    lint:
       glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc,css}"
-      run: bunx @biomejs/biome check --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {push_files}
-    oxlint:
-      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
-      run: bunx oxlint --type-aware
-    duplicates:
-      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
-      run: bunx jscpd --config .jscpd.json
-    duplicates_strict:
-      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
-      run: bunx jscpd --config .jscpd.strict.json
-    guard:
-      glob: "*.{js,ts,cjs,mjs,jsx,tsx}"
-      run: bun run lint:guard
-    types:
-      glob: "*.{ts,tsx}"
-      run: bunx tsc --noEmit --pretty
+      run: bun run lint
     test:
       glob: "*.{ts,tsx}"
       run: bun run test

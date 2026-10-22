@@ -1,9 +1,11 @@
 import { serverConfig } from "@/config/server/server.config";
 import { daysAgo, MINUTE } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { adminAuditRepository } from "@/repositories/admin-audit.repository";
+import { interruptedPlaybackSessionRepository } from "@/repositories/interrupted-playback-session.repository";
+import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { workerOperationsService } from "@/workers/core/worker-operations.service";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 
 export const cleanupDatabaseWorker = defineMaintenanceWorker({
 	id: "clean-up-database",
@@ -18,9 +20,9 @@ export const cleanupDatabaseWorker = defineMaintenanceWorker({
 		const historyRetentionDays = serverConfig.database.watchedHistoryRetentionDays;
 		if (historyRetentionDays > 0) {
 			const cutoff = daysAgo(historyRetentionDays);
-			prunedHistoryCount = await workerDependencies().watchedHistory.pruneOlderThan(cutoff);
+			prunedHistoryCount = await watchedHistoryRepository.pruneOlderThan(cutoff);
 			// Interrupted sessions follow the same retention as the rest of the play history.
-			prunedHistoryCount += await workerDependencies().interruptedPlayback.pruneOlderThan(cutoff);
+			prunedHistoryCount += await interruptedPlaybackSessionRepository.pruneOlderThan(cutoff);
 		}
 
 		// Audit rows carry JSON snapshots and previously grew unbounded; default
@@ -28,7 +30,7 @@ export const cleanupDatabaseWorker = defineMaintenanceWorker({
 		let prunedAuditCount = 0;
 		const auditRetentionDays = serverConfig.database.auditRetentionDays;
 		if (auditRetentionDays > 0) {
-			prunedAuditCount = await workerDependencies().adminAudit.pruneOlderThan(daysAgo(auditRetentionDays));
+			prunedAuditCount = await adminAuditRepository.pruneOlderThan(daysAgo(auditRetentionDays));
 		}
 
 		// Keep planner statistics fresh: stale stats made the paginated browse and

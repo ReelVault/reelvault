@@ -2,11 +2,11 @@ import type { CompanyFilters, CompanySorting, Metadata } from "@reelvault/sdk/co
 import { desc, eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { defineNamedEntityRepository } from "@/integrations/drizzle-orm/query/named-entity-repository.factory";
 import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { metadataRepository } from "./metadata.repository";
+import { defineNamedEntityRepository } from "./named-entity-repository.factory";
 
 const companies = defineTableAccess("companies", { primaryKeyColumn: "id" });
 const companyProviders = defineTableAccess("companyProviders", { primaryKeyColumn: "companyId" });

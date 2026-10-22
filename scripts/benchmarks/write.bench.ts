@@ -1,8 +1,17 @@
-import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
-import { subnetIp, workerCookie } from "./lib/identity.utils";
+import {
+	fmtMs,
+	jsonRequest,
+	printHttpResults,
+	printTable,
+	runScenarioMatrix,
+	subnetIp,
+	suiteArgs,
+	summarizeLatencies,
+	task,
+	toScenarioEntries,
+} from "benchkit";
+import { workerCookie } from "./lib/identity.utils";
 import { preloadUnreadNotificationIds } from "./lib/notifications.utils";
-import { jsonRequest } from "./lib/request.utils";
-import { toScenarioEntries } from "./lib/scenarios.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
 
 /**
@@ -19,6 +28,8 @@ interface WriteContext {
 	cookieFor: (workerIndex: number) => string;
 	profileIdFor: (workerIndex: number) => string;
 	mediaFileId: string;
+	/** Seeded catalog rows: the toggle pairs pick existing titles only. */
+	seededRows: number;
 	/** Preloaded notification ids per worker identity (user-scoped rows). */
 	notificationIds: string[][];
 }
@@ -42,16 +53,19 @@ const playbackProgressUpsert: WriteRequestBuilder = (context, workerIndex, reque
 		{ position: requestIndex % 600 },
 	);
 
-const metadataIdFor = (workerIndex: number, requestIndex: number): string =>
-	// Per-worker id space — two workers toggling the same watchlist row would
-	// collide on unique constraints and pollute the error rate.
-	`meta-${String((workerIndex * 250 + (requestIndex >> 1)) % 5000).padStart(7, "0")}`;
+/**
+ * The title one add/remove pair toggles: both requests of a pair share it, and each worker walks its
+ * own range of the seeded catalog — two workers toggling one row would collide on unique constraints
+ * and pollute the error rate.
+ */
+const metadataIdFor = (context: WriteContext, workerIndex: number, requestIndex: number): string =>
+	`meta-${String((workerIndex * 250 + (requestIndex >> 1)) % context.seededRows).padStart(7, "0")}`;
 
 const watchlistAddRemove: WriteRequestBuilder = (context, workerIndex, requestIndex) => {
 	const headers = writeHeaders(context, workerIndex);
 	// Pairs: even request adds an id, odd request removes it — the list never
 	// grows without bound and every pair pays the full add+invalidate+delete path.
-	const metadataId = metadataIdFor(workerIndex, requestIndex >> 1);
+	const metadataId = metadataIdFor(context, workerIndex, requestIndex);
 
 	return requestIndex % 2 === 0
 		? jsonRequest(`${context.baseUrl}/v1/me/watchlist`, "POST", headers, { metadataId })
@@ -60,7 +74,7 @@ const watchlistAddRemove: WriteRequestBuilder = (context, workerIndex, requestIn
 
 const ratingAddRemove: WriteRequestBuilder = (context, workerIndex, requestIndex) => {
 	const headers = writeHeaders(context, workerIndex);
-	const metadataId = metadataIdFor(workerIndex, requestIndex >> 1);
+	const metadataId = metadataIdFor(context, workerIndex, requestIndex);
 
 	return requestIndex % 2 === 0
 		? jsonRequest(`${context.baseUrl}/v1/me/ratings`, "POST", headers, { metadataId, rating: (requestIndex % 4) * 0.5 })
@@ -136,38 +150,35 @@ export const meta = { description: "Mutation/write endpoints (playback-progress 
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args);
+const serverFixture = suiteServerFixture(args);
 
-	task("write: endpoints", async () => {
-		const server = await serverFixture();
-		const workerCount = server.workerCookies.length;
-		const notificationIds = await Promise.all(
-			Array.from({ length: workerCount }, (_, workerIndex) => preloadUnreadNotificationIds(server, workerIndex, "10.80.0.1")),
-		);
-		console.log(`[write] server ready, ${workerCount} identities, ${notificationIds.flat().length} notification ids`);
+task("write: endpoints", async () => {
+	const server = await serverFixture();
+	const workerCount = server.workerCookies.length;
+	const notificationIds = await Promise.all(
+		Array.from({ length: workerCount }, (_, workerIndex) => preloadUnreadNotificationIds(server, workerIndex, "10.80.0.1")),
+	);
+	console.log(`[write] server ready, ${workerCount} identities, ${notificationIds.flat().length} notification ids`);
 
-		const context: WriteContext = {
-			baseUrl: server.baseUrl,
-			cookieFor: (workerIndex) => workerCookie(server, workerIndex),
-			profileIdFor: (workerIndex) => server.profileIdFor(workerIndex),
-			mediaFileId: server.benchmarkMediaFileId,
-			notificationIds,
-		};
+	const context: WriteContext = {
+		baseUrl: server.baseUrl,
+		cookieFor: (workerIndex) => workerCookie(server, workerIndex),
+		profileIdFor: (workerIndex) => server.profileIdFor(workerIndex),
+		mediaFileId: server.benchmarkMediaFileId,
+		seededRows: server.seededRows,
+		notificationIds,
+	};
 
-		const results = await runScenarioMatrix({
-			suite: "write",
-			unit: "writes/s",
-			scenarios: toScenarioEntries(SCENARIOS, context),
-			concurrency: args.concurrency,
-			warmupMs: args.warmupMs,
-			durationMs: args.durationMs,
-		});
-
-		printHttpResults(results);
-
-		await runNotificationMarkReadPhase(context, workerCount);
+	const results = await runScenarioMatrix({
+		suite: "write",
+		unit: "writes/s",
+		scenarios: toScenarioEntries(SCENARIOS, context),
+		concurrency: args.concurrency,
+		warmupMs: args.warmupMs,
+		durationMs: args.durationMs,
 	});
-}
 
-await main(import.meta);
+	printHttpResults(results);
+
+	await runNotificationMarkReadPhase(context, workerCount);
+});

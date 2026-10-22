@@ -1,4 +1,3 @@
-import type { CreateNotification } from "@reelvault/sdk/common";
 import type { PluginCapabilityName, PluginHost } from "@reelvault/sdk/plugin";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { pluginArtifactsService } from "@/plugins/capabilities/plugin.artifacts";
@@ -10,7 +9,7 @@ import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
 import { pluginMetadataService } from "@/plugins/capabilities/plugin.metadata";
 import { pluginStorageService } from "@/plugins/capabilities/plugin.storage";
 import { providerService } from "@/plugins/capabilities/provider.service";
-import { DomainError } from "@/utils/domain.errors";
+import { notificationsService } from "@/services/notifications/notifications.service";
 import { pickDefined } from "@/utils/type.utils";
 import type { PluginScopeApi } from "./plugin.scope";
 
@@ -152,10 +151,12 @@ function buildEventsCapability(pluginId: string, scope: PluginScopeApi): PluginH
 
 function buildHooksCapability(pluginId: string, scope: PluginScopeApi): PluginHost["hooks"] {
 	return {
-		beforeArtifactCreate: (handler) => withCapability(scope, "eventHandler", () => scope.subscribeBeforeArtifactCreate(pluginId, handler)),
+		beforeArtifactCreate: (handler) =>
+			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, "beforeArtifactCreate", handler)),
 		beforeMediaRecognition: (handler) =>
-			withCapability(scope, "eventHandler", () => scope.subscribeBeforeMediaRecognition(pluginId, handler)),
-		beforeMetadataSave: (handler) => withCapability(scope, "eventHandler", () => scope.subscribeBeforeMetadataSave(pluginId, handler)),
+			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, "beforeMediaRecognition", handler)),
+		beforeMetadataSave: (handler) =>
+			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, "beforeMetadataSave", handler)),
 	};
 }
 
@@ -165,38 +166,12 @@ function buildAccessCapability(pluginId: string, scope: PluginScopeApi): PluginH
 	};
 }
 
-/**
- * Delivers notifications raised by plugins. The application layer registers
- * itself at boot (index.ts), so plugins never import `application/`.
- */
-export interface PluginNotificationSink {
-	create(notification: CreateNotification, options: { sourcePluginId: string }): Promise<unknown>;
-	createForAdministrators(
-		notification: Omit<CreateNotification, "userId" | "profileId">,
-		options: { sourcePluginId: string },
-	): Promise<unknown>;
-}
-
-let notificationSink: PluginNotificationSink | undefined;
-
-export function registerPluginNotificationSink(sink: PluginNotificationSink): void {
-	notificationSink = sink;
-}
-
-function requireNotificationSink(): PluginNotificationSink {
-	if (!notificationSink) {
-		throw new DomainError("internal", "Plugin notification sink is not registered", { code: "plugin.notifications_unavailable" });
-	}
-
-	return notificationSink;
-}
-
 function buildNotificationsCapability(pluginId: string, scope: PluginScopeApi): PluginHost["notifications"] {
 	return {
 		create: async (notification) =>
 			withCapability(scope, "notification", async () => {
 				// Attribution + quota are host-enforced; the type stays plugin-authored for FE compatibility.
-				await requireNotificationSink().create(
+				await notificationsService.create(
 					{
 						userId: notification.userId,
 						type: notification.type,
@@ -213,7 +188,7 @@ function buildNotificationsCapability(pluginId: string, scope: PluginScopeApi): 
 			}),
 		createForAdmins: async (notification) =>
 			withCapability(scope, "notification", async () => {
-				await requireNotificationSink().createForAdministrators(
+				await notificationsService.createForAdministrators(
 					{
 						type: notification.type,
 						title: notification.title,

@@ -2,6 +2,7 @@ import type { AdminLiveStreamItem, StreamingSession } from "@reelvault/sdk/commo
 import { serverConfig } from "@/config/server/server.config";
 import type { DetectedHwaccel } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
 import { computeProgressPercent } from "@/modules/streaming/utils/playback-position.utils";
+import { extractYear } from "@/utils/media-match/normalize.utils";
 import { serializeDate } from "@/utils/time.utils";
 import { isNullish } from "@/utils/type.utils";
 import type { SessionMaps } from "./session-maps.utils";
@@ -154,7 +155,7 @@ export function buildActiveStreamItem(
 /** The media fields of a live-stream row. */
 function mediaItemFields(media: NonNullable<ReturnType<SessionMaps["mediaMap"]["get"]>>) {
 	return {
-		releaseYear: media.releaseDate ? new Date(media.releaseDate).getFullYear() : null,
+		releaseYear: extractYear(media.releaseDate) ?? null,
 		seasonNumber: media.seasonNumber ?? null,
 		episodeNumber: media.episodeNumber ?? null,
 		episodeTitle: media.episodeTitle ?? null,

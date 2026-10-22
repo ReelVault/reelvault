@@ -1,8 +1,8 @@
 import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { workerJobRepository } from "@/repositories/worker.repository";
 import { createLogger } from "@/utils/logger.utils";
 import { RecurringTimer } from "@/utils/recurring-timer.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 import { getWorkerRuntime } from "./worker.runtime";
 
 const DEFAULT_WATCHDOG_INTERVAL_MS = 5_000;
@@ -106,7 +106,7 @@ export class WorkerWatchdogService {
 	async recoverOrphaned(): Promise<number> {
 		try {
 			const activeJobIds = getWorkerRuntime().pool.getActiveJobIds();
-			const count = await workerDependencies().jobs.recoverOrphanedRunning({
+			const count = await workerJobRepository.recoverOrphanedRunning({
 				excludeActiveIds: activeJobIds,
 				...(this.runnerId ? { currentRunnerId: this.runnerId } : {}),
 			});

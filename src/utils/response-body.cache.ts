@@ -27,16 +27,6 @@ const RESPONSE_BODY_CACHE_MAX_TOTAL_BYTES = 256 * MIB;
 /** Entry-count safety net for many small bodies; the byte budget is the real limit. */
 const RESPONSE_BODY_CACHE_MAX_ENTRIES = 8192;
 
-/**
- * Cross-request body cache shared by the response-cache middleware (route-level
- * `cache` macro) and withEtagResponse() aggregations. Serving a repeat request
- * skips the handler, response validation and serialization entirely; the
- * response-cache middleware also memoizes compression per encoding. The TTL
- * follows the route's declared client max-age (bounded by
- * RESPONSE_BODY_CACHE_MAX_TTL_MS) or ETAG_BODY_CACHE_TTL_MS for etag bodies.
- * Write paths invalidate through invalidateResponseBodies()/
- * invalidateProfileResponseBodies().
- */
 /** NUL never appears in URLs or HTTP headers, so it is safe as a key segment separator. */
 const KEY_SEGMENT_SEPARATOR = "\u0000";
 
@@ -72,6 +62,16 @@ function removeFromProfileIndex(key: string): void {
 	if (keys.size === 0) profileKeyIndex.delete(profileId);
 }
 
+/**
+ * Cross-request body cache shared by the response-cache middleware (route-level
+ * `cache` macro) and withEtagResponse() aggregations. Serving a repeat request
+ * skips the handler, response validation and serialization entirely; the
+ * response-cache middleware also memoizes compression per encoding. The TTL
+ * follows the route's declared client max-age (bounded by
+ * RESPONSE_BODY_CACHE_MAX_TTL_MS) or ETAG_BODY_CACHE_TTL_MS for etag bodies.
+ * Write paths invalidate through invalidateResponseBodies()/
+ * invalidateProfileResponseBodies().
+ */
 const responseBodyCache = new MemoryCache<CachedResponseBody>({
 	// TTL is enforced per entry (expiresAt) so each route keeps its own max-age.
 	ttlMs: -1,
@@ -169,12 +169,6 @@ export function invalidateResponseBodies(): void {
 }
 
 /**
- * Drops cached bodies whose request path matches one of `pathPrefixes`
- * (e.g. `/v1/metadata`). Used by writes that only stale a known set of list
- * endpoints — a full flush per ingested file would thrash every cache.
- * `onEvict` keeps the profile/etag indexes in sync.
- */
-/**
  * Cached catalog list routes that embed a title, its people/companies/genres or its library's stats —
  * everything a scan, an ingest or a metadata refresh can make stale.
  */
@@ -188,6 +182,12 @@ export const CATALOG_LIST_PATH_PREFIXES = [
 	"/v1/collections",
 ] as const;
 
+/**
+ * Drops cached bodies whose request path matches one of `pathPrefixes`
+ * (e.g. `/v1/metadata`). Used by writes that only stale a known set of list
+ * endpoints — a full flush per ingested file would thrash every cache.
+ * `onEvict` keeps the profile/etag indexes in sync.
+ */
 export function invalidateResponseBodiesForPathPrefixes(pathPrefixes: readonly string[]): void {
 	if (pathPrefixes.length === 0) return;
 

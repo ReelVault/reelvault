@@ -12,11 +12,12 @@ import {
 } from "@/services/media/media-files/marker-transfer.utils";
 import { assertExists, DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { assertMediaFileExists, type MediaServiceState } from "./shared.utils";
+import { mediaFilesLog } from "./media-files.logger";
+import { assertMediaFileExists } from "./queries.reader";
 
 /** Every marker matching the filters as NDJSON; an export past the cap is refused rather than cut short. */
-export async function exportMarkers(state: MediaServiceState, query: MediaMarkerFilters): Promise<string> {
-	return await runSafely(state, "exportMarkers", async () => {
+export async function exportMarkers(query: MediaMarkerFilters): Promise<string> {
+	return await runSafely(mediaFilesLog, "exportMarkers", async () => {
 		const markers = await mediaMarkersRepository.findAll({ ...query, limit: MARKER_TRANSFER_MAX_LINES + 1 });
 		if (markers.length > MARKER_TRANSFER_MAX_LINES) {
 			throw new DomainError("validation", `The marker export holds at most ${MARKER_TRANSFER_MAX_LINES} markers; narrow the filters`, {
@@ -34,12 +35,8 @@ export async function exportMarkers(state: MediaServiceState, query: MediaMarker
  * checked before the first marker is written, so an unknown file or an invalid range refuses the whole
  * import (the old per-file loop could stop halfway).
  */
-export async function importMarkers(
-	state: MediaServiceState,
-	text: string,
-	context: AdminAuditContext | undefined,
-): Promise<{ mediaFiles: number; markers: number }> {
-	return await runSafely(state, "importMarkers", async () => {
+export async function importMarkers(text: string, context?: AdminAuditContext): Promise<{ mediaFiles: number; markers: number }> {
+	return await runSafely(mediaFilesLog, "importMarkers", async () => {
 		const grouped = groupMarkersByMediaFile(parseMarkersNdjson(text));
 		const mediaFileIds = [...grouped.keys()];
 
@@ -65,7 +62,7 @@ export async function importMarkers(
 					after: (snapshot?.after ?? []).map((item) => toPublicMarker(item)),
 					context,
 				},
-				state.logger,
+				mediaFilesLog.logger,
 			);
 		}
 
@@ -74,13 +71,12 @@ export async function importMarkers(
 }
 
 export async function setMarkers(
-	state: MediaServiceState,
 	mediaFileId: string,
 	markers: readonly CreateMediaMarker[],
 	options?: { pluginId?: string; source?: "automatic" | "manual" | "plugin" },
 	context?: AdminAuditContext,
 ): Promise<MediaMarker[]> {
-	return await runSafely(state, "setMarkers", async () => {
+	return await runSafely(mediaFilesLog, "setMarkers", async () => {
 		// Server-owned semantic validation (moved out of the SDK client).
 		const invalid = markers.find((marker) => marker.endSeconds < marker.startSeconds);
 		if (invalid)
@@ -105,19 +101,15 @@ export async function setMarkers(
 				after,
 				context,
 			},
-			state.logger,
+			mediaFilesLog.logger,
 		);
 
 		return after;
 	});
 }
 
-export async function deleteMarkers(
-	state: MediaServiceState,
-	mediaFileId: string,
-	context?: AdminAuditContext,
-): Promise<{ success: boolean }> {
-	return await runSafely(state, "deleteMarkers", async () => {
+export async function deleteMarkers(mediaFileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
+	return await runSafely(mediaFilesLog, "deleteMarkers", async () => {
 		await assertMediaFileExists(mediaFileId);
 		const before = await mediaMarkersRepository.findByMediaFileId(mediaFileId);
 		await mediaMarkersRepository.deleteByMediaFileId(mediaFileId);
@@ -130,7 +122,7 @@ export async function deleteMarkers(
 				before: before.map((item) => toPublicMarker(item)),
 				context,
 			},
-			state.logger,
+			mediaFilesLog.logger,
 		);
 
 		return { success: true };

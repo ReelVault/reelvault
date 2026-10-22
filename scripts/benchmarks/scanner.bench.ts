@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bench, fixture, main, suiteArgs } from "benchkit";
+import { bench, fixture, suiteArgs } from "benchkit";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { fileScannerService, matchesIgnorePattern } from "@/modules/scanner/disk/file.scanner";
 import { findSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles.utils";
@@ -38,150 +38,146 @@ async function createFixture(root: string): Promise<string[]> {
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const tree = fixture("scanner-tree", async ({ onCleanup }) => {
-		const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-scanner-"));
-		onCleanup(() => {
-			return removeTree(root);
-		});
-		console.log(`[scanner] generating directory structure with ${DIRECTORY_COUNT * FILES_PER_DIR} files...`);
-
-		return { root, scanPaths: await createFixture(root) };
+const tree = fixture("scanner-tree", async ({ onCleanup }) => {
+	const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-scanner-"));
+	onCleanup(() => {
+		return removeTree(root);
 	});
+	console.log(`[scanner] generating directory structure with ${DIRECTORY_COUNT * FILES_PER_DIR} files...`);
 
-	bench(
-		`Filesystem walk (${DIRECTORY_COUNT * FILES_PER_DIR} files)`,
-		async () => {
-			const { scanPaths } = await tree();
+	return { root, scanPaths: await createFixture(root) };
+});
 
-			return await fileScannerService.scan({ paths: scanPaths });
-		},
-		{ warmup: 2, iterations: 10 },
-	);
+bench(
+	`Filesystem walk (${DIRECTORY_COUNT * FILES_PER_DIR} files)`,
+	async () => {
+		const { scanPaths } = await tree();
 
-	// Same walk, but stat'ing every file — the path the real scan uses to detect
-	// size/mtime changes.
-	bench(
-		`Filesystem walk with stats (${DIRECTORY_COUNT * FILES_PER_DIR} stats)`,
-		async () => {
-			const { scanPaths } = await tree();
+		return await fileScannerService.scan({ paths: scanPaths });
+	},
+	{ warmup: 2, iterations: 10 },
+);
 
-			return await fileScannerService.scanWithStats({ paths: scanPaths });
-		},
-		{ warmup: 2, iterations: 5 },
-	);
+// Same walk, but stat'ing every file — the path the real scan uses to detect
+// size/mtime changes.
+bench(
+	`Filesystem walk with stats (${DIRECTORY_COUNT * FILES_PER_DIR} stats)`,
+	async () => {
+		const { scanPaths } = await tree();
 
-	// Root filtering resolves every DB path and compares against every root —
-	// O(paths × roots) string work on large libraries.
-	const filterPaths = Array.from({ length: 10_000 }, (_, index) => `/media/library-${index % 20}/movie-${index}.mkv`);
-	const filterRoots = Array.from({ length: 20 }, (_, index) => `/media/library-${index}`);
-	bench("filterPathsWithinRoots (10k paths, 20 roots)", () => filterPathsWithinRoots(filterPaths, filterRoots), {
-		warmup: 5,
-		iterations: args.iterations,
-	});
+		return await fileScannerService.scanWithStats({ paths: scanPaths });
+	},
+	{ warmup: 2, iterations: 5 },
+);
 
-	// The watcher's library detection calls isVideoFile once per directory entry.
-	// The extension list is a cloned array on every serverConfig read, so the
-	// lookup must not rebuild its Set per call.
-	const videoLookupPaths = Array.from({ length: 1000 }, (_, index) => `/media/library-${index % 20}/movie-${index}.mkv`);
-	bench(
-		"isVideoFile (1000 lookups, extension-set cache)",
-		() => {
-			let hits = 0;
-			for (const filePath of videoLookupPaths) {
-				if (isVideoFile(filePath)) hits++;
-			}
+// Root filtering resolves every DB path and compares against every root —
+// O(paths × roots) string work on large libraries.
+const filterPaths = Array.from({ length: 10_000 }, (_, index) => `/media/library-${index % 20}/movie-${index}.mkv`);
+const filterRoots = Array.from({ length: 20 }, (_, index) => `/media/library-${index}`);
+bench("filterPathsWithinRoots (10k paths, 20 roots)", () => filterPathsWithinRoots(filterPaths, filterRoots), {
+	warmup: 5,
+	iterations: args.iterations,
+});
 
-			return hits;
-		},
-		{ warmup: 10, iterations: args.iterations },
-	);
-
-	// A season pack imports one subtitle set per episode from the same directory;
-	// the listing must not be re-read per episode.
-	const subtitlesTree = fixture("subtitles-tree", async ({ onCleanup }) => {
-		const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-subs-"));
-		onCleanup(() => removeTree(root));
-		const directory = join(root, "Season 01");
-		await mkdir(directory, { recursive: true });
-
-		const paths: string[] = [];
-		for (let index = 0; index < 24; index++) {
-			const base = `Show.S01E${String(index + 1).padStart(2, "0")}`;
-			paths.push(join(directory, `${base}.mkv`));
-			for (const language of ["en", "pl", "de", "fr"]) {
-				await writeFile(join(directory, `${base}.${language}.srt`), "");
-			}
+// The watcher's library detection calls isVideoFile once per directory entry.
+// The extension list is a cloned array on every serverConfig read, so the
+// lookup must not rebuild its Set per call.
+const videoLookupPaths = Array.from({ length: 1000 }, (_, index) => `/media/library-${index % 20}/movie-${index}.mkv`);
+bench(
+	"isVideoFile (1000 lookups, extension-set cache)",
+	() => {
+		let hits = 0;
+		for (const filePath of videoLookupPaths) {
+			if (isVideoFile(filePath)) hits++;
 		}
 
-		return paths;
-	});
-	bench(
-		"findSidecarSubtitles (24 episodes, one season directory)",
-		async () => {
-			const paths = await subtitlesTree();
-			let candidates = 0;
-			for (const path of paths) {
-				candidates += (await findSidecarSubtitles(path)).length;
-			}
+		return hits;
+	},
+	{ warmup: 10, iterations: args.iterations },
+);
 
-			return candidates;
-		},
-		{ warmup: 2, iterations: Math.min(args.iterations, 50) },
-	);
+// A season pack imports one subtitle set per episode from the same directory;
+// the listing must not be re-read per episode.
+const subtitlesTree = fixture("subtitles-tree", async ({ onCleanup }) => {
+	const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-subs-"));
+	onCleanup(() => removeTree(root));
+	const directory = join(root, "Season 01");
+	await mkdir(directory, { recursive: true });
 
-	// Ignore patterns are user config; the scan calls this once per file, so the
-	// wildcard-to-regex compilation must not run per file per pattern.
-	const ignorePatternPaths = Array.from(
-		{ length: 500 },
-		(_, index) => `/media/library-${index % 20}/Season ${index % 10}/Show.S${index % 5}E0${index % 9}.mkv`,
-	);
-	const ignorePatterns = ["*.sample.mkv", "Sample", "*.tmp"];
-	bench(
-		"matchesIgnorePattern (500 paths x 3 patterns)",
-		() => {
-			let ignored = 0;
-			for (const filePath of ignorePatternPaths) {
-				if (matchesIgnorePattern(filePath, "/media/library-0", ignorePatterns)) ignored++;
-			}
+	const paths: string[] = [];
+	for (let index = 0; index < 24; index++) {
+		const base = `Show.S01E${String(index + 1).padStart(2, "0")}`;
+		paths.push(join(directory, `${base}.mkv`));
+		for (const language of ["en", "pl", "de", "fr"]) {
+			await writeFile(join(directory, `${base}.${language}.srt`), "");
+		}
+	}
 
-			return ignored;
-		},
-		{ warmup: 10, iterations: args.iterations },
-	);
+	return paths;
+});
+bench(
+	"findSidecarSubtitles (24 episodes, one season directory)",
+	async () => {
+		const paths = await subtitlesTree();
+		let candidates = 0;
+		for (const path of paths) {
+			candidates += (await findSidecarSubtitles(path)).length;
+		}
 
-	const sampleTitles = [
-		"Inception.2010.1080p.BluRay.x264.DTS.mkv",
-		"Breaking.Bad.S05E14.Ozymandias.720p.HDTV.mkv",
-		"The.Lord.of.the.Rings.The.Fellowship.of.the.Ring.2001.EXTENDED.2160p.UHD.BluRay.x265.mkv",
-		"Stranger.Things.S04E09.Chapter.Nine.The.Piggyback.1080p.NF.WEB-DL.DDP5.1.Atmos.x264.mkv",
-		"The.Matrix.1999.2160p.TrueHD.7.1.Atmos.DV.HEVC.REMASTERED.mkv",
-	];
+		return candidates;
+	},
+	{ warmup: 2, iterations: Math.min(args.iterations, 50) },
+);
 
-	bench(
-		"Recognition filename parser (parseFileName regex & memoization)",
-		() => {
-			for (const title of sampleTitles) {
-				parseFileName(title);
-			}
-		},
-		{ warmup: 20, iterations: args.iterations * 10 },
-	);
+// Ignore patterns are user config; the scan calls this once per file, so the
+// wildcard-to-regex compilation must not run per file per pattern.
+const ignorePatternPaths = Array.from(
+	{ length: 500 },
+	(_, index) => `/media/library-${index % 20}/Season ${index % 10}/Show.S${index % 5}E0${index % 9}.mkv`,
+);
+const ignorePatterns = ["*.sample.mkv", "Sample", "*.tmp"];
+bench(
+	"matchesIgnorePattern (500 paths x 3 patterns)",
+	() => {
+		let ignored = 0;
+		for (const filePath of ignorePatternPaths) {
+			if (matchesIgnorePattern(filePath, "/media/library-0", ignorePatterns)) ignored++;
+		}
 
-	// A corpus larger than the 10k memo cache so every batch is parsed fresh.
-	const uniqueNames = Array.from({ length: 20_000 }, (_, index) => `Unique.Title.${index}.${2000 + (index % 25)}.1080p.BluRay.x264.mkv`);
-	const parseWindows = Math.floor(uniqueNames.length / 100);
-	bench(
-		"parseFileName cold (rotating 20k unique names)",
-		({ iteration }) => {
-			const start = (Math.abs(iteration) % parseWindows) * 100;
-			for (let index = 0; index < 100; index++) {
-				const name = uniqueNames[start + index];
-				if (name) parseFileName(name);
-			}
-		},
-		{ warmup: 5, iterations: args.iterations },
-	);
-}
+		return ignored;
+	},
+	{ warmup: 10, iterations: args.iterations },
+);
 
-await main(import.meta);
+const sampleTitles = [
+	"Inception.2010.1080p.BluRay.x264.DTS.mkv",
+	"Breaking.Bad.S05E14.Ozymandias.720p.HDTV.mkv",
+	"The.Lord.of.the.Rings.The.Fellowship.of.the.Ring.2001.EXTENDED.2160p.UHD.BluRay.x265.mkv",
+	"Stranger.Things.S04E09.Chapter.Nine.The.Piggyback.1080p.NF.WEB-DL.DDP5.1.Atmos.x264.mkv",
+	"The.Matrix.1999.2160p.TrueHD.7.1.Atmos.DV.HEVC.REMASTERED.mkv",
+];
+
+bench(
+	"Recognition filename parser (parseFileName regex & memoization)",
+	() => {
+		for (const title of sampleTitles) {
+			parseFileName(title);
+		}
+	},
+	{ warmup: 20, iterations: args.iterations * 10 },
+);
+
+// A corpus larger than the 10k memo cache so every batch is parsed fresh.
+const uniqueNames = Array.from({ length: 20_000 }, (_, index) => `Unique.Title.${index}.${2000 + (index % 25)}.1080p.BluRay.x264.mkv`);
+const parseWindows = Math.floor(uniqueNames.length / 100);
+bench(
+	"parseFileName cold (rotating 20k unique names)",
+	({ iteration }) => {
+		const start = (Math.abs(iteration) % parseWindows) * 100;
+		for (let index = 0; index < 100; index++) {
+			const name = uniqueNames[start + index];
+			if (name) parseFileName(name);
+		}
+	},
+	{ warmup: 5, iterations: args.iterations },
+);

@@ -18,7 +18,7 @@
  * Plans are machine/SQLite-version specific — compare runs from the same box.
  */
 
-import { main, printTable, suiteArgs, task } from "benchkit";
+import { printTable, suiteArgs, task } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
 import { benchDb } from "./lib/db.fixture";
 import { seedCatalog } from "./lib/seed.utils";
@@ -243,61 +243,57 @@ function buildCases(rows: number, now: number): QueryCase[] {
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const database = benchDb({
-		label: "plan",
-		rows: args.rows,
-		analyze: true,
-		seed: (db) =>
-			seedCatalog(db, {
-				rows: args.rows,
-				staggeredTimestamps: true,
-				matchScore: true,
-				history: { profileId: "profile-1", everyNth: 3, duration: 3000 },
-				progress: true,
-				workerJobs: WORKER_ROWS,
-			}),
-	});
+const database = benchDb({
+	label: "plan",
+	rows: args.rows,
+	analyze: true,
+	seed: (db) =>
+		seedCatalog(db, {
+			rows: args.rows,
+			staggeredTimestamps: true,
+			matchScore: true,
+			history: { profileId: "profile-1", everyNth: 3, duration: 3000 },
+			progress: true,
+			workerJobs: WORKER_ROWS,
+		}),
+});
 
-	task("query-plan audit", async () => {
-		const factory = (await database()).factory;
-		const db = factory.sqlite;
-		const cases = buildCases(args.rows, Date.now());
-		const results: PlanResult[] = [];
+task("query-plan audit", async () => {
+	const factory = (await database()).factory;
+	const db = factory.sqlite;
+	const cases = buildCases(args.rows, Date.now());
+	const results: PlanResult[] = [];
 
-		for (const queryCase of cases) {
-			const planRows: PlanRow[] = db
-				.query(`EXPLAIN QUERY PLAN ${queryCase.sql}`)
-				.all(...(queryCase.params ?? []))
-				.map((row) => ({ detail: isRecord(row) && typeof row.detail === "string" ? row.detail : "" }));
-			results.push({
-				name: queryCase.name,
-				detail: planRows.map((row) => row.detail.trim()).join(" | "),
-				flags: planFlags(planRows),
-				accepted: (queryCase.knownStructural ?? false) || (queryCase.knownTradeoff ?? false),
-			});
-		}
+	for (const queryCase of cases) {
+		const planRows: PlanRow[] = db
+			.query(`EXPLAIN QUERY PLAN ${queryCase.sql}`)
+			.all(...(queryCase.params ?? []))
+			.map((row) => ({ detail: isRecord(row) && typeof row.detail === "string" ? row.detail : "" }));
+		results.push({
+			name: queryCase.name,
+			detail: planRows.map((row) => row.detail.trim()).join(" | "),
+			flags: planFlags(planRows),
+			accepted: (queryCase.knownStructural ?? false) || (queryCase.knownTradeoff ?? false),
+		});
+	}
 
-		printTable(
-			"Query plans (flags: temp-b-tree = ORDER BY sort, full-scan = unindexed table scan)",
-			["query", "flags", "plan"],
-			results.map((result) => [result.name, result.flags.length > 0 ? result.flags.join(",") : "ok", result.detail]),
-		);
+	printTable(
+		"Query plans (flags: temp-b-tree = ORDER BY sort, full-scan = unindexed table scan)",
+		["query", "flags", "plan"],
+		results.map((result) => [result.name, result.flags.length > 0 ? result.flags.join(",") : "ok", result.detail]),
+	);
 
-		const flagged = results.filter((result) => result.flags.length > 0);
-		const unexpected = flagged.filter((result) => !result.accepted);
-		if (flagged.length > 0) {
-			console.log(`\n[query-plan] ${flagged.length}/${results.length} queries flagged (${flagged.length - unexpected.length} accepted):`);
-			for (const result of flagged) console.log(`  - ${result.name}: ${result.flags.join(", ")}${result.accepted ? " [accepted]" : ""}`);
-		} else {
-			console.log(`\n[query-plan] all ${results.length} queries use index-supported plans.`);
-		}
+	const flagged = results.filter((result) => result.flags.length > 0);
+	const unexpected = flagged.filter((result) => !result.accepted);
+	if (flagged.length > 0) {
+		console.log(`\n[query-plan] ${flagged.length}/${results.length} queries flagged (${flagged.length - unexpected.length} accepted):`);
+		for (const result of flagged) console.log(`  - ${result.name}: ${result.flags.join(", ")}${result.accepted ? " [accepted]" : ""}`);
+	} else {
+		console.log(`\n[query-plan] all ${results.length} queries use index-supported plans.`);
+	}
 
-		return {
-			ok: unexpected.length === 0,
-			data: { flagged: flagged.length, accepted: flagged.length - unexpected.length, total: results.length },
-		};
-	});
-}
-
-await main(import.meta);
+	return {
+		ok: unexpected.length === 0,
+		data: { flagged: flagged.length, accepted: flagged.length - unexpected.length, total: results.length },
+	};
+});

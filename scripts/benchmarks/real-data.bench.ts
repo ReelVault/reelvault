@@ -1,5 +1,4 @@
-import { main, printHttpResults, runScenarioMatrix, type ScenarioMatrixEntry, suiteArgs, task } from "benchkit";
-import { subnetIp } from "./lib/identity.utils";
+import { printHttpResults, runScenarioMatrix, type ScenarioMatrixEntry, stringField, subnetIp, suiteArgs, task } from "benchkit";
 
 /**
  * HTTP scenarios against an EXTERNAL server seeded with real data:
@@ -57,10 +56,9 @@ function totalOf(body: unknown, fallback: number): number {
 	return typeof total === "number" ? total : fallback;
 }
 
-function stringField(item: Record<string, unknown> | undefined, key: string): string {
-	const value = item?.[key];
-
-	return typeof value === "string" ? value : "";
+/** A string field of a listed item, or "" — the id-dependent scenarios then fail visibly instead of crashing setup. */
+function fieldOf(item: Record<string, unknown> | undefined, key: string): string {
+	return stringField(item, key) ?? "";
 }
 
 async function getJson(context: BenchContext, path: string, withProfile = false): Promise<unknown> {
@@ -118,32 +116,32 @@ async function resolveContext(args: { baseUrl: string; noCache: boolean }): Prom
 
 	context.cookie = await login(args.baseUrl);
 
-	context.profileId = stringField(listItems(await getJson(context, "/v1/profiles"))[0], "id");
-	context.libraryId = stringField(listItems(await getJson(context, "/v1/libraries?limit=10"))[0], "id");
+	context.profileId = fieldOf(listItems(await getJson(context, "/v1/profiles"))[0], "id");
+	context.libraryId = fieldOf(listItems(await getJson(context, "/v1/libraries?limit=10"))[0], "id");
 
 	const metadataBody = await getJson(context, "/v1/metadata?limit=50");
 	const items = listItems(metadataBody);
 	context.totalMetadata = totalOf(metadataBody, items.length);
 	const movie = items.find((item) => item.type === "movie") ?? items[0];
 	const tv = items.find((item) => item.type !== "movie");
-	context.movieId = stringField(movie, "id");
-	context.tvId = stringField(tv, "id");
-	const title = stringField(movie, "title");
+	context.movieId = fieldOf(movie, "id");
+	context.tvId = fieldOf(tv, "id");
+	const title = fieldOf(movie, "title");
 	context.searchTerm = title.length >= 3 ? title.slice(0, 4) : "star";
 
 	const movieDetail = await getJson(context, `/v1/metadata/${context.movieId}`);
 	const images = isRecord(movieDetail) && Array.isArray(movieDetail.images) ? movieDetail.images : [];
 	const firstImage = images.find((image) => isRecord(image));
 	const imagePayload = firstImage && isRecord(firstImage.data) ? firstImage.data : undefined;
-	context.imageId = stringField(imagePayload, "id");
+	context.imageId = fieldOf(imagePayload, "id");
 
-	context.seasonId = stringField(listItems(await getJson(context, "/v1/seasons?limit=1"))[0], "id");
-	context.episodeId = stringField(listItems(await getJson(context, "/v1/episodes?limit=1"))[0], "id");
-	context.mediaFileId = stringField(listItems(await getJson(context, "/v1/media-files?limit=1"))[0], "id");
-	context.genreId = stringField(listItems(await getJson(context, "/v1/genres?limit=1"))[0], "id");
-	context.personId = stringField(listItems(await getJson(context, "/v1/people?limit=1"))[0], "id");
+	context.seasonId = fieldOf(listItems(await getJson(context, "/v1/seasons?limit=1"))[0], "id");
+	context.episodeId = fieldOf(listItems(await getJson(context, "/v1/episodes?limit=1"))[0], "id");
+	context.mediaFileId = fieldOf(listItems(await getJson(context, "/v1/media-files?limit=1"))[0], "id");
+	context.genreId = fieldOf(listItems(await getJson(context, "/v1/genres?limit=1"))[0], "id");
+	context.personId = fieldOf(listItems(await getJson(context, "/v1/people?limit=1"))[0], "id");
 	try {
-		context.adminUserId = stringField(listItems(await getJson(context, "/v1/admin/users?page=1&limit=1"))[0], "id");
+		context.adminUserId = fieldOf(listItems(await getJson(context, "/v1/admin/users?page=1&limit=1"))[0], "id");
 	} catch {
 		// Non-admin sessions (or stricter query schemas) skip the admin detail ids —
 		// scenarios interpolating {adminUserId} will 4xx and show up in the error rate.
@@ -387,11 +385,11 @@ const WRITE_SCENARIOS: ReadonlyArray<readonly [string, (context: BenchContext, r
 	],
 ];
 
-export const meta = { description: "HTTP scenarios against a REAL-data server (external --baseUrl, no fixture)" };
+export const meta = { description: "HTTP scenarios against a REAL-data server (external --url, no fixture)" };
 
 const args = suiteArgs();
 
-if (!args.help && args.baseUrl) {
+if (args.baseUrl) {
 	const target = args.baseUrl;
 	task("real-data: scenarios", async () => {
 		console.log(`[real-data] targeting ${target} (noCache: ${args.noCache})`);
@@ -435,8 +433,6 @@ if (!args.help && args.baseUrl) {
 
 		printHttpResults(results);
 	});
-} else if (!args.help) {
-	console.log("[real-data] skipped — pass --baseUrl http://host:port (plus RV_BENCH_COOKIE or RV_BENCH_EMAIL/PASSWORD)");
+} else {
+	console.log("[real-data] skipped — pass --url http://host:port (plus RV_BENCH_COOKIE or RV_BENCH_EMAIL/PASSWORD)");
 }
-
-await main(import.meta);

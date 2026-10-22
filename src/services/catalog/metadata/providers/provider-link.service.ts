@@ -7,8 +7,9 @@ import { metadataRepository } from "@/repositories/metadata.repository";
 import { metadataPersistenceRepository } from "@/repositories/metadata-persistence.repository";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
+import { metadataLog } from "@/services/catalog/metadata/metadata.logger";
 import { resolveMetadataLanguage } from "@/services/catalog/metadata/providers/library-metadata-language.resolver";
-import { invalidateReadCaches, type MetadataServiceState } from "@/services/catalog/metadata/records/shared.utils";
+import { invalidateReadCaches } from "@/services/catalog/metadata/records/read-caches.utils";
 import { metadataRefreshService } from "@/services/catalog/metadata/refresh/metadata-refresh.runtime";
 import { syncSeasonsAndEpisodes } from "@/services/catalog/metadata/refresh/season-sync.utils";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
@@ -30,13 +31,12 @@ function unlockedArtwork(artwork: { posterPath?: string | undefined; backdropPat
 }
 
 export async function rematch<F extends string>(
-	state: MetadataServiceState,
 	metadataId: string,
 	body: { providerId: string; externalId: string; overwriteLocked?: boolean | undefined },
 	query?: FieldsQuery<F>,
 	context?: AdminAuditContext,
 ): Promise<SelectFields<MetadataWithRelation, F>> {
-	return await runSafely(state, "rematch", async () => {
+	return await runSafely(metadataLog, "rematch", async () => {
 		const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type" });
 		assertFound(existing, "Metadata", metadataId);
 
@@ -49,7 +49,6 @@ export async function rematch<F extends string>(
 		}
 
 		return await updateLinkedProvider(
-			state,
 			{ metadataId, existing, link: { providerId: body.providerId, externalId: body.externalId } },
 			query,
 			context,
@@ -86,17 +85,16 @@ export async function rematch<F extends string>(
  * provider is preserved — the new provider only fills gaps (and adds ratings).
  */
 export async function linkProvider<F extends string>(
-	state: MetadataServiceState,
 	metadataId: string,
 	body: { providerId: string; externalId: string },
 	query?: FieldsQuery<F>,
 	context?: AdminAuditContext,
 ): Promise<SelectFields<MetadataWithRelation, F>> {
-	return await runSafely(state, "linkProvider", async () => {
+	return await runSafely(metadataLog, "linkProvider", async () => {
 		const existing = await metadataRepository.findByIdForRead(metadataId, { fields: "id,type,providers" });
 		assertFound(existing, "Metadata", metadataId);
 
-		return await updateLinkedProvider(state, { metadataId, existing, link: body }, query, context, {
+		return await updateLinkedProvider({ metadataId, existing, link: body }, query, context, {
 			resourceType: "metadata_link_provider",
 			persist: async (providerMetadata) => {
 				await metadataPersistenceRepository.linkProvider(metadataId, existing.type, body.providerId, body.externalId);
@@ -114,7 +112,6 @@ export async function linkProvider<F extends string>(
  * in `options`.
  */
 async function updateLinkedProvider<F extends string>(
-	state: MetadataServiceState,
 	target: LinkedProviderTarget,
 	query: FieldsQuery<F> | undefined,
 	context: AdminAuditContext | undefined,
@@ -151,7 +148,7 @@ async function updateLinkedProvider<F extends string>(
 			after: { providerId: link.providerId, externalId: link.externalId, updated },
 			context,
 		},
-		state.logger,
+		metadataLog.logger,
 	);
 
 	return updated;

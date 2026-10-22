@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { subtitlesStorage } from "@/modules/subtitles/subtitles.ports";
+import { subtitlesRepository } from "@/repositories/subtitles.repository";
 import { listDirectoryEntriesCached } from "@/utils/directory.utils";
 import { fileExists } from "@/utils/file.utils";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
@@ -113,7 +113,7 @@ export async function importSidecarSubtitles(mediaFileId: string, videoFilePath:
 	const candidates = await findSidecarSubtitles(videoFilePath);
 	if (candidates.length === 0) return 0;
 
-	const seen = await subtitlesStorage().findExternalLanguages(mediaFileId);
+	const seen = await subtitlesRepository.findExternalLanguagesByMediaFile(mediaFileId);
 	const missing = candidates.filter((candidate) => {
 		if (seen.has(candidate.language)) return false;
 		seen.add(candidate.language);
@@ -122,8 +122,8 @@ export async function importSidecarSubtitles(mediaFileId: string, videoFilePath:
 	});
 	if (missing.length === 0) return 0;
 
-	return await subtitlesStorage().insertExternal(
-		missing.map((candidate) => ({
+	const inserted = await subtitlesRepository.insertReturning({
+		values: missing.map((candidate) => ({
 			mediaFileId,
 			language: candidate.language,
 			format: candidate.format,
@@ -133,5 +133,8 @@ export async function importSidecarSubtitles(mediaFileId: string, videoFilePath:
 			isForced: candidate.isForced,
 			isHearingImpaired: candidate.isHearingImpaired,
 		})),
-	);
+		onConflict: "doNothing",
+	});
+
+	return inserted.length;
 }

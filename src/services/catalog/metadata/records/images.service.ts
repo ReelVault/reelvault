@@ -8,7 +8,8 @@ import { providerService } from "@/plugins/capabilities/provider.service";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
-import { fetchSeason, mapProviderLinks, runBulkItems } from "@/services/catalog/catalog.utils";
+import { mapProviderLinks, runBulkItems, seasonEpisodesFetcher } from "@/services/catalog/catalog.utils";
+import { metadataLog } from "@/services/catalog/metadata/metadata.logger";
 import { resolveMetadataLanguage } from "@/services/catalog/metadata/providers/library-metadata-language.resolver";
 import { syncSeasonsAndEpisodes } from "@/services/catalog/metadata/refresh/season-sync.utils";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
@@ -17,17 +18,15 @@ import { assertFound, DomainError } from "@/utils/domain.errors";
 import { rankImageOptions } from "@/utils/image-storage.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { invalidateReadCaches, type MetadataServiceState, type WithoutState } from "./shared.utils";
-
-type RefreshImagesOne = (...args: WithoutState<typeof refreshImages>) => ReturnType<typeof refreshImages>;
+import { invalidateReadCaches } from "./read-caches.utils";
 
 /**
  * Retrieve poster and backdrop image options available from linked providers.
  * Options are ranked by the provider's own score (best first); unscored
  * candidates keep their provider order after the scored ones.
  */
-export async function getImageOptions(state: MetadataServiceState, metadataId: string): Promise<MetadataImageOption[]> {
-	return await runSafely(state, "getImageOptions", async () => {
+export async function getImageOptions(metadataId: string): Promise<MetadataImageOption[]> {
+	return await runSafely(metadataLog, "getImageOptions", async () => {
 		const metadata = await metadataRepository.findProviderDetails(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
 		const providers = metadata.providers.filter((provider) => provider.entityType === metadata.type);
@@ -48,12 +47,11 @@ export async function getImageOptions(state: MetadataServiceState, metadataId: s
  * Select and download a specific candidate image from a provider.
  */
 export async function selectImage(
-	state: MetadataServiceState,
 	metadataId: string,
 	selection: SelectMetadataImage,
 	context?: AdminAuditContext,
 ): Promise<{ success: true }> {
-	return await runSafely(state, "selectImage", async () => {
+	return await runSafely(metadataLog, "selectImage", async () => {
 		const metadata = await metadataRepository.findProviderDetails(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
 		const providerMap = toMap(metadata.providers, (p) => `${p.name}:${p.entityType}`);
@@ -79,7 +77,7 @@ export async function selectImage(
 				after: selection,
 				context,
 			},
-			state.logger,
+			metadataLog.logger,
 		);
 
 		return { success: true as const };
@@ -90,13 +88,12 @@ export async function selectImage(
  * Upload a custom poster or backdrop image for a metadata item.
  */
 export async function uploadImage(
-	state: MetadataServiceState,
 	metadataId: string,
 	type: "poster" | "backdrop",
 	file: File,
 	context?: AdminAuditContext,
 ): Promise<{ success: true }> {
-	return await runSafely(state, "uploadImage", async () => {
+	return await runSafely(metadataLog, "uploadImage", async () => {
 		const uploaded = await imageUploadService.upload(file, { ownerType: "metadata", ownerId: metadataId, variant: type });
 		await imageProcessingService.replaceMetadataImageWithUpload(metadataId, type, uploaded);
 		invalidateReadCaches();
@@ -109,7 +106,7 @@ export async function uploadImage(
 				after: { type, fileName: file.name, fileSize: file.size },
 				context,
 			},
-			state.logger,
+			metadataLog.logger,
 		);
 
 		return { success: true as const };
@@ -117,20 +114,17 @@ export async function uploadImage(
 }
 
 /** Force-refreshes the artwork of the listed titles one after another; each id reports its own outcome. */
-export async function refreshImagesMany(state: MetadataServiceState, metadataIds: string[], refreshOne: RefreshImagesOne) {
+export async function refreshImagesMany(metadataIds: string[]) {
 	return await runSafely(
-		state,
+		metadataLog,
 		"refreshImagesMany",
-		async () => await runBulkItems(metadataIds, (metadataId) => refreshOne(metadataId, { force: true }), "metadata.refresh_images_failed"),
+		async () =>
+			await runBulkItems(metadataIds, (metadataId) => refreshImages(metadataId, { force: true }), "metadata.refresh_images_failed"),
 	);
 }
 
-export async function refreshImages(
-	state: MetadataServiceState,
-	metadataId: string,
-	options: { force?: boolean } = {},
-): Promise<{ success: boolean }> {
-	return await runSafely(state, "refreshImages", async () => {
+export async function refreshImages(metadataId: string, options: { force?: boolean } = {}): Promise<{ success: boolean }> {
+	return await runSafely(metadataLog, "refreshImages", async () => {
 		const metadata = await metadataRepository.findProviderDetails(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
 
@@ -183,11 +177,11 @@ async function syncSeasonEpisodeImages(
 	isForce: boolean,
 ): Promise<void> {
 	const providerLinks = mapProviderLinks(metadata.providers ?? []);
-	const seasonImages = await syncSeasonsAndEpisodes(metadataId, providerMetadata.seasons, async (seasonNumber) => {
-		const season = await fetchSeason(providerLinks, seasonNumber);
-
-		return season?.episodes;
-	});
+	const seasonImages = await syncSeasonsAndEpisodes(
+		metadataId,
+		providerMetadata.seasons,
+		seasonEpisodesFetcher(providerLinks, await resolveMetadataLanguage(metadataId)),
+	);
 
 	// Thunks: image tasks must not start until mapConcurrent schedules them,
 	// otherwise the concurrency limit of 5 would have no effect.

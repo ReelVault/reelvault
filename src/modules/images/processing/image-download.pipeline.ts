@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { getImageMetadata, type OptimizedImageResult, optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
-import type { ImageOwnerTarget, PersistedImageInput } from "@/modules/images/images.ports";
+import type { ImageOwnerTarget, PersistedImageInput } from "@/repositories/images.repository";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createHash } from "@/utils/crypto.utils";
 import { createDirectory } from "@/utils/directory.utils";

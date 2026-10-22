@@ -3,7 +3,9 @@
 #
 # Assembles the native server artifact for every platform (linux-x64,
 # linux-arm64, windows-x64): the bundled Bun runtime, the server sources with
-# production dependencies, and the launchers. The web UI is a separate release
+# production dependencies, the administration commands (scripts/admin, run as
+# `start.sh doctor`, `start.sh admin:reset-password <email>`, ...) and the
+# launchers. The web UI is a separate release
 # built from the website repository (scripts/release-web.sh), and the combined
 # fresh-install bundles are assembled in the installer repository.
 #
@@ -14,11 +16,12 @@
 #   ./scripts/release.sh <version>
 #
 # Environment:
-#   BUN_VERSION       Bundled Bun runtime version      (default: 1.4.2)
+#   BUN_VERSION       Bundled Bun runtime version      (default: package.json packageManager)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUN_VERSION="${BUN_VERSION:-1.4.2}"
+# The release runs on the Bun the suite was tested with.
+BUN_VERSION="${BUN_VERSION:-$(sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' "$ROOT/package.json")}"
 OUT_DIR="$ROOT/dist/release"
 
 SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
@@ -80,7 +83,7 @@ if [ "$(bun --version)" != "$BUN_VERSION" ]; then
 fi
 
 # The archives are assembled from tracked files: fail early, not halfway through.
-for required in bun.lock bunfig.toml tsconfig.json package.json src install/start.sh install/start.bat; do
+for required in bun.lock bunfig.toml tsconfig.json package.json src scripts/admin install/start.sh install/start.bat; do
 	[ -e "$ROOT/$required" ] || die "missing required file in the repository: $required"
 done
 
@@ -146,6 +149,10 @@ for TARGET in "${TARGETS[@]}"; do
 
 	cp "$ROOT/package.json" "$ROOT/bun.lock" "$ROOT/bunfig.toml" "$ROOT/tsconfig.json" "$APP/server/"
 	cp -r "$ROOT/src" "$APP/server/"
+	# The tests are a quarter of src/ and never run in an installation.
+	find "$APP/server/src" -name '*.test.ts' -delete
+	mkdir -p "$APP/server/scripts"
+	cp -r "$ROOT/scripts/admin" "$APP/server/scripts/"
 	(
 		cd "$APP/server"
 		bun install --production --frozen-lockfile --no-progress --os="$OS" --cpu="$CPU"

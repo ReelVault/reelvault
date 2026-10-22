@@ -7,7 +7,7 @@ import { assertFound, errorCodeOf } from "@/utils/domain.errors";
 import { getFileStats } from "@/utils/file.utils";
 import { createSemaphore } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
-import type { MediaServiceState } from "./shared.utils";
+import { mediaFilesLog } from "./media-files.logger";
 
 // Concurrency guard for on-demand ffmpeg/ffprobe integrity scans triggered from the API.
 // Each permit is an ffmpeg decode — derived from measured CPU capacity
@@ -79,13 +79,9 @@ async function decodeMediaFile(
 	}
 }
 
-export async function scan(
-	state: MediaServiceState,
-	mediaFileId: string,
-	options?: { durationSeconds?: number | null } | null,
-): Promise<MediaFileScanResult> {
+export async function scan(mediaFileId: string, options?: { durationSeconds?: number | null } | null): Promise<MediaFileScanResult> {
 	return await scanSemaphore.run(async () => {
-		return await runSafely(state, "scan", async () => {
+		return await runSafely(mediaFilesLog, "scan", async () => {
 			const mediaFile = await mediaRepository.findByPrimaryId({
 				primaryId: mediaFileId,
 				fields: parseFields({ fields: "id,filePath,isEnabled" }),

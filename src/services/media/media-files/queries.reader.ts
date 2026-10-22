@@ -15,23 +15,26 @@ import { toPublicMarker } from "@/integrations/drizzle-orm/utils/media-marker.ma
 import { mediaRepository, type PlaybackContext } from "@/repositories/media-files.repository";
 import { type MediaMarkerListQuery, mediaMarkersRepository } from "@/repositories/media-markers.repository";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
-import { assertFound } from "@/utils/domain.errors";
+import { assertExists, assertFound } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { assertMediaFileExists, type MediaServiceState } from "./shared.utils";
+import { mediaFilesLog } from "./media-files.logger";
+
+export async function assertMediaFileExists(mediaFileId: string): Promise<void> {
+	const mediaFileExists = await mediaRepository.isExists({ primaryId: mediaFileId });
+	assertExists(mediaFileExists, "MediaFile", mediaFileId);
+}
 
 export async function getAll<F extends string>(
-	state: MediaServiceState,
 	query?: PaginationQuery & FieldsQuery<F> & MediaFileFilters & MediaFileSorting,
 ): Promise<PaginatedResponse<SelectFields<MediaFileWithRelation, F>>> {
-	return await runSafely(state, "getAll", async () => await mediaRepository.findPage(query));
+	return await runSafely(mediaFilesLog, "getAll", async () => await mediaRepository.findPage(query));
 }
 
 export async function getById<F extends string>(
-	state: MediaServiceState,
 	mediaFileId: string,
 	query?: FieldsQuery<F>,
 ): Promise<SelectFields<MediaFileWithRelation, F>> {
-	return await runSafely(state, "getById", async () => {
+	return await runSafely(mediaFilesLog, "getById", async () => {
 		const media = await mediaRepository.findByIdForRead(mediaFileId, query);
 
 		assertFound(media, "MediaFile", mediaFileId);
@@ -49,8 +52,8 @@ export interface PlaybackContextData {
 }
 
 /** The playback view's bootstrap read — one statement instead of file + markers + root metadata + episode. */
-export async function getPlaybackContext(state: MediaServiceState, mediaFileId: string): Promise<PlaybackContextData> {
-	return await runSafely(state, "getPlaybackContext", async () => {
+export async function getPlaybackContext(mediaFileId: string): Promise<PlaybackContextData> {
+	return await runSafely(mediaFilesLog, "getPlaybackContext", async () => {
 		const context = await mediaRepository.findPlaybackContext(mediaFileId);
 		assertFound(context, "MediaFile", mediaFileId);
 
@@ -63,24 +66,16 @@ export async function getPlaybackContext(state: MediaServiceState, mediaFileId: 
 	});
 }
 
-export async function listArtifacts(
-	state: MediaServiceState,
-	mediaFileId: string,
-	options?: { skipExistsCheck?: boolean },
-): Promise<PlaybackArtifact[]> {
-	return await runSafely(state, "listArtifacts", async () => {
+export async function listArtifacts(mediaFileId: string, options?: { skipExistsCheck?: boolean }): Promise<PlaybackArtifact[]> {
+	return await runSafely(mediaFilesLog, "listArtifacts", async () => {
 		if (!options?.skipExistsCheck) await assertMediaFileExists(mediaFileId);
 
 		return await mediaArtifactsService.list(mediaFileId);
 	});
 }
 
-export async function getArtifact(
-	state: MediaServiceState,
-	mediaFileId: string,
-	artifactId: string,
-): Promise<{ artifact: PlaybackArtifact; file: Blob }> {
-	return await runSafely(state, "getArtifact", async () => {
+export async function getArtifact(mediaFileId: string, artifactId: string): Promise<{ artifact: PlaybackArtifact; file: Blob }> {
+	return await runSafely(mediaFilesLog, "getArtifact", async () => {
 		const artifact = await mediaArtifactsService.findFile(mediaFileId, artifactId);
 		assertFound(artifact, "PlaybackArtifact", artifactId);
 
@@ -88,12 +83,8 @@ export async function getArtifact(
 	});
 }
 
-export async function listMarkers(
-	state: MediaServiceState,
-	mediaFileId: string,
-	options?: { skipExistsCheck?: boolean },
-): Promise<MediaMarker[]> {
-	return await runSafely(state, "listMarkers", async () => {
+export async function listMarkers(mediaFileId: string, options?: { skipExistsCheck?: boolean }): Promise<MediaMarker[]> {
+	return await runSafely(mediaFilesLog, "listMarkers", async () => {
 		if (!options?.skipExistsCheck) await assertMediaFileExists(mediaFileId);
 
 		const markers = await mediaMarkersRepository.findByMediaFileId(mediaFileId);
@@ -102,8 +93,8 @@ export async function listMarkers(
 	});
 }
 
-export async function listAllMarkers(state: MediaServiceState, query: MediaMarkerListQuery & { page?: number } = {}) {
-	return await runSafely(state, "listAllMarkers", async () => {
+export async function listAllMarkers(query: MediaMarkerListQuery & { page?: number } = {}) {
+	return await runSafely(mediaFilesLog, "listAllMarkers", async () => {
 		// Filters and LIMIT run in SQL — fetching every marker row to filter or slice in JS
 		// would read the whole table on a user-triggerable route.
 		const pagination = resolvePageParams(query, { defaultLimit: 100 });

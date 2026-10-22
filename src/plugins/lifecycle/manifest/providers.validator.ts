@@ -1,6 +1,6 @@
 import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
-import { assertSafePluginSubPath, assertUiId } from "./shared.utils";
+import { assertSafePluginSubPath, assertUiId } from "./manifest-fields.validator";
 
 /** The pre-play declaration only carries a relative plugin route path. */
 export function validatePlaybackPreRoll(value: unknown): asserts value is { endpoint: string } {

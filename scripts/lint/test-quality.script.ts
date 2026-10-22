@@ -1,5 +1,5 @@
 /**
- * `bun run lint:tests` — fails on test files that cannot catch a bug.
+ * `bun run lint tests` — fails on test files that cannot catch a bug.
  *
  * The linters check style, not meaning. A test may pass every linter and
  * still protect nothing: it may recompute the expected value with the code

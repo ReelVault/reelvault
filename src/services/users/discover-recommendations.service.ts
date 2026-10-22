@@ -240,7 +240,16 @@ export async function buildTrending(
 		return recentlyAdded.toSorted((a, b) => b.popularity - a.popularity).slice(0, limit);
 	}
 
-	// Find max values for normalisation (avoid division by zero).
+	// Gather all metadata for trending candidates (may need extra DB fetch).
+	const trendingIds = validActivity.map((r) => r.metadataId);
+	const missingIds = trendingIds.filter((id) => !knownMap.has(id));
+	if (missingIds.length > 0) {
+		const fetched = await metadataRepository.findManyByIdsWithRelations(missingIds).catch(() => []);
+		for (const m of fetched) knownMap.set(m.id, m);
+	}
+
+	// Max values for normalisation, once every candidate is loaded: a fetched title
+	// must not score a popularity above 1 against a maximum taken without it.
 	let maxPlayCount = 0;
 	let maxPopularity = 0;
 	for (const row of validActivity) {
@@ -248,14 +257,6 @@ export async function buildTrending(
 
 		const pop = knownMap.get(row.metadataId)?.popularity ?? 0;
 		if (pop > maxPopularity) maxPopularity = pop;
-	}
-
-	// Gather all metadata for trending candidates (may need extra DB fetch).
-	const trendingIds = validActivity.map((r) => r.metadataId);
-	const missingIds = trendingIds.filter((id) => !knownMap.has(id));
-	if (missingIds.length > 0) {
-		const fetched = await metadataRepository.findManyByIdsWithRelations(missingIds).catch(() => []);
-		for (const m of fetched) knownMap.set(m.id, m);
 	}
 
 	const activityByMetadataId = toMap(

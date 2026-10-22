@@ -23,12 +23,12 @@ import { seasonsRepository } from "@/repositories/seasons.repository";
 import { userRatingsRepository } from "@/repositories/user-ratings.repository";
 import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { watchlistRepository } from "@/repositories/watchlist.repository";
+import { metadataLog } from "@/services/catalog/metadata/metadata.logger";
 import { playbackProgressService } from "@/services/playback/playback-progress.service";
 import { groupBy } from "@/utils/array.utils";
 import { assertFound, errorMessage } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
-import type { MetadataServiceState } from "./shared.utils";
 
 /** Profile-scoped filters never take the profile from the query string — the
  * service pairs it with the status into a typed filter value the repository
@@ -41,8 +41,8 @@ export async function getStatuses(): Promise<{ statuses: string[] }> {
 	return { statuses: await metadataRepository.findDistinctStatuses() };
 }
 
-export async function searchGlobal(state: MetadataServiceState, query: string, limit: number) {
-	return await runSafely(state, "searchGlobal", async () => {
+export async function searchGlobal(query: string, limit = 6) {
+	return await runSafely(metadataLog, "searchGlobal", async () => {
 		const term = query.trim();
 		const safeLimit = clamp(limit, 1, 20);
 		if (term.length < 2) return { titles: [], people: [], collections: [], genres: [] };
@@ -52,11 +52,10 @@ export async function searchGlobal(state: MetadataServiceState, query: string, l
 }
 
 export async function getAll<F extends string>(
-	state: MetadataServiceState,
 	query?: CursorPaginationQuery & FieldsQuery<F> & MetadataFilters & MetadataSorting,
 	viewerProfileId?: string,
 ): Promise<CursorPaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
-	return await runSafely(state, "getAll", async () => {
+	return await runSafely(metadataLog, "getAll", async () => {
 		// Profile-scoped filters never take the profile from the query string —
 		// the service pairs the client-facing status with the resolved viewer
 		// profile before the repository builder sees the value.
@@ -74,11 +73,10 @@ export async function getAll<F extends string>(
 }
 
 export async function getById<F extends string>(
-	state: MetadataServiceState,
 	metadataId: string,
 	query?: FieldsQuery<F>,
 ): Promise<SelectFields<MetadataWithRelation, F>> {
-	return await runSafely(state, "getById", async () => {
+	return await runSafely(metadataLog, "getById", async () => {
 		const metadata = await metadataRepository.findByIdForRead(metadataId, query);
 
 		assertFound(metadata, "Metadata", metadataId);
@@ -92,18 +90,14 @@ export async function getById<F extends string>(
  * whose contract only carries the root row (playback view) — getById would
  * run the full detail-page relation load for nothing.
  */
-export async function getRootsById(state: MetadataServiceState, metadataId: string): Promise<MetadataRootRow | undefined> {
-	return await runSafely(state, "getRootsById", async () => {
+export async function getRootsById(metadataId: string): Promise<MetadataRootRow | undefined> {
+	return await runSafely(metadataLog, "getRootsById", async () => {
 		return await metadataRepository.findRootsById(metadataId);
 	});
 }
 
-export async function getDetailsView(
-	state: MetadataServiceState,
-	metadataId: string,
-	profileId?: string,
-): Promise<MetadataDetailsViewResponse> {
-	return await runSafely(state, "getDetailsView", async () => {
+export async function getDetailsView(metadataId: string, profileId?: string): Promise<MetadataDetailsViewResponse> {
+	return await runSafely(metadataLog, "getDetailsView", async () => {
 		const metadata = await metadataRepository.findByIdForRead(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
 
@@ -116,7 +110,7 @@ export async function getDetailsView(
 				// Degraded reads must be visible — a silent false would present
 				// watched state as unwatched.
 				.catch((error: unknown) => {
-					state.logger.warn("Watched-state lookup failed — reporting as unwatched", {
+					metadataLog.logger.warn("Watched-state lookup failed — reporting as unwatched", {
 						metadataId,
 						profileId,
 						error: errorMessage(error),
@@ -131,7 +125,7 @@ export async function getDetailsView(
 		let progressRowsPromise: Promise<Awaited<ReturnType<typeof playbackRepository.findProgressRows>>>;
 		if (profileId) {
 			progressRowsPromise = playbackRepository.findProgressRows(metadataId, profileId).catch((error: unknown) => {
-				state.logger.warn("Playback progress lookup failed — reporting as no progress", {
+				metadataLog.logger.warn("Playback progress lookup failed — reporting as no progress", {
 					metadataId,
 					profileId,
 					error: errorMessage(error),
@@ -205,10 +199,9 @@ export async function getDetailsView(
 }
 
 export async function getSimilar<F extends string>(
-	state: MetadataServiceState,
 	metadataId: string,
 	query?: PaginationQuery & FieldsQuery<F>,
 	source?: SelectFields<MetadataWithRelation, string>,
 ): Promise<PaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
-	return await runSafely(state, "getSimilar", () => metadataRepository.findSimilarPage(metadataId, query, source));
+	return await runSafely(metadataLog, "getSimilar", () => metadataRepository.findSimilarPage(metadataId, query, source));
 }

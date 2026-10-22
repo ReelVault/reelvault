@@ -1,10 +1,10 @@
 import type { PlaybackCommand, RealtimeEventMessage, RealtimeEventName, RealtimePayload } from "@reelvault/sdk/common";
+import { usersRepository } from "@/repositories/users.repository";
 import { createLogger } from "@/utils/logger.utils";
 import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { ClientConnection } from "./connection/client.connection";
 import { ConnectionRegistry } from "./connection/connection.registry";
 import { CLIENT_STALE_TIMEOUT_MS, STALE_SWEEP_INTERVAL_MS } from "./realtime.constants";
-import { realtimeAccess } from "./realtime.ports";
 import type { ClientConnectionInput, RealtimeStats } from "./realtime.types";
 
 export class RealtimeService {
@@ -116,7 +116,7 @@ export class RealtimeService {
 		if (this.registry.count() === 0) return;
 
 		const connections = [...this.registry.getAll()];
-		const adminIds = await realtimeAccess().findAdminUserIds(connections.map((connection) => connection.userId));
+		const adminIds = await usersRepository.findAdminIdsByUserIds(connections.map((connection) => connection.userId));
 		const adminConnections = connections.filter((connection) => adminIds.has(connection.userId));
 
 		this.sendToConnections(adminConnections, type, payload);

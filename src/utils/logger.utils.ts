@@ -131,7 +131,7 @@ export function currentLogLevel(): LevelWithSilentOrString {
 	return rootLoggerOptions.level ?? "info";
 }
 
-/**
+/*
  * Access-log fast path. The request logger builds its record from server-side
  * values only (request id, path, method, duration, status, user/profile ids),
  * and the path never includes the query string — no user-supplied credentials,
@@ -143,6 +143,7 @@ export function currentLogLevel(): LevelWithSilentOrString {
  * produce. Unavailable in development (pino-pretty console) and tests, where
  * callers fall back to the regular logger.
  */
+
 /** pino's numeric level for `info` (RFC 5424), used to build access lines. */
 const ACCESS_LEVEL: number = pino.levels.values.info ?? 30;
 

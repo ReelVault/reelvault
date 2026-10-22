@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { PersistedImageInput } from "@/repositories/images.repository";
 import { ImageProcessingService } from "./image-processing.service";
 import type { UploadedImage } from "./image-upload.service";
-import type { PersistedImageInput } from "./images.ports";
 
 const PERSISTED: PersistedImageInput = {
 	localPath: "/images/posters/persisted.webp",

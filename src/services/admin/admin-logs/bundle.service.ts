@@ -1,24 +1,18 @@
-import type { AdminLogFileInfo } from "@reelvault/sdk/common";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import type { getLogFileDownloadContent, listLogFiles } from "./files.service";
-import type { WithoutState } from "./shared.types";
+import { getLogFileDownloadContent, listLogFiles } from "./files.service";
 
 /**
  * Every log file (current, rotated and the debug log) in one zip for support
  * requests. Admin-triggered and rate-limited; reads are bounded by the log
  * directory's retention.
  */
-export async function getLogBundle(
-	signal: AbortSignal | undefined,
-	listFiles: (...args: WithoutState<typeof listLogFiles>) => Promise<AdminLogFileInfo[]>,
-	downloadFile: (...args: WithoutState<typeof getLogFileDownloadContent>) => ReturnType<typeof getLogFileDownloadContent>,
-): Promise<{ data: Uint8Array<ArrayBuffer>; filename: string }> {
-	const files = await listFiles();
+export async function getLogBundle(signal?: AbortSignal): Promise<{ data: Uint8Array<ArrayBuffer>; filename: string }> {
+	const files = await listLogFiles();
 	const entries: Record<string, Uint8Array> = {};
 	for (const info of files) {
 		throwIfAborted(signal);
 
-		const { file } = await downloadFile(info.id);
+		const { file } = await getLogFileDownloadContent(info.id);
 		entries[info.name] = new Uint8Array(await file.arrayBuffer());
 	}
 

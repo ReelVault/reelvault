@@ -1,7 +1,8 @@
 /**
- * `bun run coverage` — runs the suite with coverage and fails when the
- * production code drops below the line-coverage floor. The floor is a guard
- * against silent erosion, not a target: the number moves with the code.
+ * `bun run coverage` — runs the suite with coverage and fails when a test fails
+ * or the production code drops below the line-coverage floor, so CI runs the
+ * suite once. The floor is a guard against silent erosion, not a target: the
+ * number moves with the code.
  */
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -45,10 +46,10 @@ function productionFiles(files: readonly FileCoverage[]): FileCoverage[] {
 	return files.filter((entry) => entry.file.startsWith(COVERED_PREFIX) && !entry.file.includes(".test."));
 }
 
-/** Isolated: a mock or a global stub from one file must not change another file's result. */
+/** The same run as `bun run test` (parallel workers, each file isolated), with coverage on. */
 async function runSuite(coverageDir: string): Promise<void> {
 	const proc = Bun.spawn({
-		cmd: [process.execPath, "test", "--isolate", "--coverage", "--coverage-reporter=lcov", `--coverage-dir=${coverageDir}`],
+		cmd: [process.execPath, "test", "--parallel", "--coverage", "--coverage-reporter=lcov", `--coverage-dir=${coverageDir}`],
 		stdout: "ignore",
 		stderr: "inherit",
 	});

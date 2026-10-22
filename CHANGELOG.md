@@ -655,6 +655,9 @@ The browse and collections rows are the combined result of every change above; t
 - **Corrected encoder diagnostics** — logs now report software encoding after a hardware-encoder fallback. The transcode log now names the accelerator and encoder that actually encode the stream, not the configured setting, which said nothing about what was used.
 - **Bounded the hardware probe at startup** — the test encode that proves a hardware encoder works now has a short fixed budget, so a driver that hangs instead of failing can no longer keep the server from binding its port.
 - **Fixed keyframe caching** — cached probes no longer return a keyframe from after the requested position.
+- **Playback decisions now see the source bitrate and container** — the query a session starts from never selected them, so the per-stream bandwidth limit was not enforced without a client cap, a source below the client's bitrate cap was transcoded instead of remuxed, and every start and seek used the slowest (100 MB) probe budget instead of the container's own.
+- **Sidecar subtitles play again** — `.srt`/`.ass` files the scanner imported from a video's folder returned 404 from the content endpoint, which only served files under the subtitles directory. A stored file is now served from the subtitles directory or the folder of its own video.
+- **Offline downloads no longer get stuck in `processing`** — a run that failed after taking its running slot (ffmpeg not starting, the output folder not created) kept the slot forever, so the worker's retry found nothing to do and the profile's other downloads never started until a restart. The slot is now handed back, so the retry runs it and the last attempt marks it failed.
 
 #### Libraries, scanning & metadata
 
@@ -674,6 +677,9 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed title matching for non-decomposing letters** — titles using ł, ø, đ, ß, æ or œ now normalize to the same ASCII form as provider spellings such as "Lodz" or "Strasse".
 - **Fixed show titles that absorbed a resolution tag** — a resolution placed before the episode marker (`Show 1080p S01E02.mkv`) no longer becomes part of the show title, and `WIDTHxHEIGHT` resolutions are stripped as release noise too.
 - **Fixed the local backdrop choice** — when a folder holds several numbered backdrops, the lowest-numbered one is used regardless of the order in which the filesystem lists them.
+- **Refreshes keep the library's metadata language** — a title refresh, an artwork refresh and a single-episode refresh fetched seasons and episodes in the provider's default language, so every refresh overwrote translated episode titles, overviews and season names. They now use the library's language, as the import always did.
+- **Moving a file to another title updates everything that shows it** — the reassigned file kept appearing under its old title for up to five minutes (cached title pages), the library stats were not recounted, and in sidecar mode the NFO next to the file still named the old title, so a later rescan could match it back.
+- **Global search matches `%` and `_` literally in genre and collection names** — they were used as wildcards, so a search for either listed every genre and collection.
 
 #### Plugins & integrations
 
@@ -691,6 +697,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed phantom failed plugin cards** — reloading or enabling a plugin that is not installed now answers `404 plugin.not_found` instead of silently succeeding and leaving a failed card for an id that never existed in the plugin list.
 - **Fixed duplicate entities in one plugin registration** — a plugin that registers the same entity id twice in one batch is refused with `plugin.entity_duplicate` before anything is registered; before, the second copy silently replaced the first.
 - **Plugin configuration for an uninstalled plugin answers 404** — the configuration endpoint returns `404 plugin.not_found` for an id with no installed package, instead of reporting a broken package.
+- **A `beforeArtifactCreate` hook can no longer store an unserved content type** — the type a hook returned was only checked for being non-empty, so a hook could store an artifact as `text/html` and have it served from the server's own origin. The returned type now passes the same allow-list as the write.
 
 #### Workers & background operations
 
@@ -731,6 +738,21 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed plugin repository counting** — repository totals now return the actual number of entries instead of a value capped at one.
 - **Kept the original error as the cause** — a failure raised while handling another failure now carries the original error as its `cause`, so the server log shows what actually went wrong instead of only the outermost message.
 - **Fixed expired API keys still authenticating** — a key was accepted from the authentication cache for up to the cache's lifetime after it expired; it is now refused from its expiry time onward.
+- **Database optimize refreshes both connections** — the admin action ran `PRAGMA optimize` only on the main connection, so the transaction connection kept stale query plans.
+- **Release years no longer slip a year west of UTC** — top-watched insights and the admin live-session list read the year of a 1 January release as the previous year on servers in a negative UTC offset.
+- **Trending ranks loaded titles on the same popularity scale** — a trending candidate loaded during ranking was normalized against a maximum taken without it, so a barely played title could outrank much more played ones.
+- **Graceful shutdown finishes again** — flushing the logs called `flush` on the console stream, which Bun exposes as a boolean, so the shutdown stopped with an error after every step had run: the process then waited for the shutdown timeout and exited with a failure code, including the restart after an update. The console stream is no longer flushed as a function.
+- **Administration commands work in a release install** — `doctor`, `admin:reset-password`, `admin:two-factor-enforcement` and the `db:*` commands were documented for every install, but the release archive shipped neither their scripts nor a `bun` on the PATH, so they only ran from a source checkout. The archive now includes them and the launchers pass a command through: `./start.sh doctor`, `./start.sh admin:reset-password <email>` (`start.bat` on Windows). `db:migrate` applies migrations the way the server does at boot.
+- **Release archives bundle the Bun the server is tested with** — the archives shipped Bun 1.4.2 while the server requires 1.4.3, and `doctor` checked for 1.4.2. The bundled runtime now follows `packageManager` and `doctor` reads the minimum from `engines`. The archives also stop shipping the server's 400 test files.
+
+#### Development tooling
+
+- **`bun run benchmark` runs every suite it is given** — `bun run benchmark matching database` silently ran only `matching`, so documented before/after comparisons over several suites measured one.
+- **Benchmark servers seed real timestamps** — the managed server's catalog, profiles, sessions and settings were written in milliseconds into columns that hold seconds, so every seeded title was dated tens of thousands of years ahead and date-dependent paths (recently added, insights windows, sessions) ran on impossible data.
+- **The diacritics A/B in `micro` compares equivalent variants** — the accent-map challenger missed capital letters and mapped `ß`, which the production normalizer keeps, so the equality check always failed and `micro --strict` could never pass.
+- **The route check compares against the published SDK** — it looked for SDK sources in a folder that does not exist in this repository, so the comparison never ran. It is now a test that every endpoint the `@reelvault/sdk` client calls has a route, and that no route shadows another.
+- **The memory leak check notices a steady leak** — a series counted as levelled off when its last third stayed within 5% of its first, so a steady leak of 1 MB per round on a 200 MB server passed. The check now asks whether the climb has stopped: the slope of the last third must fall under the threshold. It runs as `bun run benchmark memory --only leak --strict`.
+- **The `write` suite's add/remove pairs stay on seeded titles** — the titles were picked from a fixed range of 5,000, so a run with `--rows` below that toggled titles that did not exist and reported about half the pairs as errors.
 
 ### Performance
 

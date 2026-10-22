@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { PluginManifest, PluginRuntime, ReelVaultPlugin, SubtitleProvider } from "@reelvault/sdk/plugin";
 import { eq } from "drizzle-orm";
 import { serverConfig } from "@/config/server/server.config";
@@ -129,7 +127,7 @@ describe("subtitle provider downloads", () => {
 		content: new TextEncoder().encode(`WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n${text}\n`),
 	});
 
-	test("stores a validated download under the core subtitle directory and serves its content", async () => {
+	test("stores a validated download under the core subtitle directory", async () => {
 		registerProviders([
 			createProvider(
 				"provider-1",
@@ -147,11 +145,7 @@ describe("subtitle provider downloads", () => {
 		generatedPaths.push(row.filePath);
 		expect(row.filePath).toStartWith(`${serverConfig.paths.subtitles}/`);
 
-		const content = await subtitleProviderService.getContent(subtitleId);
-		if (!content) throw new Error("Downloaded subtitle content was not found");
-
-		expect(content.contentType).toBe("text/vtt");
-		expect(await content.file.text()).toBe("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n");
+		expect(await Bun.file(row.filePath).text()).toBe("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n");
 	});
 
 	test("a second download in the same language replaces the earlier file and keeps one row", async () => {
@@ -179,7 +173,7 @@ describe("subtitle provider downloads", () => {
 		generatedPaths.push(first.filePath, stored[0].filePath);
 		expect(stored[0].filePath).not.toBe(first.filePath);
 		expect(await Bun.file(first.filePath).exists()).toBe(false);
-		expect(await (await subtitleProviderService.getContent(firstId))?.file.text()).toContain("version 2");
+		expect(await Bun.file(stored[0].filePath).text()).toContain("version 2");
 	});
 
 	test("refuses a download larger than the size limit and stores nothing", async () => {
@@ -200,24 +194,6 @@ describe("subtitle provider downloads", () => {
 			code: "plugin.subtitle.too_large",
 		});
 		expect(await storedSubtitles()).toEqual([]);
-	});
-
-	test("does not serve a stored file outside the core subtitle directory", async () => {
-		// The file exists, so only the directory check can refuse it.
-		const outsidePath = join(tmpdir(), `untrusted-${crypto.randomUUID()}.vtt`);
-		await Bun.write(outsidePath, "WEBVTT\n");
-		generatedPaths.push(outsidePath);
-		await db.client().insert(schema.subtitles).values({
-			id: "subtitle-1",
-			mediaFileId,
-			language: "pl",
-			format: "vtt",
-			type: "external",
-			filePath: outsidePath,
-			streamIndex: null,
-		});
-
-		await expect(subtitleProviderService.getContent("subtitle-1")).resolves.toBeNull();
 	});
 
 	test("a download from a provider that is switched off is refused", async () => {

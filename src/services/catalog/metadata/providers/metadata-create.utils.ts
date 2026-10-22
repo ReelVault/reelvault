@@ -32,7 +32,7 @@ export async function createFromProvider({
 	matchScore?: number | undefined;
 	providers?: readonly AggregatedProviderLink[] | undefined;
 }): Promise<CreatedProviderMetadata> {
-	const candidate = await pluginHookBus.runBeforeMetadataSave(toMetadataCandidate(type, providerName, providerMetadata));
+	const candidate = await pluginHookBus.run("beforeMetadataSave", toMetadataCandidate(type, providerName, providerMetadata));
 	const metadata = applyMetadataCandidate(type, providerName, providerMetadata, candidate);
 	const result = await metadataPersistenceRepository.createProviderMetadata({ type, providerName, providers, metadata, matchScore });
 

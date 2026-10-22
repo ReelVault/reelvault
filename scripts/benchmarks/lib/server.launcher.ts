@@ -3,10 +3,12 @@ import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnManagedProcess, waitForHealth } from "benchkit";
+import { profilerFlags, spawnManagedProcess, stringField, waitForHealth } from "benchkit";
 import { makeSignature } from "better-auth/crypto";
 import { file, spawnSync } from "bun";
+import { DatabaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { removeTree } from "@/utils/directory.utils";
+import { BENCHMARK_IMAGE_ID, seedServerCatalog, seedServerProfiles } from "./seed.utils";
 
 export interface ManagedServer {
 	/** Temp data dir the spawned server runs from (ROOT_DIR) — scenario scripts may stage files there. */
@@ -58,13 +60,9 @@ export interface StartServerOptions {
 	withSampleMedia?: boolean | undefined;
 	/** Stage a minimal web dist (index.html + one immutable asset) and serve it. */
 	withWebDist?: boolean | undefined;
-	/**
-	 * Absolute directory for Bun CPU profiles (`--cpu-prof --cpu-prof-md`).
-	 * Written when the server exits; the directory must be outside rootDir
-	 * (which stop() removes).
-	 */
-	profileDir?: string | undefined;
 }
+
+const DATABASE_FILE = "reelvault.sqlite";
 
 export const SETUP_TOKEN = "reelvault-benchmark-setup-token-0123456789";
 export const AUTH_SECRET = "reelvault-benchmark-auth-secret-0123456789";
@@ -76,22 +74,6 @@ const HEALTH_POLL_MS = 300;
 const SAMPLE_MEDIA_SECONDS = 30;
 /** Synthetic source bitrate so the startup benchmark can force a bitrate-capped transcode. */
 const SAMPLE_MEDIA_BITRATE = 4_000_000;
-const BENCHMARK_IMAGE_ID = "img-benchmark";
-/** Every Nth seeded title becomes a tv_show with seasons/episodes. */
-const TV_SHOW_CYCLE = 8;
-const EPISODES_BASE = 6;
-/** Watchlist / ratings entries per benchmark profile. */
-const WATCHLIST_PER_PROFILE = 40;
-const RATINGS_PER_PROFILE = 25;
-/** In-progress movies per benchmark profile (playback_progress rows). */
-const IN_PROGRESS_MOVIES_PER_PROFILE = 30;
-/** TV shows per profile with a completed last episode + in-progress one before it. */
-const TV_PROGRESS_SHOWS_PER_PROFILE = 10;
-/** Watched-history rows per benchmark profile (~90 days of activity). */
-const HISTORY_PER_PROFILE = 300;
-/** Notifications per profile; the first UNREAD_NOTIFICATIONS stay unread. */
-const NOTIFICATIONS_PER_PROFILE = 50;
-const UNREAD_NOTIFICATIONS = 15;
 /** 128x192 purple PNG — a real decodable poster so load tests exercise the image pipeline. */
 const BENCHMARK_POSTER_PNG_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAAIAAAADACAIAAABDBPzwAAAACXBIWXMAAAPoAAAD6AG1e1JrAAACjUlEQVR4nO3VSREDQRADwYVjTIOpQBuGHp0RQlC6vveL3g7Ch/6bRpABMaDLLdSAGNA8hhrQHIQJ6qZ8QAxoHkMNaA7CBHVTPiAGNI+hBjQHYYK6KR8QA5rHUAOagzBB3ZQPiAHNY6gBzUGYoG7KB8SA5jHUgOYgTFA35QNiQPMYakBzECaom/IBMaB5DDWgOQgT1E35gBjQPIYa0ByECeqmfEAMaB5DDWgOwgR1Uz4gBjSPoQY0B2GCuikfEAOax1ADmoMwQd2UD4gBzWOoAc1BmKBuygfEgOYx1IDmIExQN+UDYkDzGGpAcxAmqJvyATGgeQw1oDkIE9RN+YAY0DyGGtAchAnqpnxADGgeQw1oDsIEdVM+IAY0j6EGNAdhgropHxADmsdQA5qDMEHdlA+IAc1jqAHNQZigbsoHxIDmMdSA5iBMUDflA2JA8xhqQHMQJqib8gExoHkMNaA5CBPUTfmAGNA8hhrQHIQJ6qZ8QAxoHkMNaA7CBHVTPiAGNI+hBjQHYYK6KR8QA5rHUAOagzBB3ZQPiAHNY6gBzUGYoG7KB8SA5jHUgOYgTFA35QNiQPMYakBzECaom/IBMaB5DDWgOQgT1E35gBjQPIYa0ByECeqmfEAMaB5DDWgOwgR1Uz4gBjSPoQY0B2GCuikfEAOax1ADmoMwQd2UD4gBzWOoAc1BmKBuygfEgOYx1IDmIExQN+UDYkDzGGpAcxAmqJvyATGgeQw1oDkIE9RN+YAY0DyGGtAchAnqpnxADGgeQw1oDsIEdVM+IAY0j6EGNAdhgropHxADmsdQA5qDMEHdlA+IAc1jqAHNQZigbsoHxIDmMdSA5iBMUDflA2JA8xhqQHMQJqg5i4n+F3FF7AYuVFkAAAAASUVORK5CYII=";
@@ -104,8 +86,8 @@ export function serverEnv(port: number, rootDir: string, webDist?: string): Reco
 		...process.env,
 		APP_PORT: String(port),
 		ROOT_DIR: rootDir,
-		// Must match the file `seedCatalog` opens; never inherit a parent override.
-		DB_FILE_NAME: "reelvault.sqlite",
+		// Must match the file the launcher seeds; never inherit a parent override.
+		DB_FILE_NAME: DATABASE_FILE,
 		// Empty string means unset for resolveWebDistRoot — API-only mode unless a
 		// dist was explicitly staged for the static-serving scenarios.
 		APP_WEB_DIST: webDist ?? "",
@@ -123,15 +105,18 @@ export function serverEnv(port: number, rootDir: string, webDist?: string): Reco
 	} satisfies Record<string, string>;
 }
 
-function migrateDatabase(port: number, rootDir: string): void {
-	const migration = spawnSync({
-		cmd: ["bun", "run", "scripts/migrate.script.ts"],
-		cwd: repoRoot,
-		env: serverEnv(port, rootDir),
-		stdout: "ignore",
-		stderr: "pipe",
-	});
-	if (migration.exitCode !== 0) throw new Error(`runtime migration failed with exit code ${migration.exitCode}`);
+/** Migrates the server's database and seeds the catalog and the load-test settings before the server boots. */
+function prepareDatabase(rootDir: string, rows: number): void {
+	const factory = new DatabaseFactory(join(rootDir, DATABASE_FILE));
+	try {
+		factory.migrate();
+		const posterPath = join(rootDir, "benchmark-poster.png");
+		writeFileSync(posterPath, Buffer.from(BENCHMARK_POSTER_PNG_BASE64, "base64"));
+		seedServerCatalog(factory.sqlite, rows, posterPath);
+		seedBenchSettings(factory.sqlite);
+	} finally {
+		factory.shutdown();
+	}
 }
 
 /**
@@ -141,352 +126,18 @@ function migrateDatabase(port: number, rootDir: string): void {
  * this row the benchmark measures the limiter's 1000 req/min/IP instead of the
  * server. Multiplier clamps at its definition max (10_000).
  */
-function seedBenchSettings(rootDir: string): void {
-	const database = new Database(join(rootDir, "reelvault.sqlite"));
-	const now = Date.now();
+function seedBenchSettings(database: Database): void {
+	const now = Math.floor(Date.now() / 1000);
 	const upsert = database.prepare("INSERT OR REPLACE INTO system_settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)");
 	upsert.run("network.rateLimit.globalMax", "1000000", now, now);
 	upsert.run("network.rateLimit.routeMultiplier", "10000", now, now);
 	if (process.env.REELVAULT_BENCH_FORCE_SOFTWARE === "true") upsert.run("ffmpeg.hwaccel", "none", now, now);
-	database.close();
-}
-
-/** Seeds a realistic catalog so listing/search endpoints return non-trivial payloads. */
-function seedCatalog(rootDir: string, rows: number): void {
-	const database = new Database(join(rootDir, "reelvault.sqlite"));
-	database.run("PRAGMA foreign_keys = OFF");
-	database.run("BEGIN");
-
-	const now = Date.now();
-	database
-		.prepare(
-			"INSERT INTO libraries (id, name, type, metadata_storage_mode, created_at, updated_at) VALUES (?, ?, 'movies', 'database', ?, ?)",
-		)
-		.run("lib-benchmark", "Benchmark Movies", now, now);
-
-	const inserts = prepareCatalogInserts(database);
-
-	// One real PNG on disk + a poster link per 3rd title: gives the image route
-	// (GET /v1/images) and poster joins real traffic in load tests.
-	const posterPath = join(rootDir, "benchmark-poster.png");
-	writeFileSync(posterPath, Buffer.from(BENCHMARK_POSTER_PNG_BASE64, "base64"));
-	inserts.insertImage.run(BENCHMARK_IMAGE_ID, posterPath, 731, now, now);
-
-	seedCatalogLookups(inserts, now);
-	for (let index = 0; index < rows; index++) {
-		seedCatalogTitle(inserts, index, now);
-	}
-
-	database.run("COMMIT");
-	database.close();
-}
-
-function prepareCatalogInserts(database: Database) {
-	return {
-		insertMetadata: database.prepare(
-			"INSERT INTO metadata (id, stable_key, title, original_title, overview, tagline, type, status, release_date, origin_country, popularity, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'released', ?, 'US', ?, ?, ?)",
-		),
-		insertMovie: database.prepare("INSERT INTO movies (id, stable_key, metadata_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
-		insertMediaFile: database.prepare(
-			"INSERT INTO media_files (id, library_id, metadata_id, movie_id, episode_id, file_path, file_name, duration, file_size, is_default, created_at, updated_at) VALUES (?, 'lib-benchmark', ?, ?, ?, ?, ?, ?, 4000000000, 1, ?, ?)",
-		),
-		insertSeason: database.prepare(
-			"INSERT INTO seasons (id, stable_key, metadata_id, season_number, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		),
-		insertEpisode: database.prepare(
-			"INSERT INTO episodes (id, stable_key, season_id, episode_number, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		),
-		insertGenre: database.prepare("INSERT INTO genres (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
-		insertMetadataGenre: database.prepare("INSERT INTO metadata_genres (metadata_id, genre_id) VALUES (?, ?)"),
-		insertImage: database.prepare(
-			"INSERT INTO images (id, stable_key, local_path, content_type, width, height, file_size, created_at, updated_at) VALUES (?, 'benchmark-poster', ?, 'image/png', 128, 192, ?, ?, ?)",
-		),
-		insertMetadataImage: database.prepare("INSERT INTO metadata_images (metadata_id, image_id, image_type) VALUES (?, ?, 'poster')"),
-		insertPerson: database.prepare("INSERT INTO people (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
-		insertCast: database.prepare("INSERT INTO metadata_cast (metadata_id, person_id, role, sort_order) VALUES (?, ?, 'Actor', ?)"),
-		insertCollection: database.prepare(
-			"INSERT INTO collections (id, stable_key, name, sort_mode, created_at, updated_at) VALUES (?, ?, ?, 'alphabetical', ?, ?)",
-		),
-		insertMetadataCollection: database.prepare(
-			"INSERT INTO metadata_collections (metadata_id, collection_id, sort_order) VALUES (?, ?, ?)",
-		),
-	};
-}
-
-type CatalogInserts = ReturnType<typeof prepareCatalogInserts>;
-
-function seedCatalogLookups(inserts: CatalogInserts, now: number): void {
-	for (let genreIndex = 0; genreIndex < 10; genreIndex++) {
-		inserts.insertGenre.run(`genre-${genreIndex}`, `genre-${genreIndex}`, `Genre ${genreIndex}`, now, now);
-	}
-
-	for (let personIndex = 0; personIndex < 50; personIndex++) {
-		inserts.insertPerson.run(`person-${personIndex}`, `person-${personIndex}`, `Actor ${personIndex}`, now, now);
-	}
-
-	// Collections so the collections list endpoint exercises its grouped
-	// qualification + preview queries instead of scanning empty tables.
-	for (let collectionIndex = 0; collectionIndex < 5; collectionIndex++) {
-		inserts.insertCollection.run(`col-${collectionIndex}`, `col-${collectionIndex}`, `Collection ${collectionIndex}`, now, now);
-	}
-}
-
-/** Writes one title: its metadata row, the movie or TV branch, a genre, a cast member and an optional poster link. */
-function seedCatalogTitle(inserts: CatalogInserts, index: number, now: number): void {
-	const id = `meta-${String(index).padStart(7, "0")}`;
-	const isTv = index % TV_SHOW_CYCLE === 0;
-	const title = index % 5 === 0 ? `Star Odyssey ${index}` : `Benchmark Title ${index}`;
-	inserts.insertMetadata.run(
-		id,
-		id,
-		title,
-		title,
-		"Benchmark overview text for load testing.",
-		"Benchmark tagline",
-		isTv ? "tv_show" : "movie",
-		`202${index % 5}-0${(index % 9) + 1}-15`,
-		(index % 10000) / 10,
-		now + index,
-		now + index,
-	);
-
-	if (isTv) seedTvBranch(inserts, id, index, now);
-	else seedMovieBranch(inserts, id, index, now);
-
-	inserts.insertMetadataGenre.run(id, `genre-${index % 10}`);
-	inserts.insertCast.run(id, `person-${index % 50}`, 0);
-	inserts.insertMetadataCollection.run(id, `col-${index % 5}`, index);
-	if (index % 3 === 0) inserts.insertMetadataImage.run(id, BENCHMARK_IMAGE_ID);
-}
-
-/** TV branch: seasons + episodes + per-episode media files — gives the TV detail endpoint (seasons/episodes/files enrichment) real weight. */
-function seedTvBranch(inserts: CatalogInserts, id: string, index: number, now: number): void {
-	const seasonCount = 2 + (index % 2);
-	const episodeCount = EPISODES_BASE + (index % 5);
-	for (let seasonIndex = 0; seasonIndex < seasonCount; seasonIndex++) {
-		const seasonId = `season-${index}-${seasonIndex}`;
-		inserts.insertSeason.run(seasonId, seasonId, id, seasonIndex + 1, `Season ${seasonIndex + 1}`, now + index, now + index);
-		for (let episodeIndex = 0; episodeIndex < episodeCount; episodeIndex++) {
-			const episodeId = `ep-${index}-${seasonIndex}-${episodeIndex}`;
-			inserts.insertEpisode.run(
-				episodeId,
-				episodeId,
-				seasonId,
-				episodeIndex + 1,
-				`Episode S${seasonIndex + 1}E${episodeIndex + 1}`,
-				now + index,
-				now + index,
-			);
-			inserts.insertMediaFile.run(
-				`mf-${episodeId}`,
-				id,
-				episodeId,
-				null,
-				`/benchmark/library/ep-${index}-${seasonIndex}-${episodeIndex}.mkv`,
-				`ep-${episodeIndex}.mkv`,
-				1800,
-				now + index,
-				now + index,
-			);
-		}
-	}
-}
-
-function seedMovieBranch(inserts: CatalogInserts, id: string, index: number, now: number): void {
-	inserts.insertMovie.run(`movie-${id}`, id, id, now + index, now + index);
-	inserts.insertMediaFile.run(
-		`mf-${id}`,
-		id,
-		`movie-${id}`,
-		null,
-		`/benchmark/library/movie-${index}.mkv`,
-		`movie-${index}.mkv`,
-		6000,
-		now + index,
-		now + index,
-	);
-}
-
-/**
- * Seeds per-profile state (watchlist, playback progress, watched history,
- * ratings, notifications) for every simulated client so the personalized
- * endpoints (continue-watching, insights, unread-count, watchlist) carry real
- * data instead of empty responses. All rows are deterministic (index math, no
- * RNG) so runs are reproducible.
- */
-function seedProfileData(rootDir: string, workerCount: number, rows: number): void {
-	const database = new Database(join(rootDir, "reelvault.sqlite"));
-	database.run("PRAGMA foreign_keys = OFF");
-	database.run("BEGIN");
-
-	const now = Date.now();
-	const inserts = prepareProfileInserts(database);
-
-	for (let worker = 0; worker < workerCount; worker++) {
-		seedProfileWatchlistAndRatings(inserts, worker, rows, now);
-		seedProfileProgress(inserts, worker, rows, now);
-		seedProfileHistory(inserts, worker, rows, now);
-		seedProfileNotifications(inserts, worker, now);
-	}
-
-	database.run("COMMIT");
-	// Bulk-seeded data has no statistics yet; without them the planner sorts the
-	// paginated browse path instead of using the composite indexes.
-	database.run("ANALYZE");
-	database.close();
-}
-
-function prepareProfileInserts(database: Database) {
-	return {
-		insertWatchlist: database.prepare(
-			"INSERT OR IGNORE INTO watchlist (id, profile_id, metadata_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-		),
-		insertProgress: database.prepare(
-			"INSERT OR IGNORE INTO playback_progress (id, profile_id, media_file_id, position, duration, completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		),
-		insertHistory: database.prepare(
-			"INSERT INTO watched_history (id, media_file_id, profile_id, duration_watched, is_full_watch, watched_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		),
-		insertRating: database.prepare(
-			"INSERT OR IGNORE INTO user_ratings (id, profile_id, metadata_id, rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-		),
-		insertNotification: database.prepare(
-			// The notifications table mixes column casings: `userId` is camelCase,
-			// `profile_id`/`read_at` are snake_case — match the schema exactly.
-			"INSERT INTO notifications (id, userId, profile_id, type, title, message, data, read_at, created_at, updated_at) VALUES (?, ?, ?, 'system', ?, NULL, '{}', ?, ?, ?)",
-		),
-	};
-}
-
-type ProfileInserts = ReturnType<typeof prepareProfileInserts>;
-
-function seedProfileWatchlistAndRatings(inserts: ProfileInserts, worker: number, rows: number, now: number): void {
-	const profileId = `profile-bench-${worker}`;
-
-	for (let i = 0; i < WATCHLIST_PER_PROFILE; i++) {
-		const metadataIndex = (worker * 131 + i * 7) % rows;
-		inserts.insertWatchlist.run(
-			`wl-bench-${worker}-${i}`,
-			profileId,
-			`meta-${String(metadataIndex).padStart(7, "0")}`,
-			now - i * 60_000,
-			now - i * 60_000,
-		);
-	}
-
-	for (let i = 0; i < RATINGS_PER_PROFILE; i++) {
-		const metadataIndex = (worker * 173 + i * 11) % rows;
-		inserts.insertRating.run(
-			`rating-bench-${worker}-${i}`,
-			profileId,
-			`meta-${String(metadataIndex).padStart(7, "0")}`,
-			(i % 10) + 1,
-			now - i * 3_600_000,
-			now - i * 3_600_000,
-		);
-	}
-}
-
-function seedProfileProgress(inserts: ProfileInserts, worker: number, rows: number, now: number): void {
-	const profileId = `profile-bench-${worker}`;
-
-	// In-progress movies (index falls back +1 onto a movie when it hits a TV slot).
-	for (let i = 0; i < IN_PROGRESS_MOVIES_PER_PROFILE; i++) {
-		let metadataIndex = (worker * 97 + i * 13) % rows;
-		if (metadataIndex % TV_SHOW_CYCLE === 0) metadataIndex = (metadataIndex + 1) % rows;
-
-		inserts.insertProgress.run(
-			`prog-bench-${worker}-${i}`,
-			profileId,
-			`mf-meta-${String(metadataIndex).padStart(7, "0")}`,
-			1000 + ((i * 977) % 3000),
-			6000,
-			0,
-			now - i * 3_600_000,
-			now - i * 3_600_000,
-		);
-	}
-
-	// TV next-episode paths: last episode completed, the one before it in progress.
-	for (let i = 0; i < TV_PROGRESS_SHOWS_PER_PROFILE; i++) {
-		const showIndex = (i * TV_SHOW_CYCLE + worker) * TV_SHOW_CYCLE;
-		if (showIndex >= rows) break;
-
-		const seasonCount = 2 + (showIndex % 2);
-		const episodeCount = EPISODES_BASE + (showIndex % 5);
-		const lastSeason = seasonCount - 1;
-		inserts.insertProgress.run(
-			`prog-tv-bench-${worker}-${i}-last`,
-			profileId,
-			`mf-ep-${showIndex}-${lastSeason}-${episodeCount - 1}`,
-			1800,
-			1800,
-			1,
-			now - i * 7_200_000,
-			now - i * 7_200_000,
-		);
-		inserts.insertProgress.run(
-			`prog-tv-bench-${worker}-${i}-prev`,
-			profileId,
-			`mf-ep-${showIndex}-${lastSeason}-${episodeCount - 2}`,
-			700,
-			1800,
-			0,
-			now - i * 7_200_000 - 60_000,
-			now - i * 7_200_000 - 60_000,
-		);
-	}
-}
-
-/**
- * Watched history spread over ~90 days — feeds the insights aggregations.
- * `watched_at` is a drizzle timestamp (SECONDS) and is range-filtered by
- * insights, so it must land in the real epoch-second window.
- */
-function seedProfileHistory(inserts: ProfileInserts, worker: number, rows: number, now: number): void {
-	const profileId = `profile-bench-${worker}`;
-
-	for (let i = 0; i < HISTORY_PER_PROFILE; i++) {
-		let metadataIndex = (worker * 211 + i * 17) % rows;
-		if (metadataIndex % TV_SHOW_CYCLE === 0) metadataIndex = (metadataIndex + 1) % rows;
-
-		const watchedAtSeconds = Math.floor(now / 1000) - ((i * 6 * 3600) % (90 * 24 * 3600));
-		inserts.insertHistory.run(
-			`hist-bench-${worker}-${i}`,
-			`mf-meta-${String(metadataIndex).padStart(7, "0")}`,
-			profileId,
-			2400 + ((i * 613) % 3600),
-			1,
-			watchedAtSeconds,
-			watchedAtSeconds,
-			watchedAtSeconds,
-		);
-	}
-}
-
-function seedProfileNotifications(inserts: ProfileInserts, worker: number, now: number): void {
-	const profileId = `profile-bench-${worker}`;
-	const userId = `user-bench-${worker}`;
-
-	for (let i = 0; i < NOTIFICATIONS_PER_PROFILE; i++) {
-		const read = i >= UNREAD_NOTIFICATIONS;
-		const readAt = read ? now - i * 3_600_000 : null;
-		inserts.insertNotification.run(
-			`notif-bench-${worker}-${i}`,
-			userId,
-			profileId,
-			`Benchmark notification ${i}`,
-			readAt,
-			now - i * 3_600_000,
-			now - i * 3_600_000,
-		);
-	}
 }
 
 /** Registers the generated sample clip in the catalog and returns its media-file id. */
 async function registerSampleMedia(rootDir: string, samplePath: string): Promise<string> {
-	const database = new Database(join(rootDir, "reelvault.sqlite"));
-	const now = Date.now();
+	const database = new Database(join(rootDir, DATABASE_FILE));
+	const now = Math.floor(Date.now() / 1000);
 	database
 		.prepare(
 			"INSERT INTO metadata (id, stable_key, title, original_title, overview, tagline, type, status, release_date, origin_country, popularity, created_at, updated_at) VALUES ('meta-sample', 'meta-sample', 'Sample Clip', 'Sample Clip', 'ffmpeg test clip', 'sample', 'movie', 'released', '2024-01-01', 'US', 50, ?, ?)",
@@ -545,28 +196,14 @@ function generateSampleMedia(rootDir: string): string | undefined {
 	return samplePath;
 }
 
-/** Extracts the id of the first entry of a `{ data: [{ id }] }` JSON payload. */
-function firstArrayItemId(value: unknown): string | undefined {
-	if (typeof value !== "object" || value === null || !("data" in value)) return undefined;
-
-	const data: unknown = value.data;
-	if (!Array.isArray(data)) return undefined;
-
-	const first: unknown = data[0];
-	if (typeof first !== "object" || first === null || !("id" in first)) return undefined;
-
-	const id: unknown = first.id;
-
-	return typeof id === "string" ? id : undefined;
-}
-
 /** The setup endpoint creates an implicit profile for the admin; playback endpoints need its id as x-profile-id. */
 async function resolveAdminProfileId(baseUrl: string, cookie: string): Promise<string> {
 	const response = await fetch(`${baseUrl}/v1/profiles?page=1&limit=1`, { headers: { cookie } });
 	if (!response.ok) throw new Error(`Profile lookup failed: HTTP ${response.status}`);
 
 	const body: unknown = await response.json();
-	const profileId = firstArrayItemId(body);
+	const data: unknown = typeof body === "object" && body !== null && "data" in body ? body.data : undefined;
+	const profileId = Array.isArray(data) ? stringField(data[0], "id") : undefined;
 	if (!profileId) throw new Error("Admin user has no profile");
 
 	return profileId;
@@ -601,9 +238,9 @@ async function createAdminAndLogin(baseUrl: string): Promise<string> {
  * seeded too — playback endpoints require an x-profile-id owned by the session.
  */
 async function seedWorkerIdentities(rootDir: string, count: number): Promise<string[]> {
-	const database = new Database(join(rootDir, "reelvault.sqlite"));
-	const now = Date.now();
-	const expiresAt = now + 24 * 60 * 60 * 1000;
+	const database = new Database(join(rootDir, DATABASE_FILE));
+	const now = Math.floor(Date.now() / 1000);
+	const expiresAt = now + 24 * 60 * 60;
 	const cookies: string[] = [];
 
 	const insertUser = database.prepare(
@@ -649,6 +286,16 @@ async function stageWebDist(rootDir: string): Promise<string> {
 	return webDist;
 }
 
+/** Seeds the per-profile state of the worker identities into the running server's database. */
+function seedProfiles(rootDir: string, workerCount: number, rows: number): void {
+	const database = new Database(join(rootDir, DATABASE_FILE));
+	try {
+		seedServerProfiles(database, workerCount, rows);
+	} finally {
+		database.close();
+	}
+}
+
 /**
  * Spawns an isolated ReelVault server (temp data dir + migrations + seeded
  * catalog), waits for health and returns a handle. Reuse an external server by
@@ -659,11 +306,9 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 	const rootDir = await mkdtemp(join(tmpdir(), "reelvault-benchmark-"));
 	await writeFile(join(rootDir, ".gitkeep"), "");
 
-	console.log(`[server] migrating database in ${rootDir}...`);
-	migrateDatabase(port, rootDir);
 	const seedRows = options.seedRows ?? 5_000;
-	seedCatalog(rootDir, seedRows);
-	seedBenchSettings(rootDir);
+	console.log(`[server] migrating and seeding ${seedRows} rows in ${rootDir}...`);
+	prepareDatabase(rootDir, seedRows);
 
 	let sampleMediaPath = "";
 	if (options.withSampleMedia) {
@@ -674,10 +319,8 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 	const webDist = options.withWebDist ? await stageWebDist(rootDir) : undefined;
 
 	console.log(`[server] starting on port ${port}...`);
-	// Profiling flags must precede the `run` subcommand; the profile is written
-	// when the server exits (SIGTERM shutdown path included).
-	const profileFlags = options.profileDir ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${options.profileDir}`] : [];
-	if (options.profileDir) console.log(`[server] CPU profiling enabled → ${options.profileDir}`);
+	// Under `bun run benchmark --profile`, every server writes CPU and heap profiles.
+	const profileFlags = profilerFlags(`server-${port}`);
 
 	// Optional CPU pinning for simulated low-end runs; the benchmark bootstrap
 	// probes taskset before setting this, so an unsupported host never reaches it.
@@ -685,7 +328,7 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 	const affinityPrefix = affinity ? ["taskset", "-c", affinity] : [];
 
 	const serverProcess = spawnManagedProcess({
-		cmd: [...affinityPrefix, "bun", ...profileFlags, "run", "src/index.ts"],
+		cmd: [...affinityPrefix, process.execPath, ...profileFlags, "src/index.ts"],
 		cwd: repoRoot,
 		env: serverEnv(port, rootDir, webDist),
 		logPath: join(rootDir, "server.log"),
@@ -697,7 +340,7 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 		const cookie = await createAdminAndLogin(baseUrl);
 		const workerCount = options.workerCount ?? 1;
 		const workerCookies = await seedWorkerIdentities(rootDir, workerCount);
-		seedProfileData(rootDir, workerCount, seedRows);
+		seedProfiles(rootDir, workerCount, seedRows);
 		const adminProfileId = await resolveAdminProfileId(baseUrl, cookie);
 		let sampleMediaId: string | undefined;
 		if (sampleMediaPath) sampleMediaId = await registerSampleMedia(rootDir, sampleMediaPath);
@@ -718,7 +361,7 @@ export async function startBenchmarkServer(options: StartServerOptions = {}): Pr
 			benchmarkMovieDetailId: "meta-0000001",
 			benchmarkTvDetailId: "meta-0000000",
 			benchmarkMediaFileId: "mf-meta-0000001",
-			// Deterministic from seedCatalog: library + the first TV show's first
+			// Deterministic from seedServerCatalog: library + the first TV show's first
 			// season/episode, plus the first genre/person rows.
 			benchmarkLibraryId: "lib-benchmark",
 			benchmarkSeasonId: "season-0-0",

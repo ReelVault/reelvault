@@ -1,8 +1,8 @@
 import type { PluginUiSettings, UpdatePluginUiSettingsBody } from "@reelvault/sdk/common";
 import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
+import { adminLog } from "@/services/admin/admin.logger";
 import { auditedChange } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
-import type { AdminServiceState } from "@/services/admin/shared.utils";
 
 /** Compact audit view of a plugin's UI switches: master flag plus the hidden keys. */
 function summarizeUiSettings(settings: PluginUiSettings): { enabled: boolean; disabledKeys: string[] } {
@@ -14,7 +14,6 @@ export function getPluginUiSettings(pluginId: string): Promise<PluginUiSettings>
 }
 
 export async function updatePluginUiSettings(
-	state: AdminServiceState,
 	pluginId: string,
 	body: UpdatePluginUiSettingsBody,
 	context?: AdminAuditContext,
@@ -22,7 +21,7 @@ export async function updatePluginUiSettings(
 	const before = await pluginUiSettingsService.get(pluginId);
 
 	return await auditedChange({
-		logger: state.logger,
+		logger: adminLog.logger,
 		resourceType: "plugin_ui_settings",
 		resourceId: pluginId,
 		before: summarizeUiSettings(before),
@@ -32,15 +31,11 @@ export async function updatePluginUiSettings(
 	});
 }
 
-export async function resetPluginUiSettings(
-	state: AdminServiceState,
-	pluginId: string,
-	context?: AdminAuditContext,
-): Promise<PluginUiSettings> {
+export async function resetPluginUiSettings(pluginId: string, context?: AdminAuditContext): Promise<PluginUiSettings> {
 	const before = await pluginUiSettingsService.get(pluginId);
 
 	return await auditedChange({
-		logger: state.logger,
+		logger: adminLog.logger,
 		resourceType: "plugin_ui_settings",
 		resourceId: pluginId,
 		before: summarizeUiSettings(before),

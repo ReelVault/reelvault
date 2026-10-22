@@ -6,7 +6,6 @@ import type {
 	SubtitleProviderSearchResponse,
 } from "@reelvault/sdk/common";
 import type { SubtitleDownload, SubtitleSearchResult } from "@reelvault/sdk/plugin";
-import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { contentByteSize, createDirectoryOnce, writeFileWithRollback } from "@/plugins/shared/plugin.file-record.utils";
@@ -130,16 +129,6 @@ class SubtitleProviderService {
 		});
 	}
 
-	async getContent(subtitleId: string): Promise<{ contentType: string; file: Blob } | null> {
-		const subtitle = await pluginSubtitleData.findByPrimaryId({ primaryId: subtitleId });
-		if (subtitle?.type !== "external" || !subtitle.filePath || !this.isOwnedPath(subtitle.filePath)) return null;
-
-		const subtitleFile = file(subtitle.filePath);
-		if (!(await subtitleFile.exists())) return null;
-
-		return { contentType: contentTypeForFormat(subtitle.format), file: subtitleFile };
-	}
-
 	private async getMediaItem(mediaFileId: string): Promise<MediaItem> {
 		const mediaFile = await pluginMediaService.get(mediaFileId);
 		if (!mediaFile)
@@ -162,12 +151,8 @@ class SubtitleProviderService {
 		return join(serverConfig.paths.subtitles, `${crypto.randomUUID()}.${format}`);
 	}
 
-	private isOwnedPath(path: string): boolean {
-		return isSubpath(path, serverConfig.paths.subtitles);
-	}
-
 	private async deleteOwnedFile(path: string | null): Promise<void> {
-		if (path && this.isOwnedPath(path)) await deleteFile(path);
+		if (path && isSubpath(path, serverConfig.paths.subtitles)) await deleteFile(path);
 	}
 
 	private assertDownloadSize(download: SubtitleDownload): void {
@@ -192,10 +177,6 @@ function parseYear(releaseDate: string): number | undefined {
 	const year = Number.parseInt(releaseDate.slice(0, 4), 10);
 
 	return Number.isInteger(year) ? year : undefined;
-}
-
-function contentTypeForFormat(format: string): "text/vtt" | "text/plain; charset=utf-8" {
-	return format === "vtt" ? "text/vtt" : "text/plain; charset=utf-8";
 }
 
 export const subtitleProviderService = new SubtitleProviderService();

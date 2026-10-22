@@ -2,33 +2,26 @@ import { join } from "node:path";
 import type { PluginEventInput } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { type ScannerStoragePort, scannerStorage } from "@/modules/scanner/scanner.ports";
+import { librariesRepository } from "@/repositories/libraries.repository";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { deleteFile as deletePhysicalFile } from "@/utils/file.utils";
+import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { isSubpath } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
+/** The cleaner's boundaries: the plugin event sink, the subtitles root and the host I/O budget. */
 interface ServiceDependencies {
-	deleteByLibraryAndPaths: ScannerStoragePort["deleteByLibraryAndPaths"];
-	removeArtifactStorageFiles: ScannerStoragePort["removeArtifactStorageFiles"];
-	invalidateArtifactByteTotals: ScannerStoragePort["invalidateArtifactByteTotals"];
-	deleteFile: (path: string) => Promise<boolean>;
 	getIoConcurrency: () => number;
 	subtitlesPath: () => string;
-	clearLibraryStatsCache: ScannerStoragePort["clearLibraryStatsCache"];
 	emitMediaUnavailable: (input: PluginEventInput<"media.file.unavailable">) => Promise<void>;
 }
 
 const defaultDependencies: ServiceDependencies = {
-	deleteByLibraryAndPaths: (libraryId, paths) => scannerStorage().deleteByLibraryAndPaths(libraryId, paths),
-	removeArtifactStorageFiles: (keys) => scannerStorage().removeArtifactStorageFiles(keys),
-	invalidateArtifactByteTotals: () => scannerStorage().invalidateArtifactByteTotals(),
-	deleteFile: (path) => deletePhysicalFile(path),
 	getIoConcurrency: () => systemResourcesService.getIoConcurrency(),
 	subtitlesPath: () => serverConfig.paths.subtitles,
-	clearLibraryStatsCache: () => scannerStorage().clearLibraryStatsCache(),
 	emitMediaUnavailable: (input) => pluginEventBus.emit("media.file.unavailable", input),
 };
 
@@ -51,17 +44,8 @@ export class StaleArtifactCleaner {
 		throwIfAborted(signal);
 		this.logger.info(`Removing ${removedFiles.length} files no longer on disk`, { count: removedFiles.length });
 
-		const {
-			deleteByLibraryAndPaths,
-			removeArtifactStorageFiles,
-			invalidateArtifactByteTotals,
-			deleteFile,
-			getIoConcurrency,
-			subtitlesPath,
-			clearLibraryStatsCache,
-			emitMediaUnavailable,
-		} = this.dependencies;
-		const cleanup = await deleteByLibraryAndPaths(libraryId, removedFiles);
+		const { getIoConcurrency, subtitlesPath, emitMediaUnavailable } = this.dependencies;
+		const cleanup = await mediaRepository.deleteByLibraryAndPathsAndGetCleanup(libraryId, removedFiles);
 		// One event per removed file; awaiting each plugin handler in sequence
 		// multiplies hook timeouts across large removals.
 		await mapConcurrent(
@@ -72,7 +56,7 @@ export class StaleArtifactCleaner {
 		);
 
 		const subtitlesRoot = subtitlesPath();
-		const removals: Array<() => Promise<unknown>> = [() => removeArtifactStorageFiles(cleanup.artifactStorageKeys)];
+		const removals: Array<() => Promise<unknown>> = [() => mediaArtifactsService.removeStorageFiles(cleanup.artifactStorageKeys)];
 		for (const filePath of cleanup.subtitleFilePaths) {
 			if (filePath && isSubpath(filePath, subtitlesRoot)) {
 				removals.push(() => deleteFile(filePath));
@@ -84,8 +68,8 @@ export class StaleArtifactCleaner {
 		}
 
 		await mapConcurrent(removals, getIoConcurrency(), (removal) => removal(), signal);
-		invalidateArtifactByteTotals();
-		clearLibraryStatsCache();
+		mediaArtifactsService.invalidateByteTotals();
+		librariesRepository.clearStatsCache();
 		this.logger.info("Removed stale media records", { libraryId, count: removedFiles.length });
 	}
 }

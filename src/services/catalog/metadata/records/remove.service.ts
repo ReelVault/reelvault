@@ -6,28 +6,21 @@ import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
 import { deleteWithArtifacts } from "@/services/artifacts/delete-with-artifacts";
 import { runBulkItems } from "@/services/catalog/catalog.utils";
+import { metadataLog } from "@/services/catalog/metadata/metadata.logger";
 import { assertNoActiveStreamsForMediaFileIds } from "@/services/playback/active-streams.guard";
 import { assertFound } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { invalidateReadCaches, type MetadataServiceState, type WithoutState } from "./shared.utils";
+import { invalidateReadCaches } from "./read-caches.utils";
 
 /** Ids kept in the `metadata_orphans` audit payload (the full set is unbounded). */
 const MAX_ORPHAN_AUDIT_IDS = 50;
-
-type DeleteOne = (...args: WithoutState<typeof deleteOne>) => ReturnType<typeof deleteOne>;
 
 /**
  * Removes the listed titles one after another; each id reports its own outcome. A title whose files a stream is playing is
  * held back unless `force` is set, because its files lose their title while playing.
  */
-export async function deleteMany(
-	state: MetadataServiceState,
-	metadataIds: string[],
-	options: { force?: boolean | undefined },
-	context: AdminAuditContext | undefined,
-	deleteOneOf: DeleteOne,
-) {
-	return await runSafely(state, "deleteMany", async () => {
+export async function deleteMany(metadataIds: string[], options: { force?: boolean | undefined } = {}, context?: AdminAuditContext) {
+	return await runSafely(metadataLog, "deleteMany", async () => {
 		const ids = [...new Set(metadataIds)];
 		const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds(ids));
 		assertNoActiveStreamsForMediaFileIds(linkedFileIds, {
@@ -36,17 +29,16 @@ export async function deleteMany(
 			code: "metadata.delete_blocked_active_streams",
 		});
 
-		return await runBulkItems(ids, (id) => deleteOneOf(id, context, { force: options.force === true }), "metadata.delete_failed");
+		return await runBulkItems(ids, (id) => deleteOne(id, context, { force: options.force === true }), "metadata.delete_failed");
 	});
 }
 
 export async function deleteOne(
-	state: MetadataServiceState,
 	metadataId: string,
 	context?: AdminAuditContext,
 	options: { force?: boolean | undefined } = {},
 ): Promise<{ success: boolean }> {
-	return await runSafely(state, "delete", async () => {
+	return await runSafely(metadataLog, "delete", async () => {
 		const metadata = await metadataRepository.findByIdForRead(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
 		// The same protection the bulk path enforces: deleting the title ends its streams.
@@ -65,15 +57,15 @@ export async function deleteOne(
 			before: metadata,
 			invalidate: invalidateReadCaches,
 			context,
-			logger: state.logger,
+			logger: metadataLog.logger,
 		});
 
 		return { success: true };
 	});
 }
 
-export async function deleteOrphans(state: MetadataServiceState, context?: AdminAuditContext): Promise<{ count: number }> {
-	return await runSafely(state, "deleteOrphans", async () => {
+export async function deleteOrphans(context?: AdminAuditContext): Promise<{ count: number }> {
+	return await runSafely(metadataLog, "deleteOrphans", async () => {
 		// Page the purge so a huge orphan set is never materialized at once, and
 		// keep only a bounded sample in the audit payload (the full id list bloated
 		// the audit row forever).
@@ -103,7 +95,7 @@ export async function deleteOrphans(state: MetadataServiceState, context?: Admin
 				after: { count: deleted, deletedIds: sample, truncated: seen > sample.length },
 				context,
 			},
-			state.logger,
+			metadataLog.logger,
 		);
 
 		return { count: deleted };

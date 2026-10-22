@@ -33,7 +33,7 @@ async function runScript(args: string[]): Promise<{ exitCode: number; output: st
 
 describe("maintenance commands", () => {
 	test("db:check passes on a sound database", async () => {
-		const result = await runScript(["scripts/db-maintenance.script.ts", "check"]);
+		const result = await runScript(["scripts/admin/database.script.ts", "check"]);
 
 		expect(result.exitCode).toBe(0);
 		expect(result.output).toContain("integrity check passed");
@@ -42,7 +42,7 @@ describe("maintenance commands", () => {
 	test("db:backup writes a snapshot file that opens as SQLite and passes its integrity check", async () => {
 		const target = join(mkdtempSync(join(tmpdir(), "rv-cli-target-")), "snapshot.sqlite");
 		dataRoots.push(join(target, ".."));
-		const result = await runScript(["scripts/db-maintenance.script.ts", "backup", target]);
+		const result = await runScript(["scripts/admin/database.script.ts", "backup", target]);
 
 		expect(result.exitCode).toBe(0);
 		const snapshot = new Database(target, { readonly: true });
@@ -54,21 +54,21 @@ describe("maintenance commands", () => {
 	});
 
 	test("reset-password refuses an address that has no account", async () => {
-		const result = await runScript(["scripts/reset-password.script.ts", "nobody@example.test"]);
+		const result = await runScript(["scripts/admin/reset-password.script.ts", "nobody@example.test"]);
 
 		expect(result.exitCode).toBe(1);
 		expect(result.output).toContain("User not found: nobody@example.test");
 	});
 
 	test("reset-password without an email prints the usage and fails", async () => {
-		const result = await runScript(["scripts/reset-password.script.ts"]);
+		const result = await runScript(["scripts/admin/reset-password.script.ts"]);
 
 		expect(result.exitCode).toBe(1);
 		expect(result.output).toContain("Usage: bun run admin:reset-password <email>");
 	});
 
 	test("doctor lists each check and exits non-zero only when a check fails", async () => {
-		const result = await runScript(["scripts/doctor.script.ts"]);
+		const result = await runScript(["scripts/admin/doctor.script.ts"]);
 
 		for (const check of ["bun", "ffmpeg", "ffprobe", "data directory", "disk space", "database", "web UI"]) {
 			expect(result.output).toContain(check);

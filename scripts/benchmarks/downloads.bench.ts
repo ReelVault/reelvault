@@ -1,4 +1,4 @@
-import { fmtMb, fmtMs, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
+import { fmtMb, fmtMs, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { sleep } from "bun";
 
 import { authHeaders } from "./lib/identity.utils";
@@ -94,63 +94,59 @@ export const meta = { description: "Downloads (prepare → ffmpeg stream-copy �
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args, {
-		workerCount: Math.max(1, Math.min(4, Math.max(...args.concurrency))),
-		withSampleMedia: true,
-	});
+const serverFixture = suiteServerFixture(args, {
+	workerCount: Math.max(1, Math.min(4, Math.max(...args.concurrency))),
+	withSampleMedia: true,
+});
 
-	task("downloads: phases", async () => {
-		const concurrencyLevels = [1, Math.min(4, Math.max(...args.concurrency))];
-		const server = await serverFixture();
-		if (!server.sampleMediaId) {
-			console.error("Sample media unavailable — cannot run the downloads benchmark");
-			process.exitCode = 1;
+task("downloads: phases", async () => {
+	const concurrencyLevels = [1, Math.min(4, Math.max(...args.concurrency))];
+	const server = await serverFixture();
+	if (!server.sampleMediaId) {
+		console.error("Sample media unavailable — cannot run the downloads benchmark");
+		process.exitCode = 1;
 
-			return;
-		}
+		return;
+	}
 
-		const managed = server;
-		const cycles = Math.max(2, Math.min(6, Math.floor(args.durationMs / 2000)));
-		for (const concurrency of concurrencyLevels) {
-			const startedAt = performance.now();
-			const results = await Promise.all(
-				Array.from({ length: concurrency }, (_, workerIndex) =>
-					(async () => {
-						const runs: DownloadCycle[] = [];
-						for (let index = 0; index < cycles; index++) {
-							runs.push(await runDownloadCycle(managed, workerIndex));
-						}
+	const managed = server;
+	const cycles = Math.max(2, Math.min(6, Math.floor(args.durationMs / 2000)));
+	for (const concurrency of concurrencyLevels) {
+		const startedAt = performance.now();
+		const results = await Promise.all(
+			Array.from({ length: concurrency }, (_, workerIndex) =>
+				(async () => {
+					const runs: DownloadCycle[] = [];
+					for (let index = 0; index < cycles; index++) {
+						runs.push(await runDownloadCycle(managed, workerIndex));
+					}
 
-						return runs;
-					})(),
-				),
-			);
-			const flat = results.flat();
-			const failures = flat.filter((cycle) => cycle.failed).length;
-			const completes = flat.map((cycle) => cycle.completeMs).filter((ms) => ms > 0);
-			const files = flat.map((cycle) => cycle.fileMs).filter((ms) => ms > 0);
-			const bytes = flat.reduce((sum, cycle) => sum + cycle.totalBytes, 0);
-			const wallMs = performance.now() - startedAt;
-			const completeStats = summarizeLatencies(completes.length > 0 ? completes : [0]);
-			const fileStats = summarizeLatencies(files.length > 0 ? files : [0]);
+					return runs;
+				})(),
+			),
+		);
+		const flat = results.flat();
+		const failures = flat.filter((cycle) => cycle.failed).length;
+		const completes = flat.map((cycle) => cycle.completeMs).filter((ms) => ms > 0);
+		const files = flat.map((cycle) => cycle.fileMs).filter((ms) => ms > 0);
+		const bytes = flat.reduce((sum, cycle) => sum + cycle.totalBytes, 0);
+		const wallMs = performance.now() - startedAt;
+		const completeStats = summarizeLatencies(completes.length > 0 ? completes : [0]);
+		const fileStats = summarizeLatencies(files.length > 0 ? files : [0]);
 
-			printTable(
-				`Download cycle c=${concurrency} (${cycles} per identity)`,
-				["jobs/s", "prepare→completed p50", "p95", "file GET p50", "MB/s served", "failures"],
+		printTable(
+			`Download cycle c=${concurrency} (${cycles} per identity)`,
+			["jobs/s", "prepare→completed p50", "p95", "file GET p50", "MB/s served", "failures"],
+			[
 				[
-					[
-						(flat.length / (wallMs / 1000)).toFixed(2),
-						fmtMs(completeStats.p50Ms),
-						fmtMs(completeStats.p95Ms),
-						fmtMs(fileStats.p50Ms),
-						fmtMb(bytes / (wallMs / 1000)),
-						String(failures),
-					],
+					(flat.length / (wallMs / 1000)).toFixed(2),
+					fmtMs(completeStats.p50Ms),
+					fmtMs(completeStats.p95Ms),
+					fmtMs(fileStats.p50Ms),
+					fmtMb(bytes / (wallMs / 1000)),
+					String(failures),
 				],
-			);
-		}
-	});
-}
-
-await main(import.meta);
+			],
+		);
+	}
+});

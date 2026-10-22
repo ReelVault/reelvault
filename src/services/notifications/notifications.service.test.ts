@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { dispatchNotificationToChannels, registerNotificationChannel } from "@/plugins/runtime/notification-channel.registry";
 import { profilePreferencesRepository } from "@/repositories/profile-preferences.repository";
 import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body.cache";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
@@ -12,7 +11,7 @@ import {
 	selectNotifications,
 } from "../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
-import { notificationsService } from "./notifications.service";
+import { notificationsService, reportChannelFailureToAdministrators } from "./notifications.service";
 
 const db = useTestDatabase();
 const stubs: MethodStub[] = [];
@@ -117,31 +116,24 @@ describe("notificationsService.createForAdministrators", () => {
 	});
 });
 
-describe("notificationsService channel failure reports", () => {
-	test("a failed administrator report is logged instead of escaping as an unhandled rejection", async () => {
+describe("reportChannelFailureToAdministrators", () => {
+	test("logs a failed administrator report instead of rejecting, so the channel registry can run it detached", async () => {
 		stubs.push(stubMethod(notificationsService, "createForAdministrators", () => Promise.reject(new Error("users unavailable"))));
-		// The report runs detached: the logger call is the only observable outcome, so wait for it.
-		const reported = new Promise<unknown[]>((resolve) => {
-			stubs.push(
-				stubMethod(notificationsService.logger, "warn", (...args: unknown[]) => {
-					resolve(args);
-				}),
-			);
-		});
-		const unregister = registerNotificationChannel("plugin-report", {
-			id: "report-channel",
-			deliver: () => Promise.reject(new Error("503 from endpoint")),
-		});
+		// The report is fire-and-forget: the warning is its only observable outcome.
+		const warnings: unknown[][] = [];
+		stubs.push(
+			stubMethod(notificationsService.logger, "warn", (...args: unknown[]) => {
+				warnings.push(args);
+			}),
+		);
 
-		try {
-			await dispatchNotificationToChannels({ id: "n-1", userId: "u-1", type: "test", title: "Hello" });
+		await reportChannelFailureToAdministrators({ pluginId: "plugin-report", channelId: "report-channel", message: "503 from endpoint" });
 
-			expect(await reported).toEqual([
+		expect(warnings).toEqual([
+			[
 				"Could not report a failing notification channel",
-				expect.objectContaining({ channelId: "report-channel" }),
-			]);
-		} finally {
-			unregister();
-		}
+				expect.objectContaining({ pluginId: "plugin-report", channelId: "report-channel" }),
+			],
+		]);
 	});
 });

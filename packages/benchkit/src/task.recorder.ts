@@ -29,6 +29,19 @@ export class Recorder {
 		if (!ok) op.errors++;
 	}
 
+	/** Times one operation under `label`; it reports success, and a thrown error counts as a failure. */
+	async time(label: string, operation: () => Promise<boolean>): Promise<void> {
+		const startedAt = performance.now();
+		let ok = false;
+		try {
+			ok = await operation();
+		} catch {
+			ok = false;
+		}
+
+		this.record(label, performance.now() - startedAt, ok);
+	}
+
 	/** Counts a failure without a meaningful latency (e.g. aborted cycle). */
 	recordError(label: string): void {
 		this.entry(label).errors++;

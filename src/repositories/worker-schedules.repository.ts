@@ -7,7 +7,15 @@ import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/ch
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { toMap } from "@/utils/array.utils";
-import type { WorkerExecutionRecord } from "@/workers/worker.ports";
+
+/** The outcome of one scheduled run, stored on its schedule row. */
+export interface WorkerExecutionRecord {
+	status: "completed" | "failed" | "cancelled";
+	startedAt?: Date | undefined;
+	completedAt: Date;
+	durationMs: number;
+	error?: string | undefined;
+}
 
 const schedules = schema.workerSchedules;
 const schedulesAccess = defineTableAccess("workerSchedules", { primaryKeyColumn: "id" });

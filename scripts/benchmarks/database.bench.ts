@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bench, fixture, fmtMb, fmtMs, group, main, measure, measureAsync, printMicroResults, printTable, suiteArgs, task } from "benchkit";
+import { bench, fixture, fmtMb, fmtMs, group, measure, measureAsync, printMicroResults, printTable, suiteArgs, task } from "benchkit";
 import { asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { DatabaseFactory } from "@/integrations/drizzle-orm/database.factory";
@@ -54,530 +54,526 @@ async function measureStall<T>(work: () => T | Promise<T>): Promise<{ result: T;
 	return { result, totalMs, maxStallMs: Math.max(0, maxStall) };
 }
 
-if (!args.help) {
-	const factoryFixture = benchDb({
-		label: "db",
-		rows: args.rows,
-		analyze: false,
-		seed: (db) => seedCatalog(db, { rows: args.rows, staggeredTimestamps: true }),
+const factoryFixture = benchDb({
+	label: "db",
+	rows: args.rows,
+	analyze: false,
+	seed: (db) => seedCatalog(db, { rows: args.rows, staggeredTimestamps: true }),
+});
+
+const database = fixture("bench-db-prepared", async () => {
+	const { factory, seedNow } = await factoryFixture();
+	const db = factory.sqlite;
+	const rows = args.rows;
+	const now = seedNow;
+	console.log(`[database] seeding complete. Running queries (${args.iterations} iterations)...`);
+
+	const prepared = {
+		ftsMetadataQuery: db.prepare(`
+			SELECT m.id, m.title, m.popularity
+			FROM metadata_fts f
+			JOIN metadata m ON m.id = f.metadata_id
+			WHERE metadata_fts MATCH ?
+			ORDER BY rank
+			LIMIT 24
+		`),
+		ftsPeopleQuery: db.prepare(`
+			SELECT p.id, p.name
+			FROM people_fts f
+			JOIN people p ON p.id = f.person_id
+			WHERE people_fts MATCH ?
+			ORDER BY rank
+			LIMIT 10
+		`),
+		offsetPaginationQuery: db.prepare(`
+			SELECT id, title, popularity, release_date
+			FROM metadata
+			WHERE type = 'movie'
+			ORDER BY created_at DESC
+			LIMIT 24 OFFSET 500
+		`),
+		cursorPaginationQuery: db.prepare(`
+			SELECT id, title, popularity, release_date
+			FROM metadata
+			WHERE type = 'movie' AND created_at < ?
+			ORDER BY created_at DESC
+			LIMIT 24
+		`),
+		// Mirrors the API's default browse sort (findPage appends the primary key as
+		// a tiebreaker) so the composite `(title, id)` index shows up in timings.
+		titlePaginationQuery: db.prepare(`
+			SELECT id, title, popularity, release_date
+			FROM metadata
+			WHERE type = 'movie'
+			ORDER BY title, id
+			LIMIT 24 OFFSET 500
+		`),
+		filteredPaginationQuery: db.prepare(`
+			SELECT id, title, popularity, release_date
+			FROM metadata
+			WHERE release_date >= '2024-01-01' AND release_date <= '2024-12-31'
+				AND EXISTS (SELECT 1 FROM metadata_genres WHERE metadata_genres.metadata_id = metadata.id AND metadata_genres.genre_id IN ('genre-1'))
+			ORDER BY title, id
+			LIMIT 24
+		`),
+		byIdQuery: db.prepare(`
+			SELECT id, title, overview, release_date, popularity
+			FROM metadata
+			WHERE id = ?
+		`),
+		fuzzyLikeScan: db.prepare(`
+			SELECT id
+			FROM metadata
+			WHERE title LIKE ? ESCAPE ? OR original_title LIKE ? ESCAPE ?
+			ORDER BY popularity DESC
+			LIMIT 400
+		`),
+		trigramProbe: db.prepare(`
+			SELECT rowid FROM metadata_title_trigram WHERE metadata_title_trigram MATCH ? LIMIT 401
+		`),
+		relationJoinQuery: db.prepare(`
+			SELECT m.id, m.title, mf.file_path, g.name AS genre_name
+			FROM metadata m
+			JOIN movies mov ON mov.metadata_id = m.id
+			JOIN media_files mf ON mf.movie_id = mov.id
+			LEFT JOIN metadata_genres mg ON mg.metadata_id = m.id
+			LEFT JOIN genres g ON g.id = mg.genre_id
+			WHERE m.id = ?
+		`),
+		insertWriteStmt: db.prepare(`
+			INSERT INTO metadata (id, stable_key, title, original_title, type, release_date, popularity, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'movie', '2024-01-01', 50, ?, ?)
+		`),
+	};
+
+	return { factory, db, rows, now, writeCounter: 0, ...prepared };
+});
+
+// ─── A/B: ANALYZE (planner statistics) on tiebreaker sorts ─────────────
+// A freshly seeded database has no sqlite_stat1, so the planner guesses and
+// picks a type index + TEMP B-TREE sort instead of the composite
+// `(sortKey, id)` index. The main timings below run AFTER ANALYZE so they
+// reflect production; this pair documents the difference.
+task("database: ANALYZE planner statistics", async () => {
+	const { db, titlePaginationQuery, filteredPaginationQuery } = await database();
+	const planOf = (querySql: string): string =>
+		db
+			.query(`EXPLAIN QUERY PLAN ${querySql}`)
+			.all()
+			.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
+			.join(" | ");
+	const titlePlanSql =
+		"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY title, id LIMIT 24 OFFSET 500";
+	const filteredPlanSql =
+		"SELECT id, title, popularity, release_date FROM metadata WHERE release_date >= '2024-01-01' AND release_date <= '2024-12-31' AND EXISTS (SELECT 1 FROM metadata_genres WHERE metadata_genres.metadata_id = metadata.id AND metadata_genres.genre_id IN ('genre-1')) ORDER BY title, id LIMIT 24";
+	const titlePlanBefore = planOf(titlePlanSql);
+	const analyzeResults = [
+		measure("browse ORDER BY title,id BEFORE ANALYZE", () => titlePaginationQuery.all(), { iterations: 300 }),
+		measure("filtered year+genre BEFORE ANALYZE", () => filteredPaginationQuery.all(), { iterations: 300 }),
+	];
+	db.run("ANALYZE");
+	analyzeResults.push(
+		measure("browse ORDER BY title,id AFTER ANALYZE", () => titlePaginationQuery.all(), { iterations: 300 }),
+		measure("filtered year+genre AFTER ANALYZE", () => filteredPaginationQuery.all(), { iterations: 300 }),
+	);
+	printMicroResults(analyzeResults);
+	console.log(`  browse plan BEFORE ANALYZE: ${titlePlanBefore}`);
+	console.log(`  browse plan AFTER ANALYZE:  ${planOf(titlePlanSql)}`);
+	console.log(`  filtered plan AFTER ANALYZE: ${planOf(filteredPlanSql)}`);
+});
+
+// ─── A/B: tiebreaker direction on a descending sort ────────────────────
+// The API appends the primary key as an ORDER BY tiebreaker so offset
+// pagination stays deterministic for non-unique sort keys. The tiebreaker
+// has to follow the sort direction: a DESC sort with an ASC tiebreaker is a
+// mixed-direction ORDER BY, which SQLite cannot serve from one index — it
+// adds a temp B-tree for the last term and sorts the whole filtered set.
+//
+// The filtered shapes also show the index side of the same problem: a
+// composite `(type, sortKey)` index cannot serve the id term, so the plan
+// keeps the temp B-tree until the index carries the id as well.
+task("database: descending tiebreaker direction", async () => {
+	const { db } = await database();
+	const planOf = (querySql: string): string =>
+		db
+			.query(`EXPLAIN QUERY PLAN ${querySql}`)
+			.all()
+			.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
+			.join(" | ");
+	const shapes = {
+		"filtered, mixed direction":
+			"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY created_at DESC, id ASC LIMIT 24 OFFSET 500",
+		"filtered, aligned direction":
+			"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY created_at DESC, id DESC LIMIT 24 OFFSET 500",
+		"unfiltered, mixed direction":
+			"SELECT id, title, popularity, release_date FROM metadata ORDER BY created_at DESC, id ASC LIMIT 24 OFFSET 500",
+		"unfiltered, aligned direction":
+			"SELECT id, title, popularity, release_date FROM metadata ORDER BY created_at DESC, id DESC LIMIT 24 OFFSET 500",
+		"default browse sort (title ASC, id ASC)":
+			"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY title ASC, id ASC LIMIT 24 OFFSET 500",
+	};
+	const results = Object.entries(shapes).map(([label, sqlText]) => measure(label, () => db.prepare(sqlText).all(), { iterations: 300 }));
+	printMicroResults(results);
+	for (const [label, sqlText] of Object.entries(shapes)) {
+		console.log(`  ${label}: ${planOf(sqlText)}`);
+	}
+});
+
+group("Results (lower is better)", () => {
+	bench("FTS5 metadata title search (bm25 rank)", async () => (await database()).ftsMetadataQuery.all("star*"), {
+		iterations: args.iterations,
 	});
-
-	const database = fixture("bench-db-prepared", async () => {
-		const { factory, seedNow } = await factoryFixture();
-		const db = factory.sqlite;
-		const rows = args.rows;
-		const now = seedNow;
-		console.log(`[database] seeding complete. Running queries (${args.iterations} iterations)...`);
-
-		const prepared = {
-			ftsMetadataQuery: db.prepare(`
-				SELECT m.id, m.title, m.popularity
-				FROM metadata_fts f
-				JOIN metadata m ON m.id = f.metadata_id
-				WHERE metadata_fts MATCH ?
-				ORDER BY rank
-				LIMIT 24
-			`),
-			ftsPeopleQuery: db.prepare(`
-				SELECT p.id, p.name
-				FROM people_fts f
-				JOIN people p ON p.id = f.person_id
-				WHERE people_fts MATCH ?
-				ORDER BY rank
-				LIMIT 10
-			`),
-			offsetPaginationQuery: db.prepare(`
-				SELECT id, title, popularity, release_date
-				FROM metadata
-				WHERE type = 'movie'
-				ORDER BY created_at DESC
-				LIMIT 24 OFFSET 500
-			`),
-			cursorPaginationQuery: db.prepare(`
-				SELECT id, title, popularity, release_date
-				FROM metadata
-				WHERE type = 'movie' AND created_at < ?
-				ORDER BY created_at DESC
-				LIMIT 24
-			`),
-			// Mirrors the API's default browse sort (findPage appends the primary key as
-			// a tiebreaker) so the composite `(title, id)` index shows up in timings.
-			titlePaginationQuery: db.prepare(`
-				SELECT id, title, popularity, release_date
-				FROM metadata
-				WHERE type = 'movie'
-				ORDER BY title, id
-				LIMIT 24 OFFSET 500
-			`),
-			filteredPaginationQuery: db.prepare(`
-				SELECT id, title, popularity, release_date
-				FROM metadata
-				WHERE release_date >= '2024-01-01' AND release_date <= '2024-12-31'
-					AND EXISTS (SELECT 1 FROM metadata_genres WHERE metadata_genres.metadata_id = metadata.id AND metadata_genres.genre_id IN ('genre-1'))
-				ORDER BY title, id
-				LIMIT 24
-			`),
-			byIdQuery: db.prepare(`
-				SELECT id, title, overview, release_date, popularity
-				FROM metadata
-				WHERE id = ?
-			`),
-			fuzzyLikeScan: db.prepare(`
-				SELECT id
-				FROM metadata
-				WHERE title LIKE ? ESCAPE ? OR original_title LIKE ? ESCAPE ?
-				ORDER BY popularity DESC
-				LIMIT 400
-			`),
-			trigramProbe: db.prepare(`
-				SELECT rowid FROM metadata_title_trigram WHERE metadata_title_trigram MATCH ? LIMIT 401
-			`),
-			relationJoinQuery: db.prepare(`
-				SELECT m.id, m.title, mf.file_path, g.name AS genre_name
-				FROM metadata m
-				JOIN movies mov ON mov.metadata_id = m.id
-				JOIN media_files mf ON mf.movie_id = mov.id
-				LEFT JOIN metadata_genres mg ON mg.metadata_id = m.id
-				LEFT JOIN genres g ON g.id = mg.genre_id
-				WHERE m.id = ?
-			`),
-			insertWriteStmt: db.prepare(`
-				INSERT INTO metadata (id, stable_key, title, original_title, type, release_date, popularity, created_at, updated_at)
-				VALUES (?, ?, ?, ?, 'movie', '2024-01-01', 50, ?, ?)
-			`),
-		};
-
-		return { factory, db, rows, now, writeCounter: 0, ...prepared };
+	bench("FTS5 people search (bm25 rank)", async () => (await database()).ftsPeopleQuery.all("actor*"), {
+		iterations: args.iterations,
 	});
-
-	// ─── A/B: ANALYZE (planner statistics) on tiebreaker sorts ─────────────
-	// A freshly seeded database has no sqlite_stat1, so the planner guesses and
-	// picks a type index + TEMP B-TREE sort instead of the composite
-	// `(sortKey, id)` index. The main timings below run AFTER ANALYZE so they
-	// reflect production; this pair documents the difference.
-	task("database: ANALYZE planner statistics", async () => {
-		const { db, titlePaginationQuery, filteredPaginationQuery } = await database();
-		const planOf = (querySql: string): string =>
-			db
-				.query(`EXPLAIN QUERY PLAN ${querySql}`)
-				.all()
-				.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
-				.join(" | ");
-		const titlePlanSql =
-			"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY title, id LIMIT 24 OFFSET 500";
-		const filteredPlanSql =
-			"SELECT id, title, popularity, release_date FROM metadata WHERE release_date >= '2024-01-01' AND release_date <= '2024-12-31' AND EXISTS (SELECT 1 FROM metadata_genres WHERE metadata_genres.metadata_id = metadata.id AND metadata_genres.genre_id IN ('genre-1')) ORDER BY title, id LIMIT 24";
-		const titlePlanBefore = planOf(titlePlanSql);
-		const analyzeResults = [
-			measure("browse ORDER BY title,id BEFORE ANALYZE", () => titlePaginationQuery.all(), { iterations: 300 }),
-			measure("filtered year+genre BEFORE ANALYZE", () => filteredPaginationQuery.all(), { iterations: 300 }),
-		];
-		db.run("ANALYZE");
-		analyzeResults.push(
-			measure("browse ORDER BY title,id AFTER ANALYZE", () => titlePaginationQuery.all(), { iterations: 300 }),
-			measure("filtered year+genre AFTER ANALYZE", () => filteredPaginationQuery.all(), { iterations: 300 }),
-		);
-		printMicroResults(analyzeResults);
-		console.log(`  browse plan BEFORE ANALYZE: ${titlePlanBefore}`);
-		console.log(`  browse plan AFTER ANALYZE:  ${planOf(titlePlanSql)}`);
-		console.log(`  filtered plan AFTER ANALYZE: ${planOf(filteredPlanSql)}`);
+	// The typo fallback's old shape: a leading-wildcard LIKE no index can
+	// serve, so a no-match term scans the whole catalog. The trigram probe
+	// answers the same question from the index.
+	bench(
+		"Fuzzy fallback: LIKE scan, no-match term (full scan)",
+		async () => (await database()).fuzzyLikeScan.all("%zzz%", "\\", "%zzz%", "\\"),
+		{ iterations: Math.max(10, Math.floor(args.iterations / 4)) },
+	);
+	bench("Fuzzy fallback: trigram probe, no-match term", async () => (await database()).trigramProbe.all('"zzz"'), {
+		iterations: Math.max(10, Math.floor(args.iterations / 4)),
 	});
-
-	// ─── A/B: tiebreaker direction on a descending sort ────────────────────
-	// The API appends the primary key as an ORDER BY tiebreaker so offset
-	// pagination stays deterministic for non-unique sort keys. The tiebreaker
-	// has to follow the sort direction: a DESC sort with an ASC tiebreaker is a
-	// mixed-direction ORDER BY, which SQLite cannot serve from one index — it
-	// adds a temp B-tree for the last term and sorts the whole filtered set.
-	//
-	// The filtered shapes also show the index side of the same problem: a
-	// composite `(type, sortKey)` index cannot serve the id term, so the plan
-	// keeps the temp B-tree until the index carries the id as well.
-	task("database: descending tiebreaker direction", async () => {
-		const { db } = await database();
-		const planOf = (querySql: string): string =>
-			db
-				.query(`EXPLAIN QUERY PLAN ${querySql}`)
-				.all()
-				.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
-				.join(" | ");
-		const shapes = {
-			"filtered, mixed direction":
-				"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY created_at DESC, id ASC LIMIT 24 OFFSET 500",
-			"filtered, aligned direction":
-				"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY created_at DESC, id DESC LIMIT 24 OFFSET 500",
-			"unfiltered, mixed direction":
-				"SELECT id, title, popularity, release_date FROM metadata ORDER BY created_at DESC, id ASC LIMIT 24 OFFSET 500",
-			"unfiltered, aligned direction":
-				"SELECT id, title, popularity, release_date FROM metadata ORDER BY created_at DESC, id DESC LIMIT 24 OFFSET 500",
-			"default browse sort (title ASC, id ASC)":
-				"SELECT id, title, popularity, release_date FROM metadata WHERE type = 'movie' ORDER BY title ASC, id ASC LIMIT 24 OFFSET 500",
-		};
-		const results = Object.entries(shapes).map(([label, sqlText]) => measure(label, () => db.prepare(sqlText).all(), { iterations: 300 }));
-		printMicroResults(results);
-		for (const [label, sqlText] of Object.entries(shapes)) {
-			console.log(`  ${label}: ${planOf(sqlText)}`);
-		}
+	bench("Catalog browse: offset pagination (LIMIT 24 OFFSET 500)", async () => (await database()).offsetPaginationQuery.all(), {
+		iterations: args.iterations,
 	});
+	bench(
+		"Catalog browse: keyset cursor (WHERE created_at < ? LIMIT 24)",
+		async () => {
+			const state = await database();
 
-	group("Results (lower is better)", () => {
-		bench("FTS5 metadata title search (bm25 rank)", async () => (await database()).ftsMetadataQuery.all("star*"), {
-			iterations: args.iterations,
-		});
-		bench("FTS5 people search (bm25 rank)", async () => (await database()).ftsPeopleQuery.all("actor*"), {
-			iterations: args.iterations,
-		});
-		// The typo fallback's old shape: a leading-wildcard LIKE no index can
-		// serve, so a no-match term scans the whole catalog. The trigram probe
-		// answers the same question from the index.
-		bench(
-			"Fuzzy fallback: LIKE scan, no-match term (full scan)",
-			async () => (await database()).fuzzyLikeScan.all("%zzz%", "\\", "%zzz%", "\\"),
-			{ iterations: Math.max(10, Math.floor(args.iterations / 4)) },
-		);
-		bench("Fuzzy fallback: trigram probe, no-match term", async () => (await database()).trigramProbe.all('"zzz"'), {
-			iterations: Math.max(10, Math.floor(args.iterations / 4)),
-		});
-		bench("Catalog browse: offset pagination (LIMIT 24 OFFSET 500)", async () => (await database()).offsetPaginationQuery.all(), {
-			iterations: args.iterations,
-		});
-		bench(
-			"Catalog browse: keyset cursor (WHERE created_at < ? LIMIT 24)",
-			async () => {
-				const state = await database();
-
-				return state.cursorPaginationQuery.all(state.now + Math.floor(state.rows / 2));
-			},
-			{ iterations: args.iterations },
-		);
-		bench("Catalog browse: ORDER BY title, id (OFFSET 500, tiebreaker index)", async () => (await database()).titlePaginationQuery.all(), {
-			iterations: args.iterations,
-		});
-		bench("Catalog filtered: year + genre, ORDER BY title, id", async () => (await database()).filteredPaginationQuery.all(), {
-			iterations: args.iterations,
-		});
-		bench(
-			"Single row lookup by ID (indexed PK)",
-			async () => {
-				const state = await database();
-
-				return state.byIdQuery.get(`meta-${String(state.rows >> 1).padStart(7, "0")}`);
-			},
-			{ iterations: args.iterations },
-		);
-		bench(
-			"Media relations multi-table join (movie + file + genre)",
-			async () => {
-				const state = await database();
-
-				return state.relationJoinQuery.all(`meta-${String(state.rows >> 1).padStart(7, "0")}`);
-			},
-			{ iterations: args.iterations },
-		);
-		bench(
-			"Single row write with FTS5 trigger (WAL transaction)",
-			async () => {
-				const state = await database();
-				state.writeCounter++;
-				const id = `bench-write-${state.writeCounter}`;
-				const t = Date.now();
-				state.db.run("BEGIN");
-				state.insertWriteStmt.run(id, id, `Benchmark Written ${state.writeCounter}`, `BW ${state.writeCounter}`, t, t);
-				state.db.run("COMMIT");
-			},
-			{ iterations: args.iterations },
-		);
+			return state.cursorPaginationQuery.all(state.now + Math.floor(state.rows / 2));
+		},
+		{ iterations: args.iterations },
+	);
+	bench("Catalog browse: ORDER BY title, id (OFFSET 500, tiebreaker index)", async () => (await database()).titlePaginationQuery.all(), {
+		iterations: args.iterations,
 	});
+	bench("Catalog filtered: year + genre, ORDER BY title, id", async () => (await database()).filteredPaginationQuery.all(), {
+		iterations: args.iterations,
+	});
+	bench(
+		"Single row lookup by ID (indexed PK)",
+		async () => {
+			const state = await database();
 
-	// ─── A/B: large id-list lookups (informs table-access chunking) ─────
-	// table-access chunks `IN (...)` lists by queryChunkSize (500). An
-	// alternative is a temp-table JOIN. Honest comparison: the temp table
-	// must be populated per call, because real id lists change per request.
-	task("database: chunked IN vs temp-table JOIN", async () => {
-		const { db, rows } = await database();
-		for (const requestedSize of [1000, 10_000]) {
-			const size = Math.min(requestedSize, rows);
-			const uniqueIds = Array.from({ length: size }, (_, i) => `meta-${String(Math.floor((i * rows) / size)).padStart(7, "0")}`);
-			const chunkedQuery = db.prepare(
-				`SELECT id, title FROM metadata WHERE id IN (${uniqueIds
-					.slice(0, 500)
-					.map(() => "?")
-					.join(",")})`,
-			);
-			db.run("CREATE TEMP TABLE IF NOT EXISTS bench_ids (id TEXT PRIMARY KEY)");
-			const clearIds = db.prepare("DELETE FROM bench_ids");
-			const insertId = db.prepare("INSERT INTO bench_ids VALUES (?)");
-			const joinQuery = db.prepare("SELECT m.id, m.title FROM bench_ids b JOIN metadata m ON m.id = b.id");
-			const rounds = 5;
+			return state.byIdQuery.get(`meta-${String(state.rows >> 1).padStart(7, "0")}`);
+		},
+		{ iterations: args.iterations },
+	);
+	bench(
+		"Media relations multi-table join (movie + file + genre)",
+		async () => {
+			const state = await database();
 
-			let chunkedCount = 0;
-			const chunkedStart = performance.now();
-			for (let round = 0; round < rounds; round++) {
-				for (let offset = 0; offset < uniqueIds.length; offset += 500) {
-					chunkedCount += chunkedQuery.all(...uniqueIds.slice(offset, offset + 500)).length;
-				}
+			return state.relationJoinQuery.all(`meta-${String(state.rows >> 1).padStart(7, "0")}`);
+		},
+		{ iterations: args.iterations },
+	);
+	bench(
+		"Single row write with FTS5 trigger (WAL transaction)",
+		async () => {
+			const state = await database();
+			state.writeCounter++;
+			const id = `bench-write-${state.writeCounter}`;
+			const t = Date.now();
+			state.db.run("BEGIN");
+			state.insertWriteStmt.run(id, id, `Benchmark Written ${state.writeCounter}`, `BW ${state.writeCounter}`, t, t);
+			state.db.run("COMMIT");
+		},
+		{ iterations: args.iterations },
+	);
+});
+
+// ─── A/B: large id-list lookups (informs table-access chunking) ─────
+// table-access chunks `IN (...)` lists by queryChunkSize (500). An
+// alternative is a temp-table JOIN. Honest comparison: the temp table
+// must be populated per call, because real id lists change per request.
+task("database: chunked IN vs temp-table JOIN", async () => {
+	const { db, rows } = await database();
+	for (const requestedSize of [1000, 10_000]) {
+		const size = Math.min(requestedSize, rows);
+		const uniqueIds = Array.from({ length: size }, (_, i) => `meta-${String(Math.floor((i * rows) / size)).padStart(7, "0")}`);
+		const chunkedQuery = db.prepare(
+			`SELECT id, title FROM metadata WHERE id IN (${uniqueIds
+				.slice(0, 500)
+				.map(() => "?")
+				.join(",")})`,
+		);
+		db.run("CREATE TEMP TABLE IF NOT EXISTS bench_ids (id TEXT PRIMARY KEY)");
+		const clearIds = db.prepare("DELETE FROM bench_ids");
+		const insertId = db.prepare("INSERT INTO bench_ids VALUES (?)");
+		const joinQuery = db.prepare("SELECT m.id, m.title FROM bench_ids b JOIN metadata m ON m.id = b.id");
+		const rounds = 5;
+
+		let chunkedCount = 0;
+		const chunkedStart = performance.now();
+		for (let round = 0; round < rounds; round++) {
+			for (let offset = 0; offset < uniqueIds.length; offset += 500) {
+				chunkedCount += chunkedQuery.all(...uniqueIds.slice(offset, offset + 500)).length;
 			}
-
-			const chunkedMs = (performance.now() - chunkedStart) / rounds;
-
-			let joinCount = 0;
-			const joinStart = performance.now();
-			for (let round = 0; round < rounds; round++) {
-				clearIds.run();
-				db.run("BEGIN");
-				for (const id of uniqueIds) insertId.run(id);
-
-				db.run("COMMIT");
-				joinCount += joinQuery.all().length;
-			}
-
-			const joinMs = (performance.now() - joinStart) / rounds;
-
-			// Both paths must return the same row count — a mismatch invalidates the run.
-			if (chunkedCount !== joinCount) throw new Error(`A/B row mismatch: IN=${chunkedCount}, JOIN=${joinCount}`);
-
-			console.log(`  ids=${uniqueIds.length}: chunked IN = ${chunkedMs.toFixed(2)}ms/call, temp-table JOIN = ${joinMs.toFixed(2)}ms/call`);
-		}
-	});
-
-	// ─── A/B: PRAGMA mmap_size (informs whether to add it in database.ts) ──
-	task("database: PRAGMA mmap_size", async () => {
-		const { db } = await database();
-		console.log("\n[database] A/B: PRAGMA mmap_size on browse/detail queries...");
-		const browseProbe = db.prepare("SELECT id, title, popularity FROM metadata WHERE type = 'movie' ORDER BY created_at DESC LIMIT 24");
-		const mmapResults = [measure("browse WITHOUT mmap", () => browseProbe.all(), { iterations: 300 })];
-		db.run("PRAGMA mmap_size=268435456");
-		mmapResults.push(measure("browse WITH mmap_size=256MB", () => browseProbe.all(), { iterations: 300 }));
-		printMicroResults(mmapResults);
-	});
-
-	// ─── A/B: FTS5 optimize after update churn (informs cleanup worker) ────
-	task("database: FTS5 optimize after update churn", async () => {
-		const { db, rows } = await database();
-		const search = db.prepare(
-			"SELECT m.id FROM metadata_fts f JOIN metadata m ON m.id = f.metadata_id WHERE metadata_fts MATCH 'star*' ORDER BY rank LIMIT 24",
-		);
-		const segmentCount = (): number => {
-			const row = db.query("SELECT count(*) AS count FROM metadata_fts_data").get();
-
-			return isRecord(row) && typeof row.count === "number" ? row.count : -1;
-		};
-
-		// Churn: every title update deletes + reinserts its FTS row, accumulating
-		// segments. Cap the updates at the seeded row count.
-		const churnRows = Math.min(1000, rows);
-		db.run("BEGIN");
-		const updateTitle = db.prepare("UPDATE metadata SET title = title || ' x' WHERE id = ?");
-		for (let i = 0; i < churnRows; i++) updateTitle.run(`meta-${String(i).padStart(7, "0")}`);
-		db.run("COMMIT");
-
-		const before = measure("FTS search after churn (no optimize)", () => search.all(), { iterations: 200 });
-		const segmentsBefore = segmentCount();
-		db.run("INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')");
-		const after = measure("FTS search after FTS5 optimize", () => search.all(), { iterations: 200 });
-		const segmentsAfter = segmentCount();
-		printMicroResults([before, after]);
-		console.log(`  metadata_fts_data rows: ${segmentsBefore} -> ${segmentsAfter} (${churnRows} title updates)`);
-	});
-
-	// ─── A/B: prepared statements & JIT mappers (informs Faza 3 adoption) ──
-	task("database: prepared statements & JIT mappers", async () => {
-		const { factory } = await database();
-		const client = factory.sqlite;
-		const dbRegular = drizzle({ client });
-		const dbJit = drizzle({ client, jit: true });
-		const pageOrder = [asc(schema.metadata.title), asc(schema.metadata.id)];
-		const regularPage = dbRegular
-			.select()
-			.from(schema.metadata)
-			.where(eq(schema.metadata.type, "movie"))
-			.orderBy(...pageOrder)
-			.limit(24);
-		const jitPage = dbJit
-			.select()
-			.from(schema.metadata)
-			.where(eq(schema.metadata.type, "movie"))
-			.orderBy(...pageOrder)
-			.limit(24);
-		const preparedPage = dbRegular
-			.select()
-			.from(schema.metadata)
-			.where(eq(schema.metadata.type, sql.placeholder("type")))
-			.orderBy(...pageOrder)
-			.limit(24)
-			.prepare();
-		const preparedPageJit = dbJit
-			.select()
-			.from(schema.metadata)
-			.where(eq(schema.metadata.type, sql.placeholder("type")))
-			.orderBy(...pageOrder)
-			.limit(24)
-			.prepare();
-		const regularById = dbRegular.select().from(schema.metadata).where(eq(schema.metadata.id, "meta-0000001")).limit(1);
-		const preparedById = dbRegular
-			.select()
-			.from(schema.metadata)
-			.where(eq(schema.metadata.id, sql.placeholder("id")))
-			.limit(1)
-			.prepare();
-		const preparedByIdJit = dbJit
-			.select()
-			.from(schema.metadata)
-			.where(eq(schema.metadata.id, sql.placeholder("id")))
-			.limit(1)
-			.prepare();
-
-		const results = [
-			await measureAsync("page 24: drizzle regular", () => Promise.resolve(regularPage.all()), { iterations: 500 }),
-			await measureAsync("page 24: jit:true regular", () => Promise.resolve(jitPage.all()), { iterations: 500 }),
-			await measureAsync("page 24: prepared (jit off)", async () => await preparedPage.execute({ type: "movie" }), { iterations: 500 }),
-			await measureAsync("page 24: prepared + jit", async () => await preparedPageJit.execute({ type: "movie" }), { iterations: 500 }),
-			await measureAsync("by id: drizzle regular", () => Promise.resolve(regularById.all()), { iterations: 500 }),
-			await measureAsync("by id: prepared (jit off)", async () => await preparedById.execute({ id: "meta-0000001" }), { iterations: 500 }),
-			await measureAsync("by id: prepared + jit", async () => await preparedByIdJit.execute({ id: "meta-0000001" }), { iterations: 500 }),
-		];
-		printMicroResults(results);
-	});
-
-	// ─── A/B: post-bulk-write statistics refresh ──────────────────────────
-	// A library scan refreshes planner statistics afterwards. `PRAGMA optimize`
-	// only re-analyses tables that changed enough; a full `ANALYZE` scans every
-	// table and index synchronously (blocking the event loop). Both must leave the
-	// paginated browse on its composite index.
-	task("database: post-scan statistics refresh (PRAGMA optimize vs ANALYZE)", async () => {
-		const rows = Math.min(args.rows, 20_000);
-		const planSql =
-			"SELECT id FROM metadata WHERE EXISTS (SELECT 1 FROM media_files WHERE media_files.metadata_id = metadata.id) ORDER BY title, id LIMIT 24";
-		const planOf = (factory: DatabaseFactory): string =>
-			factory.sqlite
-				.query(`EXPLAIN QUERY PLAN ${planSql}`)
-				.all()
-				.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
-				.join(" | ");
-		const build = async (): Promise<{ factory: DatabaseFactory; dir: string }> => {
-			const dir = await mkdtemp(join(tmpdir(), "reelvault-benchmark-stats-"));
-			const factory = new DatabaseFactory(join(dir, "reelvault.sqlite"));
-			factory.migrate();
-			seedCatalog(factory.sqlite, { rows, staggeredTimestamps: true });
-
-			return { factory, dir };
-		};
-
-		const optimizeDb = await build();
-		const optimizeStart = performance.now();
-		optimizeDb.factory.optimize();
-		const optimizeMs = performance.now() - optimizeStart;
-		const optimizePlan = planOf(optimizeDb.factory);
-		const optimizeStats = statRowCount(optimizeDb.factory);
-
-		const analyzeDb = await build();
-		const fullAnalyze = await measureStall(() => {
-			analyzeDb.factory.sqlite.run("ANALYZE");
-		});
-		const analyzePlan = planOf(analyzeDb.factory);
-		const analyzeStats = statRowCount(analyzeDb.factory);
-
-		const chunkedDb = await build();
-		const chunkedAnalyze = await measureStall(async () => {
-			await chunkedDb.factory.analyzeChunked();
-		});
-		const chunkedPlan = planOf(chunkedDb.factory);
-		const chunkedStats = statRowCount(chunkedDb.factory);
-
-		console.log(`\n[database] statistics refresh @ ${rows} rows:`);
-		console.log(`  PRAGMA optimize:       ${optimizeMs.toFixed(1)}ms, sqlite_stat1 rows ${optimizeStats}`);
-		console.log(
-			`  full ANALYZE:          ${fullAnalyze.totalMs.toFixed(1)}ms, max loop stall ${fullAnalyze.maxStallMs.toFixed(1)}ms, sqlite_stat1 rows ${analyzeStats}`,
-		);
-		console.log(
-			`  chunked + sample:      ${chunkedAnalyze.totalMs.toFixed(1)}ms, max loop stall ${chunkedAnalyze.maxStallMs.toFixed(1)}ms, sqlite_stat1 rows ${chunkedStats}`,
-		);
-		console.log(`  browse plan (optimize): ${optimizePlan}`);
-		console.log(`  browse plan (chunked):  ${chunkedPlan}`);
-
-		optimizeDb.factory.shutdown();
-		analyzeDb.factory.shutdown();
-		chunkedDb.factory.shutdown();
-		await Promise.all([removeTree(optimizeDb.dir), removeTree(analyzeDb.dir), removeTree(chunkedDb.dir)]);
-
-		return { ok: optimizePlan === analyzePlan && analyzePlan === chunkedPlan };
-	});
-
-	// ─── WAL autocheckpoint under a write burst ────────────────────────────
-	// Small hosts write to SD cards and NAS shares where every checkpoint costs
-	// real milliseconds. Measure the write burst and the WAL left behind for the
-	// default, a larger auto-checkpoint interval, and no auto-checkpoint plus one
-	// passive checkpoint at the end.
-	task("database: WAL autocheckpoint under a write burst", async () => {
-		const rows = Math.min(args.rows, 5_000);
-		const updates = 2_000;
-		const build = async (): Promise<{ factory: DatabaseFactory; dir: string; dbPath: string }> => {
-			const dir = await mkdtemp(join(tmpdir(), "reelvault-benchmark-wal-"));
-			const dbPath = join(dir, "reelvault.sqlite");
-			const factory = new DatabaseFactory(dbPath);
-			factory.migrate();
-			seedCatalog(factory.sqlite, { rows, staggeredTimestamps: true });
-			factory.sqlite.run("PRAGMA wal_checkpoint(TRUNCATE)");
-
-			return { factory, dir, dbPath };
-		};
-		const variants = [
-			{ name: "auto 1000 (default)", autoCheckpoint: 1000, passive: false },
-			{ name: "auto 4000", autoCheckpoint: 4000, passive: false },
-			{ name: "no auto + passive", autoCheckpoint: 0, passive: true },
-		];
-		const results: Array<{ name: string; totalMs: number; maxStallMs: number; walBytes: number }> = [];
-
-		for (const variant of variants) {
-			const { factory, dir, dbPath } = await build();
-			factory.sqlite.run(`PRAGMA wal_autocheckpoint = ${variant.autoCheckpoint}`);
-			const update = factory.sqlite.prepare("UPDATE metadata SET popularity = COALESCE(popularity, 0) + 1 WHERE rowid = ?");
-			const burst = await measureStall(() => {
-				for (let index = 0; index < updates; index++) update.run((index % rows) + 1);
-			});
-			if (variant.passive) factory.sqlite.run("PRAGMA wal_checkpoint(PASSIVE)");
-			results.push({ name: variant.name, totalMs: burst.totalMs, maxStallMs: burst.maxStallMs, walBytes: walBytes(dbPath) });
-
-			factory.shutdown();
-			await removeTree(dir);
 		}
 
-		printTable(
-			`WAL write burst (${updates} updates, ${rows} rows)`,
-			["setting", "total", "max stall", "WAL after"],
-			results.map((result) => [result.name, fmtMs(result.totalMs), fmtMs(result.maxStallMs), fmtMb(result.walBytes)]),
-		);
+		const chunkedMs = (performance.now() - chunkedStart) / rounds;
 
-		return { ok: true };
+		let joinCount = 0;
+		const joinStart = performance.now();
+		for (let round = 0; round < rounds; round++) {
+			clearIds.run();
+			db.run("BEGIN");
+			for (const id of uniqueIds) insertId.run(id);
+
+			db.run("COMMIT");
+			joinCount += joinQuery.all().length;
+		}
+
+		const joinMs = (performance.now() - joinStart) / rounds;
+
+		// Both paths must return the same row count — a mismatch invalidates the run.
+		if (chunkedCount !== joinCount) throw new Error(`A/B row mismatch: IN=${chunkedCount}, JOIN=${joinCount}`);
+
+		console.log(`  ids=${uniqueIds.length}: chunked IN = ${chunkedMs.toFixed(2)}ms/call, temp-table JOIN = ${joinMs.toFixed(2)}ms/call`);
+	}
+});
+
+// ─── A/B: PRAGMA mmap_size (informs whether to add it in database.ts) ──
+task("database: PRAGMA mmap_size", async () => {
+	const { db } = await database();
+	console.log("\n[database] A/B: PRAGMA mmap_size on browse/detail queries...");
+	const browseProbe = db.prepare("SELECT id, title, popularity FROM metadata WHERE type = 'movie' ORDER BY created_at DESC LIMIT 24");
+	const mmapResults = [measure("browse WITHOUT mmap", () => browseProbe.all(), { iterations: 300 })];
+	db.run("PRAGMA mmap_size=268435456");
+	mmapResults.push(measure("browse WITH mmap_size=256MB", () => browseProbe.all(), { iterations: 300 }));
+	printMicroResults(mmapResults);
+});
+
+// ─── A/B: FTS5 optimize after update churn (informs cleanup worker) ────
+task("database: FTS5 optimize after update churn", async () => {
+	const { db, rows } = await database();
+	const search = db.prepare(
+		"SELECT m.id FROM metadata_fts f JOIN metadata m ON m.id = f.metadata_id WHERE metadata_fts MATCH 'star*' ORDER BY rank LIMIT 24",
+	);
+	const segmentCount = (): number => {
+		const row = db.query("SELECT count(*) AS count FROM metadata_fts_data").get();
+
+		return isRecord(row) && typeof row.count === "number" ? row.count : -1;
+	};
+
+	// Churn: every title update deletes + reinserts its FTS row, accumulating
+	// segments. Cap the updates at the seeded row count.
+	const churnRows = Math.min(1000, rows);
+	db.run("BEGIN");
+	const updateTitle = db.prepare("UPDATE metadata SET title = title || ' x' WHERE id = ?");
+	for (let i = 0; i < churnRows; i++) updateTitle.run(`meta-${String(i).padStart(7, "0")}`);
+	db.run("COMMIT");
+
+	const before = measure("FTS search after churn (no optimize)", () => search.all(), { iterations: 200 });
+	const segmentsBefore = segmentCount();
+	db.run("INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')");
+	const after = measure("FTS search after FTS5 optimize", () => search.all(), { iterations: 200 });
+	const segmentsAfter = segmentCount();
+	printMicroResults([before, after]);
+	console.log(`  metadata_fts_data rows: ${segmentsBefore} -> ${segmentsAfter} (${churnRows} title updates)`);
+});
+
+// ─── A/B: prepared statements & JIT mappers (informs Faza 3 adoption) ──
+task("database: prepared statements & JIT mappers", async () => {
+	const { factory } = await database();
+	const client = factory.sqlite;
+	const dbRegular = drizzle({ client });
+	const dbJit = drizzle({ client, jit: true });
+	const pageOrder = [asc(schema.metadata.title), asc(schema.metadata.id)];
+	const regularPage = dbRegular
+		.select()
+		.from(schema.metadata)
+		.where(eq(schema.metadata.type, "movie"))
+		.orderBy(...pageOrder)
+		.limit(24);
+	const jitPage = dbJit
+		.select()
+		.from(schema.metadata)
+		.where(eq(schema.metadata.type, "movie"))
+		.orderBy(...pageOrder)
+		.limit(24);
+	const preparedPage = dbRegular
+		.select()
+		.from(schema.metadata)
+		.where(eq(schema.metadata.type, sql.placeholder("type")))
+		.orderBy(...pageOrder)
+		.limit(24)
+		.prepare();
+	const preparedPageJit = dbJit
+		.select()
+		.from(schema.metadata)
+		.where(eq(schema.metadata.type, sql.placeholder("type")))
+		.orderBy(...pageOrder)
+		.limit(24)
+		.prepare();
+	const regularById = dbRegular.select().from(schema.metadata).where(eq(schema.metadata.id, "meta-0000001")).limit(1);
+	const preparedById = dbRegular
+		.select()
+		.from(schema.metadata)
+		.where(eq(schema.metadata.id, sql.placeholder("id")))
+		.limit(1)
+		.prepare();
+	const preparedByIdJit = dbJit
+		.select()
+		.from(schema.metadata)
+		.where(eq(schema.metadata.id, sql.placeholder("id")))
+		.limit(1)
+		.prepare();
+
+	const results = [
+		await measureAsync("page 24: drizzle regular", () => Promise.resolve(regularPage.all()), { iterations: 500 }),
+		await measureAsync("page 24: jit:true regular", () => Promise.resolve(jitPage.all()), { iterations: 500 }),
+		await measureAsync("page 24: prepared (jit off)", async () => await preparedPage.execute({ type: "movie" }), { iterations: 500 }),
+		await measureAsync("page 24: prepared + jit", async () => await preparedPageJit.execute({ type: "movie" }), { iterations: 500 }),
+		await measureAsync("by id: drizzle regular", () => Promise.resolve(regularById.all()), { iterations: 500 }),
+		await measureAsync("by id: prepared (jit off)", async () => await preparedById.execute({ id: "meta-0000001" }), { iterations: 500 }),
+		await measureAsync("by id: prepared + jit", async () => await preparedByIdJit.execute({ id: "meta-0000001" }), { iterations: 500 }),
+	];
+	printMicroResults(results);
+});
+
+// ─── A/B: post-bulk-write statistics refresh ──────────────────────────
+// A library scan refreshes planner statistics afterwards. `PRAGMA optimize`
+// only re-analyses tables that changed enough; a full `ANALYZE` scans every
+// table and index synchronously (blocking the event loop). Both must leave the
+// paginated browse on its composite index.
+task("database: post-scan statistics refresh (PRAGMA optimize vs ANALYZE)", async () => {
+	const rows = Math.min(args.rows, 20_000);
+	const planSql =
+		"SELECT id FROM metadata WHERE EXISTS (SELECT 1 FROM media_files WHERE media_files.metadata_id = metadata.id) ORDER BY title, id LIMIT 24";
+	const planOf = (factory: DatabaseFactory): string =>
+		factory.sqlite
+			.query(`EXPLAIN QUERY PLAN ${planSql}`)
+			.all()
+			.map((row) => (isRecord(row) && typeof row.detail === "string" ? row.detail.trim() : ""))
+			.join(" | ");
+	const build = async (): Promise<{ factory: DatabaseFactory; dir: string }> => {
+		const dir = await mkdtemp(join(tmpdir(), "reelvault-benchmark-stats-"));
+		const factory = new DatabaseFactory(join(dir, "reelvault.sqlite"));
+		factory.migrate();
+		seedCatalog(factory.sqlite, { rows, staggeredTimestamps: true });
+
+		return { factory, dir };
+	};
+
+	const optimizeDb = await build();
+	const optimizeStart = performance.now();
+	optimizeDb.factory.optimize();
+	const optimizeMs = performance.now() - optimizeStart;
+	const optimizePlan = planOf(optimizeDb.factory);
+	const optimizeStats = statRowCount(optimizeDb.factory);
+
+	const analyzeDb = await build();
+	const fullAnalyze = await measureStall(() => {
+		analyzeDb.factory.sqlite.run("ANALYZE");
 	});
+	const analyzePlan = planOf(analyzeDb.factory);
+	const analyzeStats = statRowCount(analyzeDb.factory);
 
-	// ─── Bun compiled-statement cache: dynamic SQL working set ──────────────
-	// The query layer builds SQL text per request shape (filters, sorts,
-	// projections). Bun caches compiled statements per SQL text with capacity
-	// `Database.MAX_QUERY_CACHE_SIZE` (Bun default 20), latched when the first
-	// Database is constructed; database.factory raises it to 512 before opening
-	// the connection. A working set wider than the capacity re-compiles the
-	// evicted SQL on every round — a 48-shape sweep went 0.11 ms → 0.03 ms p50
-	// across that change while this control stayed put. Keep distinct- and
-	// control-sweep close; a growing gap means the working set again exceeds
-	// the cache.
-	task("database: compiled-statement working set", async () => {
-		const { db } = await database();
-		const shapes = 48;
-		const shapeIds = Array.from({ length: shapes }, (_, i) => `'meta-${String(i).padStart(7, "0")}'`);
-		const sweepDistinct = (): void => {
-			for (const id of shapeIds) db.query(`SELECT id FROM metadata WHERE id = ${id}`).get();
-		};
-		const repeated = db.query("SELECT id FROM metadata WHERE id = 'meta-0000000'");
-		const sweepRepeated = (): void => {
-			for (let i = 0; i < shapes; i++) repeated.get();
-		};
-
-		printMicroResults([
-			measure(`${shapes} distinct SQL shapes per sweep`, sweepDistinct, { iterations: 300 }),
-			measure(`${shapes} hits on one compiled statement`, sweepRepeated, { iterations: 300 }),
-		]);
+	const chunkedDb = await build();
+	const chunkedAnalyze = await measureStall(async () => {
+		await chunkedDb.factory.analyzeChunked();
 	});
-}
+	const chunkedPlan = planOf(chunkedDb.factory);
+	const chunkedStats = statRowCount(chunkedDb.factory);
 
-await main(import.meta);
+	console.log(`\n[database] statistics refresh @ ${rows} rows:`);
+	console.log(`  PRAGMA optimize:       ${optimizeMs.toFixed(1)}ms, sqlite_stat1 rows ${optimizeStats}`);
+	console.log(
+		`  full ANALYZE:          ${fullAnalyze.totalMs.toFixed(1)}ms, max loop stall ${fullAnalyze.maxStallMs.toFixed(1)}ms, sqlite_stat1 rows ${analyzeStats}`,
+	);
+	console.log(
+		`  chunked + sample:      ${chunkedAnalyze.totalMs.toFixed(1)}ms, max loop stall ${chunkedAnalyze.maxStallMs.toFixed(1)}ms, sqlite_stat1 rows ${chunkedStats}`,
+	);
+	console.log(`  browse plan (optimize): ${optimizePlan}`);
+	console.log(`  browse plan (chunked):  ${chunkedPlan}`);
+
+	optimizeDb.factory.shutdown();
+	analyzeDb.factory.shutdown();
+	chunkedDb.factory.shutdown();
+	await Promise.all([removeTree(optimizeDb.dir), removeTree(analyzeDb.dir), removeTree(chunkedDb.dir)]);
+
+	return { ok: optimizePlan === analyzePlan && analyzePlan === chunkedPlan };
+});
+
+// ─── WAL autocheckpoint under a write burst ────────────────────────────
+// Small hosts write to SD cards and NAS shares where every checkpoint costs
+// real milliseconds. Measure the write burst and the WAL left behind for the
+// default, a larger auto-checkpoint interval, and no auto-checkpoint plus one
+// passive checkpoint at the end.
+task("database: WAL autocheckpoint under a write burst", async () => {
+	const rows = Math.min(args.rows, 5_000);
+	const updates = 2_000;
+	const build = async (): Promise<{ factory: DatabaseFactory; dir: string; dbPath: string }> => {
+		const dir = await mkdtemp(join(tmpdir(), "reelvault-benchmark-wal-"));
+		const dbPath = join(dir, "reelvault.sqlite");
+		const factory = new DatabaseFactory(dbPath);
+		factory.migrate();
+		seedCatalog(factory.sqlite, { rows, staggeredTimestamps: true });
+		factory.sqlite.run("PRAGMA wal_checkpoint(TRUNCATE)");
+
+		return { factory, dir, dbPath };
+	};
+	const variants = [
+		{ name: "auto 1000 (default)", autoCheckpoint: 1000, passive: false },
+		{ name: "auto 4000", autoCheckpoint: 4000, passive: false },
+		{ name: "no auto + passive", autoCheckpoint: 0, passive: true },
+	];
+	const results: Array<{ name: string; totalMs: number; maxStallMs: number; walBytes: number }> = [];
+
+	for (const variant of variants) {
+		const { factory, dir, dbPath } = await build();
+		factory.sqlite.run(`PRAGMA wal_autocheckpoint = ${variant.autoCheckpoint}`);
+		const update = factory.sqlite.prepare("UPDATE metadata SET popularity = COALESCE(popularity, 0) + 1 WHERE rowid = ?");
+		const burst = await measureStall(() => {
+			for (let index = 0; index < updates; index++) update.run((index % rows) + 1);
+		});
+		if (variant.passive) factory.sqlite.run("PRAGMA wal_checkpoint(PASSIVE)");
+		results.push({ name: variant.name, totalMs: burst.totalMs, maxStallMs: burst.maxStallMs, walBytes: walBytes(dbPath) });
+
+		factory.shutdown();
+		await removeTree(dir);
+	}
+
+	printTable(
+		`WAL write burst (${updates} updates, ${rows} rows)`,
+		["setting", "total", "max stall", "WAL after"],
+		results.map((result) => [result.name, fmtMs(result.totalMs), fmtMs(result.maxStallMs), fmtMb(result.walBytes)]),
+	);
+
+	return { ok: true };
+});
+
+// ─── Bun compiled-statement cache: dynamic SQL working set ──────────────
+// The query layer builds SQL text per request shape (filters, sorts,
+// projections). Bun caches compiled statements per SQL text with capacity
+// `Database.MAX_QUERY_CACHE_SIZE` (Bun default 20), latched when the first
+// Database is constructed; database.factory raises it to 512 before opening
+// the connection. A working set wider than the capacity re-compiles the
+// evicted SQL on every round — a 48-shape sweep went 0.11 ms → 0.03 ms p50
+// across that change while this control stayed put. Keep distinct- and
+// control-sweep close; a growing gap means the working set again exceeds
+// the cache.
+task("database: compiled-statement working set", async () => {
+	const { db } = await database();
+	const shapes = 48;
+	const shapeIds = Array.from({ length: shapes }, (_, i) => `'meta-${String(i).padStart(7, "0")}'`);
+	const sweepDistinct = (): void => {
+		for (const id of shapeIds) db.query(`SELECT id FROM metadata WHERE id = ${id}`).get();
+	};
+	const repeated = db.query("SELECT id FROM metadata WHERE id = 'meta-0000000'");
+	const sweepRepeated = (): void => {
+		for (let i = 0; i < shapes; i++) repeated.get();
+	};
+
+	printMicroResults([
+		measure(`${shapes} distinct SQL shapes per sweep`, sweepDistinct, { iterations: 300 }),
+		measure(`${shapes} hits on one compiled statement`, sweepRepeated, { iterations: 300 }),
+	]);
+});

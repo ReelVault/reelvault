@@ -1,7 +1,7 @@
 import type { StreamingSession } from "@reelvault/sdk/common";
 import type { Subprocess } from "bun";
 import type { FFmpegProgress } from "@/integrations/ffmpeg/ffmpeg.builder";
-import { streamingStorage } from "@/modules/streaming/streaming.ports";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { MemoryCache } from "@/utils/memory.cache";
@@ -22,10 +22,10 @@ export interface TranscodeProgressMonitorDependencies {
 }
 
 const defaultDependencies: TranscodeProgressMonitorDependencies = {
-	attachStreamOperation: (operationId) => streamingStorage().markStreamAttached(operationId),
-	updateOperationProgress: (operationId, percent) => streamingStorage().updateOperationProgress(operationId, percent),
-	completeStreamOperation: (operationId) => streamingStorage().completeStreamOperation(operationId),
-	releaseStreamOperation: (operationId) => streamingStorage().releaseStreamOperation(operationId),
+	attachStreamOperation: (operationId) => workerOperationRepository.markStreamAttached(operationId),
+	updateOperationProgress: (operationId, percent) => workerOperationRepository.updateProgress(operationId, percent),
+	completeStreamOperation: (operationId) => workerOperationRepository.completeStreamSlot(operationId),
+	releaseStreamOperation: (operationId) => workerOperationRepository.releaseStreamSlot(operationId),
 };
 
 /**

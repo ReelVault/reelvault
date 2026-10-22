@@ -31,15 +31,6 @@ function shouldCompress(contentType: string, size: number): boolean {
 }
 
 /**
- * Response Compression Middleware.
- * Compresses responses using the best available encoding (br > gzip > deflate).
- *
- * Skips responses that are:
- * - Already compressed (Content-Encoding set)
- * - Binary types (image/*, video/*, audio/*, application/octet-stream)
- * - Below minimum size threshold (1KB)
- */
-/**
  * Normalizes a route response into a compressible Buffer, applying the minimum
  * size threshold and deriving the content type when the route did not set one.
  * Returns undefined when the response type is not compressible.
@@ -85,6 +76,15 @@ function resolveCompressibleBody(
 	return { body: Buffer.from(serialized), contentType: contentType || "application/json; charset=utf-8" };
 }
 
+/**
+ * Response Compression Middleware.
+ * Compresses responses using the best available encoding (br > gzip > deflate).
+ *
+ * Skips responses that are:
+ * - Already compressed (Content-Encoding set)
+ * - Binary types (image/*, video/*, audio/*, application/octet-stream)
+ * - Below minimum size threshold (1KB)
+ */
 export const compressionMiddleware = new Elysia({ name: "Compression" })
 	.mapResponse(async ({ request, responseValue, set }): Promise<Response | undefined> => {
 		if (!serverConfig.compression.enabled) return undefined;

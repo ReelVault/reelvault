@@ -7,8 +7,8 @@ import type { ProcessManager } from "@/modules/streaming/ffmpeg/process.manager"
 import type { PlaylistFileCache } from "@/modules/streaming/playlist/playlist.cache";
 import { transcodeProgressMonitor } from "@/modules/streaming/runtime/transcode-progress.monitor";
 import type { SessionSeeker } from "@/modules/streaming/seeking/session.seeker";
-import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import type { StreamingLifecycleCallbacks } from "@/modules/streaming/streaming.types";
+import { workerJobRepository } from "@/repositories/worker.repository";
 import { createLogger } from "@/utils/logger.utils";
 import { detach, mapConcurrent } from "@/utils/promise.utils";
 import { RecurringTimer } from "@/utils/recurring-timer.utils";
@@ -125,7 +125,7 @@ export class SessionReaper {
 								const operationIds = candidates
 									.map((id) => this.store.get(id)?.operationId)
 									.filter((operationId): operationId is string => operationId !== undefined);
-								const activeOperations = await streamingStorage().findActiveOperations(operationIds);
+								const activeOperations = await workerJobRepository.findActiveOperations(operationIds);
 								const staleIds = candidates.filter((id) => {
 									const operationId = this.store.get(id)?.operationId;
 

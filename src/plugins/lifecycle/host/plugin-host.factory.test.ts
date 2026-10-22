@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PlaybackArtifactWrite } from "@reelvault/sdk/common";
 import type {
-	BeforeArtifactCreateHook,
-	BeforeMediaRecognitionHook,
-	BeforeMetadataSaveHook,
 	MediaAnalyzer,
 	MetadataProvider,
 	PluginAccessPolicy,
@@ -17,11 +14,13 @@ import type {
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
 import { realtimeService } from "@/modules/realtime/realtime.service";
+import type { PluginHookName } from "@/system/extensions/plugin.hooks";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { insertUsers, selectNotifications } from "../../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import type { PluginEventHandlerErased, PluginScopeApi } from "./plugin.scope";
-import { createPluginHost, type PluginNotificationSink, registerPluginNotificationSink } from "./plugin-host.factory";
+import { createPluginHost } from "./plugin-host.factory";
 
 // Media, metadata, artifacts and notifications run against the migrated test database, so
 // each capability reads or writes real rows. Stubbed: the realtime broadcast, which leaves
@@ -84,16 +83,8 @@ class ScopeSpy implements PluginScopeApi {
 		this.subscriptions.push({ pluginId, event });
 	}
 
-	subscribeBeforeArtifactCreate(_pluginId: string, _handler: BeforeArtifactCreateHook): void {
-		this.hooks.push("artifact");
-	}
-
-	subscribeBeforeMediaRecognition(_pluginId: string, _handler: BeforeMediaRecognitionHook): void {
-		this.hooks.push("recognition");
-	}
-
-	subscribeBeforeMetadataSave(_pluginId: string, _handler: BeforeMetadataSaveHook): void {
-		this.hooks.push("metadata");
+	subscribeHook(_pluginId: string, name: PluginHookName): void {
+		this.hooks.push(name);
 	}
 
 	subscribeAccessPolicy(_pluginId: string, policy: PluginAccessPolicy): void {
@@ -133,20 +124,6 @@ function useHostFixtures(): void {
 }
 
 describe("createPluginHost", () => {
-	let createdNotifications: Array<Parameters<PluginNotificationSink["create"]>> = [];
-
-	beforeEach(() => {
-		createdNotifications = [];
-		registerPluginNotificationSink({
-			create: (notification, options) => {
-				createdNotifications.push([notification, options]);
-
-				return Promise.resolve("notification-1");
-			},
-			createForAdministrators: () => Promise.resolve(),
-		});
-	});
-
 	useHostFixtures();
 
 	test("media and metadata reads require their read capability and read the stored rows", async () => {
@@ -208,11 +185,13 @@ describe("createPluginHost", () => {
 		expect(scope.used).toEqual(["artifactsWrite"]);
 	});
 
-	test("a notification created through the host reaches the sink attributed to the plugin", async () => {
-		await expect(host.notifications.create({ userId: "user-1", type: "info", title: "Hello" })).resolves.toBeUndefined();
+	test("a notification created through the host is stored for the user and attributed to the plugin", async () => {
+		await insertUsers(db.client(), { id: "user-1", name: "Ann", email: "ann@example.com", emailVerified: true });
 
-		expect(createdNotifications).toEqual([
-			[expect.objectContaining({ userId: "user-1", title: "Hello" }), { sourcePluginId: "org.reelvault.hosted" }],
+		await host.notifications.create({ userId: "user-1", type: "info", title: "Hello" });
+
+		expect(await selectNotifications(db.client())).toMatchObject([
+			{ userId: "user-1", type: "info", title: "Hello", sourcePluginId: "org.reelvault.hosted" },
 		]);
 		expect(scope.used).toEqual(["notification"]);
 	});
@@ -226,7 +205,7 @@ describe("createPluginHost", () => {
 		host.access.register(policy);
 
 		expect(scope.subscriptions).toEqual([{ pluginId: "org.reelvault.hosted", event: "plugin.enabled" }]);
-		expect(scope.hooks).toEqual(["metadata", "artifact", "recognition"]);
+		expect(scope.hooks).toEqual(["beforeMetadataSave", "beforeArtifactCreate", "beforeMediaRecognition"]);
 		expect(scope.policies).toHaveLength(1);
 		expect(scope.used.every((capability) => capability === "eventHandler" || capability === "accessPolicy")).toBe(true);
 	});

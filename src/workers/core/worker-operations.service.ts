@@ -1,12 +1,15 @@
 import { systemResourcesService } from "@/config/system-resources.service";
 import { buildAdminPagination, createPageResponse, resolvePageParams } from "@/integrations/drizzle-orm/query/pagination.utils";
+import { workerJobRepository } from "@/repositories/worker.repository";
+import type { WorkerItem } from "@/repositories/worker-jobs/shared.types";
+import type { WorkerOperationRecord, WorkerOperationStatus } from "@/repositories/worker-operation/shared.types";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { DomainError } from "@/utils/domain.errors";
 import { safeParseJson } from "@/utils/json.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { type TerminalPurgeRequest, terminalPurgeFilter } from "@/workers/utils/worker-purge.utils";
 import { toJobContract, toOperationContract } from "@/workers/utils/worker-stats.mapper";
-import { type WorkerItem, type WorkerOperationRecord, type WorkerOperationStatus, workerDependencies } from "@/workers/worker.ports";
 import type { WorkerOperationJobsQuery } from "@/workers/worker.types";
 import { getWorkerRuntime } from "./worker.runtime";
 
@@ -18,7 +21,7 @@ export const workerOperationsService = {
 	logger: createLogger("WorkerOperationsService"),
 
 	create(input: { type: string; reference?: { type: string; id: string }; error?: string }): Promise<WorkerOperationRecord> {
-		return workerDependencies().operations.create({
+		return workerOperationRepository.create({
 			id: Bun.randomUUIDv7(),
 			type: input.type,
 			referenceType: input.reference?.type,
@@ -28,7 +31,7 @@ export const workerOperationsService = {
 	},
 
 	async getById(id: string) {
-		const operation = await workerDependencies().operations.findById(id);
+		const operation = await workerOperationRepository.findById(id);
 
 		return operation ? toOperationContract(operation) : undefined;
 	},
@@ -37,7 +40,7 @@ export const workerOperationsService = {
 		options: { status?: WorkerOperationStatus | "active" | undefined; page?: number | undefined; limit?: number | undefined } = {},
 	) {
 		const pagination = resolvePageParams(options, { defaultLimit: 50 });
-		const result = await workerDependencies().operations.list({
+		const result = await workerOperationRepository.list({
 			status: options.status,
 			limit: pagination.limit,
 			offset: pagination.offset,
@@ -53,8 +56,8 @@ export const workerOperationsService = {
 	async getOperationJobs(id: string, options: WorkerOperationJobsQuery = {}) {
 		const pagination = resolvePageParams(options, { defaultLimit: 50 });
 		const [summary, { items, total }] = await Promise.all([
-			workerDependencies().operations.getOperationItemsSummary(id),
-			workerDependencies().operations.listItems(id, {
+			workerOperationRepository.getOperationItemsSummary(id),
+			workerOperationRepository.listItems(id, {
 				status: options.status,
 				search: options.q,
 				limit: pagination.limit,
@@ -70,22 +73,22 @@ export const workerOperationsService = {
 	},
 
 	async cancel(id: string): Promise<boolean> {
-		const operation = await workerDependencies().operations.findById(id);
+		const operation = await workerOperationRepository.findById(id);
 		if (!operation || (operation.status !== "pending" && operation.status !== "running")) return false;
 
-		await workerDependencies().operations.requestCancel(id);
+		await workerOperationRepository.requestCancel(id);
 		// Pending rows first: the poller claims them without consulting the cancel
 		// request, so the window between the two calls must be as short as possible.
-		await workerDependencies().jobs.cancelPendingByOperation(id);
+		await workerJobRepository.cancelPendingByOperation(id);
 
-		const runningItems = await workerDependencies().jobs.findRunningByOperation(id);
+		const runningItems = await workerJobRepository.findRunningByOperation(id);
 		for (const item of runningItems) {
 			getWorkerRuntime().pool.cancel(item.id);
 		}
 
 		if (runningItems.length > 0) {
 			await mapConcurrent(runningItems, systemResourcesService.getIoConcurrency(), async (item) =>
-				workerDependencies().jobs.cancelRunning(item.id),
+				workerJobRepository.cancelRunning(item.id),
 			);
 		}
 
@@ -99,7 +102,7 @@ export const workerOperationsService = {
 	 * chunk completes; the queue inserts then skip counter increments.
 	 */
 	async resume(id: string): Promise<{ resumed: number }> {
-		const operation = await workerDependencies().operations.findById(id);
+		const operation = await workerOperationRepository.findById(id);
 		if (!operation) return { resumed: 0 };
 
 		if (operation.status !== "cancelled") {
@@ -108,20 +111,20 @@ export const workerOperationsService = {
 			});
 		}
 
-		const total = await workerDependencies().jobs.countCancelledByOperation(id);
+		const total = await workerJobRepository.countCancelledByOperation(id);
 		if (total === 0) {
 			throw new DomainError("validation", "The operation has no cancelled tasks to resume", { code: "worker.nothing_to_resume" });
 		}
 
 		// Clear the cancel request BEFORE re-enqueueing: `enqueueMany` validates the
 		// operation and rejects any with `cancelRequested=true`.
-		await workerDependencies().operations.markResumed(id, total);
+		await workerOperationRepository.markResumed(id, total);
 
 		let resumed = 0;
 		let cursor: string | undefined;
 		try {
 			for (;;) {
-				const items = await workerDependencies().jobs.findCancelledByOperation(id, RESUME_PAGE_SIZE, cursor);
+				const items = await workerJobRepository.findCancelledByOperation(id, RESUME_PAGE_SIZE, cursor);
 				if (items.length === 0) break;
 
 				cursor = items.at(-1)?.id;
@@ -170,23 +173,19 @@ export const workerOperationsService = {
 			// Re-enqueue failed part-way: cancel what was inserted and rebuild the
 			// counters from the surviving rows, so the operation cannot sit pending
 			// with a total nothing will ever reach.
-			await workerDependencies()
-				.jobs.cancelPendingByOperation(id)
-				.catch(() => {
-					// best-effort rollback
-				});
-			await workerDependencies()
-				.operations.reconcileFromJobs(id)
-				.catch(() => {
-					// best-effort rollback
-				});
+			await workerJobRepository.cancelPendingByOperation(id).catch(() => {
+				// best-effort rollback
+			});
+			await workerOperationRepository.reconcileFromJobs(id).catch(() => {
+				// best-effort rollback
+			});
 			throw error;
 		}
 
 		// The pre-set total counted every cancelled row; rows skipped because the
 		// worker is gone or the dedupe key is active never become jobs. Rebuild the
 		// counters from the inserted rows so the operation can terminalize.
-		await workerDependencies().operations.reconcileFromJobs(id);
+		await workerOperationRepository.reconcileFromJobs(id);
 
 		return { resumed };
 	},
@@ -198,7 +197,7 @@ export const workerOperationsService = {
 		// so re-list from the top each pass instead of paginating (offset paging
 		// would skip rows as the result set shrinks). The old code only ever saw
 		// the first 1000 active operations.
-		let activeOperations = await workerDependencies().operations.list({ status: "active", limit: 1000 });
+		let activeOperations = await workerOperationRepository.list({ status: "active", limit: 1000 });
 		while (activeOperations.data.length > 0) {
 			const results = await mapConcurrent(activeOperations.data, concurrency, async (op) => workerOperationsService.cancel(op.id));
 			const batchCancelled = results.filter((wasCancelled) => wasCancelled).length;
@@ -206,7 +205,7 @@ export const workerOperationsService = {
 			if (batchCancelled === 0) break;
 
 			cancelled += batchCancelled;
-			activeOperations = await workerDependencies().operations.list({ status: "active", limit: 1000 });
+			activeOperations = await workerOperationRepository.list({ status: "active", limit: 1000 });
 		}
 
 		return cancelled;
@@ -217,16 +216,16 @@ export const workerOperationsService = {
 		const filter = terminalPurgeFilter(options);
 
 		return options.dryRun
-			? workerDependencies().operations.countTerminalOperations(filter)
-			: workerDependencies().operations.purgeTerminalOperations(filter);
+			? workerOperationRepository.countTerminalOperations(filter)
+			: workerOperationRepository.purgeTerminalOperations(filter);
 	},
 
 	cleanupExpired(): Promise<number> {
-		return workerDependencies().operations.cleanupExpired();
+		return workerOperationRepository.cleanupExpired();
 	},
 
 	async remove(id: string): Promise<void> {
-		await workerDependencies().operations.remove(id);
+		await workerOperationRepository.remove(id);
 	},
 };
 

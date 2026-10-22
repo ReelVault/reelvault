@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import type { MetadataStorageMode } from "@reelvault/sdk/common";
 import { isSubpath } from "@/utils/path.utils";
-import type { SidecarStorageLibrary } from "./sidecar.ports";
+import type { SidecarStorageLibrary } from "./sidecar.types";
 
 export interface PreparedStorageRoots {
 	readonly paths: SidecarStorageLibrary["paths"];

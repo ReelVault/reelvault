@@ -3,11 +3,14 @@ import { SidecarMetadataStorageService } from "@/modules/metadata-sidecars/sidec
 import { sidecarMetadataWriter } from "@/modules/metadata-sidecars/sidecar-metadata-writer.runtime";
 import { createMediaFileProcessor } from "@/modules/scanner/processing/media-file.processor";
 import { importSidecarSubtitles } from "@/modules/scanner/processing/sidecar-subtitles.utils";
+import { librariesRepository } from "@/repositories/libraries.repository";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { scanFindingsRepository } from "@/repositories/scan-findings.repository";
+import { MetadataProcess } from "@/services/catalog/metadata/process/metadata-process.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { MemoryCache } from "@/utils/memory.cache";
 import { enqueueMediaFileAnalysis } from "@/workers/definitions/media/media-file-analysis.worker";
 import { enqueueTrickplayGenerationForLibrary } from "@/workers/definitions/media/trickplay-generate.worker";
-import { workerDependencies } from "@/workers/worker.ports";
 import type { MediaFileIngestTaskDependencies } from "./media-file-ingest.types";
 
 /**
@@ -26,7 +29,7 @@ let mediaFileProcessor: ReturnType<typeof createMediaFileProcessor> | undefined;
 
 /** Built on first use: `MetadataProcess` sits in an import cycle, so it cannot be constructed at module scope. */
 function getMediaFileProcessor(): ReturnType<typeof createMediaFileProcessor> {
-	mediaFileProcessor ??= createMediaFileProcessor(workerDependencies().services.metadataProcess);
+	mediaFileProcessor ??= createMediaFileProcessor(new MetadataProcess());
 
 	return mediaFileProcessor;
 }
@@ -36,24 +39,24 @@ export const defaultDependencies: MediaFileIngestTaskDependencies = {
 		const cached = ingestLibraryCache.get(libraryId);
 		if (cached) return cached;
 
-		const library = await workerDependencies().libraries.findWithPaths(libraryId);
+		const library = await librariesRepository.findWithPaths(libraryId);
 		if (library) ingestLibraryCache.set(libraryId, library);
 
 		return library;
 	},
 	processFile: (libraryType, filePath, skipExistingLookup, options) =>
 		getMediaFileProcessor().process(libraryType, filePath, skipExistingLookup, options),
-	upsertScanFinding: (finding) => workerDependencies().scanFindings.upsert(finding),
-	deleteScanFinding: (libraryId, filePath) => workerDependencies().scanFindings.remove(libraryId, filePath),
-	createMediaFile: (data) => workerDependencies().media.createWithStreams(data),
+	upsertScanFinding: (finding) => scanFindingsRepository.upsert(finding),
+	deleteScanFinding: (libraryId, filePath) => scanFindingsRepository.remove(libraryId, filePath),
+	createMediaFile: (data) => mediaRepository.createWithStreams(data),
 	importSidecarSubtitles: (mediaFileId, videoFilePath) => importSidecarSubtitles(mediaFileId, videoFilePath),
-	findMediaByPaths: (libraryId, filePaths) => workerDependencies().media.findByLibraryAndPaths({ libraryId, filePaths }),
+	findMediaByPaths: (libraryId, filePaths) => mediaRepository.findByLibraryAndPaths({ libraryId, filePaths }),
 	saveSidecars: (library, mediaFiles) => new SidecarMetadataStorageService(sidecarMetadataWriter).saveLibraryMedia(library, mediaFiles),
 	emitMediaDiscovered: (input) => pluginEventBus.emit("media.file.discovered", input),
 	emitMediaIdentified: (input) => pluginEventBus.emit("media.file.identified", input),
-	readIngestProgress: (mediaFileId) => workerDependencies().media.findIngestProgress(mediaFileId),
-	markSidecarWritten: (mediaFileId) => workerDependencies().media.markIngestSidecarWritten(mediaFileId),
-	markDiscoveredEmitted: (mediaFileId) => workerDependencies().media.markIngestDiscoveredEmitted(mediaFileId),
+	readIngestProgress: (mediaFileId) => mediaRepository.findIngestProgress(mediaFileId),
+	markSidecarWritten: (mediaFileId) => mediaRepository.markIngestSidecarWritten(mediaFileId),
+	markDiscoveredEmitted: (mediaFileId) => mediaRepository.markIngestDiscoveredEmitted(mediaFileId),
 	enqueueTrickplayGeneration: (mediaFileId, libraryId) => enqueueTrickplayGenerationForLibrary(mediaFileId, libraryId),
 	enqueueAnalysis: (data, options) => enqueueMediaFileAnalysis(data, options ?? {}),
 };

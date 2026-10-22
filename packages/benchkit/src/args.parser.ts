@@ -1,11 +1,11 @@
 export interface BenchmarkArgs {
-	/** Benchmark target to run (e.g. "http", "streaming", "upload", "database", "workers", "scanner", "ffmpeg", "all"). */
-	target?: string;
+	/** Suites to run, in order (`bun run benchmark http database`); `all` runs every suite. */
+	targets: string[];
 	/** Base URL of an already-running server. When set, no server is spawned. */
 	baseUrl?: string;
 	/** Comma-separated concurrency levels, e.g. "1,10,50,100". */
 	concurrency: number[];
-	/** Duration of each HTTP scenario in ms. */
+	/** Duration of each load scenario in ms. */
 	durationMs: number;
 	/** Warmup duration before measurements start, in ms. */
 	warmupMs: number;
@@ -15,7 +15,7 @@ export interface BenchmarkArgs {
 	rows: number;
 	/** Upload payload size in MB. */
 	sizeMb: number;
-	/** Only run HTTP scenarios whose name contains this substring. */
+	/** Only run load scenarios whose name contains this substring. */
 	scenario?: string | undefined;
 	/** Keep the spawned server alive after the run (for debugging). */
 	keepServer: boolean;
@@ -23,6 +23,8 @@ export interface BenchmarkArgs {
 	noCache: boolean;
 	/** Run with in-flight request/load coalescing off (every concurrent request does its own work). */
 	noDedup: boolean;
+	/** Write CPU and heap profiles of the benchmark process and every spawned server. */
+	profile: boolean;
 	/** Write machine-readable results here; `true` means the runner's default path (`--json[=path]`). */
 	json?: string | boolean | undefined;
 	/** Only run units whose name matches this regex (`--only`, case-insensitive). */
@@ -31,7 +33,7 @@ export interface BenchmarkArgs {
 	saveBaseline?: string | boolean | undefined;
 	/** Compare against a saved baseline and print verdicts (`--compare-baseline[=path]`). */
 	compareBaseline?: string | boolean | undefined;
-	/** Fail the run when a task/compare reports a failure (`--strict`). */
+	/** Fail the run when a task/compare reports a failure or a unit regressed (`--strict`). */
 	strict: boolean;
 	/** Extra flags accepted via `extraFlags`, recorded as `true` (no value) or their string value. */
 	flags: Record<string, string | boolean>;
@@ -51,31 +53,41 @@ export const DEFAULT_SEED_ROWS = 5_000;
 
 export const DEFAULT_UPLOAD_SIZE_MB = 25;
 
-const FLAG_NAMES = new Set(["url", "concurrency", "duration", "warmup", "iterations", "rows", "size-mb", "target"]);
-/** Flags that take no value unless given inline as `--flag=value`. */
-const BOOLEAN_FLAGS = new Set(["strict", "json", "save-baseline", "compare-baseline", "keep-server", "no-cache", "no-dedup"]);
+/** Flags that take no value unless given inline as `--flag=value`; they never consume the next token. */
+const BOOLEAN_FLAGS = new Set([
+	"help",
+	"strict",
+	"json",
+	"save-baseline",
+	"compare-baseline",
+	"keep-server",
+	"no-cache",
+	"no-dedup",
+	"profile",
+]);
 const TRAILING_SLASH_REGEX = /\/$/;
 
 export function printUsage(scriptName: string, extra = ""): void {
-	console.log(`Usage: bun run ${scriptName} [target] [flags]
-  target                 benchmark target (see the suite list below; "all" runs everything)
-  --url <url>            target an already-running server (default: spawn a managed one)
+	console.log(`Usage: bun run ${scriptName} <suite...> [flags]
+  suite...               one or more suites, run in order ("all" runs every suite)
+  --only <regex>         only run units (bench/compare/task) whose name matches
+  --scenario <substr>    only run load scenarios whose name contains this substring
+  --rows <n>             rows the suites seed (default: ${DEFAULT_SEED_ROWS})
   --concurrency <list>   comma-separated concurrency levels (default: ${DEFAULT_CONCURRENCY_STEPS.join(",")})
   --duration <ms>        per-scenario duration (default: ${DEFAULT_DURATION_MS})
   --warmup <ms>          warmup duration (default: ${DEFAULT_WARMUP_MS})
   --iterations <n>       micro-benchmark iterations (default: ${DEFAULT_ITERATIONS})
-  --rows <n>             seeded catalog rows (default: ${DEFAULT_SEED_ROWS})
   --size-mb <n>          upload payload size in MB (default: ${DEFAULT_UPLOAD_SIZE_MB})
-  --scenario <substr>    only run HTTP scenarios whose name contains this substring
-  --only <regex>         only run units (bench/compare/task) whose name matches this regex
-  --save-baseline[=path] save raw bench samples as a baseline (default: benchmark-results/baseline.json)
+  --url <url>            target an already-running server (default: spawn a managed one)
+  --keep-server          leave the spawned server running after the run
+  --no-cache             ask the suites for the cold path (no response caches)
+  --no-dedup             ask the suites to turn off request coalescing (worst-case concurrent work)
+  --profile              write CPU and heap profiles (.cpuprofile + .md) of the run and the processes it spawns
+  --save-baseline[=path] save raw samples and task metrics (default: benchmark-results/baseline.json)
   --compare-baseline[=path]
-                         compare against a baseline and print verdicts; with --strict a "slower" verdict fails
-  --no-cache             bypass the server-side response body cache (cold path)
-  --no-dedup             disable in-flight request/load coalescing (worst-case concurrent work)
-  --hardware <profile>   simulate a host: low-end (RPi 4), old-laptop, modern
-  --json[=path]          write machine-readable results (default path: benchmark-results/benchkit-latest.json)
-  --strict               exit non-zero when an audit/comparison unit reports a failure${extra}`);
+                         compare against a baseline: faster / slower / unchanged / noisy per unit
+  --json[=path]          write machine-readable results (default: benchmark-results/benchkit-latest.json)
+  --strict               exit non-zero when a unit reports a failure or regressed vs the baseline${extra}`);
 }
 
 function parseConcurrency(value: string): number[] {
@@ -87,82 +99,79 @@ function parseConcurrency(value: string): number[] {
 	return parsed.length > 0 ? parsed : DEFAULT_CONCURRENCY_STEPS;
 }
 
-function applyNumericFlag(args: BenchmarkArgs, key: string, value: string): void {
-	const parsed = Number.parseInt(value, 10);
-	if (!Number.isInteger(parsed) || parsed <= 0) return;
+function positiveInteger(value: string | undefined): number | undefined {
+	const parsed = Number.parseInt(value ?? "", 10);
 
-	if (key === "duration") {
-		args.durationMs = parsed;
-	} else if (key === "warmup") {
-		args.warmupMs = parsed;
-	} else if (key === "iterations") {
-		args.iterations = parsed;
-	} else if (key === "rows") {
-		args.rows = parsed;
-	} else if (key === "size-mb") {
-		args.sizeMb = parsed;
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/** Applies one flag; returns false for a flag the parser does not know. */
+function applyFlag(args: BenchmarkArgs, key: string, value: string | undefined): boolean {
+	switch (key) {
+		case "help":
+			args.help = true;
+			break;
+		case "strict":
+			args.strict = true;
+			break;
+		case "keep-server":
+			args.keepServer = true;
+			break;
+		case "no-cache":
+			args.noCache = true;
+			break;
+		case "no-dedup":
+			args.noDedup = true;
+			break;
+		case "profile":
+			args.profile = true;
+			break;
+		case "json":
+			args.json = value ?? true;
+			break;
+		case "save-baseline":
+			args.saveBaseline = value ?? true;
+			break;
+		case "compare-baseline":
+			args.compareBaseline = value ?? true;
+			break;
+		case "url":
+			if (value) args.baseUrl = value.replace(TRAILING_SLASH_REGEX, "");
+			break;
+		case "only":
+			args.only = value;
+			break;
+		case "scenario":
+			args.scenario = value;
+			break;
+		case "concurrency":
+			if (value) args.concurrency = parseConcurrency(value);
+			break;
+		case "duration":
+			args.durationMs = positiveInteger(value) ?? args.durationMs;
+			break;
+		case "warmup":
+			args.warmupMs = positiveInteger(value) ?? args.warmupMs;
+			break;
+		case "iterations":
+			args.iterations = positiveInteger(value) ?? args.iterations;
+			break;
+		case "rows":
+			args.rows = positiveInteger(value) ?? args.rows;
+			break;
+		case "size-mb":
+			args.sizeMb = positiveInteger(value) ?? args.sizeMb;
+			break;
+		default:
+			return false;
 	}
-}
-
-function applyFlag(args: BenchmarkArgs, key: string, value: string | undefined, extraFlags: ReadonlySet<string>): void {
-	if (applySwitchFlag(args, key)) return;
-
-	if (applyValueFlag(args, key, value)) return;
-
-	if (applyOptionalValueFlag(args, key, value)) return;
-
-	if (FLAG_NAMES.has(key) && value) {
-		applyNumericFlag(args, key, value);
-
-		return;
-	}
-
-	if (extraFlags.has(key)) {
-		args.flags[key] = value ?? true;
-
-		return;
-	}
-
-	console.warn(`Unknown flag: --${key}`);
-	args.help = true;
-}
-
-/** The flags that only switch a behaviour on. */
-function applySwitchFlag(args: BenchmarkArgs, key: string): boolean {
-	if (key === "help") args.help = true;
-	else if (key === "keep-server") args.keepServer = true;
-	else if (key === "no-cache") args.noCache = true;
-	else if (key === "no-dedup") args.noDedup = true;
-	else if (key === "strict") args.strict = true;
-	else return false;
-
-	return true;
-}
-
-/** The flags that carry a value. */
-function applyValueFlag(args: BenchmarkArgs, key: string, value: string | undefined): boolean {
-	if (key === "target" && value) args.target = value;
-	else if (key === "url" && value) args.baseUrl = value.replace(TRAILING_SLASH_REGEX, "");
-	else if (key === "scenario" && value) args.scenario = value;
-	else if (key === "only" && value) args.only = value;
-	else if (key === "concurrency" && value) args.concurrency = parseConcurrency(value);
-	else return false;
-
-	return true;
-}
-
-/** The flags that carry an optional value. */
-function applyOptionalValueFlag(args: BenchmarkArgs, key: string, value: string | undefined): boolean {
-	if (key === "json") args.json = value ?? true;
-	else if (key === "save-baseline") args.saveBaseline = value ?? true;
-	else if (key === "compare-baseline") args.compareBaseline = value ?? true;
-	else return false;
 
 	return true;
 }
 
 export function parseBenchmarkArgs(extraFlags: ReadonlySet<string> = new Set()): BenchmarkArgs {
 	const args: BenchmarkArgs = {
+		targets: [],
 		concurrency: DEFAULT_CONCURRENCY_STEPS,
 		durationMs: DEFAULT_DURATION_MS,
 		warmupMs: DEFAULT_WARMUP_MS,
@@ -172,6 +181,7 @@ export function parseBenchmarkArgs(extraFlags: ReadonlySet<string> = new Set()):
 		keepServer: false,
 		noCache: false,
 		noDedup: false,
+		profile: false,
 		strict: false,
 		flags: {},
 		help: false,
@@ -179,25 +189,23 @@ export function parseBenchmarkArgs(extraFlags: ReadonlySet<string> = new Set()):
 
 	const argv = process.argv.slice(2);
 	for (let index = 0; index < argv.length; index++) {
-		const token = argv[index];
-		if (!token) continue;
-
+		const token = argv[index] ?? "";
 		if (!token.startsWith("--")) {
-			args.target ??= token;
+			if (token) args.targets.push(token);
 			continue;
 		}
 
-		const [rawKey, inlineValue] = token.slice(2).split("=", 2);
-		const key = rawKey ?? "";
-		if (BOOLEAN_FLAGS.has(key) && inlineValue === undefined) {
-			// Boolean flags never consume the next token (it may be an unrelated
-			// positional or flag); `--flag=value` is the only valued form.
-			applyFlag(args, key, undefined, extraFlags);
+		const [key = "", inlineValue] = token.slice(2).split("=", 2);
+		const value = inlineValue ?? (BOOLEAN_FLAGS.has(key) ? undefined : argv[++index]);
+		if (applyFlag(args, key, value)) continue;
+
+		if (extraFlags.has(key)) {
+			args.flags[key] = value ?? true;
 			continue;
 		}
 
-		const value = inlineValue ?? argv[++index];
-		applyFlag(args, key, value, extraFlags);
+		console.warn(`Unknown flag: --${key}`);
+		args.help = true;
 	}
 
 	return args;

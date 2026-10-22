@@ -1,16 +1,9 @@
+import { identityIndexFor, subnetIp } from "benchkit";
 import type { ManagedServer } from "./server.launcher";
 
 /** Rotates the seeded worker session cookies for one simulated client. */
 export function workerCookie(server: ManagedServer, workerIndex: number): string {
 	return server.workerCookies[workerIndex % server.workerCookies.length] ?? server.cookie;
-}
-
-/**
- * Per-worker client IP inside the suite-reserved 10.<subnet>.x.x block — every
- * suite claims its own subnet so per-IP rate limiting stays scoped to the suite.
- */
-export function subnetIp(subnet: number, workerIndex: number): string {
-	return `10.${subnet}.${Math.floor(workerIndex / 250) % 250}.${(workerIndex % 250) + 1}`;
 }
 
 /**
@@ -32,15 +25,6 @@ export function adminHeaders(server: ManagedServer, forwardedFor: string, withPr
 		...(withProfile ? { "x-profile-id": server.adminProfileId } : {}),
 		"x-forwarded-for": forwardedFor,
 	};
-}
-
-/**
- * Identity index for the rotating scheme: worker w starts at w and advances by
- * `stride` per request so consecutive requests from one worker land on
- * different identities (rate limits spread instead of piling up).
- */
-export function identityIndexFor(workerIndex: number, requestIndex: number, count: number, stride = 997): number {
-	return (workerIndex * stride + requestIndex) % Math.max(count, 1);
 }
 
 /** Cookie+profile pair of the rotating identity scheme, bound to one managed server. */

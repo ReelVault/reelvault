@@ -1,3 +1,5 @@
+import type { MediaRecognitionCandidate } from "@reelvault/sdk/plugin";
+import { pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { createLogger } from "@/utils/logger.utils";
 import { normalizePath } from "@/utils/path.utils";
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "./recognition.types";
@@ -54,3 +56,50 @@ class RecognitionService {
 }
 
 export const recognitionService = new RecognitionService();
+
+/**
+ * Recognizes a file and lets the `beforeMediaRecognition` plugin hooks correct the
+ * candidate; a candidate a hook made invalid (wrong type, blank title, negative or
+ * missing numbers) drops the recognition.
+ */
+export async function recognizeWithPluginHooks(filePath: string): Promise<RecognitionResult | null> {
+	const result = recognitionService.recognize(filePath);
+	if (!result) return null;
+
+	const candidate = await pluginHookBus.run("beforeMediaRecognition", {
+		type: result.type,
+		title: result.identity.title,
+		year: result.identity.year,
+		season: result.identity.season,
+		episode: result.identity.episode,
+		episodeEnd: result.identity.episodeEnd,
+	});
+
+	if (!isValidRecognitionCandidate(result.type, candidate)) return null;
+
+	return {
+		...result,
+		identity: {
+			title: candidate.title,
+			type: candidate.type === "movie" ? "movie" : "episode",
+			year: candidate.year,
+			season: candidate.season,
+			episode: candidate.episode,
+			episodeEnd: candidate.episodeEnd,
+		},
+	};
+}
+
+function isValidRecognitionCandidate(type: "movie" | "tv_show", candidate: MediaRecognitionCandidate): boolean {
+	if (candidate.type !== type || !candidate.title.trim()) return false;
+
+	if (
+		[candidate.year, candidate.season, candidate.episode, candidate.episodeEnd].some(
+			(value) => value !== undefined && (!Number.isInteger(value) || value < 0),
+		)
+	) {
+		return false;
+	}
+
+	return candidate.type !== "tv_show" || (candidate.season !== undefined && candidate.episode !== undefined);
+}

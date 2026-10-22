@@ -3,10 +3,14 @@ import { type BunFile, file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { FFMPEG_TIMEOUT_MS } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { CORE_ARTIFACTS_OWNER } from "@/integrations/drizzle-orm/constants/media-artifacts.constants";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { buildSpriteExtractionCommand } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes } from "@/modules/artifacts/artifacts-budget.utils";
-import { trickplayStorage } from "@/modules/trickplay/trickplay.ports";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { writeCoreArtifact } from "@/services/artifacts/core-artifacts.writer";
+import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import { chunk } from "@/utils/array.utils";
 import { createDirectory, deleteDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
@@ -15,6 +19,8 @@ import { clamp } from "@/utils/math.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 const CONTENT_TYPE_WEBP = "image/webp";
+/** The media file fields the preview generator reads: where it is, and how long it runs. */
+const SOURCE_FIELDS = parseFields({ fields: "id,filePath,duration" });
 const CONTENT_TYPE_VTT = "text/vtt";
 
 interface TrickplaySprite {
@@ -53,6 +59,11 @@ export interface TrickplayGenerationResult {
 	frames: number;
 	sprites: number;
 	skipped?: "disabled" | "no-duration" | "storage-budget";
+}
+
+/** Removes the core previews of one media file. */
+async function removePreviews(mediaFileId: string): Promise<number> {
+	return await mediaArtifactsService.deleteByMediaFileIdAndKind(mediaFileId, "trickplay", CORE_ARTIFACTS_OWNER);
 }
 
 function resolveLayout(): TrickplayLayout {
@@ -117,8 +128,7 @@ class TrickplayService {
 			return { mediaFileId, frames: 0, sprites: 0, skipped: "disabled" };
 		}
 
-		const storage = trickplayStorage();
-		const source = await storage.findSource(mediaFileId);
+		const source = await mediaRepository.findByPrimaryId({ primaryId: mediaFileId, fields: SOURCE_FIELDS });
 
 		if (!source?.filePath)
 			throw new DomainError("not_found", `Trickplay generation failed: media file '${mediaFileId}' not found`, {
@@ -167,13 +177,13 @@ class TrickplayService {
 			// Idempotent regeneration: remove the PREVIOUS generation before writing
 			// the new sprites. Deleting after the loop (as before) removed the
 			// sprites we just wrote, leaving the VTT pointing at missing artifacts.
-			await storage.removePreviews(mediaFileId);
+			await removePreviews(mediaFileId);
 
 			let sprites: TrickplaySprite[];
 			try {
 				sprites = await this.extractSprites(job, chunks);
 
-				await storage.writeArtifact({
+				await writeCoreArtifact({
 					mediaFileId,
 					kind: "trickplay",
 					contentType: CONTENT_TYPE_VTT,
@@ -182,7 +192,7 @@ class TrickplayService {
 			} catch (error) {
 				// Remove partial sprites so a failed generation leaves no artifact
 				// rows/files without their VTT behind.
-				await storage.removePreviews(mediaFileId).catch(() => {
+				await removePreviews(mediaFileId).catch(() => {
 					// best-effort cleanup
 				});
 
@@ -207,10 +217,9 @@ class TrickplayService {
 
 	/** Whether dropping this file's own artifacts would still leave core storage over budget. */
 	private async exceedsArtifactBudget(mediaFileId: string): Promise<boolean> {
-		const storage = trickplayStorage();
 		const budgetBytes = await resolveCoreArtifactsBudgetBytes();
-		const storedBytes = await storage.storedBytes();
-		const existingBytes = await storage.mediaFileStoredBytes(mediaFileId);
+		const storedBytes = await mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER);
+		const existingBytes = await mediaArtifactsService.getMediaFileStoredBytes(mediaFileId, CORE_ARTIFACTS_OWNER);
 		if (storedBytes - existingBytes < budgetBytes) return false;
 
 		this.logger.warn("Trickplay generation skipped: artifact storage budget exhausted", {
@@ -255,7 +264,7 @@ class TrickplayService {
 			// The artifact write streams the BunFile straight to its storage
 			// path (no full buffer through JS) and deletes the temp source
 			// afterwards — writeFileWithRollback owns that cleanup.
-			const written = await trickplayStorage().writeArtifact({
+			const written = await writeCoreArtifact({
 				mediaFileId: job.mediaFileId,
 				kind: "trickplay",
 				contentType: CONTENT_TYPE_WEBP,

@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { rename } from "node:fs/promises";
 import { resolve } from "node:path";
+import { databaseMaintenanceRepository } from "@/repositories/database-maintenance.repository";
 import { DomainError } from "@/utils/domain.errors";
 import { withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
@@ -10,7 +11,6 @@ import { CatalogSchemaBuilder } from "./offline/catalog-schema.builder";
 import { CatalogSeriesImporter } from "./offline/catalog-series.importer";
 import { CatalogTreeWalker } from "./offline/catalog-tree.walker";
 import type { OfflineRebuildIssue, OfflineRebuildReport } from "./offline-rebuild.types";
-import { sidecarStorage } from "./sidecar.ports";
 import type { SidecarDocumentReader } from "./sidecar.types";
 
 interface OfflineCatalogRebuildService {
@@ -85,7 +85,7 @@ export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuild
 					code: "database.foreign_key_violation",
 				});
 
-			sidecarStorage().shutdownDatabaseFile(outputDatabasePath);
+			databaseMaintenanceRepository.shutdownIfConfiguredDatabasePath(outputDatabasePath);
 			await rename(temporaryPath, outputDatabasePath);
 
 			return { importedMovies, importedMediaFiles, skipped };

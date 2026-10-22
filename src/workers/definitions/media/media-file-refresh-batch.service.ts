@@ -1,9 +1,9 @@
+import type { WorkerItem } from "@/repositories/worker-jobs/shared.types";
 import { chunk } from "@/utils/array.utils";
 import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 import { metadataRefreshWorker } from "@/workers/definitions/metadata/metadata-refresh.worker";
 import { assertOperationCompatibility } from "@/workers/utils/operation-compat.guard";
 import { ENQUEUE_BATCH_SIZE } from "@/workers/worker.constants";
-import type { WorkerItem } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { mediaFileTechnicalRefreshWorker } from "./media-file-technical-refresh.worker";
 

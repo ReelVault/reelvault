@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { type PlaybackArtifact, type PlaybackArtifactKind, type PlaybackArtifactWrite, playbackArtifactKinds } from "@reelvault/sdk/common";
+import type { ArtifactCreationCandidate } from "@reelvault/sdk/plugin";
 import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
-import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { InferTable } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
@@ -20,6 +20,21 @@ import { MemoryCache } from "@/utils/memory.cache";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 type MediaArtifactRow = InferTable<"mediaArtifacts">;
+
+const PLAYBACK_ARTIFACT_KINDS_SET: ReadonlySet<string> = new Set(playbackArtifactKinds);
+
+/** A `beforeArtifactCreate` hook may rename the kind, never move the artifact or change its size. */
+function assertValidArtifactCandidate(original: ArtifactCreationCandidate, candidate: ArtifactCreationCandidate): void {
+	if (
+		candidate.mediaFileId !== original.mediaFileId ||
+		candidate.size !== original.size ||
+		!PLAYBACK_ARTIFACT_KINDS_SET.has(candidate.kind)
+	) {
+		throw new DomainError("validation", "beforeArtifactCreate returned an invalid artifact candidate", {
+			code: "plugin.artifact_candidate_invalid",
+		});
+	}
+}
 
 const VALID_ARTIFACT_KINDS = new Set(["trickplay", "chapters", "preview", "waveform"]);
 
@@ -101,12 +116,11 @@ class MediaArtifactsService {
 		const bytesAfterWrite = (await this.getStoredBytes(ownerId)) + incomingBytes;
 		await options?.assertWithinQuota?.(ownerId, bytesAfterWrite, incomingBytes);
 
-		const candidate = await pluginHookBus.runBeforeArtifactCreate({
-			mediaFileId: artifact.mediaFileId,
-			kind: artifact.kind,
-			contentType: artifact.contentType,
-			size: incomingBytes,
-		});
+		const original = { mediaFileId: artifact.mediaFileId, kind: artifact.kind, contentType: artifact.contentType, size: incomingBytes };
+		const candidate = await pluginHookBus.run("beforeArtifactCreate", original);
+		assertValidArtifactCandidate(original, candidate);
+		// A hook may normalize the type, but only to another one the store serves.
+		this.assertAllowedContentType(candidate.contentType, ownerId);
 		const normalizedArtifact = { ...artifact, kind: candidate.kind, contentType: candidate.contentType };
 
 		const mediaFileExists = await mediaRepository.isExists({ primaryId: normalizedArtifact.mediaFileId });
@@ -128,10 +142,8 @@ class MediaArtifactsService {
 		await createDirectory(mediaArtifactsDir);
 
 		const storedRows = await writeFileWithRollback(this.storagePath(storageKey), normalizedArtifact.content, () =>
-			databaseFactory
-				.getClient()
-				.insert(mediaArtifactsRepository.table)
-				.values({
+			mediaArtifactsRepository.insertReturning({
+				values: {
 					id,
 					mediaFileId: normalizedArtifact.mediaFileId,
 					pluginId: ownerId,
@@ -139,8 +151,8 @@ class MediaArtifactsService {
 					kind: normalizedArtifact.kind,
 					contentType: normalizedArtifact.contentType,
 					storageKey,
-				})
-				.returning(),
+				},
+			}),
 		);
 
 		const storedArtifact = storedRows[0];

@@ -3,12 +3,12 @@ import { Value } from "@sinclair/typebox/value";
 import { env } from "@/config/env.config";
 import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { assertActiveStreamAccess } from "@/modules/streaming/sessions/stream-access.guard";
+import { profilesRepository } from "@/repositories/profiles.repository";
 import { DomainError } from "@/utils/domain.errors";
 import { InMemoryRateLimiter } from "@/utils/in-memory.limiter";
 import { safeParseJson } from "@/utils/json.utils";
 import { isProfileUnlocked } from "@/utils/profile-unlock.utils";
 import { isRecord } from "@/utils/type.utils";
-import { realtimeAccess } from "./realtime.ports";
 import { realtimeService } from "./realtime.service";
 import type { RealtimeSocket } from "./realtime.types";
 
@@ -56,7 +56,7 @@ async function checkPlaybackSessionOwnership(
 	}
 
 	if (userId) {
-		const sessionProfile = await realtimeAccess().findProfile(access.profileId);
+		const sessionProfile = await profilesRepository.findByPrimaryIdCached(access.profileId);
 		if (sessionProfile?.userId === userId) {
 			// Account ownership is not enough for a PIN-protected profile: only a
 			// connection already unlocked for that exact profile may control it.
@@ -83,7 +83,7 @@ export const wsProtocol = {
 	 * another user's profile-scoped events.
 	 */
 	async assertHandshakeProfile(userId: string, queryProfileId: string, unlockToken: string | undefined): Promise<void> {
-		const requested = await realtimeAccess().findProfile(queryProfileId);
+		const requested = await profilesRepository.findByPrimaryIdCached(queryProfileId);
 		if (!requested || requested.userId !== userId) {
 			throw new DomainError("forbidden", "Profile does not belong to the current user", { code: "profile.not_owned" });
 		}

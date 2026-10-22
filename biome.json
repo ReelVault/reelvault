@@ -316,26 +316,6 @@
 	},
 	"overrides": [
 		{
-			"includes": ["src/services/**", "src/repositories/**", "src/wiring/**", "!**/*.routes.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. Other code takes plain data."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
 			"includes": ["src/api/**", "!**/*.test.ts"],
 			"linter": {
 				"rules": {
@@ -345,16 +325,16 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/repositories/**"],
-										"message": "The HTTP layer talks to services, not repositories. Put the read behind the service that owns it (src/services)."
+										"group": ["@/repositories/**", "@/workers/**", "@/integrations/**"],
+										"message": "The HTTP layer talks to services. Put the read, the job enqueue or the framework call behind the service that owns it."
 									},
 									{
-										"group": ["@/workers/**"],
-										"message": "The HTTP layer talks to services, not workers. Enqueue the job through the service that owns it (src/services)."
+										"group": ["drizzle-orm", "drizzle-orm/**"],
+										"message": "Queries live in src/repositories (and the query building blocks in src/integrations/drizzle-orm)."
 									},
 									{
-										"group": ["@/integrations/**"],
-										"message": "The HTTP layer talks to services, not integrations. Keep the framework behind a service (src/services)."
+										"group": ["better-auth", "better-auth/**", "@better-auth/**"],
+										"message": "Better Auth stays behind src/integrations/better-auth. Call betterAuthApi or the auth services."
 									}
 								]
 							}
@@ -364,7 +344,7 @@
 			}
 		},
 		{
-			"includes": ["src/services/**", "!**/*.test.ts"],
+			"includes": ["src/services/**", "src/modules/**", "src/workers/**", "src/system/**", "!**/*.test.ts"],
 			"linter": {
 				"rules": {
 					"style": {
@@ -374,59 +354,19 @@
 								"patterns": [
 									{
 										"group": ["@/api/**"],
-										"message": "Services don't know about HTTP. The API layer (src/api) calls them, not the other way round."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/repositories/**", "!**/*.test.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["@/services/**", "@/api/**"],
-										"message": "Repositories are the data layer. Use cases live in src/services; the HTTP layer lives in src/api."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/modules/**", "!**/*.test.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["@/services/**", "@/api/**", "@/repositories/**"],
-										"message": "Modules are engines with no app dependency. app wires their ports at startup."
+										"message": "Nothing calls the HTTP layer. src/api calls services, not the other way round."
 									},
 									{
-										"group": ["@/plugins/**", "@/workers/**"],
-										"message": "Modules don't depend on plugins or workers. They receive commands through ports."
+										"group": ["elysia", "elysia/**"],
+										"message": "Elysia lives in the HTTP layer (src/api). Other code takes plain data."
 									},
 									{
-										"group": ["drizzle-orm", "drizzle-orm/**", "@/integrations/drizzle-orm/database.*"],
-										"message": "Modules don't touch the database. app does the lookups and passes data in."
+										"group": ["drizzle-orm", "drizzle-orm/**"],
+										"message": "Queries live in src/repositories (and the query building blocks in src/integrations/drizzle-orm)."
 									},
 									{
-										"group": ["better-auth", "better-auth/**", "elysia", "elysia/**"],
-										"message": "Modules don't depend on the auth or HTTP frameworks."
+										"group": ["better-auth", "better-auth/**", "@better-auth/**"],
+										"message": "Better Auth stays behind src/integrations/better-auth. Call betterAuthApi or the auth services."
 									}
 								]
 							}
@@ -445,64 +385,52 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["@/repositories/**"],
-										"message": "Plugins never import repositories. They go through app services (src/services/plugins/plugin-data.service.ts)."
+										"group": ["@/api/**"],
+										"message": "Nothing calls the HTTP layer. src/api calls services, not the other way round."
 									},
 									{
-										"group": ["drizzle-orm", "drizzle-orm/**", "@/integrations/drizzle-orm/database.*"],
-										"message": "Plugins don't touch the database. Data comes through app services."
-									},
-									{
-										"group": ["better-auth", "better-auth/**", "elysia", "elysia/**"],
-										"message": "Plugins don't depend on the auth or HTTP frameworks."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/workers/**", "!**/*.test.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["@/services/**", "@/api/**", "@/repositories/**", "@/plugins/**"],
-										"message": "Workers get their stores and services injected at startup. They don't import app or plugins."
-									},
-									{
-										"group": ["drizzle-orm", "drizzle-orm/**", "elysia", "elysia/**"],
-										"message": "Workers reach data through injected ports, not the query builder or HTTP framework."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/system/**", "!**/*.test.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["@/services/**", "@/api/**", "@/repositories/**", "@/plugins/**", "@/workers/**", "@/modules/**"],
-										"message": "System supervisors don't depend on features. Their collaborators arrive through system ports."
+										"group": ["@/repositories/**", "@/integrations/drizzle-orm/database.*"],
+										"message": "Plugins reach data through services, so every plugin write passes the same checks and hooks as a core write."
 									},
 									{
 										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. System supervisors are framework-free."
+										"message": "Elysia lives in the HTTP layer (src/api). Other code takes plain data."
+									},
+									{
+										"group": ["drizzle-orm", "drizzle-orm/**"],
+										"message": "Queries live in src/repositories (and the query building blocks in src/integrations/drizzle-orm)."
+									},
+									{
+										"group": ["better-auth", "better-auth/**", "@better-auth/**"],
+										"message": "Better Auth stays behind src/integrations/better-auth. Call betterAuthApi or the auth services."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/repositories/**", "!**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@/api/**", "@/services/**", "@/modules/**", "@/plugins/**", "@/workers/**", "@/system/**"],
+										"message": "Repositories are the data layer: they know no use case, engine, worker or request."
+									},
+									{
+										"group": ["elysia", "elysia/**"],
+										"message": "Elysia lives in the HTTP layer (src/api). Other code takes plain data."
+									},
+									{
+										"group": ["better-auth", "better-auth/**", "@better-auth/**"],
+										"message": "Better Auth stays behind src/integrations/better-auth. Call betterAuthApi or the auth services."
 									}
 								]
 							}
@@ -522,19 +450,19 @@
 								"patterns": [
 									{
 										"group": [
-											"@/services/**",
 											"@/api/**",
+											"@/services/**",
 											"@/repositories/**",
 											"@/modules/**",
 											"@/plugins/**",
 											"@/workers/**",
 											"@/system/**"
 										],
-										"message": "Integrations are external processes and services. They don't depend on app, features, plugins, workers or system. Collaborators arrive through ports."
+										"message": "Integrations wrap external processes and services. They know nothing of the application above them."
 									},
 									{
 										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. Integrations are framework-free."
+										"message": "Elysia lives in the HTTP layer (src/api). Other code takes plain data."
 									}
 								]
 							}
@@ -544,7 +472,7 @@
 			}
 		},
 		{
-			"includes": ["src/utils/**", "!**/*.test.ts"],
+			"includes": ["src/config/**", "src/utils/**", "!**/*.test.ts"],
 			"linter": {
 				"rules": {
 					"style": {
@@ -554,8 +482,8 @@
 								"patterns": [
 									{
 										"group": [
-											"@/services/**",
 											"@/api/**",
+											"@/services/**",
 											"@/repositories/**",
 											"@/modules/**",
 											"@/plugins/**",
@@ -563,52 +491,19 @@
 											"@/system/**",
 											"@/integrations/**"
 										],
-										"message": "utils holds helpers with no application dependencies. Move the code to the layer that uses it."
+										"message": "config and utils are leaves: they depend on each other only."
 									},
 									{
 										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. utils holds framework-free helpers."
+										"message": "Elysia lives in the HTTP layer (src/api). Other code takes plain data."
 									},
 									{
 										"group": ["drizzle-orm", "drizzle-orm/**"],
-										"message": "utils holds pure helpers with no database dependency. Query building lives in src/integrations/drizzle-orm."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/config/**", "!**/*.test.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": [
-											"@/services/**",
-											"@/api/**",
-											"@/repositories/**",
-											"@/modules/**",
-											"@/plugins/**",
-											"@/workers/**",
-											"@/system/**",
-											"@/integrations/**"
-										],
-										"message": "config is read at boot and depends on utils only."
+										"message": "Queries live in src/repositories (and the query building blocks in src/integrations/drizzle-orm)."
 									},
 									{
-										"group": ["elysia", "elysia/**"],
-										"message": "Elysia lives in the HTTP layer (src/api) and in *.routes.ts files. config is framework-free."
-									},
-									{
-										"group": ["drizzle-orm", "drizzle-orm/**"],
-										"message": "config is read at boot and depends on utils only. Query building lives in src/integrations/drizzle-orm."
+										"group": ["better-auth", "better-auth/**", "@better-auth/**"],
+										"message": "Better Auth stays behind src/integrations/better-auth. Call betterAuthApi or the auth services."
 									}
 								]
 							}

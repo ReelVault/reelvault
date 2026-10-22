@@ -13,6 +13,8 @@ import type {
 import { serverConfig } from "@/config/server/server.config";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { toAuthFailure } from "@/integrations/better-auth/better-auth.failures";
+import { wireAuthUserCreated } from "@/integrations/better-auth/better-auth.ports";
+import { profilesRepository } from "@/repositories/profiles.repository";
 import { usersRepository } from "@/repositories/users.repository";
 import { firstRunSetupService } from "@/services/auth/setup/first-run-setup.service";
 import { rewriteCookieDomain } from "@/utils/cookie-domain.utils";
@@ -28,6 +30,18 @@ const LOGIN_ACCOUNT_WINDOW_MS = 5 * 60_000;
  * attempts against one account can sidestep. Ceiling configurable for soak
  * tests via REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS (see env.ts). */
 const loginAccountLimiter = new InMemoryRateLimiter();
+
+/**
+ * Hands Better Auth its application reactions. Every user Better Auth creates
+ * (sign-up, admin create, first-run setup) gets its first profile. Called once at boot.
+ */
+export function registerAuthListeners(): void {
+	wireAuthUserCreated({
+		onUserCreated: async (user) => {
+			await profilesRepository.insert({ values: { userId: user.id, name: user.name } });
+		},
+	});
+}
 
 export const authService = {
 	serviceName: "AuthService",

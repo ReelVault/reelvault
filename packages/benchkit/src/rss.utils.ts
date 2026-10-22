@@ -116,3 +116,29 @@ export function startCpuSampler(pid: number, intervalMs: number, onSummary: (sum
 		onSummary(summary);
 	};
 }
+
+export interface ProcessSample {
+	rss: RssSummary;
+	cpu: CpuSummary;
+}
+
+/**
+ * Samples a process's RSS and CPU time together over one measured window; the returned stop()
+ * ends both samplers and returns what they saw. Linux-only, like the readers it uses.
+ */
+export function startProcessSampler(pid: number, intervalMs: number): () => ProcessSample {
+	const sample: ProcessSample = { rss: {}, cpu: {} };
+	const stopRss = startRssSampler(pid, intervalMs, (rss) => {
+		sample.rss = rss;
+	});
+	const stopCpu = startCpuSampler(pid, intervalMs, (cpu) => {
+		sample.cpu = cpu;
+	});
+
+	return () => {
+		stopRss();
+		stopCpu();
+
+		return sample;
+	};
+}

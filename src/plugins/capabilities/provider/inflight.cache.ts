@@ -34,3 +34,18 @@ function providerCacheOptions() {
 		maxSize: Math.max(1, Math.floor(serverConfig.plugins.providers.detailsCacheMaxSize / PROVIDER_CACHE_COUNT)),
 	};
 }
+
+let caches = new ProviderResultCaches();
+
+/** The live provider result caches. */
+export function providerCaches(): ProviderResultCaches {
+	return caches;
+}
+
+/**
+ * Replaces the result caches. Their TTL is read when they are built, so a changed
+ * `plugins.providers.detailsCacheTtlMs` takes effect only through fresh caches.
+ */
+export function resetProviderCaches(): void {
+	caches = new ProviderResultCaches();
+}

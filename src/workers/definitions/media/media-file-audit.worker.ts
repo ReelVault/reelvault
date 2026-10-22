@@ -1,11 +1,12 @@
 import type { MediaFileAuditResponse } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { buildMediaFileAuditReport, isAuditSuspect } from "@/services/media/media-files/media-file-audit.utils";
 import { DomainError, withDomainError } from "@/utils/domain.errors";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { scanAndEnqueueTask } from "@/workers/utils/scan-and-enqueue.service";
 import { toApplicationContext } from "@/workers/utils/task-context.mapper";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
 export interface MediaFileAuditData {
@@ -47,7 +48,7 @@ export const mediaFileAuditReportWorker = createWorkerDefinition<Record<string, 
 	async ({ signal }) => {
 		signal.throwIfAborted();
 
-		return await workerDependencies().services.mediaAudit.buildReport();
+		return await buildMediaFileAuditReport();
 	},
 );
 
@@ -68,7 +69,7 @@ export function auditMediaFileTask(data: MediaFileAuditData, context: Applicatio
 		if (!data.mediaFileId)
 			throw new DomainError("internal", "Media file audit task requires a mediaFileId", { code: "workers.media_file_audit_id_missing" });
 
-		const suspect = await workerDependencies().services.mediaAudit.isSuspect(data.mediaFileId);
+		const suspect = await isAuditSuspect(data.mediaFileId);
 
 		return { mediaFileId: data.mediaFileId, suspect };
 	});
@@ -91,7 +92,7 @@ export function scanMediaMatchAuditTask(context: ApplicationContext = {}): Promi
 		scanAndEnqueueTask<string, MediaFileAuditData>({
 			context,
 			label: "Media match audit tasks queued",
-			scanPages: (onPage) => workerDependencies().media.scanAuditRowIds(onPage),
+			scanPages: (onPage) => mediaRepository.scanAuditRowIds(onPage),
 			toData: (mediaFileId) => ({ mediaFileId }),
 			enqueueItem: (data, options) => enqueueMediaFileAudit(data, options),
 			enqueueMany: (items, options) => enqueueMediaFileAuditMany(items, options),

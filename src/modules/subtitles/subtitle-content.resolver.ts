@@ -1,9 +1,11 @@
+import { dirname, resolve } from "node:path";
+import { serverConfig } from "@/config/server/server.config";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
+import { isSubpath } from "@/utils/path.utils";
 import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
 import type { SubtitleContentInfo } from "./subtitle-info.cache";
-import { subtitleProviders } from "./subtitles.ports";
 
 export interface SubtitleContent {
 	contentType: string;
@@ -11,7 +13,7 @@ export interface SubtitleContent {
 }
 
 interface ServiceDependencies {
-	getExternalContent: (id: string) => Promise<SubtitleContent | null | undefined>;
+	readExternalContent: (info: SubtitleContentInfo) => Promise<SubtitleContent | null>;
 	extractEmbeddedContent: (
 		id: string,
 		mediaFilePath: string,
@@ -22,10 +24,31 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	getExternalContent: async (id) => await subtitleProviders().getContent(id),
+	readExternalContent: (info) => readExternalSubtitle(info, serverConfig.paths.subtitles),
 	extractEmbeddedContent: (id, mediaFilePath, streamIndex, format, signal) =>
 		subtitleExtractorService.extractToVtt(id, mediaFilePath, streamIndex, format, signal),
 };
+
+/**
+ * Whether an external subtitle file may be served. Only two places hold one: the
+ * subtitles root (uploads and provider downloads) and the folder of its own video
+ * (sidecars the scanner imported). Any other stored path is never read.
+ */
+function isServableExternalPath(filePath: string, subtitlesRoot: string, mediaFilePath: string | undefined): boolean {
+	if (isSubpath(filePath, subtitlesRoot)) return true;
+
+	return mediaFilePath !== undefined && dirname(resolve(filePath)) === dirname(resolve(mediaFilePath));
+}
+
+/** Reads the stored file of an external subtitle, or null when it is missing or outside the servable folders. */
+export async function readExternalSubtitle(info: SubtitleContentInfo, subtitlesRoot: string): Promise<SubtitleContent | null> {
+	if (!(info.filePath && isServableExternalPath(info.filePath, subtitlesRoot, info.mediaFilePath))) return null;
+
+	const file = Bun.file(info.filePath);
+	if (!(await file.exists())) return null;
+
+	return { contentType: info.format === "vtt" ? "text/vtt" : "text/plain; charset=utf-8", file };
+}
 
 export class SubtitleContentResolver {
 	readonly serviceName = "SubtitleContentResolver";
@@ -39,7 +62,7 @@ export class SubtitleContentResolver {
 
 	async resolve(id: string, info: SubtitleContentInfo, signal?: AbortSignal): Promise<SubtitleContent> {
 		if (info.type === "external") {
-			const content = await this.dependencies.getExternalContent(id);
+			const content = await this.dependencies.readExternalContent(info);
 			assertFound(content, "Subtitle content", id);
 
 			return content;

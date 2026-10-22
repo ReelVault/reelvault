@@ -1,9 +1,17 @@
 {
 	"$schema": "https://unpkg.com/knip@latest/schema.json",
-	"entry": ["tests/**/*.test.ts", "packages/benchkit/**/*.test.ts", "scripts/benchmarks/*.bench.ts"],
-	"project": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "packages/**/*.ts"],
+	"workspaces": {
+		".": {
+			"entry": ["tests/**/*.test.ts", "scripts/**/*.script.ts", "scripts/benchmarks/*.bench.ts"],
+			"project": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+		},
+		"packages/benchkit": {
+			"entry": ["src/**/*.test.ts"],
+			"project": ["src/**/*.ts"]
+		}
+	},
 	"ignoreDependencies": [],
-	"ignoreBinaries": ["ffmpeg", "check"],
+	"ignoreBinaries": ["ffmpeg"],
 	"ignoreExportsUsedInFile": true,
 	"rules": {
 		"exports": "error",

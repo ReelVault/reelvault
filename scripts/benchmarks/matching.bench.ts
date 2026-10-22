@@ -1,4 +1,4 @@
-import { bench, main, suiteArgs } from "benchkit";
+import { bench, suiteArgs } from "benchkit";
 import { fuzzyTitleDistance } from "@/utils/media-match/fuzzy.matcher";
 import { generateQueryVariants } from "@/utils/media-match/query-variants.utils";
 import { pickBestMatch, rankCandidates } from "@/utils/media-match/ranking.utils";
@@ -51,71 +51,67 @@ function buildWindows(pool: Candidate[]): Candidate[][] {
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const pool = buildPool();
-	const windows = buildWindows(pool);
-	const repeatedPage = windows[0] ?? [];
-	const query = "Benchmark Odyssey 4";
+const pool = buildPool();
+const windows = buildWindows(pool);
+const repeatedPage = windows[0] ?? [];
+const query = "Benchmark Odyssey 4";
 
-	console.log(`[matching] pool=${pool.length} candidates, window=${WINDOW}, iterations=${args.iterations}`);
+console.log(`[matching] pool=${pool.length} candidates, window=${WINDOW}, iterations=${args.iterations}`);
 
-	bench(
-		"rankCandidates — rotating window (cache-cold)",
-		({ iteration }) => {
-			const window = windows[Math.abs(iteration) % windows.length] ?? repeatedPage;
+bench(
+	"rankCandidates — rotating window (cache-cold)",
+	({ iteration }) => {
+		const window = windows[Math.abs(iteration) % windows.length] ?? repeatedPage;
 
-			return rankCandidates(window, query, 2015);
-		},
-		{ warmup: 10, iterations: args.iterations },
-	);
-	bench("rankCandidates — repeated page (cache-warm)", () => rankCandidates(repeatedPage, query, 2015), {
-		warmup: 10,
-		iterations: args.iterations,
-	});
-	bench("pickBestMatch — repeated page", () => pickBestMatch(repeatedPage, query, 2015, 0.45), {
-		warmup: 10,
-		iterations: args.iterations,
-	});
-	bench(
-		"fuzzyTitleDistance — 64 titles",
-		() => {
-			let sink = 0;
-			for (let index = 0; index < 64; index++) sink += fuzzyTitleDistance("odyssey", pool[index]?.title ?? "", 4) ?? 0;
+		return rankCandidates(window, query, 2015);
+	},
+	{ warmup: 10, iterations: args.iterations },
+);
+bench("rankCandidates — repeated page (cache-warm)", () => rankCandidates(repeatedPage, query, 2015), {
+	warmup: 10,
+	iterations: args.iterations,
+});
+bench("pickBestMatch — repeated page", () => pickBestMatch(repeatedPage, query, 2015, 0.45), {
+	warmup: 10,
+	iterations: args.iterations,
+});
+bench(
+	"fuzzyTitleDistance — 64 titles",
+	() => {
+		let sink = 0;
+		for (let index = 0; index < 64; index++) sink += fuzzyTitleDistance("odyssey", pool[index]?.title ?? "", 4) ?? 0;
 
-			return sink;
-		},
-		{ warmup: 5, iterations: args.iterations },
-	);
-	bench(
-		"generateQueryVariants — 100 titles",
-		() => {
-			let sink = 0;
-			for (let index = 0; index < 100; index++) sink += generateQueryVariants(pool[index]?.title ?? "").length;
+		return sink;
+	},
+	{ warmup: 5, iterations: args.iterations },
+);
+bench(
+	"generateQueryVariants — 100 titles",
+	() => {
+		let sink = 0;
+		for (let index = 0; index < 100; index++) sink += generateQueryVariants(pool[index]?.title ?? "").length;
 
-			return sink;
-		},
-		{ warmup: 5, iterations: args.iterations },
-	);
-	bench(
-		"isSequelMismatch — 100 pairs",
-		() => {
-			let sink = 0;
-			for (let index = 0; index < 100; index++) {
-				sink += isSequelMismatch(`Benchmark Odyssey ${index}`, { title: pool[index]?.title ?? "" }) ? 1 : 0;
-			}
+		return sink;
+	},
+	{ warmup: 5, iterations: args.iterations },
+);
+bench(
+	"isSequelMismatch — 100 pairs",
+	() => {
+		let sink = 0;
+		for (let index = 0; index < 100; index++) {
+			sink += isSequelMismatch(`Benchmark Odyssey ${index}`, { title: pool[index]?.title ?? "" }) ? 1 : 0;
+		}
 
-			return sink;
-		},
-		{ warmup: 5, iterations: args.iterations },
-	);
+		return sink;
+	},
+	{ warmup: 5, iterations: args.iterations },
+);
 
-	// Realistic provider result-set sizes: a single search returns a handful,
-	// query variants merge up to a few hundred.
-	for (const size of [10, 50, 200]) {
-		const window = pool.slice(0, size);
-		bench(`rankCandidates — window=${size}`, () => rankCandidates(window, query, 2015), { warmup: 10, iterations: args.iterations });
-		bench(`pickBestMatch — window=${size}`, () => pickBestMatch(window, query, 2015, 0.45), { warmup: 10, iterations: args.iterations });
-	}
+// Realistic provider result-set sizes: a single search returns a handful,
+// query variants merge up to a few hundred.
+for (const size of [10, 50, 200]) {
+	const window = pool.slice(0, size);
+	bench(`rankCandidates — window=${size}`, () => rankCandidates(window, query, 2015), { warmup: 10, iterations: args.iterations });
+	bench(`pickBestMatch — window=${size}`, () => pickBestMatch(window, query, 2015, 0.45), { warmup: 10, iterations: args.iterations });
 }
-
-await main(import.meta);

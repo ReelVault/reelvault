@@ -1,4 +1,4 @@
-import { bench, fmtMs, main, printTable, suiteArgs, summarizeLatencies, task, waitForHealth } from "benchkit";
+import { bench, fmtMs, printTable, suiteArgs, summarizeLatencies, task, waitForHealth } from "benchkit";
 import { spawn } from "bun";
 
 import { type ManagedServer, repoRoot, serverEnv, startBenchmarkServer } from "./lib/server.launcher";
@@ -94,16 +94,12 @@ function registerColdStartUnits(size: number, nextPort: () => number, keepServer
 
 const args = suiteArgs();
 
-if (!args.help) {
-	// The runner's probe invocation is NOT awaited (it only sniffs sync/async),
-	// so it races the first measured call — every invocation takes the next
-	// unused port, making concurrent fixtures independent by construction.
-	let portCursor = PORT_BASE;
-	const nextPort = (): number => portCursor++;
+// The runner's probe invocation is NOT awaited (it only sniffs sync/async),
+// so it races the first measured call — every invocation takes the next
+// unused port, making concurrent fixtures independent by construction.
+let portCursor = PORT_BASE;
+const nextPort = (): number => portCursor++;
 
-	for (const size of coldStartRows()) {
-		registerColdStartUnits(size, nextPort, args.keepServer);
-	}
+for (const size of coldStartRows()) {
+	registerColdStartUnits(size, nextPort, args.keepServer);
 }
-
-await main(import.meta);

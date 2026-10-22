@@ -1,12 +1,7 @@
 import { metadataSidecarsService } from "./metadata-sidecars.service";
-import { sidecarSnapshots } from "./sidecar.ports";
-import type { SidecarMetadataWriter, SidecarSnapshotResolver } from "./sidecar.types";
+import type { SidecarMetadataWriter } from "./sidecar.types";
+import { DatabaseSidecarSnapshotResolver } from "./sidecar-snapshot.resolver";
 
-/** Resolves snapshots through the port at call time, so the writer exists before the application wires its resolver. */
-const snapshots: SidecarSnapshotResolver = {
-	metadata: async (metadataId) => await sidecarSnapshots().metadata(metadataId),
-	season: async (seasonId) => await sidecarSnapshots().season(seasonId),
-	episode: async (episodeId) => await sidecarSnapshots().episode(episodeId),
-};
-
-export const sidecarMetadataWriter: SidecarMetadataWriter = metadataSidecarsService.createSidecarWriter(snapshots);
+export const sidecarMetadataWriter: SidecarMetadataWriter = metadataSidecarsService.createSidecarWriter(
+	new DatabaseSidecarSnapshotResolver(),
+);

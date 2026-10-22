@@ -4,22 +4,22 @@ import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
-import {
-	type PlaybackSelection,
-	resolveSessionSelection,
-	type SessionSelectionInput,
-} from "@/modules/streaming/decisions/session-selection.resolver";
+import { type PlaybackSelection, resolveSessionSelection } from "@/modules/streaming/decisions/session-selection.resolver";
 import { usesSoftwareVideoEncode } from "@/modules/streaming/ffmpeg/software-fallback.policy";
 import type { SessionAccessInfo } from "@/modules/streaming/runtime/session-state/session.store";
 import type { StreamInitData } from "@/modules/streaming/runtime/stream.initializer";
 import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
-import { type StreamingPlaybackSessionData, streamingStorage, streamingWorker } from "@/modules/streaming/streaming.ports";
 import type { PlaybackSessionInput, SessionReleaseOutcome, TerminatedSessionEntry } from "@/modules/streaming/streaming.types";
+import { liveSessionsRepository } from "@/repositories/live-sessions.repository";
+import { mediaRepository } from "@/repositories/media-files.repository";
+import { profilePreferencesRepository } from "@/repositories/profile-preferences.repository";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { detachCatching } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { isNullish } from "@/utils/type.utils";
+import { enqueueStreamInit } from "@/workers/definitions/streaming/stream-initialization.worker";
+import { workerService } from "@/workers/worker.service";
 import { PlaybackSessionIdempotencyRegistry } from "./playback-session.registry";
 import { SessionCreationGuard } from "./session-creation.guard";
 import { type PlaybackSessionStartedEvent, publishSessionStarted } from "./session-events.publisher";
@@ -48,22 +48,8 @@ export interface SessionLifecycleRuntime {
 	discardSession(sessionId: string): Promise<void>;
 }
 
+/** The session's boundaries: the stream-init enqueue, the live ffmpeg runtime, the plugin publish and the ffmpeg check. */
 export interface ServiceDependencies {
-	mediaRepository: {
-		findPlaybackSessionData(
-			mediaFileId: string,
-			profileId: string,
-			thresholdSeconds: number,
-		): Promise<StreamingPlaybackSessionData | undefined>;
-	};
-	profilePreferencesRepository: {
-		getEffective(input: { profileId: string }): Promise<SessionSelectionInput["preferences"]>;
-	};
-	systemSettings: Pick<typeof systemSettingsStore, "get">;
-	workerService: {
-		createOperation(input: { type: string; reference?: { type: string; id: string } }): Promise<{ id: string }>;
-		removeOperation(id: string): Promise<void> | void;
-	};
 	enqueueStreamInit: (data: StreamInitData, options?: { operationId?: string | undefined }) => Promise<{ operationId?: string | null }>;
 	runtime: SessionLifecycleRuntime;
 	publisher: (event: PlaybackSessionStartedEvent) => void;
@@ -71,19 +57,7 @@ export interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	mediaRepository: {
-		findPlaybackSessionData: (mediaFileId, profileId, thresholdSeconds) =>
-			streamingStorage().findPlaybackSessionData(mediaFileId, profileId, thresholdSeconds),
-	},
-	profilePreferencesRepository: {
-		getEffective: (input) => streamingStorage().getEffectivePreferences(input.profileId),
-	},
-	systemSettings: systemSettingsStore,
-	workerService: {
-		createOperation: (input) => streamingWorker().createOperation(input),
-		removeOperation: (id) => streamingWorker().removeOperation(id),
-	},
-	enqueueStreamInit: (data, options) => streamingWorker().enqueueStreamInit(data, options),
+	enqueueStreamInit: (data, options) => enqueueStreamInit(data, options),
 	runtime: streamingRuntimeService,
 	publisher: publishSessionStarted,
 	assertEnvironment: assertFFMpegAvailable,
@@ -156,7 +130,7 @@ export class SessionLifecycleService {
 
 	/** Configured cap, or the CPU-derived automatic one when the setting is 0. */
 	private softwareTranscodeLimit(): number {
-		const configured = this.dependencies.systemSettings.get("stream.maxSoftwareTranscodes");
+		const configured = systemSettingsStore.get("stream.maxSoftwareTranscodes");
 
 		return configured > 0 ? configured : systemResourcesService.getSoftwareTranscodeConcurrency();
 	}
@@ -192,7 +166,10 @@ export class SessionLifecycleService {
 		const profileSessions = runtime.listSessionsForProfile(profileId);
 		if (profileSessions.length === 0) return false;
 
-		const summaries = await streamingStorage().findMediaSummaries([mediaFileId, ...profileSessions.map((session) => session.mediaFileId)]);
+		const summaries = await liveSessionsRepository.findMediaSummaries([
+			mediaFileId,
+			...profileSessions.map((session) => session.mediaFileId),
+		]);
 		const titleOf = new Map(summaries.map((summary) => [summary.mediaFileId, summary.metadataId]));
 		const older = findSameTitleSession(profileSessions, titleOf, mediaFileId);
 		if (!older) return false;
@@ -263,7 +240,7 @@ export class SessionLifecycleService {
 		userId: string | undefined;
 		selected: Awaited<ReturnType<SessionLifecycleService["selectPlayback"]>>;
 	}): Promise<PlaybackSession> {
-		const { workerService, enqueueStreamInit, runtime, publisher } = this.dependencies;
+		const { runtime, publisher } = this.dependencies;
 		const { file, decision, videoCodec, audioStream, subtitle, playbackPreferences } = selected;
 		await this.reserveSlot(sessionId, profileId, file.id, userId);
 
@@ -282,7 +259,7 @@ export class SessionLifecycleService {
 				reference: { type: "media-file", id: file.id },
 			});
 			createdOperationId = operation.id;
-			const task = await enqueueStreamInit(
+			const task = await this.dependencies.enqueueStreamInit(
 				{ sessionId, mediaFileId: file.id, filePath: file.filePath, decision },
 				{ operationId: operation.id },
 			);
@@ -324,9 +301,8 @@ export class SessionLifecycleService {
 
 	/** Loads the file and the viewer's saved state, then picks the decision, codecs and tracks to play with. */
 	private async selectPlayback(fileId: string, profileId: string, capabilitiesQuery: PlaybackSessionInput) {
-		const { mediaRepository, profilePreferencesRepository, systemSettings } = this.dependencies;
 		const preferences = await profilePreferencesRepository.getEffective({ profileId });
-		const thresholdSeconds = (preferences?.continueWatchingMinutes ?? 0) * 60;
+		const thresholdSeconds = preferences.continueWatchingMinutes * 60;
 		const sessionData = await mediaRepository.findPlaybackSessionData(fileId, profileId, thresholdSeconds);
 		assertFound(sessionData, "MediaFile", fileId);
 
@@ -336,7 +312,7 @@ export class SessionLifecycleService {
 		}
 
 		const capabilities = parseCapabilities(capabilitiesQuery);
-		const smartSelectionEnabled = systemSettings.get("stream.smartAudioTrackSelection");
+		const smartSelectionEnabled = systemSettingsStore.get("stream.smartAudioTrackSelection");
 		const existingProgress = sessionData.existingProgress;
 		const hasActiveProgress =
 			existingProgress !== undefined && !existingProgress.completed && (existingProgress.position ?? 0) >= thresholdSeconds;

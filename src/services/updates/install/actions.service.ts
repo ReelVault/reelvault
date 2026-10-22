@@ -10,7 +10,7 @@ import {
 import { updateHistoryService } from "@/services/updates/update-history.service";
 import { readPreviousVersion } from "@/services/updates/update-swap.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { detach } from "@/utils/promise.utils";
+import { detach, detachCatching } from "@/utils/promise.utils";
 import { runInstall } from "./install.runner";
 import { assertDiskSpace, assertInstallPreconditions, assertNoActiveStreams, assertRollbackPreconditions } from "./preconditions.guard";
 import { recordRollback, runRollback } from "./rollback.service";
@@ -68,7 +68,10 @@ export function startRollback(
 	beginJob(state, target, "swapping", 90, restoredVersion);
 
 	const failure = runRollback(state, target);
-	detach(recordRollback(state, { target, fromVersion, restoredVersion, actorUserId }, failure));
+	// The swap already happened; a history write that fails is logged, never left as an unhandled rejection.
+	detachCatching(recordRollback(state, { target, fromVersion, restoredVersion, actorUserId }, failure), (error) =>
+		state.logger.error("Failed to record the update rollback", error, { target }),
+	);
 
 	return { started: true, target, version: restoredVersion };
 }

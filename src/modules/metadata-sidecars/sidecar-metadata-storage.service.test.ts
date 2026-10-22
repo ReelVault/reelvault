@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { DatabaseSidecarSnapshotResolver } from "@/services/catalog/metadata/sidecar-snapshot.resolver";
 import { removeTree } from "@/utils/directory.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { metadataSidecarsService } from "./metadata-sidecars.service";
 import { SidecarMetadataStorageService } from "./sidecar-metadata-storage.service";
+import { DatabaseSidecarSnapshotResolver } from "./sidecar-snapshot.resolver";
 
 const db = useTestDatabase();
 

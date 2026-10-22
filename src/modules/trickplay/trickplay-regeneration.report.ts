@@ -1,11 +1,5 @@
 import type { TrickplayRegenerationReport } from "@reelvault/sdk/common";
-
-/** One job-count row of a regeneration operation: a status, and the skip reason from its result when there is one. */
-export interface RegenerationOutcomeRow {
-	status: string;
-	skipped: string | null;
-	count: number;
-}
+import type { RegenerationOutcomeRow } from "@/repositories/trickplay.repository";
 
 /**
  * Folds the job counts of one regeneration operation into the admin report. A completed job whose result says the

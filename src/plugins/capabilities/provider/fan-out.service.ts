@@ -5,7 +5,7 @@ import type { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import { trimNameAndOverview } from "./match-ranking.utils";
-import type { ProviderServiceState } from "./shared.utils";
+import { providerLog } from "./provider-lookup.utils";
 
 /**
  * Calls `fetchOne` against every registered provider in parallel and returns
@@ -14,13 +14,11 @@ import type { ProviderServiceState } from "./shared.utils";
  * that provider), is simply omitted rather than failing the whole call.
  */
 export async function fetchFromEveryProvider<TMetadata extends { name?: string; overview?: string }>(
-	state: ProviderServiceState,
 	fetchOne: (provider: ReturnType<typeof pluginRegistry.getProviders>[number]) => Promise<TMetadata | null | undefined>,
 ): Promise<Array<{ provider: string; metadata: TMetadata }>> {
 	const providers = await metadataProviderSettingsService.getOrderedProviders();
 
 	return await fetchFromProviders(
-		state,
 		providers.map((provider) => ({ providerId: provider.id, provider })),
 		(provider) => fetchOne(provider),
 	);
@@ -55,7 +53,6 @@ export async function fetchFromProviders<
 	TEntry extends { providerId: string; provider: MetadataProvider | undefined },
 	TMetadata extends { name?: string | undefined; overview?: string | undefined },
 >(
-	state: ProviderServiceState,
 	entries: readonly TEntry[],
 	fetchOne: (provider: MetadataProvider, entry: TEntry) => Promise<TMetadata | null | undefined>,
 ): Promise<Array<{ provider: string; metadata: TMetadata }>> {
@@ -69,6 +66,6 @@ export async function fetchFromProviders<
 
 			return metadata ? { provider: entry.providerId, metadata: trimNameAndOverview(metadata) } : null;
 		},
-		(entry, error) => state.logger.error(`Provider ${entry.providerId} failed`, error),
+		(entry, error) => providerLog.logger.error(`Provider ${entry.providerId} failed`, error),
 	);
 }

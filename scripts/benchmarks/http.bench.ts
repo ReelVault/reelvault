@@ -1,6 +1,14 @@
-import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
-import { identityIndexFor, subnetIp } from "./lib/identity.utils";
-import { toScenarioEntries } from "./lib/scenarios.utils";
+import {
+	httpScenarioMetrics,
+	identityIndexFor,
+	printHttpResults,
+	runScenarioMatrix,
+	subnetIp,
+	suiteArgs,
+	task,
+	toScenarioEntries,
+	weightedMix,
+} from "benchkit";
 import { suiteServerFixture } from "./lib/server.fixture";
 
 interface ScenarioContext {
@@ -289,16 +297,8 @@ const MIX: ReadonlyArray<readonly [RequestBuilder, number]> = [
 	[deepPage, 0.02],
 ];
 
-const mixedTraffic: RequestBuilder = (context, workerIndex, requestIndex) => {
-	const draw = (requestIndex * 2654435761) % 1000;
-	let threshold = 0;
-	for (const [builder, weight] of MIX) {
-		threshold += weight * 1000;
-		if (draw < threshold) return builder(context, workerIndex, requestIndex);
-	}
-
-	return metadataList(context, workerIndex, requestIndex);
-};
+const pickMixed = weightedMix(MIX);
+const mixedTraffic: RequestBuilder = (context, workerIndex, requestIndex) => pickMixed(requestIndex)(context, workerIndex, requestIndex);
 
 interface ScenarioDefinition {
 	name: string;
@@ -366,106 +366,102 @@ export const meta = { description: "HTTP API throughput & latency (browse, searc
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args);
+const serverFixture = suiteServerFixture(args);
 
-	task("http: scenarios", async () => {
-		let baseUrl = args.baseUrl;
-		let cookies: readonly string[] = [];
-		let profileIdFor: (index: number) => string = defaultProfileIdFor;
-		let imageId = "img-benchmark";
-		let movieDetailId = "meta-0000001";
-		let tvDetailId = "meta-0000000";
-		let mediaFileId = "mf-meta-0000001";
-		let adminCookie = "";
-		let libraryId = "lib-benchmark";
-		let seasonId = "season-0-0";
-		let episodeId = "ep-0-0-0";
-		let genreId = "genre-1";
-		let personId = "person-0";
-		let seededRows = args.rows;
-		let watchedHistoryCursor = "";
+task("http: scenarios", async () => {
+	let baseUrl = args.baseUrl;
+	let cookies: readonly string[] = [];
+	let profileIdFor: (index: number) => string = defaultProfileIdFor;
+	let imageId = "img-benchmark";
+	let movieDetailId = "meta-0000001";
+	let tvDetailId = "meta-0000000";
+	let mediaFileId = "mf-meta-0000001";
+	let adminCookie = "";
+	let libraryId = "lib-benchmark";
+	let seasonId = "season-0-0";
+	let episodeId = "ep-0-0-0";
+	let genreId = "genre-1";
+	let personId = "person-0";
+	let seededRows = args.rows;
+	let watchedHistoryCursor = "";
 
-		if (baseUrl) {
-			console.log(`[http] targeting external server at ${baseUrl}`);
-		} else {
-			const managed = await serverFixture();
-			baseUrl = managed.baseUrl;
-			cookies = managed.workerCookies;
-			profileIdFor = (idx) => managed.profileIdFor(idx);
-			imageId = managed.benchmarkImageId;
-			movieDetailId = managed.benchmarkMovieDetailId;
-			tvDetailId = managed.benchmarkTvDetailId;
-			mediaFileId = managed.benchmarkMediaFileId;
-			adminCookie = managed.cookie;
-			libraryId = managed.benchmarkLibraryId;
-			seasonId = managed.benchmarkSeasonId;
-			episodeId = managed.benchmarkEpisodeId;
-			genreId = managed.benchmarkGenreId;
-			personId = managed.benchmarkPersonId;
-			seededRows = managed.seededRows;
-			console.log(`[http] server ready with ${cookies.length} client identities and ${args.rows} catalog rows`);
+	if (baseUrl) {
+		console.log(`[http] targeting external server at ${baseUrl}`);
+	} else {
+		const managed = await serverFixture();
+		baseUrl = managed.baseUrl;
+		cookies = managed.workerCookies;
+		profileIdFor = (idx) => managed.profileIdFor(idx);
+		imageId = managed.benchmarkImageId;
+		movieDetailId = managed.benchmarkMovieDetailId;
+		tvDetailId = managed.benchmarkTvDetailId;
+		mediaFileId = managed.benchmarkMediaFileId;
+		adminCookie = managed.cookie;
+		libraryId = managed.benchmarkLibraryId;
+		seasonId = managed.benchmarkSeasonId;
+		episodeId = managed.benchmarkEpisodeId;
+		genreId = managed.benchmarkGenreId;
+		personId = managed.benchmarkPersonId;
+		seededRows = managed.seededRows;
+		console.log(`[http] server ready with ${cookies.length} client identities and ${args.rows} catalog rows`);
 
-			// Resolve the watched-history cursor once, from the first worker identity.
-			const cursorResponse = await fetch(`${baseUrl}/v1/me/watched-history?limit=50`, {
-				headers: { cookie: cookies[0] ?? "", "x-profile-id": profileIdFor(0) },
-			});
-			if (cursorResponse.ok) {
-				const body: unknown = await cursorResponse.json();
-				const nextCursor: unknown = typeof body === "object" && body !== null ? (body as { nextCursor?: unknown }).nextCursor : undefined;
-				if (typeof nextCursor === "string") watchedHistoryCursor = nextCursor;
-			} else {
-				await cursorResponse.arrayBuffer();
-			}
-			console.log(`[http] watched-history cursor: ${watchedHistoryCursor ? "resolved" : "unavailable (first-page mode)"}`);
-		}
-
-		const context: ScenarioContext = {
-			baseUrl,
-			cookies,
-			adminCookie,
-			profileIdFor,
-			imageId,
-			movieDetailId,
-			tvDetailId,
-			mediaFileId,
-			libraryId,
-			seasonId,
-			episodeId,
-			genreId,
-			personId,
-			seededRows,
-			noCache: args.noCache,
-			watchedHistoryCursor,
-			batchSuggestionIds: [
-				"meta-0000001",
-				"meta-0000000",
-				"meta-0000010",
-				"meta-0000020",
-				"meta-0000030",
-				"meta-0000040",
-				"meta-0000050",
-				"meta-0000060",
-				"meta-0000070",
-				"meta-0000080",
-				"meta-0000090",
-				"meta-0000100",
-			].join(","),
-		};
-		const scenarios = args.scenario ? SCENARIOS.filter((scenario) => scenario.name.includes(args.scenario ?? "")) : SCENARIOS;
-		const results = await runScenarioMatrix({
-			suite: "http",
-			unit: "req/s",
-			scenarios: toScenarioEntries(scenarios, context),
-			concurrency: args.concurrency,
-			warmupMs: args.warmupMs,
-			durationMs: args.durationMs,
+		// Resolve the watched-history cursor once, from the first worker identity.
+		const cursorResponse = await fetch(`${baseUrl}/v1/me/watched-history?limit=50`, {
+			headers: { cookie: cookies[0] ?? "", "x-profile-id": profileIdFor(0) },
 		});
+		if (cursorResponse.ok) {
+			const body: unknown = await cursorResponse.json();
+			const nextCursor: unknown = typeof body === "object" && body !== null ? (body as { nextCursor?: unknown }).nextCursor : undefined;
+			if (typeof nextCursor === "string") watchedHistoryCursor = nextCursor;
+		} else {
+			await cursorResponse.arrayBuffer();
+		}
+		console.log(`[http] watched-history cursor: ${watchedHistoryCursor ? "resolved" : "unavailable (first-page mode)"}`);
+	}
 
-		printHttpResults(results);
-
-		return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
+	const context: ScenarioContext = {
+		baseUrl,
+		cookies,
+		adminCookie,
+		profileIdFor,
+		imageId,
+		movieDetailId,
+		tvDetailId,
+		mediaFileId,
+		libraryId,
+		seasonId,
+		episodeId,
+		genreId,
+		personId,
+		seededRows,
+		noCache: args.noCache,
+		watchedHistoryCursor,
+		batchSuggestionIds: [
+			"meta-0000001",
+			"meta-0000000",
+			"meta-0000010",
+			"meta-0000020",
+			"meta-0000030",
+			"meta-0000040",
+			"meta-0000050",
+			"meta-0000060",
+			"meta-0000070",
+			"meta-0000080",
+			"meta-0000090",
+			"meta-0000100",
+		].join(","),
+	};
+	const scenarios = args.scenario ? SCENARIOS.filter((scenario) => scenario.name.includes(args.scenario ?? "")) : SCENARIOS;
+	const results = await runScenarioMatrix({
+		suite: "http",
+		unit: "req/s",
+		scenarios: toScenarioEntries(scenarios, context),
+		concurrency: args.concurrency,
+		warmupMs: args.warmupMs,
+		durationMs: args.durationMs,
 	});
-}
 
-await main(import.meta);
+	printHttpResults(results);
+
+	return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
+});

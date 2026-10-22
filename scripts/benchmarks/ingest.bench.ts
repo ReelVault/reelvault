@@ -15,7 +15,7 @@ import { removeTree } from "@/utils/directory.utils";
 import { copyFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bench, benchmarkAsync, group, main, printMicroResults, suiteArgs, task } from "benchkit";
+import { bench, benchmarkAsync, group, printMicroResults, suiteArgs, task } from "benchkit";
 import { $ } from "bun";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { ScannerService } from "@/modules/scanner/scanner.service";
@@ -63,92 +63,88 @@ function buildAuditRows(count: number): MediaFileAuditRow[] {
 
 const args = suiteArgs();
 
-if (!args.help) {
-	// `scanPaths` refreshes planner statistics at the end, so the DB must exist.
-	databaseFactory.migrate();
+// `scanPaths` refreshes planner statistics at the end, so the DB must exist.
+databaseFactory.migrate();
 
-	const { rows, statsByPath } = buildScanFixture(args.rows);
+const { rows, statsByPath } = buildScanFixture(args.rows);
 
-	const scanner = new ScannerService({
-		findStatsPage: (_libraryId, cursor, limit) => {
-			const start = cursor ? rows.findIndex((row) => row.id > cursor) : 0;
-			if (start === -1) return Promise.resolve([]);
+const scanner = new ScannerService({
+	findStatsPage: (_libraryId, cursor, limit) => {
+		const start = cursor ? rows.findIndex((row) => row.id > cursor) : 0;
+		if (start === -1) return Promise.resolve([]);
 
-			return Promise.resolve(rows.slice(start, start + limit));
+		return Promise.resolve(rows.slice(start, start + limit));
+	},
+	discover: () => Promise.resolve(statsByPath),
+	guard: { assess: () => Promise.resolve({ removedFiles: [], storageUnavailable: false, massRemoval: false, skipRemovals: false }) },
+	cleaner: { cleanup: () => Promise.resolve() },
+	optimizeDatabase: () => {
+		// This benchmark measures the in-memory diff, not planner maintenance.
+	},
+});
+
+console.log(`[ingest] scan diff over ${args.rows} files (no changes), audit over ${args.rows} rows...`);
+
+group("Results (lower is better)", () => {
+	bench(
+		`ScannerService.scanPaths (${args.rows} files, ${DB_PAGE_SIZE}-row pages)`,
+		async () => await scanner.scanPaths("lib-1", "movie", ["/media/library"]),
+		{ warmup: 1, iterations: Math.max(2, Math.min(args.iterations, 10)) },
+	);
+
+	const auditRows = buildAuditRows(Math.min(args.rows, 5_000));
+	bench(
+		"auditMediaFileRow (recognition + fuzzy rank)",
+		() => {
+			for (const row of auditRows) auditMediaFileRow(row);
 		},
-		discover: () => Promise.resolve(statsByPath),
-		guard: { assess: () => Promise.resolve({ removedFiles: [], storageUnavailable: false, massRemoval: false, skipRemovals: false }) },
-		cleaner: { cleanup: () => Promise.resolve() },
-		optimizeDatabase: () => {
-			// This benchmark measures the in-memory diff, not planner maintenance.
-		},
-	});
+		{ warmup: 2, iterations: Math.max(2, Math.min(args.iterations, 20)) },
+	);
+});
 
-	console.log(`[ingest] scan diff over ${args.rows} files (no changes), audit over ${args.rows} rows...`);
+/**
+ * Real ffprobe phase — the discovery above deliberately stubs ffprobe out;
+ * this phase measures the actual spawn+parse path (`videoParser.probe`, the
+ * semaphore-bounded entry the scanner uses) over real copies of a generated
+ * fixture clip.
+ */
+task("ingest: real ffprobe spawn+parse", async () => {
+	const { videoParser } = await import("@/modules/scanner/probe/video-parser.service");
+	const { clearFFProbeCache } = await import("@/integrations/ffprobe/ffprobe.builder");
 
-	group("Results (lower is better)", () => {
-		bench(
-			`ScannerService.scanPaths (${args.rows} files, ${DB_PAGE_SIZE}-row pages)`,
-			async () => await scanner.scanPaths("lib-1", "movie", ["/media/library"]),
-			{ warmup: 1, iterations: Math.max(2, Math.min(args.iterations, 10)) },
-		);
+	const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-ffprobe-"));
+	try {
+		const fixturePath = join(root, "fixture.mp4");
+		await $`ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc=size=320x180:rate=12 -f lavfi -i sine=frequency=1000:sample_rate=44100 -t 5 -c:v libx264 -pix_fmt yuv420p -c:a aac ${fixturePath}`;
 
-		const auditRows = buildAuditRows(Math.min(args.rows, 5_000));
-		bench(
-			"auditMediaFileRow (recognition + fuzzy rank)",
-			() => {
-				for (const row of auditRows) auditMediaFileRow(row);
-			},
-			{ warmup: 2, iterations: Math.max(2, Math.min(args.iterations, 20)) },
-		);
-	});
-
-	/**
-	 * Real ffprobe phase — the discovery above deliberately stubs ffprobe out;
-	 * this phase measures the actual spawn+parse path (`videoParser.probe`, the
-	 * semaphore-bounded entry the scanner uses) over real copies of a generated
-	 * fixture clip.
-	 */
-	task("ingest: real ffprobe spawn+parse", async () => {
-		const { videoParser } = await import("@/modules/scanner/probe/video-parser.service");
-		const { clearFFProbeCache } = await import("@/integrations/ffprobe/ffprobe.builder");
-
-		const root = await mkdtemp(join(tmpdir(), "reelvault-benchmark-ffprobe-"));
-		try {
-			const fixturePath = join(root, "fixture.mp4");
-			await $`ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc=size=320x180:rate=12 -f lavfi -i sine=frequency=1000:sample_rate=44100 -t 5 -c:v libx264 -pix_fmt yuv420p -c:a aac ${fixturePath}`;
-
-			const copies = 24;
-			const paths: string[] = [];
-			for (let index = 0; index < copies; index++) {
-				const copyPath = join(root, `copy-${index}.mp4`);
-				await copyFile(fixturePath, copyPath);
-				paths.push(copyPath);
-			}
-
-			const iterations = Math.max(2, Math.min(args.iterations, 30));
-			const probeResults = [
-				await benchmarkAsync(
-					`videoParser.probe (real ffprobe spawn+parse, ${copies}-file rotation)`,
-					async (iteration) => {
-						// The builder memoizes per path+stat — rotate and clear so every
-						// iteration pays a real process spawn.
-						clearFFProbeCache();
-						const target = paths[Math.abs(iteration) % paths.length];
-						if (!target) throw new Error("no probe target");
-
-						const result = await videoParser.probe(target);
-						if (!result) throw new Error("probe failed");
-					},
-					{ warmup: 2, iterations },
-				),
-			];
-
-			printMicroResults(probeResults, "Real ffprobe (per probe call)");
-		} finally {
-			await removeTree(root);
+		const copies = 24;
+		const paths: string[] = [];
+		for (let index = 0; index < copies; index++) {
+			const copyPath = join(root, `copy-${index}.mp4`);
+			await copyFile(fixturePath, copyPath);
+			paths.push(copyPath);
 		}
-	});
-}
 
-await main(import.meta);
+		const iterations = Math.max(2, Math.min(args.iterations, 30));
+		const probeResults = [
+			await benchmarkAsync(
+				`videoParser.probe (real ffprobe spawn+parse, ${copies}-file rotation)`,
+				async (iteration) => {
+					// The builder memoizes per path+stat — rotate and clear so every
+					// iteration pays a real process spawn.
+					clearFFProbeCache();
+					const target = paths[Math.abs(iteration) % paths.length];
+					if (!target) throw new Error("no probe target");
+
+					const result = await videoParser.probe(target);
+					if (!result) throw new Error("probe failed");
+				},
+				{ warmup: 2, iterations },
+			),
+		];
+
+		printMicroResults(probeResults, "Real ffprobe (per probe call)");
+	} finally {
+		await removeTree(root);
+	}
+});

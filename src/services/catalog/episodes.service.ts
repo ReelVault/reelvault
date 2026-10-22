@@ -6,6 +6,7 @@ import { providerService } from "@/plugins/capabilities/provider.service";
 import { episodesRepository } from "@/repositories/episodes.repository";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { seasonsRepository } from "@/repositories/seasons.repository";
+import { resolveMetadataLanguage } from "@/services/catalog/metadata/providers/library-metadata-language.resolver";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { findFirstProviderResult, invalidateCatalogLists, mapProviderLinks, runBulkItems } from "./catalog.utils";
@@ -41,7 +42,9 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 			const seasonNum = season.seasonNumber;
 			const episodeNum = episode.episodeNumber;
 
-			const providerEpisodes = await providerService.fetchEpisodeFromLinks(providerLinks, seasonNum, episodeNum);
+			// The library language, as the import and the title refresh use: a refresh must not swap the episode's language.
+			const language = await resolveMetadataLanguage(season.metadataId);
+			const providerEpisodes = await providerService.fetchEpisodeFromLinks(providerLinks, seasonNum, episodeNum, language);
 			const match = findFirstProviderResult(providerEpisodes);
 
 			if (match) {

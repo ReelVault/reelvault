@@ -1,4 +1,4 @@
-import type { WorkerItem } from "@/workers/worker.ports";
+import type { WorkerItem } from "@/repositories/worker-jobs/shared.types";
 import { workerService } from "@/workers/worker.service";
 import {
 	setWorkerRuntime,

@@ -1,10 +1,10 @@
 import type { GenreFilters, GenreSorting } from "@reelvault/sdk/common";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { defineNamedEntityRepository } from "@/integrations/drizzle-orm/query/named-entity-repository.factory";
 import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { metadataRepository } from "./metadata.repository";
+import { defineNamedEntityRepository } from "./named-entity-repository.factory";
 
 const genres = defineTableAccess("genres", { primaryKeyColumn: "id" });
 const genreProviders = defineTableAccess("genreProviders", { primaryKeyColumn: "genreId" });

@@ -6,10 +6,10 @@ import { KodiFormatAdapter } from "@/modules/metadata-sidecars/formats/kodi/kodi
 import { ReelVaultFormatAdapter } from "@/modules/metadata-sidecars/formats/reelvault/reelvault-format.adapter";
 import { InMemorySidecarFormatRegistry } from "@/modules/metadata-sidecars/formats/sidecar-format.registry";
 import type { SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
-import { DatabaseSidecarSnapshotResolver } from "@/services/catalog/metadata/sidecar-snapshot.resolver";
 import { removeTree } from "@/utils/directory.utils";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { DatabaseSidecarSnapshotResolver } from "../sidecar-snapshot.resolver";
 import { RegistrySidecarMetadataWriter } from "./metadata-saver.writer";
 
 const db = useTestDatabase();

@@ -94,39 +94,39 @@ class AdminService {
 	}
 
 	dashboardView(): Promise<AdminDashboardViewResponse> {
-		return dashboardView(this, () => this.stats());
+		return dashboardView(() => this.stats());
 	}
 
 	pluginConfig(pluginId: string) {
-		return getPluginConfig(this, pluginId);
+		return getPluginConfig(pluginId);
 	}
 
 	updatePluginConfig(pluginId: string, updatedConfig: Record<string, unknown>, context?: AdminAuditContext) {
-		return updatePluginConfig(this, pluginId, updatedConfig, context);
+		return updatePluginConfig(pluginId, updatedConfig, context);
 	}
 
 	resetPluginConfig(pluginId: string, body: ResetPluginConfigBody, context?: AdminAuditContext) {
-		return resetPluginConfig(this, pluginId, body.keys, context);
+		return resetPluginConfig(pluginId, body.keys, context);
 	}
 
 	exportPluginConfig(pluginId: string) {
-		return exportPluginConfig(this, pluginId);
+		return exportPluginConfig(pluginId);
 	}
 
 	importPluginConfig(pluginId: string, body: PluginConfigExport, context?: AdminAuditContext) {
-		return importPluginConfig(this, pluginId, body, context);
+		return importPluginConfig(pluginId, body, context);
 	}
 
 	setPluginsEnabled(body: PluginBulkStateBody, context?: AdminAuditContext): Promise<PluginBulkStateResult> {
-		return setPluginsEnabled(this, body, context);
+		return setPluginsEnabled(body, context);
 	}
 
 	setPluginPinned(pluginId: string, pinned: boolean, context?: AdminAuditContext): Promise<PluginAdminStatus> {
-		return setPluginPinned(this, pluginId, pinned, context);
+		return setPluginPinned(pluginId, pinned, context);
 	}
 
 	setPluginCspEnabled(pluginId: string, enabled: boolean, context?: AdminAuditContext): Promise<PluginAdminStatus> {
-		return setPluginCspEnabled(this, pluginId, enabled, context);
+		return setPluginCspEnabled(pluginId, enabled, context);
 	}
 
 	plugins(): Promise<PluginAdminStatus[]> {
@@ -134,7 +134,7 @@ class AdminService {
 	}
 
 	reloadPlugins(context?: AdminAuditContext): Promise<PluginAdminStatus[]> {
-		return reloadAllPlugins(this, context);
+		return reloadAllPlugins(context);
 	}
 
 	getPlugin(pluginId: string): Promise<PluginAdminStatus> {
@@ -142,15 +142,15 @@ class AdminService {
 	}
 
 	enablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginAdminStatus> {
-		return changePluginStatus(this, "enable", pluginId, context);
+		return changePluginStatus("enable", pluginId, context);
 	}
 
 	disablePlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginAdminStatus> {
-		return changePluginStatus(this, "disable", pluginId, context);
+		return changePluginStatus("disable", pluginId, context);
 	}
 
 	reloadPlugin(pluginId: string, context?: AdminAuditContext): Promise<PluginAdminStatus> {
-		return changePluginStatus(this, "reload", pluginId, context);
+		return changePluginStatus("reload", pluginId, context);
 	}
 
 	getPluginUiSettings(pluginId: string) {
@@ -158,11 +158,11 @@ class AdminService {
 	}
 
 	updatePluginUiSettings(pluginId: string, body: UpdatePluginUiSettingsBody, context?: AdminAuditContext) {
-		return updatePluginUiSettings(this, pluginId, body, context);
+		return updatePluginUiSettings(pluginId, body, context);
 	}
 
 	resetPluginUiSettings(pluginId: string, context?: AdminAuditContext) {
-		return resetPluginUiSettings(this, pluginId, context);
+		return resetPluginUiSettings(pluginId, context);
 	}
 
 	getMetadataProviderConfigurations() {
@@ -170,11 +170,11 @@ class AdminService {
 	}
 
 	updateMetadataProviderConfiguration(providerId: string, values: { priority?: number; enabled?: boolean }, context?: AdminAuditContext) {
-		return updateMetadataProviderConfiguration(this, providerId, values, context);
+		return updateMetadataProviderConfiguration(providerId, values, context);
 	}
 
 	reorderMetadataProviderConfigurations(providerIds: string[], context?: AdminAuditContext) {
-		return reorderMetadataProviderConfigurations(this, providerIds, context);
+		return reorderMetadataProviderConfigurations(providerIds, context);
 	}
 
 	browseFilesystem(requestedPath?: string) {

@@ -1,5 +1,6 @@
 import type { FieldsQuery, MediaFileWithRelation, ReassignMediaFile, SelectFields } from "@reelvault/sdk/common";
 import { imageProcessingService } from "@/modules/images/image-processing.service";
+import { sidecarSyncService } from "@/modules/metadata-sidecars/sidecar-sync.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { episodesRepository } from "@/repositories/episodes.repository";
 import { librariesRepository } from "@/repositories/libraries.repository";
@@ -13,10 +14,11 @@ import type { AdminAuditContext } from "@/services/admin/audit-context.types";
 import { fallbackEpisodeExternalId, fallbackSeasonExternalId } from "@/services/catalog/catalog.utils";
 import { resolveLibraryLanguage } from "@/services/catalog/metadata/providers/library-metadata-language.resolver";
 import { createFromProvider, processPersonImages } from "@/services/catalog/metadata/providers/metadata-create.utils";
-import type { MediaServiceState } from "@/services/media/media-files/shared.utils";
+import { mediaFilesLog } from "@/services/media/media-files/media-files.logger";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { mapLibraryType } from "@/utils/media-metadata.utils";
+import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 
 /**
@@ -152,13 +154,12 @@ async function resolveReassignAnchor(
 }
 
 export async function reassign<F extends string>(
-	state: MediaServiceState,
 	mediaFileId: string,
 	body: ReassignMediaFile,
 	query?: FieldsQuery<F>,
 	context?: AdminAuditContext,
 ): Promise<SelectFields<MediaFileWithRelation, F>> {
-	return await runSafely(state, "reassign", async () => {
+	return await runSafely(mediaFilesLog, "reassign", async () => {
 		const mediaFile = await mediaRepository.findByIdForRead(mediaFileId, {
 			fields: "id,libraryId,metadataId,movieId,episodeId,isDefault,filePath,fileName",
 		});
@@ -186,6 +187,11 @@ export async function reassign<F extends string>(
 			movieId: targetMovieId,
 			episodeId: targetEpisodeId,
 		});
+		// Both titles' cached pages embed the file, and the library stats count it.
+		librariesRepository.clearStatsCache();
+		invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
+		// In sidecar mode the NFO next to the file still names the old title; a rescan would match it back.
+		sidecarSyncService.scheduleSync(targetMetadataId);
 
 		recordAuditSafe(
 			{
@@ -204,7 +210,7 @@ export async function reassign<F extends string>(
 				},
 				context,
 			},
-			state.logger,
+			mediaFilesLog.logger,
 		);
 
 		const updated = await mediaRepository.findByIdForRead(mediaFileId, query);

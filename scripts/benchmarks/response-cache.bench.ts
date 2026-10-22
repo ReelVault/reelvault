@@ -1,4 +1,4 @@
-import { main, metric, runLoadWindow, suiteArgs, type TaskMetrics, task } from "benchkit";
+import { metric, runLoadWindow, suiteArgs, type TaskMetrics, task } from "benchkit";
 import { Elysia } from "elysia";
 import { responseCacheMiddleware } from "@/api/middleware/response-cache.middleware";
 
@@ -20,33 +20,29 @@ const CATALOG_PAGE = {
 /** The list browsers send; it exercises the multi-token encoding negotiation. */
 const BROWSER_ACCEPT_ENCODING = "gzip, deflate, br, zstd";
 
-if (!args.help) {
-	task("response-cache: in-process cache hit", async () => {
-		const app = new Elysia().use(responseCacheMiddleware).get("/catalog", () => CATALOG_PAGE, {
-			cache: { maxAge: 60, private: true },
-		});
-		await app.handle(new Request("http://localhost/catalog"));
-
-		const metrics: TaskMetrics = {};
-		for (const concurrency of args.concurrency) {
-			const run = await runLoadWindow({
-				concurrency,
-				warmupMs: args.warmupMs,
-				durationMs: args.durationMs,
-				work: async () => {
-					const response = await app.handle(
-						new Request("http://localhost/catalog", { headers: { "accept-encoding": BROWSER_ACCEPT_ENCODING } }),
-					);
-					await response.arrayBuffer();
-
-					return { ok: response.status === 200 };
-				},
-			});
-			metrics[`response-cache hit c=${concurrency} req/s`] = metric(run.successes / (args.durationMs / 1000), true);
-		}
-
-		return { ok: true, data: { metrics } };
+task("response-cache: in-process cache hit", async () => {
+	const app = new Elysia().use(responseCacheMiddleware).get("/catalog", () => CATALOG_PAGE, {
+		cache: { maxAge: 60, private: true },
 	});
-}
+	await app.handle(new Request("http://localhost/catalog"));
 
-await main(import.meta);
+	const metrics: TaskMetrics = {};
+	for (const concurrency of args.concurrency) {
+		const run = await runLoadWindow({
+			concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
+			work: async () => {
+				const response = await app.handle(
+					new Request("http://localhost/catalog", { headers: { "accept-encoding": BROWSER_ACCEPT_ENCODING } }),
+				);
+				await response.arrayBuffer();
+
+				return { ok: response.status === 200 };
+			},
+		});
+		metrics[`response-cache hit c=${concurrency} req/s`] = metric(run.successes / (args.durationMs / 1000), true);
+	}
+
+	return { ok: true, data: { metrics } };
+});

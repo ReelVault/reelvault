@@ -1,6 +1,6 @@
 import { MINUTE } from "@/config/server/server.constants";
+import { updateNotificationService } from "@/services/updates/update-notification.service";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 
 export const checkUpdatesWorker = defineMaintenanceWorker({
 	id: "check-updates",
@@ -8,7 +8,7 @@ export const checkUpdatesWorker = defineMaintenanceWorker({
 	timeoutMs: 5 * MINUTE,
 	trigger: { id: "check-updates-daily", type: "daily", timeOfDay: "08:30" },
 	run: async () => {
-		const notified = await workerDependencies().services.updateNotifications.notifyIfUpdateAvailable(true);
+		const notified = await updateNotificationService.notifyIfUpdateAvailable(true);
 
 		return { success: true, notified };
 	},

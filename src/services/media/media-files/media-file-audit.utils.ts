@@ -90,6 +90,13 @@ function tvNumberReasons(row: MediaFileAuditRow, recognized: RecognizedIdentity)
 	return reasons;
 }
 
+/** Whether the media file still looks mismatched; a file that is gone is not suspect. */
+export async function isAuditSuspect(mediaFileId: string): Promise<boolean> {
+	const row = await mediaRepository.findAuditRow(mediaFileId);
+
+	return row ? auditMediaFileRow(row) !== null : false;
+}
+
 export function auditMediaFileRow(row: MediaFileAuditRow): MediaFileAuditItem | null {
 	const recognized = recognizeMediaFile(row);
 	const reasons: MediaFileAuditReason[] = [];

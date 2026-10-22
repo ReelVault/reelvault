@@ -1,10 +1,4 @@
 import { MIB } from "@/utils/bytes.utils";
-import type { createLogger } from "@/utils/logger.utils";
-import type { MemoryCache } from "@/utils/memory.cache";
-
-export interface AdminLogsServiceDependencies {
-	logFilePath: string;
-}
 
 export const LOG_TAIL_BYTES = 2 * MIB;
 export const LOG_MAX_PARSED_LINES = 10_000;
@@ -19,13 +13,3 @@ export interface LogTailEntry {
 	readOffset: number;
 	carry: string;
 }
-
-export interface AdminLogsState {
-	readonly serviceName: string;
-	readonly logger: ReturnType<typeof createLogger>;
-	readonly dependencies: AdminLogsServiceDependencies;
-	readonly logTailCache: MemoryCache<LogTailEntry>;
-}
-
-/** Arguments of a state-taking service function, without the leading state parameter. */
-export type WithoutState<F> = F extends (state: never, ...rest: infer R) => unknown ? R : never;

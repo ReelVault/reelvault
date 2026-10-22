@@ -36,6 +36,14 @@ export async function fetchSeason(
 	return findFirstProviderResult(providerSeasons);
 }
 
+/** Fetches the episodes the linked providers list for one season, in the given language (the title's library language). */
+export function seasonEpisodesFetcher(
+	links: ReadonlyArray<{ providerId: string; externalId: string }>,
+	language: string | undefined,
+): (seasonNumber: number) => Promise<ProviderSeasonResult["episodes"]> {
+	return async (seasonNumber) => (await fetchSeason(links, seasonNumber, language))?.episodes;
+}
+
 /** Deterministic season external id used when the provider has no season entry. */
 export function fallbackSeasonExternalId(metadataId: string, seasonNumber: number | string): string {
 	return `${metadataId}-s${seasonNumber}`;

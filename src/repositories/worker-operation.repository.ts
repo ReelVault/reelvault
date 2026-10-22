@@ -1,5 +1,5 @@
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import type { TerminalRowsPurgeOptions } from "@/workers/worker.ports";
+import type { TerminalRowsPurgeOptions } from "@/repositories/worker-jobs/shared.types";
 import { createOperation, markResumed, removeOperation, requestCancel } from "./worker-operation/lifecycle.writer";
 import {
 	incrementTotalItems,

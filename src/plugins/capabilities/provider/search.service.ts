@@ -1,21 +1,11 @@
 import type { MetadataProviderSearchRequest, MetadataProviderSearchResponse } from "@reelvault/sdk/common";
 import type { ProviderSearchRequest, ProviderSearchResponse } from "@reelvault/sdk/plugin";
 import { DomainError } from "@/utils/domain.errors";
-import { type fetchDetailsByProvider, searchByProviderExternalId } from "./details.service";
+import { searchByProviderExternalId } from "./details.service";
 import { mapProvidersSafely } from "./fan-out.service";
-import {
-	type ProviderServiceState,
-	publishSearchRequested,
-	rankProviderResults,
-	resolveProviders,
-	type WithoutState,
-} from "./shared.utils";
+import { providerLog, publishSearchRequested, rankProviderResults, resolveProviders } from "./provider-lookup.utils";
 
-export async function search(
-	request: MetadataProviderSearchRequest,
-	searchProvidersOf: (...args: WithoutState<typeof searchProviders>) => ReturnType<typeof searchProviders>,
-	fetchByProvider: (...args: WithoutState<typeof fetchDetailsByProvider>) => ReturnType<typeof fetchDetailsByProvider>,
-): Promise<MetadataProviderSearchResponse[]> {
+export async function search(request: MetadataProviderSearchRequest): Promise<MetadataProviderSearchResponse[]> {
 	const { type, title, year } = request;
 	const providerId = request.providerId?.trim();
 	const externalId = request.externalId?.trim();
@@ -25,7 +15,7 @@ export async function search(
 				code: "provider.search_id_incomplete",
 			});
 
-		return await searchByProviderExternalId(type, providerId, externalId, fetchByProvider);
+		return await searchByProviderExternalId(type, providerId, externalId);
 	}
 
 	const query = title?.trim();
@@ -34,7 +24,7 @@ export async function search(
 			code: "provider.search_query_missing",
 		});
 
-	const grouped = await searchProvidersOf({ type, query, year });
+	const grouped = await searchProviders({ type, query, year });
 
 	return grouped.map((group) => ({
 		providerId: group.providerId,
@@ -52,7 +42,7 @@ export async function search(
  * provider's richer search result retained for callers that need artwork and
  * popularity. Shared by the HTTP search endpoint and the plugin capability.
  */
-export async function searchProviders(state: ProviderServiceState, request: ProviderSearchRequest): Promise<ProviderSearchResponse[]> {
+export async function searchProviders(request: ProviderSearchRequest): Promise<ProviderSearchResponse[]> {
 	const query = request.query.trim();
 	if (!query) return [];
 
@@ -63,7 +53,7 @@ export async function searchProviders(state: ProviderServiceState, request: Prov
 		providers,
 		async (provider): Promise<ProviderSearchResponse | null> => {
 			const ranked = await rankProviderResults(provider, { type: request.type, query, year: request.year, language: undefined }, (error) =>
-				state.logger.error(`Provider ${provider.id} failed`, error),
+				providerLog.logger.error(`Provider ${provider.id} failed`, error),
 			);
 			if (!ranked) return null;
 

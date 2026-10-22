@@ -1,11 +1,13 @@
 {
 	"name": "benchkit",
+	"version": "0.1.0",
+	"description": "Benchmarks for Bun projects: micro timings, interleaved A/B comparisons, closed-loop load windows, baselines with significance verdicts, process sampling and profiling.",
 	"private": true,
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts"
 	},
 	"engines": {
-		"bun": ">=1.4.2"
+		"bun": ">=1.4.3"
 	}
 }

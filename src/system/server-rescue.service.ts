@@ -2,9 +2,8 @@ import { serverConfig } from "@/config/server/server.config";
 import { timeoutMultiplierForFactor } from "@/config/system-resources.service";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { createLogger } from "@/utils/logger.utils";
+import { detachCatching } from "@/utils/promise.utils";
 import { RecurringTimer } from "@/utils/recurring-timer.utils";
-import { publishAdminBroadcast } from "./admin-broadcast.publisher";
-import { systemAdminBroadcast } from "./system.ports";
 
 export type RescueState = "healthy" | "rescuing";
 
@@ -99,6 +98,7 @@ class ServerRescueService {
 	private speedFactorProvider: () => number = () => 1;
 	private engageTimes: number[] = [];
 	private actions?: RescueActions | undefined;
+	private stateListener?: ((state: RescueSnapshot) => Promise<void> | void) | undefined;
 	private isInitialized = false;
 	private readonly sampleLagMs: () => number;
 
@@ -117,6 +117,11 @@ class ServerRescueService {
 
 	registerActions(actions: RescueActions): void {
 		this.actions = actions;
+	}
+
+	/** Receives every state change; rescue state is admin-panel material, so the listener keeps it off non-admin sockets. */
+	registerStateListener(listener: (state: RescueSnapshot) => Promise<void> | void): void {
+		this.stateListener = listener;
 	}
 
 	init(): void {
@@ -360,9 +365,11 @@ class ServerRescueService {
 	}
 
 	private broadcast(): void {
-		// Rescue state is admin-panel material — role-scoped fan-out instead of a
-		// global broadcast that would hand server internals to every user.
-		publishAdminBroadcast(this.logger, "rescue state", async () => await systemAdminBroadcast().publishRescueState(this.getState()));
+		const listener = this.stateListener;
+		if (!listener) return;
+
+		const state = this.getState();
+		detachCatching((async () => await listener(state))(), (error) => this.logger.error("Failed to broadcast rescue state", error));
 	}
 }
 

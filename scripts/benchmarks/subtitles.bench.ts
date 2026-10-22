@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
+import { fmtMs, printHttpResults, printTable, runScenarioMatrix, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { $ } from "bun";
 
 import { adminHeaders } from "./lib/identity.utils";
@@ -100,54 +100,50 @@ export const meta = { description: "Subtitles (list/info cache, external content
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
+const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
 
-	task("subtitles: phases", async () => {
-		const server = await serverFixture();
-		if (!server.sampleMediaId) {
-			console.error("Sample media unavailable — cannot run the subtitles benchmark");
-			process.exitCode = 1;
+task("subtitles: phases", async () => {
+	const server = await serverFixture();
+	if (!server.sampleMediaId) {
+		console.error("Sample media unavailable — cannot run the subtitles benchmark");
+		process.exitCode = 1;
 
-			return;
-		}
+		return;
+	}
 
-		const fixtures = await prepareFixtures(server);
-		const headers = adminHeaders(server, "10.82.0.2");
+	const fixtures = await prepareFixtures(server);
+	const headers = adminHeaders(server, "10.82.0.2");
 
-		const scenarios: Array<{ name: string; url: string }> = [
-			{
-				name: "GET /v1/subtitles?mediaFileId= (list)",
-				url: `${server.baseUrl}/v1/subtitles?mediaFileId=${server.sampleMediaId}&limit=10`,
-			},
-			{ name: "GET /v1/subtitles/:id/content (external file)", url: `${server.baseUrl}/v1/subtitles/${fixtures.externalId}/content` },
-		];
-		const results = await runScenarioMatrix({
-			suite: "subtitles",
-			unit: "req/s",
-			scenarios: scenarios.map((scenario) => ({
-				name: scenario.name,
-				requestFor: () => new Request(scenario.url, { headers }),
-			})),
-			concurrency: args.concurrency,
-			warmupMs: args.warmupMs,
-			durationMs: args.durationMs,
-		});
-
-		printHttpResults(results);
-
-		// Embedded extraction: the first /content hit spawns ffmpeg into a cold
-		// cache (shows up as max), the rest measure the warm cached-.vtt read.
-		const embeddedContentUrl = `${server.baseUrl}/v1/subtitles/${fixtures.embeddedId}/content`;
-		await timedSequence(
-			"Embedded /content — extraction then warm reads",
-			async () => {
-				const response = await fetch(embeddedContentUrl, { headers });
-				await response.arrayBuffer();
-			},
-			5,
-		);
+	const scenarios: Array<{ name: string; url: string }> = [
+		{
+			name: "GET /v1/subtitles?mediaFileId= (list)",
+			url: `${server.baseUrl}/v1/subtitles?mediaFileId=${server.sampleMediaId}&limit=10`,
+		},
+		{ name: "GET /v1/subtitles/:id/content (external file)", url: `${server.baseUrl}/v1/subtitles/${fixtures.externalId}/content` },
+	];
+	const results = await runScenarioMatrix({
+		suite: "subtitles",
+		unit: "req/s",
+		scenarios: scenarios.map((scenario) => ({
+			name: scenario.name,
+			requestFor: () => new Request(scenario.url, { headers }),
+		})),
+		concurrency: args.concurrency,
+		warmupMs: args.warmupMs,
+		durationMs: args.durationMs,
 	});
-}
 
-await main(import.meta);
+	printHttpResults(results);
+
+	// Embedded extraction: the first /content hit spawns ffmpeg into a cold
+	// cache (shows up as max), the rest measure the warm cached-.vtt read.
+	const embeddedContentUrl = `${server.baseUrl}/v1/subtitles/${fixtures.embeddedId}/content`;
+	await timedSequence(
+		"Embedded /content — extraction then warm reads",
+		async () => {
+			const response = await fetch(embeddedContentUrl, { headers });
+			await response.arrayBuffer();
+		},
+		5,
+	);
+});

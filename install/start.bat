@@ -24,6 +24,16 @@ if not defined APP_PORT set "APP_PORT=3030"
 
 if not exist "%ROOT_DIR%" mkdir "%ROOT_DIR%"
 
+rem `start.bat <command> [args]` runs an administration command instead of the
+rem server: doctor, admin:reset-password <email>, db:backup, ... (package.json).
+if "%~1"=="" goto server
+set "PATH=%HERE%\bun;%PATH%"
+cd /d "%HERE%\server"
+"%HERE%\bun\bun.exe" run %*
+exit /b %ERRORLEVEL%
+
+:server
+
 rem Optional Bun runtime flags — set APP_BUN_FLAGS=--smol in settings.cmd on
 rem small-RAM Windows hosts to shrink the JavaScript heap.
 "%HERE%\bun\bun.exe" %APP_BUN_FLAGS% run "%HERE%\server\src\index.ts"

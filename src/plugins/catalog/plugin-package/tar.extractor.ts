@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DomainError } from "@/utils/domain.errors";
 import { isSubpath } from "@/utils/path.utils";
-import { assertSafeDestination, invalidSymlink, unpackedTooLarge } from "./shared.utils";
+import { assertSafeDestination, invalidSymlink, unpackedTooLarge } from "./extraction.guard";
 
 const TAR_BLOCK_SIZE = 512;
 

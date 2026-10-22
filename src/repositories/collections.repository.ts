@@ -38,7 +38,6 @@ import {
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { loadNamedRelation } from "@/integrations/drizzle-orm/utils/named-relation.reader";
-import { processNamedEntities, upsertNamedEntities } from "@/integrations/drizzle-orm/utils/provider-entity-sync.writer";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
 import {
@@ -50,6 +49,7 @@ import {
 } from "./collections/listing.reader";
 import { loadMetadataPreviews } from "./collections/previews.reader";
 import { metadataRepository } from "./metadata.repository";
+import { processNamedEntities, upsertNamedEntities } from "./provider-entity-sync.writer";
 
 const collections = defineTableAccess("collections", {
 	primaryKeyColumn: "id",

@@ -55,8 +55,8 @@ export const databaseMaintenanceRepository = {
 		}
 	},
 
-	/** Lets SQLite refresh its planner statistics (`PRAGMA optimize`). */
+	/** Lets SQLite refresh its planner statistics (`PRAGMA optimize`) on both connections. */
 	optimize(): void {
-		databaseFactory.sqlite.run("PRAGMA optimize");
+		databaseFactory.optimize();
 	},
 };

@@ -9,11 +9,8 @@ const sensitiveKeyRegex = /(password|pin|token|secret|refresh.?token|access.?tok
 
 export type AdminAuditAction = "create" | "update" | "delete";
 
-/**
- * One audit entry as the log stores it. The caller context is already resolved
- * into its columns, so the data layer never sees a request header.
- */
-export interface AdminAuditInsert {
+/** One audited change: what happened, and to what. */
+export interface AdminAuditChange {
 	action: AdminAuditAction;
 	resourceType: string;
 	resourceId?: string | null | undefined;
@@ -21,6 +18,13 @@ export interface AdminAuditInsert {
 	summary?: string | null | undefined;
 	before?: unknown;
 	after?: unknown;
+}
+
+/**
+ * One audit entry as the log stores it. The caller context is already resolved
+ * into its columns, so the data layer never sees a request header.
+ */
+export interface AdminAuditInsert extends AdminAuditChange {
 	actorUserId?: string | undefined;
 	requestId?: string | undefined;
 	ipAddress?: string | undefined;

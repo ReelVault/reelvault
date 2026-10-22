@@ -1,7 +1,13 @@
-import { mkdtempSync, readdirSync } from "node:fs";
+/**
+ * `bun run benchmark <suite...> [flags]` — the one entry point of the benchmark suites
+ * (scripts/benchmarks/*.bench.ts), on benchkit's command line. Without a suite it lists them;
+ * `--help` lists the flags. This file adds what only ReelVault knows: an isolated data directory
+ * and production mode for every run, and simulated hardware budgets (`--hardware`).
+ */
+import { mkdtempSync } from "node:fs";
 import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
-import { runDiscovery, suiteArgs } from "benchkit";
+import { type BenchmarkArgs, runBenchmarkCli } from "benchkit";
 import { spawnSync, which } from "bun";
 
 process.env.NODE_ENV = "production";
@@ -59,77 +65,42 @@ function applyHardwareProfile(name: string | boolean | undefined): void {
 	);
 }
 
-// Isolate in-process suites from the developer's real data directory. The
-// module-level `databaseFactory` reads ROOT_DIR/DB_FILE_NAME at import time, so
-// this must run before any suite module (and therefore the database) is loaded.
-// Static imports hoist above these assignments, so any module reaching
-// `env.config` is imported dynamically below — a static `@/` import here would
-// evaluate the environment first and silently revert the run to `.env` (real
-// data directory, development mode). Only ROOT_DIR is overridden: the default
-// DB_FILE_NAME ("reelvault.sqlite") is what the spawned-server benchmark helper
-// expects. Managers that spawn their own server set ROOT_DIR themselves.
-const benchmarkRoot = mkdtempSync(join(tmpdir(), "reelvault-benchmark-"));
-process.env.ROOT_DIR = benchmarkRoot;
+/**
+ * Isolates the run from the developer's real data directory. The module-level `databaseFactory`
+ * reads ROOT_DIR/DB_FILE_NAME at import time, so this runs before any suite (and therefore the
+ * database) is loaded — and every `@/` module is imported dynamically here: a static import would
+ * evaluate the environment first and silently point the run at `.env` (real data, development mode).
+ * Spawned servers get their own ROOT_DIR.
+ */
+async function isolateRun(args: BenchmarkArgs): Promise<void> {
+	const benchmarkRoot = mkdtempSync(join(tmpdir(), "reelvault-benchmark-"));
+	process.env.ROOT_DIR = benchmarkRoot;
 
-// Honesty and hardware flags are parsed before env.config is first evaluated,
-// so the process — and every spawned server, which inherits process.env — sees them.
-const args = suiteArgs(new Set(["hardware"]));
-applyHardwareProfile(args.flags.hardware);
-if (args.noCache) process.env.REELVAULT_BENCH_DISABLE_CACHES = "true";
-if (args.noDedup) process.env.REELVAULT_BENCH_DISABLE_DEDUP = "true";
+	// Applied before env.config is first evaluated, so this process and every spawned server see them.
+	applyHardwareProfile(args.flags.hardware);
+	if (args.noCache) process.env.REELVAULT_BENCH_DISABLE_CACHES = "true";
+	if (args.noDedup) process.env.REELVAULT_BENCH_DISABLE_DEDUP = "true";
 
-const { removeTreeSync } = await import("@/utils/directory.utils");
-process.on("exit", () => {
-	removeTreeSync(benchmarkRoot);
-});
+	const { removeTreeSync } = await import("@/utils/directory.utils");
+	process.on("exit", () => {
+		removeTreeSync(benchmarkRoot);
+	});
 
-// Fail loudly when some import captured the environment before isolation ran:
-// the run would otherwise migrate, seed and measure the real database.
-const { env } = await import("@/config/env.config");
-if (env.ROOT_DIR !== benchmarkRoot) {
-	throw new Error(`[benchmark] ROOT_DIR was captured as "${env.ROOT_DIR}" instead of "${benchmarkRoot}"`);
-}
-if (env.NODE_ENV !== "production") {
-	throw new Error(`[benchmark] NODE_ENV was captured as "${env.NODE_ENV}" instead of "production"`);
+	// Fail loudly when some import captured the environment before isolation ran: the run would
+	// otherwise migrate, seed and measure the real database.
+	const { env } = await import("@/config/env.config");
+	if (env.ROOT_DIR !== benchmarkRoot) {
+		throw new Error(`[benchmark] ROOT_DIR was captured as "${env.ROOT_DIR}" instead of "${benchmarkRoot}"`);
+	}
+	if (env.NODE_ENV !== "production") {
+		throw new Error(`[benchmark] NODE_ENV was captured as "${env.NODE_ENV}" instead of "production"`);
+	}
 }
 
-const benchDir = join(import.meta.dir, "benchmarks");
-const files = readdirSync(benchDir)
-	.filter((file) => file.endsWith(".bench.ts"))
-	.toSorted()
-	.map((file) => join(benchDir, file));
-
-let jsonPath: string | undefined;
-if (args.json === true) {
-	jsonPath = "benchmark-results/benchkit-latest.json";
-} else if (typeof args.json === "string") {
-	jsonPath = args.json;
-}
-
-const DEFAULT_BASELINE_PATH = "benchmark-results/baseline.json";
-let saveBaseline: string | undefined;
-if (args.saveBaseline === true) {
-	saveBaseline = DEFAULT_BASELINE_PATH;
-} else if (typeof args.saveBaseline === "string") {
-	saveBaseline = args.saveBaseline;
-}
-
-let compareBaseline: string | undefined;
-if (args.compareBaseline === true) {
-	compareBaseline = DEFAULT_BASELINE_PATH;
-} else if (typeof args.compareBaseline === "string") {
-	compareBaseline = args.compareBaseline;
-}
-
-await runDiscovery({
-	files,
+await runBenchmarkCli({
+	suitesDir: join(import.meta.dir, "benchmarks"),
 	command: "benchmark",
-	// `--help` at the bootstrap level shows the list of suites instead of
-	// running the selected file (a help-target file registers no units).
-	target: args.help ? "help" : (args.target ?? "help"),
-	only: args.only,
-	jsonPath,
-	saveBaseline,
-	compareBaseline,
-	strict: args.strict,
+	extraFlags: new Set(["hardware"]),
+	extraUsage: `  --hardware <profile>   simulate a host: ${Object.keys(HARDWARE_PROFILES).join(", ")} (low-end = Raspberry Pi 4)`,
+	prepare: isolateRun,
 });

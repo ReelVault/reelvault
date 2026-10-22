@@ -29,17 +29,17 @@ describe("SubtitleInfoCache", () => {
 			mediaFileId,
 			streamIndex: 2,
 			format: "subrip",
+			filePath: null,
 			mediaFilePath: "/media/movie.mkv",
 		});
 	});
 
-	test("loads external info without a media file path", async () => {
+	test("loads external info with its stored file and the video beside which a sidecar lives", async () => {
 		await seedSubtitles();
 
 		const info = await new SubtitleInfoCache().getOrSet("sub-2");
 
-		expect(info).toMatchObject({ type: "external", format: "srt" });
-		expect(info.mediaFilePath).toBeUndefined();
+		expect(info).toMatchObject({ type: "external", format: "srt", filePath: "/subs/movie.pl.srt", mediaFilePath: "/media/movie.mkv" });
 	});
 
 	test("throws not found for a missing subtitle", async () => {

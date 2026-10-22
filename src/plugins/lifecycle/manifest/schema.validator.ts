@@ -14,7 +14,7 @@ import {
 	assertOptionalType,
 	assertSafeHref,
 	assertSafePluginSubPath,
-} from "./shared.utils";
+} from "./manifest-fields.validator";
 
 /**
  * Declarative schema bounds. A schema is admin-installed data rendered by the

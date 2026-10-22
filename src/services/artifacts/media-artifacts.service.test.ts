@@ -4,6 +4,7 @@ import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -20,8 +21,12 @@ beforeEach(() => {
 	mediaArtifactsService.invalidateByteTotals();
 });
 
+const hookUnsubscribers: Array<() => void> = [];
+
 afterEach(() => {
 	for (const stub of stubs.splice(0)) stub.restore();
+	// The hook bus is process-wide; a hook left behind would rewrite later artifacts.
+	for (const unsubscribe of hookUnsubscribers.splice(0)) unsubscribe();
 });
 
 function bytes(text: string): Uint8Array {
@@ -173,6 +178,47 @@ describe("mediaArtifactsService.write happy path", () => {
 			createdAt: row.createdAt.toISOString(),
 		});
 		expect(published).toEqual([{ event: "artifact.created", payload: { mediaFileId, artifactId: result.id, artifactType: "trickplay" } }]);
+	});
+});
+
+describe("mediaArtifactsService.write beforeArtifactCreate hook", () => {
+	test("stores the kind and content type a plugin hook normalized", async () => {
+		const mediaFileId = await seedMediaFile();
+		hookUnsubscribers.push(
+			pluginHookBus.register("org.example.normalizer", "beforeArtifactCreate", ({ candidate }) => ({
+				...candidate,
+				kind: "preview",
+				contentType: "image/webp",
+			})),
+		);
+
+		await mediaArtifactsService.write("core", { mediaFileId, kind: "trickplay", contentType: "image/png", content: bytes("image") });
+
+		expect(await onlyArtifact()).toMatchObject({ mediaFileId, kind: "preview", contentType: "image/webp" });
+	});
+
+	test("refuses a hook that turns the content type into one the store does not serve", async () => {
+		const mediaFileId = await seedMediaFile();
+		hookUnsubscribers.push(
+			pluginHookBus.register("org.example.html", "beforeArtifactCreate", ({ candidate }) => ({ ...candidate, contentType: "text/html" })),
+		);
+
+		await expect(
+			mediaArtifactsService.write("core", { mediaFileId, kind: "trickplay", contentType: "text/vtt", content: bytes("WEBVTT\n") }),
+		).rejects.toMatchObject({ category: "validation", code: "artifact.invalid_content_type" });
+		expect(await storedArtifacts()).toEqual([]);
+	});
+
+	test("refuses a hook that moves the artifact to another media file and stores nothing", async () => {
+		const mediaFileId = await seedMediaFile();
+		hookUnsubscribers.push(
+			pluginHookBus.register("org.example.mover", "beforeArtifactCreate", ({ candidate }) => ({ ...candidate, mediaFileId: "other-file" })),
+		);
+
+		await expect(
+			mediaArtifactsService.write("core", { mediaFileId, kind: "trickplay", contentType: "image/webp", content: bytes("webp") }),
+		).rejects.toMatchObject({ category: "validation", code: "plugin.artifact_candidate_invalid" });
+		expect(await storedArtifacts()).toEqual([]);
 	});
 });
 

@@ -1,5 +1,5 @@
 import type { SessionAccessInfo } from "@/modules/streaming/runtime/session-state/session.store";
-import { streamAccessPolicy } from "@/modules/streaming/streaming.ports";
+import { pluginAccessBus } from "@/system/extensions/plugin.access";
 import { DomainError } from "@/utils/domain.errors";
 
 type StreamAccessChecker = (input: {
@@ -13,7 +13,7 @@ function defaultStreamAccessCheck(input: {
 	profileId: string;
 	mediaFileId: string;
 }): Promise<{ code: string; message: string } | null | undefined> {
-	return streamAccessPolicy().check({
+	return pluginAccessBus.check({
 		userId: input.userId,
 		profileId: input.profileId,
 		resource: "stream",

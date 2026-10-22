@@ -1,11 +1,11 @@
 import { serverConfig } from "@/config/server/server.config";
 import { HOUR, MINUTE } from "@/config/server/server.constants";
+import { resourceMetricsRepository } from "@/repositories/resource-metrics.repository";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { createLogger } from "@/utils/logger.utils";
+import { detachCatching } from "@/utils/promise.utils";
 import { RecurringTimer } from "@/utils/recurring-timer.utils";
-import { publishAdminBroadcast } from "./admin-broadcast.publisher";
 import { readHostMetrics, readLoadAverage } from "./resource-allocator/host-metrics.reader";
-import { resourceAllocatorStorage } from "./resource-allocator/resource-allocator.ports";
 import type {
 	AlertDraft,
 	ResourceAlert,
@@ -15,7 +15,6 @@ import type {
 } from "./resource-allocator/resource-allocator.types";
 import { calculatePressure, thresholdAlerts } from "./resource-allocator/thresholds.utils";
 import { computeWorkerAllocation, workerConcurrencyCeiling } from "./resource-allocator/worker.allocator";
-import { systemAdminBroadcast } from "./system.ports";
 
 const METRICS_FLUSH_INTERVAL_MS = 25_000;
 const ALERT_COOLDOWN_MS = 5 * MINUTE;
@@ -41,6 +40,7 @@ export class ResourceAllocator {
 	private isShutdown = false;
 	private activeWorkersProvider?: (() => Record<string, number>) | undefined;
 	private activeStreamsProvider?: (() => number) | undefined;
+	private alertListener?: ((alert: ResourceAlert) => Promise<void> | void) | undefined;
 	private readonly readMetrics: ResourceMetricsReader;
 
 	/** `readMetrics` supplies the host readings; by default they come from the real CPU, memory and disk. */
@@ -54,6 +54,11 @@ export class ResourceAllocator {
 
 	registerActiveStreamsProvider(provider: () => number): void {
 		this.activeStreamsProvider = provider;
+	}
+
+	/** Receives every raised alert: the admin notification and the admin-only realtime frame. */
+	registerAlertListener(listener: (alert: ResourceAlert) => Promise<void> | void): void {
+		this.alertListener = listener;
 	}
 
 	async initialize(): Promise<void> {
@@ -149,20 +154,10 @@ export class ResourceAllocator {
 	}
 
 	private getActiveStreams(): number {
-		if (this.activeStreamsProvider) {
-			try {
-				return this.activeStreamsProvider();
-			} catch (error) {
-				this.logger.warn("Active streams provider failed", { error });
-
-				return 0;
-			}
-		}
-
 		try {
-			return resourceAllocatorStorage().activeStreamCount();
+			return this.activeStreamsProvider?.() ?? 0;
 		} catch (error) {
-			this.logger.warn("Failed to load streaming service for resource monitoring", { error });
+			this.logger.warn("Active streams provider failed", { error });
 
 			return 0;
 		}
@@ -175,7 +170,7 @@ export class ResourceAllocator {
 
 		try {
 			const s = this.currentSnapshot;
-			await resourceAllocatorStorage().recordMetrics({
+			await resourceMetricsRepository.create({
 				cpuUsedPercent: s.cpu.usedPercent,
 				cpuLoadAvg1: s.cpu.loadAvg[0],
 				cpuLoadAvg5: s.cpu.loadAvg[1],
@@ -209,15 +204,17 @@ export class ResourceAllocator {
 			this.recentAlerts = this.recentAlerts.slice(-RECENT_ALERTS_KEPT);
 		}
 
-		// Resource alerts feed the admin dashboard — keep them off non-admin sockets.
-		resourceAllocatorStorage().notifyAlert(draft.code, draft.params ?? {});
-		this.broadcastAlert(alert);
+		this.publishAlert(alert);
 
 		this.logger.warn(`Resource alert [${draft.severity}]`, { type: draft.type, code: draft.code, params: draft.params });
 	}
 
-	private broadcastAlert(alert: ResourceAlert): void {
-		publishAdminBroadcast(this.logger, "resource alert", async () => await systemAdminBroadcast().publishResourceAlert(alert));
+	/** Fire-and-forget: a failing listener is logged, never thrown into the snapshot loop. */
+	private publishAlert(alert: ResourceAlert): void {
+		const listener = this.alertListener;
+		if (!listener) return;
+
+		detachCatching((async () => await listener(alert))(), (error) => this.logger.error("Failed to publish resource alert", error));
 	}
 }
 

@@ -1,16 +1,16 @@
 import {
 	fmtMs,
-	main,
 	printHttpResults,
 	printTable,
 	runRequestScenario,
 	runScenarioMatrix,
 	type ScenarioMatrixEntry,
+	subnetIp,
 	suiteArgs,
 	task,
 } from "benchkit";
 import { isRecord } from "@/utils/type.utils";
-import { contextHeaders, rotatingIdentity, subnetIp } from "./lib/identity.utils";
+import { contextHeaders, rotatingIdentity } from "./lib/identity.utils";
 import { createPlaybackSession } from "./lib/playback.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
 import type { ManagedServer } from "./lib/server.launcher";
@@ -204,106 +204,102 @@ export const meta = { description: "Playback-session control plane (heartbeat, p
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args, {
-		workerCount: Math.max(...args.concurrency, 12),
-		withSampleMedia: true,
+const serverFixture = suiteServerFixture(args, {
+	workerCount: Math.max(...args.concurrency, 12),
+	withSampleMedia: true,
+});
+
+task("sessions-control: phases", async () => {
+	const server = await serverFixture();
+	if (!server.sampleMediaId) {
+		console.error("Sample media unavailable — cannot run the sessions-control benchmark");
+		process.exitCode = 1;
+
+		return;
+	}
+
+	await raiseSessionLimits(server);
+
+	// One live session per worker identity (distinct profiles — the 500ms
+	// creation cooldown is per profile, so no pacing needed here). ffmpeg
+	// spawns per session; the 30s 640x360 ultrafast clip keeps that cheap.
+	const workerCount = Math.min(Math.max(...args.concurrency, 12), server.workerCookies.length);
+	const setup = await Promise.all(Array.from({ length: workerCount }, (_, workerIndex) => createSetupSession(server, workerIndex)));
+	console.log(`[sessions] ${setup.length} live sessions (max ${MAX_SESSIONS}), api key created`);
+
+	const adminSession = await createSetupSession(server, -1).catch(() => null);
+	const apiKey = await createApiKey(server);
+
+	const context: SessionsContext = {
+		baseUrl: server.baseUrl,
+		...rotatingIdentity(server),
+		adminCookie: server.cookie,
+		adminProfileId: server.adminProfileId,
+		sampleMediaId: server.sampleMediaId,
+		sessionIdFor: (workerIndex) => setup[workerIndex % setup.length]?.sessionId ?? "",
+		idempotencyKeyFor: (workerIndex) => setup[workerIndex % setup.length]?.idempotencyKey ?? "",
+		apiKey,
+	};
+
+	const scenarioEntries: ScenarioMatrixEntry[] = [
+		{
+			name: "POST /:id/heartbeat (empty, in-memory)",
+			requestFor: (workerIndex, requestIndex) => heartbeatEmpty(context, workerIndex, requestIndex),
+			accept: acceptSessionResponse,
+		},
+		{
+			name: "POST /:id/heartbeat (with progress upsert)",
+			requestFor: (workerIndex, requestIndex) => heartbeatProgress(context, workerIndex, requestIndex),
+			accept: acceptSessionResponse,
+		},
+		{
+			name: "GET /:id/transcode-progress",
+			requestFor: (workerIndex, requestIndex) => transcodeProgress(context, workerIndex, requestIndex),
+			accept: acceptSessionResponse,
+		},
+		{
+			name: "GET /:id/diagnostics",
+			requestFor: (workerIndex, requestIndex) => diagnostics(context, workerIndex, requestIndex),
+			accept: acceptSessionResponse,
+		},
+		{
+			name: "POST / (create path + release; 409/429 = guard)",
+			work: (workerIndex, requestIndex) => churnWork(context, workerIndex, requestIndex),
+		},
+		{
+			name: "POST / (idempotent replay)",
+			requestFor: (workerIndex, requestIndex) => idempotentReplay(context, workerIndex, requestIndex),
+			accept: acceptSessionResponse,
+		},
+	];
+	const results = await runScenarioMatrix({
+		suite: "sessions",
+		unit: "ops/s",
+		scenarios: scenarioEntries,
+		concurrency: args.concurrency,
+		warmupMs: args.warmupMs,
+		durationMs: args.durationMs,
 	});
 
-	task("sessions-control: phases", async () => {
-		const server = await serverFixture();
-		if (!server.sampleMediaId) {
-			console.error("Sample media unavailable — cannot run the sessions-control benchmark");
-			process.exitCode = 1;
+	printHttpResults(results);
 
-			return;
-		}
-
-		await raiseSessionLimits(server);
-
-		// One live session per worker identity (distinct profiles — the 500ms
-		// creation cooldown is per profile, so no pacing needed here). ffmpeg
-		// spawns per session; the 30s 640x360 ultrafast clip keeps that cheap.
-		const workerCount = Math.min(Math.max(...args.concurrency, 12), server.workerCookies.length);
-		const setup = await Promise.all(Array.from({ length: workerCount }, (_, workerIndex) => createSetupSession(server, workerIndex)));
-		console.log(`[sessions] ${setup.length} live sessions (max ${MAX_SESSIONS}), api key created`);
-
-		const adminSession = await createSetupSession(server, -1).catch(() => null);
-		const apiKey = await createApiKey(server);
-
-		const context: SessionsContext = {
-			baseUrl: server.baseUrl,
-			...rotatingIdentity(server),
-			adminCookie: server.cookie,
-			adminProfileId: server.adminProfileId,
-			sampleMediaId: server.sampleMediaId,
-			sessionIdFor: (workerIndex) => setup[workerIndex % setup.length]?.sessionId ?? "",
-			idempotencyKeyFor: (workerIndex) => setup[workerIndex % setup.length]?.idempotencyKey ?? "",
-			apiKey,
-		};
-
-		const scenarioEntries: ScenarioMatrixEntry[] = [
-			{
-				name: "POST /:id/heartbeat (empty, in-memory)",
-				requestFor: (workerIndex, requestIndex) => heartbeatEmpty(context, workerIndex, requestIndex),
-				accept: acceptSessionResponse,
-			},
-			{
-				name: "POST /:id/heartbeat (with progress upsert)",
-				requestFor: (workerIndex, requestIndex) => heartbeatProgress(context, workerIndex, requestIndex),
-				accept: acceptSessionResponse,
-			},
-			{
-				name: "GET /:id/transcode-progress",
-				requestFor: (workerIndex, requestIndex) => transcodeProgress(context, workerIndex, requestIndex),
-				accept: acceptSessionResponse,
-			},
-			{
-				name: "GET /:id/diagnostics",
-				requestFor: (workerIndex, requestIndex) => diagnostics(context, workerIndex, requestIndex),
-				accept: acceptSessionResponse,
-			},
-			{
-				name: "POST / (create path + release; 409/429 = guard)",
-				work: (workerIndex, requestIndex) => churnWork(context, workerIndex, requestIndex),
-			},
-			{
-				name: "POST / (idempotent replay)",
-				requestFor: (workerIndex, requestIndex) => idempotentReplay(context, workerIndex, requestIndex),
-				accept: acceptSessionResponse,
-			},
-		];
-		const results = await runScenarioMatrix({
-			suite: "sessions",
-			unit: "ops/s",
-			scenarios: scenarioEntries,
-			concurrency: args.concurrency,
-			warmupMs: args.warmupMs,
-			durationMs: args.durationMs,
-		});
-
-		printHttpResults(results);
-
-		if (adminSession) {
-			await authComparisonPhase(
-				{ ...context, sessionIdFor: () => adminSession.sessionId },
-				adminSession.sessionId,
-				Math.min(...args.concurrency),
-				args.warmupMs,
-				args.durationMs,
-			);
-		}
-
-		// Teardown: release the setup sessions (async server-side).
-		await Promise.all(
-			setup.map((entry) =>
-				fetch(`${server.baseUrl}/v1/playback-sessions/${entry.sessionId}`, {
-					method: "DELETE",
-					headers: { cookie: server.cookie },
-				}).then((response) => response.arrayBuffer()),
-			),
+	if (adminSession) {
+		await authComparisonPhase(
+			{ ...context, sessionIdFor: () => adminSession.sessionId },
+			adminSession.sessionId,
+			Math.min(...args.concurrency),
+			args.warmupMs,
+			args.durationMs,
 		);
-	});
-}
+	}
 
-await main(import.meta);
+	// Teardown: release the setup sessions (async server-side).
+	await Promise.all(
+		setup.map((entry) =>
+			fetch(`${server.baseUrl}/v1/playback-sessions/${entry.sessionId}`, {
+				method: "DELETE",
+				headers: { cookie: server.cookie },
+			}).then((response) => response.arrayBuffer()),
+		),
+	);
+});

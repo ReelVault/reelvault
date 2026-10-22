@@ -1,4 +1,4 @@
-import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
+import { httpScenarioMetrics, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 
 import { suiteServerFixture } from "./lib/server.fixture";
 
@@ -38,38 +38,34 @@ export const meta = { description: "Static web UI serving (SPA entry, immutable 
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args, { withWebDist: true });
+const serverFixture = suiteServerFixture(args, { withWebDist: true });
 
-	task("static: scenarios", async () => {
-		const managed = await serverFixture();
-		const context: StaticScenarioContext = { baseUrl: managed.baseUrl, assetEtag: "" };
+task("static: scenarios", async () => {
+	const managed = await serverFixture();
+	const context: StaticScenarioContext = { baseUrl: managed.baseUrl, assetEtag: "" };
 
-		// Capture the asset's ETag once; the weak etag (mtime-size) is stable for
-		// the lifetime of the staged dist.
-		const assetResponse = await fetch(`${context.baseUrl}/assets/app.js`);
-		context.assetEtag = assetResponse.headers.get("etag") ?? "";
-		await assetResponse.arrayBuffer();
-		if (!context.assetEtag) throw new Error("Asset response carried no ETag — static serving is broken");
+	// Capture the asset's ETag once; the weak etag (mtime-size) is stable for
+	// the lifetime of the staged dist.
+	const assetResponse = await fetch(`${context.baseUrl}/assets/app.js`);
+	context.assetEtag = assetResponse.headers.get("etag") ?? "";
+	await assetResponse.arrayBuffer();
+	if (!context.assetEtag) throw new Error("Asset response carried no ETag — static serving is broken");
 
-		const scenarios = args.scenario ? SCENARIOS.filter((scenario) => scenario.name.includes(args.scenario ?? "")) : SCENARIOS;
-		const results = await runScenarioMatrix({
-			suite: "static",
-			unit: "req/s",
-			scenarios: scenarios.map((scenario) => ({
-				name: scenario.name,
-				requestFor: (workerIndex: number, requestIndex: number) => scenario.builder(context, workerIndex, requestIndex),
-				accept: (response: Response) => scenario.acceptedStatuses.includes(response.status),
-			})),
-			concurrency: args.concurrency,
-			warmupMs: args.warmupMs,
-			durationMs: args.durationMs,
-		});
-
-		printHttpResults(results);
-
-		return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
+	const scenarios = args.scenario ? SCENARIOS.filter((scenario) => scenario.name.includes(args.scenario ?? "")) : SCENARIOS;
+	const results = await runScenarioMatrix({
+		suite: "static",
+		unit: "req/s",
+		scenarios: scenarios.map((scenario) => ({
+			name: scenario.name,
+			requestFor: (workerIndex: number, requestIndex: number) => scenario.builder(context, workerIndex, requestIndex),
+			accept: (response: Response) => scenario.acceptedStatuses.includes(response.status),
+		})),
+		concurrency: args.concurrency,
+		warmupMs: args.warmupMs,
+		durationMs: args.durationMs,
 	});
-}
 
-await main(import.meta);
+	printHttpResults(results);
+
+	return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
+});

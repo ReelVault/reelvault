@@ -113,5 +113,5 @@ secrets.env
 # SDK package license, copied from the repo root by `prepack`
 sdk/LICENSE
 sdk/*.tgz
-# Scenario runner artifacts (bun run scenarios)
+# Benchmark results, baselines and profiles (bun run benchmark)
 /benchmark-results

@@ -1,17 +1,52 @@
+import type { WorkerBackoffType } from "@reelvault/sdk/common";
 import { and, eq, inArray, isNull, lt, type SQL } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import type { TerminalRowsPurgeOptions } from "@/workers/worker.ports";
 
-export type {
-	ActiveWorkerItem,
-	ClaimNextInput,
-	EnqueueWorkerItemInput,
-	TerminalRowsPurgeOptions,
-	WorkerItem,
-	WorkerItemStats,
-	WorkerItemStatus,
-	WorkerItemSummary,
-} from "@/workers/worker.ports";
+export type WorkerItem = typeof schema.workerJobs.$inferSelect;
+export type WorkerItemStatus = WorkerItem["status"];
+export type WorkerItemSummary = Omit<WorkerItem, "data">;
+export type ActiveWorkerItem = Pick<WorkerItem, "id" | "operationId">;
+
+export interface WorkerItemStats {
+	workerId: string;
+	status: WorkerItemStatus;
+	count: number;
+}
+
+export interface EnqueueWorkerItemInput {
+	id: string;
+	workerId: string;
+	operationId?: string | undefined;
+	dependsOnJobId?: string | undefined;
+	dependsOnTaskIds?: string[] | undefined;
+	data: string;
+	dedupeKey?: string | undefined;
+	referenceType?: string | undefined;
+	referenceId?: string | undefined;
+	priority: number;
+	maxAttempts: number;
+	backoffType: WorkerBackoffType;
+	backoffDelayMs: number;
+	runAt: Date;
+}
+
+export interface ClaimNextInput {
+	workerId: string;
+	runnerId: string;
+	concurrency: number;
+	timeoutMs: number;
+	now: Date;
+	excludeActiveIds?: string[] | undefined;
+}
+
+/** The terminal states a purge can remove. */
+export type TerminalJobStatus = "completed" | "failed" | "cancelled" | "all_terminal";
+
+/** Which terminal rows a purge touches, and the age cutoff. */
+export interface TerminalRowsPurgeOptions {
+	status?: TerminalJobStatus | undefined;
+	cutoffDate?: Date | undefined;
+}
 
 export const items = schema.workerJobs;
 export const operations = schema.workerOperations;

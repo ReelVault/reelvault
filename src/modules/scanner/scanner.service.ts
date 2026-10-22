@@ -2,7 +2,8 @@ import { basename } from "node:path";
 import { sleep } from "bun";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { episodeRangeSpan, parseFileName } from "@/modules/recognition/utils/recognition.utils";
-import { type ScanStatsRow, scannerStorage } from "@/modules/scanner/scanner.ports";
+import { databaseMaintenanceRepository } from "@/repositories/database-maintenance.repository";
+import { mediaRepository } from "@/repositories/media-files.repository";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import type { ScannedFileEntry } from "@/utils/directory.utils";
 import { toDomainError } from "@/utils/domain.errors";
@@ -51,7 +52,7 @@ async function collectNewFiles(
 }
 
 interface ServiceDependencies {
-	findStatsPage: (libraryId: string, cursor: string | undefined, limit: number) => Promise<ScanStatsRow[]>;
+	findStatsPage: typeof mediaRepository.findStatsByLibraryIdPage;
 	discover: (paths: string[], signal?: AbortSignal) => Promise<Map<string, ScannedFileEntry>>;
 	guard: Pick<RemovalGuard, "assess">;
 	cleaner: Pick<StaleArtifactCleaner, "cleanup">;
@@ -59,11 +60,11 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	findStatsPage: (libraryId, cursor, limit) => scannerStorage().findStatsPage(libraryId, cursor, limit),
+	findStatsPage: (libraryId, cursor, limit) => mediaRepository.findStatsByLibraryIdPage(libraryId, cursor, limit),
 	discover: async (paths, signal) => await fileScannerService.scanWithStatsMap({ paths, signal }),
 	guard: removalGuard,
 	cleaner: staleArtifactCleaner,
-	optimizeDatabase: () => scannerStorage().optimizeDatabase(),
+	optimizeDatabase: () => databaseMaintenanceRepository.optimize(),
 };
 
 export class ScannerService {

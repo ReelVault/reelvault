@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bench, fixture, fmtMs, group, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
+import { bench, fixture, fmtMs, group, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import sharp from "sharp";
 import { JellyfinFormatAdapter } from "@/modules/metadata-sidecars/formats/jellyfin/jellyfin-format.adapter";
 import { ReelVaultFormatAdapter } from "@/modules/metadata-sidecars/formats/reelvault/reelvault-format.adapter";
@@ -71,137 +71,133 @@ function writeSidecarTree(root: string, movieCount: number): void {
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const rootFixture = fixture("sidecars-root", ({ onCleanup }) => {
-		const root = mkdtempSync(join(tmpdir(), "reelvault-benchmark-sidecars-"));
-		onCleanup(() => {
-			removeTreeSync(root);
-		});
-		mkdirSync(join(root, "adapter"), { recursive: true });
-
-		return root;
+const rootFixture = fixture("sidecars-root", ({ onCleanup }) => {
+	const root = mkdtempSync(join(tmpdir(), "reelvault-benchmark-sidecars-"));
+	onCleanup(() => {
+		removeTreeSync(root);
 	});
+	mkdirSync(join(root, "adapter"), { recursive: true });
 
-	// ─── 1. Offline catalog rebuild (runs first: its table precedes the micro tables) ───
-	task("sidecars: offline catalog rebuild", async () => {
-		const root = await rootFixture();
-		const treeRoot = join(root, "library");
-		const movieCount = Math.max(50, Math.min(2000, args.rows / 25));
-		writeSidecarTree(treeRoot, movieCount);
+	return root;
+});
 
-		const rebuild = new SqliteOfflineCatalogRebuildService();
-		const outputDatabasePath = join(root, "catalog.sqlite");
-		const rebuildStartedAt = performance.now();
-		const report = await rebuild.rebuild({ libraries: [{ id: "lib-benchmark", type: "movies", paths: [treeRoot] }], outputDatabasePath });
-		const rebuildMs = performance.now() - rebuildStartedAt;
+// ─── 1. Offline catalog rebuild (runs first: its table precedes the micro tables) ───
+task("sidecars: offline catalog rebuild", async () => {
+	const root = await rootFixture();
+	const treeRoot = join(root, "library");
+	const movieCount = Math.max(50, Math.min(2000, args.rows / 25));
+	writeSidecarTree(treeRoot, movieCount);
 
-		printTable(
-			`Offline catalog rebuild (${movieCount} movies on disk)`,
-			["wall clock", "imported movies", "imported media files", "skipped"],
+	const rebuild = new SqliteOfflineCatalogRebuildService();
+	const outputDatabasePath = join(root, "catalog.sqlite");
+	const rebuildStartedAt = performance.now();
+	const report = await rebuild.rebuild({ libraries: [{ id: "lib-benchmark", type: "movies", paths: [treeRoot] }], outputDatabasePath });
+	const rebuildMs = performance.now() - rebuildStartedAt;
+
+	printTable(
+		`Offline catalog rebuild (${movieCount} movies on disk)`,
+		["wall clock", "imported movies", "imported media files", "skipped"],
+		[
 			[
-				[
-					`${(rebuildMs / 1000).toFixed(2)}s`,
-					String(report.importedMovies),
-					String(report.importedMediaFiles),
-					String(report.skipped.length),
-				],
+				`${(rebuildMs / 1000).toFixed(2)}s`,
+				String(report.importedMovies),
+				String(report.importedMediaFiles),
+				String(report.skipped.length),
 			],
+		],
+	);
+
+	return { ok: true, data: { movieCount, ...report } };
+});
+
+// ─── 1b. Artwork export on an unchanged source/target ───
+task("sidecars: artwork export skip", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "rv-artwork-export-"));
+	try {
+		const sourcePath = join(directory, "stored.webp");
+		writeFileSync(
+			sourcePath,
+			await sharp({ create: { width: 1920, height: 1080, channels: 3, background: { r: 30, g: 90, b: 160 } } })
+				.webp()
+				.toBuffer(),
 		);
 
-		return { ok: true, data: { movieCount, ...report } };
-	});
-
-	// ─── 1b. Artwork export on an unchanged source/target ───
-	task("sidecars: artwork export skip", async () => {
-		const directory = mkdtempSync(join(tmpdir(), "rv-artwork-export-"));
+		const originalFindMetadataImagePath = imageRepository.findMetadataImagePath.bind(imageRepository);
+		imageRepository.findMetadataImagePath = () => Promise.resolve(sourcePath);
 		try {
-			const sourcePath = join(directory, "stored.webp");
-			writeFileSync(
-				sourcePath,
-				await sharp({ create: { width: 1920, height: 1080, channels: 3, background: { r: 30, g: 90, b: 160 } } })
-					.webp()
-					.toBuffer(),
-			);
+			const exporter = new SidecarArtworkExporter();
+			// First save writes both files; the measured saves must skip.
+			await exporter.saveTitleArtwork({ metadataId: "meta-bench", directory });
 
-			const originalFindMetadataImagePath = imageRepository.findMetadataImagePath.bind(imageRepository);
-			imageRepository.findMetadataImagePath = () => Promise.resolve(sourcePath);
-			try {
-				const exporter = new SidecarArtworkExporter();
-				// First save writes both files; the measured saves must skip.
+			const samples: number[] = [];
+			for (let run = 0; run < 10; run++) {
+				const startedAt = performance.now();
 				await exporter.saveTitleArtwork({ metadataId: "meta-bench", directory });
-
-				const samples: number[] = [];
-				for (let run = 0; run < 10; run++) {
-					const startedAt = performance.now();
-					await exporter.saveTitleArtwork({ metadataId: "meta-bench", directory });
-					samples.push(performance.now() - startedAt);
-				}
-
-				const stats = summarizeLatencies(samples);
-				printTable(
-					"Artwork export, unchanged source+target (2 files)",
-					["p50", "p95", "max"],
-					[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
-				);
-			} finally {
-				imageRepository.findMetadataImagePath = originalFindMetadataImagePath;
+				samples.push(performance.now() - startedAt);
 			}
+
+			const stats = summarizeLatencies(samples);
+			printTable(
+				"Artwork export, unchanged source+target (2 files)",
+				["p50", "p95", "max"],
+				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+			);
 		} finally {
-			removeTreeSync(directory);
+			imageRepository.findMetadataImagePath = originalFindMetadataImagePath;
 		}
+	} finally {
+		removeTreeSync(directory);
+	}
 
-		return { ok: true };
+	return { ok: true };
+});
+
+// ─── 2. Pure XML round-trip + adapter file write/read ───
+const document = buildSnapshot(0);
+const serialized = await writeXmlDocument({
+	rootName: "reelvault",
+	values: { reelvaultSchemaVersion: 1, snapshot: JSON.stringify(document) },
+});
+const parsedBack = await readXmlDocument(serialized);
+console.log(`[sidecars] xml document: ${serialized.length} bytes, round-trip parsed: ${parsedBack ? "ok" : "FAILED"}`);
+
+const adapter = new ReelVaultFormatAdapter();
+
+// An episode NFO is the worst case for the Jellyfin adapter's root dispatch:
+// the document is only recognised after the movie/series/season roots miss.
+const jellyfinRoot = await rootFixture();
+mkdirSync(join(jellyfinRoot, "jellyfin"), { recursive: true });
+const jellyfinEpisodePath = join(jellyfinRoot, "jellyfin", "Episode 01.nfo");
+writeFileSync(
+	jellyfinEpisodePath,
+	"<episodedetails><title>Benchmark Episode</title><plot>Benchmark plot text long enough to resemble a real sidecar payload entry.</plot><aired>2024-06-15</aired><imdbid>tt1000000</imdbid></episodedetails>",
+);
+const jellyfinAdapter = new JellyfinFormatAdapter();
+
+group("XML + adapter (per call)", () => {
+	bench("jellyfin adapter.read (episode NFO, worst-case root dispatch)", async () => {
+		const canonical = await jellyfinAdapter.read({ documentPath: jellyfinEpisodePath });
+		if (!canonical) throw new Error("jellyfin read failed");
 	});
 
-	// ─── 2. Pure XML round-trip + adapter file write/read ───
-	const document = buildSnapshot(0);
-	const serialized = await writeXmlDocument({
-		rootName: "reelvault",
-		values: { reelvaultSchemaVersion: 1, snapshot: JSON.stringify(document) },
+	bench("writeXmlDocument (snapshot → xml string)", async () => {
+		const output = await writeXmlDocument({
+			rootName: "reelvault",
+			values: { reelvaultSchemaVersion: 1, snapshot: JSON.stringify(document) },
+		});
+		if (output.length === 0) throw new Error("empty xml");
 	});
-	const parsedBack = await readXmlDocument(serialized);
-	console.log(`[sidecars] xml document: ${serialized.length} bytes, round-trip parsed: ${parsedBack ? "ok" : "FAILED"}`);
-
-	const adapter = new ReelVaultFormatAdapter();
-
-	// An episode NFO is the worst case for the Jellyfin adapter's root dispatch:
-	// the document is only recognised after the movie/series/season roots miss.
-	const jellyfinRoot = await rootFixture();
-	mkdirSync(join(jellyfinRoot, "jellyfin"), { recursive: true });
-	const jellyfinEpisodePath = join(jellyfinRoot, "jellyfin", "Episode 01.nfo");
-	writeFileSync(
-		jellyfinEpisodePath,
-		"<episodedetails><title>Benchmark Episode</title><plot>Benchmark plot text long enough to resemble a real sidecar payload entry.</plot><aired>2024-06-15</aired><imdbid>tt1000000</imdbid></episodedetails>",
-	);
-	const jellyfinAdapter = new JellyfinFormatAdapter();
-
-	group("XML + adapter (per call)", () => {
-		bench("jellyfin adapter.read (episode NFO, worst-case root dispatch)", async () => {
-			const canonical = await jellyfinAdapter.read({ documentPath: jellyfinEpisodePath });
-			if (!canonical) throw new Error("jellyfin read failed");
-		});
-
-		bench("writeXmlDocument (snapshot → xml string)", async () => {
-			const output = await writeXmlDocument({
-				rootName: "reelvault",
-				values: { reelvaultSchemaVersion: 1, snapshot: JSON.stringify(document) },
-			});
-			if (output.length === 0) throw new Error("empty xml");
-		});
-		bench("readXmlDocument (xml string → values)", async () => {
-			const parsed = await readXmlDocument(serialized);
-			if (!parsed) throw new Error("parse failed");
-		});
-		bench("adapter.write (xml + atomic file write)", async () => {
-			const adapterDir = join(await rootFixture(), "adapter");
-			await adapter.write({ documentPath: join(adapterDir, "movie.reelvault.nfo"), document });
-		});
-		bench("adapter.read (file read + xml parse + snapshot JSON)", async () => {
-			const adapterDir = join(await rootFixture(), "adapter");
-			const canonical = await adapter.read({ documentPath: join(adapterDir, "movie.reelvault.nfo") });
-			if (!canonical) throw new Error("adapter read failed");
-		});
+	bench("readXmlDocument (xml string → values)", async () => {
+		const parsed = await readXmlDocument(serialized);
+		if (!parsed) throw new Error("parse failed");
 	});
-}
-
-await main(import.meta);
+	bench("adapter.write (xml + atomic file write)", async () => {
+		const adapterDir = join(await rootFixture(), "adapter");
+		await adapter.write({ documentPath: join(adapterDir, "movie.reelvault.nfo"), document });
+	});
+	bench("adapter.read (file read + xml parse + snapshot JSON)", async () => {
+		const adapterDir = join(await rootFixture(), "adapter");
+		const canonical = await adapter.read({ documentPath: join(adapterDir, "movie.reelvault.nfo") });
+		if (!canonical) throw new Error("adapter read failed");
+	});
+});

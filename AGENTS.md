@@ -9,23 +9,20 @@ Load the `karpathy-guidelines` skill before starting any task.
 
 Run from the repo root:
 
-- `bun run format`: Biome formatting and import ordering. Biome's assist sorts imports (`assist.source.organizeImports` is on and `biome check` enforces it), so `bunx biome check --write <files>` orders the imports of the given files.
-- `bun run lint`: Biome plus oxlint (type-aware) plus the duplication check plus the test-quality check.
-- `bun run lint:duplicates`: jscpd copy/paste detector over `src/`. The budget is 1% duplicated lines.
-- `bun run lint:tests`: fails on a test file that cannot catch a bug — a recomputed expectation, an existence-only case, a call-only case, a bare `toThrow()`, a loose bound, or a file that exercises another folder's code. See **Tests**.
+- `bun run format`: Biome formatting and import ordering (`bunx biome check --write <files>` for some files).
+- `bun run lint [check...]`: every static check, side by side, reporting all failures in one run (`scripts/lint/lint.script.ts`). The checks: `biome`, `oxlint` (type-aware), `types` (`tsc --noEmit`, the TypeScript 7 native checker), `deadcode` (knip, import cycles included), `duplicates` and `duplicates-strict` (jscpd; the budget is 1% duplicated lines), `tests` (the test-quality gate, see **Tests**), `guard` (rules no linter ships) and `migrations` (schema changes without a migration). Name checks to run only those: `bun run lint types tests`.
+- `bun run test`: the full suite, parallel, each file isolated. `bun test` runs from the root only; `bunfig.toml` preloads don't apply in subdirectories.
+- `bun run coverage`: the same run with coverage; fails on a failing test or under the line-coverage floor (75% of `src/`; today ~85%). CI runs this instead of `test`.
 - `bun run mutation`: rewrites the implementation and counts the mutants the suite kills. It measures sensitivity, not correctness. Use it to find dead weight, never as a certificate. `bun run mutation -- --plan` prints the subject count and the run budget without running a test; `bun run mutation -- --files=<path> --max-mutants=4 --max-tests=2` checks one module. Run it alone: it rewrites production files while it runs.
-- `bun run check-types`: TypeScript (`tsc --noEmit`, the TypeScript 7 native checker — ~0.3 s for the whole repo).
-- `bun run check-types:bun`: the same project through Bun's own checker (`bun check`). It reports the same errors but is ~3x slower here, so it is a second opinion, not the gate.
-- `bun run coverage`: runs the suite with coverage and fails under the line-coverage floor (75% of `src/`; today ~82%). `bun run coverage:report` prints the full report.
-- `bun run deadcode`: knip.
-- `bun run test`: full suite. `bun test` runs from the root only; `bunfig.toml` preloads don't apply in subdirectories.
-- `bun run db:generate --name "descriptive_name"`, `db:migrate`, `db:migrate:runtime`, `scenarios`, `benchmark`.
+- `bun run benchmark <suite...>`: the benchmark suites (`packages/benchkit/README.md`); without a suite it lists them.
+- `bun run db:generate --name "descriptive_name"`, `db:migrate`, `db:studio`, `db:seed`, `db:check`, `db:vacuum`, `db:backup`.
+- `bun run doctor`, `admin:reset-password`, `admin:two-factor-enforcement`: the administration commands in `scripts/admin/`. They ship in the release archive and run there as `./start.sh <command>` (`start.bat` on Windows).
 
-The suite runs the real `ffmpeg` and `ffprobe`, so both must be on PATH.
+The suite runs the real `ffmpeg` and `ffprobe`, so both must be on PATH. Git hooks (lefthook: Biome and oxlint on commit, `lint` and `test` on push) are installed with `bunx lefthook install`; `bunfig.toml` keeps `bun install` from running lifecycle scripts, so they are not installed automatically.
 
 ## Definition of done
 
-Before you report a task done, run `format`, `lint`, `check-types`, `deadcode` and `test` from the root after your last edit, and report each outcome. Fix a failure at its root cause. If a failure predates your change, say so and show the evidence.
+Before you report a task done, run `format`, `lint` and `test` from the root after your last edit, and report each outcome. Fix a failure at its root cause. If a failure predates your change, say so and show the evidence.
 
 ## Tests
 
@@ -124,7 +121,7 @@ When a test fails, the production code is the suspect first:
 - Change an expected value only when the old one contradicts a written fact: a specification, a documented behavior, a reported bug. Name the fact in the commit or the CHANGELOG.
 - Never move an expected value to what the new code prints because the code now does something else. That ships a defect with a green test attached.
 
-`bun run lint:tests` checks the static forms listed under *The gate*. Reality, outcome and sensitivity need a reviewer and the mutation check under gate 2.
+`bun run lint tests` checks the static forms listed under *The gate*. Reality, outcome and sensitivity need a reviewer and the mutation check under gate 2.
 
 ### What a test may never contain
 
@@ -147,11 +144,13 @@ When a test fails, the production code is the suspect first:
 - **Structure**: arrange, act, assert. One behavior per test. Set up only what the test needs.
 - **Async**: always `await` `.rejects` and `.resolves`. An un-awaited assertion can pass without running.
 - **Errors**: assert `category` and `code`, never the message text.
-- **Mocks**: only what leaves the process — network, ffmpeg, ffprobe, the clock, external plugins. If the mock setup is longer than the assertion, use the real dependency or move the test up a layer.
+- **Mocks**: only what leaves the process — network, ffmpeg, ffprobe, the clock, external plugins. If the mock setup is longer than the assertion, use the real dependency or move the test up a layer. `stubMethod` refuses a name the target has no method for, so a stale stub fails instead of steering nothing.
+- **Time zone**: a date bug that only shows away from UTC is pinned with `useTimeZone()` (`tests/helpers/time-zone.helper.ts`), never with the runner's zone.
+- **Plugin hooks**: register a real hook on `pluginHookBus` and unsubscribe it in `afterEach`; don't stub the bus.
 
 ### The gate
 
-`bun run lint:tests` fails on a test file that cannot catch a bug: an expected value recomputed with the code under test, an expected value that is a constant the code under test defines, a case that only asserts existence, a case that only asserts a call, a bare `toThrow()`, a loose bound, a file that exercises another folder's code, or a test that reads the host's detected capabilities instead of mocking them. `bun run lint` runs it.
+`bun run lint tests` fails on a test file that cannot catch a bug: an expected value recomputed with the code under test, an expected value that is a constant the code under test defines, a case that only asserts existence, a case that only asserts a call, a bare `toThrow()`, a loose bound, a file that exercises another folder's code, or a test that reads the host's detected capabilities instead of mocking them. `bun run lint` runs it.
 
 Fix the assertion, not the rule.
 
@@ -177,7 +176,7 @@ Don't work around these. If one seems wrong, stop and ask the user.
 - One import statement per module, and one array syntax (`T[]` for simple types, `Array<T>` for complex ones — `typescript/array-type` owns this).
 - No explicit `any` — enforced by oxlint's `typescript/no-explicit-any`, not by Biome (Biome's `suspicious/noExplicitAny` is off so the two tools do not report the same diagnostic twice). The same split applies to the type-aware rules Biome cannot check: `no-floating-promises`, `no-misused-promises`, `await-thenable`, `no-unsafe-type-assertion`.
 
-`bun run lint:guard` checks the rules no linter ships: no suppression comments, no environment-gated test skips, no new ignore entries, no `@public` tags, the strict TypeScript flags, the registered grit plugins, and the severity of the rules the quality contract depends on.
+`bun run lint guard` checks the rules no linter ships: no suppression comments, no environment-gated test skips, no new ignore entries, no `@public` tags, the strict TypeScript flags, the registered grit plugins, and the severity of the rules the quality contract depends on.
 
 ## Readability rules
 
@@ -191,7 +190,7 @@ Don't work around these. If one seems wrong, stop and ask the user.
 - One function, one job: cognitive complexity ≤ 20, ≤ 100 lines, ≤ 5 parameters, nesting ≤ 4 levels. Split a function instead of reaching for a deeper branch.
 - One name per thing: `catch (error)`, no `forEach`/`reduce` where a loop says it better, no `console.log` outside scripts.
 - Nullish checks go through `isNullish()` / `isNotNullish()` (`src/utils/type.utils.ts`); `==`/`!=` are banned (`eslint/eqeqeq`).
-- Copy-paste is a bug waiting to happen: the duplication budget is 1% (`bun run lint:duplicates`). Extract the shared part instead of cloning it.
+- Copy-paste is a bug waiting to happen: the duplication budget is 1% (`bun run lint duplicates duplicates-strict`). Extract the shared part instead of cloning it.
 
 ## Code
 
@@ -202,11 +201,32 @@ Don't work around these. If one seems wrong, stop and ask the user.
 
 ## Architecture
 
-- Layers: `api/` (HTTP transport), `services/` (use cases), `repositories/` (data access) and `wiring/` (composition root) sit above `modules/`, `plugins/`, `workers/`, `system/`, `integrations/`, `config/` and `utils/`. Queries live in `repositories/` and return DTOs. Use `betterAuthApi.*`, not `auth.api.*`. The import rules are under Layout and naming.
+- Layers: `api/` (HTTP transport) calls `services/` (use cases), which call `repositories/` (data access). `modules/` (feature engines: streaming, scanner, images, subtitles, downloads, …), `workers/` (background jobs) and `plugins/` (the plugin runtime) sit beside the services and call repositories and services directly. `system/`, `integrations/`, `config/` and `utils/` are the base everything builds on. Use `betterAuthApi.*`, not `auth.api.*`.
+- There are no ports and no `wiring/` folder: a module, a worker or a supervisor imports the repository or service it needs. Import cycles are caught by oxlint (`import/no-cycle`, part of `bun run lint`); fix a cycle by moving the shared code down, never by adding an indirection.
+- A worker definition (`workers/definitions/**`) exposes its enqueue helper, and features import that helper. When the worker's handler needs the feature back, the handler loads it lazily (`await import(...)`) — a dynamic import is not a cycle edge.
+- Runtime supervisors (`system/`: resource allocator, server rescue, shutdown) and the library watcher are imported by almost everything, so they never import upward. The composition root `src/index.ts` hands them what they report to or call: `registerActiveStreamsProvider`, `registerAlertListener`, `registerStateListener`, the watcher's `registerScanner`/`registerLibraryScanner`, and the ordered `Shutdown` steps. A module never registers itself at import time.
+- The one integration callback is Better Auth's own user write (`integrations/better-auth/better-auth.ports.ts`), registered by `registerAuthListeners()` in `services/auth/auth.service.ts` at boot (and in `tests/test.preload.ts`).
 - Errors: throw `DomainError(category, message, { code, params })`. The message is for logs. API responses carry the code and params, never user-facing text.
 - No `new X()` at module scope in a module that can sit in an import cycle (TDZ). Use a lazy getter or a callback registration.
 - `detach()` takes only promises that cannot reject. A fire-and-forget task catches and logs its own errors before it is detached.
 - Repository methods that look identical often aren't: most repositories override `findById` or `findByPrimaryId` to hydrate relations. Check for overrides before deduplicating.
+- A projection (`parseFields({ fields: "..." })`) must list every field its consumer reads. Type the consumer from the repository's return type, never from a hand-written interface with optional fields: an optional field hides a column the query never selected.
+
+### Services
+
+- A feature too big for one file is a folder of plain functions grouped by concern (`reads`, `writes`, `markers`, …) plus a facade that is a plain object of those functions (`export const mediaService = { getAll, getById, … }`). The facade owns no logic and no state.
+- The functions report through one shared `SafeExecuteContext` in `<feature>.logger.ts` (`runSafely(mediaFilesLog, "op", …)`). Never thread a `state` parameter or pass a sibling function in as a callback; call it.
+- A class is for real per-instance state or injected collaborators (`UpdateInstallService`, `PluginManager`, `MetadataProcess`). A constructor `dependencies` object is a test seam for what leaves the process (ffmpeg, providers, the clock), not for repositories: tests run against the real database.
+
+### Plugin extension points
+
+Everything core lets a plugin observe or change goes through `system/extensions/`:
+
+- `plugin.events.ts` — `pluginEventBus.publish(name, payload)` / `emit` after something happened. Fire-and-forget, time-boxed per handler.
+- `plugin.hooks.ts` — `pluginHookBus.run(name, candidate)` before core acts. Each hook gets a frozen candidate and returns a replacement; `rejectPluginHook()` stops the action. To open a hook point, add its candidate type to `PluginHookCandidates` and call `run` where core is about to act; the call site validates what came back, because only it knows which fields a plugin may change.
+- `plugin.access.ts` — `pluginAccessBus.check(context)` for allow/deny decisions (stream access today).
+
+Plugins reach data through services, never repositories, so a plugin write passes the same checks, events and hooks as a core write. The hook points planned for 1.4.0 are listed in `TODO.md`.
 
 ## Layout and naming
 
@@ -214,15 +234,14 @@ This is the agreed layout. Put new code where it belongs. Don't create a new top
 
 ```
 src/
-├── index.ts          entry point (boot)
+├── index.ts          entry point and composition root: boot sequence, HTTP app, shutdown order
 ├── api/              HTTP transport: Elysia server — routes (*.routes.ts), middleware, schemas, web UI serving, HTTP helpers
 ├── services/         use cases: one folder per feature (admin, auth, catalog, libraries, media, playback, plugins, trickplay, ...)
 ├── repositories/     data access: one repository per entity; readers (*.reader.ts) for large cross-entity reads; queries return DTOs
-├── wiring/           composition root: registers the ports each layer reads
-├── modules/          DB-free engines: streaming, scanner, images, subtitles, trickplay, downloads, realtime, metadata-sidecars, ...
-├── plugins/          top layer: loader, lifecycle, catalog, capability implementations
-├── workers/          background job runtime and job handlers; dependencies injected at startup
-├── system/           runtime supervisors: resource allocator, server rescue, shutdown, data directories, extensions/ (contracts only)
+├── modules/          feature engines: streaming, scanner, images, subtitles, trickplay, downloads, realtime, metadata-sidecars, recognition
+├── plugins/          plugin runtime: loader, lifecycle, catalog, capability implementations
+├── workers/          background job runtime and job definitions
+├── system/           runtime supervisors (resource allocator, server rescue, shutdown, data directories) and extensions/ (plugin event, hook and access buses)
 ├── integrations/     external processes and services: ffmpeg, ffprobe, sharp, better-auth, drizzle-orm (schemas, relations, migrations, factory, query building)
 ├── config/           env, server settings (config/server/), system settings, version, host resource service (system-resources.service), worker id categories, rate-limit overrides
 └── utils/            pure helpers; no application dependencies
@@ -230,33 +249,28 @@ src/
 
 - Server settings live under `config/server/`, not in a separate top-level folder.
 - Each folder has one responsibility. Place a file by the feature that uses it, not by its kind ("service", "helper").
-- The four application layers have one direction each: `api/` calls `services/`, `services/` calls `repositories/`, and `wiring/` calls all of them. `repositories/` never calls upward. Biome enforces these layers (`style/noRestrictedImports` in `biome.json`, alias imports only):
-  - `api/` doesn't import `repositories/`, `workers/` or `integrations/`. A read, a job enqueue and a framework call go through the service that owns them. It may import `services/`, and it may import `modules/` and `plugins/` for transport work (HLS segments, WebSocket frames, served files, the plugin host) — those calls are transport, not use cases.
-  - `services/` doesn't import `api/`. Use cases take plain data; the HTTP layer calls them, not the other way round.
-  - `repositories/` doesn't import `services/` or `api/`. It is the leaf of the application: it knows no use case and no request.
-  - `modules/` doesn't import `api/`, `services/`, `repositories/`, `plugins/`, `workers/`, `drizzle-orm`, the database factory or schema, `better-auth` or `elysia`. Its data arrives through ports that `wiring/module-ports.ts` registers at startup.
-  - `plugins/` doesn't import `repositories/`, `drizzle-orm`, the database factory or schema, `better-auth` or `elysia`. They call application services such as `services/plugins/plugin-data.service.ts`.
-  - `workers/` doesn't import `api/`, `services/`, `repositories/` or `plugins/`. Stores and services are injected at startup through `wiring/worker-ports.ts`.
-  - `system/` doesn't import `api/`, `services/`, `repositories/`, `plugins/`, `workers/` or `modules/`. It reaches them through `system/system.ports.ts`, which `wiring/system-ports.ts` wires.
-  - `integrations/` doesn't import `api/`, `services/`, `repositories/`, `modules/`, `plugins/`, `workers/` or `system/`. Its app-side collaborators arrive through ports: `integrations/better-auth/better-auth.ports.ts` and `integrations/drizzle-orm/utils/provider-entity-sync.ports.ts`, both wired in `wiring/integration-ports.ts`.
-  - `config/` and `utils/` depend on each other only, and never on the application layers, plugins, workers, `system/`, `modules/` or `integrations/`.
-  - `elysia` is imported only in `api/` and in `*.routes.ts` files.
+- Biome enforces the boundaries that carry a rule (`style/noRestrictedImports` in `biome.json`, alias imports only). Each source file falls under exactly one override:
+  - Nothing imports `api/`. `api/` itself doesn't import `repositories/`, `workers/`, `integrations/`, `drizzle-orm` or `better-auth`: a read, a job enqueue and a framework call go through the service that owns them.
+  - `services/`, `modules/`, `workers/` and `system/` don't import `elysia`, `drizzle-orm` or `better-auth`.
+  - `plugins/` doesn't import `repositories/`, the database factory or schema, `elysia`, `drizzle-orm` or `better-auth`.
+  - `repositories/` doesn't import `api/`, `services/`, `modules/`, `plugins/`, `workers/` or `system/`. It is the leaf of the application, so a type a repository reads or returns is declared in the repository.
+  - `integrations/` doesn't import any application layer; `config/` and `utils/` depend on each other only.
   - Relative imports are not checked. Use `@/` for imports across folders.
 - Inside `integrations/drizzle-orm/`, the database layers are separate:
   - `query/` holds generic building blocks that know no feature: table access, query parsers (`parsing/`), keyset pagination (`keyset/`), transactions, prepared statements.
-  - `utils/` holds helpers tied to a domain (joins, stable keys, provider sync, media projections).
+  - `utils/` holds helpers tied to a domain (joins, stable keys, media projections).
   - `schemas/`, `relations.schema.ts`, `migrations/` and `database.factory.ts` hold the schema, the relation graph, the migrations and the connection factory.
-- Repositories live in `repositories/`: one per entity, with its simple relation reads (`metadata-relations/`). Large cross-entity reads, such as recommendations, live in `*.reader.ts` files there. They return DTOs.
+- Repositories live in `repositories/`: one per entity, with its simple relation reads (`metadata-relations/`) and the domain writers they share (`provider-entity-sync.writer.ts`, `named-entity-repository.factory.ts`). Large cross-entity reads, such as recommendations, live in `*.reader.ts` files there. They return DTOs.
 - A repository never sees an HTTP concept. The audit log, for example, stores flat columns; the caller context (`services/admin/audit-context.types.ts`) is flattened by the audit service before it reaches the repository.
-- `config/system-resources.service.ts` stays in `config/`, although it reads host CPU and RAM at runtime. About 70 files import it, including `integrations/` and `utils/`, and those layers can't import `system/`. Don't move it to `system/` unless the layer rules change first.
+- `config/system-resources.service.ts` stays in `config/`, although it reads host CPU and RAM at runtime: `integrations/` and `utils/` import it, and they can't import `system/`.
 - Inside `services/catalog/metadata/`, group files by responsibility (`refresh/`, `process/`, `records/`, `providers/`). `metadata.service.ts` stays the facade. Don't group by file type (`service/`, `metadata-process/`).
 
 ### File names
 
-- A file is `<subject>.<role>.ts`, where the role suffix says what the file does. Reuse the existing suffixes: `service`, `repository`, `schema`, `routes`, `reader`, `writer`, `mapper`, `validator`, `guard`, `middleware`, `cache`, `factory`, `runtime`, `adapter`, `store`, `runner`, `scheduler`, `policy`, `manager`, `loader`, `parser`, `builder`, `registry`, `utils`, `types`, `constants`, `config`, `definitions`, `bench`, `resolver`, `strategy`, `publisher`, `importer`, `tracker`, `pipeline`, `cleaner`, `extractor`, `watcher`, `operation`, `limiter`, `aggregator`, `errors`, `failures`, `environment`, `plugin`, `scanner`, `processor`, `matcher`, `logger`, `recorder`, `monitor`, `initializer`, `reaper`, `seeker`, `coordinator`, `lookup`, `waiter`, `selector`, `locator`, `walker`, `exporter`, `eviction`, `diagnostics`, `indexer`, `fetcher`, `hardener`, `fanout`, `projection`, `allocator`, `connection`, `installer`, `history`, `report`. Test-only helpers use `.helper.ts` or `.fixture.ts`, scripts use `.script.ts`, and the preload is `tests/test.preload.ts`.
+- A file is `<subject>.<role>.ts`, where the role suffix says what the file does. Reuse the existing suffixes: `service`, `repository`, `schema`, `routes`, `reader`, `writer`, `mapper`, `validator`, `guard`, `middleware`, `cache`, `factory`, `runtime`, `adapter`, `store`, `runner`, `scheduler`, `policy`, `manager`, `loader`, `parser`, `builder`, `registry`, `utils`, `types`, `constants`, `config`, `definitions`, `bench`, `resolver`, `strategy`, `publisher`, `importer`, `tracker`, `pipeline`, `cleaner`, `extractor`, `watcher`, `operation`, `limiter`, `aggregator`, `errors`, `failures`, `environment`, `plugin`, `scanner`, `processor`, `matcher`, `logger`, `recorder`, `monitor`, `initializer`, `reaper`, `seeker`, `coordinator`, `lookup`, `waiter`, `selector`, `locator`, `walker`, `exporter`, `eviction`, `diagnostics`, `indexer`, `fetcher`, `hardener`, `fanout`, `projection`, `allocator`, `connection`, `installer`, `history`, `report`, `ports`, `events`, `hooks`, `access`. Test-only helpers use `.helper.ts` or `.fixture.ts`, scripts use `.script.ts`, and the preload is `tests/test.preload.ts`.
 - Don't invent a new suffix without asking. Don't use `.common`, `.helpers`, `.misc`, `.validation` (use `.validator`), `.schemas` (use `.schema`) or `.definition` (use `.definitions`).
 - The only files without a role suffix are `index.ts` entry points and barrels.
-- A test file is `<subject>.test.ts`, named after the module it covers.
+- A test file is `<subject>.test.ts`, named after the module it covers; a second file for one module names the behavior (`media-files.reassign.test.ts`).
 
 ### Lifecycle
 
@@ -270,12 +284,11 @@ Know when a piece of code runs before you put it somewhere.
 | `plugins/` | loaded at boot; installed or updated while running | unloaded before the database closes |
 | `workers/` | scheduler and pools start after the database | stopped before the database closes |
 | `modules/` | started by `services/` and `workers/` | ffmpeg processes killed at shutdown |
-| `wiring/` | at boot, before the server listens | registers the ports every layer reads; nothing else |
 | `services/` | per request only (use cases) | no global mutable state |
 | `repositories/` | per request only (data access) | no global mutable state beyond bounded caches |
 | `api/` | per request only (HTTP transport) | no global mutable state |
 
-Shutdown order (`system/shutdown.service.ts`): realtime, http, library-watchers, resource-allocator, server-rescue, workers, download-sweeps, streaming, ffmpeg, plugins, database. Intake stops first, and the database closes last.
+Shutdown order (the `shutdownSteps` list in `src/index.ts`): realtime, http, library-watchers, resource-allocator, server-rescue, workers, download-sweeps, streaming, ffmpeg, plugins, database. Intake stops first, and the database closes last.
 
 Before you add or move a file, check this section. If no folder fits, ask the user instead of creating one. Moves and renames are refactors and get no CHANGELOG entry.
 

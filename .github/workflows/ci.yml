@@ -5,6 +5,8 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  # The release workflow runs the same gate before it builds anything.
+  workflow_call:
 
 permissions:
   contents: read
@@ -13,11 +15,8 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  LEFTHOOK: "0" # skip git hooks installed by the `prepare` script
-
 jobs:
-  quality:
+  checks:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -25,20 +24,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Type check
-            command: bun run check-types
-          - name: Lint
-            command: bun run lint:ci
-          - name: Dead code
-            command: bun run deadcode
-          - name: Coverage
-            command: bun run coverage
+          # Biome, oxlint, TypeScript, knip, jscpd, the test-quality gate, the config guard and migration
+          # drift; then the deterministic query audits (statements per operation, query plans).
+          - name: Lint and query audits
+            command: bun run lint && bun run benchmark query-count query-plan --strict
+          # The whole suite once, with the coverage floor on top.
           - name: Tests
-            command: bun test --parallel
-          - name: Route registry
-            command: bun run check:routes
-          - name: Migration drift
-            command: bun run check:migrations
+            command: bun run coverage
+            ffmpeg: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -58,10 +51,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # The suite drives the real ffmpeg and ffprobe, so both must be on PATH.
-      # The runner image ships neither.
+      # The suite drives the real ffmpeg and ffprobe; the runner image ships neither.
       - name: Install FFmpeg
-        if: matrix.name == 'Tests' || matrix.name == 'Coverage'
+        if: matrix.ffmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
@@ -69,16 +61,16 @@ jobs:
       - name: ${{ matrix.name }}
         run: ${{ matrix.command }}
 
-  # Keeps the original required-check name green only when every parallel check
-  # passed, so branch protection rules referencing it keep working.
+  # Keeps the required-check name green only when every check passed, so branch
+  # protection rules referencing it keep working.
   quality-gate:
     name: Code quality and tests
-    needs: quality
+    needs: checks
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify all quality checks passed
+      - name: Verify all checks passed
         env:
-          QUALITY_RESULT: ${{ needs.quality.result }}
-        run: test "$QUALITY_RESULT" = "success"
+          CHECKS_RESULT: ${{ needs.checks.result }}
+        run: test "$CHECKS_RESULT" = "success"

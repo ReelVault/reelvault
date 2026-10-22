@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import type { ImageQuality } from "@reelvault/sdk/common";
 import { reencodeImage } from "@/integrations/sharp/sharp.actions";
-import { imagesStorage } from "@/modules/images/images.ports";
 import { episodeThumbFileName, TITLE_BACKDROP_NAMES, TITLE_POSTER_NAMES } from "@/modules/metadata-sidecars/files/artwork.constants";
+import { imageRepository } from "@/repositories/images.repository";
 import { errorMessage } from "@/utils/domain.errors";
 import { fileStatSignature, fileVersionSignature, getFileStats, writeFileIfChanged } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
@@ -112,14 +112,14 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 		directory: string,
 		fileName: string,
 	): Promise<string | undefined> {
-		const sourcePath = await imagesStorage().findMetadataImagePath(metadataId, imageType);
+		const sourcePath = await imageRepository.findMetadataImagePath(metadataId, imageType);
 		if (!sourcePath) return undefined;
 
 		return await this.exportFile(sourcePath, join(directory, fileName));
 	}
 
 	private async exportImageFile(imageId: string, targetPath: string): Promise<string | undefined> {
-		const image = await imagesStorage().findForFileRead(imageId);
+		const image = await imageRepository.findForFileRead(imageId);
 		if (!image) return undefined;
 
 		return await this.exportFile(image.localPath, targetPath);

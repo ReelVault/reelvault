@@ -1,8 +1,8 @@
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { workerJobRepository } from "@/repositories/worker.repository";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 import { getWorkerRuntime } from "./worker.runtime";
 
 /** Upper bound for the idle-poll backoff (see scheduleNextPoll). */
@@ -161,7 +161,7 @@ export class WorkerPollingService {
 			const maxGlobalPool = systemResourcesService.getWorkerPoolMaxConcurrent();
 			if (runtime.pool.totalRunningCount >= maxGlobalPool) return;
 
-			const pendingWorkerIds = await workerDependencies().jobs.findPendingWorkerIds(now);
+			const pendingWorkerIds = await workerJobRepository.findPendingWorkerIds(now);
 			if (pendingWorkerIds.length === 0) {
 				this.emptyPolls++;
 
@@ -195,7 +195,7 @@ export class WorkerPollingService {
 
 				// One transaction claims every runnable job for this worker — the
 				// sequential claimNext re-ran recover/candidates/counts per job.
-				const claimedItems = await workerDependencies().jobs.claimNextBatch(
+				const claimedItems = await workerJobRepository.claimNextBatch(
 					{
 						workerId,
 						runnerId: this.runnerId,

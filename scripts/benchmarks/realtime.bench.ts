@@ -1,4 +1,4 @@
-import { fmtMs, main, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
+import { fmtMs, printTable, suiteArgs, summarizeLatencies, task } from "benchkit";
 import { sleep } from "bun";
 import { isRecord } from "@/utils/type.utils";
 
@@ -283,29 +283,25 @@ export const meta = { description: "Realtime WS (ping/pong RTT, playback fan-out
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
+const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
 
-	task("realtime: phases", async () => {
-		const server = await serverFixture();
-		if (!server.sampleMediaId) {
-			console.error("Sample media unavailable — cannot run the realtime benchmark");
-			process.exitCode = 1;
+task("realtime: phases", async () => {
+	const server = await serverFixture();
+	if (!server.sampleMediaId) {
+		console.error("Sample media unavailable — cannot run the realtime benchmark");
+		process.exitCode = 1;
 
-			return;
-		}
+		return;
+	}
 
-		const profileId = server.profileIdFor(0);
-		for (const count of [10, 50, Math.min(100, Math.max(50, Math.max(...args.concurrency)))].filter(
-			(value, index, all) => all.indexOf(value) === index,
-		)) {
-			await pingPongPhase(server, profileId, count, args.durationMs);
-			await fanOutPhase(server, profileId, count);
-		}
+	const profileId = server.profileIdFor(0);
+	for (const count of [10, 50, Math.min(100, Math.max(50, Math.max(...args.concurrency)))].filter(
+		(value, index, all) => all.indexOf(value) === index,
+	)) {
+		await pingPongPhase(server, profileId, count, args.durationMs);
+		await fanOutPhase(server, profileId, count);
+	}
 
-		await multiProfileFanOutPhase(server, Math.min(30, Math.max(10, server.workerCookies.length * 3)));
-		await eventBurstPhase(server, profileId, 10, 20);
-	});
-}
-
-await main(import.meta);
+	await multiProfileFanOutPhase(server, Math.min(30, Math.max(10, server.workerCookies.length * 3)));
+	await eventBurstPhase(server, profileId, 10, 20);
+});

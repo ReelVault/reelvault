@@ -1,8 +1,8 @@
 import type { MetadataProviderConfiguration } from "@reelvault/sdk/common";
 import { providerService } from "@/plugins/capabilities/provider.service";
+import { adminLog } from "@/services/admin/admin.logger";
 import { auditedChange } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
-import type { AdminServiceState } from "@/services/admin/shared.utils";
 import { DomainError } from "@/utils/domain.errors";
 
 export async function getMetadataProviderConfigurations(): Promise<MetadataProviderConfiguration[]> {
@@ -10,7 +10,6 @@ export async function getMetadataProviderConfigurations(): Promise<MetadataProvi
 }
 
 export async function updateMetadataProviderConfiguration(
-	state: AdminServiceState,
 	providerId: string,
 	values: { priority?: number; enabled?: boolean },
 	context?: AdminAuditContext,
@@ -19,7 +18,7 @@ export async function updateMetadataProviderConfiguration(
 	if (!before) throw new DomainError("not_found", `Metadata provider not found: ${providerId}`, { code: "metadata.provider_not_found" });
 
 	return await auditedChange({
-		logger: state.logger,
+		logger: adminLog.logger,
 		resourceType: "metadata_provider_configuration",
 		resourceId: providerId,
 		before,
@@ -29,14 +28,13 @@ export async function updateMetadataProviderConfiguration(
 }
 
 export async function reorderMetadataProviderConfigurations(
-	state: AdminServiceState,
 	providerIds: string[],
 	context?: AdminAuditContext,
 ): Promise<MetadataProviderConfiguration[]> {
 	const before = await providerService.getConfigurations();
 
 	return await auditedChange({
-		logger: state.logger,
+		logger: adminLog.logger,
 		resourceType: "metadata_provider_configuration_order",
 		resourceId: "order",
 		before,

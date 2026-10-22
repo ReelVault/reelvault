@@ -12,35 +12,35 @@ const candidate = {
 describe("plugin hook bus", () => {
 	test("applies metadata transformations in registration order and supports unsubscribe", async () => {
 		const bus = new PluginHookBus();
-		const unsubscribe = bus.beforeMetadataSave("first", ({ candidate: input }) => ({ ...input, title: "Normalized title" }));
-		bus.beforeMetadataSave("second", ({ candidate: input }) => ({ ...input, overview: `${input.title} overview` }));
+		const unsubscribe = bus.register("first", "beforeMetadataSave", ({ candidate: input }) => ({ ...input, title: "Normalized title" }));
+		bus.register("second", "beforeMetadataSave", ({ candidate: input }) => ({ ...input, overview: `${input.title} overview` }));
 
-		const result = await bus.runBeforeMetadataSave(candidate);
+		const result = await bus.run("beforeMetadataSave", candidate);
 		expect(result).toEqual({ ...candidate, title: "Normalized title", overview: "Normalized title overview" });
 
 		unsubscribe();
-		expect(await bus.runBeforeMetadataSave(candidate)).toEqual({ ...candidate, overview: "Original title overview" });
+		expect(await bus.run("beforeMetadataSave", candidate)).toEqual({ ...candidate, overview: "Original title overview" });
 	});
 
 	test("propagates an explicit hook rejection but isolates ordinary hook failures", async () => {
 		const bus = new PluginHookBus();
 		const ran: string[] = [];
-		bus.beforeMetadataSave("broken", () => {
+		bus.register("broken", "beforeMetadataSave", () => {
 			throw new Error("unexpected plugin failure");
 		});
-		bus.beforeMetadataSave("after-broken", ({ candidate: input }) => {
+		bus.register("after-broken", "beforeMetadataSave", ({ candidate: input }) => {
 			ran.push("after-broken");
 
 			return { ...input, title: "Applied after failure" };
 		});
-		bus.beforeMetadataSave("rejecting", () => rejectPluginHook("blocked by policy"));
-		bus.beforeMetadataSave("after-rejection", () => {
+		bus.register("rejecting", "beforeMetadataSave", () => rejectPluginHook("blocked by policy"));
+		bus.register("after-rejection", "beforeMetadataSave", () => {
 			ran.push("after-rejection");
 
 			return undefined;
 		});
 
-		const rejection = bus.runBeforeMetadataSave(candidate);
+		const rejection = bus.run("beforeMetadataSave", candidate);
 
 		await expect(rejection).rejects.toBeInstanceOf(PluginHookRejection);
 		await expect(rejection).rejects.toMatchObject({ name: "PluginHookRejection", message: "blocked by policy" });
@@ -50,42 +50,44 @@ describe("plugin hook bus", () => {
 
 	test("isolates a timed out hook and continues with later hooks", async () => {
 		const bus = new PluginHookBus(1);
-		bus.beforeMetadataSave(
+		bus.register(
 			"timed-out",
+			"beforeMetadataSave",
 			() =>
 				new Promise<never>(() => {
 					// Never settles — the hook is expected to time out.
 				}),
 		);
-		bus.beforeMetadataSave("later", ({ candidate: input }) => ({ ...input, title: "Recovered title" }));
+		bus.register("later", "beforeMetadataSave", ({ candidate: input }) => ({ ...input, title: "Recovered title" }));
 
-		await expect(bus.runBeforeMetadataSave(candidate)).resolves.toEqual({ ...candidate, title: "Recovered title" });
+		await expect(bus.run("beforeMetadataSave", candidate)).resolves.toEqual({ ...candidate, title: "Recovered title" });
 	});
 
-	test("normalizes a recognition candidate title before it is used", async () => {
+	test("hands every hook a frozen candidate, so one plugin cannot change what the next one reads", async () => {
 		const bus = new PluginHookBus();
-		bus.beforeMediaRecognition("parser", ({ candidate: input }) => ({ ...input, title: input.title.replaceAll(".", " ") }));
+		const seenTitles: string[] = [];
+		bus.register("mutator", "beforeMetadataSave", ({ candidate: input }) => {
+			Reflect.set(input, "title", "Mutated in place");
+
+			return undefined;
+		});
+		bus.register("reader", "beforeMetadataSave", ({ candidate: input }) => {
+			seenTitles.push(input.title);
+
+			return undefined;
+		});
+
+		await expect(bus.run("beforeMetadataSave", candidate)).resolves.toEqual(candidate);
+		expect(seenTitles).toEqual(["Original title"]);
+	});
+
+	test("runs only the hooks registered for the named hook point", async () => {
+		const bus = new PluginHookBus();
+		bus.register("parser", "beforeMediaRecognition", ({ candidate: input }) => ({ ...input, title: input.title.replaceAll(".", " ") }));
+		bus.register("metadata", "beforeMetadataSave", ({ candidate: input }) => ({ ...input, title: "Not a recognition" }));
 
 		await expect(
-			bus.runBeforeMediaRecognition({ type: "tv_show", title: "Example.Show", year: 2024, season: 1, episode: 2 }),
+			bus.run("beforeMediaRecognition", { type: "tv_show", title: "Example.Show", year: 2024, season: 1, episode: 2 }),
 		).resolves.toEqual({ type: "tv_show", title: "Example Show", year: 2024, season: 1, episode: 2 });
-	});
-
-	test("allows artifact metadata normalization but preserves its media ownership and size", async () => {
-		const bus = new PluginHookBus();
-		bus.beforeArtifactCreate("normalizer", ({ candidate: input }) => ({
-			...input,
-			kind: "preview",
-			contentType: input.contentType.toLowerCase(),
-		}));
-
-		await expect(
-			bus.runBeforeArtifactCreate({ mediaFileId: "file-1", kind: "trickplay", contentType: "IMAGE/WEBP", size: 42 }),
-		).resolves.toEqual({ mediaFileId: "file-1", kind: "preview", contentType: "image/webp", size: 42 });
-
-		bus.beforeArtifactCreate("invalid", ({ candidate: input }) => ({ ...input, mediaFileId: "other-file" }));
-		await expect(
-			bus.runBeforeArtifactCreate({ mediaFileId: "file-1", kind: "trickplay", contentType: "image/webp", size: 42 }),
-		).rejects.toMatchObject({ category: "validation", code: "plugin.artifact_candidate_invalid" });
 	});
 });

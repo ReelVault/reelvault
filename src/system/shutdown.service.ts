@@ -1,11 +1,6 @@
 import { serverConfig } from "@/config/server/server.config";
-import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
-import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { flushLogs, logger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
-import { resourceAllocator } from "./resource-allocator.service";
-import { serverRescueService } from "./server-rescue.service";
-import { systemShutdown } from "./system.ports";
 
 /** Registered by index.ts once the real server is wired up. */
 let activeShutdownHandler: Shutdown | undefined;
@@ -34,25 +29,25 @@ export function setActiveShutdown(handler: Shutdown): void {
 	activeShutdownHandler = handler;
 }
 
-/** One stop step. Steps run in array order, so the order below is the shutdown order. */
-interface ShutdownStep {
+/** One stop step. Steps run in array order, so the array the composition root passes is the shutdown order. */
+export interface ShutdownStep {
 	readonly name: string;
 	readonly message: string;
 	readonly run: () => unknown;
 }
 
 /**
- * Graceful shutdown handler
- * Prevents data loss and ensures clean exit
+ * Graceful shutdown: runs the stop steps in order on SIGTERM/SIGINT, a fatal
+ * error or a self-update restart, and exits once they are done or the timeout hits.
  */
 export class Shutdown {
-	private readonly shutdownAppFn: () => unknown;
+	private readonly steps: readonly ShutdownStep[];
 
 	private isShuttingDown = false;
 	private shutdownTimeout?: Timer | undefined;
 
-	constructor({ shutdownAppFn }: { shutdownAppFn: () => unknown }) {
-		this.shutdownAppFn = shutdownAppFn;
+	constructor(steps: readonly ShutdownStep[]) {
+		this.steps = steps;
 	}
 
 	init() {
@@ -86,34 +81,6 @@ export class Shutdown {
 		});
 	}
 
-	/**
-	 * The order matters: intake stops first, background work next, queues and
-	 * streams after that, and the database closes last, once nothing writes to it.
-	 */
-	private steps(): ShutdownStep[] {
-		return [
-			// Realtime first: app.stop() waits for open sockets to drain, and a
-			// connected events WebSocket never closes on its own — stopping the
-			// server before telling clients to go away deadlocked shutdown until
-			// the 30s timeout. Closing them first lets stop() (and the graceful
-			// path) actually complete.
-			{ name: "realtime", message: "Closing realtime connections...", run: () => systemShutdown().closeRealtime() },
-			{ name: "http", message: "Stopping server...", run: () => this.shutdownAppFn() },
-			{ name: "library-watchers", message: "Stopping library watchers...", run: () => systemShutdown().stopLibraryWatchers() },
-			{ name: "resource-allocator", message: "Shutting down resource allocator...", run: () => resourceAllocator.shutdown() },
-			{ name: "server-rescue", message: "Stopping server rescue monitor...", run: () => serverRescueService.shutdown() },
-			{ name: "workers", message: "Shutting down queue system...", run: () => systemShutdown().stopWorkers() },
-			// Retention sweeps query the database, so they stop before it closes.
-			{ name: "download-sweeps", message: "Stopping download retention sweeps...", run: () => systemShutdown().stopDownloadSweeps() },
-			{ name: "streaming", message: "Closing streaming sessions...", run: () => systemShutdown().closeStreaming() },
-			{ name: "ffmpeg", message: "Terminating FFmpeg processes...", run: () => ffMpegService.killAll() },
-			// Plugins get their onDisable/onUnload/dispose while the database is
-			// still open; each unload is individually time-boxed inside.
-			{ name: "plugins", message: "Unloading plugins...", run: () => systemShutdown().unloadPlugins() },
-			{ name: "database", message: "Closing database...", run: () => databaseFactory.shutdown() },
-		];
-	}
-
 	async shutdown(signal: string): Promise<void> {
 		if (this.isShuttingDown) {
 			logger.warn("Shutdown already in progress");
@@ -132,7 +99,7 @@ export class Shutdown {
 		// A failing step is logged and skipped, so one broken service cannot keep the
 		// database open or the logs unflushed.
 		let failedSteps = 0;
-		for (const step of this.steps()) {
+		for (const step of this.steps) {
 			logger.info(step.message);
 			try {
 				await step.run();

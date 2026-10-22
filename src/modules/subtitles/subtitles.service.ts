@@ -12,12 +12,13 @@ import type {
 	SubtitleProviderInfo,
 	SubtitleProviderSearchRequest,
 	SubtitleProviderSearchResponse,
-	SubtitleProviderStatus,
 	SubtitleSorting,
-	SubtitleType,
 	UpdateSubtitleRequest,
 } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
+import { subtitleProviderService } from "@/plugins/capabilities/subtitle-provider.service";
+import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
+import { subtitlesRepository } from "@/repositories/subtitles.repository";
 import { createDirectory } from "@/utils/directory.utils";
 import { assertFound, DomainError, errorCodeOf } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
@@ -25,58 +26,19 @@ import { createLogger } from "@/utils/logger.utils";
 import { invalidateResponseBodies } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { resolveSubtitleType, toPublicSubtitle } from "./subtitle.mapper";
-import { type SubtitleContent, type SubtitleContentResolver, subtitleContentResolver } from "./subtitle-content.resolver";
+import { type SubtitleContent, subtitleContentResolver } from "./subtitle-content.resolver";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
-import { type SubtitleFileCleaner, subtitleFileCleaner } from "./subtitle-file.cleaner";
-import { type SubtitleInfoCache, subtitleInfoCache } from "./subtitle-info.cache";
+import { subtitleFileCleaner } from "./subtitle-file.cleaner";
+import { subtitleInfoCache } from "./subtitle-info.cache";
 import { detectUploadedSubtitleFormat } from "./subtitle-upload.utils";
-import { subtitleProviders, subtitlesStorage } from "./subtitles.ports";
-
-interface ServiceDependencies {
-	findPage: (query?: PaginationQuery & SubtitleFilters & SubtitleSorting) => Promise<PaginatedResponse<SubtitleEntity>>;
-	findByMediaFileId: (mediaFileId: string) => Promise<SubtitleEntity[]>;
-	findById: (id: string) => Promise<SubtitleEntity | null | undefined>;
-	createRow: (body: CreateSubtitleRequest, type: SubtitleType) => Promise<SubtitleEntity | null | undefined>;
-	updateRow: (id: string, body: UpdateSubtitleRequest) => Promise<SubtitleEntity | null | undefined>;
-	deleteRow: (id: string) => Promise<SubtitleEntity | null | undefined>;
-	getProviderStatus: () => SubtitleProviderStatus[];
-	searchProviders: (body: SubtitleProviderSearchRequest) => Promise<SubtitleProviderSearchResponse[]>;
-	downloadSubtitle: (providerId: string, body: SubtitleProviderDownloadRequest) => Promise<string>;
-	infoCache: Pick<SubtitleInfoCache, "getOrSet" | "invalidate">;
-	contentResolver: Pick<SubtitleContentResolver, "resolve">;
-	fileCleaner: Pick<SubtitleFileCleaner, "deleteArtifacts" | "deleteExtractedVtt">;
-	waitForInFlightExtraction: (subtitleId: string) => Promise<void>;
-}
-
-const defaultDependencies: ServiceDependencies = {
-	findPage: (query) => subtitlesStorage().findPage(query),
-	findByMediaFileId: (mediaFileId) => subtitlesStorage().findByMediaFileId(mediaFileId),
-	findById: async (id) => await subtitlesStorage().findById(id),
-	createRow: (body, type) => subtitlesStorage().createRow(body, type),
-	updateRow: (id, body) => subtitlesStorage().updateRow(id, body),
-	deleteRow: (id) => subtitlesStorage().deleteRow(id),
-	getProviderStatus: () => subtitleProviders().getProviderStatus(),
-	searchProviders: (body) => subtitleProviders().search(body),
-	downloadSubtitle: (providerId, body) => subtitleProviders().download(providerId, body),
-	infoCache: subtitleInfoCache,
-	contentResolver: subtitleContentResolver,
-	fileCleaner: subtitleFileCleaner,
-	waitForInFlightExtraction: (subtitleId) => subtitleExtractorService.waitForInFlight(subtitleId),
-};
 
 export class SubtitlesService {
 	readonly serviceName = "SubtitlesService";
 	readonly logger = createLogger("SubtitlesService");
 
-	private readonly dependencies: ServiceDependencies;
-
-	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		this.dependencies = dependencies;
-	}
-
 	async getAll(query?: PaginationQuery & SubtitleFilters & SubtitleSorting): Promise<PaginatedResponse<Subtitle>> {
 		return await runSafely(this, "getAll", async () => {
-			const result = await this.dependencies.findPage(query);
+			const result = await subtitlesRepository.findPage(query);
 
 			return { ...result, data: result.data.map(toPublicSubtitle) };
 		});
@@ -84,28 +46,28 @@ export class SubtitlesService {
 
 	async getByMediaFileId(mediaFileId: string): Promise<Subtitle[]> {
 		return await runSafely(this, "getByMediaFileId", async () => {
-			const result = await this.dependencies.findByMediaFileId(mediaFileId);
+			const result = await subtitlesRepository.findByMediaFileId(mediaFileId);
 
 			return result.map((item) => toPublicSubtitle(item));
 		});
 	}
 
 	async getById(id: string): Promise<Subtitle> {
-		return await runSafely(this, "getById", async () => await this.loadSubtitle(id, () => this.dependencies.findById(id)));
+		return await runSafely(this, "getById", async () => await this.loadSubtitle(id, () => findSubtitle(id)));
 	}
 
 	async getProviders(): Promise<SubtitleProviderInfo[]> {
 		return await runSafely(this, "getProviders", async () => {
-			const disabled = await subtitleProviders().disabledProviderIds();
+			const disabled = await subtitleProviderService.disabledProviderIds();
 
-			return this.dependencies.getProviderStatus().map((provider) => ({ ...provider, enabled: !disabled.has(provider.id) }));
+			return pluginManager.getSubtitleProviderStatus().map((provider) => ({ ...provider, enabled: !disabled.has(provider.id) }));
 		});
 	}
 
 	/** Turns a subtitle provider on or off; an off provider is not searched and cannot be downloaded from. */
 	async setProviderEnabled(providerId: string, enabled: boolean): Promise<SubtitleProviderInfo> {
 		return await runSafely(this, "setProviderEnabled", async () => {
-			await subtitleProviders().setEnabled(providerId, enabled);
+			await subtitleProviderService.setEnabled(providerId, enabled);
 			const updated = (await this.getProviders()).find((provider) => provider.id === providerId);
 			assertFound(updated, "Subtitle provider", providerId);
 
@@ -114,13 +76,13 @@ export class SubtitlesService {
 	}
 
 	async searchProviders(body: SubtitleProviderSearchRequest): Promise<SubtitleProviderSearchResponse[]> {
-		return await runSafely(this, "searchProviders", async () => await this.dependencies.searchProviders(body));
+		return await runSafely(this, "searchProviders", async () => await subtitleProviderService.search(body));
 	}
 
 	async downloadFromProvider(providerId: string, body: SubtitleProviderDownloadRequest): Promise<Subtitle> {
 		return await runSafely(this, "downloadFromProvider", async () => {
-			const subtitleId = await this.dependencies.downloadSubtitle(providerId, body);
-			const downloaded = await this.loadSubtitle(subtitleId, () => this.dependencies.findById(subtitleId));
+			const subtitleId = await subtitleProviderService.download(providerId, body);
+			const downloaded = await this.loadSubtitle(subtitleId, () => findSubtitle(subtitleId));
 			invalidateResponseBodies();
 
 			return downloaded;
@@ -129,16 +91,16 @@ export class SubtitlesService {
 
 	async getContent(id: string, signal?: AbortSignal): Promise<SubtitleContent> {
 		return await runSafely(this, "getContent", async () => {
-			const info = await this.dependencies.infoCache.getOrSet(id);
+			const info = await subtitleInfoCache.getOrSet(id);
 
-			return await this.dependencies.contentResolver.resolve(id, info, signal);
+			return await subtitleContentResolver.resolve(id, info, signal);
 		});
 	}
 
 	async create(body: CreateSubtitleRequest): Promise<Subtitle> {
 		return await runSafely(this, "create", async () => {
 			const type = resolveSubtitleType(body);
-			const created = await this.loadSubtitle(body.mediaFileId, () => this.dependencies.createRow(body, type));
+			const created = await this.loadSubtitle(body.mediaFileId, () => subtitlesRepository.createAndRead(body, type));
 			invalidateResponseBodies();
 
 			return created;
@@ -177,25 +139,25 @@ export class SubtitlesService {
 
 	async update(id: string, body: UpdateSubtitleRequest): Promise<Subtitle> {
 		return await runSafely(this, "update", async () => {
-			const previous = await this.dependencies.findById(id);
+			const previous = await findSubtitle(id);
 			// An in-flight extraction read the old row; let it settle before the VTT
 			// is dropped, or it can rename the old cues back after the delete.
-			await this.dependencies.waitForInFlightExtraction(id);
+			await subtitleExtractorService.waitForInFlight(id);
 
-			const updatedEntity = await this.dependencies.updateRow(id, body);
+			const updatedEntity = await subtitlesRepository.updateAndRead(id, body);
 			assertFound(updatedEntity, "Subtitle", id);
 			// Invalidate after the write: a concurrent read between an earlier
 			// invalidate and the commit would re-cache the old row for the full TTL.
-			this.dependencies.infoCache.invalidate(id);
+			subtitleInfoCache.invalidate(id);
 
 			// The extracted VTT is keyed only by the subtitle id, but its content
 			// depends on the stream/source/media file — drop it so the next content
 			// request re-extracts from the updated row instead of serving stale cues.
 			if (previous && (previous.filePath !== updatedEntity.filePath || previous.type !== updatedEntity.type)) {
 				// A replaced external file would otherwise leak on disk.
-				await this.dependencies.fileCleaner.deleteArtifacts(id, previous);
+				await subtitleFileCleaner.deleteArtifacts(id, previous);
 			} else {
-				await this.dependencies.fileCleaner.deleteExtractedVtt(id);
+				await subtitleFileCleaner.deleteExtractedVtt(id);
 			}
 
 			// Cached subtitle lists/detail (60-300 s) must not outlive the write.
@@ -224,13 +186,13 @@ export class SubtitlesService {
 
 	async delete(id: string): Promise<{ success: true }> {
 		return await runSafely(this, "delete", async () => {
-			this.dependencies.infoCache.invalidate(id);
+			subtitleInfoCache.invalidate(id);
 			// Wait for a concurrent extraction so it cannot rename the VTT back
 			// after this delete removes it.
-			await this.dependencies.waitForInFlightExtraction(id);
-			const subtitle = await this.dependencies.deleteRow(id);
+			await subtitleExtractorService.waitForInFlight(id);
+			const subtitle = await subtitlesRepository.deleteAndReturn(id);
 			assertFound(subtitle, "Subtitle", id);
-			await this.dependencies.fileCleaner.deleteArtifacts(id, subtitle);
+			await subtitleFileCleaner.deleteArtifacts(id, subtitle);
 			invalidateResponseBodies();
 
 			return { success: true };
@@ -244,6 +206,10 @@ export class SubtitlesService {
 
 		return toPublicSubtitle(result);
 	}
+}
+
+function findSubtitle(id: string): Promise<SubtitleEntity | undefined> {
+	return subtitlesRepository.findByPrimaryId({ primaryId: id });
 }
 
 export const subtitlesService = new SubtitlesService();

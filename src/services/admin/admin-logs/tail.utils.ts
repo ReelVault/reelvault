@@ -2,26 +2,40 @@ import { file as bunFile } from "bun";
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
 import { readFile } from "@/utils/file.utils";
 import { safeParseJson } from "@/utils/json.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { isNonEmptyString, isRecord, normalizeLower } from "@/utils/type.utils";
+import { adminLogsLog } from "./admin-logs.logger";
 import { resolveLogFilePath } from "./files.service";
-import { type AdminLogsState, LOG_TAIL_BYTES, LOG_TAIL_LINE_CAP, type LogTailEntry } from "./shared.types";
+import { LOG_TAIL_BYTES, LOG_TAIL_LINE_CAP, type LogTailEntry } from "./shared.types";
+
+/**
+ * Log viewers poll every few seconds while the logger itself keeps appending
+ * to the same file, so a stat-keyed cache invalidates on every request.
+ * The tail is therefore tracked incrementally: only bytes appended since the
+ * last read are parsed, and the entry rebuilds from the 2 MiB window when it
+ * expires, rotates (file shrank) or grows past the line cap. The TTL only
+ * bounds memory staleness — new bytes are always read incrementally — so it
+ * is sized to cover a viewer that polls slower than its refresh interval
+ * without forcing a full 2 MiB re-parse (30 s).
+ */
+const logTailCache = new MemoryCache<LogTailEntry>({ ttlMs: 30_000, maxSize: 4, name: "admin.logTail" });
 
 /**
  * Serves the log tail from the cache when only bytes were appended since the last read: only the new bytes are
  * parsed. A rotated, truncated or over-cap entry is rebuilt from the tail window.
  */
-export async function readLogTailLines(state: AdminLogsState, fileId?: string): Promise<LogTailEntry> {
-	const { filePath } = resolveLogFilePath(state, fileId);
+export async function readLogTailLines(fileId?: string): Promise<LogTailEntry> {
+	const { filePath } = resolveLogFilePath(fileId);
 	try {
 		const stats = await bunFile(filePath).stat();
-		const cached = state.logTailCache.get(filePath);
+		const cached = logTailCache.get(filePath);
 
 		if (cached && stats.size >= cached.readOffset && cached.lines.length < LOG_TAIL_LINE_CAP) {
 			if (stats.size > cached.readOffset) {
 				const appended = await bunFile(filePath).slice(cached.readOffset, stats.size).text();
 				appendTailLines(cached, appended);
 				cached.readOffset = stats.size;
-				state.logTailCache.set(filePath, cached);
+				logTailCache.set(filePath, cached);
 			}
 
 			return cached;
@@ -30,16 +44,16 @@ export async function readLogTailLines(state: AdminLogsState, fileId?: string): 
 		// The size/cap check above established the cached entry is unusable
 		// (rotated, truncated or past the line cap). Drop it so getOrSet
 		// rebuilds instead of returning the stale entry for the rest of its TTL.
-		state.logTailCache.delete(filePath);
+		logTailCache.delete(filePath);
 
-		return await state.logTailCache.getOrSet(filePath, () => readLogTailWindow(state, fileId));
+		return await logTailCache.getOrSet(filePath, () => readLogTailWindow(fileId));
 	} catch (error) {
 		// A log file that does not exist yet (fresh install, after a purge) is an empty log,
 		// not a failure: the dashboard reads logs alongside everything else.
 		if (isMissingFile(error)) return { lines: [], parsed: [], lowerLines: [], readOffset: 0, carry: "" };
 		if (error instanceof DomainError && error.category === "not_found") throw error;
 
-		state.logger.error("Failed to read log file tail", error, { fileId, filePath });
+		adminLogsLog.logger.error("Failed to read log file tail", error, { fileId, filePath });
 		throw new DomainError("internal", `Log file could not be read: ${fileId ?? filePath}`, { cause: error, code: "logs.read_failed" });
 	}
 }
@@ -48,8 +62,8 @@ export async function readLogTailLines(state: AdminLogsState, fileId?: string): 
  * Reads only the tail of a log file (last ~2 MB) to avoid loading potentially
  * gigabyte-sized log files fully into memory. Small files are read whole.
  */
-async function readLogTail(state: AdminLogsState, fileId?: string): Promise<{ content: string; truncated: boolean }> {
-	const { filePath } = resolveLogFilePath(state, fileId);
+async function readLogTail(fileId?: string): Promise<{ content: string; truncated: boolean }> {
+	const { filePath } = resolveLogFilePath(fileId);
 	try {
 		const fileSize = (await bunFile(filePath).stat()).size;
 		if (fileSize <= LOG_TAIL_BYTES) {
@@ -68,9 +82,9 @@ async function readLogTail(state: AdminLogsState, fileId?: string): Promise<{ co
 	}
 }
 
-async function readLogTailWindow(state: AdminLogsState, fileId?: string): Promise<LogTailEntry> {
-	const { filePath } = resolveLogFilePath(state, fileId);
-	const { content, truncated } = await readLogTail(state, fileId);
+async function readLogTailWindow(fileId?: string): Promise<LogTailEntry> {
+	const { filePath } = resolveLogFilePath(fileId);
+	const { content, truncated } = await readLogTail(fileId);
 	const lines = content.split("\n");
 	// When reading a byte-slice tail, the first line may be cut mid-write — skip it.
 	if (truncated && lines.length > 0) lines.shift();

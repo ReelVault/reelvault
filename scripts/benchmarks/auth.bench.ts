@@ -1,5 +1,5 @@
-import { main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
-import { subnetIp, workerCookie } from "./lib/identity.utils";
+import { printHttpResults, runScenarioMatrix, subnetIp, suiteArgs, task } from "benchkit";
+import { workerCookie } from "./lib/identity.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
 import { BENCH_USER, type ManagedServer } from "./lib/server.launcher";
 
@@ -54,30 +54,26 @@ const SCENARIOS: readonly AuthScenario[] = [publicHealth, authedRead, login];
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args);
+const serverFixture = suiteServerFixture(args);
 
-	task("auth: scenarios", async () => {
-		const server = await serverFixture();
-		console.log("[auth] server ready");
+task("auth: scenarios", async () => {
+	const server = await serverFixture();
+	console.log("[auth] server ready");
 
-		const results = await runScenarioMatrix({
-			suite: "auth",
-			unit: "req/s",
-			latency: "p50",
-			latencyDigits: 2,
-			scenarios: SCENARIOS.map((scenario) => ({
-				name: scenario.name,
-				requestFor: (workerIndex: number, requestIndex: number) => scenario.requestFor(server, workerIndex, requestIndex),
-			})),
-			concurrency: args.concurrency,
-			warmupMs: args.warmupMs,
-			durationMs: args.durationMs,
-		});
-
-		printHttpResults(results);
-		console.log("\nSession-validation cost = (authed GET − public GET) per request, per concurrency row.");
+	const results = await runScenarioMatrix({
+		suite: "auth",
+		unit: "req/s",
+		latency: "p50",
+		latencyDigits: 2,
+		scenarios: SCENARIOS.map((scenario) => ({
+			name: scenario.name,
+			requestFor: (workerIndex: number, requestIndex: number) => scenario.requestFor(server, workerIndex, requestIndex),
+		})),
+		concurrency: args.concurrency,
+		warmupMs: args.warmupMs,
+		durationMs: args.durationMs,
 	});
-}
 
-await main(import.meta);
+	printHttpResults(results);
+	console.log("\nSession-validation cost = (authed GET − public GET) per request, per concurrency row.");
+});

@@ -3,14 +3,22 @@ import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import type { WorkerOperationStatus } from "@/workers/worker.ports";
 
-export type {
-	CreateWorkerOperationInput,
-	WorkerOperation,
-	WorkerOperationRecord,
-	WorkerOperationStatus,
-} from "@/workers/worker.ports";
+export type WorkerOperationRecord = typeof schema.workerOperations.$inferSelect;
+export type WorkerOperationStatus = WorkerOperationRecord["status"];
+
+/** An operation with its estimated time to completion. */
+export interface WorkerOperation extends WorkerOperationRecord {
+	etaMs: number | null;
+}
+
+export interface CreateWorkerOperationInput {
+	id: string;
+	type: string;
+	referenceType?: string | undefined;
+	referenceId?: string | undefined;
+	error?: string | undefined;
+}
 
 export const operations = schema.workerOperations;
 export const jobs = schema.workerJobs;

@@ -14,6 +14,9 @@ export interface MethodStub {
  */
 export function stubMethod(target: object, method: string, impl: (...args: never[]) => unknown): MethodStub {
 	const original = Reflect.get(target, method) as unknown;
+	// A stub of a method the target does not have replaces nothing: the test would
+	// pass while the code it means to steer runs untouched. Fail at the stub instead.
+	if (typeof original !== "function") throw new TypeError(`stubMethod: ${method} is not a method of the target`);
 	const calls: unknown[][] = [];
 	Reflect.set(target, method, (...args: never[]) => {
 		calls.push([...args]);
@@ -24,8 +27,7 @@ export function stubMethod(target: object, method: string, impl: (...args: never
 	return {
 		calls,
 		restore: () => {
-			if (original === undefined) Reflect.deleteProperty(target, method);
-			else Reflect.set(target, method, original);
+			Reflect.set(target, method, original);
 		},
 	};
 }

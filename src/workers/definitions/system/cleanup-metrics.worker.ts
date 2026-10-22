@@ -1,6 +1,6 @@
 import { MINUTE } from "@/config/server/server.constants";
+import { resourceMetricsRepository } from "@/repositories/resource-metrics.repository";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
-import { workerDependencies } from "@/workers/worker.ports";
 
 export const cleanupMetricsWorker = defineMaintenanceWorker({
 	id: "clean-up-resource-metrics",
@@ -12,7 +12,7 @@ export const cleanupMetricsWorker = defineMaintenanceWorker({
 		// that column honours the schema's retention promise instead of a separate
 		// fixed window — a hard-coded 30-day cutoff kept ~90k stale rows alive.
 		const cutoff = new Date();
-		const deletedCount = await workerDependencies().resourceMetrics.cleanupOlderThan(cutoff);
+		const deletedCount = await resourceMetricsRepository.cleanupOlderThan(cutoff);
 
 		return { deletedMetricsCount: deletedCount };
 	},

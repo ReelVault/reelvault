@@ -1,10 +1,11 @@
 import { serverConfig } from "@/config/server/server.config";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
+import type { WorkerItem } from "@/repositories/worker-jobs/shared.types";
+import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { withDomainError } from "@/utils/domain.errors";
 import { anyAttachedToOperation, attachedToOperation } from "@/workers/core/worker-operation.service";
-import { type WorkerItem, workerDependencies } from "@/workers/worker.ports";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -65,7 +66,7 @@ const libraryTrickplayLocks = new KeyedMutex();
  */
 export async function enqueueTrickplayGenerationForLibrary(mediaFileId: string, libraryId: string): Promise<WorkerItem> {
 	return await libraryTrickplayLocks.runExclusive(libraryId, async () => {
-		const existing = await workerDependencies().operations.findActiveByReference(trickplayGenerateWorker.id, "library", libraryId);
+		const existing = await workerOperationRepository.findActiveByReference(trickplayGenerateWorker.id, "library", libraryId);
 		const operationId =
 			existing?.id ??
 			(await workerService.createOperation({ type: trickplayGenerateWorker.id, reference: { type: "library", id: libraryId } })).id;

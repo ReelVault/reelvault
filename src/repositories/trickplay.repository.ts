@@ -2,8 +2,14 @@ import { and, asc, count, countDistinct, eq, gt, inArray, isNotNull, notExists, 
 import { CORE_ARTIFACTS_OWNER } from "@/integrations/drizzle-orm/constants/media-artifacts.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import type { RegenerationOutcomeRow } from "@/modules/trickplay/trickplay-regeneration.report";
 import { MemoryCache } from "@/utils/memory.cache";
+
+/** One job-count row of a regeneration operation: a status, and the skip reason from its result when there is one. */
+export interface RegenerationOutcomeRow {
+	status: string;
+	skipped: string | null;
+	count: number;
+}
 
 interface TrickplayStats {
 	total: number;

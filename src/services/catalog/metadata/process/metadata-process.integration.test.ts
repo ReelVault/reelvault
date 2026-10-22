@@ -154,10 +154,12 @@ describe("MetadataProcess persistence and side effects", () => {
 	test("persists the hook's title, creates the movie, queues artwork and publishes metadata.saved after the row exists", async () => {
 		// Each published event checks, at publish time, that its metadata row is already stored.
 		const rowsAtPublish: Array<Promise<number>> = [];
+		const unsubscribeHook = pluginHookBus.register("org.example.normalizer", "beforeMetadataSave", ({ candidate }) => ({
+			...candidate,
+			title: "Normalized title",
+		}));
 		stubs.push(
-			stubMethod(pluginHookBus, "runBeforeMetadataSave", (candidate: { title: string }) =>
-				Promise.resolve({ ...candidate, title: "Normalized title" }),
-			),
+			{ calls: [], restore: unsubscribeHook },
 			stubMethod(pluginEventBus, "publish", (event: string, payload: { metadataId?: string }) => {
 				if (event !== "metadata.saved" || !payload.metadataId) return;
 				rowsAtPublish.push(selectMetadata(db.client()).then((rows) => rows.filter((row) => row.id === payload.metadataId).length));

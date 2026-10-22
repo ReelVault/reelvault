@@ -1,7 +1,5 @@
 import { daysAgo } from "@/config/server/server.constants";
-
-/** The terminal states a purge can remove. */
-export type TerminalJobStatus = "completed" | "failed" | "cancelled" | "all_terminal";
+import type { TerminalJobStatus } from "@/repositories/worker-jobs/shared.types";
 
 export interface TerminalPurgeOptions {
 	status?: TerminalJobStatus | undefined;

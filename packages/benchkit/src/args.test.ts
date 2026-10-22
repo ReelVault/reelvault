@@ -15,7 +15,7 @@ describe("parseBenchmarkArgs", () => {
 	test("applies defaults with no arguments", () => {
 		withArgv([], () => {
 			const args = parseBenchmarkArgs();
-			expect(args.target).toBeUndefined();
+			expect(args.targets).toEqual([]);
 			expect(args.concurrency).toEqual([1, 10, 50, 100]);
 			expect(args.durationMs).toBe(10_000);
 			expect(args.iterations).toBe(100);
@@ -24,10 +24,10 @@ describe("parseBenchmarkArgs", () => {
 		});
 	});
 
-	test("first bare token is the target", () => {
-		withArgv(["matching", "--iterations", "7"], () => {
+	test("every bare token is a suite, in the order given", () => {
+		withArgv(["matching", "--iterations", "7", "database"], () => {
 			const args = parseBenchmarkArgs();
-			expect(args.target).toBe("matching");
+			expect(args.targets).toEqual(["matching", "database"]);
 			expect(args.iterations).toBe(7);
 		});
 	});
@@ -43,25 +43,26 @@ describe("parseBenchmarkArgs", () => {
 	test("json and strict are first-class flags", () => {
 		withArgv(["matching", "--strict", "--json=/tmp/out.json"], () => {
 			const args = parseBenchmarkArgs();
-			expect(args.target).toBe("matching");
+			expect(args.targets).toEqual(["matching"]);
 			expect(args.strict).toBe(true);
 			expect(args.json).toBe("/tmp/out.json");
 			expect(args.help).toBe(false);
 		});
 	});
 
-	test("bare --json means the default path and never swallows the target", () => {
-		withArgv(["--json", "matching"], () => {
+	test("bare --json and --profile never swallow the suite after them", () => {
+		withArgv(["--json", "matching", "--profile", "http"], () => {
 			const args = parseBenchmarkArgs();
 			expect(args.json).toBe(true);
-			expect(args.target).toBe("matching");
+			expect(args.profile).toBe(true);
+			expect(args.targets).toEqual(["matching", "http"]);
 		});
 	});
 
 	test("extra flags are recorded, not flagged unknown", () => {
 		withArgv(["query-plan", "--sieve=heavy", "--loose"], () => {
 			const args = parseBenchmarkArgs(new Set(["sieve", "loose"]));
-			expect(args.target).toBe("query-plan");
+			expect(args.targets).toEqual(["query-plan"]);
 			expect(args.flags.sieve).toBe("heavy");
 			expect(args.flags.loose).toBe(true);
 			expect(args.help).toBe(false);

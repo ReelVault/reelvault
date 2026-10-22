@@ -14,8 +14,8 @@ describe("compareVariants", () => {
 			{ iterations: 30, equal: (a, b) => a === b },
 		);
 		expect(outcome.equalOk).toBe(true);
-		expect(outcome.result.winner).toBe("fast");
-		expect(outcome.result.rows).toContain("fast");
+		expect(outcome.winner).toBe("fast");
+		expect(outcome.variants.map((variant) => variant.name)).toEqual(["slow", "fast"]);
 	});
 
 	test("suppresses the winner when equal rejects", () => {
@@ -28,20 +28,20 @@ describe("compareVariants", () => {
 			{ iterations: 5, equal: (a, b) => a === b },
 		);
 		expect(outcome.equalOk).toBe(false);
-		expect(outcome.result.winner).toBe("");
+		expect(outcome.winner).toBe("");
 	});
 
-	test("skips verification without equal", () => {
+	test("declares the fastest variant without equal, whatever the outputs", () => {
 		const outcome = compareVariants(
 			"no check",
 			[
-				{ name: "a", fn: () => 1 },
-				{ name: "b", fn: () => 2 },
+				{ name: "slow", fn: () => Array.from({ length: 500 }, (_, i) => i).reduce((a, b) => a + b, 0) },
+				{ name: "fast", fn: () => 1 },
 			],
-			{ iterations: 5 },
+			{ iterations: 30 },
 		);
 		expect(outcome.equalOk).toBe(true);
-		expect(["a", "b"]).toContain(outcome.result.winner);
+		expect(outcome.winner).toBe("fast");
 	});
 });
 
@@ -133,5 +133,14 @@ describe("Recorder", () => {
 		const serialized = recorder.serialize();
 		expect(serialized.op?.errors).toBe(1);
 		expect(serialized.op?.meanMs).toBe(15);
+	});
+
+	test("times an operation as one sample, and a throw as a failed one", async () => {
+		const recorder = new Recorder();
+		await recorder.time("op", () => Promise.resolve(true));
+		await recorder.time("op", () => Promise.resolve(false));
+		await recorder.time("op", () => Promise.reject(new Error("down")));
+
+		expect(recorder.summary()).toMatchObject([{ label: "op", count: 3, errors: 2 }]);
 	});
 });

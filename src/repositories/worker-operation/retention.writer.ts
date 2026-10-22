@@ -3,7 +3,7 @@ import { DAY, serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import type { TerminalRowsPurgeOptions } from "@/workers/worker.ports";
+import type { TerminalRowsPurgeOptions } from "@/repositories/worker-jobs/shared.types";
 import { jobs, operations, TERMINAL_STATUSES } from "./shared.types";
 
 /** Stamps terminal operations that have no retention deadline yet. Returns how many were stamped. */

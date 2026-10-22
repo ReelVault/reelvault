@@ -13,9 +13,10 @@ import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { isAcceptableMatch } from "@/utils/media-match/ranking.utils";
 import { isNullish, normalizeLower } from "@/utils/type.utils";
 import { mapProvidersSafely } from "./fan-out.service";
+import { providerCaches } from "./inflight.cache";
 import { isExternalIdentifierAwareProvider, matchesExternalIdentifiers, normalizeMetadataDetails } from "./match-ranking.utils";
 import { type AcceptedMatch, NoMatchError, type ProviderDetails } from "./provider.types";
-import { getProviderKey, type ProviderServiceState, publishSearchRequested, rankProviderResults, type WithoutState } from "./shared.utils";
+import { getProviderKey, providerLog, publishSearchRequested, rankProviderResults } from "./provider-lookup.utils";
 
 /**
  * Exact lookup of an id in one provider's own namespace — works with every
@@ -26,7 +27,6 @@ export async function searchByProviderExternalId(
 	type: ProviderMediaType,
 	providerId: string,
 	externalId: string,
-	fetchByProvider: (...args: WithoutState<typeof fetchDetailsByProvider>) => ReturnType<typeof fetchDetailsByProvider>,
 ): Promise<MetadataProviderSearchResponse[]> {
 	const enabled = await metadataProviderSettingsService.getOrderedProviders();
 	const enabledIds = new Set(enabled.map((p) => p.id));
@@ -37,7 +37,7 @@ export async function searchByProviderExternalId(
 		});
 	}
 
-	const metadata = await fetchByProvider(providerId, type, externalId);
+	const metadata = await fetchDetailsByProvider(providerId, type, externalId);
 	if (!metadata) return [];
 
 	return [
@@ -56,15 +56,11 @@ export async function searchByProviderExternalId(
 }
 
 /** Deduplicates concurrent detail lookups for the same title/year so a burst of requests only hits providers once. */
-export async function fetchDetails(
-	state: ProviderServiceState,
-	type: "movie" | "tv_show",
-	parsed: MediaIdentity,
-): Promise<ProviderDetails[]> {
+export async function fetchDetails(type: "movie" | "tv_show", parsed: MediaIdentity): Promise<ProviderDetails[]> {
 	const providerKey = await getProviderKey();
 	const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}`;
 
-	return await state.caches.details.getOrSet(key, () => fetchDetailsOnce(state, type, parsed));
+	return await providerCaches().details.getOrSet(key, () => fetchDetailsOnce(type, parsed));
 }
 
 /**
@@ -74,7 +70,6 @@ export async function fetchDetails(
  * fill gaps, and ratings are collected from every source.
  */
 export async function fetchAggregatedDetails(
-	state: ProviderServiceState,
 	type: "movie" | "tv_show",
 	parsed: MediaIdentity,
 	options?: { libraryId?: string | undefined; language?: string | undefined },
@@ -86,9 +81,9 @@ export async function fetchAggregatedDetails(
 	const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}${libraryScope}:${language ?? ""}`;
 
 	try {
-		return await state.caches.aggregatedDetails.getOrSet(key, async () => {
+		return await providerCaches().aggregatedDetails.getOrSet(key, async () => {
 			publishSearchRequested(type, parsed.title, parsed.year);
-			const accepted = await collectAcceptedMatches(state, type, parsed, options?.libraryId, language);
+			const accepted = await collectAcceptedMatches(type, parsed, options?.libraryId, language);
 			if (accepted.length === 0) throw new NoMatchError();
 
 			const ordered = await mapProvidersSafely(
@@ -109,7 +104,7 @@ export async function fetchAggregatedDetails(
 					};
 				},
 				(candidate, error) => {
-					state.logger.warn("Metadata provider details fetch failed during aggregation", {
+					providerLog.logger.warn("Metadata provider details fetch failed during aggregation", {
 						providerId: candidate.provider.id,
 						priorityIndex: candidate.index,
 						error: errorMessage(error),
@@ -136,7 +131,6 @@ export async function fetchAggregatedDetails(
  * here too, so a refresh returns the same language as the scan did.
  */
 export async function fetchDetailsByProvider(
-	state: ProviderServiceState,
 	providerId: string,
 	type: "movie" | "tv_show",
 	externalId: string,
@@ -150,7 +144,7 @@ export async function fetchDetailsByProvider(
 
 		return metadata ? normalizeMetadataDetails(metadata) : undefined;
 	} catch (error) {
-		state.logger.error(`Provider ${provider.id} failed`, error);
+		providerLog.logger.error(`Provider ${provider.id} failed`, error);
 
 		return undefined;
 	}
@@ -161,17 +155,15 @@ export async function fetchDetailsByProvider(
  * folder name). Cached per id, like title lookups. Absent when the provider does not know the id.
  */
 export async function fetchAggregatedDetailsByProvider(
-	state: ProviderServiceState,
 	ref: { providerId: string; type: "movie" | "tv_show"; externalId: string },
-	options: { language?: string | undefined },
-	fetchByProvider: (...args: WithoutState<typeof fetchDetailsByProvider>) => ReturnType<typeof fetchDetailsByProvider>,
+	options: { language?: string | undefined } = {},
 ): Promise<AggregatedMetadata | null> {
 	const { providerId, type, externalId } = ref;
 	const key = `by-id:${providerId}:${type}:${externalId}:${options.language ?? ""}`;
 
 	try {
-		return await state.caches.aggregatedDetails.getOrSet(key, async () => {
-			const metadata = await fetchByProvider(providerId, type, externalId, options);
+		return await providerCaches().aggregatedDetails.getOrSet(key, async () => {
+			const metadata = await fetchDetailsByProvider(providerId, type, externalId, options);
 			if (!metadata) throw new NoMatchError();
 
 			return mergeProviderMetadata([{ providerId, externalId: metadata.externalId, matchScore: 1, metadata }]);
@@ -184,19 +176,13 @@ export async function fetchAggregatedDetailsByProvider(
 }
 
 /** Resolves a title to the best matching provider's full metadata (no aggregation). */
-export async function resolveDetails(
-	type: ProviderMediaType,
-	title: string,
-	year: number | undefined,
-	fetchDetailsOf: (...args: WithoutState<typeof fetchDetails>) => ReturnType<typeof fetchDetails>,
-): Promise<ProviderMetadataResult | null> {
-	const details = await fetchDetailsOf(type, { title, type, year });
+export async function resolveDetails(type: ProviderMediaType, title: string, year?: number): Promise<ProviderMetadataResult | null> {
+	const details = await fetchDetails(type, { title, type, year });
 
 	return details[0]?.metadata ?? null;
 }
 
 export async function fetchDetailsByLocalIdentifiers(
-	state: ProviderServiceState,
 	type: ProviderMediaType,
 	identifiers: ExternalIdentifiers,
 ): Promise<ProviderDetails[]> {
@@ -221,7 +207,7 @@ export async function fetchDetailsByLocalIdentifiers(
 			return { provider: provider.id, metadata: normalizeMetadataDetails(metadata) } satisfies ProviderDetails;
 		},
 		(provider, error) => {
-			state.logger.warn("Metadata provider identifier lookup failed", {
+			providerLog.logger.warn("Metadata provider identifier lookup failed", {
 				providerId: provider.id,
 				error: errorMessage(error),
 			});
@@ -238,7 +224,6 @@ export async function fetchDetailsByLocalIdentifiers(
  * concurrency) and returns the confident matches sorted by provider priority.
  */
 async function collectAcceptedMatches(
-	state: ProviderServiceState,
 	type: "movie" | "tv_show",
 	parsed: MediaIdentity,
 	libraryId?: string,
@@ -252,7 +237,7 @@ async function collectAcceptedMatches(
 		indexed,
 		async ({ provider, index }): Promise<AcceptedMatch | null> => {
 			const ranked = await rankProviderResults(provider, { type, query: parsed.title, year: parsed.year, language }, (error) =>
-				state.logger.warn("Metadata provider failed, trying next provider", {
+				providerLog.logger.warn("Metadata provider failed, trying next provider", {
 					providerId: provider.id,
 					priorityIndex: index,
 					error: errorMessage(error),
@@ -265,7 +250,7 @@ async function collectAcceptedMatches(
 			const acceptable = !isNullish(best) && isAcceptableMatch(best, runnerUp, systemSettingsStore.get("metadata.minMatchScore"));
 
 			if (!acceptable) {
-				state.logger.debug("No confident metadata match, skipping provider", {
+				providerLog.logger.debug("No confident metadata match, skipping provider", {
 					providerId: provider.id,
 					priorityIndex: index,
 					title: parsed.title,
@@ -287,9 +272,9 @@ async function collectAcceptedMatches(
 	return searchResults.toSorted((left, right) => left.index - right.index);
 }
 
-async function fetchDetailsOnce(state: ProviderServiceState, type: "movie" | "tv_show", parsed: MediaIdentity): Promise<ProviderDetails[]> {
+async function fetchDetailsOnce(type: "movie" | "tv_show", parsed: MediaIdentity): Promise<ProviderDetails[]> {
 	publishSearchRequested(type, parsed.title, parsed.year);
-	const accepted = await collectAcceptedMatches(state, type, parsed);
+	const accepted = await collectAcceptedMatches(type, parsed);
 
 	for (const candidate of accepted) {
 		const provider = candidate.provider;
@@ -298,7 +283,7 @@ async function fetchDetailsOnce(state: ProviderServiceState, type: "movie" | "tv
 			if (!metadata) continue;
 
 			if (candidate.index > 0 || candidate.bestMatch.score < 0.8) {
-				state.logger.debug("Metadata provider match selected", {
+				providerLog.logger.debug("Metadata provider match selected", {
 					providerId: provider.id,
 					priority: await metadataProviderSettingsService.getPriority(provider.id),
 					priorityIndex: candidate.index,
@@ -317,7 +302,7 @@ async function fetchDetailsOnce(state: ProviderServiceState, type: "movie" | "tv
 				} satisfies ProviderDetails,
 			];
 		} catch (error) {
-			state.logger.warn("Metadata provider details fetch failed, trying next provider", {
+			providerLog.logger.warn("Metadata provider details fetch failed, trying next provider", {
 				providerId: provider.id,
 				priorityIndex: candidate.index,
 				error: errorMessage(error),

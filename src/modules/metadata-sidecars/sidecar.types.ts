@@ -1,4 +1,4 @@
-import type { SidecarFlavor } from "@reelvault/sdk/common";
+import type { MetadataStorageMode, SidecarFlavor } from "@reelvault/sdk/common";
 import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 
 type SidecarMediaKind = "movie" | "series" | "season" | "episode";
@@ -118,3 +118,38 @@ export interface SidecarMetadataWriter {
 }
 
 export type SidecarDocumentReader = (documentPath: string) => Promise<CanonicalSidecarDocument | null>;
+
+/** The library a sidecar is written for: its storage mode per root and its target dialect. */
+export interface SidecarStorageLibrary {
+	metadataStorageMode: MetadataStorageMode;
+	/** Target NFO dialect; libraries predate the field, so treat missing as the native flavor. */
+	sidecarFlavor?: SidecarFlavor | null;
+	paths: Array<{ path: string; metadataStorageMode: MetadataStorageMode | null }>;
+}
+
+export interface SidecarStorageMediaFile {
+	filePath: string;
+	metadataId: string;
+	movieId: string | null;
+	episodeId: string | null;
+}
+
+export interface SidecarEpisodeRecord {
+	id: string;
+	seasonId: string;
+	title?: string | null | undefined;
+	episodeNumber: number;
+	airDate?: string | null | undefined;
+	overview?: string | null | undefined;
+	imageId?: string | null | undefined;
+}
+
+export interface SidecarSeasonRecord {
+	id: string;
+	seasonNumber: number;
+	name?: string | null | undefined;
+	airDate?: string | null | undefined;
+	overview?: string | null | undefined;
+	status?: string | null | undefined;
+	imageId?: string | null | undefined;
+}

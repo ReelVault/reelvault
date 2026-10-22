@@ -11,7 +11,7 @@ import { join, resolve as resolvePath } from "node:path";
 import { brotliCompress, constants } from "node:zlib";
 import { MediaFileAuditResponseSchema } from "@reelvault/sdk/common";
 import { Value } from "@sinclair/typebox/value";
-import { bench, benchmarkAsync, compare, group, main, measureAsync, printMicroResults, printTable, suiteArgs, task } from "benchkit";
+import { bench, benchmarkAsync, compare, group, measureAsync, printMicroResults, printTable, suiteArgs, task } from "benchkit";
 import { hash as bunHash, CryptoHasher } from "bun";
 import { buildJsonResponse } from "@/api/utils/etag.utils";
 import { env } from "@/config/env.config";
@@ -99,12 +99,12 @@ function resolveWebDistRootUncached(): string | null {
 	}
 }
 
-// Single pass over a fixed replacement table (Polish + common Latin-1 accents).
+// Single pass over a fixed replacement table (Polish + common Latin-1 accents). It must give
+// production `stripDiacritics` output for every sample title, so ß stays: NFD keeps it too.
 const ACCENT_MAP: Record<string, string> = {
 	ą: "a",
 	ć: "c",
 	ę: "e",
-	ł: "l",
 	ń: "n",
 	ó: "o",
 	ś: "s",
@@ -113,7 +113,6 @@ const ACCENT_MAP: Record<string, string> = {
 	Ą: "A",
 	Ć: "C",
 	Ę: "E",
-	Ł: "L",
 	Ń: "N",
 	Ó: "O",
 	Ś: "S",
@@ -122,10 +121,13 @@ const ACCENT_MAP: Record<string, string> = {
 	ä: "a",
 	ö: "o",
 	ü: "u",
-	ß: "ss",
+	Ä: "A",
+	Ö: "O",
+	Ü: "U",
 	é: "e",
 	è: "e",
 	ê: "e",
+	É: "E",
 	á: "a",
 	í: "i",
 	ú: "u",
@@ -246,770 +248,747 @@ function overlapWith(build: (value: string) => Set<string>, a: string, b: string
 	return (2 * intersection) / (ta.size + tb.size);
 }
 
-if (!args.help) {
-	console.log(`[micro] A/B implementation comparisons (${args.iterations} iterations per variant)...\n`);
+console.log(`[micro] A/B implementation comparisons (${args.iterations} iterations per variant)...\n`);
 
-	// Representative inputs.
-	const segmentNames = Array.from({ length: 256 }, (_, i) => `seg_${100000 + i}.m4s`);
-	const timeStrings = ["00:12:34.567", "01:02:03", "00:00:09.500", "02:45:12.123"];
-	const titleSamples = [
-		"Żółw Łukasz i Święta Graal",
-		"The Quick and the Dead: Director's Cut",
-		"Östliche Züge fahren übermäßig schnell",
-		"Stranger Things 4: The整 Season",
-		"Amélie Poulain: Édition Spéciale",
-	];
+// Representative inputs.
+const segmentNames = Array.from({ length: 256 }, (_, i) => `seg_${100000 + i}.m4s`);
+const timeStrings = ["00:12:34.567", "01:02:03", "00:00:09.500", "02:45:12.123"];
+const titleSamples = [
+	"Żółw Łukasz i Święta Graal",
+	"The Quick and the Dead: Director's Cut",
+	"Östliche Züge fahren übermäßig schnell",
+	"Stranger Things 4: The整 Season",
+	"Amélie Poulain: Édition Spéciale",
+];
 
-	// Per-request helpers for PIN-protected profiles, encrypted plugin secrets
-	// and CORS/auth origin lists — all pure functions of slow-changing inputs.
-	bench(
-		"profilePinFingerprint (1000 calls)",
-		() => {
-			for (let index = 0; index < 1000; index++) profilePinFingerprint(`pin-hash-${index % 8}`);
+// Per-request helpers for PIN-protected profiles, encrypted plugin secrets
+// and CORS/auth origin lists — all pure functions of slow-changing inputs.
+bench(
+	"profilePinFingerprint (1000 calls)",
+	() => {
+		for (let index = 0; index < 1000; index++) profilePinFingerprint(`pin-hash-${index % 8}`);
+	},
+	{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+);
+bench(
+	"deriveSecretKey (1000 calls)",
+	() => {
+		// One process secret in production — the memo is a single slot.
+		for (let index = 0; index < 1000; index++) deriveSecretKey("master-secret");
+	},
+	{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+);
+task("micro: trusted origin patterns with dynamic origins", async () => {
+	systemSettingsStore.setRuntimeValue("network.allowedOrigins", ["https://bench-one.example", "https://bench-two.example"]);
+	try {
+		const result = await benchmarkAsync(
+			"getTrustedOriginPatterns (1000 calls, dynamic origins set)",
+			() => {
+				for (let index = 0; index < 1000; index++) getTrustedOriginPatterns();
+
+				return Promise.resolve();
+			},
+			{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+		);
+		printMicroResults([result]);
+	} finally {
+		systemSettingsStore.clearRuntimeValues();
+	}
+
+	return { ok: true };
+});
+
+// Every compressed JSON response goes through this builder; it must not
+// copy the body into a Buffer before zlib or copy the compressed result.
+const benchJsonBody = JSON.stringify({
+	items: Array.from({ length: 100 }, (_, index) => ({
+		id: `meta-${index}`,
+		title: `Some Movie ${index}`,
+		overview: "Benchmark overview text long enough to resemble a real response payload entry.".repeat(2),
+	})),
+});
+bench(
+	"buildJsonResponse (100-item JSON, br)",
+	async () => {
+		const response = await buildJsonResponse({
+			body: benchJsonBody,
+			etag: '"bench"',
+			cacheControl: "public, max-age=60",
+			vary: "Accept-Encoding",
+			acceptEncoding: "br",
+			ifNoneMatch: null,
+		});
+		if (response.headers.get("content-encoding") !== "br") throw new Error("not compressed");
+	},
+	{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+);
+
+// A completed audit report is polled by the client; this is the per-poll
+// parse + schema validation the result cache now skips.
+const auditReportJson = JSON.stringify({
+	totalFilesChecked: 20_000,
+	suspectCount: 500,
+	suspects: Array.from({ length: 500 }, (_, index) => ({
+		mediaFileId: `mf-${index}`,
+		fileName: `Some.Movie.${index}.2020.1080p.mkv`,
+		filePath: `/media/movies/Some Movie ${index}/Some.Movie.${index}.2020.1080p.mkv`,
+		libraryId: "lib-1",
+		libraryName: "Movies",
+		mediaType: "movie",
+		currentMetadata: { id: `meta-${index}`, title: `Some Movie ${index}`, releaseDate: "2020-05-15", matchScore: 0.7 },
+		recognized: { title: `Some Movie ${index}`, year: 2021 },
+		reasons: [{ code: "year_mismatch", severity: "medium", params: { expected: 2020, found: 2021 } }],
+		similarityScore: 0.82,
+	})),
+});
+bench(
+	"audit report parse + schema validate (500 suspects)",
+	() => {
+		const parsed: unknown = JSON.parse(auditReportJson);
+		if (!Value.Check(MediaFileAuditResponseSchema, parsed)) throw new Error("invalid report");
+	},
+	{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+);
+
+compare("Cache key: bunHash(str).toString(16) vs raw string key (dedup, filterSignature)", {
+	variants: [
+		{
+			name: "bunHash -> hex key",
+			fn: () => {
+				let sink = "";
+				for (let i = 0; i < 32; i++) sink = bunHash(`${getUrlSample(i)}:cookie:profile`).toString(16);
+
+				return sink;
+			},
 		},
-		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
-	);
-	bench(
-		"deriveSecretKey (1000 calls)",
-		() => {
-			// One process secret in production — the memo is a single slot.
-			for (let index = 0; index < 1000; index++) deriveSecretKey("master-secret");
-		},
-		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
-	);
-	task("micro: trusted origin patterns with dynamic origins", async () => {
-		systemSettingsStore.setRuntimeValue("network.allowedOrigins", ["https://bench-one.example", "https://bench-two.example"]);
-		try {
-			const result = await benchmarkAsync(
-				"getTrustedOriginPatterns (1000 calls, dynamic origins set)",
-				() => {
-					for (let index = 0; index < 1000; index++) getTrustedOriginPatterns();
+		{
+			name: "raw string key",
+			fn: () => {
+				let sink = "";
+				for (let i = 0; i < 32; i++) sink = `${getUrlSample(i)}:cookie:profile`;
 
-					return Promise.resolve();
-				},
-				{ warmup: 5, iterations: Math.min(args.iterations, 50) },
-			);
-			printMicroResults([result]);
-		} finally {
-			systemSettingsStore.clearRuntimeValues();
+				return sink;
+			},
+		},
+	],
+	// Value-changing alternative: the produced keys differ by design.
+	batch: 8,
+});
+
+compare("MemoryCache hit path: LRU touch (delete+set per get) vs plain Map get", {
+	variants: (() => {
+		// Both caches pre-built — only the HIT path is measured.
+		const touched = new Map<string, { value: number }>();
+		const plain = new Map<string, { value: number }>();
+		for (let i = 0; i < 64; i++) {
+			touched.set(`k${i}`, { value: i });
+			plain.set(`k${i}`, { value: i });
 		}
 
-		return { ok: true };
-	});
+		return [
+			{
+				name: "Map delete+set touch",
+				fn: () => {
+					let hits = 0;
+					for (let r = 0; r < 16; r++) {
+						for (let i = 0; i < 64; i++) {
+							const key = `k${i}`;
+							const entry = touched.get(key);
+							if (entry) {
+								hits++;
+								touched.delete(key);
+								touched.set(key, entry);
+							}
+						}
+					}
 
-	// Every compressed JSON response goes through this builder; it must not
-	// copy the body into a Buffer before zlib or copy the compressed result.
-	const benchJsonBody = JSON.stringify({
-		items: Array.from({ length: 100 }, (_, index) => ({
-			id: `meta-${index}`,
-			title: `Some Movie ${index}`,
-			overview: "Benchmark overview text long enough to resemble a real response payload entry.".repeat(2),
-		})),
-	});
-	bench(
-		"buildJsonResponse (100-item JSON, br)",
-		async () => {
-			const response = await buildJsonResponse({
-				body: benchJsonBody,
-				etag: '"bench"',
-				cacheControl: "public, max-age=60",
-				vary: "Accept-Encoding",
-				acceptEncoding: "br",
-				ifNoneMatch: null,
-			});
-			if (response.headers.get("content-encoding") !== "br") throw new Error("not compressed");
+					return hits;
+				},
+			},
+			{
+				name: "plain Map get",
+				fn: () => {
+					let hits = 0;
+					for (let r = 0; r < 16; r++) {
+						for (let i = 0; i < 64; i++) {
+							if (plain.get(`k${i}`)) hits++;
+						}
+					}
+
+					return hits;
+				},
+			},
+		];
+	})(),
+	iterations: 50,
+	batch: 4,
+	equal: (a, b) => a === b,
+});
+
+compare("parseSegmentName: regex match vs slice+parseInt (per segment request)", {
+	variants: [
+		{
+			name: "regex match",
+			fn: () => {
+				let sink = 0;
+				for (const name of segmentNames) sink += parseSegmentNameRegex(name, 4).startTime;
+
+				return sink;
+			},
 		},
-		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
-	);
+		{
+			name: "slice+parseInt",
+			fn: () => {
+				let sink = 0;
+				for (const name of segmentNames) sink += parseSegmentName(name, 4).startTime;
 
-	// A completed audit report is polled by the client; this is the per-poll
-	// parse + schema validation the result cache now skips.
-	const auditReportJson = JSON.stringify({
-		totalFilesChecked: 20_000,
-		suspectCount: 500,
-		suspects: Array.from({ length: 500 }, (_, index) => ({
-			mediaFileId: `mf-${index}`,
-			fileName: `Some.Movie.${index}.2020.1080p.mkv`,
-			filePath: `/media/movies/Some Movie ${index}/Some.Movie.${index}.2020.1080p.mkv`,
-			libraryId: "lib-1",
-			libraryName: "Movies",
-			mediaType: "movie",
-			currentMetadata: { id: `meta-${index}`, title: `Some Movie ${index}`, releaseDate: "2020-05-15", matchScore: 0.7 },
-			recognized: { title: `Some Movie ${index}`, year: 2021 },
-			reasons: [{ code: "year_mismatch", severity: "medium", params: { expected: 2020, found: 2021 } }],
-			similarityScore: 0.82,
-		})),
-	});
-	bench(
-		"audit report parse + schema validate (500 suspects)",
-		() => {
-			const parsed: unknown = JSON.parse(auditReportJson);
-			if (!Value.Check(MediaFileAuditResponseSchema, parsed)) throw new Error("invalid report");
+				return sink;
+			},
 		},
-		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
-	);
+	],
+	batch: 4,
+	equal: (a, b) => a === b,
+});
 
-	compare("Cache key: bunHash(str).toString(16) vs raw string key (dedup, filterSignature)", {
+compare("parseColonSeparatedSeconds: split+parseFloat vs charCode parser (H:MM:SS.mmm)", {
+	variants: [
+		{
+			name: "split+parseFloat",
+			fn: () => {
+				let sink = 0;
+				for (const value of timeStrings) sink += parseColonSeparatedSeconds(value);
+
+				return sink;
+			},
+		},
+		{
+			name: "charCode manual",
+			fn: () => {
+				let sink = 0;
+				for (const value of timeStrings) sink += parseColonCharCode(value);
+
+				return sink;
+			},
+		},
+	],
+	batch: 64,
+	equal: (a, b) => a === b,
+});
+
+compare(String.raw`stripDiacritics: NFD + /\p{M}/gu vs single-pass accent map (search path)`, {
+	variants: [
+		{ name: "NFD + \\p{M}", fn: () => titleSamples.map((title) => stripDiacritics(title)).join("|") },
+		{ name: "single-pass map", fn: () => titleSamples.map((title) => stripDiacriticsMap(title)).join("|") },
+	],
+	batch: 32,
+	equal: (a, b) => a === b,
+});
+
+compare("ETag/dedup hash: bunHash vs djb2 vs SHA-256 (bun:crypto)", {
+	variants: [
+		{
+			name: "bunHash (wyhash)",
+			fn: () => {
+				let sink = "";
+				for (let i = 0; i < 16; i++) sink = bunHash(getUrlSample(i)).toString(16);
+
+				return sink;
+			},
+		},
+		{
+			name: "djb2 manual",
+			fn: () => {
+				let sink = "";
+				for (let i = 0; i < 16; i++) sink = djb2(getUrlSample(i));
+
+				return sink;
+			},
+		},
+		{
+			name: "SHA-256 (CryptoHasher)",
+			fn: () => {
+				let sink = "";
+				for (let i = 0; i < 16; i++) {
+					const hasher = new CryptoHasher("sha256");
+					hasher.update(getUrlSample(i));
+					sink = hasher.digest("hex");
+				}
+
+				return sink;
+			},
+		},
+	],
+	// Value-changing alternative: every hash produces different digests.
+	batch: 16,
+});
+
+compare("getPathname: slice parser vs new URL().pathname (hot request path)", {
+	variants: [
+		{
+			name: "slice parser",
+			fn: () => {
+				let sink = "";
+				for (let i = 0; i < 64; i++) sink = getPathname(getUrlSample(i));
+
+				return sink;
+			},
+		},
+		{
+			name: "new URL().pathname",
+			fn: () => {
+				let sink = "";
+				for (let i = 0; i < 64; i++) sink = new URL(getUrlSample(i)).pathname;
+
+				return sink;
+			},
+		},
+	],
+	batch: 8,
+	equal: (a, b) => a === b,
+});
+
+// ─── Request-path caches (rate-limit overrides, web dist root) ───────────
+// The overrides comparison needs a realistic configured value; the
+// trusted-origin task above clears all runtime values, so set it here —
+// units execute in registration order.
+task("micro: set route overrides for the cache comparison", () => {
+	systemSettingsStore.setRuntimeValue("network.rateLimit.routeOverrides", "admin-analytics=120,admin-workers-list=200,subtitle-content=60");
+
+	return { ok: true };
+});
+
+group("Request-path caches (per call)", () => {
+	compare("tunedRouteMax: parse per call vs revision-cached map (rate-limited route)", {
 		variants: [
-			{
-				name: "bunHash -> hex key",
-				fn: () => {
-					let sink = "";
-					for (let i = 0; i < 32; i++) sink = bunHash(`${getUrlSample(i)}:cookie:profile`).toString(16);
-
-					return sink;
-				},
-			},
-			{
-				name: "raw string key",
-				fn: () => {
-					let sink = "";
-					for (let i = 0; i < 32; i++) sink = `${getUrlSample(i)}:cookie:profile`;
-
-					return sink;
-				},
-			},
+			{ name: "parse per call", fn: () => tunedRouteMaxLegacy("admin-workers-list", 100) },
+			{ name: "revision-cached", fn: () => tunedRouteMax("admin-workers-list", 100) },
 		],
-		// Value-changing alternative: the produced keys differ by design.
-		batch: 8,
-	});
-
-	compare("MemoryCache hit path: LRU touch (delete+set per get) vs plain Map get", {
-		variants: (() => {
-			// Both caches pre-built — only the HIT path is measured.
-			const touched = new Map<string, { value: number }>();
-			const plain = new Map<string, { value: number }>();
-			for (let i = 0; i < 64; i++) {
-				touched.set(`k${i}`, { value: i });
-				plain.set(`k${i}`, { value: i });
-			}
-
-			return [
-				{
-					name: "Map delete+set touch",
-					fn: () => {
-						let hits = 0;
-						for (let r = 0; r < 16; r++) {
-							for (let i = 0; i < 64; i++) {
-								const key = `k${i}`;
-								const entry = touched.get(key);
-								if (entry) {
-									hits++;
-									touched.delete(key);
-									touched.set(key, entry);
-								}
-							}
-						}
-
-						return hits;
-					},
-				},
-				{
-					name: "plain Map get",
-					fn: () => {
-						let hits = 0;
-						for (let r = 0; r < 16; r++) {
-							for (let i = 0; i < 64; i++) {
-								if (plain.get(`k${i}`)) hits++;
-							}
-						}
-
-						return hits;
-					},
-				},
-			];
-		})(),
-		iterations: 50,
-		batch: 4,
+		batch: 256,
 		equal: (a, b) => a === b,
 	});
 
-	compare("parseSegmentName: regex match vs slice+parseInt (per segment request)", {
+	compare("resolveWebDistRoot: statSync per call vs cached per path (static request)", {
 		variants: [
-			{
-				name: "regex match",
-				fn: () => {
-					let sink = 0;
-					for (const name of segmentNames) sink += parseSegmentNameRegex(name, 4).startTime;
-
-					return sink;
-				},
-			},
-			{
-				name: "slice+parseInt",
-				fn: () => {
-					let sink = 0;
-					for (const name of segmentNames) sink += parseSegmentName(name, 4).startTime;
-
-					return sink;
-				},
-			},
-		],
-		batch: 4,
-		equal: (a, b) => a === b,
-	});
-
-	compare("parseColonSeparatedSeconds: split+parseFloat vs charCode parser (H:MM:SS.mmm)", {
-		variants: [
-			{
-				name: "split+parseFloat",
-				fn: () => {
-					let sink = 0;
-					for (const value of timeStrings) sink += parseColonSeparatedSeconds(value);
-
-					return sink;
-				},
-			},
-			{
-				name: "charCode manual",
-				fn: () => {
-					let sink = 0;
-					for (const value of timeStrings) sink += parseColonCharCode(value);
-
-					return sink;
-				},
-			},
+			{ name: "statSync per call", fn: () => resolveWebDistRootUncached() },
+			{ name: "cached per path", fn: () => resolveWebDistRoot() },
 		],
 		batch: 64,
 		equal: (a, b) => a === b,
 	});
+});
 
-	compare(String.raw`stripDiacritics: NFD + /\p{M}/gu vs single-pass accent map (search path)`, {
-		variants: [
-			{
-				name: "NFD + \\p{M}",
-				fn: () => {
-					let sink = "";
-					for (const title of titleSamples) sink = stripDiacritics(title);
+// ─── Matching: bounded edit distance (per pair, in the ranking hot path) ──
+const levenshteinSamples = Array.from({ length: 64 }, (_, i) => ({
+	a: `benchmark title number ${i}`,
+	b: `benchmark tittle number ${i + 1}`,
+}));
+group("Matching (sync, per call)", () => {
+	bench(
+		"boundedLevenshtein x64 pairs",
+		() => {
+			let sink = 0;
+			for (const { a, b } of levenshteinSamples) sink += boundedLevenshtein(a, b, 4) ?? 0;
 
-					return sink;
-				},
-			},
-			{
-				name: "single-pass map",
-				fn: () => {
-					let sink = "";
-					for (const title of titleSamples) sink = stripDiacriticsMap(title);
+			return sink;
+		},
+		{ iterations: args.iterations },
+	);
+});
 
-					return sink;
-				},
-			},
-		],
-		batch: 32,
-		equal: (a, b) => a === b,
-	});
+// ─── Matching primitives (title bigram Dice & token overlap) ─────────────
+const matchPairs = Array.from({ length: 32 }, (_, i) => ({
+	a: `benchmark odyssey ${i % 7}${i % 3 === 0 ? " the sequel" : ""}`,
+	b: `benchmark oddyssey ${i % 7}${i % 3 === 1 ? " part 2" : ""}`,
+}));
+const whitespaceAll = /\s+/g;
+const bigramsString = (value: string): string[] => {
+	const collapsed = value.replace(whitespaceAll, "");
+	if (collapsed.length < 2) return collapsed ? [collapsed] : [];
 
-	compare("ETag/dedup hash: bunHash vs djb2 vs SHA-256 (bun:crypto)", {
-		variants: [
-			{
-				name: "bunHash (wyhash)",
-				fn: () => {
-					let sink = "";
-					for (let i = 0; i < 16; i++) sink = bunHash(getUrlSample(i)).toString(16);
+	const out: string[] = [];
+	for (let i = 0; i < collapsed.length - 1; i++) out.push(collapsed.slice(i, i + 2));
 
-					return sink;
-				},
-			},
-			{
-				name: "djb2 manual",
-				fn: () => {
-					let sink = "";
-					for (let i = 0; i < 16; i++) sink = djb2(getUrlSample(i));
+	return out;
+};
+const diceString = (a: string, b: string): number => {
+	const ba = bigramsString(a);
+	const bb = bigramsString(b);
+	if (ba.length === 0 || bb.length === 0) return 0;
 
-					return sink;
-				},
-			},
-			{
-				name: "SHA-256 (CryptoHasher)",
-				fn: () => {
-					let sink = "";
-					for (let i = 0; i < 16; i++) {
-						const hasher = new CryptoHasher("sha256");
-						hasher.update(getUrlSample(i));
-						sink = hasher.digest("hex");
-					}
+	const remaining = new Map<string, number>();
+	for (const g of bb) remaining.set(g, (remaining.get(g) ?? 0) + 1);
 
-					return sink;
-				},
-			},
-		],
-		// Value-changing alternative: every hash produces different digests.
-		batch: 16,
-	});
+	let matches = 0;
+	for (const g of ba) {
+		const c = remaining.get(g) ?? 0;
+		if (c > 0) {
+			matches++;
+			remaining.set(g, c - 1);
+		}
+	}
 
-	compare("getPathname: slice parser vs new URL().pathname (hot request path)", {
-		variants: [
-			{
-				name: "slice parser",
-				fn: () => {
-					let sink = "";
-					for (let i = 0; i < 64; i++) sink = getPathname(getUrlSample(i));
+	return (2 * matches) / (ba.length + bb.length);
+};
 
-					return sink;
-				},
-			},
-			{
-				name: "new URL().pathname",
-				fn: () => {
-					let sink = "";
-					for (let i = 0; i < 64; i++) sink = new URL(getUrlSample(i)).pathname;
+const codesA: number[] = [];
+const codesB: number[] = [];
+const freqScratch = new Map<number, number>();
+const diceNumeric = (a: string, b: string): number => {
+	writeBigramCodes(a, codesA);
+	writeBigramCodes(b, codesB);
+	if (codesA.length === 0 || codesB.length === 0) return 0;
 
-					return sink;
-				},
-			},
-		],
-		batch: 8,
-		equal: (a, b) => a === b,
-	});
+	freqScratch.clear();
+	for (const g of codesB) freqScratch.set(g, (freqScratch.get(g) ?? 0) + 1);
 
-	// ─── Request-path caches (rate-limit overrides, web dist root) ───────────
-	// The overrides comparison needs a realistic configured value; the
-	// trusted-origin task above clears all runtime values, so set it here —
-	// units execute in registration order.
-	task("micro: set route overrides for the cache comparison", () => {
-		systemSettingsStore.setRuntimeValue(
-			"network.rateLimit.routeOverrides",
-			"admin-analytics=120,admin-workers-list=200,subtitle-content=60",
-		);
+	let matches = 0;
+	for (const g of codesA) {
+		const c = freqScratch.get(g) ?? 0;
+		if (c > 0) {
+			matches++;
+			freqScratch.set(g, c - 1);
+		}
+	}
 
-		return { ok: true };
-	});
+	return (2 * matches) / (codesA.length + codesB.length);
+};
 
-	group("Request-path caches (per call)", () => {
-		compare("tunedRouteMax: parse per call vs revision-cached map (rate-limited route)", {
-			variants: [
-				{ name: "parse per call", fn: () => tunedRouteMaxLegacy("admin-workers-list", 100) },
-				{ name: "revision-cached", fn: () => tunedRouteMax("admin-workers-list", 100) },
-			],
-			batch: 256,
-			equal: (a, b) => a === b,
-		});
-
-		compare("resolveWebDistRoot: statSync per call vs cached per path (static request)", {
-			variants: [
-				{ name: "statSync per call", fn: () => resolveWebDistRootUncached() },
-				{ name: "cached per path", fn: () => resolveWebDistRoot() },
-			],
-			batch: 64,
-			equal: (a, b) => a === b,
-		});
-	});
-
-	// ─── Matching: bounded edit distance (per pair, in the ranking hot path) ──
-	const levenshteinSamples = Array.from({ length: 64 }, (_, i) => ({
-		a: `benchmark title number ${i}`,
-		b: `benchmark tittle number ${i + 1}`,
-	}));
-	group("Matching (sync, per call)", () => {
-		bench(
-			"boundedLevenshtein x64 pairs",
-			() => {
+compare("Title bigram Dice: string bigrams+Map vs numeric codes+reused Map", {
+	variants: [
+		{
+			name: "string bigrams",
+			fn: () => {
 				let sink = 0;
-				for (const { a, b } of levenshteinSamples) sink += boundedLevenshtein(a, b, 4) ?? 0;
+				for (const { a, b } of matchPairs) sink += diceString(a, b);
 
 				return sink;
 			},
-			{ iterations: args.iterations },
-		);
-	});
+		},
+		{
+			name: "numeric codes (reused)",
+			fn: () => {
+				let sink = 0;
+				for (const { a, b } of matchPairs) sink += diceNumeric(a, b);
 
-	// ─── Matching primitives (title bigram Dice & token overlap) ─────────────
-	const matchPairs = Array.from({ length: 32 }, (_, i) => ({
-		a: `benchmark odyssey ${i % 7}${i % 3 === 0 ? " the sequel" : ""}`,
-		b: `benchmark oddyssey ${i % 7}${i % 3 === 1 ? " part 2" : ""}`,
-	}));
-	const whitespaceAll = /\s+/g;
-	const bigramsString = (value: string): string[] => {
-		const collapsed = value.replace(whitespaceAll, "");
-		if (collapsed.length < 2) return collapsed ? [collapsed] : [];
+				return sink;
+			},
+		},
+	],
+	batch: 8,
+	equal: (a, b) => a === b,
+});
 
-		const out: string[] = [];
-		for (let i = 0; i < collapsed.length - 1; i++) out.push(collapsed.slice(i, i + 2));
+const HASH_SIZE = 256;
+const HASH_MASK = HASH_SIZE - 1;
+const hashKeys = new Int32Array(HASH_SIZE);
+const hashCounts = new Int32Array(HASH_SIZE);
+const hashUsed = new Uint8Array(HASH_SIZE);
+const hashIndex = (code: number): number => (Math.imul(code, 2654435761) >>> 0) & HASH_MASK;
+const hashInsert = (code: number): void => {
+	let i = hashIndex(code);
+	for (;;) {
+		if ((hashUsed[i] ?? 0) === 0) {
+			hashUsed[i] = 1;
+			hashKeys[i] = code;
+			hashCounts[i] = 1;
 
-		return out;
-	};
-	const diceString = (a: string, b: string): number => {
-		const ba = bigramsString(a);
-		const bb = bigramsString(b);
-		if (ba.length === 0 || bb.length === 0) return 0;
-
-		const remaining = new Map<string, number>();
-		for (const g of bb) remaining.set(g, (remaining.get(g) ?? 0) + 1);
-
-		let matches = 0;
-		for (const g of ba) {
-			const c = remaining.get(g) ?? 0;
-			if (c > 0) {
-				matches++;
-				remaining.set(g, c - 1);
-			}
+			return;
 		}
 
-		return (2 * matches) / (ba.length + bb.length);
-	};
+		if ((hashKeys[i] ?? 0) === code) {
+			hashCounts[i] = (hashCounts[i] ?? 0) + 1;
 
-	const codesA: number[] = [];
-	const codesB: number[] = [];
-	const freqScratch = new Map<number, number>();
-	const diceNumeric = (a: string, b: string): number => {
-		writeBigramCodes(a, codesA);
-		writeBigramCodes(b, codesB);
-		if (codesA.length === 0 || codesB.length === 0) return 0;
-
-		freqScratch.clear();
-		for (const g of codesB) freqScratch.set(g, (freqScratch.get(g) ?? 0) + 1);
-
-		let matches = 0;
-		for (const g of codesA) {
-			const c = freqScratch.get(g) ?? 0;
-			if (c > 0) {
-				matches++;
-				freqScratch.set(g, c - 1);
-			}
+			return;
 		}
 
-		return (2 * matches) / (codesA.length + codesB.length);
-	};
+		i = (i + 1) & HASH_MASK;
+	}
+};
+const hashConsume = (code: number): boolean => {
+	let i = hashIndex(code);
+	for (;;) {
+		if ((hashUsed[i] ?? 0) === 0) return false;
 
-	compare("Title bigram Dice: string bigrams+Map vs numeric codes+reused Map", {
-		variants: [
-			{
-				name: "string bigrams",
-				fn: () => {
-					let sink = 0;
-					for (const { a, b } of matchPairs) sink += diceString(a, b);
+		if ((hashKeys[i] ?? 0) === code) {
+			const count = hashCounts[i] ?? 0;
+			if (count <= 0) return false;
 
-					return sink;
-				},
-			},
-			{
-				name: "numeric codes (reused)",
-				fn: () => {
-					let sink = 0;
-					for (const { a, b } of matchPairs) sink += diceNumeric(a, b);
+			hashCounts[i] = count - 1;
 
-					return sink;
-				},
-			},
-		],
-		batch: 8,
-		equal: (a, b) => a === b,
-	});
-
-	const HASH_SIZE = 256;
-	const HASH_MASK = HASH_SIZE - 1;
-	const hashKeys = new Int32Array(HASH_SIZE);
-	const hashCounts = new Int32Array(HASH_SIZE);
-	const hashUsed = new Uint8Array(HASH_SIZE);
-	const hashIndex = (code: number): number => (Math.imul(code, 2654435761) >>> 0) & HASH_MASK;
-	const hashInsert = (code: number): void => {
-		let i = hashIndex(code);
-		for (;;) {
-			if ((hashUsed[i] ?? 0) === 0) {
-				hashUsed[i] = 1;
-				hashKeys[i] = code;
-				hashCounts[i] = 1;
-
-				return;
-			}
-
-			if ((hashKeys[i] ?? 0) === code) {
-				hashCounts[i] = (hashCounts[i] ?? 0) + 1;
-
-				return;
-			}
-
-			i = (i + 1) & HASH_MASK;
+			return true;
 		}
-	};
-	const hashConsume = (code: number): boolean => {
-		let i = hashIndex(code);
-		for (;;) {
-			if ((hashUsed[i] ?? 0) === 0) return false;
 
-			if ((hashKeys[i] ?? 0) === code) {
-				const count = hashCounts[i] ?? 0;
-				if (count <= 0) return false;
+		i = (i + 1) & HASH_MASK;
+	}
+};
+const diceOpenAddressed = (a: string, b: string): number => {
+	writeBigramCodes(a, codesA);
+	writeBigramCodes(b, codesB);
+	if (codesA.length === 0 || codesB.length === 0) return 0;
 
-				hashCounts[i] = count - 1;
+	hashUsed.fill(0);
+	for (const code of codesB) hashInsert(code);
 
-				return true;
-			}
+	let matches = 0;
+	for (const code of codesA) if (hashConsume(code)) matches++;
 
-			i = (i + 1) & HASH_MASK;
-		}
-	};
-	const diceOpenAddressed = (a: string, b: string): number => {
-		writeBigramCodes(a, codesA);
-		writeBigramCodes(b, codesB);
-		if (codesA.length === 0 || codesB.length === 0) return 0;
+	return (2 * matches) / (codesA.length + codesB.length);
+};
 
-		hashUsed.fill(0);
-		for (const code of codesB) hashInsert(code);
+compare("Title bigram Dice: reused Map vs open-addressing Int32Array", {
+	variants: [
+		{
+			name: "reused Map<number>",
+			fn: () => {
+				let sink = 0;
+				for (const { a, b } of matchPairs) sink += diceNumeric(a, b);
 
-		let matches = 0;
-		for (const code of codesA) if (hashConsume(code)) matches++;
-
-		return (2 * matches) / (codesA.length + codesB.length);
-	};
-
-	compare("Title bigram Dice: reused Map vs open-addressing Int32Array", {
-		variants: [
-			{
-				name: "reused Map<number>",
-				fn: () => {
-					let sink = 0;
-					for (const { a, b } of matchPairs) sink += diceNumeric(a, b);
-
-					return sink;
-				},
+				return sink;
 			},
-			{
-				name: "open-addressing Int32Array",
-				fn: () => {
-					let sink = 0;
-					for (const { a, b } of matchPairs) sink += diceOpenAddressed(a, b);
+		},
+		{
+			name: "open-addressing Int32Array",
+			fn: () => {
+				let sink = 0;
+				for (const { a, b } of matchPairs) sink += diceOpenAddressed(a, b);
 
-					return sink;
-				},
+				return sink;
 			},
-		],
-		batch: 8,
-		equal: (a, b) => a === b,
-	});
+		},
+	],
+	batch: 8,
+	equal: (a, b) => a === b,
+});
 
-	compare("Title token overlap: split(' ')+Set vs manual scan+Set", {
-		variants: [
-			{
-				name: "split(' ')",
-				fn: () => {
-					let sink = 0;
-					for (const { a, b } of matchPairs) sink += overlapWith(tokensSplit, a, b);
+compare("Title token overlap: split(' ')+Set vs manual scan+Set", {
+	variants: [
+		{
+			name: "split(' ')",
+			fn: () => {
+				let sink = 0;
+				for (const { a, b } of matchPairs) sink += overlapWith(tokensSplit, a, b);
 
-					return sink;
-				},
+				return sink;
 			},
-			{
-				name: "manual scan",
-				fn: () => {
-					let sink = 0;
-					for (const { a, b } of matchPairs) sink += overlapWith(splitToSet, a, b);
+		},
+		{
+			name: "manual scan",
+			fn: () => {
+				let sink = 0;
+				for (const { a, b } of matchPairs) sink += overlapWith(splitToSet, a, b);
 
-					return sink;
-				},
+				return sink;
 			},
-		],
-		batch: 8,
-		equal: (a, b) => a === b,
-	});
+		},
+	],
+	batch: 8,
+	equal: (a, b) => a === b,
+});
 
-	// Every image, HLS segment and cached-JSON response is a Response, so the
-	// compression middleware's cheap guards must run BEFORE the Accept-Encoding
-	// parse — otherwise the parse is paid for a body that is never compressed.
-	const guardCases: Array<{ header: string; isResponse: boolean }> = [
-		{ header: "br", isResponse: true },
-		{ header: "gzip, deflate, br", isResponse: true },
-		{ header: "br;q=0, gzip", isResponse: true },
-		{ header: "", isResponse: true },
+// Every image, HLS segment and cached-JSON response is a Response, so the
+// compression middleware's cheap guards must run BEFORE the Accept-Encoding
+// parse — otherwise the parse is paid for a body that is never compressed.
+const guardCases: Array<{ header: string; isResponse: boolean }> = [
+	{ header: "br", isResponse: true },
+	{ header: "gzip, deflate, br", isResponse: true },
+	{ header: "br;q=0, gzip", isResponse: true },
+	{ header: "", isResponse: true },
+];
+compare("compression guard: parse-then-skip vs skip-then-parse (Response path)", {
+	variants: [
+		{
+			name: "parse then skip",
+			fn: () => {
+				let sink = 0;
+				for (const bodyCase of guardCases) {
+					const encoding = negotiateEncoding(bodyCase.header);
+					if (!encoding) {
+						sink++;
+						continue;
+					}
+
+					if (bodyCase.isResponse) sink++;
+				}
+
+				return sink;
+			},
+		},
+		{
+			name: "skip then parse",
+			fn: () => {
+				let sink = 0;
+				for (const bodyCase of guardCases) {
+					if (bodyCase.isResponse) {
+						sink++;
+						continue;
+					}
+
+					if (!negotiateEncoding(bodyCase.header)) sink++;
+				}
+
+				return sink;
+			},
+		},
+	],
+	batch: 32,
+	equal: (a, b) => a === b,
+});
+
+const encodingHeaders = ["br", "gzip", "gzip, deflate, br", "br;q=0, gzip", "*", "identity", "x-gzip", "BR", ""];
+compare("negotiateEncoding: full parser vs single-token fast path", {
+	variants: [
+		{
+			name: "full parser",
+			fn: () => encodingHeaders.map((header) => negotiateEncodingOld(header) ?? "-").join(","),
+		},
+		{
+			name: "single-token fast path",
+			fn: () => encodingHeaders.map((header) => negotiateEncoding(header) ?? "-").join(","),
+		},
+	],
+	batch: 16,
+	equal: (a, b) => a === b,
+});
+
+const browserEncodingHeaders = ["gzip, deflate, br, zstd", "gzip, deflate, br", "gzip, deflate"];
+compare("negotiateEncoding (browser multi-token header): parser per request vs bounded LRU memo", {
+	variants: [
+		{
+			name: "parser per request (before)",
+			fn: () => browserEncodingHeaders.map((header) => negotiateEncodingOld(header) ?? "-").join(","),
+		},
+		{
+			name: "bounded LRU memo (shipped)",
+			fn: () => browserEncodingHeaders.map((header) => negotiateEncoding(header) ?? "-").join(","),
+		},
+	],
+	batch: 16,
+	equal: (a, b) => a === b,
+});
+
+const conditionalHeaders = ['"abc"', 'W/"abc"', "*", '"abc", "def"', null, '"other"'];
+compare("matchesIfNoneMatch: split list vs single-validator fast path", {
+	variants: [
+		{
+			name: "split list",
+			fn: () => {
+				let sink = 0;
+				for (const header of conditionalHeaders) if (matchesIfNoneMatchOld(header, '"abc"')) sink++;
+
+				return sink;
+			},
+		},
+		{
+			name: "fast path",
+			fn: () => {
+				let sink = 0;
+				for (const header of conditionalHeaders) if (matchesIfNoneMatch(header, '"abc"')) sink++;
+
+				return sink;
+			},
+		},
+	],
+	batch: 32,
+	equal: (a, b) => a === b,
+});
+
+// ─── Compression A/B (async) — kept as a task: the small-payload measures
+// run in parallel (Promise.all), which bench units cannot express. ───────
+task("micro: compression (per compress call)", async () => {
+	const payload = Buffer.from(buildCatalogPayload(24));
+	console.log(`\n[micro] compression A/B on a realistic 24-item catalog payload (${(payload.length / 1024).toFixed(1)} KB raw)...\n`);
+	const br4 = await compressBuffer(payload, "br");
+	const br2 = await compressBrotliQuality2(payload);
+	const gz1 = await compressBuffer(payload, "gzip");
+	console.log(
+		`  sizes: br-q4 ${(br4.length / 1024).toFixed(1)}KB, br-q2 ${(br2.length / 1024).toFixed(1)}KB, gzip-1 ${(gz1.length / 1024).toFixed(1)}KB\n`,
+	);
+
+	const compressionResults = [
+		await measureAsync("brotli quality 4 (current)", () => compressBuffer(payload, "br"), { iterations: args.iterations }),
+		await measureAsync("brotli quality 2", () => compressBrotliQuality2(payload), { iterations: args.iterations }),
+		await measureAsync("gzip level 1 (current)", () => compressBuffer(payload, "gzip"), { iterations: args.iterations }),
 	];
-	compare("compression guard: parse-then-skip vs skip-then-parse (Response path)", {
-		variants: [
-			{
-				name: "parse then skip",
-				fn: () => {
-					let sink = 0;
-					for (const bodyCase of guardCases) {
-						const encoding = negotiateEncoding(bodyCase.header);
-						if (!encoding) {
-							sink++;
-							continue;
-						}
 
-						if (bodyCase.isResponse) sink++;
-					}
+	// ─── Large-payload compression A/B (details-view class, ~200 KB) ───────
+	// The small 24-item payload above barely crosses the 1 KB compression
+	// threshold; detail-page aggregations produce 100 KB+ JSON where the
+	// per-request compress cost is the dominant CPU term.
+	const largeItems = Array.from({ length: 400 }, (_item, index) => ({
+		...catalogItem(index, "Benchmark overview text for load testing with a realistic length sentence.".repeat(4)),
+		genres: ["Action", "Adventure", "Sci-Fi", "Drama"],
+		cast: Array.from({ length: 12 }, (_person, castIndex) => ({
+			name: `Person ${index}-${castIndex}`,
+			character: `Character ${castIndex}`,
+		})),
+		episodes:
+			index % 8 === 0
+				? Array.from({ length: 24 }, (_episode, episodeIndex) => ({
+						id: `ep-${index}-${episodeIndex}`,
+						title: `Episode ${episodeIndex}`,
+						overview: "Episode overview text long enough to resemble a real payload entry.",
+					}))
+				: undefined,
+		mediaFiles: Array.from({ length: 3 }, (_, fileIndex) => ({ id: `mf-${index}-${fileIndex}`, durationSeconds: 3600 + fileIndex })),
+	}));
+	const largePayload = Buffer.from(JSON.stringify({ data: largeItems }));
+	console.log(`\n[micro] compression A/B on a large details-view-class payload (${(largePayload.length / 1024).toFixed(0)} KB raw)...\n`);
+	const largeBr4 = await compressBuffer(largePayload, "br");
+	const largeBr2 = await compressBrotliQuality2(largePayload);
+	const largeGz1 = await compressBuffer(largePayload, "gzip");
+	console.log(
+		`  sizes: br-q4 ${(largeBr4.length / 1024).toFixed(0)}KB, br-q2 ${(largeBr2.length / 1024).toFixed(0)}KB, gzip-1 ${(largeGz1.length / 1024).toFixed(0)}KB\n`,
+	);
 
-					return sink;
-				},
-			},
-			{
-				name: "skip then parse",
-				fn: () => {
-					let sink = 0;
-					for (const bodyCase of guardCases) {
-						if (bodyCase.isResponse) {
-							sink++;
-							continue;
-						}
+	compressionResults.push(
+		...(await Promise.all([
+			measureAsync("large payload: brotli q4 (current)", () => compressBuffer(largePayload, "br"), {
+				iterations: Math.max(10, Math.floor(args.iterations / 5)),
+			}),
+			measureAsync("large payload: brotli q2", () => compressBrotliQuality2(largePayload), {
+				iterations: Math.max(10, Math.floor(args.iterations / 5)),
+			}),
+			measureAsync("large payload: gzip level 1", () => compressBuffer(largePayload, "gzip"), {
+				iterations: Math.max(10, Math.floor(args.iterations / 5)),
+			}),
+		])),
+	);
 
-						if (!negotiateEncoding(bodyCase.header)) sink++;
-					}
+	printMicroResults(compressionResults, "Compression (async, per compress call)");
+	console.log("\n[micro] done — adopt a winner only with a full verify + HTTP before/after.");
+});
 
-					return sink;
-				},
-			},
+// ─── Idle timer cost ─────────────────────────────────────────────────────
+// SystemResourcesService's EventLoopMonitor ticks for the whole process
+// lifetime, so its cadence sets a floor on idle timer wakeups. Measures CPU
+// time spent in an otherwise-idle event loop per interval.
+task("micro: event-loop monitor idle CPU (100ms vs 1000ms interval)", async () => {
+	const windowMs = 2000;
+	const rounds = 3;
+	const sample = async (intervalMs: number): Promise<number> => {
+		const monitor = new EventLoopMonitor(intervalMs);
+		const before = process.cpuUsage();
+		await sleepMs(windowMs);
+		const delta = process.cpuUsage(before);
+		monitor.stop();
+
+		return (delta.user + delta.system) / 1000;
+	};
+	const at100: number[] = [];
+	const at1000: number[] = [];
+	for (let round = 0; round < rounds; round++) {
+		at100.push(await sample(100));
+		at1000.push(await sample(1000));
+	}
+
+	printTable(
+		`Event-loop monitor idle CPU @ ${windowMs}ms window (median of ${rounds})`,
+		["interval", "wakeups/s", "CPU ms"],
+		[
+			["100ms", "10", medianOf(at100).toFixed(2)],
+			["1000ms", "1", medianOf(at1000).toFixed(2)],
 		],
-		batch: 32,
-		equal: (a, b) => a === b,
-	});
+	);
 
-	const encodingHeaders = ["br", "gzip", "gzip, deflate, br", "br;q=0, gzip", "*", "identity", "x-gzip", "BR", ""];
-	compare("negotiateEncoding: full parser vs single-token fast path", {
-		variants: [
-			{
-				name: "full parser",
-				fn: () => encodingHeaders.map((header) => negotiateEncodingOld(header) ?? "-").join(","),
-			},
-			{
-				name: "single-token fast path",
-				fn: () => encodingHeaders.map((header) => negotiateEncoding(header) ?? "-").join(","),
-			},
-		],
-		batch: 16,
-		equal: (a, b) => a === b,
-	});
-
-	const browserEncodingHeaders = ["gzip, deflate, br, zstd", "gzip, deflate, br", "gzip, deflate"];
-	compare("negotiateEncoding (browser multi-token header): parser per request vs bounded LRU memo", {
-		variants: [
-			{
-				name: "parser per request (before)",
-				fn: () => browserEncodingHeaders.map((header) => negotiateEncodingOld(header) ?? "-").join(","),
-			},
-			{
-				name: "bounded LRU memo (shipped)",
-				fn: () => browserEncodingHeaders.map((header) => negotiateEncoding(header) ?? "-").join(","),
-			},
-		],
-		batch: 16,
-		equal: (a, b) => a === b,
-	});
-
-	const conditionalHeaders = ['"abc"', 'W/"abc"', "*", '"abc", "def"', null, '"other"'];
-	compare("matchesIfNoneMatch: split list vs single-validator fast path", {
-		variants: [
-			{
-				name: "split list",
-				fn: () => {
-					let sink = 0;
-					for (const header of conditionalHeaders) if (matchesIfNoneMatchOld(header, '"abc"')) sink++;
-
-					return sink;
-				},
-			},
-			{
-				name: "fast path",
-				fn: () => {
-					let sink = 0;
-					for (const header of conditionalHeaders) if (matchesIfNoneMatch(header, '"abc"')) sink++;
-
-					return sink;
-				},
-			},
-		],
-		batch: 32,
-		equal: (a, b) => a === b,
-	});
-
-	// ─── Compression A/B (async) — kept as a task: the small-payload measures
-	// run in parallel (Promise.all), which bench units cannot express. ───────
-	task("micro: compression (per compress call)", async () => {
-		const payload = Buffer.from(buildCatalogPayload(24));
-		console.log(`\n[micro] compression A/B on a realistic 24-item catalog payload (${(payload.length / 1024).toFixed(1)} KB raw)...\n`);
-		const br4 = await compressBuffer(payload, "br");
-		const br2 = await compressBrotliQuality2(payload);
-		const gz1 = await compressBuffer(payload, "gzip");
-		console.log(
-			`  sizes: br-q4 ${(br4.length / 1024).toFixed(1)}KB, br-q2 ${(br2.length / 1024).toFixed(1)}KB, gzip-1 ${(gz1.length / 1024).toFixed(1)}KB\n`,
-		);
-
-		const compressionResults = [
-			await measureAsync("brotli quality 4 (current)", () => compressBuffer(payload, "br"), { iterations: args.iterations }),
-			await measureAsync("brotli quality 2", () => compressBrotliQuality2(payload), { iterations: args.iterations }),
-			await measureAsync("gzip level 1 (current)", () => compressBuffer(payload, "gzip"), { iterations: args.iterations }),
-		];
-
-		// ─── Large-payload compression A/B (details-view class, ~200 KB) ───────
-		// The small 24-item payload above barely crosses the 1 KB compression
-		// threshold; detail-page aggregations produce 100 KB+ JSON where the
-		// per-request compress cost is the dominant CPU term.
-		const largeItems = Array.from({ length: 400 }, (_item, index) => ({
-			...catalogItem(index, "Benchmark overview text for load testing with a realistic length sentence.".repeat(4)),
-			genres: ["Action", "Adventure", "Sci-Fi", "Drama"],
-			cast: Array.from({ length: 12 }, (_person, castIndex) => ({
-				name: `Person ${index}-${castIndex}`,
-				character: `Character ${castIndex}`,
-			})),
-			episodes:
-				index % 8 === 0
-					? Array.from({ length: 24 }, (_episode, episodeIndex) => ({
-							id: `ep-${index}-${episodeIndex}`,
-							title: `Episode ${episodeIndex}`,
-							overview: "Episode overview text long enough to resemble a real payload entry.",
-						}))
-					: undefined,
-			mediaFiles: Array.from({ length: 3 }, (_, fileIndex) => ({ id: `mf-${index}-${fileIndex}`, durationSeconds: 3600 + fileIndex })),
-		}));
-		const largePayload = Buffer.from(JSON.stringify({ data: largeItems }));
-		console.log(`\n[micro] compression A/B on a large details-view-class payload (${(largePayload.length / 1024).toFixed(0)} KB raw)...\n`);
-		const largeBr4 = await compressBuffer(largePayload, "br");
-		const largeBr2 = await compressBrotliQuality2(largePayload);
-		const largeGz1 = await compressBuffer(largePayload, "gzip");
-		console.log(
-			`  sizes: br-q4 ${(largeBr4.length / 1024).toFixed(0)}KB, br-q2 ${(largeBr2.length / 1024).toFixed(0)}KB, gzip-1 ${(largeGz1.length / 1024).toFixed(0)}KB\n`,
-		);
-
-		compressionResults.push(
-			...(await Promise.all([
-				measureAsync("large payload: brotli q4 (current)", () => compressBuffer(largePayload, "br"), {
-					iterations: Math.max(10, Math.floor(args.iterations / 5)),
-				}),
-				measureAsync("large payload: brotli q2", () => compressBrotliQuality2(largePayload), {
-					iterations: Math.max(10, Math.floor(args.iterations / 5)),
-				}),
-				measureAsync("large payload: gzip level 1", () => compressBuffer(largePayload, "gzip"), {
-					iterations: Math.max(10, Math.floor(args.iterations / 5)),
-				}),
-			])),
-		);
-
-		printMicroResults(compressionResults, "Compression (async, per compress call)");
-		console.log("\n[micro] done — adopt a winner only with a full verify + HTTP before/after.");
-	});
-
-	// ─── Idle timer cost ─────────────────────────────────────────────────────
-	// SystemResourcesService's EventLoopMonitor ticks for the whole process
-	// lifetime, so its cadence sets a floor on idle timer wakeups. Measures CPU
-	// time spent in an otherwise-idle event loop per interval.
-	task("micro: event-loop monitor idle CPU (100ms vs 1000ms interval)", async () => {
-		const windowMs = 2000;
-		const rounds = 3;
-		const sample = async (intervalMs: number): Promise<number> => {
-			const monitor = new EventLoopMonitor(intervalMs);
-			const before = process.cpuUsage();
-			await sleepMs(windowMs);
-			const delta = process.cpuUsage(before);
-			monitor.stop();
-
-			return (delta.user + delta.system) / 1000;
-		};
-		const at100: number[] = [];
-		const at1000: number[] = [];
-		for (let round = 0; round < rounds; round++) {
-			at100.push(await sample(100));
-			at1000.push(await sample(1000));
-		}
-
-		printTable(
-			`Event-loop monitor idle CPU @ ${windowMs}ms window (median of ${rounds})`,
-			["interval", "wakeups/s", "CPU ms"],
-			[
-				["100ms", "10", medianOf(at100).toFixed(2)],
-				["1000ms", "1", medianOf(at1000).toFixed(2)],
-			],
-		);
-
-		return { ok: true };
-	});
-}
-
-await main(import.meta);
+	return { ok: true };
+});

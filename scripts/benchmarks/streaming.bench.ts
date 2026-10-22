@@ -6,24 +6,26 @@ import {
 	fmtMb,
 	fmtMs,
 	type HttpScenarioResult,
-	main,
+	mbPerSecond,
+	parseSegments,
 	printHttpResults,
 	printMicroResults,
 	printTable,
 	readProcessRssBytes,
 	runLoadWindow,
+	subnetIp,
 	suiteArgs,
 	summarizeLatencies,
 	task,
+	toScenarioResult,
 } from "benchkit";
 import { sleep } from "bun";
 import { parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer.utils";
 import { playlistFileCache } from "@/modules/streaming/playlist/playlist.cache";
 import { removeTree } from "@/utils/directory.utils";
 import { getBunFile, writeFile } from "@/utils/file.utils";
-import { authHeaders, subnetIp } from "./lib/identity.utils";
-import { createPlaybackSession, deletePlaybackSession, parseSegmentNames } from "./lib/playback.utils";
-import { toScenarioResult } from "./lib/scenario-result.mapper";
+import { authHeaders } from "./lib/identity.utils";
+import { createPlaybackSession, deletePlaybackSession } from "./lib/playback.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
 import type { ManagedServer } from "./lib/server.launcher";
 
@@ -33,7 +35,7 @@ async function fetchPlaylistSegments(server: ManagedServer, sessionId: string): 
 	});
 	if (!response.ok) throw new Error(`Playlist fetch failed: HTTP ${response.status} ${await response.text()}`);
 
-	const segments = parseSegmentNames(await response.text());
+	const segments = parseSegments(await response.text());
 	if (segments.length === 0) throw new Error("Playlist contained no media segments");
 
 	return segments;
@@ -260,7 +262,7 @@ async function waitForFirstSegment(server: ManagedServer, session: CreatedSessio
 	while (performance.now() - playlistStartedAt < 30_000) {
 		const response = await fetch(`${server.baseUrl}/v1/playback-sessions/${session.sessionId}/playlist`, { headers: session.headers });
 		if (response.ok) {
-			segments = parseSegmentNames(await response.text());
+			segments = parseSegments(await response.text());
 			if (segments.length > 0) break;
 		}
 		await sleep(50);
@@ -485,157 +487,153 @@ export const meta = { description: "HLS streaming engine (playback session, play
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
+const serverFixture = suiteServerFixture(args, { withSampleMedia: true });
 
-	// Playback start polls the growing playlist every 20 ms until the cushion
-	// exists. This characterises one poll tick on an unchanged playlist: raw
-	// read+parse (the pre-cache waiter) vs the shared cache hit.
-	task("streaming: playlist waiter poll cost", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "reelvault-playlist-poll-"));
-		try {
-			const playlistPath = join(dir, "playlist.m3u8");
-			const lines = ["#EXTM3U", "#EXT-X-PLAYLIST-TYPE:EVENT"];
-			for (let index = 0; index < 20; index++) lines.push("#EXTINF:4.0,", `seg_${index}.m4s`);
-			await writeFile(playlistPath, lines.join("\n"));
+// Playback start polls the growing playlist every 20 ms until the cushion
+// exists. This characterises one poll tick on an unchanged playlist: raw
+// read+parse (the pre-cache waiter) vs the shared cache hit.
+task("streaming: playlist waiter poll cost", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "reelvault-playlist-poll-"));
+	try {
+		const playlistPath = join(dir, "playlist.m3u8");
+		const lines = ["#EXTM3U", "#EXT-X-PLAYLIST-TYPE:EVENT"];
+		for (let index = 0; index < 20; index++) lines.push("#EXTINF:4.0,", `seg_${index}.m4s`);
+		await writeFile(playlistPath, lines.join("\n"));
 
-			const sessionId = `bench-waiter-${Date.now()}`;
-			await playlistFileCache.read(sessionId, playlistPath, 4);
+		const sessionId = `bench-waiter-${Date.now()}`;
+		await playlistFileCache.read(sessionId, playlistPath, 4);
 
-			const raw = await benchmarkAsync("raw read+parse per tick", async () => parseHlsBuffer(await getBunFile(playlistPath).text(), 4), {
-				warmup: 5,
-				iterations: 50,
-			});
-			const cached = await benchmarkAsync("cache hit per tick", async () => playlistFileCache.read(sessionId, playlistPath, 4), {
-				warmup: 5,
-				iterations: 50,
-			});
-			printMicroResults([raw, cached]);
-		} finally {
-			await removeTree(dir);
-		}
-
-		return { ok: true };
-	});
-
-	task("streaming: startup (direct vs software transcode)", async () => {
-		const server = await serverFixture();
-		if (!server.sampleMediaId) {
-			console.error("Sample media unavailable — cannot measure playback startup");
-			process.exitCode = 1;
-
-			return { ok: false };
-		}
-
-		await runStartupComparison(server);
-		await runConcurrentStartup(server);
-
-		return { ok: true };
-	});
-
-	type ThroughputServer = Parameters<typeof runThroughput>[0];
-	type ThroughputSegments = Parameters<typeof runThroughput>[2];
-	type ThroughputLoad = Parameters<typeof runThroughput>[3];
-
-	/** Runs one throughput load, prints its table, and returns the scenario result with the bytes it moved. */
-	async function reportThroughput(
-		server: ThroughputServer,
-		sessionId: string,
-		segments: ThroughputSegments,
-		load: ThroughputLoad,
-		report: { title: string; rateLabel: string },
-	): Promise<{ result: HttpScenarioResult; bytes: number }> {
-		const run = await runThroughput(server, sessionId, segments, load);
-		const stats = summarizeLatencies(run.latencies);
-		const okCount = run.latencies.length - run.non2xx;
-		printTable(
-			report.title,
-			["MB/s", report.rateLabel, "p50", "p95", "p99", "non-2xx"],
-			[
-				[
-					(run.totalBytes / (run.elapsedMs / 1000) / 1024 / 1024).toFixed(2),
-					(run.latencies.length / (run.elapsedMs / 1000)).toFixed(1),
-					fmtMs(stats.p50Ms),
-					fmtMs(stats.p95Ms),
-					fmtMs(stats.p99Ms),
-					String(run.non2xx),
-				],
-			],
-		);
-
-		const result = toScenarioResult({
-			name: run.name,
-			stats,
-			throughputCount: okCount,
-			elapsedMs: run.elapsedMs,
-			errorCount: run.non2xx,
-			total: run.latencies.length,
+		const raw = await benchmarkAsync("raw read+parse per tick", async () => parseHlsBuffer(await getBunFile(playlistPath).text(), 4), {
+			warmup: 5,
+			iterations: 50,
 		});
-
-		return { result, bytes: run.totalBytes };
+		const cached = await benchmarkAsync("cache hit per tick", async () => playlistFileCache.read(sessionId, playlistPath, 4), {
+			warmup: 5,
+			iterations: 50,
+		});
+		printMicroResults([raw, cached]);
+	} finally {
+		await removeTree(dir);
 	}
 
-	task("streaming: phases", async () => {
-		if (args.baseUrl) {
-			console.error("The streaming benchmark requires a managed server (do not pass --url)");
-			process.exitCode = 1;
+	return { ok: true };
+});
 
-			return;
-		}
+task("streaming: startup (direct vs software transcode)", async () => {
+	const server = await serverFixture();
+	if (!server.sampleMediaId) {
+		console.error("Sample media unavailable — cannot measure playback startup");
+		process.exitCode = 1;
 
-		const server = await serverFixture();
-		if (!server.sampleMediaId) {
-			console.error("Sample media unavailable — cannot run the streaming benchmark");
-			process.exitCode = 1;
+		return { ok: false };
+	}
 
-			return;
-		}
+	await runStartupComparison(server);
+	await runConcurrentStartup(server);
 
-		console.log(`[streaming] sample clip: ${server.sampleMediaPath}`);
-		const sessionId = await createPlaybackSession(server, {
-			cookie: server.cookie,
-			"idempotency-key": `benchmark-stream-${Date.now()}`,
-			"x-profile-id": server.adminProfileId,
-			"x-forwarded-for": "10.77.9.9",
-		});
-		console.log(`[streaming] session ${sessionId} created, waiting for HLS output...`);
-		const segments = await fetchPlaylistSegments(server, sessionId);
-		console.log(`[streaming] ${segments.length} segments available`);
+	return { ok: true };
+});
 
-		const results: HttpScenarioResult[] = [];
-		let totalBytes = 0;
-		for (const concurrency of args.concurrency) {
-			console.log(`[streaming] throughput at concurrency ${concurrency}...`);
-			const load = { concurrency, warmupMs: args.warmupMs, durationMs: args.durationMs };
-			const full = await reportThroughput(server, sessionId, segments, load, {
-				title: `Throughput c=${concurrency}`,
-				rateLabel: "segments/s",
-			});
+type ThroughputServer = Parameters<typeof runThroughput>[0];
+type ThroughputSegments = Parameters<typeof runThroughput>[2];
+type ThroughputLoad = Parameters<typeof runThroughput>[3];
 
-			// Seek path: a 256 KiB window from the middle of a segment — what a
-			// player re-downloads after a seek when byte-range support exists.
-			const range = await reportThroughput(
-				server,
-				sessionId,
-				segments,
-				{ ...load, rangeHeader: "bytes=131072-393215" },
-				{ title: `Throughput Range 256KiB c=${concurrency}`, rateLabel: "req/s" },
-			);
-			results.push(full.result, range.result);
-			totalBytes += full.bytes + range.bytes;
-		}
+/** Runs one throughput load, prints its table, and returns the scenario result with the bytes it moved. */
+async function reportThroughput(
+	server: ThroughputServer,
+	sessionId: string,
+	segments: ThroughputSegments,
+	load: ThroughputLoad,
+	report: { title: string; rateLabel: string },
+): Promise<{ result: HttpScenarioResult; bytes: number }> {
+	const run = await runThroughput(server, sessionId, segments, load);
+	const stats = summarizeLatencies(run.latencies);
+	const okCount = run.latencies.length - run.non2xx;
+	printTable(
+		report.title,
+		["MB/s", report.rateLabel, "p50", "p95", "p99", "non-2xx"],
+		[
+			[
+				mbPerSecond(run.totalBytes, run.elapsedMs).toFixed(2),
+				(run.latencies.length / (run.elapsedMs / 1000)).toFixed(1),
+				fmtMs(stats.p50Ms),
+				fmtMs(stats.p95Ms),
+				fmtMs(stats.p99Ms),
+				String(run.non2xx),
+			],
+		],
+	);
 
-		await runAbortedDownloads(server, sessionId, segments);
-		await runControlPlane(server, args.durationMs);
-		printHttpResults(results);
-		console.log(`[streaming] total transferred: ${fmtMb(totalBytes)}`);
-
-		await deletePlaybackSession(server, sessionId, {
-			cookie: server.cookie,
-			"x-profile-id": server.adminProfileId,
-			"x-forwarded-for": "10.77.9.9",
-		});
+	const result = toScenarioResult({
+		name: run.name,
+		stats,
+		throughputCount: okCount,
+		elapsedMs: run.elapsedMs,
+		errorCount: run.non2xx,
+		total: run.latencies.length,
 	});
+
+	return { result, bytes: run.totalBytes };
 }
 
-await main(import.meta);
+task("streaming: phases", async () => {
+	if (args.baseUrl) {
+		console.error("The streaming benchmark requires a managed server (do not pass --url)");
+		process.exitCode = 1;
+
+		return;
+	}
+
+	const server = await serverFixture();
+	if (!server.sampleMediaId) {
+		console.error("Sample media unavailable — cannot run the streaming benchmark");
+		process.exitCode = 1;
+
+		return;
+	}
+
+	console.log(`[streaming] sample clip: ${server.sampleMediaPath}`);
+	const sessionId = await createPlaybackSession(server, {
+		cookie: server.cookie,
+		"idempotency-key": `benchmark-stream-${Date.now()}`,
+		"x-profile-id": server.adminProfileId,
+		"x-forwarded-for": "10.77.9.9",
+	});
+	console.log(`[streaming] session ${sessionId} created, waiting for HLS output...`);
+	const segments = await fetchPlaylistSegments(server, sessionId);
+	console.log(`[streaming] ${segments.length} segments available`);
+
+	const results: HttpScenarioResult[] = [];
+	let totalBytes = 0;
+	for (const concurrency of args.concurrency) {
+		console.log(`[streaming] throughput at concurrency ${concurrency}...`);
+		const load = { concurrency, warmupMs: args.warmupMs, durationMs: args.durationMs };
+		const full = await reportThroughput(server, sessionId, segments, load, {
+			title: `Throughput c=${concurrency}`,
+			rateLabel: "segments/s",
+		});
+
+		// Seek path: a 256 KiB window from the middle of a segment — what a
+		// player re-downloads after a seek when byte-range support exists.
+		const range = await reportThroughput(
+			server,
+			sessionId,
+			segments,
+			{ ...load, rangeHeader: "bytes=131072-393215" },
+			{ title: `Throughput Range 256KiB c=${concurrency}`, rateLabel: "req/s" },
+		);
+		results.push(full.result, range.result);
+		totalBytes += full.bytes + range.bytes;
+	}
+
+	await runAbortedDownloads(server, sessionId, segments);
+	await runControlPlane(server, args.durationMs);
+	printHttpResults(results);
+	console.log(`[streaming] total transferred: ${fmtMb(totalBytes)}`);
+
+	await deletePlaybackSession(server, sessionId, {
+		cookie: server.cookie,
+		"x-profile-id": server.adminProfileId,
+		"x-forwarded-for": "10.77.9.9",
+	});
+});

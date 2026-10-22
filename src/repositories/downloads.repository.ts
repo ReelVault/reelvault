@@ -4,10 +4,11 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
-import type { DownloadInsert, DownloadUpdate } from "@/modules/downloads/downloads.ports";
 import { DomainError } from "@/utils/domain.errors";
 
 export type DownloadRow = typeof schema.downloads.$inferSelect;
+type DownloadInsert = Pick<typeof schema.downloads.$inferInsert, "profileId" | "mediaFileId" | "quality">;
+type DownloadUpdate = Partial<Pick<DownloadRow, "status" | "progressPercent" | "sizeBytes" | "fileName" | "errorText">>;
 
 /** Bounds the list queries (admin/user download pages) — no unbounded selects. */
 const MAX_LIST_ROWS = 500;
@@ -169,6 +170,15 @@ const overrides = {
 
 	async update(id: string, values: DownloadUpdate): Promise<void> {
 		await downloads.update({ primaryId: id, values });
+	},
+
+	/** Hands a download that failed mid-run back to `pending`, unless a cancel, delete or failure was written meanwhile. */
+	async releaseClaim(id: string): Promise<void> {
+		await databaseFactory
+			.getClient()
+			.update(downloads.table)
+			.set({ status: "pending" })
+			.where(and(eq(downloads.table.id, id), eq(downloads.table.status, "processing")));
 	},
 
 	async delete(id: string): Promise<void> {

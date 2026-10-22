@@ -209,7 +209,7 @@ In the report of the change, name the mutation you used and the test it failed. 
 
 ## The gate
 
-`bun run lint:tests` fails on:
+`bun run lint tests` fails on:
 
 - an expected value recomputed with the code under test or with a helper it also uses,
 - an expected value that is a constant the code under test defines,

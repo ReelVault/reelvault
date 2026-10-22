@@ -1,5 +1,5 @@
-import { streamingStorage } from "@/modules/streaming/streaming.ports";
 import { isCompleted } from "@/modules/streaming/utils/playback-position.utils";
+import { interruptedPlaybackSessionRepository } from "@/repositories/interrupted-playback-session.repository";
 import { createLogger } from "@/utils/logger.utils";
 
 const logger = createLogger("InterruptedSessionRecorder");
@@ -24,7 +24,7 @@ export async function recordInterruptedSession(session: EndedPlaybackSession, en
 	if (isCompleted(session.furthestPositionSeconds, session.durationSeconds ?? 0)) return;
 
 	try {
-		await streamingStorage().recordInterruptedSession({
+		await interruptedPlaybackSessionRepository.insert({
 			profileId: session.profileId,
 			mediaFileId: session.mediaFileId,
 			startedAt: new Date(session.startedAt),

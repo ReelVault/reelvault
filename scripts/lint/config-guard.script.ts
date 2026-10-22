@@ -1,5 +1,5 @@
 /**
- * `bun run lint:guard` — fails when a rule that the project depends on is
+ * `bun run lint guard` — fails when a rule that the project depends on is
  * quietly switched off.
  *
  * The linters can only enforce what their configuration says. AGENTS.md

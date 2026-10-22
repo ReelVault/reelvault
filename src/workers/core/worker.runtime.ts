@@ -1,6 +1,6 @@
 import type { AddWorkerItemOptions, WorkerDefinition } from "@reelvault/sdk/common";
+import type { ActiveWorkerItem, WorkerItem } from "@/repositories/worker-jobs/shared.types";
 import { DomainError } from "@/utils/domain.errors";
-import type { ActiveWorkerItem, WorkerItem } from "@/workers/worker.ports";
 
 export interface WorkerRuntimeRegistry {
 	get(workerId: string): WorkerDefinition | undefined;

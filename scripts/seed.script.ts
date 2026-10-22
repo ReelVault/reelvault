@@ -1,5 +1,5 @@
 /**
- * `bun run seed [--rows 500]` — fills the configured database with a synthetic
+ * `bun run db:seed [--rows 500]` — fills the configured database with a synthetic
  * catalog for local development (the same seeder the benchmark suites use).
  *
  * Only runs on a database without library data: the rows reference a fixed

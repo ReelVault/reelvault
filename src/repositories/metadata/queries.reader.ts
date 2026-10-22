@@ -322,9 +322,6 @@ export async function findSimilarPage<F extends string>(
 	return createPageResponse({ total, pagination, data });
 }
 
-/**
- * Get metadata by ID
- */
 /** Loads the relation graph of one title and applies the field selection. */
 async function hydrateOne<F extends string>(
 	metadata: typeof schema.metadata.$inferSelect,

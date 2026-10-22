@@ -2,8 +2,9 @@ import type { MetadataProvider, ProviderSeasonResult } from "@reelvault/sdk/plug
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { fetchFromEveryProvider, fetchFromProviders } from "./fan-out.service";
+import { providerCaches } from "./inflight.cache";
 import type { ProviderEpisodeDetails, ProviderLink, ProviderSeasonDetails } from "./provider.types";
-import { getProviderKey, type ProviderServiceState } from "./shared.utils";
+import { getProviderKey } from "./provider-lookup.utils";
 
 /**
  * Fetches a season from every linked provider using that provider's own
@@ -12,32 +13,30 @@ import { getProviderKey, type ProviderServiceState } from "./shared.utils";
  * cannot address all of them. Results are ordered by provider priority.
  */
 export async function fetchSeasonFromLinks(
-	state: ProviderServiceState,
 	links: readonly ProviderLink[],
 	seasonNumber: number,
 	language?: string,
 ): Promise<ProviderSeasonDetails[]> {
-	return await fetchFromLinksCached(state.caches.season, "season", `${seasonNumber}:${language ?? ""}`, links, (ordered) =>
-		fetchFromProviderLinks(state, ordered, (provider, externalId) =>
+	return await fetchFromLinksCached(providerCaches().season, "season", `${seasonNumber}:${language ?? ""}`, links, (ordered) =>
+		fetchFromProviderLinks(ordered, (provider, externalId) =>
 			provider.getSeasonDetails(externalId, seasonNumber, language ? { language } : undefined),
 		),
 	);
 }
 
 export async function fetchEpisodeFromLinks(
-	state: ProviderServiceState,
 	links: readonly ProviderLink[],
 	seasonNumber: number,
 	episodeNumber: number,
 	language?: string,
 ): Promise<ProviderEpisodeDetails[]> {
 	return await fetchFromLinksCached(
-		state.caches.episode,
+		providerCaches().episode,
 		"episode",
 		`${seasonNumber}:${episodeNumber}:${language ?? ""}`,
 		links,
 		(ordered) =>
-			fetchFromProviderLinks(state, ordered, (provider, externalId) =>
+			fetchFromProviderLinks(ordered, (provider, externalId) =>
 				provider.getEpisodeDetails(externalId, seasonNumber, episodeNumber, language ? { language } : undefined),
 			),
 	);
@@ -63,7 +62,6 @@ async function fetchFromLinksCached<TDetails>(
  * too, so repeated misses don't re-hit the provider.
  */
 export async function fetchSeasonByProvider(
-	state: ProviderServiceState,
 	providerId: string,
 	externalId: string,
 	seasonNumber: number,
@@ -71,13 +69,13 @@ export async function fetchSeasonByProvider(
 	if (!pluginRegistry.getProvider(providerId)) return null;
 
 	const key = `season-direct:${await getProviderKey()}:${providerId}:${externalId}:${seasonNumber}`;
-	const cached = state.caches.season.get(key);
+	const cached = providerCaches().season.get(key);
 	if (cached) return cached[0]?.metadata ?? null;
 
-	const details = await fetchFromProviderLinks(state, [{ providerId, externalId }], (provider, linkExternalId) =>
+	const details = await fetchFromProviderLinks([{ providerId, externalId }], (provider, linkExternalId) =>
 		provider.getSeasonDetails(linkExternalId, seasonNumber),
 	);
-	state.caches.season.set(key, details);
+	providerCaches().season.set(key, details);
 
 	return details[0]?.metadata ?? null;
 }
@@ -95,12 +93,10 @@ async function orderLinksByPriority(links: readonly ProviderLink[]): Promise<Pro
 
 /** Like {@link fetchFromEveryProvider}, but each provider is queried with its own external id. */
 async function fetchFromProviderLinks<TMetadata extends { name?: string | undefined; overview?: string | undefined }>(
-	state: ProviderServiceState,
 	links: readonly ProviderLink[],
 	fetchOne: (provider: MetadataProvider, externalId: string) => Promise<TMetadata | null | undefined>,
 ): Promise<Array<{ provider: string; metadata: TMetadata }>> {
 	return await fetchFromProviders(
-		state,
 		links.map((link) => ({
 			providerId: link.providerId,
 			provider: pluginRegistry.getProvider(link.providerId),

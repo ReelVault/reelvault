@@ -1,13 +1,6 @@
-import type { Logger } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
 import { DomainError } from "@/utils/domain.errors";
 import { LANGUAGE_TAG_PATTERN } from "@/utils/language.utils";
-
-/** What the library functions need from their facade: a name for error reports and a logger. */
-export interface LibrariesServiceState {
-	readonly serviceName: string;
-	readonly logger: Logger;
-}
 
 /** Routes whose cached bodies list libraries — invalidated on library mutations. */
 export const LIBRARY_LIST_PATH_PREFIXES = ["/v1/libraries"] as const;

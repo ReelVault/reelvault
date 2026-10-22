@@ -9,9 +9,10 @@ import type {
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { errorMessage } from "@/utils/domain.errors";
 import { fetchFromEveryProvider } from "./fan-out.service";
+import { providerCaches } from "./inflight.cache";
 import { discoveryCacheKey } from "./match-ranking.utils";
 import type { ProviderPersonDetails, ProviderResultCache } from "./provider.types";
-import { getProviderKey, type ProviderServiceState, resolveProviders } from "./shared.utils";
+import { getProviderKey, providerLog, resolveProviders } from "./provider-lookup.utils";
 
 /**
  * Walks providers in priority order and returns the first result `isPositive`
@@ -53,12 +54,12 @@ async function firstProviderResult<TResult>(
  * supports the category and yields items. Positive results are cached; a
  * miss is retried on the next call so a temporarily down provider recovers.
  */
-export async function discover(state: ProviderServiceState, request: ProviderDiscoveryRequest): Promise<ProviderDiscoveryResult | null> {
+export async function discover(request: ProviderDiscoveryRequest): Promise<ProviderDiscoveryResult | null> {
 	const cacheKey = discoveryCacheKey(request);
 
 	return await firstProviderResult(
 		request.providerId,
-		{ cacheKey, cache: state.caches.discovery },
+		{ cacheKey, cache: providerCaches().discovery },
 		async (provider) => {
 			const page = await provider.discover?.(request);
 
@@ -66,7 +67,7 @@ export async function discover(state: ProviderServiceState, request: ProviderDis
 		},
 		(result) => result.items.length > 0,
 		(provider, error) =>
-			state.logger.warn("Metadata provider discovery failed, trying next provider", {
+			providerLog.logger.warn("Metadata provider discovery failed, trying next provider", {
 				providerId: provider.id,
 				category: request.category,
 				error: errorMessage(error),
@@ -75,15 +76,15 @@ export async function discover(state: ProviderServiceState, request: ProviderDis
 }
 
 /** Genre catalogue from the first enabled provider that exposes it. */
-export async function getGenres(state: ProviderServiceState, type: ProviderMediaType, providerId?: string): Promise<ProviderResultGenre[]> {
+export async function getGenres(type: ProviderMediaType, providerId?: string): Promise<ProviderResultGenre[]> {
 	const cacheKey = `genres:${providerId ?? "*"}:${type}`;
 	const genres = await firstProviderResult(
 		providerId,
-		{ cacheKey, cache: state.caches.genres },
+		{ cacheKey, cache: providerCaches().genres },
 		(provider) => Promise.resolve(provider.getGenres?.(type)),
 		(result) => result.length > 0,
 		(provider, error) =>
-			state.logger.warn("Metadata provider genre lookup failed, trying next provider", {
+			providerLog.logger.warn("Metadata provider genre lookup failed, trying next provider", {
 				providerId: provider.id,
 				type,
 				error: errorMessage(error),
@@ -95,7 +96,6 @@ export async function getGenres(state: ProviderServiceState, type: ProviderMedia
 
 /** Fetches selectable artwork from one provider without changing persisted metadata. */
 export async function fetchImagesByProvider(
-	state: ProviderServiceState,
 	providerId: string,
 	type: "movie" | "tv_show",
 	externalId: string,
@@ -106,18 +106,18 @@ export async function fetchImagesByProvider(
 	try {
 		return (await provider.getImages(type, externalId)).filter((image) => Boolean(image.url));
 	} catch (error) {
-		state.logger.error(`Provider ${providerId} image lookup failed`, error);
+		providerLog.logger.error(`Provider ${providerId} image lookup failed`, error);
 
 		return [];
 	}
 }
 
-export async function fetchPerson(state: ProviderServiceState, externalId: string): Promise<ProviderPersonDetails[]> {
+export async function fetchPerson(externalId: string): Promise<ProviderPersonDetails[]> {
 	const providerKey = await getProviderKey();
 	const key = `${providerKey}:${externalId}`;
 
-	return await state.caches.person.getOrSet(key, () =>
-		fetchFromEveryProvider(state, async (provider) => {
+	return await providerCaches().person.getOrSet(key, () =>
+		fetchFromEveryProvider(async (provider) => {
 			if (typeof provider.getPersonDetails === "function") {
 				return await provider.getPersonDetails(externalId);
 			}

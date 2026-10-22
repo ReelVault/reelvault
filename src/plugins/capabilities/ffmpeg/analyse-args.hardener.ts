@@ -19,12 +19,6 @@ export function processFailureDetail(stderr: string | null, exitCode: number | n
 	return `${label} exited with code ${exitCode ?? "unknown"}`;
 }
 
-/**
- * Hardens plugin-supplied analysis argv: rejects banned flags/filters/formats,
- * restricts every input to a local-file protocol whitelist (blocks http/rtsp/…
- * SSRF), optionally adds hardware decode args, and requires the final output to
- * stay inside server-managed directories.
- */
 /** Rejects the banned flags, input formats and filter tokens. */
 function assertAnalyseArgsAllowed(args: string[]): void {
 	if (args.includes("-protocol_whitelist")) {
@@ -53,6 +47,12 @@ function assertAnalyseArgsAllowed(args: string[]): void {
 	}
 }
 
+/**
+ * Hardens plugin-supplied analysis argv: rejects banned flags/filters/formats,
+ * restricts every input to a local-file protocol whitelist (blocks http/rtsp/…
+ * SSRF), optionally adds hardware decode args, and requires the final output to
+ * stay inside server-managed directories.
+ */
 export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): string[] {
 	assertAnalyseArgsAllowed(args);
 

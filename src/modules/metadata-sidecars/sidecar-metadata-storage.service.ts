@@ -1,5 +1,8 @@
 import { dirname } from "node:path";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
+import { episodesRepository } from "@/repositories/episodes.repository";
+import { seasonsRepository } from "@/repositories/seasons.repository";
 import { toMap, unique } from "@/utils/array.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { createLogger } from "@/utils/logger.utils";
@@ -7,14 +10,14 @@ import { getFileNameWithoutExt } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import { type SidecarArtworkWriter, sidecarArtworkExporter } from "./saver/sidecar-artwork.exporter";
-import {
-	type SidecarEpisodeRecord,
-	type SidecarSeasonRecord,
-	type SidecarStorageLibrary,
-	type SidecarStorageMediaFile,
-	sidecarStorage,
-} from "./sidecar.ports";
-import type { SidecarFlavor, SidecarMetadataWriter } from "./sidecar.types";
+import type {
+	SidecarEpisodeRecord,
+	SidecarFlavor,
+	SidecarMetadataWriter,
+	SidecarSeasonRecord,
+	SidecarStorageLibrary,
+	SidecarStorageMediaFile,
+} from "./sidecar.types";
 import { episodeSnapshot, seasonSnapshot } from "./sidecar-snapshot.builder";
 import { prepareStorageRoots, resolveMetadataStorageMode, resolveSeriesDirectory, usesSidecars } from "./sidecar-storage.utils";
 
@@ -36,6 +39,9 @@ interface SeriesRows {
 	episodesById: Map<string, SidecarEpisodeRecord>;
 	seasonsById: Map<string, SidecarSeasonRecord>;
 }
+
+const EPISODE_RECORD_FIELDS = parseFields({ fields: "id,seasonId,title,episodeNumber,airDate,overview,imageId" });
+const SEASON_RECORD_FIELDS = parseFields({ fields: "id,seasonNumber,name,airDate,overview,status,imageId" });
 
 /** State shared by every target of one `saveLibraryMedia` run: write dedupe keys and per-key serialization. */
 interface SaveScope {
@@ -59,14 +65,17 @@ async function loadSeriesRows(sidecarFiles: SidecarStorageMediaFile[]): Promise<
 	const episodeIds = unique(sidecarFiles.map((mediaFile) => mediaFile.episodeId).filter((episodeId) => isNotNullish(episodeId)));
 	let episodesById: Map<string, SidecarEpisodeRecord>;
 	if (episodeIds.length > 0) {
-		episodesById = toMap(await sidecarStorage().findEpisodeRecords(episodeIds), (episode) => episode.id);
+		episodesById = toMap(
+			await episodesRepository.findRecordsByIds({ ids: episodeIds, fields: EPISODE_RECORD_FIELDS }),
+			(episode) => episode.id,
+		);
 	} else {
 		episodesById = new Map<string, SidecarEpisodeRecord>();
 	}
 	const seasonIds = unique([...episodesById.values()].map((episode) => episode.seasonId));
 	let seasonsById: Map<string, SidecarSeasonRecord>;
 	if (seasonIds.length > 0) {
-		seasonsById = toMap(await sidecarStorage().findSeasonRecords(seasonIds), (season) => season.id);
+		seasonsById = toMap(await seasonsRepository.findByIds({ ids: seasonIds, fields: SEASON_RECORD_FIELDS }), (season) => season.id);
 	} else {
 		seasonsById = new Map<string, SidecarSeasonRecord>();
 	}

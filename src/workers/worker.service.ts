@@ -1,9 +1,10 @@
 import type { AddWorkerItemOptions, WorkerDefinition, WorkerJob as WorkerItemContract, WorkerQueueStats } from "@reelvault/sdk/common";
+import type { ActiveWorkerItem, WorkerItem } from "@/repositories/worker-jobs/shared.types";
+import type { WorkerOperationRecord, WorkerOperationStatus } from "@/repositories/worker-operation/shared.types";
 import { resourceAllocator } from "@/system/resource-allocator.service";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { safeParseJson } from "@/utils/json.utils";
 import { createLogger } from "@/utils/logger.utils";
-import type { ActiveWorkerItem, WorkerItem, WorkerOperationRecord, WorkerOperationStatus } from "@/workers/worker.ports";
 import { setWorkerRuntime } from "./core/worker.runtime";
 import { enqueueWithOperation } from "./core/worker-operation.service";
 import { type WorkerOperationsService, workerOperationsService } from "./core/worker-operations.service";

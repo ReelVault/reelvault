@@ -12,6 +12,7 @@ import { readCompletedOperationResult } from "@/repositories/worker-jobs/result.
 import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
+import { librariesLog } from "@/services/libraries/libraries.logger";
 import { libraryWatcherService } from "@/services/libraries/watching/library-watcher.service";
 import { toMap } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
@@ -24,7 +25,7 @@ import {
 	normalizeLibraryPaths,
 } from "@/workers/definitions/libraries/library-errors-check.worker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped.utils";
-import { describePath, type LibrariesServiceState } from "./shared.utils";
+import { describePath } from "./shared.utils";
 
 /** Most libraries one health report covers; the admin libraries page lists libraries on one page anyway. */
 const MAX_HEALTH_LIBRARIES = 200;
@@ -42,8 +43,8 @@ function unwatchableCodeOf(reason: string): UnwatchableCode {
 	return "library.watch_failed";
 }
 
-export async function checkLibraryErrors(state: LibrariesServiceState, libraryPaths: string[], context?: AdminAuditContext) {
-	return await runSafely(state, "checkErrors", async () => {
+export async function checkLibraryErrors(libraryPaths: string[], context?: AdminAuditContext) {
+	return await runSafely(librariesLog, "checkErrors", async () => {
 		const normalizedPaths = normalizeLibraryPaths(libraryPaths);
 		if (normalizedPaths.length === 0)
 			throw new DomainError("validation", "At least one library path is required", { code: "library.path_required" });
@@ -56,7 +57,7 @@ export async function checkLibraryErrors(state: LibrariesServiceState, libraryPa
 			reference: { type: "library-errors", id: dedupeKey },
 			label: "library error check",
 			enqueue: (operationId) => enqueueLibraryErrorsCheck(data, { operationId }),
-			onDeduped: () => state.logger.info("Library error check is already running — the request was folded into it", { dedupeKey }),
+			onDeduped: () => librariesLog.logger.info("Library error check is already running — the request was folded into it", { dedupeKey }),
 		});
 
 		recordAuditSafe(
@@ -67,7 +68,7 @@ export async function checkLibraryErrors(state: LibrariesServiceState, libraryPa
 				after: { operationId: enqueued.operationId, libraryPaths: normalizedPaths },
 				context,
 			},
-			state.logger,
+			librariesLog.logger,
 		);
 
 		return enqueued;
@@ -75,8 +76,8 @@ export async function checkLibraryErrors(state: LibrariesServiceState, libraryPa
 }
 
 /** Status of a check queued by `checkErrors`; the result is read from the finished job once the check has completed. */
-export async function getLibraryErrorsCheckStatus(state: LibrariesServiceState, operationId: string): Promise<LibraryErrorsCheckStatus> {
-	return await runSafely(state, "getErrorsCheckStatus", async () => {
+export async function getLibraryErrorsCheckStatus(operationId: string): Promise<LibraryErrorsCheckStatus> {
+	return await runSafely(librariesLog, "getErrorsCheckStatus", async () => {
 		const { workerService } = await import("@/workers/worker.service");
 		const operation = await workerService.getOperation(operationId);
 		if (operation?.type !== "library-errors-check") {
@@ -93,8 +94,8 @@ export async function getLibraryErrorsCheckStatus(state: LibrariesServiceState, 
 }
 
 /** Every library's paths as they are now: whether each exists, whether the watcher covers it, and when the library was last scanned. */
-export async function getLibraryHealth(state: LibrariesServiceState): Promise<LibraryHealthResponse> {
-	return await runSafely(state, "getHealth", async () => {
+export async function getLibraryHealth(): Promise<LibraryHealthResponse> {
+	return await runSafely(librariesLog, "getHealth", async () => {
 		const { data: libraries } = await librariesRepository.findPage({ limit: MAX_HEALTH_LIBRARIES });
 		const unwatchable = toMap(libraryWatcherService.getUnwatchablePaths(), (failure) => failure.pathId);
 		const lastScans = await workerOperationRepository.findLatestLibraryScanTimes(libraries.map((library) => library.id));

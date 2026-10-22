@@ -85,12 +85,12 @@ Plugins are installed from **Admin → Plugins → Available**. They run inside 
 ## Development
 
 ```bash
-bun run dev          # watch mode
-bun test             # tests, run from the repository root
-bun run lint         # Biome and oxlint
-bun run check-types  # tsc --noEmit
-bun run deadcode     # Knip
-bun run db:migrate   # apply database migrations
+bun run dev               # watch mode
+bun run test              # tests, run from the repository root
+bun run lint              # every static check: Biome, oxlint, TypeScript, Knip, jscpd, test quality, migrations
+bun run db:migrate        # apply database migrations
+bun run benchmark         # list the benchmark suites
+bunx lefthook install     # git hooks: lint on commit, lint and tests on push
 ```
 
 Contributions are welcome. Please read [CONTRIBUTING.md](https://github.com/ReelVault/.github/blob/main/CONTRIBUTING.md) first.

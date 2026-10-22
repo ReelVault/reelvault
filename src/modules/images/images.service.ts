@@ -1,6 +1,6 @@
 import type { ImageQuery } from "@reelvault/sdk/common";
 import { file as bunFile } from "bun";
-import { imagesStorage } from "@/modules/images/images.ports";
+import { imageRepository } from "@/repositories/images.repository";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { deleteFile, fileExists } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
@@ -16,8 +16,8 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	findForFileRead: (imageId) => imagesStorage().findForFileRead(imageId),
-	deleteAndReturn: (imageId) => imagesStorage().deleteAndReturn(imageId),
+	findForFileRead: (imageId) => imageRepository.findForFileRead(imageId),
+	deleteAndReturn: (imageId) => imageRepository.deleteAndReturn(imageId),
 	fileExists: (path) => fileExists(path),
 	deleteFile: (path) => deleteFile(path),
 	getOptimizedImage: (sourcePath, request, imageId, signal) =>

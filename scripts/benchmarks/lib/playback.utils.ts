@@ -1,19 +1,5 @@
-import { parseSegments } from "benchkit";
+import { stringField } from "benchkit";
 import type { ManagedServer } from "./server.launcher";
-
-/** Reads `sessionId` off an unknown JSON payload without casts. */
-export function sessionIdFrom(value: unknown): string | undefined {
-	if (typeof value !== "object" || value === null || !("sessionId" in value)) return undefined;
-
-	const sessionId: unknown = value.sessionId;
-
-	return typeof sessionId === "string" ? sessionId : undefined;
-}
-
-/** Segment file names from an HLS media playlist (.m4s / .ts lines). */
-export function parseSegmentNames(playlist: string): string[] {
-	return parseSegments(playlist);
-}
 
 /**
  * Creates a playback session on the sample clip. Callers own the identity
@@ -30,7 +16,7 @@ export async function createPlaybackSession(server: ManagedServer, headers: Reco
 		throw new Error(`Playback session creation failed: HTTP ${response.status} ${await response.text()}`);
 	}
 
-	const sessionId = sessionIdFrom(await response.json());
+	const sessionId = stringField(await response.json(), "sessionId");
 	if (!sessionId) throw new Error("Playback session response is missing sessionId");
 
 	return sessionId;

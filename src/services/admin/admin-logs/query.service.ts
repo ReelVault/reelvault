@@ -9,7 +9,7 @@ import {
 	parseLogBound,
 	plainLogLineMatches,
 } from "./filter.utils";
-import { type AdminLogsState, LOG_MAX_PARSED_LINES, LOG_TAIL_BYTES } from "./shared.types";
+import { LOG_MAX_PARSED_LINES, LOG_TAIL_BYTES } from "./shared.types";
 import { readLogTailLines } from "./tail.utils";
 
 export interface AdminLogsQuery {
@@ -48,8 +48,8 @@ function buildLogWindowFilter({
 }
 
 /** Newest-first filtered page of one log file. Entries outside the page are counted, never materialized. */
-export async function getLogs(state: AdminLogsState, query?: AdminLogsQuery): Promise<AdminLogsPage> {
-	const { lines, parsed, lowerLines, readOffset } = await readLogTailLines(state, query?.fileId);
+export async function getLogs(query?: AdminLogsQuery): Promise<AdminLogsPage> {
+	const { lines, parsed, lowerLines, readOffset } = await readLogTailLines(query?.fileId);
 	const maxLines = Math.min(lines.length, LOG_MAX_PARSED_LINES);
 	const parsedEntries: AdminLogEntry[] = [];
 

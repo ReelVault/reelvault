@@ -2,9 +2,9 @@ import type { AdminDashboardViewResponse, AdminStats } from "@reelvault/sdk/comm
 import { serverConfig } from "@/config/server/server.config";
 import { resolveWebVersion } from "@/config/server/web-dist.utils";
 import { SERVER_VERSION } from "@/config/version.constants";
+import { adminLog } from "@/services/admin/admin.logger";
 import { adminAuditService } from "@/services/admin/admin-audit.service";
 import { adminLogsService } from "@/services/admin/admin-logs.service";
-import type { AdminServiceState } from "@/services/admin/shared.utils";
 import { librariesService } from "@/services/libraries/libraries.service";
 import { updateCheckService } from "@/services/updates/update-check.service";
 import { describeUpdateEnvironment } from "@/services/updates/update-environment.utils";
@@ -26,8 +26,8 @@ export function resourceSettings() {
  * used to fan out (stats, libraries, worker operations, audit feed, error
  * logs, update status) run here in parallel behind one request.
  */
-export async function dashboardView(state: AdminServiceState, loadStats: () => Promise<AdminStats>): Promise<AdminDashboardViewResponse> {
-	return await runSafely(state, "dashboardView", async () => {
+export async function dashboardView(loadStats: () => Promise<AdminStats>): Promise<AdminDashboardViewResponse> {
+	return await runSafely(adminLog, "dashboardView", async () => {
 		await updateCheckService.checkLatest(false);
 		const updateState = updateCheckService.getState();
 

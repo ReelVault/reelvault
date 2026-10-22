@@ -6,7 +6,7 @@ import {
 	bench,
 	benchmarkAsync,
 	fmtMs,
-	main,
+	type NamedScenario,
 	printHttpResults,
 	printMicroResults,
 	printTable,
@@ -14,6 +14,7 @@ import {
 	suiteArgs,
 	summarizeLatencies,
 	task,
+	toScenarioEntries,
 } from "benchkit";
 import { sleep } from "bun";
 import { serverConfig } from "@/config/server/server.config";
@@ -28,7 +29,6 @@ import { getFileStats, writeFile } from "@/utils/file.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import { contextHeaders, rotatingIdentity, workerCookie } from "./lib/identity.utils";
-import { type NamedScenario, toScenarioEntries } from "./lib/scenarios.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
 import type { ManagedServer } from "./lib/server.launcher";
 
@@ -271,217 +271,213 @@ export const meta = { description: "Plugin runtime (install-upload, lifecycle, h
 
 const args = suiteArgs();
 
-if (!args.help) {
-	// Ingest and playback emit several events per file; with no plugin
-	// subscribed the bus must not build envelopes for nobody.
-	const emptyBus = new PluginEventBus();
-	bench(
-		"PluginEventBus.emit without handlers (500 emits)",
-		async () => {
-			for (let index = 0; index < 500; index++) {
-				await emptyBus.emit("media.file.ready", { libraryId: "lib", mediaFileId: `mf-${index}`, metadataId: "meta" });
-			}
-		},
-		{ warmup: 3, iterations: 20 },
-	);
+// Ingest and playback emit several events per file; with no plugin
+// subscribed the bus must not build envelopes for nobody.
+const emptyBus = new PluginEventBus();
+bench(
+	"PluginEventBus.emit without handlers (500 emits)",
+	async () => {
+		for (let index = 0; index < 500; index++) {
+			await emptyBus.emit("media.file.ready", { libraryId: "lib", mediaFileId: `mf-${index}`, metadataId: "meta" });
+		}
+	},
+	{ warmup: 3, iterations: 20 },
+);
 
-	// The catalog cold load fetches every enabled repository manifest. With a
-	// simulated 100 ms round-trip per repository, serial fetching pays the sum.
-	task("plugins: catalog manifest fetch", async () => {
-		const rows = ["repo-a", "repo-b", "repo-c"].map((id, index) => ({
-			id,
-			name: `Repo ${index}`,
-			url: `https://example.com/${id}.json`,
-			enabled: true,
-			tokenEncrypted: null,
-			lastRefreshedAt: null,
-			lastError: null,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		}));
-		const originals = new Map<object, Map<string, unknown>>();
-		const patch = (target: object, method: string, impl: unknown): void => {
-			const byMethod = originals.get(target) ?? new Map<string, unknown>();
-			if (!byMethod.has(method)) byMethod.set(method, Reflect.get(target, method));
-			originals.set(target, byMethod);
-			Reflect.set(target, method, impl);
+// The catalog cold load fetches every enabled repository manifest. With a
+// simulated 100 ms round-trip per repository, serial fetching pays the sum.
+task("plugins: catalog manifest fetch", async () => {
+	const rows = ["repo-a", "repo-b", "repo-c"].map((id, index) => ({
+		id,
+		name: `Repo ${index}`,
+		url: `https://example.com/${id}.json`,
+		enabled: true,
+		tokenEncrypted: null,
+		lastRefreshedAt: null,
+		lastError: null,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	}));
+	const originals = new Map<object, Map<string, unknown>>();
+	const patch = (target: object, method: string, impl: unknown): void => {
+		const byMethod = originals.get(target) ?? new Map<string, unknown>();
+		if (!byMethod.has(method)) byMethod.set(method, Reflect.get(target, method));
+		originals.set(target, byMethod);
+		Reflect.set(target, method, impl);
+	};
+
+	try {
+		patch(pluginRepositoriesRepository, "count", () => Promise.resolve(rows.length));
+		patch(pluginRepositoriesRepository, "list", () => Promise.resolve(rows));
+		patch(pluginManager, "getInstalledRecords", () => Promise.resolve([]));
+		patch(pluginCatalogService, "fetchManifest", async (row: { id: string }) => {
+			await sleep(100);
+
+			return {
+				manifest: {
+					apiVersion: 1,
+					name: row.id,
+					plugins: [{ id: `plugin-${row.id}`, name: "Plugin", version: "1.0.0", category: "other" }],
+				},
+				fetchedAt: Date.now(),
+			};
+		});
+
+		const samples: number[] = [];
+		for (let run = 0; run < 3; run++) {
+			const startedAt = performance.now();
+			const { plugins } = await pluginCatalogService.getCatalog();
+			samples.push(performance.now() - startedAt);
+			if (plugins.length !== rows.length) throw new Error("catalog entries missing");
+		}
+
+		const stats = summarizeLatencies(samples);
+		printTable(
+			"Plugin catalog load (3 repositories, 100 ms round-trip each)",
+			["p50", "p95", "max"],
+			[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+		);
+	} finally {
+		for (const [target, byMethod] of originals) {
+			for (const [method, value] of byMethod) Reflect.set(target, method, value);
+		}
+	}
+
+	return { ok: true };
+});
+
+// Every plugin load calls the SDK shim ensurer; after the first pass it must
+// not re-walk the server root and re-read every shim file.
+task("plugins: sdk shim ensure", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "rv-sdk-shim-"));
+	try {
+		await ensurePluginSdkShim(directory); // cold materialisation
+		const samples: number[] = [];
+		for (let run = 0; run < 20; run++) {
+			const startedAt = performance.now();
+			await ensurePluginSdkShim(directory);
+			samples.push(performance.now() - startedAt);
+		}
+
+		const stats = summarizeLatencies(samples);
+		printTable(
+			"SDK shim ensure, warm (per plugin load)",
+			["p50", "p95", "max"],
+			[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+		);
+	} finally {
+		await removeTree(directory);
+	}
+
+	return { ok: true };
+});
+
+// Every plugin load hard-links its package into a unique runtime mirror.
+// Measure a realistic tree (2000 files / 50 directories).
+task("plugins: runtime mirror", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "rv-plugin-mirror-"));
+	try {
+		const source = join(directory, "pkg");
+		for (let directoryIndex = 0; directoryIndex < 50; directoryIndex++) {
+			const subdirectory = join(source, `lib${directoryIndex}`);
+			await mkdir(subdirectory, { recursive: true });
+			await Promise.all(
+				Array.from({ length: 40 }, (_, fileIndex) => writeFile(join(subdirectory, `file${fileIndex}.mjs`), "export {};\n")),
+			);
+		}
+
+		const runtimeRoot = pluginRuntimeRoot(join(directory, "plugins"));
+		await materializePluginRuntime(source, runtimeRoot); // warm-up
+		const samples: number[] = [];
+		for (let run = 0; run < 5; run++) {
+			const startedAt = performance.now();
+			await materializePluginRuntime(source, runtimeRoot);
+			samples.push(performance.now() - startedAt);
+		}
+
+		const stats = summarizeLatencies(samples);
+		printTable(
+			"Plugin runtime mirror (2000 files, 50 dirs)",
+			["p50", "p95", "max"],
+			[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+		);
+	} finally {
+		await removeTree(directory);
+	}
+
+	return { ok: true };
+});
+
+// The artifact quota total has no size column to read: it stats every stored
+// file. Characterise the miss path (sequential per-write recompute vs the
+// bounded-parallel recompute used once per invalidation).
+task("plugins: artifact quota total cost", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "rv-artifact-quota-"));
+	try {
+		const filePaths = Array.from({ length: 1000 }, (_, index) => join(dir, `sprite-${index}.webp`));
+		await Promise.all(filePaths.map((path) => writeFile(path, new Uint8Array(64))));
+
+		const sequential = await benchmarkAsync(
+			"quota total: sequential stats (1000 files)",
+			async () => {
+				let total = 0;
+				for (const path of filePaths) total += (await getFileStats(path))?.size ?? 0;
+
+				return total;
+			},
+			{ warmup: 1, iterations: 5 },
+		);
+		const parallel = await benchmarkAsync(
+			"quota total: parallel stats (1000 files, cleanup concurrency)",
+			async () => {
+				const sizes = await mapConcurrent(filePaths, serverConfig.plugins.artifacts.cleanupConcurrency, (path) => getFileStats(path));
+
+				return sizes.reduce((total, stats) => total + (stats?.size ?? 0), 0);
+			},
+			{ warmup: 1, iterations: 5 },
+		);
+		printMicroResults([sequential, parallel]);
+	} finally {
+		await removeTree(dir);
+	}
+
+	return { ok: true };
+});
+
+const zipPath = resolvePluginZip();
+if (zipPath === undefined) {
+	console.log("[plugins] skipped — org.reelvault.requests zip not found under ../../plugins/dist/plugins (clone the plugins repo)");
+} else {
+	const serverFixture = suiteServerFixture(args);
+
+	task("plugins: lifecycle + dispatch", async () => {
+		const server = await serverFixture();
+		console.log(`[plugins] installing ${zipPath}`);
+		await installPlugin(server, zipPath);
+		await seedRequests(server, SEED_REQUESTS); // 5 — the plugin caps active requests at 10
+		const assetEtag = await captureAssetEtag(server);
+
+		const context: PluginContext = {
+			baseUrl: server.baseUrl,
+			...rotatingIdentity(server),
+			adminCookie: server.cookie,
+			adminProfileId: server.adminProfileId,
+			assetEtag,
 		};
 
-		try {
-			patch(pluginRepositoriesRepository, "count", () => Promise.resolve(rows.length));
-			patch(pluginRepositoriesRepository, "list", () => Promise.resolve(rows));
-			patch(pluginManager, "getInstalledRecords", () => Promise.resolve([]));
-			patch(pluginCatalogService, "fetchManifest", async (row: { id: string }) => {
-				await sleep(100);
+		await lifecyclePhase(server);
+		await pairWritePhase(server);
+		await guardCounts(server);
 
-				return {
-					manifest: {
-						apiVersion: 1,
-						name: row.id,
-						plugins: [{ id: `plugin-${row.id}`, name: "Plugin", version: "1.0.0", category: "other" }],
-					},
-					fetchedAt: Date.now(),
-				};
-			});
-
-			const samples: number[] = [];
-			for (let run = 0; run < 3; run++) {
-				const startedAt = performance.now();
-				const { plugins } = await pluginCatalogService.getCatalog();
-				samples.push(performance.now() - startedAt);
-				if (plugins.length !== rows.length) throw new Error("catalog entries missing");
-			}
-
-			const stats = summarizeLatencies(samples);
-			printTable(
-				"Plugin catalog load (3 repositories, 100 ms round-trip each)",
-				["p50", "p95", "max"],
-				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
-			);
-		} finally {
-			for (const [target, byMethod] of originals) {
-				for (const [method, value] of byMethod) Reflect.set(target, method, value);
-			}
-		}
-
-		return { ok: true };
-	});
-
-	// Every plugin load calls the SDK shim ensurer; after the first pass it must
-	// not re-walk the server root and re-read every shim file.
-	task("plugins: sdk shim ensure", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "rv-sdk-shim-"));
-		try {
-			await ensurePluginSdkShim(directory); // cold materialisation
-			const samples: number[] = [];
-			for (let run = 0; run < 20; run++) {
-				const startedAt = performance.now();
-				await ensurePluginSdkShim(directory);
-				samples.push(performance.now() - startedAt);
-			}
-
-			const stats = summarizeLatencies(samples);
-			printTable(
-				"SDK shim ensure, warm (per plugin load)",
-				["p50", "p95", "max"],
-				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
-			);
-		} finally {
-			await removeTree(directory);
-		}
-
-		return { ok: true };
-	});
-
-	// Every plugin load hard-links its package into a unique runtime mirror.
-	// Measure a realistic tree (2000 files / 50 directories).
-	task("plugins: runtime mirror", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "rv-plugin-mirror-"));
-		try {
-			const source = join(directory, "pkg");
-			for (let directoryIndex = 0; directoryIndex < 50; directoryIndex++) {
-				const subdirectory = join(source, `lib${directoryIndex}`);
-				await mkdir(subdirectory, { recursive: true });
-				await Promise.all(
-					Array.from({ length: 40 }, (_, fileIndex) => writeFile(join(subdirectory, `file${fileIndex}.mjs`), "export {};\n")),
-				);
-			}
-
-			const runtimeRoot = pluginRuntimeRoot(join(directory, "plugins"));
-			await materializePluginRuntime(source, runtimeRoot); // warm-up
-			const samples: number[] = [];
-			for (let run = 0; run < 5; run++) {
-				const startedAt = performance.now();
-				await materializePluginRuntime(source, runtimeRoot);
-				samples.push(performance.now() - startedAt);
-			}
-
-			const stats = summarizeLatencies(samples);
-			printTable(
-				"Plugin runtime mirror (2000 files, 50 dirs)",
-				["p50", "p95", "max"],
-				[[fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
-			);
-		} finally {
-			await removeTree(directory);
-		}
-
-		return { ok: true };
-	});
-
-	// The artifact quota total has no size column to read: it stats every stored
-	// file. Characterise the miss path (sequential per-write recompute vs the
-	// bounded-parallel recompute used once per invalidation).
-	task("plugins: artifact quota total cost", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "rv-artifact-quota-"));
-		try {
-			const filePaths = Array.from({ length: 1000 }, (_, index) => join(dir, `sprite-${index}.webp`));
-			await Promise.all(filePaths.map((path) => writeFile(path, new Uint8Array(64))));
-
-			const sequential = await benchmarkAsync(
-				"quota total: sequential stats (1000 files)",
-				async () => {
-					let total = 0;
-					for (const path of filePaths) total += (await getFileStats(path))?.size ?? 0;
-
-					return total;
-				},
-				{ warmup: 1, iterations: 5 },
-			);
-			const parallel = await benchmarkAsync(
-				"quota total: parallel stats (1000 files, cleanup concurrency)",
-				async () => {
-					const sizes = await mapConcurrent(filePaths, serverConfig.plugins.artifacts.cleanupConcurrency, (path) => getFileStats(path));
-
-					return sizes.reduce((total, stats) => total + (stats?.size ?? 0), 0);
-				},
-				{ warmup: 1, iterations: 5 },
-			);
-			printMicroResults([sequential, parallel]);
-		} finally {
-			await removeTree(dir);
-		}
-
-		return { ok: true };
-	});
-
-	const zipPath = resolvePluginZip();
-	if (zipPath === undefined) {
-		console.log("[plugins] skipped — org.reelvault.requests zip not found under ../../plugins/dist/plugins (clone the plugins repo)");
-	} else {
-		const serverFixture = suiteServerFixture(args);
-
-		task("plugins: lifecycle + dispatch", async () => {
-			const server = await serverFixture();
-			console.log(`[plugins] installing ${zipPath}`);
-			await installPlugin(server, zipPath);
-			await seedRequests(server, SEED_REQUESTS); // 5 — the plugin caps active requests at 10
-			const assetEtag = await captureAssetEtag(server);
-
-			const context: PluginContext = {
-				baseUrl: server.baseUrl,
-				...rotatingIdentity(server),
-				adminCookie: server.cookie,
-				adminProfileId: server.adminProfileId,
-				assetEtag,
-			};
-
-			await lifecyclePhase(server);
-			await pairWritePhase(server);
-			await guardCounts(server);
-
-			const results = await runScenarioMatrix({
-				suite: "plugins",
-				unit: "req/s",
-				scenarios: toScenarioEntries(SCENARIOS, context, { accept: (response) => response.status < 500 }),
-				concurrency: args.concurrency,
-				warmupMs: args.warmupMs,
-				durationMs: args.durationMs,
-			});
-
-			printHttpResults(results);
+		const results = await runScenarioMatrix({
+			suite: "plugins",
+			unit: "req/s",
+			scenarios: toScenarioEntries(SCENARIOS, context, { accept: (response) => response.status < 500 }),
+			concurrency: args.concurrency,
+			warmupMs: args.warmupMs,
+			durationMs: args.durationMs,
 		});
-	}
-}
 
-await main(import.meta);
+		printHttpResults(results);
+	});
+}

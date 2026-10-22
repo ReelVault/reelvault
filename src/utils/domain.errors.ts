@@ -107,13 +107,9 @@ export function notFoundError(entityType: string, entityId?: string): DomainErro
 type ErrorFactory = Error | ((cause?: unknown) => Error);
 
 /**
- * Throws a `not_found` DomainError when the value is null/undefined, or `customThrow`
- * (an instance, or a factory called with no arguments) when one is given.
- */
-/**
- * Not-found guard for records. It only rejects `null`/`undefined`: a boolean
- * `isExists()` result of `false` passes, so existence checks must use
- * {@link assertExists} instead.
+ * Not-found guard for records: throws a `not_found` DomainError when the value is null/undefined, or `customThrow`
+ * (an instance, or a factory called with no arguments) when one is given. A boolean `isExists()` result of `false`
+ * passes, so existence checks must use {@link assertExists} instead.
  */
 export function assertFound<T>(
 	value: T | null | undefined,

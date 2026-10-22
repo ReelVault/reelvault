@@ -3,7 +3,6 @@ import {
 	benchmarkAsync,
 	fmtMs,
 	type MicroBenchmarkResult,
-	main,
 	printMicroResults,
 	printTable,
 	suiteArgs,
@@ -102,253 +101,245 @@ async function measureClaimAtBacklog(workerId: string, backlog: number, maxPerCa
 
 const args = suiteArgs();
 
-if (!args.help) {
-	// The database is migrated here (not in a private factory) so the repository
-	// singletons read it; `benchmark.ts` points ROOT_DIR at a fresh temp dir.
-	console.log(`[workers] migrating isolated benchmark database (${process.env.DB_FILE_NAME ?? "reelvault.sqlite"})...`);
-	databaseFactory.migrate();
-	databaseFactory.analyze();
+// The database is migrated here (not in a private factory) so the repository
+// singletons read it; `benchmark.ts` points ROOT_DIR at a fresh temp dir.
+console.log(`[workers] migrating isolated benchmark database (${process.env.DB_FILE_NAME ?? "reelvault.sqlite"})...`);
+databaseFactory.migrate();
+databaseFactory.analyze();
 
-	console.log(`[workers] running worker repository benchmarks (${args.iterations} iterations)...`);
+console.log(`[workers] running worker repository benchmarks (${args.iterations} iterations)...`);
 
-	// The scheduler used to rewrite a null deadline for every trigger-less
-	// worker on every tick. This measures the write that is no longer issued.
-	const scheduleWorkerIds = Array.from({ length: 12 }, (_, index) => `bench-sched-${index}`);
-	bench(
-		"Scheduler null-deadline write (12 trigger-less workers)",
-		async () => {
-			await workerSchedulesRepository.setNextRunAtMany(scheduleWorkerIds.map((workerId) => ({ workerId, nextRunAt: null })));
-		},
-		{ warmup: 5, iterations: Math.min(args.iterations, 50) },
-	);
+// The scheduler used to rewrite a null deadline for every trigger-less
+// worker on every tick. This measures the write that is no longer issued.
+const scheduleWorkerIds = Array.from({ length: 12 }, (_, index) => `bench-sched-${index}`);
+bench(
+	"Scheduler null-deadline write (12 trigger-less workers)",
+	async () => {
+		await workerSchedulesRepository.setNextRunAtMany(scheduleWorkerIds.map((workerId) => ({ workerId, nextRunAt: null })));
+	},
+	{ warmup: 5, iterations: Math.min(args.iterations, 50) },
+);
 
-	bench(
-		"Worker bulk enqueue (50 jobs/batch)",
-		async () => {
-			const batch = Array.from({ length: 50 }, () => enqueueInput(crypto.randomUUID()));
+bench(
+	"Worker bulk enqueue (50 jobs/batch)",
+	async () => {
+		const batch = Array.from({ length: 50 }, () => enqueueInput(crypto.randomUUID()));
 
-			return await workerJobRepository.enqueueMany(batch);
-		},
-		{ iterations: Math.min(args.iterations, 50) },
-	);
-	bench(
-		"Worker dedupe lookup (findActiveByWorkerAndDedupeKeys)",
-		async () => {
-			const sampleKeys = Array.from({ length: 20 }, () => `dedupe-${crypto.randomUUID()}`);
+		return await workerJobRepository.enqueueMany(batch);
+	},
+	{ iterations: Math.min(args.iterations, 50) },
+);
+bench(
+	"Worker dedupe lookup (findActiveByWorkerAndDedupeKeys)",
+	async () => {
+		const sampleKeys = Array.from({ length: 20 }, () => `dedupe-${crypto.randomUUID()}`);
 
-			return await workerJobRepository.findActiveByWorkerAndDedupeKeys(WORKER_ID, sampleKeys);
-		},
-		{ iterations: args.iterations },
-	);
-	bench(
-		"Worker batch claim (claimNextBatch 10 jobs)",
-		async () => {
-			return await workerJobRepository.claimNextBatch(
-				{
-					workerId: WORKER_ID,
-					runnerId: "benchmark-runner",
-					concurrency: 100,
-					timeoutMs: 30_000,
-					now: new Date(Date.now() + 60_000),
-				},
-				10,
-			);
-		},
-		{ iterations: Math.min(args.iterations, 50) },
-	);
-	bench(
-		"Worker list items (status + worker filter)",
-		async () => {
-			return await workerJobRepository.listItems({ limit: 50, offset: 0, workerId: WORKER_ID, status: "running" });
-		},
-		{ iterations: args.iterations },
-	);
+		return await workerJobRepository.findActiveByWorkerAndDedupeKeys(WORKER_ID, sampleKeys);
+	},
+	{ iterations: args.iterations },
+);
+bench(
+	"Worker batch claim (claimNextBatch 10 jobs)",
+	async () => {
+		return await workerJobRepository.claimNextBatch(
+			{
+				workerId: WORKER_ID,
+				runnerId: "benchmark-runner",
+				concurrency: 100,
+				timeoutMs: 30_000,
+				now: new Date(Date.now() + 60_000),
+			},
+			10,
+		);
+	},
+	{ iterations: Math.min(args.iterations, 50) },
+);
+bench(
+	"Worker list items (status + worker filter)",
+	async () => {
+		return await workerJobRepository.listItems({ limit: 50, offset: 0, workerId: WORKER_ID, status: "running" });
+	},
+	{ iterations: args.iterations },
+);
 
-	// ─── Enqueue batch sizes ────────────────────────────────────────────────
-	task("workers: enqueue cost by batch size", async () => {
-		console.log("\n[workers] enqueue cost by batch size...");
-		const enqueueSizes = [1, 10, 100, 1000];
-		const enqueueResults: MicroBenchmarkResult[] = [];
-		for (const size of enqueueSizes) {
-			enqueueResults.push(
-				await benchmarkAsync(
-					`enqueueMany batch=${size}`,
-					async () => {
-						const batch = Array.from({ length: size }, () => enqueueInput(crypto.randomUUID(), `batch-${size}`));
-
-						return await workerJobRepository.enqueueMany(batch);
-					},
-					{ iterations: size >= 100 ? 10 : args.iterations },
-				),
-			);
-		}
-
-		// A/B: the repository already inserts one multi-row statement per chunk; the
-		// per-row path is the naive alternative this replaced.
+// ─── Enqueue batch sizes ────────────────────────────────────────────────
+task("workers: enqueue cost by batch size", async () => {
+	console.log("\n[workers] enqueue cost by batch size...");
+	const enqueueSizes = [1, 10, 100, 1000];
+	const enqueueResults: MicroBenchmarkResult[] = [];
+	for (const size of enqueueSizes) {
 		enqueueResults.push(
 			await benchmarkAsync(
-				"A/B enqueueMany batch=100 (multi-row)",
+				`enqueueMany batch=${size}`,
 				async () => {
-					const batch = Array.from({ length: 100 }, () => enqueueInput(crypto.randomUUID(), "ab-multi"));
+					const batch = Array.from({ length: size }, () => enqueueInput(crypto.randomUUID(), `batch-${size}`));
 
 					return await workerJobRepository.enqueueMany(batch);
 				},
-				{ iterations: 10 },
+				{ iterations: size >= 100 ? 10 : args.iterations },
 			),
 		);
-		enqueueResults.push(
-			await benchmarkAsync(
-				"A/B enqueue per-row (100 calls)",
-				async () => {
-					for (let index = 0; index < 100; index++) {
-						await workerJobRepository.enqueueMany([enqueueInput(crypto.randomUUID(), "ab-single")]);
-					}
-				},
-				{ iterations: 10 },
-			),
-		);
-		printMicroResults(enqueueResults);
-	});
+	}
 
-	// ─── Claim cost vs backlog ──────────────────────────────────────────────
-	task("workers: claim cost vs backlog", async () => {
-		console.log("\n[workers] claimNextBatch cost vs pending backlog...");
-		const claimResults: MicroBenchmarkResult[] = [];
-		for (const backlog of BACKLOG_SIZES) {
-			claimResults.push(await measureClaimAtBacklog(`backlog-${backlog}`, backlog, 10));
-		}
+	// A/B: the repository already inserts one multi-row statement per chunk; the
+	// per-row path is the naive alternative this replaced.
+	enqueueResults.push(
+		await benchmarkAsync(
+			"A/B enqueueMany batch=100 (multi-row)",
+			async () => {
+				const batch = Array.from({ length: 100 }, () => enqueueInput(crypto.randomUUID(), "ab-multi"));
 
-		printTable(
-			"claimNextBatch latency by backlog (10 jobs/claim)",
-			["backlog", "p50", "p95", "p99", "max"],
-			claimResults.map((result) => {
-				const stats = summarizeLatencies(result.timesMs);
-
-				return [
-					result.name.replace("claimNextBatch backlog=", ""),
-					fmtMs(stats.p50Ms),
-					fmtMs(stats.p95Ms),
-					fmtMs(stats.p99Ms),
-					fmtMs(stats.maxMs),
-				];
-			}),
-		);
-	});
-
-	// ─── Concurrent runners ─────────────────────────────────────────────────
-	task("workers: claim contention (4 runners)", async () => {
-		console.log("\n[workers] concurrent claim contention (4 runners)...");
-		const contentionWorker = "contention";
-		seedBacklog(contentionWorker, 5_000);
-		const runners = 4;
-		const startedAt = performance.now();
-		const claimedPerRunner = await Promise.all(
-			Array.from({ length: runners }, (_, runnerIndex) =>
-				workerJobRepository.claimNextBatch(
-					{
-						workerId: contentionWorker,
-						runnerId: `runner-${runnerIndex}`,
-						concurrency: 10_000,
-						timeoutMs: 30_000,
-						now: new Date(Date.now() + 60_000),
-					},
-					50,
-				),
-			),
-		);
-		const contentionMs = performance.now() - startedAt;
-		const totalClaimed = claimedPerRunner.reduce((total, claimed) => total + claimed.length, 0);
-		clearBacklog(contentionWorker);
-		const noDuplicates = new Set(claimedPerRunner.flat().map((job) => job.id)).size === totalClaimed;
-		console.log(`  ${runners} runners claimed ${totalClaimed} jobs in ${fmtMs(contentionMs)} (no duplicate ids: ${noDuplicates})`);
-
-		return { ok: noDuplicates, data: { runners, totalClaimed, noDuplicates } };
-	});
-
-	// ─── Retention purge ────────────────────────────────────────────────────
-	task("workers: retention purge", async () => {
-		console.log("\n[workers] retention purge (completed jobs)...");
-		const purgeWorker = "purge";
-		seedBacklog(purgeWorker, 5_000, "completed");
-		const purgeResult = await benchmarkAsync(
-			"purgeTerminalJobs (completed, cutoff now)",
-			async () => await workerJobRepository.purgeTerminalJobs({ status: "completed", cutoffDate: new Date() }),
-			{ warmup: 0, iterations: 5 },
-		);
-		clearBacklog(purgeWorker);
-		printMicroResults([purgeResult]);
-	});
-
-	// ─── Runtime loop — runs the REAL worker runtime (pool + polling + registry +
-	// watchdog) over a no-op handler: enqueue → claim → execute → complete, plus
-	// single-job end-to-end latency. Started last because polling keeps running
-	// afterwards.
-	task("workers: runtime loop (bench-noop)", async () => {
-		// The runtime loop drives the real pool, poller, registry and watchdog, so
-		// the worker ports have to be wired like the server wires them at boot.
-		const { wireWorkerPorts } = await import("@/wiring/worker-ports");
-		wireWorkerPorts();
-		const { workerService } = await import("@/workers/worker.service");
-
-		const BATCH = 100;
-		const LATENCY_ROUNDS = 20;
-		let completedCount = 0;
-		const definition = {
-			id: "bench-noop",
-			concurrency: 2,
-			timeoutMs: 30_000,
-			attempts: 1,
-			handler: () => {
-				completedCount++;
-
-				return Promise.resolve();
+				return await workerJobRepository.enqueueMany(batch);
 			},
-		};
+			{ iterations: 10 },
+		),
+	);
+	enqueueResults.push(
+		await benchmarkAsync(
+			"A/B enqueue per-row (100 calls)",
+			async () => {
+				for (let index = 0; index < 100; index++) {
+					await workerJobRepository.enqueueMany([enqueueInput(crypto.randomUUID(), "ab-single")]);
+				}
+			},
+			{ iterations: 10 },
+		),
+	);
+	printMicroResults(enqueueResults);
+});
 
-		await workerService.initialize([definition]);
+// ─── Claim cost vs backlog ──────────────────────────────────────────────
+task("workers: claim cost vs backlog", async () => {
+	console.log("\n[workers] claimNextBatch cost vs pending backlog...");
+	const claimResults: MicroBenchmarkResult[] = [];
+	for (const backlog of BACKLOG_SIZES) {
+		claimResults.push(await measureClaimAtBacklog(`backlog-${backlog}`, backlog, 10));
+	}
 
-		// ─── Batch throughput: enqueue BATCH jobs, wait for all completions ───
-		const batchStartedAt = performance.now();
-		await Promise.all(Array.from({ length: BATCH }, (_, index) => workerService.addItem("bench-noop", { round: index })));
-		const enqueueMs = performance.now() - batchStartedAt;
-		let done = 0;
-		for (let waitedMs = 0; done < BATCH && waitedMs < 30_000; waitedMs += 10) {
-			await sleep(10);
-			done = completedCount;
+	printTable(
+		"claimNextBatch latency by backlog (10 jobs/claim)",
+		["backlog", "p50", "p95", "p99", "max"],
+		claimResults.map((result) => {
+			const stats = summarizeLatencies(result.timesMs);
+
+			return [
+				result.name.replace("claimNextBatch backlog=", ""),
+				fmtMs(stats.p50Ms),
+				fmtMs(stats.p95Ms),
+				fmtMs(stats.p99Ms),
+				fmtMs(stats.maxMs),
+			];
+		}),
+	);
+});
+
+// ─── Concurrent runners ─────────────────────────────────────────────────
+task("workers: claim contention (4 runners)", async () => {
+	console.log("\n[workers] concurrent claim contention (4 runners)...");
+	const contentionWorker = "contention";
+	seedBacklog(contentionWorker, 5_000);
+	const runners = 4;
+	const startedAt = performance.now();
+	const claimedPerRunner = await Promise.all(
+		Array.from({ length: runners }, (_, runnerIndex) =>
+			workerJobRepository.claimNextBatch(
+				{
+					workerId: contentionWorker,
+					runnerId: `runner-${runnerIndex}`,
+					concurrency: 10_000,
+					timeoutMs: 30_000,
+					now: new Date(Date.now() + 60_000),
+				},
+				50,
+			),
+		),
+	);
+	const contentionMs = performance.now() - startedAt;
+	const totalClaimed = claimedPerRunner.reduce((total, claimed) => total + claimed.length, 0);
+	clearBacklog(contentionWorker);
+	const noDuplicates = new Set(claimedPerRunner.flat().map((job) => job.id)).size === totalClaimed;
+	console.log(`  ${runners} runners claimed ${totalClaimed} jobs in ${fmtMs(contentionMs)} (no duplicate ids: ${noDuplicates})`);
+
+	return { ok: noDuplicates, data: { runners, totalClaimed, noDuplicates } };
+});
+
+// ─── Retention purge ────────────────────────────────────────────────────
+task("workers: retention purge", async () => {
+	console.log("\n[workers] retention purge (completed jobs)...");
+	const purgeWorker = "purge";
+	seedBacklog(purgeWorker, 5_000, "completed");
+	const purgeResult = await benchmarkAsync(
+		"purgeTerminalJobs (completed, cutoff now)",
+		async () => await workerJobRepository.purgeTerminalJobs({ status: "completed", cutoffDate: new Date() }),
+		{ warmup: 0, iterations: 5 },
+	);
+	clearBacklog(purgeWorker);
+	printMicroResults([purgeResult]);
+});
+
+// ─── Runtime loop — runs the REAL worker runtime (pool + polling + registry +
+// watchdog) over a no-op handler: enqueue → claim → execute → complete, plus
+// single-job end-to-end latency. Started last because polling keeps running
+// afterwards.
+task("workers: runtime loop (bench-noop)", async () => {
+	const { workerService } = await import("@/workers/worker.service");
+
+	const BATCH = 100;
+	const LATENCY_ROUNDS = 20;
+	let completedCount = 0;
+	const definition = {
+		id: "bench-noop",
+		concurrency: 2,
+		timeoutMs: 30_000,
+		attempts: 1,
+		handler: () => {
+			completedCount++;
+
+			return Promise.resolve();
+		},
+	};
+
+	await workerService.initialize([definition]);
+
+	// ─── Batch throughput: enqueue BATCH jobs, wait for all completions ───
+	const batchStartedAt = performance.now();
+	await Promise.all(Array.from({ length: BATCH }, (_, index) => workerService.addItem("bench-noop", { round: index })));
+	const enqueueMs = performance.now() - batchStartedAt;
+	let done = 0;
+	for (let waitedMs = 0; done < BATCH && waitedMs < 30_000; waitedMs += 10) {
+		await sleep(10);
+		done = completedCount;
+	}
+
+	const batchWallMs = performance.now() - batchStartedAt;
+
+	printTable(
+		`Runtime loop — batch of ${BATCH} no-op jobs (concurrency 2)`,
+		["enqueue wall", "jobs/s end-to-end", "completed"],
+		[[`${enqueueMs.toFixed(1)}ms`, (BATCH / (batchWallMs / 1000)).toFixed(1), String(completedCount)]],
+	);
+
+	// ─── Single-job end-to-end latency ───
+	const latencies: number[] = [];
+	for (let round = 0; round < LATENCY_ROUNDS; round++) {
+		const before = completedCount;
+		const startedAt = performance.now();
+		await workerService.addItem("bench-noop", { round });
+		let doneNow = completedCount;
+		for (let waitedMs = 0; doneNow === before && waitedMs < 10_000; waitedMs += 5) {
+			await sleep(5);
+			doneNow = completedCount;
 		}
 
-		const batchWallMs = performance.now() - batchStartedAt;
+		latencies.push(performance.now() - startedAt);
+	}
 
-		printTable(
-			`Runtime loop — batch of ${BATCH} no-op jobs (concurrency 2)`,
-			["enqueue wall", "jobs/s end-to-end", "completed"],
-			[[`${enqueueMs.toFixed(1)}ms`, (BATCH / (batchWallMs / 1000)).toFixed(1), String(completedCount)]],
-		);
+	const stats = summarizeLatencies(latencies);
+	printTable(
+		"Runtime loop — single job enqueue→completion",
+		["rounds", "p50", "p95", "max"],
+		[[String(stats.count), fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
+	);
 
-		// ─── Single-job end-to-end latency ───
-		const latencies: number[] = [];
-		for (let round = 0; round < LATENCY_ROUNDS; round++) {
-			const before = completedCount;
-			const startedAt = performance.now();
-			await workerService.addItem("bench-noop", { round });
-			let doneNow = completedCount;
-			for (let waitedMs = 0; doneNow === before && waitedMs < 10_000; waitedMs += 5) {
-				await sleep(5);
-				doneNow = completedCount;
-			}
-
-			latencies.push(performance.now() - startedAt);
-		}
-
-		const stats = summarizeLatencies(latencies);
-		printTable(
-			"Runtime loop — single job enqueue→completion",
-			["rounds", "p50", "p95", "max"],
-			[[String(stats.count), fmtMs(stats.p50Ms), fmtMs(stats.p95Ms), fmtMs(stats.maxMs)]],
-		);
-
-		await workerService.shutdown();
-	});
-}
-
-await main(import.meta);
+	await workerService.shutdown();
+});

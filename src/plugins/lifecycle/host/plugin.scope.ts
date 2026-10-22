@@ -1,7 +1,4 @@
 import type {
-	BeforeArtifactCreateHook,
-	BeforeMediaRecognitionHook,
-	BeforeMetadataSaveHook,
 	MediaAnalyzer,
 	MetadataProvider,
 	PluginAccessPolicy,
@@ -24,10 +21,10 @@ import { assertDeclaredPluginCapabilities } from "@/plugins/lifecycle/plugin.man
 import { removePluginRuntime } from "@/plugins/lifecycle/plugin-runtime.service";
 import { PluginEntityTable } from "@/plugins/lifecycle/registry/plugin-entity.registry";
 import { registerNotificationChannel } from "@/plugins/runtime/notification-channel.registry";
-import { pluginAccessBus } from "@/plugins/runtime/plugin.access";
 import { pluginRoutesRegistry } from "@/plugins/runtime/plugin.routes";
+import { pluginAccessBus } from "@/system/extensions/plugin.access";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
-import { pluginHookBus } from "@/system/extensions/plugin.hooks";
+import { type PluginCandidateHook, type PluginHookName, pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
@@ -51,9 +48,7 @@ export interface PluginScopeApi {
 	): Promise<PluginJobHandle[]>;
 	/** Contravariant handler erase: accepts every typed event handler while staying assignable to the bus. */
 	subscribe(pluginId: string, event: PluginEventName, handler: PluginEventHandlerErased): void;
-	subscribeBeforeArtifactCreate(pluginId: string, handler: BeforeArtifactCreateHook): void;
-	subscribeBeforeMediaRecognition(pluginId: string, handler: BeforeMediaRecognitionHook): void;
-	subscribeBeforeMetadataSave(pluginId: string, handler: BeforeMetadataSaveHook): void;
+	subscribeHook<N extends PluginHookName>(pluginId: string, name: N, hook: PluginCandidateHook<N>): void;
 	subscribeAccessPolicy(pluginId: string, policy: PluginAccessPolicy): void;
 }
 
@@ -309,16 +304,8 @@ export class PluginScope {
 		this.track(pluginEventBus.on(pluginId, event, handler));
 	}
 
-	subscribeBeforeMetadataSave(pluginId: string, handler: BeforeMetadataSaveHook): void {
-		this.track(pluginHookBus.beforeMetadataSave(pluginId, handler));
-	}
-
-	subscribeBeforeMediaRecognition(pluginId: string, handler: BeforeMediaRecognitionHook): void {
-		this.track(pluginHookBus.beforeMediaRecognition(pluginId, handler));
-	}
-
-	subscribeBeforeArtifactCreate(pluginId: string, handler: BeforeArtifactCreateHook): void {
-		this.track(pluginHookBus.beforeArtifactCreate(pluginId, handler));
+	subscribeHook<N extends PluginHookName>(pluginId: string, name: N, hook: PluginCandidateHook<N>): void {
+		this.track(pluginHookBus.register(pluginId, name, hook));
 	}
 
 	subscribeAccessPolicy(pluginId: string, policy: PluginAccessPolicy): void {

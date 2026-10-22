@@ -370,6 +370,24 @@ describe("DownloadsService.process", () => {
 
 		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "completed", sizeBytes: 5, fileName: "kept.mp4" });
 	});
+
+	test("a run whose ffmpeg fails to start hands its slot back, so the worker's retry runs it", async () => {
+		await insertDownload({ id: "dl-1" });
+		const spawnFailure = new Error("spawn failed");
+		spies.push(
+			spyOn(ffMpegService, "create").mockImplementationOnce(() => {
+				throw spawnFailure;
+			}),
+		);
+
+		await expect(downloadsService.process("dl-1")).rejects.toBe(spawnFailure);
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "pending" });
+
+		fakeFfmpeg(0, (outputPath) => writeFileSync(outputPath, "video-bytes"));
+		await downloadsService.process("dl-1");
+
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "completed", sizeBytes: 11 });
+	});
 });
 
 describe("DownloadsService.queueSeason", () => {

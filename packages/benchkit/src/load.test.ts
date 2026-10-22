@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sleep } from "bun";
-import { runLoadWindow } from "./load.utils";
+import { identityIndexFor, runLoadWindow, subnetIp, weightedMix } from "./load.utils";
 
 describe("runLoadWindow", () => {
 	test("counts only post-warmup requests in the run totals", async () => {
@@ -83,5 +83,45 @@ describe("runLoadWindow", () => {
 		});
 		expect(run.requests).toBe(run.failures);
 		expect(run.successes).toBe(0);
+	});
+});
+
+describe("weightedMix", () => {
+	test("replays the same picks for the same request indexes", () => {
+		const pick = weightedMix([
+			["a", 0.5],
+			["b", 0.5],
+		]);
+
+		expect([0, 1, 2, 3].map((index) => pick(index))).toEqual(["a", "b", "b", "a"]);
+	});
+
+	test("spreads differently under another multiplier and falls back to the first entry past the weights", () => {
+		const pick = weightedMix(
+			[
+				["a", 0.5],
+				["b", 0.5],
+			],
+			40503,
+		);
+		const partial = weightedMix([
+			["only", 0.1],
+			["never", 0.1],
+		]);
+
+		expect([1, 2].map((index) => pick(index))).toEqual(["b", "a"]);
+		expect(partial(1)).toBe("only");
+	});
+});
+
+describe("client identities", () => {
+	test("rotates a worker over the identities from its own offset", () => {
+		expect(identityIndexFor(2, 5, 10)).toBe(9);
+		expect(identityIndexFor(2, 6, 10)).toBe(0);
+	});
+
+	test("gives each worker an IP inside the suite's subnet", () => {
+		expect(subnetIp(95, 0)).toBe("10.95.0.1");
+		expect(subnetIp(95, 251)).toBe("10.95.1.2");
 	});
 });

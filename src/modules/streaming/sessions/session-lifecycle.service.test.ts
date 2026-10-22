@@ -1,12 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { CreatePlaybackSession } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
-import { systemSettingsStore } from "@/config/system-settings.store";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { SOFTWARE_HWACCEL } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
-import { mediaRepository } from "@/repositories/media-files.repository";
-import { profilePreferencesRepository } from "@/repositories/profile-preferences.repository";
-import { workerService } from "@/workers/worker.service";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
@@ -106,10 +102,6 @@ function createService(
 	};
 
 	const dependencies: ServiceDependencies = {
-		mediaRepository,
-		profilePreferencesRepository,
-		systemSettings: systemSettingsStore,
-		workerService,
 		enqueueStreamInit: (_data, enqueueOptions) => {
 			if (options.enqueueFails) throw new Error("enqueue failed");
 
@@ -176,6 +168,18 @@ describe("session lifecycle service", () => {
 		expect(calls.setOperations).toEqual([session.operationId]);
 		expect(calls.published).toHaveLength(1);
 		expect(calls.published[0]).toMatchObject({ sessionId: session.sessionId, mediaFileId, mode: session.mode });
+	});
+
+	test("remuxes a source under the client's bitrate cap and reports the source bitrate for the session", async () => {
+		await seedViewer();
+		// The seeded file is a 5 Mbps h264/aac Matroska.
+		const mediaFileId = await seedMovieFile();
+		const { service, calls } = createService();
+
+		const session = await service.createPlaybackSession({ mediaFileId, maxBitrate: 8000 }, "profile-1", "idem-cap", "user-1");
+
+		expect(session.mode).toBe("direct-stream");
+		expect(calls.published[0]).toMatchObject({ mode: "direct-stream", videoBitrateKbps: 5000 });
 	});
 
 	test("rolls back reservation and operation when enqueueing fails", async () => {

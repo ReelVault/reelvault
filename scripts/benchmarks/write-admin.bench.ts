@@ -1,15 +1,23 @@
 import { appendFile, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fmtMs, main, printHttpResults, printTable, runScenarioMatrix, suiteArgs, task } from "benchkit";
+import {
+	fmtMs,
+	jsonRequest,
+	printHttpResults,
+	printTable,
+	runScenarioMatrix,
+	subnetIp,
+	suiteArgs,
+	task,
+	toScenarioEntries,
+} from "benchkit";
 import { serverConfig } from "@/config/server/server.config";
 import { adminLogsService } from "@/services/admin/admin-logs.service";
 import { removeTree } from "@/utils/directory.utils";
 import { isRecord } from "@/utils/type.utils";
-import { subnetIp, workerCookie } from "./lib/identity.utils";
+import { workerCookie } from "./lib/identity.utils";
 import { preloadUnreadNotificationIds } from "./lib/notifications.utils";
-import { jsonRequest } from "./lib/request.utils";
-import { toScenarioEntries } from "./lib/scenarios.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
 import type { ManagedServer } from "./lib/server.launcher";
 
@@ -193,88 +201,84 @@ async function measureLogPoll(): Promise<number> {
 	return performance.now() - startedAt;
 }
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args);
+const serverFixture = suiteServerFixture(args);
 
-	// The log viewer polls while the logger appends. Characterise a poll that
-	// arrives 3 s after the previous one: with a 2 s tail-cache TTL it rebuilt
-	// from the 2 MiB window; the incremental append path must take over instead.
-	task("write-admin: log tail cache poll", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "reelvault-log-tail-"));
+// The log viewer polls while the logger appends. Characterise a poll that
+// arrives 3 s after the previous one: with a 2 s tail-cache TTL it rebuilt
+// from the 2 MiB window; the incremental append path must take over instead.
+task("write-admin: log tail cache poll", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "reelvault-log-tail-"));
+	try {
+		const filePath = join(directory, "reelvault.log");
+		const line = JSON.stringify({ level: 30, time: Date.now(), msg: "benchmark log line", module: "Bench" });
+		const lineCount = 20_000;
+		await writeFile(filePath, `${Array.from({ length: lineCount }, () => line).join("\n")}\n`);
+
+		// Point the service at the temp logs root for this task.
+		const originalLogs = serverConfig.paths.logs;
+		serverConfig.paths.logs = directory;
 		try {
-			const filePath = join(directory, "reelvault.log");
-			const line = JSON.stringify({ level: 30, time: Date.now(), msg: "benchmark log line", module: "Bench" });
-			const lineCount = 20_000;
-			await writeFile(filePath, `${Array.from({ length: lineCount }, () => line).join("\n")}\n`);
+			const coldMs = await measureLogPoll();
+			const warmMs = await measureLogPoll();
 
-			// Point the service at the temp logs root for this task.
-			const originalLogs = serverConfig.paths.logs;
-			serverConfig.paths.logs = directory;
-			try {
-				const coldMs = await measureLogPoll();
-				const warmMs = await measureLogPoll();
+			await new Promise((resolve) => {
+				setTimeout(resolve, 3_000);
+			});
+			await appendFile(filePath, `${line}\n`);
+			const afterIdleMs = await measureLogPoll();
 
-				await new Promise((resolve) => {
-					setTimeout(resolve, 3_000);
-				});
-				await appendFile(filePath, `${line}\n`);
-				const afterIdleMs = await measureLogPoll();
-
-				printTable(
-					"Admin log tail (20k-line JSONL, page of 100)",
-					["cold rebuild", "warm poll", "poll after 3 s idle"],
-					[[fmtMs(coldMs), fmtMs(warmMs), fmtMs(afterIdleMs)]],
-				);
-			} finally {
-				serverConfig.paths.logs = originalLogs;
-			}
+			printTable(
+				"Admin log tail (20k-line JSONL, page of 100)",
+				["cold rebuild", "warm poll", "poll after 3 s idle"],
+				[[fmtMs(coldMs), fmtMs(warmMs), fmtMs(afterIdleMs)]],
+			);
 		} finally {
-			await removeTree(directory);
+			serverConfig.paths.logs = originalLogs;
 		}
+	} finally {
+		await removeTree(directory);
+	}
 
-		return { ok: true };
+	return { ok: true };
+});
+
+task("write-admin: endpoints", async () => {
+	const server = await serverFixture();
+	const workerCount = server.workerCookies.length;
+	const notificationIds = await Promise.all(
+		Array.from({ length: workerCount }, (_, workerIndex) => preloadUnreadNotificationIds(server, workerIndex, "10.83.0.1")),
+	);
+	const settingsPatchBody = await resolveSettingsPatchBody(server);
+	console.log(
+		`[write-admin] server ready, ${workerCount} identities, ${notificationIds.flat().length} unread notifications, settings patch ${settingsPatchBody ? Object.keys(settingsPatchBody).join(",") : "unavailable"}`,
+	);
+
+	const context: AdminWriteContext = {
+		baseUrl: server.baseUrl,
+		cookieFor: (workerIndex) => workerCookie(server, workerIndex),
+		profileIdFor: (workerIndex) => server.profileIdFor(workerIndex),
+		adminCookie: server.cookie,
+		adminProfileId: server.adminProfileId,
+		libraryId: server.benchmarkLibraryId,
+		notificationIds,
+		settingsPatchBody,
+	};
+
+	const scenarios = SCENARIOS.filter((scenario) => scenario.name !== "PATCH /v1/admin/settings (round-trip)" || settingsPatchBody);
+	const results = await runScenarioMatrix({
+		suite: "write-admin",
+		unit: "writes/s",
+		scenarios: toScenarioEntries(scenarios, context, {
+			accept: (response) => response.status < 500,
+			workFor: (scenario) => (scenario.pair ? pairWork(scenario, context) : undefined),
+		}),
+		concurrency: args.concurrency,
+		warmupMs: args.warmupMs,
+		durationMs: args.durationMs,
 	});
 
-	task("write-admin: endpoints", async () => {
-		const server = await serverFixture();
-		const workerCount = server.workerCookies.length;
-		const notificationIds = await Promise.all(
-			Array.from({ length: workerCount }, (_, workerIndex) => preloadUnreadNotificationIds(server, workerIndex, "10.83.0.1")),
-		);
-		const settingsPatchBody = await resolveSettingsPatchBody(server);
-		console.log(
-			`[write-admin] server ready, ${workerCount} identities, ${notificationIds.flat().length} unread notifications, settings patch ${settingsPatchBody ? Object.keys(settingsPatchBody).join(",") : "unavailable"}`,
-		);
+	printHttpResults(results);
 
-		const context: AdminWriteContext = {
-			baseUrl: server.baseUrl,
-			cookieFor: (workerIndex) => workerCookie(server, workerIndex),
-			profileIdFor: (workerIndex) => server.profileIdFor(workerIndex),
-			adminCookie: server.cookie,
-			adminProfileId: server.adminProfileId,
-			libraryId: server.benchmarkLibraryId,
-			notificationIds,
-			settingsPatchBody,
-		};
-
-		const scenarios = SCENARIOS.filter((scenario) => scenario.name !== "PATCH /v1/admin/settings (round-trip)" || settingsPatchBody);
-		const results = await runScenarioMatrix({
-			suite: "write-admin",
-			unit: "writes/s",
-			scenarios: toScenarioEntries(scenarios, context, {
-				accept: (response) => response.status < 500,
-				workFor: (scenario) => (scenario.pair ? pairWork(scenario, context) : undefined),
-			}),
-			concurrency: args.concurrency,
-			warmupMs: args.warmupMs,
-			durationMs: args.durationMs,
-		});
-
-		printHttpResults(results);
-
-		// LAST: generate-all floods the worker queue with per-file jobs.
-		await trickplayGenerateAllPhase(context);
-	});
-}
-
-await main(import.meta);
+	// LAST: generate-all floods the worker queue with per-file jobs.
+	await trickplayGenerateAllPhase(context);
+});

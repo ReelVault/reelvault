@@ -1,4 +1,4 @@
-import { httpScenarioMetrics, main, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
+import { httpScenarioMetrics, printHttpResults, runScenarioMatrix, suiteArgs, task } from "benchkit";
 import { contextHeaders, rotatingIdentity } from "./lib/identity.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
 import type { ManagedServer } from "./lib/server.launcher";
@@ -150,40 +150,36 @@ export const meta = { description: "Frontend page-open request sequences (dashbo
 
 const args = suiteArgs();
 
-if (!args.help) {
-	const serverFixture = suiteServerFixture(args);
+const serverFixture = suiteServerFixture(args);
 
-	task("composite: sequences", async () => {
-		const server: ManagedServer = await serverFixture();
-		// The statuses batch mirrors what the website cards request on first paint.
-		const context: CompositeContext = {
-			baseUrl: server.baseUrl,
-			adminCookie: server.cookie,
-			...rotatingIdentity(server),
-			movieId: server.benchmarkMovieDetailId,
-			tvId: server.benchmarkTvDetailId,
-			mediaFileId: server.benchmarkMediaFileId,
-			statusesBatch: [server.benchmarkMovieDetailId, server.benchmarkTvDetailId, "meta-0000010", "meta-0000020", "meta-0000030"].join(","),
-		};
+task("composite: sequences", async () => {
+	const server: ManagedServer = await serverFixture();
+	// The statuses batch mirrors what the website cards request on first paint.
+	const context: CompositeContext = {
+		baseUrl: server.baseUrl,
+		adminCookie: server.cookie,
+		...rotatingIdentity(server),
+		movieId: server.benchmarkMovieDetailId,
+		tvId: server.benchmarkTvDetailId,
+		mediaFileId: server.benchmarkMediaFileId,
+		statusesBatch: [server.benchmarkMovieDetailId, server.benchmarkTvDetailId, "meta-0000010", "meta-0000020", "meta-0000030"].join(","),
+	};
 
-		const results = await runScenarioMatrix({
-			suite: "composite",
-			unit: "visits/s",
-			scenarios: SCENARIOS.map((scenario) => ({
-				name: scenario.name,
-				work: async (workerIndex: number, requestIndex: number) => ({
-					ok: await runSequence(scenario.builder(context, workerIndex, requestIndex)),
-				}),
-			})),
-			concurrency: args.concurrency,
-			warmupMs: args.warmupMs,
-			durationMs: args.durationMs,
-		});
-
-		printHttpResults(results);
-
-		return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
+	const results = await runScenarioMatrix({
+		suite: "composite",
+		unit: "visits/s",
+		scenarios: SCENARIOS.map((scenario) => ({
+			name: scenario.name,
+			work: async (workerIndex: number, requestIndex: number) => ({
+				ok: await runSequence(scenario.builder(context, workerIndex, requestIndex)),
+			}),
+		})),
+		concurrency: args.concurrency,
+		warmupMs: args.warmupMs,
+		durationMs: args.durationMs,
 	});
-}
 
-await main(import.meta);
+	printHttpResults(results);
+
+	return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
+});
