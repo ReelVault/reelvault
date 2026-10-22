@@ -72,15 +72,33 @@ function relationsGroupOne(r: RelationsHelpers) {
 		libraries: {
 			paths: r.many.libraryPaths(),
 			mediaFiles: r.many.mediaFiles(),
+			mediaStats: r.one.libraryMediaStats(),
+			providerSettings: r.many.libraryProviderSettings(),
+			scanFindings: r.many.scanFindings(),
+			scanState: r.one.scanState(),
+		},
+		libraryMediaStats: {
+			library: r.one.libraries({ from: r.libraryMediaStats.libraryId, to: r.libraries.id }),
 		},
 		libraryPaths: {
 			library: r.one.libraries({ from: r.libraryPaths.libraryId, to: r.libraries.id }),
+		},
+		libraryProviderSettings: {
+			library: r.one.libraries({ from: r.libraryProviderSettings.libraryId, to: r.libraries.id }),
+		},
+		scanFindings: {
+			library: r.one.libraries({ from: r.scanFindings.libraryId, to: r.libraries.id }),
+		},
+		scanState: {
+			library: r.one.libraries({ from: r.scanState.libraryId, to: r.libraries.id }),
 		},
 		mediaFiles: {
 			artifacts: r.many.mediaArtifacts(),
 			videoStreams: r.many.mediaFileVideoStreams(),
 			audioStreams: r.many.mediaFileAudioStreams(),
 			subtitles: r.many.subtitles(),
+			ingestState: r.one.mediaFileIngestState(),
+			interruptedSessions: r.many.interruptedPlaybackSessions(),
 			library: r.one.libraries({ from: r.mediaFiles.libraryId, to: r.libraries.id }),
 			metadata: r.one.metadata({ from: r.mediaFiles.metadataId, to: r.metadata.id }),
 			movie: r.one.movies({ from: r.mediaFiles.movieId, to: r.movies.id }),
@@ -89,6 +107,13 @@ function relationsGroupOne(r: RelationsHelpers) {
 			playbackProgress: r.many.playbackProgress(),
 			markers: r.many.mediaMarkers(),
 			downloads: r.many.downloads(),
+		},
+		mediaFileIngestState: {
+			mediaFile: r.one.mediaFiles({ from: r.mediaFileIngestState.mediaFileId, to: r.mediaFiles.id }),
+		},
+		interruptedPlaybackSessions: {
+			profile: r.one.profiles({ from: r.interruptedPlaybackSessions.profileId, to: r.profiles.id }),
+			mediaFile: r.one.mediaFiles({ from: r.interruptedPlaybackSessions.mediaFileId, to: r.mediaFiles.id }),
 		},
 	};
 }
@@ -117,6 +142,7 @@ function relationsGroupTwo(r: RelationsHelpers) {
 			images: r.many.metadataImages(),
 			rating: r.many.metadataRatings(),
 			providers: r.many.metadataProviders(),
+			externalIds: r.many.metadataExternalIds(),
 			userRatings: r.many.userRatings(),
 			watchlist: r.many.watchlist(),
 			mediaFiles: r.many.mediaFiles(),
@@ -203,6 +229,7 @@ function relationsGroupThree(r: RelationsHelpers) {
 			userRatings: r.many.userRatings(),
 			watchedHistory: r.many.watchedHistory(),
 			playbackProgress: r.many.playbackProgress(),
+			interruptedSessions: r.many.interruptedPlaybackSessions(),
 			preferences: r.many.profilePreferenceOverrides(),
 			streamPrefs: r.many.profileStreamPrefs(),
 			downloads: r.many.downloads(),
@@ -241,11 +268,35 @@ function relationsGroupThree(r: RelationsHelpers) {
 			profile: r.one.profiles({ from: r.userRatings.profileId, to: r.profiles.id }),
 			metadata: r.one.metadata({ from: r.userRatings.metadataId, to: r.metadata.id }),
 		},
+		workerJobs: {
+			operation: r.one.workerOperations({ from: r.workerJobs.operationId, to: r.workerOperations.id }),
+			dependsOn: r.one.workerJobs({ from: r.workerJobs.dependsOnJobId, to: r.workerJobs.id }),
+			dependents: r.many.workerJobs({ from: r.workerJobs.id, to: r.workerJobs.dependsOnJobId }),
+		},
+		workerOperations: {
+			jobs: r.many.workerJobs(),
+		},
 		users: {
 			profiles: r.many.profiles(),
 			sessions: r.many.sessions(),
 			accounts: r.many.accounts(),
+			twoFactors: r.many.twoFactors(),
+			apiKeys: r.many.apiKeys(),
+			adminAuditLogs: r.many.adminAuditLogs(),
+			updateHistory: r.many.updateHistory(),
 			notifications: r.many.notifications(),
+		},
+		twoFactors: {
+			user: r.one.users({ from: r.twoFactors.userId, to: r.users.id }),
+		},
+		apiKeys: {
+			creator: r.one.users({ from: r.apiKeys.createdBy, to: r.users.id }),
+		},
+		adminAuditLogs: {
+			actorUser: r.one.users({ from: r.adminAuditLogs.actorUserId, to: r.users.id }),
+		},
+		updateHistory: {
+			actorUser: r.one.users({ from: r.updateHistory.actorUserId, to: r.users.id }),
 		},
 		notifications: {
 			user: r.one.users({ from: r.notifications.userId, to: r.users.id }),

@@ -4,6 +4,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
+import { getLibraryMediaStats, hasCatalogMediaStats } from "@/repositories/media-stats.repository";
 import { groupBy } from "@/utils/array.utils";
 import type { EnrichedLibraryPath, LibraryPathStats, LibraryStats, LibraryStatsCaches } from "./shared.types";
 
@@ -26,6 +27,16 @@ function normalizePathPrefix(value: string): string {
 export async function loadLibraryStats(libraryIds: readonly string[], tx?: DatabaseTransaction): Promise<Map<string, LibraryStats>> {
 	const stats = new Map<string, LibraryStats>();
 	if (libraryIds.length === 0) return stats;
+
+	if (hasCatalogMediaStats(tx)) {
+		const summary = await getLibraryMediaStats(libraryIds, tx);
+		for (const libraryId of libraryIds) {
+			const row = summary.get(libraryId);
+			stats.set(libraryId, { totalMediaFiles: row?.fileCount ?? 0, totalSize: row?.totalSize ?? 0 });
+		}
+
+		return stats;
+	}
 
 	const rows = await databaseFactory
 		.getClient({ tx })

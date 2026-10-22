@@ -3,6 +3,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { findMediaCleanupData, type MediaCleanupData } from "@/integrations/drizzle-orm/utils/media-cleanup.reader";
+import { hasCatalogMediaStats, rebuildCatalogFromLibraries } from "@/repositories/media-stats.repository";
 import { refreshLatestMediaCreatedAt } from "@/repositories/metadata/media-presence.writer";
 import { clearStatsCaches, type LibraryStatsCaches } from "./shared.types";
 
@@ -32,6 +33,7 @@ export async function deleteWithDependents(caches: LibraryStatsCaches, libraryId
 		// the FK and rolled the whole delete back. Delete media first, then the
 		// now-orphan metadata.
 		await client.delete(schema.mediaFiles).where(eq(schema.mediaFiles.libraryId, libraryId));
+		await client.delete(schema.libraryMediaStats).where(eq(schema.libraryMediaStats.libraryId, libraryId));
 
 		const candidateMetadataIds = candidateMetadata.map((row) => row.metadataId);
 		await refreshLatestMediaCreatedAt(candidateMetadataIds, tx);
@@ -50,6 +52,7 @@ export async function deleteWithDependents(caches: LibraryStatsCaches, libraryId
 		// removed library leaves no orphan resume state.
 		await client.delete(schema.scanState).where(eq(schema.scanState.libraryId, libraryId));
 		await client.delete(schema.libraries).where(eq(schema.libraries.id, libraryId));
+		if (hasCatalogMediaStats(tx)) await rebuildCatalogFromLibraries(tx);
 
 		clearStatsCaches(caches);
 

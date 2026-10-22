@@ -1,5 +1,6 @@
 import { and, eq, isNotNull, lt } from "drizzle-orm";
 import { defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { getCatalogMediaStats } from "@/repositories/media-stats.repository";
 import { REVIEW_MATCH_SCORE } from "@/utils/media-match/score.constants";
 
 const mediaFiles = defineTableAccess("mediaFiles", { primaryKeyColumn: "id" });
@@ -9,6 +10,17 @@ const mediaMarkers = defineTableAccess("mediaMarkers", { primaryKeyColumn: "id" 
 /** Aggregate counts backing the admin dashboard stats card. */
 export const adminStatsRepository = {
 	async getMediaStats() {
+		const summary = getCatalogMediaStats();
+		if (summary) {
+			return {
+				totalFiles: summary.fileCount,
+				totalSize: summary.totalSize,
+				moviesCount: summary.movieCount,
+				episodesCount: summary.episodeCount,
+				withQualityCount: summary.qualityCount,
+			};
+		}
+
 		return await mediaFiles.countAggregates({
 			total: "totalFiles",
 			sum: { key: "totalSize", column: mediaFiles.table.size },

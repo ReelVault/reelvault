@@ -16,6 +16,7 @@ import { streamingManager } from "./modules/streaming/runtime/streaming.manager"
 import { registerStreamingLifecycle } from "./modules/streaming/runtime/streaming.runtime";
 import { pluginManager } from "./plugins/lifecycle/plugin.manager";
 import { onNotificationChannelFailure } from "./plugins/runtime/notification-channel.registry";
+import { hasCatalogMediaStats, rebuildMediaStats } from "./repositories/media-stats.repository";
 import { backfillLatestMediaCreatedAt } from "./repositories/metadata/media-presence.writer";
 import { adminFailureNotificationService } from "./services/admin/admin-failure-notification.service";
 import { systemSettingsService } from "./services/admin/system-settings.service";
@@ -43,6 +44,14 @@ const FFMPEG_MAJOR_VERSION_REGEX = /^n?(\d+)/;
 /** Wildcard binds are reachable from any network the host is on. */
 const PUBLIC_BIND_HOSTS: ReadonlySet<string> = new Set(["0.0.0.0", "::", "*"]);
 
+/** Seeds the media-stats summary once; after this boot every media-file write keeps it current. */
+async function buildMediaStatsIfMissing(): Promise<void> {
+	if (hasCatalogMediaStats()) return;
+
+	logger.info("Building media statistics summary...");
+	await rebuildMediaStats();
+}
+
 async function setupServer(): Promise<void> {
 	try {
 		logger.info("Checking directories and files...");
@@ -58,6 +67,8 @@ async function setupServer(): Promise<void> {
 		// Fill the media-presence stamp for databases that predate the column, so
 		// catalog lists and the recently-added rank never miss a title.
 		await backfillLatestMediaCreatedAt();
+
+		await buildMediaStatsIfMissing();
 
 		// Better Auth's own user writes create the first profile; registered before any user can be created.
 		registerAuthListeners();

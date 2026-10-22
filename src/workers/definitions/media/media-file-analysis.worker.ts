@@ -1,3 +1,4 @@
+import type { UpdateMediaFile } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
 import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
@@ -44,7 +45,11 @@ export async function analyzeMediaFileTask(
 
 			const hasAnalysis = hasEntry(analysis);
 			if (hasAnalysis) {
-				await mediaRepository.update({ primaryId: data.mediaFileId, values: analysis });
+				const values: UpdateMediaFile = {};
+				if (analysis.source !== undefined) values.source = analysis.source;
+				if (analysis.edition !== undefined) values.edition = analysis.edition;
+				if (analysis.qualityTag !== undefined) values.qualityTag = analysis.qualityTag;
+				await mediaRepository.updateAndRead(data.mediaFileId, values);
 				analyzed = true;
 			}
 		}

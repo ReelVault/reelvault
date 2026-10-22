@@ -758,7 +758,8 @@ The browse and collections rows are the combined result of every change above; t
 
 - **Stored the media-presence timestamp on the title** — `metadata.latest_media_created_at` is maintained by the media-file writers (insert, delete, reassign, library delete, merge) and backfilled once at boot. Catalog lists now test one column instead of running an `EXISTS` probe over `media_files` for every title, and “recently added” ranks through `metadata_type_latest_media_idx` instead of a correlated `MAX` over the catalog. On a cold 50,000-title catalog (in-process): catalog page **10.61 → 1.36 ms**, projected page **10.24 → 1.12 ms**, filtered page **9.51 → 6.31 ms**, deep offset page **16.48 → 3.54 ms**, recently-added ranking **30.6 → 0.73 ms**, and a cold Discover build **32.44 → 1.87 ms**. Cold HTTP c=10: catalog browse **103 → 610 req/s** (p95 103 → 18 ms), projected browse **103 → 707 req/s** (p95 104 → 16 ms), deep offset **67 → 263 req/s** (p95 161 → 41 ms), filtered browse **115 → 147 req/s** (p95 93 → 72 ms), Discover **25 → 52 req/s** (p95 522 → 222 ms), and mixed traffic **107 → 291 req/s** (p95 356 → 109 ms). The response schema keeps the column internal, so the API payload is unchanged; unrelated endpoints stayed within the benchmark’s run-to-run spread.
 - **Similar-title scoring now aggregates traits once** — the ranked-id page used five correlated subqueries per candidate and re-ran the candidate scan for the total. A single trait union scores each candidate once, keeps the collection/director bonuses as `EXISTS` (one hit, not one per match) and genre/keyword/cast as counts, and still returns the total with a window. On 50,000 titles the cold rank fell **29.75 → 13.39 ms**; cold HTTP c=10 rose from **34 → 98 req/s** (p95 316 → 115 ms). Results are unchanged, including multi-collection and multi-director sources.
-- **Covering index for library file stats** — `media_files_library_size_idx` lets the library list and detail stats read `count(*)`/`sum(file_size)` from one narrow index instead of the wide `media_files` rows. Cold 50,000-file library list **10.78 → 7.36 ms**; HTTP c=10 list **400 → 651 req/s** (p50 24.9 → 16.1 ms) and library detail **407 → 1018 req/s** (p95 26 → 17 ms).
+- **Covering index for library file stats** — `media_files_library_size_idx` lets the library list and detail stats read `count(*)`/`sum(file_size)` from one narrow index instead of the wide `media_files` rows. Cold 50,000-file library list **10.78 → 7.36 ms**; HTTP c=10 list **400 → 651 req/s** (p50 24.9 → 16.1 ms) and library detail **407 → 1018 req/s** (p95 26 → 17 ms). The summary tables below now serve these reads.
+- **Materialised media counters** — `library_media_stats` and `catalog_media_stats` replace the per-request full aggregates over `media_files`. Every insert, delete, size change, quality edit, reassign and library deletion updates both rows in the same transaction; a one-time boot rebuild seeds them, and reads fall back to the old aggregate until it has run. On a cold 50,000-file catalog, HTTP c=10 library list rose **133 → 2,381 req/s** (p95 139 → 7.4 ms), library detail **133 → 2,661 req/s** (p95 139 → 6.6 ms), and the admin dashboard **36.7 → 53 req/s** (p95 319 → 213 ms). Response shapes are unchanged; the metadata counters still use their live aggregate (TODO 3.1).
 - **Fast collection poster previews with an exact fallback** — a preview now reads the first 16 poster rows per collection, deduplicates them in memory, and takes the full distinct-image window only when that window is full and still holds fewer than four images. On 50,000 titles with distinct posters the cold page fell **20.6 → 1.9 ms**; cold HTTP c=10 `GET /collections?limit=24` reached **611 req/s** (p95 18 ms). A collection that shares one poster across its window keeps the old exact result. The benchmark catalog now uses a 128-poster pool instead of one shared image so the preview path is exercised realistically.
 - **Covering relation indexes** — genre, keyword, company, cast, crew and collection lookup indexes now carry `metadata_id`, so similarity traits and filtered genre counts read the index without a table lookup. On 50,000 titles the raw similar score query fell **19.1 → 16.5 ms** and the filtered `year+genre` count **6.6 → 5.3 ms**.
 - **Leaner Discover candidate and relation reads** — recommendation candidates fetch only `id`, `popularity` and `createdAt` instead of the full metadata row, and `hasMediaFiles` tests the maintained `latest_media_created_at` stamp. Genres, keywords and top-billed cast now load in one JSON-driven union instead of three statements. Cold HTTP c=1 Discover fell **26.4 → 21.9 ms**; candidate fetch and relation load each dropped by roughly 0.5–0.9 ms.
@@ -822,29 +823,30 @@ The browse and collections rows are the combined result of every change above; t
 
 The table prioritizes measurements most relevant to a Jellyfin/Plex-style streaming host: catalog and Discover responsiveness under concurrent HTTP load, library operations, background media processing, memory use, and maintenance stalls. The figures are from this release's recorded benchmarks; results depend on the test environment and workload. HTTP results marked **c=10** were measured with 10 concurrent clients.
 
-| Area                                           |                Before |                  After | Result                                |
-| ---------------------------------------------- | --------------------: | ---------------------: | ------------------------------------- |
-| **HTTP: catalog browse, 50,000 titles (c=10)** | 103 req/s, p95 103 ms |   610 req/s, p95 18 ms | 5.9× throughput; 82% lower p95        |
-| **HTTP: projected catalog browse (c=10)**      | 103 req/s, p95 104 ms |   707 req/s, p95 16 ms | 6.9× throughput; 85% lower p95        |
-| **HTTP: deep-offset catalog browse (c=10)**    |  67 req/s, p95 161 ms |   263 req/s, p95 41 ms | 3.9× throughput; 75% lower p95        |
-| **HTTP: filtered catalog browse (c=10)**       |  115 req/s, p95 93 ms |   147 req/s, p95 72 ms | 28% higher throughput                 |
-| **HTTP: Discover (c=10)**                      |  25 req/s, p95 522 ms |   52 req/s, p95 222 ms | 2.1× throughput; 57% lower p95        |
-| **HTTP: mixed traffic (c=10)**                 | 107 req/s, p95 356 ms |  291 req/s, p95 109 ms | 2.7× throughput; 69% lower p95        |
-| **Similar-title ranking, 50,000 titles**       |              29.75 ms |               13.39 ms | 2.2× faster                           |
-| **Library list, 50,000 files**                 |              10.78 ms |                7.36 ms | 32% faster                            |
-| **Library detail, HTTP (c=10)**                |  407 req/s, p95 26 ms | 1,018 req/s, p95 17 ms | 2.5× throughput; 35% lower p95        |
-| Typed title browsing                           |               0.14 ms |                0.03 ms | 4.7× faster                           |
-| Unfiltered newest browsing                     |               0.14 ms |                0.02 ms | 7× faster                             |
-| Descending browsing                            |               0.13 ms |                0.02 ms | 6.5× faster                           |
-| Watched-history listing, 50,000-row catalog    |               0.44 ms |                0.44 ms | Same time; full scan → covering index |
-| Smart-play batch, 50 titles                    |               1.15 ms |                1.08 ms | 6% faster                             |
-| 5,000-title relation loading                   |          9 statements |           3 statements | 67% fewer                             |
-| Marking 40 files as watched                    |        121 statements |           4 statements | 97% fewer                             |
-| Importing markers for 50 files                 |        300 statements |           5 statements | 98% fewer                             |
-| Trickplay artifact lookup for 200 files        |               15.2 ms |                 0.5 ms | 27.8× faster                          |
-| Trickplay generation                           |             17,390 ms |               6,524 ms | 2.67× faster                          |
-| Large library scan peak memory (100k files)    |            165–166 MB |             148–150 MB | ~10% less                             |
-| Database maintenance, 20,000 rows              |               30.6 ms |                 9.6 ms | 69% less time                         |
-| Longest maintenance event-loop stall           |               25.6 ms |                 0.1 ms | 99.6% shorter                         |
-| 64 KB response-body copy                       |               0.88 ms |               0.015 ms | 58.7× faster                          |
-| Plugin manifest read on cache miss             |              0.405 ms |               0.022 ms | 18× faster                            |
+| Area                                            |                Before |                   After | Result                                |
+| ----------------------------------------------- | --------------------: | ----------------------: | ------------------------------------- |
+| **HTTP: catalog browse, 50,000 titles (c=10)**  | 103 req/s, p95 103 ms |    610 req/s, p95 18 ms | 5.9× throughput; 82% lower p95        |
+| **HTTP: projected catalog browse (c=10)**       | 103 req/s, p95 104 ms |    707 req/s, p95 16 ms | 6.9× throughput; 85% lower p95        |
+| **HTTP: deep-offset catalog browse (c=10)**     |  67 req/s, p95 161 ms |    263 req/s, p95 41 ms | 3.9× throughput; 75% lower p95        |
+| **HTTP: filtered catalog browse (c=10)**        |  115 req/s, p95 93 ms |    147 req/s, p95 72 ms | 28% higher throughput                 |
+| **HTTP: Discover (c=10)**                       |  25 req/s, p95 522 ms |    52 req/s, p95 222 ms | 2.1× throughput; 57% lower p95        |
+| **HTTP: mixed traffic (c=10)**                  | 107 req/s, p95 356 ms |   291 req/s, p95 109 ms | 2.7× throughput; 69% lower p95        |
+| **Similar-title ranking, 50,000 titles**        |              29.75 ms |                13.39 ms | 2.2× faster                           |
+| **Library list, 50,000 files**                  |              10.78 ms |                 7.36 ms | 32% faster                            |
+| **Library detail, HTTP (c=10)**                 |  407 req/s, p95 26 ms | 2,661 req/s, p95 6.6 ms | 6.5× throughput; 75% lower p95        |
+| **HTTP: admin dashboard, 50,000 titles (c=10)** |  37 req/s, p95 319 ms |    53 req/s, p95 213 ms | 44% throughput; 33% lower p95         |
+| Typed title browsing                            |               0.14 ms |                 0.03 ms | 4.7× faster                           |
+| Unfiltered newest browsing                      |               0.14 ms |                 0.02 ms | 7× faster                             |
+| Descending browsing                             |               0.13 ms |                 0.02 ms | 6.5× faster                           |
+| Watched-history listing, 50,000-row catalog     |               0.44 ms |                 0.44 ms | Same time; full scan → covering index |
+| Smart-play batch, 50 titles                     |               1.15 ms |                 1.08 ms | 6% faster                             |
+| 5,000-title relation loading                    |          9 statements |            3 statements | 67% fewer                             |
+| Marking 40 files as watched                     |        121 statements |            4 statements | 97% fewer                             |
+| Importing markers for 50 files                  |        300 statements |            5 statements | 98% fewer                             |
+| Trickplay artifact lookup for 200 files         |               15.2 ms |                  0.5 ms | 27.8× faster                          |
+| Trickplay generation                            |             17,390 ms |                6,524 ms | 2.67× faster                          |
+| Large library scan peak memory (100k files)     |            165–166 MB |              148–150 MB | ~10% less                             |
+| Database maintenance, 20,000 rows               |               30.6 ms |                  9.6 ms | 69% less time                         |
+| Longest maintenance event-loop stall            |               25.6 ms |                  0.1 ms | 99.6% shorter                         |
+| 64 KB response-body copy                        |               0.88 ms |                0.015 ms | 58.7× faster                          |
+| Plugin manifest read on cache miss              |              0.405 ms |                0.022 ms | 18× faster                            |

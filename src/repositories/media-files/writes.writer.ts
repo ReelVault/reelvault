@@ -6,6 +6,13 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { parseStandardQuery } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
+import {
+	applyMediaFileFlagDelta,
+	applyMediaFileQualityDelta,
+	applyMediaFileSizeDelta,
+	applyMediaFileStats,
+	type MediaFileStatsRow,
+} from "@/repositories/media-stats.repository";
 import { markLatestMediaCreatedAt, refreshLatestMediaCreatedAt } from "@/repositories/metadata/media-presence.writer";
 import { hasEntry } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
@@ -27,7 +34,25 @@ export async function updateAndRead<F extends string>(mediaFileId: string, body:
 		if (isDefault !== undefined) await setDefault(mediaFileId, isDefault, tx);
 
 		const hasValues = hasEntry(values);
+		let qualityChange: { libraryId: string; delta: number } | undefined;
+		if (values.qualityTag !== undefined) {
+			const client = databaseFactory.getClient({ tx });
+			const existing = await client
+				.select({ libraryId: schema.mediaFiles.libraryId, qualityTag: schema.mediaFiles.qualityTag })
+				.from(schema.mediaFiles)
+				.where(eq(mediaFiles.primaryKeyColumn, mediaFileId))
+				.limit(1)
+				.then((rows) => rows[0]);
+			if (existing) {
+				qualityChange = {
+					libraryId: existing.libraryId,
+					delta: Number(Boolean(values.qualityTag)) - Number(Boolean(existing.qualityTag)),
+				};
+			}
+		}
+
 		if (hasValues) await mediaFiles.update({ primaryId: mediaFileId, values, tx });
+		if (qualityChange) await applyMediaFileQualityDelta(qualityChange.libraryId, qualityChange.delta, tx);
 	});
 
 	return await findByPrimaryId({ primaryId: mediaFileId, fields });
@@ -40,7 +65,10 @@ export async function deleteAndGetCleanup(mediaFileId: string) {
 		const existing = await mediaFiles.selectFirst({ where: eq(mediaFiles.primaryKeyColumn, mediaFileId), tx });
 		const cleanup = await findCleanupData(mediaFileId, tx);
 		await mediaFiles.delete({ primaryId: mediaFileId, tx });
-		if (existing) await refreshLatestMediaCreatedAt([existing.metadataId], tx);
+		if (existing) {
+			await refreshLatestMediaCreatedAt([existing.metadataId], tx);
+			await applyMediaFileStats([existing], -1, tx);
+		}
 
 		return cleanup;
 	});
@@ -91,6 +119,12 @@ export async function reassign({
 		if (existingFile) {
 			if (existingFile.metadataId !== metadataId) await refreshLatestMediaCreatedAt([existingFile.metadataId], tx);
 			await markLatestMediaCreatedAt(metadataId, existingFile.createdAt, tx);
+			await applyMediaFileFlagDelta(
+				existingFile.libraryId,
+				Number(Boolean(movieId)) - Number(Boolean(existingFile.movieId)),
+				Number(Boolean(episodeId)) - Number(Boolean(existingFile.episodeId)),
+				tx,
+			);
 		}
 	});
 }
@@ -108,6 +142,18 @@ export async function replaceTechnicalData({
 }) {
 	streamingDurationCache.delete(mediaFileId);
 	await databaseFactory.transaction(async (tx) => {
+		const client = databaseFactory.getClient({ tx });
+		const existing = await client
+			.select({
+				libraryId: schema.mediaFiles.libraryId,
+				size: schema.mediaFiles.size,
+				qualityTag: schema.mediaFiles.qualityTag,
+			})
+			.from(schema.mediaFiles)
+			.where(eq(mediaFiles.primaryKeyColumn, mediaFileId))
+			.limit(1)
+			.then((rows) => rows[0]);
+
 		await mediaFiles.update({
 			primaryId: mediaFileId,
 			values: {
@@ -124,6 +170,10 @@ export async function replaceTechnicalData({
 		});
 		await replaceStreams(mediaFileId, data, tx);
 		await replaceEmbeddedSubtitles(mediaFileId, data.subtitles ?? [], tx);
+		if (existing) {
+			await applyMediaFileSizeDelta(existing.libraryId, size - (existing.size ?? 0), tx);
+			await applyMediaFileQualityDelta(existing.libraryId, Number(Boolean(data.qualityTag)) - Number(Boolean(existing.qualityTag)), tx);
+		}
 	});
 }
 
@@ -195,6 +245,7 @@ export async function createWithStreams(data: CreateMediaFile, tx?: DatabaseTran
 		]);
 
 		await markLatestMediaCreatedAt(createdMediaFile.metadataId, createdMediaFile.createdAt, runTx);
+		await applyMediaFileStats([createdMediaFile], 1, runTx);
 
 		return { mediaFile: createdMediaFile, created: true };
 	});
@@ -279,18 +330,31 @@ export async function deleteByLibraryAndPaths({
 }): Promise<void> {
 	if (filePaths.length === 0) return;
 
-	const client = databaseFactory.getClient({ tx });
-	const affectedMetadataIds: string[] = [];
-	await forEachChunked(filePaths, async (pathChunk) => {
-		const rows = await client
-			.selectDistinct({ metadataId: schema.mediaFiles.metadataId })
-			.from(schema.mediaFiles)
-			.where(and(eq(schema.mediaFiles.libraryId, libraryId), inArray(schema.mediaFiles.filePath, pathChunk)));
-		affectedMetadataIds.push(...rows.map((row) => row.metadataId));
+	await runInTransaction(tx, async (runTx) => {
+		const client = databaseFactory.getClient({ tx: runTx });
+		const affectedMetadataIds = new Set<string>();
+		const deletedRows: MediaFileStatsRow[] = [];
+		await forEachChunked(filePaths, async (pathChunk) => {
+			const where = and(eq(schema.mediaFiles.libraryId, libraryId), inArray(schema.mediaFiles.filePath, pathChunk));
+			const rows = await client
+				.select({
+					metadataId: schema.mediaFiles.metadataId,
+					libraryId: schema.mediaFiles.libraryId,
+					size: schema.mediaFiles.size,
+					movieId: schema.mediaFiles.movieId,
+					episodeId: schema.mediaFiles.episodeId,
+					qualityTag: schema.mediaFiles.qualityTag,
+				})
+				.from(schema.mediaFiles)
+				.where(where);
+			for (const row of rows) affectedMetadataIds.add(row.metadataId);
+			deletedRows.push(...rows);
 
-		await mediaFiles.delete({ where: and(eq(schema.mediaFiles.libraryId, libraryId), inArray(schema.mediaFiles.filePath, pathChunk)), tx });
+			await mediaFiles.delete({ where, tx: runTx });
+		});
+		await refreshLatestMediaCreatedAt([...affectedMetadataIds], runTx);
+		await applyMediaFileStats(deletedRows, -1, runTx);
 	});
-	await refreshLatestMediaCreatedAt(affectedMetadataIds, tx);
 }
 
 /**
@@ -300,20 +364,32 @@ export async function deleteByLibraryAndPaths({
 export async function deleteByIds(ids: string[], tx?: DatabaseTransaction): Promise<number> {
 	if (ids.length === 0) return 0;
 
-	let deleted = 0;
-	const client = databaseFactory.getClient({ tx });
-	const affectedMetadataIds: string[] = [];
-	await forEachChunked(ids, async (idChunk) => {
-		const rows = await client
-			.selectDistinct({ metadataId: schema.mediaFiles.metadataId })
-			.from(schema.mediaFiles)
-			.where(inArray(schema.mediaFiles.id, idChunk));
-		affectedMetadataIds.push(...rows.map((row) => row.metadataId));
+	return await runInTransaction(tx, async (runTx) => {
+		let deleted = 0;
+		const client = databaseFactory.getClient({ tx: runTx });
+		const affectedMetadataIds = new Set<string>();
+		const deletedRows: MediaFileStatsRow[] = [];
+		await forEachChunked(ids, async (idChunk) => {
+			const rows = await client
+				.select({
+					metadataId: schema.mediaFiles.metadataId,
+					libraryId: schema.mediaFiles.libraryId,
+					size: schema.mediaFiles.size,
+					movieId: schema.mediaFiles.movieId,
+					episodeId: schema.mediaFiles.episodeId,
+					qualityTag: schema.mediaFiles.qualityTag,
+				})
+				.from(schema.mediaFiles)
+				.where(inArray(schema.mediaFiles.id, idChunk));
+			for (const row of rows) affectedMetadataIds.add(row.metadataId);
+			deletedRows.push(...rows);
 
-		const result = await client.delete(schema.mediaFiles).where(inArray(schema.mediaFiles.id, idChunk));
-		deleted += result.changes;
+			const result = await client.delete(schema.mediaFiles).where(inArray(schema.mediaFiles.id, idChunk));
+			deleted += result.changes;
+		});
+		await refreshLatestMediaCreatedAt([...affectedMetadataIds], runTx);
+		await applyMediaFileStats(deletedRows, -1, runTx);
+
+		return deleted;
 	});
-	await refreshLatestMediaCreatedAt(affectedMetadataIds, tx);
-
-	return deleted;
 }

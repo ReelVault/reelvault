@@ -15,6 +15,7 @@ import * as mediaArtifacts from "./schemas/media-artifacts.schema";
 import * as mediaFileIngestState from "./schemas/media-file-ingest-state.schema";
 import * as mediaFiles from "./schemas/media-files.schema";
 import * as mediaMarkers from "./schemas/media-markers.schema";
+import * as mediaStats from "./schemas/media-stats.schema";
 import * as metadata from "./schemas/metadata.schema";
 import * as metadataExternalIds from "./schemas/metadata-external-ids.schema";
 import * as metadataProviderSettings from "./schemas/metadata-provider-settings.schema";
@@ -62,6 +63,7 @@ export const schema = {
 	...mediaFileIngestState,
 	...mediaFiles,
 	...mediaMarkers,
+	...mediaStats,
 	...metadata,
 	...metadataExternalIds,
 	...metadataProviderSettings,

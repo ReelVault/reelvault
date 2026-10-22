@@ -5,6 +5,7 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { findMediaCleanupData } from "@/integrations/drizzle-orm/utils/media-cleanup.reader";
+import { applyMediaFileStats } from "@/repositories/media-stats.repository";
 
 import { metadataTable } from "./shared.utils";
 
@@ -71,6 +72,17 @@ export async function findMediaFileCleanupData(metadataId: string, tx?: Database
 }
 
 export async function deleteWithMediaFiles({ metadataId, tx }: { metadataId: string; tx: DatabaseTransaction }) {
+	const deletedRows = await tx
+		.select({
+			libraryId: schema.mediaFiles.libraryId,
+			size: schema.mediaFiles.size,
+			movieId: schema.mediaFiles.movieId,
+			episodeId: schema.mediaFiles.episodeId,
+			qualityTag: schema.mediaFiles.qualityTag,
+		})
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.metadataId, metadataId));
 	await tx.delete(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, metadataId));
 	await metadataTable.delete({ primaryId: metadataId, tx });
+	await applyMediaFileStats(deletedRows, -1, tx);
 }
