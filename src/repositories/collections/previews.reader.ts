@@ -78,11 +78,107 @@ async function loadCachedPreviews(collectionIds: string[]): Promise<Map<string, 
 	return previews;
 }
 
-async function queryPreviews(
+/** Read enough raw poster rows to find four distinct images before falling back. */
+const FAST_POSTER_SCAN = PREVIEW_POSTER_COUNT * 4;
+
+interface FastPreviewRow {
+	collectionId: string;
+	count: number;
+	posters: string | null;
+}
+
+interface ParsedPosters {
+	posters: PosterImage[];
+	rawCount: number;
+}
+
+function parsePosters(raw: string | null): ParsedPosters {
+	const parsed: unknown = JSON.parse(raw ?? "[]");
+	const rows: unknown[] = Array.isArray(parsed) ? parsed : [];
+
+	const seen = new Set<string>();
+	const posters: PosterImage[] = [];
+	for (const row of rows) {
+		if (typeof row !== "object" || row === null) continue;
+		const record = row as { imageId?: unknown; updatedAt?: unknown };
+		const imageId: unknown = record.imageId;
+		const updatedAt: unknown = record.updatedAt;
+		if (typeof imageId !== "string" || typeof updatedAt !== "number" || seen.has(imageId)) continue;
+
+		seen.add(imageId);
+		if (posters.length < PREVIEW_POSTER_COUNT) posters.push({ imageId, updatedAt: new Date(updatedAt * 1000) });
+	}
+
+	return { posters, rawCount: rows.length };
+}
+
+async function queryCountsOnly(collectionIds: string[], tx: DatabaseTransaction | undefined): Promise<Map<string, number>> {
+	const client = databaseFactory.getClient({ tx });
+	const rows = await client
+		.select({
+			collectionId: schema.metadataCollections.collectionId,
+			// (metadata_id, collection_id) is the primary key, so metadata_id is
+			// unique within a collection and COUNT(*) is exact; it also lets the
+			// planner serve the group from the (collection_id, sort_order) index
+			// instead of deduplicating ids per row.
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(schema.metadataCollections)
+		.where(inArray(schema.metadataCollections.collectionId, collectionIds))
+		.groupBy(schema.metadataCollections.collectionId);
+
+	return toMap(
+		rows,
+		(row) => row.collectionId,
+		(row) => row.count,
+	);
+}
+
+/**
+ * Reads counts and the first `FAST_POSTER_SCAN` poster rows per collection.
+ * A collection only needs the full distinct-image pass when that window is
+ * full and still holds fewer than four distinct images.
+ */
+function queryFastPreviews(
 	collectionIds: string[],
 	tx: DatabaseTransaction | undefined,
-	{ withCounts, withPosters }: { withCounts: boolean; withPosters: boolean },
-): Promise<Map<string, MetadataPreview>> {
+	withCounts: boolean,
+): { previews: Map<string, MetadataPreview>; needsFallback: string[] } {
+	const client = databaseFactory.getClient({ tx });
+	const countSelection = withCounts
+		? sql`(SELECT COUNT(*) FROM ${schema.metadataCollections} mc WHERE mc.collection_id = c.id) AS count`
+		: sql`0 AS count`;
+	const rows = client.all<FastPreviewRow>(sql`
+		SELECT c.id AS collectionId, ${countSelection}, (
+			SELECT json_group_array(json_object('imageId', image_id, 'updatedAt', updated_at))
+			FROM (
+				SELECT mi.image_id AS image_id, i.updated_at AS updated_at
+				FROM ${schema.metadataCollections} mc2
+				JOIN ${schema.metadataImages} mi ON mi.metadata_id = mc2.metadata_id AND mi.image_type = 'poster'
+				JOIN ${schema.images} i ON i.id = mi.image_id
+				WHERE mc2.collection_id = c.id
+				ORDER BY mc2.sort_order ASC, mi.image_id ASC
+				LIMIT ${FAST_POSTER_SCAN}
+			)
+		) AS posters
+		FROM ${schema.collections} c
+		WHERE ${inArray(sql`c.id`, collectionIds)}
+	`);
+
+	const previews = new Map<string, MetadataPreview>();
+	const needsFallback: string[] = [];
+	for (const row of rows) {
+		const parsed = parsePosters(row.posters);
+		previews.set(row.collectionId, { count: row.count, posterImages: parsed.posters });
+		// Fewer rows than the window means we already saw the whole collection.
+		if (parsed.rawCount >= FAST_POSTER_SCAN && parsed.posters.length < PREVIEW_POSTER_COUNT) needsFallback.push(row.collectionId);
+	}
+
+	return { previews, needsFallback };
+}
+
+/** Exact distinct-image pass, used only when the fast window could not prove a complete result. */
+async function queryRankedPosters(collectionIds: string[], tx: DatabaseTransaction | undefined): Promise<Map<string, PosterImage[]>> {
 	const client = databaseFactory.getClient({ tx });
 	const rankedPosters = client
 		.select({
@@ -100,84 +196,47 @@ async function queryPreviews(
 		.groupBy(schema.metadataCollections.collectionId, schema.metadataImages.imageId)
 		.as("ranked_posters");
 
-	// The poster branch leads the union, so its column types map the whole
-	// result (the timestamp still decodes to a Date); each branch fills the
-	// other's columns with NULL and rows are split on `kind` below.
-	const postersQuery = () =>
-		client
-			.select({
-				kind: sql<string>`'poster'`.as("kind"),
-				collectionId: rankedPosters.collectionId,
-				posterId: rankedPosters.posterId,
-				posterUpdatedAt: rankedPosters.posterUpdatedAt,
-				count: sql<number>`NULL`.as("count"),
-			})
-			.from(rankedPosters)
-			.where(lte(rankedPosters.rn, PREVIEW_POSTER_COUNT));
+	const posters = await client
+		.select({
+			collectionId: rankedPosters.collectionId,
+			posterId: rankedPosters.posterId,
+			posterUpdatedAt: rankedPosters.posterUpdatedAt,
+		})
+		.from(rankedPosters)
+		.where(lte(rankedPosters.rn, PREVIEW_POSTER_COUNT));
 
-	const countsQuery = () =>
-		client
-			.select({
-				kind: sql<string>`'count'`.as("kind"),
-				collectionId: schema.metadataCollections.collectionId,
-				posterId: sql<string>`NULL`.as("posterId"),
-				posterUpdatedAt: sql<Date>`NULL`.as("posterUpdatedAt"),
-				// (metadata_id, collection_id) is the primary key, so metadata_id is
-				// unique within a collection and COUNT(*) is exact; it also lets the
-				// planner serve the group from the (collection_id, sort_order) index
-				// instead of deduplicating ids per row.
-				count: sql<number>`COUNT(*)`,
-			})
-			.from(schema.metadataCollections)
-			.where(inArray(schema.metadataCollections.collectionId, collectionIds))
-			.groupBy(schema.metadataCollections.collectionId);
-
-	// A full preview reads both halves in one statement (UNION ALL, measured
-	// neutral against the two parallel reads); a single-flag read keeps its one
-	// statement.
-	const mergedQuery = () => postersQuery().unionAll(countsQuery());
-	type PreviewRow = Awaited<ReturnType<typeof mergedQuery>>[number];
-
-	let merged: PreviewRow[] | undefined;
-	if (withCounts && withPosters) {
-		merged = await mergedQuery();
-	}
-
-	let counts: PreviewRow[] = [];
-	if (merged) {
-		counts = merged.filter((row) => row.kind === "count");
-	} else if (withCounts) {
-		counts = await countsQuery();
-	}
-
-	let posters: PreviewRow[] = [];
-	if (merged) {
-		posters = merged.filter((row) => row.kind === "poster");
-	} else if (withPosters) {
-		posters = await postersQuery();
-	}
-
-	const countMap = toMap(
-		counts,
-		(c) => c.collectionId,
-		(c) => c.count,
-	);
-	const posterMap = new Map<string, PosterImage[]>();
+	const result = new Map<string, PosterImage[]>();
 	for (const row of posters) {
-		const existing = posterMap.get(row.collectionId) ?? [];
+		const existing = result.get(row.collectionId) ?? [];
 		if (existing.length < PREVIEW_POSTER_COUNT) {
 			existing.push({ imageId: row.posterId, updatedAt: row.posterUpdatedAt });
-			posterMap.set(row.collectionId, existing);
+			result.set(row.collectionId, existing);
 		}
 	}
 
-	const result = new Map<string, MetadataPreview>();
-	for (const id of collectionIds) {
-		result.set(id, {
-			count: countMap.get(id) ?? 0,
-			posterImages: posterMap.get(id) ?? [],
-		});
+	return result;
+}
+
+async function queryPreviews(
+	collectionIds: string[],
+	tx: DatabaseTransaction | undefined,
+	{ withCounts, withPosters }: { withCounts: boolean; withPosters: boolean },
+): Promise<Map<string, MetadataPreview>> {
+	if (!withPosters) {
+		let counts = new Map<string, number>();
+		if (withCounts) counts = await queryCountsOnly(collectionIds, tx);
+
+		return new Map(collectionIds.map((id) => [id, { count: counts.get(id) ?? 0, posterImages: [] } satisfies MetadataPreview]));
 	}
 
-	return result;
+	const fast = queryFastPreviews(collectionIds, tx, withCounts);
+	if (fast.needsFallback.length > 0) {
+		const fallback = await queryRankedPosters(fast.needsFallback, tx);
+		for (const [id, posterImages] of fallback) {
+			const preview = fast.previews.get(id);
+			if (preview) fast.previews.set(id, { ...preview, posterImages });
+		}
+	}
+
+	return fast.previews;
 }

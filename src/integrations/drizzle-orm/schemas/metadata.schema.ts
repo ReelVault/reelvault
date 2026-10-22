@@ -85,6 +85,8 @@ export const metadata = sqliteTable(
 		index("metadata_type_title_id_idx").on(t.type, t.title, t.id),
 		// The same for the typed browse sorted by created_at.
 		index("metadata_type_created_id_idx").on(t.type, t.createdAt, t.id),
+		// Admin dashboard counters scan only these columns.
+		index("metadata_admin_stats_idx").on(t.type, t.matchScore, t.hasMissingTranslation),
 		// Recently-added ranks by the latest media-file timestamp. Deliberately a
 		// full index: a partial `WHERE latest_media_created_at IS NOT NULL` index
 		// made SQLite choose it for unfiltered pages and then sort in a temp

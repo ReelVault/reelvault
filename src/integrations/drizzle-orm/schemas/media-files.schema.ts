@@ -46,6 +46,9 @@ export const mediaFiles = sqliteTable(
 		// Library list/stats aggregate `count(*)` and `sum(file_size)` per library;
 		// this covering index keeps that cold query off the wide media_files rows.
 		index("media_files_library_size_idx").on(t.libraryId, t.size),
+		// Admin dashboard counters are one full aggregate; the covering index
+		// reads only the four counted columns (measured 10k inserts ~6% slower).
+		index("media_files_admin_stats_idx").on(t.size, t.movieId, t.episodeId, t.qualityTag),
 		// Scanner keyset (`WHERE library_id = ? AND id > ? ORDER BY id`) walks this
 		// range instead of sorting a library page per poll.
 		index("media_files_library_id_idx").on(t.libraryId, t.id),

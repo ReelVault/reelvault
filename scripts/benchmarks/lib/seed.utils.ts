@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { copyFileSync } from "node:fs";
 import { isRecord } from "@/utils/type.utils";
 
 /**
@@ -248,6 +249,8 @@ function seedSeries(db: Database, options: { series: NonNullable<CatalogSeedOpti
 
 /** The poster image every 3rd server-catalog title links to. */
 export const BENCHMARK_IMAGE_ID = "img-benchmark";
+/** Distinct poster ids so collection previews exercise their real fast path instead of one shared image. */
+const BENCHMARK_POSTER_VARIANTS = 128;
 /** Every Nth seeded title becomes a tv_show with seasons/episodes. */
 const TV_SHOW_CYCLE = 8;
 const EPISODES_BASE = 6;
@@ -282,7 +285,13 @@ export function seedServerCatalog(database: Database, rows: number, posterPath: 
 
 	const inserts = prepareCatalogInserts(database);
 
-	inserts.insertImage.run(BENCHMARK_IMAGE_ID, posterPath, 731, now, now);
+	inserts.insertImage.run(BENCHMARK_IMAGE_ID, BENCHMARK_IMAGE_ID, posterPath, 731, now, now);
+	for (let imageIndex = 0; imageIndex < BENCHMARK_POSTER_VARIANTS; imageIndex++) {
+		const imageId = `img-benchmark-${imageIndex}`;
+		const imagePath = `${posterPath}.${imageIndex}.png`;
+		copyFileSync(posterPath, imagePath);
+		inserts.insertImage.run(imageId, imageId, imagePath, 731, now, now);
+	}
 
 	seedCatalogLookups(inserts, now);
 	for (let index = 0; index < rows; index++) {
@@ -318,7 +327,7 @@ function prepareCatalogInserts(database: Database) {
 		insertGenre: database.prepare("INSERT INTO genres (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
 		insertMetadataGenre: database.prepare("INSERT INTO metadata_genres (metadata_id, genre_id) VALUES (?, ?)"),
 		insertImage: database.prepare(
-			"INSERT INTO images (id, stable_key, local_path, content_type, width, height, file_size, created_at, updated_at) VALUES (?, 'benchmark-poster', ?, 'image/png', 128, 192, ?, ?, ?)",
+			"INSERT INTO images (id, stable_key, local_path, content_type, width, height, file_size, created_at, updated_at) VALUES (?, ?, ?, 'image/png', 128, 192, ?, ?, ?)",
 		),
 		insertMetadataImage: database.prepare("INSERT INTO metadata_images (metadata_id, image_id, image_type) VALUES (?, ?, 'poster')"),
 		insertPerson: database.prepare("INSERT INTO people (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"),
@@ -375,7 +384,7 @@ function seedCatalogTitle(inserts: CatalogInserts, index: number, now: number): 
 	inserts.insertMetadataGenre.run(id, `genre-${index % 10}`);
 	inserts.insertCast.run(id, `person-${index % 50}`, 0);
 	inserts.insertMetadataCollection.run(id, `col-${index % 5}`, index);
-	if (index % 3 === 0) inserts.insertMetadataImage.run(id, BENCHMARK_IMAGE_ID);
+	if (index % 3 === 0) inserts.insertMetadataImage.run(id, `img-benchmark-${index % BENCHMARK_POSTER_VARIANTS}`);
 }
 
 /** TV branch: seasons + episodes + per-episode media files — gives the TV detail endpoint (seasons/episodes/files enrichment) real weight. */
