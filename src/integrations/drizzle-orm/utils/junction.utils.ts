@@ -215,6 +215,11 @@ export function createMetadataEntityJunction(
 
 		const entityName = entityIdColumnName.endsWith("_id") ? entityIdColumnName.slice(0, -3) : entityIdColumnName;
 
-		return [primaryKey({ columns: [t.metadataId, entityColumn] }), index(`${tableName}_${entityName}_idx`).on(entityColumn)];
+		// Carry metadata_id so relation lookups by entity (recommendations, filtered
+		// browse) are covering reads instead of one table lookup per match.
+		return [
+			primaryKey({ columns: [t.metadataId, entityColumn] }),
+			index(`${tableName}_${entityName}_metadata_idx`).on(entityColumn, t.metadataId),
+		];
 	});
 }

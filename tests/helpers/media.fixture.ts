@@ -27,7 +27,16 @@ export async function insertMovieMediaFile(client: TestClient, filePath: string,
 	const metadata = first(
 		await client
 			.insert(schema.metadata)
-			.values({ id: metadataId, stableKey: metadataId, title: metadataId, type: "movie", releaseDate: "2020-01-01" })
+			.values({
+				id: metadataId,
+				stableKey: metadataId,
+				title: metadataId,
+				type: "movie",
+				releaseDate: "2020-01-01",
+				// The fixture inserts the file directly, so mirror the media writer's
+				// maintained presence stamp for list/recommendation reads.
+				latestMediaCreatedAt: new Date(),
+			})
 			.returning({ id: schema.metadata.id }),
 	);
 	const movie = first(
@@ -66,7 +75,15 @@ export async function insertSeriesEpisode(
 	const metadata = first(
 		await client
 			.insert(schema.metadata)
-			.values({ id: "show-1", stableKey: "show-1", title: "Show", type: "tv_show", releaseDate: "2020-01-01" })
+			.values({
+				id: "show-1",
+				stableKey: "show-1",
+				title: "Show",
+				type: "tv_show",
+				releaseDate: "2020-01-01",
+				// Direct fixture insert: keep the media-presence invariant.
+				latestMediaCreatedAt: new Date(),
+			})
 			.returning({ id: schema.metadata.id }),
 	);
 	const provider = first(

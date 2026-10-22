@@ -242,3 +242,350 @@ under that name today.
   exception: it runs under the per-owner write lock, so its hook must stay cheap).
 - Plugins reach data through services (`src/services/**`), never repositories, so a plugin's own
   writes pass the same hooks and events as a core write.
+
+---
+
+## Part 3 — Deferred performance work after 1.3.2
+
+These items came out of a measured 50,000-row cold run on a Ryzen 7 7800X3D, Bun 1.4.4, using
+`bun run benchmark http --rows 50000 --concurrency 10 --duration 3000 --warmup 1000 --no-cache --no-dedup`.
+The important number is the **no-dedup** one: with request coalescing enabled, ten identical requests
+share one computation and the result flatters every endpoint. Treat cache hits and deduped runs as a
+separate, warm steady-state measurement; never mix them with the numbers below.
+
+Current cold/no-dedup ranking (50k, c=10, p95 in parentheses):
+
+| endpoint                       | req/s |    p95 |                  in-process cost |
+| ------------------------------ | ----: | -----: | -------------------------------: |
+| admin dashboard                |    37 | 319 ms |                          17.8 ms |
+| discover                       |    47 | 248 ms | 8.4 ms service, 21.9 ms HTTP c=1 |
+| similar                        |    70 | 154 ms |                          13.4 ms |
+| FTS `search/global`            |    83 | 205 ms |                           4.6 ms |
+| libraries list/detail          |   133 | 139 ms |                           7.4 ms |
+| filtered year+genre            |   149 |  72 ms |                           6.3 ms |
+| deep offset page               |   257 |  42 ms |                           3.5 ms |
+| wrapped                        |   417 |  26 ms |                            ~2 ms |
+| catalog browse                 |   570 |  20 ms |                          1.36 ms |
+| collections (distinct posters) |   580 |  19 ms |                           1.9 ms |
+
+The safe wins shipped after the baseline were: trait-union similar scoring, junction covering
+indexes, `media_files_library_size_idx`, collection poster fast path with exact fallback, admin
+dashboard covering indexes, and leaner Discover candidate/relation reads. The items below are the
+remaining work; **do not start an item that changes a response, the SDK or a schema without approval
+for the release that owns it.**
+
+### 3.1 Materialised media counters for the admin dashboard and library stats
+
+**Where:**
+- `src/services/admin/dashboard/stats.service.ts` — `computeStats()` aggregates
+  `adminStatsRepository.getMediaStats()`, `getMetadataStats()` and `getMarkerStats()`.
+- `src/repositories/admin-stats.repository.ts` — the media aggregate is one
+  `COUNT(*) / SUM(file_size) / COUNT(CASE …)` scan over `media_files`; metadata is a second scan.
+- `src/repositories/libraries/stats.reader.ts` and `src/repositories/libraries/reads.reader.ts`
+  (`findPage`) — the library list/detail aggregate is
+  `COUNT(*) + SUM(file_size) GROUP BY library_id`.
+- Current indexes: `media_files_admin_stats_idx`, `metadata_admin_stats_idx`,
+  `media_files_library_size_idx`.
+
+**Current cost:** admin stats **17.8 ms** in-process, **37 req/s** at c=10/no-dedup (p95 319 ms).
+Library list **7.4 ms**, **133 req/s** (p95 139 ms). Both are full aggregates over 143k media files
+and 50k metadata rows even with covering indexes; indexes only make the scan narrower.
+
+**Proposed design:** add maintained summary tables, not another index.
+
+```sql
+-- one row per library
+CREATE TABLE library_media_stats (
+  library_id   TEXT PRIMARY KEY REFERENCES libraries(id) ON DELETE CASCADE,
+  file_count   INTEGER NOT NULL,
+  total_size   INTEGER NOT NULL,
+  movie_count  INTEGER NOT NULL,
+  episode_count INTEGER NOT NULL,
+  quality_count INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+
+-- one row for the whole catalog
+CREATE TABLE catalog_media_stats (
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  file_count    INTEGER NOT NULL,
+  total_size    INTEGER NOT NULL,
+  movie_count   INTEGER NOT NULL,
+  episode_count INTEGER NOT NULL,
+  quality_count INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+```
+
+Metadata counters can live in a third row/table (`catalog_metadata_stats`: total, movies, shows,
+low-confidence, missing-translation) or in the same `catalog_media_stats` if the write paths are
+kept together. Do not put them in a generic key/value settings table; the update needs one statement
+and a typed row.
+
+**Maintenance:** every write that changes a counted column must update the summary in the same
+transaction. The complete production list today:
+- `src/repositories/media-files/writes.writer.ts`
+  - `createWithStreams()` — insert: `+1 file`, `+size`, `+movie/episode/quality` flags;
+  - `deleteAndGetCleanup()` and `deleteByIds()` — delete: `-1`, `-size`, flag counts;
+  - `deleteByLibraryAndPaths()` — delete by path, same decrement;
+  - `deleteByLibraryAndPathsAndGetCleanup()` delegates to the above;
+  - `reassign()` — moves a file between metadata/movie/episode rows; the file count and total size do
+    not change, but movie/episode counts can;
+  - `replaceTechnicalData()` — **`size` can change on a rescan**; add the delta to the total;
+  - `setDefault()` does not change counted fields.
+- `src/repositories/libraries/remove.writer.ts` — removes a whole library and its media files.
+- `src/repositories/metadata/cleanup.writer.ts` — `deleteWithMediaFiles()` removes files for one title.
+- `src/repositories/metadata-merge.repository.ts` — repoints media files between titles/libraries;
+  the summary is per library, so recompute both affected libraries after a move.
+- Any future writer that deletes by FK cascade (`movies`, `episodes`, `libraries`) must be audited;
+  a file can disappear without going through media-files writes.
+
+**Triggers or writers?** Two valid implementations:
+1. SQLite triggers in a raw migration. The repository already has a raw SQL migration for FTS5
+   virtual tables/triggers (`migrations/20260923212000_fts5_search/migration.sql`), so this is a
+   precedent. Triggers catch every write, including future code and FK cascades, but are harder to
+   test and review, and a bug is silent at the SQL layer.
+2. Explicit updates in the writers above. Type-safe and testable, but one missing path drifts.
+   Prefer this only if the team accepts a periodic reconciliation job (`database-maintenance`) to
+   rebuild the summaries and log/notify on drift.
+
+Whichever path is chosen, the update must be inside the same transaction as the media write. Never
+update the summary from a detached fire-and-forget task: the write may commit and the summary not.
+
+**Backfill:** a one-time rebuild at boot (or a migration step) that runs
+`INSERT … SELECT library_id, COUNT(*), SUM(file_size), … FROM media_files GROUP BY library_id`
+plus the global row. Make it idempotent and skip it when the tables already match; a boot rebuild is
+acceptable only if it is bounded and logged. On a large library this is a full scan; measure it and
+do not block the first request invisibly.
+
+**Acceptance:**
+- A test seeds distinct libraries, inserts files with different sizes, deletes one, changes one
+  `size` through `replaceTechnicalData`, moves one file through `reassign`, deletes a library, and
+  after every step asserts the summary equals a direct `GROUP BY` over `media_files` with literal
+  expected values.
+- Merge a movie and a TV show with media files in different libraries; both library rows and the
+  global row match the live aggregate.
+- Admin dashboard read is **<1 ms** at 50k rows; library list read is **<1 ms**.
+- A write benchmark (10k inserts) measures the added cost; report before/after. A single extra
+  `UPDATE` per write is preferable to a trigger if the trigger cannot be measured reliably.
+- No response shape change; the API keeps its existing fields. `AdminStats` and `Library` SDK types
+  stay unchanged.
+
+**Risks:** double counting in transactions, missing a cascade path, stale rows after a failed
+transaction, and a boot backfill that blocks startup. This is the highest-risk performance item;
+do it as one isolated change with a reconciliation query in the test suite.
+
+### 3.2 Keyset pagination for the default metadata list (SDK/API change)
+
+**Where:** `src/repositories/metadata/queries.reader.ts` `findPage()`, the `cursorMode` branch;
+`src/api/routes/v1/metadata.routes.ts` `GET /metadata`; SDK `CursorPaginationQuery`,
+`CursorPaginatedResponse`, `MetadataSorting` and the website client's list loader.
+Today `cursorMode` only applies when `sortBy === "createdAt"` (or no sort) and sort order is
+descending. The default browse sorts by title and uses `page`/`offset`.
+
+**Current cost:** deep page (`page = rows / 24 / 2`, offset 25k at 50k) is **3.5 ms** in-process,
+**257 req/s** at c=10/no-dedup (p95 42 ms). `metadata_sort_title_nocase_id_idx` serves the order,
+but SQLite still walks 25,000 index entries. More rows make it linearly worse.
+
+**Proposed change:** add a keyset cursor for the title sort:
+- cursor payload `(sortTitle, id)`; use the same `encodeCursor`/`decodeCursor` helpers or add a
+  typed variant next to `keysetWhere`.
+- `WHERE (COALESCE(sort_title, title) COLLATE NOCASE, id) > (?, ?)` for ascending, the reverse for
+  descending. SQLite supports row-value comparisons; verify the plan uses
+  `metadata_sort_title_nocase_id_idx`.
+- Response adds `nextCursor` and takes `cursor`; keep `page` working for compatibility, but document
+  that mixing `page` and `cursor` is refused (validation error).
+- `total` remains the same count; it is the expensive part on a cold count (5–6 ms filtered). A
+  cursor page still needs a total for the current UI, so the count cache remains relevant. Do not
+  remove `total` in the same change.
+- SDK: add the cursor/response fields; bump `@reelvault/sdk`, then the website client and this repo.
+
+**Acceptance:**
+- A test with at least 50 titles sharing a title prefix fetches page 1 and the cursor page; no row
+  repeats and no row is skipped, with literal expected ids.
+- Deep cursor on 50k is **<1 ms** in-process; the `EXPLAIN QUERY PLAN` is a range search on the
+  sort-title/id index, not a scan.
+- `page` and `cursor` together return a validation error with a stable code.
+- No existing response field is removed; only optional fields are added.
+
+**Risks:** cursor semantics on `COALESCE(sort_title,title)` and non-unique titles; tie-breaking
+must include `id`; clients that only send `page` must keep working. This is an API/SDK change, so it
+waits for the release that can bump the SDK.
+
+### 3.3 FTS ranking is candidate-bound; changing it is a product decision
+
+**Where:** `src/repositories/metadata-search.reader.ts` `searchGlobal()`; the FTS table
+`metadata_fts` and its triggers in `migrations/20260923212000_fts5_search/migration.sql`.
+
+**Current cost:** **4.6 ms** in-process, **83 req/s** at c=10/no-dedup (p95 205 ms). Measured
+variants on 50k:
+- direct join + `ORDER BY rank`: 4.62 ms;
+- FTS-only ids + second metadata lookup: 4.27 ms;
+- subquery + join: 4.06 ms;
+- explicit `bm25()`: 9.16 ms (worse).
+  `star*` matches **10,000** seeded titles (`Star Odyssey N`), so the cost is ranking 10k matches, not
+  a missing index. A subquery would save ~0.5 ms and add a statement; not worth it alone.
+
+**Do not** add a speculative trigram/prefix rewrite. If search latency becomes a product problem,
+choose a semantics change explicitly:
+1. cap the ranked candidate set by a cheap filter (e.g. popularity/recency) before ranking — changes
+   which titles can appear;
+2. require a longer prefix or an exact token before the ranking path;
+3. change the UI to search only titles when the term is a common prefix.
+   Each option needs a product decision, new expected results and a benchmark with the same 10k-match
+   fixture. The current implementation stays until then.
+
+**Acceptance for any future change:** a test with at least 10,000 titles sharing the prefix pins the
+returned top-N ids as literals; the benchmark shows a material gain; the result set is documented as
+a deliberate change.
+
+### 3.4 Materialised collection poster previews for shared images
+
+**Where:** `src/repositories/collections/previews.reader.ts`. The current fast path reads the first
+16 poster rows per collection and deduplicates in memory; if that window is full and has fewer than
+four distinct images, it falls back to the exact distinct-image window
+(`queryRankedPosters`). This is exact but the fallback scans every member of the collection.
+
+**Current cost:** distinct posters **1.9 ms** in-process; a collection that shares one image across
+its members still pays **~21 ms** cold (the fallback). The benchmark seed now uses 128 poster
+variants so the common path is measured; the shared-image fallback remains for correctness.
+
+**Proposed change (only if shared posters are common in real libraries):** a maintained
+`collection_poster_previews` table:
+
+```sql
+CREATE TABLE collection_poster_previews (
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  rank          INTEGER NOT NULL,
+  image_id      TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+  sort_order    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (collection_id, rank)
+);
+```
+
+One row per displayed poster (max four per collection), with `rank` 0..3. Rebuild the affected
+collection when:
+- metadata joins/leaves a collection (`collections.repository.ts` `process()` and the metadata
+  collection writers);
+- a poster link is added/removed/changed (`metadataImages` writes, image deletion, image update);
+- a collection is deleted (cascade).
+  The ranks must keep the current order: `MIN(metadata_collections.sort_order)`, then `image_id`, and
+  deduplicate by image id. A rebuild for one collection is a small query; do not rebuild the whole
+  table on every write.
+
+**Backfill:** a one-time per-collection rebuild after the migration; for large catalogs, batch it and
+log progress.
+
+**Acceptance:**
+- Existing preview tests pass unchanged (four distinct posters in shelf order; one shared poster
+  deduplicates).
+- A 20-title collection sharing one poster returns **<2 ms** cold and exactly one poster.
+- A randomized sequence of add/remove/reorder/image changes matches the current full query.
+- The write path's extra cost is measured.
+
+**Risks:** four separate write paths can invalidate the preview; a missed invalidation shows a stale
+poster. This is a schema/write-path change, not a query-only patch.
+
+### 3.5 Discover has a measurable gap between service time and HTTP time
+
+**Where:** `src/services/users/discover.service.ts` (`buildDiscoverView`, `getRecommendations`),
+`src/services/users/discover-recommendations.service.ts`, `src/repositories/discover.repository.ts`,
+`src/api/routes/v1/discover.routes.ts`.
+
+**Current cost:** with a real profile (300 watched rows, 40 watchlist, 6 ratings) the service build
+is ~**8.4 ms** in-process. The HTTP endpoint at **c=1** is **21.9 ms p50**, and the CPU profile shows
+**61.8%** of samples in native SQLite `values`. At c=10/no-dedup it is **47 req/s** (p95 248 ms).
+Measured service subparts after the recent cleanup:
+- `findRecommendationCandidates` ~1.0–1.4 ms (four queries; catalog 500, watched 300, ratings,
+  watchlist);
+- `findRecentlyAddedByTypes` ~0.7–1.7 ms;
+- combined genre/keyword/cast relations ~1.4 ms for 837 ids;
+- `findRecentlyWatchedByOthers` ~0.5 ms; playback signals ~0.1 ms; hydration ~0.7 ms; scoring JS
+  ~1 ms.
+  The sum does not explain the 13 ms gap between service and HTTP.
+
+**Investigation plan (do this before changing code):**
+1. In the spawned benchmark server (not an in-process script), enable per-statement timing for one
+   discover request. The existing `DatabaseQueryLogger` logs only statements ≥100 ms in production;
+   add a benchmark-only threshold (or an env-gated low threshold) and flush the server log before the
+   process exits. Keep the log in the benchmark result directory.
+2. Compare the statement list with the in-process list. Look for:
+   - `buildTrending()` fetching/relations beyond the ids it needs;
+   - recommendation hydration fetching all 50 scored titles while the response only returns 10;
+   - a second relation load for the final recommendation page;
+   - auth/profile/preferences queries that the service script does not run.
+3. Run the same request with background workers and watchers paused (or with a longer poll interval)
+   and compare. If the gap drops, it is worker/DB contention, not the discover query.
+4. Only then choose the fix: hydrate only the final 10 recommendations, compute relation scores in
+   SQL instead of loading 837×relations, or project fewer fields. Preserve the exact recommendation
+   order and the existing response shape.
+
+**Acceptance:** a statement-by-statement trace for one discover request is checked in as a benchmark
+artifact or test note; c=1 p50 is **<12 ms**; c=10/no-dedup is **>80 req/s** at 50k; the existing
+recommendation/diversity tests stay green. No SDK change.
+
+**Risks:** recommendation ordering is easy to change accidentally; keep the existing
+`discover.service.test.ts` and `discover-recommendations.test.ts` literal fixtures and add a
+before/after id list.
+
+### 3.6 Similar scoring precomputation (bigger change, optional)
+
+**Where:** `src/repositories/metadata-recommendations.reader.ts` `rankSimilarIds()`/`buildTraitUnion`.
+The query now aggregates traits once and the junction indexes carry `metadata_id`; the remaining
+cost is grouping ~13k candidates and sorting by the dynamic score.
+
+**Current cost:** ~**13.4 ms** in-process, **70 req/s** at c=10/no-dedup (p95 154 ms). Covering
+indexes took the raw query from ~19.1 to ~16.5 ms; a further large win needs a different model.
+
+**Options:**
+1. Precompute a per-title trait vector or top-N similar ids on metadata save/refresh. Invalidate on
+   any trait change (genres, keywords, cast, crew, collections, type) and on title deletion. This
+   needs a table plus write-path maintenance, similar in risk to 3.1/3.4.
+2. Keep the query but precompute only the relation score counters per source title (genre/cast/
+   keyword maps) so the candidate pass reads counters instead of joining; still invalidated on
+   metadata changes.
+3. Restrict scoring to a cheap top-N prefilter (e.g. popularity) before the exact score — changes
+   results and needs a product decision.
+
+**Acceptance:** a literal fixture with two collections, two directors, multiple cast roles and
+keywords returns the same order as today; cold in-process <5 ms; invalidation tests cover every trait
+change. No SDK change.
+
+### 3.7 Split request and background SQLite time
+
+**Where:** `src/workers/core/worker-polling.service.ts`, worker scheduler/pool, library watcher, and
+the resource allocator. The CPU profile attributes most cold time to native SQLite `values`, but the
+profiler does not say whether the statement came from a request or a poller.
+
+**Current evidence:** the no-dedup run lowers many endpoints far more than their in-process cost
+suggests (e.g. libraries 651 → 133 req/s, similar 98 → 70, admin dashboard 270 → 37). Some of that is
+the expected loss of request coalescing, but some may be background work on the same SQLite
+connection. The discover c=1 profile has 61.8% native SQLite while the service build is 8.4 ms.
+
+**Investigation:**
+- Add an async-context label (request vs worker) around DB calls or log the current async scope in
+  the query logger.
+- Run the same benchmark with workers/watchers disabled or with a longer polling interval; compare
+  per-endpoint p50/p95.
+- If background work is material, batch/coalesce poller reads, raise the interval on small hosts, or
+  move non-urgent reads off the request connection. Do not simply lengthen the interval without
+  checking worker latency and stale-job behaviour.
+
+**Acceptance:** a measured request-vs-background SQLite split; if background is <10% of request
+time, close this item with the evidence; if it is larger, name the query and the change.
+
+### 3.8 Investigated, no action
+
+Keep these notes so another agent does not repeat the work:
+- **Admin breadth** (`GET /v1/admin/*` 9 routes): per-route warm p50 0.2–1.3 ms. The 459 ms p95 at
+  c=10/no-dedup is queueing across nine routes, not one slow route. No route-specific fix.
+- **Filtered `year+genre` count**: 5.3 ms with the covering genre index; the page still uses a temp
+  B-tree (6.7 ms raw) because the order is title while the filter is a release range. No safe
+  composite index removes the sort; a materialised count or keyset (3.2) is the real fix.
+- **Deep offset** is covered by 3.2; do not add another offset index.
+- **Wrapped/insights**: 1.3–2.0 ms service time; the HTTP p95 is queueing. No query change.
+- **FTS**: see 3.3; ranking 10k prefix matches is the cost.
+- **Collections shared poster fallback**: see 3.4; the fast path is exact for distinct posters.
+- **Admin dashboard and library stats indexes**: already added; more indexes only move the same
+  full scan. The summary table (3.1) is the next step.

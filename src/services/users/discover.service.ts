@@ -186,24 +186,19 @@ class DiscoverService {
 			const candidateIds = toIdSet(unconsumedCandidates, (item) => item.id);
 			const allRelevantIds = unique([...seedWeights.keys(), ...candidateIds]);
 
-			const [genreRows, keywordRows, castRows] = await Promise.all([
-				discoverRepository.findMetadataGenres(allRelevantIds),
-				discoverRepository.findMetadataKeywords(allRelevantIds),
-				discoverRepository.findMetadataCast(allRelevantIds),
-			]);
-
+			const relationRows = discoverRepository.findMetadataRelations(allRelevantIds);
 			const genresByMetadata = groupBy(
-				genreRows,
+				relationRows.filter((row) => row.kind === "genre"),
 				(r) => r.metadataId,
 				(r) => r.relId,
 			);
 			const keywordsByMetadata = groupBy(
-				keywordRows,
+				relationRows.filter((row) => row.kind === "keyword"),
 				(r) => r.metadataId,
 				(r) => r.relId,
 			);
 			const castByMetadata = groupBy(
-				castRows,
+				relationRows.filter((row) => row.kind === "cast"),
 				(r) => r.metadataId,
 				(r) => r.relId,
 			);

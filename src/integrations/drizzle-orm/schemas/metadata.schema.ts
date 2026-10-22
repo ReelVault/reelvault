@@ -116,6 +116,9 @@ export const metadataCollections = sqliteTable(
 		// collection_id-only lookups (and the FK cascade) are served by the
 		// (collection_id, sort_order) composite.
 		index("metadata_collections_collection_sort_idx").on(t.collectionId, t.sortOrder),
+		// Collection-based recommendations look up metadata ids by collection;
+		// carrying both columns makes that relation read covering.
+		index("metadata_collections_collection_metadata_idx").on(t.collectionId, t.metadataId),
 		// The collectionOrder browse takes MIN(sort_order) per title — the
 		// metadata_id side needs its own composite for that lookup.
 		index("metadata_collections_metadata_sort_idx").on(t.metadataId, t.sortOrder),
@@ -159,7 +162,7 @@ export const metadataCast = sqliteTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.metadataId, t.personId, t.role] }),
-		index("metadata_cast_person_idx").on(t.personId),
+		index("metadata_cast_person_metadata_idx").on(t.personId, t.metadataId),
 		// The castOrder browse takes MIN(sort_order) per title — the metadata_id
 		// side needs its own composite for that lookup.
 		index("metadata_cast_metadata_sort_idx").on(t.metadataId, t.sortOrder),
@@ -176,7 +179,10 @@ export const metadataCrew = sqliteTable(
 		job: text("job").notNull(),
 		department: text("department").notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.metadataId, t.personId, t.job] }), index("metadata_crew_person_idx").on(t.personId)],
+	(t) => [
+		primaryKey({ columns: [t.metadataId, t.personId, t.job] }),
+		index("metadata_crew_person_metadata_idx").on(t.personId, t.metadataId),
+	],
 );
 
 export const metadataImages = sqliteTable(

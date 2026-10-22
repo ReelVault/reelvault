@@ -1,9 +1,7 @@
-import { and, count, desc, eq, exists, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import { DAY, serverConstants } from "@/config/server/server.constants";
-import { systemResourcesService } from "@/config/system-resources.service";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 
 class DiscoverRepository {
 	async findRecommendationCandidates(profileId: string, limit = serverConstants.application.discoverCandidateLimit) {
@@ -31,26 +29,11 @@ class DiscoverRepository {
 			client
 				.select({
 					id: schema.metadata.id,
-					stableKey: schema.metadata.stableKey,
-					primaryProviderId: schema.metadata.primaryProviderId,
-					title: schema.metadata.title,
-					originalTitle: schema.metadata.originalTitle,
-					overview: schema.metadata.overview,
-					tagline: schema.metadata.tagline,
-					type: schema.metadata.type,
-					status: schema.metadata.status,
-					releaseDate: schema.metadata.releaseDate,
-					originCountry: schema.metadata.originCountry,
-					budget: schema.metadata.budget,
-					revenue: schema.metadata.revenue,
 					popularity: schema.metadata.popularity,
-					matchScore: schema.metadata.matchScore,
-					hasMissingTranslation: schema.metadata.hasMissingTranslation,
 					createdAt: schema.metadata.createdAt,
-					updatedAt: schema.metadata.updatedAt,
 				})
 				.from(schema.metadata)
-				.where(exists(client.select({ one: sql`1` }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, schema.metadata.id))))
+				.where(isNotNull(schema.metadata.latestMediaCreatedAt))
 				.orderBy(desc(schema.metadata.popularity), desc(schema.metadata.createdAt))
 				.limit(limit),
 		]);
@@ -129,52 +112,35 @@ class DiscoverRepository {
 			.limit(limit);
 	}
 
-	async findMetadataGenres(metadataIds: string[]) {
-		return await this.findMetadataRelation(metadataIds, (ids) =>
-			databaseFactory
-				.getClient()
-				.select({ metadataId: schema.metadataGenres.metadataId, relId: schema.metadataGenres.genreId })
-				.from(schema.metadataGenres)
-				.where(inArray(schema.metadataGenres.metadataId, ids)),
-		);
-	}
-
 	/**
-	 * Top-3 cast members per metadata item for actor affinity scoring.
-	 * sortOrder <= 2 = top-billed actors (0-indexed, from provider data).
+	 * Genres, keywords and top-3 billed cast in one statement. The id list rides
+	 * a single JSON parameter, so a large profile cannot hit SQLite's bound-
+	 * variable limit and the service does not pay three round trips.
 	 */
-	async findMetadataCast(metadataIds: string[]) {
-		return await this.findMetadataRelation(metadataIds, (ids) =>
-			databaseFactory
-				.getClient()
-				.select({ metadataId: schema.metadataCast.metadataId, relId: schema.metadataCast.personId })
-				.from(schema.metadataCast)
-				.where(and(inArray(schema.metadataCast.metadataId, ids), lte(schema.metadataCast.sortOrder, 2))),
-		);
-	}
-
-	/** Keywords for content-based similarity scoring. */
-	async findMetadataKeywords(metadataIds: string[]) {
-		return await this.findMetadataRelation(metadataIds, (ids) =>
-			databaseFactory
-				.getClient()
-				.select({ metadataId: schema.metadataKeywords.metadataId, relId: schema.metadataKeywords.keywordId })
-				.from(schema.metadataKeywords)
-				.where(inArray(schema.metadataKeywords.metadataId, ids)),
-		);
-	}
-
-	/** Chunked, concurrent helper for all metadataId→relId junction table queries. */
-	private async findMetadataRelation(
-		metadataIds: string[],
-		query: (ids: string[]) => Promise<Array<{ metadataId: string | null; relId: string }>>,
-	): Promise<Array<{ metadataId: string; relId: string }>> {
+	findMetadataRelations(metadataIds: string[]): Array<{ kind: "genre" | "keyword" | "cast"; metadataId: string; relId: string }> {
 		const validIds = metadataIds.filter((id): id is string => Boolean(id));
 		if (validIds.length === 0) return [];
 
-		const rows = await mapChunked(validIds, query, { concurrency: systemResourcesService.getRelationQueryConcurrency() });
+		const idsJson = JSON.stringify(validIds);
+		const rows = databaseFactory.getClient().all<{
+			kind: "genre" | "keyword" | "cast";
+			metadataId: string;
+			relId: string;
+		}>(sql`
+			SELECT 'genre' AS kind, metadata_id AS metadataId, genre_id AS relId
+			FROM ${schema.metadataGenres}
+			WHERE metadata_id IN (SELECT value FROM json_each(${idsJson}))
+			UNION ALL
+			SELECT 'keyword' AS kind, metadata_id AS metadataId, keyword_id AS relId
+			FROM ${schema.metadataKeywords}
+			WHERE metadata_id IN (SELECT value FROM json_each(${idsJson}))
+			UNION ALL
+			SELECT 'cast' AS kind, metadata_id AS metadataId, person_id AS relId
+			FROM ${schema.metadataCast}
+			WHERE metadata_id IN (SELECT value FROM json_each(${idsJson})) AND sort_order <= 2
+		`);
 
-		return rows.filter((r): r is { metadataId: string; relId: string } => Boolean(r.metadataId));
+		return rows.filter((row) => Boolean(row.metadataId));
 	}
 }
 
